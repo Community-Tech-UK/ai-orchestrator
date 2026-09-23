@@ -190,7 +190,7 @@ export function createInstanceDomain(
     /**
      * Compact context for an instance (manual trigger)
      */
-    loadOlderMessages: (payload: { instanceId: string; beforeChunk?: number; limit?: number }): Promise<IpcResponse> => {
+    loadOlderMessages: (payload: { instanceId: string; beforeOffset?: number; limit?: number }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_LOAD_OLDER_MESSAGES, payload);
     },
 

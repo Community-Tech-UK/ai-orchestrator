@@ -96,3 +96,32 @@ export function createSafeErrorInfo(error: unknown, code: string): ErrorInfo {
     timestamp: Date.now(),
   };
 }
+
+/**
+ * The parts of an error the child-error classifier acts on. Kept on the error
+ * output message so a finished child's failure can still be classified as an
+ * abort or an inaccessible path after the original Error object is gone. Only
+ * those two identities are recorded, so provider-specific names and codes never
+ * reach the output buffer.
+ */
+export type ErrorIdentity = {
+  errorName?: string;
+  errorCode?: string;
+};
+
+export function errorIdentityOf(e: unknown): ErrorIdentity | undefined {
+  if (isAbortError(e)) return { errorName: 'AbortError' };
+  if (isFsInaccessible(e)) return { errorCode: e.code };
+  return undefined;
+}
+
+/** Rebuild an Error carrying only its identity, for {@link isAbortError} and {@link isFsInaccessible}. */
+export function errorFromIdentity(message: string, identity: unknown): Error | undefined {
+  if (identity == null || typeof identity !== 'object') return undefined;
+  const { errorName, errorCode } = identity as Record<string, unknown>;
+  if (typeof errorName !== 'string' && typeof errorCode !== 'string') return undefined;
+  const error: NodeJS.ErrnoException = new Error(message);
+  if (typeof errorName === 'string') error.name = errorName;
+  if (typeof errorCode === 'string') error.code = errorCode;
+  return error;
+}

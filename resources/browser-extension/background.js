@@ -87,6 +87,7 @@ let secretTaintLoadPromise = null;
 // applies the operator setting; agents cannot set this themselves.
 let secretObservationProtectionEnabled = true;
 let secretObservationProtectionLoaded = false;
+let secretObservationProtectionLoadPromise = null;
 const secretObservationGuardErrors = new WeakSet();
 let activeBrowserCommandCount = 0;
 let secretRecoveryInProgress = false;
@@ -1001,14 +1002,43 @@ async function loadSecretObservationProtection() {
   if (secretObservationProtectionLoaded) {
     return secretObservationProtectionEnabled;
   }
-  try {
-    const values = await chrome.storage.local.get(SECRET_OBSERVATION_PROTECTION_STORAGE_KEY);
-    secretObservationProtectionEnabled = values?.[SECRET_OBSERVATION_PROTECTION_STORAGE_KEY] !== false;
-  } catch {
-    secretObservationProtectionEnabled = true;
+  // One storage read per service-worker life. Two overlapping reads used to
+  // race: a read that started before an operator `false` was applied could
+  // resolve afterwards and switch protection back ON in memory, so the next
+  // credential fill tainted the origin again.
+  if (!secretObservationProtectionLoadPromise) {
+    secretObservationProtectionLoadPromise = (async () => {
+      let stored = true;
+      try {
+        const values = await chrome.storage.local.get(SECRET_OBSERVATION_PROTECTION_STORAGE_KEY);
+        stored = values?.[SECRET_OBSERVATION_PROTECTION_STORAGE_KEY] !== false;
+      } catch {
+        stored = true;
+      }
+      // A value applied while this read was in flight is newer than the
+      // storage snapshot the read returned.
+      if (!secretObservationProtectionLoaded) {
+        secretObservationProtectionEnabled = stored;
+        secretObservationProtectionLoaded = true;
+      }
+    })().finally(() => {
+      secretObservationProtectionLoadPromise = null;
+    });
   }
-  secretObservationProtectionLoaded = true;
+  await secretObservationProtectionLoadPromise;
   return secretObservationProtectionEnabled;
+}
+
+// Counts only. The tainted origins are exactly the sites a secret was typed
+// into, so they stay inside the extension (the popup review lists them).
+async function secretObservationStatus() {
+  await loadSecretObservationProtection();
+  await loadSecretTaints();
+  return {
+    protectionEnabled: isSecretObservationProtectionEnabled(),
+    taintedOriginCount: secretTaintedOrigins.size,
+    taintedTabCount: secretTaintedTabs.size,
+  };
 }
 
 function isSecretObservationProtectionEnabled() {
@@ -1021,6 +1051,7 @@ async function applySecretObservationProtectionEnabled(enabled) {
   return runWithSecretObservationBoundary(async () => {
     await loadSecretTaints();
     secretObservationProtectionEnabled = next;
+    secretObservationProtectionLoaded = true;
     secretRecoveryRequest = null;
     if (!next) {
       // Persist first. A storage failure must leave in-memory taint intact.
@@ -1751,7 +1782,7 @@ async function executeBrowserCommand(command) {
   switch (command.command) {
     case 'report_inventory':
       await reportTabInventory();
-      return { reported: true };
+      return { reported: true, secretObservation: await secretObservationStatus() };
     case 'open_tab': {
       const url = requirePayloadString(command, 'url');
       const tab = await chrome.tabs.create({ url, active: true });

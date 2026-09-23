@@ -301,13 +301,13 @@ function buildBranchSelectTaskPackets(input: BranchSelectInput): LoopTaskPacket[
 }
 
 /**
- * Default selector. The real fan-out drives the parallel-worktree coordinator +
- * per-candidate CLI invocations, which require the live runtime; that wiring is
- * intentionally NOT performed here (it would be unverifiable in this layer and
- * is provided by the host when exploration is enabled). The safe default
+ * Default selector. A real fan-out needs per-candidate worktrees and CLI
+ * invocations, which require the live runtime; that wiring is intentionally
+ * NOT performed here (it would be unverifiable in this layer). The safe default
  * degrades to a normal pause (`adopted: false`) so enabling `exploration`
- * without host wiring never breaks a loop. The host overrides this via
- * `LoopCoordinator.setBranchSelector(...)` with deps bound to the runtime.
+ * without host wiring never breaks a loop. A host can override this via
+ * `LoopCoordinator.setBranchSelector(...)` with deps bound to the runtime; no
+ * production host does so today.
  */
 export const defaultBranchSelector: LoopBranchSelector = async (input) => {
   const gate = shouldRunBranchSelect(input);

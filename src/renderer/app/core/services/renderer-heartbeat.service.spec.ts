@@ -1,15 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HEARTBEAT_INTERVAL_MS, RendererHeartbeatService } from './renderer-heartbeat.service';
 
+interface HeartbeatPayload {
+  seq: number;
+  sentAt: number;
+  visibility: 'visible' | 'hidden';
+}
+
 interface HeartbeatWindow {
   electronAPI?: {
-    rendererHeartbeat?: (payload: { seq: number; sentAt: number }) => void;
+    rendererHeartbeat?: (payload: HeartbeatPayload) => void;
   };
+}
+
+function setVisibility(state: 'visible' | 'hidden'): void {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
 }
 
 describe('RendererHeartbeatService', () => {
   let service: RendererHeartbeatService;
-  let sent: { seq: number; sentAt: number }[];
+  let sent: HeartbeatPayload[];
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -21,6 +31,7 @@ describe('RendererHeartbeatService', () => {
   });
 
   afterEach(() => {
+    setVisibility('visible');
     service.stop();
     delete (window as unknown as HeartbeatWindow).electronAPI;
     vi.useRealTimers();
@@ -54,5 +65,28 @@ describe('RendererHeartbeatService', () => {
     service.start();
     vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS * 2);
     expect(sent).toHaveLength(0);
+  });
+  it('reports the document visibility with every beat', () => {
+    service.start();
+    setVisibility('hidden');
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
+
+    expect(sent.map((b) => b.visibility)).toEqual(['visible', 'hidden']);
+  });
+
+  it('beats immediately when visibility changes, so main learns of throttling before the gap', () => {
+    service.start();
+    setVisibility('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1].visibility).toBe('hidden');
+  });
+
+  it('stop() removes the visibility listener', () => {
+    service.start();
+    service.stop();
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(sent).toHaveLength(1);
   });
 });

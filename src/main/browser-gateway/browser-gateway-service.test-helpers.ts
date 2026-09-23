@@ -394,6 +394,7 @@ export function makeService(overrides: {
           manifestPath: '/tmp/test-native-messaging/com.ai_orchestrator.browser_gateway.json',
           summary: 'Local extension channel is polling (last contact 0s ago).',
         },
+        secretObservationProtection: { settingEnabled: true, local: { reported: false } },
         managedProfiles: {
           total: profiles.length,
           running: profiles.filter((item) => item.status === 'running').length,

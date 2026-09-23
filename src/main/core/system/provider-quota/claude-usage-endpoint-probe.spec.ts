@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ClaudeUsageEndpointProbe,
+  claudeUsageAccess,
   parseUsagePayload,
   type UsageFetch,
 } from './claude-usage-endpoint-probe';
@@ -92,6 +93,37 @@ describe('ClaudeUsageEndpointProbe', () => {
       });
       expect(windows[0].used).toBe(100);
       expect(windows[1].used).toBe(0);
+    });
+  });
+
+  describe('included-usage verdict', () => {
+    it('reports usage allowed when both account-wide windows are present and no plan window is full', async () => {
+      const probe = new ClaudeUsageEndpointProbe({
+        credentialsReader: reader(VALID_CREDENTIAL),
+        fetchUsage: fetchUsage(200, USAGE_BODY),
+      });
+      const snap = await probe.probe({ signal: signal() });
+      expect(snap!.usageAccess).toEqual({ ordinaryUsageAllowed: true, creditsAvailable: null });
+    });
+
+    it('reports usage not allowed when an account-wide window is full', () => {
+      expect(claudeUsageAccess(parseUsagePayload({ ...USAGE_BODY, five_hour: { utilization: 100, resets_at: null } })))
+        .toEqual({ ordinaryUsageAllowed: false, creditsAvailable: null });
+      expect(claudeUsageAccess(parseUsagePayload({ seven_day: { utilization: 100, resets_at: null } })))
+        .toEqual({ ordinaryUsageAllowed: false, creditsAvailable: null });
+    });
+
+    it('gives no verdict for a partial reply or when only a model-scoped window is full', () => {
+      expect(claudeUsageAccess(parseUsagePayload({ five_hour: { utilization: 2, resets_at: null } }))).toBeNull();
+      expect(claudeUsageAccess(parseUsagePayload({ ...USAGE_BODY, seven_day_opus: { utilization: 100, resets_at: null } })))
+        .toBeNull();
+      const fableFull = USAGE_BODY.limits.map((limit) => (limit.kind === 'weekly_scoped' ? { ...limit, percent: 100 } : limit));
+      expect(claudeUsageAccess(parseUsagePayload({ ...USAGE_BODY, limits: fableFull }))).toBeNull();
+    });
+
+    it('ignores the extra-usage credits window', () => {
+      const creditsSpent = { ...USAGE_BODY, extra_usage: { ...USAGE_BODY.extra_usage, used_credits: 1700 } };
+      expect(claudeUsageAccess(parseUsagePayload(creditsSpent))).toEqual({ ordinaryUsageAllowed: true, creditsAvailable: null });
     });
   });
 

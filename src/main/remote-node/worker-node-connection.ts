@@ -56,7 +56,7 @@ interface PendingRpc {
 export type RpcRequestResponder = (response: RpcResponse) => boolean;
 
 export class WorkerNodeConnectionServer extends EventEmitter {
-  private static instance: WorkerNodeConnectionServer;
+  private static instance: WorkerNodeConnectionServer | null = null;
 
   private wss: WebSocketServer | null = null;
   private readonly nodeToSocket = new Map<string, WebSocket>();

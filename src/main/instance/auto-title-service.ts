@@ -172,7 +172,7 @@ function hasSendMessage(adapter: CliAdapter): adapter is CliAdapter & {
  * On failure, the instant title remains.
  */
 export class AutoTitleService {
-  private static instance: AutoTitleService;
+  private static instance: AutoTitleService | null = null;
 
   /** Instance IDs that have already been auto-titled (or are in-flight) */
   private processed = new Set<string>();

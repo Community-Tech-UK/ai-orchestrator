@@ -10,6 +10,12 @@ export type ProviderContextActionProof = 'none' | 'requested' | 'acknowledged' |
 
 export interface ProviderContextActionHandlerResult {
   proof: ProviderContextActionProof;
+  /**
+   * The action no longer applied by the time it ran, e.g. a steer that lost
+   * the race with the turn finishing. This is not a failed action, so it must
+   * not feed the compaction circuit breaker.
+   */
+  skipped?: 'turn-not-active';
 }
 
 export type ProviderContextActionHandler = () => Promise<ProviderContextActionHandlerResult>;
@@ -23,6 +29,12 @@ export type ProviderContextActionExecutionResult =
       status: 'executed';
       action: ProviderContextExecutableAction;
       proof: ProviderContextActionProof;
+    }
+  | {
+      status: 'skipped';
+      action: ProviderContextExecutableAction;
+      proof: 'none';
+      errorCode: 'TURN_NOT_ACTIVE';
     }
   | {
       status: 'unavailable' | 'failed';
@@ -49,6 +61,9 @@ export class ProviderContextActionExecutor {
     }
     try {
       const result = await handler();
+      if (result.skipped) {
+        return { status: 'skipped', action, proof: 'none', errorCode: 'TURN_NOT_ACTIVE' };
+      }
       return { status: 'executed', action, proof: result.proof };
     } catch {
       return {

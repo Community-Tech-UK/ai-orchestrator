@@ -11,6 +11,17 @@ export function existingTabGrantNodeId(profileId: string, explicitNodeId?: strin
   return remote?.[1] ?? 'local';
 }
 
+/**
+ * Stable scope for standing, per-origin browser state that must outlive a tab:
+ * credential authorizations and login recipes. Managed profiles use their own
+ * id. A shared existing tab uses its node scope (the remote nodeId, or 'local'),
+ * because its own profileId is per-tab and ephemeral, so keying by it could
+ * never be standing. Mirrors how shared-tab grants are scoped above.
+ */
+export function credentialScopeForProfile(profileId: string): string {
+  return existingTabGrantNodeId(profileId) ?? profileId;
+}
+
 export function grantScopeForApproval(input: {
   profileId: string;
   targetId?: string;

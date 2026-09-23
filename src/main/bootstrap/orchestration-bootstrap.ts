@@ -53,7 +53,6 @@ export function registerOrchestrationBootstrap(): void {
       const { getRLMDatabase } = require('../persistence/rlm-database') as typeof import('../persistence/rlm-database');
       const { getDebateCoordinator } = require('../orchestration/debate-coordinator') as typeof import('../orchestration/debate-coordinator');
       const { getMultiVerifyCoordinator } = require('../orchestration/multi-verify-coordinator') as typeof import('../orchestration/multi-verify-coordinator');
-      const { getParallelWorktreeCoordinator } = require('../orchestration/parallel-worktree-coordinator') as typeof import('../orchestration/parallel-worktree-coordinator');
       const { OrchestrationEngine } = require('../orchestration/orchestration-engine') as typeof import('../orchestration/orchestration-engine');
       const { OrchestrationEventStore } = require('../orchestration/event-store/orchestration-event-store') as typeof import('../orchestration/event-store/orchestration-event-store');
       const { CoordinatorEventBridge } = require('../orchestration/event-store/coordinator-event-bridge') as typeof import('../orchestration/event-store/coordinator-event-bridge');
@@ -70,7 +69,6 @@ export function registerOrchestrationBootstrap(): void {
       globalState.__orchestrationEventBridge = bridge;
       bridge.wireVerifyCoordinator(getMultiVerifyCoordinator());
       bridge.wireDebateCoordinator(getDebateCoordinator());
-      bridge.wireParallelWorktreeCoordinator(getParallelWorktreeCoordinator());
 
       // Wire OrchestrationWAL and JobJournal as observers on the engine.
       // Both are append-only mirrors: WAL captures every mutation for audit,

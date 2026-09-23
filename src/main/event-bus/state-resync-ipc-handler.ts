@@ -1,9 +1,16 @@
 import { ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { z } from 'zod';
 import { IPC_CHANNELS } from '@contracts/channels';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import type { IpcResponse } from '../../shared/types/ipc.types';
 import type { StateSyncSnapshot } from '../../shared/types/thin-client-event.types';
 import type { InstanceManager } from '../instance/instance-manager';
 import { buildStateSyncSnapshot } from './state-sync-snapshot';
+
+/** The preload sends `_withAuth()`: an otherwise-empty auth envelope. */
+const StateResyncPayloadSchema = z.object({
+  ipcAuthToken: z.string().max(500).optional(),
+}).optional();
 
 export interface StateResyncHandlerDeps {
   instanceManager: Pick<InstanceManager, 'getAllInstancesForIpc'>;
@@ -23,6 +30,7 @@ export function registerStateResyncHandler(deps: StateResyncHandlerDeps): void {
       if (authError) return authError as IpcResponse<StateSyncSnapshot>;
 
       try {
+        validateIpcPayload(StateResyncPayloadSchema, payload, 'STATE_RESYNC');
         return {
           success: true,
           data: buildStateSyncSnapshot({

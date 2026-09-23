@@ -17,9 +17,11 @@ import { CursorUsageSummaryProbe } from './cursor-usage-summary-probe';
 import { GeminiQuotaProbe } from './gemini-quota-probe';
 import { GeminiUsageEndpointProbe } from './gemini-usage-endpoint-probe';
 import { GrokBillingProbe } from './grok-billing-probe';
+import { MimoTokenPlanProbe, isTokenPlanModelSetting } from './mimo-token-plan-probe';
 import { CompositeQuotaProbe } from './composite-quota-probe';
 import { FallbackQuotaProbe } from './fallback-quota-probe';
-import { UsageMonitorSource } from './usage-monitor-source';
+import { UsageMonitorSource, gatedUsageMonitor } from './usage-monitor-source';
+import { getSettingsManager } from '../../config/settings-manager';
 import { getCopilotAccountRoutingService } from '../../../providers/copilot/copilot-account-routing-service';
 import { resolveCopilotProfileHome } from '../../../cli/adapters/copilot/copilot-account-home-resolver';
 import { COPILOT_LEGACY_PROFILE_ID } from '../../../../shared/types/copilot-account.types';
@@ -43,7 +45,7 @@ export type {
   CredentialsFileReader,
 } from './claude-credentials-reader';
 
-export { UsageMonitorSource } from './usage-monitor-source';
+export { UsageMonitorSource, gatedUsageMonitor } from './usage-monitor-source';
 export type { UsageMonitorSourceOptions } from './usage-monitor-source';
 
 export { CompositeQuotaProbe } from './composite-quota-probe';
@@ -96,6 +98,25 @@ export type {
   GrokBillingFetch,
   GrokBillingProbeOptions,
 } from './grok-billing-probe';
+
+export { MimoConsoleCredentialsReader, decryptChromeV10 } from './mimo-console-credentials-reader';
+export type {
+  MimoChromeSecurityExec,
+  MimoConsoleCredentialsReaderOptions,
+  MimoConsoleSession,
+  MimoCredentialFailureReason,
+  MimoCredentialResult,
+} from './mimo-console-credentials-reader';
+
+export {
+  MimoTokenPlanProbe,
+  parseMimoTokenPlanResponses,
+  isTokenPlanModelSetting,
+} from './mimo-token-plan-probe';
+export type {
+  MimoTokenPlanFetch,
+  MimoTokenPlanProbeOptions,
+} from './mimo-token-plan-probe';
 
 export { GeminiQuotaProbe } from './gemini-quota-probe';
 export type {
@@ -211,6 +232,22 @@ export function registerDefaultQuotaProbes(): void {
   ));
   service.registerProbe(new CompositeQuotaProbe(new CursorUsageSummaryProbe(), usageMonitor));
   service.registerProbe(new CompositeQuotaProbe(new GrokBillingProbe(), usageMonitor));
+  // OpenCode → MiMo Token Plan (opencode-provider plan, Task 3.7). The
+  // console quota API is the only source (the API key is refused), and the
+  // numbers belong to the Token Plan backend only — so both the native probe
+  // and the token-usage-monitor fallback stay quiet unless the configured
+  // OpenCode model is a xiaomi-token-plan-* one.
+  const isTokenPlanModel = (): boolean => {
+    try {
+      return isTokenPlanModelSetting(getSettingsManager().getAll());
+    } catch {
+      return false;
+    }
+  };
+  service.registerProbe(new CompositeQuotaProbe(
+    new MimoTokenPlanProbe({ isTokenPlanModel }),
+    gatedUsageMonitor(usageMonitor, isTokenPlanModel),
+  ));
   // Claude/Codex account pools: one probe per non-legacy profile (D6/D7).
   registerAccountQuotaProbes(usageMonitor);
 }

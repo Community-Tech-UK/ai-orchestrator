@@ -112,7 +112,6 @@ Auto-expansion at 16 children per node. Three restart strategies: one-for-one, o
 - **Verification**: Spawns multiple agents to independently verify responses, uses embedding-based semantic clustering
 - **Debate**: Multi-round debates with critique, defense, and synthesis rounds
 - **Consensus**: Voting-based agreement mechanisms across agents
-- **Parallel Worktrees**: Distributed execution across git worktrees
 - **Orchestration Inspectors**: Full UI for monitoring debates, verifications, and training
 
 ### Session Recovery

@@ -87,7 +87,7 @@ jobs:
         run: npm ci
 
       - run: npx tsc --noEmit
-      - run: npx tsc --noEmit -p tsconfig.spec.json
+      - run: npm run typecheck:spec
       - run: npm run lint
       - run: npm run check:ts-max-loc
       - run: npm run test:quiet

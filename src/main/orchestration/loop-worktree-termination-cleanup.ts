@@ -9,6 +9,19 @@ import { finalizeLoopWorktree } from './loop-worktree-lifecycle';
 
 const logger = getLogger('LoopCoordinator');
 
+/** Worktree finalizations started by terminate() that have not settled yet. */
+const inFlightFinalizations = new Map<string, Promise<void>>();
+
+/**
+ * Resolve once the loop's own worktree finalization (harvest → integrate →
+ * promote → cleanup) has settled, or immediately when none is in flight. A
+ * campaign node whose loop ran isolated lands into the campaign worktree this
+ * way, so the campaign must not harvest that worktree before it settles.
+ */
+export function awaitLoopWorktreeFinalization(loopRunId: string): Promise<void> {
+  return inFlightFinalizations.get(loopRunId) ?? Promise.resolve();
+}
+
 export function cleanupLoopWorktreeAfterTerminate(args: {
   state: LoopState;
   status: LoopState['status'];
@@ -25,7 +38,7 @@ export function cleanupLoopWorktreeAfterTerminate(args: {
   } = args;
   if (!worktreeSessionId) return;
 
-  void finalizeLoopWorktree({
+  const finalization: Promise<void> = finalizeLoopWorktree({
     state,
     status,
     worktreeSessionId,
@@ -43,5 +56,10 @@ export function cleanupLoopWorktreeAfterTerminate(args: {
       worktreeSessionId,
       error: error instanceof Error ? error.message : String(error),
     });
+  }).finally(() => {
+    if (inFlightFinalizations.get(state.id) === finalization) {
+      inFlightFinalizations.delete(state.id);
+    }
   });
+  inFlightFinalizations.set(state.id, finalization);
 }

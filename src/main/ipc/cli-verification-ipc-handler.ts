@@ -30,7 +30,10 @@ import {
   ProviderListModelsPayloadSchema,
   CliVerificationStartPayloadSchema,
   CliVerificationCancelPayloadSchema,
+  CliCheckPayloadSchema,
+  CliScanAllInstallsPayloadSchema,
 } from '@contracts/schemas/provider';
+import { IPC_CHANNELS } from '@contracts/channels';
 
 
 const logger = getLogger('CliVerification');
@@ -71,13 +74,13 @@ export function registerCliVerificationHandlers(
 
   // Detect all CLIs
   ipcMain.handle(
-    'cli:detect-all',
+    IPC_CHANNELS.CLI_DETECT_ALL,
     async (
       _event: IpcMainInvokeEvent,
       payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const validated = validateIpcPayload(CliDetectAllPayloadSchema, payload, 'cli:detect-all');
+        const validated = validateIpcPayload(CliDetectAllPayloadSchema, payload, IPC_CHANNELS.CLI_DETECT_ALL);
         const result = await cliDetection.detectAll(validated?.force);
         return {
           success: true,
@@ -103,13 +106,13 @@ export function registerCliVerificationHandlers(
 
   // Detect single CLI
   ipcMain.handle(
-    'cli:detect-one',
+    IPC_CHANNELS.CLI_DETECT_ONE,
     async (
       _event: IpcMainInvokeEvent,
       payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const validated = validateIpcPayload(CliDetectOnePayloadSchema, payload, 'cli:detect-one');
+        const validated = validateIpcPayload(CliDetectOnePayloadSchema, payload, IPC_CHANNELS.CLI_DETECT_ONE);
         const cliInfo = await cliDetection.detectOne(validated.command as CliType);
         return { success: true, data: cliInfo };
       } catch (error) {
@@ -127,13 +130,13 @@ export function registerCliVerificationHandlers(
 
   // Test CLI connection
   ipcMain.handle(
-    'cli:test-connection',
+    IPC_CHANNELS.CLI_TEST_CONNECTION,
     async (
       _event: IpcMainInvokeEvent,
       payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const validated = validateIpcPayload(CliTestConnectionPayloadSchema, payload, 'cli:test-connection');
+        const validated = validateIpcPayload(CliTestConnectionPayloadSchema, payload, IPC_CHANNELS.CLI_TEST_CONNECTION);
         const cliInfo = await cliDetection.detectOne(validated.command as CliType);
         return {
           success: true,
@@ -159,7 +162,7 @@ export function registerCliVerificationHandlers(
   // Scan every install of every supported CLI (with shadow detection) and
   // run the ProviderDoctor probes that apply.  Feeds the CLI Health tab.
   ipcMain.handle(
-    'cli:diagnose-all',
+    IPC_CHANNELS.CLI_DIAGNOSE_ALL,
     async (): Promise<IpcResponse> => {
       try {
         const doctor = getProviderDoctor();
@@ -233,16 +236,16 @@ export function registerCliVerificationHandlers(
 
   // Update one known CLI using fixed commands from CliUpdateService.
   ipcMain.handle(
-    'cli:update-one',
+    IPC_CHANNELS.CLI_UPDATE_ONE,
     async (
       event: IpcMainInvokeEvent,
       payload: unknown,
     ): Promise<IpcResponse> => {
       try {
-        const authError = deps.ensureAuthorized(event, 'cli:update-one', payload);
+        const authError = deps.ensureAuthorized(event, IPC_CHANNELS.CLI_UPDATE_ONE, payload);
         if (authError) return authError;
 
-        const validated = validateIpcPayload(CliUpdateOnePayloadSchema, payload, 'cli:update-one');
+        const validated = validateIpcPayload(CliUpdateOnePayloadSchema, payload, IPC_CHANNELS.CLI_UPDATE_ONE);
         if (!SUPPORTED_CLIS.includes(validated.type as CliType)) {
           throw new Error(`Unknown CLI type: ${validated.type}`);
         }
@@ -265,16 +268,16 @@ export function registerCliVerificationHandlers(
   // Update every installed known CLI sequentially. Sequential execution avoids
   // package-manager lock contention and keeps output attributable per provider.
   ipcMain.handle(
-    'cli:update-all',
+    IPC_CHANNELS.CLI_UPDATE_ALL,
     async (
       event: IpcMainInvokeEvent,
       payload: unknown,
     ): Promise<IpcResponse> => {
       try {
-        const authError = deps.ensureAuthorized(event, 'cli:update-all', payload);
+        const authError = deps.ensureAuthorized(event, IPC_CHANNELS.CLI_UPDATE_ALL, payload);
         if (authError) return authError;
 
-        validateIpcPayload(CliUpdateAllPayloadSchema, payload, 'cli:update-all');
+        validateIpcPayload(CliUpdateAllPayloadSchema, payload, IPC_CHANNELS.CLI_UPDATE_ALL);
         const results = await getCliUpdateService().updateAllInstalled();
         return { success: true, data: { results, timestamp: Date.now() } };
       } catch (error) {
@@ -292,16 +295,15 @@ export function registerCliVerificationHandlers(
 
   // Scan all installs of a single CLI (without running any probes).
   ipcMain.handle(
-    'cli:scan-all-installs',
+    IPC_CHANNELS.CLI_SCAN_ALL_INSTALLS,
     async (
       _event: IpcMainInvokeEvent,
       payload: unknown,
     ): Promise<IpcResponse> => {
       try {
-        const type = typeof payload === 'string'
-          ? payload
-          : (payload as { type?: string } | undefined)?.type;
-        if (!type || !SUPPORTED_CLIS.includes(type as CliType)) {
+        const validated = validateIpcPayload(CliScanAllInstallsPayloadSchema, payload, IPC_CHANNELS.CLI_SCAN_ALL_INSTALLS);
+        const type = typeof validated === 'string' ? validated : validated.type;
+        if (!SUPPORTED_CLIS.includes(type as CliType)) {
           throw new Error(`Unknown CLI type: ${type}`);
         }
         const installs = await cliDetection.scanAllCliInstalls(type as CliType, { forceRefresh: true });
@@ -321,12 +323,13 @@ export function registerCliVerificationHandlers(
 
   // Check specific CLI (legacy handler for compatibility)
   ipcMain.handle(
-    'cli:check',
+    IPC_CHANNELS.CLI_CHECK,
     async (
       _event: IpcMainInvokeEvent,
-      cliType: string
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const cliType = validateIpcPayload(CliCheckPayloadSchema, payload, IPC_CHANNELS.CLI_CHECK);
         const cliInfo = await cliDetection.detectOne(cliType as CliType);
         return { success: true, data: cliInfo };
       } catch (error) {
@@ -348,7 +351,7 @@ export function registerCliVerificationHandlers(
 
   // List available Copilot models (queries the CLI dynamically)
   ipcMain.handle(
-    'copilot:list-models',
+    IPC_CHANNELS.COPILOT_LIST_MODELS,
     async (): Promise<IpcResponse<CopilotModelInfo[]>> => {
       try {
         logger.info('Fetching Copilot models from CLI');
@@ -374,13 +377,13 @@ export function registerCliVerificationHandlers(
   // List available models for any provider
   // Dynamically queries CLI when supported (Copilot/Cursor), falls back to static lists
   ipcMain.handle(
-    'provider:list-models',
+    IPC_CHANNELS.PROVIDER_LIST_MODELS,
     async (
       _event: IpcMainInvokeEvent,
       payload: unknown
     ): Promise<IpcResponse<ModelDisplayInfo[]>> => {
       try {
-        const validated = validateIpcPayload(ProviderListModelsPayloadSchema, payload, 'provider:list-models');
+        const validated = validateIpcPayload(ProviderListModelsPayloadSchema, payload, IPC_CHANNELS.PROVIDER_LIST_MODELS);
         const provider = validated.provider;
 
         logger.info('Listing models for provider', { provider });
@@ -438,13 +441,13 @@ export function registerCliVerificationHandlers(
 
   // Start CLI verification
   ipcMain.handle(
-    'verification:start-cli',
+    IPC_CHANNELS.VERIFICATION_START_CLI,
     async (
       _event: IpcMainInvokeEvent,
       payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const validated = validateIpcPayload(CliVerificationStartPayloadSchema, payload, 'verification:start-cli');
+        const validated = validateIpcPayload(CliVerificationStartPayloadSchema, payload, IPC_CHANNELS.VERIFICATION_START_CLI);
         logger.info('Starting verification', { id: validated.id, promptLength: validated.prompt?.length, config: validated.config });
 
         const config: CliVerificationConfig = {
@@ -458,6 +461,7 @@ export function registerCliVerificationHandlers(
           preferCli: true,
           fallbackToApi: validated.config.fallbackToApi ?? true,
           mixedMode: validated.config.mixedMode ?? false,
+          ...(validated.config.earlyTermination ? { earlyTermination: validated.config.earlyTermination } : {}),
         };
 
         // Start verification (async - result sent via events)
@@ -466,13 +470,13 @@ export function registerCliVerificationHandlers(
           { prompt: validated.prompt, context: validated.context, id: validated.id, attachments: validated.attachments },
           config
         ).then((result) => {
-          sendToRenderer('verification:complete', {
+          sendToRenderer(IPC_CHANNELS.VERIFICATION_COMPLETE, {
             sessionId: validated.id,
             result,
           });
         }).catch((error) => {
           logger.error('Verification error', error instanceof Error ? error : undefined);
-          sendToRenderer('verification:error', {
+          sendToRenderer(IPC_CHANNELS.VERIFICATION_ERROR, {
             sessionId: validated.id,
             error: (error as Error).message,
           });
@@ -495,13 +499,13 @@ export function registerCliVerificationHandlers(
 
   // Cancel verification
   ipcMain.handle(
-    'verification:cancel',
+    IPC_CHANNELS.VERIFICATION_CANCEL,
     async (
       _event: IpcMainInvokeEvent,
       payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const validated = validateIpcPayload(CliVerificationCancelPayloadSchema, payload, 'verification:cancel');
+        const validated = validateIpcPayload(CliVerificationCancelPayloadSchema, payload, IPC_CHANNELS.VERIFICATION_CANCEL);
         const result = await coordinator.cancelVerification(validated.id);
 
         if (!result.success) {
@@ -537,7 +541,7 @@ export function registerCliVerificationHandlers(
 
   // Cancel all verifications
   ipcMain.handle(
-    'verification:cancel-all',
+    IPC_CHANNELS.VERIFICATION_CANCEL_ALL,
     async (): Promise<IpcResponse> => {
       try {
         const result = await coordinator.cancelAllVerifications();

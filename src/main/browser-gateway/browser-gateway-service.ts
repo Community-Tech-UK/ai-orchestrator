@@ -88,7 +88,6 @@ import {
   getBrowserExtensionCommandStore,
   type BrowserExtensionCommandName,
 } from './browser-extension-command-store';
-import { stampSecretObservationProtection } from './browser-secret-observation-protection';
 import {
   getBrowserExtensionContactState,
   type BrowserExtensionContactStateReader,
@@ -117,7 +116,7 @@ import {
   safeTargetFromExistingTab,
   tryParseWebUrl,
 } from './browser-gateway-service-helpers';
-import { existingTabGrantNodeId } from './browser-grant-scope';
+import { credentialScopeForProfile, existingTabGrantNodeId } from './browser-grant-scope';
 import { BrowserGatewayResultRecorder, type BrowserGatewayResultInput } from './browser-gateway-result';
 import {
   BrowserExistingTabOperations,
@@ -1321,13 +1320,7 @@ export class BrowserGatewayService {
       getTab: (profileId, targetId) => this.extensionTabStore.getTab(profileId, targetId),
       persistenceSentinel: this.persistenceSentinel,
       writeJournal: this.writeJournal,
-      sendExtensionCommand: (request) => {
-        const payload = stampSecretObservationProtection(request.payload);
-        return this.extensionCommandStore.sendCommand({
-          ...request,
-          ...(payload ? { payload } : {}),
-        });
-      },
+      sendExtensionCommand: (request) => this.extensionCommandStore.sendCommand(request),
       readControlForTarget: (profileId, targetId, selector) =>
         this.readControlForTarget(profileId, targetId, selector),
     };
@@ -1713,13 +1706,13 @@ export class BrowserGatewayService {
       // the ephemeral existing-tab profileId), so a future per-node allowlist
       // reader resolves correctly. The global-flag reader ignores the argument.
       sharedTabCredentialFillAllowed: (profileId) =>
-        this.allowSharedTabCredentialFill(credentialAuthorizationProfileScope(profileId)),
+        this.allowSharedTabCredentialFill(credentialScopeForProfile(profileId)),
       sharedTabSecureCredentialFillSupported: (profileId) =>
         supportsSecureBrowserExtensionCredentialFill(
           this.extensionContactState,
-          credentialAuthorizationProfileScope(profileId),
+          credentialScopeForProfile(profileId),
         ),
-      resolveCredentialProfileScope: (profileId) => credentialAuthorizationProfileScope(profileId),
+      resolveCredentialProfileScope: (profileId) => credentialScopeForProfile(profileId),
       type: (req) => this.type(req as BrowserGatewayContext & BrowserTypeRequest),
       select: (req) => this.select(req as BrowserGatewayContext & BrowserSelectRequest),
       click: (req) => this.click(req as BrowserGatewayContext & BrowserClickRequest),
@@ -1781,7 +1774,7 @@ export class BrowserGatewayService {
     if (existingTab) {
       if (!supportsSecureBrowserExtensionCredentialFill(
         this.extensionContactState,
-        credentialAuthorizationProfileScope(profileId),
+        credentialScopeForProfile(profileId),
       )) {
         throw new Error('shared_tab_secure_credential_fill_unavailable');
       }
@@ -2461,17 +2454,6 @@ export class BrowserGatewayService {
     return profile.userDataDir ?? this.profileRegistry.resolveProfileDir(profile.id);
   }
 
-}
-
-/**
- * Profile key a credential authorization is checked against for a given live
- * target. Managed profiles authorize by their own id; a shared existing tab
- * authorizes by its stable node scope (nodeId, or 'local') — its own profileId
- * is per-tab/ephemeral, so authorizing by it could never be "standing". Mirrors
- * how shared-tab grants are scoped (browser-grant-scope.ts).
- */
-function credentialAuthorizationProfileScope(profileId: string): string {
-  return existingTabGrantNodeId(profileId) ?? profileId;
 }
 
 export function getBrowserGatewayService(): BrowserGatewayService {

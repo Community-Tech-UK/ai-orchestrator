@@ -29,7 +29,7 @@ interface CacheEntry {
 // ---------------------------------------------------------------------------
 
 export class FilesystemService {
-  private static instance: FilesystemService;
+  private static instance: FilesystemService | null = null;
 
   private readonly cache = new Map<string, CacheEntry>();
 

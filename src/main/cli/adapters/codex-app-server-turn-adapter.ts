@@ -36,6 +36,26 @@ const USAGE_LIMIT_RATE_LIMITS_TIMEOUT_MS = 3_000;
 
 /** Executes app-server turns using the notification-routing layer. */
 export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificationAdapter {
+  /**
+   * Fresh per user send. Minted in `appServerSendMessage`, the only user-send
+   * entry, so recovery continuations and the input-cap retry keep it.
+   */
+  private contextOuterSendId: string | null = null;
+
+  /** Scopes ContextSafetyPolicy's per-send recovery ceiling to one user send. */
+  getContextOuterSendId(): string | null {
+    return this.contextOuterSendId;
+  }
+
+  protected override async appServerSendMessage(
+    message: string,
+    attachments?: FileAttachment[],
+    metadata?: CliMessage['metadata'],
+  ): Promise<void> {
+    this.contextOuterSendId = generateId();
+    await super.appServerSendMessage(message, attachments, metadata);
+  }
+
   protected override async appServerSendMessageInner(
     message: string,
     attachments?: FileAttachment[],
@@ -48,7 +68,6 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     if (this.appServerRuntime.hasActiveTurn()) throw new CodexAppServerRuntimeError({
       kind: 'request-rejected', message: 'Codex app-server runtime already has an active turn', recoverability: 'retry-thread',
     });
-
     const rootThreadId = this.getAppServerThreadId()!;
     const resumed = this.lastResumeAttemptResult?.confirmed === true
       && ['native', 'jsonl-scan', 'running-adopted'].includes(this.lastResumeAttemptResult.source);

@@ -123,7 +123,7 @@ class ShutdownPhaseTimeoutError extends Error {
 // ── Implementation ────────────────────────────────────────────────────────────
 
 export class GracefulShutdownManager {
-  private static instance: GracefulShutdownManager;
+  private static instance: GracefulShutdownManager | null = null;
   private phases: ShutdownPhase[] = [];
   private orphanCallback: (() => void) | null = null;
   private orphanCheckInterval: ReturnType<typeof setInterval> | null = null;

@@ -5,49 +5,27 @@ import {
   type BrowserExtensionCommandStore,
 } from './browser-extension-command-store';
 import { getBrowserExtensionTabStore } from './browser-extension-tab-store';
+import {
+  bindSecretObservationProtectionReader,
+  resetSecretObservationStampForTesting,
+} from './browser-secret-observation-stamp';
 
 const logger = getLogger('BrowserSecretObservationProtection');
 
-export const SECRET_OBSERVATION_PROTECTION_PAYLOAD_KEY = 'secretObservationProtectionEnabled';
+export {
+  SECRET_OBSERVATION_PROTECTION_PAYLOAD_KEY,
+  bindSecretObservationProtectionReader,
+  isSecretObservationProtectionEnabled,
+  stampSecretObservationProtection,
+} from './browser-secret-observation-stamp';
+
 export const SECRET_OBSERVATION_PROTECTION_SETTING_KEY =
   'browserSecretObservationProtectionEnabled';
 
-/**
- * Default ON once a reader is bound. Unbound (unit tests that never start the
- * gateway) leaves payloads untouched so existing command assertions stay exact.
- */
-let readEnabled: () => boolean = () => true;
-let readerBound = false;
 let applyUnsubscribe: (() => void) | undefined;
 
-export function isSecretObservationProtectionEnabled(): boolean {
-  try {
-    return readEnabled() !== false;
-  } catch {
-    return true;
-  }
-}
-
-export function stampSecretObservationProtection(
-  payload?: Record<string, unknown>,
-): Record<string, unknown> | undefined {
-  if (!readerBound) {
-    return payload;
-  }
-  return {
-    ...(payload ?? {}),
-    [SECRET_OBSERVATION_PROTECTION_PAYLOAD_KEY]: isSecretObservationProtectionEnabled(),
-  };
-}
-
-export function bindSecretObservationProtectionReader(reader: () => boolean): void {
-  readEnabled = reader;
-  readerBound = true;
-}
-
 export function resetSecretObservationProtectionReaderForTesting(): void {
-  readEnabled = () => true;
-  readerBound = false;
+  resetSecretObservationStampForTesting();
   applyUnsubscribe?.();
   applyUnsubscribe = undefined;
 }
@@ -81,12 +59,11 @@ function queueKeysForApply(commandStore: BrowserExtensionCommandStore): string[]
 export function applySecretObservationProtectionToQueues(
   commandStore: BrowserExtensionCommandStore,
 ): void {
-  const payload = stampSecretObservationProtection();
+  // The command store stamps the current setting onto every command.
   for (const queueKey of queueKeysForApply(commandStore)) {
     void commandStore.sendCommand({
       queueKey,
       command: 'report_inventory',
-      payload,
       timeoutMs: 5_000,
     }).catch((error: unknown) => {
       logger.warn('Could not push secret-observation protection to an extension queue', {

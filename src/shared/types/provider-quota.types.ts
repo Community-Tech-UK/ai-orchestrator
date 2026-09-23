@@ -120,8 +120,9 @@ export interface ProviderQuotaSnapshot {
   windows: ProviderQuotaWindow[];
   /**
    * The provider's own verdict on whether the account can run a turn, when it
-   * publishes one (Codex). Window percentages alone cannot answer that: an
-   * account whose plan window is at 100% still runs on purchased credits.
+   * publishes one (Codex; Claude from a full usage-endpoint reply). Window
+   * percentages alone cannot answer that: an account whose plan window is at
+   * 100% still runs on purchased credits.
    */
   usageAccess?: ProviderUsageAccess;
   /**
@@ -154,6 +155,9 @@ export interface ProviderUsageAccess {
    */
   observedAt?: number;
 }
+
+/** Claude quota windows that limit every model on the account; the others are model-scoped. */
+export const CLAUDE_ACCOUNT_WIDE_QUOTA_WINDOW_IDS: ReadonlySet<string> = new Set(['claude.5h', 'claude.weekly']);
 
 /** Aggregate state held in the renderer store and main-process service. */
 export interface ProviderQuotaState {

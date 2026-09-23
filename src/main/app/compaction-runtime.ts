@@ -7,6 +7,8 @@ import {
 import { getContextEngine } from '../context/context-engine';
 import { exchangesToMessageBoundary, groupExchanges } from '../context/compaction-boundary';
 import { loadAuthenticatedEvidencePreviews } from '../context/compaction-evidence-preview';
+import { buildCompactionDecisionLogLines } from '../context/compaction-decision-log';
+import { CONTINUITY_PACKAGE_MARKER } from '../context/observation-extractor';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getHookManager } from '../hooks/hook-manager';
@@ -62,7 +64,17 @@ interface NativeCompactionAdapter {
       stage: 'requested' | 'acknowledged' | 'observed',
     ) => void) | null,
   ) => void;
-  getRuntimeSnapshot?: () => { turnPhase?: string };
+  getRuntimeSnapshot?: () => { turnPhase?: string; activeTurnId?: string | null };
+  getContextOuterSendId?: () => string | null;
+}
+
+/** Same live-turn test as session admission: any phase between turn start and settle. */
+function hasLiveProviderTurn(adapter: NativeCompactionAdapter | undefined): boolean {
+  const snapshot = adapter?.getRuntimeSnapshot?.();
+  return Boolean(snapshot?.activeTurnId)
+    || snapshot?.turnPhase === 'starting'
+    || snapshot?.turnPhase === 'running'
+    || snapshot?.turnPhase === 'interrupting';
 }
 
 type CompactionMarkerRecorder = (params: RecordCompactionMarkerParams) => string | null | undefined;
@@ -223,7 +235,7 @@ export function setupCompactionCoordinator(
       if (adapter?.executeContextAction) {
         const execute = async (action: ProviderContextExecutableAction) => {
           const result = await adapter.executeContextAction!(action);
-          if (result.proof === 'none') throw new Error('PROVIDER_ACTION_PROOF_UNAVAILABLE');
+          if (result.proof === 'none' && !result.skipped) throw new Error('PROVIDER_ACTION_PROOF_UNAVAILABLE');
           return result;
         };
         handlers['controlled-interrupt'] = () => execute('controlled-interrupt');
@@ -237,6 +249,13 @@ export function setupCompactionCoordinator(
       const adapter = instanceManager.getAdapter(instanceId) as NativeCompactionAdapter | undefined;
       return adapter?.getRuntimeSnapshot?.()?.turnPhase === 'idle';
     },
+    getOuterSendId: (instanceId: string) => {
+      const adapter = instanceManager.getAdapter(instanceId) as NativeCompactionAdapter | undefined;
+      return adapter?.getContextOuterSendId?.() ?? null;
+    },
+    isTurnActive: (instanceId: string) => (
+      hasLiveProviderTurn(instanceManager.getAdapter(instanceId) as NativeCompactionAdapter | undefined)
+    ),
     recordPolicyEvent: async (event: ContextPolicyEvent) => {
       const instance = instanceManager.getInstance(event.instanceId);
       const conversationId = instance?.contextEvidence?.conversationId;
@@ -397,7 +416,7 @@ export function setupCompactionCoordinator(
           });
 
         const continuityPrompt = [
-          '[Context Compaction Continuity Package]',
+          CONTINUITY_PACKAGE_MARKER,
           'Compaction method: restart-with-summary',
           '',
           'Objective:',
@@ -406,6 +425,7 @@ export function setupCompactionCoordinator(
           'Unresolved items:',
           unresolvedItems.length > 0 ? unresolvedItems.map(item => `- ${item}`).join('\n') : '- None captured.',
           '',
+          ...buildCompactionDecisionLogLines(instanceId, instance.outputBuffer),
           'Compacted summary:',
           summaryText,
           '',
@@ -522,6 +542,18 @@ export function setupCompactionCoordinator(
     });
   });
 
+  // A busy refusal fires no other event. Posting it here reaches the user however compaction was
+  // asked for: Compact now, a composer /compact (COMMAND_EXECUTE), or /compact through sendInput.
+  coordinator.on('compaction-refused', ({ instanceId, error }: { instanceId: string; error: string }) => {
+    instanceManager.emitOutputMessage(instanceId, {
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      type: 'system',
+      content: error,
+      metadata: { compactionRefused: true },
+    });
+  });
+
   coordinator.on('compaction-error', (payload) => {
     windowManager.sendToRenderer('instance:compact-status', {
       ...payload,
@@ -549,14 +581,17 @@ export async function applyCompaction(
     : 'Before manual compaction';
 
   let checkpointId: string | null = null;
-  try {
-    const checkpoint = await getCheckpointManager().createCheckpoint(instanceId, CheckpointType.MANUAL, label);
-    checkpointId = checkpoint?.id ?? null;
-  } catch (error) {
-    logger.warn('Failed to create pre-compaction checkpoint', {
-      instanceId,
-      error: error instanceof Error ? error.message : String(error),
-    });
+  // A running turn makes compactInstance() refuse as busy, so do not leave an unused checkpoint behind.
+  if (!hasLiveProviderTurn(instanceManager.getAdapter(instanceId) as NativeCompactionAdapter | undefined)) {
+    try {
+      const checkpoint = await getCheckpointManager().createCheckpoint(instanceId, CheckpointType.MANUAL, label);
+      checkpointId = checkpoint?.id ?? null;
+    } catch (error) {
+      logger.warn('Failed to create pre-compaction checkpoint', {
+        instanceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   if (checkpointId) pendingManualCheckpoints.set(instanceId, checkpointId);

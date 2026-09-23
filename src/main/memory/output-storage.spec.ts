@@ -131,6 +131,83 @@ describe('OutputStorageManager user-prompt tally', () => {
   });
 });
 
+describe('OutputStorageManager.loadMessagesBefore', () => {
+  let storage: OutputStorageManager;
+
+  beforeEach(() => {
+    tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'output-storage-page-spec-'));
+    storage = new OutputStorageManager();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempUserData, { recursive: true, force: true });
+  });
+
+  /** One chunk per message — the shape buffer-overflow trimming writes. */
+  async function storeOnePerChunk(instanceId: string, contents: string[]): Promise<void> {
+    for (const content of contents) {
+      await storage.storeMessages(instanceId, [msg('assistant', content)]);
+    }
+  }
+
+  it('pages by message count, not chunk count, across one-message chunks', async () => {
+    await storeOnePerChunk('inst-1', Array.from({ length: 12 }, (_, i) => `m${i}`));
+
+    const latest = await storage.loadMessagesBefore('inst-1', { limit: 5 });
+    expect(latest.messages.map((m) => m.content)).toEqual(['m7', 'm8', 'm9', 'm10', 'm11']);
+    expect(latest.startOffset).toBe(7);
+    expect(latest.totalStored).toBe(12);
+
+    const older = await storage.loadMessagesBefore('inst-1', { beforeOffset: latest.startOffset, limit: 5 });
+    expect(older.messages.map((m) => m.content)).toEqual(['m2', 'm3', 'm4', 'm5', 'm6']);
+
+    const oldest = await storage.loadMessagesBefore('inst-1', { beforeOffset: older.startOffset, limit: 5 });
+    expect(oldest.messages.map((m) => m.content)).toEqual(['m0', 'm1']);
+    expect(oldest.startOffset).toBe(0);
+  });
+
+  it('pages through a chunk larger than the page without skipping any of it', async () => {
+    // Restored history lands as one big chunk, followed by small overflow chunks.
+    await storage.storeMessages('inst-1', Array.from({ length: 7 }, (_, i) => msg('assistant', `big${i}`)));
+    await storeOnePerChunk('inst-1', ['tail0', 'tail1']);
+
+    const seen: string[] = [];
+    let beforeOffset: number | undefined;
+    for (;;) {
+      const page = await storage.loadMessagesBefore('inst-1', { beforeOffset, limit: 3 });
+      seen.unshift(...page.messages.map((m) => m.content));
+      if (page.startOffset === 0) break;
+      beforeOffset = page.startOffset;
+    }
+
+    expect(seen).toEqual(['big0', 'big1', 'big2', 'big3', 'big4', 'big5', 'big6', 'tail0', 'tail1']);
+  });
+
+  it('returns an empty page for unknown instances', async () => {
+    expect(await storage.loadMessagesBefore('nope', { limit: 10 })).toEqual({
+      messages: [],
+      startOffset: 0,
+      totalStored: 0,
+    });
+  });
+
+  it('keeps every stored message readable after chunk eviction and further writes', async () => {
+    await storeOnePerChunk('inst-1', ['a0', 'a1', 'a2']);
+    // Evict exactly chunk 0 on the next write, then keep writing.
+    const index = readIndex('inst-1') as { totalSizeBytes: number };
+    storage.configure({ maxDiskStorageMB: index.totalSizeBytes / (1024 * 1024) });
+    await storeOnePerChunk('inst-1', ['a3']);
+    storage.configure({ maxDiskStorageMB: 0 });
+    await storeOnePerChunk('inst-1', ['a4', 'a5']);
+
+    const page = await storage.loadMessagesBefore('inst-1', { limit: 50 });
+    expect(page.messages.map((m) => m.content)).toEqual(['a1', 'a2', 'a3', 'a4', 'a5']);
+    expect((await storage.loadMessages('inst-1')).map((m) => m.content)).toEqual([
+      'a1', 'a2', 'a3', 'a4', 'a5',
+    ]);
+  });
+});
+
 describe('mergePromptIndex', () => {
   const prompt = (id: string, content: string, timestamp: number) =>
     ({ id, type: 'user', content, timestamp }) as OutputMessage;

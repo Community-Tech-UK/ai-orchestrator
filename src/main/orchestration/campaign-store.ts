@@ -7,6 +7,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { getLogger } from '../logging/logger';
+import { parseWorktreeLifecycle } from './loop-store-worktrees';
 import type {
   CampaignNodeRun,
   CampaignNodeStatus,
@@ -39,6 +40,8 @@ interface CampaignNodeRow {
   started_at: number | null;
   ended_at: number | null;
   skipped_reason: string | null;
+  worktree_path: string | null;
+  worktree_lifecycle_json: string | null;
   updated_at: number;
 }
 
@@ -124,14 +127,19 @@ export class CampaignStore {
     const now = Date.now();
     try {
       this.db.prepare(`
-        INSERT INTO campaign_nodes (node_id, campaign_id, status, loop_run_id, started_at, ended_at, skipped_reason, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO campaign_nodes (
+          node_id, campaign_id, status, loop_run_id, started_at, ended_at, skipped_reason,
+          worktree_path, worktree_lifecycle_json, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(campaign_id, node_id) DO UPDATE SET
           status        = excluded.status,
           loop_run_id   = excluded.loop_run_id,
           started_at    = COALESCE(campaign_nodes.started_at, excluded.started_at),
           ended_at      = excluded.ended_at,
           skipped_reason = excluded.skipped_reason,
+          worktree_path = excluded.worktree_path,
+          worktree_lifecycle_json = excluded.worktree_lifecycle_json,
           updated_at    = excluded.updated_at
       `).run(
         node.nodeId,
@@ -141,6 +149,8 @@ export class CampaignStore {
         node.startedAt ?? null,
         node.endedAt ?? null,
         node.skippedReason ?? null,
+        node.worktreePath ?? null,
+        node.worktreeLifecycle ? JSON.stringify(node.worktreeLifecycle) : null,
         now,
       );
     } catch (err) {
@@ -161,6 +171,27 @@ export class CampaignStore {
       logger.error('CampaignStore.getNodeRuns failed', err instanceof Error ? err : new Error(String(err)));
     }
     return result;
+  }
+
+  /**
+   * Campaigns (any status) with a node whose managed worktree has not reached
+   * `cleaned`. Halted campaigns are included: their nodes still own a worktree.
+   */
+  listCampaignIdsWithPendingWorktrees(): string[] {
+    try {
+      const rows = this.db.prepare(
+        'SELECT campaign_id, worktree_lifecycle_json FROM campaign_nodes WHERE worktree_lifecycle_json IS NOT NULL',
+      ).all<{ campaign_id: string; worktree_lifecycle_json: string }>();
+      const ids = new Set<string>();
+      for (const row of rows) {
+        const lifecycle = parseWorktreeLifecycle(row.worktree_lifecycle_json);
+        if (lifecycle && lifecycle.phase !== 'cleaned') ids.add(row.campaign_id);
+      }
+      return [...ids];
+    } catch (err) {
+      logger.error('CampaignStore.listCampaignIdsWithPendingWorktrees failed', err instanceof Error ? err : new Error(String(err)));
+      return [];
+    }
   }
 
   /** Find the campaign and node that own a given loop run. */
@@ -204,6 +235,8 @@ export class CampaignStore {
       startedAt: row.started_at ?? undefined,
       endedAt: row.ended_at ?? undefined,
       skippedReason: row.skipped_reason ?? undefined,
+      worktreePath: row.worktree_path ?? undefined,
+      worktreeLifecycle: parseWorktreeLifecycle(row.worktree_lifecycle_json),
     };
   }
 }

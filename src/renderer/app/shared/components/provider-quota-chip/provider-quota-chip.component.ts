@@ -584,6 +584,7 @@ const PREFERRED_SUMMARY_WINDOW_IDS: Partial<Record<ProviderId, string[]>> = {
   claude: ['claude.weekly'],
   codex: ['codex.weekly'],
   antigravity: ['antigravity.gemini-5h', 'antigravity.gemini-weekly'],
+  opencode: ['opencode.plan'],
 };
 /** Fallback reauth instruction when a probe didn't supply its own. */
 const PROVIDER_REAUTH_HINTS: Record<ProviderId, string> = {
@@ -594,5 +595,5 @@ const PROVIDER_REAUTH_HINTS: Record<ProviderId, string> = {
   copilot: 'Run `gh auth login` to sign in again',
   cursor: 'Open Cursor and sign in to refresh the session',
   grok: 'Run `grok login` (or set XAI_API_KEY) to sign in again',
-  opencode: 'Run `opencode auth login` to sign in again',
+  opencode: 'Sign in to the MiMo console in Chrome to refresh Token Plan usage',
 };

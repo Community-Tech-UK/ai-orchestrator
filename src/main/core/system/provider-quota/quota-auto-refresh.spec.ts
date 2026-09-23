@@ -41,6 +41,12 @@ describe('mapProviderTypeToQuotaId', () => {
     expect(mapProviderTypeToQuotaId('grok')).toBe('grok');
   });
 
+  it('maps opencode to "opencode" (the MiMo Token Plan probe)', () => {
+    // Reverting this to null silently stops chip refreshes after OpenCode
+    // turns; the probe itself gates on the xiaomi-token-plan-* model.
+    expect(mapProviderTypeToQuotaId('opencode')).toBe('opencode');
+  });
+
   it('returns null for providers without a quota probe', () => {
     expect(mapProviderTypeToQuotaId('ollama')).toBeNull();
     expect(mapProviderTypeToQuotaId('amazon-bedrock')).toBeNull();

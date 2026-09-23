@@ -1,12 +1,15 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const repoRoot = process.cwd();
 const scriptPath = join(repoRoot, 'scripts/check-ts-max-loc.ts');
-const tsxCli = join(repoRoot, 'node_modules/tsx/dist/cli.cjs');
+// Resolved from tsx's own manifest: the CLI entry moved from dist/cli.cjs to dist/cli.mjs in a patch release.
+const tsxPackageDir = join(repoRoot, 'node_modules/tsx');
+const tsxBin = JSON.parse(readFileSync(join(tsxPackageDir, 'package.json'), 'utf8')).bin as string | Record<string, string>;
+const tsxCli = join(tsxPackageDir, typeof tsxBin === 'string' ? tsxBin : tsxBin['tsx']);
 
 interface CheckResult {
   exitCode: number;

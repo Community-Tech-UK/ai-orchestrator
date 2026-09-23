@@ -99,6 +99,19 @@ export function buildEphemeralSynthesisDebate(
   };
 }
 
+/**
+ * True when a critique round found nothing worth defending: every agent filed
+ * at least one critique and every critique is severity 'low' (the critique
+ * prompt's instruction for "no material issues"). An agent with no critiques
+ * (e.g. an unparseable reply) makes this false, so the defense round still runs.
+ */
+export function critiquesShowNoMaterialIssues(round: DebateSessionRound): boolean {
+  return round.type === 'critique'
+    && round.contributions.length > 0
+    && round.contributions.every(({ critiques = [] }) =>
+      critiques.length > 0 && critiques.every((critique) => critique.severity === 'low'));
+}
+
 function textSimilarity(a: string, b: string): number {
   const wordsA = new Set(a.toLowerCase().split(/\s+/));
   const wordsB = new Set(b.toLowerCase().split(/\s+/));

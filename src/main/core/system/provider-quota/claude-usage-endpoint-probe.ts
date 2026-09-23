@@ -26,15 +26,21 @@
  * `limit` = 100 (so the existing 75/90/100 % threshold machinery just works).
  * `extra_usage` becomes a USD "credits" window — the real-money overage guard.
  *
+ * A reply is also the account's included-usage verdict ({@link claudeUsageAccess}):
+ * it is what lets a recorded limit lift before its recorded reset time when
+ * Anthropic resets the account early.
+ *
  * Best-effort by design: the endpoint is undocumented and may change or rate-
  * limit the poll. Any failure (no token after Claude Code was asked to refresh,
  * HTTP error, bad shape) resolves to an `ok: false` snapshot with a
  * human-readable `error`; we never throw and never hard-depend on it.
  */
 
-import type {
-  ProviderQuotaSnapshot,
-  ProviderQuotaWindow,
+import {
+  CLAUDE_ACCOUNT_WIDE_QUOTA_WINDOW_IDS,
+  type ProviderQuotaSnapshot,
+  type ProviderQuotaWindow,
+  type ProviderUsageAccess,
 } from '../../../../shared/types/provider-quota.types';
 import {
   clampQuotaPercent,
@@ -121,6 +127,8 @@ const TIME_BUCKETS: readonly {
   { key: 'seven_day_opus', id: 'claude.weekly-opus', label: 'Weekly (Opus)' },
 ];
 
+const CREDITS_WINDOW_ID = 'claude.credits';
+
 export class ClaudeUsageEndpointProbe implements ProviderQuotaProbe {
   readonly provider = 'claude' as const;
   readonly accountProfileId?: string;
@@ -179,6 +187,7 @@ export class ClaudeUsageEndpointProbe implements ProviderQuotaProbe {
     }
 
     const windows = parseUsagePayload(body as UsagePayload);
+    const usageAccess = claudeUsageAccess(windows);
     return {
       provider: 'claude',
       takenAt,
@@ -186,8 +195,26 @@ export class ClaudeUsageEndpointProbe implements ProviderQuotaProbe {
       ok: true,
       plan: credential.subscriptionType?.toLowerCase(),
       windows,
+      ...(usageAccess ? { usageAccess } : {}),
     };
   }
+}
+
+/**
+ * Whether the plan's included usage can run a turn, from one `oauth/usage`
+ * reply. Allowed only when the reply covers both account-wide windows and no
+ * plan window, model-scoped ones included, is full. Not allowed when an
+ * account-wide window is full. Otherwise (a partial reply, or only one
+ * model's window full) null: the windows decide, per model. Extra-usage
+ * credits are left unknown; the credits window is not a plan window.
+ */
+export function claudeUsageAccess(windows: readonly ProviderQuotaWindow[]): ProviderUsageAccess | null {
+  const planWindows = windows.filter((w) => w.id !== CREDITS_WINDOW_ID);
+  const accountWide = planWindows.filter((w) => CLAUDE_ACCOUNT_WIDE_QUOTA_WINDOW_IDS.has(w.id));
+  if (accountWide.some((w) => w.used >= w.limit)) return { ordinaryUsageAllowed: false, creditsAvailable: null };
+  if (accountWide.length < CLAUDE_ACCOUNT_WIDE_QUOTA_WINDOW_IDS.size) return null;
+  if (planWindows.some((w) => w.used >= w.limit)) return null;
+  return { ordinaryUsageAllowed: true, creditsAvailable: null };
 }
 
 // ─── parsing ─────────────────────────────────────────────────────────────
@@ -222,7 +249,7 @@ export function parseUsagePayload(payload: UsagePayload): ProviderQuotaWindow[] 
     const limit = numberOr(extra.monthly_limit, 0);
     windows.push({
       kind: 'calendar-period',
-      id: 'claude.credits',
+      id: CREDITS_WINDOW_ID,
       label: 'Extra usage credits',
       unit: 'usd',
       used,

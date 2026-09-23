@@ -24,11 +24,6 @@ describe('WORKSPACE_CHANNELS', () => {
     expect(WORKSPACE_CHANNELS.WORKTREE_SESSION_CREATED).toBe('worktree:session-created');
   });
 
-  it('has parallel worktree channels', () => {
-    expect(WORKSPACE_CHANNELS.PARALLEL_WORKTREE_START).toBe('parallel-worktree:start');
-    expect(WORKSPACE_CHANNELS.PARALLEL_WORKTREE_MERGE).toBe('parallel-worktree:merge');
-  });
-
   it('has TODO channels', () => {
     expect(WORKSPACE_CHANNELS.TODO_GET_LIST).toBe('todo:get-list');
     expect(WORKSPACE_CHANNELS.TODO_LIST_CHANGED).toBe('todo:list-changed');

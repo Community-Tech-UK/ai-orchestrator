@@ -9,7 +9,6 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../../logging/logger';
 import type { OrchestrationEngine } from '../orchestration-engine';
-import type { LaneEventMetadata } from '../../../shared/types/lane-events';
 import type { OrchestrationCommandType } from '../orchestration-commands';
 
 const logger = getLogger('CoordinatorEventBridge');
@@ -101,89 +100,6 @@ export class CoordinatorEventBridge {
     logger.info('Wired debate coordinator to orchestration engine');
   }
 
-  wireParallelWorktreeCoordinator(coordinator: EventEmitter): void {
-    this.listen(coordinator, 'execution:created', (payload: Record<string, unknown>) => {
-      this.dispatchSafe('lane.create', String(payload['executionId'] ?? ''), payload, {
-        laneId: String(payload['executionId'] ?? ''),
-        source: 'parallel-worktree',
-      });
-    });
-
-    this.listen(coordinator, 'execution:started', (payload: Record<string, unknown>) => {
-      this.dispatchSafe('lane.start', String(payload['executionId'] ?? ''), payload, {
-        laneId: String(payload['executionId'] ?? ''),
-        source: 'parallel-worktree',
-      });
-    });
-
-    this.listen(coordinator, 'execution:conflict-warning', (payload: Record<string, unknown>) => {
-      this.dispatchSafe('lane.flag-conflict', String(payload['executionId'] ?? ''), payload, {
-        laneId: String(payload['executionId'] ?? ''),
-        source: 'parallel-worktree',
-      });
-    });
-
-    this.listen(coordinator, 'execution:merging', (payload: Record<string, unknown>) => {
-      this.dispatchSafe('lane.begin-merge', String(payload['executionId'] ?? ''), payload, {
-        laneId: String(payload['executionId'] ?? ''),
-        source: 'parallel-worktree',
-      });
-    });
-
-    this.listen(coordinator, 'execution:completed', (payload: Record<string, unknown>) => {
-      this.dispatchSafe('lane.complete', String(payload['executionId'] ?? ''), payload, {
-        laneId: String(payload['executionId'] ?? ''),
-        source: 'parallel-worktree',
-      });
-    });
-
-    this.listen(coordinator, 'execution:partial-failure', (payload: Record<string, unknown>) => {
-      this.dispatchSafe('lane.fail', String(payload['executionId'] ?? ''), payload, {
-        laneId: String(payload['executionId'] ?? ''),
-        source: 'parallel-worktree',
-      });
-    });
-
-    this.listen(coordinator, 'execution:cancelled', (payload: Record<string, unknown>) => {
-      this.dispatchSafe('lane.cancel', String(payload['executionId'] ?? ''), payload, {
-        laneId: String(payload['executionId'] ?? ''),
-        source: 'parallel-worktree',
-      });
-    });
-
-    this.listen(coordinator, 'worktree:created', (payload: Record<string, unknown>) => {
-      const aggregateId = String(payload['executionId'] ?? '');
-      const metadata = this.toLaneMetadata(payload);
-      this.dispatchSafe('worktree.create', aggregateId, payload, metadata);
-      this.dispatchSafe('branch.prepare', aggregateId, payload, metadata);
-    });
-
-    this.listen(coordinator, 'task:completed', (payload: Record<string, unknown>) => {
-      this.dispatchSafe('worktree.complete', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
-    });
-
-    this.listen(coordinator, 'execution:conflicts-detected', (payload: Record<string, unknown>) => {
-      this.dispatchSafe('worktree.detect-conflict', String(payload['executionId'] ?? ''), payload, {
-        laneId: String(payload['executionId'] ?? ''),
-        source: 'parallel-worktree',
-      });
-    });
-
-    this.listen(coordinator, 'task:merged', (payload: Record<string, unknown>) => {
-      this.dispatchSafe('branch.mark-merge-succeeded', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
-    });
-
-    this.listen(coordinator, 'task:merge-failed', (payload: Record<string, unknown>) => {
-      this.dispatchSafe('branch.mark-merge-failed', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
-    });
-
-    this.listen(coordinator, 'worktree:cleaned', (payload: Record<string, unknown>) => {
-      this.dispatchSafe('worktree.cleanup', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
-    });
-
-    logger.info('Wired parallel worktree coordinator to orchestration engine');
-  }
-
   dispose(): void {
     while (this.disposers.length > 0) {
       this.disposers.pop()?.();
@@ -231,24 +147,6 @@ export class CoordinatorEventBridge {
     this.disposers.push(() => {
       emitter.off(eventName, handler as (...args: any[]) => void);
     });
-  }
-
-  private toLaneMetadata(payload: Record<string, unknown>): LaneEventMetadata & {
-    source: string;
-    laneId: string;
-    worktreeId?: string;
-  } {
-    const session = (payload['session'] ?? {}) as Record<string, unknown>;
-    return {
-      executionId: String(payload['executionId'] ?? ''),
-      taskId: typeof payload['taskId'] === 'string' ? payload['taskId'] : undefined,
-      sessionId: typeof session['id'] === 'string' ? session['id'] : undefined,
-      branchName: typeof session['branchName'] === 'string' ? session['branchName'] : undefined,
-      worktreePath: typeof session['worktreePath'] === 'string' ? session['worktreePath'] : undefined,
-      laneId: String(payload['executionId'] ?? ''),
-      worktreeId: typeof session['id'] === 'string' ? session['id'] : undefined,
-      source: 'parallel-worktree',
-    };
   }
 
   private resolveDebatePayload(

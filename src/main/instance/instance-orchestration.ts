@@ -46,6 +46,7 @@ import type { IndexedCodebaseContextService } from '../indexing/indexed-codebase
 import { FastPathRetriever } from './orchestration/fast-path-retriever';
 import { OrchestrationMessageFormatter } from './orchestration/orchestration-message-formatter';
 import { evaluateSpawn } from '../orchestration/subagent-spawn-guard';
+import { errorFromIdentity } from '../util/error-utils';
 import {
   routeRole,
   decideDelegation,
@@ -702,7 +703,8 @@ export class InstanceOrchestrationManager {
         .filter(m => m.type === 'error')
         .pop();
       const errorText = lastError?.content ?? `Instance ended with status: ${child.status}`;
-      errorClassification = getChildErrorClassifier().classify(errorText, child.status);
+      const rawError = errorFromIdentity(errorText, lastError?.metadata);
+      errorClassification = getChildErrorClassifier().classify(errorText, child.status, false, rawError);
     }
 
     return {

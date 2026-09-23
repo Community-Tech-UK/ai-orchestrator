@@ -100,6 +100,65 @@ describe('debug-handlers renderer-facing aliases', () => {
     expect(debugManagerMocks.debugSystem).toHaveBeenCalledTimes(1);
     expect(logManagerMocks.clearBuffer).toHaveBeenCalledTimes(1);
   });
+
+  it('accepts every LOG_GET_LOGS shape the preload sends', async () => {
+    // Logs page with "all" levels: preload wraps undefined options.
+    await expect(invoke(IPC_CHANNELS.LOG_GET_LOGS, { options: undefined })).resolves.toMatchObject({ success: true });
+    await expect(invoke(IPC_CHANNELS.LOG_GET_LOGS)).resolves.toMatchObject({ success: true });
+    // `context` is the preload's name for subsystem; root-level options still work.
+    await invoke(IPC_CHANNELS.LOG_GET_LOGS, { context: 'IPC', limit: 20_000 });
+
+    expect(logManagerMocks.getRecentLogs).toHaveBeenLastCalledWith({
+      level: undefined,
+      subsystem: 'IPC',
+      startTime: undefined,
+      endTime: undefined,
+      limit: 20_000,
+    });
+  });
+
+  it.each([
+    ['a non-object payload', 'warn'],
+    ['an unknown level', { options: { level: 'verbose' } }],
+    ['a non-numeric limit', { options: { limit: '10' } }],
+    ['a zero limit', { options: { limit: 0 } }],
+    ['a negative startTime', { options: { startTime: -1 } }],
+  ])('rejects LOG_GET_LOGS with %s', async (_label, payload) => {
+    const result = await invoke(IPC_CHANNELS.LOG_GET_LOGS, payload);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('LOG_GET_LOGS_FAILED');
+    expect(result.error?.message).toContain('IPC validation failed for LOG_GET_LOGS');
+    expect(logManagerMocks.getRecentLogs).not.toHaveBeenCalled();
+  });
+
+  it('passes validated DEBUG_EXECUTE args through to the command', async () => {
+    await expect(invoke(IPC_CHANNELS.DEBUG_EXECUTE, {
+      command: 'file',
+      args: { filePath: '/tmp/a.txt' },
+    })).resolves.toMatchObject({ success: true });
+    // The Logs page sends no args at all.
+    await expect(invoke(IPC_CHANNELS.DEBUG_EXECUTE, { command: 'memory' })).resolves.toMatchObject({ success: true });
+
+    expect(debugManagerMocks.debugFile).toHaveBeenCalledWith('/tmp/a.txt');
+    expect(debugManagerMocks.debugMemory).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['a missing payload', undefined],
+    ['a missing command', { args: {} }],
+    ['an unknown command', { command: 'rm-rf' }],
+    ['a non-string file path', { command: 'file', args: { filePath: 42 } }],
+  ])('rejects DEBUG_EXECUTE with %s before running anything', async (_label, payload) => {
+    const result = await invoke(IPC_CHANNELS.DEBUG_EXECUTE, payload);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('DEBUG_EXECUTE_FAILED');
+    expect(result.error?.message).toContain('IPC validation failed for DEBUG_EXECUTE');
+    for (const fn of Object.values(debugManagerMocks)) {
+      expect(fn).not.toHaveBeenCalled();
+    }
+  });
 });
 
 async function invoke(channel: string, payload?: unknown): Promise<IpcResponse> {

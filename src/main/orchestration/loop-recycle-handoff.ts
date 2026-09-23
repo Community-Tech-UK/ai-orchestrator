@@ -4,7 +4,6 @@
  * Recycle must not pay a summariser turn or dump 50k of NOTES. The durable
  * payload is HANDOFF.json (goal verbatim + open ledger ids). The next prompt
  * gets a capped pointer note: paths + hashes, bodies only under the total.
- * `getSmartCompactionManager()` is never called from this path (T16 / G3).
  */
 
 import { createHash } from 'node:crypto';

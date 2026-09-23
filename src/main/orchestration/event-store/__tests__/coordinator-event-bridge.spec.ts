@@ -308,41 +308,6 @@ describe('CoordinatorEventBridge', () => {
     expect(call['metadata']).toEqual({ instanceId: 'inst-3' });
   });
 
-  it('maps parallel worktree events into lane and branch lifecycle entries', () => {
-    const coordinator = new EventEmitter();
-    bridge.wireParallelWorktreeCoordinator(coordinator);
-
-    coordinator.emit('worktree:created', {
-      executionId: 'exec-1',
-      taskId: 'task-1',
-      session: {
-        id: 'worktree-1',
-        branchName: 'codex/feature',
-        worktreePath: '/tmp/worktree',
-      },
-    });
-
-    expect(mockDispatcher.dispatch).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        commandType: 'worktree.create',
-        aggregateId: 'exec-1',
-        metadata: expect.objectContaining({
-          executionId: 'exec-1',
-          laneId: 'exec-1',
-          worktreeId: 'worktree-1',
-          branchName: 'codex/feature',
-        }),
-      }),
-    );
-    expect(mockDispatcher.dispatch).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        commandType: 'branch.prepare',
-      }),
-    );
-  });
-
   it('disposes registered listeners', () => {
     const coordinator = new EventEmitter();
     bridge.wireVerifyCoordinator(coordinator);

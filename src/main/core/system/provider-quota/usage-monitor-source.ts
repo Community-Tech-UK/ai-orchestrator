@@ -71,6 +71,7 @@ const KNOWN_PROVIDERS: readonly ProviderId[] = [
   'copilot',
   'cursor',
   'grok',
+  'opencode',
 ];
 
 /**
@@ -85,6 +86,9 @@ const KNOWN_PROVIDERS: readonly ProviderId[] = [
  */
 const STATE_KEY_ALIASES: Partial<Record<ProviderId, readonly string[]>> = {
   antigravity: ['gemini'],
+  // token-usage-monitor files the MiMo Token Plan (OpenCode's backend on
+  // xiaomi-token-plan-* models) under its own `mimo` tool key.
+  opencode: ['mimo'],
 };
 
 type FileReader = (filePath: string) => Promise<string>;
@@ -354,6 +358,24 @@ function coerceEpochMs(value: number | string | null | undefined): number | null
   }
   const ms = Date.parse(value);
   return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * Gate a monitor source behind a provider-eligibility check (the MiMo Token
+ * Plan case: state.json's `mimo` alias must not surface another OpenCode
+ * backend's quota row). Returns a view that reports nothing when the gate is
+ * closed, and otherwise delegates untouched.
+ */
+export function gatedUsageMonitor(
+  source: Pick<UsageMonitorSource, 'readProvider'>,
+  isEligible: () => boolean,
+): Pick<UsageMonitorSource, 'readProvider'> {
+  return {
+    readProvider: (provider, accountProfileId) =>
+      isEligible()
+        ? source.readProvider(provider, accountProfileId)
+        : Promise.resolve(null),
+  };
 }
 
 function slug(label: string | undefined): string {

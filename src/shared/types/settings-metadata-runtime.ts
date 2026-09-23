@@ -53,6 +53,13 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     max: 10_000_000,
   },
   {
+    key: 'compactionDecisionLogEnabled',
+    label: 'Keep a decision log when compacting',
+    description: 'When an agent is compacted by restarting it with a summary, also save the decisions, errors and important notes found in its transcript, and give the most important ones back to the agent in the summary.',
+    type: 'boolean',
+    category: 'memory',
+  },
+  {
     key: 'customModelOverride',
     // S1.9: legacy. Superseded by `customModelsByProvider`; kept only so the
     // migration has something to read. Not shown in generic listings.

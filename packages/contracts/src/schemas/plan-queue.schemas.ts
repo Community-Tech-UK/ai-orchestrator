@@ -283,7 +283,9 @@ export type PlanQueueControlArgs = z.infer<typeof PlanQueueControlArgsSchema>;
 /** The canonical verification checklist from AGENTS.md. */
 const CANONICAL_GATES = [
   'npx tsc --noEmit',
-  'npx tsc --noEmit -p tsconfig.spec.json',
+  // The npm script (not bare `tsc --noEmit -p tsconfig.spec.json`) raises the V8
+  // heap ceiling; the spec program peaks near 5 GiB and OOMs at Node's default.
+  'npm run typecheck:spec',
   'npm run lint',
   'npm run check:ts-max-loc',
   'npm run build:main',
@@ -297,7 +299,7 @@ export const DEFAULT_PLAN_QUEUE_CONFIG: Record<PlanQueueKind, PlanQueueRunConfig
     verificationSlots: 2,
     maxRounds: 3,
     maxLoadAverage: 30,
-    postMergeGate: ['npx tsc --noEmit', 'npx tsc --noEmit -p tsconfig.spec.json'],
+    postMergeGate: ['npx tsc --noEmit', 'npm run typecheck:spec'],
     verifierGates: CANONICAL_GATES,
     relaxSettings: false,
   },
@@ -306,7 +308,7 @@ export const DEFAULT_PLAN_QUEUE_CONFIG: Record<PlanQueueKind, PlanQueueRunConfig
     verificationSlots: 1,
     maxRounds: 3,
     maxLoadAverage: 30,
-    postMergeGate: ['npx tsc --noEmit', 'npx tsc --noEmit -p tsconfig.spec.json'],
+    postMergeGate: ['npx tsc --noEmit', 'npm run typecheck:spec'],
     // A livetest mostly edits documents; the verifier judges evidence, and any
     // tracked code change still has to type-check and lint.
     verifierGates: ['npx tsc --noEmit', 'npm run lint'],

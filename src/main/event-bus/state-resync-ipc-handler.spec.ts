@@ -90,4 +90,23 @@ describe('registerStateResyncHandler', () => {
     expect(response).toBe(authorizationFailure);
     expect(getAllInstancesForIpc).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['a non-object payload', 'resync-please'],
+    ['a non-string auth token', { ipcAuthToken: 42 }],
+  ])('rejects %s without building a snapshot', async (_label, payload) => {
+    const getAllInstancesForIpc = vi.fn(() => [{ id: 'inst-1' }]);
+    registerStateResyncHandler({
+      instanceManager: { getAllInstancesForIpc },
+      ensureAuthorized: () => null,
+      getSeq: () => 0,
+    });
+
+    const response = await handlers.get(IPC_CHANNELS.STATE_RESYNC)!({}, payload);
+
+    expect(response.success).toBe(false);
+    expect(response.error?.code).toBe('STATE_RESYNC_FAILED');
+    expect(response.error?.message).toContain('IPC validation failed for STATE_RESYNC');
+    expect(getAllInstancesForIpc).not.toHaveBeenCalled();
+  });
 });

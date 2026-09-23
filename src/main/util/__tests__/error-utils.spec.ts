@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { shortErrorStack, isAbortError, isFsInaccessible, truncateErrorForContext, TelemetrySafeError, createSafeErrorInfo } from '../error-utils';
+import { shortErrorStack, isAbortError, isFsInaccessible, truncateErrorForContext, TelemetrySafeError, createSafeErrorInfo, errorIdentityOf, errorFromIdentity } from '../error-utils';
+import { ChildErrorClassifier } from '../../orchestration/child-error-classifier';
 
 describe('shortErrorStack', () => {
   it('returns string representation of non-Error values', () => {
@@ -252,5 +253,32 @@ describe('createSafeErrorInfo', () => {
     const info = createSafeErrorInfo(err, 'EMPTY');
     expect(info.code).toBe('EMPTY');
     expect(info.message).toBe('Unknown error');
+  });
+});
+
+describe('errorIdentityOf / errorFromIdentity', () => {
+  it('records only abort and inaccessible-path identities', () => {
+    const abort = new Error('stopped');
+    abort.name = 'AbortError';
+    const missing = Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' });
+    const provider = Object.assign(new Error('boom'), { name: 'Provider_alias', code: 'PROVIDER_alias' });
+
+    expect(errorIdentityOf(abort)).toEqual({ errorName: 'AbortError' });
+    expect(errorIdentityOf(missing)).toEqual({ errorCode: 'ENOENT' });
+    expect(errorIdentityOf(provider)).toBeUndefined();
+    expect(errorIdentityOf('text')).toBeUndefined();
+  });
+
+  it('rebuilds an error the classifier recognises after the original is gone', () => {
+    ChildErrorClassifier._resetForTesting();
+    const classifier = ChildErrorClassifier.getInstance();
+
+    const missing = errorFromIdentity('spawn claude ENOENT', { errorCode: 'ENOENT' });
+    const aborted = errorFromIdentity('stopped', { errorName: 'AbortError' });
+
+    expect(classifier.classify('spawn claude ENOENT', 'error', false, missing).category).toBe('filesystem');
+    expect(classifier.classify('stopped', 'error', false, aborted).category).toBe('abort');
+    expect(errorFromIdentity('x', undefined)).toBeUndefined();
+    expect(errorFromIdentity('x', { unrelated: true })).toBeUndefined();
   });
 });

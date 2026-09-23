@@ -8,6 +8,11 @@ import {
 import { BrowserExtensionDeliveryHealthTracker } from './browser-extension-delivery-health';
 // Type-only in the other direction, so this is not a runtime cycle.
 import { isDeliveredCommandTimeout } from './browser-extension-command-failures';
+import { stampSecretObservationProtection } from './browser-secret-observation-stamp';
+import {
+  SecretObservationTracker,
+  type BrowserExtensionSecretObservationState,
+} from './browser-extension-secret-observation-state';
 
 export type BrowserExtensionCommandName =
   | 'open_tab'
@@ -174,6 +179,7 @@ export class BrowserExtensionCommandStore {
     BrowserExtensionCommandQueueKey,
     PreDeliveryOutcome[]
   >();
+  private readonly secretObservation = new SecretObservationTracker();
   /** Answered/unanswered history for commands that WERE delivered. */
   private readonly deliveryHealth =
     new BrowserExtensionDeliveryHealthTracker<BrowserExtensionCommandQueueKey>();
@@ -194,11 +200,15 @@ export class BrowserExtensionCommandStore {
     const timeoutMs = request.timeoutMs ?? 30_000;
     const executionTimeoutMs = request.executionTimeoutMs ?? timeoutMs;
     const undeliveredWaitMs = request.undeliveredWaitMs ?? timeoutMs;
+    // Every command carries the operator's protection setting, whichever
+    // caller sent it. The extension applies it before running anything, so an
+    // open_tab or inventory refresh clears stale taints as well as a read does.
+    const payload = stampSecretObservationProtection(request.payload);
     const command: BrowserExtensionQueuedCommand = {
       id: randomUUID(),
       command: request.command,
       ...(request.target ? { target: request.target } : {}),
-      ...(request.payload ? { payload: request.payload } : {}),
+      ...(payload ? { payload } : {}),
       ...(Number.isFinite(executionTimeoutMs) && executionTimeoutMs > 0
         ? { timeoutMs: Math.floor(executionTimeoutMs) }
         : {}),
@@ -311,10 +321,20 @@ export class BrowserExtensionCommandStore {
       ...(answered ? {} : { reason: (result.error || 'browser_extension_command_timeout').slice(0, 120) }),
     });
     if (result.ok) {
+      if (pending.command.command === 'report_inventory') {
+        this.secretObservation.record(pending.queueKey, result.result);
+      }
       pending.resolve(result.result);
       return;
     }
     pending.reject(new Error(result.error || 'browser_extension_command_failed'));
+  }
+
+  /** Last protection state the extension on this queue reported, if any. */
+  describeSecretObservation(
+    queueKey: BrowserExtensionCommandQueueKey,
+  ): BrowserExtensionSecretObservationState | undefined {
+    return this.secretObservation.get(queueKey);
   }
 
   /**

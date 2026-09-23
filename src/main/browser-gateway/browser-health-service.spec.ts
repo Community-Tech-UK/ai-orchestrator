@@ -335,6 +335,7 @@ describe('BrowserHealthService', () => {
         serviceWorkerRestarts: 0,
         registration: undefined,
         lastRegistrationCheckAt: undefined,
+        secretObservation: { reported: false },
       }],
     });
   });
@@ -969,6 +970,74 @@ describe('BrowserHealthService', () => {
       nodes: [],
     });
     expect(report.warnings.some((warning) => warning.includes('worker agent'))).toBe(false);
+  });
+
+  it('reports each extension protection state and warns when it disagrees with the setting', async () => {
+    const reports: Record<string, { protectionEnabled: boolean; taintedOriginCount: number; taintedTabCount: number; observedAt: number }> = {
+      'node:node-1': { protectionEnabled: true, taintedOriginCount: 2, taintedTabCount: 1, observedAt: 9_000 },
+      local: { protectionEnabled: false, taintedOriginCount: 0, taintedTabCount: 0, observedAt: 9_500 },
+    };
+    const service = new BrowserHealthService({
+      profileStore: { listProfiles: () => [] },
+      rawAutomationHealthService: {
+        diagnose: async () => ({
+          status: 'missing',
+          checkedAt: 1,
+          runtimeAvailable: false,
+          nodeAvailable: true,
+          inAppConfigured: false,
+          inAppConnected: false,
+          inAppToolCount: 0,
+          configDetected: false,
+          configSources: [],
+          browserToolNames: [],
+          warnings: [],
+          suggestions: [],
+          surface: 'legacy_raw_browser_automation',
+        }),
+      },
+      workerNodeRegistry: { getAllNodes: () => [makeRelayNode('node-1', 'windows-pc'), makeRelayNode('node-2', 'laptop')] },
+      extensionCommandStore: {
+        describeQueue: (queueKey: string) => ({ queueKey, queuedCount: 0, inFlightCount: 0, waitingPollerCount: 0 }),
+        describePreDeliveryCapability: () => ({ commandsDeliverable: true }),
+        describeDeliveryHealth: () => ({ commandsAnswered: true, consecutiveUnanswered: 0 }),
+        describeSecretObservation: (queueKey: string) => reports[queueKey],
+      },
+      secretObservationSettingEnabled: () => false,
+      mcpBridgeAvailable: () => true,
+      chromeRuntimeDetector: async () => ({ available: true, command: 'chrome' }),
+      now: () => 10_000,
+    });
+
+    const report = await service.diagnose();
+
+    expect(report.secretObservationProtection).toEqual({
+      settingEnabled: false,
+      local: {
+        reported: true,
+        protectionEnabled: false,
+        taintedOriginCount: 0,
+        taintedTabCount: 0,
+        observedAt: 9_500,
+        ageMs: 500,
+      },
+    });
+    const byName = Object.fromEntries(
+      report.remoteExtensions.nodes.map((node) => [node.nodeName, node.secretObservation]),
+    );
+    expect(byName['windows-pc']).toEqual({
+      reported: true,
+      protectionEnabled: true,
+      taintedOriginCount: 2,
+      taintedTabCount: 1,
+      observedAt: 9_000,
+      ageMs: 1_000,
+    });
+    expect(byName['laptop']).toEqual({ reported: false });
+    const protectionWarnings = report.warnings.filter((warning) => warning.includes('secret observation'));
+    expect(protectionWarnings).toHaveLength(1);
+    expect(protectionWarnings[0]).toContain('windows-pc');
+    expect(protectionWarnings[0]).toContain('2 tainted origin(s)');
   });
 
   it('reports renderer health per target and aggregates without tainting unrelated targets', async () => {

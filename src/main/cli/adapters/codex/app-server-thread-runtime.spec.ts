@@ -196,6 +196,38 @@ describe('CodexAppServerThreadRuntime', () => {
     await capture;
   });
 
+  // W6: a steer can lose the race with the turn finishing. The provider then
+  // rejects it, which is not a failure of the steer mechanism.
+  it('treats a steer rejected after the turn finished as no live turn, but rethrows other rejections', async () => {
+    const runtime = new CodexAppServerThreadRuntime();
+    const client = new FakeClient();
+    runtime.attach(client, { threadId: 'thread-1', resumeCursor: cursor, resumeProof });
+    let steerRejection = 'provider unavailable';
+    client.request.mockImplementation(async (method: string) => {
+      if (method === 'turn/start') return { turn: { id: 'turn-1', status: 'inProgress' } };
+      if (method === 'turn/steer') {
+        if (steerRejection === 'turn finished') {
+          client.emit('turn/completed', {
+            threadId: 'thread-1',
+            turn: { id: 'turn-1', status: 'completed' },
+          });
+        }
+        throw new Error(steerRejection);
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const capture = runtime.captureTurn(captureOptions());
+    client.emit('turn/started', { threadId: 'thread-1', turn: { id: 'turn-1' } });
+    expect(runtime.getSnapshot().turnPhase).toBe('running');
+
+    await expect(runtime.steerActiveTurn()).rejects.toThrow('provider unavailable');
+
+    steerRejection = 'turn finished';
+    await expect(runtime.steerActiveTurn()).resolves.toBe(false);
+    await capture;
+  });
+
   it('releases only its scoped turn subscriber and preserves the connection observer', async () => {
     const runtime = new CodexAppServerThreadRuntime();
     const client = new FakeClient();

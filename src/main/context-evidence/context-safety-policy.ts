@@ -212,6 +212,40 @@ export class ContextSafetyPolicy {
 
     switch (crossed.trigger) {
       case 'known-occupancy-80':
+        // At an idle boundary there is no turn to interrupt. Choosing the
+        // interrupt path here made the provider answer "no active turn", the
+        // recovery paused, and the thread was never compacted.
+        if (input.atSafeProviderBoundary) {
+          return canUseObservedNativeCompaction(input.capabilities)
+            ? this.decision(
+                input,
+                'native-compaction',
+                crossed.trigger,
+                'IDLE_NATIVE_COMPACTION_REQUIRED',
+                nextState,
+                occupancyPercent,
+              )
+            : this.pause(
+                input,
+                crossed.trigger,
+                'OBSERVED_COMPACTION_UNAVAILABLE',
+                nextState,
+                occupancyPercent,
+              );
+        }
+        // Each recovery compacts, which advances the epoch and clears the
+        // emitted triggers. Without this ceiling, one user send could loop
+        // interrupt -> compact -> continue for as long as the model kept
+        // refilling the window.
+        if (recoveryCeilingReached(input.state)) {
+          return this.pause(
+            input,
+            crossed.trigger,
+            'RECOVERY_CEILING_REACHED',
+            nextState,
+            occupancyPercent,
+          );
+        }
         if (canRunControlledContinuation(input.capabilities)) {
           return {
             ...this.decision(
@@ -219,7 +253,7 @@ export class ContextSafetyPolicy {
               'controlled-interrupt',
               crossed.trigger,
               'CONTROLLED_CONTINUATION_REQUIRED',
-              nextState,
+              withRecoveryCounted(nextState),
               occupancyPercent,
             ),
             requiredSequence: [
@@ -311,10 +345,7 @@ export class ContextSafetyPolicy {
       && !input.state.emittedTriggers.includes('cumulative-4x')
     ) {
       const nextState = this.withEmitted(input.state, ['cumulative-2x', 'cumulative-4x']);
-      if (
-        input.state.recoveriesInEpoch >= MAX_RECOVERIES
-        || input.state.recoveriesInOuterSend >= MAX_RECOVERIES
-      ) {
+      if (recoveryCeilingReached(input.state)) {
         return this.pause(
           input,
           'cumulative-4x',
@@ -335,11 +366,7 @@ export class ContextSafetyPolicy {
         'controlled-recovery',
         'cumulative-4x',
         'CUMULATIVE_RECOVERY_REQUIRED',
-        {
-          ...nextState,
-          recoveriesInEpoch: nextState.recoveriesInEpoch + 1,
-          recoveriesInOuterSend: nextState.recoveriesInOuterSend + 1,
-        },
+        withRecoveryCounted(nextState),
       );
     }
 
@@ -417,6 +444,20 @@ export class ContextSafetyPolicy {
 function knownOccupancyPercent(sample: ContextPressureSample): number | undefined {
   if (sample.occupancy.status !== 'known' || sample.occupancy.total <= 0) return undefined;
   return (sample.occupancy.used / sample.occupancy.total) * 100;
+}
+
+/** Shared by the 80% and cumulative-4x recoveries: both interrupt, compact and continue. */
+function recoveryCeilingReached(state: ContextSafetyPolicyState): boolean {
+  return state.recoveriesInEpoch >= MAX_RECOVERIES
+    || state.recoveriesInOuterSend >= MAX_RECOVERIES;
+}
+
+function withRecoveryCounted(state: ContextSafetyPolicyState): ContextSafetyPolicyState {
+  return {
+    ...state,
+    recoveriesInEpoch: state.recoveriesInEpoch + 1,
+    recoveriesInOuterSend: state.recoveriesInOuterSend + 1,
+  };
 }
 
 function canUseObservedNativeCompaction(capabilities: ProviderContextCapabilities): boolean {

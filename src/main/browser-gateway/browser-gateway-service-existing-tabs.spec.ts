@@ -1534,6 +1534,56 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     );
   });
 
+  it('never answers a requireLive snapshot from the cached copy', async () => {
+    const sendCommand = vi.fn(async () => {
+      throw new Error('browser_extension_command_timeout');
+    });
+    const existingTab = {
+      profileId: 'existing-tab:n.node-1:7:42',
+      targetId: 'existing-tab:n.node-1:7:42:target',
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+      tabId: 42,
+      windowId: 7,
+      title: 'Portal login',
+      url: 'https://example.com/login',
+      origin: 'https://example.com',
+      text: 'cached pre-login text',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'example.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+    });
+    const request = {
+      instanceId: 'instance-1',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+    };
+
+    // Ordinary reads keep the fast cached fallback.
+    const cached = await service.snapshot(request);
+    expect(cached).toMatchObject({ outcome: 'succeeded', data: { text: 'cached pre-login text' } });
+    expect(sendCommand).toHaveBeenLastCalledWith(expect.objectContaining({ executionTimeoutMs: 1_000 }));
+
+    const live = await service.snapshot({ ...request, requireLive: true });
+    expect(live).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: expect.stringMatching(/^browser_extension_command_timeout/),
+      data: null,
+    });
+    expect(sendCommand).toHaveBeenLastCalledWith(
+      expect.objectContaining({ command: 'snapshot', executionTimeoutMs: 30_000 }),
+    );
+  });
+
   it('preserves remote node metadata when refreshing a remote existing-tab snapshot', async () => {
     const sendCommand = vi.fn(async () => ({
       tabId: 42,

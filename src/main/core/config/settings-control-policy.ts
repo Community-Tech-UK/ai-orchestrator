@@ -342,6 +342,7 @@ export const SETTINGS_TOOL_POLICY = {
   autoTerminateOnMemoryPressure: open(z.boolean()),
   persistSessionContent: open(z.boolean()),
   cumulativeTokenCompactionTrigger: open(numberSettingSchema('cumulativeTokenCompactionTrigger')),
+  compactionDecisionLogEnabled: open(z.boolean()),
   outputStyle: open(outputStyleSchema),
   fontSize: open(numberSettingSchema('fontSize')),
   displayDensity: open(displayDensitySchema),

@@ -16,7 +16,6 @@ export const ORCHESTRATION_FEATURES = {
   DEBATE_SYSTEM: true,
   VERIFICATION_SYSTEM: true,
   CONSENSUS_SYSTEM: true,
-  PARALLEL_WORKTREE: true,
 
   // New infrastructure features
   LAYERED_COMPACTION: true,

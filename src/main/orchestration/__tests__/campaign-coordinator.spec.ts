@@ -417,7 +417,10 @@ describe('CampaignCoordinator — start/persistence semantics', () => {
   it('runs isolated campaign nodes in prepared worktree paths', async () => {
     const coordinator = new CampaignCoordinator();
     const loopStarter = vi.fn().mockResolvedValue({ id: 'loop-isolated-a' });
-    const worktreePreparer = vi.fn().mockResolvedValue('/repo/.worktrees/campaign-node-a');
+    const worktreePreparer = vi.fn().mockResolvedValue({
+      worktreePath: '/repo/.worktrees/campaign-node-a',
+      worktreeSessionId: 'wt-campaign-node-a',
+    });
     const internals = coordinator as unknown as {
       setLoopStarterForTesting: (starter: typeof loopStarter) => void;
       setWorktreePreparerForTesting: (preparer: typeof worktreePreparer) => void;
@@ -441,7 +444,11 @@ describe('CampaignCoordinator — start/persistence semantics', () => {
     );
     expect(loopStarter).toHaveBeenCalledWith(
       'campaign:camp-worktree:a',
-      expect.objectContaining({ workspaceCwd: '/repo/.worktrees/campaign-node-a' }),
+      expect.objectContaining({
+        workspaceCwd: '/repo',
+        executionCwd: '/repo/.worktrees/campaign-node-a',
+        isolateLoopWorkspaces: true,
+      }),
     );
     expect(run.nodeRuns.get('a')?.loopRunId).toBe('loop-isolated-a');
   });

@@ -16,7 +16,9 @@ import type {
   DebateResult, DebateRoundType, DebateSessionRound, DebateStats, DebateStatus,
 } from '../../shared/types/debate.types';
 import { getLogger } from '../logging/logger';
-import { calculateConsensus, analyzeConsensus, buildEphemeralSynthesisDebate, getFinalSubstantiveRound } from './debate-consensus';
+import {
+  calculateConsensus, analyzeConsensus, buildEphemeralSynthesisDebate, critiquesShowNoMaterialIssues, getFinalSubstantiveRound,
+} from './debate-consensus';
 import { estimateTokens } from '../rlm/token-counter';
 import { handleCoordinatorError } from './utils/coordinator-error-handler';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
@@ -208,6 +210,17 @@ export class DebateCoordinator extends EventEmitter {
             : `[User Intervention]:\n${interventionContext}`;
           this.interventions.set(debate.id, []);
           this.emit('debate:intervention-applied', { debateId: debate.id });
+        }
+
+        // Opt-in: nothing material to defend (and no fresh user intervention) -> synthesize now.
+        // The convergence check above cannot catch this: critique rounds copy prior positions.
+        if (debate.config.skipDefenseOnLowSeverityCritiques && !pendingInterventions?.length
+          && critiquesShowNoMaterialIssues(lastRound)) {
+          logger.info('Skipping defense round: critiques raised no material issues', {
+            debateId: debate.id, round: debate.currentRound,
+          });
+          this.emit('debate:defense-skipped', { debateId: debate.id, instanceId: debate.instanceId, round: debate.currentRound });
+          break;
         }
 
         // Alternate between critique and defense rounds

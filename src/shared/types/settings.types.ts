@@ -132,6 +132,8 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * 0 = disabled.
    */
   cumulativeTokenCompactionTrigger: number;
+  /** Restart-with-summary compaction also records and injects a heuristic decision log. Default off. */
+  compactionDecisionLogEnabled: boolean;
   /**
    * Output style (claude2_todo #29): appends a communication-style directive to
    * the system prompt of new root sessions ('default' = no change). Built-ins:

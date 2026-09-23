@@ -49,6 +49,8 @@ const ALLOWED_TOOLS = [
   'browser.claim_campaign_lease',
   'browser.check_session',
   'browser.remember_login_fingerprint',
+  'browser.list_login_recipes',
+  'browser.forget_login_recipe',
 ];
 
 describe('browser-mcp-tools', () => {

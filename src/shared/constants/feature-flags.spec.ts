@@ -15,7 +15,6 @@ describe('Feature Flags', () => {
     expect(ORCHESTRATION_FEATURES.DEBATE_SYSTEM).toBeDefined();
     expect(ORCHESTRATION_FEATURES.VERIFICATION_SYSTEM).toBeDefined();
     expect(ORCHESTRATION_FEATURES.CONSENSUS_SYSTEM).toBeDefined();
-    expect(ORCHESTRATION_FEATURES.PARALLEL_WORKTREE).toBeDefined();
   });
 
   it('has new infrastructure flags', () => {

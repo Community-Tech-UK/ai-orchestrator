@@ -11,11 +11,19 @@
  */
 
 import { ipcMain } from 'electron';
+import { z } from 'zod';
 import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
 import { getLogger } from '../logging/logger';
+import { validatedHandler } from '../ipc/validated-handler';
 import { getActionCircuitBreaker } from './action-circuit-breaker';
 
 const logger = getLogger('CircuitBreakerReg');
+
+/** Omitted fields keep their current value; 0 disables that dimension. */
+const CircuitBreakerSetPayloadSchema = z.object({
+  maxActions: z.number().finite().min(0).max(1_000_000).optional(),
+  maxCostUsd: z.number().finite().min(0).max(1_000_000).optional(),
+}).optional();
 
 /** Minimal surface of the cost tracker this wiring depends on. */
 export interface CostTrackerLike {
@@ -37,14 +45,18 @@ export function registerCircuitBreaker(deps: { costTracker: CostTrackerLike }): 
 
   ipcMain.handle(
     IPC_CHANNELS.CIRCUIT_BREAKER_SET,
-    async (_event, payload: unknown): Promise<IpcResponse> => {
-      const p = (payload ?? {}) as { maxActions?: unknown; maxCostUsd?: unknown };
-      breaker.configure({
-        maxActions: typeof p.maxActions === 'number' ? p.maxActions : undefined,
-        maxCostUsd: typeof p.maxCostUsd === 'number' ? p.maxCostUsd : undefined,
-      });
-      logger.info('Circuit breaker configured', { config: breaker.getConfig() });
-      return { success: true, data: breaker.getConfig() };
-    },
+    validatedHandler(
+      IPC_CHANNELS.CIRCUIT_BREAKER_SET,
+      CircuitBreakerSetPayloadSchema,
+      async (payload): Promise<IpcResponse> => {
+        breaker.configure({
+          maxActions: payload?.maxActions,
+          maxCostUsd: payload?.maxCostUsd,
+        });
+        logger.info('Circuit breaker configured', { config: breaker.getConfig() });
+        return { success: true, data: breaker.getConfig() };
+      },
+      { errorCode: 'CIRCUIT_BREAKER_SET_FAILED' },
+    ),
   );
 }

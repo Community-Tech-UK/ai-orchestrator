@@ -4,7 +4,6 @@ import type { BrowserExtensionCommandName,
   BrowserExtensionCommandStore } from './browser-extension-command-store';
 import { BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
   browserExtensionQueueKeyForNode } from './browser-extension-command-store';
-import { stampSecretObservationProtection } from './browser-secret-observation-protection';
 import type { BrowserExtensionTabAttachOptions,
   BrowserExtensionTabStore } from './browser-extension-tab-store';
 import type { BrowserGrantStore } from './browser-grant-store';
@@ -310,7 +309,6 @@ export class BrowserExistingTabOperations {
     const undeliveredWaitMs = timeoutMs >= 5_000
       ? Math.max(callerTimeoutMs, BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS)
       : callerTimeoutMs;
-    const stampedPayload = stampSecretObservationProtection(payload);
     return this.deps.extensionCommandStore.sendCommand({
       ...(attachment.nodeId ? { queueKey: browserExtensionQueueKeyForNode(attachment.nodeId) } : {}),
       command,
@@ -320,7 +318,7 @@ export class BrowserExistingTabOperations {
         tabId: attachment.tabId,
         windowId: attachment.windowId,
       },
-      ...(stampedPayload ? { payload: stampedPayload } : {}),
+      ...(payload ? { payload } : {}),
       timeoutMs: callerTimeoutMs,
       executionTimeoutMs: timeoutMs,
       undeliveredWaitMs,
@@ -397,7 +395,7 @@ export class BrowserExistingTabOperations {
   }
 
   async snapshot(
-    request: BrowserGatewayTargetRequest,
+    request: BrowserGatewayTargetRequest & { requireLive?: boolean },
     attachment: BrowserExistingTabAttachment,
   ): Promise<BrowserGatewayResult<(BrowserSnapshot & { text: string; textUnavailableReason?: string }) | null>> {
     const originDecision = isOriginAllowed(attachment.url, attachment.allowedOrigins);
@@ -418,12 +416,15 @@ export class BrowserExistingTabOperations {
       });
     }
 
+    // A short probe backed by the cached copy keeps ordinary reads fast. A
+    // caller that must judge the page as it is NOW opts out of the cache.
+    const useCachedFallback = Boolean(attachment.text) && request.requireLive !== true;
     try {
       const result = await this.sendCommand(
         attachment,
         'snapshot',
         undefined,
-        attachment.text ? 1_000 : 30_000,
+        useCachedFallback ? 1_000 : 30_000,
       );
       const tab = extractTabPayload(result);
       const fresh = this.attachRefreshedTab({
@@ -468,7 +469,7 @@ export class BrowserExistingTabOperations {
         },
       });
     } catch (error) {
-      if (!attachment.text) {
+      if (!useCachedFallback) {
         const message = error instanceof Error ? error.message : String(error);
         return this.deps.result({
           context: request,
@@ -480,7 +481,9 @@ export class BrowserExistingTabOperations {
           decision: 'allowed',
           outcome: 'failed',
           reason: message,
-          summary: `Existing-tab live snapshot failed and no cached snapshot is available: ${message}`,
+          summary: request.requireLive === true
+            ? `Existing-tab live snapshot failed (a live read was required): ${message}`
+            : `Existing-tab live snapshot failed and no cached snapshot is available: ${message}`,
           origin: originDecision.origin,
           url: attachment.url,
           data: null,

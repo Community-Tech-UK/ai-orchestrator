@@ -13,7 +13,7 @@ const logger = getLogger('WorkerNodeRegistry');
 export class WorkerNodeRegistry extends EventEmitter {
   private nodes = new Map<string, WorkerNodeInfo>();
 
-  private static instance: WorkerNodeRegistry;
+  private static instance: WorkerNodeRegistry | null = null;
 
   static getInstance(): WorkerNodeRegistry {
     if (!this.instance) {

@@ -81,14 +81,11 @@ import { InlineEditController } from './output-stream-inline-edit-controller';
 import { TranscriptVirtualizerController } from './transcript-virtualizer-controller';
 import type { RenderSegment } from './transcript-virtualizer-math';
 import { runRestoreFrame } from './restore-frame';
-
-interface OlderMessagesLoadResult {
-  prependedCount: number;
-  hasMore: boolean;
-  totalStored: number;
-}
-
-interface OlderMessagesProbeResult { hasMore: boolean; totalStored: number }
+import {
+  OutputStreamHistoryController,
+  type OlderMessagesLoadResult,
+  type OlderMessagesProbeResult,
+} from './output-stream-history-controller';
 
 @Component({
   selector: 'app-output-stream',
@@ -210,11 +207,11 @@ export class OutputStreamComponent {
     },
   });
 
-  // Load-more state
-  protected isLoadingOlder = signal(false);
-  protected hasOlderMessages = signal(false); // Hidden until backend confirms stored transcript exists
-  private olderMessagesHiddenCount = signal(0);
-  private oldestChunkLoaded = new Map<string, number>(); // instanceId -> oldest chunk index
+  // Load-more state — owned by the history controller (declared below, after
+  // the render window it drives); these read through to it lazily.
+  protected isLoadingOlder = computed(() => this.history.isLoadingOlder());
+  protected hasOlderMessages = computed(() => this.history.hasOlderMessages());
+  private olderMessagesHiddenCount = computed(() => this.history.hiddenMessageCount());
 
   /**
    * Running tally of every user prompt in the session, keyed by message id:
@@ -343,6 +340,19 @@ export class OutputStreamComponent {
   );
   protected readonly windowedItems = this.renderWindow.items;
   protected readonly hiddenRenderedCount = this.renderWindow.hiddenCount;
+  protected readonly history = new OutputStreamHistoryController({
+    getInstanceId: () => this.instanceId(),
+    getMessages: () => this.messages(),
+    getOlderMessagesLoader: () => this.olderMessagesLoader(),
+    getOlderMessagesProbe: () => this.olderMessagesProbe(),
+    getViewportElement: () => this.getViewportElement(),
+    hiddenRenderedCount: () => this.hiddenRenderedCount(),
+    windowedItems: () => this.windowedItems(),
+    growRenderWindow: (instanceId, by) => this.renderWindow.grow(instanceId, by),
+    resetRenderWindow: (instanceId) => this.renderWindow.reset(instanceId),
+    instanceIpc: this.instanceIpc,
+    outputStore: this.outputStore,
+  });
   /** rAF-scoped guard so a burst of scroll events expands one step, not many. */
   private isExpandingRenderWindow = false;
 
@@ -416,9 +426,6 @@ export class OutputStreamComponent {
       this.userScrolledUpRef.value = false;
       this.showScrollToTop.set(false);
       this.showScrollToBottom.set(false);
-      this.hasOlderMessages.set(false);
-      this.isLoadingOlder.set(false);
-      this.olderMessagesHiddenCount.set(0);
       // Close any open inline message editor — it belonged to the old session.
       this.inlineEdit.reset();
       this.lastAutoScrollInstanceId = currentInstanceId;
@@ -477,10 +484,10 @@ export class OutputStreamComponent {
         stopSwitch();
       });
 
+      // Release the outgoing session's loaded history, reset load-more state,
+      // and probe whether stored transcript exists for this instance.
+      this.history.switchInstance(this.previousInstanceId, currentInstanceId);
       this.previousInstanceId = currentInstanceId;
-
-      // Probe backend to check if stored transcript exists for this instance
-      this.probeForOlderMessages(currentInstanceId);
 
       // Fetch the session's full user-prompt tally for the jump rail.
       this.sessionPromptMap.set(new Map<string, UserPromptRef>());
@@ -650,6 +657,7 @@ export class OutputStreamComponent {
         this.copyResetTimer = null;
       }
       this.transcriptFind.destroy();
+      this.history.destroy();
     });
   }
 
@@ -719,6 +727,7 @@ export class OutputStreamComponent {
       () => this.isLoadingOlder(),
       () => this.hiddenRenderedCount() > 0 || this.hasOlderMessages(),
       () => { this.revealOlderContent(); },
+      () => this.history.onViewportAtBottom(),
     );
   }
 
@@ -749,90 +758,9 @@ export class OutputStreamComponent {
     });
   }
 
-  /**
-   * Load older messages from disk storage
-   */
-  async loadOlderMessages(): Promise<void> {
-    if (this.isLoadingOlder() || !this.hasOlderMessages()) return;
-
-    const instanceId = this.instanceId();
-    this.isLoadingOlder.set(true);
-
-    try {
-      const customLoader = this.olderMessagesLoader();
-      if (customLoader) {
-        const viewport = this.getViewportElement();
-        const scrollHeightBefore = viewport?.scrollHeight ?? 0;
-        const data = await customLoader();
-        if (data) {
-          this.hasOlderMessages.set(data.hasMore);
-          this.olderMessagesHiddenCount.set(Math.max(0, data.totalStored - this.messages().length));
-          if (data.prependedCount > 0) {
-            // Newly loaded pages must actually enter the DOM: grow the render
-            // window by at least the prepended item count.
-            this.renderWindow.grow(instanceId, data.prependedCount);
-            runRestoreFrame(() => {
-              if (viewport) {
-                const scrollHeightAfter = viewport.scrollHeight;
-                viewport.scrollTop += scrollHeightAfter - scrollHeightBefore;
-              }
-            });
-          }
-        } else {
-          this.hasOlderMessages.set(false);
-        }
-        return;
-      }
-
-      const beforeChunk = this.oldestChunkLoaded.get(instanceId);
-      const result = await this.instanceIpc.loadOlderMessages(instanceId, {
-        beforeChunk,
-        limit: 200,
-      });
-
-      if (result.success && result.data) {
-        const data = result.data as {
-          messages: OutputMessage[];
-          hasMore: boolean;
-          oldestChunkLoaded?: number;
-          totalStored: number;
-        };
-
-        if (data.messages.length > 0) {
-          const existingIds = new Set(this.messages().map(message => message.id));
-          const prependedCount = data.messages.filter(message => !existingIds.has(message.id)).length;
-
-          // Remember scroll height before prepend to maintain position
-          const viewport = this.getViewportElement();
-          const scrollHeightBefore = viewport?.scrollHeight ?? 0;
-
-          this.outputStore.prependOlderMessages(instanceId, data.messages);
-          if (prependedCount > 0) {
-            this.olderMessagesHiddenCount.update((count) => Math.max(0, count - prependedCount));
-            this.renderWindow.grow(instanceId, prependedCount);
-          }
-
-          // After Angular renders the new items, restore scroll position
-          runRestoreFrame(() => {
-            if (viewport) {
-              const scrollHeightAfter = viewport.scrollHeight;
-              viewport.scrollTop += scrollHeightAfter - scrollHeightBefore;
-            }
-          });
-        }
-
-        this.hasOlderMessages.set(data.hasMore);
-        if (data.oldestChunkLoaded !== undefined) {
-          this.oldestChunkLoaded.set(instanceId, data.oldestChunkLoaded);
-        }
-      } else {
-        this.hasOlderMessages.set(false);
-      }
-    } catch (error) {
-      console.error('[OutputStream] Failed to load older messages:', error);
-    } finally {
-      this.isLoadingOlder.set(false);
-    }
+  /** Load the next older page from disk storage (or the host's loader). */
+  loadOlderMessages(): Promise<void> {
+    return this.history.loadOlderMessages();
   }
 
   /**
@@ -858,47 +786,34 @@ export class OutputStreamComponent {
     }
   }
 
-  /**
-   * Lightweight probe: check if stored transcript exists without loading messages.
-   * Sets hasOlderMessages based on backend response.
-   */
-  private async probeForOlderMessages(instanceId: string): Promise<void> {
-    try {
-      const customProbe = this.olderMessagesProbe();
-      if (customProbe) {
-        const data = await customProbe();
-        if (data) {
-          this.hasOlderMessages.set(data.hasMore);
-          this.olderMessagesHiddenCount.set(Math.max(0, data.totalStored - this.messages().length));
-        }
-        return;
-      }
-      const result = await this.instanceIpc.loadOlderMessages(instanceId, {
-        beforeChunk: undefined,
-        limit: 1,
-      });
-      if (result.success && result.data) {
-        const data = result.data as { messages: OutputMessage[]; hasMore: boolean; totalStored: number };
-        this.hasOlderMessages.set(data.totalStored > 0);
-        this.olderMessagesHiddenCount.set(data.totalStored);
-      }
-    } catch {
-      // Silently fail — button stays hidden
-    }
-  }
-
-  /**
-   * Scroll to the top of the container
-   */
   toggleToolCalls(): void {
     const current = this.effectiveShowToolCalls();
     this.showToolCalls.set(!current);
   }
 
-  scrollToTop(): void {
+  /**
+   * Scroll to the start of the session, not merely the top of what happens
+   * to be loaded: reveal every hidden item and stored page first.
+   */
+  async scrollToTop(): Promise<void> {
     const el = this.getViewportElement();
     if (!el) return;
-    this.scrollService.scrollToTop(el, { showScrollToTop: this.showScrollToTop });
+    if (this.hiddenRenderedCount() === 0 && !this.hasOlderMessages()) {
+      this.scrollService.scrollToTop(el, { showScrollToTop: this.showScrollToTop });
+      return;
+    }
+    const instanceId = this.instanceId();
+    this.userScrolledUpRef.value = true;
+    this.showScrollToTop.set(false);
+    await this.history.revealAll();
+    if (this.instanceId() !== instanceId) return;
+    runRestoreFrame(() => {
+      const viewport = this.getViewportElement();
+      if (viewport && this.instanceId() === instanceId) {
+        viewport.scrollTo({ top: 0 });
+        this.showScrollToTop.set(false);
+      }
+    });
   }
 
   /**

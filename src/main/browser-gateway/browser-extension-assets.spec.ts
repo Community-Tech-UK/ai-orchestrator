@@ -161,6 +161,7 @@ describe('browser extension assets', () => {
     '0.2.31': '2c02d9f41579',
     '0.2.32': '41673e46a456',
     '0.2.33': '9204adfa79c2',
+    '0.2.34': '8393decbfb72',
   };
 
   it('ships each background bundle under its own manifest version', () => {

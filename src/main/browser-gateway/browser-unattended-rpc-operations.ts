@@ -6,17 +6,17 @@ import {
   BrowserListCampaignsRequestSchema,
   BrowserCheckSessionRequestSchema,
   BrowserRememberLoginFingerprintRequestSchema,
+  BrowserListLoginRecipesRequestSchema,
+  BrowserForgetLoginRecipeRequestSchema,
 } from '@contracts/schemas/browser-unattended';
 import type { BrowserGatewayService } from './browser-gateway-service';
 import {
   getBrowserCampaignService,
   getBrowserEscalationService,
+  getBrowserLoginRecipeStore,
 } from './browser-unattended-services';
 import { getBrowserCampaignRuntime } from './browser-campaign-runtime';
-import {
-  checkSessionOperation,
-  getLoginFingerprintStore,
-} from './browser-session-relogin';
+import { checkSessionOperation } from './browser-session-relogin';
 
 /**
  * Agent-facing (MCP) runtime surfaces for the unattended layer, dispatched by
@@ -31,6 +31,8 @@ import {
  *    inside a user-approved, in-budget campaign.
  *  - browser.check_session / browser.remember_login_fingerprint — session
  *    sentinel: record a login fingerprint, evaluate + bounded auto re-login.
+ *  - browser.list_login_recipes / browser.forget_login_recipe: inspect the
+ *    persisted recipes (with the last check outcome) and drop a stale one.
  */
 
 export const UNATTENDED_RPC_METHODS = [
@@ -41,6 +43,8 @@ export const UNATTENDED_RPC_METHODS = [
   'browser.claim_campaign_lease',
   'browser.check_session',
   'browser.remember_login_fingerprint',
+  'browser.list_login_recipes',
+  'browser.forget_login_recipe',
 ] as const;
 
 export type UnattendedRpcMethod = typeof UNATTENDED_RPC_METHODS[number];
@@ -119,14 +123,31 @@ export async function handleUnattendedRpcMethod(
     }
     case 'browser.remember_login_fingerprint': {
       const request = parse(BrowserRememberLoginFingerprintRequestSchema, payload);
-      getLoginFingerprintStore().remember({
+      const recipe = getBrowserLoginRecipeStore().remember({
         profileId: request.profileId,
-        origin: new URL(request.origin).origin,
+        origin: request.origin,
         loginUrl: request.loginUrl,
         loggedInMarkers: request.loggedInMarkers,
         ...(request.relogin ? { relogin: request.relogin } : {}),
       });
-      return { remembered: true };
+      return {
+        remembered: true,
+        scope: recipe.scope,
+        scopeKind: recipe.scopeKind,
+        origin: recipe.origin,
+        hasRelogin: recipe.relogin !== undefined,
+      };
+    }
+    case 'browser.list_login_recipes': {
+      const request = parse(BrowserListLoginRecipesRequestSchema.optional().default({}), payload);
+      return getBrowserLoginRecipeStore().list({
+        ...(request.profileId ? { profileId: request.profileId } : {}),
+        ...(request.origin ? { origin: request.origin } : {}),
+      });
+    }
+    case 'browser.forget_login_recipe': {
+      const request = parse(BrowserForgetLoginRecipeRequestSchema, payload);
+      return { forgotten: getBrowserLoginRecipeStore().forget(request.scope, request.origin) };
     }
     case 'browser.check_session': {
       const request = parse(BrowserCheckSessionRequestSchema, payload);
@@ -139,7 +160,7 @@ export async function handleUnattendedRpcMethod(
       }
       return checkSessionOperation(
         {
-          fingerprints: getLoginFingerprintStore(),
+          fingerprints: getBrowserLoginRecipeStore(),
           escalations: getBrowserEscalationService(),
           snapshot: (req) => service.snapshot!(req),
           queryElements: (req) => service.queryElements!(req),

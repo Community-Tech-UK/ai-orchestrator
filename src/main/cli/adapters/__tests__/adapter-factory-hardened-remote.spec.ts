@@ -24,4 +24,20 @@ describe('adapter factory — hardened remote execution', () => {
       },
     )).toThrow('Hardened mode is not supported for remote instances');
   });
+
+  it('refuses a hardened local Codex session up front (LT-028)', () => {
+    setInstanceHardened('hardened-codex', true);
+
+    expect(() => createCliAdapter('codex', {
+      instanceId: 'hardened-codex',
+      workingDirectory: '/tmp',
+    })).toThrow('Hardened mode is not supported for Codex');
+  });
+
+  it('still builds a non-hardened local Codex adapter', () => {
+    expect(() => createCliAdapter('codex', {
+      instanceId: 'plain-codex',
+      workingDirectory: '/tmp',
+    })).not.toThrow();
+  });
 });

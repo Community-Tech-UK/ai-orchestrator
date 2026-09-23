@@ -32,6 +32,12 @@ import {
   type BrowserExtensionCommandStore,
   type BrowserExtensionQueueSnapshot,
 } from './browser-extension-command-store';
+import { isSecretObservationProtectionEnabled } from './browser-secret-observation-stamp';
+import {
+  secretObservationWarnings,
+  toSecretObservationHealth,
+  type BrowserSecretObservationHealth,
+} from './browser-secret-observation-health';
 import {
   getBrowserReliabilityEvents,
   type BrowserReliabilityEvent,
@@ -114,6 +120,15 @@ export interface BrowserGatewayHealthReport {
    * "no local extension" is a stated fact rather than an absent field.
    */
   localExtension: BrowserLocalExtensionHealth;
+  /**
+   * Secret observation protection: the operator setting the coordinator stamps
+   * onto every command, and what the local extension last reported. Remote
+   * nodes carry their own report under remoteExtensions.nodes[].secretObservation.
+   */
+  secretObservationProtection: {
+    settingEnabled: boolean;
+    local: BrowserSecretObservationHealth;
+  };
   managedProfiles: {
     total: number;
     running: number;
@@ -175,6 +190,8 @@ export interface BrowserGatewayHealthReport {
       serviceWorkerRestarts: number;
       registration?: 'ok' | 'repaired' | 'contested' | 'error';
       lastRegistrationCheckAt?: number;
+      /** This node's extension protection state and taint count. */
+      secretObservation: BrowserSecretObservationHealth;
     }[];
   };
   providerCapabilities: BrowserGatewayProviderCapabilities;
@@ -218,7 +235,9 @@ export interface BrowserHealthServiceOptions {
   extensionCommandStore?: Pick<
     BrowserExtensionCommandStore,
     'describeQueue' | 'describePreDeliveryCapability' | 'describeDeliveryHealth'
-  >;
+  > & Partial<Pick<BrowserExtensionCommandStore, 'describeSecretObservation'>>;
+  /** The operator's browserSecretObservationProtectionEnabled value. */
+  secretObservationSettingEnabled?: () => boolean;
   toolRevealStore?: Pick<BrowserToolRevealStore, 'listSurfaces'>;
   extensionTabStore?: Pick<BrowserExtensionTabStore, 'listTabs'>;
   targetRegistry?: Pick<BrowserTargetRegistry, 'listTargets'>;
@@ -300,7 +319,8 @@ export class BrowserHealthService {
   private readonly extensionCommandStore: Pick<
     BrowserExtensionCommandStore,
     'describeQueue' | 'describePreDeliveryCapability' | 'describeDeliveryHealth'
-  >;
+  > & Partial<Pick<BrowserExtensionCommandStore, 'describeSecretObservation'>>;
+  private readonly secretObservationSettingEnabled: () => boolean;
   private readonly toolRevealStore: Pick<BrowserToolRevealStore, 'listSurfaces'>;
   private readonly extensionTabStore: Pick<BrowserExtensionTabStore, 'listTabs'>;
   private readonly targetRegistry: Pick<BrowserTargetRegistry, 'listTargets'>;
@@ -323,6 +343,8 @@ export class BrowserHealthService {
     this.connectionFlapState = options.connectionFlapState
       ?? ((nodeId) => getWorkerNodeConnectionServer().describeFlapState(nodeId));
     this.extensionCommandStore = options.extensionCommandStore ?? getBrowserExtensionCommandStore();
+    this.secretObservationSettingEnabled = options.secretObservationSettingEnabled
+      ?? isSecretObservationProtectionEnabled;
     this.toolRevealStore = options.toolRevealStore ?? getBrowserToolRevealStore();
     this.extensionTabStore = options.extensionTabStore ?? getBrowserExtensionTabStore();
     this.targetRegistry = options.targetRegistry ?? getBrowserTargetRegistry();
@@ -462,6 +484,15 @@ export class BrowserHealthService {
       );
     }
 
+    const secretObservationProtection = {
+      settingEnabled: this.secretObservationSettingEnabled(),
+      local: this.secretObservationHealth('local'),
+    };
+    warnings.push(...secretObservationWarnings(secretObservationProtection.settingEnabled, [
+      { name: 'this computer', report: secretObservationProtection.local },
+      ...remoteExtensions.nodes.map((node) => ({ name: node.nodeName, report: node.secretObservation })),
+    ]));
+
     const remoteCommandsDeliverable = remoteExtensions.nodes.every(
       (node) => node.commandsDeliverable,
     );
@@ -472,6 +503,7 @@ export class BrowserHealthService {
       checkedAt: this.now(),
       chromeRuntime,
       localExtension,
+      secretObservationProtection,
       managedProfiles: {
         total: profiles.length,
         running,
@@ -633,6 +665,7 @@ export class BrowserHealthService {
           ),
           registration: relay?.registration,
           lastRegistrationCheckAt: relay?.lastRegistrationCheckAt,
+          secretObservation: this.secretObservationHealth(browserExtensionQueueKeyForNode(node.id)),
         };
       });
     return {
@@ -643,6 +676,13 @@ export class BrowserHealthService {
       silent: nodes.filter((node) => node.silent).length,
       nodes,
     };
+  }
+
+  private secretObservationHealth(queueKey: string): BrowserSecretObservationHealth {
+    return toSecretObservationHealth(
+      this.extensionCommandStore.describeSecretObservation?.(queueKey),
+      this.now(),
+    );
   }
 
   private preDeliveryCapability(nodeId: string): {

@@ -72,6 +72,7 @@ import {
 import { probeVersionStatus } from './cli-status-probe';
 import { structuredOutputContent, type StructuredOutputCandidate } from './structured-output-content';
 import { parseClaudeStreamError } from './claude-stream-error';
+import { applyClaudeResultUsage, type ClaudeResultUsageHost } from './claude-result-usage';
 import {
   processClaudeAssistantMessage,
   type ClaudeAssistantMessageHost,
@@ -167,6 +168,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private residentTurnRawOutput = '';
   /** LT-047 double-fire guard: true while sendMessage()'s own close handler owns completeResponse(). */
   private awaitingOneShotCompletion = false;
+  /** LT-105: an `error` completed the current resident turn, so its trailing `result` must not. */
+  private residentTurnCompletedByError = false;
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
     // Build env passthrough for the spawned CLI process. The PreToolUse hook
@@ -1017,7 +1020,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       throw new Error('Process already spawned');
     }
 
-    this.residentTurnRawOutput = ''; // LT-047: fresh process, no in-flight turn
+    this.resetResidentTurn(); // LT-047: fresh process, no in-flight turn
     await this.primeCliVersion();
     this.lastResumeAttemptResult = this.shouldUseNativeResume()
       ? {
@@ -1105,7 +1108,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       finalMessage = buildMessageWithFiles(message, processed);
     }
 
-    this.residentTurnRawOutput = ''; // LT-047: new turn, drop stale prior output
+    this.resetResidentTurn(); // LT-047: new turn, drop stale prior output
     await this.formatter.sendMessage(
       finalMessage,
       imageAttachments.length > 0 ? imageAttachments : undefined
@@ -1174,7 +1177,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       jsonMessageLength: jsonMessage.length,
       contentPreview: summarizeClaudeLogText(text),
     });
-    this.residentTurnRawOutput = ''; // LT-047: see sendInputImpl
+    this.resetResidentTurn(); // LT-047: see sendInputImpl
     await this.formatter.sendRaw(jsonMessage);
 
     this.emit('status', 'busy' as InstanceStatus);
@@ -1191,6 +1194,19 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   // ============ Private Helper Methods ============
+
+  private resetResidentTurn(): void {
+    this.residentTurnRawOutput = '';
+    this.residentTurnCompletedByError = false;
+  }
+
+  /** LT-047/LT-105: complete the current resident turn once, from its accumulated NDJSON. */
+  private completeResidentTurn(metadata?: Record<string, unknown>): void {
+    const response = this.parseOutput(this.residentTurnRawOutput);
+    this.residentTurnRawOutput = '';
+    if (metadata) response.metadata = { ...response.metadata, ...metadata };
+    this.completeResponse(response);
+  }
 
   private emitClassifiedError(error: Error): void {
     getErrorRecoveryManager().classifyError(error, 'claude-cli-adapter');
@@ -1292,6 +1308,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     const raw = toRawCliPayload(message, message.type);
     switch (message.type) {
       case 'assistant': {
+        // LT-105: assistant output after an errored turn means the CLI started a new turn itself.
+        this.residentTurnCompletedByError = false;
         processClaudeAssistantMessage(this as unknown as ClaudeAssistantMessageHost, message, raw);
         break;
       }
@@ -1695,71 +1713,15 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           break;
         }
 
-        // Update context window size from modelUsage (the contextWindow field
-        // is per-model, not cumulative — safe to use).
-        // IMPORTANT: modelUsage.inputTokens / .outputTokens are SESSION-LEVEL
-        // CUMULATIVE totals, NOT current context occupancy. Using them for
-        // context % would massively overcount after multi-call agentic turns.
-        if (resultMsg.modelUsage) {
-          const modelKeys = Object.keys(resultMsg.modelUsage);
-          if (modelKeys.length > 0) {
-            const modelData = resultMsg.modelUsage[modelKeys[0]];
-            // Use CLI-reported context window but never go below our known floor.
-            const cliReported = modelData.contextWindow || this.lastKnownContextWindow;
-            const contextWindow = Math.max(cliReported, this.contextWindowFloor);
-            this.lastKnownContextWindow = contextWindow;
-          }
-        }
-
-        // Emit context usage only if we didn't already get accurate per-call
-        // usage from assistant or system messages this turn.
-        if (!this.hasPerCallUsageThisTurn) {
-          const contextWindow = this.lastKnownContextWindow;
-          let totalUsedTokens = 0;
-
-          if (resultMsg.modelUsage) {
-            // Fallback: use cumulative modelUsage when no per-call data available.
-            // This overcounts but is better than showing 0%.
-            const modelKeys = Object.keys(resultMsg.modelUsage);
-            if (modelKeys.length > 0) {
-              const modelData = resultMsg.modelUsage[modelKeys[0]];
-              totalUsedTokens =
-                (modelData.inputTokens || 0) +
-                (modelData.outputTokens || 0);
-            }
-          } else if (resultMsg.usage) {
-            totalUsedTokens =
-              (resultMsg.usage.input_tokens || 0) +
-              (resultMsg.usage.cache_creation_input_tokens || 0) +
-              (resultMsg.usage.cache_read_input_tokens || 0) +
-              (resultMsg.usage.output_tokens || 0);
-          }
-
-          if (totalUsedTokens > 0) {
-            const percentage = (totalUsedTokens / contextWindow) * 100;
-            const costEstimate = resultMsg.total_cost_usd || 0;
-
-            this.emit('context', {
-              used: totalUsedTokens,
-              total: contextWindow,
-              percentage: Math.min(percentage, 100),
-              costEstimate
-            });
-          }
-        } else if (resultMsg.total_cost_usd !== undefined) {
-          // We have accurate per-call usage but result has the session cost.
-          // Emit a cost-only event using the 'cost' channel so downstream
-          // can merge it without overwriting accurate token values.
-          this.emit('cost', { costEstimate: resultMsg.total_cost_usd });
-        }
+        applyClaudeResultUsage(this as unknown as ClaudeResultUsageHost, resultMsg);
 
         // LT-047: resident turns never reached completeResponse()/'complete', starving
         // cost/telemetry/hooks. Reuse parseOutput() as one-shot mode does; guarded below.
-        if (!this.awaitingOneShotCompletion) {
-          const response = this.parseOutput(this.residentTurnRawOutput);
-          this.residentTurnRawOutput = '';
-          this.completeResponse(response);
+        // LT-105: skip when an `error` already completed this turn.
+        if (!this.awaitingOneShotCompletion && !this.residentTurnCompletedByError) {
+          this.completeResidentTurn();
         }
+        this.residentTurnCompletedByError = false;
 
         // Reset for next turn
         this.hasPerCallUsageThisTurn = false;
@@ -1770,6 +1732,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       case 'error': {
         const streamError = parseClaudeStreamError(raw);
         this.emit('error', streamError?.error ?? new Error('Claude CLI reported an unknown error'));
+        // LT-105: a resident turn that fails mid-stream still owes exactly one completion.
+        if (!this.awaitingOneShotCompletion && !this.residentTurnCompletedByError) {
+          this.completeResidentTurn({ turnErrored: true });
+          this.residentTurnCompletedByError = true;
+        }
         break;
       }
 

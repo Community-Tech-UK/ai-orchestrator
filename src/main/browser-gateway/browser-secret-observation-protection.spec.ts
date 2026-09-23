@@ -73,4 +73,75 @@ describe('browser secret observation protection stamp', () => {
       result: { reported: true },
     });
   });
+
+  it('stamps every command the store queues, whichever caller sent it', async () => {
+    bindSecretObservationProtectionReader(() => false);
+    const store = new BrowserExtensionCommandStore();
+    // open_tab and the list_targets inventory refresh used to go out unstamped.
+    const openTab = store.sendCommand({
+      queueKey: 'node:windows-pc',
+      command: 'open_tab',
+      payload: { url: 'https://example.test/' },
+      timeoutMs: 1_000,
+    });
+    const refresh = store.sendCommand({ queueKey: 'node:windows-pc', command: 'report_inventory', timeoutMs: 1_000 });
+    const first = await store.pollCommand('node:windows-pc', { timeoutMs: 50 });
+    const second = await store.pollCommand('node:windows-pc', { timeoutMs: 50 });
+    expect(first).toMatchObject({
+      command: 'open_tab',
+      payload: { url: 'https://example.test/', secretObservationProtectionEnabled: false },
+    });
+    expect(second).toMatchObject({
+      command: 'report_inventory',
+      payload: { secretObservationProtectionEnabled: false },
+    });
+    store.resolveCommand({ commandId: first!.id, queueKey: 'node:windows-pc', ok: true, result: {} });
+    store.resolveCommand({ commandId: second!.id, queueKey: 'node:windows-pc', ok: true, result: {} });
+    await Promise.all([openTab, refresh]);
+  });
+
+  it('records the protection state an extension reports from report_inventory', async () => {
+    const store = new BrowserExtensionCommandStore();
+    expect(store.describeSecretObservation('node:windows-pc')).toBeUndefined();
+
+    const refresh = store.sendCommand({ queueKey: 'node:windows-pc', command: 'report_inventory', timeoutMs: 1_000 });
+    const command = await store.pollCommand('node:windows-pc', { timeoutMs: 50 });
+    store.resolveCommand({
+      commandId: command!.id,
+      queueKey: 'node:windows-pc',
+      ok: true,
+      result: {
+        reported: true,
+        secretObservation: { protectionEnabled: true, taintedOriginCount: 2, taintedTabCount: 3 },
+      },
+    });
+    await refresh;
+
+    expect(store.describeSecretObservation('node:windows-pc')).toMatchObject({
+      protectionEnabled: true,
+      taintedOriginCount: 2,
+      taintedTabCount: 3,
+      observedAt: expect.any(Number),
+    });
+    expect(store.describeSecretObservation('local')).toBeUndefined();
+  });
+
+  it('ignores a malformed or missing report and keeps the last good one', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const send = async (result: unknown) => {
+      const pending = store.sendCommand({ command: 'report_inventory', timeoutMs: 1_000 });
+      const command = await store.pollCommand({ timeoutMs: 50 });
+      store.resolveCommand({ commandId: command!.id, ok: true, result });
+      await pending;
+    };
+    await send({ reported: true, secretObservation: { protectionEnabled: false, taintedOriginCount: 0, taintedTabCount: 0 } });
+    await send({ reported: true });
+    await send({ reported: true, secretObservation: { protectionEnabled: 'no', taintedOriginCount: -1, taintedTabCount: 0 } });
+
+    expect(store.describeSecretObservation('local')).toMatchObject({
+      protectionEnabled: false,
+      taintedOriginCount: 0,
+    });
+  });
 });
+

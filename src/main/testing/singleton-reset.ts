@@ -85,7 +85,6 @@ import { ConsensusCoordinator } from '../orchestration/consensus-coordinator';
 import { ConfidenceAnalyzer } from '../orchestration/confidence-analyzer';
 import { ChildResultStorage } from '../orchestration/child-result-storage';
 import { VerificationCache } from '../orchestration/verification-cache';
-import { ParallelWorktreeCoordinator } from '../orchestration/parallel-worktree-coordinator';
 import { CliVerificationCoordinator } from '../orchestration/cli-verification-extension';
 import { ConsensusManager } from '../orchestration/consensus';
 import { Supervisor } from '../orchestration/supervisor';
@@ -128,7 +127,6 @@ import { EmbeddingService as RLMEmbeddingService } from '../rlm/embedding-servic
 import { EpisodicRLMStore } from '../rlm/episodic-rlm-store';
 import { HyDEService } from '../rlm/hyde-service';
 import { LLMService } from '../rlm/llm-service';
-import { SmartCompactionManager } from '../rlm/smart-compaction';
 import { SummarizationWorker } from '../rlm/summarization-worker';
 import { TokenCounter } from '../rlm/token-counter';
 import { VectorStore } from '../rlm/vector-store';
@@ -200,7 +198,6 @@ export async function resetAllSingletonsForTesting(): Promise<void> {
   ConfidenceAnalyzer._resetForTesting();
   ChildResultStorage._resetForTesting();
   VerificationCache._resetForTesting();
-  ParallelWorktreeCoordinator._resetForTesting();
   CliVerificationCoordinator._resetForTesting();
   ConsensusManager._resetForTesting();
   Supervisor._resetForTesting();
@@ -243,7 +240,6 @@ export async function resetAllSingletonsForTesting(): Promise<void> {
   EpisodicRLMStore._resetForTesting();
   HyDEService._resetForTesting();
   LLMService._resetForTesting();
-  SmartCompactionManager._resetForTesting();
   SummarizationWorker._resetForTesting();
   TokenCounter._resetForTesting();
   VectorStore._resetForTesting();

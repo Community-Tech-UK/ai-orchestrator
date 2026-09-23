@@ -46,6 +46,29 @@ export interface VerificationConfig {
   maxDebateRounds?: number; // For debate strategy
   healthConfig?: AgentHealthConfig; // Agent health and retry configuration
   useSemanticClustering?: boolean; // Use embedding-based clustering (default: true)
+  earlyTermination?: EarlyTerminationConfig; // Opt-in early consensus (CLI verification only)
+}
+
+/**
+ * Early consensus ("AgentDropout"): stop still-running agents once the answers
+ * already received agree. Opt-in; honoured by CliVerificationCoordinator.
+ */
+export interface EarlyTerminationConfig {
+  enabled: boolean;
+  /** Mean pairwise similarity at or above which the panel counts as agreed (default 0.8). */
+  consensusThreshold: number;
+  /** Successful answers needed before consensus is considered (default 2, never below 2). */
+  minAgentsForConsensus: number;
+}
+
+/** Recorded on a VerificationResult when early consensus terminated agents. */
+export interface EarlyConsensusSummary {
+  similarity: number;
+  threshold: number;
+  /** Answers compared when consensus was reached. */
+  consideredAgents: number;
+  /** Agent indexes that were terminated; their responses carry an error. */
+  droppedAgentIndexes: number[];
 }
 
 export interface VerificationRequest {
@@ -167,6 +190,7 @@ export interface VerificationResult {
 
   // Audit trail
   debateRounds?: DebateSessionRound[];
+  earlyConsensus?: EarlyConsensusSummary;
 }
 
 // ──────────────────────────────────────────────────────────────────────────

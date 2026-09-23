@@ -163,6 +163,15 @@ export const CliDetectOnePayloadSchema = z.object({
   command: z.string().min(1).max(200),
 });
 
+/** `cli:check` (legacy) sends the CLI type as a bare string. */
+export const CliCheckPayloadSchema = z.string().min(1).max(64);
+
+/** `cli:scan-all-installs` sends `{ type }`; a bare string is still accepted. */
+export const CliScanAllInstallsPayloadSchema = z.union([
+  z.string().min(1).max(64),
+  z.object({ type: z.string().min(1).max(64) }),
+]);
+
 export const CliTestConnectionPayloadSchema = z.object({
   command: z.string().min(1).max(200),
 });
@@ -240,6 +249,11 @@ export const CliVerificationStartPayloadSchema = z.object({
     maxDebateRounds: z.number().int().min(1).max(10).optional(),
     fallbackToApi: z.boolean().optional(),
     mixedMode: z.boolean().optional(),
+    earlyTermination: z.object({
+      enabled: z.boolean(),
+      consensusThreshold: z.number().min(0).max(1),
+      minAgentsForConsensus: z.number().int().min(2).max(20),
+    }).optional(),
   }),
 });
 

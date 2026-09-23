@@ -8,7 +8,7 @@
  *   - duplicate context events do not produce info logs
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { randomUUID } from 'node:crypto';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
@@ -81,6 +81,9 @@ const mockSendToRenderer = vi.fn();
 const mockWindowManager = { sendToRenderer: mockSendToRenderer } as unknown as import('../window-manager').WindowManager;
 
 import { setupInstanceEventForwarding } from './instance-event-forwarding';
+import { createStatelessExecProviderPredicate } from './stateless-exec-provider';
+import type { CliAdapter } from '../cli/adapters/adapter-factory.types';
+import { _resetContextEngineForTesting, setContextEngine } from '../context/context-engine';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { mapAdapterRuntimeEvent } from '../providers/adapter-runtime-event-bridge';
 import { buildObservedCompactionEvents } from '../cli/adapters/codex/compaction-presentation';
@@ -874,5 +877,73 @@ describe('context:warning guard for aggregate-only providers (LT-034)', () => {
     emitUsage({ used: 195_000, total: 200_000, percentage: 97.5 });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(warnings()).toHaveLength(0);
+  });
+});
+
+/**
+ * W6 item 1. Every other test here stubs `isStatelessExecProvider` to false.
+ * The real predicate used to skip every `codex` instance by provider name, so
+ * mid-turn Codex app-server occupancy never reached the context engine (and
+ * therefore never reached ContextSafetyPolicy). These tests wire in the real
+ * predicate, built the same way `src/main/index.ts` builds it.
+ */
+describe('mid-turn context usage forwarding with the real stateless-exec predicate', () => {
+  const usage = { used: 82_000, total: 100_000, percentage: 82, occupancyReported: true };
+
+  const forward = (instance: Record<string, unknown>, adapter: unknown) => {
+    const onContextUpdate = vi.fn();
+    setContextEngine({
+      onContextUpdate,
+      ingest: vi.fn(),
+      assemble: vi.fn(),
+      afterTurn: vi.fn(),
+      compactInstance: vi.fn(),
+      getStatus: vi.fn(),
+      cleanupInstance: vi.fn(),
+    } as unknown as Parameters<typeof setContextEngine>[0]);
+    const mgr = Object.assign(buildManager({ 'inst-1': instance }), {
+      getAdapter: (id: string) => (id === 'inst-1' ? adapter : undefined),
+    });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: createStatelessExecProviderPredicate(
+        (id) => mgr.getAdapter(id) as CliAdapter | undefined,
+      ),
+      getNodeLatencyForInstance: () => undefined,
+    });
+    // Mid-turn: the instance is busy, so this is not the afterTurn path.
+    mgr.emit('instance:batch-update', {
+      updates: [{ instanceId: 'inst-1', status: 'busy', contextUsage: usage }],
+    });
+    return onContextUpdate;
+  };
+
+  const codexAdapter = (occupancyReporting: string) => ({
+    getContextCapabilities: () => ({ occupancyReporting }),
+  });
+
+  afterEach(() => {
+    _resetContextEngineForTesting();
+  });
+
+  it('forwards mid-turn usage for a Codex instance running in app-server mode', () => {
+    const onContextUpdate = forward({ id: 'inst-1', provider: 'codex' }, codexAdapter('current'));
+    expect(onContextUpdate).toHaveBeenCalledWith('inst-1', usage);
+  });
+
+  it('still skips mid-turn usage for a Codex instance in exec mode', () => {
+    const onContextUpdate = forward({ id: 'inst-1', provider: 'codex' }, codexAdapter('aggregate-only'));
+    expect(onContextUpdate).not.toHaveBeenCalled();
+  });
+
+  it('skips Codex when the adapter is missing or exposes no context capabilities', () => {
+    expect(forward({ id: 'inst-1', provider: 'codex' }, undefined)).not.toHaveBeenCalled();
+    expect(forward({ id: 'inst-1', provider: 'codex' }, {})).not.toHaveBeenCalled();
+  });
+
+  it('keeps Gemini skipped and Claude forwarded regardless of adapter capabilities', () => {
+    expect(forward({ id: 'inst-1', provider: 'gemini' }, codexAdapter('current'))).not.toHaveBeenCalled();
+    expect(forward({ id: 'inst-1', provider: 'claude' }, undefined)).toHaveBeenCalledOnce();
   });
 });

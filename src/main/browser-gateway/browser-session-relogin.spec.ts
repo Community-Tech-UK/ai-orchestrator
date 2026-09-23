@@ -1,10 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserGatewayResult } from '@contracts/types/browser';
-import {
-  LoginFingerprintStore,
-  checkSessionOperation,
-  type CheckSessionDeps,
-} from './browser-session-relogin';
+import { checkSessionOperation, type CheckSessionDeps } from './browser-session-relogin';
+import { InMemoryLoginRecipeStore, LoginFingerprintStore } from './browser-login-recipe-store';
 
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
@@ -26,8 +23,7 @@ interface PageState {
   hasPasswordField: boolean;
 }
 
-function makeDeps(page: PageState) {
-  const fingerprints = new LoginFingerprintStore();
+function makeDeps(page: PageState, fingerprints = new LoginFingerprintStore(new InMemoryLoginRecipeStore())) {
   const escalations = { raise: vi.fn(() => ({ escalationId: 'esc-1', parked: true as const })) };
   const deps: CheckSessionDeps = {
     fingerprints,
@@ -39,6 +35,7 @@ function makeDeps(page: PageState) {
     navigate: vi.fn(async () => allowed(null)),
     fillCredential: vi.fn(async () => allowed({ filled: 1 })),
     click: vi.fn(async () => allowed(null)),
+    sleep: vi.fn(async () => undefined),
   };
   return { deps, fingerprints, escalations, page };
 }
@@ -202,5 +199,189 @@ describe('checkSessionOperation', () => {
       fields: [{ selector: '#code', kind: 'email_code' }],
     });
     expect(harness.deps.click).toHaveBeenCalledTimes(2);
+  });
+
+  it('always asks for a live snapshot, never the cached copy', async () => {
+    await checkSessionOperation(harness.deps, REQUEST);
+
+    expect(harness.deps.snapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ requireLive: true }),
+    );
+  });
+
+  it('returns the live page and records the outcome on the recipe', async () => {
+    harness.page.hasPasswordField = true;
+    let probes = 0;
+    harness.deps.snapshot = vi.fn(async () => {
+      probes += 1;
+      return probes >= 2
+        ? allowed({ title: 'Portal home', url: `${ORIGIN}/dashboard`, text: 'Log out' })
+        : allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Sign in' });
+    });
+    harness.deps.queryElements = vi.fn(async () =>
+      allowed(probes >= 2 ? [] : [{ selector: '#pw', tagName: 'input', inputType: 'password' }]),
+    );
+
+    const outcome = await checkSessionOperation(harness.deps, REQUEST);
+
+    expect(outcome).toMatchObject({
+      state: 'logged_in',
+      reloggedIn: true,
+      recipeScope: 'profile-1',
+      page: { title: 'Portal home', url: `${ORIGIN}/dashboard` },
+    });
+    expect(harness.fingerprints.list()[0]).toMatchObject({
+      lastOutcome: 'relogged_in',
+      lastOutcomeReason: 'fingerprint_matched',
+    });
+  });
+
+  it('waits for a slow post-login redirect before judging the page', async () => {
+    harness.page.hasPasswordField = true;
+    let probes = 0;
+    harness.deps.snapshot = vi.fn(async () => {
+      probes += 1;
+      // Probe 1 is the initial check; probes 2-3 are the login form still
+      // showing while the submit redirects.
+      return probes >= 4
+        ? allowed({ title: 'Portal', url: `${ORIGIN}/dashboard`, text: 'Log out' })
+        : allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Sign in' });
+    });
+    harness.deps.queryElements = vi.fn(async () =>
+      allowed(probes >= 4 ? [] : [{ selector: '#pw', tagName: 'input', inputType: 'password' }]),
+    );
+
+    const outcome = await checkSessionOperation(harness.deps, REQUEST);
+
+    expect(outcome).toMatchObject({ state: 'logged_in', reloggedIn: true, attempts: 1 });
+    expect(harness.deps.sleep).toHaveBeenCalledTimes(2);
+    expect(harness.deps.fillCredential).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not treat an unreadable page after sign-in as success', async () => {
+    harness.page.hasPasswordField = true;
+    let probes = 0;
+    harness.deps.snapshot = vi.fn(async () => {
+      probes += 1;
+      return probes >= 2
+        ? allowed({
+            title: 'Secret-filled tab',
+            url: `${ORIGIN}/`,
+            text: '',
+            textUnavailableReason: 'browser_secret_observation_blocked_for_tainted_origin',
+          })
+        : allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Sign in' });
+    });
+    harness.deps.queryElements = vi.fn(async () =>
+      allowed([{ selector: '#pw', tagName: 'input', inputType: 'password' }]),
+    );
+
+    const outcome = await checkSessionOperation(harness.deps, REQUEST);
+
+    expect(outcome).toMatchObject({
+      state: 'unknown',
+      reason: 'observation_blocked_after_relogin',
+      reloggedIn: false,
+      attempts: 1,
+      parked: true,
+    });
+    // Refilling a credential into a page we still cannot read helps nothing.
+    expect(harness.deps.fillCredential).toHaveBeenCalledTimes(1);
+    expect(harness.escalations.raise).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'relogin_failed', reason: expect.stringMatching(/cannot be read/) }),
+    );
+    expect(harness.fingerprints.list()[0]?.lastOutcome).toBe('observation_blocked');
+  });
+
+  it('does not treat a failed snapshot after sign-in as success', async () => {
+    harness.page.hasPasswordField = true;
+    let probes = 0;
+    harness.deps.snapshot = vi.fn(async () => {
+      probes += 1;
+      return probes >= 2
+        ? ({ decision: 'allowed', outcome: 'failed', reason: 'browser_extension_command_timeout', data: null } as never)
+        : allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Sign in' });
+    });
+
+    const outcome = await checkSessionOperation(harness.deps, REQUEST);
+
+    expect(outcome).toMatchObject({
+      state: 'logged_out',
+      reason: 'relogin_failed',
+      reloggedIn: false,
+      attempts: 2,
+    });
+    expect(harness.fingerprints.list()[0]).toMatchObject({
+      lastOutcome: 'relogin_failed',
+      lastOutcomeReason: 'browser_extension_command_timeout',
+    });
+  });
+
+  it('fails the attempt with the reason when the submit click is refused', async () => {
+    harness.page.hasPasswordField = true;
+    harness.deps.click = vi.fn(async () =>
+      ({ decision: 'requires_user', outcome: 'not_run', reason: 'grant_required', data: null }) as never,
+    );
+
+    const outcome = await checkSessionOperation(harness.deps, REQUEST);
+
+    expect(outcome).toMatchObject({ reason: 'relogin_failed', attempts: 2 });
+    expect(harness.deps.snapshot).toHaveBeenCalledTimes(1);
+    expect(harness.escalations.raise).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: expect.stringContaining('relogin submit refused: grant_required') }),
+    );
+  });
+
+  it('parks with no_relogin_recipe when only markers were remembered', async () => {
+    const markersOnly = makeDeps({ url: `${ORIGIN}/login`, text: 'Sign in', hasPasswordField: true });
+    markersOnly.fingerprints.remember({
+      profileId: 'profile-1',
+      origin: ORIGIN,
+      loginUrl: `${ORIGIN}/login`,
+      loggedInMarkers: ['log out'],
+    });
+
+    const outcome = await checkSessionOperation(markersOnly.deps, REQUEST);
+
+    expect(outcome).toMatchObject({ state: 'logged_out', reason: 'no_relogin_recipe', parked: true });
+    expect(markersOnly.deps.navigate).not.toHaveBeenCalled();
+  });
+
+  it('finds a recipe recorded on one shared tab from a different tab on the same node', async () => {
+    const records = new InMemoryLoginRecipeStore();
+    const fingerprints = new LoginFingerprintStore(records);
+    fingerprints.remember({
+      profileId: 'existing-tab:n.node-a:10:11',
+      origin: ORIGIN,
+      loginUrl: `${ORIGIN}/login`,
+      loggedInMarkers: ['log out'],
+      relogin: { vaultItemRef: 'item-1', passwordSelector: '#pass', submitSelector: '#submit' },
+    });
+    let probes = 0;
+    const next = makeDeps({ url: `${ORIGIN}/login`, text: 'Sign in', hasPasswordField: true }, fingerprints);
+    next.deps.snapshot = vi.fn(async () => {
+      probes += 1;
+      return probes >= 2
+        ? allowed({ title: 'Portal', url: `${ORIGIN}/dashboard`, text: 'Log out' })
+        : allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Sign in' });
+    });
+    next.deps.queryElements = vi.fn(async () =>
+      allowed(probes >= 2 ? [] : [{ selector: '#pw', tagName: 'input', inputType: 'password' }]),
+    );
+
+    const outcome = await checkSessionOperation(next.deps, {
+      profileId: 'existing-tab:n.node-a:10:99',
+      targetId: 'existing-tab:n.node-a:10:99:target',
+    });
+
+    expect(outcome).toMatchObject({ reloggedIn: true, recipeScope: 'node-a' });
+
+    // A different computer is a different scope.
+    const other = makeDeps({ url: `${ORIGIN}/login`, text: 'Sign in', hasPasswordField: true }, fingerprints);
+    const otherOutcome = await checkSessionOperation(other.deps, {
+      profileId: 'existing-tab:n.node-b:10:11',
+      targetId: 'existing-tab:n.node-b:10:11:target',
+    });
+    expect(otherOutcome).toMatchObject({ reason: 'no_fingerprint', recipeScope: 'node-b' });
   });
 });

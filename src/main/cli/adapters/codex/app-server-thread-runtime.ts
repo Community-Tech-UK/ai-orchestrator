@@ -152,24 +152,32 @@ export class CodexAppServerThreadRuntime {
 
   /**
    * Same-turn steer: stop broad research, synthesize, and archive.
-   * Returns false when no live turn exists to steer.
+   * Returns false when no live turn exists to steer, including when the turn
+   * finished while the steer was in flight and the provider rejected it.
+   * Other rejections still throw.
    */
   async steerActiveTurn(): Promise<boolean> {
     const client = this.client;
     const threadId = this.binding?.threadId;
-    const turnId = this.activeTurn?.turnId;
-    if (!client || !threadId || !turnId || this.turnPhase !== 'running') {
+    const active = this.activeTurn;
+    const turnId = active?.turnId;
+    if (!client || !threadId || !active || !turnId || this.turnPhase !== 'running') {
       return false;
     }
-    await client.request('turn/steer', {
-      threadId,
-      expectedTurnId: turnId,
-      input: [{
-        type: 'text',
-        text: 'Stop broad exploration. Synthesize what you already have, persist durable notes, and do not open new research threads.',
-        text_elements: [],
-      }],
-    });
+    try {
+      await client.request('turn/steer', {
+        threadId,
+        expectedTurnId: turnId,
+        input: [{
+          type: 'text',
+          text: 'Stop broad exploration. Synthesize what you already have, persist durable notes, and do not open new research threads.',
+          text_elements: [],
+        }],
+      });
+    } catch (error) {
+      if (this.activeTurn !== active || active.turnId !== turnId || active.state.completed) return false;
+      throw error;
+    }
     return true;
   }
 

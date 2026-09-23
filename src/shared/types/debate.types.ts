@@ -20,6 +20,11 @@ export interface DebateConfig {
   synthesisModel: string; // Model for final synthesis
   temperatureRange: [number, number]; // Diversity via temperature
   timeout: number; // Max time in ms
+  /**
+   * Opt-in: when a critique round raised only low-severity critiques from every
+   * agent, skip the defense round and go straight to synthesis. Default off.
+   */
+  skipDefenseOnLowSeverityCritiques?: boolean;
 }
 
 // ============ Round Types ============

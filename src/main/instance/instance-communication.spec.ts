@@ -521,6 +521,31 @@ describe('InstanceCommunicationManager', () => {
     });
   });
 
+  it('does not treat an errored turn as a success that clears the provider-limit gate (LT-105)', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    const clearProviderLimitAfterSuccessfulTurn = vi.fn();
+    adapters.set(instance.id, adapter);
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, nextAdapter) => adapters.set(id, nextAdapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      clearProviderLimitAfterSuccessfulTurn,
+    });
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('complete', {
+      id: 'r1', content: 'partial', role: 'assistant', metadata: { turnErrored: true },
+    } satisfies CliResponse);
+
+    expect(clearProviderLimitAfterSuccessfulTurn).not.toHaveBeenCalled();
+  });
+
   it('forwards tool and spawn adapter events through the raw-backed runtime stream', () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);
@@ -685,6 +710,18 @@ describe('InstanceCommunicationManager', () => {
         errorMessage: 'terminal adapter failure for [recovery identity omitted]',
       }),
     );
+  });
+
+  it('keeps the classifier identity of an inaccessible-path error on the error output message', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    (adapter as unknown as EventEmitter).emit('error', Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' }));
+    await flushOutputHandlers();
+
+    const errorOutput = instance.outputBuffer.filter((message) => message.type === 'error').pop();
+    expect(errorOutput?.metadata).toEqual({ errorCode: 'ENOENT' });
   });
 
   it('keeps ordinary adapter Error name, code, cause, and metadata raw', async () => {

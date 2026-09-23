@@ -62,6 +62,34 @@ describe('OutputScrollService', () => {
     return el;
   }
 
+  describe('setupScrollListener — at-bottom callback', () => {
+    function listen(el: HTMLDivElement, atBottom: () => void): void {
+      service.setupScrollListener(
+        el,
+        makeState(),
+        () => 'instance-A',
+        () => [],
+        () => false,
+        () => false,
+        () => { /* noop */ },
+        atBottom,
+      );
+      el.dispatchEvent(new Event('scroll'));
+    }
+
+    it('reports reaching the live tail', () => {
+      const atBottom = vi.fn();
+      listen(makeViewport(7400), atBottom); // 8000 - 7400 - 600 = 0 from bottom
+      expect(atBottom).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays quiet while the user reads further up', () => {
+      const atBottom = vi.fn();
+      listen(makeViewport(3000), atBottom);
+      expect(atBottom).not.toHaveBeenCalled();
+    });
+  });
+
   describe('setupScrollListener — isRestoring guard', () => {
     it('records scroll position normally when isRestoring is false', () => {
       const state = makeState();

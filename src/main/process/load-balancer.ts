@@ -42,7 +42,7 @@ export class LoadBalancer extends EventEmitter {
   private config: LoadBalancerConfig;
   private metrics = new Map<string, LoadMetrics>();
 
-  private static instance: LoadBalancer;
+  private static instance: LoadBalancer | null = null;
 
   static getInstance(): LoadBalancer {
     if (!this.instance) {

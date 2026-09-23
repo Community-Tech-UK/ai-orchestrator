@@ -20,6 +20,7 @@ import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service
 import { DraftService } from '../../core/services/draft.service';
 import { InstanceDetailComponent } from './instance-detail.component';
 import { OutputStreamComponent } from './output-stream.component';
+import { OutputStreamHistoryController, type OutputStreamHistoryDeps } from './output-stream-history-controller';
 import { LoopStore } from '../../core/state/loop.store';
 import { LoopPromptHistoryService } from '../loop/loop-prompt-history.service';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
@@ -305,15 +306,22 @@ describe('InstanceDetailComponent history preview restore send', () => {
     });
     const outputStreamInternals = OutputStreamComponent.prototype as unknown as {
       fetchPromptIndex: (instanceId: string) => Promise<void>;
-      probeForOlderMessages: (instanceId: string) => Promise<void>;
     };
-    await outputStreamInternals.probeForOlderMessages.call({
-      olderMessagesProbe: () => customOlderMessagesProbe,
-      instanceIpc: { loadOlderMessages: liveOlderMessages },
-      hasOlderMessages: signal(false),
-      olderMessagesHiddenCount: signal(0),
-      messages: () => createConversation().messages,
-    }, 'history-preview:history-1');
+    const history = new OutputStreamHistoryController({
+      getInstanceId: () => 'history-preview:history-1',
+      getMessages: () => createConversation().messages,
+      getOlderMessagesLoader: () => null,
+      getOlderMessagesProbe: () => customOlderMessagesProbe,
+      getViewportElement: () => null,
+      hiddenRenderedCount: () => 0,
+      windowedItems: () => [],
+      growRenderWindow: vi.fn(),
+      resetRenderWindow: vi.fn(),
+      instanceIpc: { loadOlderMessages: liveOlderMessages } as unknown as OutputStreamHistoryDeps['instanceIpc'],
+      outputStore: { prependOlderMessages: vi.fn(), releaseLoadedHistory: vi.fn(() => 0) },
+    });
+    history.switchInstance(null, 'history-preview:history-1');
+    await vi.waitFor(() => expect(customOlderMessagesProbe).toHaveBeenCalledOnce());
 
     const livePromptIndex = vi.fn().mockResolvedValue({ success: false });
     await outputStreamInternals.fetchPromptIndex.call({

@@ -13,13 +13,17 @@
  */
 
 import { ipcMain } from 'electron';
+import { z } from 'zod';
 import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
+import { validatedHandler } from '../ipc/validated-handler';
 import { getLogger } from '../logging/logger';
 import { getLspManager } from '../workspace/lsp-manager';
 import { LspFeedbackCoordinator, type LspDiagnostic, type LspSeverity } from './lsp-feedback-coordinator';
 import { getSessionAdmissionService } from '../session/session-admission-service';
 
 const logger = getLogger('LspFeedbackReg');
+
+const LspFeedbackSetPayloadSchema = z.object({ enabled: z.boolean() });
 
 let enabled = false;
 let coordinator: LspFeedbackCoordinator | null = null;
@@ -118,11 +122,15 @@ export function registerLspFeedback(deps: { instanceManager: LspFeedbackInstance
 
   ipcMain.handle(
     IPC_CHANNELS.LSP_FEEDBACK_SET,
-    async (_event, payload: unknown): Promise<IpcResponse> => {
-      const value = Boolean((payload as { enabled?: unknown } | undefined)?.enabled);
-      setLspFeedbackEnabled(value);
-      return { success: true, data: { enabled } };
-    },
+    validatedHandler(
+      IPC_CHANNELS.LSP_FEEDBACK_SET,
+      LspFeedbackSetPayloadSchema,
+      async (payload): Promise<IpcResponse> => {
+        setLspFeedbackEnabled(payload.enabled);
+        return { success: true, data: { enabled } };
+      },
+      { errorCode: 'LSP_FEEDBACK_SET_FAILED' },
+    ),
   );
 }
 

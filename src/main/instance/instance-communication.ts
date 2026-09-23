@@ -106,6 +106,7 @@ import { InstanceContinuityInputQueue } from './instance-continuity-input-queue'
 import { InstanceToolResultProcessor } from './instance-tool-result-processor';
 import { getInstanceAsyncWorkRegistry } from './instance-async-work-registry';
 import { throwIfInstanceInputAborted } from './instance-input-cancellation';
+import { errorIdentityOf } from '../util/error-utils';
 export type { CommunicationDependencies } from './instance-communication.types';
 
 const logger = getLogger('InstanceCommunication');
@@ -1680,6 +1681,8 @@ export class InstanceCommunicationManager extends EventEmitter {
         });
       }
       const completedInstance = this.deps.getInstance(instanceId);
+      // LT-105: an errored turn still records its cost and hooks, but is not a success.
+      const turnErrored = response.metadata?.['turnErrored'] === true;
       if (completedInstance?.provider === 'codex') {
         this.reconcileCompletedCodexContent(
           completedInstance,
@@ -1709,7 +1712,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         if (getSettingsManager().getAll().sessionHandoffStateEnabled) {
           getHandoffStateService().noteTurnCompleted(completedInstance);
         }
-        if (!providerLimitSignal && completedInstance.provider !== 'auto') {
+        if (!providerLimitSignal && !turnErrored && completedInstance.provider !== 'auto') {
           this.deps.clearProviderLimitAfterSuccessfulTurn?.({
             provider: completedInstance.provider,
             model: completedInstance.currentModel ?? null,
@@ -1723,7 +1726,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           modelId: completedInstance.currentModel,
         }, logger, this.hookManager);
         dispatchInstanceLifecycleHook('Stop', completedInstance, {
-          stopReason: response.degradedReason ? `degraded:${response.degradedReason}` : 'complete',
+          stopReason: turnErrored ? 'error' : response.degradedReason ? `degraded:${response.degradedReason}` : 'complete',
           transcript: response.content,
         }, logger, this.hookManager);
       }
@@ -1918,6 +1921,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           timestamp: Date.now(),
           type: 'error',
           content: errorContent,
+          metadata: errorIdentityOf(error),
         };
         this.addToOutputBuffer(instance, errorMessage);
         this.emit('output', { instanceId, message: errorMessage });

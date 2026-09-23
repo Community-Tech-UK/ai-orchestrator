@@ -52,8 +52,11 @@ export function mapProviderTypeToQuotaId(type: ProviderType): ProviderId | null 
       return 'cursor';
     case 'grok':
       return 'grok';
-    // OpenCode has no quota probe (MiMo's usage endpoint is console-cookie only).
+    // OpenCode: quota is the MiMo Token Plan when the configured model is a
+    // xiaomi-token-plan-* one (MimoTokenPlanProbe); otherwise the probe
+    // stays quiet and the refresh is a no-op.
     case 'opencode':
+      return 'opencode';
     case 'ollama':
     case 'amazon-bedrock':
     case 'azure':

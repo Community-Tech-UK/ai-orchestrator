@@ -131,9 +131,13 @@ export class InstanceOutputStore implements ImageAttachmentSink {
         // transcript rendering derives a bounded display list from this
         // buffer, so a larger cap costs memory only, never unbounded DOM nodes;
         // older messages beyond the cap reload from disk on scroll-up.
+        // History the user loaded is exempt until releaseLoadedHistory():
+        // trimming from the front would delete exactly what they are reading.
         const max = LIMITS.OUTPUT_BUFFER_MAX_SIZE;
         const trimmed =
-          outputBuffer.length > max ? outputBuffer.slice(-max) : outputBuffer;
+          outputBuffer.length > max && !this.stateService.loadedHistoryInstances.has(instanceId)
+            ? outputBuffer.slice(-max)
+            : outputBuffer;
 
         newMap.set(instanceId, {
           ...instance,
@@ -183,6 +187,7 @@ export class InstanceOutputStore implements ImageAttachmentSink {
             ...instance,
             outputBuffer: [...uniqueOlder, ...instance.outputBuffer],
           });
+          this.stateService.loadedHistoryInstances.add(instanceId);
         }
       }
 
@@ -195,6 +200,31 @@ export class InstanceOutputStore implements ImageAttachmentSink {
         .map((message) => message.id),
     );
     this.processResolvedImages(instanceId, candidateMessageIds, true);
+  }
+
+  /**
+   * Let the buffer cap apply again to an instance whose loaded history the
+   * user has finished with (back at the live tail, or switched away). Trims
+   * the buffer to the cap now and returns how many messages were dropped from
+   * its front; those remain on disk and reload on the next scroll-up. While
+   * the buffer is still within the cap nothing is trimmed and the history
+   * stays pinned, so later streaming cannot trim it unannounced.
+   */
+  releaseLoadedHistory(instanceId: string): number {
+    const pinned = this.stateService.loadedHistoryInstances;
+    if (!pinned.has(instanceId)) return 0;
+    const instance = this.stateService.state().instances.get(instanceId);
+    const max = LIMITS.OUTPUT_BUFFER_MAX_SIZE;
+    if (!instance || instance.outputBuffer.length <= max) {
+      if (!instance) pinned.delete(instanceId);
+      return 0;
+    }
+    const dropped = instance.outputBuffer.length - max;
+    pinned.delete(instanceId);
+    this.stateService.updateInstance(instanceId, {
+      outputBuffer: instance.outputBuffer.slice(-max),
+    });
+    return dropped;
   }
 
   appendAttachmentsToMessage(

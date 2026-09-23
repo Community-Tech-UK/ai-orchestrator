@@ -6,15 +6,18 @@ import { CampaignStore } from './campaign-store';
 import type {
   CampaignNode,
   CampaignNodeRun,
-  CampaignNodeStatus,
   CampaignRun,
   CampaignSpec,
-  CampaignStatus,
-  TerminalStatusPredicate,
 } from './campaign.types';
-import type { LoopStatus } from '../../shared/types/loop.types';
+import { evaluatePredicate, validateCampaignSpec } from './campaign-validation';
+import type { LoopStatus, LoopWorktreeLifecycle } from '../../shared/types/loop.types';
 import { prepareLoopStartConfig } from './loop-start-config';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
+import {
+  CampaignWorktreeLanding,
+  campaignLandingBlockReason,
+  defaultCampaignLandingDeps,
+} from './campaign-worktree-landing';
 import {
   isActiveCampaignNodeStatus,
   isLoopProviderLimited,
@@ -25,114 +28,15 @@ import {
   type CampaignLoopStatusSnapshot,
 } from './campaign-loop-status';
 
+export { evaluatePredicate, validateCampaignSpec, type CampaignValidationResult } from './campaign-validation';
+
 const logger = getLogger('CampaignCoordinator');
 type PreparedCampaignLoopConfig = Awaited<ReturnType<typeof prepareLoopStartConfig>>;
 type CampaignLoopStarter = (chatId: string, config: PreparedCampaignLoopConfig) => Promise<{ id: string }>;
 type CampaignLoopCanceller = (loopRunId: string) => Promise<boolean>;
-type CampaignWorktreePreparer = (campaign: CampaignRun, node: CampaignNode) => Promise<string>;
+type CampaignPreparedWorktree = { worktreePath: string; worktreeSessionId: string };
+type CampaignWorktreePreparer = (campaign: CampaignRun, node: CampaignNode) => Promise<CampaignPreparedWorktree>;
 type CampaignLoopStatusReader = (loopRunId: string) => CampaignLoopStatusReaderResult;
-const CAMPAIGN_PREDICATE_STATUSES = new Set<string>([
-  'completed',
-  'completed-needs-review',
-  'failed',
-  'operator-halted',
-]);
-
-/** Evaluate a TerminalStatusPredicate against a CampaignNodeStatus. Exported for unit testing. */
-export function evaluatePredicate(status: CampaignNodeStatus, predicate: TerminalStatusPredicate): boolean {
-  switch (predicate.type) {
-    case 'is': return status === predicate.status;
-    case 'in': return (predicate.statuses as string[]).includes(status);
-    case 'not': return status !== predicate.status;
-  }
-}
-
-export interface CampaignValidationResult {
-  valid: boolean;
-  errors: string[];
-}
-
-/** Validate a CampaignSpec: check IDs are unique, edges reference existing nodes, graph is acyclic. */
-export function validateCampaignSpec(spec: CampaignSpec): CampaignValidationResult {
-  const errors: string[] = [];
-  const nodeIds = new Set<string>();
-
-  if (!spec.nodes.length) errors.push('Campaign must have at least one node');
-  if (!Number.isInteger(spec.policy.maxParallel) || spec.policy.maxParallel < 1 || spec.policy.maxParallel > 16) {
-    errors.push('Campaign policy maxParallel must be an integer from 1 to 16');
-  }
-  if (!['pause-campaign', 'continue', 'halt'].includes(spec.policy.onNodeNeedsReview)) {
-    errors.push('Campaign policy onNodeNeedsReview is invalid');
-  }
-
-  for (const node of spec.nodes) {
-    if (!node.id) errors.push('Every node must have an id');
-    if (nodeIds.has(node.id)) errors.push(`Duplicate node id: ${node.id}`);
-    nodeIds.add(node.id);
-  }
-
-  for (const edge of spec.edges) {
-    if (!nodeIds.has(edge.from)) errors.push(`Edge references unknown source node: ${edge.from}`);
-    if (!nodeIds.has(edge.to)) errors.push(`Edge references unknown target node: ${edge.to}`);
-    if (edge.from === edge.to) errors.push(`Self-loop on node: ${edge.from}`);
-    if (edge.when) validateEdgePredicate(edge.from, edge.to, edge.when, errors);
-  }
-
-  if (errors.length === 0 && hasCycle(spec)) {
-    errors.push('Campaign DAG contains a cycle');
-  }
-
-  return { valid: errors.length === 0, errors };
-}
-
-function validateEdgePredicate(
-  from: string,
-  to: string,
-  predicate: TerminalStatusPredicate,
-  errors: string[],
-): void {
-  if (predicate.type === 'in') {
-    if (predicate.statuses.length === 0) {
-      errors.push(`Edge ${from}->${to} predicate must include at least one status`);
-      return;
-    }
-    for (const status of predicate.statuses) {
-      if (!CAMPAIGN_PREDICATE_STATUSES.has(status)) {
-        errors.push(`Edge ${from}->${to} predicate status is invalid: ${status}`);
-      }
-    }
-    return;
-  }
-
-  if (!CAMPAIGN_PREDICATE_STATUSES.has(predicate.status)) {
-    errors.push(`Edge ${from}->${to} predicate status is invalid: ${predicate.status}`);
-  }
-}
-
-function hasCycle(spec: CampaignSpec): boolean {
-  const adj = new Map<string, string[]>();
-  for (const node of spec.nodes) adj.set(node.id, []);
-  for (const edge of spec.edges) adj.get(edge.from)!.push(edge.to);
-
-  const WHITE = 0, GREY = 1, BLACK = 2;
-  const color = new Map<string, number>();
-  for (const node of spec.nodes) color.set(node.id, WHITE);
-
-  function dfs(id: string): boolean {
-    color.set(id, GREY);
-    for (const neighbor of adj.get(id) ?? []) {
-      if (color.get(neighbor) === GREY) return true;
-      if (color.get(neighbor) === WHITE && dfs(neighbor)) return true;
-    }
-    color.set(id, BLACK);
-    return false;
-  }
-
-  for (const node of spec.nodes) {
-    if (color.get(node.id) === WHITE && dfs(node.id)) return true;
-  }
-  return false;
-}
 
 export class CampaignCoordinator extends EventEmitter {
   private static instance: CampaignCoordinator | null = null;
@@ -170,10 +74,29 @@ export class CampaignCoordinator extends EventEmitter {
       {
         // T37: campaign nodes verify in their worktree like any other loop.
         repoRoot: node.loopConfig.workspaceCwd,
+        // Record ownership before any Git mutation so a restart can finish
+        // (or refuse) the merge-back, exactly like a managed loop worktree.
+        onPrepared: (candidate) => this.updateNodeRun(campaign, node.id, {
+          worktreePath: candidate.worktreePath,
+          worktreeLifecycle: {
+            managedByAio: true,
+            phase: 'acquired',
+            baseBranch: candidate.baseBranch,
+            sessionBranch: candidate.branchName,
+            sessionTip: candidate.baseCommit,
+            updatedAt: Date.now(),
+          },
+        }),
       },
     );
-    return session.worktreePath;
+    return { worktreePath: session.worktreePath, worktreeSessionId: session.id };
   };
+
+  /** Merges each isolated node's worktree back when its loop ends. */
+  private worktreeLanding = new CampaignWorktreeLanding(
+    defaultCampaignLandingDeps(),
+    (campaign, nodeId, patch) => this.updateNodeRun(campaign, nodeId, patch),
+  );
 
   static getInstance(): CampaignCoordinator {
     if (!CampaignCoordinator.instance) {
@@ -196,6 +119,10 @@ export class CampaignCoordinator extends EventEmitter {
 
   setLoopStatusReaderForTesting(reader: CampaignLoopStatusReader): void {
     this.loopStatusReader = reader;
+  }
+
+  setWorktreeLandingDepsForTesting(deps: Parameters<CampaignWorktreeLanding['setDepsForTesting']>[0]): void {
+    this.worktreeLanding.setDepsForTesting(deps);
   }
 
   initialize(): void {
@@ -239,6 +166,7 @@ export class CampaignCoordinator extends EventEmitter {
   async recoverInterruptedCampaigns(): Promise<void> {
     if (!this.store) return;
     const active = this.store.listActiveCampaigns();
+    await this.recoverNodeWorktrees(active);
     for (const campaign of active) {
       logger.info('Recovering interrupted campaign', { campaignId: campaign.id, status: campaign.status });
       this.activeCampaigns.set(campaign.id, campaign);
@@ -285,6 +213,35 @@ export class CampaignCoordinator extends EventEmitter {
       }
       // Advance in case a node completed while the app was down.
       await this.advanceCampaign(campaign.id);
+    }
+  }
+
+  /**
+   * Finish node worktree landings interrupted by a restart. Runs after the
+   * loop store's own lifecycle reconcile, so a node loop that landed into its
+   * campaign worktree has settled first.
+   */
+  private async recoverNodeWorktrees(active: CampaignRun[]): Promise<void> {
+    if (!this.store) return;
+    const campaigns = this.store.listCampaignIdsWithPendingWorktrees().flatMap((id) => {
+      const campaign = active.find((candidate) => candidate.id === id) ?? this.store?.getCampaign(id);
+      return campaign ? [campaign] : [];
+    });
+    try {
+      await this.worktreeLanding.reconcileAtBoot(campaigns, (node) => {
+        // A node whose loop never started owns an unused worktree: preserve it.
+        if (!node.loopRunId) return isActiveCampaignNodeStatus(node.status) ? null : 'failed';
+        const snapshot = normalizeLoopStatusSnapshot(this.loopStatusReader(node.loopRunId));
+        return snapshot && isLoopTerminal(snapshot) ? snapshot.status : null;
+      });
+      const activeIds = new Set(active.map((campaign) => campaign.id));
+      for (const entry of this.worktreeLanding.haltedLoopsToIndex(campaigns, activeIds)) {
+        this.loopRunToNode.set(entry.loopRunId, { campaignId: entry.campaignId, nodeId: entry.nodeId });
+      }
+    } catch (err) {
+      logger.warn('Campaign worktree recovery failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -414,16 +371,31 @@ export class CampaignCoordinator extends EventEmitter {
     if (!node) return;
     if (!this.isCampaignRunning(campaign)) return;
 
+    let worktreePrepared = false;
     try {
       const chatId = `campaign:${campaign.id}:${nodeId}`;
-      const loopConfig = campaign.spec.policy.isolation === 'worktree'
-        ? { ...node.loopConfig, workspaceCwd: await this.worktreePreparer(campaign, node) }
-        : node.loopConfig;
+      let loopConfig = node.loopConfig;
+      if (campaign.spec.policy.isolation === 'worktree') {
+        const prepared = await this.worktreePreparer(campaign, node);
+        this.worktreeLanding.rememberSession(campaign.id, nodeId, prepared.worktreeSessionId);
+        worktreePrepared = true;
+        // loop-cwd contract: state stays at the repo root (`workspaceCwd`); the
+        // agent works in the campaign worktree. A preset `executionCwd` also
+        // stops startLoop from nesting its own worktree inside this one.
+        loopConfig = { ...node.loopConfig, executionCwd: prepared.worktreePath, isolateLoopWorkspaces: true };
+      }
       const preparedConfig = await prepareLoopStartConfig(loopConfig);
-      if (!this.isCampaignRunning(campaign)) return;
-      const loopState = await this.loopStarter(chatId, preparedConfig);
       if (!this.isCampaignRunning(campaign)) {
-        await this.cancelLateStartedLoop(loopState.id, campaign, nodeId);
+        await this.releaseNodeWorktree(campaign, nodeId, undefined, 'cancelled');
+        return;
+      }
+      const loopState = await this.loopStarter(chatId, preparedConfig);
+      // The started loop now owns the worktree; its terminal event releases it.
+      worktreePrepared = false;
+      if (!this.isCampaignRunning(campaign)) {
+        if (await this.cancelLateStartedLoop(loopState.id, campaign, nodeId)) {
+          await this.releaseNodeWorktree(campaign, nodeId, loopState.id, 'cancelled');
+        }
         return;
       }
 
@@ -437,6 +409,11 @@ export class CampaignCoordinator extends EventEmitter {
       logger.info('Campaign node started', { campaignId: campaign.id, nodeId, loopRunId: loopState.id });
       this.emit('campaign:node-started', { campaignId: campaign.id, nodeId, loopRunId: loopState.id });
     } catch (err) {
+      if (worktreePrepared) {
+        await this.releaseNodeWorktree(campaign, nodeId, undefined, 'failed');
+      } else {
+        this.worktreeLanding.markAcquisitionFailed(campaign, nodeId);
+      }
       if (!this.isCampaignRunning(campaign)) return;
       logger.error('Campaign node failed to start', err instanceof Error ? err : new Error(String(err)), { campaignId: campaign.id, nodeId });
       this.updateNodeRun(campaign, nodeId, { status: 'failed', endedAt: Date.now() });
@@ -453,15 +430,38 @@ export class CampaignCoordinator extends EventEmitter {
     return campaign.status === 'paused' && campaign.pausedReason?.startsWith(`Node ${nodeId} `) === true;
   }
 
-  private async cancelLateStartedLoop(loopRunId: string, campaign: CampaignRun, nodeId: string): Promise<void> {
+  /**
+   * Land (successful loop) or preserve (anything else) a node's worktree.
+   * Returns the settled lifecycle; `undefined` for a non-isolated node.
+   */
+  private async releaseNodeWorktree(
+    campaign: CampaignRun,
+    nodeId: string,
+    loopRunId: string | undefined,
+    loopStatus: LoopStatus,
+  ): Promise<LoopWorktreeLifecycle | undefined> {
     try {
-      await this.loopCanceller(loopRunId);
+      return await this.worktreeLanding.land({ campaign, nodeId, loopRunId, loopStatus });
+    } catch (err) {
+      logger.warn('Campaign node worktree landing failed', {
+        campaignId: campaign.id,
+        nodeId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return campaign.nodeRuns.get(nodeId)?.worktreeLifecycle;
+    }
+  }
+
+  private async cancelLateStartedLoop(loopRunId: string, campaign: CampaignRun, nodeId: string): Promise<boolean> {
+    try {
+      const cancelled = await this.loopCanceller(loopRunId);
       logger.info('Cancelled campaign node loop that started after campaign stopped', {
         campaignId: campaign.id,
         nodeId,
         loopRunId,
         campaignStatus: campaign.status,
       });
+      return cancelled;
     } catch (err) {
       logger.warn('Failed to cancel campaign node loop that started after campaign stopped', {
         campaignId: campaign.id,
@@ -469,6 +469,7 @@ export class CampaignCoordinator extends EventEmitter {
         loopRunId,
         error: err instanceof Error ? err.message : String(err),
       });
+      return false;
     }
   }
 
@@ -503,15 +504,28 @@ export class CampaignCoordinator extends EventEmitter {
 
     const { campaignId, nodeId } = mapping;
     const campaign = this.activeCampaigns.get(campaignId);
-    if (!campaign) return;
-
     const nodeStatus = loopStatusToNodeStatus(loopStatus, endedAt);
+    if (!campaign) {
+      // A halted campaign's node loop can still end later; its worktree must
+      // not be orphaned. Land or preserve it, but do not drive the DAG.
+      const halted = nodeStatus === 'provider-limit' ? null : this.store?.getCampaign(campaignId);
+      if (halted) {
+        this.loopRunToNode.delete(loopRunId);
+        await this.releaseNodeWorktree(halted, nodeId, loopRunId, loopStatus);
+      }
+      return;
+    }
+
     if (nodeStatus === 'provider-limit') {
       await this.onLoopProviderLimited(loopRunId);
       return;
     }
 
     this.loopRunToNode.delete(loopRunId);
+    // Merge the node's worktree back BEFORE it counts as terminal, so its
+    // dependants start from a base that already contains its work and the
+    // campaign cannot complete while a landing is still in flight.
+    const landing = await this.releaseNodeWorktree(campaign, nodeId, loopRunId, loopStatus);
     this.updateNodeRun(campaign, nodeId, {
       status: nodeStatus,
       endedAt: Date.now(),
@@ -519,6 +533,19 @@ export class CampaignCoordinator extends EventEmitter {
 
     logger.info('Campaign node reached terminal', { campaignId, nodeId, nodeStatus, loopRunId });
     this.emit('campaign:node-terminal', { campaignId, nodeId, status: nodeStatus });
+    if (this.activeCampaigns.get(campaignId) !== campaign) return;
+
+    const landingBlock = nodeStatus === 'completed' || nodeStatus === 'completed-needs-review'
+      ? campaignLandingBlockReason(nodeId, landing)
+      : null;
+    if (landingBlock && nodeStatus === 'completed-needs-review' && campaign.spec.policy.onNodeNeedsReview === 'halt') {
+      this.markCampaignHalted(campaign, `Node ${nodeId} reached completed-needs-review (policy: halt); ${landingBlock}`);
+      return;
+    }
+    if (landingBlock) {
+      this.pauseCampaign(campaign, landingBlock);
+      return;
+    }
 
     // Handle needs-review per policy.
     if (nodeStatus === 'completed-needs-review') {

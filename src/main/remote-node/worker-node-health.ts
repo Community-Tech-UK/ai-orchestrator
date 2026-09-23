@@ -24,7 +24,7 @@ const DEGRADED_THRESHOLD_MS = 60_000;
 const DISCONNECT_THRESHOLD_MS = 90_000;
 
 export class WorkerNodeHealth {
-  private static instance: WorkerNodeHealth;
+  private static instance: WorkerNodeHealth | null = null;
 
   private intervals = new Map<string, ReturnType<typeof setInterval>>();
   private pingInFlight = new Set<string>();

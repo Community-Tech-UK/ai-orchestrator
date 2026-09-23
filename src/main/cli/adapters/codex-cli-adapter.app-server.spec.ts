@@ -1046,6 +1046,72 @@ describe('CodexCliAdapter', () => {
       expect(completions).toEqual(['Continued safely']);
     });
 
+    // W6: ContextSafetyPolicy caps recoveries per user send. It can only do
+    // that if the recovery continuation reports the same send as the original.
+    it('keeps one context outer-send id across a recovery continuation and mints a new one per user send', async () => {
+      const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
+      const { client } = installSyntheticCostClient(adapter, { requestSharedRecovery: true });
+      const request = client.request as unknown as ReturnType<typeof vi.fn>;
+      const synthetic = request.getMockImplementation()!;
+      const idsAtTurnStart: (string | null)[] = [];
+      request.mockImplementation(async (method: string, params: Record<string, unknown>) => {
+        if (method === 'turn/start') idsAtTurnStart.push(adapter.getContextOuterSendId());
+        return synthetic(method, params);
+      });
+      const send = (message: string) => (adapter as unknown as {
+        appServerSendMessage(message: string): Promise<void>;
+      }).appServerSendMessage(message);
+
+      expect(adapter.getContextOuterSendId()).toBeNull();
+      await send('Original expensive task');
+      expect(idsAtTurnStart).toHaveLength(2);
+      expect(idsAtTurnStart[0]).toEqual(expect.any(String));
+      expect(idsAtTurnStart[1]).toBe(idsAtTurnStart[0]);
+
+      await send('Next user send');
+      expect(idsAtTurnStart).toHaveLength(3);
+      expect(idsAtTurnStart[2]).toEqual(expect.any(String));
+      expect(idsAtTurnStart[2]).not.toBe(idsAtTurnStart[0]);
+    });
+
+    it('keeps the context outer-send id when the input-cap recovery re-sends the same message', async () => {
+      const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
+      const { client } = installSyntheticCostClient(adapter, { completeInsteadOfInterrupt: true });
+      const request = client.request as unknown as ReturnType<typeof vi.fn>;
+      const synthetic = request.getMockImplementation()!;
+      const idsAtTurnStart: (string | null)[] = [];
+      let rejectedOnce = false;
+      request.mockImplementation(async (method: string, params: Record<string, unknown>) => {
+        if (method === 'turn/start') {
+          idsAtTurnStart.push(adapter.getContextOuterSendId());
+          if (!rejectedOnce) {
+            rejectedOnce = true;
+            throw new Error('Input exceeds the maximum length of 1048576 characters');
+          }
+        }
+        return synthetic(method, params);
+      });
+      const internals = adapter as unknown as {
+        appServerSendMessage(message: string): Promise<void>;
+        compactContext(): Promise<boolean>;
+      };
+      vi.spyOn(internals, 'compactContext').mockResolvedValue(true);
+
+      await internals.appServerSendMessage('Huge task');
+
+      expect(idsAtTurnStart).toHaveLength(2);
+      expect(idsAtTurnStart[0]).toEqual(expect.any(String));
+      expect(idsAtTurnStart[1]).toBe(idsAtTurnStart[0]);
+    });
+
+    it('reports a steer with no live turn as skipped, not as a failed action', async () => {
+      const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
+      await expect(adapter.executeContextAction('steer-turn')).resolves.toEqual({
+        proof: 'none',
+        skipped: 'turn-not-active',
+      });
+    });
+
     it('reports cost telemetry without independently warning or interrupting at 2x', () => {
       const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
       const interrupt = vi.spyOn(adapter, 'interrupt');

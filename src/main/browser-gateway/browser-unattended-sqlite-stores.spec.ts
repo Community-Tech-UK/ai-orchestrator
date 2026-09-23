@@ -7,7 +7,9 @@ import {
   SqliteCredentialAuthorizationStore,
   SqliteEscalationRecordStore,
   SqliteBrowserCampaignStore,
+  SqliteLoginRecipeStore,
 } from './browser-unattended-sqlite-stores';
+import { LoginFingerprintStore } from './browser-login-recipe-store';
 
 function createDb(): SqliteDriver {
   const db = defaultDriverFactory(':memory:');
@@ -246,5 +248,109 @@ describe('unattended SQLite stores (migration 040)', () => {
     store.put({ ...loaded!, status: 'paused' });
     expect(store.get('camp-1')?.status).toBe('paused');
     expect(store.list()).toHaveLength(1);
+  });
+
+  it('keeps a login recipe across a restart and finds it from a new tab on the same node', () => {
+    const origin = 'https://supplier.example.co.uk';
+    new LoginFingerprintStore(new SqliteLoginRecipeStore(db), () => 100).remember({
+      profileId: 'existing-tab:n.node-1:5:6',
+      origin: `${origin}/some/page`,
+      loginUrl: `${origin}/home`,
+      loggedInMarkers: ['Logout'],
+      relogin: {
+        vaultItemRef: 'vault-item-1',
+        usernameSelector: '#user',
+        passwordSelector: '#pass',
+        submitSelector: '#login',
+      },
+    });
+
+    // A fresh service over the same database is what the app sees after a
+    // restart. Nothing process-local survives.
+    const afterRestart = new LoginFingerprintStore(new SqliteLoginRecipeStore(db), () => 200);
+    const recipe = afterRestart.find('existing-tab:n.node-1:9:77', origin);
+    expect(recipe).toEqual({
+      scope: 'node-1',
+      scopeKind: 'node',
+      origin,
+      loginUrl: `${origin}/home`,
+      loggedInMarkers: ['Logout'],
+      relogin: {
+        vaultItemRef: 'vault-item-1',
+        usernameSelector: '#user',
+        passwordSelector: '#pass',
+        submitSelector: '#login',
+      },
+      createdAt: 100,
+      updatedAt: 100,
+    });
+    expect(afterRestart.find('existing-tab:n.node-2:9:77', origin)).toBeUndefined();
+    expect(afterRestart.find('existing-tab:n.node-1:9:77', 'https://other.example')).toBeUndefined();
+  });
+
+  it('keeps the relogin recipe on a markers-only refresh and records outcomes', () => {
+    const origin = 'https://portal.example.gov.uk';
+    const store = new LoginFingerprintStore(new SqliteLoginRecipeStore(db), () => 10);
+    store.remember({
+      profileId: 'managed-1',
+      origin,
+      loginUrl: `${origin}/login`,
+      loggedInMarkers: ['Sign out'],
+      relogin: { vaultItemRef: 'item', passwordSelector: '#pw' },
+    });
+    store.remember({ profileId: 'managed-1', origin, loginUrl: `${origin}/login`, loggedInMarkers: ['Account'] });
+    store.recordOutcome('managed-1', origin, 'relogin_failed', 'relogin submit refused: grant_required');
+
+    expect(store.list({ profileId: 'managed-1' })).toEqual([
+      expect.objectContaining({
+        scope: 'managed-1',
+        scopeKind: 'profile',
+        loggedInMarkers: ['Account'],
+        relogin: { vaultItemRef: 'item', passwordSelector: '#pw' },
+        lastOutcome: 'relogin_failed',
+        lastOutcomeReason: 'relogin submit refused: grant_required',
+        lastOutcomeAt: 10,
+      }),
+    ]);
+    // An outcome for a scope with no row writes nothing.
+    store.recordOutcome('managed-2', origin, 'logged_in', 'fingerprint_matched');
+    expect(store.list()).toHaveLength(1);
+
+    expect(store.forget('managed-1', `${origin}/`)).toBe(true);
+    expect(store.forget('managed-1', origin)).toBe(false);
+    expect(store.list()).toEqual([]);
+  });
+
+  it('persists only reference and selector fields of a relogin recipe', () => {
+    const records = new SqliteLoginRecipeStore(db);
+    records.put({
+      scope: 'local',
+      scopeKind: 'node',
+      origin: 'https://a.example',
+      loginUrl: 'https://a.example/login',
+      loggedInMarkers: ['Log out'],
+      relogin: {
+        vaultItemRef: 'item',
+        passwordSelector: '#pw',
+        // A stray property must never reach the table.
+        ...({ password: 'TEST_ONLY_NOT_A_SECRET' } as object),
+      },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const raw = db
+      .prepare(`SELECT relogin_json FROM browser_login_recipes WHERE scope = 'local'`)
+      .get<{ relogin_json: string }>();
+    expect(JSON.parse(raw!.relogin_json)).toEqual({ vaultItemRef: 'item', passwordSelector: '#pw' });
+  });
+
+  it('rejects a non-http origin or login URL', () => {
+    const store = new LoginFingerprintStore(new SqliteLoginRecipeStore(db));
+    expect(() => store.remember({
+      profileId: 'p', origin: 'javascript:alert(1)', loginUrl: 'https://a.example', loggedInMarkers: ['x'],
+    })).toThrow(/origin/);
+    expect(() => store.remember({
+      profileId: 'p', origin: 'https://a.example', loginUrl: 'file:///etc/passwd', loggedInMarkers: ['x'],
+    })).toThrow(/loginUrl/);
   });
 });

@@ -19,10 +19,16 @@ import type {
   BrowserCampaignCounters,
   BrowserCampaignStore,
 } from './browser-campaign-store';
+import type {
+  LoginRecipe,
+  LoginRecipeOutcome,
+  LoginRecipeRecordStore,
+  LoginReloginDetails,
+} from './browser-login-recipe-store';
 
 /**
  * SQLite-backed implementations of the unattended browser-automation stores
- * (tables from migration 040). Each mirrors its in-memory default and can be
+ * (tables from migration 040; login recipes from 065). Each mirrors its in-memory default and can be
  * dropped into the corresponding service. Only references/scopes/status are
  * persisted — never secrets (those live in Bitwarden).
  */
@@ -484,5 +490,137 @@ function mapCampaign(row: CampaignRow): BrowserCampaign {
     createdAt: row.created_at,
     expiresAt: row.expires_at,
     approvedBy: 'user',
+  };
+}
+
+// ── Login recipes (migration 065) ───────────────────────────────────────────
+
+interface LoginRecipeRow {
+  scope: string;
+  scope_kind: string;
+  origin: string;
+  login_url: string;
+  logged_in_markers_json: string;
+  relogin_json: string | null;
+  created_at: number;
+  updated_at: number;
+  last_outcome: string | null;
+  last_outcome_reason: string | null;
+  last_outcome_at: number | null;
+}
+
+export class SqliteLoginRecipeStore implements LoginRecipeRecordStore {
+  constructor(private readonly driver: SqliteDriver = db()) {}
+
+  put(recipe: LoginRecipe): void {
+    this.driver
+      .prepare(
+        `INSERT INTO browser_login_recipes
+           (scope, scope_kind, origin, login_url, logged_in_markers_json, relogin_json,
+            created_at, updated_at, last_outcome, last_outcome_reason, last_outcome_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(scope, origin) DO UPDATE SET
+           scope_kind = excluded.scope_kind,
+           login_url = excluded.login_url,
+           logged_in_markers_json = excluded.logged_in_markers_json,
+           relogin_json = excluded.relogin_json,
+           created_at = excluded.created_at,
+           updated_at = excluded.updated_at,
+           last_outcome = excluded.last_outcome,
+           last_outcome_reason = excluded.last_outcome_reason,
+           last_outcome_at = excluded.last_outcome_at`,
+      )
+      .run(
+        recipe.scope,
+        recipe.scopeKind,
+        recipe.origin,
+        recipe.loginUrl,
+        JSON.stringify(recipe.loggedInMarkers),
+        recipe.relogin ? JSON.stringify(reloginColumns(recipe.relogin)) : null,
+        recipe.createdAt,
+        recipe.updatedAt,
+        recipe.lastOutcome ?? null,
+        recipe.lastOutcomeReason ?? null,
+        recipe.lastOutcomeAt ?? null,
+      );
+  }
+
+  get(scope: string, origin: string): LoginRecipe | undefined {
+    const row = this.driver
+      .prepare(`SELECT * FROM browser_login_recipes WHERE scope = ? AND origin = ?`)
+      .get<LoginRecipeRow>(scope, origin);
+    return row ? mapLoginRecipe(row) : undefined;
+  }
+
+  list(filter?: { scope?: string; origin?: string }): LoginRecipe[] {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (filter?.scope) {
+      clauses.push('scope = ?');
+      params.push(filter.scope);
+    }
+    if (filter?.origin) {
+      clauses.push('origin = ?');
+      params.push(filter.origin);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    return this.driver
+      .prepare(`SELECT * FROM browser_login_recipes ${where} ORDER BY scope, origin`)
+      .all<LoginRecipeRow>(...params)
+      .map(mapLoginRecipe);
+  }
+
+  delete(scope: string, origin: string): boolean {
+    const result = this.driver
+      .prepare(`DELETE FROM browser_login_recipes WHERE scope = ? AND origin = ?`)
+      .run(scope, origin);
+    return result.changes > 0;
+  }
+
+  recordOutcome(
+    scope: string,
+    origin: string,
+    outcome: LoginRecipeOutcome,
+    reason: string,
+    at: number,
+  ): void {
+    this.driver
+      .prepare(
+        `UPDATE browser_login_recipes
+           SET last_outcome = ?, last_outcome_reason = ?, last_outcome_at = ?
+         WHERE scope = ? AND origin = ?`,
+      )
+      .run(outcome, reason, at, scope, origin);
+  }
+}
+
+/**
+ * Persist only the known reference/selector fields. A stray property on the
+ * input object can never reach the table, secret-shaped or otherwise.
+ */
+function reloginColumns(relogin: LoginReloginDetails): LoginReloginDetails {
+  return {
+    vaultItemRef: relogin.vaultItemRef,
+    ...(relogin.usernameSelector ? { usernameSelector: relogin.usernameSelector } : {}),
+    passwordSelector: relogin.passwordSelector,
+    ...(relogin.submitSelector ? { submitSelector: relogin.submitSelector } : {}),
+    ...(relogin.codeSelector ? { codeSelector: relogin.codeSelector } : {}),
+    ...(relogin.codeKind ? { codeKind: relogin.codeKind } : {}),
+  };
+}
+
+function mapLoginRecipe(row: LoginRecipeRow): LoginRecipe {
+  return {
+    scope: row.scope,
+    scopeKind: row.scope_kind === 'node' ? 'node' : 'profile',
+    origin: row.origin,
+    loginUrl: row.login_url,
+    loggedInMarkers: JSON.parse(row.logged_in_markers_json),
+    ...(row.relogin_json ? { relogin: JSON.parse(row.relogin_json) } : {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(row.last_outcome ? { lastOutcome: row.last_outcome as LoginRecipeOutcome } : {}),
+    ...(row.last_outcome_reason ? { lastOutcomeReason: row.last_outcome_reason } : {}),
+    ...(row.last_outcome_at !== null ? { lastOutcomeAt: row.last_outcome_at } : {}),
   };
 }

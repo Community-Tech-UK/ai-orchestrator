@@ -460,7 +460,7 @@ export class InstanceIpcService {
    */
   async loadOlderMessages(
     instanceId: string,
-    options?: { beforeChunk?: number; limit?: number }
+    options?: { beforeOffset?: number; limit?: number }
   ): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.loadOlderMessages({ instanceId, ...options });

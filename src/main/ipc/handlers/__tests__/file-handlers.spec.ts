@@ -124,15 +124,64 @@ function makeMockWindowManager(): WindowManager {
 // 6. Tests
 // ============================================================
 
+const ensureTrustedSender = vi.fn<(event: unknown, channel: string) => IpcResponse | null>(() => null);
+
 describe('file-handlers', () => {
   let windowManager: WindowManager;
 
   beforeEach(() => {
     handlers.clear();
     vi.clearAllMocks();
+    ensureTrustedSender.mockImplementation(() => null);
     watcherManagerMock.removeAllListeners();
     windowManager = makeMockWindowManager();
-    registerFileHandlers({ windowManager });
+    registerFileHandlers({ windowManager, ensureTrustedSender });
+  });
+
+  // ----------------------------------------------------------
+  // Trusted-sender gate (Task 14): every channel in this group
+  // ----------------------------------------------------------
+  describe('trusted sender gate', () => {
+    it('runs the trust check with the invoking event and channel', async () => {
+      const event = { sender: { id: 1 } };
+      const handler = handlers.get(IPC_CHANNELS.EDITOR_OPEN_FILE)!;
+
+      await handler(event, { filePath: '/tmp/test-cwd/file.ts' });
+
+      expect(ensureTrustedSender).toHaveBeenCalledWith(event, IPC_CHANNELS.EDITOR_OPEN_FILE);
+      expect(editorManagerMock.openFile).toHaveBeenCalled();
+    });
+
+    it('rejects every registered channel for an untrusted sender before any side effect', async () => {
+      const trustFailure: IpcResponse = {
+        success: false,
+        error: { code: 'IPC_TRUST_FAILED', message: 'Untrusted sender', timestamp: 1 },
+      };
+      ensureTrustedSender.mockImplementation(() => trustFailure);
+      const validPayloads: Record<string, unknown> = {
+        [IPC_CHANNELS.EDITOR_OPEN_FILE]: { filePath: '/tmp/test-cwd/file.ts' },
+        [IPC_CHANNELS.EDITOR_SET_PREFERRED]: { type: 'vscode', path: '/tmp/evil-editor' },
+        [IPC_CHANNELS.WATCHER_START]: { directory: '/tmp/test-cwd' },
+        [IPC_CHANNELS.MULTIEDIT_APPLY]: {
+          edits: [{ filePath: '/tmp/test-cwd/a.ts', oldString: 'a', newString: 'b' }],
+        },
+      };
+
+      expect(handlers.size).toBeGreaterThanOrEqual(17);
+      for (const [channel, handler] of handlers) {
+        await expect(handler({}, validPayloads[channel])).resolves.toBe(trustFailure);
+      }
+      for (const fn of [
+        ...Object.values(editorManagerMock),
+        ...Object.values(multiEditMock),
+        watcherManagerMock.watch,
+        watcherManagerMock.unwatch,
+        watcherManagerMock.unwatchAll,
+        watcherManagerMock.clearEventBuffer,
+      ]) {
+        expect(fn).not.toHaveBeenCalled();
+      }
+    });
   });
 
   // ----------------------------------------------------------

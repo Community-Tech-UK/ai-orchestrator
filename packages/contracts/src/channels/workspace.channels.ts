@@ -1,5 +1,5 @@
 /**
- * IPC channels for workspace operations: VCS/Git, worktrees, parallel worktrees,
+ * IPC channels for workspace operations: VCS/Git, worktrees,
  * TODO management, LSP, multi-edit, bash validation, MCP servers,
  * codebase indexing, repo jobs, and task management.
  */
@@ -52,15 +52,6 @@ export const WORKSPACE_CHANNELS = {
   WORKTREE_SESSION_CREATED: 'worktree:session-created',
   WORKTREE_SESSION_COMPLETED: 'worktree:session-completed',
   WORKTREE_CONFLICT_DETECTED: 'worktree:conflict-detected',
-
-  // Parallel worktree operations
-  PARALLEL_WORKTREE_START: 'parallel-worktree:start',
-  PARALLEL_WORKTREE_GET_STATUS: 'parallel-worktree:get-status',
-  PARALLEL_WORKTREE_CANCEL: 'parallel-worktree:cancel',
-  PARALLEL_WORKTREE_GET_RESULTS: 'parallel-worktree:get-results',
-  PARALLEL_WORKTREE_LIST: 'parallel-worktree:list',
-  PARALLEL_WORKTREE_RESOLVE_CONFLICT: 'parallel-worktree:resolve-conflict',
-  PARALLEL_WORKTREE_MERGE: 'parallel-worktree:merge',
 
   // TODO operations
   TODO_GET_LIST: 'todo:get-list',

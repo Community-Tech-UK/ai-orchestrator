@@ -12,6 +12,7 @@ import {
   setCompactionMarkerRecorderForTesting,
   setupCompactionCoordinator,
 } from './compaction-runtime';
+import { setDecisionLogRecorderForTesting } from '../context/compaction-decision-log';
 
 const settingsManagerMock = vi.hoisted(() => ({
   get: vi.fn(() => 0),
@@ -101,8 +102,8 @@ describe('setupCompactionCoordinator', () => {
   // confirmation timeout on every single compaction, not just the first, for
   // any provider build that never confirms native compaction. The
   // coordinator-level record must survive across a respawn (simulated here
-  // by `getAdapter` returning a *different* adapter object the second time,
-  // exactly as happens after restart-with-summary replaces the adapter).
+  // by `getAdapter` returning a *different* adapter object once the first
+  // restart-with-summary has run, exactly as happens in production).
   it('skips the native RPC on a later compaction once the coordinator has proven it unsupported, even for a new adapter object (respawn)', async () => {
     const firstAdapter = {
       compactContext: vi.fn(async () => false),
@@ -112,11 +113,14 @@ describe('setupCompactionCoordinator', () => {
       compactContext: vi.fn(async () => false),
       nativeCompactionKnownUnsupported: vi.fn(() => true),
     };
-    const restartCompact = vi.fn(async () => undefined);
-    const adapters = [firstAdapter, secondAdapter];
+    // The respawn happens where it does in production: restart-with-summary's
+    // fresh restart replaces the adapter. Keying the swap to a getAdapter call
+    // count instead broke as soon as compaction read the adapter twice.
+    let currentAdapter = firstAdapter;
+    const restartCompact = vi.fn(async () => { currentAdapter = secondAdapter; });
     const instanceManager = {
       getAdapterRuntimeCapabilities: vi.fn(() => ({ supportsNativeCompaction: true })),
-      getAdapter: vi.fn(() => adapters.shift() ?? secondAdapter),
+      getAdapter: vi.fn(() => currentAdapter),
       getInstance: vi.fn(() => ({ id: 'inst-lt045', outputBuffer: [] })),
       sendInput: vi.fn(),
       restartInstance: restartCompact,
@@ -197,6 +201,106 @@ describe('setupCompactionCoordinator', () => {
     coordinator.onContextUpdate('inst-boundary', pressure);
     await coordinator.drainPolicyDecisions('inst-boundary');
     expect(compactContext).toHaveBeenCalledOnce();
+  });
+
+  // W6 item 4, through the real wiring: the busy test reads the adapter's live
+  // runtime snapshot, so a running Codex turn blocks both strategies.
+  it('refuses manual compaction during a live Codex turn instead of falling back to restart-with-summary', async () => {
+    checkpointManagerMock.createCheckpoint.mockClear();
+    const compactContext = vi.fn(async () => false);
+    const restartFreshInstance = vi.fn(async () => undefined);
+    const adapter = {
+      compactContext,
+      getRuntimeSnapshot: vi.fn((): { turnPhase: string; activeTurnId: string | null } => ({ turnPhase: 'running', activeTurnId: 'turn-1' })),
+    };
+    const emitOutputMessage = vi.fn();
+    const instanceManager = {
+      getAdapterRuntimeCapabilities: vi.fn(() => ({ supportsNativeCompaction: true })),
+      getAdapter: vi.fn(() => adapter),
+      getInstance: vi.fn(() => ({ id: 'inst-busy', outputBuffer: [] })),
+      sendInput: vi.fn(),
+      restartFreshInstance,
+      emitOutputMessage,
+    } as unknown as InstanceManager;
+
+    setupCompactionCoordinator(instanceManager, makeWindowManager());
+    const busy = await applyCompaction(instanceManager, 'inst-busy');
+
+    expect(busy).toMatchObject({ success: false, busy: true });
+    expect(busy.error).toMatch(/once the current turn finishes/);
+    expect(compactContext).not.toHaveBeenCalled();
+    expect(restartFreshInstance).not.toHaveBeenCalled();
+    // A refused click must not leave an unused "Before manual compaction" checkpoint.
+    expect(checkpointManagerMock.createCheckpoint).not.toHaveBeenCalled();
+    // ...and the user is told why nothing happened, whichever route asked for compaction.
+    expect(emitOutputMessage).toHaveBeenCalledWith('inst-busy', expect.objectContaining({
+      type: 'system',
+      content: expect.stringMatching(/once the current turn finishes/),
+      metadata: { compactionRefused: true },
+    }));
+
+    adapter.getRuntimeSnapshot.mockReturnValue({ turnPhase: 'idle', activeTurnId: null });
+    compactContext.mockResolvedValue(true);
+    await expect(applyCompaction(instanceManager, 'inst-busy')).resolves.toMatchObject({
+      success: true,
+      method: 'native',
+    });
+    expect(checkpointManagerMock.createCheckpoint).toHaveBeenCalledTimes(1);
+  });
+
+  // W6 item 3, through the real wiring: the adapter's "no live turn" steer
+  // answer must reach the policy runtime as a skip, and the adapter's outer-send
+  // id must scope the recovery ceiling.
+  it('passes steer skips and the adapter outer-send id through to the shared policy', async () => {
+    const executeContextAction = vi.fn(async (action: string) => (
+      action === 'steer-turn'
+        ? { proof: 'none' as const, skipped: 'turn-not-active' as const }
+        : { proof: 'acknowledged' as const }
+    ));
+    let outerSendId = 'send-1';
+    const adapter = {
+      executeContextAction,
+      getContextOuterSendId: () => outerSendId,
+      getContextCapabilities: () => ({
+        toolResultControl: 'post-retention',
+        toolResultVisibility: 'full',
+        transcriptControl: 'native-compaction',
+        occupancyReporting: 'current',
+        cumulativeReporting: 'available',
+        interruptProof: 'observed',
+        compactionProof: 'observed',
+        sameThreadContinuation: true,
+      }),
+      getRuntimeSnapshot: vi.fn(() => ({ turnPhase: 'running' })),
+    };
+    const instanceManager = {
+      getAdapterRuntimeCapabilities: vi.fn(() => ({ supportsNativeCompaction: true })),
+      getAdapter: vi.fn(() => adapter),
+      getInstance: vi.fn(() => ({ id: 'inst-policy', contextEvidence: { mode: 'enforce' } })),
+      sendInput: vi.fn(),
+      emitOutputMessage: vi.fn(),
+    } as unknown as InstanceManager;
+    setupCompactionCoordinator(instanceManager, makeWindowManager());
+    const coordinator = CompactionCoordinator.getInstance();
+    const tripped = vi.fn();
+    coordinator.on('compaction-circuit-breaker-tripped', tripped);
+    const round = async (used: number) => {
+      coordinator.onContextUpdate('inst-policy', { used, total: 100, percentage: used });
+      await coordinator.drainPolicyDecisions('inst-policy');
+      coordinator.recordObservedCompaction('inst-policy');
+    };
+
+    for (let steer = 0; steer < 4; steer += 1) await round(72);
+    expect(executeContextAction.mock.calls.filter(([action]) => action === 'steer-turn')).toHaveLength(4);
+    expect(tripped).not.toHaveBeenCalled();
+
+    const interrupts = () => executeContextAction.mock.calls
+      .filter(([action]) => action === 'controlled-interrupt').length;
+    for (let recovery = 0; recovery < 4; recovery += 1) await round(85);
+    expect(interrupts()).toBe(3);
+    outerSendId = 'send-2';
+    await round(85);
+    expect(interrupts()).toBe(4);
   });
 
   it('resets renderer context usage after successful native compaction when no provider context event follows', async () => {
@@ -320,6 +424,67 @@ describe('setupCompactionCoordinator', () => {
       used: 0,
       occupancyReported: true,
       occupancyIsAggregate: true,
+    });
+  });
+
+  describe('decision log in the restart-with-summary prompt (token/memory Tasks 8-9)', () => {
+    async function restartCompactWith(recorder: (events: readonly unknown[]) => void): Promise<{ prompt: string; success: boolean }> {
+      setDecisionLogRecorderForTesting(recorder);
+      const managerSendInput = vi.fn(async (_id: string, _text: string) => undefined);
+      const instance = {
+        id: 'inst-log',
+        outputBuffer: [
+          { id: 'm1', type: 'user' as const, content: 'Build the importer.', timestamp: 1 },
+          { id: 'm2', type: 'assistant' as const, content: 'DECISION: store rows in SQLite, not JSON files.', timestamp: 2 },
+        ],
+      };
+      const instanceManager = {
+        getAdapterRuntimeCapabilities: vi.fn(() => ({ supportsNativeCompaction: false })),
+        getAdapter: vi.fn(() => ({ sendInput: vi.fn() })),
+        getInstance: vi.fn(() => instance),
+        sendInput: managerSendInput,
+        restartInstance: vi.fn(async () => undefined),
+        restartFreshInstance: vi.fn(async () => undefined),
+        emitOutputMessage: vi.fn(),
+      } as unknown as InstanceManager;
+      setupCompactionCoordinator(instanceManager, makeWindowManager());
+      const result = await CompactionCoordinator.getInstance().compactInstance('inst-log');
+      const prompt = String(managerSendInput.mock.calls.find(([, text]) => String(text).includes('Continuity Package'))?.[1] ?? '');
+      return { prompt, success: result.success };
+    }
+
+    afterEach(() => setDecisionLogRecorderForTesting(null));
+
+    it('adds the decision log block and records the events when the setting is on', async () => {
+      settingsManagerMock.get.mockImplementation(((key: string) => key === 'compactionDecisionLogEnabled' ? true : 0) as () => number);
+      const recorder = vi.fn();
+
+      const { prompt, success } = await restartCompactWith(recorder);
+
+      expect(success).toBe(true);
+      expect(prompt).toContain('Decision log:');
+      expect(prompt).toContain('store rows in SQLite');
+      expect(recorder).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the prompt without a decision log when the setting is off', async () => {
+      const recorder = vi.fn();
+
+      const { prompt, success } = await restartCompactWith(recorder);
+
+      expect(success).toBe(true);
+      expect(prompt).toContain('[Context Compaction Continuity Package]');
+      expect(prompt).not.toContain('Decision log:');
+      expect(recorder).not.toHaveBeenCalled();
+    });
+
+    it('still completes the restart when recording the decision log fails', async () => {
+      settingsManagerMock.get.mockImplementation(((key: string) => key === 'compactionDecisionLogEnabled' ? true : 0) as () => number);
+
+      const { prompt, success } = await restartCompactWith(() => { throw new Error('rlm unavailable'); });
+
+      expect(success).toBe(true);
+      expect(prompt).toContain('Decision log:');
     });
   });
 

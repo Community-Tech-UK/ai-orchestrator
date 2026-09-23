@@ -8,7 +8,7 @@
  * remains exclusively with each node's loop coordinator and evidence ladder.
  */
 
-import type { LoopConfig } from './loop.types';
+import type { LoopConfig, LoopWorktreeLifecycle } from './loop.types';
 
 export type CampaignLoopConfig =
   Partial<Omit<LoopConfig, 'completion'>> & {
@@ -82,7 +82,7 @@ export interface CampaignPolicy {
   maxParallel: number;
   /**
    * If set, each node runs in its own git worktree to avoid conflicting
-   * mutations. Reuses ParallelWorktreeCoordinator when more than one node runs.
+   * mutations. The campaign coordinator prepares one worktree per node.
    */
   isolation?: 'worktree';
 }
@@ -132,6 +132,12 @@ export interface CampaignNodeRun {
   startedAt?: number;
   endedAt?: number;
   skippedReason?: string;
+  /** `isolation: 'worktree'` only: the node's AIO-created worktree checkout.
+   *  Cleared once the checkout is reaped. Main-process only (not in the DTO). */
+  worktreePath?: string;
+  /** `isolation: 'worktree'` only: durable merge-back state, same phases as a
+   *  loop's managed worktree. `blocked` + `lastError` records a refused landing. */
+  worktreeLifecycle?: LoopWorktreeLifecycle;
 }
 
 export interface CampaignRun {

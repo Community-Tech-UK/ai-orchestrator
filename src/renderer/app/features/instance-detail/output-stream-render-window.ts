@@ -31,6 +31,16 @@ export class OutputStreamRenderWindow<T> {
     return true;
   }
 
+  /** Back to the default window, e.g. after the loaded history was released. */
+  reset(instanceId: string): void {
+    if (!this.countByInstance().has(instanceId)) return;
+    this.countByInstance.update((current) => {
+      const next = new Map<string, number>(current);
+      next.delete(instanceId);
+      return next;
+    });
+  }
+
   grow(instanceId: string, by: number): void {
     if (by <= 0) return;
     this.countByInstance.update((current) => {

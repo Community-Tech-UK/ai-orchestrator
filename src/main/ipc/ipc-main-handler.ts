@@ -90,7 +90,6 @@ import {
   registerConsensusHandlers,
   registerRoutingHandlers,
   registerCommunicationHandlers,
-  registerParallelWorktreeHandlers,
   registerRemoteObserverHandlers,
   registerRemoteNodeHandlers,
   registerPairBothHandlers,
@@ -387,7 +386,10 @@ export class IpcMainHandler {
     registerLspHandlers();
 
     // File handlers (editor, watcher, multi-edit)
-    registerFileHandlers({ windowManager: this.windowManager });
+    registerFileHandlers({
+      windowManager: this.windowManager,
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
 
     // Image handlers (clipboard copy, context menu)
     registerImageHandlers();
@@ -398,7 +400,9 @@ export class IpcMainHandler {
     registerWorkboardHandlers({ instanceManager: this.instanceManager });
 
     // Security handlers (secret detection, env filtering, bash validation)
-    registerSecurityHandlers();
+    registerSecurityHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
 
     // Cost tracking handlers
     registerCostHandlers({ windowManager: this.windowManager });
@@ -508,9 +512,6 @@ export class IpcMainHandler {
 
     // Communication handlers (cross-instance bridges and messaging)
     registerCommunicationHandlers();
-
-    // Parallel worktree handlers (parallel execution coordination)
-    registerParallelWorktreeHandlers();
 
     // Remote observer handlers (read-only local web observer)
     registerRemoteObserverHandlers();

@@ -379,6 +379,7 @@
       [viewport]="container()?.nativeElement ?? null"
       [hasOlderMessages]="hasOlderMessages() || hiddenRenderedCount() > 0"
       [sessionPrompts]="sessionPrompts()"
+      [revealUntilMessage]="history.revealUntilMessage"
       (loadOlder)="revealOlderContent()"
     />
 

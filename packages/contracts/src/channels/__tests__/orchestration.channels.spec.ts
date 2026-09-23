@@ -13,6 +13,14 @@ describe('ORCHESTRATION_CHANNELS', () => {
     expect(ORCHESTRATION_CHANNELS.VERIFICATION_VERDICT_READY).toBe('verification:verdict-ready');
   });
 
+  it('has CLI verification lifecycle channels', () => {
+    expect(ORCHESTRATION_CHANNELS.VERIFICATION_CANCEL_ALL).toBe('verification:cancel-all');
+    expect(ORCHESTRATION_CHANNELS.VERIFICATION_STARTED).toBe('verification:started');
+    expect(ORCHESTRATION_CHANNELS.VERIFICATION_CANCELLED).toBe('verification:cancelled');
+    expect(ORCHESTRATION_CHANNELS.VERIFICATION_AGENT_CANCELLED).toBe('verification:agent-cancelled');
+    expect(ORCHESTRATION_CHANNELS.VERIFICATION_WARNING).toBe('verification:warning');
+  });
+
   it('has debate channels', () => {
     expect(ORCHESTRATION_CHANNELS.DEBATE_START).toBe('debate:start');
     expect(ORCHESTRATION_CHANNELS.DEBATE_INTERVENE).toBe('debate:intervene');

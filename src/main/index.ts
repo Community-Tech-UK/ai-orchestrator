@@ -32,6 +32,7 @@ import { registerBuiltInProviders } from './providers/register-built-in-provider
 import { startBuildSkewWatcher } from './app/build-skew-watcher';
 import { installShutdownSignalProbes } from './app/shutdown-forensics';
 import { createInitializationSteps } from './app/initialization-steps';
+import { createStatelessExecProviderPredicate } from './app/stateless-exec-provider';
 import { resolveHarnessUserDataPath } from './app/user-data-path';
 import { shutdownTracer } from './observability/otel-setup';
 import { shutdownMetrics } from './observability/otel-metrics';
@@ -172,7 +173,9 @@ class HarnessApp {
       const steps = createInitializationSteps({
         instanceManager: this.instanceManager,
         windowManager: this.windowManager,
-        isStatelessExecProvider: (provider) => this.isStatelessExecProvider(provider),
+        isStatelessExecProvider: createStatelessExecProviderPredicate(
+          (instanceId) => this.instanceManager.getAdapter(instanceId),
+        ),
         getNodeLatencyForInstance: (instanceId) => this.getNodeLatencyForInstance(instanceId),
         syncRemoteNodeMetricsToLoadBalancer: (nodeId) => this.syncRemoteNodeMetricsToLoadBalancer(nodeId),
       });
@@ -212,14 +215,6 @@ class HarnessApp {
       logger.info('Packaged startup smoke completed');
       setImmediate(() => app.quit());
     }
-  }
-
-  /**
-   * Codex/Gemini adapters are currently exec-per-message (stateless).
-   * Context threshold auto-guards are designed for stateful sessions.
-   */
-  private isStatelessExecProvider(provider: string | undefined): boolean {
-    return provider === 'codex' || provider === 'gemini' || provider === 'antigravity';
   }
 
   private getNodeLatencyForInstance(instanceId: string): number | undefined {

@@ -85,22 +85,19 @@ Located in `src/main/orchestration/` (27 files):
    - Multi-agent agreement mechanisms
    - Voting-based consensus (`voting.ts`)
 
-4. **Parallel Worktree** (`parallel-worktree-coordinator.ts`)
-   - Distributed execution across git worktrees
-
-5. **Skills System** (`src/main/skills/`)
+4. **Skills System** (`src/main/skills/`)
    - Progressive skill loading
    - Built-in orchestrator skills in `src/main/skills/builtin/`
    - Skills must be in subdirectories with `SKILL.md` files
 
-6. **Default Invokers** (`default-invokers.ts`)
+5. **Default Invokers** (`default-invokers.ts`)
    - Wires LLM invocation handlers to debate, verification, review, and workflow events
 
-7. **Orchestration HUD + verdicts**
+6. **Orchestration HUD + verdicts**
    - HUD state and quick-action bundles are derived in orchestration services and consumed by renderer orchestration components
    - Verification verdicts are derived by `verification-verdict-deriver.ts` and pushed through `verification:verdict-ready` with raw responses preserved
 
-8. **Loop Mode planning and audit envelope**
+7. **Loop Mode planning and audit envelope**
    - `loop-coordinator.ts` owns iteration scheduling, completion seams, preflight execution, final-audit gating, and state transitions.
    - Loop-owned artifacts are scoped under `.aio-loop-state/<loopRunId>/`: `LOOP_TASKS.md`, `ROADMAP.md`, `PRE_FLIGHT.md`, `AUDIT.md`, `repo-baseline.json`, and `phases/`.
    - Repo baselines are captured by `loop-repo-state.ts`; comparisons use single-revision working-tree diffs so tracked, staged, unstaged, and untracked files are visible while `.aio-loop-control/`, `.aio-loop-attachments/`, `.aio-loop-state/`, `.git/`, and `node_modules/` stay excluded.
@@ -109,7 +106,7 @@ Located in `src/main/orchestration/` (27 files):
    - Completion authority remains machine-owned: verify/fresh-eyes evidence and existing gates are resolved by `evidence-resolver.ts`; each coordinator-owned verify/preflight execution is durably recorded in `verification_runs` with its canonical command, exit result, duration, and work hash. With `completion.evidenceLedger` enabled, a passing claim only clears the gate when the ledger contains a matching, current full execution; unavailable storage fails open for compatibility, while an available missing/mismatched row fails closed. The inspector reads the least-privilege `verification-runs:list` projection and marks recorded work hashes fresh or stale. In `gate` mode, `loop-final-audit.ts` can reject completion or stop as `completed-needs-review`. In `observe` mode, audit findings are persisted but do not change completion.
    - Plan packets are prompted during PLAN mode by `loop-stage-machine.ts` and parsed by `loop-plan-packet.ts` for final-audit coverage. Malformed packets require review; transcript markers from Supergoal or native `/goal` are not used.
 
-9. **Cross-Session Messaging** (`src/main/instance/cross-session-messaging.ts`)
+8. **Cross-Session Messaging** (`src/main/instance/cross-session-messaging.ts`)
    - Lets one running CLI instance send a text message directly into another instance's session (with an optional file-path attachment), so agents can coordinate without going through a human relay.
    - Delivery is opt-in per target instance (`allowIncomingSessionMessages` on the target) and globally gated by the `interSessionMessaging` app setting (`enabled`, `allowCrossProject`, `maxHops`, `rateLimitPerMinute`); rejections and hop-count/rate-limit outcomes are returned as a discriminated `CrossSessionMessageResult` (`delivered` / `rejected` / `not-found` / `ambiguous`).
    - `cross-session-messaging-rate-limiter.ts` enforces a per-source-instance sliding-window rate limit; provenance wrapping (`cross-session-messaging-provenance.ts`) tags delivered turns with `metadata.crossSessionMessage` (sender id/name, hop count) so the renderer can render a "From: sender" badge in `output-stream.component`.
@@ -117,7 +114,7 @@ Located in `src/main/orchestration/` (27 files):
    - Exposed to the renderer over three IPC channels in `src/main/ipc/handlers/instance-cross-session-messaging-handlers.ts` (list messageable sessions, send a message, read settings), and to CLIs/agents as MCP tools in `src/main/mcp/orchestrator-session-messaging-tools.ts`; the MCP path derives `sourceInstanceId` server-side from the trusted RPC connection context (never from LLM-supplied input) to prevent spoofed provenance.
    - Renderer surface: `CrossSessionMessagingStore` (signal store) backs a "Message this session…" context-menu action and compose dialog in `instance-list.component`, plus a dedicated "Cross-Session Messaging" Settings tab for the global toggles and per-instance consent list.
 
-10. **Plan Queue** (`src/main/plan-queue/`)
+9. **Plan Queue** (`src/main/plan-queue/`)
    - Works through plan (`*_plan.md`) or livetest (`*_livetest.md`) documents. A session calls the `plan_queue_start` MCP tool (or James starts a run from the Plan Queue panel) and becomes the parent of every instance the run spawns.
    - `plan-queue-coordinator.ts` is a deterministic scheduler (singleton, initialized and recovered from `plan-queue-bootstrap.ts` after the loop store opens). Code decides what runs next, whether an item is done and when it lands; LLMs only triage, work and judge. Limits: worker slots per run (items holding a worktree), verification slots shared across runs, a load-average gate, and one landing at a time.
    - Per item: `plan-queue-discovery.ts` classifies documents by filename state; a triage instance reports readiness through `plan_queue_report_triage`; `needs-answer` items wait for James (panel radio controls or `plan_queue_answer` from the parent). A worker instance runs in the item's own `queue/*` branch and `.worktrees/queue/...` worktree; each finished turn is checkpointed by the coordinator (`--no-verify`, so a hook can never refuse it). A verifier on a different provider (`plan-queue-verifier-select.ts` → `resolveCheckerPlan`) judges each round and reports through `plan_queue_report_verdict`, which only that verifier may call. FAIL sends findings back to the same worker; PASS lands the branch as one squash commit built in the item worktree WITH the repository's pre-commit hook (`plan-queue-squash.ts`, `plan-queue-item-landing.ts`), carrying the coordinator-renamed `_completed` documents (`plan-queue-doc-close.ts`) in the same commit, then fast-forwards the base (`plan-queue-landing.ts`, `promoteIntegrationBranch` with `block-overlap` so untracked root documents do not block).

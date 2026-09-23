@@ -38,7 +38,7 @@ interface BoundListener {
 }
 
 export class OrchestrationActivityBridge {
-  private static instance: OrchestrationActivityBridge;
+  private static instance: OrchestrationActivityBridge | null = null;
 
   static getInstance(): OrchestrationActivityBridge {
     if (!this.instance) {

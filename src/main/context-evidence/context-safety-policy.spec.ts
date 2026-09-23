@@ -157,6 +157,51 @@ describe('ContextSafetyPolicy', () => {
     expect(incapable.action.kind).toBe('pause');
   });
 
+  // W6 item 2: an idle instance has no turn to interrupt, so 80% compacts.
+  it('compacts natively at 80% when idle instead of interrupting a turn that is not running', () => {
+    const policy = new ContextSafetyPolicy();
+    const pressure = { ...input().sample, occupancy: { status: 'known' as const, used: 85, total: 100 } };
+    const idle = policy.decide(input({
+      sample: pressure,
+      capabilities: observed,
+      atSafeProviderBoundary: true,
+    }));
+    const idleWithoutObservedCompaction = policy.decide(input({
+      sample: pressure,
+      capabilities: { ...observed, transcriptControl: 'rebuild' },
+      atSafeProviderBoundary: true,
+    }));
+
+    expect(idle.action).toMatchObject({ kind: 'native-compaction', trigger: 'known-occupancy-80' });
+    expect(idle.requiredSequence).toBeUndefined();
+    expect(idle.nextState.recoveriesInOuterSend).toBe(0);
+    expect(idle.nextState.emittedTriggers).toContain('known-occupancy-80');
+    expect(idleWithoutObservedCompaction.action.kind).toBe('pause');
+    expect(idleWithoutObservedCompaction.reasonCode).toBe('OBSERVED_COMPACTION_UNAVAILABLE');
+  });
+
+  // W6 item 3: every recovery compacts and so clears the emitted triggers;
+  // only the recovery counters stop one user send from looping.
+  it('counts 80% controlled interrupts against the per-send recovery ceiling', () => {
+    const policy = new ContextSafetyPolicy();
+    const pressure = { ...input().sample, occupancy: { status: 'known' as const, used: 85, total: 100 } };
+    const first = policy.decide(input({ sample: pressure, capabilities: observed }));
+    const atCeiling = policy.decide(input({
+      sample: pressure,
+      capabilities: observed,
+      state: {
+        ...createInitialContextSafetyPolicyState('outer-send-1'),
+        epoch: 3,
+        recoveriesInOuterSend: 3,
+      },
+    }));
+
+    expect(first.action.kind).toBe('controlled-interrupt');
+    expect(first.nextState).toMatchObject({ recoveriesInEpoch: 1, recoveriesInOuterSend: 1 });
+    expect(atCeiling.action).toMatchObject({ kind: 'pause', trigger: 'known-occupancy-80' });
+    expect(atCeiling.reasonCode).toBe('RECOVERY_CEILING_REACHED');
+  });
+
   it('uses cumulative 2x and 4x checkpoints without treating them as occupancy', () => {
     const policy = new ContextSafetyPolicy();
     const atTwo = policy.decide(input({

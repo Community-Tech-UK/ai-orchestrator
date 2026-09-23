@@ -166,6 +166,29 @@ describe('CompactionPreviewDialogComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('boom');
   });
 
+  it('treats a refused compaction (busy mid-turn) as a failure, not "Compaction complete."', async () => {
+    const busy = 'Busy: compaction is available once the current turn finishes.';
+    applyCompactionWithOptions.mockResolvedValueOnce({ success: true, data: { success: false, busy: true, error: busy } });
+    fixture.componentRef.setInput('instanceId', 'inst-1');
+    fixture.componentRef.setInput('isOpen', true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    let closedCount = 0;
+    fixture.componentInstance.closed.subscribe(() => { closedCount += 1; });
+
+    const confirmBtn = [...fixture.nativeElement.querySelectorAll('.cpd-btn')]
+      .find((btn) => (btn as HTMLElement).textContent?.trim() === 'Confirm') as HTMLButtonElement;
+    confirmBtn.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(closedCount).toBe(0);
+    expect(toastShow).toHaveBeenCalledWith(busy, 'error');
+    expect(toastShow).not.toHaveBeenCalledWith('Compaction complete.', 'success');
+  });
+
   it('cancel emits closed without calling apply', async () => {
     fixture.componentRef.setInput('instanceId', 'inst-1');
     fixture.componentRef.setInput('isOpen', true);

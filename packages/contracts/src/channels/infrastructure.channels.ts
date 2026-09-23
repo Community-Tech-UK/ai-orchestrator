@@ -85,6 +85,8 @@ export const INFRASTRUCTURE_CHANNELS = {
   COST_GET_ENTRIES: 'cost:get-entries',
   COST_CLEAR_ENTRIES: 'cost:clear-entries',
   COST_BUDGET_ALERT: 'cost:budget-alert',
+  COST_BUDGET_WARNING: 'cost:budget-warning',
+  COST_BUDGET_EXCEEDED: 'cost:budget-exceeded',
   COST_USAGE_RECORDED: 'cost:usage-recorded',
 
   // Provider Quota — remaining usage from each CLI provider

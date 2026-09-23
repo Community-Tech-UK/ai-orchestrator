@@ -46,7 +46,19 @@ vi.mock('../session/session-admission-service', () => ({
   getSessionAdmissionService: () => admissionMocks,
 }));
 
+import { ipcMain } from 'electron';
+import { IPC_CHANNELS, type IpcResponse } from '../../shared/types/ipc.types';
 import { registerLspFeedback, _disposeLspFeedbackForTesting } from './lsp-feedback-registration';
+
+type IpcHandler = (event: unknown, payload?: unknown) => Promise<IpcResponse>;
+
+/** Latest handler registered for `channel` (beforeEach re-registers every test). */
+function registeredHandler(channel: string): IpcHandler {
+  const calls = vi.mocked(ipcMain.handle).mock.calls.filter(([registered]) => registered === channel);
+  const handler = calls.at(-1)?.[1];
+  if (!handler) throw new Error(`No handler registered for ${channel}`);
+  return handler as unknown as IpcHandler;
+}
 
 describe('registerLspFeedback — injectFeedback admission gating (A5)', () => {
   let sendInput: ReturnType<typeof vi.fn>;
@@ -100,5 +112,40 @@ describe('registerLspFeedback — injectFeedback admission gating (A5)', () => {
 
     await expect(deps.injectFeedback('inst-1', 'Fix this error')).rejects.toThrow('adapter gone');
     expect(admissionMocks.markFailed).toHaveBeenCalledWith('adm-default', 'adapter gone');
+  });
+});
+
+describe('registerLspFeedback — LSP_FEEDBACK_SET payload validation', () => {
+  beforeEach(() => {
+    _disposeLspFeedbackForTesting();
+    registerLspFeedback({
+      instanceManager: { getInstance: vi.fn(), sendInput: vi.fn() },
+    });
+  });
+
+  it('toggles the flag from the preload `{ enabled }` payload', async () => {
+    const set = registeredHandler(IPC_CHANNELS.LSP_FEEDBACK_SET);
+    const get = registeredHandler(IPC_CHANNELS.LSP_FEEDBACK_GET);
+
+    await expect(set({}, { enabled: true })).resolves.toEqual({ success: true, data: { enabled: true } });
+    await expect(get({})).resolves.toEqual({ success: true, data: { enabled: true } });
+    await expect(set({}, { enabled: false })).resolves.toEqual({ success: true, data: { enabled: false } });
+  });
+
+  it.each([
+    ['a missing payload', undefined],
+    ['a missing flag', {}],
+    // Previously coerced with Boolean(), so the string "false" turned the loop ON.
+    ['a string flag', { enabled: 'false' }],
+    ['a numeric flag', { enabled: 1 }],
+  ])('rejects %s and leaves the flag unchanged', async (_label, payload) => {
+    const set = registeredHandler(IPC_CHANNELS.LSP_FEEDBACK_SET);
+    const get = registeredHandler(IPC_CHANNELS.LSP_FEEDBACK_GET);
+
+    const result = await set({}, payload);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('VALIDATION_FAILED');
+    await expect(get({})).resolves.toEqual({ success: true, data: { enabled: false } });
   });
 });

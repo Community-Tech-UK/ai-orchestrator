@@ -43,7 +43,15 @@ export interface CompactionResult {
    * different outcomes — the fallback mints a new provider session id (LT-017).
    */
   nativeAttemptFailed?: boolean;
+  /**
+   * Set when manual compaction was refused because the provider turn is still
+   * running. Neither strategy ran: native compaction cannot be confirmed
+   * mid-turn, and restart-with-summary would kill the live turn.
+   */
+  busy?: boolean;
 }
+
+export const COMPACTION_BUSY_ERROR = 'Busy: compaction is available once the current turn finishes.';
 
 /**
  * `options` carries the WS-B7 manual-compaction boundary. Automatic and
@@ -147,6 +155,10 @@ export class CompactionCoordinator extends EventEmitter {
     ((event: ContextPolicyEvent) => void | Promise<void>) | null = null;
   private getAtSafeProviderBoundaryForInstance:
     ((instanceId: string) => boolean) | null = null;
+  private getOuterSendIdForInstance:
+    ((instanceId: string) => string | null) | null = null;
+  private isTurnActiveForInstance:
+    ((instanceId: string) => boolean) | null = null;
 
   private static instance: CompactionCoordinator | null = null;
 
@@ -188,6 +200,10 @@ export class CompactionCoordinator extends EventEmitter {
     getProviderActionExecutor?: (instanceId: string) => ProviderContextActionExecutor | null;
     recordPolicyEvent?: (event: ContextPolicyEvent) => void | Promise<void>;
     getAtSafeProviderBoundary?: (instanceId: string) => boolean;
+    /** The user send the adapter is currently serving; scopes the policy's recovery ceiling. */
+    getOuterSendId?: (instanceId: string) => string | null;
+    /** True while the adapter has a provider turn in flight; blocks manual compaction. */
+    isTurnActive?: (instanceId: string) => boolean;
   }): void {
     if (options.nativeCompact) this.nativeCompactStrategy = options.nativeCompact;
     if (options.restartCompact) this.restartCompactStrategy = options.restartCompact;
@@ -210,6 +226,8 @@ export class CompactionCoordinator extends EventEmitter {
     if (options.getAtSafeProviderBoundary) {
       this.getAtSafeProviderBoundaryForInstance = options.getAtSafeProviderBoundary;
     }
+    if (options.getOuterSendId) this.getOuterSendIdForInstance = options.getOuterSendId;
+    if (options.isTurnActive) this.isTurnActiveForInstance = options.isTurnActive;
   }
 
   /**
@@ -263,6 +281,7 @@ export class CompactionCoordinator extends EventEmitter {
       executor: this.getProviderActionExecutorForInstance?.(instanceId) ?? null,
       circuitBreakerTripped: this.isCircuitBreakerTripped(instanceId),
       atSafeProviderBoundary: this.getAtSafeProviderBoundaryForInstance?.(instanceId) === true,
+      outerSendId: this.getOuterSendIdForInstance?.(instanceId) ?? undefined,
       onActionFailure: () => this.recordCircuitBreakerFailure(instanceId),
       onActionSuccess: () => this.resetCircuitBreaker(instanceId),
     });
@@ -335,6 +354,21 @@ export class CompactionCoordinator extends EventEmitter {
   ): Promise<CompactionResult> {
     if (this.compactingInstances.has(instanceId)) {
       return { success: false, method: 'native', blocking: true, error: 'Compaction already in progress' };
+    }
+    // Checked before any strategy runs. A native compact sent mid-turn goes
+    // unconfirmed, and the failed attempt then fell through to
+    // restart-with-summary, which restarts the instance under the live turn.
+    if (this.isTurnActiveForInstance?.(instanceId)) {
+      // Returns before any compaction event, so announce the refusal for every caller to surface.
+      this.emit('compaction-refused', { instanceId, reason: 'busy', error: COMPACTION_BUSY_ERROR });
+      return {
+        success: false,
+        method: 'native',
+        blocking: true,
+        busy: true,
+        previousUsage: this.latestUsage.get(instanceId),
+        error: COMPACTION_BUSY_ERROR,
+      };
     }
 
     return this.executeCompaction(instanceId, true, options);

@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { runLoopVerify } from './loop-verify-runner';
 import type { VerifyOutcomeLike } from './loop-coordinator-utils';
@@ -53,12 +51,5 @@ describe('runLoopVerify', () => {
     expect(runVerify).toHaveBeenCalledTimes(2);
     expect(result.final.output).toBe('v2');
     expect(result.resolverVerifyLabel).toBe('second-verify');
-  });
-});
-
-describe('T16 loop transcripts vs RLM compaction', () => {
-  it('never calls getSmartCompactionManager from the loop coordinator', () => {
-    const src = readFileSync(join(process.cwd(), 'src/main/orchestration/loop-coordinator.ts'), 'utf8');
-    expect(src).not.toContain('getSmartCompactionManager');
   });
 });

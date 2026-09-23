@@ -1,4 +1,3 @@
-import { CopilotCliAdapter } from '../cli/adapters/copilot-cli-adapter';
 import {
   copilotModelInfosToDisplayInfo,
 } from '../cli/adapters/copilot-cli-adapter.models';
@@ -6,6 +5,7 @@ import { CursorCliAdapter } from '../cli/adapters/cursor-cli-adapter';
 import { CURSOR_MODEL_DISCOVERY_CACHE_TTL_MS } from '../cli/adapters/cursor-cli-adapter.models';
 import { getLogger } from '../logging/logger';
 import type { ModelDisplayInfo } from '../../shared/types/provider.types';
+import { listCopilotModelsAcrossProfiles } from './copilot-profile-model-discovery';
 import { getUnifiedModelCatalog } from './unified-model-catalog-service';
 
 const logger = getLogger('CursorCopilotCliDiscovery');
@@ -29,9 +29,8 @@ const DEFAULT_LISTERS: Record<
   () => Promise<ModelDisplayInfo[]>
 > = {
   cursor: () => new CursorCliAdapter().listAvailableModels({ fallbackToStatic: false }),
-  copilot: async () => copilotModelInfosToDisplayInfo(
-    await new CopilotCliAdapter().listAvailableModels({ fallbackToStatic: false }),
-  ),
+  // Per account profile: each seat's live roster is authenticated and routed.
+  copilot: async () => copilotModelInfosToDisplayInfo(await listCopilotModelsAcrossProfiles()),
 };
 
 export class CursorCopilotCliDiscoveryService {

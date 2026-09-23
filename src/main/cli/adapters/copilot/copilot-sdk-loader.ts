@@ -40,6 +40,10 @@ export interface CopilotSdkClientLike {
   /** Resolves with an array of teardown errors (SDK 1.x signature). */
   stop(): Promise<unknown>;
   forceStop?(): Promise<unknown>;
+  /** Connect without creating a session. Optional: absent on older bundles. */
+  start?(): Promise<void>;
+  /** The account's live model roster (`models.list`). Optional: absent on older bundles. */
+  listModels?(): Promise<unknown[]>;
 }
 
 export interface LoadedCopilotSdk {

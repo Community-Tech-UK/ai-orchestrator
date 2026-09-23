@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 18;
+export const LOOP_SCHEMA_VERSION = 19;
 
 interface LoopMigration {
   version: number;
@@ -399,6 +399,17 @@ const MIGRATIONS: LoopMigration[] = [
     name: '018_plan_queue_landing_refusals',
     up: `
       ALTER TABLE plan_queue_items ADD COLUMN landing_refusals INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    // Campaign `isolation: 'worktree'` nodes land their worktree back into the
+    // repository like a managed loop does. The checkout path and lifecycle are
+    // persisted before any Git mutation so boot recovery can finish a landing.
+    version: 19,
+    name: '019_campaign_nodes_worktree_lifecycle',
+    up: `
+      ALTER TABLE campaign_nodes ADD COLUMN worktree_path TEXT;
+      ALTER TABLE campaign_nodes ADD COLUMN worktree_lifecycle_json TEXT;
     `,
   },
 ];

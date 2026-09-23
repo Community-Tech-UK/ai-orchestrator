@@ -51,7 +51,6 @@ export { registerEcosystemHandlers } from './ecosystem-handlers';
 export { registerConsensusHandlers } from './consensus-handlers';
 export { registerRoutingHandlers } from './routing-handlers';
 export { registerCommunicationHandlers } from './communication-handlers';
-export { registerParallelWorktreeHandlers } from './parallel-worktree-handlers';
 export { registerRemoteObserverHandlers } from './remote-observer-handlers';
 export { registerRemoteNodeHandlers } from './remote-node-handlers';
 export { registerPairBothHandlers } from './pair-both-handlers';

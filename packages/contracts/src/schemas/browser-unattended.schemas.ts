@@ -266,3 +266,21 @@ export const BrowserRememberLoginFingerprintRequestSchema = z
 export type BrowserRememberLoginFingerprintRequest = z.infer<
   typeof BrowserRememberLoginFingerprintRequestSchema
 >;
+
+export const BrowserListLoginRecipesRequestSchema = z
+  .object({
+    // Any tab or managed profile id; resolved to its stable recipe scope.
+    profileId: idSchema.optional(),
+    origin: z.string().url().max(2000).optional(),
+  })
+  .strict();
+export type BrowserListLoginRecipesRequest = z.infer<typeof BrowserListLoginRecipesRequestSchema>;
+
+export const BrowserForgetLoginRecipeRequestSchema = z
+  .object({
+    // The `scope` value exactly as browser.list_login_recipes returns it.
+    scope: z.string().min(1).max(500),
+    origin: z.string().url().max(2000),
+  })
+  .strict();
+export type BrowserForgetLoginRecipeRequest = z.infer<typeof BrowserForgetLoginRecipeRequestSchema>;

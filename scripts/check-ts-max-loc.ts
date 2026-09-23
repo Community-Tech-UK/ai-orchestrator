@@ -114,6 +114,10 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/browser-gateway/browser-gateway-service.ts': 2461,
   // Raised 700 -> 704 for close_tab / close_matching RPC dispatch cases.
   'src/main/browser-gateway/browser-gateway-rpc-server.ts': 704,
+  // Health aggregator: one section per surface. Crossed 700 with the per-node
+  // secret observation report; the mapping and warnings live in
+  // browser-secret-observation-health.ts.
+  'src/main/browser-gateway/browser-health-service.ts': 715,
   // Declarative MCP tool-name + JSON-schema catalog; crossed 700 with the
   // reliability tools (assert_persisted, write_journal). Catalog growth, not
   // logic growth. Raised 727 -> 762 for the fill_credential authorize-path hint.
@@ -429,7 +433,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/rlm/hyde-service.ts': 734,
   // Re-tightened off the allowlist (1024 -> 682): provider generate/stream
   // helpers extracted to llm-service-providers.ts.
-  'src/main/rlm/smart-compaction.ts': 880,
   // Main process — security
   // Raised 1151 -> 1210 for WS-B3 Phase 1: the never-delegable-category guard
   // in checkPermission() plus its type fields. The decision-building logic
@@ -491,12 +494,16 @@ const ALLOWLIST: Record<string, number> = {
   // the composer auto-growing for the rest of the session. The fix is an import
   // plus one comment; splitting a 1787-line component is real work that should
   // not ride on a bug fix.
-  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1857,
+  // Raised 1857 -> 1910 (2026-09-23) for the Swap accounts account-profile chip
+  // (accountProfileId / accountRoutingSource inputs plus a type import). Four
+  // lines of plumbing on a 1.9k-line component; the input-panel split stays its
+  // own piece of work.
+  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1910,
   'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1582,
   // Raised 1266 -> 1297 (2026-07-17 thread-resilience stream updates).
   // Re-tightened 1297 -> 1290: compaction-recovery labels, failed-image
   // filter, and message context-menu items extracted.
-  'src/renderer/app/features/instance-detail/output-stream.component.ts': 1290,
+  'src/renderer/app/features/instance-detail/output-stream.component.ts': 1222,
   // Allowlisted at 747 when the Outputs rows gained a right-click context menu
   // (Open with preferred program / Open in editor / Open in Finder / Copy path),
   // mirroring session-artifacts-strip. Inline template + styles push it past 700.

@@ -66,11 +66,9 @@ export function registerMemoryBootstrap(): void {
     },
     init: () => {
       const { getEpisodicRLMStore } = require('../rlm/episodic-rlm-store') as typeof import('../rlm/episodic-rlm-store');
-      const { getSmartCompactionManager } = require('../rlm/smart-compaction') as typeof import('../rlm/smart-compaction');
       const { getSummarizationWorker } = require('../rlm/summarization-worker') as typeof import('../rlm/summarization-worker');
 
       getEpisodicRLMStore();
-      getSmartCompactionManager();
       const worker = getSummarizationWorker();
       worker.initialize();
       worker.start();

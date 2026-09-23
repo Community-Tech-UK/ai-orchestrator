@@ -30,7 +30,6 @@ describe('registerMemoryBootstrap', () => {
   it('initializes RLM collaborators without resolving the main-process context manager', () => {
     let contextManagerResolutions = 0;
     const getEpisodicRLMStore = vi.fn();
-    const getSmartCompactionManager = vi.fn();
     const worker = {
       initialize: vi.fn(),
       start: vi.fn(),
@@ -48,8 +47,6 @@ describe('registerMemoryBootstrap', () => {
           return { getRLMContextManager: vi.fn() };
         case '../rlm/episodic-rlm-store':
           return { getEpisodicRLMStore };
-        case '../rlm/smart-compaction':
-          return { getSmartCompactionManager };
         case '../rlm/summarization-worker':
           return { getSummarizationWorker };
         default:
@@ -67,7 +64,6 @@ describe('registerMemoryBootstrap', () => {
 
     expect(contextManagerResolutions).toBe(0);
     expect(getEpisodicRLMStore).toHaveBeenCalledOnce();
-    expect(getSmartCompactionManager).toHaveBeenCalledOnce();
     expect(getSummarizationWorker).toHaveBeenCalledOnce();
     expect(worker.initialize).toHaveBeenCalledOnce();
     expect(worker.start).toHaveBeenCalledOnce();

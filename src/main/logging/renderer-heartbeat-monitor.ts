@@ -7,7 +7,9 @@
  * Electron's `unresponsive` event misses when the user isn't interacting
  * (the "7-hour silent freeze" class of incident). Log-only by design: it
  * writes a stall entry when beats stop and a recovery entry (with the outage
- * duration) when they resume, giving every freeze a diagnosis trail.
+ * duration) when they resume, giving every freeze a diagnosis trail. A
+ * renderer whose last beat said its document was hidden is judged against a
+ * longer threshold, because Chromium throttles hidden timers (LT-022).
  */
 
 import { webContents } from 'electron';
@@ -17,12 +19,22 @@ const logger = getLogger('RendererHeartbeat');
 
 /** A renderer that misses beats for this long is considered stalled. */
 export const HEARTBEAT_STALL_THRESHOLD_MS = 10_000;
+/**
+ * Stall threshold for a renderer whose last beat said its document was hidden.
+ * Chromium throttles a hidden window's timers to roughly one tick a minute, so
+ * a 10s gap there is normal and says nothing about the event loop (LT-022).
+ * Two and a half throttle periods still catches a genuine freeze in a hidden
+ * window, just later.
+ */
+export const HIDDEN_HEARTBEAT_STALL_THRESHOLD_MS = 150_000;
 /** How often the watchdog scans tracked renderers for stalls. */
 export const HEARTBEAT_WATCHDOG_INTERVAL_MS = 5_000;
 
 interface HeartbeatEntry {
   lastBeatAt: number;
   lastSeq: number;
+  /** The last beat reported a hidden document, so its timers are throttled. */
+  hidden: boolean;
   /** Set while a stall episode is open so each freeze logs exactly once. */
   stalledSince: number | null;
 }
@@ -42,11 +54,12 @@ export class RendererHeartbeatMonitor {
   private suspended = false;
 
   /** Record a heartbeat from a renderer webContents. */
-  beat(senderId: number, payload: { seq: number; sentAt: number }): void {
+  beat(senderId: number, payload: { seq: number; sentAt: number; visibility?: 'visible' | 'hidden' }): void {
     const now = Date.now();
+    const hidden = payload.visibility === 'hidden';
     const entry = this.entries.get(senderId);
     if (!entry) {
-      this.entries.set(senderId, { lastBeatAt: now, lastSeq: payload.seq, stalledSince: null });
+      this.entries.set(senderId, { lastBeatAt: now, lastSeq: payload.seq, hidden, stalledSince: null });
       this.ensureWatchdog();
       logger.debug('Renderer heartbeat tracking started', { senderId, seq: payload.seq });
       return;
@@ -62,6 +75,7 @@ export class RendererHeartbeatMonitor {
     }
     entry.lastBeatAt = now;
     entry.lastSeq = payload.seq;
+    entry.hidden = hidden;
   }
 
   /** Stop tracking a renderer (its webContents was destroyed). */
@@ -120,12 +134,14 @@ export class RendererHeartbeatMonitor {
         continue;
       }
       const gapMs = now - entry.lastBeatAt;
-      if (gapMs >= HEARTBEAT_STALL_THRESHOLD_MS && entry.stalledSince === null) {
+      const thresholdMs = entry.hidden ? HIDDEN_HEARTBEAT_STALL_THRESHOLD_MS : HEARTBEAT_STALL_THRESHOLD_MS;
+      if (gapMs >= thresholdMs && entry.stalledSince === null) {
         entry.stalledSince = now;
         logger.error('Renderer heartbeat stalled — UI event loop likely blocked', undefined, {
           senderId,
           gapMs,
           lastSeq: entry.lastSeq,
+          hidden: entry.hidden,
         });
       }
     }

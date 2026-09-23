@@ -15,10 +15,6 @@ const mocks = vi.hoisted(() => ({
     generateWakeContext: vi.fn(), getWakeUpText: vi.fn(), addHint: vi.fn(),
     removeHint: vi.fn(), setIdentity: vi.fn(), listHints: vi.fn(),
   },
-  parallel: {
-    startParallelExecution: vi.fn(), getExecution: vi.fn(), cancelExecution: vi.fn(),
-    getTaskSession: vi.fn(), getActiveExecutions: vi.fn(), resolveConflict: vi.fn(), forceMerge: vi.fn(),
-  },
   consensus: { query: vi.fn(), abortQuery: vi.fn(), getActiveQueryCount: vi.fn() },
   conversation: { importFile: vi.fn(), importFromString: vi.fn(), detectFormat: vi.fn() },
   observer: { getStatus: vi.fn(), start: vi.fn(), stop: vi.fn(), rotateToken: vi.fn() },
@@ -43,9 +39,6 @@ vi.mock('electron', () => ({
 
 vi.mock('../../../codemem', () => ({ getCodemem: () => ({ gateway: mocks.lsp }) }));
 vi.mock('../../../memory/wake-context-builder', () => ({ getWakeContextBuilder: () => mocks.wake }));
-vi.mock('../../../orchestration/parallel-worktree-coordinator', () => ({
-  getParallelWorktreeCoordinator: () => mocks.parallel,
-}));
 vi.mock('../../../orchestration/consensus-coordinator', () => ({
   getConsensusCoordinator: () => mocks.consensus,
 }));
@@ -67,7 +60,6 @@ import { IPC_CHANNELS } from '../../../../shared/types/ipc.types';
 import { registerConsensusHandlers } from '../consensus-handlers';
 import { registerConversationMiningHandlers } from '../conversation-mining-handlers';
 import { registerLspHandlers } from '../lsp-handlers';
-import { registerParallelWorktreeHandlers } from '../parallel-worktree-handlers';
 import { registerRemoteObserverHandlers } from '../remote-observer-handlers';
 import { registerSnapshotHandlers } from '../snapshot-handlers';
 import { registerTaskHandlers } from '../task-handlers';
@@ -118,23 +110,6 @@ describe('wake-context handlers', () => {
     await expect(invoke(IPC_CHANNELS.WAKE_ADD_HINT, { content: '' }))
       .resolves.toMatchObject({ success: false, error: { code: 'WAKE_ADD_HINT_FAILED' } });
     expect(mocks.wake.addHint).not.toHaveBeenCalled();
-  });
-});
-
-describe('parallel-worktree handlers', () => {
-  it('routes a validated cancellation', async () => {
-    mocks.parallel.cancelExecution.mockResolvedValue(undefined);
-    registerParallelWorktreeHandlers();
-    await expect(invoke(IPC_CHANNELS.PARALLEL_WORKTREE_CANCEL, { executionId: 'exec-1' }))
-      .resolves.toEqual({ success: true, data: { executionId: 'exec-1' } });
-    expect(mocks.parallel.cancelExecution).toHaveBeenCalledWith('exec-1');
-  });
-
-  it('rejects an empty execution id', async () => {
-    registerParallelWorktreeHandlers();
-    await expect(invoke(IPC_CHANNELS.PARALLEL_WORKTREE_CANCEL, { executionId: '' }))
-      .resolves.toMatchObject({ success: false, error: { code: 'PARALLEL_WORKTREE_CANCEL_FAILED' } });
-    expect(mocks.parallel.cancelExecution).not.toHaveBeenCalled();
   });
 });
 

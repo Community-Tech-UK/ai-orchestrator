@@ -54,7 +54,7 @@ const BROKER_SESSION_FILENAME = 'broker.json';
  * Singleton per orchestrator instance.
  */
 export class CodexBrokerManager {
-  private static instance: CodexBrokerManager;
+  private static instance: CodexBrokerManager | null = null;
 
   private session: BrokerSession | null = null;
   private brokerProcess: ChildProcess | null = null;

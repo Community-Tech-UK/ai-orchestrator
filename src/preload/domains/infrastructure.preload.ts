@@ -248,13 +248,13 @@ export function createInfrastructureDomain(
     },
     onCostBudgetWarning: (callback: (data: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
-      ipcRenderer.on('cost:budget-warning', handler);
-      return () => ipcRenderer.removeListener('cost:budget-warning', handler);
+      ipcRenderer.on(ch.COST_BUDGET_WARNING, handler);
+      return () => ipcRenderer.removeListener(ch.COST_BUDGET_WARNING, handler);
     },
     onCostBudgetExceeded: (callback: (data: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
-      ipcRenderer.on('cost:budget-exceeded', handler);
-      return () => ipcRenderer.removeListener('cost:budget-exceeded', handler);
+      ipcRenderer.on(ch.COST_BUDGET_EXCEEDED, handler);
+      return () => ipcRenderer.removeListener(ch.COST_BUDGET_EXCEEDED, handler);
     },
 
     quotaGetAll: (): Promise<IpcResponse> => {
@@ -355,7 +355,7 @@ export function createInfrastructureDomain(
 
     // Fire-and-forget on purpose: a heartbeat must never queue an invoke
     // round-trip behind a blocked main process.
-    rendererHeartbeat: (payload: { seq: number; sentAt: number }): void => {
+    rendererHeartbeat: (payload: { seq: number; sentAt: number; visibility?: 'visible' | 'hidden' }): void => {
       ipcRenderer.send(ch.RENDERER_HEARTBEAT, payload);
     },
     logGetLogs: (options?: {

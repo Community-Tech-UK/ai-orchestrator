@@ -6,7 +6,7 @@ vi.mock('../../logging/logger', () => ({
 }));
 
 import { ProviderQuotaService } from '../../core/system/provider-quota-service';
-import { attachAccountTelemetryBridge, claudeTelemetryWindow } from './account-telemetry-bridge';
+import { attachAccountTelemetryBridge, claudeAccessAfterFullWindow, claudeTelemetryWindow } from './account-telemetry-bridge';
 
 let service: ProviderQuotaService;
 
@@ -36,6 +36,42 @@ describe('account telemetry bridge', () => {
     expect(snapshot?.windows.map((window) => [window.id, window.used]).sort()).toEqual([['claude.5h', 90], ['claude.weekly', 10]]);
     expect(service.getSnapshot('claude')).toBeNull();
     expect(service.getAll().accountSnapshots).toHaveLength(1);
+  });
+
+  it('lets a full Claude window override the usage probe\'s older "allowed" verdict', () => {
+    const adapter = new EventEmitter();
+    attachAccountTelemetryBridge(adapter, { provider: 'claude', profileId: 'max-b', source: 'default', executionNodeId: 'local' }, service);
+    const probe = (): void => service.ingestFromAdapter('claude', {
+      provider: 'claude', ok: true,
+      windows: [{ kind: 'rolling-window', id: 'claude.weekly', label: 'Weekly', unit: 'messages', used: 10, limit: 100, remaining: 90, resetsAt: null }],
+      usageAccess: { ordinaryUsageAllowed: true, creditsAvailable: null },
+    }, 'admin-api', 'max-b');
+
+    // A window with headroom leaves the verdict alone.
+    probe();
+    const probedAt = service.getSnapshot('claude', 'max-b')!.takenAt;
+    adapter.emit('rate-limit-telemetry', { rateLimitType: 'five_hour', utilization: 0.4 });
+    expect(service.getSnapshot('claude', 'max-b')?.usageAccess)
+      .toEqual({ ordinaryUsageAllowed: true, creditsAvailable: null, observedAt: probedAt });
+
+    // A rejected account-wide window says the included usage is spent now.
+    adapter.emit('rate-limit-telemetry', { rateLimitType: 'seven_day', status: 'rejected' });
+    const rejected = service.getSnapshot('claude', 'max-b')?.usageAccess;
+    expect(rejected).toMatchObject({ ordinaryUsageAllowed: false, creditsAvailable: null });
+    expect(rejected?.observedAt).toBeGreaterThanOrEqual(probedAt);
+
+    // A rejected model-scoped window only makes the account-wide verdict unknown.
+    probe();
+    adapter.emit('rate-limit-telemetry', { rateLimitType: 'seven_day_opus', status: 'rejected' });
+    expect(service.getSnapshot('claude', 'max-b')?.usageAccess).toBeUndefined();
+  });
+
+  it('keeps credits and a not-allowed verdict when a model-scoped Claude window fills', () => {
+    expect(claudeAccessAfterFullWindow({ id: 'claude.weekly-opus' }, { ordinaryUsageAllowed: true, creditsAvailable: true, observedAt: 5 }))
+      .toEqual({ ordinaryUsageAllowed: null, creditsAvailable: true, observedAt: 5 });
+    const spent = { ordinaryUsageAllowed: false, creditsAvailable: null, observedAt: 5 };
+    expect(claudeAccessAfterFullWindow({ id: 'claude.weekly-opus' }, spent)).toBe(spent);
+    expect(claudeAccessAfterFullWindow({ id: 'claude.weekly-opus' }, undefined)).toBeUndefined();
   });
 
   it('merges sparse Codex updates across events', () => {

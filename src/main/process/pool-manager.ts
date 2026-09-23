@@ -40,7 +40,7 @@ export class PoolManager extends EventEmitter {
   private warmupTaskId: string | null = null;
   private maintenanceDeferredUntil = 0;
 
-  private static instance: PoolManager;
+  private static instance: PoolManager | null = null;
 
   static getInstance(): PoolManager {
     if (!this.instance) {

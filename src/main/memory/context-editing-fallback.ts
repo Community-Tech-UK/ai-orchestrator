@@ -2,11 +2,12 @@
  * Context Editing Fallback
  * Phase 1.2: Emergency fallback using Anthropic's context_management API
  *
- * FALLBACK ONLY - Use smart compaction first.
- * This is a blunt instrument that just clears old tool results.
- * Smart compaction does intelligent summarization - use that first.
+ * FALLBACK ONLY - a blunt instrument that just clears old tool results.
  *
- * Integration Point: smart-compaction.ts calls this AFTER tier-based compaction fails
+ * Integration Point: the Anthropic API provider
+ * (src/main/providers/anthropic-api-provider.ts) consults `shouldUseFallback()`
+ * before each request and routes through `createMessageWithClearing()` when
+ * context utilisation is high.
  */
 
 import { EventEmitter } from 'events';

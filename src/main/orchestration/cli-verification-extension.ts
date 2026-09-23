@@ -31,6 +31,7 @@ import type { ProviderAdapter } from '@sdk/provider-adapter';
 import { selectPersonalities, PERSONALITY_PROMPTS } from './personalities';
 import { generateId } from '../../shared/utils/id-generator';
 import { estimateTokens } from '../rlm/token-counter';
+import { EARLY_CONSENSUS_DROP_ERROR, dropPendingAgents, raceWithEarlyConsensus } from './verification-early-consensus';
 
 /**
  * Configuration for CLI-based verification
@@ -88,6 +89,8 @@ interface ActiveSession {
   request: VerificationRequest;
   providers: Map<string, ProviderAdapter>;
   cancelled: boolean;
+  /** Agent indexes terminated after early consensus (not a user cancel). */
+  dropped?: Set<number>;
 }
 
 const logger = getLogger('CliVerification');
@@ -359,7 +362,9 @@ export class CliVerificationCoordinator extends EventEmitter {
       this.runAgent(request, agent, index, session)
     );
 
-    const responses = await Promise.all(responsePromises);
+    const { responses, earlyConsensus } = await raceWithEarlyConsensus(responsePromises, request.config.earlyTermination,
+      (pending, check) => dropPendingAgents(session, agents, pending,
+        (payload) => this.emit('verification:early-consensus', { requestId: request.id, ...payload }), check));
 
     // Analyze responses
     const analysis = this.analyzeResponses(responses, request.config);
@@ -387,6 +392,7 @@ export class CliVerificationCoordinator extends EventEmitter {
       totalTokens: responses.reduce((sum, r) => sum + r.tokens, 0),
       totalCost: responses.reduce((sum, r) => sum + r.cost, 0),
       completedAt: Date.now(),
+      ...(earlyConsensus ? { earlyConsensus } : {}),
     };
   }
 
@@ -441,20 +447,21 @@ export class CliVerificationCoordinator extends EventEmitter {
         '</verification_query>',
       ].filter(Boolean).join('\n');
 
-      // Initialize provider
+      // Initialize provider (an early-consensus drop can terminate it mid-initialize; that is the drop)
       await agent.provider.initialize({
         workingDirectory: process.cwd(),
         systemPrompt,
         yoloMode: false,
-      });
+      }).catch((error: unknown) => { if (!session.dropped?.has(index)) throw error; });
 
       // Register provider in session for cancellation tracking
       session.providers.set(agentId, agent.provider);
 
-      // Check if cancelled during initialization
-      if (session.cancelled) {
-        await agent.provider.terminate();
+      // Check if cancelled (or dropped after early consensus) during initialization
+      if (session.cancelled || session.dropped?.has(index)) {
+        await agent.provider.terminate().catch((error: unknown) => { if (!session.dropped?.has(index)) throw error; });
         session.providers.delete(agentId);
+        if (!session.cancelled) this.emit('verification:agent-complete', { requestId: request.id, agentId, agentName: agent.name, success: false, error: EARLY_CONSENSUS_DROP_ERROR, responseLength: 0, tokens: 0 });
         return {
           agentId,
           agentIndex: index,
@@ -466,7 +473,7 @@ export class CliVerificationCoordinator extends EventEmitter {
           duration: Date.now() - startTime,
           tokens: 0,
           cost: 0,
-          error: 'Verification cancelled',
+          error: session.cancelled ? 'Verification cancelled' : EARLY_CONSENSUS_DROP_ERROR,
         };
       }
 
@@ -496,7 +503,7 @@ export class CliVerificationCoordinator extends EventEmitter {
             tokens = env.event.used || 0;
             break;
           case 'status':
-            if (env.event.status === 'idle') {
+            if (env.event.status === 'idle' && !session.dropped?.has(index)) {
               responseComplete = true;
             }
             break;
@@ -511,15 +518,17 @@ export class CliVerificationCoordinator extends EventEmitter {
         data: att.data,
       }));
 
-      // Send message with attachments
-      await agent.provider.sendMessage(fullPrompt, providerAttachments);
+      // Send message with attachments. Blocking providers (Codex exec, Gemini) hold this call for the
+      // whole turn, so an early-consensus drop surfaces as a rejection here: treat it as the drop.
+      await agent.provider.sendMessage(fullPrompt, providerAttachments)
+        .catch((error: unknown) => { if (!session.dropped?.has(index)) throw error; });
 
       // Wait for response to complete (with timeout)
       const maxWaitTime = request.config.timeout || 120000;
       const pollInterval = 500;
       let waitedTime = 0;
 
-      while (!responseComplete && waitedTime < maxWaitTime && !session.cancelled) {
+      while (!responseComplete && waitedTime < maxWaitTime && !session.cancelled && !session.dropped?.has(index)) {
         await new Promise(resolve => setTimeout(resolve, pollInterval));
         waitedTime += pollInterval;
       }
@@ -527,27 +536,29 @@ export class CliVerificationCoordinator extends EventEmitter {
       // Additional grace period for any final events
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // Terminate provider and remove from session tracking
-      await agent.provider.terminate();
+      // Terminate provider and remove from session tracking (a dropped agent was already terminated)
+      await agent.provider.terminate().catch((error: unknown) => { if (!session.dropped?.has(index)) throw error; });
       sub?.unsubscribe();
       session.providers.delete(agentId);
 
       // If no token count from context event, estimate from content length.
       // Pass the CLI command (or agent name) so the counter uses
       // family-specific char/token ratios (e.g. Claude ~3.8 vs the default 4.0).
-      if (tokens === 0 && responseContent.length > 0) {
+      if (tokens === 0 && (responseContent.length > 0 || session.dropped?.has(index))) {
         const modelHint = agent.command ?? agent.name;
         const promptTokens = estimateTokens(fullPrompt, modelHint);
         const responseTokens = estimateTokens(responseContent, modelHint);
         tokens = promptTokens + responseTokens;
       }
 
+      const dropError = !responseComplete && session.dropped?.has(index) ? EARLY_CONSENSUS_DROP_ERROR : undefined;
       // Emit agent complete event
       this.emit('verification:agent-complete', {
         requestId: request.id,
         agentId,
         agentName: agent.name,
-        success: true,
+        success: !dropError,
+        ...(dropError ? { error: dropError } : {}),
         responseLength: responseContent.length,
         tokens,
       });
@@ -566,6 +577,7 @@ export class CliVerificationCoordinator extends EventEmitter {
         duration: Date.now() - startTime,
         tokens,
         cost: this.estimateCost(tokens, agent.type),
+        ...(dropError ? { error: dropError } : {}),
       };
     } catch (error) {
       // Clean up provider from session tracking

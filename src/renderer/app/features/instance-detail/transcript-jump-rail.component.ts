@@ -10,7 +10,10 @@
  * chips for files edited during that turn; clicking smooth-scrolls the
  * transcript to that message and flashes it (`jump-flash`, styled by the
  * parent). Clicking a tick whose message is outside the rendered window
- * keeps loading older pages until it arrives, then jumps. Hidden until the
+ * asks the host to reveal older history until it renders, then jumps there
+ * instantly (the distance can be huge); a
+ * prompt no stored page holds (compaction drops some without writing them
+ * to disk) lands where it sat in the conversation instead. Hidden until the
  * transcript overflows (or has older messages) and the session has
  * MIN_JUMP_TARGETS prompts — or one, when older messages exist.
  *
@@ -42,6 +45,7 @@ import {
   computeMarkerLayout,
   mergeSessionTicks,
   type JumpTarget,
+  type RailTick,
 } from './transcript-jump-rail.markers';
 
 interface RailGeometry {
@@ -65,8 +69,6 @@ const HOVER_SHOW_DELAY_MS = 120;
 const JUMP_SCROLL_MARGIN = 12;
 const PREVIEW_APPROX_HEIGHT = 132;
 const MAX_PREVIEW_FILE_CHIPS = 2;
-/** Older-load rounds a stub-tick jump may request before giving up. */
-const MAX_PENDING_JUMP_LOADS = 40;
 
 @Component({
   selector: 'app-transcript-jump-rail',
@@ -289,6 +291,8 @@ export class TranscriptJumpRailComponent {
   hasOlderMessages = input(false);
   /** Full session prompt tally (see UserPromptRef) — may exceed the loaded window. */
   sessionPrompts = input<readonly UserPromptRef[]>([]);
+  /** Host hook: reveal older history until this prompt renders (see stub ticks). */
+  revealUntilMessage = input<((messageId: string) => Promise<void>) | null>(null);
   loadOlder = output<void>();
 
   private host = inject(ElementRef<HTMLElement>);
@@ -299,9 +303,10 @@ export class TranscriptJumpRailComponent {
   protected ticks = computed(() => mergeSessionTicks(this.sessionPrompts(), this.targets()));
   private geometry = signal<RailGeometry>(EMPTY_GEOMETRY);
   protected hoveredIndex = signal(-1);
-  /** Stub-tick click in flight: keep loading older until this prompt arrives. */
-  private pendingJumpMessageId = signal<string | null>(null);
-  private pendingJumpLoads = 0;
+  /** Latest stub-tick click; an older click still loading yields to it. */
+  private latestStubJump: RailTick | null = null;
+  /** Stub tick whose history reveal finished — the effect below lands it. */
+  private settledStubJump = signal<RailTick | null>(null);
 
   protected visible = computed(() => {
     const g = this.geometry();
@@ -385,24 +390,14 @@ export class TranscriptJumpRailComponent {
       });
     });
 
-    // Stub-tick jump driver: each time the loaded targets change (an older
-    // page arrived), either jump to the now-loaded prompt or request another
-    // page while the transcript still has older messages to give.
+    // Land a stub-tick jump once its reveal settles. Runs in change
+    // detection, after the host has rendered the revealed rows and refreshed
+    // this component's items, so targets() and the DOM reflect them.
     effect(() => {
-      const pendingId = this.pendingJumpMessageId();
-      if (!pendingId) return;
-      const target = this.targets().find((t) => t.messageId === pendingId);
-      if (target) {
-        this.pendingJumpMessageId.set(null);
-        this.jumpToTarget(target);
-        return;
-      }
-      if (!this.hasOlderMessages() || this.pendingJumpLoads >= MAX_PENDING_JUMP_LOADS) {
-        this.pendingJumpMessageId.set(null);
-        return;
-      }
-      this.pendingJumpLoads++;
-      this.loadOlder.emit();
+      const tick = this.settledStubJump();
+      if (!tick) return;
+      this.settledStubJump.set(null);
+      this.landStubJump(tick, this.targets());
     });
 
     this.destroyRef.onDestroy(() => this.clearHoverTimer());
@@ -412,22 +407,54 @@ export class TranscriptJumpRailComponent {
     const tick = this.ticks()[index];
     if (!tick) return;
     if (tick.target) {
-      this.pendingJumpMessageId.set(null);
+      this.latestStubJump = null;
       this.jumpToTarget(tick.target);
       return;
     }
-    // Message not in the rendered window — load older pages until it arrives.
-    this.pendingJumpLoads = 0;
-    this.pendingJumpMessageId.set(tick.messageId);
+    // Message not in the rendered window — reveal older history until it is.
+    const reveal = this.revealUntilMessage();
+    if (!reveal) {
+      this.loadOlder.emit();
+      return;
+    }
+    this.latestStubJump = tick;
+    const settle = (): void => {
+      if (this.latestStubJump === tick) this.settledStubJump.set(tick);
+    };
+    reveal(tick.messageId).then(settle, settle);
   }
 
-  private jumpToTarget(target: JumpTarget): void {
+  /**
+   * Jump to a stub tick's prompt now that history has been revealed. A prompt
+   * that never rendered is not in any stored page, so land where it sat
+   * chronologically: at the very top when it predates everything loaded (the
+   * session's opening prompt), otherwise at the nearest loaded prompt after it.
+   */
+  private landStubJump(tick: RailTick, targets: readonly JumpTarget[]): void {
+    if (this.latestStubJump !== tick) return;
+    this.latestStubJump = null;
+    // Instant, not smooth: the reveal can put the target hundreds of
+    // thousands of pixels away, and an animated scroll starting at the live
+    // tail reads as "back at the bottom" to the history-release logic.
+    const exact = targets.find((t) => t.messageId === tick.messageId);
+    if (exact) {
+      this.jumpToTarget(exact, 'auto');
+      return;
+    }
+    if (!targets.some((t) => t.timestamp < tick.timestamp)) {
+      this.viewport()?.scrollTo({ top: 0, behavior: 'auto' });
+      return;
+    }
+    this.jumpToTarget(targets.find((t) => t.timestamp >= tick.timestamp) ?? targets[targets.length - 1], 'auto');
+  }
+
+  private jumpToTarget(target: JumpTarget, behavior: ScrollBehavior = 'smooth'): void {
     const vp = this.viewport();
     if (!vp) return;
     const row = this.findRow(vp, target.itemId);
     if (!row) return;
 
-    vp.scrollTo({ top: Math.max(0, row.offsetTop - JUMP_SCROLL_MARGIN), behavior: 'smooth' });
+    vp.scrollTo({ top: Math.max(0, row.offsetTop - JUMP_SCROLL_MARGIN), behavior });
     row.classList.add('jump-flash');
     row.addEventListener('animationend', () => row.classList.remove('jump-flash'), { once: true });
   }

@@ -1,7 +1,8 @@
 import { NgZone } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Instance } from './instance.types';
+import type { Instance, OutputMessage } from './instance.types';
+import { LIMITS } from '../../../../../shared/constants/limits';
 import { InstanceStateService } from './instance-state.service';
 import { InstanceOutputStore } from './instance-output.store';
 import { ImageAttachmentService } from '../../../features/instance-detail/image-attachment.service';
@@ -206,6 +207,67 @@ describe('InstanceOutputStore', () => {
     expect(
       stateService.getInstance('inst-1')?.outputBuffer[0].metadata?.['imagesResolved']
     ).toBe(true);
+  });
+
+  describe('loaded history and the buffer cap', () => {
+    const max = LIMITS.OUTPUT_BUFFER_MAX_SIZE;
+    const live = (count: number, prefix = 'live'): OutputMessage[] =>
+      Array.from({ length: count }, (_, i) => ({
+        id: `${prefix}-${i}`,
+        timestamp: 1_000 + i,
+        type: 'assistant' as const,
+        content: `${prefix} ${i}`,
+      }));
+    const buffer = (): OutputMessage[] => stateService.state().instances.get('inst-1')!.outputBuffer;
+
+    beforeEach(() => {
+      stateService.updateInstance('inst-1', { outputBuffer: live(max) });
+    });
+
+    it('keeps history the user loaded when new output would push the buffer past its cap', () => {
+      store.prependOlderMessages('inst-1', live(3, 'older'));
+      store.queueOutput('inst-1', { id: 'new-1', timestamp: 9_999, type: 'assistant', content: 'next' });
+      store.flushInstanceOutput('inst-1');
+
+      expect(buffer()[0].id).toBe('older-0');
+      expect(buffer()).toHaveLength(max + 4);
+    });
+
+    it('still trims to the cap when no history was loaded', () => {
+      store.queueOutput('inst-1', { id: 'new-1', timestamp: 9_999, type: 'assistant', content: 'next' });
+      store.flushInstanceOutput('inst-1');
+
+      expect(buffer()).toHaveLength(max);
+      expect(buffer()[0].id).toBe('live-1');
+    });
+
+    it('releases loaded history by trimming back to the cap and reporting what it dropped', () => {
+      store.prependOlderMessages('inst-1', live(3, 'older'));
+
+      expect(store.releaseLoadedHistory('inst-1')).toBe(3);
+      expect(buffer()).toHaveLength(max);
+      expect(buffer()[0].id).toBe('live-0');
+
+      // Released: the cap applies to later output again.
+      store.queueOutput('inst-1', { id: 'new-1', timestamp: 9_999, type: 'assistant', content: 'next' });
+      store.flushInstanceOutput('inst-1');
+      expect(buffer()).toHaveLength(max);
+    });
+
+    it('keeps the pin while the buffer is still within the cap', () => {
+      stateService.updateInstance('inst-1', { outputBuffer: live(10) });
+      store.prependOlderMessages('inst-1', live(3, 'older'));
+
+      expect(store.releaseLoadedHistory('inst-1')).toBe(0);
+      store.queueOutput('inst-1', { id: 'new-1', timestamp: 9_999, type: 'assistant', content: 'next' });
+      store.flushInstanceOutput('inst-1');
+      expect(buffer()[0].id).toBe('older-0');
+    });
+
+    it('does nothing for an instance with no loaded history', () => {
+      expect(store.releaseLoadedHistory('inst-1')).toBe(0);
+      expect(buffer()).toHaveLength(max);
+    });
   });
 });
 

@@ -57,35 +57,6 @@ export interface VerificationCoordinatorProgress {
 }
 
 /**
- * Worktree parallel execution progress — mirrors EventEmitter events from
- * ParallelWorktreeCoordinator.
- *
- * Relevant events: execution:created, execution:started, execution:merging,
- * execution:conflicts-detected, execution:partial-failure, execution:completed,
- * execution:cancelled, task:completed, task:merged, task:merge-failed
- */
-export interface WorktreeProgress {
-  type: 'worktree';
-  executionId: string;
-  phase:
-    | 'creating'
-    | 'running'
-    | 'merging'
-    | 'conflicts_detected'
-    | 'completed'
-    | 'partial_failure'
-    | 'cancelled';
-  /** Number of tasks that have signalled task:completed */
-  tasksComplete: number;
-  /** Total tasks in this execution */
-  totalTasks: number;
-  /** Number of conflicts currently blocking the merge step */
-  conflictsDetected: number;
-  /** Number of tasks whose merge failed */
-  failedMerges: number;
-}
-
-/**
  * Consensus query progress — mirrors EventEmitter events from ConsensusCoordinator.
  *
  * Relevant event: consensus:progress (carries ConsensusProgressEvent payload).
@@ -108,5 +79,4 @@ export interface ConsensusProgress {
 export type CoordinatorProgress =
   | DebateProgress
   | VerificationCoordinatorProgress
-  | WorktreeProgress
   | ConsensusProgress;

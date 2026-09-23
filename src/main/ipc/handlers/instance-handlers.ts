@@ -771,38 +771,20 @@ export function registerInstanceHandlers(deps: {
         );
 
         const { getOutputStorageManager } = await import('../../memory/output-storage');
-        const storage = getOutputStorageManager();
-        const stats = storage.getInstanceStats(validated.instanceId);
-
-        if (!stats || stats.chunkCount === 0) {
-          return { success: true, data: { messages: [], hasMore: false, totalStored: 0 } };
-        }
-
-        // If beforeChunk is specified, load chunks before it; otherwise load the latest chunks
-        const endChunk = validated.beforeChunk !== undefined
-          ? validated.beforeChunk - 1
-          : stats.chunkCount - 1;
-
-        if (endChunk < 0) {
-          return { success: true, data: { messages: [], hasMore: false, totalStored: stats.totalMessages } };
-        }
-
-        // Load from the end working backwards to get the most recent stored messages
-        const messages = await storage.loadMessages(validated.instanceId, {
-          startChunk: Math.max(0, endChunk - 2), // Load up to 3 chunks (~300 messages)
-          endChunk,
+        // Page by message offset: the renderer passes back the previous
+        // page's oldestOffsetLoaded as beforeOffset (omitted for the newest).
+        const page = await getOutputStorageManager().loadMessagesBefore(validated.instanceId, {
+          beforeOffset: validated.beforeOffset,
           limit: validated.limit,
         });
-
-        const oldestChunkLoaded = Math.max(0, endChunk - 2);
 
         return {
           success: true,
           data: {
-            messages,
-            hasMore: oldestChunkLoaded > 0,
-            oldestChunkLoaded,
-            totalStored: stats.totalMessages,
+            messages: page.messages,
+            hasMore: page.startOffset > 0,
+            oldestOffsetLoaded: page.startOffset,
+            totalStored: page.totalStored,
           }
         };
       } catch (error) {

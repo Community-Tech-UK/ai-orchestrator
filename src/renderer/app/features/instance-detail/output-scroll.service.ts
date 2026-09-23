@@ -38,6 +38,7 @@ export class OutputScrollService {
     isLoadingOlderFn: () => boolean,
     hasOlderMessagesFn: () => boolean,
     loadOlderMessagesFn: () => void,
+    atBottomFn?: () => void,
   ): ScrollListenerBinding {
     let lastScrollTime = 0;
 
@@ -75,6 +76,8 @@ export class OutputScrollService {
       // Trigger loading older messages when near the top
       if (distanceFromTop < 200 && !isLoadingOlderFn() && hasOlderMessagesFn()) {
         loadOlderMessagesFn();
+      } else if (!state.userScrolledUp.value) {
+        atBottomFn?.();
       }
     };
 

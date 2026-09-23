@@ -18,7 +18,7 @@ import { getLogger } from '../../logging/logger';
 const logger = getLogger('DeferDecisionStore');
 
 export class DeferDecisionStore {
-  private static instance: DeferDecisionStore;
+  private static instance: DeferDecisionStore | null = null;
   private decisionDir: string;
 
   private constructor() {
@@ -39,7 +39,7 @@ export class DeferDecisionStore {
       DeferDecisionStore.instance.cleanup();
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    DeferDecisionStore.instance = undefined as any;
+    DeferDecisionStore.instance = null;
   }
 
   /**

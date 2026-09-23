@@ -21,8 +21,10 @@ export const ORCHESTRATION_CHANNELS = {
   // Verification operations (Phase 8.3 - alternative naming)
   VERIFICATION_START_CLI: 'verification:start-cli',
   VERIFICATION_CANCEL: 'verification:cancel',
+  VERIFICATION_CANCEL_ALL: 'verification:cancel-all',
 
   // Verification streaming events
+  VERIFICATION_STARTED: 'verification:started',
   VERIFICATION_AGENT_START: 'verification:agent-start',
   VERIFICATION_AGENT_STREAM: 'verification:agent-stream',
   VERIFICATION_AGENT_COMPLETE: 'verification:agent-complete',
@@ -32,6 +34,9 @@ export const ORCHESTRATION_CHANNELS = {
   VERIFICATION_COMPLETE: 'verification:complete',
   VERIFICATION_ERROR: 'verification:error',
   VERIFICATION_VERDICT_READY: 'verification:verdict-ready',
+  VERIFICATION_CANCELLED: 'verification:cancelled',
+  VERIFICATION_AGENT_CANCELLED: 'verification:agent-cancelled',
+  VERIFICATION_WARNING: 'verification:warning',
 
   // Debate operations
   DEBATE_START: 'debate:start',

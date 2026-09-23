@@ -4,6 +4,7 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import { z } from 'zod';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getDebugCommandsManager } from '../../core/system/debug-commands';
 import { getLogManager } from '../../logging/logger';
@@ -19,8 +20,10 @@ import {
   LogSetSubsystemLevelPayloadSchema,
 } from '@contracts/schemas/observability';
 
+const DEBUG_COMMAND_IDS = ['agent', 'config', 'file', 'memory', 'system', 'process', 'all'] as const;
+
 interface DebugCommandDescriptor {
-  id: string;
+  id: (typeof DEBUG_COMMAND_IDS)[number];
   label: string;
   description: string;
 }
@@ -34,6 +37,32 @@ const DEBUG_COMMANDS: DebugCommandDescriptor[] = [
   { id: 'process', label: 'Process', description: 'Inspect process argv, environment, and resource usage.' },
   { id: 'all', label: 'All', description: 'Run all non-file diagnostic commands.' },
 ];
+
+// Renderer-facing alias payloads (LOG_GET_LOGS / DEBUG_EXECUTE). Kept local:
+// they accept the preload's legacy shapes (`{ options }` wrapper, `context` as
+// a subsystem alias) that the canonical observability schemas do not.
+const LogQueryOptionsSchema = z.object({
+  level: z.enum(['debug', 'info', 'warn', 'error', 'fatal']).optional(),
+  subsystem: z.string().max(100).optional(),
+  context: z.string().max(100).optional(),
+  startTime: z.number().finite().nonnegative().optional(),
+  endTime: z.number().finite().nonnegative().optional(),
+  // The Logs page limit input is free-typed (min 10); keep a generous cap.
+  limit: z.number().int().min(1).max(1_000_000).optional(),
+});
+
+const LogGetLogsPayloadSchema = LogQueryOptionsSchema.extend({
+  options: LogQueryOptionsSchema.optional(),
+}).optional();
+
+const DebugExecutePayloadSchema = z.object({
+  command: z.enum(DEBUG_COMMAND_IDS),
+  args: z.object({
+    agentId: z.string().max(200).optional(),
+    workingDirectory: z.string().max(1000).optional(),
+    filePath: z.string().max(2000).optional(),
+  }).optional(),
+});
 
 /**
  * Map log level string to LogLevel type
@@ -126,7 +155,8 @@ export function registerDebugHandlers(): void {
       payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const logs = logManager.getRecentLogs(normalizeLogOptions(payload));
+        const validated = validateIpcPayload(LogGetLogsPayloadSchema, payload, 'LOG_GET_LOGS');
+        const logs = logManager.getRecentLogs(normalizeLogOptions(validated));
         return { success: true, data: logs };
       } catch (error) {
         return {
@@ -355,12 +385,7 @@ export function registerDebugHandlers(): void {
       payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const root = asRecord(payload);
-        const command = stringValue(root?.['command']);
-        const args = asRecord(root?.['args']);
-        if (!command) {
-          throw new Error('Debug command is required');
-        }
+        const { command, args } = validateIpcPayload(DebugExecutePayloadSchema, payload, 'DEBUG_EXECUTE');
 
         let data: unknown;
         switch (command) {
@@ -390,8 +415,10 @@ export function registerDebugHandlers(): void {
           case 'all':
             data = await debugManager.debugAll(stringValue(args?.['workingDirectory']));
             break;
-          default:
-            throw new Error(`Unknown debug command: ${command}`);
+          default: {
+            const unreachable: never = command;
+            throw new Error(`Unknown debug command: ${String(unreachable)}`);
+          }
         }
 
         return { success: true, data };

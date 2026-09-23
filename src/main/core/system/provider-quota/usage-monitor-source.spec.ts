@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { UsageMonitorSource } from './usage-monitor-source';
+import { UsageMonitorSource, gatedUsageMonitor } from './usage-monitor-source';
 import { evaluateQuotaThrottle } from '../../../orchestration/loop-quota-throttle';
 import { ProviderQuotaWindowSchema } from '@contracts/schemas/quota';
 
@@ -170,6 +170,54 @@ describe('UsageMonitorSource', () => {
     expect(ag!.windows).toHaveLength(1);
     expect(ag!.windows[0].id).toBe('antigravity.agy');
     expect(ag!.windows[0].used).toBe(80);
+  });
+
+  it("aliases token-usage-monitor's mimo tool key onto the opencode provider", async () => {
+    // The standalone monitor files the MiMo Token Plan (OpenCode's backend on
+    // xiaomi-token-plan-* models) under its own `mimo` tool key. `status` is
+    // the monitor's display field; `plan` carries the plan name for us.
+    const src = makeSource({
+      json: {
+        mimo: {
+          status: 'Pro',
+          plan: 'Pro',
+          windows: [
+            { label: 'plan', used_percent: 1.0, reset_at: '2026-10-22T23:59:59Z', detail: '397.7M/38.0B' },
+            { label: 'monthly', used_percent: 1.0, reset_at: '2026-10-22T23:59:59Z' },
+          ],
+        },
+      },
+    });
+    const opencode = await src.readProvider('opencode');
+    expect(opencode).not.toBeNull();
+    expect(opencode!.provider).toBe('opencode');
+    expect(opencode!.plan).toBe('Pro');
+    expect(opencode!.windows.map((w) => w.id)).toEqual(['opencode.plan', 'opencode.monthly']);
+    expect(opencode!.windows[0].resetsAt).toBe(Date.parse('2026-10-22T23:59:59Z'));
+  });
+
+  it('prefers a native opencode entry over the mimo alias', async () => {
+    const src = makeSource({
+      json: {
+        mimo: { windows: [{ label: 'plan', used_percent: 1.0 }] },
+        opencode: { plan: 'Pro', windows: [{ label: 'plan', used: 25, limit: 1000 }] },
+      },
+    });
+    const opencode = await src.readProvider('opencode');
+    expect(opencode!.plan).toBe('Pro');
+    expect(opencode!.windows).toHaveLength(1);
+    expect(opencode!.windows[0].used).toBe(25);
+    expect(opencode!.windows[0].limit).toBe(1000);
+  });
+
+  it('gates a monitor source behind eligibility (the Token Plan case)', async () => {
+    const src = makeSource({
+      json: { mimo: { windows: [{ label: 'plan', used_percent: 1.0 }] } },
+    });
+    const open = gatedUsageMonitor(src, () => true);
+    const closed = gatedUsageMonitor(src, () => false);
+    expect(await open.readProvider('opencode')).not.toBeNull();
+    expect(await closed.readProvider('opencode')).toBeNull();
   });
 
   it('skips windows missing numeric used/limit', async () => {

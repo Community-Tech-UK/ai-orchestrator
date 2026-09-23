@@ -3,7 +3,6 @@
  * Handles secret detection, redaction, bash validation, and env filtering
  */
 
-import { ipcMain } from 'electron';
 import { IPC_CHANNELS, type IpcResponse } from '../../../shared/types/ipc.types';
 import {
   BashValidatePayloadSchema,
@@ -40,17 +39,30 @@ import { PermissionDecisionStore } from '../../security/permission-decision-stor
 import { getPermissionManager } from '../../security/permission-manager';
 import { getToolPermissionChecker } from '../../security/tool-permission-checker';
 import { getRLMDatabase } from '../../persistence/rlm-database';
-import { validatedHandler } from '../validated-handler';
+import {
+  createTrustedIpcRegistrar,
+  validatedHandler,
+  type EnsureTrustedSender,
+} from '../validated-handler';
 import { DurableApprovalStore } from '../../orchestration/durable-approval-store';
 import { pendingApprovalDigest } from '../../orchestration/pending-approval-digest';
 
-export function registerSecurityHandlers(): void {
+export function registerSecurityHandlers(deps: {
+  /**
+   * These channels expose the safe env, audit logs and learned permission
+   * patterns, and change the permission preset and recorded decisions, so all
+   * of them require the main window.
+   */
+  ensureTrustedSender: EnsureTrustedSender;
+}): void {
+  const handle = createTrustedIpcRegistrar(deps.ensureTrustedSender);
+
   // ============================================
   // Secret Detection & Redaction Handlers
   // ============================================
 
   // Detect secrets in content
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.SECURITY_DETECT_SECRETS,
     validatedHandler(
       'SECURITY_DETECT_SECRETS',
@@ -76,7 +88,7 @@ export function registerSecurityHandlers(): void {
   );
 
   // Redact secrets in content
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.SECURITY_REDACT_CONTENT,
     validatedHandler(
       'SECURITY_REDACT_CONTENT',
@@ -94,7 +106,7 @@ export function registerSecurityHandlers(): void {
   );
 
   // Check if a file path is sensitive
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.SECURITY_CHECK_FILE,
     validatedHandler(
       'SECURITY_CHECK_FILE',
@@ -112,7 +124,7 @@ export function registerSecurityHandlers(): void {
   );
 
   // Get secret access audit log
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.SECURITY_GET_AUDIT_LOG,
     validatedHandler(
       'SECURITY_GET_AUDIT_LOG',
@@ -128,7 +140,7 @@ export function registerSecurityHandlers(): void {
   );
 
   // Clear audit log (no payload)
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.SECURITY_CLEAR_AUDIT_LOG,
     async (): Promise<IpcResponse> => {
       try {
@@ -153,7 +165,7 @@ export function registerSecurityHandlers(): void {
   // ============================================
 
   // Get safe environment variables (no payload)
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.SECURITY_GET_SAFE_ENV,
     async (): Promise<IpcResponse> => {
       try {
@@ -173,7 +185,7 @@ export function registerSecurityHandlers(): void {
   );
 
   // Check if a single env var should be allowed
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.SECURITY_CHECK_ENV_VAR,
     validatedHandler(
       'SECURITY_CHECK_ENV_VAR',
@@ -186,7 +198,7 @@ export function registerSecurityHandlers(): void {
   );
 
   // Get env filter config (no payload)
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.SECURITY_GET_ENV_FILTER_CONFIG,
     async (): Promise<IpcResponse> => {
       try {
@@ -214,7 +226,7 @@ export function registerSecurityHandlers(): void {
     }
   );
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.SECURITY_GET_PERMISSION_CONFIG,
     async (): Promise<IpcResponse> => {
       try {
@@ -239,7 +251,7 @@ export function registerSecurityHandlers(): void {
     }
   );
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.SECURITY_SET_PERMISSION_PRESET,
     validatedHandler(
       'SECURITY_SET_PERMISSION_PRESET',
@@ -272,7 +284,7 @@ export function registerSecurityHandlers(): void {
    * `minAgeMs: 0` — unlike the reminder, a banner is not an interruption, so it
    * should reflect what is true now rather than waiting five minutes to speak.
    */
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.PERMISSION_GET_APPROVAL_DIGEST,
     async (): Promise<IpcResponse> => {
       try {
@@ -296,7 +308,7 @@ export function registerSecurityHandlers(): void {
     }
   );
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.PERMISSION_GET_PENDING_BATCH,
     async (): Promise<IpcResponse> => {
       try {
@@ -316,7 +328,7 @@ export function registerSecurityHandlers(): void {
     }
   );
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.PERMISSION_RECORD_BATCH_DECISION,
     validatedHandler(
       'PERMISSION_RECORD_BATCH_DECISION',
@@ -331,7 +343,7 @@ export function registerSecurityHandlers(): void {
     )
   );
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.PERMISSION_RECORD_DECISION,
     validatedHandler(
       'PERMISSION_RECORD_DECISION',
@@ -347,7 +359,7 @@ export function registerSecurityHandlers(): void {
     )
   );
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.PERMISSION_GET_LEARNED_PATTERNS,
     async (): Promise<IpcResponse> => {
       try {
@@ -365,7 +377,7 @@ export function registerSecurityHandlers(): void {
     }
   );
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.PERMISSION_APPROVE_PATTERN,
     validatedHandler(
       'PERMISSION_APPROVE_PATTERN',
@@ -377,7 +389,7 @@ export function registerSecurityHandlers(): void {
     )
   );
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.PERMISSION_REJECT_PATTERN,
     validatedHandler(
       'PERMISSION_REJECT_PATTERN',
@@ -389,7 +401,7 @@ export function registerSecurityHandlers(): void {
     )
   );
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.PERMISSION_GET_STATS,
     async (): Promise<IpcResponse> => {
       try {
@@ -416,7 +428,7 @@ export function registerSecurityHandlers(): void {
 
   // Static lint: rules that can never fire because a broader earlier rule
   // always matches first. Read-only.
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.PERMISSION_ANALYZE_SHADOWED_RULES,
     validatedHandler(
       'PERMISSION_ANALYZE_SHADOWED_RULES',
@@ -428,7 +440,7 @@ export function registerSecurityHandlers(): void {
     )
   );
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.PERMISSION_GET_AUDIT_LOG,
     validatedHandler(
       'PERMISSION_GET_AUDIT_LOG',
@@ -455,7 +467,7 @@ export function registerSecurityHandlers(): void {
   const bashValidator = getBashValidationPipeline();
 
   // Validate a bash command
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.BASH_VALIDATE,
     validatedHandler(
       'BASH_VALIDATE',

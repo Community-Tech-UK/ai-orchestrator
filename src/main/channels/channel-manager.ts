@@ -27,7 +27,7 @@ export type ChannelEvent =
 type ChannelEventListener = (event: ChannelEvent) => void;
 
 export class ChannelManager {
-  private static instance: ChannelManager;
+  private static instance: ChannelManager | null = null;
   private adapters = new Map<ChannelPlatform, BaseChannelAdapter>();
   private listeners = new Set<ChannelEventListener>();
 
@@ -44,7 +44,7 @@ export class ChannelManager {
       this.instance.listeners.clear();
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (this as any).instance = undefined;
+    this.instance = null;
   }
 
   private constructor() {

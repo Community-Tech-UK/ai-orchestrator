@@ -39,7 +39,17 @@ function campaignRunToDto(run: ReturnType<ReturnType<typeof getCampaignCoordinat
     id: run.id,
     spec: run.spec,
     status: run.status,
-    nodeRuns: [...run.nodeRuns.values()],
+    // Explicit field list: the DTO schema is strict, and main-only node state
+    // (worktree path / merge-back lifecycle) must not leak into it.
+    nodeRuns: [...run.nodeRuns.values()].map((node) => ({
+      nodeId: node.nodeId,
+      campaignId: node.campaignId,
+      status: node.status,
+      loopRunId: node.loopRunId,
+      startedAt: node.startedAt,
+      endedAt: node.endedAt,
+      skippedReason: node.skippedReason,
+    })),
     startedAt: run.startedAt,
     endedAt: run.endedAt,
     pausedReason: run.pausedReason,

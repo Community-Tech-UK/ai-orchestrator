@@ -73,7 +73,7 @@ const ANTONYM_PAIRS: [string, string][] = [
  * Returns null when detection is ambiguous (would need LLM fallback).
  */
 export class ConflictDetector {
-  private static instance: ConflictDetector;
+  private static instance: ConflictDetector | null = null;
 
   static getInstance(): ConflictDetector {
     if (!this.instance) {
@@ -83,7 +83,7 @@ export class ConflictDetector {
   }
 
   static _resetForTesting(): void {
-    (this as unknown as { instance?: ConflictDetector }).instance = undefined;
+    this.instance = null;
   }
 
   private constructor() {}

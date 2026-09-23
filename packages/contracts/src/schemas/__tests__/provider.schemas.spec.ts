@@ -103,3 +103,22 @@ describe('ModelsCLIPushPayloadSchema', () => {
     }).success).toBe(true);
   });
 });
+
+describe('CLI check and scan payload schemas', () => {
+  it('accepts the bare CLI type string cli:check sends', async () => {
+    const { CliCheckPayloadSchema } = await import('../provider.schemas');
+    expect(CliCheckPayloadSchema.parse('claude')).toBe('claude');
+    expect(CliCheckPayloadSchema.safeParse('').success).toBe(false);
+    expect(CliCheckPayloadSchema.safeParse({ type: 'claude' }).success).toBe(false);
+    expect(CliCheckPayloadSchema.safeParse('x'.repeat(65)).success).toBe(false);
+  });
+
+  it('accepts { type } and a bare string for cli:scan-all-installs', async () => {
+    const { CliScanAllInstallsPayloadSchema } = await import('../provider.schemas');
+    expect(CliScanAllInstallsPayloadSchema.parse({ type: 'codex' })).toEqual({ type: 'codex' });
+    expect(CliScanAllInstallsPayloadSchema.parse('codex')).toBe('codex');
+    expect(CliScanAllInstallsPayloadSchema.safeParse({}).success).toBe(false);
+    expect(CliScanAllInstallsPayloadSchema.safeParse(42).success).toBe(false);
+  });
+});
+

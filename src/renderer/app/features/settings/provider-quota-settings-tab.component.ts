@@ -63,7 +63,7 @@ const LIMIT_UNAVAILABLE_TEXT: Record<ProviderId, string> = {
   copilot: 'GitHub Copilot does not report account limits outside an active coding session. Sign-in status is available but usage totals are not.',
   cursor: 'Cursor usage is available when Harness can read Cursor’s macOS Keychain session token, or when the standalone token-usage-monitor has written a fresh snapshot.',
   grok: 'Grok Build billing from ~/.grok/auth.json (monthly / on-demand USD). Sign in with `grok login` if the chip shows reauth.',
-  opencode: 'OpenCode does not report plan usage, and MiMo Token Plan usage is only shown in the MiMo console (it needs a browser login, not the API key). Check the console for remaining credits.',
+  opencode: 'MiMo Token Plan usage is read from the MiMo console’s quota API using the console session in Chrome (the API key cannot read quota). It is shown when the configured OpenCode model is a xiaomi-token-plan-* one; with Chrome closed or the console signed out the numbers stop refreshing until you sign in to the MiMo console again.',
 };
 
 @Component({

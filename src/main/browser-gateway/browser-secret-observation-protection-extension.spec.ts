@@ -85,4 +85,64 @@ describe('extension secret observation protection setting', () => {
     await h.markSecretTaint(42, PUBLIC_ORIGIN);
     expect(h.secretTaintedOrigins.size).toBe(0);
   });
+
+  it('keeps an applied false when an older storage read resolves afterwards', async () => {
+    // Storage still says ON from before the operator switched it off.
+    const h = recoveryHarness(storedState);
+    h.storage['browserSecretObservationProtectionEnabled'] = true;
+    let releaseStaleRead: (() => void) | undefined;
+    const realGet = h.chrome.storage.local.get.getMockImplementation()!;
+    h.chrome.storage.local.get.mockImplementationOnce(async (key: string) => {
+      const stale = await realGet(key);
+      await new Promise<void>((resolve) => { releaseStaleRead = resolve; });
+      return stale;
+    });
+
+    // An inventory/observation path starts the first read...
+    const observation = h.loadSecretObservationProtection();
+    // ...and a stamped command applies the operator's false while it is pending.
+    const apply = h.applySecretObservationProtectionFromCommand({
+      id: 'inv-1',
+      command: 'report_inventory',
+      payload: { secretObservationProtectionEnabled: false },
+    });
+    await settle();
+    releaseStaleRead!();
+    await Promise.all([observation, apply]);
+
+    expect(h.protectionEnabled()).toBe(false);
+    expect(h.storage['browserSecretObservationProtectionEnabled']).toBe(false);
+    // A credential fill after that must not re-arm the taint.
+    await h.markSecretTaint(42, PROTECTED_ORIGIN);
+    expect(h.secretTaintedOrigins.size).toBe(0);
+    await expect(h.assertSecretObservationAllowed({
+      id: 'snap-2',
+      command: 'snapshot',
+      target: { tabId: 42 },
+    })).resolves.toBeUndefined();
+  });
+
+  it('reads the stored false after a service-worker restart without any command', async () => {
+    const h = recoveryHarness({ version: 2, origins: [], tabs: {} });
+    h.storage['browserSecretObservationProtectionEnabled'] = false;
+
+    await h.markSecretTaint(42, PROTECTED_ORIGIN);
+
+    expect(h.protectionEnabled()).toBe(false);
+    expect(h.secretTaintedOrigins.size).toBe(0);
+  });
+
+  it('reports protection state and taint counts, never the origins', async () => {
+    const h = recoveryHarness(storedState);
+    expect(await h.secretObservationStatus()).toEqual({
+      protectionEnabled: true,
+      taintedOriginCount: 1,
+      taintedTabCount: 1,
+    });
+    await h.applySecretObservationProtectionEnabled(false);
+    const status = await h.secretObservationStatus();
+    expect(status).toEqual({ protectionEnabled: false, taintedOriginCount: 0, taintedTabCount: 0 });
+    expect(JSON.stringify(status)).not.toContain(PROTECTED_ORIGIN);
+  });
 });
+

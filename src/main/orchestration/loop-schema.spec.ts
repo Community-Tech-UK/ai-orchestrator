@@ -193,7 +193,7 @@ describe('loop-schema v16 managed worktree lifecycle', () => {
 
     runLoopMigrations(driver);
 
-    expect(LOOP_SCHEMA_VERSION).toBe(18);
+    expect(LOOP_SCHEMA_VERSION).toBe(19);
     expect(appliedVersions()).toContain(16);
     expect(columnNames('loop_runs')).toContain('worktree_lifecycle_json');
     const row = driver

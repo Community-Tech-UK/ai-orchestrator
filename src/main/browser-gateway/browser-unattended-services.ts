@@ -7,7 +7,9 @@ import {
   SqliteEscalationRecordStore,
   SqliteBrowserCampaignStore,
   SqliteVaultOriginBindingStore,
+  SqliteLoginRecipeStore,
 } from './browser-unattended-sqlite-stores';
+import { LoginFingerprintStore } from './browser-login-recipe-store';
 import { CredentialVault } from './browser-credential-vault';
 import { createBwRunner } from './browser-bw-runner';
 import { getBrowserCampaignRuntime } from './browser-campaign-runtime';
@@ -37,6 +39,7 @@ let credentialAuthorizationService: CredentialAuthorizationService | null = null
 let campaignService: BrowserCampaignService | null = null;
 let escalationService: BrowserEscalationService | null = null;
 let escalationNotify: ((escalation: BrowserEscalation) => void) | null = null;
+let loginRecipeStore: LoginFingerprintStore | null = null;
 
 let credentialVault: CredentialVault | null = null;
 let credentialVaultUnlockInFlight: Promise<UnlockResult> | null = null;
@@ -104,6 +107,18 @@ export function getBrowserCredentialAuthorizationService(): CredentialAuthorizat
     );
   }
   return credentialAuthorizationService;
+}
+
+/**
+ * Login fingerprints and re-login recipes for browser.check_session, persisted
+ * (migration 065). Deliberately no in-memory fallback: a missing row must read
+ * as missing, not be answered by a process-local copy that a restart erases.
+ */
+export function getBrowserLoginRecipeStore(): LoginFingerprintStore {
+  if (!loginRecipeStore) {
+    loginRecipeStore = new LoginFingerprintStore(new SqliteLoginRecipeStore());
+  }
+  return loginRecipeStore;
 }
 
 export function getBrowserCampaignService(): BrowserCampaignService {

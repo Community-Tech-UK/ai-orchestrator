@@ -1,13 +1,19 @@
 import { ipcMain } from 'electron';
 import * as QRCode from 'qrcode';
+import { z } from 'zod';
 import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getMobileGatewayServer } from '../../mobile-gateway/mobile-gateway-server';
 import { getMobileDeviceRegistry } from '../../mobile-gateway/mobile-device-registry';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
+import { validatedHandler } from '../validated-handler';
 
 const logger = getLogger('MobileGatewayHandlers');
+
+const MobileGatewayRevokeDevicePayloadSchema = z.object({
+  deviceId: z.string().min(1).max(200),
+});
 
 function fail(code: string, error: unknown): IpcResponse {
   return {
@@ -107,23 +113,15 @@ export function registerMobileGatewayHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.MOBILE_GATEWAY_REVOKE_DEVICE,
-    async (_event, payload: unknown): Promise<IpcResponse> => {
-      try {
-        const deviceId =
-          typeof (payload as { deviceId?: unknown })?.deviceId === 'string'
-            ? (payload as { deviceId: string }).deviceId
-            : '';
-        if (!deviceId) {
-          return fail('MOBILE_GATEWAY_REVOKE_DEVICE_FAILED', new Error('deviceId is required'));
-        }
-        return {
-          success: true,
-          data: { revoked: getMobileDeviceRegistry().revokeDevice(deviceId) },
-        };
-      } catch (error) {
-        return fail('MOBILE_GATEWAY_REVOKE_DEVICE_FAILED', error);
-      }
-    },
+    validatedHandler(
+      IPC_CHANNELS.MOBILE_GATEWAY_REVOKE_DEVICE,
+      MobileGatewayRevokeDevicePayloadSchema,
+      async ({ deviceId }): Promise<IpcResponse> => ({
+        success: true,
+        data: { revoked: getMobileDeviceRegistry().revokeDevice(deviceId) },
+      }),
+      { errorCode: 'MOBILE_GATEWAY_REVOKE_DEVICE_FAILED' },
+    ),
   );
 
   logger.info('Mobile gateway IPC handlers registered');

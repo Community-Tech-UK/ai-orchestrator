@@ -4,8 +4,9 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import { z } from 'zod';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
-import { validateIpcPayload } from '@contracts/schemas/common';
+import { InstanceIdSchema, validateIpcPayload } from '@contracts/schemas/common';
 import {
   CostClearEntriesPayloadSchema,
   CostGetBudgetPayloadSchema,
@@ -23,12 +24,21 @@ import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('CostHandlers');
 
+/**
+ * Renderer cost history (preload `costGetHistory(instanceId?, limit?)`). Local
+ * rather than in session.schemas.ts, which is at its line-count ceiling.
+ */
+const CostGetHistoryPayloadSchema = z.object({
+  instanceId: InstanceIdSchema.optional(),
+  limit: z.number().int().min(1).max(100000).optional(),
+}).optional();
+
 // Renderer-facing push channels for budget alerts. The CostTracker emits a single
 // `budget-alert` domain event; the preload bridge (infrastructure.preload.ts) splits
 // it into warning vs exceeded listeners, so the main side forwards on these two
-// channels. (`cost:usage-recorded` has a generated constant; these two do not.)
-const COST_BUDGET_WARNING_CHANNEL = 'cost:budget-warning';
-const COST_BUDGET_EXCEEDED_CHANNEL = 'cost:budget-exceeded';
+// channels.
+const COST_BUDGET_WARNING_CHANNEL = IPC_CHANNELS.COST_BUDGET_WARNING;
+const COST_BUDGET_EXCEEDED_CHANNEL = IPC_CHANNELS.COST_BUDGET_EXCEEDED;
 
 export function registerCostHandlers(deps: {
   windowManager: WindowManager;
@@ -246,13 +256,9 @@ export function registerCostHandlers(deps: {
       payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const data = payload && typeof payload === 'object' && !Array.isArray(payload)
-          ? payload as Record<string, unknown>
-          : {};
-        const instanceId = typeof data['instanceId'] === 'string' ? data['instanceId'] : undefined;
-        const limit = typeof data['limit'] === 'number' && Number.isFinite(data['limit'])
-          ? Math.max(1, Math.floor(data['limit']))
-          : undefined;
+        const validated = validateIpcPayload(CostGetHistoryPayloadSchema, payload, 'COST_GET_HISTORY');
+        const instanceId = validated?.instanceId;
+        const limit = validated?.limit;
         const entries = costTracker
           .getEntries()
           .filter((entry) => !instanceId || entry.instanceId === instanceId)

@@ -164,4 +164,32 @@ export const RLM_MIGRATIONS_061_065: Migration[] = [
       ALTER TABLE browser_permission_grants DROP COLUMN user_approved_credentials;
     `,
   },
+  {
+    // Login fingerprints and re-login recipes for browser.check_session. They
+    // were an in-memory Map keyed by the tab's own profileId, so a restart lost
+    // every recipe and a shared tab's recipe never reached the next tab.
+    // `scope` is the credential-authorization scope (credentialScopeForProfile):
+    // the managed profileId, or the node scope for shared tabs. relogin_json
+    // holds a vault item reference and selectors only, never a secret.
+    name: '065_browser_login_recipes',
+    up: `
+      CREATE TABLE IF NOT EXISTS browser_login_recipes (
+        scope TEXT NOT NULL,
+        scope_kind TEXT NOT NULL CHECK (scope_kind IN ('profile', 'node')),
+        origin TEXT NOT NULL,
+        login_url TEXT NOT NULL,
+        logged_in_markers_json TEXT NOT NULL,
+        relogin_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        last_outcome TEXT,
+        last_outcome_reason TEXT,
+        last_outcome_at INTEGER,
+        PRIMARY KEY (scope, origin)
+      );
+    `,
+    down: `
+      DROP TABLE IF EXISTS browser_login_recipes;
+    `,
+  },
 ];

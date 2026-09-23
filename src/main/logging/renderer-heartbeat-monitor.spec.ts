@@ -23,6 +23,7 @@ vi.mock('./logger', () => ({
 import {
   HEARTBEAT_STALL_THRESHOLD_MS,
   HEARTBEAT_WATCHDOG_INTERVAL_MS,
+  HIDDEN_HEARTBEAT_STALL_THRESHOLD_MS,
   RendererHeartbeatMonitor,
 } from './renderer-heartbeat-monitor';
 
@@ -43,8 +44,8 @@ describe('RendererHeartbeatMonitor', () => {
     vi.useRealTimers();
   });
 
-  function beatAt(seq: number): void {
-    monitor.beat(7, { seq, sentAt: Date.now() });
+  function beatAt(seq: number, visibility?: 'visible' | 'hidden'): void {
+    monitor.beat(7, { seq, sentAt: Date.now(), visibility });
   }
 
   it('tracks a renderer after its first beat and reports no stall while beats flow', () => {
@@ -147,5 +148,46 @@ describe('RendererHeartbeatMonitor', () => {
     vi.advanceTimersByTime(HEARTBEAT_STALL_THRESHOLD_MS + HEARTBEAT_WATCHDOG_INTERVAL_MS);
     expect(monitor.isStalled(7)).toBe(true);
     expect(mocks.logger.error).toHaveBeenCalledTimes(1);
+  });
+  describe('hidden window (LT-022)', () => {
+    it('does not report a throttled hidden renderer as frozen', () => {
+      beatAt(0, 'hidden');
+
+      // Chromium's hidden-window throttling: one beat a minute, for several minutes.
+      for (let seq = 1; seq <= 4; seq++) {
+        vi.advanceTimersByTime(60_000);
+        beatAt(seq, 'hidden');
+      }
+
+      expect(mocks.logger.error).not.toHaveBeenCalled();
+      expect(mocks.logger.warn).not.toHaveBeenCalled();
+      expect(monitor.isStalled(7)).toBe(false);
+    });
+
+    it('still reports a genuine freeze in a hidden window once the throttle budget is exceeded', () => {
+      beatAt(0, 'hidden');
+      vi.advanceTimersByTime(HIDDEN_HEARTBEAT_STALL_THRESHOLD_MS + HEARTBEAT_WATCHDOG_INTERVAL_MS);
+
+      expect(monitor.isStalled(7)).toBe(true);
+      expect(mocks.logger.error).toHaveBeenCalledTimes(1);
+      const meta = mocks.logger.error.mock.calls[0][2] as Record<string, unknown>;
+      expect(meta['hidden']).toBe(true);
+    });
+
+    it('returns to the normal threshold once the window is visible again', () => {
+      beatAt(0, 'hidden');
+      vi.advanceTimersByTime(60_000);
+      beatAt(1, 'visible');
+
+      vi.advanceTimersByTime(HEARTBEAT_STALL_THRESHOLD_MS + HEARTBEAT_WATCHDOG_INTERVAL_MS);
+      expect(monitor.isStalled(7)).toBe(true);
+      expect(mocks.logger.error).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats a beat without visibility (older renderer) as visible', () => {
+      beatAt(0);
+      vi.advanceTimersByTime(HEARTBEAT_STALL_THRESHOLD_MS + HEARTBEAT_WATCHDOG_INTERVAL_MS);
+      expect(monitor.isStalled(7)).toBe(true);
+    });
   });
 });

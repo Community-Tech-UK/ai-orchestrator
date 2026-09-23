@@ -50,7 +50,14 @@ export interface SkillsLoaderStats {
 // ============ Default Configuration ============
 
 const DEFAULT_CONFIG: SkillsLoaderConfig = {
-  similarityThreshold: 0.65, // Per plan: single threshold, no LLM fallback
+  // Per plan: single threshold, no LLM fallback. Measured 2026-09-23 against all
+  // 36 discoverable skills on the backend that actually runs (the local hashed
+  // n-gram fallback; no Ollama/OpenAI configured): no value separates on-topic
+  // from off-topic/wrong-skill matches, so 0.65 is kept deliberately and
+  // embedding-based injection stays effectively off; triggers do the work. Do not
+  // lower it without re-measuring. See docs/plans/2026-08-19-open-decisions-resolved.md,
+  // "Skill-injection threshold — measured 2026-09-23".
+  similarityThreshold: 0.65,
   maxResults: 3, // Per plan: max 3 skills to avoid context bloat
   cacheEmbeddings: true,
   triggerMinConfidence: 0.05, // Trigger must be >=5% of the message text

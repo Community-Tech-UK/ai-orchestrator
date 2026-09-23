@@ -1,3 +1,4 @@
+import { IPC_CHANNELS } from '@contracts/channels';
 import { getLogger } from '../logging/logger';
 import type { getCliVerificationCoordinator } from '../orchestration/cli-verification-extension';
 
@@ -13,7 +14,7 @@ export function setupCoordinatorEvents(
 
   coordinator.on('verification:started', (data) => {
     logger.info('Forwarding verification:started', { data });
-    sendToRenderer('verification:started', data);
+    sendToRenderer(IPC_CHANNELS.VERIFICATION_STARTED, data);
   });
 
   coordinator.on('verification:agents-launching', (data) => {
@@ -32,7 +33,7 @@ export function setupCoordinatorEvents(
         personality: agent.personality,
       };
       logger.info('Sending verification:agent-start', payload);
-      sendToRenderer('verification:agent-start', payload);
+      sendToRenderer(IPC_CHANNELS.VERIFICATION_AGENT_START, payload);
     }
   });
 
@@ -51,7 +52,7 @@ export function setupCoordinatorEvents(
       agentId: data.agentId,
       chunkLength: (data.content || '').length,
     });
-    sendToRenderer('verification:agent-stream', payload);
+    sendToRenderer(IPC_CHANNELS.VERIFICATION_AGENT_STREAM, payload);
   });
 
   coordinator.on('verification:agent-complete', (data) => {
@@ -76,7 +77,7 @@ export function setupCoordinatorEvents(
       success: data.success,
       responseLength: finalContent.length,
     });
-    sendToRenderer('verification:agent-complete', payload);
+    sendToRenderer(IPC_CHANNELS.VERIFICATION_AGENT_COMPLETE, payload);
     agentContent.delete(data.agentId);
   });
 
@@ -90,7 +91,7 @@ export function setupCoordinatorEvents(
       agentId: data.agentId,
       error: payload.error,
     });
-    sendToRenderer('verification:agent-error', payload);
+    sendToRenderer(IPC_CHANNELS.VERIFICATION_AGENT_ERROR, payload);
   });
 
   coordinator.on('verification:round-progress', (data) => {
@@ -100,7 +101,7 @@ export function setupCoordinatorEvents(
       total: data.total,
     };
     logger.info('Sending verification:round-progress', payload);
-    sendToRenderer('verification:round-progress', payload);
+    sendToRenderer(IPC_CHANNELS.VERIFICATION_ROUND_PROGRESS, payload);
   });
 
   coordinator.on('verification:consensus-update', (data) => {
@@ -109,7 +110,7 @@ export function setupCoordinatorEvents(
       score: data.score,
     };
     logger.info('Sending verification:consensus-update', payload);
-    sendToRenderer('verification:consensus-update', payload);
+    sendToRenderer(IPC_CHANNELS.VERIFICATION_CONSENSUS_UPDATE, payload);
   });
 
   coordinator.on('verification:completed', (result) => {
@@ -117,7 +118,7 @@ export function setupCoordinatorEvents(
       sessionId: result.id,
       hasResult: !!result,
     });
-    sendToRenderer('verification:complete', {
+    sendToRenderer(IPC_CHANNELS.VERIFICATION_COMPLETE, {
       sessionId: result.id,
       result,
     });
@@ -128,14 +129,14 @@ export function setupCoordinatorEvents(
       sessionId: data.requestId,
       error: data.error?.message,
     });
-    sendToRenderer('verification:error', {
+    sendToRenderer(IPC_CHANNELS.VERIFICATION_ERROR, {
       sessionId: data.requestId,
       error: data.error?.message || 'Unknown error',
     });
   });
 
   coordinator.on('verification:cancelled', (data) => {
-    sendToRenderer('verification:cancelled', {
+    sendToRenderer(IPC_CHANNELS.VERIFICATION_CANCELLED, {
       sessionId: data.verificationId,
       reason: data.reason,
       agentsCancelled: data.agentsCancelled,
@@ -143,13 +144,13 @@ export function setupCoordinatorEvents(
   });
 
   coordinator.on('verification:agent-cancelled', (data) => {
-    sendToRenderer('verification:agent-cancelled', {
+    sendToRenderer(IPC_CHANNELS.VERIFICATION_AGENT_CANCELLED, {
       sessionId: data.verificationId,
       agentId: data.agentId,
     });
   });
 
   coordinator.on('warning', (data) => {
-    sendToRenderer('verification:warning', data);
+    sendToRenderer(IPC_CHANNELS.VERIFICATION_WARNING, data);
   });
 }

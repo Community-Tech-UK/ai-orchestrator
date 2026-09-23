@@ -140,7 +140,7 @@ export class ResourceGovernor extends EventEmitter {
   private readonly boundOnNormal = () => this.handleNormal();
   private readonly boundOnPressureChange = (level: MemoryPressureLevel) => this.handlePressureChange(level);
 
-  private static instance: ResourceGovernor;
+  private static instance: ResourceGovernor | null = null;
 
   static getInstance(): ResourceGovernor {
     if (!this.instance) {

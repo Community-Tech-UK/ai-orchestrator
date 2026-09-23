@@ -59,10 +59,15 @@ export const RendererLogMessagePayloadSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
-/** Renderer main-thread heartbeat; beats stop exactly when the UI thread blocks. */
+/**
+ * Renderer main-thread heartbeat; beats stop exactly when the UI thread blocks.
+ * `visibility` lets the monitor tell a hidden window's throttled timers apart
+ * from a blocked event loop (LT-022). Optional so an older renderer still beats.
+ */
 export const RendererHeartbeatPayloadSchema = z.object({
   seq: z.number().int().nonnegative(),
   sentAt: z.number().int().nonnegative(),
+  visibility: z.enum(['visible', 'hidden']).optional(),
 });
 
 export const MemoryStatsEventSchema = z.object({

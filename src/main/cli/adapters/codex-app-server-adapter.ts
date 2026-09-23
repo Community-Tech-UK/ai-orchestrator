@@ -238,7 +238,8 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       case 'native-compaction':
         return { proof: await this.compactContext() ? 'observed' : 'none' };
       case 'steer-turn':
-        return { proof: await this.steerActiveTurn() ? 'acknowledged' : 'none' };
+        // false only means no live turn to steer (it ended first): a skip, not a failure.
+        return await this.steerActiveTurn() ? { proof: 'acknowledged' } : { proof: 'none', skipped: 'turn-not-active' };
       case 'controlled-interrupt':
       case 'controlled-recovery':
         return this.contextCostController.requestRecovery(action);

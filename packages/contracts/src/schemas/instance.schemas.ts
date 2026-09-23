@@ -278,7 +278,7 @@ export type InstanceSteerInputPayload = z.infer<typeof InstanceSteerInputPayload
 
 export const InstanceLoadOlderMessagesPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
-  beforeChunk: z.number().int().min(0).optional(), // Load chunks before this index
+  beforeOffset: z.number().int().min(0).optional(), // Load messages stored before this offset
   limit: z.number().int().min(1).max(500).optional().default(200),
 });
 

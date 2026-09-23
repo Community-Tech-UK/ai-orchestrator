@@ -200,25 +200,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       return ipcRenderer.invoke(ch.WORKTREE_GET_STATUS, { worktreeId });
     },
 
-    parallelWorktreeStart: (payload: {
-      tasks: unknown[];
-      instanceId: string;
-      repoPath: string;
-    }): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.PARALLEL_WORKTREE_START, payload),
-
-    parallelWorktreeGetStatus: (payload: { executionId: string }): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.PARALLEL_WORKTREE_GET_STATUS, payload),
-
-    parallelWorktreeCancel: (payload: { executionId: string }): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.PARALLEL_WORKTREE_CANCEL, payload),
-
-    parallelWorktreeGetResults: (payload: { executionId: string }): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.PARALLEL_WORKTREE_GET_RESULTS, payload),
-
-    parallelWorktreeList: (): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.PARALLEL_WORKTREE_LIST),
-
     todoGetList: (sessionId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.TODO_GET_LIST, { sessionId });
     },

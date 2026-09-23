@@ -71,7 +71,11 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // Diff-verified against a `git archive HEAD` copy: HEAD 144, working tree 146,
 // those two shared type leaves the only additions, no removals. Neither imports
 // Electron, and `copilot-account.types.ts` has no imports at all.
-const CLOSURE_SIZE_CEILING = 147;
+// 2026-09-23: 147 after `rlm-migrations-066-070.ts` (the compaction decision-log
+// table) joined the RLM migration graph the worker already includes. Diff-verified
+// against a `git archive HEAD` copy: HEAD 146, working tree 147, that migration
+// batch the only addition, no removals, zero Electron value-importers.
+const CLOSURE_SIZE_CEILING = 148;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

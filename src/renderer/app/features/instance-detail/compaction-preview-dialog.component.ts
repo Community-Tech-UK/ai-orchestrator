@@ -248,8 +248,10 @@ export class CompactionPreviewDialogComponent implements OnDestroy {
       keepLatestExchanges: this.keepLatestExchanges(),
     });
     this.applying.set(false);
-    if (!response.success) {
-      const message = response.error?.message ?? 'Compaction failed.';
+    // The IPC call can succeed while compaction itself was refused (for example "Busy" mid-turn).
+    const result = response.data as { success?: boolean; error?: string } | undefined;
+    if (!response.success || result?.success === false) {
+      const message = response.error?.message ?? result?.error ?? 'Compaction failed.';
       this.error.set(message);
       this.toast.show(message, 'error');
       return;

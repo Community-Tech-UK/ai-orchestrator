@@ -58,7 +58,7 @@ function isValidHint(obj: unknown): obj is ResumeHint {
 // ── Implementation ────────────────────────────────────────────────────────────
 
 export class ResumeHintManager {
-  private static instance: ResumeHintManager;
+  private static instance: ResumeHintManager | null = null;
   private readonly hintPath: string;
 
   constructor(storeDir: string) {

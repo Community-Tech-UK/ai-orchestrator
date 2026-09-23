@@ -45,6 +45,8 @@ interface Runtime {
   applySecretObservationProtectionFromCommand: (command: TestCommand) => Promise<void>;
   setGatewayEnabled: (enabled: boolean) => Promise<unknown>;
   loadSecretTaints: () => Promise<void>;
+  loadSecretObservationProtection: () => Promise<boolean>;
+  secretObservationStatus: () => Promise<{ protectionEnabled: boolean; taintedOriginCount: number; taintedTabCount: number }>;
   secretTaintedTabs: Map<string, string>;
   secretTaintedOrigins: Set<string>;
   activeCount: () => number;
@@ -107,6 +109,7 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
     ;({ assertSecretObservationAllowed, secretTaintOriginForTab, buildTabPayload,
       markSecretTaint, clearSecretTaint, targetSecretTaintOrigin, runBrowserCommand, runCommandWithWatchdog, browserCommandErrorMessage,
       handleSecretProtectionMessage, applySecretObservationProtectionEnabled, applySecretObservationProtectionFromCommand, setGatewayEnabled, loadSecretTaints,
+      loadSecretObservationProtection, secretObservationStatus,
       secretTaintedTabs, secretTaintedOrigins,
       activeCount: () => activeBrowserCommandCount, enabled: () => gatewayEnabled,
       protectionEnabled: () => secretObservationProtectionEnabled });`, context) as Runtime;

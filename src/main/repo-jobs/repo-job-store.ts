@@ -49,7 +49,7 @@ interface JobIndex {
 // ─── Store Class ────────────────────────────────────────────────────────────
 
 export class RepoJobStore {
-  private static instance: RepoJobStore;
+  private static instance: RepoJobStore | null = null;
 
   private readonly baseDir: string;
   private readonly jobsDir: string;

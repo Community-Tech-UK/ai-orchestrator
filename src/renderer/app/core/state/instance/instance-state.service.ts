@@ -32,6 +32,12 @@ export class InstanceStateService {
 
   readonly outputThrottleTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly pendingOutputMessages = new Map<string, OutputMessage[]>();
+  /**
+   * Instances holding history the user loaded from disk (scroll-up, scroll to
+   * top, jump rail). The buffer cap must not trim it while they read it — see
+   * InstanceOutputStore.releaseLoadedHistory.
+   */
+  readonly loadedHistoryInstances = new Set<string>();
 
   // ============================================
   // Message Queue State (reactive signal)

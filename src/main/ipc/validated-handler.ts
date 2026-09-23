@@ -64,6 +64,32 @@ export function validatedHandler<TInput, TOutput = unknown>(
   };
 }
 
+export type EnsureTrustedSender = (
+  event: IpcMainInvokeEvent,
+  channel: string,
+) => IpcResponse | null;
+
+/**
+ * Returns an `ipcMain.handle` replacement that rejects any sender other than
+ * the trusted main window before the listener runs. For handler groups where
+ * every channel is sensitive (file editing/watching, security configuration);
+ * listeners keep their own payload validation.
+ */
+export function createTrustedIpcRegistrar(ensureTrustedSender: EnsureTrustedSender) {
+  return (
+    channel: string,
+    listener: (event: IpcMainInvokeEvent, payload: unknown) => IpcResponse | Promise<IpcResponse>,
+  ): void => {
+    ipcMain.handle(channel, async (event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      const trustError = ensureTrustedSender(event, channel);
+      if (trustError) {
+        return trustError;
+      }
+      return listener(event, payload);
+    });
+  };
+}
+
 /**
  * Shared IPC registration: trust check + Zod validation + structured errors.
  * New channels should use this instead of a local `ipcMain.handle` wrapper.

@@ -48,8 +48,18 @@ export interface LoopWorktreeLifecycleStore {
   clearWorktreeInfo(loopRunId: string): void;
 }
 
+/**
+ * The slice of an owner the finalizer reads and mutates. A `LoopState` is one;
+ * a campaign node's worktree is another (it lands through the same pipeline).
+ */
+export interface ManagedWorktreeOwner {
+  id: string;
+  worktreeLifecycle?: LoopWorktreeLifecycle;
+  config: Pick<LoopState['config'], 'autoIntegrateWorktree'>;
+}
+
 export interface FinalizeLoopWorktreeArgs {
-  state: LoopState;
+  state: ManagedWorktreeOwner;
   status: LoopState['status'];
   worktreeSessionId: string;
   manager: LoopWorktreeFinalizerManager;
@@ -58,7 +68,7 @@ export interface FinalizeLoopWorktreeArgs {
   onTransition?: (lifecycle: LoopWorktreeLifecycle) => void;
 }
 
-function lifecycleForState(state: LoopState): LoopWorktreeLifecycle {
+function lifecycleForState(state: ManagedWorktreeOwner): LoopWorktreeLifecycle {
   if (state.worktreeLifecycle?.managedByAio === true) {
     return state.worktreeLifecycle;
   }

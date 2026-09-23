@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProviderContextActionExecutor } from '../context-evidence/provider-context-action-executor';
-import { CompactionCoordinator } from './compaction-coordinator';
+import { COMPACTION_BUSY_ERROR, CompactionCoordinator } from './compaction-coordinator';
 
 describe('CompactionCoordinator strategy selection', () => {
   beforeEach(() => {
@@ -62,6 +62,42 @@ describe('CompactionCoordinator strategy selection', () => {
     expect(result.method).toBe('restart-with-summary');
     expect(nativeCompact).toHaveBeenCalledTimes(1);
     expect(restartCompact).toHaveBeenCalledTimes(1);
+  });
+
+  // W6 item 4: mid-turn, the native compact goes unconfirmed and the fallback
+  // restarted the instance under the live turn.
+  it('refuses manual compaction while the provider turn is active, running neither strategy', async () => {
+    const coordinator = CompactionCoordinator.getInstance();
+    const nativeCompact = vi.fn(async () => false);
+    const restartCompact = vi.fn(async () => true);
+    const started = vi.fn();
+    const refused = vi.fn();
+    coordinator.on('compaction-started', started);
+    coordinator.on('compaction-refused', refused);
+    let turnActive = true;
+
+    coordinator.configure({
+      nativeCompact,
+      restartCompact,
+      supportsNativeCompaction: () => true,
+      isTurnActive: () => turnActive,
+    });
+
+    const busy = await coordinator.compactInstance('inst-busy');
+
+    expect(busy).toMatchObject({ success: false, busy: true, error: COMPACTION_BUSY_ERROR });
+    expect(nativeCompact).not.toHaveBeenCalled();
+    expect(restartCompact).not.toHaveBeenCalled();
+    expect(started).not.toHaveBeenCalled();
+    expect(coordinator.isCompacting('inst-busy')).toBe(false);
+    expect(refused).toHaveBeenCalledWith({ instanceId: 'inst-busy', reason: 'busy', error: COMPACTION_BUSY_ERROR });
+
+    turnActive = false;
+    nativeCompact.mockResolvedValue(true);
+    await expect(coordinator.compactInstance('inst-busy')).resolves.toMatchObject({
+      success: true,
+      method: 'native',
+    });
   });
 
   // LT-017: a native failure recovered by restart-with-summary was reported as a

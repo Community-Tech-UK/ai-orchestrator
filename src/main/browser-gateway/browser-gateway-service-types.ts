@@ -63,6 +63,12 @@ export interface BrowserGatewayTargetRequest extends BrowserGatewayContext {
  */
 export interface BrowserGatewaySnapshotRequest extends BrowserGatewayTargetRequest {
   extractionHint?: string;
+  /**
+   * Internal only (not on the MCP schema): never answer from the cached copy of
+   * a shared tab. browser.check_session judges a sign-in from this, and a
+   * cached pre-login snapshot would misreport it.
+   */
+  requireLive?: boolean;
 }
 
 export interface BrowserGatewayScreenshotRequest

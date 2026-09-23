@@ -6,13 +6,16 @@
  */
 
 import { ipcMain } from 'electron';
+import { z } from 'zod';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { getAuxiliaryLlmService } from '../../rlm/auxiliary-llm-service';
 import { HYDE_PROMPTS } from '../../rlm/hyde-service.constants';
 import { getSettingsManager } from '../../core/config/settings-manager';
+import { coerceRendererSettingValue } from '../../core/config/settings-control-policy';
 import { getLogger } from '../../logging/logger';
 import { pickSmaller } from '../../util/never-worse';
-import type { IpcResponse } from '../validated-handler';
+import { validatedHandler, type IpcResponse } from '../validated-handler';
+import type { AppSettings } from '../../../shared/types/settings.types';
 import type { AuxiliaryLlmEndpointConfig, AuxiliaryLlmSlot } from '../../../shared/types/auxiliary-llm.types';
 
 const logger = getLogger('AuxiliaryLlmHandlers');
@@ -91,10 +94,63 @@ const SLOT_TEST_PROMPTS: Record<AuxiliaryLlmSlot, { system: string; user: string
   },
 };
 
-const GENERIC_TEST_PROMPT = {
-  system: 'You are a helpful assistant.',
-  user: 'Say hello in one sentence.',
-};
+// ============ Payload schemas ============
+
+/** Every slot, derived from the exhaustive `Record<AuxiliaryLlmSlot, …>` above. */
+const AuxiliaryLlmSlotSchema = z.enum(
+  Object.keys(SLOT_TEST_PROMPTS) as [AuxiliaryLlmSlot, ...AuxiliaryLlmSlot[]],
+);
+
+const AuxiliaryLlmProbeEndpointPayloadSchema = z.object({
+  provider: z.string().min(1).max(64),
+  baseUrl: z.string().min(1).max(2048),
+  apiKeyEnv: z.string().max(256).optional(),
+});
+
+const AuxiliaryLlmTestGeneratePayloadSchema = z.object({
+  slot: AuxiliaryLlmSlotSchema,
+  systemPrompt: z.string().max(100_000).optional(),
+  userPrompt: z.string().max(100_000).optional(),
+});
+
+/**
+ * Page snapshots can be large; the prompt itself is bounded to
+ * MAX_WEB_EXTRACT_CHARS, so this is only a sanity cap on the IPC payload.
+ */
+const AuxiliaryLlmExtractWebPayloadSchema = z.object({
+  text: z.string().max(20_000_000),
+});
+
+const jsonArrayStringSchema = z.string().max(1_000_000).refine((value) => {
+  try {
+    return Array.isArray(JSON.parse(value));
+  } catch {
+    return false;
+  }
+}, { message: 'Must be a JSON array' });
+
+/**
+ * Shape gate for AUXILIARY_LLM_SAVE_SETTINGS. Unknown keys are stripped (not
+ * written); each accepted value is then run through the same per-key renderer
+ * coercion the generic settings IPC uses before anything is persisted.
+ */
+const AuxiliaryLlmSaveSettingsPayloadSchema = z.object({
+  auxiliaryLlmEnabled: z.boolean().optional(),
+  auxiliaryLlmRoutingMode: z.enum(['off', 'local-first', 'cheap-first', 'manual-only']).optional(),
+  auxiliaryLlmAllowRemoteWorkerModels: z.boolean().optional(),
+  auxiliaryLlmUseLocalhostOllama: z.boolean().optional(),
+  auxiliaryLlmDailySpendCapUsd: z.number().finite().min(0).nullable().optional(),
+  auxiliaryLlmEndpointsJson: jsonArrayStringSchema.optional(),
+  auxiliaryLlmSlotsJson: z.string().max(1_000_000).optional(),
+  auxiliaryLlmQuickModel: z.string().max(512).optional(),
+  auxiliaryLlmQualityModel: z.string().max(512).optional(),
+  auxiliaryLlmRoutingClassificationEnabled: z.boolean().optional(),
+});
+
+type AuxiliaryLlmSettingsKey = keyof z.infer<typeof AuxiliaryLlmSaveSettingsPayloadSchema>;
+const AUXILIARY_LLM_SETTINGS_KEYS = Object.keys(
+  AuxiliaryLlmSaveSettingsPayloadSchema.shape,
+) as AuxiliaryLlmSettingsKey[];
 
 /** True if value looks like a raw API key (starts with sk-, ghp_, xoxb-, or is a long base64 blob). */
 function looksLikeRawApiKey(value: string): boolean {
@@ -161,14 +217,10 @@ export function registerAuxiliaryLlmHandlers(): void {
   });
 
   // Probe an endpoint manually
-  ipcMain.handle(IPC_CHANNELS.AUXILIARY_LLM_PROBE_ENDPOINT, async (_event, payload: unknown): Promise<IpcResponse> => {
-    try {
-      const { provider, baseUrl, apiKeyEnv } = payload as {
-        provider: string;
-        baseUrl: string;
-        apiKeyEnv?: string;
-      };
-
+  ipcMain.handle(IPC_CHANNELS.AUXILIARY_LLM_PROBE_ENDPOINT, validatedHandler(
+    IPC_CHANNELS.AUXILIARY_LLM_PROBE_ENDPOINT,
+    AuxiliaryLlmProbeEndpointPayloadSchema,
+    async ({ provider, baseUrl, apiKeyEnv }): Promise<IpcResponse> => {
       if (provider === 'ollama' && !isPrivateOrLocalhostUrl(baseUrl)) {
         return {
           success: false,
@@ -210,53 +262,33 @@ export function registerAuxiliaryLlmHandlers(): void {
       }
 
       return { success: true, data: { healthy } };
-    } catch (error) {
-      logger.error('auxiliary-llm:probe-endpoint failed', error instanceof Error ? error : undefined);
-      return {
-        success: false,
-        error: {
-          code: 'PROBE_FAILED',
-          message: (error as Error).message,
-          timestamp: Date.now(),
-        },
-      };
-    }
-  });
+    },
+    { errorCode: 'PROBE_FAILED' },
+  ));
 
   // Test generate for a slot
-  ipcMain.handle(IPC_CHANNELS.AUXILIARY_LLM_TEST_GENERATE, async (_event, payload: unknown): Promise<IpcResponse> => {
-    try {
-      const { slot, systemPrompt, userPrompt } = payload as {
-        slot: string;
-        systemPrompt?: string;
-        userPrompt?: string;
-      };
-      const defaults = SLOT_TEST_PROMPTS[slot as AuxiliaryLlmSlot] ?? GENERIC_TEST_PROMPT;
+  ipcMain.handle(IPC_CHANNELS.AUXILIARY_LLM_TEST_GENERATE, validatedHandler(
+    IPC_CHANNELS.AUXILIARY_LLM_TEST_GENERATE,
+    AuxiliaryLlmTestGeneratePayloadSchema,
+    async ({ slot, systemPrompt, userPrompt }): Promise<IpcResponse> => {
+      const defaults = SLOT_TEST_PROMPTS[slot];
       const { text, decision } = await getAuxiliaryLlmService().generate(
-        slot as AuxiliaryLlmSlot,
+        slot,
         systemPrompt ?? defaults.system,
         userPrompt ?? defaults.user,
       );
       return { success: true, data: { text, decision } };
-    } catch (error) {
-      logger.error('auxiliary-llm:test-generate failed', error instanceof Error ? error : undefined);
-      return {
-        success: false,
-        error: {
-          code: 'TEST_GENERATE_FAILED',
-          message: (error as Error).message,
-          timestamp: Date.now(),
-        },
-      };
-    }
-  });
+    },
+    { errorCode: 'TEST_GENERATE_FAILED' },
+  ));
 
   // Extract the main textual content from captured web/page text via the
   // `webExtract` slot. Used by the Browser page to distill a noisy snapshot.
-  ipcMain.handle(IPC_CHANNELS.AUXILIARY_LLM_EXTRACT_WEB, async (_event, payload: unknown): Promise<IpcResponse> => {
-    try {
-      const { text } = payload as { text?: string };
-      if (typeof text !== 'string' || text.trim().length === 0) {
+  ipcMain.handle(IPC_CHANNELS.AUXILIARY_LLM_EXTRACT_WEB, validatedHandler(
+    IPC_CHANNELS.AUXILIARY_LLM_EXTRACT_WEB,
+    AuxiliaryLlmExtractWebPayloadSchema,
+    async ({ text }): Promise<IpcResponse> => {
+      if (text.trim().length === 0) {
         return {
           success: false,
           error: { code: 'EXTRACT_WEB_EMPTY', message: 'No page text provided to extract.', timestamp: Date.now() },
@@ -277,49 +309,28 @@ export function registerAuxiliaryLlmHandlers(): void {
         });
       }
       return { success: true, data: { text: guarded.content, decision } };
-    } catch (error) {
-      logger.error('auxiliary-llm:extract-web failed', error instanceof Error ? error : undefined);
-      return {
-        success: false,
-        error: { code: 'EXTRACT_WEB_FAILED', message: (error as Error).message, timestamp: Date.now() },
-      };
-    }
-  });
+    },
+    { errorCode: 'EXTRACT_WEB_FAILED' },
+  ));
 
   // Save auxiliary LLM settings
-  ipcMain.handle(IPC_CHANNELS.AUXILIARY_LLM_SAVE_SETTINGS, async (_event, payload: unknown): Promise<IpcResponse> => {
-    try {
-      const settings = payload as {
-        auxiliaryLlmEnabled?: boolean;
-        auxiliaryLlmRoutingMode?: string;
-        auxiliaryLlmAllowRemoteWorkerModels?: boolean;
-        auxiliaryLlmUseLocalhostOllama?: boolean;
-        auxiliaryLlmDailySpendCapUsd?: number | null;
-        auxiliaryLlmEndpointsJson?: string;
-        auxiliaryLlmSlotsJson?: string;
-        auxiliaryLlmQuickModel?: string;
-        auxiliaryLlmQualityModel?: string;
-        auxiliaryLlmRoutingClassificationEnabled?: boolean;
-      };
+  ipcMain.handle(IPC_CHANNELS.AUXILIARY_LLM_SAVE_SETTINGS, validatedHandler(
+    IPC_CHANNELS.AUXILIARY_LLM_SAVE_SETTINGS,
+    AuxiliaryLlmSaveSettingsPayloadSchema,
+    async (settings): Promise<IpcResponse> => {
+      // Coerce every provided value before writing any of them, so one bad
+      // value (e.g. a malformed slots JSON) cannot leave a half-applied save.
+      const updates: { key: keyof AppSettings; value: AppSettings[keyof AppSettings] }[] = [];
+      for (const key of AUXILIARY_LLM_SETTINGS_KEYS) {
+        const value = settings[key];
+        if (value !== undefined) {
+          updates.push(coerceRendererSettingValue(key, value));
+        }
+      }
 
       const manager = getSettingsManager();
-      const allowedKeys = [
-        'auxiliaryLlmEnabled',
-        'auxiliaryLlmRoutingMode',
-        'auxiliaryLlmAllowRemoteWorkerModels',
-        'auxiliaryLlmUseLocalhostOllama',
-        'auxiliaryLlmDailySpendCapUsd',
-        'auxiliaryLlmEndpointsJson',
-        'auxiliaryLlmSlotsJson',
-        'auxiliaryLlmQuickModel',
-        'auxiliaryLlmQualityModel',
-        'auxiliaryLlmRoutingClassificationEnabled',
-      ] as const;
-
-      for (const key of allowedKeys) {
-        if (key in settings && settings[key] !== undefined) {
-          manager.set(key, settings[key] as never);
-        }
+      for (const { key, value } of updates) {
+        manager.set(key, value as never);
       }
 
       // Reconfigure service with updated settings
@@ -337,16 +348,7 @@ export function registerAuxiliaryLlmHandlers(): void {
       });
 
       return { success: true, data: { ok: true } };
-    } catch (error) {
-      logger.error('auxiliary-llm:save-settings failed', error instanceof Error ? error : undefined);
-      return {
-        success: false,
-        error: {
-          code: 'SAVE_SETTINGS_FAILED',
-          message: (error as Error).message,
-          timestamp: Date.now(),
-        },
-      };
-    }
-  });
+    },
+    { errorCode: 'SAVE_SETTINGS_FAILED' },
+  ));
 }

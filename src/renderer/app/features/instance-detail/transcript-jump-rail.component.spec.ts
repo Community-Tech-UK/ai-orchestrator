@@ -16,8 +16,9 @@
  *      count.
  *   7. activeIndex() tracks scrollTop against anchor offsets.
  *   8. Session prompts beyond the loaded window render as stub ticks; clicking
- *      one requests older pages until the prompt arrives, then jumps; the
- *      request loop stops when no older messages remain.
+ *      one asks the host to reveal history until the prompt renders, then
+ *      jumps. A prompt no page holds lands at the top (opening prompt) or the
+ *      next loaded prompt; a newer click supersedes an older one in flight.
  */
 
 import { signal } from '@angular/core';
@@ -64,6 +65,7 @@ const itemsInput = signal<DisplayItem[]>([]);
 const viewportInput = signal<HTMLElement | null>(null);
 const hasOlderInput = signal(false);
 const sessionPromptsInput = signal<UserPromptRef[]>([]);
+const revealInput = signal<((messageId: string) => Promise<void>) | null>(null);
 
 function bindInputs(c: TranscriptJumpRailComponent): void {
   const w = c as unknown as Record<string, unknown>;
@@ -71,6 +73,29 @@ function bindInputs(c: TranscriptJumpRailComponent): void {
   w['viewport'] = viewportInput;
   w['hasOlderMessages'] = hasOlderInput;
   w['sessionPrompts'] = sessionPromptsInput;
+  w['revealUntilMessage'] = revealInput;
+}
+
+/** A host reveal hook whose calls the test resolves by hand. */
+function deferredReveal(): {
+  calls: string[];
+  resolveLast: () => Promise<void>;
+  hook: (messageId: string) => Promise<void>;
+} {
+  const calls: string[] = [];
+  const resolvers: (() => void)[] = [];
+  return {
+    calls,
+    hook: (messageId) => {
+      calls.push(messageId);
+      return new Promise<void>((resolve) => resolvers.push(resolve));
+    },
+    resolveLast: async () => {
+      resolvers[resolvers.length - 1]?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    },
+  };
 }
 
 interface RailInternals {
@@ -108,6 +133,7 @@ describe('TranscriptJumpRailComponent', () => {
     viewportInput.set(null);
     hasOlderInput.set(false);
     sessionPromptsInput.set([]);
+    revealInput.set(null);
     bindInputs(component);
   });
 
@@ -308,12 +334,12 @@ describe('TranscriptJumpRailComponent', () => {
     ]);
   });
 
-  it('clicking an unloaded tick keeps requesting older pages until the prompt arrives, then jumps', () => {
+  it('clicking an unloaded tick reveals history until the prompt renders, then jumps', async () => {
     const loaded = userItem('current question');
     sessionPromptsInput.set([{ id: 'old-1', timestamp: 0.1, excerpt: 'first ever prompt' }]);
     hasOlderInput.set(true);
-    const emitted: number[] = [];
-    component.loadOlder.subscribe(() => emitted.push(1));
+    const reveal = deferredReveal();
+    revealInput.set(reveal.hook);
     setup(
       [loaded],
       makeViewport({
@@ -324,16 +350,9 @@ describe('TranscriptJumpRailComponent', () => {
     );
 
     internals.jumpTo(0); // stub tick — not loaded yet
-    TestBed.tick();
-    expect(emitted.length).toBe(1);
+    expect(reveal.calls).toEqual(['old-1']);
 
-    // An older page arrives without the wanted prompt → another request.
-    const filler = userItem('irrelevant');
-    itemsInput.set([filler, loaded]);
-    TestBed.tick();
-    expect(emitted.length).toBe(2);
-
-    // The wanted prompt arrives → jump to its row, no further requests.
+    // The host's reveal renders the wanted prompt, then settles.
     const wanted: DisplayItem = {
       id: 'item-old-1',
       type: 'message',
@@ -344,22 +363,101 @@ describe('TranscriptJumpRailComponent', () => {
       clientHeight: 500,
       anchors: [
         { itemId: wanted.id, offsetTop: 40 },
-        { itemId: filler.id, offsetTop: 700 },
         { itemId: loaded.id, offsetTop: 2100 },
       ],
     });
-    itemsInput.set([wanted, filler, loaded]);
+    itemsInput.set([wanted, loaded]);
     viewportInput.set(viewport);
+    await reveal.resolveLast();
     TestBed.tick();
 
-    expect(viewport.scrollTo).toHaveBeenCalledWith({ top: 28, behavior: 'smooth' });
-    expect(emitted.length).toBe(2);
+    expect(viewport.scrollTo).toHaveBeenCalledWith({ top: 28, behavior: 'auto' });
   });
 
-  it('gives up a stub jump when no older messages remain', () => {
+  it('lands at the top when the opening prompt is in no loadable page', async () => {
     const loaded = userItem('current question');
-    sessionPromptsInput.set([{ id: 'old-1', timestamp: 0.1, excerpt: 'gone prompt' }]);
-    hasOlderInput.set(false);
+    sessionPromptsInput.set([{ id: 'compacted-away', timestamp: 0.1, excerpt: 'opening prompt' }]);
+    const reveal = deferredReveal();
+    revealInput.set(reveal.hook);
+    const viewport = makeViewport({
+      scrollHeight: 2000,
+      clientHeight: 500,
+      scrollTop: 1200,
+      anchors: [{ itemId: loaded.id, offsetTop: 1500 }],
+    });
+    setup([loaded], viewport);
+
+    internals.jumpTo(0);
+    await reveal.resolveLast();
+    TestBed.tick();
+
+    expect(viewport.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'auto' });
+  });
+
+  it('lands at the next loaded prompt when a middle prompt is in no loadable page', async () => {
+    const first = userItem('first');
+    const later = userItem('later');
+    // Between first (ts 1) and later (ts 2) in the conversation.
+    sessionPromptsInput.set([{ id: 'lost-middle', timestamp: first.message!.timestamp + 0.5, excerpt: 'lost' }]);
+    const reveal = deferredReveal();
+    revealInput.set(reveal.hook);
+    const viewport = makeViewport({
+      scrollHeight: 3000,
+      clientHeight: 500,
+      anchors: [
+        { itemId: first.id, offsetTop: 100 },
+        { itemId: later.id, offsetTop: 1800 },
+      ],
+    });
+    setup([first, later], viewport);
+
+    internals.jumpTo(1); // ticks: first, lost-middle, later
+    await reveal.resolveLast();
+    TestBed.tick();
+
+    expect(viewport.scrollTo).toHaveBeenCalledWith({ top: 1788, behavior: 'auto' });
+  });
+
+  it('lets a newer stub click supersede one still revealing', async () => {
+    const loaded = userItem('current question');
+    sessionPromptsInput.set([
+      { id: 'old-1', timestamp: 0.1, excerpt: 'first' },
+      { id: 'old-2', timestamp: 0.2, excerpt: 'second' },
+    ]);
+    const calls: string[] = [];
+    const resolvers = new Map<string, () => void>();
+    revealInput.set((messageId) => {
+      calls.push(messageId);
+      return new Promise<void>((resolve) => resolvers.set(messageId, resolve));
+    });
+    const viewport = makeViewport({
+      scrollHeight: 2000,
+      clientHeight: 500,
+      anchors: [{ itemId: loaded.id, offsetTop: 1500 }],
+    });
+    setup([loaded], viewport);
+
+    internals.jumpTo(0);
+    internals.jumpTo(1);
+    // The superseded reveal settling first must not move the viewport.
+    resolvers.get('old-1')!();
+    await Promise.resolve();
+    await Promise.resolve();
+    TestBed.tick();
+    expect(viewport.scrollTo).not.toHaveBeenCalled();
+
+    resolvers.get('old-2')!();
+    await Promise.resolve();
+    await Promise.resolve();
+    TestBed.tick();
+    expect(calls).toEqual(['old-1', 'old-2']);
+    expect(viewport.scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to a single load request when the host has no reveal hook', () => {
+    const loaded = userItem('current question');
+    sessionPromptsInput.set([{ id: 'old-1', timestamp: 0.1, excerpt: 'first ever prompt' }]);
+    hasOlderInput.set(true);
     const emitted: number[] = [];
     component.loadOlder.subscribe(() => emitted.push(1));
     setup(
@@ -373,7 +471,7 @@ describe('TranscriptJumpRailComponent', () => {
 
     internals.jumpTo(0);
     TestBed.tick();
-    expect(emitted.length).toBe(0);
+    expect(emitted.length).toBe(1);
   });
 
   // ── Active tick ────────────────────────────────────────────────────────────

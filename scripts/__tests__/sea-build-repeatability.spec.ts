@@ -3,6 +3,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -12,7 +13,10 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const repoRoot = process.cwd();
-const tsxCli = resolve(repoRoot, 'node_modules/tsx/dist/cli.cjs');
+// Resolved from tsx's own manifest: the CLI entry moved from dist/cli.cjs to dist/cli.mjs in a patch release.
+const tsxPackageDir = join(repoRoot, 'node_modules/tsx');
+const tsxBin = JSON.parse(readFileSync(join(tsxPackageDir, 'package.json'), 'utf8')).bin as string | Record<string, string>;
+const tsxCli = join(tsxPackageDir, typeof tsxBin === 'string' ? tsxBin : tsxBin['tsx']);
 const scratchDirectories: string[] = [];
 
 interface SeaBuildCase {

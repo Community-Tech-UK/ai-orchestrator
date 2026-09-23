@@ -102,4 +102,69 @@ describe('shared context policy integration', () => {
     expect(steer).toHaveBeenCalledOnce();
     expect(nativeCompaction).not.toHaveBeenCalled();
   });
+
+  // W6 item 3. Each 80% recovery ends in an observed compaction, which starts a
+  // new epoch and clears the emitted triggers. Before the fix nothing bounded
+  // how often one user send could go round interrupt -> compact -> continue.
+  it('caps 80% recoveries per outer user send and restores the allowance on the next send', async () => {
+    CompactionCoordinator._resetForTesting();
+    const events: ContextPolicyEvent[] = [];
+    const interrupt = vi.fn(async () => ({ proof: 'acknowledged' as const }));
+    let outerSendId = 'send-1';
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.configure({
+      getContextCapabilities: () => codexObserved,
+      getContextEvidenceMode: () => 'enforce',
+      getProviderActionExecutor: () => new ProviderContextActionExecutor({
+        'controlled-interrupt': interrupt,
+      }),
+      recordPolicyEvent: (event) => { events.push(event); },
+      getAtSafeProviderBoundary: () => false,
+      getOuterSendId: () => outerSendId,
+    });
+    const refillAndCompact = async () => {
+      coordinator.onContextUpdate('codex-loop', { used: 85, total: 100, percentage: 85 });
+      await coordinator.drainPolicyDecisions('codex-loop');
+      coordinator.recordObservedCompaction('codex-loop');
+    };
+
+    for (let round = 0; round < 5; round += 1) await refillAndCompact();
+    expect(interrupt).toHaveBeenCalledTimes(3);
+    expect(events.filter((event) => event.eventKind === 'decision' && event.actionCode === 'pause'))
+      .toHaveLength(2);
+
+    outerSendId = 'send-2';
+    await refillAndCompact();
+    expect(interrupt).toHaveBeenCalledTimes(4);
+  });
+
+  // W6 item 3. A steer that arrives after the turn finished is a lost race,
+  // not a broken provider, so it must not trip the circuit breaker and block
+  // later actions.
+  it('does not count steers skipped for a finished turn toward the circuit breaker', async () => {
+    CompactionCoordinator._resetForTesting();
+    const events: ContextPolicyEvent[] = [];
+    const tripped = vi.fn();
+    const steer = vi.fn(async () => ({ proof: 'none' as const, skipped: 'turn-not-active' as const }));
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.on('compaction-circuit-breaker-tripped', tripped);
+    coordinator.configure({
+      getContextCapabilities: () => codexObserved,
+      getContextEvidenceMode: () => 'enforce',
+      getProviderActionExecutor: () => new ProviderContextActionExecutor({ 'steer-turn': steer }),
+      recordPolicyEvent: (event) => { events.push(event); },
+      getAtSafeProviderBoundary: () => false,
+    });
+
+    for (let round = 0; round < 4; round += 1) {
+      coordinator.onContextUpdate('codex-steer', { used: 72, total: 100, percentage: 72 });
+      await coordinator.drainPolicyDecisions('codex-steer');
+      coordinator.recordObservedCompaction('codex-steer');
+    }
+
+    expect(steer).toHaveBeenCalledTimes(4);
+    expect(tripped).not.toHaveBeenCalled();
+    expect(events.filter((event) => event.failureCode === 'TURN_NOT_ACTIVE')).toHaveLength(4);
+    expect(events.some((event) => event.failureCode === 'CIRCUIT_BREAKER_TRIPPED')).toBe(false);
+  });
 });

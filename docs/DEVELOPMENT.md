@@ -51,7 +51,6 @@ src/
 │   │   ├── debate-coordinator.ts        # Multi-round debates
 │   │   ├── consensus-coordinator.ts     # Agreement mechanisms
 │   │   ├── orchestration-handler.ts     # Main orchestration logic
-│   │   ├── parallel-worktree-coordinator.ts  # Distributed worktree execution
 │   │   ├── embedding-service.ts         # Semantic embeddings
 │   │   ├── voting.ts                    # Voting mechanisms
 │   │   └── default-invokers.ts          # Wires LLM handlers to events
@@ -290,9 +289,13 @@ reads or stores it.
    only backends OpenCode can use appear. With no model chosen, OpenCode's own
    default runs (a free OpenCode Zen model when no backend is connected).
 
-Token Plan usage and remaining credits are only shown in the MiMo console; the
-console's usage endpoint needs a browser login, so Harness shows no quota chip for
-OpenCode.
+Token Plan usage (the "MiMo Code" allowance) is read from the MiMo console's quota API
+(`/api/v1/tokenPlan/usage` + `/detail`) using the console session cookies in Chrome —
+the API key cannot read quota. The OpenCode quota chip shows plan/monthly tokens and the
+period end whenever the configured OpenCode model is a `xiaomi-token-plan-*` one (the
+standalone token-usage-monitor shows the same figures as its "MiMo Code" section). With
+Chrome closed or the console signed out, the numbers stop refreshing until the console is
+signed in again.
 
 ---
 

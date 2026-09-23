@@ -874,6 +874,76 @@ describe('ClaudeCliAdapter rate_limit_event handling', () => {
   });
 });
 
+describe('ClaudeCliAdapter LT-105 errored resident turn completion', () => {
+  function makeAdapter() {
+    const adapter = new ClaudeCliAdapter();
+    const completions: Array<{ content: string; metadata?: Record<string, unknown> }> = [];
+    const errors: Error[] = [];
+    adapter.on('complete', (response: { content: string; metadata?: Record<string, unknown> }) => completions.push(response));
+    adapter.on('error', (error: Error) => errors.push(error));
+    const internals = adapter as unknown as {
+      processCliMessage: (message: unknown) => void;
+      resetResidentTurn: () => void;
+      awaitingOneShotCompletion: boolean;
+    };
+    return { completions, errors, internals };
+  }
+
+  const streamError = { type: 'error', error: { code: 'overloaded_error', message: 'Overloaded' } };
+  const result = { type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: 'sess-1' };
+
+  it('completes a resident turn that fails mid-stream exactly once, tagged as errored', () => {
+    const { completions, errors, internals } = makeAdapter();
+
+    internals.processCliMessage(streamError);
+
+    expect(errors).toHaveLength(1);
+    expect(completions).toHaveLength(1);
+    expect(completions[0]?.metadata?.['turnErrored']).toBe(true);
+  });
+
+  it('does not complete twice when the CLI follows the error with a result', () => {
+    const { completions, internals } = makeAdapter();
+
+    internals.processCliMessage(streamError);
+    internals.processCliMessage(result);
+
+    expect(completions).toHaveLength(1);
+  });
+
+  it('completes the next turn normally after an errored turn', () => {
+    const { completions, internals } = makeAdapter();
+
+    internals.processCliMessage(streamError);
+    internals.resetResidentTurn(); // what sendInputImpl does when the next turn starts
+    internals.processCliMessage(result);
+
+    expect(completions).toHaveLength(2);
+    expect(completions[1]?.metadata?.['turnErrored']).toBeUndefined();
+  });
+
+  it('completes a turn the CLI starts on its own after an errored turn', () => {
+    const { completions, internals } = makeAdapter();
+
+    internals.processCliMessage(streamError);
+    // No sendInput from us: the CLI resumes by itself (background-task continuation).
+    internals.processCliMessage({ type: 'assistant', message: { content: [{ type: 'text', text: 'Resuming.' }] } });
+    internals.processCliMessage(result);
+
+    expect(completions).toHaveLength(2);
+  });
+
+  it('leaves one-shot completion to the sendMessage close handler', () => {
+    const { completions, errors, internals } = makeAdapter();
+    internals.awaitingOneShotCompletion = true;
+
+    internals.processCliMessage(streamError);
+
+    expect(errors).toHaveLength(1);
+    expect(completions).toHaveLength(0);
+  });
+});
+
 describe('ClaudeCliAdapter LT-062 raw tool_result emission', () => {
   function makeAdapter() {
     const adapter = new ClaudeCliAdapter();

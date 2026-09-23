@@ -106,3 +106,32 @@ describe('provider limit account profile migration 063', () => {
     expect(index?.sql).toContain('account_profile_id');
   });
 });
+
+describe('browser login recipes migration 065', () => {
+  afterEach(() => {
+    for (const db of dbs.splice(0)) db.close();
+  });
+
+  it('creates the table keyed by (scope, origin) and constrains the scope kind', () => {
+    const db = openMigratedDb();
+    runMigrations(db);
+    expect(
+      db.prepare('SELECT name FROM _migrations WHERE name = ?').get<{ name: string }>('065_browser_login_recipes'),
+    ).toEqual({ name: '065_browser_login_recipes' });
+
+    const insert = `
+      INSERT INTO browser_login_recipes
+        (scope, scope_kind, origin, login_url, logged_in_markers_json, created_at, updated_at)
+      VALUES (?, ?, ?, 'https://a.example/login', '["Log out"]', 1, 1)
+    `;
+    db.prepare(insert).run('node-1', 'node', 'https://a.example');
+    expect(() => db.prepare(insert).run('node-1', 'node', 'https://a.example')).toThrow();
+    expect(() => db.prepare(insert).run('node-1', 'node', 'https://b.example')).not.toThrow();
+    expect(() => db.prepare(insert).run('tab-1', 'tab', 'https://a.example')).toThrow();
+
+    const columns = db.prepare('PRAGMA table_info(browser_login_recipes)').all<{ name: string }>()
+      .map((column) => column.name);
+    expect(columns.some((name) => /secret|password|value/i.test(name))).toBe(false);
+  });
+});
+

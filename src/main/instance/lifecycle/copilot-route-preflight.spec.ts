@@ -191,8 +191,10 @@ describe('Copilot spawn-path bypass detection', () => {
       'Constructs Copilot adapters only to list models; the conversation goes through CopilotCliProvider, which routes.',
     'src/main/mobile-gateway/mobile-gateway-model-handlers.ts':
       'Model listing only — no model request, so spec §10.2 installation-probe exemption applies.',
-    'src/main/providers/cursor-copilot-cli-discovery-service.ts':
-      'Model discovery only — no model request.',
+    'src/main/providers/copilot-profile-model-discovery.ts':
+      'Model discovery only — no model request. Builds one adapter per configured profile with that '
+      + 'profile\'s explicit accountProfileId, so the authenticated models.list roster is routed (§10.3) '
+      + 'and cached per profile (§14.4).',
     'src/main/instance/lifecycle/create-validation-helpers.ts':
       'Model listing for create-time validation; keyed by profile, issues no model request.',
     'src/main/orchestration/cli-verification-extension.ts':

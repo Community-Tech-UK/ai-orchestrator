@@ -36,6 +36,7 @@ import { getCrossSessionMessagingService } from '../instance/cross-session-messa
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import { isActiveLoopRuntimeState } from '../orchestration/loop-runtime-status';
 import { createLateRuntimeInitializationSteps } from './late-runtime-initialization-steps';
+import type { StatelessExecProviderPredicate } from './stateless-exec-provider';
 
 const logger = getLogger('AppInitialization');
 
@@ -48,7 +49,7 @@ export interface AppInitializationStep {
 export interface AppInitializationContext {
   instanceManager: InstanceManager;
   windowManager: WindowManager;
-  isStatelessExecProvider: (provider: string | undefined) => boolean;
+  isStatelessExecProvider: StatelessExecProviderPredicate;
   getNodeLatencyForInstance: (instanceId: string) => number | undefined;
   syncRemoteNodeMetricsToLoadBalancer: (nodeId: string) => void;
 }

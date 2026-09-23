@@ -34,6 +34,7 @@ import { recordProviderRuntimeEventSpan } from '../observability/otel-spans';
 import { getProviderRuntimeTraceSink } from '../observability/provider-runtime-trace-sink';
 import { BoundedAsyncQueue } from '../runtime/bounded-async-queue';
 import { recordProviderThreadCompactionMarker } from './compaction-runtime';
+import type { StatelessExecProviderPredicate } from './stateless-exec-provider';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
 import { isFastModeUnavailableNotice } from '../instance/lifecycle/fast-mode-notice';
@@ -47,7 +48,8 @@ const logger = getLogger('InstanceEventForwarding');
 export interface InstanceEventForwardingOptions {
   instanceManager: InstanceManager;
   windowManager: WindowManager;
-  isStatelessExecProvider: (provider: string | undefined) => boolean;
+  /** See `stateless-exec-provider.ts`; `instanceId` lets Codex be judged by its live mode. */
+  isStatelessExecProvider: StatelessExecProviderPredicate;
   getNodeLatencyForInstance: (instanceId: string) => number | undefined;
 }
 
@@ -372,7 +374,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       for (const update of data.updates) {
         if (update.contextUsage) {
           const instance = instanceManager.getInstance(update.instanceId);
-          if (isStatelessExecProvider(instance?.provider)) {
+          if (isStatelessExecProvider(instance?.provider, update.instanceId)) {
             continue;
           }
 

@@ -38,6 +38,7 @@ vi.mock('./browser-unattended-sqlite-stores', () => ({
   SqliteCredentialAuthorizationStore: class {},
   SqliteEscalationRecordStore: class {},
   SqliteBrowserCampaignStore: class {},
+  SqliteLoginRecipeStore: class {},
   SqliteVaultOriginBindingStore: class {
     put(): void {}
     get(): undefined { return undefined; }

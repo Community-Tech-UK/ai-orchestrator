@@ -673,6 +673,12 @@ export function createCliAdapter(
     return new RemoteCliAdapter(connection, executionLocation.nodeId, cliType, effectiveOptions);
   }
 
+  // LT-028: inside the Seatbelt jail Codex's MCP transport dies and the session never
+  // answers. Refuse up front rather than spawn a session that cannot work.
+  if (cliType === 'codex' && isInstanceHardened(effectiveOptions.instanceId)) {
+    throw new Error('Hardened mode is not supported for Codex yet: it cannot run inside the Seatbelt sandbox. Start this session without hardened mode.');
+  }
+
   const adapter = (() => {
     switch (cliType) {
       case 'claude':

@@ -67,6 +67,40 @@ describe('cost-handlers event forwarding', () => {
     ]);
   });
 
+  it('accepts the preload COST_GET_HISTORY shape with both arguments omitted', async () => {
+    const { tracker } = setup();
+    // Zero-cost entries: the tracker persists to the shared test RLM database,
+    // so a non-zero spend here would leak into later budget-alert tests.
+    tracker.recordUsage('history-a', 'sess-a', 'model', 0, 0, 0, 0, 0);
+    tracker.recordUsage('history-b', 'sess-b', 'model', 0, 0, 0, 0, 0);
+
+    // `costGetHistory()` sends `{ instanceId: undefined, limit: undefined }`.
+    const result = await invoke(IPC_CHANNELS.COST_GET_HISTORY, { instanceId: undefined, limit: undefined });
+    const noPayload = await invoke(IPC_CHANNELS.COST_GET_HISTORY);
+
+    const ids = (response: IpcResponse) =>
+      (response.data as { instanceId: string }[]).map((entry) => entry.instanceId);
+    expect(result.success).toBe(true);
+    expect(ids(result)).toEqual(expect.arrayContaining(['history-a', 'history-b']));
+    expect(ids(noPayload)).toEqual(expect.arrayContaining(['history-a', 'history-b']));
+  });
+
+  it.each([
+    ['a non-object payload', 'inst-1'],
+    ['a non-string instanceId', { instanceId: 42 }],
+    ['a fractional limit', { limit: 2.5 }],
+    ['a zero limit', { limit: 0 }],
+    ['a non-numeric limit', { limit: '5' }],
+  ])('rejects COST_GET_HISTORY with %s', async (_label, payload) => {
+    setup();
+
+    const result = await invoke(IPC_CHANNELS.COST_GET_HISTORY, payload);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('COST_GET_HISTORY_FAILED');
+    expect(result.error?.message).toContain('IPC validation failed for COST_GET_HISTORY');
+  });
+
   it('forwards a recorded turn on cost:usage-recorded (real cost-recorded event)', () => {
     const { tracker, sent } = setup();
     tracker.recordUsage('inst-1', 'sess-1', 'claude-opus-4-8', 100, 200, 0, 0, 0.42);

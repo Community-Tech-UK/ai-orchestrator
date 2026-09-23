@@ -4,7 +4,8 @@
  * for free.
  *
  * - Claude `rate_limit_event` (`rate-limit-telemetry` adapter event): one
- *   window per event, classified by `rateLimitType`.
+ *   window per event, classified by `rateLimitType`. A full window also
+ *   overrides the usage probe's older "allowed" verdict.
  * - Codex `account/rateLimits/updated` / `account/rateLimits/read`
  *   (`account-rate-limits`): a sparse snapshot merged into the last known one.
  *
@@ -18,7 +19,12 @@
 import type { EventEmitter } from 'events';
 import type { CliRateLimitInfo } from '../../../shared/types/cli.types';
 import type { ResolvedAccountRoute } from '../../../shared/types/provider-account.types';
-import type { ProviderQuotaSnapshot, ProviderQuotaWindow, ProviderUsageAccess } from '../../../shared/types/provider-quota.types';
+import {
+  CLAUDE_ACCOUNT_WIDE_QUOTA_WINDOW_IDS,
+  type ProviderQuotaSnapshot,
+  type ProviderQuotaWindow,
+  type ProviderUsageAccess,
+} from '../../../shared/types/provider-quota.types';
 import {
   codexRateLimitsToQuotaWindows,
   mergeCodexRateLimitSnapshots,
@@ -61,6 +67,25 @@ export function claudeTelemetryWindow(info: CliRateLimitInfo): ProviderQuotaWind
     remaining: 100 - used,
     resetsAt: typeof info.resetsAt === 'number' ? info.resetsAt * 1000 : null,
   };
+}
+
+/**
+ * The usage verdict after a live Claude event reports a window full. The
+ * probe's older "allowed" must not outlive it: a full account-wide window
+ * means the included usage is spent now; a full model-scoped one only makes
+ * the account-wide verdict unknown. Credits are kept as they were.
+ */
+export function claudeAccessAfterFullWindow(
+  window: Pick<ProviderQuotaWindow, 'id'>,
+  previous: ProviderUsageAccess | undefined,
+): ProviderUsageAccess | undefined {
+  if (CLAUDE_ACCOUNT_WIDE_QUOTA_WINDOW_IDS.has(window.id)) {
+    return { ordinaryUsageAllowed: false, creditsAvailable: previous?.creditsAvailable ?? null, observedAt: Date.now() };
+  }
+  if (previous?.ordinaryUsageAllowed !== true) return previous;
+  return previous.creditsAvailable === null
+    ? undefined
+    : { ordinaryUsageAllowed: null, creditsAvailable: previous.creditsAvailable, observedAt: previous.observedAt };
 }
 
 export function mergeWindows(existing: ProviderQuotaSnapshot | null, windows: ProviderQuotaWindow[]): ProviderQuotaWindow[] {
@@ -114,7 +139,10 @@ export function attachAccountTelemetryBridge(
   const onClaude = (info: CliRateLimitInfo): void => {
     if (route.provider !== 'claude') return;
     const window = claudeTelemetryWindow(info);
-    if (window) ingest([window]);
+    if (!window) return;
+    ingest([window], undefined, window.used >= window.limit
+      ? (previous) => claudeAccessAfterFullWindow(window, previous)
+      : undefined);
   };
   const onCodex = (payload: unknown): void => {
     if (route.provider !== 'codex') return;

@@ -3,9 +3,10 @@
  * Handles external editor integration, file watching, and multi-file edits
  */
 
-import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import { IpcMainInvokeEvent } from 'electron';
 import { z } from 'zod';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import { createTrustedIpcRegistrar, type EnsureTrustedSender } from '../validated-handler';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   EditorOpenDirectoryPayloadSchema,
@@ -28,8 +29,15 @@ import { WindowManager } from '../../window-manager';
 
 export function registerFileHandlers(deps: {
   windowManager: WindowManager;
+  /**
+   * Every channel here can launch an external editor (with a renderer-chosen
+   * executable path via EDITOR_SET_PREFERRED), watch arbitrary directories, or
+   * write files (MULTIEDIT_APPLY), so all of them require the main window.
+   */
+  ensureTrustedSender: EnsureTrustedSender;
 }): void {
   const { windowManager } = deps;
+  const handle = createTrustedIpcRegistrar(deps.ensureTrustedSender);
 
   // ============================================
   // External Editor Handlers
@@ -41,7 +49,7 @@ export function registerFileHandlers(deps: {
   });
 
   // Detect available editors
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.EDITOR_DETECT,
     async (): Promise<IpcResponse> => {
       try {
@@ -61,7 +69,7 @@ export function registerFileHandlers(deps: {
   );
 
   // Open file in editor
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.EDITOR_OPEN_FILE,
     async (
       _event: IpcMainInvokeEvent,
@@ -90,7 +98,7 @@ export function registerFileHandlers(deps: {
   );
 
   // Open file at specific line
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.EDITOR_OPEN_FILE_AT_LINE,
     async (
       _event: IpcMainInvokeEvent,
@@ -118,7 +126,7 @@ export function registerFileHandlers(deps: {
   );
 
   // Open directory in editor
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.EDITOR_OPEN_DIRECTORY,
     async (
       _event: IpcMainInvokeEvent,
@@ -142,7 +150,7 @@ export function registerFileHandlers(deps: {
   );
 
   // Set preferred editor
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.EDITOR_SET_PREFERRED,
     async (
       _event: IpcMainInvokeEvent,
@@ -170,7 +178,7 @@ export function registerFileHandlers(deps: {
   );
 
   // Set default editor (legacy alias for preferred editor)
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.EDITOR_SET_DEFAULT,
     async (
       _event: IpcMainInvokeEvent,
@@ -208,7 +216,7 @@ export function registerFileHandlers(deps: {
   );
 
   // Get preferred editor
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.EDITOR_GET_PREFERRED,
     async (): Promise<IpcResponse> => {
       try {
@@ -228,7 +236,7 @@ export function registerFileHandlers(deps: {
   );
 
   // Get default editor (legacy alias for preferred editor)
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.EDITOR_GET_DEFAULT,
     async (): Promise<IpcResponse> => {
       try {
@@ -248,7 +256,7 @@ export function registerFileHandlers(deps: {
   );
 
   // Get available editors
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.EDITOR_GET_AVAILABLE,
     async (): Promise<IpcResponse> => {
       try {
@@ -274,7 +282,7 @@ export function registerFileHandlers(deps: {
   const watcherManager = getFileWatcherManager();
 
   // Start watching
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.WATCHER_START,
     async (
       _event: IpcMainInvokeEvent,
@@ -303,7 +311,7 @@ export function registerFileHandlers(deps: {
   );
 
   // Stop watching
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.WATCHER_STOP,
     async (
       _event: IpcMainInvokeEvent,
@@ -327,7 +335,7 @@ export function registerFileHandlers(deps: {
   );
 
   // Stop all watchers
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.WATCHER_STOP_ALL,
     async (): Promise<IpcResponse> => {
       try {
@@ -347,7 +355,7 @@ export function registerFileHandlers(deps: {
   );
 
   // Get active sessions
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.WATCHER_GET_SESSIONS,
     async (): Promise<IpcResponse> => {
       try {
@@ -367,7 +375,7 @@ export function registerFileHandlers(deps: {
   );
 
   // Get recent changes
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.WATCHER_GET_CHANGES,
     async (
       _event: IpcMainInvokeEvent,
@@ -394,7 +402,7 @@ export function registerFileHandlers(deps: {
   );
 
   // Clear event buffer
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.WATCHER_CLEAR_BUFFER,
     async (
       _event: IpcMainInvokeEvent,
@@ -442,7 +450,7 @@ export function registerFileHandlers(deps: {
   const multiEdit = getMultiEditManager();
 
   // Preview edits without applying
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.MULTIEDIT_PREVIEW,
     async (
       _event: IpcMainInvokeEvent,
@@ -469,7 +477,7 @@ export function registerFileHandlers(deps: {
   );
 
   // Apply edits atomically
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.MULTIEDIT_APPLY,
     async (
       _event: IpcMainInvokeEvent,

@@ -6,6 +6,7 @@ import {
   classifyCopilotModelTier,
   completeCopilotDiscoveredModels,
   COPILOT_DEFAULT_MODELS,
+  mergeCopilotDiscoverySources,
   parseCopilotModelIdsFromHelpConfig,
   unionCopilotModelIds,
   withCopilotModelListFallback,
@@ -116,5 +117,27 @@ describe('Copilot picker classification', () => {
     expect(classifyCopilotModelFamily(COPILOT_MODELS.CLAUDE_SONNET_5)).toBe('Claude');
     expect(classifyCopilotModelFamily(COPILOT_MODELS.KIMI_K3)).toBe('Kimi');
     expect(classifyCopilotModelFamily(COPILOT_MODELS.GROK_45)).toBe('Grok');
+  });
+});
+
+describe('mergeCopilotDiscoverySources', () => {
+  const fulfilled = (value: string[]): PromiseSettledResult<string[]> => ({ status: 'fulfilled', value });
+  const rejected = (reason: unknown): PromiseSettledResult<string[]> => ({ status: 'rejected', reason });
+
+  it('keeps help config order and appends ids only the live roster has', () => {
+    expect(mergeCopilotDiscoverySources(
+      fulfilled(['claude-sonnet-5', 'claude-opus-5', 'gpt-5.5']),
+      ['claude-opus-5', 'claude-opus-5.5', 'gpt-6-sol'],
+    )).toEqual(['claude-sonnet-5', 'claude-opus-5', 'gpt-5.5', 'claude-opus-5.5', 'gpt-6-sol']);
+  });
+
+  it('uses the live roster alone when help config failed', () => {
+    expect(mergeCopilotDiscoverySources(rejected(new Error('parse failed')), ['gpt-6-sol']))
+      .toEqual(['gpt-6-sol']);
+  });
+
+  it('reports the help config failure when neither source produced ids', () => {
+    const failure = new Error('Timeout fetching Copilot model list');
+    expect(() => mergeCopilotDiscoverySources(rejected(failure), [])).toThrow(failure);
   });
 });

@@ -322,5 +322,116 @@ describe('auxiliary-llm-handlers', () => {
       await invoke('auxiliary-llm:save-settings', { auxiliaryLlmEnabled: false });
       expect(serviceMocks.configure).toHaveBeenCalledOnce();
     });
+
+    it('persists every valid auxiliary key with its coerced value', async () => {
+      await loadHandlers();
+
+      const result = await invoke('auxiliary-llm:save-settings', {
+        auxiliaryLlmEnabled: true,
+        auxiliaryLlmRoutingMode: 'cheap-first',
+        auxiliaryLlmAllowRemoteWorkerModels: false,
+        auxiliaryLlmUseLocalhostOllama: true,
+        auxiliaryLlmDailySpendCapUsd: null,
+        auxiliaryLlmEndpointsJson: '[]',
+        auxiliaryLlmSlotsJson: '{}',
+        auxiliaryLlmQuickModel: 'llama3.2:3b',
+        auxiliaryLlmQualityModel: 'qwen2.5:14b',
+        auxiliaryLlmRoutingClassificationEnabled: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(settingsMocks.set).toHaveBeenCalledTimes(10);
+      expect(settingsMocks.set).toHaveBeenCalledWith('auxiliaryLlmRoutingMode', 'cheap-first');
+      expect(settingsMocks.set).toHaveBeenCalledWith('auxiliaryLlmDailySpendCapUsd', null);
+      expect(settingsMocks.set).toHaveBeenCalledWith('auxiliaryLlmSlotsJson', '{}');
+    });
+
+    it.each([
+      ['a non-object payload', 'enable-everything'],
+      ['a non-boolean flag', { auxiliaryLlmEnabled: 'yes' }],
+      ['an unknown routing mode', { auxiliaryLlmRoutingMode: 'always-remote' }],
+      ['a negative spend cap', { auxiliaryLlmDailySpendCapUsd: -1 }],
+      ['endpoints JSON that is not an array', { auxiliaryLlmEndpointsJson: '{"baseUrl":"x"}' }],
+      ['malformed endpoints JSON', { auxiliaryLlmEndpointsJson: '[{' }],
+      ['a non-string model id', { auxiliaryLlmQuickModel: 42 }],
+    ])('rejects %s without writing any setting', async (_label, payload) => {
+      await loadHandlers();
+
+      const result = await invoke('auxiliary-llm:save-settings', payload);
+
+      expect(result.success).toBe(false);
+      expect((result.error as { code: string }).code).toBe('VALIDATION_FAILED');
+      expect(settingsMocks.set).not.toHaveBeenCalled();
+      expect(serviceMocks.configure).not.toHaveBeenCalled();
+    });
+
+    it('rejects a slot map that fails the settings policy and writes nothing (no half-applied save)', async () => {
+      await loadHandlers();
+
+      const result = await invoke('auxiliary-llm:save-settings', {
+        auxiliaryLlmEnabled: true,
+        auxiliaryLlmSlotsJson: JSON.stringify({ compression: { enabled: 'yes' } }),
+      });
+
+      expect(result.success).toBe(false);
+      expect((result.error as { code: string }).code).toBe('SAVE_SETTINGS_FAILED');
+      expect(settingsMocks.set).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('payload validation', () => {
+    it.each([
+      ['a missing payload', undefined],
+      ['a missing baseUrl', { provider: 'ollama' }],
+      ['an empty baseUrl', { provider: 'ollama', baseUrl: '' }],
+      ['a non-string provider', { provider: 7, baseUrl: 'http://localhost:11434' }],
+      ['a non-string apiKeyEnv', { provider: 'openai-compatible', baseUrl: 'http://localhost:1', apiKeyEnv: 5 }],
+    ])('probe-endpoint rejects %s', async (_label, payload) => {
+      await loadHandlers();
+
+      const result = await invoke('auxiliary-llm:probe-endpoint', payload);
+
+      expect(result.success).toBe(false);
+      expect((result.error as { code: string }).code).toBe('VALIDATION_FAILED');
+      expect(resolverMocks.resolveAuxiliaryEndpointApiKey).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a missing slot', {}],
+      ['an unknown slot', { slot: 'notASlot' }],
+      ['a non-string prompt', { slot: 'titleGeneration', userPrompt: ['hi'] }],
+    ])('test-generate rejects %s', async (_label, payload) => {
+      await loadHandlers();
+
+      const result = await invoke('auxiliary-llm:test-generate', payload);
+
+      expect(result.success).toBe(false);
+      expect((result.error as { code: string }).code).toBe('VALIDATION_FAILED');
+      expect(serviceMocks.generate).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a missing payload', undefined],
+      ['a missing text field', {}],
+      ['a non-string text field', { text: 123 }],
+    ])('extract-web rejects %s', async (_label, payload) => {
+      await loadHandlers();
+
+      const result = await invoke('auxiliary-llm:extract-web', payload);
+
+      expect(result.success).toBe(false);
+      expect((result.error as { code: string }).code).toBe('VALIDATION_FAILED');
+      expect(serviceMocks.generate).not.toHaveBeenCalled();
+    });
+
+    it('keeps the handler error code when the service throws after validation passes', async () => {
+      serviceMocks.generate.mockRejectedValue(new Error('model offline'));
+      await loadHandlers();
+
+      const result = await invoke('auxiliary-llm:test-generate', { slot: 'titleGeneration' });
+
+      expect(result.success).toBe(false);
+      expect((result.error as { code: string }).code).toBe('TEST_GENERATE_FAILED');
+    });
   });
 });

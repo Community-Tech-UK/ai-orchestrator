@@ -20,6 +20,8 @@ const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
 
 const PROMPT_EXCERPT_MAX_LENGTH = 200;
+/** How long the most recently decoded chunk stays cached for paging. */
+const CHUNK_READ_CACHE_MS = 30_000;
 
 interface StorageMetadata {
   instanceId: string;
@@ -86,6 +88,18 @@ export function mergePromptIndex(
   return [...byId.values()].sort((a, b) => a.timestamp - b.timestamp);
 }
 
+/**
+ * Positions in an index's chunk list whose file still holds that entry's
+ * messages. Indices written before chunkIndex stopped being reused after
+ * eviction can list the same chunkIndex twice; the file holds only the LAST
+ * write, so earlier entries sharing it are unreadable rather than duplicates.
+ */
+function readableChunkPositions(chunks: readonly StorageMetadata[]): Set<number> {
+  const lastPosition = new Map<number, number>();
+  chunks.forEach((chunk, position) => lastPosition.set(chunk.chunkIndex, position));
+  return new Set(lastPosition.values());
+}
+
 /** Map user messages to prompt refs — shared with the prompt-index IPC handler. */
 export function toPromptRefs(messages: OutputMessage[]): UserPromptRef[] {
   return messages
@@ -103,6 +117,9 @@ export class OutputStorageManager {
   private pendingWrites = new Map<string, Promise<void>>();
   private maxDiskStorageMB: number = 500;
   private chunkSize: number = 100; // messages per chunk
+  private lastReadChunk: { instanceId: string; chunkIndex: number; messages: OutputMessage[] } | null = null;
+  /** `${instanceId}/${chunkIndex}` of chunk files found missing — never re-read. */
+  private readonly missingChunks = new Set<string>();
 
   constructor() {
     this.storageDir = path.join(app.getPath('userData'), 'output-storage');
@@ -158,7 +175,11 @@ export class OutputStorageManager {
 
   private async writeMessages(instanceId: string, messages: OutputMessage[]): Promise<void> {
     const index = this.getOrCreateIndex(instanceId);
-    const chunkIndex = index.chunks.length;
+    // Chunk files are named by chunkIndex, which eviction does not renumber.
+    // Deriving it from chunks.length after an eviction reused the newest
+    // chunk's name and overwrote its file.
+    const newestChunk = index.chunks[index.chunks.length - 1];
+    const chunkIndex = newestChunk ? newestChunk.chunkIndex + 1 : 0;
 
     // Compress and write the messages
     const data = JSON.stringify(messages);
@@ -196,7 +217,8 @@ export class OutputStorageManager {
   }
 
   /**
-   * Load messages from disk for an instance
+   * Load messages from disk for an instance. `startChunk`/`endChunk` are
+   * positions in the index's chunk list.
    */
   async loadMessages(
     instanceId: string,
@@ -214,27 +236,104 @@ export class OutputStorageManager {
     const startChunk = options?.startChunk ?? 0;
     const endChunk = options?.endChunk ?? index.chunks.length - 1;
     const limit = options?.limit;
+    const readable = readableChunkPositions(index.chunks);
 
     const allMessages: OutputMessage[] = [];
 
     for (let i = startChunk; i <= endChunk && i < index.chunks.length; i++) {
-      const chunkPath = this.getChunkPath(instanceId, i);
+      if (!readable.has(i)) continue;
+      allMessages.push(...(await this.readChunk(instanceId, index.chunks[i].chunkIndex)));
 
-      try {
-        const compressed = await fs.promises.readFile(chunkPath);
-        const data = await gunzip(compressed);
-        const messages: OutputMessage[] = JSON.parse(data.toString());
-        allMessages.push(...messages);
-
-        if (limit && allMessages.length >= limit) {
-          return allMessages.slice(0, limit);
-        }
-      } catch (error) {
-        logger.error('Failed to load chunk', error instanceof Error ? error : undefined, { chunkIndex: i, instanceId });
+      if (limit && allMessages.length >= limit) {
+        return allMessages.slice(0, limit);
       }
     }
 
     return limit ? allMessages.slice(0, limit) : allMessages;
+  }
+
+  /**
+   * Page backwards through stored history by message offset: returns up to
+   * `limit` messages ending just before `beforeOffset` (default: the end of
+   * storage), oldest first, plus the offset of the first one returned. Pass
+   * that `startOffset` back as the next `beforeOffset`; 0 means the start of
+   * the session has been reached.
+   *
+   * Chunk sizes vary wildly — buffer-overflow trimming writes one message per
+   * chunk while a history restore writes thousands in one — so paging by
+   * chunk count returned three messages at a time in one session and silently
+   * dropped most of a large chunk in another.
+   */
+  async loadMessagesBefore(
+    instanceId: string,
+    options: { beforeOffset?: number; limit: number },
+  ): Promise<{ messages: OutputMessage[]; startOffset: number; totalStored: number }> {
+    const index = this.indices.get(instanceId);
+    if (!index || index.chunks.length === 0) {
+      return { messages: [], startOffset: 0, totalStored: 0 };
+    }
+
+    const totalStored = index.chunks.reduce((sum, chunk) => sum + chunk.messageCount, 0);
+    const endOffset = Math.min(Math.max(0, options.beforeOffset ?? totalStored), totalStored);
+    const startOffset = Math.max(0, endOffset - Math.max(1, options.limit));
+    const readable = readableChunkPositions(index.chunks);
+
+    const messages: OutputMessage[] = [];
+    let chunkStart = 0;
+    for (let i = 0; i < index.chunks.length && chunkStart < endOffset; i++) {
+      const chunk = index.chunks[i];
+      const chunkEnd = chunkStart + chunk.messageCount;
+      if (chunkEnd > startOffset && readable.has(i)) {
+        const chunkMessages = await this.readChunk(instanceId, chunk.chunkIndex, true);
+        messages.push(
+          ...chunkMessages.slice(
+            Math.max(0, startOffset - chunkStart),
+            Math.min(chunk.messageCount, endOffset - chunkStart),
+          ),
+        );
+      }
+      chunkStart = chunkEnd;
+    }
+
+    return { messages, startOffset, totalStored };
+  }
+
+  /**
+   * Read one chunk file; [] (logged) when it is missing or unreadable.
+   * `useCache` shares decoded message objects between calls, so only callers
+   * that never mutate them (the IPC pager, whose results are cloned) opt in.
+   */
+  private async readChunk(instanceId: string, chunkIndex: number, useCache = false): Promise<OutputMessage[]> {
+    const cached = this.lastReadChunk;
+    if (useCache && cached && cached.instanceId === instanceId && cached.chunkIndex === chunkIndex) {
+      return cached.messages;
+    }
+    const chunkKey = `${instanceId}/${chunkIndex}`;
+    if (this.missingChunks.has(chunkKey)) return [];
+    try {
+      const compressed = await fs.promises.readFile(this.getChunkPath(instanceId, chunkIndex));
+      const messages: OutputMessage[] = JSON.parse((await gunzip(compressed)).toString());
+      if (!useCache) return messages;
+      // Paging walks a large restored chunk one page at a time; keep the last
+      // decoded chunk briefly so each page does not gunzip it again. Chunk
+      // files are written once and never rewritten under the same index.
+      const entry = { instanceId, chunkIndex, messages };
+      this.lastReadChunk = entry;
+      setTimeout(() => {
+        if (this.lastReadChunk === entry) this.lastReadChunk = null;
+      }, CHUNK_READ_CACHE_MS).unref?.();
+      return messages;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        // Some legacy indices list thousands of chunks whose files are gone;
+        // report each once instead of on every page that spans it.
+        this.missingChunks.add(chunkKey);
+        logger.warn('Stored output chunk is missing', { chunkIndex, instanceId });
+      } else {
+        logger.error('Failed to load chunk', error instanceof Error ? error : undefined, { chunkIndex, instanceId });
+      }
+      return [];
+    }
   }
 
   /**
@@ -309,9 +408,14 @@ export class OutputStorageManager {
     const index = this.indices.get(instanceId);
     if (!index) return;
 
+    if (this.lastReadChunk?.instanceId === instanceId) this.lastReadChunk = null;
+    for (const key of this.missingChunks) {
+      if (key.startsWith(`${instanceId}/`)) this.missingChunks.delete(key);
+    }
+
     // Delete all chunk files
-    for (let i = 0; i < index.chunks.length; i++) {
-      const chunkPath = this.getChunkPath(instanceId, i);
+    for (const chunk of index.chunks) {
+      const chunkPath = this.getChunkPath(instanceId, chunk.chunkIndex);
       try {
         await fs.promises.unlink(chunkPath);
       } catch (error) {
@@ -455,12 +559,18 @@ export class OutputStorageManager {
       while (totalBytes > maxBytes && index.chunks.length > 0) {
         const oldestChunk = index.chunks[0];
 
-        // Delete the chunk file
-        const chunkPath = this.getChunkPath(index.instanceId, oldestChunk.chunkIndex);
-        try {
-          await fs.promises.unlink(chunkPath);
-        } catch (error) {
-          // Ignore if file doesn't exist
+        // Delete the chunk file — unless a later entry of a legacy index
+        // (see readableChunkPositions) still reads the same file.
+        const sharedFile = index.chunks.some(
+          (chunk, position) => position > 0 && chunk.chunkIndex === oldestChunk.chunkIndex,
+        );
+        if (!sharedFile) {
+          const chunkPath = this.getChunkPath(index.instanceId, oldestChunk.chunkIndex);
+          try {
+            await fs.promises.unlink(chunkPath);
+          } catch (error) {
+            // Ignore if file doesn't exist
+          }
         }
 
         // Update totals

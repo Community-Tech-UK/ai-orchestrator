@@ -153,6 +153,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoTerminateOnMemoryPressure: true,
   persistSessionContent: true,
   cumulativeTokenCompactionTrigger: 0, // disabled by default (opt-in cost cap)
+  compactionDecisionLogEnabled: false, // opt-in decision log on restart-with-summary compaction
   outputStyle: 'default', // no style directive injected unless changed
 
   // Display

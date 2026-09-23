@@ -9,6 +9,7 @@ import type { SqliteDriver } from '../db/sqlite-driver';
 import { ProviderLimitLedger, createProviderLimitLedgerSchema } from '../core/system/provider-limit-ledger';
 import { InstanceProviderLimitHandler, ASSUMED_ACCOUNT_LIMIT_MS } from './instance-provider-limit-handler';
 import { snapshotShowsLimitLifted } from './provider-limit-lift';
+import { ClaudeUsageEndpointProbe } from '../core/system/provider-quota/claude-usage-endpoint-probe';
 import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import type { AccountFailoverOutcome, AccountFailoverParams, AccountFailoverPlan } from '../providers/account-pool/account-failover-coordinator';
 
@@ -218,6 +219,78 @@ describe('InstanceProviderLimitHandler stale known-limit gate', () => {
     h.ledger.record({ provider: 'codex', model: null, accountProfileId: 'legacy', detectedAt: recordedAt, resumeAt: Date.now() + 86_400_000, source: 't', instanceId: null });
     expect(h.handler.maybeParkKnown(codex)).toBe('parked');
     expect(h.ledger.getActive({ provider: 'codex', model: null, accountProfileId: 'legacy' })).not.toBeNull();
+    h.db.close();
+  });
+});
+
+describe('InstanceProviderLimitHandler stale Claude weekly limit', () => {
+  // The incident: a weekly rejection recorded against the legacy account, then
+  // Anthropic reset the account early, so the usage probe reads 0% while the
+  // recorded reset is days away. Every send used to move to another account.
+  async function probedClaudeSnapshot(weeklyUsed: number): Promise<ProviderQuotaSnapshot> {
+    const probe = new ClaudeUsageEndpointProbe({
+      credentialsReader: { read: async () => ({ credential: { accessToken: 'placeholder', expiresAt: Date.now() + 60_000 } }) },
+      fetchUsage: async () => ({
+        status: 200,
+        body: { five_hour: { utilization: 2, resets_at: null }, seven_day: { utilization: weeklyUsed, resets_at: null } },
+      }),
+    });
+    return (await probe.probe({ signal: new AbortController().signal }))!;
+  }
+
+  function withSnapshot(snapshot: ProviderQuotaSnapshot) {
+    const db = new Database(':memory:') as unknown as SqliteDriver;
+    createProviderLimitLedgerSchema(db);
+    const ledger = new ProviderLimitLedger(db);
+    const handler = new InstanceProviderLimitHandler();
+    const perform = vi.fn(async () => ({ outcome: 'switched', toProfileId: 'max-b', continuity: 'replay' }) as const);
+    handler.configure({
+      isEnabled: () => true,
+      setWaitReason: vi.fn(),
+      resendInput: vi.fn(),
+      getQuotaSnapshot: () => snapshot,
+      getWorkspaceCwd: () => '/w',
+      scheduleResume: () => () => undefined,
+      providerLimitLedger: ledger,
+      accountFailover: {
+        plan: () => ({ kind: 'switch' }),
+        perform,
+        offer: vi.fn(),
+        release: vi.fn(),
+        shouldSwitchPreemptively: () => false,
+      },
+    });
+    return { handler, ledger, perform, db };
+  }
+
+  const claude = { ...base, model: 'opus', accountProfileId: 'legacy' };
+  const recordWeeklyLimit = (ledger: ProviderLimitLedger, detectedAt: number): void => {
+    ledger.record({ provider: 'claude', model: 'opus', accountProfileId: 'legacy', detectedAt, resumeAt: Date.now() + 2 * 86_400_000, source: 'provider-limit-signal', instanceId: null });
+  };
+
+  it('sends on the account and clears the limit once the usage probe shows room', async () => {
+    const recordedAt = Date.now() - 60_000;
+    const h = withSnapshot(await probedClaudeSnapshot(0));
+    recordWeeklyLimit(h.ledger, recordedAt);
+    expect(h.handler.maybeParkKnown(claude)).toBe('skipped');
+    expect(h.perform).not.toHaveBeenCalled();
+    expect(h.ledger.getActive({ provider: 'claude', model: 'opus', accountProfileId: 'legacy' })).toBeNull();
+    h.db.close();
+  });
+
+  it('still switches when the probe shows the weekly window full', async () => {
+    const h = withSnapshot(await probedClaudeSnapshot(100));
+    recordWeeklyLimit(h.ledger, Date.now() - 60_000);
+    expect(h.handler.maybeParkKnown(claude)).toBe('switching-account');
+    expect(h.ledger.getActive({ provider: 'claude', model: 'opus', accountProfileId: 'legacy' })).not.toBeNull();
+    h.db.close();
+  });
+
+  it('still switches when the probe reading predates the recorded limit', async () => {
+    const snapshot = await probedClaudeSnapshot(0);
+    const h = withSnapshot(snapshot);
+    recordWeeklyLimit(h.ledger, snapshot.takenAt + 1);
+    expect(h.handler.maybeParkKnown(claude)).toBe('switching-account');
     h.db.close();
   });
 });

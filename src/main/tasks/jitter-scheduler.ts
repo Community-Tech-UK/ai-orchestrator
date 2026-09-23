@@ -70,7 +70,7 @@ function nextTickMs(intervalMs: number, jitterPercent: number, avoidMinuteBounda
 let taskCounter = 0;
 
 export class JitterScheduler {
-  private static instance: JitterScheduler;
+  private static instance: JitterScheduler | null = null;
   private tasks = new Map<string, TaskState>();
   private missedCallback: MissedCallback | null = null;
 
@@ -95,7 +95,7 @@ export class JitterScheduler {
       }
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (this as any).instance = undefined;
+    this.instance = null;
   }
 
   private setupPowerMonitor(): void {

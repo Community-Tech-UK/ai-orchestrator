@@ -42,6 +42,13 @@ interface ContextPolicyObservation {
   circuitBreakerTripped: boolean;
   atSafeProviderBoundary: boolean;
   outputBytesSinceCompaction?: number;
+  /**
+   * Identifies the user send this sample belongs to. Recovery continuations
+   * keep the same id, so the policy's per-send recovery ceiling holds across
+   * them. Omitted by providers that cannot tell sends apart; their counter
+   * then stays keyed to the instance.
+   */
+  outerSendId?: string;
   onActionFailure(): void;
   onActionSuccess(): void;
 }
@@ -118,6 +125,15 @@ export class ContextPolicyRuntime {
     return state;
   }
 
+  /** A new user send starts a fresh recovery allowance; the epoch and emitted triggers carry over. */
+  private beginOuterSendIfNew(instanceId: string, outerSendId: string | undefined): ContextSafetyPolicyState {
+    const state = this.getState(instanceId);
+    if (!outerSendId || outerSendId === state.outerSendId) return state;
+    const nextState = { ...state, outerSendId, recoveriesInOuterSend: 0 };
+    this.states.set(instanceId, nextState);
+    return nextState;
+  }
+
   private observeCounterReset(instanceId: string, usage: ContextUsage): void {
     const cumulative = usage.cumulativeTokens;
     if (typeof cumulative !== 'number' || !Number.isFinite(cumulative)) return;
@@ -149,7 +165,7 @@ export class ContextPolicyRuntime {
   }
 
   private async evaluate(input: ContextPolicyObservation, providerRequestCount: number): Promise<void> {
-    const state = this.getState(input.instanceId);
+    const state = this.beginOuterSendIfNew(input.instanceId, input.outerSendId);
     const sample = buildPressureSample(
       input.usage,
       state.epoch,
@@ -190,6 +206,12 @@ export class ContextPolicyRuntime {
       return;
     }
     const result = await input.executor.execute(decision.action.kind);
+    if (result.status === 'skipped') {
+      this.record(input.instanceId, input.usage, {
+        eventKind: 'action-proof', ...base, failureCode: result.errorCode,
+      });
+      return;
+    }
     if (result.status !== 'executed') {
       input.onActionFailure();
       this.record(input.instanceId, input.usage, {

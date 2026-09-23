@@ -48,6 +48,7 @@ const DebateConfigSchema = z.object({
   synthesisModel: RequiredModelIdSchema,
   temperatureRange: z.tuple([z.number().min(0).max(2), z.number().min(0).max(2)]),
   timeout: z.number().int().min(1000).max(3_600_000),
+  skipDefenseOnLowSeverityCritiques: z.boolean().optional(),
 });
 
 const DebateIdSchema = z.string().min(1).max(200);
@@ -585,45 +586,6 @@ export const ConsensusAbortPayloadSchema = z.object({
 
 export type ValidatedConsensusQueryPayload = z.infer<typeof ConsensusQueryPayloadSchema>;
 export type ValidatedConsensusAbortPayload = z.infer<typeof ConsensusAbortPayloadSchema>;
-
-// ============ Parallel Worktree Payloads ============
-
-export const ParallelWorktreeTaskSchema = z.object({
-  id: z.string().min(1).max(200),
-  description: z.string().min(1).max(10000),
-  files: z.array(z.string().min(1).max(2000)).max(500).optional(),
-  priority: z.number().int().min(0).max(100).optional(),
-  dependencies: z.array(z.string().min(1).max(200)).max(50).optional(),
-});
-
-export const ParallelWorktreeStartPayloadSchema = z.object({
-  tasks: z.array(ParallelWorktreeTaskSchema).min(1).max(20),
-  instanceId: InstanceIdSchema,
-  repoPath: z.string().min(1).max(2000),
-});
-
-export const ParallelWorktreeGetStatusPayloadSchema = z.object({
-  executionId: z.string().min(1).max(200),
-});
-
-export const ParallelWorktreeCancelPayloadSchema = z.object({
-  executionId: z.string().min(1).max(200),
-});
-
-export const ParallelWorktreeGetResultsPayloadSchema = z.object({
-  executionId: z.string().min(1).max(200),
-});
-
-export const ParallelWorktreeResolveConflictPayloadSchema = z.object({
-  executionId: z.string().min(1).max(200),
-  taskId: z.string().min(1).max(200),
-  resolution: z.enum(['ours', 'theirs', 'manual']),
-});
-
-export const ParallelWorktreeMergePayloadSchema = z.object({
-  executionId: z.string().min(1).max(200),
-  strategy: z.enum(['auto', 'squash', 'rebase', 'manual']).optional(),
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Renderer event payloads (main → renderer pushes)

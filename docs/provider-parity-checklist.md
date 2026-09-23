@@ -174,9 +174,12 @@ Legend: ✅ Implemented · ⚠️ Partial · ❌ Not supported · 🔲 Untested
   `PROVIDER_MODEL_LIST.grok` (`grok-4.7`, then `grok-4.6`) as the offline fallback. Error
   normalization, context-overflow detection, and thinking-event surfacing over
   ACP are declared but not yet exercised end-to-end (🔲 rows).
-- `opencode`: no plan-quota source. MiMo's Token Plan usage (`/api/v1/tokenPlan/usage`)
-  needs a MiMo console login and refuses the API key (401), so there is no quota
-  chip. OpenCode retries rate limits silently inside the turn (no ACP
+- `opencode`: plan quota comes from the MiMo console's Token Plan API
+  (`/api/v1/tokenPlan/usage` + `/detail`) through the console session cookies in Chrome
+  (the Token Plan key is refused with 401): `MimoTokenPlanProbe`, gated on the
+  configured model being `xiaomi-token-plan-*`, with token-usage-monitor's `mimo` state
+  key as the fallback source. It needs a live Chrome console session. OpenCode retries
+  rate limits silently inside the turn (no ACP
   notification), so AIO only sees the limit if OpenCode gives up; the ACP stall
   watchdog covers the quiet wait (rate-limit row ⚠️, live check pending). AIO's
   `plan` mode does not drive OpenCode's `mode` config option. The MiMo Code fork

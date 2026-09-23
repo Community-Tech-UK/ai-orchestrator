@@ -10,8 +10,14 @@ export const HEARTBEAT_INTERVAL_MS = 2_000;
  */
 interface HeartbeatWindow {
   electronAPI?: {
-    rendererHeartbeat?: (payload: { seq: number; sentAt: number }) => void;
+    rendererHeartbeat?: (payload: HeartbeatPayload) => void;
   };
+}
+
+interface HeartbeatPayload {
+  seq: number;
+  sentAt: number;
+  visibility: 'visible' | 'hidden';
 }
 
 /**
@@ -20,10 +26,16 @@ interface HeartbeatWindow {
  * beats stop, and that silence is exactly the freeze signal the main-process
  * monitor turns into diagnostics. App-lifetime singleton started once from
  * the app initializer; no-op outside Electron (tests, plain browser).
+ *
+ * Each beat carries the document's visibility, and a visibility change beats
+ * at once: Chromium throttles a hidden window's timers to about one tick a
+ * minute, and the monitor needs to know that before the gap looks like a
+ * freeze (LT-022).
  */
 @Injectable({ providedIn: 'root' })
 export class RendererHeartbeatService {
   private timer: ReturnType<typeof setInterval> | null = null;
+  private visibilityListener: (() => void) | null = null;
   private seq = 0;
 
   start(): void {
@@ -31,15 +43,25 @@ export class RendererHeartbeatService {
     const send = (window as unknown as HeartbeatWindow).electronAPI?.rendererHeartbeat;
     if (typeof send !== 'function') return;
 
-    const beat = () => send({ seq: this.seq++, sentAt: Date.now() });
+    const beat = () => send({
+      seq: this.seq++,
+      sentAt: Date.now(),
+      visibility: document.visibilityState === 'hidden' ? 'hidden' : 'visible',
+    });
     beat();
     this.timer = setInterval(beat, HEARTBEAT_INTERVAL_MS);
+    this.visibilityListener = beat;
+    document.addEventListener('visibilitychange', beat);
   }
 
   stop(): void {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
+    }
+    if (this.visibilityListener) {
+      document.removeEventListener('visibilitychange', this.visibilityListener);
+      this.visibilityListener = null;
     }
   }
 }

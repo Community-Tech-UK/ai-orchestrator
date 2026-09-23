@@ -79,9 +79,11 @@ import {
   DEFAULT_CONTEXT_WINDOW,
   COPILOT_MODEL_DISCOVERY_CACHE_TTL_MS,
   completeCopilotDiscoveredModels,
+  mergeCopilotDiscoverySources,
   parseCopilotModelIdsFromHelpConfig,
   withCopilotModelListFallback,
 } from './copilot-cli-adapter.models';
+import { listCopilotLiveModelIds } from './copilot/copilot-live-model-list';
 
 const logger = getLogger('CopilotCliAdapter');
 
@@ -1043,8 +1045,9 @@ export class CopilotCliAdapter extends BaseCliAdapter {
 
   /**
    * Lists available Copilot models. `help config` is a floor, not a ceiling:
-   * the result is unioned with the static catalog so ids the CLI serves but
-   * does not advertise (currently `auto` and `gpt-6-astra`) still appear.
+   * a routed adapter adds the account's live roster (models GitHub shipped
+   * after this CLI build), and the result is unioned with the static catalog
+   * so ids the CLI serves but does not advertise (e.g. `auto`) still appear.
    * Catalog discovery should pass `{ fallbackToStatic: false }` so a parse
    * failure does not publish the fallback list as live CLI provenance.
    */
@@ -1059,61 +1062,83 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     }
 
     if (!cache.inFlight) {
-      cache.inFlight = new Promise<CopilotModelInfo[]>((resolve, reject) => {
-        const proc = this.spawnProcess(['--no-auto-update', '--log-level', 'none', 'help', 'config']);
-        let output = '';
-        let errorOutput = '';
-
-        proc.stdout?.on('data', (data) => {
-          output += data.toString();
-        });
-        proc.stderr?.on('data', (data) => {
-          errorOutput += data.toString();
-        });
-
-        const timer = setTimeout(() => {
-          // Group kill reaps children of npm-wrapper CLIs; falls back to a plain
-          // kill when the child shares our process group (no group of its own).
-          if (!killProcessGroup(proc.pid, 'SIGTERM')) {
-            try {
-              proc.kill('SIGTERM');
-            } catch {
-              /* ignored */
-            }
-          }
-          reject(new Error('Timeout fetching Copilot model list'));
-        }, 5000);
-
-        proc.on('close', (code) => {
-          clearTimeout(timer);
-          const discoveredIds = parseCopilotModelIdsFromHelpConfig(output);
-          if (code === 0 && discoveredIds.length > 0) {
-            const models = completeCopilotDiscoveredModels(discoveredIds);
-            cache.models = models;
-            cache.at = Date.now();
-            resolve(models);
-            return;
-          }
-
-          reject(
-            new Error(
-              `Failed to parse Copilot model list (exit ${code}): ${errorOutput.trim() || 'no output'}`,
-            ),
+      // Authenticated, so routed adapters only (spec §10.3); best-effort.
+      const liveIds = this.accountHomeDir
+        ? listCopilotLiveModelIds({ homeDir: this.accountHomeDir, host: this.cliConfig.accountHost })
+          .catch((error: unknown) => {
+            logger.debug('Live Copilot model roster unavailable; using help config only', {
+              profileId: this.cliConfig.accountProfileId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return [];
+          })
+        : Promise.resolve([]);
+      cache.inFlight = Promise.allSettled([this.readHelpConfigModelIds()])
+        .then(async ([helpConfig]) => {
+          const models = completeCopilotDiscoveredModels(
+            mergeCopilotDiscoverySources(helpConfig, await liveIds),
           );
+          cache.models = models;
+          cache.at = Date.now();
+          return models;
+        })
+        .finally(() => {
+          cache.inFlight = null;
         });
-
-        proc.on('error', (err) => {
-          clearTimeout(timer);
-          reject(err);
-        });
-      }).finally(() => {
-        cache.inFlight = null;
-      });
     }
 
     return withCopilotModelListFallback(cache.inFlight, fallbackToStatic, (error) => {
       logger.warn('Falling back to default Copilot model list', {
         error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  /** Model ids `copilot help config` advertises; rejects on no parseable roster. */
+  private readHelpConfigModelIds(): Promise<string[]> {
+    return new Promise<string[]>((resolve, reject) => {
+      const proc = this.spawnProcess(['--no-auto-update', '--log-level', 'none', 'help', 'config']);
+      let output = '';
+      let errorOutput = '';
+
+      proc.stdout?.on('data', (data) => {
+        output += data.toString();
+      });
+      proc.stderr?.on('data', (data) => {
+        errorOutput += data.toString();
+      });
+
+      const timer = setTimeout(() => {
+        // Group kill reaps children of npm-wrapper CLIs; falls back to a plain
+        // kill when the child shares our process group (no group of its own).
+        if (!killProcessGroup(proc.pid, 'SIGTERM')) {
+          try {
+            proc.kill('SIGTERM');
+          } catch {
+            /* ignored */
+          }
+        }
+        reject(new Error('Timeout fetching Copilot model list'));
+      }, 5000);
+
+      proc.on('close', (code) => {
+        clearTimeout(timer);
+        const discoveredIds = parseCopilotModelIdsFromHelpConfig(output);
+        if (code === 0 && discoveredIds.length > 0) {
+          resolve(discoveredIds);
+          return;
+        }
+
+        reject(
+          new Error(
+            `Failed to parse Copilot model list (exit ${code}): ${errorOutput.trim() || 'no output'}`,
+          ),
+        );
+      });
+
+      proc.on('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
       });
     });
   }
