@@ -76,6 +76,8 @@ export interface LoopFinalSummary {
   iterations: number;
   tokens: number;
   costCents: number;
+  /** A failed attempt had no usage snapshot; zero is only the recorded total. */
+  failedAttemptUsageUnavailable?: boolean;
   startedAt: number;
   endedAt: number;
   /** The goal/ask the loop was started with (iteration 0 prompt). Captured

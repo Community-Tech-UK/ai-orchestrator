@@ -251,6 +251,12 @@ about where each lived, because they argue for different fixes:
 
 The templates are now tracked in `scripts/windows/` and rendered by an installer:
 
+Run the installer in a maintenance window. If a keep-alive task already exists,
+disable it first, stop its running instance and worker, then run the installer
+with `-RegisterTask` to re-arm it. The installer refuses to rewrite launcher
+files while a scheduled task is running or the keep-alive trigger is enabled;
+disabling the legacy update task does not stop an existing run.
+
 ```powershell
 # dry run first - writes nothing
 powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 `
@@ -264,9 +270,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launch
 powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 `
   -RepoPath 'C:\path\to\ai-orchestrator' -RegisterTask
 
-# add the update task (a NEW task needs no elevation; the keep-alive is untouched)
-powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 `
-  -RepoPath 'C:\path\to\ai-orchestrator' -RegisterUpdateTask
 ```
 
 What it produces:
@@ -276,18 +279,16 @@ What it produces:
 | `scripts/windows/start-worker-autoupdate.template.bat` | tracked source; renders to `%USERPROFILE%\.orchestrator\start-worker-autoupdate.bat` |
 | `scripts/windows/run-worker-hidden.template.vbs` | tracked source; renders to `%USERPROFILE%\.orchestrator\run-worker-hidden.vbs` |
 
-**Why the deployed copy lives outside the repo.** It runs `git pull` on the repo,
-and `cmd.exe` reads a running `.bat` incrementally by byte offset — a pull that
-rewrote the running file would make cmd resume at a stale offset and execute
-garbage. So the file performing the pull cannot sit inside the tree being pulled.
-That is a reason to *deploy* it elsewhere, not to leave it *untracked*. Keep the
-template minimal and stable; put anything that changes in `start-worker.bat`,
-which is `call`ed after the pull and is safe to update in place.
+**Why the deployed copy lives outside the repo.** The scheduled task points at a
+stable launcher while the checkout changes. The launcher no longer runs `git
+pull`; updating the worker is a separate, explicit maintenance action. The
+tracked template keeps the deployed copy reviewable.
 
 The installer refuses to run if `start-worker.bat`'s `node` command has lost
 `--supervise`, backs up the launcher files it overwrites and the existing task
-definition (exported to XML, five most recent kept), and leaves the scheduled task
-alone unless `-RegisterTask` is passed. The two `.sha256` drift stamps are
+definition (exported to XML, five most recent kept), and leaves the keep-alive task
+alone unless `-RegisterTask` is passed. It disables any legacy `AI Orchestrator
+Worker Update` task on every install. The two `.sha256` drift stamps are
 overwritten without a backup — they are regenerable derived data.
 
 The registered task differs from the old hand-made one in two ways that matter:
@@ -302,8 +303,7 @@ The registered task differs from the old hand-made one in two ways that matter:
   keep-alive, so a worker that *exits* mid-session is picked up within minutes.
   `MultipleInstancesPolicy=IgnoreNew` plus the worker's own single-instance lock
   mean a repeat never starts a second worker. A repeat that runs while a worker
-  is alive brings that worker onto new code instead (see *Keeping a running worker
-  on current code* below).
+  is alive leaves it alone.
 
 The keep-alive is deliberately **not** attached to the logon trigger. A trigger's
 repetition only begins when that trigger activates, so a repetition hung off the
@@ -385,12 +385,10 @@ plainly that neither can be ruled out and to check the service first.
 ### The launcher does not build under a live worker
 
 `start-worker.bat` checks, before it builds anything, whether a worker is already
-running from this checkout. If so it hands over to
-`scripts\windows\update-running-worker.ps1` and exits with its result, rather
-than building underneath the live worker.
+running from this checkout. If so it exits without building or restarting it.
 
 Without that check the repetition is actively harmful whenever the worker was
-started outside the task — by hand, or from another console. Every firing ran
+started outside the task — by hand, or from another console. Earlier firings ran
 `git pull`, rebuilt `dist\worker-agent\index.js` **underneath the running worker**,
 and only then failed, because `cmd` cannot open `worker-stderr.log` for append
 while the live worker holds it. Observed on 2026-09-06: a rebuild every five
@@ -406,20 +404,33 @@ the keep-alive, so the doubt has to resolve toward doing the work.
 
 In the intended steady state the keep-alive's repeats do not fire at all, because
 the task owns the worker: the blocking VBS keeps the task *Running* for the
-worker's lifetime and `MultipleInstancesPolicy=IgnoreNew` suppresses them. That is
-also why a worker used to stay on old code indefinitely, and why the update task
-below exists.
+worker's lifetime and `MultipleInstancesPolicy=IgnoreNew` suppresses them.
 
-### Keeping a running worker on current code
+### Updating a running worker deliberately
 
 Before 2026-09-22 a pull landed new code on disk and the running worker kept
 serving the old build: the launcher exited as soon as it saw a live worker, and
 in the steady state the keep-alive never even ran. windows-pc was found running a
 three-day-old bundle.
 
-Three pieces fix it:
+The update script remains available for a deliberate maintenance window:
 
-- **`update-running-worker.ps1`** runs whenever the launcher finds a live worker.
+```powershell
+cd 'C:\path\to\ai-orchestrator'
+git pull --ff-only
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\update-running-worker.ps1 `
+  -RepoPath 'C:\path\to\ai-orchestrator' -DryRun
+# After checking that the worker is idle and supervised, run without -DryRun.
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\update-running-worker.ps1 `
+  -RepoPath 'C:\path\to\ai-orchestrator'
+```
+
+This script can briefly disconnect the worker when it restarts the child. The
+normal keep-alive launcher neither pulls nor calls it. Stop new work before
+running the update; the script checks existing worker descendants before it
+builds and again before it stops the child.
+
+- **`update-running-worker.ps1`** runs only when invoked explicitly.
   If `HEAD` differs from `dist\worker-agent\.source-commit` (written after every
   successful build; missing means unknown), it rebuilds. Then, if the rebuild
   happened or the bundle is newer than the running worker child, it stops the
@@ -428,19 +439,18 @@ Three pieces fix it:
   it defers the restart while the worker has live descendants such as a provider
   CLI, a terminal or a build. The walk stops at `chrome.exe`, `conhost.exe` and
   `adb.exe`, because the managed Chrome and its native-messaging hosts are always
-  there. A failed build exits 1 and leaves the running worker untouched.
+  there. A failed build exits 1 and leaves the running worker untouched. If the
+  worker is busy, unsupervised, or cannot be stopped, the script exits 3; rerun
+  it after the obstacle is cleared. There is no scheduled retry.
   `-DryRun` reports without building or stopping anything.
-- **An update task**, `AI Orchestrator Worker Update`, registered by
-  `-RegisterUpdateTask` and running the same launcher every 15 minutes
-  (`-UpdateMinutes`). Whichever of the two tasks does not own the worker keeps
-  firing, so updates run in the steady state too.
 - **A launcher lock**, `%USERPROFILE%\.orchestrator\launcher.lock` (a directory;
   `mkdir` is atomic). It is held from the live check until just before `node`
-  starts, so the two tasks firing together at logon cannot both build and start
-  a worker. A lock older than 20 minutes is treated as left over from an
+  starts, so overlapping logon and keep-alive triggers cannot both build and
+  start a worker. A lock older than 20 minutes is treated as left over from an
   interrupted run and reclaimed.
 
-Verified on windows-pc 2026-09-22 with an isolated harness (temp checkout, fake
+The previous automatic-update implementation was verified on windows-pc
+2026-09-22 with an isolated harness (temp checkout, fake
 profile, fake build, fake supervisor): lock busy / stale / released, build
 failure, cold start and stamp, up to date, rebuild then restart, busy deferral,
 and the deferred restart on a later idle run.
@@ -457,10 +467,8 @@ Because the repetition will restart the worker within 5 minutes, **stopping it
 deliberately now means disabling the task**, not just killing the process:
 
 ```powershell
-Disable-ScheduledTask -TaskName 'AI Orchestrator Worker'          # stop it staying up
-Disable-ScheduledTask -TaskName 'AI Orchestrator Worker Update'   # the update task can start it too
-Enable-ScheduledTask  -TaskName 'AI Orchestrator Worker'          # put them back
-Enable-ScheduledTask  -TaskName 'AI Orchestrator Worker Update'
+Disable-ScheduledTask -TaskName 'AI Orchestrator Worker'  # stop it staying up
+Enable-ScheduledTask  -TaskName 'AI Orchestrator Worker'  # put it back
 ```
 
 The installer backs up the previous task definition to

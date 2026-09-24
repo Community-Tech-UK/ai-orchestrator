@@ -47,4 +47,47 @@ describe('CodexCompactionSignalTracker', () => {
     expect(tracker.accept({ method: 'turn/completed', params: { threadId: 'thread-1' } }, 'thread-1')).toBeNull();
     expect(tracker.accept({ method: 'thread/compacted', params: { threadId: 'thread-1' } }, null)).toBeNull();
   });
+
+  it('reports a compaction whose turn ended without completing it as aborted', () => {
+    const tracker = new CodexCompactionSignalTracker();
+    const params = { threadId: 'thread-1', turnId: 'compact-turn', item };
+
+    expect(tracker.accept({ method: 'item/started', params }, 'thread-1')).toBe('started');
+    expect(tracker.runningTurnId).toBe('compact-turn');
+    // Another turn ending on the thread says nothing about this compaction.
+    expect(tracker.accept({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turn: { id: 'other-turn', status: 'completed' } },
+    }, 'thread-1')).toBeNull();
+    expect(tracker.accept({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'failed' } },
+    }, 'thread-1')).toBe('aborted');
+    expect(tracker.runningTurnId).toBeNull();
+  });
+
+  it('does not report aborted for the turn that completed its compaction', () => {
+    const tracker = new CodexCompactionSignalTracker();
+    const params = { threadId: 'thread-1', turnId: 'compact-turn', item };
+
+    tracker.accept({ method: 'item/started', params }, 'thread-1');
+    expect(tracker.accept({ method: 'item/completed', params }, 'thread-1')).toBe('completed');
+    expect(tracker.accept({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'completed' } },
+    }, 'thread-1')).toBeNull();
+  });
+
+  it('forgets a running compaction on reset', () => {
+    const tracker = new CodexCompactionSignalTracker();
+    tracker.accept({ method: 'item/started', params: { threadId: 'thread-1', turnId: 'compact-turn', item } }, 'thread-1');
+
+    tracker.reset();
+
+    expect(tracker.runningTurnId).toBeNull();
+    expect(tracker.accept({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'interrupted' } },
+    }, 'thread-1')).toBeNull();
+  });
 });

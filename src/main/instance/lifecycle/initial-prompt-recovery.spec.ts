@@ -78,6 +78,23 @@ describe('deliverInitialPromptAfterSpawn', () => {
     expect(deps.emitted[0]).toBe(notice);
   });
 
+  // 2026-09-24: a Codex first turn worked for 27 minutes, then its context
+  // recovery paused. "The initial message could not be delivered" was false,
+  // and it repeated the reason the adapter had already posted.
+  it('settles to idle without a second notice when the adapter already explained the failure', async () => {
+    const instance = makeInstance('busy');
+    const deps = makeDeps();
+    const surfaced = Object.assign(new Error('Codex context recovery paused.'), { surfacedToUser: true });
+    const send = vi.fn().mockRejectedValue(surfaced);
+
+    await deliverInitialPromptAfterSpawn(instance, new AbortController().signal, send, deps);
+
+    expect(instance.status).toBe('idle');
+    expect(deps.queueUpdate).toHaveBeenCalledOnce();
+    expect(deps.buffered).toHaveLength(0);
+    expect(deps.emitted).toHaveLength(0);
+  });
+
   it('rethrows on an in-flight abort so the caller can roll back a deliberate teardown', async () => {
     const instance = makeInstance('idle');
     const deps = makeDeps();

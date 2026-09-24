@@ -6,6 +6,7 @@
  */
 
 import { Injectable, signal } from '@angular/core';
+import { readStorage, writeStorage, type StorageField } from '../../../shared/utils/typed-storage';
 import type {
   InstanceStoreState,
   Instance,
@@ -13,8 +14,18 @@ import type {
   QueuedMessage,
 } from './instance.types';
 
+const UNREAD_COMPLETIONS_FIELD: StorageField<string[]> = {
+  key: 'instance-unread-completions',
+  version: 1,
+  defaultValue: [],
+  validate: (value): value is string[] =>
+    Array.isArray(value) && value.every((id) => typeof id === 'string'),
+};
+
 @Injectable({ providedIn: 'root' })
 export class InstanceStateService {
+  private readonly unreadCompletionIds = new Set<string>(readStorage(UNREAD_COMPLETIONS_FIELD));
+
   // ============================================
   // Main State Signal
   // ============================================
@@ -75,6 +86,7 @@ export class InstanceStateService {
    * is conservative (a fresh reference counts as a change, never a false skip).
    */
   updateInstance(instanceId: string, updates: Partial<Instance>): void {
+    const exists = this.state().instances.has(instanceId);
     this.state.update((current) => {
       const instance = current.instances.get(instanceId);
       if (!instance) {
@@ -94,6 +106,19 @@ export class InstanceStateService {
       newMap.set(instanceId, { ...instance, ...updates });
       return { ...current, instances: newMap };
     });
+    if (exists && typeof updates.hasUnreadCompletion === 'boolean') {
+      this.setUnreadCompletion(instanceId, updates.hasUnreadCompletion);
+    }
+  }
+
+  private setUnreadCompletion(instanceId: string, unread: boolean): void {
+    if (this.unreadCompletionIds.has(instanceId) === unread) return;
+    if (unread) {
+      this.unreadCompletionIds.add(instanceId);
+    } else {
+      this.unreadCompletionIds.delete(instanceId);
+    }
+    writeStorage(UNREAD_COMPLETIONS_FIELD, [...this.unreadCompletionIds]);
   }
 
   /**
@@ -106,7 +131,10 @@ export class InstanceStateService {
   addInstance(instance: Instance): void {
     this.state.update((current) => {
       const newMap = new Map(current.instances);
-      newMap.set(instance.id, instance);
+      newMap.set(instance.id, {
+        ...instance,
+        hasUnreadCompletion: instance.hasUnreadCompletion || this.unreadCompletionIds.has(instance.id),
+      });
       return {
         ...current,
         instances: newMap,
@@ -129,6 +157,7 @@ export class InstanceStateService {
           current.selectedInstanceId === instanceId ? null : current.selectedInstanceId,
       };
     });
+    this.setUnreadCompletion(instanceId, false);
   }
 
   /**
@@ -149,9 +178,16 @@ export class InstanceStateService {
    * Set all instances (for initial load)
    */
   setInstances(instances: Map<string, Instance>): void {
+    const restored = new Map<string, Instance>();
+    for (const [id, instance] of instances) {
+      restored.set(id, {
+        ...instance,
+        hasUnreadCompletion: instance.hasUnreadCompletion || this.unreadCompletionIds.has(id),
+      });
+    }
     this.state.update((s) => ({
       ...s,
-      instances,
+      instances: restored,
       loading: false,
     }));
   }

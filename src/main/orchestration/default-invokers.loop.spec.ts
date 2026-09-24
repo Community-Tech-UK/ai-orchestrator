@@ -559,6 +559,37 @@ describe('Loop Mode invoker plumbing', () => {
     );
   });
 
+  it('interrupts a borrowed chat adapter on timeout without taking ownership of it', async () => {
+    const instanceManager = {
+      getInstance: vi.fn(() => ({ id: 'chat-live', provider: 'claude', workingDirectory: '/tmp/ws' })),
+      getAdapter: vi.fn(() => hoisted.adapterRef.current),
+    };
+    registerDefaultLoopInvoker(instanceManager as never);
+    let rejectSend: ((error: Error) => void) | undefined;
+    hoisted.sendMessage.mockImplementation(() => new Promise((_, reject) => {
+      rejectSend = reject;
+    }));
+    hoisted.interrupt.mockImplementation(() => rejectSend?.(new Error('interrupted at deadline')));
+
+    const result = emitIteration({
+      chatId: 'chat-live',
+      workspaceCwd: '/tmp/ws',
+      config: { contextStrategy: 'same-session' },
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    hoisted.loopCoordinatorRef.current.emit('loop:iteration-timeout', { loopRunId: 'loop-1', seq: 0 });
+    expect(hoisted.interrupt).toHaveBeenCalledTimes(1);
+    await expect(result).resolves.toEqual(expect.objectContaining({ error: expect.stringContaining('interrupted at deadline') }));
+    expect(hoisted.terminate).not.toHaveBeenCalled();
+
+    hoisted.loopCoordinatorRef.current.emit('loop:state-changed', {
+      loopRunId: 'loop-1',
+      state: { status: 'completed-needs-review' },
+    });
+    expect(hoisted.terminate).not.toHaveBeenCalled();
+  });
+
   it('registers a provider-limit resume scheduler that creates a one-time automation', async () => {
     registerDefaultLoopInvoker({} as never);
     expect(hoisted.providerLimitSchedulerRef.current).toBeTypeOf('function');

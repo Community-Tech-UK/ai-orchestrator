@@ -180,7 +180,7 @@ export class DisplayItemProcessor {
 
     for (const entry of messages) {
       const msg = entry.message;
-      if (this.shouldSuppressInterruptNoise(msg)) {
+      if (this.shouldSuppressInternalNotice(msg)) {
         continue;
       }
 
@@ -290,12 +290,15 @@ export class DisplayItemProcessor {
     return nextMonotonicStreamingContent(previousContent, current);
   }
 
-  private shouldSuppressInterruptNoise(message: OutputMessage): boolean {
+  private shouldSuppressInternalNotice(message: OutputMessage): boolean {
     if (message.type !== 'system') {
       return false;
     }
 
-    if (message.metadata?.['kind'] === 'interrupt-boundary') {
+    if (
+      message.metadata?.['kind'] === 'interrupt-boundary' ||
+      message.metadata?.['contextCostRecovery'] === true
+    ) {
       return true;
     }
 

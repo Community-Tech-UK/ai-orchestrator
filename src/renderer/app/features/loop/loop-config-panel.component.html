@@ -292,7 +292,7 @@
       <h4 class="advanced-group">Stall &amp; cost</h4>
       <section class="row split">
         <div>
-          <label for="loop-cfg-iter-timeout">Iteration timeout (min)</label>
+          <label for="loop-cfg-iter-timeout">Iteration activity checkpoint (min)</label>
           <input
             id="loop-cfg-iter-timeout"
             type="number"
@@ -301,6 +301,7 @@
             [ngModel]="iterationTimeoutMin()"
             (ngModelChange)="iterationTimeoutMin.set($event)"
           />
+          <span class="hint">Active work can continue up to twice this duration, then gets up to 30 seconds for interruption evidence.</span>
         </div>
         <div>
           <label for="loop-cfg-idle-timeout">Stream-idle warning (s)</label>

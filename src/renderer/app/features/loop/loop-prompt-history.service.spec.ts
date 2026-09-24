@@ -65,7 +65,8 @@ describe('LoopPromptHistoryService', () => {
 
     expect(service.recent()).toEqual([DEFAULT_LOOP_PROMPT]);
     expect(DEFAULT_LOOP_PROMPT).toContain('completion inventory');
-    expect(DEFAULT_LOOP_PROMPT).toContain('Do not stop after a partial slice');
+    expect(DEFAULT_LOOP_PROMPT).toContain('return control to the loop before this turn');
+    expect(DEFAULT_LOOP_PROMPT).not.toContain('Do not stop after a partial slice');
     expect(DEFAULT_LOOP_PROMPT).toContain('_livetest.md');
     expect(DEFAULT_LOOP_PROMPT).toContain('deferred live checks');
   });

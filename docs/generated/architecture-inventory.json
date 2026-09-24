@@ -6037,12 +6037,12 @@
       "lines": 3408
     },
     {
-      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 3193
+      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
+      "lines": 3197
     },
     {
-      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 3057
+      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
+      "lines": 3193
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -6122,7 +6122,7 @@
     },
     {
       "path": "src/main/history/history-manager.spec.ts",
-      "lines": 2171
+      "lines": 2244
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
@@ -6173,16 +6173,16 @@
       "lines": 1991
     },
     {
+      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
+      "lines": 1984
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-13-session-restart-preserve-history_completed.md",
       "lines": 1965
     },
     {
       "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
       "lines": 1957
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 1953
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
@@ -6210,7 +6210,7 @@
     },
     {
       "path": "src/main/history/history-manager.ts",
-      "lines": 1786
+      "lines": 1785
     },
     {
       "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
@@ -6225,12 +6225,12 @@
       "lines": 1738
     },
     {
-      "path": "src/renderer/app/features/browser/browser-page.component.spec.ts",
-      "lines": 1694
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1705
     },
     {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1690
+      "path": "src/renderer/app/features/browser/browser-page.component.spec.ts",
+      "lines": 1694
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.credentials.spec.ts",
@@ -6609,6 +6609,10 @@
       "lines": 1127
     },
     {
+      "path": "src/renderer/app/core/state/loop.store.spec.ts",
+      "lines": 1127
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-20-ai-orchestrator-cross-repo-remediation-plan_completed.md",
       "lines": 1126
     },
@@ -6631,10 +6635,6 @@
     {
       "path": "src/main/history/__tests__/history-manager-native-import.spec.ts",
       "lines": 1112
-    },
-    {
-      "path": "src/renderer/app/core/state/loop.store.spec.ts",
-      "lines": 1108
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave5-orchestration-hud-verification-verdicts-design_completed.md",
@@ -6921,6 +6921,10 @@
       "lines": 899
     },
     {
+      "path": "src/main/orchestration/loop-coordinator-terminal-intents.spec.ts",
+      "lines": 895
+    },
+    {
       "path": "benchmarks/external-benchmarks/swe-bench/runner.ts",
       "lines": 888
     },
@@ -6930,10 +6934,6 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-reload-no-effect.spec.ts",
-      "lines": 887
-    },
-    {
-      "path": "src/main/orchestration/loop-coordinator-terminal-intents.spec.ts",
       "lines": 887
     },
     {
@@ -7113,6 +7113,10 @@
       "lines": 826
     },
     {
+      "path": "docs/WORKER_AGENT_SETUP.md",
+      "lines": 824
+    },
+    {
       "path": "src/main/learning/ab-testing.ts",
       "lines": 824
     },
@@ -7127,10 +7131,6 @@
     {
       "path": "src/main/memory/critique-agent.ts",
       "lines": 817
-    },
-    {
-      "path": "docs/WORKER_AGENT_SETUP.md",
-      "lines": 816
     },
     {
       "path": "src/main/remote-node/remote-node-file-transfer-mcp-service.ts",
@@ -7186,7 +7186,7 @@
     },
     {
       "path": "src/renderer/app/core/state/loop.store.ts",
-      "lines": 800
+      "lines": 802
     }
   ]
 }

@@ -3,6 +3,7 @@ import type { LoopStage, LoopState } from '../../shared/types/loop.types';
 import { getLogger } from '../logging/logger';
 import type { LoopControlEnv } from './loop-control';
 import { inferLoopPhase, type LoopInferredPhase } from './loop-phase-inference';
+import { deriveAttemptEvidenceFromResult } from './loop-invocation-attempt';
 import {
   DEFAULT_ITERATION_TIMEOUT_MS,
   type LoopChildInvocationCallbackResult,
@@ -11,6 +12,8 @@ import {
 } from './loop-coordinator.types';
 
 const logger = getLogger('LoopChildInvoker');
+/** Time for an interrupted adapter to finish its workspace observation. */
+export const LOOP_TIMEOUT_SETTLEMENT_GRACE_MS = 30_000;
 
 export interface InvokeLoopChildIterationInput {
   emitter: EventEmitter;
@@ -69,6 +72,7 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
 
   return new Promise<LoopChildResult>((resolve, reject) => {
     let settled = false;
+    let timedOut = false;
     const correlationId = `${state.id}::${state.totalIterations}`;
     const iterationTimeoutMs = Math.max(
       1,
@@ -86,6 +90,7 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
 
     let lastPhase: LoopInferredPhase | null = null;
     const onActivity = (payload: unknown): void => {
+      if (timedOut) return;
       const activity = payload as LoopActivityPayload;
       if (activity.loopRunId !== state.id || activity.seq !== seq) return;
       // L4: advisory phase inference, before the deadline filter — a heartbeat
@@ -127,18 +132,17 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
     const handleTimeout = (): void => {
       timeout = undefined;
       if (settled) return;
+      if (timedOut) {
+        settled = true;
+        cleanup();
+        reject(new Error(`Loop iteration timed out after ${iterationTimeoutMs}ms`));
+        return;
+      }
       const now = Date.now();
       const elapsedMs = now - startedAt;
       const remainingWallMs = maxWallMs - elapsedMs;
       if (remainingWallMs <= 0) {
-        settled = true;
-        cleanup();
-        emitter.emit('loop:iteration-timeout', {
-          loopRunId: state.id,
-          seq,
-          iterationTimeoutMs,
-        });
-        reject(new Error(`Loop iteration timed out after ${iterationTimeoutMs}ms`));
+        beginTimeoutSettlement();
         return;
       }
       const idleMs = lastActivityAt > 0 ? now - lastActivityAt : Number.POSITIVE_INFINITY;
@@ -158,14 +162,21 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
         scheduleTimeout(nextDelayMs);
         return;
       }
-      settled = true;
-      cleanup();
+      beginTimeoutSettlement();
+    };
+
+    const beginTimeoutSettlement = (): void => {
+      timedOut = true;
+      emitter.off('loop:activity', onActivity);
       emitter.emit('loop:iteration-timeout', {
         loopRunId: state.id,
         seq,
         iterationTimeoutMs,
       });
-      reject(new Error(`Loop iteration timed out after ${iterationTimeoutMs}ms`));
+      // The timeout listener interrupts the adapter synchronously. Its callback
+      // can still arrive after interruption and carry a completed workspace
+      // observation. Keep the safety boundary: this turn is always a failure.
+      if (!settled) scheduleTimeout(LOOP_TIMEOUT_SETTLEMENT_GRACE_MS);
     };
 
     emitter.on('loop:activity', onActivity);
@@ -197,6 +208,29 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
         if (settled) return;
         settled = true;
         cleanup();
+        if (timedOut) {
+          const timeoutFailure: LoopChildInvocationError = 'error' in result
+            ? {
+                ...result,
+                error: `Loop iteration timed out after ${iterationTimeoutMs}ms: ${result.error}`,
+                attemptEvidence: result.attemptEvidence
+                  ? { ...result.attemptEvidence, outcome: 'failed' }
+                  : undefined,
+              }
+            : {
+                error: `Loop iteration timed out after ${iterationTimeoutMs}ms`,
+                partialUsage: result.usage ?? (result.tokens > 0
+                  ? { totalTokens: result.tokens, isEstimated: true }
+                  : undefined),
+                model: result.model,
+                attemptEvidence: {
+                  ...(result.attemptEvidence ?? deriveAttemptEvidenceFromResult(result)),
+                  outcome: 'failed',
+                },
+              };
+          reject(toInvocationError(timeoutFailure));
+          return;
+        }
         if ('error' in result) reject(toInvocationError(result));
         else resolve(result);
       },

@@ -392,8 +392,11 @@
         <button type="button" class="lsum-close" (click)="onDismissSummary()" appTooltip="Hides this summary. The run and its record are kept." aria-label="Dismiss">×</button>
       </div>
       <div class="lsum-line">
-        {{ s.iterations }} iterations · {{ duration(s.endedAt - s.startedAt) }} · {{ tokens(s.tokens) }} · {{ cost(s.costCents) }}
+        {{ s.iterations }} iterations · {{ duration(s.endedAt - s.startedAt) }} · {{ s.failedAttemptUsageUnavailable ? 'recorded ' : '' }}{{ tokens(s.tokens) }} · {{ s.failedAttemptUsageUnavailable ? 'recorded ' : '' }}{{ cost(s.costCents) }}
       </div>
+      @if (s.failedAttemptUsageUnavailable) {
+        <div class="lsum-reason">Failed attempt usage is unavailable. Zero recorded usage does not mean no work occurred.</div>
+      }
       <div class="lsum-reason">Reason: {{ s.reason }}</div>
       <app-loop-causal-timeline
         [timeline]="causalTimeline()"

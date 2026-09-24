@@ -217,15 +217,20 @@ export function buildLoopContextHandoff(state: LoopState): string {
 }
 
 function summaryLines(state: LoopState, last: LoopIteration | undefined): string[] {
+  const failedAttemptUsageUnavailable = state.endEvidence?.['attemptOutcome'] === 'failed'
+    && state.totalTokens === 0;
   const lines = [
     `Status: ${state.status}`,
     `Reason: ${state.endReason ?? state.status}`,
     `Workspace: ${state.config.workspaceCwd}`,
     `Iterations: ${state.totalIterations}`,
     `Duration: ${formatDuration((state.endedAt ?? Date.now()) - state.startedAt)}`,
-    `Tokens: ${state.totalTokens.toLocaleString('en-US')}`,
-    `Cost: ${formatCost(state.totalCostCents)}`,
+    `${failedAttemptUsageUnavailable ? 'Recorded tokens' : 'Tokens'}: ${state.totalTokens.toLocaleString('en-US')}`,
+    `${failedAttemptUsageUnavailable ? 'Recorded cost' : 'Cost'}: ${formatCost(state.totalCostCents)}`,
   ];
+  if (failedAttemptUsageUnavailable) {
+    lines.push('Failed attempt usage unavailable; zero recorded usage does not mean no work occurred.');
+  }
   if (last) {
     lines.push(
       `Last stage: ${last.stage}`,

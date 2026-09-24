@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoopState } from '../../shared/types/loop.types';
-import { invokeLoopChildIteration } from './loop-child-invoker';
+import { invokeLoopChildIteration, LOOP_TIMEOUT_SETTLEMENT_GRACE_MS } from './loop-child-invoker';
 
 function makeState(over: {
   id?: string;
@@ -47,7 +47,7 @@ describe('invokeLoopChildIteration timeout', () => {
     });
     const expectTimeout = expect(pending).rejects.toThrow('Loop iteration timed out after 40ms');
 
-    await vi.advanceTimersByTimeAsync(40);
+    await vi.advanceTimersByTimeAsync(40 + LOOP_TIMEOUT_SETTLEMENT_GRACE_MS);
     await expectTimeout;
     expect(timeouts).toEqual([
       expect.objectContaining({ loopRunId: 'loop-1', seq: 0, iterationTimeoutMs: 40 }),
@@ -77,7 +77,7 @@ describe('invokeLoopChildIteration timeout', () => {
       kind: 'heartbeat',
       message: 'CLI heartbeat received',
     });
-    await vi.advanceTimersByTimeAsync(20);
+    await vi.advanceTimersByTimeAsync(20 + LOOP_TIMEOUT_SETTLEMENT_GRACE_MS);
     await expectTimeout;
     expect(timeouts).toHaveLength(1);
   });
@@ -107,9 +107,94 @@ describe('invokeLoopChildIteration timeout', () => {
     await vi.advanceTimersByTimeAsync(20);
     expect(timeouts).toEqual([]);
 
-    await vi.advanceTimersByTimeAsync(50);
+    await vi.advanceTimersByTimeAsync(50 + LOOP_TIMEOUT_SETTLEMENT_GRACE_MS);
     await expect(pending).rejects.toThrow('Loop iteration timed out after 40ms');
     expect(timeouts).toHaveLength(1);
+  });
+
+  it('waits for an interrupted success-shaped callback and rejects with its observed effects and usage', async () => {
+    const emitter = new EventEmitter();
+    let callback: ((result: unknown) => void) | undefined;
+    emitter.on('loop:invoke-iteration', (payload: { callback: (result: unknown) => void }) => {
+      callback = payload.callback;
+    });
+    const timeouts: unknown[] = [];
+    emitter.on('loop:iteration-timeout', (payload) => timeouts.push(payload));
+
+    const pending = invokeLoopChildIteration({
+      emitter,
+      state: makeState(),
+      prompt: 'go',
+      stage: 'IMPLEMENT',
+      forceContextReset: false,
+      idempotencyKey: 'k-observed',
+    });
+    const failurePromise = pending.then(
+      () => { throw new Error('timed-out partial response must not complete the iteration'); },
+      (err: unknown) => err as Error & { attemptEvidence?: unknown; partialUsage?: unknown },
+    );
+
+    await vi.advanceTimersByTimeAsync(40);
+    expect(timeouts).toHaveLength(1);
+    callback?.({
+      childInstanceId: null,
+      output: 'partial work',
+      tokens: 300,
+      usage: { inputTokens: 200, outputTokens: 100, totalTokens: 300 },
+      filesChanged: [{ path: 'src/changed.ts', additions: 1, deletions: 0, contentHash: 'hash' }],
+      toolCalls: [],
+      errors: [],
+      testPassCount: null,
+      testFailCount: null,
+      exitedCleanly: true,
+      attemptEvidence: {
+        outcome: 'completed',
+        outputExcerpt: 'partial work',
+        workspaceEffect: 'writes-observed',
+        filesChanged: [{ path: 'src/changed.ts', additions: 1, deletions: 0, contentHash: 'hash' }],
+        providerThreadReusable: false,
+      },
+    });
+    const failure = await failurePromise;
+    expect(failure.message).toContain('timed out');
+    expect(failure.attemptEvidence).toEqual(expect.objectContaining({
+      outcome: 'failed',
+      workspaceEffect: 'writes-observed',
+    }));
+    expect(failure.partialUsage).toEqual({ inputTokens: 200, outputTokens: 100, totalTokens: 300 });
+    expect(emitter.listenerCount('loop:activity')).toBe(0);
+  });
+
+  it('retains a failed callback workspace observation after timeout', async () => {
+    const emitter = new EventEmitter();
+    let callback: ((result: unknown) => void) | undefined;
+    emitter.on('loop:invoke-iteration', (payload: { callback: (result: unknown) => void }) => {
+      callback = payload.callback;
+    });
+    const pending = invokeLoopChildIteration({
+      emitter,
+      state: makeState(),
+      prompt: 'go',
+      stage: 'IMPLEMENT',
+      forceContextReset: false,
+      idempotencyKey: 'k-failed-observed',
+    });
+    const failurePromise = pending.then(
+      () => { throw new Error('expected timeout'); },
+      (err: unknown) => err as Error & { attemptEvidence?: unknown },
+    );
+    await vi.advanceTimersByTimeAsync(40);
+    callback?.({
+      error: 'provider interrupted',
+      attemptEvidence: {
+        outcome: 'failed',
+        outputExcerpt: 'provider interrupted',
+        workspaceEffect: 'none-observed',
+        filesChanged: [],
+        providerThreadReusable: false,
+      },
+    });
+    expect((await failurePromise).attemptEvidence).toEqual(expect.objectContaining({ workspaceEffect: 'none-observed' }));
   });
 });
 

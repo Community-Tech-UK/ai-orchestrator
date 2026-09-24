@@ -665,6 +665,8 @@ export class LoopStore {
         iterations: state.totalIterations,
         tokens: state.totalTokens,
         costCents: state.totalCostCents,
+        failedAttemptUsageUnavailable: state.endEvidence?.['attemptOutcome'] === 'failed'
+          && state.totalTokens === 0,
         startedAt: state.startedAt,
         endedAt: state.endedAt ?? Date.now(),
         initialPrompt: state.config.initialPrompt,

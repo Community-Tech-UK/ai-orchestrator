@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { isSurfacedToUserError } from '../surfaced-error';
+import type { AppServerNotification } from './app-server-types';
 import { CodexContextCostController } from './context-cost-controller';
 
 function createController(overrides: Partial<ConstructorParameters<typeof CodexContextCostController>[0]> = {}) {
@@ -307,6 +309,212 @@ describe('CodexContextCostController shared-policy execution adapter', () => {
         await vi.advanceTimersByTimeAsync(5);
         await expect(pending2).resolves.toBe(false);
         expect(start2).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('a running provider compaction', () => {
+    const itemParams = { threadId: 'thread-fixture', turnId: 'compact-turn', item: { type: 'contextCompaction' } };
+    const started: AppServerNotification = { method: 'item/started', params: itemParams };
+    const aborted: AppServerNotification = {
+      method: 'turn/completed',
+      params: { threadId: 'thread-fixture', turn: { id: 'compact-turn', status: 'failed' } },
+    };
+
+    async function startRecoveryWait(overrides: Parameters<typeof createController>[0] = {}) {
+      const interruptCompaction = vi.fn(async () => undefined);
+      const setup = createController({
+        compactionTimeoutMs: 30_000,
+        compactionRunningTimeoutMs: 900_000,
+        getCompactionTarget: () => ({
+          threadId: 'thread-fixture',
+          start: async () => { setup.controller.acceptCompactionSignal(started, 'thread-fixture'); },
+          interrupt: interruptCompaction,
+        }),
+        ...overrides,
+      });
+      await setup.controller.requestRecovery('controlled-recovery');
+      const continueTurn = vi.fn(async () => undefined);
+      const recovery = setup.controller.recoverAfterTurn({ turnStatus: 'interrupted', recoveryCount: 0, continueTurn });
+      await vi.advanceTimersByTimeAsync(0);
+      return { ...setup, recovery, continueTurn, interruptCompaction };
+    }
+
+    it('emits liveness heartbeats while it runs and stops when it completes', async () => {
+      vi.useFakeTimers();
+      try {
+        const emitHeartbeat = vi.fn();
+        const { controller, recovery, continueTurn } = await startRecoveryWait({
+          compactionHeartbeatMs: 15_000,
+          emitHeartbeat,
+        });
+        await vi.advanceTimersByTimeAsync(600_000);
+        expect(emitHeartbeat.mock.calls.length).toBeGreaterThanOrEqual(40);
+
+        controller.recordCompactionObserved(1_000);
+        await expect(recovery).resolves.toBe(true);
+        expect(continueTurn).toHaveBeenCalledOnce();
+
+        const calls = emitHeartbeat.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(emitHeartbeat).toHaveBeenCalledTimes(calls);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('stops heartbeats at the running window even if no completion ever reaches this thread', async () => {
+      vi.useFakeTimers();
+      try {
+        const emitHeartbeat = vi.fn();
+        const { controller } = createController({
+          compactionTimeoutMs: 100,
+          compactionRunningTimeoutMs: 1_000,
+          compactionHeartbeatMs: 100,
+          emitHeartbeat,
+        });
+        controller.acceptCompactionSignal(started, 'thread-fixture');
+        await vi.advanceTimersByTimeAsync(1_000);
+        const calls = emitHeartbeat.mock.calls.length;
+
+        await vi.advanceTimersByTimeAsync(5_000);
+
+        expect(emitHeartbeat).toHaveBeenCalledTimes(calls);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('pauses at once, with an error already shown to the user, when the provider aborts the compaction', async () => {
+      vi.useFakeTimers();
+      try {
+        const { controller, recovery, continueTurn, deps } = await startRecoveryWait();
+        const outcome = recovery.then(() => null, (error: unknown) => error);
+
+        controller.acceptCompactionSignal(aborted, 'thread-fixture');
+        await vi.advanceTimersByTimeAsync(0);
+
+        const error = await outcome;
+        expect(isSurfacedToUserError(error)).toBe(true);
+        expect((error as Error).message).toMatch(/compaction could not be confirmed/);
+        expect(continueTurn).not.toHaveBeenCalled();
+        expect(deps.emitSystem).toHaveBeenCalledWith(
+          expect.stringMatching(/compaction could not be confirmed/),
+          expect.objectContaining({ contextCostRecoveryPaused: true }),
+        );
+        // An aborted compaction proves the provider signals compaction, so native stays enabled.
+        expect(controller.nativeCompactionKnownUnsupported()).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('interrupts the compaction turn on a user stop and ends the recovery without continuing', async () => {
+      vi.useFakeTimers();
+      try {
+        const { controller, recovery, continueTurn, interruptCompaction, deps } = await startRecoveryWait();
+
+        const result = controller.interruptRecoveryCompaction();
+        expect(result).toMatchObject({ status: 'accepted', turnId: 'compact-turn' });
+        expect(interruptCompaction).toHaveBeenCalledWith('compact-turn');
+
+        controller.acceptCompactionSignal({
+          method: 'turn/completed' as const,
+          params: { threadId: 'thread-fixture', turn: { id: 'compact-turn', status: 'interrupted' } },
+        }, 'thread-fixture');
+
+        await expect(result?.completion).resolves.toEqual({ status: 'interrupted', turnId: 'compact-turn' });
+        await expect(recovery).resolves.toBe(true);
+        expect(continueTurn).not.toHaveBeenCalled();
+        expect(deps.emitSystem).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not continue when the compaction completes after the user asked to stop', async () => {
+      vi.useFakeTimers();
+      try {
+        const { controller, recovery, continueTurn } = await startRecoveryWait();
+
+        const result = controller.interruptRecoveryCompaction();
+        controller.recordCompactionObserved(1_000);
+
+        await expect(result?.completion).resolves.toMatchObject({ status: 'completed' });
+        await expect(recovery).resolves.toBe(true);
+        expect(continueTurn).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps the recovery stoppable when a plain compaction overlaps its wait', async () => {
+      vi.useFakeTimers();
+      try {
+        const { controller, recovery, continueTurn } = await startRecoveryWait();
+        const overlapping = controller.compactContext(30_000);
+        await vi.advanceTimersByTimeAsync(0);
+
+        const result = controller.interruptRecoveryCompaction();
+        expect(result).toMatchObject({ status: 'accepted', turnId: 'compact-turn' });
+        controller.acceptCompactionSignal(aborted, 'thread-fixture');
+
+        await expect(overlapping).resolves.toBe(false);
+        await expect(recovery).resolves.toBe(true);
+        expect(continueTurn).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('offers no compaction stop outside a controlled recovery', async () => {
+      vi.useFakeTimers();
+      try {
+        const { controller } = createController({
+          compactionRunningTimeoutMs: 1_000,
+          getCompactionTarget: () => ({
+            threadId: 'thread-fixture',
+            start: async () => { controller.acceptCompactionSignal(started, 'thread-fixture'); },
+            interrupt: vi.fn(async () => undefined),
+          }),
+        });
+        // A plain compaction wait (e.g. per-turn cap recovery) is not stoppable here.
+        void controller.compactContext(50);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(controller.interruptRecoveryCompaction()).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not interrupt again when the shared policy requests recovery during the compaction wait', async () => {
+      vi.useFakeTimers();
+      try {
+        const { controller, deps, interruptCompaction } = await startRecoveryWait();
+        const interruptCalls = (deps.interrupt as ReturnType<typeof vi.fn>).mock.calls.length;
+
+        await expect(controller.requestRecovery('controlled-recovery')).resolves.toEqual({ proof: 'acknowledged' });
+
+        expect(deps.interrupt).toHaveBeenCalledTimes(interruptCalls);
+        expect(interruptCompaction).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('releases the wait when the app-server exits mid-compaction', async () => {
+      vi.useFakeTimers();
+      try {
+        const { controller, recovery } = await startRecoveryWait();
+        const outcome = recovery.then(() => null, (error: unknown) => error);
+
+        controller.handleRuntimeExit();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(isSurfacedToUserError(await outcome)).toBe(true);
       } finally {
         vi.useRealTimers();
       }

@@ -155,11 +155,17 @@ export const CODEX_TIMEOUTS = {
 
   /**
    * Bounded wait for a compaction Codex has reported running to finish.
-   * Summarising a large thread is a model call: a 107k-token thread took 70s
-   * live (2026-09-23), so the 30s start window alone failed a compaction that
-   * was succeeding. Kept below the stuck detector's 240s generating limit.
+   * Summarising a large thread is a model call and its duration varies a lot:
+   * 70s for a 107k-token thread (2026-09-23), and 565s for a controlled
+   * recovery on 2026-09-24 that the earlier 180s window declared unconfirmed
+   * six minutes before it succeeded. The provider streams keepalives to Codex
+   * throughout, but the app-server does not forward them, so this matches the
+   * silence budget an active turn already gets (`NOTIFICATION_IDLE_ACTIVE_MS`).
+   * A compaction the provider ends early releases the wait at once; the
+   * adapter emits liveness heartbeats while it runs so the stuck detector
+   * does not restart the session mid-compaction.
    */
-  COMPACTION_RUNNING_MS: 180_000,
+  COMPACTION_RUNNING_MS: 900_000,
 } as const;
 
 /**

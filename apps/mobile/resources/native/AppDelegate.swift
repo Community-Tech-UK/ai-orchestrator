@@ -10,10 +10,15 @@ import UserNotifications
 import ActivityKit
 #endif
 
+/// Uses the UIScene lifecycle: iOS 27 kills apps built with the iOS 27 SDK that
+/// don't adopt it (EXC_BREAKPOINT in
+/// `_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`). The window
+/// and the Capacitor bridge view controller belong to `SceneDelegate`, wired up by
+/// the `UIApplicationSceneManifest` that scripts/ensure-ios-scene-lifecycle.mjs
+/// writes into Info.plist. URL and user-activity callbacks arrive on the scene,
+/// not here.
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
-
-    var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         registerNotificationCategories()
@@ -50,27 +55,48 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         UNUserNotificationCenter.current().setNotificationCategories([approval, complete])
     }
 
-    func applicationWillResignActive(_ application: UIApplication) {
+}
+
+/// The window comes from `UISceneStoryboardFile` (Main.storyboard, whose initial
+/// view controller is `CAPBridgeViewController`). URL opens and universal-link
+/// activities are forwarded to Capacitor's `ApplicationDelegateProxy`, as the
+/// app delegate did before the scene lifecycle.
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+
+    var window: UIWindow?
+
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        // Cold launch: these never arrive through the callbacks below.
+        forward(urlContexts: connectionOptions.urlContexts)
+        for userActivity in connectionOptions.userActivities {
+            forward(userActivity: userActivity)
+        }
     }
 
-    func applicationDidEnterBackground(_ application: UIApplication) {
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        forward(urlContexts: URLContexts)
     }
 
-    func applicationWillEnterForeground(_ application: UIApplication) {
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        forward(userActivity: userActivity)
     }
 
-    func applicationDidBecomeActive(_ application: UIApplication) {
+    private func forward(urlContexts: Set<UIOpenURLContext>) {
+        for context in urlContexts {
+            var options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+            if let sourceApplication = context.options.sourceApplication {
+                options[.sourceApplication] = sourceApplication
+            }
+            if let annotation = context.options.annotation {
+                options[.annotation] = annotation
+            }
+            options[.openInPlace] = context.options.openInPlace
+            _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, open: context.url, options: options)
+        }
     }
 
-    func applicationWillTerminate(_ application: UIApplication) {
-    }
-
-    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
-    }
-
-    func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
-        return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
+    private func forward(userActivity: NSUserActivity) {
+        _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, continue: userActivity, restorationHandler: { _ in })
     }
 
 }

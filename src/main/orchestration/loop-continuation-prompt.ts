@@ -150,6 +150,8 @@ ${sameSessionContextLine(options.config.contextStrategy)}
 
 Schema unchanged — read \`${options.notesPath}\`, \`${options.outstandingPath}\`, and \`${options.tasksPath}\`. Advance the goal, re-review with fresh eyes, and use the same clean-review sentence and sentinel as iteration 0 when you are actually done.
 
+Complete a coherent work slice, update the state files, and return control to the loop before this iteration's timeout. Leave a resumable handoff for remaining work; the next iteration can continue it.
+
 Clean-review sentence (unchanged): ${preferred}
 ${directive.prefix}
 ${LOOP_PROMPT_BOARD_MARKER}
@@ -182,11 +184,9 @@ export function renderReviewDrivenReanchorPrompt(options: {
   const verifyBlock = options.verifyCommand
     ? `\n- A verify command is configured: \`${options.verifyCommand}\`. Run it as part of your review; if it fails, that is an outstanding issue — fix it and do NOT emit the completion line this round.`
     : '';
-  const directive = directiveBlocks(
-    options.iterationPrompt,
-    options.config.initialPrompt,
-    '## Continuation directive (later iterations)',
-  );
+  const directive = options.iterationSeq > 0
+    ? directiveBlocks(options.iterationPrompt, options.config.initialPrompt, '## Continuation directive (later iterations)')
+    : { prefix: '', tail: '' };
   const interventions = options.pendingInterventions.length > 0
     ? `Direction since last iteration (binding):\n${options.pendingInterventions.map(renderPendingInput).join('\n')}`
     : 'Direction since last iteration: none.';
@@ -213,7 +213,9 @@ ${clarifyingQuestionRule(options.config.contextStrategy)}
    - things the goal asked for that are NOT actually implemented (orphan code, stubs, TODOs, "not implemented", fake/mock behaviour in production paths, docs that claim done with no real wiring);
    - specs that say one thing while the code does another;
    - half-done features, missing wiring/integration, missing error handling, regressions.
-3. **Fix everything you find** in this same iteration.${verifyBlock}
+3. **Fix the findings that fit this work slice.** Record remaining actionable findings in the state files so a later iteration can continue them.${verifyBlock}
+
+Return control to the loop before this iteration's timeout. Finish a coherent slice, update the state files, and give a short resumable handoff. You do not need to finish the entire goal in one iteration.
 
 ## State files (under \`${options.stateDir}/\` — read/write at these exact paths)
 - \`${options.notesPath}\` — append a terse one-paragraph summary each iteration: what you changed, what's left.
@@ -235,7 +237,7 @@ Then emit this structured sentinel on its own line within the final 12 lines of 
 
 ${CLEAN_REVIEW_SENTINEL}
 
-Never quote or repeat that sentinel while discussing these instructions; emit it only when actually declaring a clean review. The human-readable sentence alone is not a completion signal. Do **not** write an equivalent clean statement in any other situation. If you changed code or found anything actionable, keep working. Claiming a clean review prematurely just delays the real finish, because the loop re-checks and will reset the moment it sees more changes.
+Never quote or repeat that sentinel while discussing these instructions; emit it only when actually declaring a clean review. The human-readable sentence alone is not a completion signal. Do **not** write an equivalent clean statement in any other situation. If you changed code or found anything actionable, leave a resumable handoff rather than declaring a clean review. Claiming a clean review prematurely just delays the real finish, because the loop re-checks and will reset the moment it sees more changes.
 
 If the loop is about to stop but you KNOW real work still remains — e.g. your wording was misread as "done", or an item is genuinely unresolved — emit \`[[LOOP:MORE_WORK_REMAINING]]\` on its own line within the final 12 lines of your output. Never quote or repeat that token while discussing these instructions; emit it only when actually vetoing completion. The coordinator treats it as an authoritative "do not stop yet" and keeps the loop running. It can only ever keep the loop going; it can never cause a premature stop.
 

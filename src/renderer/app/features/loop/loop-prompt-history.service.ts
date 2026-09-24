@@ -13,7 +13,7 @@ const MAX_ENTRIES = 3;
  * Distillation of the user's manual loop instructions — used as the starting
  * default when there is no typed text and no recall history.
  */
-export const DEFAULT_LOOP_PROMPT =
+const LEGACY_UNBOUNDED_DEFAULT_LOOP_PROMPT =
   "Continue toward the user's goal. Read relevant files before changing code, " +
   'choose the maintainable architecture, and make concrete progress this turn. ' +
   'Do not stop after a partial slice.\n\n' +
@@ -33,7 +33,13 @@ export const DEFAULT_LOOP_PROMPT =
   'Before stopping, re-read the diff and self-review. Fix any issues you find. ' +
   'If blocked, explain the blocker clearly and stop.';
 
+export const DEFAULT_LOOP_PROMPT = LEGACY_UNBOUNDED_DEFAULT_LOOP_PROMPT.replace(
+  'Do not stop after a partial slice.',
+  "Complete a coherent work slice, record what remains in NOTES.md, and return control to the loop before this turn's timeout. The next iteration can continue.",
+);
+
 const LEGACY_DEFAULT_LOOP_PROMPTS = [
+  LEGACY_UNBOUNDED_DEFAULT_LOOP_PROMPT,
   "Continue toward the user's goal. Read relevant files before changing code, " +
   'choose the maintainable architecture, and make concrete progress this turn. ' +
   'Do not stop after a partial slice.\n\n' +

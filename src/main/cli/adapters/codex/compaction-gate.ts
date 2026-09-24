@@ -13,8 +13,10 @@
  *   evidence the provider build does not signal compaction at all.
  * - `stalled`: the compaction was reported running but did not finish inside
  *   the running window. The provider does signal compaction; it was just slow.
+ * - `failed`: the provider ended the compaction without completing it.
+ * - `cancelled`: Harness stopped waiting (the RPC failed or the app-server exited).
  */
-export type CompactionGateOutcome = 'observed' | 'timed-out' | 'stalled' | 'cancelled';
+export type CompactionGateOutcome = 'observed' | 'timed-out' | 'stalled' | 'failed' | 'cancelled';
 
 interface GateWaiter {
   finish(outcome: CompactionGateOutcome): void;
@@ -71,7 +73,12 @@ export class CompactionGate {
     return this.waiters.size > 0;
   }
 
-  /** Releases pending waits when the compaction RPC could not be started. */
+  /** Releases pending waits when the provider ended the compaction without completing it. */
+  fail(): void {
+    for (const waiter of [...this.waiters]) waiter.finish('failed');
+  }
+
+  /** Releases pending waits when the compaction RPC could not be started or the app-server exited. */
   cancel(): void {
     for (const waiter of [...this.waiters]) waiter.finish('cancelled');
   }

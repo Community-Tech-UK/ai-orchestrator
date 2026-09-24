@@ -113,4 +113,15 @@ describe('CompactionGate', () => {
 
     await expect(pending).resolves.toBe('cancelled');
   });
+
+  it('releases a running wait at once when the provider ends the compaction without completing it', async () => {
+    const gate = new CompactionGate();
+    const pending = gate.wait(60_000, 600_000);
+    gate.markRunning();
+
+    gate.fail();
+
+    await expect(pending).resolves.toBe('failed');
+    expect(gate.hasPendingWaiters()).toBe(false);
+  });
 });

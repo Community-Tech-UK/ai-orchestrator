@@ -1128,12 +1128,25 @@ describe('CodexCliAdapter', () => {
         completeInsteadOfInterrupt?: boolean;
         requestSharedRecovery?: boolean;
         /** `context-item` replays what codex-cli 0.156.1 sends: no `thread/compacted`, only a compaction turn. */
-        compactionSignal?: 'legacy' | 'context-item';
+        /** `held` starts the compaction turn and leaves it running until `finishCompaction` is called. */
+        compactionSignal?: 'legacy' | 'context-item' | 'held';
       } = {},
     ) {
       const order: string[] = [];
       const turnInputs: string[] = [];
+      const interruptedTurnIds: unknown[] = [];
       let turnSequence = 0;
+      const compactionItem = { type: 'contextCompaction', id: 'compaction-item' };
+      const compactionParams = { threadId: 'thread-1', turnId: 'compact-turn' };
+      const finishCompaction = (status: 'completed' | 'failed' | 'interrupted'): void => {
+        if (status === 'completed') {
+          client.notificationHandler?.({ method: 'item/completed', params: { ...compactionParams, item: compactionItem } });
+        }
+        client.notificationHandler?.({
+          method: 'turn/completed',
+          params: { threadId: 'thread-1', turn: { id: 'compact-turn', status } },
+        });
+      };
       const client: SyntheticNotificationHost & {
         exitPromise: Promise<void>;
         request(method: string, params?: Record<string, unknown>): Promise<unknown>;
@@ -1200,6 +1213,11 @@ describe('CodexCliAdapter', () => {
             return { turn: { id: turnId, status: 'inProgress' } };
           }
           if (method === 'turn/interrupt') {
+            interruptedTurnIds.push(params['turnId']);
+            if (params['turnId'] === 'compact-turn') {
+              finishCompaction('interrupted');
+              return { success: true };
+            }
             if (!options.completeInsteadOfInterrupt) {
               client.notificationHandler?.({
                 method: 'turn/completed',
@@ -1209,6 +1227,16 @@ describe('CodexCliAdapter', () => {
             return { success: true };
           }
           if (method === 'thread/compact/start') {
+            if (options.compactionSignal === 'held') {
+              setTimeout(() => {
+                client.notificationHandler?.({
+                  method: 'turn/started',
+                  params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'inProgress' } },
+                });
+                client.notificationHandler?.({ method: 'item/started', params: { ...compactionParams, item: compactionItem } });
+              }, 0);
+              return {};
+            }
             if (options.compactionSignal === 'context-item') {
               // The real server answers the RPC first and reports the compaction later.
               setTimeout(() => {
@@ -1248,7 +1276,15 @@ describe('CodexCliAdapter', () => {
       internals.appServerThreadId = 'thread-1';
       internals.useAppServer = true;
       client.setNotificationHandler((notification) => internals.handleIdleAppServerNotification(notification));
-      return { client, order, turnInputs };
+      return { client, order, turnInputs, interruptedTurnIds, finishCompaction };
+    }
+
+    function collectRecoveryOutputs(adapter: CodexCliAdapter) {
+      const outputs: Array<{ type: string; content: string; metadata?: Record<string, unknown> }> = [];
+      adapter.on('output', (output: { type: string; content: string; metadata?: Record<string, unknown> }) => {
+        outputs.push(output);
+      });
+      return outputs;
     }
 
     it('interrupts, observes compaction, and continues once without replaying the original message', async () => {
@@ -1298,6 +1334,110 @@ describe('CodexCliAdapter', () => {
       expect(turnInputs[1]).toMatch(/continue the interrupted task/i);
       expect(completions).toEqual(['Continued safely']);
       expect(adapter.nativeCompactionKnownUnsupported()).toBe(false);
+    });
+
+    // 2026-09-24: a controlled-recovery compaction took 565s live. The old 180s
+    // running window paused the session six minutes before Codex finished.
+    it('keeps waiting on a slow provider compaction, proves liveness, and then continues', async () => {
+      vi.useFakeTimers();
+      try {
+        const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
+        const { order, turnInputs, finishCompaction } = installSyntheticCostClient(adapter, {
+          requestSharedRecovery: true,
+          compactionSignal: 'held',
+        });
+        const outputs = collectRecoveryOutputs(adapter);
+        let heartbeats = 0;
+        adapter.on('heartbeat', () => { heartbeats += 1; });
+
+        const send = (adapter as unknown as {
+          appServerSendMessageInner(message: string): Promise<void>;
+        }).appServerSendMessageInner('Original expensive task');
+        let settled = false;
+        void send.then(() => { settled = true; }, () => { settled = true; });
+
+        await vi.advanceTimersByTimeAsync(0);
+        const heartbeatsAtStart = heartbeats;
+        await vi.advanceTimersByTimeAsync(565_000);
+        expect(settled).toBe(false);
+        // Liveness keeps flowing so the stuck detector never restarts a compacting session.
+        expect(heartbeats - heartbeatsAtStart).toBeGreaterThanOrEqual(30);
+
+        finishCompaction('completed');
+        await vi.advanceTimersByTimeAsync(0);
+        await send;
+
+        expect(order).toEqual(['turn/start', 'turn/interrupt', 'thread/compact/start', 'turn/start']);
+        expect(turnInputs[1]).toMatch(/continue the interrupted task/i);
+        expect(outputs.filter((output) => output.metadata?.['contextCostRecoveryPaused'])).toEqual([]);
+
+        // Liveness stops with the compaction.
+        const heartbeatsAtEnd = heartbeats;
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(heartbeats).toBe(heartbeatsAtEnd);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('pauses at once, with one notice, when the provider ends the compaction without completing it', async () => {
+      const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
+      const { order, finishCompaction } = installSyntheticCostClient(adapter, {
+        requestSharedRecovery: true,
+        compactionSignal: 'held',
+      });
+      (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+      const outputs = collectRecoveryOutputs(adapter);
+      const statuses: string[] = [];
+      adapter.on('status', (status: string) => statuses.push(status));
+
+      const send = (adapter as unknown as {
+        sendInputImpl(message: string): Promise<void>;
+      }).sendInputImpl('Original expensive task');
+      await vi.waitFor(() => expect(order).toContain('thread/compact/start'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      finishCompaction('failed');
+
+      const error = await send.then(() => null, (caught: unknown) => caught);
+      expect((error as Error | null)?.message).toMatch(/compaction could not be confirmed/);
+      expect(order).toEqual(['turn/start', 'turn/interrupt', 'thread/compact/start']);
+      // The controller's system notice is the only transcript entry — no duplicate "Codex error:".
+      expect(outputs.filter((output) => /compaction could not be confirmed/.test(output.content)))
+        .toEqual([expect.objectContaining({ type: 'system' })]);
+      expect(statuses.at(-1)).toBe('idle');
+    });
+
+    it('lets the user stop a recovery that is waiting on the provider compaction', async () => {
+      const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
+      const { order, turnInputs, interruptedTurnIds } = installSyntheticCostClient(adapter, {
+        requestSharedRecovery: true,
+        compactionSignal: 'held',
+      });
+      const outputs = collectRecoveryOutputs(adapter);
+
+      const send = (adapter as unknown as {
+        appServerSendMessageInner(message: string): Promise<void>;
+      }).appServerSendMessageInner('Original expensive task');
+      await vi.waitFor(() => expect(order).toContain('thread/compact/start'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const result = adapter.interrupt();
+
+      expect(result).toMatchObject({ status: 'accepted', turnId: 'compact-turn' });
+      await expect(result.completion).resolves.toMatchObject({ status: 'interrupted', turnId: 'compact-turn' });
+      await expect(send).resolves.toBeUndefined();
+      expect(interruptedTurnIds).toEqual(['turn-1', 'compact-turn']);
+      // Stopped means stopped: no continuation turn and no pause notice.
+      expect(turnInputs).toHaveLength(1);
+      expect(outputs.filter((output) => output.metadata?.['contextCostRecoveryPaused'])).toEqual([]);
+    });
+
+    it('does not claim a recovery-compaction stop when no recovery is waiting', () => {
+      const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
+      installSyntheticCostClient(adapter);
+      (adapter as unknown as { ensureAppServerRuntimeAttached(): void }).ensureAppServerRuntimeAttached();
+
+      expect(adapter.interrupt()).toMatchObject({ status: 'no-active-turn' });
     });
 
     // W6: ContextSafetyPolicy caps recoveries per user send. It can only do

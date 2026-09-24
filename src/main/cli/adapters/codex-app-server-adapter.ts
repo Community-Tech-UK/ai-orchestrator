@@ -22,6 +22,7 @@ import type { FileAttachment, InstanceStatus } from '../../../shared/types/insta
 import { getLogger } from '../../logging/logger';
 import { generateId } from '../../../shared/utils/id-generator';
 import { isProviderNotice } from '../provider-notice';
+import { isSurfacedToUserError } from './surfaced-error';
 import {
   isCodexInputTooLargeError,
   isRecoverableThreadResumeError,
@@ -54,7 +55,6 @@ import {
   type CodexContextDiagnosticSink,
 } from './codex/context-pressure-diagnostics';
 import { CodexContextCostController } from './codex/context-cost-controller';
-import { CodexCompactionSignalTracker } from './codex/compaction-signals';
 import { tokenCount } from './codex/token-usage-breakdown';
 import { buildObservedCompactionEvents } from './codex/compaction-presentation';
 import type {
@@ -91,7 +91,6 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   private contextDiagnosticsSink: CodexContextDiagnosticSink | null;
   private contextDiagnosticsWarningLogged = false;
   private readonly requestQueue = new SerializedCodexRequestQueue();
-  private readonly compactionSignals = new CodexCompactionSignalTracker();
   private readonly mcpElicitationBridge = new CodexMcpElicitationBridge({
     onInputRequired: (payload) => this.emit('input_required', payload),
     onStatus: (status) => this.emit('status', status as InstanceStatus),
@@ -112,19 +111,18 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     this.contextCostController = new CodexContextCostController({
       compactionTimeoutMs: CODEX_TIMEOUTS.COMPACTION_SETTLE_MS,
       compactionRunningTimeoutMs: CODEX_TIMEOUTS.COMPACTION_RUNNING_MS,
+      compactionHeartbeatMs: CODEX_TIMEOUTS.EXEC_LIVENESS_HEARTBEAT_MS,
       interrupt: () => this.interrupt(),
       getCompactionTarget: () => this.getAppServerClient() && this.getAppServerThreadId() && this.useAppServer
         ? {
             threadId: this.getAppServerThreadId()!,
             start: () => this.getAppServerClient()!.request('thread/compact/start', { threadId: this.getAppServerThreadId()! }),
+            interrupt: (turnId) => this.getAppServerClient()!.request('turn/interrupt', { threadId: this.getAppServerThreadId()!, turnId }),
           }
         : null,
+      emitHeartbeat: () => this.emit('heartbeat'),
       emitSystem: (content, metadata) => this.emit('output', {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'system',
-        content,
-        metadata,
+        id: generateId(), timestamp: Date.now(), type: 'system', content, metadata,
       }),
       recordRecovery: (stage, reasonCode) => this.contextDiagnostics?.recordCostRecovery(stage, reasonCode),
       recordCompactionRpc: (stage) => this.contextDiagnostics?.recordCompactionRpc(stage),
@@ -188,6 +186,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       (notification) => this.handleIdleAppServerNotification(notification),
       (exitError) => {
         this.flushPartialUsage();
+        this.contextCostController.handleRuntimeExit();
         if (!this.isSpawned) return;
         this.mcpElicitationBridge.cancelAll();
         const code = exitError ? 1 : 0;
@@ -272,10 +271,8 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       return;
     }
     const threadId = this.getAppServerThreadId();
-    const signal = this.compactionSignals.accept(notification, threadId);
-    // A running compaction is a silent model call: extend any explicit wait and prove liveness.
-    if (signal === 'started') { this.contextCostController.recordCompactionStarted(); this.emit('heartbeat'); }
-    if (signal !== 'completed' || !threadId) return;
+    // A running compaction is a silent model call; the controller keeps waits and liveness current.
+    if (this.contextCostController.acceptCompactionSignal(notification, threadId) !== 'completed' || !threadId) return;
     this.contextDiagnostics?.recordCompactionObserved();
     this.handleObservedThreadCompaction(threadId);
   }
@@ -587,7 +584,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       this.emit('status', 'idle' as InstanceStatus);
     } catch (error) {
       const errorText = error instanceof Error ? error.message : String(error);
-      if (!isActiveTurnCollision(error)) this.emit('output', {
+      if (!isActiveTurnCollision(error) && !isSurfacedToUserError(error)) this.emit('output', {
         id: generateId(),
         timestamp: Date.now(),
         type: 'error',
@@ -625,7 +622,9 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
 
   override interrupt(): InterruptResult {
     if (this.useAppServer && this.appServerRuntime.getClient()) {
-      return this.appServerRuntime.interrupt();
+      const result = this.appServerRuntime.interrupt();
+      // Between turns, a controlled recovery may be waiting on the provider's compaction turn.
+      return result.status === 'no-active-turn' ? this.contextCostController.interruptRecoveryCompaction() ?? result : result;
     }
     return super.interrupt();
   }
@@ -633,6 +632,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   override async terminate(graceful = true): Promise<void> {
     this.flushPartialUsage();
     this.mcpElicitationBridge.cancelAll();
+    this.contextCostController.handleRuntimeExit();
     this.isSpawned = false;
     this.useAppServer = false;
     if (this.appServerRuntime.getClient()) {

@@ -102,6 +102,20 @@ describe('buildLoopInterveneChatEvent', () => {
 });
 
 describe('buildLoopTerminalChatSummary', () => {
+  it('identifies unrecorded usage on a failed attempt without a completed iteration', () => {
+    const state = makeState({
+      status: 'completed-needs-review',
+      totalIterations: 0,
+      totalTokens: 0,
+      totalCostCents: 0,
+      endEvidence: { attemptOutcome: 'failed', workspaceEffect: 'unknown' },
+    });
+    const content = buildLoopTerminalChatSummary(state).content;
+    expect(content).toContain('Recorded tokens: 0');
+    expect(content).toContain('Recorded cost: $0.00');
+    expect(content).toContain('Failed attempt usage unavailable; zero recorded usage does not mean no work occurred.');
+  });
+
   it('formats a durable terminal summary with goal, status, workspace, and latest evidence', () => {
     const state = makeState({
       status: 'completed',

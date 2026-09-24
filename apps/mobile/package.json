@@ -9,8 +9,9 @@
     "build": "ng build",
     "lint": "npx eslint \"src/**/*.{ts,html}\"",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
-    "sync": "npm run build && npx cap sync ios && npm run ios:ensure-display-name && npm run ios:ensure-brand-assets && npm run ios:ensure-native-sources",
+    "sync": "npm run build && npx cap sync ios && npm run ios:ensure-display-name && npm run ios:ensure-scene-lifecycle && npm run ios:ensure-brand-assets && npm run ios:ensure-native-sources",
     "ios:ensure-display-name": "node scripts/ensure-ios-display-name.mjs",
+    "ios:ensure-scene-lifecycle": "node scripts/ensure-ios-scene-lifecycle.mjs",
     "ios:ensure-brand-assets": "node scripts/ensure-ios-brand-assets.mjs",
     "ios:ensure-native-sources": "node scripts/ensure-ios-native-sources.mjs",
     "ios": "npm run sync && npx cap open ios"

@@ -1,6 +1,7 @@
 import type { Instance, InstanceStatus, OutputMessage } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
+import { isSurfacedToUserError } from '../../cli/adapters/surfaced-error';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('InitialPromptRecovery');
@@ -53,7 +54,7 @@ export async function deliverInitialPromptAfterSpawn(
       error instanceof Error ? error : undefined,
       { instanceId: instance.id, errorMessage },
     );
-    preserveSession(instance, errorMessage, deps);
+    preserveSession(instance, errorMessage, deps, !isSurfacedToUserError(error));
   }
 }
 
@@ -62,11 +63,16 @@ export async function deliverInitialPromptAfterSpawn(
  * settle the runtime back to idle (a failed first turn may have left it busy) and
  * post a system notice so the user understands the first message did not send and
  * can resend — instead of the session silently disappearing.
+ *
+ * The notice is skipped when the adapter already explained the failure in the
+ * transcript. That covers a first turn that ran for a long time and then paused
+ * (a Codex context recovery), where "could not be delivered" would be false.
  */
 function preserveSession(
   instance: Instance,
   errorMessage: string,
   deps: InitialPromptRecoveryDeps,
+  postNotice: boolean,
 ): void {
   if (
     instance.status !== 'idle' &&
@@ -81,6 +87,7 @@ function preserveSession(
     }
   }
   deps.queueUpdate(instance);
+  if (!postNotice) return;
 
   const notice: OutputMessage = {
     id: generateId(),

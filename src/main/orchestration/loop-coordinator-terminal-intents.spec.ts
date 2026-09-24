@@ -606,9 +606,17 @@ describe('LoopCoordinator terminal intents', () => {
     const pausedForReview = waitForEvent<{ reason: string }>(
       coordinator, 'loop:completed-needs-review', LOOP_EVENT_TIMEOUT_MS,
     );
-    coordinator.on('loop:invoke-iteration', () => {
-      // Intentionally never invokes the callback. The coordinator backstop
-      // must use the per-iteration timeout rather than the total wall cap.
+    let callback: ((result: LoopChildResult | { error: string }) => void) | undefined;
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      callback = (payload as {
+        callback: (result: LoopChildResult | { error: string }) => void;
+      }).callback;
+    });
+    coordinator.on('loop:iteration-timeout', () => {
+      // Production interrupts the active adapter at this boundary. Model the
+      // adapter's resulting callback so timeout settlement can retain any
+      // workspace observation instead of waiting for its 30-second backstop.
+      callback?.({ error: 'interrupted at deadline' });
     });
 
     await coordinator.startLoop('chat-iteration-timeout', {

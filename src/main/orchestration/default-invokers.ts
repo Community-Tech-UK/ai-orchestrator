@@ -907,6 +907,9 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   const persistentLoopAdapters = new Map<string, unknown>();
   const persistentLoopAdapterModels = new Map<string, string | undefined>();
   const activeLoopAdapters = new Map<string, Set<unknown>>();
+  // Borrowed adapters belong to their chat instance. Track them only for the
+  // timeout interrupt; terminal loop cleanup must never terminate them.
+  const borrowedLoopAdapters = new Map<string, Set<unknown>>();
   const terminatedAdapters = new WeakSet<object>();
   // LF-1: cumulative same-session tokens per loop, used to decide when to
   // recycle the persistent adapter to a fresh session (context discipline).
@@ -924,19 +927,25 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     await terminateCliAdapter(adapter, graceful);
   };
 
-  const trackActiveAdapter = (loopRunId: string, adapter: unknown): (() => void) => {
-    if (adapter && typeof adapter === 'object') {
-      terminatedAdapters.delete(adapter);
-    }
-    const set = activeLoopAdapters.get(loopRunId) ?? new Set<unknown>();
+  const trackAdapter = (
+    adaptersByLoop: Map<string, Set<unknown>>,
+    loopRunId: string,
+    adapter: unknown,
+  ): (() => void) => {
+    const set = adaptersByLoop.get(loopRunId) ?? new Set<unknown>();
     set.add(adapter);
-    activeLoopAdapters.set(loopRunId, set);
+    adaptersByLoop.set(loopRunId, set);
     return () => {
-      const current = activeLoopAdapters.get(loopRunId);
+      const current = adaptersByLoop.get(loopRunId);
       if (!current) return;
       current.delete(adapter);
-      if (current.size === 0) activeLoopAdapters.delete(loopRunId);
+      if (current.size === 0) adaptersByLoop.delete(loopRunId);
     };
+  };
+
+  const trackActiveAdapter = (loopRunId: string, adapter: unknown): (() => void) => {
+    if (adapter && typeof adapter === 'object') terminatedAdapters.delete(adapter);
+    return trackAdapter(activeLoopAdapters, loopRunId, adapter);
   };
 
   // LF-1: recycle a loop's persistent same-session adapter to a fresh session.
@@ -998,6 +1007,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     const persistentAdapter = persistentLoopAdapters.get(loopRunId);
     if (persistentAdapter) adapters.add(persistentAdapter);
     activeLoopAdapters.delete(loopRunId);
+    borrowedLoopAdapters.delete(loopRunId);
     persistentLoopAdapters.delete(loopRunId);
     persistentLoopAdapterModels.delete(loopRunId);
     loopContextTokens.delete(loopRunId); // LF-1: drop cumulative-token tracking.
@@ -1039,6 +1049,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     const live = new Set<unknown>(activeLoopAdapters.get(payload.loopRunId) ?? []);
     const persistent = persistentLoopAdapters.get(payload.loopRunId);
     if (persistent) live.add(persistent);
+    for (const borrowed of borrowedLoopAdapters.get(payload.loopRunId) ?? []) live.add(borrowed);
     for (const adapter of live) interruptLoopAdapter(adapter);
   });
   // Defense-in-depth: also clean up on any terminal state-change. Catches
@@ -1423,7 +1434,11 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         onAdapterReady: borrowedFromInstance
           ? (adapter) => {
               activeAdapterRef = adapter;
-              return () => { activeAdapterRef = null; };
+              const stopTracking = trackAdapter(borrowedLoopAdapters, p.loopRunId, adapter);
+              return () => {
+                activeAdapterRef = null;
+                stopTracking();
+              };
             }
           : (adapter) => {
               activeAdapterRef = adapter;

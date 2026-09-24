@@ -732,6 +732,25 @@ describe('LoopStore', () => {
     expect(store.summaryForChat('chat-1')()?.lastIteration).toBeUndefined();
   });
 
+  it('marks a failed attempt with no usage snapshot as unrecorded in the terminal card', () => {
+    store.ensureWired();
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: {
+        ...activeState(),
+        status: 'completed-needs-review',
+        endedAt: 1778310300000,
+        endEvidence: { attemptOutcome: 'failed', workspaceEffect: 'unknown' },
+      },
+    }));
+
+    expect(store.summaryForChat('chat-1')()).toMatchObject({
+      iterations: 0,
+      tokens: 0,
+      failedAttemptUsageUnavailable: true,
+    });
+  });
+
   it('exposes runningChatIds for list-view consumers and tracks paused loops', () => {
     store.ensureWired();
 
