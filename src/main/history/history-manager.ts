@@ -697,10 +697,9 @@ export class HistoryManager {
     );
   }
 
-  /**
-   * Clear all history
-   */
+  /** Clear all history after startup writers have settled. */
   async clearAll(): Promise<void> {
+    await this.startupTasks;
     await this.createSafetyBackup('clearAll');
 
     // Delete all conversation files

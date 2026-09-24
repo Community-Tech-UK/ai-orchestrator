@@ -209,6 +209,79 @@ describe('HistoryManager', () => {
     expect(fs.existsSync(path.join(storageDir, `${entry.id}.json.gz`))).toBe(false);
   });
 
+  it('waits for startup backfill before snapshotting and clearing history', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+
+    const entry = {
+      id: 'entry-startup-race',
+      displayName: 'Startup race',
+      createdAt: 1,
+      endedAt: 2,
+      workingDirectory: '/tmp/example',
+      messageCount: 1,
+      firstUserMessage: 'hello',
+      lastUserMessage: 'hello',
+      status: 'completed' as const,
+      originalInstanceId: 'instance-startup-race',
+      sessionId: 'session-startup-race',
+    };
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, lastUpdated: Date.now(), entries: [entry] }),
+    );
+    fs.writeFileSync(
+      path.join(storageDir, `${entry.id}.json.gz`),
+      zlib.gzipSync(JSON.stringify({ entry, messages: [] })),
+    );
+
+    const startupWriteStarted = deferred();
+    const releaseStartupWrite = deferred();
+    const originalWriteFile = fs.promises.writeFile;
+    const writeFile = vi.spyOn(fs.promises, 'writeFile').mockImplementation(async (...args) => {
+      const [file] = args;
+      if (
+        typeof file === 'string'
+        && file.startsWith(path.join(storageDir, `${entry.id}.json.gz.`))
+        && file.endsWith('.tmp')
+      ) {
+        startupWriteStarted.resolve();
+        await releaseStartupWrite.promise;
+      }
+      return originalWriteFile(...args);
+    });
+    // The safety backup starts with a synchronous `readdir` of the storage
+    // dir, so an unguarded clearAll() reaches it before returning. Counting
+    // those calls is deterministic; waiting for the real `cp` to start is not.
+    const readdir = vi.spyOn(fs.promises, 'readdir');
+    const copy = vi.spyOn(fs.promises, 'cp');
+    const storageDirReads = (): number =>
+      readdir.mock.calls.filter(([dir]) => dir === storageDir).length;
+
+    try {
+      const { HistoryManager } = await import('./history-manager');
+      const manager = track(new HistoryManager());
+      await startupWriteStarted.promise;
+
+      const readsBeforeClear = storageDirReads();
+      const clearing = manager.clearAll();
+      await drainMicrotasks();
+      expect(storageDirReads()).toBe(readsBeforeClear);
+      expect(copy).not.toHaveBeenCalled();
+
+      releaseStartupWrite.resolve();
+      await clearing;
+      await manager.startupTasks;
+      expect(copy).toHaveBeenCalledTimes(1);
+      expect(fs.existsSync(path.join(storageDir, `${entry.id}.json.gz`))).toBe(false);
+    } finally {
+      releaseStartupWrite.resolve();
+      writeFile.mockRestore();
+      readdir.mockRestore();
+      copy.mockRestore();
+    }
+  });
+
   it('LT-196: folds tool-outcome records into the archive so the miner can read them back', async () => {
     // This is the seam the whole feature rests on. The record is deliberately
     // kept out of `outputBuffer` (see `tool-outcome-store.ts`), so the ONLY
