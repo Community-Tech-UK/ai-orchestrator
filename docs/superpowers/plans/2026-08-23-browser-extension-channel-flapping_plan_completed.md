@@ -29,7 +29,7 @@ deferred to `2026-08-23-browser-extension-channel-flapping_plan_livetest.md`.
 
 **Files:**
 - Modify: `docs/plans/livetest-remediation-register.md`
-- Modify: `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`
+- Modify: `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md`
 - Modify: `docs/plans/2026-08-19-remote-node-false-negative-fixes_livetest.md`
 
 **Interfaces:**
@@ -137,7 +137,7 @@ Expected: lifecycle, command-store, router, remote-bridge, and worker connection
 - Create: `docs/superpowers/plans/2026-08-23-browser-extension-channel-flapping_plan_livetest.md`
 - Modify: `docs/superpowers/plans/2026-08-23-browser-extension-channel-flapping_plan.md`
 - Modify: `docs/plans/livetest-remediation-register.md`
-- Modify: `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`
+- Modify: `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md`
 
 **Interfaces:**
 - Consumes: all implementation and test changes from Tasks 2–3.

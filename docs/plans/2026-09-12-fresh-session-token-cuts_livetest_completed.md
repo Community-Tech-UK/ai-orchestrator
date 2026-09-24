@@ -1,6 +1,6 @@
 # Fresh-session token cuts — live checks
 
-Remediation flow: read [campaign runbook](livetest-campaign-runbook.md); a reproduced defect belongs in [remediation register](livetest-remediation-register.md) with its matching implementation status in [remediation plan](2026-07-19-livetest-failure-remediation_plan.md). Keep per-check evidence here.
+Remediation flow: read [campaign runbook](livetest-campaign-runbook.md); a reproduced defect belongs in [remediation register](livetest-remediation-register.md) with its matching implementation status in [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md). Keep per-check evidence here.
 Implementation plan: [plan](2026-09-12-fresh-session-token-cuts_plan_completed.md).
 
 Prerequisites: rebuilt/restarted Harness so new sessions pick up the orchestrator MCP surface and instruction skip. Existing provider processes keep the old tool list and prepend.

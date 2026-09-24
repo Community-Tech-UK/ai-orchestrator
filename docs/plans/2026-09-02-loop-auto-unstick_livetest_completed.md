@@ -20,7 +20,7 @@ review-driven loop steered into a same-tool CRITICAL; otherwise agent-runnable.
 > register — `docs/plans/livetest-remediation-register.md` — as a new `LT-NNN`
 > item (index row, then observed behaviour, root cause, required behaviour and
 > acceptance), and add the matching implementation-status section to
-> `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. Per-check
+> `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md`. Per-check
 > evidence stays in this file.
 >
 > Before starting a run, read `docs/plans/livetest-campaign-runbook.md`.

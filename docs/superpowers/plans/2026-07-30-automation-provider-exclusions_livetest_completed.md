@@ -4,7 +4,7 @@
 > `docs/plans/livetest-remediation-register.md` — as a new `LT-NNN` item
 > (index row, then a section with observed behaviour, root cause, required behaviour and
 > acceptance), and add a matching implementation-status section to
-> `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. A pending or unrun check is not
+> `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md`. A pending or unrun check is not
 > automatically a defect, but a *reproduced* one belongs there. Per-check evidence stays in this
 > file.
 >

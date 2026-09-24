@@ -146,7 +146,7 @@ not a git repo and a reviewer is enabled.
       `npm run check:ts-max-loc`, `npm run build:main`, `npm run test:quiet`
       (1759 files / 18,526 tests, exit 0).
 - [x] W7 — LT-300..303 in `livetest-remediation-register.md` plus implementation-status
-      sections in `2026-07-19-livetest-failure-remediation_plan.md`.
+      sections in `2026-07-19-livetest-failure-remediation_plan_completed.md`.
 - [x] W8 — independent completion-gate review. Pass 1 returned FAIL on one actionable
       finding: the LT-303 register row and plan section still described the *pre-tightening*
       predicate (including `mode: 'review-driven'`), contradicting the shipped code and its

@@ -4,7 +4,7 @@
 > `docs/plans/livetest-remediation-register.md` — as a new `LT-NNN` item
 > (index row, then a section with observed behaviour, root cause, required behaviour and
 > acceptance), and add a matching implementation-status section to
-> `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. That is the spec's own rule 6:
+> `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md`. That is the spec's own rule 6:
 > a pending or unrun check is not automatically a defect, but a *reproduced* one belongs there,
 > not only here. Per-check evidence stays in this file.
 >
@@ -232,7 +232,7 @@ can report success while the spawned process keeps running for minutes, unsuperv
 to `spawnVerify` (`loop-completion-detector.ts:648-745`) never registering its
 `child_process.spawn` with any lifecycle mechanism `cancelLoop` can reach. Full writeup, exact
 repro, and required behaviour in the register entry and the matching
-`2026-07-19-livetest-failure-remediation_plan.md` section. Not fixed here — out of scope for this
+`2026-07-19-livetest-failure-remediation_plan_completed.md` section. Not fixed here — out of scope for this
 batch's two assigned docs and risky to touch given several other agents were concurrently editing
 `loop-coordinator.ts`/`loop-completion-detector.ts` in this same window.
 

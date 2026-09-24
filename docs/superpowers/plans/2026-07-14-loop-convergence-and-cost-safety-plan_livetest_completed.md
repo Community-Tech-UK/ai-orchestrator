@@ -4,7 +4,7 @@
 > `docs/plans/livetest-remediation-register.md` — as a new `LT-NNN` item
 > (index row, then a section with observed behaviour, root cause, required behaviour and
 > acceptance), and add a matching implementation-status section to
-> `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. That is the spec's own rule 6:
+> `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md`. That is the spec's own rule 6:
 > a pending or unrun check is not automatically a defect, but a *reproduced* one belongs there,
 > not only here. Per-check evidence stays in this file.
 >
@@ -262,7 +262,7 @@ despite the confirmed-on-disk writes. A differential test (identical scenario, w
 `git rev-parse --show-toplevel` always returns the resolved path — the two roots diverged by the
 symlink prefix, so `toWorkspaceFileChange`'s `path.relative(workspace, absolutePath)` started with
 `../` for every file and was silently dropped by the existing "outside the workspace" guard. Filed as
-**LT-065** (`docs/plans/livetest-remediation-register.md`, `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`).
+**LT-065** (`docs/plans/livetest-remediation-register.md`, `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md`).
 
 **Fixed and verified.** `resolveWorkspaceRoot()` now realpath-resolves the observer's workspace (with
 a plain-`path.resolve` fallback when the target doesn't exist yet). New regression test in

@@ -4,7 +4,7 @@
 > `docs/plans/livetest-remediation-register.md` — as a new `LT-NNN` item
 > (index row, then a section with observed behaviour, root cause, required behaviour and
 > acceptance), and add a matching implementation-status section to
-> `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. That is the spec's own rule 6:
+> `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md`. That is the spec's own rule 6:
 > a pending or unrun check is not automatically a defect, but a *reproduced* one belongs there,
 > not only here. Per-check evidence stays in this file.
 >
@@ -355,7 +355,7 @@ and it silently substitutes keyword matching for vector search with no error, no
 field telling the caller which one actually ran. That is a shipped feature quietly not doing what
 its own name says, which is the shape of a defect, not a documented preventive gap. Filed as
 **LT-055** in `docs/plans/livetest-remediation-register.md` and
-`docs/plans/2026-07-19-livetest-failure-remediation_plan.md`, with observed behaviour, root cause,
+`docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md`, with observed behaviour, root cause,
 and three candidate fixes (recommendation: lazy indexing on first semantic query). **Not
 implemented** — the choice between lazy/eager/explicit indexing is a genuine cost/latency tradeoff,
 which per this campaign's fixing guidance is James's call, not mine to make unilaterally. The
