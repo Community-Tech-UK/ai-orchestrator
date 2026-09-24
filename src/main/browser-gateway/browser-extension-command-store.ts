@@ -214,6 +214,7 @@ export class BrowserExtensionCommandStore {
         : {}),
       createdAt: Date.now(),
     };
+    if (command.command === 'report_inventory') this.secretObservation.expectReport(command.id, queueKey);
     return new Promise<unknown>((resolve, reject) => {
       // Phase 1: wait for delivery. If no poller takes the command within the
       // undelivered budget, it is removed from the queue BEFORE rejecting, so a
@@ -290,11 +291,13 @@ export class BrowserExtensionCommandStore {
   }
 
   resolveCommand(result: BrowserExtensionCommandResult): void {
+    const resultQueueKey = result.queueKey ?? 'local';
+    // Before the `pending` check: a late report_inventory reply still counts (LT-617).
+    if (result.ok) this.secretObservation.recordReport(result.commandId, resultQueueKey, result.result);
     const pending = this.pending.get(result.commandId);
     if (!pending) {
       return;
     }
-    const resultQueueKey = result.queueKey ?? 'local';
     if (resultQueueKey !== pending.queueKey) {
       throw new Error('browser_extension_command_queue_mismatch');
     }
@@ -321,10 +324,7 @@ export class BrowserExtensionCommandStore {
       ...(answered ? {} : { reason: (result.error || 'browser_extension_command_timeout').slice(0, 120) }),
     });
     if (result.ok) {
-      if (pending.command.command === 'report_inventory') {
-        this.secretObservation.record(pending.queueKey, result.result);
-      }
-      pending.resolve(result.result);
+      pending.resolve(result.result); // secretObservation recorded above.
       return;
     }
     pending.reject(new Error(result.error || 'browser_extension_command_failed'));

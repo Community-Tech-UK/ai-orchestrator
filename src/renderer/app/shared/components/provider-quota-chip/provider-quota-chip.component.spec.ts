@@ -496,6 +496,34 @@ describe('ProviderQuotaChipComponent', () => {
       expect(host.querySelector('[data-testid="quota-provider-cursor"]')).toBeFalsy();
     });
 
+    it('LT-650: hides a provider whose quota is notApplicable from the strip and popover, even with stale windows underneath', () => {
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [makeWindow(95, 100)]));
+      // Simulate the stale-then-gated sequence: a real Token Plan snapshot
+      // replaced by a notApplicable one after switching the OpenCode model.
+      store.setSnapshot('opencode', {
+        provider: 'opencode',
+        takenAt: Date.now(),
+        source: 'admin-api',
+        ok: false,
+        notApplicable: true,
+        windows: [],
+      });
+      store.setWorst({ provider: 'claude', window: makeWindow(95, 100) });
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
+      expect(stripText).toContain('CC');
+      expect(stripText).not.toContain('OC');
+
+      const button = host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement;
+      button.click();
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-testid="quota-provider-claude"]')).toBeTruthy();
+      expect(host.querySelector('[data-testid="quota-provider-opencode"]')).toBeFalsy();
+    });
+
     it('keeps the detail popover open for inside clicks and closes it for outside clicks', () => {
       store.setSnapshot('codex', makeSnapshot('codex', 'plus', true, [
         { ...makeWindow(4, 100), id: 'codex.weekly', label: 'Codex weekly' },

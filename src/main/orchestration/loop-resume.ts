@@ -66,6 +66,16 @@ export async function resumeLoopRun(
         reason: `No loop ${loopRunId} is running and no stored checkpoint exists for it.`,
       };
     }
+    if (!isRestorableCheckpointState(checkpoint.state)) {
+      // A terminal loop is answered like a live one (LT-642); the restore path
+      // would only throw its own internal "non-paused checkpoint" error.
+      return {
+        ok: false,
+        state: undefined,
+        restoredFromCheckpoint: false,
+        reason: notResumableReason(loopRunId, checkpoint.state),
+      };
+    }
     await coordinator.restoreLoopFromCheckpoint(checkpoint);
     restoredFromCheckpoint = true;
     ok = coordinator.resumeLoop(loopRunId);
@@ -90,6 +100,17 @@ export async function resumeLoopRun(
     restoredFromCheckpoint,
     reason: notResumableReason(loopRunId, state),
   };
+}
+
+/**
+ * Mirrors `restoreLoopFromCheckpoint`: a crash leaves `running`, which the
+ * restore reconciles to `paused`; only `paused` and a provider-limit park with
+ * no end time come back.
+ */
+function isRestorableCheckpointState(state: LoopState): boolean {
+  return state.status === 'paused'
+    || state.status === 'running'
+    || (state.status === 'provider-limit' && state.endedAt == null);
 }
 
 function notResumableReason(loopRunId: string, state: LoopState | undefined): string {

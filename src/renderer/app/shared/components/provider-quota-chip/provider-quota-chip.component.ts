@@ -373,9 +373,10 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     const snaps = this.store.snapshots();
     const entries: { provider: ProviderId; code: string; parts: QuotaStripPart[]; fg: string }[] = [];
     for (const provider of PROVIDER_ORDER) {
-      // A missing CLI means "this provider doesn't exist here" — hide it
-      // rather than rendering an error/plan row.
-      if (snaps[provider]?.cliNotInstalled) continue;
+      // A missing CLI, or a provider whose quota doesn't apply under the
+      // current config (LT-650), means "nothing to show" — hide it rather
+      // than rendering an error/plan row.
+      if (snaps[provider]?.cliNotInstalled || snaps[provider]?.notApplicable) continue;
       const family = this.accountSections(provider).map((section) => section.snapshot);
       if (family.length === 0) continue;
       const code = PROVIDER_CODES[provider];
@@ -415,9 +416,9 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     const now = this.nowMs();
     const entries: QuotaDetailEntry[] = [];
     for (const provider of PROVIDER_ORDER) {
-      // Providers whose CLI isn't installed are hidden from the popover —
-      // there is no quota to manage for a CLI that doesn't exist here.
-      if (snaps[provider]?.cliNotInstalled) continue;
+      // Providers whose CLI isn't installed, or whose quota doesn't apply
+      // under the current config (LT-650), are hidden from the popover.
+      if (snaps[provider]?.cliNotInstalled || snaps[provider]?.notApplicable) continue;
       const sections = this.accountSections(provider);
       if (sections.length === 0) continue;
       const newest = Math.max(...sections.map((section) => section.snapshot.takenAt));

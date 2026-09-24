@@ -116,6 +116,16 @@ export interface ProviderQuotaSnapshot {
    * provider from the quota strip/popover entirely.
    */
   cliNotInstalled?: boolean;
+  /**
+   * True when this provider's quota is not applicable under the current
+   * configuration (e.g. OpenCode's MiMo Token Plan numbers only apply when
+   * the configured model is a `xiaomi-token-plan-*` one). Unlike returning
+   * `null` from a probe — which means "no fresh info, keep showing the last
+   * snapshot" — `notApplicable` REPLACES any stored snapshot so a stale
+   * allowance from a since-abandoned configuration cannot linger on screen.
+   * The UI hides the provider entirely, the same as `cliNotInstalled`.
+   */
+  notApplicable?: true;
   /** May be empty if the probe ran but found no useful windows. */
   windows: ProviderQuotaWindow[];
   /**

@@ -31,12 +31,32 @@ describe('StreamDurabilityCoordinator', () => {
     const { coordinator } = makeCoordinator();
     expect(coordinator.accept('n1', 'inst-1', 1)).toBe(true);
     expect(coordinator.accept('n1', 'inst-1', 2)).toBe(true);
-    expect(coordinator.accept('n1', 'inst-1', 2)).toBe(false);
-    expect(coordinator.accept('n1', 'inst-1', 1)).toBe(false);
+    expect(coordinator.accept('n1', 'inst-1', 2, true)).toBe(false);
+    expect(coordinator.accept('n1', 'inst-1', 1, true)).toBe(false);
     expect(coordinator.accept('n1', 'inst-1', 3)).toBe(true);
     // Cursors are per (node, instance).
     expect(coordinator.accept('n1', 'inst-2', 1)).toBe(true);
     expect(coordinator.accept('n2', 'inst-1', 1)).toBe(true);
+  });
+
+  it('delivers a LIVE frame at or below the cursor rather than dropping it', () => {
+    // Dedupe exists to discard replayed frames. A live frame below the cursor
+    // means the worker sent frames out of seq order, and silently discarding
+    // it destroyed user-visible output with only a debug log (LT-541).
+    const { coordinator } = makeCoordinator();
+    expect(coordinator.accept('n1', 'inst-1', 5)).toBe(true);
+    expect(coordinator.accept('n1', 'inst-1', 4)).toBe(true);
+    expect(coordinator.accept('n1', 'inst-1', 5)).toBe(true);
+  });
+
+  it('an out-of-order live frame never rewinds the cursor', () => {
+    const { coordinator, sendAck } = makeCoordinator();
+    coordinator.accept('n1', 'inst-1', 5);
+    coordinator.accept('n1', 'inst-1', 4);
+    vi.advanceTimersByTime(2_100);
+    expect(sendAck).toHaveBeenCalledWith('n1', [{ instanceId: 'inst-1', seq: 5 }]);
+    // The replayed copy of that same low frame is still a duplicate.
+    expect(coordinator.accept('n1', 'inst-1', 4, true)).toBe(false);
   });
 
   it('acks the highest dirty cursors on the debounce timer', () => {
@@ -62,9 +82,10 @@ describe('StreamDurabilityCoordinator', () => {
     const { coordinator } = makeCoordinator();
     coordinator.noteNodeEpoch('n1', 111);
     coordinator.accept('n1', 'inst-1', 500);
-    // Same epoch re-announced — cursors survive.
+    // Same epoch re-announced — cursors survive, so a replay below them is
+    // still deduped.
     coordinator.noteNodeEpoch('n1', 111);
-    expect(coordinator.accept('n1', 'inst-1', 400)).toBe(false);
+    expect(coordinator.accept('n1', 'inst-1', 400, true)).toBe(false);
     // New worker process — fresh counters must flow.
     coordinator.noteNodeEpoch('n1', 222);
     expect(coordinator.accept('n1', 'inst-1', 1)).toBe(true);

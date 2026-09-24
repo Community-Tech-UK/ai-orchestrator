@@ -11,7 +11,9 @@ const bonjour = vi.hoisted(() => {
     order: string[];
   }[] = [];
   const order: string[] = [];
-  return { instances, order };
+  const errorCallbacks: ((err: unknown) => void)[] = [];
+  const warn = vi.fn();
+  return { instances, order, errorCallbacks, warn };
 });
 
 vi.mock('bonjour-service', () => ({
@@ -22,7 +24,8 @@ vi.mock('bonjour-service', () => ({
     });
     unpublishAll = vi.fn(() => bonjour.order.push('unpublishAll'));
     destroy = vi.fn(() => bonjour.order.push('destroy'));
-    constructor() {
+    constructor(_opts?: unknown, errorCallback?: (err: unknown) => void) {
+      if (errorCallback) bonjour.errorCallbacks.push(errorCallback);
       bonjour.order.push('construct');
       bonjour.instances.push(this as never);
     }
@@ -30,7 +33,7 @@ vi.mock('bonjour-service', () => ({
 }));
 
 vi.mock('../logging/logger', () => ({
-  getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
+  getLogger: () => ({ info: vi.fn(), warn: bonjour.warn, error: vi.fn() }),
 }));
 
 describe('DiscoveryService', () => {
@@ -38,6 +41,32 @@ describe('DiscoveryService', () => {
     DiscoveryService._resetForTesting();
     bonjour.instances.length = 0;
     bonjour.order.length = 0;
+    bonjour.errorCallbacks.length = 0;
+    bonjour.warn.mockClear();
+  });
+
+  // bonjour-service's default error callback rethrows. When macOS denies the
+  // app Local Network access, every mDNS query this responder tries to answer
+  // failed with EHOSTUNREACH and surfaced as an uncaught main-process
+  // exception, while the advertisement was logged as published.
+  it('handles an mDNS response failure without throwing and warns once per advertisement', () => {
+    const service = DiscoveryService.getInstance();
+    service.publish(4878, 'default', 'default');
+
+    expect(bonjour.errorCallbacks).toHaveLength(1);
+    const failure = Object.assign(new Error('send EHOSTUNREACH 224.0.0.251:5353'), { code: 'EHOSTUNREACH' });
+    expect(() => bonjour.errorCallbacks[0](failure)).not.toThrow();
+    expect(() => bonjour.errorCallbacks[0](failure)).not.toThrow();
+
+    expect(bonjour.warn).toHaveBeenCalledTimes(1);
+    expect(bonjour.warn).toHaveBeenCalledWith(
+      expect.stringContaining('mDNS'),
+      expect.objectContaining({ code: 'EHOSTUNREACH', hint: expect.stringContaining('Local Network') }),
+    );
+
+    service.publish(4999, 'default', 'default');
+    bonjour.errorCallbacks[1](failure);
+    expect(bonjour.warn).toHaveBeenCalledTimes(2);
   });
 
   it('publishes the coordinator service with the given port and namespace', () => {

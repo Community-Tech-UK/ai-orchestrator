@@ -387,6 +387,23 @@
   --toast-success-fg: #14532d;
   --toast-shadow: var(--shadow-md);
 
+  // Status pill foregrounds (LT-630). --pill-*-fg default-aliases the base
+  // status color (e.g. --success-color), which is tuned for dark
+  // backgrounds. Composited over its matching low-alpha --pill-*-bg tint in
+  // light theme that reads near-white, the base colors measured 2.6-3.2:1.
+  // These overrides are darker, same-hue shades tuned to stay >= 4.5:1
+  // against their tint (measured against tints composited over both
+  // --bg-elevated/--bg-primary and --bg-tertiary; see LT-630 for the ratios).
+  // Only the *-fg tokens change — *-bg/*-border/the base -color tokens are
+  // untouched, so consumers that use --success-color etc. directly are
+  // unaffected, and dark theme is unaffected because this block only
+  // applies under [data-theme='light'].
+  --pill-ok-fg: #14532d;
+  --pill-warn-fg: #92400e;
+  --pill-error-fg: #b91c1c;
+  --pill-info-fg: #1e40af;
+  --pill-accent-fg: #78350f;
+
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -450,6 +467,13 @@
     --primary-color: #d97706;
     --primary-hover: #b45309;
     --primary-muted: #f59e0b;
+
+    // Kept in sync with the [data-theme='light'] block's LT-630 fix above.
+    --pill-ok-fg: #14532d;
+    --pill-warn-fg: #92400e;
+    --pill-error-fg: #b91c1c;
+    --pill-info-fg: #1e40af;
+    --pill-accent-fg: #78350f;
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);

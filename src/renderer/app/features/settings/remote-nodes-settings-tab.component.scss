@@ -197,8 +197,12 @@
 }
 
 .role-choice-row .btn.selected {
+  // LT-630: --primary-color as text on its own 12% tint measured 2.92:1 in
+  // light theme. The accent still reads via the border and tinted
+  // background; the label itself uses --text-primary, same pattern LT-575
+  // used for status-pill text on a tint of the same hue.
   border-color: var(--primary-color);
-  color: var(--primary-color);
+  color: var(--text-primary);
   background: color-mix(in srgb, var(--primary-color) 12%, var(--bg-primary));
 }
 

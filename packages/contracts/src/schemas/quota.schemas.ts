@@ -68,6 +68,8 @@ export const ProviderQuotaSnapshotEventSchema = z.object({
   error: z.string().max(10_000).optional(),
   needsReauth: z.boolean().optional(),
   cliNotInstalled: z.boolean().optional(),
+  /** Replaces a stale snapshot when quota is not applicable under the current config. */
+  notApplicable: z.literal(true).optional(),
   windows: z.array(ProviderQuotaWindowSchema).max(100),
   usageAccess: z.object({
     ordinaryUsageAllowed: z.boolean().nullable(),

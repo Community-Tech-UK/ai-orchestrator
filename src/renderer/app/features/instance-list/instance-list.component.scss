@@ -445,7 +445,11 @@
     .project-actions.visible {
       opacity: 1;
       pointer-events: auto;
-      transform: translateX(0);
+      /* none, not translateX(0): any transform makes this the containing block
+         for the position: fixed project menu inside it, which then resolves
+         its viewport coordinates against this row and renders off-screen
+         (LT-631, third live re-check). */
+      transform: none;
     }
 
     .project-action-btn {
@@ -500,9 +504,16 @@
     }
 
     .project-menu {
-      position: absolute;
-      top: calc(100% + 6px);
-      right: 0;
+      // LT-631: was `position: absolute` inside `.project-menu-anchor`, a
+      // descendant of the scrolling `.instance-viewport`. That ancestor's
+      // `overflow-y: auto` clipped the menu with a hard flat edge well short
+      // of its own `max-height` cap whenever the list pane's visible box was
+      // shorter than the menu (a routine case, not an edge case — see
+      // LT-631). `position: fixed`, with `top`/`bottom`/`right`/`max-height`
+      // computed per-open from the trigger's `getBoundingClientRect()`
+      // (`computeProjectMenuPosition` in the component), escapes that clip
+      // and sizes itself against the real, unclipped viewport instead.
+      position: fixed;
       min-width: 172px;
       display: flex;
       flex-direction: column;
@@ -510,9 +521,15 @@
       // Vertical scroll, horizontal still clipped so the border radius holds.
       // The Copilot section renders an unbounded account list inside this menu,
       // so a project low in a scrolled list could push its lower items past the
-      // viewport's clip edge with no way to reach them.
+      // viewport's clip edge with no way to reach them. This is a fallback
+      // ceiling — the component's inline `max-height` (computed against the
+      // actual available space above/below the trigger) normally wins.
       max-height: min(60vh, 420px);
       overflow: hidden auto;
+      // Keep an exhausted internal scroll (e.g. a long Copilot account list)
+      // from chaining into `.instance-viewport`'s scroll, which would close
+      // the menu via `onInstanceViewportScroll()`.
+      overscroll-behavior: contain;
       border-radius: 12px;
       border: 1px solid rgba(255, 255, 255, 0.08);
       background: linear-gradient(180deg, rgb(23, 30, 28), rgb(12, 18, 17));

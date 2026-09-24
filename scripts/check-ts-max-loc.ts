@@ -472,7 +472,10 @@ const ALLOWLIST: Record<string, number> = {
   // Re-tightened 825 -> 818: retry disposition extracted to
   // messaging-retry-disposition.ts.
   'src/renderer/app/core/state/instance/instance-messaging.store.ts': 818,
-  'src/renderer/app/core/state/instance/instance.store.ts': 775,
+  // Recorded at the actual size, 829: the file had already grown to 825
+  // within slack before LT-651 added 4 lines (contextEvidence follow-up emit,
+  // sibling of the reasoningEffort handling). Re-tighten after a store split.
+  'src/renderer/app/core/state/instance/instance.store.ts': 829,
   // Added 2026-07-16 at 710 (Fable WS6 recipe picker options + WS6 maxTurns/
   // allowUnbounded loop-config plumbing). Re-tighten after a store split.
   'src/renderer/app/core/state/loop.store.ts': 751,

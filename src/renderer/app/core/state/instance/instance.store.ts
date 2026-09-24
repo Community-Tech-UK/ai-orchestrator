@@ -338,6 +338,8 @@ export class InstanceStore implements OnDestroy {
             update.reasoningEffort === null
               ? undefined
               : update.reasoningEffort ?? inst.reasoningEffort,
+          // LT-651: sibling of reasoningEffort's LT-602 fix above.
+          contextEvidence: update.contextEvidence ?? inst.contextEvidence,
           providerSessionId: update.providerSessionId ?? inst.providerSessionId,
           restartEpoch: update.restartEpoch ?? inst.restartEpoch,
           adapterGeneration: update.adapterGeneration ?? inst.adapterGeneration,
@@ -452,6 +454,8 @@ export class InstanceStore implements OnDestroy {
               update.reasoningEffort === null
                 ? undefined
                 : update.reasoningEffort ?? instance.reasoningEffort,
+            // LT-651 — see applyUpdate's identical handling above.
+            contextEvidence: update.contextEvidence ?? instance.contextEvidence,
             providerSessionId: update.providerSessionId ?? instance.providerSessionId,
             restartEpoch: update.restartEpoch ?? instance.restartEpoch,
             adapterGeneration: update.adapterGeneration ?? instance.adapterGeneration,

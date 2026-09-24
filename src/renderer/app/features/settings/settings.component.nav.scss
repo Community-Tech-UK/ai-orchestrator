@@ -258,8 +258,14 @@
 }
 
 .settings-sidebar.nav-collapsed {
-  width: 56px;
-  min-width: 56px;
+  // 64px, not the visual 44/56px target: `.settings-nav` below has its own
+  // vertical scrollbar (6px, `_base.scss`) plus 5px of horizontal padding on
+  // each side. Both are carved out of this rail's content box before
+  // `.nav-item`'s `width: 100%` resolves, so a 56px rail left collapsed
+  // `.nav-item`s at 39x44 (LT-572). 64px keeps them >= the 44px floor with a
+  // margin even when the scrollbar is present.
+  width: 64px;
+  min-width: 64px;
 }
 
 .settings-sidebar.nav-collapsed .settings-nav-toggle {
@@ -288,6 +294,7 @@
 
 .settings-sidebar.nav-collapsed .nav-item {
   justify-content: center;
+  min-width: 44px;
   min-height: 44px;
   padding: 6px 0;
 }
@@ -303,12 +310,12 @@
 
 @media (max-width: 900px) {
   /* Task 2 — the compact-nav breakpoint. The in-flow rail always renders at
-   * its 56px-equivalent collapsed width; the full 236px nav only appears as
-   * a temporary overlay (`.nav-overlay-open`, driven by `compactNavOpen`),
-   * never by widening the in-flow rail itself. */
+   * its 64px-equivalent collapsed width (see the LT-572 note above); the
+   * full 236px nav only appears as a temporary overlay (`.nav-overlay-open`,
+   * driven by `compactNavOpen`), never by widening the in-flow rail itself. */
   .settings-sidebar {
-    width: 56px;
-    min-width: 56px;
+    width: 64px;
+    min-width: 64px;
   }
 
   .settings-sidebar.nav-overlay-open {
@@ -323,8 +330,8 @@
   }
 
   .settings-sidebar.nav-collapsed {
-    width: 56px;
-    min-width: 56px;
+    width: 64px;
+    min-width: 64px;
   }
 
   .nav-recommended,

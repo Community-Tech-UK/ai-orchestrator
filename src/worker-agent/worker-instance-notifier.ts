@@ -251,6 +251,13 @@ export class WorkerInstanceNotifier {
   }
 
   sendCompleteNotification(instanceId: string, response: unknown): void {
+    // Drain buffered output first. It rides a 50 ms batching timer while this
+    // frame goes out immediately, so an unflushed batch would be stamped with
+    // a LOWER `durableSeq` than the frame that overtakes it on the wire. The
+    // coordinator's cursor is a strict high-water mark, so it discarded the
+    // late output as a replay duplicate — silently destroying the assistant's
+    // reply on every remote turn (LT-541). Wire order must match seq order.
+    this.flushOutputBuffer();
     const durableSeq = this.options.durability?.record(
       instanceId,
       NODE_TO_COORDINATOR.INSTANCE_COMPLETE,
@@ -269,6 +276,8 @@ export class WorkerInstanceNotifier {
   }
 
   sendContextNotification(instanceId: string, usage: unknown): void {
+    // Same ordering invariant as sendCompleteNotification (LT-541).
+    this.flushOutputBuffer();
     const durableSeq = this.options.durability?.record(
       instanceId,
       NODE_TO_COORDINATOR.INSTANCE_CONTEXT,

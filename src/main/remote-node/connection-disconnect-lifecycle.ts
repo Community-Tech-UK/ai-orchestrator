@@ -5,9 +5,10 @@
  * disconnect so a reconnecting worker can still complete them.
  *
  * Extracted from WorkerNodeConnectionServer so the timer interlocks are
- * isolated and the connection file stays within its LOC budget. All state
- * queries and side effects go through the injected deps — this class owns
- * ONLY the timers.
+ * isolated and the connection file stays within its LOC budget. Side effects
+ * and live connection state go through the injected deps; the only state this
+ * class owns is the timers and the per-node WS15 handshake durability that
+ * decides between them.
  */
 
 import { getLogger } from '../logging/logger';
@@ -35,8 +36,6 @@ export const PARKED_WORK_RPC_WINDOW_MS = 60_000;
 
 export interface DisconnectLifecycleDeps {
   isNodeConnected(nodeId: string): boolean;
-  /** Does the node advertise stream durability (WS15 handshake flag)? */
-  isDurableNode(nodeId: string): boolean;
   /** Does the node currently have parked-eligible (work) RPCs in flight? */
   hasPendingWork(nodeId: string): boolean;
   rejectPending(nodeId: string, reason: string, filter: 'all' | 'non-work' | 'work'): void;
@@ -47,8 +46,22 @@ export interface DisconnectLifecycleDeps {
 export class ConnectionDisconnectLifecycle {
   private readonly graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly parkedRejectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /**
+   * WS15 durability each node advertised at registration. Deliberately NOT
+   * read back from the node registry: the health monitor deregisters a silent
+   * node BEFORE closing its socket, so on the commonest real disconnect path
+   * the registry entry is already gone by the time the grace window expires.
+   * Reading it there made every durable worker look non-durable and aborted
+   * its in-flight turn instead of parking it (LT-542).
+   */
+  private readonly nodeDurability = new Map<string, number>();
 
   constructor(private readonly deps: DisconnectLifecycleDeps) {}
+
+  /** Record the `streamDurability` a node advertised in its registration. */
+  noteNodeDurability(nodeId: string, streamDurability: unknown): void {
+    this.nodeDurability.set(nodeId, typeof streamDurability === 'number' ? streamDurability : 0);
+  }
 
   /** Schedule a "true disconnect" unless the node re-registers in time. */
   beginGrace(nodeId: string): void {
@@ -59,12 +72,13 @@ export class ConnectionDisconnectLifecycle {
       if (this.deps.isNodeConnected(nodeId)) return;
       // WS15: durable workers keep WORK RPCs parked for a longer window; a
       // reconnect within it completes them and replays the output gap.
-      if (this.deps.isDurableNode(nodeId)) {
+      if ((this.nodeDurability.get(nodeId) ?? 0) >= 1) {
         this.deps.rejectPending(nodeId, `Node disconnected: ${nodeId}`, 'non-work');
         this.beginParkedWorkRejection(nodeId);
       } else {
         this.deps.rejectPending(nodeId, `Node disconnected: ${nodeId}`, 'all');
       }
+      this.nodeDurability.delete(nodeId);
       this.deps.onTrueDisconnect(nodeId);
     }, DISCONNECT_GRACE_MS);
     if (typeof timer.unref === 'function') timer.unref();
@@ -94,6 +108,7 @@ export class ConnectionDisconnectLifecycle {
     this.graceTimers.clear();
     for (const timer of this.parkedRejectTimers.values()) clearTimeout(timer);
     this.parkedRejectTimers.clear();
+    this.nodeDurability.clear();
   }
 
   private beginParkedWorkRejection(nodeId: string): void {

@@ -10,7 +10,7 @@ status lives in the Remediation Index; implementation progress lives in the plan
 
 **Original status:** Approved in review `2026-07-18-livetest-failure-remediation`.
 
-**Plan:** [2026-07-19-livetest-failure-remediation_plan.md](2026-07-19-livetest-failure-remediation_plan.md)
+**Plan:** [2026-07-19-livetest-failure-remediation_plan_completed.md](2026-07-19-livetest-failure-remediation_plan_completed.md)
 
 **Purpose:** Provide one execution index for every confirmed defect found while running the
 live-test backlog. The originating live-test files remain the canonical acceptance procedures and
@@ -35,6 +35,32 @@ evidence records.
 
 ## Remediation Index
 
+### Current status corrections — 2026-09-24
+
+These supersede the status phrase in the matching index rows. Evidence lives in the owning
+`*_livetest.md` documents under their `## Evidence run — 2026-09-24 (...)` sections. The dev-app
+runs used HEAD `f04f6748`. The packaged-app runs used the build of 2026-09-23 21:12.
+
+| ID | Current status |
+| --- | --- |
+| LT-545, LT-546 | **CONFIRMED FIXED LIVE** (skill-observability check 4a/4b/4d). LT-547 is wired in source; its live half was inconclusive because detection never fired. |
+| LT-548, LT-549, LT-550 | **CONFIRMED FIXED LIVE** (workspace-secret-card checks 2–4). |
+| LT-551 | Agents can now issue `secret_required` themselves. The card reached the UI only by the pull route until LT-641 is fixed, so the live push re-check is pending. |
+| LT-570, LT-571, LT-573, LT-574, LT-575 | **CONFIRMED FIXED LIVE** (settings-ux LT-1/LT-2). |
+| LT-572 | **REOPENED (width) → FIXED IN CODE 2026-09-24** (collapsed rail 64 px, `min-width: 44px`); live re-check pending. |
+| LT-590, LT-591, LT-592, LT-593, LT-594 | **CONFIRMED FIXED LIVE**. |
+| LT-595, LT-605, LT-606, LT-610, LT-611, LT-613 | **CONFIRMED FIXED LIVE**. |
+| LT-596, LT-597, LT-598, LT-599, LT-600, LT-601, LT-602 | **CONFIRMED FIXED LIVE**. |
+| LT-603 | Fixed in code (`9efc4871`) with a regression test. The live multi-process re-check has **not** been run. |
+| LT-612 | Cursor half **CONFIRMED FIXED LIVE**. Grok half **REOPENED → FIXED IN CODE 2026-09-24**: Grok reports `rawOutput.exit_code`, captured on the wire. Live re-check pending. |
+| LT-541, LT-542 | **REOPENED**: the fix was never on `main`. Ported to the working tree 2026-09-24; live re-check pending. |
+| LT-544 | `windows-pc` channel executes commands again (2026-09-24). The local Mac channel reproduced a different fault, filed as LT-618. |
+| LT-615–LT-617, LT-619–LT-621, LT-630, LT-631, LT-640–LT-642, LT-650, LT-651 | New 2026-09-24. **FIXED IN CODE**; see each row. LT-618 is partly fixed: the unbounded extension boundary queue remains. |
+| LT-643 | New 2026-09-24. **FIXED + CONFIRMED LIVE** (working tree): three real ping-pong loops completed with rounds surfacing. Ping-pong check 2 is now blocked by LT-644. |
+| LT-640, LT-641 | Both faults of each **CONFIRMED FIXED LIVE** 2026-09-24 (`verify-final`): the panel updated without reload, and secret and question cards rendered inside an open chat. |
+| LT-612, LT-642, LT-650, LT-651, LT-620, LT-572, LT-630 | **CONFIRMED FIXED LIVE** 2026-09-24 (`verify-loops` / `verify-ui`). |
+| LT-644 | New 2026-09-24. **FIXED IN CODE**: the prompt now names the finding fields, the parser reads Codex's names, and a round whose findings are all unusable is unreliable. Live re-check pending. |
+
 ### Current status corrections — 2026-08-31
 
 These corrections supersede the older status phrase inside the corresponding index rows and full
@@ -50,7 +76,7 @@ sections below. The historical reproduction remains unchanged.
 
 | ID | Priority | Required fix | Evidence source | Retest source |
 | --- | --- | --- | --- | --- |
-| LT-001 | P0 | Browser Gateway grants for an existing shared tab must match the action retried after approval | [Browser Permission UX evidence](../superpowers/plans/2026-07-17-browser-permission-ux_plan_livetest.md#2026-07-18-live-test-evidence) | [Browser Permission UX checks](../superpowers/plans/2026-07-17-browser-permission-ux_plan_livetest.md#check-1-low-risk-permission-bar) |
+| LT-001 | P0 | Browser Gateway grants for an existing shared tab must match the action retried after approval | [Browser Permission UX evidence](../superpowers/plans/2026-07-17-browser-permission-ux_plan_livetest_completed.md#2026-07-18-live-test-evidence) | [Browser Permission UX checks](../superpowers/plans/2026-07-17-browser-permission-ux_plan_livetest_completed.md#check-1-low-risk-permission-bar) |
 | LT-002 | P0 | The embedded document-review runtime must execute without weakening renderer or iframe isolation | [Doc-review embedded evidence](./2026-07-13-doc-review-choice-controls-plan_livetest_completed.md#scenario-2--embedded-doc-reviews-pane-blocked-both-root-causes-verified) | [Doc-review choice-controls checklist](./2026-07-13-doc-review-choice-controls-plan_livetest_completed.md#2-embedded-doc-reviews-pane) |
 | LT-003 | P1 | Unsaved document-review choices and comments must survive the reload/reselection behavior required by the live test | [Doc-review state finding](./2026-07-13-doc-review-choice-controls-plan_livetest_completed.md#scenario-2--embedded-doc-reviews-pane-blocked-both-root-causes-verified) | [Doc-review choice-controls checklist](./2026-07-13-doc-review-choice-controls-plan_livetest_completed.md#2-embedded-doc-reviews-pane) |
 | LT-004 | P0 | Interrupt and unexpected-exit recovery must classify the active runtime correctly and preserve the session | [Interrupt evidence](../superpowers/plans/2026-07-17-interrupt-respawn-reconciler-migration-plan_livetest_completed.md#2026-07-18-live-test-evidence), [unexpected-exit evidence](../superpowers/plans/2026-07-17-unexpected-exit-reconciler-migration-plan_livetest_completed.md#2026-07-18-live-test-evidence) | [Interrupt checks](../superpowers/plans/2026-07-17-interrupt-respawn-reconciler-migration-plan_livetest_completed.md#checks), [unexpected-exit checks](../superpowers/plans/2026-07-17-unexpected-exit-reconciler-migration-plan_livetest_completed.md#checks) |
@@ -70,22 +96,22 @@ sections below. The historical reproduction remains unchanged.
 | LT-047 | P1 | **FIXED + VERIFIED LIVE 2026-08-12** — confirmed and root-caused: a resident Claude turn is completed entirely inside `processCliMessage`'s `case 'result'` (`claude-cli-adapter.ts`), a code path that never called `completeResponse()`/emitted `'complete'` — that seam was only reachable from the one-shot `sendMessage()` path's process-close handler, which a resident session's process never triggers per-turn (it stays alive across turns). Reproduced live: 0/5 `'complete'` events on a resident Claude instance vs 3/3 for a Codex control in the same session, and **zero** cost-tracker entries recorded across those 5 real Claude turns. Fixed by accumulating each resident turn's raw NDJSON and, at `result`, feeding it to the existing `parseOutput()` (the same conversion one-shot mode already trusts) and calling `completeResponse()`, guarded by a new `awaitingOneShotCompletion` flag so the one-shot path's own completion can never double-fire. Live-verified post-fix: 3/3 turns emitted `'complete'` with real `content`+`usage`, and 3/3 cost-tracker entries were recorded (was 0/5 before). Separately, cost-tracking was found to ALSO fail for **Codex** resident turns via an unrelated mechanism (`response.usage` undefined on `'complete'` even though it fires) — filed as **LT-090**, not fixed | [LT-047 fix + live verification](livetest-remediation-register.md#lt-047-a-resident-claude-cli-session-never-fires-the-adapter-complete-event) | `src/main/cli/adapters/__tests__/claude-cli-adapter.spec.ts` ("LT-047: resident Claude session fires the adapter complete event", 4 mutation-verified tests) |
 | LT-018 | P2 | **FIXED IN CODE 2026-08-01, completion gate PASSED at round 11 (live re-check outstanding)** — `ContextUsage.occupancyReported` makes "we have no measurement" explicit instead of seeding a confident `0 %`. Eleven gate rounds found **ten** defects, three of them regressions introduced by the fix itself: the same confident zero was duplicated across five renderer surfaces and two transports, could be *inverted* into a stale confident number by four fresh-session paths, was dropped in transit by two persistence writers (silently losing accrued `costEstimate` on every turn), and adding the field made a `.strict()` schema reject a live IPC event. Change 2 (the false `copilot-acp` `cumulativeReporting: 'available'` declaration) is still open. Previously — **REOPENED 2026-07-31 — the 2026-07-30 fix cannot work and the user-visible defect is unchanged.** Live re-run after 3 real Copilot turns still shows `{used:0,total:200000,percentage:0}`. A diagnostic added this session proves why: `AcpCliAdapter  ACP turn reported no token usage … { profile: 'copilot-acp', usageKeys: null }` — the installed Copilot ACP runtime sends **no usage object at all**, so there is nothing to aggregate. And the "never a fake 0 %" half is defeated upstream: `instance-create-builder.ts:82-86` seeds every instance with a concrete `{used:0,total:200000,percentage:0}`, so the bar shows a confident zero regardless of what the adapter does. See the reopened section for the two required changes. Previously (2026-07-30) — the ACP adapter now emits a `context` event from the per-turn usage it already received, accumulating a session aggregate; no usage means no event (never a fake 0 %). Originally: Copilot (ACP) instances never reported context occupancy or cumulative tokens, despite the `copilot-acp` profile declaring `occupancyReporting: 'aggregate-only'` and `cumulativeReporting: 'available'` — the context bar sits at 0 % for the whole session | [WS14 evidence](./2026-07-13-fable-ws14_livetest_completed.md#evidence-run--2026-07-29-dev-app-live-copilot--claude) | [WS14 check 2](./2026-07-13-fable-ws14_livetest_completed.md#2-real-context-occupancy) |
 | LT-019 | P1 | **CODE FIXED 2026-07-31; awaiting durable worker deploy + CLI retest** — Local AI Guard canaries and real auxiliary generation explicitly disable LM Studio reasoning, retaining `/no_think` as a soft fallback, so supported Qwen models do not exhaust their output budget before visible content | [Local AI Guard CLI evidence](../superpowers/plans/2026-07-30-local-ai-guard-cli_plan_livetest.md#evidence-run--2026-07-31--rebuilt-app-and-windows-pc) | [Local AI Guard CLI checks](../superpowers/plans/2026-07-30-local-ai-guard-cli_plan_livetest.md) |
-| LT-020 | P1 | **DESTRUCTIVE HALF FIXED + VERIFIED LIVE 2026-07-31** — a new adapter-loan registry makes the desired-runtime queue wait for the real iteration boundary, so a swap no longer SIGTERMs the loop's CLI (0 kills, loop stayed `running` across the swap; was 2 of 2 kills before). The remaining half — whether a swap should re-provider a running loop — is a product decision, extracted to [`2026-07-31-swap-residuals_livetest.md`](./2026-07-31-swap-residuals_livetest_completed.md). Originally: a queued swap applied mid-iteration, SIGTERMing the CLI and terminating the loop as `completed-needs-review` | [Swap check 4 evidence](./2026-07-16-session-provider-model-swap-plan_livetest_completed.md#evidence-run--2026-07-31--dev-app-over-cdp-rebuilt-main) | [Swap check 4](./2026-07-16-session-provider-model-swap-plan_livetest_completed.md#4-swap-during-a-loop) |
+| LT-020 | P1 | **FULLY CLOSED 2026-08-11** — destructive half fixed + verified live 2026-07-31 (adapter-loan registry makes the desired-runtime queue wait for the real iteration boundary; 0 kills, loop stayed `running` across the swap, was 2/2 kills before). The remaining half (should a swap re-provider a running loop) was a product decision: James chose option 3 (decouple) 2026-08-01 — loop keeps its provider, session moves, user is notified via `describeLoopProviderDivergence` — implemented, unit-tested, live-verified. The one residual (remote-node CLI-guard toast rendering) closed 2026-08-11 on branch equivalence with James's sign-off. See [`2026-07-31-swap-residuals_livetest_completed.md`](./2026-07-31-swap-residuals_livetest_completed.md) and [`2026-08-01-swap-residuals-toast_livetest_completed.md`](./2026-08-01-swap-residuals-toast_livetest_completed.md). Originally: a queued swap applied mid-iteration, SIGTERMing the CLI and terminating the loop as `completed-needs-review` | [Swap check 4 evidence](./2026-07-16-session-provider-model-swap-plan_livetest_completed.md#evidence-run--2026-07-31--dev-app-over-cdp-rebuilt-main) | [Swap check 4](./2026-07-16-session-provider-model-swap-plan_livetest_completed.md#4-swap-during-a-loop) |
 | LT-021 | P2 | **FIXED + VERIFIED LIVE 2026-07-31** — `LoopActivityKindSchema` is now the single shared union and the main-process type derives from it; the post-fix log has 0 blocked `loop:activity` events (was 110 in one session). Originally: 8 of the 11 loop activity kinds were rejected by the renderer-boundary schema, so the loop activity feed never showed tool calls or results | [Swap check 4 evidence](./2026-07-16-session-provider-model-swap-plan_livetest_completed.md#evidence-run--2026-07-31--dev-app-over-cdp-rebuilt-main) | [Swap check 4](./2026-07-16-session-provider-model-swap-plan_livetest_completed.md#4-swap-during-a-loop) |
-| LT-022 | P3 | `Renderer heartbeat stalled — UI event loop likely blocked` is logged at ERROR level purely because the window is hidden; a CPU profile across a full "stall" shows the renderer 100% idle | [Unexpected-exit evidence](../superpowers/plans/2026-07-17-unexpected-exit-reconciler-migration-plan_livetest_completed.md#evidence-run--2026-07-31-session-2--check-2-driven-through-the-renderer-core-assertions-pass) | Re-run any timing-sensitive renderer check with the window visible |
+| LT-022 | P3 | **FIXED + REGRESSION-TESTED 2026-09-23; rebuilt-app check pending** in [`2026-09-23-outstanding-plans-sweep_livetest.md`](2026-09-23-outstanding-plans-sweep_livetest.md). Each heartbeat now carries `document.visibilityState` (and a visibility change beats at once); a hidden renderer is judged against `HIDDEN_HEARTBEAT_STALL_THRESHOLD_MS` (150 s, above Chromium's one-tick-a-minute hidden throttle) instead of 10 s, so a genuine hidden-window freeze is still reported. Historical finding: `Renderer heartbeat stalled — UI event loop likely blocked` is logged at ERROR level purely because the window is hidden; a CPU profile across a full "stall" shows the renderer 100% idle | [Unexpected-exit evidence](../superpowers/plans/2026-07-17-unexpected-exit-reconciler-migration-plan_livetest_completed.md#evidence-run--2026-07-31-session-2--check-2-driven-through-the-renderer-core-assertions-pass) | Re-run any timing-sensitive renderer check with the window visible |
 | LT-023 | P2 | **FIXED + VERIFIED LIVE 2026-08-12** — a crash landing inside the 5s recent-respawn suppression window used to fall straight to a terminal `error` with no `waitReason` and no further attempt, because the crude suppression sat in front of the circuit breaker and `onUnexpectedExit` was simply never called. Now deferred and retried once the window elapses, routing through the normal auto-respawn path (and, inside it, the circuit breaker's own backoff ladder) instead of dying silently | [Fix + live evidence](livetest-remediation-register.md#fix--2026-08-12--deferred-and-retried-instead-of-left-terminal-verified-live) | [Unexpected-exit check 4](../superpowers/plans/2026-07-17-unexpected-exit-reconciler-migration-plan_livetest_completed.md#checks) |
 | LT-024 | P1 | **FIXED + VERIFIED 2026-07-31** — `serializeReviewResultJsonSchema` emitted Zod 4's `$schema` dialect key, which the Claude CLI rejects outright (`--json-schema is not a valid JSON Schema…`, exit 1), so **every** Claude-reviewer cross-model review failed. Key stripped; the CLI now accepts the document | [WS14 check 10 evidence](./2026-07-13-fable-ws14_livetest_completed.md#evidence-run--2026-07-31-session-2--check-10-driven-two-defects-found) | [WS14 check 10](./2026-07-13-fable-ws14_livetest_completed.md#10-structured-review-verdicts) |
 | LT-025 | P1 | **FIXED + VERIFIED LIVE 2026-07-31** — with `--json-schema` the CLI returns the verdict as a `StructuredOutput` **tool_use**, not assistant text, and the parser routed it to `toolCalls` while leaving `content` empty. The parser now prefers the structured payload; check 10 passes with `repaired: false` and 0 retries. Originally: after LT-024, the in-app Claude reviewer still returned an **empty** response (`responseLength: 0`) in ~12 s, twice per review, so every review falls through format-repair and fails — while the identical schema and prompt run directly against the CLI return a complete, valid verdict object | [WS14 check 10 evidence](./2026-07-13-fable-ws14_livetest_completed.md#evidence-run--2026-07-31-session-2--check-10-driven-two-defects-found) | [WS14 check 10](./2026-07-13-fable-ws14_livetest_completed.md#10-structured-review-verdicts) |
-| LT-026 | P1 | **FIXED + VERIFIED 2026-07-31** — the Seatbelt base policy granted no `mach-lookup` to securityd, so a jailed CLI could not read its own keychain credentials: every hardened instance printed `Not logged in`, exited 1 and landed in `error`. Hardened mode was unusable for any credentialed provider | [WS13 evidence](2026-07-13-fable-ws13_livetest.md#evidence-run--2026-07-31) | [WS13 check 2](2026-07-13-fable-ws13_livetest.md) |
-| LT-027 | P1 | **FIXED + VERIFIED 2026-07-31** — Seatbelt writable roots were not realpath-resolved, and on macOS both `/tmp` and `os.tmpdir()` are symlinks, so the declared roots granted **no write access at all** (`mkdir` inside the temp root → `Operation not permitted`; with the realpath'd root → exit 0). Hardened instances died with `EPERM … mkdir aio-claude-tmp` | [WS13 evidence](2026-07-13-fable-ws13_livetest.md#evidence-run--2026-07-31) | [WS13 check 2](2026-07-13-fable-ws13_livetest.md) |
-| LT-028 | P2 | Codex under hardened mode is unusable: the adapter logs **both** `using exec mode (app-server not available)` and `using app-server mode` 400 ms apart, and the session never answers — its MCP workers die with `Transport channel closed`. The Phase A writable-root set is insufficient for Codex | [WS13 evidence](2026-07-13-fable-ws13_livetest.md#evidence-run--2026-07-31) | [WS13 checks 4 and 8](2026-07-13-fable-ws13_livetest.md) |
-| LT-029 | P2 | Hardened mode breaks on credential **refresh**: keychain *writes* go to `~/Library/Keychains`, which is in none of the writable roots (jailed `touch` → `Operation not permitted`). Startup works, so a short check cannot catch it; it bites on token refresh mid-session. Needs a decision — grant the root, or document the limitation | [WS13 evidence](2026-07-13-fable-ws13_livetest.md#evidence-run--2026-07-31) | [WS13 check 8](2026-07-13-fable-ws13_livetest.md) |
+| LT-026 | P1 | **FIXED + VERIFIED 2026-07-31** — the Seatbelt base policy granted no `mach-lookup` to securityd, so a jailed CLI could not read its own keychain credentials: every hardened instance printed `Not logged in`, exited 1 and landed in `error`. Hardened mode was unusable for any credentialed provider | [WS13 evidence](2026-07-13-fable-ws13_livetest_completed.md#evidence-run--2026-07-31) | [WS13 check 2](2026-07-13-fable-ws13_livetest_completed.md) |
+| LT-027 | P1 | **FIXED + VERIFIED 2026-07-31** — Seatbelt writable roots were not realpath-resolved, and on macOS both `/tmp` and `os.tmpdir()` are symlinks, so the declared roots granted **no write access at all** (`mkdir` inside the temp root → `Operation not permitted`; with the realpath'd root → exit 0). Hardened instances died with `EPERM … mkdir aio-claude-tmp` | [WS13 evidence](2026-07-13-fable-ws13_livetest_completed.md#evidence-run--2026-07-31) | [WS13 check 2](2026-07-13-fable-ws13_livetest_completed.md) |
+| LT-028 | P2 | **FIXED (refused up front) + REGRESSION-TESTED 2026-09-23; rebuilt-app check pending** in [`2026-09-23-outstanding-plans-sweep_livetest.md`](2026-09-23-outstanding-plans-sweep_livetest.md). Took the required behaviour's second option: `createCliAdapter` now refuses a hardened Codex session before building the adapter, with a message telling the operator to start it without hardened mode, instead of spawning a session that can never answer. Making Codex work inside the jail (its writable roots and MCP transport, WS13 check 8) remains a future enhancement that needs live Seatbelt evidence. Historical finding: Codex under hardened mode is unusable: the adapter logs **both** `using exec mode (app-server not available)` and `using app-server mode` 400 ms apart, and the session never answers — its MCP workers die with `Transport channel closed`. The Phase A writable-root set is insufficient for Codex | [WS13 evidence](2026-07-13-fable-ws13_livetest_completed.md#evidence-run--2026-07-31) | [WS13 checks 4 and 8](2026-07-13-fable-ws13_livetest_completed.md) |
+| LT-029 | P2 | **SAFE LIMITATION IMPLEMENTED + REGRESSION-TESTED 2026-09-23; long-session refresh check pending.** Keychain writes remain outside the default hardened roots. A jailed legacy Keychain write is denied, but an actual OAuth refresh under the jail has not been observed. Credential failures now show profile-correct Sign in/Retry guidance without a path-grant prompt. | [LT-029 detail](#lt-029-hardened-keychain-refresh-limitation) | [Sweep live check 7](2026-09-23-outstanding-plans-sweep_livetest.md#check-7--lt-029-hardened-credential-refresh-and-repair) |
 | LT-030 | P1 | **FIXED + VERIFIED LIVE 2026-08-01** — reciprocal interlock (the loop now waits for an in-flight runtime change) plus a single combined delivery for the replay preamble and every notice. Live: both the `provider-changed` and `loop-provider-divergence` notices reach the transcript, **0** active-turn refusals, **0** reverts, **0** SIGTERM loop kills. Originally: a provider swap on a **loop-bearing** session could not complete its post-change messaging: the loop reclaims the adapter the moment the swap lands, the replay-continuity send hangs, and the next send throws `Codex app-server runtime already has an active turn` — so the reconciler **reverts the swap**, and the user sees **no** provider-change notice at all (silently undoing LT-015 on this path) | [Divergence evidence](livetest-remediation-register.md#lt-030-a-swap-on-a-looping-session-cannot-deliver-its-own-notices) | [Swap residuals check A](./2026-07-31-swap-residuals_livetest_completed.md) |
 | LT-031 | P2 | **FIXED 2026-08-01 (found in the live log, not from a check)** — an automation description over 1000 chars saved successfully but its `automation:changed` renderer event was rejected by `AutomationSchema` and dropped by `validateRendererEventPayload`, so the Automations UI kept showing the stale automation with no visible error. Root cause was an **inconsistency between two bounded caps**: the MCP write path allows 2000 and does not validate against the payload schema, the event schema capped at 1000. One shared `AUTOMATION_DESCRIPTION_MAX` (8 000) across create/update/entity. A sibling instance on `workingDirectory` (10 000 write vs 1 000 entity) was found by the gate and fixed with it | [Evidence](livetest-remediation-register.md#lt-031-a-long-automation-description-silently-never-reaches-the-ui) | live `app.log`, 2026-08-01 |
 | LT-032 | P2 | **FIXED 2026-08-01** — `requestAnimationFrame` never fires while the window is hidden/occluded (measured live), but both transcript scroll-restore paths raise `isRestoringRef` synchronously and lower it only inside the frame callback. A restore begun while hidden left the guard stuck `true`, and `OutputScrollService`'s listener short-circuits on it — so scroll tracking died for that session, silently. Reachable by opening an instance then switching apps before the frame lands. All **six** frame call sites now use `runRestoreFrame()`, which races the frame against a bounded timeout and cancels the loser | [Evidence](livetest-remediation-register.md#lt-032-a-hidden-window-permanently-freezes-transcript-scroll-tracking) | [Audit plan item 2](./2026-07-17-aio-code-audit-improvement-plan_livetest_completed.md) |
 | LT-033 | P2 | **FIXED 2026-08-01** — three more instances of LT-032's shape, found by an independent sweep of every `requestAnimationFrame` call site in the renderer. `scheduleTextareaResize` (**fires on every keystroke** — the composer stops auto-growing), `scheduleMeasure` (jump-rail ticks freeze), and `waitForRender` (a never-settling promise leaves `loadingOlder` true, disabling the find bar). All now use `runRestoreFrame` | [Evidence](livetest-remediation-register.md#lt-033-the-stuck-frame-guard-shape-in-three-more-components) | Found by the LT-032 completion gate |
 | LT-034 | P2 | **FIXED 2026-08-11, verified live** — the context ring rendered an **aggregate-only** token count as context-window occupancy. For `copilot-acp` (and every other `occupancyReporting: 'aggregate-only'` provider) `used` is the ever-growing cumulative spend, so the ring climbs to a pinned 100 % while the real context is nearly empty. `occupancyReported: true` is set for any provider-reported usage, so the renderer cannot tell a measurement from an aggregate | [WS14 check 2 evidence](./2026-07-13-fable-ws14_livetest_completed.md) | [WS14 check 2](./2026-07-13-fable-ws14_livetest_completed.md) |
-| LT-105 | P2 | An **errored** resident Claude turn still never fires `'complete'`. LT-047 fixed the `case 'result'` path; `case 'error'` in `claude-cli-adapter.ts` never calls `completeResponse()`, so a turn that fails mid-stream silently skips cost, telemetry, hooks and handoff state — the same class of gap LT-047 closed, on the failure path. The one-shot `sendMessage()` path still resolves via its process-close handler, so this is resident-mode only | Consolidation review, 2026-08-12 | `claude-cli-adapter.ts` `case 'error'` |
+| LT-105 | P2 | **FIXED + REGRESSION-TESTED 2026-09-23; live errored-turn check pending** in [`2026-09-23-outstanding-plans-sweep_livetest.md`](2026-09-23-outstanding-plans-sweep_livetest.md). Decisions taken on the filed questions: the errored turn completes once, immediately, tagged `metadata.turnErrored`, from its accumulated NDJSON (so partial spend is recorded, not dropped); a per-turn guard (`residentTurnCompletedByError`, reset when a turn starts) stops a trailing `result` from completing it twice; the one-shot path is untouched; and the `complete` handler skips the success-only effects for an errored turn (it no longer clears the provider-limit gate, and the `Stop` hook reports `error`). Evidence gathered: across 985,811 captured Claude adapter events (2026-08-12 to 2026-09-23) no resident `type: error` event occurred, because current CLIs end failed turns with a `result`; the fix covers the legacy shape. Historical finding: An **errored** resident Claude turn still never fires `'complete'`. LT-047 fixed the `case 'result'` path; `case 'error'` in `claude-cli-adapter.ts` never calls `completeResponse()`, so a turn that fails mid-stream silently skips cost, telemetry, hooks and handoff state — the same class of gap LT-047 closed, on the failure path. The one-shot `sendMessage()` path still resolves via its process-close handler, so this is resident-mode only | Consolidation review, 2026-08-12 | `claude-cli-adapter.ts` `case 'error'` |
 | LT-146 | P1 | **FIXED + VERIFIED LIVE 2026-08-18** — every Antigravity-provider instance silently ignored its configured `workingDirectory`. `agy` has its own workspace concept gated by `--add-dir`/`--project`, not the spawned process's `cwd`; the AIO adapter never passed either flag, so `agy` always operated against its own fixed default (`~/.gemini/antigravity-cli/scratch`) regardless of the working directory the user or agent selected. Confirmed both inside the harness (a fresh instance scoped to a disposable `/tmp` workspace reported reading `~/.gemini/antigravity-cli/scratch`'s 621 files instead) and independently via a direct shell `agy --print` run from the target directory, which produced the identical wrong-directory answer — ruling out a harness `cwd`-plumbing bug. Fixed by passing `--add-dir <workingDirectory>`; re-run of the same direct `agy --print --add-dir` invocation now lists the correct 2-file disposable workspace | [Provider-agnostic context evidence, check 4](../superpowers/plans/2026-07-15-provider-agnostic-context-evidence-plan_livetest.md#4-antigravity-stateless-check) | `src/main/cli/adapters/antigravity-cli-adapter.spec.ts` (2 new mutation-verified tests) |
 | LT-147 | P1 | **FIXED IN CODE 2026-08-31; live re-check pending.** Raw and parsed tool-result capture now resolve the current provider mode on every capture, so flipping a running provider from `shadow`/`enforce` to `off` takes effect immediately instead of trusting the spawn-time `instance.contextEvidence.mode`. Regression coverage proves the cached mode can remain `shadow` while the live setting blocks both ingress paths | [Provider-agnostic context evidence, check 8](../superpowers/plans/2026-07-15-provider-agnostic-context-evidence-plan_livetest.md#8-provider-kill-switch-rollback) | `src/main/instance/instance-tool-result-processor.spec.ts` |
 | LT-148 | P2 | **FIXED + VERIFIED LIVE 2026-08-18** — the Codex context-pressure diagnostics classifier (`classifyCodexObservedItem`) had no case for the app-server's `userMessage` item-completed echo (the model's own restatement of the user's turn content), so it fell through to the `'other'` bucket — which the discovery protocol's own safety design (`docs/superpowers/plans/2026-07-13-codex-context-pressure-observability-discovery-plan_livetest.md` §2.3.2) explicitly treats as tool-bearing "for safety". Every real turn therefore spuriously counted at least one non-tool item toward the 10-root-tool-item stop bound before any actual tool call happened, and conflated a large (18.5 KB observed on a trivial no-tool turn) non-tool item into the tool/reasoning attribution this diagnostic exists to make. Root-caused with a temporary, reverted debug log proving the raw item `type` was literally `"userMessage"` (not `"reasoning"` as first suspected). Fixed by adding a `'user-message'` class and a `case 'user_message': case 'userMessage':` branch. Live-verified end-to-end pre/post fix on the same baseline prompt: `itemClass` changed from `"other"` to `"user-message"` for the identical 18507-byte item; a follow-up small-ticket case (3 real tool calls) now reports exactly 3 tool-bearing items, 0 `"other"` | [Codex context-pressure discovery, baseline + small-ticket cases](../superpowers/plans/2026-07-13-codex-context-pressure-observability-discovery-plan_livetest.md) | `src/main/cli/adapters/codex/context-pressure-diagnostics.spec.ts` (2 tests, mutation-verified) |
@@ -94,7 +120,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-169 | P1 | **FIXED 2026-08-18, hardened after independent gate review.** Root cause isolated: `SkillAttributionService` is a per-*process* singleton, and auto-injection (`SkillsLoader.detectRelevantSkills` → `unified-controller.ts` `fetchSkills`) runs inside the separate context-worker OS process spawned by `context-worker-main.ts` (Electron `utilityProcess`, its own module realm, its own better-sqlite3 connection — confirmed live via distinct `pid`s, e.g. main `10247` vs worker `10257`). `SKILLS_LOAD`/`SKILLS_SET_CONTROL` run in the main process against the main process's own singleton, so the explicit-load half always saw fresh writes. The old `loadControlCache()` memoized the controls `Map` **forever** after its first read per singleton instance, with no cross-process invalidation of any kind — confirmed live with debug instrumentation: the worker process's cache, once warmed on its first turn, kept serving that first snapshot indefinitely and ignored every later `setControl()` call from the main process, in **both** directions. **Fix 1 (root cause):** `loadControlCache()` now always re-queries the DB when it's available instead of memoizing past the first read; `controlCache` is kept only as a last-known-good fallback for a transient DB error and for the already-existing DB-unavailable in-memory-only mode. **Gate finding 1 (fixed):** always re-querying reintroduced a narrower version of the same failure *direction* — a transient DB read error (e.g. `SQLITE_BUSY`) on the one read that happens to race a real disable would fall back to a stale/empty snapshot and report "no override", defaulting a builtin open to `enabled`. Fixed by making `getControl()` fail **closed**: on a DB-configured-but-erroring read it now returns a synthetic `{mode:'disabled'}` for the requested skill instead of falling back to the stale snapshot, so both `getEffectiveMode()` and skills-loader's direct `getControl()` callers inherit the safe direction from the one shared method — a skill whose control state cannot be established does not fire, rather than firing anyway. Listing (`listControls()`, used only for UI display) intentionally stays best-effort, not fail-closed, since it isn't part of the injection-decision gate. **Gate finding 2 (fixed, Low severity):** removing the memoization doubled a pre-existing inefficiency — `SkillsLoader.resolveModeFor()` (`skills-loader.ts`) called `attribution.getControl(name)` once itself and then, on the fallback path, called `attribution.getEffectiveMode(name, source)`, which re-fetches the same control via its own internal `getControl()` call — two DB reads per matched skill per turn for one logical lookup. Fixed by extracting the pure, DB-free part of `getEffectiveMode()` into `resolveSourceDefaultMode()`, which `resolveModeFor()` now calls directly instead of `getEffectiveMode()`, so the control is fetched exactly once; `getEffectiveMode()` itself is unchanged for its other caller (the explicit-load IPC handler, which was already a single read). Verified: (1) the original memoization-staleness unit test, unaffected; (2) two new unit tests for the fail-closed direction using a driver wrapper that induces one transient read error, watched failing on the reverted fail-closed fix (`AssertionError: expected 'enabled' to be 'disabled'`, both tests) and passing restored; (3) a new unit test asserting `getControl()` is called exactly once per matched skill via `vi.spyOn`, watched failing on the reverted perf fix (`expected [ Array(2) ] to have a length of 1 but got 2`) and passing restored; (4) end-to-end in an isolated dev app for the root-cause fix — baseline `flaky test` send produced a `test-stabilizer` activation (warming the worker's cache), then `skillsSetControl('test-stabilizer','disabled')`, then a second real `flaky test` send produced **no** new activation (`skillsActivationsRecent` stayed at exactly 1 row for 45s post-send). **Batch V2 (2026-08-19):** re-ran `skill-attribution-service.spec.ts` + `skills-loader.spec.ts` against the current tree — 52/52 pass; a real `flaky test` send on a freshly-restarted dev app (driven for LT-170 below) also produced a `test-stabilizer` activation, an incidental live confirmation that this fix's `loadControlCache`/`getControl` path is intact end-to-end post-rebuild, though the kill-switch disable itself was not separately re-exercised this session | [Skill observability evidence](./2026-07-23-skill-observability-and-design-skills_livetest.md#evidence-run--2026-08-18-batch-u--check-3-kill-switch-fails-to-block-auto-injection-lt-169-filed-checks-4-7-9-driven-live), [LT-169 fix evidence](./2026-07-23-skill-observability-and-design-skills_livetest.md#evidence-run--2026-08-18--lt-169-root-cause-isolated-and-fixed-cross-process-controlcache-staleness), [LT-169 gate-hardening evidence](./2026-07-23-skill-observability-and-design-skills_livetest.md#evidence-run--2026-08-18-session-2--lt-169-hardened-after-independent-gate-review-fail-closed--single-db-round-trip) | `src/main/skills/skill-attribution-service.ts` (`loadControlCache`, `getControl`, `resolveSourceDefaultMode`, `getEffectiveMode`), `src/main/memory/skills-loader.ts` (`resolveModeFor`), `src/main/skills/skill-attribution-service.spec.ts` (new tests), `src/main/memory/skills-loader.spec.ts` (new test), `src/main/instance/context-worker-main.ts` (read, not modified — the realm split is by design and correct; only the cache invalidation was wrong) |
 | LT-170 | P2 | **FIXED + REGRESSION-TESTED + LIVE-VERIFIED 2026-08-18 (Batch U2).** Root cause: `SkillAttributionService` is a per-process singleton (LT-169's own constraint), and `recordActivation()` runs inside the **context-worker child process**'s own `UnifiedMemoryController` — its `emit('activation', …)` fires on a different `EventEmitter` object than the one `registerSkillAttributionHandlers()` subscribes to in the main process. `EventEmitter` cannot cross a process boundary on its own, unlike LT-169's DB-backed `controlCache`, which could be fixed by always re-reading a value every realm shares. Fixed by adding a genuine fire-and-forget outbound message (`WorkerSkillActivationMsg`) so the worker forwards each activation over the existing worker↔main channel, and the main process re-emits it on its own `getSkillAttribution()` singleton — no changes needed to the already-correct `registerSkillAttributionHandlers()`. Live-verified end-to-end on a rebuilt dev app (fresh context-worker process required): a raw `onSkillActivationDelta` listener received the activation with no manual refresh, for the first time since this defect was first observed 2026-07-27. **Batch V2 (2026-08-19):** re-confirmed on a genuinely fresh dev app launched from the current, rebuilt `dist/main` (post 2026-08-19 01:39 rebuild) — a real new context-worker child process, not a reused warm one. A real local Claude instance's `flaky test` send produced a `test-stabilizer` `skillActivationDelta` with no manual refresh, proving the fix holds across a genuine restart, not just the process it was first proven in. Full detail below | [LT-170 section](livetest-remediation-register.md#lt-170-skillsactivation-delta-never-reaches-the-renderer-without-a-manual-refresh-cross-process-eventemitter-split), [Skill observability evidence](./2026-07-23-skill-observability-and-design-skills_livetest.md#evidence-run--2026-08-18-batch-u2--check-8-pass-both-halves-blocked-on-a-new-defect-lt-200-fixed-this-session-check-6-pass-core-mechanism-check-5-doctor-lint-half-pass-check-4-positive-half-root-caused-not-a-defect--an-embedding-threshold-reachability-gap-lt-170-root-caused-and-fixed) | `src/main/instance/context-worker-client.spec.ts` (2 new tests, reverted the fix via a `/tmp` copy and watched `expected [] to have a length of 1 but got +0`, then restored and confirmed 2/2 pass) |
 | LT-007 | P2 | Remove obsolete “no GUI automation” and “non-interactive session” blockers from live-test guidance now that Computer Use is available | [Doc-review delivery attempt](./2026-07-13-doc-review-delivery-reconciliation-plan_livetest_completed.md#evidence-run--2026-07-16-attempt-1-autonomous-agent), [WS1 attempt](./2026-07-13-fable-ws1_livetest_completed.md#evidence-run--2026-07-16-blocked-no-rows-recorded), [context-pressure attempt](../superpowers/plans/2026-07-13-codex-context-pressure-observability-discovery-plan_livetest.md#live-test-attempt-log-2026-07-16) | Re-run each linked checklist with current Computer Use capabilities |
-| LT-050 | P1 | **FIXED + VERIFIED LIVE 2026-08-12** — `app-server-recovery-policy.ts` classified the Codex app-server "already has an active turn" collision (thrown by `captureTurn` for a `spawn_child` confirmation racing the parent's own active turn) as unrecoverable, even though the throw site already labels it `recoverability: 'retry-thread'`. The policy only read `kind`, never `recoverability`; now a `request-rejected` kind is `keepInstanceUsable: true` only when the throw site marked it `retry-thread`, leaving every other `request-rejected` (e.g. an invalid model) unchanged. Live: a Codex parent survived the identical collision 2/2 times (was 2/2 fatal before), stayed `idle`, and ended with two live orchestration children. **Residual, not fixed:** the injected confirmation is still silently dropped on collision (an intra-turn child-id handoff can be lost) — recorded as a design decision needed (bounded retry vs. an LT-030-style interlock), not unilaterally implemented | [Fix + live evidence](livetest-remediation-register.md#fix--2026-08-12--fixed-at-the-classification-layer-verified-live) | `src/main/cli/adapters/codex/app-server-recovery-policy.spec.ts`; [Resilient-threads check 3](../superpowers/plans/2026-07-17-resilient-threads-sessions_plan_livetest.md#check-3--orphaned-orchestration-children-reconciled-on-restart-phase-4) (precondition unblocked, check 3 itself still not run) |
+| LT-050 | P1 | **CLASSIFICATION FIX LIVE-VERIFIED 2026-08-12; confirmation handoff FIXED IN CODE 2026-09-23; rebuilt-app check pending** — `app-server-recovery-policy.ts` classified the Codex app-server "already has an active turn" collision (thrown by `captureTurn` for a `spawn_child` confirmation racing the parent's own active turn) as unrecoverable, even though the throw site already labels it `recoverability: 'retry-thread'`. The policy only read `kind`, never `recoverability`; now a `request-rejected` kind is `keepInstanceUsable: true` only when the throw site marked it `retry-thread`, leaving every other `request-rejected` (e.g. an invalid model) unchanged. Live: a Codex parent survived the identical collision 2/2 times (was 2/2 fatal before), stayed `idle`, and ended with two live orchestration children. **2026-09-23 follow-up:** the injected confirmation waits for the active parent turn, retries typed pre-send collisions, and records admission only on successful delivery; expiry leaves visible failure. Focused tests, final gates and fresh independent review passed; rebuilt-app check remains pending | [Fix + live evidence](livetest-remediation-register.md#fix--2026-08-12--fixed-at-the-classification-layer-verified-live) | `src/main/cli/adapters/codex/app-server-recovery-policy.spec.ts`; [Resilient-threads check 3](../superpowers/plans/2026-07-17-resilient-threads-sessions_plan_livetest.md#check-3--orphaned-orchestration-children-reconciled-on-restart-phase-4) (precondition unblocked, check 3 itself still not run) |
 | LT-060 | P2 | **FIXED + VERIFIED 2026-08-11** — `resolveHarnessUserDataPath` ignored Electron's own `--user-data-dir` CLI switch for unpackaged launches and always resolved to the shared `<appData>/harness-dev` profile, so two concurrent dev-app livetest runners collided on the single-instance lock instead of getting isolated profiles. Added an opt-in `AIO_DEV_USER_DATA_PATH` env override (dev-only, ignored when packaged) | [Batch E infra evidence](2026-07-30-sibling-audit-round2_livetest.md#evidence-run--2026-08-12--batch-e--dev-app-isolation-defect-lt-060-found-and-fixed) | `src/main/app/user-data-path.spec.ts` |
 | LT-040 | P1 | **FIXED + VERIFIED LIVE 2026-08-12** — the real Claude CLI binary reserves the literal MCP server name `computer-use` for its own built-in desktop-automation server: `My()`/`XNs()` in the CLI bundle gate every server connection through a per-project `enabledMcpServers` allowlist that defaults to *disabled* only for that exact name (every other name defaults to *enabled*), so a user-supplied `--mcp-config` server named `computer-use` was silently classified `type: "disabled"` and never spawned — no error, no log line on our side. Renamed the injected server to `harness-computer-use` (`COMPUTER_USE_MCP_SERVER_NAME` in `desktop-mcp-config.ts`) across all four provider config emitters (Claude JSON, Codex TOML, Gemini settings JSON, ACP). Live: a spawned Claude instance's `aio-mcp computer-use` child process now appears in `ps` (was **absent** in every prior sample) and the agent both listed and successfully called `mcp__harness-computer-use__computer_health`, getting real driver-health JSON back. Originally: Claude CLI never connected to the `computer-use` MCP server injected into `--mcp-config`, so no Claude-provider instance could call any `computer.*` tool even when Computer Use was enabled and healthy | [Computer Use consent/targeting evidence](../superpowers/plans/2026-08-09-computer-use-consent-and-targeting_livetest.md#evidence-run--2026-08-12-batch-a--computer-use-mcp-never-connects-for-any-claude-instance-lt-040), [LT-040 fix + live verification](livetest-remediation-register.md#lt-040-claude-cli-never-connects-to-the-computer-use-mcp-server-for-any-instance) | [Computer Use consent/targeting check 1](../superpowers/plans/2026-08-09-computer-use-consent-and-targeting_livetest.md#check-1-desktop-grants-stay-human-controlled-in-yolo-mode) |
 | LT-061 | P2 | **FIXED 2026-08-12** — `argsHash` for `tool_use` observations now excludes a fixed, cross-provider/cross-tool set of cosmetic annotation field names (`description`, `reason`, `rationale`, `explanation`, `justification`, `summary`, `note`, `thought`) before hashing, instead of the narrower Bash-only/Claude-only fix the filer flagged as a scope decision. Identical operative arguments (e.g. Bash's `command`) with only annotation text varying now collapse to the same signature; a genuinely different operative argument still hashes differently. Mutation-verified unit tests (`adapter-runtime-event-bridge.spec.ts`) plus a pipeline-level test through the real `DoomLoopDetector` (`doom-loop-detector.spec.ts`). Live-verified end-to-end on a Cursor (ACP) instance: a real `repeat-no-progress` warn (count 3) then critical (count 6) fired. **Scope-narrowing discovery**: re-driving the identical scenario on **Claude** (the provider the original repro used) still produced **zero** `instance:doom-loop` events even with this fix live, because Claude's own CLI adapter never emits `tool_use`/`tool_result` as live events at all — only the ACP adapter (Copilot/Cursor/Grok) does. That is a separate, more fundamental wiring gap, filed as **LT-062** | [LT-061 fix verification + LT-062 discovery](2026-07-30-sibling-audit-round2_livetest.md#evidence-run--2026-08-12-lt-061-fix-verification-and-lt-062-discovery) | [Sibling-audit check A2](2026-07-30-sibling-audit-round2_livetest.md#lt-check-a2--tool-loop-warning-toast-ws-a2) |
@@ -105,7 +131,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-095 | P1 | **FIXED and live-verified 2026-08-12** — `computer.request_app_grant` (and the sibling App Store/Play release-gate and Microsoft calendar mutation approvals, which share the same `PermissionRegistry` primitive and had the identical gap) had **no renderer UI anywhere** for a human to approve or deny a pending request. Fixed by adding a renderer-reachable IPC surface (`permission-registry:list-pending`/`resolve`/`extend`) plus a root-level `PendingApprovalsBannerComponent` (mounted in `app.component.html` next to the Browser Gateway approvals banner) that lists every pending `PermissionRegistry` request app-wide with context (risk badge, description, requesting instance, countdown) and Approve/Deny/+2min-extend actions. `PermissionRegistry.extend()` is new. Live-verified end-to-end in an isolated dev app: a real spawned Claude instance's `computer.request_app_grant` call appeared in the banner within its 60s window, Extend pushed the deadline out (confirmed via DOM read), Approve produced a real grant with `decidedBy: "user"` (`desktopListGrants` confirmed it), and a second request's Deny produced no grant and a `decidedBy: "user"` deny audit entry. ACP tool-permission requests are deliberately excluded from the new list (`details.transport === 'acp'`) because they already have a working approval path via `acp-cli-adapter.ts`'s `input_required` chat flow; adding a second resolver would race the existing one. The App Store/Play and calendar flows were not live-triggered (real publish/calendar side effects, no safe way to fabricate a livetest run) but are covered by mutation-tested unit tests exercising their exact `action` values through the same generic handler code path — the fix required no per-action branching. See [LT-095 section](livetest-remediation-register.md#lt-095-no-ui-exists-to-approve-or-deny-a-computerrequest_app_grant-request) for the fix writeup | [Computer Use consent/targeting evidence](../superpowers/plans/2026-08-09-computer-use-consent-and-targeting_livetest.md#evidence-run--2026-08-12-batch-cu--checks-1-and-4-blocked-by-a-new-defect-lt-095), [LT-095 section](livetest-remediation-register.md#lt-095-no-ui-exists-to-approve-or-deny-a-computerrequest_app_grant-request) | [Computer Use consent/targeting check 1](../superpowers/plans/2026-08-09-computer-use-consent-and-targeting_livetest.md#check-1-desktop-grants-stay-human-controlled-in-yolo-mode), [check 4](../superpowers/plans/2026-08-09-computer-use-consent-and-targeting_livetest.md#check-4-tight-activation-to-input-sequence-preserves-the-fail-closed-focus-boundary) |
 | LT-100 | P2 | **FIXED + LIVE-VERIFIED 2026-08-12** — Cursor and Grok (shared `AcpCliAdapter`) recorded zero cost for real turns because `toCliUsage()` returned `{ duration }` only when the ACP server sent no `usage`. James's decision: estimate, but never silently. `AcpCliAdapter` now falls back to `estimateTokens()` over the turn's prompt/response/tool-call material (extracted to `acp-usage-estimator.ts`) and tags the result `isEstimated: true`; `CostEntry`/`CostSummary` carry the flag through persistence (migration 059) to every read surface (cost page totals/model/session/entry rows, the `cost-recorded` renderer event schema, the cost-attribution JSONL sink) so an estimate never blends into a total that reads as measured. Guarded two adjacent surfaces that would otherwise have silently corrupted on estimated data: token-counter calibration (would have compared the heuristic against itself) and WS8 prompt-cache analytics (no real cache signal exists for an estimated turn). Live-verified: a real Cursor turn now records a `costGetEntries` row with `isEstimated: true`, non-zero cost, and the LT-018 context bar still shows `used: 0` (occupancy stays honest); a real resident-Claude turn in the same session still records `isEstimated: false` with real cache-token accounting (LT-047/LT-090 unaffected). Copilot verified source-level only (same `AcpCliAdapter` code path via `createCopilotAdapter()`; no seat available this session) | [LT-100 section](livetest-remediation-register.md#lt-100-acp-transport-providers-cursor-and-grok-confirmed-record-zero-cost-when-the-acp-server-omits-usage) | `acp-usage-estimator.spec.ts`, `acp-cli-adapter.spec.ts` (LT-100 describe block), `cost-tracker.spec.ts`, `instance-communication.spec.ts` (LT-100 describe block), `cost-attribution.spec.ts`, `renderer-event-validation.spec.ts`, `cost-page.component.spec.ts` — all mutation-verified |
 | LT-136 | P2 | **FIXED + VERIFIED LIVE 2026-08-18** — `SnapshotManager.listSnapshots()` (the only source for the checkpoint timeline UI and its badge count) reads from an in-memory `SnapshotIndex` that never carried `name`/`description`/`trigger`, so it hardcoded `trigger: 'auto'` and omitted `name` for every entry regardless of what was actually persisted to disk. A manual pre-compaction checkpoint (WS-B7's `applyCompaction()`, labeled e.g. "Before manual compaction (keep latest 1 exchange)", `trigger: 'checkpoint'` on disk) was therefore indistinguishable in the timeline from a routine per-turn safety checkpoint — both rendered as an unnamed "Checkpoint {id}" tagged "Auto". Live-verified: confirmed the correct `name`/`trigger: "checkpoint"` on disk (`session-continuity/snapshots/*.json`) for both a manual-compaction checkpoint and the app's own routine "Before: {message}" per-turn checkpoints, while the running renderer showed "Auto" with no name for every one of them. Fixed by carrying `name`/`description`/`trigger` through `SnapshotMeta` and all three `SnapshotIndex.add()` call sites (create, startup disk rebuild, session import), and reading them back in `listSnapshots()` instead of hardcoding. Re-verified live post-fix (rebuilt `dist/main`, restarted the dev app so the index rebuilt from disk): the checkpoint timeline now correctly shows "Checkpoint" (not "Auto") with the real label for both a `previewCompaction`→Confirm run and a plain `compactInstance` ("Compact Now") run | [Sibling-audit check B7](2026-07-30-sibling-audit-round2_livetest.md#lt-check-b7--compaction-preview-dialog-ws-b7) | `src/main/session/__tests__/snapshot-manager.spec.ts` (extended existing test, reverted the fix and watched it fail on the pre-fix hardcoded `trigger: 'auto'`/missing `name`, then pass) |
-| LT-137 | P3 | **FOUND, NOT FIXED, 2026-08-18** — interrupting an instance while a Claude deferred-permission auto-resume is in flight can drop the just-approved action. Live-observed: approved a Bash permission prompt with `decisionScope: 'session'`, then called `interruptInstance` before the auto-resume completed; `app.log` shows `DeferredPermissionHandler.resumeAfterDeferredPermission` attempting `waiting_for_permission → respawning`, which the state machine correctly rejected (`IllegalTransitionError`) and logged as `Auto-resume after deferred permission failed` — no crash, but the approved tool call was never executed and the instance needed a further explicit prompt-response to recover. Not chased further (root cause of the race, and whether it needs a state-machine allowance or an interrupt-side guard, not established) — recorded as an edge-case race for a future session, not a P0/P1 in normal (non-adversarially-timed) usage | [Sibling-audit check A5](2026-07-30-sibling-audit-round2_livetest.md#lt-check-a5--admission-suppression-in-the-live-app-ws-a1a5) | Not yet — reproduce via a fresh yolo:false instance, approve a pending Bash permission with `decisionScope: 'session'`, then immediately call `interruptInstance` before the resume settles; watch `app.log` for `Illegal lifecycle transition blocked` |
+| LT-137 | P3 | **FIXED 2026-09-10** — corrected root cause: not a timing race, the Claude CLI process has already exited by the time a deferred-tool-use decision fires, so `resumeAfterDeferredPermission`'s `waiting_for_permission → respawning` transition *always* threw `IllegalTransitionError`, invisible to CI because the existing spec fully mocked `transitionState`. Fixed by adding `'respawning'` to `waiting_for_permission`'s allowed transitions in `instance-state-machine.ts`; new regression test wires the real state machine and was mutation-checked against the exact original throw. Full `src/main/instance/` suite green (128 files/1654 tests); all canonical gates green. Originally found live-observed: approved a Bash permission prompt with `decisionScope: 'session'`, then called `interruptInstance` before the auto-resume completed; `app.log` shows `DeferredPermissionHandler.resumeAfterDeferredPermission` attempting `waiting_for_permission → respawning`, which the state machine correctly rejected (`IllegalTransitionError`) and logged as `Auto-resume after deferred permission failed` — no crash, but the approved tool call was never executed and the instance needed a further explicit prompt-response to recover | [Sibling-audit check A5](2026-07-30-sibling-audit-round2_livetest.md#lt-check-a5--admission-suppression-in-the-live-app-ws-a1a5) | [Plan doc LT-137 section](./2026-07-19-livetest-failure-remediation_plan_completed.md) |
 | LT-138 | P2 | **FOUND 2026-08-18, FIXED (found already implemented and independently verified live) 2026-08-24.** No Settings UI existed anywhere to grant the per-project `allowPrCreation` opt-in that Gate 1 of `PrCreationService.createPullRequest()` requires before a PR-creation attempt can even reach the (correctly implemented) never-delegable approval dialog; a user hit a dead end pointed at "project settings" that did not exist. **Fix (landed in the working tree between the 2026-08-18 finding and this session, decided in `2026-08-19-open-decisions-resolved.md`: "build the control"):** a real "Allow PR creation" checkbox in `SourceControlRepoActionsComponent` (`prCreationAllowed` computed, `onTogglePrCreation` handler), writing `settingsStore.set('allowPrCreation', {...})` keyed by the repo's absolute path — the exact same key/shape `resolvePrCreationOptIn()` reads, canonicalized on both ends so read and write always agree. The refusal message was also corrected to `"...in the Source Control panel for this repository first."`, pointing at the control that now exists. Batch E (2026-08-24) verified this live rather than trusting the diff: `npm run test:quiet` on the component's spec — 6/6 pass; a real `vcsCreatePullRequest` call with the opt-in map empty reproduced the exact corrected refusal message live; `setSetting('allowPrCreation', {<path>: true})` persisted and read back correctly via `getSettings()`. Did not proceed past Gate 1 to the native OS approval dialog (Gate 2), matching the original finding's own reasoning — a CDP `Runtime.evaluate` call cannot click a native `dialog.showMessageBox`, and clicking it would need local Mac UI control this session was not granted; Gate 1↔UI wiring is fully verified live, Gate 2 itself was already known-correct from the original 2026-08-18 finding and is unchanged by this fix | [Sibling-audit check B1](2026-07-30-sibling-audit-round2_livetest.md#lt-check-b1--pr-creation-round-trip-ws-b1) | `src/renderer/app/features/source-control/source-control-repo-actions.component.ts` (+68 lines), new `source-control-repo-actions.component.spec.ts` coverage (+155 lines), `src/main/vcs/pr-creation-service.ts` (refusal-message text only) |
 | LT-139 | P1 | **FIXED + VERIFIED LIVE 2026-08-18** — `AutomationActionSchema` (`packages/contracts/src/schemas/automation.schemas.ts`) never declared WS-C7's `executionProfile`/`containedFallback` fields, even though the shared `AutomationAction` type and the renderer's Automation builder form (`automations-page.component.ts`) both set them. `z.object()` strips unknown keys by default, so `validateIpcPayload(AutomationCreatePayloadSchema, ...)` silently dropped both fields on every create/update — an automation built with "Contained" selected in the UI persisted and then **ran as `'standard'` (full, unsandboxed host access) with no error anywhere**, exactly the silent downgrade `AutomationExecutionProfile`'s own doc comment says must never happen. Live-reproduced end-to-end: created a real `contained`+Claude automation via `automationCreate`; the stored `action` had no `executionProfile` field at all, and firing it (`automationRunNow`) spawned a completely normal, unsandboxed Claude instance that ran to completion — the WS-C7 requirement ("contained on Claude → run fails at fire time, never spawns") was structurally unreachable. Fixed by adding both fields to `AutomationActionSchema` (consumed by create, update, and the full read/broadcast `AutomationSchema`, so one fix covers all three). Re-verified live post-fix (rebuilt `dist/main`, restarted dev app): the same contained+Claude automation now correctly fails at fire time with `"Contained runs require Codex — claude cannot enforce isolation."`, `instanceId: null` (never spawned); a contained+Codex automation now runs and its child process's Bash tool call to write outside the workspace failed with `Operation not permitted` (real OS-level sandbox enforcement confirmed, not just a config flag), and `ps eww` on the spawned `codex app-server` process showed no `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`GH_TOKEN`/`AWS_*` env vars. **Batch V2 (2026-08-19):** re-confirmed the schema-persistence half specifically, against an isolated dev app (production automations unaffected — `list_automations` read 33 before and 33 after) — created a real `contained`+Claude automation via `automationCreate`, then read it back with a *separate* `automationGet` call (not the create echo) which still returned `executionProfile:'contained'`/`containedFallback:'fail'` on the stored `action`, confirming genuine persistence; deleted it and confirmed `automationGet` then returned `{success:true, data:null}` | [Sibling-audit check C5/C7](2026-07-30-sibling-audit-round2_livetest.md#lt-check-c5c7--authority-cards--contained-runs) | `packages/contracts/src/schemas/__tests__/automation.schemas.spec.ts` (3 new tests: create round-trip, update round-trip, invalid-value rejection — reverted the schema to `HEAD` and watched all 3 fail with the pre-fix silent-drop behavior, then pass restored) |
 | LT-130 | P2 | **FIXED + REGRESSION-TESTED 2026-08-12 (not live-verified against the packaged app)** — the packaged app's `app.log` shows `RendererHeartbeat` logging thousands of `error`-level "Renderer heartbeat stalled — UI event loop likely blocked" / "recovered" pairs, continuously, every single day since at least 2026-08-08, not confined to one 17-minute window. Every burst starts within ~60-90s of a `RuntimeDiagnostics` "System power event observed" (`source: lock-screen`) entry and stops shortly after the matching `unlock-screen`/`resume`. Root cause: Chromium throttles a backgrounded/locked-screen renderer's timers to roughly once a minute (`stalledMs` is consistently ~60000ms, `missedBeats: 0` — a single coalesced tick, not a real freeze), and `RendererHeartbeatMonitor` — unlike `RuntimeDiagnostics`'s own main-process stall detector, which already has a `systemSuspended` gate for exactly this case — has no suspend/lock-screen awareness, so it misreports every lock-screen period as a genuine renderer freeze. Fixed by adding `handleSystemSuspend()`/`handleSystemResume()` to `RendererHeartbeatMonitor`, gating `scan()` while suspended and rebasing `lastBeatAt` to now on resume, wired from `RuntimeDiagnostics`'s existing `noteSystemSuspend`/`noteSystemResume` alongside the other services it already notifies | [LT-130 section](livetest-remediation-register.md#lt-130-rendererheartbeat-misreports-every-lock-screen-period-as-a-ui-freeze) | `src/main/logging/renderer-heartbeat-monitor.spec.ts` (3 new tests, mutation-verified) |
@@ -113,13 +139,13 @@ sections below. The historical reproduction remains unchanged.
 | LT-161 | P1 | **FIXED + VERIFIED LIVE 2026-08-18 — completeness pass found four more dropped fields, not just `failoverProviders`.** The renderer's `InstanceListStore.deserializeInstance()` — an explicit field-by-field allowlist mapper, not a spread — never included `failoverProviders`, even though main always sends it (`listInstances()` confirmed it present) and the renderer's own `Instance` type declares it; every renderer hydration path (`stateResync()`, `addInstance` on creation) routes through this one function, so `canOfferFailover()` (`composer-banners.component.ts:304-308`) could never be true and the WS7 Phase B "Switch provider" button could never render. A second, independent review asked whether that was the only field dropped — it was not. Enumerating the full renderer `Instance` interface (`instance.types.ts:90-176`) against what `deserializeInstance` actually reconstructs (`instance-list.store.ts:687-791`), confirmed each of these is also present on the wire (main sends the full live object via `{...rest}` spreads in both `serializeInstance()`, the CREATE response, and `serializeForIpc()`, the snapshot/`instance:added` payload) and dropped by the mapper: **`hardened`** (never in the batch-update payload either, so this was its *only* path in — consumer: `composer-banners.component.ts:315-318` `showHardenedDenialBar`, the WS13 hardened-session-died banner, never renders for any hardened instance, no recovery short of instance removal+recreation); **`contextEvidence`** (same story — consumer: `context-bar.component.ts:319`, `contextEvidence?.conversationId` permanently `undefined` via this path); **`fastMode`** (dropped, also absent from the batch-update payload — on every `loadInitialInstances()` resync/restart the FAST badge, `instance-header.component.html:229-240`, resets to OFF regardless of real state; in-session toggling still worked via a different local-patch path, which is exactly why this stayed invisible); **`executionLocation`** (dropped here though it *is* carried on later batch updates, `transport.types.ts:93` — every remote-node instance shows as local, in the remote badge and project-rail grouping, right after resync/creation until some later `queueUpdate` happens to carry it, not guaranteed for an idle remote session — consumers: `project-rail-builder.service.ts:590-593`, `project-group-computation.service.ts:111-112`, `instance-row.component.ts:148-152`, `dashboard-project-context.ts:31-32`). Cleared as *not* actionable: `isRenamed` (zero renderer reads) and `pendingYoloMode` (excluded by explicit design comment at `instance-list.store.ts:398` — sourced from `desiredRuntime` instead). Failure scenario: restart the app with a hardened, fast-mode, remote, or context-evidence session and the corresponding banner/badge/lookup silently goes blank, off, or local — four distinct wired features degrading silently on every resync, two of which (`hardened`, `contextEvidence`) never self-recover. Fixed by adding all four to `deserializeInstance()`. Also added a structural completeness test (not just the four individual field assertions) — it builds a fixture covering every wire field, runs it through `deserializeInstance()`, and asserts each one survives except the two deliberately-excluded fields, so a fifth dropped field fails loudly instead of passing silently the way these five did. **Batch V2 (2026-08-19):** closed the "four fields not separately live-driven" residual. Exercised the real running `InstanceListStore` in a dev app freshly launched post-rebuild (`window.ng.getComponent(document.querySelector('app-dashboard')).store['listStore'].addInstance(wire)` with a synthetic wire object covering all five fields, including `executionLocation:{type:'remote', nodeId:...}`) — `addInstance()` and `stateResync()` both call the identical `deserializeInstance()`, so this exercises the exact restart-path code. All five fields survived in `store.instancesMap()`. A genuine remote-node `forceNodeId` spawn was attempted first but could not be produced in an isolated dev-app profile (windows-pc's pairing is scoped to the app process it dialed into; got a real `"Forced nodeId not reachable"` warn with `nodeStatus:"not-found"`), so the synthetic-wire route was used for that field instead — same underlying mapper either way | [WS7 Phase B evidence, check 6](./2026-07-13-fable-ws7-phaseb_livetest_completed.md#check-6--offered-switch-on-a-long-park--pass-defect-found-lt-160-fixed-second-defect-found-lt-161-fixed) | `src/renderer/app/core/state/instance/instance-list.store.spec.ts` — the original `failoverProviders` test, plus "LT-161: deserializeInstance carries every wire field forward (structural completeness)" (reverted the four-field fix and watched it fail — `field "contextEvidence" should survive deserializeInstance(): expected undefined to deeply equal {...}` — then restored and confirmed 23/23 pass) |
 | LT-181 | P1 | **FIXED + LIVE-VERIFIED 2026-08-18 (fix made symmetric after a completion-gate finding)** — two near-simultaneous `POST /api/instances/:id/input` calls on the mobile gateway for the same busy-adjacent instance could both read `instance.status` as not-yet-busy and both proceed straight to `sendInput()`, so the loser got the adapter's raw `"Codex app-server runtime already has an active turn"` rejection landed in the transcript as an `error` message — the exact pre-queue bug the mobile-gateway queue feature exists to prevent, reproduced live by accident while setting up a routine "queue while busy" check. Root cause: `shouldQueueInput()`/`isReadyForQueuedInput()` read `instance.status`, which only flips to a busy status once the adapter's `sendInputImpl` actually runs, itself several `await`s deep inside `InstanceManager.sendInput()` — a real window where two callers can both observe a stale, not-yet-busy status. The first pass fixed only the direct-vs-direct pairing with a guard set/cleared inside `handleInput()`; a fresh completion gate reproduced the *symmetric* gap it missed — a direct send racing an in-flight **queue delivery** (`MobileInputQueue.deliverNext()` calling `deliver()` straight through, never marking anything) still reached the adapter a second time, because the queue-drain path never set the guard. Closed by routing *both* callers through one shared helper, `MobileGatewayServer.dispatchSend()`, which is now the only place that marks/clears a renamed `sendInFlight: Set<string>` around the adapter call — `handleInput()`'s direct-send branch and the `inputQueue`'s `deliver` dependency both call it instead of `sendInput()` directly, so there is one place to get this wrong rather than two that must be kept in step. `MobileInputQueueDeps.isPaused` remains widened to a per-instance `isPaused(instanceId): boolean` so the queue's post-enqueue drain safety-net does not redeliver into any in-flight send, direct or queue-drained. Live-verified: real concurrent `curl` sends against a real dev-app `codex` instance no longer produce the raw provider error; a controlled sequential race (busy-then-queued) delivers in order with no transcript error | [Mobile queue/interrupt evidence, LT-181](2026-07-25-mobile-queue-interrupt-draft_livetest.md#lt-181--found-and-fixed-a-genuine-race-lets-the-pre-fix-already-has-an-active-turn-error-back-into-the-transcript-fix-made-symmetric-after-a-completion-gate-finding) | `src/main/mobile-gateway/mobile-gateway-server.spec.ts` — two tests: "queues a direct send that races an in-flight direct send for the same instance (LT-181)" and "queues a direct send that races an in-flight QUEUE DELIVERY for the same instance (LT-181)". Watched both fail on a full revert (`sendInput` called twice, `queued: undefined`, plus a 10s `afterEach` hook timeout on the first); additionally watched only the second (queue-drain) test fail, with the first still passing, against an isolated partial revert that restored just the direct-vs-direct guard — isolating that the completion gate's finding was real and specific to the queue-drain path. Restored the full fix and confirmed 114/114 across both spec files |
 | LT-192 | P2 | **FIXED + REGRESSION-TESTED 2026-08-18 (fix corrected after a completion-gate finding; not live-verified against a real Graph mutation — no accounts are connected on this machine)** — `OrchestratorToolsRpcServer.handleRequest()` requested blocking human approval for `graph_calendar_create_event`/`update_event`/`delete_event` *before* checking whether the target account exists and is agent-writable, so an operator could be asked to approve (and an unattended caller could hang for the full 5-minute approval window on) a mutation `requireWritableAccountKey()` was always going to reject once approved. Observed live with zero connected Microsoft accounts (`graph_calendar_status` → `{"accounts":[]}`) after another agent's `graph_calendar_create_event` call blocked on an unanswerable approval and timed out client-side with no side effect. Fixed with a shared `dispatchCalendarMutation()` in `orchestrator-tools-rpc-calendar.ts` that runs the LT-192 account precondition (`assertCalendarMutationAccountPrecondition`, reusing the exported `requireWritableAccountKey`) before requesting approval, for create/update/delete only; `graph_calendar_connect` is deliberately exempt since connecting is how an account is created and must run with zero accounts. **Completion gate found a real regression in the first pass**: the precondition extracted `payload.account` with a hand-rolled `typeof … === 'string' ? … : ''`, comparing the raw, untrimmed value, while the real handler's own `AccountSchema` (`z.string().trim()...`) trims before resolving — a whitespace-padded but otherwise valid, connected, writable account (plausible from an LLM-composed tool call) would be falsely rejected by the precondition before approval was even requested, though the same call would have succeeded pre-LT-192. Fixed structurally by exporting `AccountSchema` and adding `extractRequestedAccount()`, which normalizes via `AccountSchema.safeParse` — the exact same schema instance the real handler's payload schema already applies to this field — so the precondition and the real resolution share one normalization rule and cannot drift apart again. Kept out of the RPC server itself (a thin one-call-site caller) so it never grows direct knowledge of Graph account-resolution internals | [LT-192 section](livetest-remediation-register.md#lt-192-calendar-mutation-approval-requested-before-checking-the-target-account-can-possibly-succeed) | `src/main/mcp/orchestrator-tools-rpc-server.spec.ts` (3 fail-fast tests, 1 connect-still-approves test, plus 1 new whitespace-padded-account test added after the gate finding; reverted the precondition call and watched the 3 fail-fast tests fail with `promise resolved "undefined" instead of rejecting`, then separately reverted just the normalization back to the hand-rolled extraction and watched only the new whitespace test fail with `Calendar mutation is not permitted for agent calendar mutations:   james@communitytech.co.uk  `; restored both times and confirmed 68/68 pass across the affected spec files) |
-| LT-188 | P2 | **FIXED + REGRESSION-TESTED 2026-08-19 (Batch N3) — unit-level only, not re-driven live end to end this session.** Root cause confirmed by reading `context-compactor.ts`/`compaction-runtime.ts` directly: `ContextCompactor.addTurn()`'s own `autoCompact` trigger fires an un-awaited `this.compact()` as soon as the shared singleton's `fillRatio` crosses `triggerThreshold` mid-loop, and `CompactionRuntime.restartCompact()`'s manual "Compact Now" path rebuilds the whole transcript via a loop of `addTurn()` calls before making its own unconditional `await compactor.compact()` call — so a manual compaction on a large transcript races its own auto-trigger on the same mutable `this.state`. Confirmed `addTurn()` has exactly one production caller (`compaction-runtime.ts`'s `restartCompact()`), so the auto-trigger firing mid-rebuild is always redundant with that same function's own trailing explicit `compact()` call, never a genuine live-turn addition. **Fix:** added an `options.suppressAutoCompact` parameter to `addTurn()`; `restartCompact()`'s rebuild loop (both the evidence-preview turn and the per-message loop) now passes `{ suppressAutoCompact: true }` on every call, so the bulk rebuild never fires the auto-trigger and the loop's own trailing `await compactor.compact()` is the only compaction that runs. No behavior change for any other caller (there are none in production today; the default auto-trigger path is otherwise untouched). **Regression tests** (`context-compactor.spec.ts`, new `addTurn auto-compact suppression (LT-188)` describe block, 3 tests): suppressed `addTurn` over threshold does not fire `compaction-started`; unsuppressed `addTurn` still does (baseline, unchanged); a 10-call bulk-rebuild loop shape (mirroring `restartCompact()`) fires `compaction-started` exactly once, from the trailing explicit `compact()` call. Reverted the fix via a `/tmp` copy (restored the un-suppressed condition) and watched exactly those 2 threshold-crossing tests fail — `expected "spy" to not be called at all, but actually been called 1 times` — with all 58 other tests in the file staying green; restored and confirmed 60/60 pass. Also ran the sibling `compaction-runtime.spec.ts` (15/15) to confirm the two call-site signature changes didn't regress the existing suite. Gates: `tsc --noEmit` ×2 clean, `ng lint` clean, `check:ts-max-loc` unaffected, `build:main` green. **Not independently re-driven live end to end this session** — the 2026-08-18 evidence run's own live repro needed a real `claude` instance grown past 85% fill (~680KB of synthetic turns) at ~$5–6 of real provider spend per round and 20+ minutes wall clock; given this fix is a narrowly-scoped, mechanically-verified change (unit-proven via revert) to the exact two call sites the diagnosis names, that live re-run was judged not worth repeating the cost for this session — flagged for the next session that wants full live closure | [Local AI Guard checks 3/4](../superpowers/plans/2026-07-26-local-ai-guard_plan_livetest.md#evidence-run--2026-08-18-batch-w2) | `src/main/context/__tests__/context-compactor.spec.ts` ("addTurn auto-compact suppression (LT-188)", 3 tests, reverted and watched 2 fail, then restored and confirmed 60/60 pass); files touched: `src/main/context/context-compactor.ts` (`addTurn`), `src/main/app/compaction-runtime.ts` (`restartCompact`'s two `addTurn` call sites) |
-| LT-189 | P3 | **FIXED + LIVE-VERIFIED 2026-08-21 (Batch Q2).** Originally found 2026-08-18: the `notify-and-allow` Local AI Guard fallback policy had no notification/banner delivery anywhere — `LocalAiRoutingGuard.notify()` called `this.dependencies.notifyFallback?.(event)`, but the only production construction site never supplied that callback, so it was always a silent no-op, and the renderer's only fallback UI rendered exclusively from the `require-confirmation` decision queue. **Fixed** (by a separate, uncommitted session this batch did not run; this row records Batch Q2's independent live verification of that fix, not its authorship): `notifyFallbackInto()` (`local-ai-runtime.ts:183`) is now wired at the production `LocalAiRoutingGuard` construction site (`local-ai-runtime.ts:282`, `notifyFallback: notifyFallbackInto(() => runtime)`), and the renderer has a second, passive `.local-ai-fallback-notifications` section in `local-ai-fallback-banner.component.ts` (distinct from the `require-confirmation` decision banner) with a `Dismiss` action — resolving the "toast vs passive banner vs OS notification" product decision as a passive dismissible banner. Live-driven end to end (rebuilt `dist/main`, isolated dev app, CDP + focus emulation): a real `notify-and-allow` fallback (via the `titleGeneration` slot with no local endpoint reachable — a documented cheaper substitute for the original compression-slot repro; `authorizeFallback()`'s `notify()` call is reached identically regardless of which slot or policy source triggers it, see the doc's 2026-08-21 evidence run) produced a `fallbackNotifications` snapshot entry, the renderer banner rendered "Paid fallback happened automatically · Title generation · Cost unknown · Dismiss" globally (mounted in `app.component.html`, no navigation needed), and clicking the real `Dismiss` button removed it from the DOM | [Local AI Guard check 3, evidence run 2026-08-21](../superpowers/plans/2026-07-26-local-ai-guard_plan_livetest.md#evidence-run--2026-08-21-batch-q2--lt-189-confirmed-fixed-and-live-end-to-end-backend--renderer-checks-25-re-confirmed-blocked-reasoning-unchanged) | `src/main/local-ai-guard/local-ai-runtime.ts` (`notifyFallbackInto`, wiring), `src/renderer/app/features/local-ai-guard/local-ai-fallback-banner.component.ts` (passive notification section) — fix authored by a different, uncommitted session; no dedicated regression-test evidence was surfaced to this batch, only a live-driven verification |
-| LT-190 | P2 | **FIXED + REGRESSION-TESTED 2026-08-18** — `computeProviderTokenCost()`/`getProviderModelRate()`'s `normalizePricingProvider()` only recognized the upstream vendor names (`anthropic`/`openai`/`google`), mapping them to the CLI-facing ids (`claude`/`codex`/`gemini`) `PROVIDER_MODEL_LIST`/`MODEL_PRICING` are keyed by — but `LocalAiRoutingGuard`'s own `resolveFallbackModel()` (`local-ai-runtime.ts`) feeds it `settings.defaultCli`, which is *already* one of those CLI-facing ids (e.g. `"claude"`). Since `"claude"` never matched the vendor-name switch, `getProviderModelRate()` always returned `undefined`, so every Local AI Guard fallback routing event's pre-authorization `estimatedCostUsd` was silently omitted — for every user with a normal (non-`"auto"`) default-provider setting, not an edge case. Live-reproduced: with `defaultCli: 'claude'`, several real `compression`-slot fallback routing events persisted with `provider: 'claude', model: 'opus[1m]'` but `estimated_cost_usd: NULL` in `local_ai_routing_events`. Fixed by making `normalizePricingProvider()` pass through an id that is already a `PROVIDER_MODEL_LIST` key (identity) before falling back to the vendor-name switch — the vendor-name mapping (used by the separate, correctly-wired post-call `applyLocalAiRoutingCostAttribution()` path, which reports real vendor names like `"anthropic"`) is unaffected. Re-verified live post-fix (rebuilt `dist/main`, restarted the dev app): the next real fallback routing events persisted `estimated_cost_usd: 0.38982` / `0.50535` — correctly computed, no longer silently dropped | [Local AI Guard checks 3/4](../superpowers/plans/2026-07-26-local-ai-guard_plan_livetest.md#evidence-run--2026-08-18-batch-w2) | `src/shared/data/model-pricing.spec.ts` ("getProviderModelRate provider-id aliasing (LT-190)", 4 tests after the completion-gate follow-up below; reverted the fix and watched the collision test fail with `expected { input: 5, output: 25 } to be undefined`, then restored and confirmed 20/20 pass). **Completion-gate finding, same day:** the identity-passthrough widening this fix introduced let `copilot`/`cursor` (which reuse primary-vendor raw model ids for pass-through models) silently price at the wrong vendor’s rate instead of staying unpriced — closed by scoping the static-table fallback to an explicit vendor allowlist; see the register entry. |
+| LT-188 | P2 | **FIXED + REGRESSION-TESTED 2026-08-19 (Batch N3) — unit-level only, not re-driven live end to end this session.** Root cause confirmed by reading `context-compactor.ts`/`compaction-runtime.ts` directly: `ContextCompactor.addTurn()`'s own `autoCompact` trigger fires an un-awaited `this.compact()` as soon as the shared singleton's `fillRatio` crosses `triggerThreshold` mid-loop, and `CompactionRuntime.restartCompact()`'s manual "Compact Now" path rebuilds the whole transcript via a loop of `addTurn()` calls before making its own unconditional `await compactor.compact()` call — so a manual compaction on a large transcript races its own auto-trigger on the same mutable `this.state`. Confirmed `addTurn()` has exactly one production caller (`compaction-runtime.ts`'s `restartCompact()`), so the auto-trigger firing mid-rebuild is always redundant with that same function's own trailing explicit `compact()` call, never a genuine live-turn addition. **Fix:** added an `options.suppressAutoCompact` parameter to `addTurn()`; `restartCompact()`'s rebuild loop (both the evidence-preview turn and the per-message loop) now passes `{ suppressAutoCompact: true }` on every call, so the bulk rebuild never fires the auto-trigger and the loop's own trailing `await compactor.compact()` is the only compaction that runs. No behavior change for any other caller (there are none in production today; the default auto-trigger path is otherwise untouched). **Regression tests** (`context-compactor.spec.ts`, new `addTurn auto-compact suppression (LT-188)` describe block, 3 tests): suppressed `addTurn` over threshold does not fire `compaction-started`; unsuppressed `addTurn` still does (baseline, unchanged); a 10-call bulk-rebuild loop shape (mirroring `restartCompact()`) fires `compaction-started` exactly once, from the trailing explicit `compact()` call. Reverted the fix via a `/tmp` copy (restored the un-suppressed condition) and watched exactly those 2 threshold-crossing tests fail — `expected "spy" to not be called at all, but actually been called 1 times` — with all 58 other tests in the file staying green; restored and confirmed 60/60 pass. Also ran the sibling `compaction-runtime.spec.ts` (15/15) to confirm the two call-site signature changes didn't regress the existing suite. Gates: `tsc --noEmit` ×2 clean, `ng lint` clean, `check:ts-max-loc` unaffected, `build:main` green. **Not independently re-driven live end to end this session** — the 2026-08-18 evidence run's own live repro needed a real `claude` instance grown past 85% fill (~680KB of synthetic turns) at ~$5–6 of real provider spend per round and 20+ minutes wall clock; given this fix is a narrowly-scoped, mechanically-verified change (unit-proven via revert) to the exact two call sites the diagnosis names, that live re-run was judged not worth repeating the cost for this session — flagged for the next session that wants full live closure | [Local AI Guard checks 3/4](../superpowers/plans/2026-07-26-local-ai-guard_plan_livetest_completed.md#evidence-run--2026-08-18-batch-w2) | `src/main/context/__tests__/context-compactor.spec.ts` ("addTurn auto-compact suppression (LT-188)", 3 tests, reverted and watched 2 fail, then restored and confirmed 60/60 pass); files touched: `src/main/context/context-compactor.ts` (`addTurn`), `src/main/app/compaction-runtime.ts` (`restartCompact`'s two `addTurn` call sites) |
+| LT-189 | P3 | **RESTORED IN CODE 2026-09-23; rebuilt-app check pending.** The passive notify-and-allow banner passed a 2026-08-21 live check, was later removed, and has now been restored on James’s decision. That prior live proof does not verify the restored build. | [LT-189 detail](#lt-189-notify-and-allow-fallback-policy-has-no-notificationbanner-delivery-anywhere) | [Owning live check](../superpowers/plans/2026-07-26-local-ai-guard_plan_livetest_completed.md) |
+| LT-190 | P2 | **FIXED + REGRESSION-TESTED 2026-08-18** — `computeProviderTokenCost()`/`getProviderModelRate()`'s `normalizePricingProvider()` only recognized the upstream vendor names (`anthropic`/`openai`/`google`), mapping them to the CLI-facing ids (`claude`/`codex`/`gemini`) `PROVIDER_MODEL_LIST`/`MODEL_PRICING` are keyed by — but `LocalAiRoutingGuard`'s own `resolveFallbackModel()` (`local-ai-runtime.ts`) feeds it `settings.defaultCli`, which is *already* one of those CLI-facing ids (e.g. `"claude"`). Since `"claude"` never matched the vendor-name switch, `getProviderModelRate()` always returned `undefined`, so every Local AI Guard fallback routing event's pre-authorization `estimatedCostUsd` was silently omitted — for every user with a normal (non-`"auto"`) default-provider setting, not an edge case. Live-reproduced: with `defaultCli: 'claude'`, several real `compression`-slot fallback routing events persisted with `provider: 'claude', model: 'opus[1m]'` but `estimated_cost_usd: NULL` in `local_ai_routing_events`. Fixed by making `normalizePricingProvider()` pass through an id that is already a `PROVIDER_MODEL_LIST` key (identity) before falling back to the vendor-name switch — the vendor-name mapping (used by the separate, correctly-wired post-call `applyLocalAiRoutingCostAttribution()` path, which reports real vendor names like `"anthropic"`) is unaffected. Re-verified live post-fix (rebuilt `dist/main`, restarted the dev app): the next real fallback routing events persisted `estimated_cost_usd: 0.38982` / `0.50535` — correctly computed, no longer silently dropped | [Local AI Guard checks 3/4](../superpowers/plans/2026-07-26-local-ai-guard_plan_livetest_completed.md#evidence-run--2026-08-18-batch-w2) | `src/shared/data/model-pricing.spec.ts` ("getProviderModelRate provider-id aliasing (LT-190)", 4 tests after the completion-gate follow-up below; reverted the fix and watched the collision test fail with `expected { input: 5, output: 25 } to be undefined`, then restored and confirmed 20/20 pass). **Completion-gate finding, same day:** the identity-passthrough widening this fix introduced let `copilot`/`cursor` (which reuse primary-vendor raw model ids for pass-through models) silently price at the wrong vendor’s rate instead of staying unpriced — closed by scoping the static-table fallback to an explicit vendor allowlist; see the register entry. |
 | LT-193 | P3 | **FIXED + COMMITTED, found already fixed by Batch Q2 (2026-08-21) while investigating an adjacent doc — not this batch's fix, status corrected from stale "not fixed."** Already in `HEAD` (`git log` shows `fc90e707 Livetest fixes`; not part of any batch's uncommitted work) at the time of this check: `LocalAiIncident.unpricedDispatchCount` exists (`shared/types/local-ai-guard.types.ts:227,323`), is populated in `local-ai-row-mappers.ts:267,480,604`, and all three originally-named render sites now read it — `local-ai-target-card.component.ts:479-487` and `local-ai-incident-panel.component.ts:292-302` both render `"cost unknown (N unpriced)"` distinct from a priced `$0`, and `local-ai-effectiveness-panel.component.html:76` renders "N unpriced — cost unknown, not zero" from `summary.unpricedDispatchCount`. Regression coverage exists in `local-ai-target-card.component.spec.ts`, `local-ai-incident-panel.component.spec.ts`, `local-ai-effectiveness-panel.component.spec.ts`, and `local-ai-guard.store.spec.ts` (not re-run/re-verified live by Batch Q2 — this is a source-reading correction of a stale status label, not a fresh live-test pass). Original finding retained below for history: An *unpriced* Local AI Guard fallback dispatch is silently rendered as a literal `$0` in incident and effectiveness totals. `addAccountingCost()` (`src/main/local-ai-guard/local-ai-row-mappers.ts:655-659`) coalesces an absent cost with `const total = current + (incoming ?? 0)` when rolling a routing event into `LocalAiIncident.estimatedCostUsd`, which is a required non-nullable `number` (`src/shared/types/local-ai-guard.types.ts:217,311`). That total is rendered directly as a dollar figure in `local-ai-target-card.component.ts:479`, `local-ai-incident-panel.component.ts:295-296` and `local-ai-effectiveness-panel.component.html:71`, so "cost unknown" is indistinguishable from "cost was zero". The layer below already gets this right and is the model to copy: `LocalAiFallbackSpend` stores `NULL` rather than `0` and tracks a separate `unknown_reservations` counter (`local-ai-fallback-spend.ts:50-55`), and `exceedsConfiguredCeiling()` (`local-ai-fallback-store.ts:268-275`) correctly treats an undefined estimate as *exceeding* the ceiling. **Pre-existing, not introduced by LT-190** — before LT-190 essentially every fallback event was undefined-cost, so this collapse affected all providers; after LT-190 it is narrower, affecting only the deliberately-unpriced `copilot`/`cursor`/`ollama`/`antigravity`. Partly a genuine gray area for Copilot, which is a subscription seat where $0 marginal cost is arguably correct — but it should still be *distinguishable* from unknown. Surfaced by the LT-190 second completion gate, which traced past the ceiling-check layer it had been asked to verify and found the coalesce one level further downstream | [LT-190 gate follow-up](livetest-remediation-register.md#lt-193-unpriced-fallback-dispatches-display-as-0-rather-than-unknown) | Aggregate an `unknownCostCount` alongside `estimatedCostUsd` on `LocalAiIncident` the way `LocalAiFallbackSpend` already does, and render "—" or "$X + N unknown" rather than a bare total |
 | LT-206 | P2 | **FIXED + REGRESSION-TESTED 2026-08-18 — diagnosis independently confirmed empirically, not just re-read.** Verified live on a real dev app: attached diagnostic listeners on main's `RLMContextManager.getInstance()`/`getWakeContextBuilder()` singletons via a main-process inspector, then created a real instance through the actual renderer `createInstance` path — the RLM `store:created` row landed correctly in `rlm.db` (worker executed `createStore()`) and `ContextWorkerClient.buildWakeContextText()` returned real wake text (126 chars), yet the diagnostic array stayed empty for both — while a *control* call to `getWakeContextBuilder().generateWakeContext()` made directly in main fired the same listener immediately, proving the listener wiring itself was fine and the worker boundary was the only break. Repeated end-to-end through the real renderer preload surface (`onRlmStoreUpdated`/`onRlmSectionAdded`/`onWakeContextGenerated` listeners attached before `createInstance`): zero events received across three real instance creations, confirming the renderer genuinely never sees these channels in production usage. Also empirically confirmed `wake:hint-added` is **not** dead — `addHint()` has no worker call path in production (only main-process callers: `wake-context-handlers.ts`, `knowledge-bridge.ts`, `codebase-miner.ts`), and a live `wakeAddHint()` → `onWakeHintAdded()` round-trip through the real renderer succeeded immediately; no fix needed there. **Fix:** rather than a third and fourth bespoke worker→main message (this is now the 3rd/4th occurrence of the exact same bug class), added a single generic mechanism in new `src/main/instance/context-worker-event-forwarding.ts`: `registerWorkerEventForwarding()` (worker-side, called once from `context-worker-main.ts`) subscribes an allowlist of clone-safe `(singleton, event)` pairs — `RLMContextManager`'s `store:created`/`section:added`/`section:removed`/`query:executed` and `WakeContextBuilder`'s `wake:context-generated` — and posts each across the existing worker↔main transport as `{type:'worker-event', source, event, payload}`; `dispatchWorkerBroadcast()` (main-side, called from `ContextWorkerClient.handleMessage`) re-emits the payload on main's own matching singleton, which the existing `setupRlmEventForwarding`/`setupKnowledgeEventForwarding` (`ipc-main-runtime-wiring.ts`) subscriptions then forward to the renderer unmodified. LT-170's skill-activation message was folded into the same dispatcher (`dispatchWorkerBroadcast` now handles both `'skill-activation'` and `'worker-event'`) so there is one place this mechanism lives instead of two; LT-170's existing tests were re-run unmodified and still pass. Deliberately did NOT attempt to also unify the codebase-indexing lane worker's separate `RLMContextManager` instance (`codebase-indexing-lane-main.ts`, a third process with its own singleton, discovered incidentally while tracing callers) — out of scope for this ticket, flagged as a related finding below, not fixed. Double-emission checked and ruled out: main-process direct call sites for these same events still exist (e.g. `RLM_CREATE_STORE`'s IPC handler in `learning-ipc-handler.ts` calls `rlm.createStore()` directly on main's singleton) but they operate on distinct `ContextStore`/session instances from the worker-routed per-session path, so forwarding does not duplicate delivery for the same logical event | [LT-170 gate follow-up](livetest-remediation-register.md#lt-206-rlm-and-wake-renderer-events-are-dead-for-the-worker-routed-paths) | `src/main/instance/context-worker-event-forwarding.spec.ts` (9 new tests: worker-side registration posts the right wire message per event, a `wake:hint-added` negative-control test, main-side dispatch re-emits on main's singleton, and 3 end-to-end `ContextWorkerClient` tests simulating the real transport). Reverted the fix via a `/tmp` copy (stubbed `registerWorkerEventForwarding`/`dispatchWorkerBroadcast` back to skill-activation-only, reproducing the exact pre-fix behavior) and watched 7 of 9 tests fail — e.g. `expected "spy" to be called with arguments: [ { type: 'worker-event', … } ] / Number of calls: 0` and `expected [] to deeply equal [ { id: 'store-1', … } ]` — while the 2 orthogonal tests (the `wake:hint-added` negative control and the RPC-bookkeeping-untouched check) correctly still passed; restored and confirmed all 9 pass again, plus the full context-worker test set (13 tests across 3 files) and 227 tests across 15 adjacent RLM/wake/skill/instance-manager spec files unaffected. One pre-existing test (`context-worker-main.spec.ts`) needed its `wake-context-builder` mock widened from `{getWakeUpText}` to also include `on`/`emit`, since the module-load-time subscription now exercises more of the real `WakeContextBuilder` (`EventEmitter`) surface than before — a legitimate mock-completeness fix, not a behavior change. **Batch V2 (2026-08-19):** closed the "not live-verified against a rebuilt/restarted app" residual. Dev app launched fresh from the current, rebuilt `dist/main` (real new process, real new context-worker child). Listeners attached before `createInstance()`; a real local Claude instance's message produced `rlmStoreUpdated` ×5, `rlmSectionAdded` ×4, `wakeContextGenerated` ×1 in the renderer with no manual refresh |
 | LT-207 | P3 | **FIXED + REGRESSION-TESTED 2026-08-18 — diagnosis independently confirmed empirically, not just re-read.** The **fifth** instance of the worker-process event-visibility class (after LT-169, LT-170, and LT-206's two). Verified live before fixing: static trace confirmed `codebase-indexing-lane-main.ts` had no `registerWorkerEventForwarding`/`dispatchWorkerBroadcast` import anywhere (the pre-fix absence LT-206's gate had already flagged), then a real dev app was driven over `--inspect` — a diagnostic listener attached to main's `RLMContextManager.getInstance()` first received a **control** `section:added` fired directly on main (`createStore`+`addSection` with no worker involved) to prove listener wiring was fine, then a **real** `CodebaseIndexingLaneGateway.indexCodebase()` call indexed a real one-file directory through the real forked/utility-process lane worker: pre-fix reasoning (the absent import) and post-fix live behavior were both exercised, and post-fix the real indexing run's `section:added` (section name `ltTwoZeroSevenMarker`, matching the indexed file's exported function) landed on main's singleton exactly once — no double-delivery, confirmed by a clean single-listener count after a fresh app restart. **Fix:** reused LT-206's generic mechanism instead of a third bespoke forwarder. Worker side (`codebase-indexing-lane-main.ts`): a guarded `ensureWorkerEventForwarding()` calls `registerWorkerEventForwarding()` with a transport that wraps the payload as a new `{ type: 'worker-event', message }` `LaneOutboundMessage` variant (`background-jobs/types.ts`) and posts it over the existing lane `send()` channel — called once per worker process, positioned *after* `RLMDatabase.getInstance()` is configured with the job's `userDataPath` but *before* the first `RLMContextManager.getInstance()` call, because `RLMContextManager`'s constructor eagerly resolves `RLMDatabase.getInstance()` with no config and both are `getInstance()` singletons where the first caller wins — registering forwarding first would have permanently pinned the RLM database to its default (wrong) path for the worker's lifetime. Main side: `ProcessLaneGateway` re-emits the new message type as a `'worker-event'` event (`process-lane-gateway.ts`), `BackgroundJobRuntime.registerLane()` passes it through unopinionated (`background-job-runtime.ts`), and `CodebaseIndexingLaneGateway`'s constructor subscribes and calls `dispatchWorkerBroadcast()` unmodified (`codebase-indexing-lane-gateway.ts`) — the exact same LT-206 function, not a copy. Payload clone-safety: unchanged from LT-206 — `addSection()`'s `{store, section}` payload is the identical plain-data shape LT-206 already validated for the context worker's `section:added`, since both paths emit through the same `RLMContextManager.addSection()`. Noted and left as-is: `RLM_SECTION_ADDED`/`RLM_STORE_UPDATED` forwarding to the renderer is still gated by the pre-existing, unrelated `isHighVolumeContextStore()` filter (`store.config.kind === 'codebase-auto'`) in `ipc-main-runtime-wiring.ts` — the live check above deliberately used a plain (non-`'codebase-auto'`) store to isolate the process-boundary fix from that filter; auto-indexed codebases (created via `codebase-indexing-auto-coordinator.ts`, which does tag `'codebase-auto'`) will still not emit per-section renderer updates, which is an intentional, separate high-volume-suppression decision, not a defect. Added a new import-isolation guard test (`codebase-indexing-lane-main-import-isolation.spec.ts`, modeled on the context-worker's sibling guard) since none existed for this lane before and the fix's new import (`context-worker-event-forwarding.ts`) pulls `skill-attribution-service.ts` and `wake-context-builder.ts` into the lane's closure for the first time; confirmed zero `electron` value-imports in the resulting 107-module closure | [LT-206 gate follow-up](livetest-remediation-register.md#lt-206-rlm-and-wake-renderer-events-are-dead-for-the-worker-routed-paths) | `src/main/indexing/codebase-indexing-lane-main.spec.ts` ("LT-207: forwards a section:added fired by this lane's own RLMContextManager to main over the transport") and `src/main/indexing/codebase-indexing-lane-gateway.spec.ts` ("LT-207: dispatches a worker-event broadcast from the indexing lane onto main's RLMContextManager") together cover both halves of the transport. Reverted each fix file individually via a `/tmp` copy and watched its own new test fail with all sibling tests in the same file staying green: the worker-side test failed with `expected "spy" to be called with arguments: [ { type: 'worker-event', … } ] ` (only `ready`/`job-started`/etc. were posted, no `worker-event`), the gateway-side test failed with `expected [] to deeply equal [ { …(2) } ]` (nothing reached main's `RLMContextManager`); restored both and confirmed 6/6 and 8/8 pass respectively, plus 110/110 across `src/main/background-jobs` + `src/main/indexing` and 40/40 across the LT-206 context-worker spec set, unaffected. **Batch V2 (2026-08-19):** not independently re-driven live this session — attempted via `rlm.createStore()` + `codebaseIndexStore()` on a disposable one-file `/tmp` directory, but the indexing lane's own worker-process `RLMContextManager` reported `"Store not found"` for a store created that way (the two processes' in-memory registries don't share a store created outside the real `codebase-indexing-auto-coordinator.ts` workflow); not pursued further given the existing end-to-end evidence above already includes a real indexing run through the actual lane worker and a fresh app restart |
-| LT-208 | P3 | **FOUND, NOT FIXED, 2026-08-18 — a latent trap, not a reproducible defect today.** `AutomationScheduler`'s LT-195 retry-preservation branch (`src/main/automations/automation-scheduler.ts:99`) distinguishes "async echo of the failure that armed this retry" from "a genuine disable racing a pending retry" by testing `event.automation?.enabled === true`, and its comment (`:108-110`) states as fact that *every* disable path flips `enabled` and never `active`. The LT-195 second completion gate verified that is true of every current call site — `AUTOMATION_UPDATE`, `update_automation`, the renderer `togglePaused`, auto-disable-after-failures — **but nothing enforces it**: `AutomationUpdatePayloadSchema.updates` (`packages/contracts/src/schemas/automation.schemas.ts:177`) permits a caller to set `active: false` independently of `enabled`. A future caller disabling that way while a retry was armed would silently reopen the exact P1 the gate caught (a disabled automation still firing). Filed because this codebase produced **five** instances of one recurring class today (LT-169, LT-170, LT-206 ×2, LT-207) — an invariant asserted in a comment but unenforced in code is the same shape of latent recurrence | [LT-195 gate-2 follow-up](livetest-remediation-register.md#lt-195-automation-retrybackoff-silently-cancelled-by-an-async-automationchanged-race) | Harden the condition to `enabled === true && active !== false` (strictly safer, no behaviour change today since the echo path carries `active: true`), or restrict the schema so `active` cannot be set independently; add a test asserting a retry is cancelled when an automation is disabled via `active: false` alone |
+| LT-208 | P3 | **FIXED 2026-08-19** (status corrected 2026-09-23): the retry-preservation condition is now `enabled === true && active !== false` (`automation-scheduler.ts:101`), per [`2026-08-19-open-decisions-resolved.md`](2026-08-19-open-decisions-resolved.md). Historical finding, 2026-08-18 — a latent trap, not a reproducible defect today. `AutomationScheduler`'s LT-195 retry-preservation branch (`src/main/automations/automation-scheduler.ts:99`) distinguishes "async echo of the failure that armed this retry" from "a genuine disable racing a pending retry" by testing `event.automation?.enabled === true`, and its comment (`:108-110`) states as fact that *every* disable path flips `enabled` and never `active`. The LT-195 second completion gate verified that is true of every current call site — `AUTOMATION_UPDATE`, `update_automation`, the renderer `togglePaused`, auto-disable-after-failures — **but nothing enforces it**: `AutomationUpdatePayloadSchema.updates` (`packages/contracts/src/schemas/automation.schemas.ts:177`) permits a caller to set `active: false` independently of `enabled`. A future caller disabling that way while a retry was armed would silently reopen the exact P1 the gate caught (a disabled automation still firing). Filed because this codebase produced **five** instances of one recurring class today (LT-169, LT-170, LT-206 ×2, LT-207) — an invariant asserted in a comment but unenforced in code is the same shape of latent recurrence | [LT-195 gate-2 follow-up](livetest-remediation-register.md#lt-195-automation-retrybackoff-silently-cancelled-by-an-async-automationchanged-race) | Harden the condition to `enabled === true && active !== false` (strictly safer, no behaviour change today since the echo path carries `active: true`), or restrict the schema so `active` cannot be set independently; add a test asserting a retry is cancelled when an automation is disabled via `active: false` alone |
 | LT-200 | P1 | **FIXED + REGRESSION-TESTED 2026-08-18** — the instance-detail Review panel's `runReview()` sent `reviewStartSession({ agentId: agentIds[0], instanceId, workingDirectory, files, options: { agentIds, diffOnly } })` through the raw preload API, but `ReviewStartSessionPayloadSchema` requires `{ instanceId, agentIds: string[], files, diffOnly? }` — no `agentId` (singular), no `workingDirectory`, no `options` wrapper. Every call from this panel therefore failed Zod validation every time, for every agent: live-reproduced with `REVIEW_START_SESSION_FAILED: "agentIds: Invalid input: expected array, received undefined"`. This is the panel the skill-observability livetest's check 8 names ("review panel agent list should show 'Design Drift Analyzer'"), so check 8 was structurally unreachable through it regardless of which review agent was selected. The sibling `reviews-page.component.ts` was unaffected — it goes through `OrchestrationIpcService.reviewStartSession()`, which already builds the correct shape. Fixed the call site to build `{ instanceId, agentIds, files, diffOnly }` and corrected the preload wrapper's stale TypeScript parameter type (`orchestration.preload.ts`) to match the real schema so a future caller cannot compile against the wrong shape again | [Skill observability check 8](./2026-07-23-skill-observability-and-design-skills_livetest.md#check-8--design-drift-review-agent----blocked-by-lt-200-fixed) | `src/renderer/app/features/instance-detail/instance-review-panel.component.spec.ts` ("LT-200: runReview() sends a reviewStartSession payload shaped for ReviewStartSessionPayloadSchema", reverted the fix via a `/tmp` copy and watched it fail — `expected { …(5) } to deeply equal { instanceId: 'inst-1', …(3) }` — then restored and confirmed 21/21 pass) |
 | LT-215 | P3 | **FIXED IN CODE 2026-08-31; live re-check pending.** Child completion now uses the session-admission result as the exact restart-window boundary: when the completion response is suppressed because the parent is unavailable, the child/admission pair is retained even though the live reap removes it from `childrenIds`. Fresh-fallback reconciliation drains that record into `droppedChildIds` and cancels the obsolete redelivery; successful same-session redelivery clears it. This removes the arbitrary timestamp/product-decision requirement | [Resilient threads/sessions check 3](../superpowers/plans/2026-07-17-resilient-threads-sessions_plan_livetest.md#evidence-run--2026-08-18-batch-s3--check-3-precondition-and-race-both-cleared-live-defect-found-lt-215) | `src/main/orchestration/orchestration-handler.spec.ts` |
 | LT-220 | P2 | **DECIDED + DOC-CORRECTED 2026-08-31.** Historical finding: The Antigravity adapter (`antigravity-cli-adapter.ts:6-8`) carries a comment stating `agy` "has no `--output-format stream-json` mode" — factually false; `agy --help` (installed binary, this session) lists `--output-format` with values `text, json, stream-json`, plus `--input-format stream-json`. Because the adapter was built on that false premise, it always spawns `agy --print` in the plain-text default and only ever emits `type: 'assistant'`/`'error'` `OutputMessage`s — it never emits `type: 'tool_result'`/`'tool_use'` messages and never calls `bindRawAdapterProviderEvents`'s `captureToolResult` hook. Both context-evidence capture entry points (`InstanceToolResultProcessor.captureParsedEvidence`, keyed off `tool_result` messages, and `.captureRawEvidence`, keyed off raw adapter tool-call events) are therefore never invoked for any Antigravity instance, in any `contextEvidenceModeByProvider.antigravity` mode (`off`/`shadow`/`enforce` all produce identically zero evidence records) — confirmed live: a fresh `antigravity` instance (`ishhajrvx`, workspace-scoped correctly per the LT-146 fix) given a two-real-tool-call prompt (list dir, read file) completed normally and correctly quoted the file contents, but `contextEvidenceList` returned `[]` with `captureFailureCount: 0` (no error — the pipeline was simply never entered). Contrast: `gemini-cli-adapter.ts` (the adapter the provider-agnostic-context-evidence doc's check 4 assumed Antigravity shares a fallback code path with) *does* emit real `type: 'tool_result'` events (`gemini-cli-adapter.ts:302`) and so does get captured — meaning check 4's premise ("this exercises the identical stateless-provider code path" as Gemini) is itself wrong: the two providers' capability *declaration* (`sameThreadContinuation: false`) matches, but their actual tool-result *instrumentation* does not, and only the instrumentation gap decides whether any evidence is ever produced | [Provider-agnostic context evidence, check 4](../superpowers/plans/2026-07-15-provider-agnostic-context-evidence-plan_livetest.md#4-antigravity-stateless-check) | Not yet written — this is a product/scope decision, not implemented unilaterally: (a) correct the adapter's stale comment and switch it to `--output-format stream-json`, then parse the resulting NDJSON tool-call/tool-result events the same way `gemini-cli-adapter.ts` does, wiring them into `emit('output', {type:'tool_result', …})` so `captureParsedEvidence` picks them up — the larger, more correct fix but a real adapter-rewrite with its own risk (streaming/partial-JSON handling, backward compat for any code depending on the current plain-text `parseOutput()` shape); or (b) accept zero Antigravity evidence capture as an intentional, documented capability gap (`toolResultVisibility: 'none'` is already the conservative default it inherits) and correct the doc's check 4 wording instead of the code. Add a regression test asserting `antigravity-cli-adapter.ts` never claims a code path it doesn't implement, once (a) or (b) is decided |
@@ -128,7 +154,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-223 | P2 | **FIXED + REGRESSION-TESTED 2026-08-19.** `scripts/codex-context-pressure/types.ts`'s `ItemClass` type and `ITEM_CLASSES` allowlist (the analyzer's own, separately-maintained copy of the valid `itemClass` values for `item-completed` diagnostic records) never included `'user-message'`, even though `classifyCodexObservedItem()`'s real return type, `CodexObservedItemClass` (`src/main/cli/adapters/codex/context-pressure-diagnostics.ts`), has included it since **LT-148** (2026-08-18, fixed the classifier so the user's own turn echo is no longer miscounted as a tool-bearing item). The analyzer's allowlist was never updated to match, so every real `item-completed` record with `itemClass: 'user-message'` — i.e. the exact shape LT-148 introduced — was silently rejected as malformed by `scripts/analyze-codex-context-pressure.ts`, and the doc's own §11 privacy-validator snippet (`2026-07-13-codex-context-pressure-observability-discovery-plan_livetest.md`) independently carried the same stale allowlist and would flag a legitimate `'user-message'` value as a "privacy failure." Live-reproduced: a real baseline-case Codex turn's `user-message` item-completed record (18,508 bytes) was counted as 1 of the run's malformed records; after the fix, the identical live data (6/6 diagnostic records) parses cleanly with 0 malformed, and the generated `report.md`'s item-size table correctly lists a `user-message` row. Fixed both: added `'user-message'` to `ItemClass`/`ITEM_CLASSES`, and to the doc's own §11 `strings` allowlist (documentation-content fix, not a behavior change) | [Codex context-pressure observability, evidence run 2026-08-19](../superpowers/plans/2026-07-13-codex-context-pressure-observability-discovery-plan_livetest.md) | `scripts/__tests__/analyze-codex-context-pressure.spec.ts` ("LT-223: accepts an item-completed record with itemClass \"user-message\" instead of rejecting it as malformed") |
 | LT-194 | P2 | **FIXED + REGRESSION-TESTED 2026-08-18** — the Workboard Decision Timeline's "manual compaction" source (`buildCompactionDecisions`, reading `CompactionCoordinator.getEpochTracker(instanceId).getHistory()`) could never show an entry: `CompactionEpochTracker.onCompaction()` — the only method that ever pushes into `.history` — had zero call sites in production code, and `incrementTurn()` (which feeds `turnsBeforeCompaction`) had none either. Live-reproduced: ran a real `compactInstance()` on a real Claude session, then queried `workboardGetDecisionsForItem({instanceId})` and got `[]`. Fixed by calling `getEpochTracker(instanceId).onCompaction()` in `executeCompaction()` on every successful compaction (native or restart-with-summary), and `getEpochTracker(instanceId).incrementTurn()` in `onContextUpdate()` (the existing per-turn context-usage report hook) so `turnsBeforeCompaction` reflects real activity instead of always reading 0. Re-verified live post-fix (rebuilt `dist/main`, restarted the dev app): a real compaction now produces `{"source":"compaction","title":"Context compacted after 7 turns"}`, rendered in the real Workboard item detail DOM as `"Decision timeline … Context compacted after 7 turns"` | [Sibling-audit round 2 livetest, check C1](2026-07-30-sibling-audit-round2_livetest.md#evidence-run--2026-08-18--batch-s2) | `src/main/context/compaction-coordinator.spec.ts` ("CompactionCoordinator epoch tracking (LT-194 — Workboard decision timeline feed)", 4 tests; reverted both call sites via a `/tmp` copy and watched exactly those 3 new assertion-bearing tests fail — `expected [] to have a length of 1` — then restored and confirmed 22/22 pass) |
 | LT-195 | P1 | **FIXED + REGRESSION-TESTED 2026-08-18 (fix corrected after a completion-gate finding)** — the WS-B10a/B10b automation retry/backoff mechanism was structurally broken for every one-time automation (manual `runNow`, provider-limit-resume automations, and any user-created one-time schedule): `AutomationRunner.handleTerminalRun()` synchronously schedules a retry timer via `this.retryScheduler(...)`, then (for a oneTime run) calls `emitAutomationState()`, which ASYNCHRONOUSLY (`store.get(automationId).then(...)`) re-emits `'automation:changed'`. By the time that async event lands, the automation's own `nextFireAt` has already gone `null` (the schedule "spent" by firing), so `AutomationScheduler`'s generic `'automation:changed'` listener fell to its `else` branch and called the FULL `deactivate()` — cancelling the just-armed retry timer within ~1ms of it being scheduled, every time, silently: no error, no auto-disable (the streak is deliberately not incremented while a retry is believed pending), just a run stuck at attempt 1 of N forever. Live-reproduced and root-caused with certainty via a Node-inspector-instrumented `deactivate()` (stack trace captured): `AutomationScheduler.deactivate ← automation:changed listener ← AutomationEvents.emit ← emitChanged ← automation-runner.js:433 (emitAutomationState's .then())`, with `retryHandlesBefore` showing the just-armed handle present at the moment it got wiped. **First-pass fix (superseded — see gate finding below):** added `AutomationScheduler.hasPendingRetry(automationId)` and preserved the retry (`deactivateSchedule()` only) whenever it was true, for ANY `'automation:changed'` event, reasoning that "a genuine disable/delete has no pending retry to preserve" — re-verified live at the time (rebuilt `dist/main`, restarted the dev app): a real failing one-time automation genuinely retried and the Workboard Decision Timeline showed `"Retried automatically — attempt 2 of 3"`. **Completion-gate finding (P1 regression, fixed same day):** that reasoning was wrong for a *disable*, not just delete — `AUTOMATION_UPDATE` (`automation-handlers.ts`) and the `update_automation` MCP tool (`automation-tool-impl.ts`) both call `scheduler.schedule(automation)` (fire-handle only, never `deactivate()`/`cancelRetry()`) then `events.emitChanged(...)` on an ordinary disable — reachable from the "Pause" toggle in the Automations UI, not an edge path. The gate reproduced empirically (replaying the real `store.update({enabled:false})` → `scheduler.schedule()` → `emitChanged()` sequence) that `retryHandles.size` stayed `1` when it had to be `0`: a user disabling an automation while a retry was counting down saw it "off" in the UI but had it fire anyway later — for the auto-created provider-limit resume automations specifically, an unexpected session resume against something the operator believed disabled. Also not limited to oneTime: `handleTerminalRun` does not gate retry scheduling on `isOneTimeRun`, so a cron automation disabled mid-backoff hit the identical gap. **Corrected fix:** the `'automation:changed'` listener's retry-preserving branch now additionally requires `event.automation?.enabled === true` — the one field every disable path in this codebase actually flips (the Automations-page "Pause" toggle, `AUTOMATION_UPDATE`, and `update_automation` all only ever change `enabled`, never `active` on their own; a fired run's own post-fire echo never touches it either), so this isn't a heuristic that happens to work for the known cases, it's the same authoritative on/off bit those write paths themselves use. Re-ran gates post-correction: `tsc` ×2, `ng lint`, `check:ts-max-loc`, `build:main`, and the full `src/main/automations` suite (165/165) all green | [Sibling-audit round 2 livetest, check C1](2026-07-30-sibling-audit-round2_livetest.md#evidence-run--2026-08-18--batch-s2) | `src/main/automations/automation-retry-integration.spec.ts` ("LT-195 — oneTime retry survives the automation:changed race", now 4 tests: the original echo-preserves-retry repro, a no-pending-retry disable control, and two completion-gate-driven additions — a genuine `enabled:false` disable racing an ARMED retry for a oneTime automation, and the same for a cron automation, both asserting `retryHandles.size` reaches `0` and the timer never fires (`insertRetryRun` not called). Reverted only the corrected condition (the `event.automation?.enabled === true` guard) via a `/tmp` copy, reinstating the first-pass `hasPendingRetry(...)`-only check, and watched exactly the two new disable-races-a-retry tests fail (`expected 1 to be +0`) with all other 25 tests — including the original echo-preserves-retry repro — staying green; restored and confirmed 27/27 pass). **Batch V2 (2026-08-19):** closed the "not live-re-verified after the correction" residual against a disposable automation on an isolated dev app (production automations unaffected — 33 before, 33 after). A one-time automation with a nonexistent `workingDirectory` failed fast and deterministically on `automationRunNow`, arming a retry (`app.log`: `delayMs:31318`); that retry fired ~31s later, failed again, and armed a third retry (`delayMs:60343`). With that third retry genuinely armed, `automationUpdate({enabled:false})` was called through the same production `AUTOMATION_UPDATE` path the Pause toggle uses. Polled past the computed fire time: no third run row ever appeared, `nextFireAt` stayed `null`, and `app.log` recorded no `"Firing automation retry"` for attempt 3 — the corrected `event.automation?.enabled === true` condition holds against the real, unmodified production write path, not just a replayed unit-test sequence |
-| LT-196 | P2 | **SCOPE CORRECTED 2026-09-06 — wider than "Claude only", and the miner's own source comment is wrong.** Verified against the executing code: the live spawn path for **Copilot, Cursor and Grok** builds `AcpCliAdapter` (`adapter-factory.ts:332/399`, `:460/481`, `:523/564`), whose `tool_result` metadata is `{sessionUpdate, toolCallId, title, status, transport}` — **no `is_error` key** (`acp-cli-adapter.ts:1496-1507`). The `CopilotCliAdapter`/`CursorCliAdapter` classes that *do* set it (`copilot-cli-adapter.ts:503`) are wired only into model listing, discovery and probing, never a live spawn. **Codex is the only provider still feeding the miner** (`src/main/cli/adapters/codex/codex-notification-item-events.ts:211,230,273,304`). Claude computes `is_error` but raw-emits it on an internal `EventEmitter` only, never as a visible `OutputMessage` (`claude-cli-adapter.ts:1291-1305`, LT-062). Separately, `correction-miner.ts:5-11` still asserts in prose that `tool_result` "carries `metadata.is_error: boolean` on Claude, ACP, Codex-exec, Cursor, and Copilot adapters" — false for four of those five; fix that comment with the code. Spec written 2026-09-06: [`2026-09-06-lt196-correction-miner_spec_planned.md`](../superpowers/specs/2026-09-06-lt196-correction-miner_spec_planned.md), which recommends persisting a transcript-invisible outcome record at each adapter's true is-error site, closing Claude and ACP in one shape. Original finding: **FOUND, NOT FIXED, 2026-08-18 — needs a design decision.** The WS-B8 "Scan for corrections" learning-scan feature (`learning-scan-service.ts` → `correction-miner.ts`) is structurally non-functional for the Claude provider — the default/primary provider — because its detection algorithm depends on a `type: 'tool_result'` `OutputMessage` (with `metadata.is_error`) existing in the archived transcript for every tool call, per the miner's own file-header survey ("the only reliably queryable per-tool-call signal … `tool_use`/`tool_result` pairs … `tool_result` carries `metadata.is_error`"). That survey (dated 2026-07-30) was true when written but was silently invalidated by the later, correctly-motivated LT-062 fix (2026-08-12): `claude-cli-adapter.ts` now only turns a `tool_result` into a visible `OutputMessage` on the permission-denial branch — an ordinary tool success *or failure* is raw-emitted on the internal `'tool_result'` event (used only for live doom-loop detection) and never written to the transcript/history at all, per the adapter's own `// LT-062: below only turns a tool_result into a visible 'output' message on the permission-denial branch` comment. Live-reproduced twice: ran real Claude sessions with a genuine command failure→correction pattern (first a nonexistent-path `ls`, excluded by design as an exploration command; then a real `grep --bogus-flag` invalid-option failure followed by the corrected `grep` call, matching the miner's own `UnknownFlag`/base-command-match shape) and confirmed via Node-inspector `history.loadConversation()` reads that the archived transcript contains only `tool_use`/`assistant`/`user` messages — zero `tool_result` entries — so `extractToolInvocations()` sees `isError: null` for every invocation and `findCorrectionPairs()`'s first gate (`failInv.isError !== true → skip`) discards everything; `runScan()` correctly reports `sessionsScanned: 1, patternsFound: 0` with no error, giving no observable signal anything is wrong. Not attempted as a unilateral fix because the two viable directions are a real product/architecture choice: (a) persist a lightweight, transcript-invisible `tool_result` record (id + `is_error` + command) specifically for later mining, tagged so the renderer never renders it, or (b) feed the miner from a separately persisted log of the raw `'tool_result'` events the adapter already emits live, rather than from the rendered `OutputMessage` history. Either risks reintroducing some of the transcript noise LT-062 deliberately removed if done carelessly. The rest of the Memory Review inbox (approve/edit-approve/reject, decision persistence across restart, and an approved lesson reaching a subsequent loop's real prior-context block) was independently live-verified working correctly this same run via direct `captureMemoryProposal()` calls, so this defect is scoped precisely to the correction-miner's Claude-transcript data source, not the review/approval pipeline around it | [Sibling-audit round 2 livetest, check A4](2026-07-30-sibling-audit-round2_livetest.md#evidence-run--2026-08-18--batch-s2) | Spec written 2026-09-06, recommending direction (a) and correcting scope to include the ACP-backed providers (Copilot/Cursor/Grok), not just Claude: [2026-09-06-lt196-correction-miner_spec_planned.md](../superpowers/specs/2026-09-06-lt196-correction-miner_spec_planned.md) |
+| LT-196 | P2 | **FIXED 2026-09-13 — implemented, seven review rounds, final independent review PASS; live end-to-end checks pending in [`2026-09-06-lt196-correction-miner_livetest.md`](../superpowers/plans/2026-09-06-lt196-correction-miner_livetest.md). Plan: [`2026-09-06-lt196-correction-miner_plan_completed.md`](../superpowers/plans/2026-09-06-lt196-correction-miner_plan_completed.md).** SCOPE CORRECTED 2026-09-06 — wider than "Claude only", and the miner's own source comment is wrong.** Verified against the executing code: the live spawn path for **Copilot, Cursor and Grok** builds `AcpCliAdapter` (`adapter-factory.ts:332/399`, `:460/481`, `:523/564`), whose `tool_result` metadata is `{sessionUpdate, toolCallId, title, status, transport}` — **no `is_error` key** (`acp-cli-adapter.ts:1496-1507`). The `CopilotCliAdapter`/`CursorCliAdapter` classes that *do* set it (`copilot-cli-adapter.ts:503`) are wired only into model listing, discovery and probing, never a live spawn. **Codex is the only provider still feeding the miner** (`src/main/cli/adapters/codex/codex-notification-item-events.ts:211,230,273,304`). Claude computes `is_error` but raw-emits it on an internal `EventEmitter` only, never as a visible `OutputMessage` (`claude-cli-adapter.ts:1291-1305`, LT-062). Separately, `correction-miner.ts:5-11` still asserts in prose that `tool_result` "carries `metadata.is_error: boolean` on Claude, ACP, Codex-exec, Cursor, and Copilot adapters" — false for four of those five; fix that comment with the code. Spec written 2026-09-06: [`2026-09-06-lt196-correction-miner_spec_completed.md`](../superpowers/specs/2026-09-06-lt196-correction-miner_spec_completed.md), which recommends persisting a transcript-invisible outcome record at each adapter's true is-error site, closing Claude and ACP in one shape. Original finding: **FOUND, NOT FIXED, 2026-08-18 — needs a design decision.** The WS-B8 "Scan for corrections" learning-scan feature (`learning-scan-service.ts` → `correction-miner.ts`) is structurally non-functional for the Claude provider — the default/primary provider — because its detection algorithm depends on a `type: 'tool_result'` `OutputMessage` (with `metadata.is_error`) existing in the archived transcript for every tool call, per the miner's own file-header survey ("the only reliably queryable per-tool-call signal … `tool_use`/`tool_result` pairs … `tool_result` carries `metadata.is_error`"). That survey (dated 2026-07-30) was true when written but was silently invalidated by the later, correctly-motivated LT-062 fix (2026-08-12): `claude-cli-adapter.ts` now only turns a `tool_result` into a visible `OutputMessage` on the permission-denial branch — an ordinary tool success *or failure* is raw-emitted on the internal `'tool_result'` event (used only for live doom-loop detection) and never written to the transcript/history at all, per the adapter's own `// LT-062: below only turns a tool_result into a visible 'output' message on the permission-denial branch` comment. Live-reproduced twice: ran real Claude sessions with a genuine command failure→correction pattern (first a nonexistent-path `ls`, excluded by design as an exploration command; then a real `grep --bogus-flag` invalid-option failure followed by the corrected `grep` call, matching the miner's own `UnknownFlag`/base-command-match shape) and confirmed via Node-inspector `history.loadConversation()` reads that the archived transcript contains only `tool_use`/`assistant`/`user` messages — zero `tool_result` entries — so `extractToolInvocations()` sees `isError: null` for every invocation and `findCorrectionPairs()`'s first gate (`failInv.isError !== true → skip`) discards everything; `runScan()` correctly reports `sessionsScanned: 1, patternsFound: 0` with no error, giving no observable signal anything is wrong. Not attempted as a unilateral fix because the two viable directions are a real product/architecture choice: (a) persist a lightweight, transcript-invisible `tool_result` record (id + `is_error` + command) specifically for later mining, tagged so the renderer never renders it, or (b) feed the miner from a separately persisted log of the raw `'tool_result'` events the adapter already emits live, rather than from the rendered `OutputMessage` history. Either risks reintroducing some of the transcript noise LT-062 deliberately removed if done carelessly. The rest of the Memory Review inbox (approve/edit-approve/reject, decision persistence across restart, and an approved lesson reaching a subsequent loop's real prior-context block) was independently live-verified working correctly this same run via direct `captureMemoryProposal()` calls, so this defect is scoped precisely to the correction-miner's Claude-transcript data source, not the review/approval pipeline around it | [Sibling-audit round 2 livetest, check A4](2026-07-30-sibling-audit-round2_livetest.md#evidence-run--2026-08-18--batch-s2) | Spec written 2026-09-06, recommending direction (a) and correcting scope to include the ACP-backed providers (Copilot/Cursor/Grok), not just Claude: [2026-09-06-lt196-correction-miner_spec_completed.md](../superpowers/specs/2026-09-06-lt196-correction-miner_spec_completed.md) |
 | LT-216 | P1 | **FIXED + REGRESSION-TESTED 2026-08-19.** `browser.find_or_open` could not attach to an existing tab on a relay-backed remote node. `confirmExistingCandidate()` (`src/main/browser-gateway/browser-target-discovery-operations.ts`) asked the extension to re-report inventory (bounded at `timeoutMs: 3_000` / `executionTimeoutMs: 2_500`, `browser-extension-inventory-refresh.ts:9-10`) and then only accepted a candidate whose `updatedAt` was `>= refreshStartedAt` — i.e. re-reported *inside that 3s window*. Measured on the live `windows-pc` node: an extension relay re-reports each tab on a **rolling sweep of 20–55s per tab** (consecutive `browser.extension_attach_tab` audit gaps for one tab: 19320, 19907, 28105, 28337, 34772, 35002, 42529, 55207 ms), so the confirm window was ~10x too short and rejected roughly nine live tabs in ten. Reproduced 3/3 against tabs provably present in the same session's `list_targets` output (auditIds `29ba5a06`, `7a855082`, `1ce1907c`, all `existing_tab_not_confirmed_after_inventory_refresh`). Two user-visible consequences: with no URL the agent is told the tab could not be confirmed; **with a URL `findOrOpen` sets `existing = null` and falls through to `openTab()`, silently opening a duplicate, unauthenticated tab instead of reusing the logged-in one** — the exact shape that makes an agent see a login page where the user has a live session. A second trigger compounded it: the same refresh command was also failing outright on this node (`list_targets` returned `inventory refresh FAILED for node bb62e3ee-… — extension last contacted 0s ago`, auditId `73b44485`), and refresh failure was treated as a hard `return null`. **Fix:** (a) confirm against a freshness horizon (`EXISTING_TAB_CONFIRMATION_HORIZON_MS = 120_000`) that exceeds the observed sweep period while still excluding hours-old ghost inventory from an ended browser session, and (b) treat a failed refresh *command* as non-fatal when extension **contact** is still fresh — loss of contact, not a timed-out command, is the signal inventory can no longer be trusted (`isRemoteExtensionContactFresh` already existed for this). Not live-re-verified: the node is paired to the packaged app, which runs its own bundled build, so confirming the fix on `windows-pc` needs a repackage + restart | [CDP hop deadlines livetest](../browser-gateway-cdp-hop-deadlines_livetest.md) | `src/main/browser-gateway/browser-target-discovery-confirmation-horizon.spec.ts` (5 tests). Reverted both halves of the fix via a `/tmp` copy and watched **3 of 5 fail** — the live-tab selection, the duplicate-open regression, and the refresh-timeout case — while the 2 guard tests (ghost tab from an ended session; node gone silent) correctly stayed green in both directions, proving they are guards and not tautologies. Restored and confirmed 5/5, plus 883/883 across all 87 `src/main/browser-gateway` spec files unaffected |
 | LT-217 | P2 | **ONGOING GROWTH FIXED + REGRESSION-TESTED 2026-08-31.** Historical finding from 2026-08-19: `browser_audit_entries` is **99.7% internal bookkeeping** and grows without bound. Measured against the live production `rlm.db`: 3,444,307 rows total, of which `browser.extension_attach_tab` is 2,314,562 and `browser.list_approval_requests` is 1,116,376 — every genuine agent browser action in recorded history (click, evaluate, query_elements, snapshot, navigate, accessibility_snapshot, screenshot, list_targets, find_or_open, wait_for) totals ~11,000 combined. The table occupies **1,361,317,888 bytes (1.36 GB), ~32% of the 4.27 GB `rlm.db`**, with entries retained back to 2026-05-04 and **no DELETE/prune path anywhere in `src/`**. Two independent causes, both writing a full audit row per call through `this.result(...)`: (1) `attachExistingTab()` (`browser-gateway-service.ts:462-497`) is invoked once per tab per inventory report by the relay bridge, so a 22-tab node on a ~30s sweep writes ~2-3 rows/second continuously — 50k–115k rows/day, every day; (2) `listApprovalRequests()` (`browser-gateway-approval-operations.ts:73-93`) is polled by `BrowserApprovalsBannerComponent` on a permanent `REFRESH_INTERVAL_MS = 5_000` timer (`browser-approvals-banner.component.ts:32,216-218`) — 17,280 rows/day, which matches the observed 1.12M almost exactly. Impact is not just disk: this is the forensic record you read to investigate a browser incident, and it is now a needle-in-a-haystack (a prior campaign entry already notes an incident that 'left a trace only in the `browser_audit_entries` table'), plus sustained SQLite write pressure on a 4.27 GB file in the main app. Not fixed because the right answer is a judgement call, not a bug fix | [CDP hop deadlines livetest](../browser-gateway-cdp-hop-deadlines_livetest.md) | Not yet written — recommended shape: stop auditing internal bookkeeping at all (inventory attach is a tab-store write, not an agent action; a read-only poll of pending approvals is not an auditable decision), keeping `extension_attach_tab` audit rows only for an *agent-initiated* attach, and/or add retention pruning on `created_at` for `actionClass: 'read'` rows. Either change should be paired with a one-off compaction of the existing 1.36 GB |
 | LT-218 | P2 | **FIXED + REGRESSION-TESTED 2026-08-31; live unreadable-page recheck pending.** Historical finding from 2026-08-19: `browser.snapshot` reports `outcome: "succeeded"` with `text: ""` when the extension is **not permitted to read the page at all**, so an agent cannot distinguish an empty page from an unreadable one. Reproduced on two independent `windows-pc` tabs (`www.bing.com/webmasters`, `www.contractsfinder.service.gov.uk`): `browser.snapshot` → `succeeded, text: ""` (auditIds `49e892af`, `b4fe791a`), while `browser.query_elements` on the *same* two targets → `failed` with the true reason, `"Cannot access contents of the page. Extension manifest must request permission to access the respective host."` (auditIds `03e2e2a4`, `47beba98`). Root cause is two stacked error-swallowing catches in the extension bundle: `capturePageText()` does `chrome.scripting.executeScript({...}).catch(() => [])` and its caller `buildTabPayload()` does `capturePageText(tab.id).catch(() => ({ title: tab.title, text: '' }))` (`resources/browser-extension/background.js`), so a host-permission rejection becomes an empty string and the command still resolves. Title and URL still populate because they come from `chrome.tabs.get()`, which needs no host permission — which is exactly what makes the result look like a successful read of a blank page. This is the 'confident wrong answer' class: an agent told a tender/portal page is empty will conclude the page is empty and act on it, rather than reporting a permissions gap. It also explains the sibling `accessibility_snapshot` timeouts on the same tabs. **Not fixed** because the correct surface is a genuine decision, not a bug fix: snapshot could fail outright like `query_elements` does (consistent, but breaks callers that legitimately tolerate a partly-unreadable page — note `executeScript` uses `allFrames: true`), or succeed with an explicit `textUnavailableReason`/`unreadable: true` field that the aux-extraction and campaign callers can branch on. Also not fixable end-to-end from here: the change lives in the extension bundle, which must be redeployed and reloaded on the node | [CDP hop deadlines livetest](../browser-gateway-cdp-hop-deadlines_livetest.md) | Not yet written — whichever shape is chosen, the regression test belongs in `browser-extension-assets.spec.ts` (which already covers background.js failure paths): assert that an `executeScript` rejection is not converted into a successful empty-text snapshot |
@@ -143,8 +169,8 @@ sections below. The historical reproduction remains unchanged.
 
 | LT-370 | P2 | **ROOT CAUSE CORRECTED, FIXED + REGRESSION-TESTED 2026-08-24; LIVE CHECK PENDING A REBUILD.** The 2026-08-20 diagnosis was wrong. The model that failed was **not** an absent one. Correlating the two halves of the same request in `app.log` settles it: `coord-8438` was dispatched at `1787345477010` as `{method: "auxiliaryModel.generate", provider: "ollama", model: "gpt-oss:120b"}`, failed at `1787345485971` after **8961 ms** with `-32603: Ollama generate failed: 500`, and one millisecond later at `1787345485972` `AuxiliaryLlmService` logged `Auxiliary generation failed for slot "webExtract"`. `gpt-oss:120b` **is** one of the eight models that endpoint serves. The configured `qwen/qwen3.6-35b-a3b` was never sent: `tryEndpointForSlot` (`src/main/rlm/auxiliary-llm-service.ts`) gates the tier pin behind `endpointAdvertisesModel()`, which is false for a worker-node endpoint whose non-empty model list lacks the id, so it falls through to `pickModelForTier(ids, tier, loaded)` — i.e. the code already does the thing the old entry recommended as its fix. **The actual defect is the auto-pick rule.** With no model resident, `pickModelForTier` orders by `modelSizeScore` and `quality` takes the *largest* advertised id (`gpt-oss:120b`, score 120) with no regard for whether the host can load it; `windows-pc` reports `gpuMemoryMB: 32607`, so a 120B model cannot be resident and Ollama 500s. The 8961 ms latency is consistent with an attempted load that failed, not an instant unknown-model rejection. `pickModelForTier`'s existing `loaded` restriction is the intended guard against exactly this, but it only engages when something is *already* resident. **Impact correction: the aux path is not "silently inert".** The same log holds **143** successful `ollama deepseek-r1:7b` dispatches — quick tier auto-picks the *smallest* model and works. Only the six **quality**-tier slots are affected (`compression`, `memoryDistillation`, `webExtract`, `approvalAdjudication`, `subQueryExecution`, `verifyOutputSummary`); `titleGeneration`, `routingClassification`, `approvalScoring`, `loopScoring`, `retrievalHypothesis` and `branchScoring` are quick tier and are demonstrably working. It still fails safe (frontier fallback / never-worse guard), so nothing is wrong-answered — the cost is ~9 s wasted per quality-tier call and no local saving on those slots | [Browser-gateway reliability check 1](2026-07-17-browser-gateway-reliability_livetest.md); correlation evidence in this register's LT-370 section | Fixed by `AuxiliaryModelFailureCache` (`src/main/rlm/auxiliary-llm-utils.ts`): an **auto-picked** model that fails to generate is remembered per endpoint for 10 minutes, so the next `pickModelForTier` steps down to the next candidate instead of re-attempting the same doomed load. Explicit per-slot and tier pins are deliberately excluded — a pin must keep surfacing its own error rather than being silently substituted — and the filter returns the unfiltered list when it would otherwise empty, so a degraded endpoint can never become no endpoint. 9 regression tests (5 in `auxiliary-llm-utils.spec.ts`, 4 in `auxiliary-llm-service.spec.ts`); the load-bearing one was mutation-checked by reverting the `usable()` call and watching it fail with `expected '' to be 'distilled text'`, then restored. 124 tests green across the three touched spec files |
 | LT-371 | P1 | **FIXED + REGRESSION-TESTED, LIVE CHECK PENDING, 2026-08-23.** `windows-pc`'s worker-node WebSocket suffers short, random transport losses; the coordinator's former 2.5-second disconnect grace turned ordinary reconnects into 30 true node disconnects, repeatedly suspending/restoring 21 browser attachments and rejecting browser commands. A second seam marked a long-poll command delivered before its RPC response was known to have left the coordinator; because responses were addressed only by node id, an old poll response could even be written to a replacement socket where that request id no longer existed, producing a false `browser_extension_command_receipt_missing`. Fixed with a 30-second grace, one-shot originating-socket responders, bounded same-id requeue, and a FIFO handoff barrier. This is not MV3 service-worker eviction or native-host cycling: read-only worker logs show one continuous worker process, continuous extension poll heartbeats, no native-host errors, 63 coordinator-socket closes (61 code 1006), and the coordinator log places `WorkerNodeConnection Node WebSocket disconnected` immediately before every reliability `node_disconnect`. Timing is non-periodic; 24/30 sockets re-registered inside 30 seconds. The 53-vs-30 asymmetry is expected from first-contact/duplicate no-attachment reconnect telemetry plus replacement sockets, not duplicate workers | [Investigation prompt](2026-08-23-browser-extension-channel-flapping-prompt.md), [owning check-6 evidence](./2026-08-19-remote-node-false-negative-fixes_livetest_completed.md), [completed implementation plan](../superpowers/plans/2026-08-23-browser-extension-channel-flapping_plan_completed.md) | 6 focused files / 90 tests pass; both TypeScript checks, lint, and `build:main` pass; fresh completion gate `VERDICT: PASS`. Rebuilt-runtime verification is deferred to the implementation livetest |
-| LT-350 | P1 | **FOUND, NOT FIXED, 2026-08-21.** Cancelling a loop while its start-of-run preflight verify command is in flight does not kill that verify child process — it keeps running, unattended, to its own timeout regardless of cancellation. `runLoop` (`loop-coordinator.ts:1821-1828`) `await`s `runLoopPreflight(state, this.completionDetector, …)` synchronously before the first iteration; `runLoopPreflight` → `completionDetector.runVerify(config)` → `spawnVerify` (`loop-completion-detector.ts:648-745`) does a raw `child_process.spawn` tracked only by a local closure (`child`, its own `setTimeout`), never registered with any lifecycle/instance-tracking `cancelLoop` can reach. `cancelLoop` (`loop-coordinator.ts:1494-1520`) sets the cancelled flag, calls `this.terminate(state, 'cancelled', …)`, `awaitTerminalCleanup`, and `confirmStablyStopped` — all of which operate on the active iteration/instance, none of which touch an in-flight preflight-verify subprocess, because no instance has been spawned yet at that point in a run. Reproduced live and by accident while testing an unrelated check (2026-08-19 non-git-workspace-warning livetest, check 2): started a loop with `workspaceCwd: /Users/suas/work/orchestrat0r` and a blank `completion.verifyCommand`, which `resolveLoopVerification` auto-inferred to `npm --prefix "ai-orchestrator" run verify` (a 14-command chain including the full test suite, `rebuild:native`, `smoke:electron`) from the workspace's own package.json; called `loopCancel(loopRunId)` ~2.5s after start, well before any iteration/instance had spawned. The IPC call resolved `success: true` and `LoopState.status` became `'cancelled'` (`endedAt` ≈4s after start). Despite that, the spawned `npm run verify` chain kept running unattended: at T+5 minutes its `npm run test` step's vitest workers were still executing on the shared campaign host, driving 1-minute loadavg from ~6 to 27.9 — had to be killed manually (`kill -9` on the whole subtree; verified via `ps` that the chain's root pid's parent was this very dev app's own Electron main process, ruling out a concurrent agent's unrelated run). Required behaviour: `cancelLoop` (and any other loop-terminal transition reached while `runLoopPreflight`/`runVerify`/`runQuickVerify` is in flight) must also abort that spawned child promptly (SIGKILL/SIGTERM), not just the per-iteration CLI instance — `cancelLoop`'s returned promise should not represent the loop as fully stopped while a verify child it started is still alive. This is a resource-safety gap, not cosmetic: a legitimately slow verify command (the workspace's own multi-minute test suite is the common case) left running past a user's cancel can starve a shared or laptop host for the remainder of its timeout (up to `verifyTimeoutMs`, default 600s) | Reproduced live 2026-08-21 while running [Remote-node false-negative fixes / pingpong-loop-cannot-terminate livetest, batch Q1](./2026-08-20-pingpong-loop-cannot-terminate_livetest_completed.md#evidence-run--2026-08-21) | Not yet written — recommended: thread an `AbortSignal` (or the existing `isCancelled(loopRunId)` lifecycle check) into `spawnVerify` so its `child_process` is killed the moment cancellation is observed, and have `cancelLoop`/`confirmStablyStopped` await that kill before resolving |
-| LT-441 | P2 | **FOUND, NOT FIXED, 2026-08-24.** A hardened (Seatbelt) Claude instance's own resident-mode startup bootstrap writes its config state (`.claude.json`, a timestamped backup, and a `sessions/` dir) to whatever directory `CLAUDE_CONFIG_DIR` points at, even when that directory is **not** one of the jail's granted `WRITABLE_ROOT_n` paths — while an agent-driven tool-call write to a different non-granted path (`~/Desktop`, the same probe check 3 already uses) is correctly denied in the same instance. Reproduced 3/3 times via a scoped `ClaudeCliAdapter.prototype.spawnProcess` monkeypatch (Node Inspector, `this.config.cwd`-scoped to one throwaway `/tmp` instance only) that set `CLAUDE_CONFIG_DIR=~/Desktop/aio-lt-C-ws13-c10-cfg` — a path never in `defaultHardenedWritableRoots`. `app.log`'s `"Spawning CLI under Seatbelt hardened mode"` line confirmed hardening engaged with the correct 7-root set each time, and an independent `child_process.spawn` capture (patched separately, decoupled from the adapter patch) confirmed the OS-level `sandbox-exec` invocation carried the exact expected policy text and `-D WRITABLE_ROOT_n=` params with no Desktop path among them — yet `~/Desktop/aio-lt-C-ws13-c10-cfg/.claude.json` (528 bytes, real content: `firstStartTime`, `machineID`, etc.) and `backups/.claude.json.backup.<ts>` existed afterward. A byte-identical manual `sandbox-exec` replay of the captured policy/roots from an unsandboxed shell, run in Claude's one-shot `--print` mode, correctly **denied** the same write (`Not logged in`, target directory never created) — the gap is specific to resident/stream-json mode reaching some later-lifecycle write, not a hole in the policy text or the roots computed. Root cause **not isolated further** in this session (would need `fs_usage`/DTrace with sudo, or reading Claude Code's own closed-source startup path — out of scope for a livetest run); ruled out as an AIO-side cause: no production file under `src/main/` references `CLAUDE_CONFIG_DIR` at all (grepped), so AIO's own (unsandboxed) main process is not the one performing the write — it is the sandboxed child itself. **Not currently exploitable through any AIO-exposed surface**: `InstanceCreatePayloadSchema` has no per-instance env-override field, so no user or agent action through the product's own IPC can set `CLAUDE_CONFIG_DIR` (or influence whatever internal state follows the same path) — this was only reachable via a Node Inspector monkeypatch this session used as a legitimate but instrumented fault-injection technique, not a stock AIO capability. Filed as a real confinement gap in the hardened-mode "fail closed" contract (`resolveHardenedSpawn`'s own docstring), worth root-causing before any future feature adds a legitimate per-instance-env surface, which would make it reachable | [WS13 hardened-mode livetest, 2026-08-24 evidence](2026-07-13-fable-ws13_livetest.md#evidence-run--2026-08-24-batch-c--checks-1011-crash-lever-attempt-surfaces-a-real-confinement-gap-lt-441-not-the-crash) | Not yet written — recommended starting point: `fs_usage -w -f filesys sandbox-exec` (sudo) during a repeat of this reproduction to see which pid/syscall actually performs the write, then decide whether resident-mode's bootstrap path needs its own explicit writable-root binding or whether the CLI is using a non-`file-write*` IPC mechanism (e.g. an XPC-proxied preference write) that the policy needs to explicitly deny |
+| LT-350 | P1 | **FIXED 2026-09-10** — `LoopCompletionDetector` now tracks every spawned preflight/quick-verify child in a `Map<string, Set<SpawnVerifyRegistration>>` keyed by `loopRunId`; `LoopCoordinator.cancelLoop()` calls `await this.completionDetector.abortVerify(loopRunId)` right after `terminate(...)`, force-killing any still-running verify child before the loop reports stopped. A new `'cancelled'` `VerifyFailureKind` was threaded through the 5 duplicated failure-kind locations. New integration test (real long-running `.js` script, not an inline `node -e` string — the latter is corrupted by the `/bin/bash -lc` wrapper and produced a false-passing first draft) plus 4 new unit tests, both mutation-checked by reverting `abortVerify` and confirming the marker file proving the child was not killed. Full `src/main/orchestration/` suite green (224 files/2879 tests); all canonical gates green (`check:ts-max-loc` ceiling for `loop-coordinator.ts` intentionally raised 3948→3954, dated and justified). Originally: cancelling a loop while its start-of-run preflight verify command is in flight does not kill that verify child process — it keeps running, unattended, to its own timeout regardless of cancellation. `runLoop` (`loop-coordinator.ts:1821-1828`) `await`s `runLoopPreflight(state, this.completionDetector, …)` synchronously before the first iteration; `runLoopPreflight` → `completionDetector.runVerify(config)` → `spawnVerify` (`loop-completion-detector.ts:648-745`) does a raw `child_process.spawn` tracked only by a local closure (`child`, its own `setTimeout`), never registered with any lifecycle/instance-tracking `cancelLoop` can reach. `cancelLoop` (`loop-coordinator.ts:1494-1520`) sets the cancelled flag, calls `this.terminate(state, 'cancelled', …)`, `awaitTerminalCleanup`, and `confirmStablyStopped` — all of which operate on the active iteration/instance, none of which touch an in-flight preflight-verify subprocess, because no instance has been spawned yet at that point in a run. Reproduced live and by accident while testing an unrelated check (2026-08-19 non-git-workspace-warning livetest, check 2): started a loop with `workspaceCwd: /Users/suas/work/orchestrat0r` and a blank `completion.verifyCommand`, which `resolveLoopVerification` auto-inferred to `npm --prefix "ai-orchestrator" run verify` (a 14-command chain including the full test suite, `rebuild:native`, `smoke:electron`) from the workspace's own package.json; called `loopCancel(loopRunId)` ~2.5s after start, well before any iteration/instance had spawned. The IPC call resolved `success: true` and `LoopState.status` became `'cancelled'` (`endedAt` ≈4s after start). Despite that, the spawned `npm run verify` chain kept running unattended: at T+5 minutes its `npm run test` step's vitest workers were still executing on the shared campaign host, driving 1-minute loadavg from ~6 to 27.9 — had to be killed manually (`kill -9` on the whole subtree; verified via `ps` that the chain's root pid's parent was this very dev app's own Electron main process, ruling out a concurrent agent's unrelated run). Required behaviour: `cancelLoop` (and any other loop-terminal transition reached while `runLoopPreflight`/`runVerify`/`runQuickVerify` is in flight) must also abort that spawned child promptly (SIGKILL/SIGTERM), not just the per-iteration CLI instance — `cancelLoop`'s returned promise should not represent the loop as fully stopped while a verify child it started is still alive. This is a resource-safety gap, not cosmetic: a legitimately slow verify command (the workspace's own multi-minute test suite is the common case) left running past a user's cancel can starve a shared or laptop host for the remainder of its timeout (up to `verifyTimeoutMs`, default 600s) | Reproduced live 2026-08-21 while running [Remote-node false-negative fixes / pingpong-loop-cannot-terminate livetest, batch Q1](./2026-08-20-pingpong-loop-cannot-terminate_livetest_completed.md#evidence-run--2026-08-21) | [Plan doc LT-350 section](./2026-07-19-livetest-failure-remediation_plan_completed.md) |
+| LT-441 | P2 | **PRODUCT-PATH GUARD IMPLEMENTED + REGRESSION-TESTED 2026-09-23; resident OS write escape still unverified.** Hardened Claude now refuses an ungranted effective `CLAUDE_CONFIG_DIR` before spawn, including inherited environment values; a routed account gets only its exact profile home. The original 2026-08-24 resident-mode write outside Seatbelt roots needs a privileged process/syscall trace. The earlier "not reachable through the product" claim is withdrawn. | [WS13 reproduction](2026-07-13-fable-ws13_livetest_completed.md#evidence-run--2026-08-24-batch-c--checks-1011-crash-lever-attempt-surfaces-a-real-confinement-gap-lt-441-not-the-crash) | [Sweep live check 8](2026-09-23-outstanding-plans-sweep_livetest.md#check-8--lt-441-resident-claude-confinement-trace) |
 | LT-480 | P1 | **FIXED + REGRESSION-TESTED 2026-08-24, verified live end-to-end against a rebuilt dev app.** Every real, worker-recorded skill activation was silently persisted to the wrong SQLite file — a shared, per-checkout fallback path, not the profile's own `rlm.db` — because `context-worker-main.ts` called `registerWorkerEventForwarding(transport)` (which eagerly resolves `RLMContextManager.getInstance()` → an unconfigured `RLMDatabase.getInstance()`) before its own explicit, correctly-pathed `RLMDatabase.getInstance({dbPath, contentDir})` pre-init; `RLMDatabase.getInstance()` is itself a singleton where the first caller's config wins. This is the exact ordering hazard LT-207 documented and avoided for the codebase-indexing lane worker, left unfixed in the original context worker. Fixed by reordering the two calls | [Skill observability + design skills livetest, evidence run 2026-08-24 (Batch E)](./2026-07-23-skill-observability-and-design-skills_livetest.md#evidence-run--2026-08-24-batch-e--lt-480-real-auto-injected-skill-activations-silently-persisted-to-the-wrong-db-found-and-fixed) | `src/main/instance/context-worker-main.ts`; new test `src/main/instance/__tests__/context-worker-main.spec.ts` ("LT-480: pre-initialises RLMDatabase with explicit dbPath before wiring worker event forwarding"), watched failing on revert (`expected 11 to be less than 10`), restored and green. `tsc --noEmit` ×2 clean, `ng lint` clean, `build:main` green, targeted `test:quiet` 70/70 across `context-worker-client.spec.ts` + `context-worker-event-forwarding.spec.ts` + `skill-attribution-service.spec.ts` + `skills-loader.spec.ts` + `unified-controller.spec.ts` |
 | LT-481 | P3 | **DECIDED + FIXED + REGRESSION-TESTED 2026-09-06.** James chose baseline-aware Snooze over removing the control. `WorkboardStore` now stores the attention level held at snooze time (`ReadonlyMap<string, AttentionLevel>`), and the new `snoozeClearedByAttention(current, baseline)` in `workboard-projection.ts` clears a snooze only on completion (`idle`) or a strict rise above that baseline — `working`/`waiting` churn and staying at the same level no longer self-clear. Three failing-first tests added; 77/77 workboard tests pass. Original finding: The Workboard's per-card "Snooze" button is rendered and clickable on every card in every lane, including the Needs You lane, but it cannot durably hide a card that was *already* blocked/failed/review when snoozed: `WorkboardStore.snoozeItem()` stores only an item id (no baseline attention level), and the hand-raise effect's `attentionLevelClearsSnooze(level)` checks only the item's *current* level (`level !== 'working' && level !== 'waiting'`), which is unconditionally true for every Needs You card by construction — so the very next reactive `items()` recompute (a routine instance-list refresh, observed within 2-5s) silently un-snoozes it again, with no error and no visible feedback. Live-reproduced: a real `waiting_for_permission` instance, clicked the real DOM Snooze button (card correctly disappeared for a moment), then it silently reappeared on its own a few seconds later while remaining in the exact same `waiting_for_permission` state — no new event, no escalation. Confirmed at the signal level too (`store.isSnoozed(id)` flips `true` → `false` on its own within ~2s with the instance status held constant throughout). **This is not an accidental regression** — every existing `workboard.store.spec.ts` test for this mechanism deliberately snoozes a *working* item and asserts it un-snoozes on a transition *into* blocked/failed/idle ("hand-raise: auto-clears a snooze once the item becomes blocked/fails/completes"), which is the mechanism working exactly as designed and tested; none of those tests (or any other) cover snoozing an item that is *already* in the Needs You lane, which is precisely this livetest doc's own check scenario ("put instances into failed/error/degraded states... snooze hides a card until it raises its hand"). The gap is between the check's literal precondition and a deliberately narrower, well-tested design intent (mute a non-urgent item; auto-reveal on a genuine transition into urgency) — not a wiring mistake. Two candidate fixes, neither applied: (a) make the hand-raise comparison baseline-aware — record the attention level at snooze time and only auto-clear on a genuine escalation from that baseline, which would make the button work as the check expects; or (b) don't offer a Snooze control on Needs You cards at all, since the mechanism was only ever built and tested for working/waiting items. Deciding between "broaden the mechanism" and "don't offer the control where it can't work" is a product call, not an agent's, per this campaign's established precedent for the same shape of gap (see LT-220, doc 2's check 2/4) | [Sibling-audit round 2, evidence run 2026-08-24 (Batch E)](2026-07-30-sibling-audit-round2_livetest.md#lt-check-c2--attention-scale--mobile-parity) | Not fixed. Candidate touch points if (a) is chosen: `attentionLevelClearsSnooze()` (`workboard-projection.ts`) needs a baseline parameter, `WorkboardStore`'s `snoozedIdsSignal` (`workboard.store.ts`) needs to become a `Map<string, AttentionLevel>` capturing the level at snooze time |
 | LT-520 | P2 | **FIXED, REGRESSION-TESTED 2026-08-24, and CONFIRMED LIVE 2026-08-25 (both halves).** Live confirmation: the packaged app was rebuilt (`app.asar` mtime 2026-08-25T13:36:15Z, started 13:44:42Z, guard string present 4x in the bundle) and claimed the manifest 35 s after start (manifest mtime 2026-08-25T13:45:17.933Z, pointing at the packaged native host); seven separate dev apps then launched over ~25 minutes and **every one declined**, logging `Another Harness install owns the Chrome native-messaging manifest — leaving it alone … Set AIO_CLAIM_LOCAL_BROWSER_MANIFEST=1 to take it over`, with zero claims and no further write to the manifest. On 2026-08-24 a single dev app had rewritten it within minutes, which is the contrast that makes this a measurement rather than an absence of news. Original finding below. A Harness install writes the machine's single Chrome native-messaging manifest **unconditionally**, so whichever install started last silently takes the local browser-extension channel off the other — and if that was a dev app whose profile is later deleted, the manifest points at a binary that no longer exists and the user's local channel stays broken until the packaged app restarts. Reproduced live during this campaign: `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.ai_orchestrator.browser_gateway.json` was rewritten at 00:51 with `"path": "/tmp/aio-lt-E/browser-gateway/native-host/ai-orchestrator-browser-host"` by a batch agent's isolated dev app, while the packaged app (started 00:38) owns `~/Library/Application Support/harness/browser-gateway/native-host/`. `browser.health` on the packaged app then reported `localExtension: {state: "not_installed", installed: false, registered: false}` with remediation text telling the user to reinstall the extension — misdirecting advice, since nothing about the extension changed. **The guard already existed but was not on this path**: `assertBrowserExtensionNativeHostManifestWritable` is called only from `src/worker-agent/extension-relay-native-registration.ts` and `src/worker-agent/cli/service-cli.ts`; the Electron main path (`src/main/browser-gateway/index.ts` → `prepareBrowserExtensionNativeHostRuntime`) had no ownership check at all. Note this also means `AIO_DEV_USER_DATA_PATH` profile isolation is incomplete — the manifest is machine-global and was never isolated | Reproduced live 2026-08-24 while reading `browser.health` for [local + remote shared-browser control](2026-07-22-local-shared-browser-control_livetest.md) check 1 | `mayClaimBrowserExtensionNativeHostManifest()` + a `claimChromeManifest` option on `prepareBrowserExtensionNativeHostRuntime` (`src/main/browser-gateway/browser-extension-native-runtime.ts`), wired in `src/main/browser-gateway/index.ts`. 6 regression tests; the behavioural one was mutation-checked by forcing the branch true and watching it fail |
@@ -153,7 +179,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-522 | P1 | **FIXED + MUTATION-CHECKED 2026-08-25.** Every one of the 15 `copilot-account:*` IPC channels rejected every real renderer call, so the GitHub Copilot Accounts feature shipped in commit `20f534775` was completely unreachable from the UI. The preload constructs this domain **with** `withAuth` (`src/preload/preload.ts:79`), so main always receives a payload carrying an `ipcAuthToken` key — present even before a token is issued, because `withAuth` sets it to `undefined`, and an `undefined` value is still an own key. All 10 payload schemas in `packages/contracts/src/schemas/copilot-account.schemas.ts` were `.strict()` and none declared the field, and `validatedHandler` (`src/main/ipc/validated-handler.ts`) validates the raw payload without stripping it. Production evidence: **239,644** `IPC validation failed` warnings across the retained `app.log` set, split exactly 119,822 / 119,822 between `copilot-account:preview-route` (`Unrecognized key: "ipcAuthToken"`) and `copilot-account:list` (`Invalid input` — the union `z.object({}).strict().or(z.undefined())` failing both arms), i.e. a 1:1 retry loop hammering IPC. The sibling domains got this right: `provider.schemas.ts` and `voice.schemas.ts` both declare `ipcAuthToken: z.string().optional()`. **How it shipped green:** `copilot-account-handlers.spec.ts` contained zero occurrences of `ipcAuthToken` — it invoked every handler with bare payloads the preload never sends | Reproduced 2026-08-25 from the packaged app's own `app.log` while sweeping Copilot instance provenance for [automation provider exclusions](../superpowers/plans/2026-07-30-automation-provider-exclusions_livetest_completed.md) check 6; root cause confirmed by parsing the real exported schemas against the real `withAuth()` output, with a passing control | Shared `ipcAuthTokenField` spread into all 10 payload schemas, keeping `.strict()` so rogue keys (`env`, `copilotHome`, `configPath`) are still refused and a non-string token is still rejected. 32 regression tests in `src/main/ipc/handlers/copilot-account-handlers.spec.ts` covering all 15 channels in both token states; mutation-checked by reverting the schema change and watching 13 of them fail |
 | LT-524 | P1 | **FIXED IN CODE 2026-08-31; live re-check pending.** Durable registration now always sends a resume request, including an empty cursor list. The worker treats resume as discovery: it merges every buffered durability-ring instance absent from the coordinator's cursor set at sequence zero, recovering instances/turns produced wholly offline as well as unknown instances alongside known cursors | [WS15 evidence run 2026-08-25 (Batch E)](2026-07-13-fable-ws15_livetest.md#evidence-run--2026-08-25-batch-e) | `stream-durability-coordinator.spec.ts`; `worker-instance-notifier.spec.ts` |
 | LT-525 | P1 | **FIXED IN CODE 2026-08-31; live re-check pending.** `degraded` now restores every nonterminal remote lifecycle state, including active turns, interrupts, and hibernation. Reconnect reconciliation isolates each instance in a try/catch so one stale transition cannot reject node registration or prevent later instances from reattaching | [WS15 evidence run 2026-08-25 (Batch E)](2026-07-13-fable-ws15_livetest.md#evidence-run--2026-08-25-batch-e) | `instance-state-machine.spec.ts`; `node-failover.spec.ts` |
-| LT-526 | P0 | **FIXED IN CODE 2026-08-31; live re-check pending.** The hardened-mode/remote-location incompatibility is rejected before any remote or local-model adapter early return, so no `RemoteCliAdapter` can be constructed while the instance still claims hardened protection | [WS13 evidence run 2026-08-25 (Batch E)](2026-07-13-fable-ws13_livetest.md#evidence-run--2026-08-25-batch-e) | `src/main/cli/adapters/__tests__/adapter-factory-hardened-remote.spec.ts` |
+| LT-526 | P0 | **FIXED IN CODE 2026-08-31; live re-check pending.** The hardened-mode/remote-location incompatibility is rejected before any remote or local-model adapter early return, so no `RemoteCliAdapter` can be constructed while the instance still claims hardened protection | [WS13 evidence run 2026-08-25 (Batch E)](2026-07-13-fable-ws13_livetest_completed.md#evidence-run--2026-08-25-batch-e) | `src/main/cli/adapters/__tests__/adapter-factory-hardened-remote.spec.ts` |
 | LT-527 | P2 | **FIXED 2026-08-26.** `CopilotCliAdapter`'s constructor called `getDefaultCopilotCliLaunch()`, which runs up to three synchronous child processes — `which copilot`, `which gh`, and a `gh copilot --help` probe bounded at 5000ms. On any machine without the standalone `copilot` binary (every CI runner, and any user who installed Copilot only through `gh`) merely *constructing* the adapter blocked for as long as that probe took, measured at **5007ms**, on the Electron main thread. It also exceeded vitest's 5000ms default timeout, failing the first test in each Copilot adapter spec file and turning `main`'s CI red intermittently. Present since 2026-04-23; load-sensitive, hence the green/red flapping | [CI run 32947812436](https://github.com/Community-Tech-UK/ai-orchestrator/actions/runs/32947812436) | `src/main/cli/adapters/copilot-cli-adapter.lazy-launch.spec.ts` |
 | LT-528 | P2 | **FIXED + REGRESSION-TESTED + LIVE-VERIFIED 2026-08-31.** A Codex instance created with `yoloMode: true` could consume a warm adapter that had been spawned without YOLO launch permissions. The renderer and instance record said YOLO was enabled, but the first MCP tool call still opened an approval request. A second, otherwise-identical instance forced onto a fresh adapter completed the tool call without approval. Fixed by blocking warm-adapter reuse whenever the resolved spawn requests YOLO permissions | [Session-scoped Computer Use autonomy livetest](../superpowers/plans/2026-08-26-session-scoped-computer-use-autonomy_plan_livetest.md) | `src/main/instance/lifecycle/__tests__/instance-spawn-preflight-chain.spec.ts` |
 | LT-529 | P1 | **FIXED + REGRESSION-TESTED + LIVE-VERIFIED 2026-08-31.** Every generic Settings select rendered its first option instead of its persisted value on initial mount. The Computer Use autonomy select displayed `guarded` while the persisted and enforced value was `unrestricted`, a safety-critical false posture. Angular applied the select's raw `[value]` before its `@for` options existed; when the options arrived, the browser selected the first one. Fixed by marking the matching option selected as each option renders | [Computer Use autonomy level livetest](../superpowers/plans/2026-08-26-computer-use-autonomy-level_livetest.md) | `src/renderer/app/features/settings/setting-row.component.spec.ts` |
@@ -162,6 +188,67 @@ sections below. The historical reproduction remains unchanged.
 | LT-532 | P2 | **FIXED IN CODE 2026-09-03; rebuilt-app check pending.** LT-531's residual: a `record` preflight with no quick-verify still ran the auto-inferred full `verify`, hit the 180s cap, delayed iteration 1 by three minutes, and painted a red `Preflight timed out` chip even though the run continued. Reproduced on `loop-1788423509509-eab2bd46` (`Mode: record`, `Duration: 179999ms`, `npm --prefix "ai-orchestrator" run verify`). Record mode now skips the slow command when no cheap baseline ran; the strip labels a record-mode timeout as `Preflight baseline unknown` (muted) and a not-yet-run final audit as `Final audit pending` | Loop `loop-1788423509509-eab2bd46` `PRE_FLIGHT.md`; operator screenshot of the running strip | `src/main/orchestration/loop-audit-runtime.spec.ts`, `src/renderer/app/features/loop/loop-audit-chips.util.spec.ts`, `src/renderer/app/features/loop/loop-control.component.spec.ts` |
 | LT-533 | P2 | **NOT FIXED.** Title-generation escalation to the fast CLI tier never fires, and all three of its exits are invisible. With `titleGeneration.allowFrontierFallback` restored to `true` on 2026-09-08, a local model that returns unusable output is supposed to fall through to the antigravity/Claude-Haiku/Codex one-shot. Observed on the one real opportunity (09:20:31): the local model succeeded (450 output tokens), `finalizeGeneratedTitle` correctly rejected its output, the code fell through — and no CLI attribution record and no AI title were produced. Across all of September there is not one CLI-provider `aux:titleGeneration` record (4224 `local-fallback`, 395 `ollama`) while `claude` and `codex` are both on PATH. Which exit was taken cannot be determined: `!cliType` and `!hasSendMessage` are `logger.debug` and the send failure is a bare `catch { return null; }`, and debug is not persisted. **Required fix:** log the escalation outcome at info/warn with the reason (no CLI resolved / adapter cannot one-shot / send threw + error), then re-run to find out why it produces nothing. **Acceptance:** a title generation whose local output is rejected either produces a CLI-attributed title or logs a specific, greppable reason it could not. | [Session title livetest LT-C](2026-09-08-session-title-generation-repair_livetest.md) | LT-C in that livetest |
 | LT-534 | P3 | **NOT FIXED.** The live and history title resolvers apply sanitize/truncate in opposite orders, so a long generated title still renders one character differently either side of a session going non-live. `resolveEffectiveInstanceTitle` sanitizes then truncates, keeping the `...` that `truncateForRail` appends; `getConversationHistoryTitle` truncates inside `deriveRailTitle` then sanitizes, and `sanitizeGeneratedTitle`'s `.replace(/[.!?]+$/, '')` strips that `...` off. Live `"Daily health check of the Dingley Assessment servers and..."` vs history `"...servers and"`. Introduced by the 2026-09-08 title-stability work, which cut deterministic drift from 222/2000 entries to 47 and rail-overflow from 188 to 0 but left this. A second, structural residue in the same 47 is out of scope for a one-line fix: `truncatePreview` (`history-manager.ts:1739`) collapses newlines before storing `firstUserMessage`, so a history entry has no line structure and `deriveRailTitle`'s first-line-only rule cannot be reproduced from it. **Required fix:** apply one shared normalize-then-truncate order in both resolvers. **Acceptance:** genuine deterministic drift (entries with no `aiTitle`) falls below the current 47 with no over-limit renders. | [Session title livetest LT-E](2026-09-08-session-title-generation-repair_livetest.md) | LT-E in that livetest |
+| LT-535 | P1 | **FIXED + REGRESSION-TESTED 2026-09-17; rebuilt-app check pending.** A regular session parked on a provider limit resumed on schedule and then sent nothing, so the session sat idle exactly as if auto-resume were off. The park re-sends `resumePrompt`, which is read from `InstanceCommunicationOverflowTracker.lastSent` — populated only by `InstanceCommunicationManager.sendInput`. A session driven by its create-time initial prompt dispatches straight to the adapter (`sendInitialPromptWithAttachmentFallback`), so nothing is ever recorded, and a park raised on that turn's *completion* — the normal Claude shape, where the five-hour limit arrives as exit-0 assistant content — stored `resumePrompt: null`. `resumeNow()` then cleared the park, logged "Cleared provider-limit park with no message to re-send", and stopped. Hibernation was ruled out as the cause: `cuggrdz6x` was hibernated by the idle sweep and still woke and resumed. Re-sending the initial prompt is not a valid fix — by the time a five-hour window closes the session can be hours into that task — so a promptless resume now sends the shared continuation turn the durable automation already composed for its own fall-through path | 2026-09-17 five_hour incident in `~/Library/Application Support/Harness/logs/app.log`: parks at 18:39 (Europe/London) for `cz37wakz1` and `cf8v1xrl6` and 19:03 for `c8n0z4wyg` (0 `sendInput` calls each, promptless park, silent resume at 20:30:05) against `cuggrdz6x` and `cp0nlqnbs` (10 and 5 `sendInput` calls, both resumed and re-sent) | `src/main/instance/instance-provider-limit-handler.spec.ts` |
+| LT-536 | P1 | **FIXED + REGRESSION-TESTED 2026-09-18; rebuilt-app check pending.** Eight loop runs (2026-08-24 to 2026-09-06) ended with their work uncommitted in `.worktrees/task-*` and lifecycle phase `blocked` (`Harvest failed with uncommitted work`), invisible to `git log`/`git branch`. `harvestWorktree` and the boot-reconcile harvest committed without `--no-verify`, so the repository pre-commit hook refused the safety commit: either the plan-spec guard (active plan docs staged) or `.githooks/pre-commit: line 10: node: command not found`, because the packaged app's PATH has no `node`. The index was left fully staged, and each boot re-ran the same refused commit. **Required fix:** the harvest commit cannot be refused by a hook; landing rules move to an explicit pre-integration check; boot recovery never auto-lands a blocked run whose branch changed outside AIO; the UI stops calling uncommitted work "saved". **Acceptance:** see the LT-536 section. | 2026-09-18 stranded-worktree rescue: `loop_runs` rows in `loop-mode/loop-mode.db`, `WorktreeManager: harvest failed` lines in `~/Library/Application Support/harness/logs/app.log.3` and `app.log.4` (7 of 8 runs; the eighth predates log retention) | `src/main/workspace/git/worktree-manager.spec.ts`, `src/main/orchestration/loop-worktree-lifecycle.spec.ts`, `src/main/orchestration/loop-worktree-lifecycle-reconcile.spec.ts`, `src/renderer/app/features/loop/managed-worktree-status.util.spec.ts` |
+| LT-537 | P2 | **FIXED + REGRESSION-TESTED 2026-09-19; rebuilt-app check pending.** `workspaceSecretsAllowAgentRequests` is documented as an operator-only switch — "When false, agents cannot raise a `secret_required` card" (`src/shared/types/settings.types.ts:320-324`) — but nothing read it. A repo-wide search found reads only in settings metadata, defaults, surfacing and docs; no enforcement anywhere, so turning it off changed nothing and an agent could still raise a secret card. `workspaceSecretsEnabled` was enforced only for MCP connector materialisation (`spawn-config-builder.ts:274`), not for the card. **Required fix:** refuse the request in the main process before it reaches the renderer, answer the agent so it does not wait on a prompt nobody will see, and leave a visible system note. **Acceptance:** with either switch off, a `secret_required` input-required is not forwarded, the agent gets a refusal, and a system message records it; with both on it forwards unchanged; unreadable settings fail closed. | 2026-09-19 code-completeness audit of the stranded-worktree rescue; no live incident | `src/main/instance/instance-permission-request-flow.spec.ts` |
+| LT-538 | P2 | **FIXED + REGRESSION-TESTED 2026-09-19.** Every loop parked on a provider limit showed the hint "Provider-limit recovery is off, so it will sit here rather than resume itself … the run is simply dead until morning" whenever `instanceProviderLimitResumeEnabled` was off — its default. That was false: the setting gates only `InstanceProviderLimitHandler` (regular sessions, `instance-manager.ts:439`), and a loop parks through `LoopProviderLimitHandler.scheduleResume` (`loop-provider-limit-handler.ts:486`), which reads no setting and falls back to an in-process timer, so the loop resumes on its own. The false premise then spread: the 2026-09-19 timeline-recovery work built a "Turn on auto-resume" button on it, caught by the completion gate before landing. **Required fix:** never tell the operator a parked loop needs them to resume it. **Acceptance:** the hint no longer exists; the causal timeline says a parked loop "resumes on its own" and offers no settings button. | 2026-09-19 completion-gate review of the stranded-worktree follow-ups; code trace | `src/renderer/app/features/loop/loop-causal-timeline.spec.ts`, `loop-control-timeline.spec.ts` |
+| LT-539 | P2 | **FIXED IN CODE; live check pending.** A hardened create adopted an unsandboxed warm process while the UI reported hardened mode. | [LT-539 detail](#lt-539) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-539) |
+| LT-540 | P2 | **FIXED IN CODE; live check pending.** An isolated packaged smoke run replaced Chrome’s machine-global native host manifest with a throwaway path. | [LT-540 detail](#lt-540) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-540) |
+| LT-541 | P0 | **REOPENED 2026-09-24 — fix was never on `main`; ported to the working tree, unit-verified, live re-check pending.** The 2026-09-20 fix and live verification existed only on the land-blocked queue branch `queue/2026-07-13-fable-ws15-332c74`. Remote assistant replies existed in the CLI transcript but never reached the instance output buffer. | [LT-541 detail](#lt-541) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-541) |
+| LT-542 | P1 | **REOPENED 2026-09-24 — fix was never on `main`; ported to the working tree, unit-verified, live re-check pending.** Same land-blocked queue branch as LT-541. A heartbeat-timeout disconnect aborted durable worker work instead of opening the parked-work window. | [LT-542 detail](#lt-542) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-542) |
+| LT-543 | P2 | **FIXED IN CODE; live check pending.** A restarted browser forwarder restored revealed tools but its restoration and failure logs were absent from `app.log` and stderr. | [LT-543 detail](#lt-543) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-543) |
+| LT-544 | P2 | **FIXED IN CODE; live check pending.** Extension commands timed out on both Windows and Mac while health called the channels deliverable. | [LT-544 detail](#lt-544) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-544) |
+| LT-545 | P2 | **FIXED IN CODE; live check pending.** Renderer IPC calls such as skills discover, set-control and match failed payload validation. | [LT-545 detail](#lt-545) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-545) |
+| LT-546 | P2 | **FIXED IN CODE; live check pending.** A suggest-only global skill had no row to promote, and the panel could label its mode On. | [LT-546 detail](#lt-546) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-546) |
+| LT-547 | P2 | **FIXED IN CODE; live check pending.** An enabled oversized skill was detected but silently omitted from injection and Skill Health. | [LT-547 detail](#lt-547) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-547) |
+| LT-548 | P2 | **FIXED IN CODE; live check pending.** A materialized workspace secret appeared in a CLI `--mcp-config` argv value visible to another shell. | [LT-548 detail](#lt-548) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-548) |
+| LT-549 | P2 | **FIXED IN CODE; live check pending.** A rejected secret-card save left the credential in the password input. | [LT-549 detail](#lt-549) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-549) |
+| LT-550 | P2 | **FIXED IN CODE; live check pending.** Workspace Secrets hid the agent-facing slug, timestamps and audit history. | [LT-550 detail](#lt-550) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-550) |
+| LT-551 | P2 | **FIXED IN CODE; live check pending.** A live agent could not raise the secret card through any reachable protocol. | [LT-551 detail](#lt-551) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-551) |
+| LT-570 | P2 | **FIXED IN CODE; live check pending.** Settings Help and compact navigation left keyboard focus behind the modal or on the body. | [LT-570 detail](#lt-570) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-570) |
+| LT-571 | P2 | **FIXED IN CODE; live check pending.** Remote Nodes Pairing rendered an empty panel when the server was disabled. | [LT-571 detail](#lt-571) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-571) |
+| LT-572 | P2 | **FIXED IN CODE; live check pending.** Icon-only Settings rail items measured below the 44 × 44 pointer target floor. | [LT-572 detail](#lt-572) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-572) |
+| LT-573 | P2 | **FIXED IN CODE; live check pending.** The shared save-state banner announced neither saves nor errors to assistive technology. | [LT-573 detail](#lt-573) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-573) |
+| LT-574 | P2 | **FIXED IN CODE; live check pending.** Ecosystem listed commands once, then returned an empty successful list on later visits. | [LT-574 detail](#lt-574) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-574) |
+| LT-575 | P2 | **FIXED IN CODE; live check pending.** Light-theme Settings text and pills had measured contrast failures. | [LT-575 detail](#lt-575) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-575) |
+| LT-590 | P2 | **FIXED IN CODE; live check pending.** The loop diagnosis severity chip, tag and primary buttons lost contrast in light theme. | [LT-590 detail](#lt-590) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-590) |
+| LT-591 | P2 | **FIXED IN CODE; live check pending.** WARN escalation displayed “Repeating the same work” without a matching work-hash signal. | [LT-591 detail](#lt-591) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-591) |
+| LT-592 | P2 | **FIXED IN CODE; live check pending.** One issue card showed a decision tag, a hint next step and two primary actions. | [LT-592 detail](#lt-592) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-592) |
+| LT-593 | P2 | **FIXED IN CODE; live check pending.** Stop on a busy Claude turn ended its session and restored the queued message as a draft. | [LT-593 detail](#lt-593) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-593) |
+| LT-594 | P2 | **FIXED IN CODE; live check pending.** Terminal causal-timeline readings and cap recovery never appeared in the UI. | [LT-594 detail](#lt-594) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-594) |
+| LT-595 | P2 | **FIXED IN CODE; live check pending.** After closed-session continuation the composer model label stayed on the old model. | [LT-595 detail](#lt-595) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-595) |
+| LT-596 | P2 | **FIXED IN CODE; live check pending.** A Codex native child rollout consumed tokens that no instance ledger entry charged. | [LT-596 detail](#lt-596) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-596) |
+| LT-597 | P2 | **FIXED IN CODE; live check pending.** An interrupted Codex turn produced prose and moved quota usage while the ledger stayed unchanged. | [LT-597 detail](#lt-597) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-597) |
+| LT-598 | P2 | **FIXED IN CODE; live check pending.** The context manifest omitted adapter-appended Browser Gateway instructions from delivered native input. | [LT-598 detail](#lt-598) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-598) |
+| LT-599 | P2 | **FIXED IN CODE; live check pending.** A rendered streaming bubble could shrink despite the canonical content rewind guard. | [LT-599 detail](#lt-599) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-599) |
+| LT-600 | P2 | **FIXED IN CODE; live check pending.** An ACP Stop settled idle but left only an interrupt-requested record. | [LT-600 detail](#lt-600) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-600) |
+| LT-601 | P2 | **FIXED IN CODE; live check pending.** A user Stop was persisted as a completed turn. | [LT-601 detail](#lt-601) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-601) |
+| LT-602 | P2 | **FIXED IN CODE; live check pending.** The session header omitted reasoning effort chosen at spawn. | [LT-602 detail](#lt-602) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-602) |
+| LT-603 | P2 | **FIXED IN CODE; live check pending.** A restart lost its retained child record before fallback reconciliation could report it. | [LT-603 detail](#lt-603) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-603) |
+| LT-604 | P2 | **FIXED IN CODE; live check pending.** A worker paired after starting a disabled server stayed “disconnected” in the roster. | [LT-604 detail](#lt-604) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-604) |
+| LT-605 | P2 | **FIXED IN CODE; live check pending.** A recovery candidate existed but the startup notice never rendered. | [LT-605 detail](#lt-605) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-605) |
+| LT-606 | P2 | **FIXED IN CODE; live check pending.** Resume Picker row actions had no visible keyboard focus ring. | [LT-606 detail](#lt-606) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-606) |
+| LT-610 | P2 | **FIXED IN CODE; live check pending.** Deep-linking to approval B highlighted B but left keyboard focus on approval A. | [LT-610 detail](#lt-610) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-610) |
+| LT-611 | P2 | **FIXED IN CODE; live check pending.** A browser mutation without `instanceId` raised approval, then could not redeem it on retry. | [LT-611 detail](#lt-611) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-611) |
+| LT-612 | P2 | **FIXED IN CODE; live check pending.** Cursor and Grok nonzero shell exits were recorded as successful tool results. | [LT-612 detail](#lt-612) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-612) |
+| LT-613 | P2 | **FIXED IN CODE; live check pending.** Clicking a History entry expanded it then closed the sidebar. | [LT-613 detail](#lt-613) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-613) |
+| LT-614 | P2 | **FIXED + REGRESSION-TESTED 2026-09-22 (landed in `46cd2aa0`); rebuilt-app check done in the dev app.** A generic ACP "Input Required" approval card (OpenCode, Grok, Cursor, Copilot) whose request timed out (60 s auto-reject) stayed on screen, and its Cancel button did nothing; answering a card also left its PermissionRegistry entry open, so the "blocked on approval" banner showed answered requests and the approval audit recorded them as timeout denials. |
+| LT-615 | P3 | **FIXED + REGRESSION-TESTED 2026-09-24 (working tree, uncommitted); live re-check pending.** `browser.close_matching` with `urlContains`/`titleContains` counted a tab Chrome had already closed as one it closed. | [LT-615 detail](#lt-615) | [Tab close livetest](2026-09-10-browser-tab-close-and-inspection-metadata_livetest_completed.md) |
+| LT-616 | P3 | **FIXED + REGRESSION-TESTED 2026-09-24 (working tree, uncommitted); live re-check pending.** A browser command requeued after a failed poll-response handoff left no trace, so LT-371 channel-flapping check 2 could not correlate its command id. | [LT-616 detail](#lt-616) | [Channel-flapping livetest](../superpowers/plans/2026-08-23-browser-extension-channel-flapping_plan_livetest.md) |
+| LT-617 | P2 | **FIXED IN CODE 2026-09-24 (working tree); live re-check needs extension 0.2.35 on `windows-pc`.** `browser.health` reports `windows-pc` extension secret-observation state as `{reported: false}` after a successful `report_inventory` refresh from extension 0.2.34, so the protection state the extension reports never reaches health. | [LT-617 detail](#lt-617) | [Login recipe livetest](2026-09-23-browser-login-recipe-persistence_livetest.md) |
+| LT-618 | P2 | **PARTLY FIXED IN CODE 2026-09-24 (refresh budget + unchanged-value fast path; the unbounded extension boundary queue remains); live re-check needs extension 0.2.35.** Every `report_inventory` sent to the local Mac extension (0.2.34) times out, after which the extension stops polling for minutes and reconnects with `native_host_stdin_eof`; the local tab inventory has not been confirmed since `1790209756`. | [LT-618 detail](#lt-618) | [Reliability livetest](2026-07-17-browser-gateway-reliability_livetest.md) |
+| LT-619 | P2 | **CODE HALF FIXED + REGRESSION-TESTED 2026-09-24 (working tree); OPERATOR HALF NEEDS JAMES.** The coordinator's mDNS advertisement is invisible on this Mac because macOS refuses Harness multicast (EHOSTUNREACH, no Local Network permission), and each refused answer surfaced as an uncaught main-process exception while startup logged "mDNS service published". | [LT-619 detail](#lt-619) | [Remote-node resilience livetest](2026-09-07-remote-node-resilience_livetest.md) |
+| LT-620 | P2 | **FIXED + REGRESSION-TESTED 2026-09-24 (working tree); live re-check pending.** LT-611's empty-string sentinel survived in four more grant lookups (`request_grant` ×2, `close_tab`/`close_matching`, existing-tab `navigate`, file-upload candidates), so a caller with no `instanceId` could never redeem a grant it had just been given. | [LT-620 detail](#lt-620) | [Approval coherence livetest](../superpowers/plans/2026-09-01-browser-approval-coherence_livetest.md) |
+| LT-621 | P2 | **FIXED + REGRESSION-TESTED 2026-09-24 (working tree); live re-check pending.** The packaged app never advertised its Tailscale MagicDNS URL to workers, because the macOS Tailscale binary answers in GUI mode without a shell environment and that non-JSON reply ended the candidate search. | [LT-621 detail](#lt-621) | [Worker offline resilience livetest](2026-09-22-worker-offline-resilience_livetest.md) |
+| LT-630 | P3 | **FIXED + CONFIRMED LIVE 2026-09-24 (working tree)** for the cited elements. Light-theme text on same-colour tints (`--pill-ok-fg`/`--pill-error-fg`/`--primary-color` on low-alpha tints of themselves) fails 4.5:1 on Remote Nodes, Permissions, Auxiliary Models and Ecosystem, surfaces LT-575 did not cover. | [LT-630 detail](#lt-630) | [Settings UX livetest](2026-08-28-settings-ux-remediation_livetest.md) |
+| LT-631 | P2 | **FIXED (three causes) + CONFIRMED LIVE 2026-09-24 (working tree).** A tall project `⋯` menu is clipped by its scrolling ancestor `.instance-viewport` (a 413 px visible box in a 900 px window), below the menu's own 420 px cap, so items and its rounded corner are cut off. | [LT-631 detail](#lt-631) | [Copilot account routing livetest](../superpowers/plans/2026-08-25-copilot-account-routing_plan_livetest.md) |
+| LT-640 | P2 | **FIXED (two faults) 2026-09-24 (working tree): schema confirmed live; panel refresh key fixed after a live reopen; live re-check pending.** `loop:state-changed` broadcasts carrying `lifecycleOnly: true` were rejected by the strict event schema (19 blocked in the production `app.log`), so a running renderer never saw a loop's post-completion worktree outcome. | [LT-640 detail](#lt-640) | [Stranded worktree rescue livetest](2026-09-18-stranded-worktree-rescue_livetest.md) |
+| LT-641 | P1 | **FIXED (two faults) 2026-09-24 (working tree): schema confirmed live; request cards now also mounted in chat detail after a live reopen; live re-check pending.** Agent `secret_required` requests were blocked on `user-action:request` because the event schema lacked that type and `secretRequest`, so the card appeared only when the view later pulled pending requests. | [LT-641 detail](#lt-641) | [Stranded worktree rescue livetest](2026-09-18-stranded-worktree-rescue_livetest.md) |
+| LT-642 | P3 | **FIXED + REGRESSION-TESTED 2026-09-24 (working tree).** Resuming a terminal loop that exists only as a checkpoint printed the restore path's internal error instead of the documented "is terminal" message. | [LT-642 detail](#lt-642) | [Agent-reachable loop resume livetest](../superpowers/plans/2026-09-19-agent-reachable-loop-resume_livetest.md) |
+| LT-643 | P1 | **FIXED + REGRESSION-TESTED 2026-09-24 (working tree); live re-check pending.** A ping-pong loop hangs forever after round 1's reviewer settles with a valid verdict: no verdict is logged, no round is shown, and the 600 s review timeout never fires. | [LT-643 detail](#lt-643) | [Ping-pong livetest](PINGPONG_IMPLEMENTATION_STATUS_livetest.md) |
+| LT-644 | P2 | **FIXED + REGRESSION-TESTED 2026-09-24 (working tree); live re-check (ping-pong check 2) pending.** Root cause found in the captured Codex rollouts: the reviewer prompt never named the finding fields. Every ping-pong reviewer round (6 of 6, across 3 real Claude-builder/Codex-reviewer loops) returned `CHANGES_REQUESTED` with **0** parsed findings, so the builder gets no actionable issue, the open-issues ledger stays empty, and Arbitrate can never become available. | [LT-644 detail](#lt-644) | [Ping-pong livetest](PINGPONG_IMPLEMENTATION_STATUS_livetest.md) |
+| LT-650 | P3 | **FIXED + CONFIRMED LIVE 2026-09-24 (working tree).** After the OpenCode model is switched off a MiMo Token Plan model, the gated quota probe returns `null` and the stale Token Plan numbers stay on screen indefinitely. | [LT-650 detail](#lt-650) | [MiMo Token Plan livetest](2026-09-23-mimo-token-plan-allowance_livetest.md) |
+| LT-651 | P3 | **FIXED + CONFIRMED LIVE 2026-09-24 (working tree).** A fresh instance's `contextEvidence` never reaches the renderer `InstanceStore` until reload: the early `created` emit races evidence initialisation (the LT-602 gap, for a sibling field). | [LT-651 detail](#lt-651) | [Context evidence livetest](../superpowers/plans/2026-07-15-provider-agnostic-context-evidence-plan_livetest.md) |
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
@@ -399,7 +486,7 @@ alias. The old wording caused Antigravity-capable checks to be treated as blocke
 
 - `docs/plans/2026-07-13-fable-ws1_livetest.md`
 - `docs/plans/2026-07-13-fable-ws7-phaseb_livetest.md`
-- `docs/plans/2026-07-13-fable-ws13_livetest.md`
+- `docs/plans/2026-07-13-fable-ws13_livetest_completed.md`
 - `docs/superpowers/plans/2026-07-15-provider-agnostic-context-evidence-plan_livetest.md`
 - `src/main/providers/__tests__/parity/fixture-replay.spec.ts`
 - `packages/contracts/src/__fixtures__/provider-events/`
@@ -1627,6 +1714,17 @@ P3 — cosmetic in production (a visible window does not throttle), but it activ
 headless testing, which is exactly when someone is reading the log. It cost this session a CPU
 profile and a 200-second controlled experiment to rule out.
 
+### Fix — 2026-09-23
+
+The renderer sends `visibility` (`'visible' | 'hidden'`) with every beat and beats immediately on
+`visibilitychange` (`renderer-heartbeat.service.ts`); the payload schema accepts it as optional so an
+older renderer still beats. `RendererHeartbeatMonitor` records the last reported visibility and judges a
+hidden renderer against `HIDDEN_HEARTBEAT_STALL_THRESHOLD_MS` (150 s) rather than 10 s; the stall log
+carries `hidden`. Regression tests: `renderer-heartbeat-monitor.spec.ts` "hidden window (LT-022)" (two of
+them fail with the threshold change reverted) and `renderer-heartbeat.service.spec.ts`. Live check in
+`2026-09-23-outstanding-plans-sweep_livetest.md`.
+
+
 ## LT-023: Two rapid CLI crashes leave the session dead, silently
 
 **Priority P2. Found 2026-07-26, reproduced 2026-07-31 on the current build while running
@@ -2069,24 +2167,42 @@ then found four things worth recording. Three are fixed; one is a decision.
   the writable-root grants (verified: a jailed `security add-generic-password` outside the roots
   fails `Operation not permitted`).
 
-**LT-029 (P2, decision needed): hardened mode breaks on credential *refresh*, not at startup.**
+### Fix — 2026-09-23
+
+Refused up front, per the required behaviour's second option. `createCliAdapter`
+(`adapter-factory.ts`) throws before constructing a Codex adapter for a hardened instance, with an
+operator-readable reason, so a hardened Codex session fails at spawn instead of idling forever.
+Regression test: `adapter-factory-hardened-remote.spec.ts` (fails with the guard removed). Making Codex
+work inside the jail stays open as an enhancement that needs WS13 check 8 evidence.
+
+
+## LT-029: hardened Keychain refresh limitation
+
+**P2. Safe limitation chosen in code 2026-09-23; live refresh proof pending.** Hardened mode may
+prevent credential refresh even when startup succeeds.
 
 LT-026 fixed the credential *read*. Writes are a different path: the Claude binary shells out to
 `/usr/bin/security add-generic-password -U`, and a legacy keychain write is a client-side **file**
-write to `~/Library/Keychains`, which is in none of the eight default writable roots. Measured
+write to `~/Library/Keychains`, which is in none of the current default writable roots. Measured
 directly: a jailed `touch ~/Library/Keychains/<probe>` → `Operation not permitted`.
 
-Startup therefore works (read-only path) and a short live check cannot catch this. It bites when the
-OAuth token refreshes mid-session, or if a user runs `/login` inside a hardened session. Two options,
-both needing James:
+Startup can therefore work through the read-only path while a later OAuth refresh or `/login`
+attempt may need a Keychain write. The direct jailed write was observed; an actual long-session
+provider token refresh has not been observed, so its outcome remains a live check. The options were:
 
 1. Add `~/Library/Keychains` as a hardened writable root — accepting that a jailed CLI can then
    modify or delete login-keychain items.
 2. Accept it as a documented hardened-mode limitation, and add a long-session livetest check that
    exercises a token refresh under the jail.
 
-Recorded rather than chosen: option 1 materially widens what a jailed process can do to the user's
-credentials, which is not a call to make unattended.
+The safe policy is option 2: keep `~/Library/Keychains` out of the default writable roots. Adding it
+would let a jailed process alter the whole login Keychain. Credential failures on a terminal
+hardened exit now get a credential-specific notification and a composer banner with Sign in and
+Retry session; the banner does not offer Allow path & retry. A real file denial still offers that
+path grant. For a routed Claude account, Sign in opens that exact account profile's login; a delayed
+login result cannot update a different selected instance. These code paths have focused regression
+tests. The rebuilt-app, long-session refresh check is
+[Check 7](2026-09-23-outstanding-plans-sweep_livetest.md#check-7--lt-029-hardened-credential-refresh-and-repair).
 
 
 ## LT-030: A swap on a looping session cannot deliver its own notices
@@ -2780,6 +2896,8 @@ of that number and guard all of them", and a completion gate is what catches the
 
 ## LT-050: A Codex app-server parent's `spawn_child` reliably destroys itself
 
+**Current status (2026-09-23): IN PROGRESS.** The 2026-08-12 classification fix and live verification below remain valid for the fatal parent failure. The separately recorded lost `spawn_child` confirmation is now assigned for repair. The old live run does not verify that handoff.
+
 **Found:** 2026-08-11, while staging resilient-threads-sessions check 3 (orphaned orchestration
 children reconciled on restart) with a Codex parent, per that doc's own staging advice.
 
@@ -2877,7 +2995,7 @@ bug is.
   reading, `.action` itself has no other consumer in the codebase). `status: 'error'` was the entire
   cascade: illegal `error → busy` transition → `IdleMonitor` zombie-kill → no adapter. Fixing the
   classification removes the cascade at its root.
-- **Not fixed (recorded as a residual finding, not implemented):** queueing/awaiting the parent's
+- **Historical 2026-08-12 residual, fixed in code 2026-09-23:** queueing/awaiting the parent's
   turn before injecting (layer 1). Live reproduction below shows this race is not merely theoretical
   — even with the crash fixed, the "child spawned" confirmation is still silently dropped when it
   collides, so a parent that expects to learn a child's id and act on it *within the same turn*
@@ -4275,6 +4393,20 @@ kind of unverified adjacent fix that has produced regressions elsewhere in this 
 - Neither an error alone nor an error followed by a `result` can double-fire completion.
 - Live-verified on a real errored resident turn, not only unit-tested.
 
+### Fix — 2026-09-23
+
+Decisions on the three filed questions: (1) completion fires once, at the `error`, tagged
+`metadata.turnErrored`, and `residentTurnCompletedByError` (reset whenever a turn starts) stops a
+trailing `result` from firing it again; (2) `residentTurnRawOutput` is parsed for that completion and
+cleared, exactly as the `result` path does; (3) the partial turn's usage is recorded rather than
+dropped, and `instance-communication.ts` skips the success-only effects for it (no provider-limit
+clear; `Stop` reports `error`). The `result` usage block moved to `claude-result-usage.ts` to keep the
+adapter under its LOC ceiling. Regression tests: `claude-cli-adapter.spec.ts` "LT-105" (4) and
+`instance-communication.spec.ts` "(LT-105)"; all fail with the fix reverted. Evidence: no resident
+`type: error` event appears in 985,811 captured Claude adapter events (2026-08-12 to 2026-09-23), so the
+live check needs a staged failure; it is recorded in `2026-09-23-outstanding-plans-sweep_livetest.md`.
+
+
 ## LT-100: ACP-transport providers (Cursor and Grok confirmed) record zero cost when the ACP server omits `usage`
 
 **Found:** 2026-08-12, running the LT-090 cost-tracking blast-radius survey ("which providers actually
@@ -5554,7 +5686,7 @@ extraction.
 
 ### Observed behavior
 
-Driving checks 3/4 of the Local AI Guard live test (`2026-07-26-local-ai-guard_plan_livetest.md`)
+Driving checks 3/4 of the Local AI Guard live test (`2026-07-26-local-ai-guard_plan_livetest_completed.md`)
 against a real `claude` instance whose `outputBuffer` had been grown past the 0.85 `triggerThreshold`
 (via large user pastes), a single `compactInstance({instanceId})` IPC call — the app's "Compact Now"
 action — consistently logged **two** `[ContextCompactor] Compaction started` entries, at different
@@ -5625,6 +5757,8 @@ race-with-no-routing-event) behavior on a revert before trusting the fix.
 
 ## LT-189: `notify-and-allow` fallback policy has no notification/banner delivery anywhere
 
+**Current status (2026-09-23): RESTORED IN CODE; rebuilt-app check pending.** The passive banner passed a live run on 2026-08-21, was later removed, and has been restored on James's decision. The historical root cause and live evidence below describe the earlier builds; the restored build still needs its own check.
+
 ### Observed behavior
 
 With a Local AI Guard target's `fallbackPolicy` set to `notify-and-allow` and its endpoint made
@@ -5682,7 +5816,7 @@ reaches `this.notify(event)` identically regardless of which slot or policy sour
 real DOM (CDP + focus emulation, not a stale zoneless signal) that the banner rendered ("Paid fallback
 happened automatically · Title generation · Cost unknown · Dismiss"), and confirmed a real click on
 `Dismiss` removed it. Full detail:
-[Local AI Guard livetest, evidence run 2026-08-21](../superpowers/plans/2026-07-26-local-ai-guard_plan_livetest.md#evidence-run--2026-08-21-batch-q2--lt-189-confirmed-fixed-and-live-end-to-end-backend--renderer-checks-25-re-confirmed-blocked-reasoning-unchanged).
+[Local AI Guard livetest, evidence run 2026-08-21](../superpowers/plans/2026-07-26-local-ai-guard_plan_livetest_completed.md#evidence-run--2026-08-21-batch-q2--lt-189-confirmed-fixed-and-live-end-to-end-backend--renderer-checks-25-re-confirmed-blocked-reasoning-unchanged).
 No dedicated unit/regression test for this fix was found or written by Batch Q2 — the fix's own test
 coverage (if any) was authored elsewhere and not reviewed here; this section only records live,
 behavioral verification.
@@ -6263,10 +6397,15 @@ lessons (this workspace)" block) while the rejected one stayed absent. This defe
 precisely to the correction-miner's Claude-transcript data source, not the review/approval pipeline
 or the lesson-surfacing pipeline around it.
 
-**Acceptance.** Not written — depends on the direction chosen above. Whatever direction is picked,
-the acceptance test is straightforward: a real Claude session containing a genuine
-same-base-command failure→fix pair (not an exploration command) must produce a governed rule proposal
-from `runScan()`.
+**Acceptance.** Written in the spec,
+[`2026-09-06-lt196-correction-miner_spec_completed.md`](../superpowers/specs/2026-09-06-lt196-correction-miner_spec_completed.md):
+a real Claude session, and a real ACP session, each containing a genuine same-base-command
+failure→fix pair (not an exploration command) must produce a governed rule proposal from `runScan()`.
+
+**Status: FIXED 2026-09-13; live checks pending.** Direction (a), with the record held in a side
+store rather than the live buffer. All agent-runnable gates pass, and the final independent review
+returned PASS. The real-provider scans and the archive→live checks are open in
+[`2026-09-06-lt196-correction-miner_livetest.md`](../superpowers/plans/2026-09-06-lt196-correction-miner_livetest.md).
 
 ## LT-206: RLM and Wake renderer events are dead for the worker-routed paths
 
@@ -6342,7 +6481,7 @@ subscription can forward it to the renderer (subject to the pre-existing, unrela
 of scope for this ticket).
 
 **Fix.** See the index row and the plan doc's LT-207 section
-(`docs/plans/2026-07-19-livetest-failure-remediation_plan.md`) for the full mechanism.
+(`docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md`) for the full mechanism.
 
 **Why this is filed separately from LT-206.** LT-206 explicitly flagged this lane as a related,
 out-of-scope finding — a different process with different wiring (a `LaneOutboundMessage` transport,
@@ -7830,10 +7969,11 @@ the Needs You lane specifically.
 
 ## LT-441: hardened mode does not confine a resident Claude session's own `CLAUDE_CONFIG_DIR` writes
 
-**Status: FOUND, NOT FIXED, 2026-08-24. Root cause narrowed but not isolated to a syscall.**
+**Status: product-path guard implemented and regression-tested 2026-09-23; original resident OS
+write escape remains unverified.** The root cause is still not isolated to a syscall.
 Section added by the orchestrating session so this item is not left as an index row with no entry —
 the full investigation and its reasoning live in the
-[implementation-status section](2026-07-19-livetest-failure-remediation_plan.md).
+[implementation-status section](2026-07-19-livetest-failure-remediation_plan_completed.md).
 
 ### Observed behaviour
 
@@ -7858,8 +7998,9 @@ The jail is engaged and is not globally bypassed. Each of these was checked rath
   So the policy text and the root list are both sound.
 - In the same live instance, an ordinary agent-driven tool-call write to a different ungranted path
   was **correctly denied**.
-- No file under `src/main/` references `CLAUDE_CONFIG_DIR` in production code, so AIO's own
-  unsandboxed main process is not performing the write.
+- At the 2026-08-24 reproduction, no production file under `src/main/` referenced
+  `CLAUDE_CONFIG_DIR`. That search is now historical: the new spawn guard reads it. A privileged
+  process/syscall trace is still needed to identify who performed the observed write.
 
 What is left is specific to something the **resident/stream-json** mode reaches that one-shot mode
 does not. Which syscall, which process in the tree, and whether it is a plain `file-write*` the policy
@@ -7872,13 +8013,17 @@ A hardened instance's CLI-internal writes must be confined by the same Seatbelt 
 agent-driven tool writes. If a config-bootstrap path genuinely must be writable, it should be an
 explicit granted root, not an escape.
 
-### Severity and why it is P2 today
+### Product-path guard and remaining severity
 
-**Not currently reachable through any AIO-exposed surface.** `InstanceCreatePayloadSchema` has no
-per-instance env-override field, so nothing in the product's IPC can set `CLAUDE_CONFIG_DIR`; this was
-reachable only through a Node Inspector monkeypatch used as instrumented fault injection. It is
-recorded now so the gap is known **before** any future feature adds a legitimate per-instance
-env-override surface — at which point it becomes reachable and the severity needs re-assessing upward.
+`resolveHardenedSpawn` now refuses a hardened Claude spawn when its effective `CLAUDE_CONFIG_DIR`
+falls outside realpath-resolved writable roots. The check runs before `sandbox-exec` starts and sees
+the merged child environment, including ambient values. `createCliAdapter` grants only a routed
+Claude account's exact resolved profile home. Tests cover ungranted and sibling paths, inherited
+environment values, and the derived-profile grant. The earlier "not reachable through the product"
+claim is withdrawn: the inherited environment and account route are real inputs on the product
+spawn path. The original resident-mode OS escape remains unresolved until a privileged trace
+identifies its write mechanism; this guard limits exposure through the normal product path without
+proving the sandbox itself confines that internal write.
 
 ### Acceptance
 
@@ -7889,8 +8034,9 @@ env-override surface — at which point it becomes reachable and the severity ne
 
 ### Effect on the checks that found it
 
-WS13 checks 10/11 remain open for a *different* reason than before: this lever does not produce the
-denial-crash they need, because the CLI's own config write is not confined the way the check assumed.
+This lever did not produce the denial-crash. WS13 checks 10/11 were later closed on 2026-09-20 using
+a different interrupt-suppression lever. LT-441's resident write trace remains open in
+[Check 8](2026-09-23-outstanding-plans-sweep_livetest.md#check-8--lt-441-resident-claude-confinement-trace).
 
 ## LT-521: check 1's "logs show shadow decisions" wording describes a log line that does not exist anywhere in the shadow/enforce decision path — DOC-CORRECTED
 
@@ -8400,7 +8546,7 @@ test proves no `RemoteCliAdapter` can be constructed while the instance claims h
 
 ### Observed behaviour
 
-Driving [WS13 check 5](2026-07-13-fable-ws13_livetest.md), which five prior sessions had left open
+Driving [WS13 check 5](2026-07-13-fable-ws13_livetest_completed.md), which five prior sessions had left open
 for the stated reason "no agent-reachable path anywhere sets `hardened: true` on a `forceNodeId`
 create, dev app or packaged app alike" — true for every *exposed* path (IPC schema, MCP
 `run_on_node`), but `createInstance` itself has always accepted both fields together
@@ -8778,7 +8924,7 @@ artifact only.
   `runLoopPreflight stops after a passing quick-verify when the preflight is not a gate`
   (`expected 1 to be +0`), and the file was restored afterwards.
 
-Related and still open: [LT-350](2026-07-19-livetest-failure-remediation_plan.md) — cancelling a loop
+Related and still open: [LT-350](2026-07-19-livetest-failure-remediation_plan_completed.md) — cancelling a loop
 does not kill an in-flight preflight verify subprocess. Same code path; a cancelled loop can leave
 this command running. Capping the budget bounds that orphan to 180s but does not close it.
 
@@ -8911,3 +9057,2210 @@ This is exactly the residual LT-531 called out and left as an operator choice (s
 - `PRE_FLIGHT.md` records the skipped command and does not claim a clean or red baseline.
 - The strip shows `Preflight skipped` (or `Preflight baseline unknown` for a restored timeout), not a red `Preflight timed out`.
 - A `block` preflight still runs the configured verify command.
+## LT-535 — a promptless provider-limit park resumed by sending nothing — FIXED 2026-09-17, rebuilt-app check pending
+
+### Observed behavior
+
+On 2026-09-17 six Claude sessions parked on the `five_hour` limit between 18:39 and 20:09 (reset
+20:30; all times below are Europe/London). The scheduled
+resume fired on time for all six. Two re-sent their turn; four logged `Cleared provider-limit park
+with no message to re-send` and sent nothing, leaving the sessions idle with the countdown banner
+gone and no indication that anything had happened.
+
+The split is exact, and it is not hibernation. `cuggrdz6x` was hibernated by the idle sweep at
+19:09 and still resumed — `Send targets a hibernated session — waking before delivery` followed by
+`Resumed regular session after provider quota reset`. What separated the two groups was how many
+times the session had been through `InstanceCommunicationManager.sendInput` before it parked:
+
+| instance | `sendInput` calls before the park | 20:30 outcome |
+| --- | --- | --- |
+| `cp0nlqnbs` | 5 | resumed, turn re-sent |
+| `cuggrdz6x` | 10 (hibernated) | woken, resumed, turn re-sent |
+| `cz37wakz1` | 0 | park cleared, nothing sent |
+| `cf8v1xrl6` | 0 | park cleared, nothing sent |
+| `c8n0z4wyg` | 0 | park cleared, nothing sent |
+| `pcto77u6s` | 1, held by the known-limit preflight | park cleared, nothing sent |
+
+### Root cause
+
+`instance-communication.ts`'s `adapter.on('complete')` park passes
+`resumePrompt: this.overflow.getResumePrompt(instanceId)`, and that map is written in exactly one
+place: `InstanceCommunicationManager.sendInput`. Two live turn paths never reach it.
+
+- The create-time initial prompt goes straight to the adapter via
+  `sendInitialPromptWithAttachmentFallback`. `providerLimitGateForDirectTurn` covers the
+  known-limit preflight and the send-error funnel, and both carry the prompt explicitly — but not
+  the *completed-turn* funnel, which is the normal Claude limit shape (exit 0, notice as assistant
+  content). `cz37wakz1` ran a three-hour agent sweep entirely off its initial prompt.
+- A turn held by the preflight returns before `rememberLastSent`, so a subsequent park on the same
+  session also has nothing recorded.
+
+`resumeNow()` then fell to its else branch, which cleared the park and logged. Nothing was sent,
+and nothing was surfaced in the transcript.
+
+### Required behavior
+
+A resume that cannot replay a captured turn still continues the session. Replaying the initial
+prompt is not an acceptable substitute: a session that has been running for hours would restart its
+task from the beginning.
+
+### Fix
+
+`buildProviderLimitContinuationPrompt()` in `instance-provider-limit-resume-scheduler.ts` is now the
+single continuation turn for a promptless park, used by `resumeNow()`, by `resumeFromAutomation()`'s
+live-instance branch (which sent nothing after a restart, reproducing the same silence), and by the
+durable automation's dispatch fallback (which previously had its own ad-hoc variant naming the
+instance id and the raw limit reason). The automation and the in-process timer therefore resume a
+promptless park identically.
+
+The continuation turn is gated on a live park entry. `resumeNow()` with neither a park nor a carried
+prompt still sends nothing, so a stale Resume click landing after the park cleared cannot inject an
+unsolicited turn — `instance-provider-limit-ipc.ts` has no `isParked` guard of its own.
+
+### Acceptance
+
+- A park recorded with `resumePrompt: null` resumes by sending the continuation turn, clearing the
+  waitReason and the park. Covered by `instance-provider-limit-handler.spec.ts`.
+- A park with a captured turn still re-sends that turn verbatim.
+- Double-fire de-duplication (timer vs automation) still holds for a promptless park.
+- A resume with neither a live park nor a carried turn sends nothing.
+- A promptless durable automation firing after a restart, against a live instance, still continues
+  the session.
+- Live re-check after a rebuild/repackage: a session running only from its initial prompt hits a
+  provider limit, parks, and continues on its own at the window reset.
+
+## LT-536 — loop harvest commits refused by the repository hook stranded finished work — FIXED 2026-09-18, rebuilt-app check pending
+
+### Observed behavior
+
+On 2026-09-18 eight `.worktrees/task-*` loop worktrees held 7 to 185 staged files each, with zero
+commits on their branches, 28 to 56 commits behind `main`. `git log` and `git branch` showed
+nothing of that work. Every matching `loop_runs` row was at lifecycle phase `blocked` with
+`lastError = 'Harvest failed with uncommitted work'`; five had finished `completed-needs-review` and
+three `cap-reached`. The only place the state surfaced was the owning chat's loop summary and its
+collapsed "Past loop prompts" row, which read `workspace blocked · Harvest failed with uncommitted
+work · saved on task-…`. That last clause was false: nothing had been saved on the branch.
+
+### Root cause
+
+`WorktreeManager.harvestWorktree` (`worktree-manager.ts`) runs `git add -A` and then
+`git commit --no-gpg-sign` with no `--no-verify`, so the repository's pre-commit hook ran against
+the loop's session output. `finalizeLoopWorktree` treats a failed harvest as `blocked` and keeps the
+worktree, which is correct, but nothing ever retried it successfully: boot recovery
+(`loop-worktree-lifecycle-reconcile.ts`) re-ran the same hooked commit on every start.
+
+`app.log.3`/`app.log.4` record the refusal for 7 of the 8 runs, each five times:
+
+| Refusal | Runs |
+| --- | --- |
+| `.githooks/pre-commit: line 10: node: command not found` (packaged app's PATH has no `node`, so `node scripts/run-git-hook.js` exits 127 before `test:staged` runs) | `mtovfbpg`, `mtl9icld`, `mtjeyorh`, `mtjvhjeh`, `mtkqr41h` |
+| plan-spec guard: `Commit blocked — active plan/spec/livetest docs must stay untracked` | `mtkdez2p`, `mtklsatd` |
+
+The eighth run (`mt76ztv1`, 2026-08-24) predates log retention; its cause is inferred, not proven.
+Reproduced in a temp repository with a pre-commit hook that exits 1: `harvestWorktree` returned
+`{ committed: false, hasUncommittedWork: true }` and the index was left fully staged.
+
+A second defect sat behind the first. Boot recovery re-processes every `blocked` row, and for a
+clean worktree it silently adopted whatever tip the session branch had. A blocked run whose branch
+gained commits AIO did not make, such as an operator's rescue commit, was then auto-integrated into
+`integration/<base>` and offered for promotion on the next start. A regression test reproduced this
+against the pre-fix code (the run was merged into `integration/main`).
+
+The hook had also been the only thing stopping an active plan/spec/livetest document from reaching
+the base branch through auto-integration, because integration merges and promotion already skip
+hooks. Making harvest hook-proof without replacing that check would have let loops land active
+plans on `main`.
+
+### Required behavior
+
+- The harvest commit is a safety commit on a throwaway session branch and cannot be refused by a
+  repository hook, at finalization or at boot.
+- Auto-integration refuses a session branch that adds or modifies an active plan/spec/livetest
+  document (same pattern and standing-register exemption as the plan-spec guard). The work stays on
+  the session branch for a human to land.
+- Boot recovery does not auto-land a `blocked` run whose clean session branch moved away from the
+  recorded `sessionTip`.
+- The UI does not claim a failed harvest was saved on a branch.
+
+### Fix
+
+- `harvestWorktree` and the boot-reconcile harvest commit with `--no-verify`.
+- New `listActivePlanDocuments()` (`src/main/workspace/git/active-plan-documents.ts`), exposed as
+  `WorktreeManager.listActivePlanDocuments()`. `finalizeLoopWorktree` and boot reconcile call it
+  before integrating and block with `Session adds active plan/spec/livetest documents; land it
+  manually`, removing the clean worktree folder and keeping the branch.
+- Boot reconcile keeps a clean `blocked` row whose branch tip differs from `sessionTip` blocked, with
+  `Session branch changed outside AIO; review it before landing`, touching neither the folder nor
+  the branch.
+- `managedWorktreeStatus()` says `uncommitted in the <branch> worktree folder, not saved on a
+  branch` for a failed harvest, and the fixed identity/landing-guard reasons are shown verbatim
+  instead of the generic `manual attention required`.
+
+Not changed: `mergeWorktree`'s squash commit (`worktree-manager.ts`) lands real work on the base
+branch in the root checkout, where hooks are meant to run. The loop commit ratchet
+(`loop-commit-ratchet.ts`) has the same hooked-commit shape but is opt-in and was not implicated.
+
+Follow-up decisions (James, 2026-09-18, stranded-worktree rescue report items 15 and 16):
+
+- Loop promotion now uses `dirtyRootPolicy: 'block-overlap'` (`LOOP_DIRTY_ROOT_POLICY` in
+  `loop-landing-policy.ts`, passed by `WorktreeManager` and boot reconcile). It blocks only when the operator's
+  uncommitted root changes overlap the promoted paths, with reason `root checkout has uncommitted
+  changes to a promoted path: <path>`. Under `block-any` a loop could never land in a repository
+  that keeps untracked plan documents in its root.
+- A blocked run can be marked resolved by hand from its "Past loop prompts" row
+  (`LOOP_RESOLVE_BLOCKED_WORKTREE`, `loop-worktree-resolve.ts`). The lifecycle moves to `cleaned`
+  with `resolvedByOperatorAt`, so boot recovery stops retrying it. Nothing on disk or in Git
+  changes, and a worktree folder with uncommitted changes is refused.
+
+### Acceptance
+
+- A dirty session worktree with a refusing pre-commit hook harvests into a commit and leaves a clean
+  tree (`worktree-manager.spec.ts`).
+- Boot recovery captures a dirty worktree despite a refusing hook and completes
+  (`loop-worktree-lifecycle-reconcile.spec.ts`).
+- A session adding `*_plan.md` is not integrated at finalization or at boot, and its branch
+  survives (`loop-worktree-lifecycle.spec.ts`, `loop-worktree-lifecycle-reconcile.spec.ts`).
+- A blocked run whose branch gained an outside commit stays blocked, with `main`, the branch, the
+  folder and `integration/main` untouched (`loop-worktree-lifecycle-reconcile.spec.ts`; fails
+  against the pre-fix code).
+- Live re-check after a rebuild/repackage: a loop in this repository whose worktree contains an
+  active plan document finishes as `blocked` with the landing-guard reason and its work committed on
+  the session branch, and a loop without one harvests even though the packaged app has no `node` on
+  its PATH.
+- Live re-check after a rebuild: a completed loop without active plan documents lands on `main`
+  while the root still has unrelated untracked files; and "Mark resolved" on a blocked run's Past
+  loop prompts row turns it into "marked resolved" and survives an app restart without the run
+  being retried.
+- All five deferred live checks, with exact steps and expected results, are in
+  `docs/plans/2026-09-18-stranded-worktree-rescue_livetest.md` (untracked). Run LT-1 there before
+  resolving any of the eight stranded runs, because it depends on their current blocked state.
+
+## LT-537 — the operator switch barring agent secret requests was never enforced — FIXED 2026-09-19, rebuilt-app check pending
+
+### Observed behaviour
+
+`workspaceSecretsAllowAgentRequests` (default `true`) is described in `settings.types.ts` as operator-only,
+with "When false, agents cannot raise a `secret_required` card". Turning it off had no effect: an agent could
+still raise the card and the user still saw it.
+
+### Root cause
+
+No code read the setting. `rg workspaceSecretsAllowAgentRequests` found it only in `settings-defaults.ts`,
+`settings-metadata-runtime.ts`, `settings-surfacing.ts`, `settings.types.ts` and documentation. The sibling
+master switch `workspaceSecretsEnabled` was read in exactly one place — `spawn-config-builder.ts:274`, which
+suppresses workspace MCP connector materialisation — and neither switch guarded the card itself. The card is
+raised from agent-supplied metadata (`type: 'secret_required'`, see `cli.types.ts:118`), which flows
+adapter → `instance-communication.ts` → `InstancePermissionRequestFlow.handleInputRequired` → renderer.
+
+### Required behaviour
+
+An agent may only raise a secret card when both operator switches are on. A refused request must not reach the
+renderer, must be answered so the agent continues instead of waiting, and must leave a visible trace.
+
+### Fix
+
+`InstancePermissionRequestFlow.handleInputRequired` now checks both switches for a `secret_required` request
+before any forwarding, following the file's existing auto-deny shape: emit a `permission:lifecycle` deny with
+source `operator-setting`, send the agent a refusal naming the setting (no secret material involved), add a
+system output message, and return. Settings that cannot be read fail closed.
+
+### Acceptance
+
+- Either switch off: not forwarded, agent refused, system note recorded (`instance-permission-request-flow.spec.ts`).
+- Both on: forwarded unchanged.
+- Settings unreadable: fails closed.
+- Live re-check after a rebuild: with the switch off in Settings, an agent asking for a secret gets a refusal in
+  its transcript and no card appears.
+
+## LT-538 — the loop panel told the operator a provider-limit park would never resume — FIXED 2026-09-19
+
+### Observed behaviour
+
+With `instanceProviderLimitResumeEnabled` off (the default), a loop parked on a provider limit showed the
+`loop-provider-limit-resume-off` hint: "Provider-limit recovery is off, so it will sit here rather than resume
+itself when the window clears — which overnight means the run is simply dead until morning."
+
+### Root cause
+
+The hint keyed off a setting that does not govern loops. `instanceProviderLimitResumeEnabled` is read in exactly
+one place, `instance-manager.ts:439`, to enable `InstanceProviderLimitHandler` for regular sessions. The same file
+documents (`instance-manager.ts:386-403`) that loop turns never reach that handler; only
+`LoopProviderLimitHandler.handleProviderLimit()` parks a loop, and its `scheduleResume`
+(`loop-provider-limit-handler.ts:486`) schedules the resume unconditionally, falling back to an in-process timer
+when the durable scheduler fails. So the hint's claim was false on the default path.
+
+### Required behaviour
+
+The loop UI must not say a parked loop waits for the operator, and must not offer a settings control that does
+not affect loops.
+
+### Fix
+
+Removed the hint (`HintId` member, copy, `shouldHintProviderLimitResumeOff`, its spec block, and the loop panel
+binding). The causal timeline keeps its true "It resumes on its own once the provider window reopens." and the
+non-actionable "Switch provider" note; the "Turn on auto-resume" action built on the false premise was removed
+before landing.
+
+### Acceptance
+
+- No reference to `loop-provider-limit-resume-off` or `shouldHintProviderLimitResumeOff` remains.
+- `loop-causal-timeline.spec.ts` (`says a provider-limit park resumes on its own`) and
+  `loop-control-timeline.spec.ts` (`says the loop resumes on its own and offers no button …`) pass.
+
+<a id="lt-539"></a>
+
+## LT-539: a hardened create can adopt an unsandboxed warm-start adapter — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+A hardened create adopted an unsandboxed warm process while the UI reported hardened mode.
+
+### Root cause
+
+The warm-start guard omitted `config.hardened`; warm matching used provider and directory only.
+
+### Required behavior
+
+A hardened create must spawn under Seatbelt and never consume an unconfined warm adapter.
+
+### Acceptance
+
+The preflight regression rejects warm reuse for hardened mode; a rebuilt-app create logs a Seatbelt spawn.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-539) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-540"></a>
+
+## LT-540: a packaged smoke-mode app hijacks the machine-global Chrome native-messaging manifest — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+An isolated packaged smoke run replaced Chrome’s machine-global native host manifest with a throwaway path.
+
+### Root cause
+
+The packaged-app claim rule ignored smoke mode, while the manifest path came from the home directory.
+
+### Required behavior
+
+Smoke runs must leave the installed app’s native-host registration intact.
+
+### Acceptance
+
+`smoke:packaged` leaves the manifest byte-identical while the normal installed app is running.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-540) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-541"></a>
+
+## LT-541: every remote assistant reply was silently dropped by the durable-stream dedupe — REOPENED 2026-09-24 (fix never reached main; now ported)
+
+### Status correction — 2026-09-24
+
+The fix described below, and its live verification, happened on the Plan Queue branch
+`queue/2026-07-13-fable-ws15-332c74`, which is parked as land-blocked and was never merged. `main`
+at `f04f6748` still carried the pre-fix code: `StreamDurabilityCoordinator.accept()` dropped every
+frame at or below the cursor, and the worker did not flush buffered output before a context or
+complete frame. The branch's source and test diff (11 files) was applied unchanged to the `main`
+working tree on 2026-09-24. Before the source half was applied, the branch's tests failed
+14 of 86 against `main`. After it, `npm run test:quiet -- src/main/remote-node src/worker-agent`
+passed 1182 of 1182. Still pending: a live re-check against a rebuilt coordinator, plus a worker
+redeploy for the worker-side ordering half (the coordinator half alone already stops the loss).
+The queue branch itself was left alone; AIO owns its lifecycle.
+
+
+### Observed behavior
+
+Remote assistant replies existed in the CLI transcript but never reached the instance output buffer.
+
+### Root cause
+
+Context/complete frames overtook buffered output and advanced a dedupe cursor beyond it.
+
+### Required behavior
+
+Flush output before later frames and accept late live frames without accepting replay duplicates.
+
+### Acceptance
+
+Worker/coordinator regressions pass; the rebuilt worker and app deliver the reply in order.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-541) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-542"></a>
+
+## LT-542: the WS15 parked-work window never opened on a heartbeat-timeout disconnect — REOPENED 2026-09-24 (fix never reached main; now ported)
+
+### Status correction — 2026-09-24
+
+The fix described below, and its live verification, happened on the Plan Queue branch
+`queue/2026-07-13-fable-ws15-332c74`, which is parked as land-blocked and was never merged. `main`
+at `f04f6748` still carried the pre-fix code: `StreamDurabilityCoordinator.accept()` dropped every
+frame at or below the cursor, and the worker did not flush buffered output before a context or
+complete frame. The branch's source and test diff (11 files) was applied unchanged to the `main`
+working tree on 2026-09-24. Before the source half was applied, the branch's tests failed
+14 of 86 against `main`. After it, `npm run test:quiet -- src/main/remote-node src/worker-agent`
+passed 1182 of 1182. Still pending: a live re-check against a rebuilt coordinator, plus a worker
+redeploy for the worker-side ordering half (the coordinator half alone already stops the loss).
+The queue branch itself was left alone; AIO owns its lifecycle.
+
+
+### Observed behavior
+
+A heartbeat-timeout disconnect aborted durable worker work instead of opening the parked-work window.
+
+### Root cause
+
+Node deregistration erased durability capabilities before disconnect lifecycle inspected them.
+
+### Required behavior
+
+Retain the registered durability fact through the disconnect grace period.
+
+### Acceptance
+
+A durable worker parks then resumes on reconnect or expires after the documented window; a non-durable worker fails fast.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-542) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-543"></a>
+
+## LT-543: the browser-gateway forwarder's log lines go nowhere — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+A restarted browser forwarder restored revealed tools but its restoration and failure logs were absent from `app.log` and stderr.
+
+### Root cause
+
+The standalone `aio-mcp` forwarder had neither an Electron file-log path nor a console sink.
+
+### Required behavior
+
+Give forwarder diagnostics a durable, safe sink while keeping JSON-RPC stdout clean.
+
+### Acceptance
+
+A restarted forwarder writes a bounded restoration or failure line to the configured sink and tool health reflects the result.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-543) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-544"></a>
+
+## LT-544: both extension channels accept commands and never run them while health calls them healthy — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+Extension commands timed out on both Windows and Mac while health called the channels deliverable.
+
+### Root cause
+
+The command timeout and health/recovery accounting disagreed; the precise clearing path was unresolved in the incident.
+
+### Required behavior
+
+Timeouts must make health and recovery acknowledge an unanswered extension command.
+
+### Acceptance
+
+A command-timeout burst yields an unhealthy or recoverable state and a working recovery action, verified on the live channels.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-544) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-545"></a>
+
+## LT-545: every object-payload renderer IPC call in `OrchestrationIpcService` is double-wrapped — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+Renderer IPC calls such as skills discover, set-control and match failed payload validation.
+
+### Root cause
+
+`OrchestrationIpcService` passed one payload object to preload wrappers that wrapped it a second time.
+
+### Required behavior
+
+Service and preload must use one argument convention across all affected channels.
+
+### Acceptance
+
+The real service calls for skills, workflow, review and supervision reach their Zod handlers with valid payloads.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-545) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-546"></a>
+
+## LT-546: a suggest-only skill has no reachable control, and the panel mislabels the D1a default — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+A suggest-only global skill had no row to promote, and the panel could label its mode On.
+
+### Root cause
+
+Skill controls were activation-derived, while suggest-only skills never activate; the UI defaulted missing modes to enabled.
+
+### Required behavior
+
+List discovered skills and display their effective source-default control mode.
+
+### Acceptance
+
+A fresh discovered suggest-only skill appears with Suggest selected and can be promoted through the UI.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-546) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-547"></a>
+
+## LT-547: an enabled, detected skill over the injection budget is dropped in silence — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+An enabled oversized skill was detected but silently omitted from injection and Skill Health.
+
+### Root cause
+
+Budget skipping produced no activation or persistent skip record.
+
+### Required behavior
+
+Record and surface a detected-but-skipped reason without pretending the skill injected.
+
+### Acceptance
+
+An over-budget detected skill appears in Skill Health with its skip reason and the turn remains correctly budgeted.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-547) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-548"></a>
+
+## LT-548: a materialised workspace secret is passed to the CLI on the command line — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+A materialized workspace secret appeared in a CLI `--mcp-config` argv value visible to another shell.
+
+### Root cause
+
+Spawn configuration inlined decrypted connector JSON in the process command line.
+
+### Required behavior
+
+Pass secret-bearing configuration through a private transport with no value in argv.
+
+### Acceptance
+
+A real spawn has no materialized secret in process argv and the connector still receives its authorized value.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-548) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-549"></a>
+
+## LT-549: the secret card keeps a rejected credential in its password input — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+A rejected secret-card save left the credential in the password input.
+
+### Root cause
+
+The input was uncontrolled and draft state cleared only after success.
+
+### Required behavior
+
+Clear a rejected secret value from the form while preserving safe retry context.
+
+### Acceptance
+
+A failed save leaves the password field empty and a fresh value can be entered.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-549) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-550"></a>
+
+## LT-550: Workspace Secrets management hides the name, the timestamps and the audit trail — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+Workspace Secrets hid the agent-facing slug, timestamps and audit history.
+
+### Root cause
+
+The panel rendered only label/purpose and did not call its wired audit endpoint.
+
+### Required behavior
+
+Display identity and available usage metadata without revealing secret values.
+
+### Acceptance
+
+The panel shows slug, created/last-used times and recent audit entries; refresh and audit failures do not corrupt another workspace’s view.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-550) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-551"></a>
+
+## LT-551: nothing can raise the secret card — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+A live agent could not raise the secret card through any reachable protocol.
+
+### Root cause
+
+No provider emitted the private CLI card shape and orchestration lacked `secret_required`.
+
+### Required behavior
+
+Expose a gated agent-reachable request that returns only an opaque secret reference.
+
+### Acceptance
+
+Both switches enforce the gate; a permitted request opens the card, resolves through dedicated IPC and never sends plaintext into the transcript.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-551) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-570"></a>
+
+## LT-570: the Settings Help drawer is a modal that manages no focus — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+Settings Help and compact navigation left keyboard focus behind the modal or on the body.
+
+### Root cause
+
+The open/close handlers managed visibility but not initial focus, trapping or focus return.
+
+### Required behavior
+
+Move focus into the open layer, contain Tab and restore the opener on close.
+
+### Acceptance
+
+Keyboard Tab and Escape through both layers follow that focus sequence in the rebuilt UI.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-570) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-571"></a>
+
+## LT-571: Remote Nodes → Pairing renders an entirely empty panel — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+Remote Nodes Pairing rendered an empty panel when the server was disabled.
+
+### Root cause
+
+The Pairing template lacked the disabled-state branch present on sibling tabs.
+
+### Required behavior
+
+Show a useful disabled-state explanation and a route to enable the feature.
+
+### Acceptance
+
+The default profile’s Pairing panel has visible explanatory content at supported widths.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-571) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-572"></a>
+
+## LT-572: icon-only Settings rail controls are under the 44 × 44 hit-target floor — FIXED IN CODE; live check pending
+
+### Status correction — 2026-09-24 (REOPENED, partial)
+
+Live re-check by the `settings` batch: `.settings-nav-toggle` is now 44 × 44
+(`settings.component.nav.scss:20-21`). But every collapsed `.nav-item` measures **39 × 44**. The
+`.settings-nav` rail has a permanent internal scrollbar (about 1,448 px of content against a rail
+never taller than about 400 px, at window heights of 600, 900 and 1,200 px). That scrollbar takes
+about 6 px from the content box that `.nav-item`'s `width: 100%` resolves against
+(`settings.component.nav.scss:138,289-293`). Height is fixed; width is not.
+
+
+### Observed behavior
+
+Icon-only Settings rail items measured below the 44 × 44 pointer target floor.
+
+### Root cause
+
+Compact rail and toggle CSS constrained the clickable boxes to 37 × 38 and 30 × 30.
+
+### Required behavior
+
+Make those icon-only targets at least 44 × 44 without breaking the narrow rail.
+
+### Acceptance
+
+Rendered target measurements meet 44 × 44 at compact widths and navigation still fits.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-572) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-573"></a>
+
+## LT-573: the save-state banner announces nothing, including its error state — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+The shared save-state banner announced neither saves nor errors to assistive technology.
+
+### Root cause
+
+The component had no status, alert or live-region semantics.
+
+### Required behavior
+
+Expose success and error states through suitable live semantics.
+
+### Acceptance
+
+A real failed save is announced as an error and ordinary save state as status across consuming tabs.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-573) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-574"></a>
+
+## LT-574: Ecosystem lists no commands on any visit after the first — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+Ecosystem listed commands once, then returned an empty successful list on later visits.
+
+### Root cause
+
+The list handler cleared command data but retained its directory-mtime cache, causing reuse of a deleted entry.
+
+### Required behavior
+
+Invalidate both caches together so repeat visits rescan or safely reuse the same data.
+
+### Acceptance
+
+Two consecutive list calls return the same commands without touching the directory.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-574) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-575"></a>
+
+## LT-575: light-theme contrast failures on Settings surfaces — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+Light-theme Settings text and pills had measured contrast failures.
+
+### Root cause
+
+Several component surfaces and text colors were hardcoded for the dark theme.
+
+### Required behavior
+
+Use coordinated theme colors that preserve readable contrast in light and dark.
+
+### Acceptance
+
+Rendered light-theme measurements pass the target contrast checks for the reported surfaces.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-575) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-590"></a>
+
+## LT-590: the loop diagnosis card loses its severity colours in the light theme — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+The loop diagnosis severity chip, tag and primary buttons lost contrast in light theme.
+
+### Root cause
+
+The card used dark-theme literal fills with no light-theme counterpart.
+
+### Required behavior
+
+Use theme-aware severity and action colors.
+
+### Acceptance
+
+The reported controls have readable contrast in light, dark and high-contrast themes.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-590) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-591"></a>
+
+## LT-591: the WARN escalation borrows signal A's id, so the card headlines work that never repeated — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+WARN escalation displayed “Repeating the same work” without a matching work-hash signal.
+
+### Root cause
+
+The escalation reused signal id A, whose catalog means identical-work repetition.
+
+### Required behavior
+
+Identify escalation honestly and keep the causal signal attached.
+
+### Acceptance
+
+The real-corpus escalation case headlines the actual condition and gives matching advice.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-591) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-592"></a>
+
+## LT-592: the fixability tag, the next step and the primary action can name different signals — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+One issue card showed a decision tag, a hint next step and two primary actions.
+
+### Root cause
+
+Fixability, next step and actions selected different signals independently.
+
+### Required behavior
+
+Derive the three from one governing signal and choose at most one primary action.
+
+### Acceptance
+
+Mixed-signal corpus cases show one coherent recommendation and one primary action.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-592) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-593"></a>
+
+## LT-593: Stop on a busy Claude session terminates it instead of interrupting it — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+Stop on a busy Claude turn ended its session and restored the queued message as a draft.
+
+### Root cause
+
+The settled interrupt left auto-respawn suppression armed; a later clean Claude exit took the termination path.
+
+### Required behavior
+
+A settled user interrupt must keep the session usable and preserve the next message.
+
+### Acceptance
+
+A real Claude Stop settles to an input-ready session with a recorded boundary and queued work retained.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-593) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-594"></a>
+
+## LT-594: the loop causal timeline's terminal readings are unreachable — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+Terminal causal-timeline readings and cap recovery never appeared in the UI.
+
+### Root cause
+
+The store cleared the active loop on terminal state while the timeline was mounted only below `active()`.
+
+### Required behavior
+
+Keep terminal state visible long enough to show diagnosis and recovery actions.
+
+### Acceptance
+
+A completed or cap-reached loop displays its terminal timeline and reachable recovery control.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-594) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-595"></a>
+
+## LT-595: the composer picker keeps the old model after a closed-session continuation — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+After closed-session continuation the composer model label stayed on the old model.
+
+### Root cause
+
+The preview handoff seeded from stale store state and discarded the confirmed model change response.
+
+### Required behavior
+
+Hydrate the composer from the confirmed runtime selection.
+
+### Acceptance
+
+Both model pickers and `instance.currentModel` agree after the continuation handoff.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-595) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-596"></a>
+
+## LT-596: a Codex native sub-agent's token spend is charged to nobody — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+A Codex native child rollout consumed tokens that no instance ledger entry charged.
+
+### Root cause
+
+Child usage was outside root-thread ownership and could arrive after the root boundary scan.
+
+### Required behavior
+
+Attribute child usage once to its parent session, including both observed rollout formats and delayed receipts.
+
+### Acceptance
+
+Child rollout fixtures and a live delegated turn add exactly one child charge without double-counting the root.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-596) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-597"></a>
+
+## LT-597: an interrupted Codex turn costs zero in the ledger while the quota window moves — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+An interrupted Codex turn produced prose and moved quota usage while the ledger stayed unchanged.
+
+### Root cause
+
+The provider omitted an exact usage record for the aborted shape; estimated and late exact usage need reconciliation.
+
+### Required behavior
+
+Retain a bounded estimate for unreported work and reconcile later exact totals without duplicate spend.
+
+### Acceptance
+
+Partial-call, late-exact and later-cumulative cases produce one consistent charge; live interrupted spend is visible.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-597) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-598"></a>
+
+## LT-598: the context manifest omits the adapter-appended system-prompt blocks — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+The context manifest omitted adapter-appended Browser Gateway instructions from delivered native input.
+
+### Root cause
+
+The manifest was recorded before adapter creation appended guidance blocks.
+
+### Required behavior
+
+Record the exact supplied blocks in prompt order after all append steps.
+
+### Acceptance
+
+Manifest lengths and hashes match delivered input, including adapter guidance on direct and worker paths.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-598) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-599"></a>
+
+## LT-599: the streaming rewind guard protects a field the transcript never reads — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+A rendered streaming bubble could shrink despite the canonical content rewind guard.
+
+### Root cause
+
+The display processor preferred shorter incoming `metadata.accumulatedContent` over monotonic `content`.
+
+### Required behavior
+
+Render the longest committed text across duplicate and rewound frames.
+
+### Acceptance
+
+A painted bubble never shrinks on the reproduced short-metadata frame.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-599) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-600"></a>
+
+## LT-600: an in-place ACP interrupt settle never records that the interrupt completed — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+An ACP Stop settled idle but left only an interrupt-requested record.
+
+### Root cause
+
+The in-place settle disarmed force abort without writing a completion boundary.
+
+### Required behavior
+
+Record the settled interrupt once and keep the session input-ready.
+
+### Acceptance
+
+A real ACP Stop leaves a completed interrupt event and no stuck watchdog banner.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-600) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-601"></a>
+
+## LT-601: a user Stop is recorded as a completed turn — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+A user Stop was persisted as a completed turn.
+
+### Root cause
+
+Turn-outcome classification treated settled cancellation as ordinary completion.
+
+### Required behavior
+
+Distinguish user cancellation in turn history and downstream consumers.
+
+### Acceptance
+
+A stopped turn records interrupted/cancelled outcome, never successful completion.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-601) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-602"></a>
+
+## LT-602: the header chip never shows a session's spawn-time reasoning effort — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+The session header omitted reasoning effort chosen at spawn.
+
+### Root cause
+
+The instance creation event preceded the `reasoningEffort` assignment sent to renderer state.
+
+### Required behavior
+
+Publish the assigned effort before first render and preserve later updates.
+
+### Acceptance
+
+A fresh session header immediately shows its configured effort without a second event.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-602) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-603"></a>
+
+## LT-603: the restart's own ready-edge redelivery erases the retained child record before the fresh-fallback reconcile reads it — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+A restart lost its retained child record before fallback reconciliation could report it.
+
+### Root cause
+
+Ready-edge admission redelivered and forgot the record before the later history reconcile read it.
+
+### Required behavior
+
+Hold admission through reconciliation and report genuinely dropped children.
+
+### Acceptance
+
+A reproduced restart retains the record until reconcile and shows the lost-child notice once.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-603) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-604"></a>
+
+## LT-604: a worker server started after launch has no RPC router, so every worker stays "disconnected" — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+A worker paired after starting a disabled server stayed “disconnected” in the roster.
+
+### Root cause
+
+The RPC router was wired only on startup when remote nodes were already enabled.
+
+### Required behavior
+
+Install routing and listeners for every later server-start path.
+
+### Acceptance
+
+Both initial and runtime server starts register heartbeats and expose worker endpoints.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-604) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-605"></a>
+
+## LT-605: the session-restart-recovery startup notice is not rendered anywhere — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+A recovery candidate existed but the startup notice never rendered.
+
+### Root cause
+
+The recovery banner component was imported by no runtime template.
+
+### Required behavior
+
+Mount the banner in the app shell and keep its dismiss/recovery actions reachable.
+
+### Acceptance
+
+A rebuilt app with a candidate shows the notice and its dismiss control works.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-605) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-606"></a>
+
+## LT-606: Resume Picker row actions have no visible focus ring — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+Resume Picker row actions had no visible keyboard focus ring.
+
+### Root cause
+
+The CSS used `var(--focus-ring)` although that variable was absent in desktop, overriding the global ring.
+
+### Required behavior
+
+Use a defined desktop token or fallback for every row action.
+
+### Acceptance
+
+Tab focus shows a measurable visible outline on all Resume Picker actions.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-606) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-610"></a>
+
+## LT-610: deep-linking to another approval moves the highlight but never the keyboard focus — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+Deep-linking to approval B highlighted B but left keyboard focus on approval A.
+
+### Root cause
+
+Focus ran from a host view hook that zoneless embedded-view refresh did not invoke.
+
+### Required behavior
+
+React to focused-request changes after render and move focus to the selected card.
+
+### Acceptance
+
+A click from A to B moves URL, highlight and active element to B without another click.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-610) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-611"></a>
+
+## LT-611: a browser mutation with no `instanceId` can never redeem the approval it just raised — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+A browser mutation without `instanceId` raised approval, then could not redeem it on retry.
+
+### Root cause
+
+Grant creation used sentinel `unknown` while matching used an empty string.
+
+### Required behavior
+
+Use one identity sentinel across creation and recheck without broadening other grant scopes.
+
+### Acceptance
+
+A no-instance caller can approve once and retry successfully; a different scope still fails.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-611) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+<a id="lt-612"></a>
+
+## LT-612: every ACP provider records a failed command as a success — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+Cursor and Grok nonzero shell exits were recorded as successful tool results.
+
+### Root cause
+
+ACP `status: completed` meant the tool call ended, while the real nonzero exit code was ignored for `is_error`.
+
+### Required behavior
+
+Use the raw exit code for completed tool outcome and preserve neutral cancelled/unsettled states.
+
+### Acceptance
+
+Fail-then-fix correction mining finds the pair on ACP as it does on Claude.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-612) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+### Investigation — 2026-09-24 (Grok wire capture)
+
+The 2026-09-24 resume-batch evidence run (`docs/superpowers/plans/2026-09-06-lt196-correction-miner_livetest.md`,
+"Evidence run — 2026-09-24 (resume batch)") left the Grok half of LT-612 reopened and flagged its
+root cause as an **unverified inference**: "Grok's agent-server does not populate `rawOutput.exitCode`".
+That inference was wrong in its specifics. This investigation drove `grok agent stdio` directly over
+ACP JSON-RPC (initialize → session/new → session/prompt, `--always-approve`, no AIO code in the loop)
+in a disposable `/tmp` workspace and captured the raw `session/update` notifications for two bare,
+unwrapped tool calls: `/usr/bin/grep --bogus-flag needle haystack.txt` (real exit 2) and
+`/usr/bin/grep -F needle haystack.txt` (real exit 0).
+
+**Captured evidence.** Grok's terminal (`status: "completed"`) `tool_call_update` for the failing call
+carried:
+
+```json
+{
+  "sessionUpdate": "tool_call_update",
+  "status": "completed",
+  "content": [{ "type": "content", "content": { "type": "text", "text": "grep: unrecognized option `--bogus-flag'\n..." } }],
+  "rawOutput": {
+    "type": "Bash",
+    "output_for_prompt": "exit: 2\ngrep: unrecognized option `--bogus-flag'\n...",
+    "exit_code": 2,
+    "command": "/usr/bin/grep --bogus-flag needle haystack.txt",
+    "truncated": false, "signal": null, "timed_out": false,
+    "current_dir": "/tmp/lt0924-grok-acp/ws1"
+  }
+}
+```
+
+and the succeeding call carried the same shape with `"exit_code": 0`. **Grok does send a structured,
+numeric exit status on every completed `execute` call — it is just under a different key,
+`rawOutput.exit_code` (snake_case), not `rawOutput.exitCode` (camelCase, Cursor's key).** An
+intermediate (`status: "in_progress"`) update for the same call transiently reports `exit_code: 0`
+before the process has actually exited — confirming the fix must key off the *terminal* status only,
+which `acpToolFailed()` already does.
+
+**Root cause.** `acpToolFailed()` (`src/main/cli/adapters/acp-tool-call-material.ts`) read only
+`rawOutput['exitCode']`. Grok's ACP server never populates that camelCase key, so the `typeof
+rawOutput?.['exitCode'] === 'number'` check was always `false` for Grok and every completed call fell
+through to "not failed", regardless of the real exit code — reproducing the pre-fix LT-612 defect for
+Grok only, exactly as the 2026-09-24 resume-batch run observed.
+
+**Fix.** Added `acpExitCode()` in `src/main/cli/adapters/acp-tool-call-material.ts`, which reads
+`rawOutput.exitCode` first (Cursor) and falls back to `rawOutput.exit_code` (Grok); `acpToolFailed()`
+now calls it instead of reading `exitCode` directly. Stderr/text content is deliberately **not** used
+as a failure signal (both providers' successful and failing calls can write to stderr/print an "exit:
+N" line in free text — only the structured numeric field is trusted). File-level doc comments in
+`acp-tool-call-material.ts` (top-of-file and above `acpExitCode()`) record the captured Grok shape for
+future readers.
+
+**Tests.** `src/main/cli/adapters/acp-tool-call-material.spec.ts` gained three cases built from a
+trimmed, path-anonymised copy of the real captured payload: a completed Grok call with
+`rawOutput.exit_code: 2` marks `is_error: true` (`buildAcpToolResultMessage`), one with `exit_code: 0`
+marks `is_error: false`, a `cancelled` status with the same `rawOutput` stays neutral, and the
+no-rendered-output fallback path (`buildAcpToolOutcomeFallback`) also honours `exit_code`. All three
+new assertions failed red against the pre-fix `acpToolFailed()` (confirmed by running the suite before
+the fix) and pass after it. `npm run test:quiet -- src/main/cli/adapters` (127 files, 1544 tests) and
+`npx tsc --noEmit` both pass after the change.
+
+**Residual risk.** Only `cursor-agent` and `grok` were probed directly; Copilot's and OpenCode's
+`execute` `rawOutput` shape was not captured here (Copilot has no signed-in account on this box; the
+2026-09-21/24 runs did not reach OpenCode's exit-code field either) and could in principle use a third
+key name, which `acpExitCode()` would silently miss the way it missed Grok's until now. This closes the
+concrete gap the resume-batch evidence run reopened LT-612 for (Grok), but does not newly verify every
+ACP provider. The rebuilt-app live re-run of `2026-09-06-lt196-correction-miner_livetest.md` check 2
+against Grok is still the outstanding live-test gate for this item.
+
+<a id="lt-613"></a>
+
+## LT-613: clicking a History entry closes the sidebar instead of expanding it — FIXED IN CODE; live check pending
+
+### Observed behavior
+
+Clicking a History entry expanded it then closed the sidebar.
+
+### Root cause
+
+The entry click bubbled to the backdrop’s unconditional close handler.
+
+### Required behavior
+
+Keep entry expansion inside the sidebar while preserving backdrop close.
+
+### Acceptance
+
+Mouse click and keyboard activation both leave the sidebar open and show the expanded entry.
+
+The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-613) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+
+## LT-614 — a timed-out ACP approval card stayed on screen and its Cancel did nothing — FIXED 2026-09-22
+
+### Observed behaviour
+
+Reproduced in the dev app on 2026-09-22 (OpenCode provider plan, Task 6.2). With YOLO off, an ACP permission request
+shows the generic "Input Required" card. If nobody answers, the PermissionRegistry auto-rejects it after 60 s and the
+agent carries on — but the card stayed on screen, and clicking its Cancel did nothing. Shared by every ACP provider
+(OpenCode, Grok, Cursor, Copilot). Found while fixing it: answering a card through chat never resolved its registry
+entry, so for up to 60 s the "N sessions blocked on approval" banner counted an answered request, and the durable
+approval audit recorded the user's answer as `denied / timeout`. Stop and agent exit left registry entries open the
+same way, and an open ACP elicitation was never cleared when the agent process died.
+
+### Root cause
+
+- Nothing told the renderer when a request was settled without the user. `PermissionRegistry` emitted
+  `permission:resolved` (consumed only by the durable store), and `AcpCliAdapter` answered the agent silently.
+- Cancel on a generic card called `respond(false)` with no text, which hit `if (!inputText) return;`.
+- `AcpCliAdapter.sendRaw` replied to the agent but never resolved the registry entry; the cancel and exit paths did
+  the same.
+
+### Required behaviour
+
+A card disappears as soon as its request no longer needs an answer, for every reason (timeout, auto-approve, parent
+decision, turn cancelled, agent exit), exactly once per request; Cancel on an ACP card is a real answer; the banner
+and approval audit reflect what actually happened.
+
+### Fix
+
+- `AcpCliAdapter` emits `input_required_resolved {id, reason}` on every non-user settle path, at most once per request
+  (live-map checks after every await; never for YOLO auto-approvals that showed no card), carried through
+  `InstanceCommunication` → `InstanceManager` → IPC `INPUT_REQUIRED_RESOLVED` (`instance:input-required-resolved`)
+  and the remote observer, plus the mobile gateway (`permission-cleared`). The renderer removes the card and
+  decrements `pendingApprovalCount`.
+- Cancel on ACP cards (`metadata.transport === 'acp'`) sends a keyed `cancel` (ACP outcome `cancelled`); other
+  generic cards, whose reply is plain stdin, still send nothing.
+- A reply to an already-settled request returns `INPUT_REQUIRED_NOT_PENDING`; the renderer drops the card.
+- Registry entries are closed with `decidedBy: 'user'` on reply and the new `'cancelled'` on Stop or agent exit; the
+  exit handler also drains open elicitations.
+
+### Acceptance
+
+- `acp-cli-adapter.permission-resolved.spec.ts` (12 tests, including three exit-during-await races) and the new
+  `user-action-request.component.spec.ts`, `instance-event-forwarding.spec.ts` and `mobile-gateway-server.spec.ts`
+  cases pass; each guard was mutation-checked (reverting it fails its test).
+- Dev app, OpenCode free model: an unanswered card disappears at 60 s (audit `denied / timeout`); Cancel removes the
+  card at once and the tool is refused (audit `denied / user`, no banner); Stop with a card up removes it within a
+  second (audit `denied / cancelled`).
+
+## LT-615 — `close_matching` reported an already-closed tab as one it closed — FIXED 2026-09-24
+
+### Observed behaviour
+
+Live on 2026-09-24 against the packaged app and `windows-pc`. The disposable `https://example.com/`
+tab was closed with `browser.close_tab` (audit `cf57d912…`, `closed: true`). `list_targets` then kept
+its row with `status: "closed"`, which is by design. A follow-up
+`browser.close_matching {computer: "windows-pc", urlContains: "example.com", dryRun: true}` (audit
+`4bc20f22…`) returned that row under `closed` ("would close"), with `remainingTabCount` unchanged at
+10. A real run would report "Closed 1 browser tab(s)", so an agent would believe it had closed a live
+tab that no longer existed.
+
+### Root cause
+
+`BrowserCloseTabOperations.closeMatching()` (`src/main/browser-gateway/browser-close-tab-operations.ts`)
+builds candidates from the extension tab store and the target registry, and the registry keeps closed
+rows. `filterMatches()` excludes non-closed rows for an explicit `status: "closed"` sweep. It had no
+matching exclusion of closed rows for a url/title match. `executeClose()` then treats a closed,
+unattached row as an instant success (`ok: true`) with no Chrome command, so the row lands in `closed`.
+
+### Required behaviour
+
+A url/title match closes, and counts, only tabs that are still open. Closed registry rows are removed
+only by an explicit `status: "closed"` sweep. A closed row that matches a url/title filter is reported
+as skipped, with a reason, so the caller can see it is already gone.
+
+### Fix
+
+`skipReason()` returns `already_closed` for a `status: "closed"` candidate unless the request is a
+`status: "closed"` sweep. Regression test: "does not report an already-closed row as closed by a
+urlContains match" in `browser-close-tab-operations.spec.ts`, which failed red before the fix. The
+existing sweep test still passes. The full `src/main/browser-gateway` suite passes (1495 tests).
+
+### Acceptance
+
+After a rebuild, repeat the dry run above against a tab closed earlier in the same session. It must
+return `closed: []` and `skipped: [{…, reason: "already_closed"}]`. A `status: "closed"` sweep must
+still remove the row.
+
+## LT-616 — a requeued browser command after a failed poll handoff left no trace — FIXED 2026-09-24
+
+### Observed behaviour
+
+On 2026-09-24 a `reset_node_connection` on `windows-pc`, fired together with a read-only
+`browser.query_elements`, produced two `sendResponse: requesting socket is no longer active`
+warnings (poll requests `worker-12053`/`worker-12054`) at `1790211907761`. The query then succeeded
+once, at `1790211909374`, after re-registration. Nothing in `app.log` said whether either failed
+poll response had carried that command, so the requeue guarantee the channel-flapping check exists
+to prove live could not be demonstrated by correlation.
+
+### Root cause
+
+`RpcEventRouter.handleBrowserExtPollCommand()` (`src/main/remote-node/rpc-event-router.ts`) calls
+`bridge.requeueUndeliveredCommand(nodeId, result.id)` when `respond()` reports no open socket, and
+logs nothing. `BrowserExtensionCommandStore.requeueUndeliveredCommand()` has no logger either. The
+only surviving line is the transport's `sendResponse` warning, which names the poll request, not the
+command.
+
+### Required behaviour
+
+A failed handoff that requeues a real command is logged once, at info, with the node, the command
+id, the poll request id and whether the requeue took effect.
+
+### Fix
+
+The router logs `Browser command poll handoff failed; requeued` with `{nodeId, commandId,
+pollRequestId, requeued}`. The existing LT-371 router test now asserts the line, and failed red
+before the change. The path is rare, so the line adds no steady-state log volume.
+
+### Acceptance
+
+After a rebuild, repeat the channel-flapping check 2 method. The new line must appear with a
+`pollRequestId` matching one `sendResponse` warning. Its `commandId` must correspond to the
+in-flight read-only command, which must then resolve exactly once.
+
+## LT-617 — health never shows the remote extension's secret-observation report — FIXED IN CODE 2026-09-24
+
+### Observed behaviour
+
+On 2026-09-24, against the packaged app built 2026-09-23 21:12 (which contains
+`describeSecretObservation`, `SecretObservationTracker` and the 0.2.34 extension in the same commit,
+`be5cce3b`):
+
+1. `windows-pc` reports extension `0.2.34`.
+2. `browser.list_targets {nodeId, refresh: true}` succeeds: the `report_inventory` command
+   round-trips and every live tab is re-confirmed.
+3. `browser.health` then shows `remoteExtensions.nodes[windows-pc].secretObservation: {reported:
+   false}`. This was reproduced three times.
+
+The local Mac channel also shows `{reported: false}`, but its refreshes timed out during a transport
+drop, so that half proves nothing.
+
+### What has been ruled out, by reading the code
+
+- The extension builds the report: `report_inventory` returns `{reported: true, secretObservation:
+  await secretObservationStatus()}` (`resources/browser-extension/background.js`, `runBrowserCommand`
+  → `executeCommand`). `safeResult` replaces the result only for secret-tainted or origin-bound
+  credential `type` commands.
+- The native host passes `result` through: `commandResultPayload()` in
+  `src/main/browser-gateway/browser-extension-native-host.ts`.
+- The worker relay passes it through: `WorkerExtensionRelay.commandResultPayload()` in
+  `src/worker-agent/worker-extension-relay.ts`.
+- The RPC schema keeps it: `BrowserExtCommandResultParamsSchema.result` is `z.unknown()`.
+- `RemoteExtensionBridge.commandResult()` hands it to `resolveCommand()`, which records it when
+  `pending.command.command === 'report_inventory'` (`browser-extension-command-store.ts:324`).
+- The health service reads the same command-store singleton via `describeSecretObservation`.
+
+### Not yet checked, and the next step
+
+What the worker on `windows-pc` actually runs. The relay/native host there comes from the worker's
+own bundle and git checkout, not the coordinator's. Also whether the extension's
+`secretObservationStatus()` throws on that machine (a throw would turn the whole command into
+`ok: false`, which would contradict the successful refresh). Capture the raw `commandResult`
+params for one refresh: a temporary debug log in `RemoteExtensionBridge.commandResult`, or a
+dev-app coordinator paired to a disposable worker running the same extension. Then fix at the hop
+that drops the field.
+
+### Required behaviour
+
+After any successful `report_inventory` from an extension ≥ 0.2.34, `health` shows that queue's
+`secretObservation` as `{reported: true, protectionEnabled, taintedOriginCount, taintedTabCount,
+…}`.
+
+### Acceptance
+
+A unit or integration test reproduces the drop at the offending hop and fails before the fix. Live:
+login-recipe check 3 passes.
+
+### Investigation — 2026-09-24
+
+Root cause found and fixed in code, confidence high (read the whole path; reproduced the drop with a
+failing-first unit test). windows-pc's checkout was confirmed current (byte-identical background.js/
+manifest.json against HEAD, worker built 21:23:28Z, extension reloaded 21:20:52Z after 16:00Z writes)
+so this is not stale code — it is a genuine race in `BrowserExtensionCommandStore.resolveCommand`
+(`src/main/browser-gateway/browser-extension-command-store.ts`).
+
+The refresh path (`refreshBrowserExtensionInventory`,
+`src/main/browser-gateway/browser-extension-inventory-refresh.ts`) sent `report_inventory` with only
+a 2.5s execution budget / 3s coordinator wait
+(`EXTENSION_INVENTORY_REFRESH_EXECUTION_MS`/`EXTENSION_INVENTORY_REFRESH_TIMEOUT_MS`). This file's own
+`browser-gateway-refresh-support.ts` comment already documents that report_inventory's full per-tab
+rebuild "routinely outlives" that window on a multi-tab node — so on `windows-pc`, the coordinator's
+own `armExecutionTimeout` (command-store.ts) fires at 3s and **deletes the pending entry, rejecting
+the caller**, before the extension's real, later `command_result` (`ok: true`,
+`secretObservation: {...}`) arrives over the relay. `resolveCommand` previously only recorded
+`secretObservation` when a still-live `pending` entry existed with `command === 'report_inventory'`
+(old line ~324); once `pending` was already deleted, the late success hit the early
+`if (!pending) return;` and the report was silently dropped forever — `describeSecretObservation`
+never had anything to show, even though the channel genuinely answered. This explains "round trips
+successfully" (the caller's overall `list_targets` succeeds via the existing
+`reconcileRefreshFailuresWithInventory` masking against live `tab_inventory`/`attach_tab` broadcasts,
+which are independent of `resolveCommand`) alongside "`secretObservation: {reported: false}`" — two
+different code paths, only one of which was ever fed by a late/lost `resolveCommand`.
+
+**Fix:** `resolveCommand` now records `secretObservation` unconditionally from any `ok: true` result,
+BEFORE checking whether `pending` still exists, keyed on `result.queueKey` (the caller's own declared
+channel) rather than the now-possibly-gone `pending.queueKey`. `SecretObservationTracker.record`
+already validates the response shape (`reported`/`secretObservation.{protectionEnabled,
+taintedOriginCount, taintedTabCount}`), so this is safe for any command, not only ones still tracked
+as pending. Also raised the refresh budget itself (see LT-618) so this race triggers far less often
+in the first place.
+
+**Test:** `browser-extension-command-store.spec.ts` — "LT-617: records a late report_inventory
+secretObservation after its own execution window already timed the command out". Sends
+`report_inventory` with a 3s/2.5s budget, lets it time out and reject, then delivers the extension's
+real success for the SAME `commandId` afterward and asserts `describeSecretObservation` now returns
+it. Confirmed failing (`expected undefined to match object`) against the pre-fix code, passing after.
+
+**Still open (live check only):** login-recipe check 3 on the packaged app, per Acceptance above —
+needs a rebuild since this is a coordinator-side (`src/main`) change, not an extension change; no
+extension redeploy or version bump needed for this half.
+
+### Orchestrator review — 2026-09-24
+
+The investigation's first fix recorded `secretObservation` from **any** successful command result.
+That was rejected at review. Some results are page-controlled (`evaluate` returns whatever the page
+returns), so a page could forge the protection report that health shows. The report now counts only
+from a command the coordinator sent as `report_inventory`. `SecretObservationTracker.expectReport()`
+remembers each such command id at send time, for a 5-minute grace period, and
+`recordReport()` accepts that id's reply on the same queue even after the refresh budget has
+expired. That keeps the LT-617 late-reply fix.
+
+New test: "never records a secretObservation key carried by a non-inventory result"
+(`browser-extension-command-store.spec.ts`). It was mutation-checked: it fails against the
+unconditional version. `src/main/browser-gateway` passes 1,503 tests.
+
+The extension change for LT-618 required a manifest bump: `0.2.34` → `0.2.35`, with the history pin
+`a7bb39633b15` added in `browser-extension-assets.spec.ts`. The live re-check needs that version
+reloaded on `windows-pc` and in the local Chrome, which in turn needs the change committed and
+pulled on `windows-pc`. Not done here: nothing has been committed or pushed.
+
+
+## LT-618 — a command to the local Mac extension times out and the channel then goes silent — PARTLY FIXED IN CODE 2026-09-24
+
+### Observed behaviour
+
+Packaged app built 2026-09-23 21:12, local Chrome (pid 864, up about a day) with extension 0.2.34,
+`aio-mcp native-host` alive throughout. On 2026-09-24:
+
+- `1790211484113`: `health` reports the local channel `ready`, contact 10 s ago.
+  `list_targets {computer: "local", refresh: true}` then **times out** (`browser_extension_command_timeout`,
+  audit `86e4f33d…`). The next two refreshes find the channel `degraded (silent) … not polling (last
+  contact 116s / 206s ago)`. It recovers at `1790211793758` after a 306 s gap, with
+  `lastDisconnect.reason: "native_host_stdin_eof"`.
+- `1790212087026`: `health` reports the channel polling, contact 1 s ago. The next local refresh
+  **times out** again (audit `acbf172e…`). The one after finds it `silent … last contact 99s ago`
+  (audit `20a8bb62…`).
+- Both local shared tabs (`inspection_unavailable`) still carry `lastConfirmedAt 1790209756799`. No
+  local inventory report has landed since then.
+
+The same command to `windows-pc`, which runs the same extension version behind the worker relay,
+succeeds every time. That points at something about this Chrome, profile or tab set; the two local
+shared tabs are both secret-observation-unavailable. It does not point at the coordinator's command
+path.
+
+### Root cause
+
+Not established. Candidates: the extension's `report_inventory` path
+(`applySecretObservationProtectionFromCommand` → `assertSecretObservationAllowed` →
+`reportTabInventory` → `secretObservationStatus`) hanging or killing the MV3 service worker, or the
+native host exiting mid-command. See also LT-617, which concerns the same command's
+`secretObservation` payload on the other channel.
+
+### Required behaviour
+
+A read-only `report_inventory` to a polling local extension completes within its budget and does not
+take the channel down.
+
+### Acceptance
+
+Reproduce in an isolated Chrome carrying the unpacked 0.2.34 extension (not James's Chrome). A
+failing test pins the fix. Live: three consecutive local refreshes succeed and the local tabs'
+`lastConfirmedAt` advances.
+
+### Investigation — 2026-09-24
+
+Two compounding, code-confirmed defects found (not live-Chrome-reproduced — no isolated Chrome was
+launched this pass; reproduced instead with unit tests against the real `background.js` via the
+existing `runInNewContext` harness in `browser-extension-assets.spec.ts`, and against the real
+`BrowserExtensionCommandStore`). Confidence: high for defect 1 (directly measured); medium-high for
+defect 2 as the dominant contributor to "stops polling for minutes" — the exact trigger for the
+eventual `native_host_stdin_eof` (a Chrome-internal decision) was not independently confirmed.
+
+**Defect 1 — the refresh budget is too tight for real usage, by the code's own admission.**
+`browser-gateway-refresh-support.ts`'s existing comment already says report_inventory's per-tab
+rebuild "routinely outlives its 2.5–3s execution window" on a multi-tab node — i.e. this is
+documented as expected, not a hypothesis. `windows-pc`'s presumably light/simple tab set stays inside
+that window; a real local Mac Chrome with actual browsing routinely does not, so essentially every
+local refresh trips both the extension's own `runCommandWithWatchdog` (30s default clamped down to
+this command's stamped 2.5s) and the coordinator's `armExecutionTimeout` (3s) near-simultaneously.
+
+**Defect 2 — a timed-out report_inventory is never cancelled, and every other command queues behind
+it.** `runCommandWithWatchdog` (`background.js`) only races a timer against the real
+`executeBrowserCommand(command)` promise; when the timer wins it replies with a bare
+`browser_extension_command_timeout` but the real `reportTabInventory()` call keeps running
+uncancelled in the background. That work holds the extension's single shared
+`secretObservationBoundary` (`runWithSecretObservationBoundary`) for as long as its per-tab
+`buildTabPayload` loop takes (page-text capture has no timeout at all; the taint-lineage frame probe
+is bounded at 1.5s per tab but is fully serial). Critically, `applySecretObservationProtectionFromCommand`
+is called UNCONDITIONALLY at the top of `runBrowserCommand` for every non-reload command, and the
+coordinator's `stampSecretObservationProtection` stamps a boolean onto every outgoing command's
+payload — so every single subsequent command, of any kind, queues fully behind whatever the orphaned
+inventory build is still doing, even when the stamped protection value hasn't changed at all. The
+`reload` command already has a documented, tested bypass of this exact hazard ("Reload has a
+dedicated post-dispatch protection path... an older wedged inventory prevent the browser-process
+recovery action from ever starting" — background.js, and the existing test "dispatches reload while
+an inventory owns the secret-observation boundary"); no other command had one. This matches "stops
+polling for minutes" (the extension is alive and does poll, but every delivered command silently
+stalls on the boundary before it can even ack) and is consistent with the eventual
+`native_host_stdin_eof` recovery resetting all this in-memory state (fresh `secretObservationBoundary`,
+`inventoryPromise = null`) — though the exact mechanism by which Chrome/the native host eventually
+tears the port down was not independently verified live.
+
+**Fixes:**
+1. Raised `EXTENSION_INVENTORY_REFRESH_EXECUTION_MS`/`_TIMEOUT_MS` (`browser-extension-inventory-refresh.ts`)
+   from 2.5s/3s to 10s/10.5s — still well under the 30s default full-command budget, but enough room
+   for a normal handful of real tabs. Reduces (does not eliminate) how often defect 2 is triggered.
+2. Added a no-op fast path to `applySecretObservationProtectionEnabled` (`background.js`): when the
+   stamped value already matches the extension's current in-memory value, it returns immediately
+   (after still invalidating any stale operator secret-recovery request) instead of queueing onto
+   `runWithSecretObservationBoundary`. This removes the redundant boundary hop that EVERY command paid
+   even with no orphaned work in flight, and stops a no-op stamp from adding to the queue behind an
+   already-wedged boundary. This does NOT fix a command that genuinely needs the boundary (e.g. the
+   inventory build's own per-tab taint reads) queuing behind another genuine boundary holder — that is
+   inherent to the current design and would need a larger, live-verified refactor (e.g. moving slow,
+   page-dependent capture work in `buildTabPayloadLocked` outside the write-serialization boundary) that
+   was judged too risky to make blind, without a real Chrome, against this security-sensitive code.
+
+**Tests (failing-first, both confirmed against pre-fix code, both pass after):**
+- `browser-extension-inventory-refresh.spec.ts` — "LT-618: a realistic multi-tab report_inventory
+  answers within the raised refresh budget" (fails/times out at old constants, passes at new).
+- `browser-extension-assets.spec.ts` — "LT-618: applying an unchanged secretObservationProtectionEnabled
+  value does not queue behind an occupied boundary" (hangs/times out — literally never resolves —
+  against the pre-fix `applySecretObservationProtectionEnabled`; resolves immediately after the fix).
+
+**Extension change note:** `resources/browser-extension/background.js` changed. Per instructions, the
+manifest version was NOT bumped and `BACKGROUND_BUNDLE_HISTORY` in
+`browser-extension-assets.spec.ts` was NOT updated — its "ships each background bundle under its own
+manifest version" test now fails on purpose (background.js's SHA-256 no longer matches `0.2.34`'s
+recorded hash) until the orchestrator cuts a new extension version and records its hash. That is the
+only test failure this investigation leaves behind; every other targeted and full browser-gateway
+spec passes, `tsc --noEmit` (both configs) is clean, and `npm run lint` is clean.
+
+**Still open (live check only, needs the extension redeployed once versioned):** the full Acceptance
+above — an isolated Chrome with real tabs, three consecutive local refreshes, `lastConfirmedAt`
+advancing. Also worth a live check once redeployed: whether raising the refresh budget alone is
+sufficient in practice, or whether the boundary-wedge defect still needs the larger refactor noted
+above for a genuinely slow/many-tab profile.
+
+### Independent review note — 2026-09-24 (Low, accepted)
+
+The completion gate observed a timing change. The unchanged-value fast path clears
+`secretRecoveryRequest` synchronously, outside `runWithSecretObservationBoundary`. So it can invalidate
+an operator's in-flight recovery token slightly earlier than the old FIFO ordering did. The effect is
+fail-closed: the operator retries recovery, and nothing is exposed. The recovery flow already requires
+`activeBrowserCommandCount === 0`. It is left as is. Revisit only if recovery retries are ever
+reported as flaky.
+
+### Prior occurrences found in earlier sessions — 2026-09-24
+
+Searching this machine's earlier chat transcripts (`~/.claude/projects/**/*.jsonl`) shows the same
+local Mac symptom twice before today, so it recurs and is not a one-off:
+
+- **2026-09-13, about 20:53 UTC** (12steps project session `1f900f15-…`). Ten
+  `browser_extension_command_timeout` results on the local channel, including `inventory refresh
+  FAILED for the local extension (browser_extension_command_timeout)`. That session wrote down
+  that the local Mac extension was "unresponsive" and fell back to a throwaway Chrome.
+- **2026-09-22, about 10:21–10:24 UTC** (this repo, session `c01e88b4-…`). The session wrote:
+  "health reported the local channel polling, but `find_or_open` and a refreshed `list_targets`
+  returned `browser_extension_command_timeout` three times". The same transcript contains 4
+  `not_delivered` results and 2 `native_host_stdin_eof` disconnects.
+
+The 2026-09-22 case shows `find_or_open` timing out as well as the `report_inventory` refresh.
+That fits the head-of-line blocking described in the investigation above: any command queued behind
+an orphaned inventory build. The unchanged-value fast path covers all commands. The residual (a
+command that genuinely needs the boundary waiting behind a real holder) remains.
+
+## LT-619 — mDNS advertisement invisible; refused answers became uncaught exceptions — CODE FIXED 2026-09-24, PERMISSION NEEDS JAMES
+
+### Observed behaviour
+
+On 2026-09-24, the packaged app (pid 60005, started 2026-09-23 22:09, built 21:12) logged
+`mDNS service published {port: 4878}` at start (`1790197750247`) and never unpublished it. Yet on
+this Mac:
+
+- `dns-sd -B _ai-orchestrator._tcp` lists nothing. The same probe lists `_companion-link._tcp`
+  instantly, so the probe itself works.
+- A `bonjour-service` browser (the library the worker uses) finds nothing either.
+- Each of those queries was followed in `app.log` by `App — Uncaught exception: send EHOSTUNREACH
+  224.0.0.251:5353`, 12 of them between `1790212286194` and `1790212323231`, in the 1 s/3 s
+  retry rhythm of mDNS answers. Four more occurred earlier, at `1790185407203`.
+- At that moment Harness pid 60005 was the only Harness process holding UDP 5353.
+- A plain `node` publisher on the same host fails identically (`EHOSTUNREACH`).
+
+The app kept running; its global handler logged each exception. The macOS firewall permits
+Harness, and `Info.plist` does carry `NSLocalNetworkUsageDescription`.
+
+### Root cause
+
+1. **Operator/permission half.** macOS Local Network privacy is refusing multicast sends for Harness,
+   which returns `EHOSTUNREACH` on every send to `224.0.0.251`. With no permission, the coordinator
+   can never be discovered over mDNS, so worker failover to the LAN through discovery (remote-node
+   resilience LT-C) cannot work on this Mac. It is likely, but not proven, that each ad-hoc-signed
+   rebuild resets the grant.
+2. **Code half.** `DiscoveryService.publish()` and `PairBothDiscoveryPublisher` constructed
+   `new Bonjour()` without an error callback. bonjour-service then defaults to
+   `function (err) { throw err; }` (`node_modules/bonjour-service/dist/lib/mdns-server.js:16`),
+   called from `respondToQuery` when an answer cannot be sent (`:84-87`). So every mDNS query for the
+   coordinator raised an uncaught main-process exception, and nothing told the operator *why*
+   discovery was dead.
+
+### Fix (code half)
+
+New `createPublishingBonjour(logger, purpose)` (`src/main/remote-node/mdns-response-errors.ts`)
+passes an error callback that never throws. It logs one warning per advertisement, with the error
+code, and for `EHOSTUNREACH` a hint naming System Settings → Privacy & Security → Local Network. Both
+publishers use it. The worker's `DiscoveryClient` only browses, so it never answers queries and
+cannot hit this path; it was left unchanged. Regression test in `discovery-service.spec.ts`
+("handles an mDNS response failure without throwing and warns once per advertisement"), which
+failed red first.
+
+### Required behaviour / acceptance
+
+- Code: after a rebuild, an mDNS query against a coordinator without Local Network permission
+  produces one warning with the hint and **no** `Uncaught exception` line.
+- Operator: James allows Harness under Local Network. Then `dns-sd -B _ai-orchestrator._tcp` lists
+  `orchestrator-<id>` and remote-node resilience LT-A passes. Whether ad-hoc re-signing resets the
+  grant should be checked after the next rebuild.
+
+## LT-621 — workers never receive the coordinator's MagicDNS URL — FIXED 2026-09-24
+
+### Observed behaviour
+
+On 2026-09-24 the packaged app advertised `["ws://100.68.10.5:4878", "ws://192.168.0.96:4878",
+"ws://192.168.0.156:4878"]` to `windows-pc` (`app.log` `1790212171326`, `Advertised coordinator
+addresses to node`), with Tailscale `Running`. The advertisement had no
+`ws://macbook-pro.tail4fc107.ts.net:4878`, which worker-offline-resilience check 2 expects first.
+
+### Root cause (reproduced)
+
+`readTailscaleSelfStatus()` (`src/main/util/network-addresses.ts`) tries `tailscale` (ENOENT on a
+launchd PATH), then `/Applications/Tailscale.app/Contents/MacOS/Tailscale`. That App Store binary
+behaves as a CLI only when it sees `TERM` or `SHLVL`. Reproduced with `env -i HOME=…`:
+
+- no `TERM`/`SHLVL` → `The Tailscale GUI failed to start … (Tailscale.CLIError error 3.)`, exit 0;
+- `SHLVL=1` or `TERM=dumb` → the JSON status;
+- `PWD`, `_`, `USER` and `TMPDIR` make no difference;
+- the name's case (`…/tailscale` vs `…/Tailscale`) makes no difference;
+- the `/usr/local/bin/tailscale` shim works only because `/bin/sh` sets `SHLVL`.
+
+A Finder-launched Harness has neither variable. The exec resolved that sentence as success, the
+JSON parse returned nulls, and the loop returned `{backendState: null, dnsName: null}` without
+trying the remaining candidates. So `resolveAdvertisedCoordinatorUrls()` never had a DNS name, and
+the Tailscale watcher could not name the backend state.
+
+### Fix
+
+- `tailscaleCliEnv()` passes `TERM` (the existing value, else `dumb`) to both the async and the sync
+  status calls.
+- `readTailscaleSelfStatus()` skips a candidate whose output is not JSON and tries the next one.
+  It also takes the candidate list as an optional parameter, so the test is platform independent.
+- Regression tests in `network-addresses.spec.ts` (non-JSON first answer falls through; all
+  non-JSON returns null) failed red first.
+
+### Acceptance
+
+After a rebuild and restart of the packaged app, the next `Advertised coordinator addresses to node`
+line lists `ws://macbook-pro.tail4fc107.ts.net:4878` first.
+
+## LT-620 — LT-611's sentinel mismatch survived in four more grant lookups — FIXED 2026-09-24
+
+### Observed behaviour
+
+Found live on 2026-09-24 by the `resume` batch, while re-checking LT-611 in a dev app (see
+[the approval-coherence livetest](../superpowers/plans/2026-09-01-browser-approval-coherence_livetest.md)):
+
+1. Approve a `session` grant raised by `browser.request_grant` with no `instanceId`.
+2. Immediately repeat the identical `request_grant`.
+3. Result: a brand-new `requires_user`, where `allowed` was expected.
+
+### Root cause
+
+Approvals are created with `instanceId: request.instanceId ?? 'unknown'`, so the approved grant is
+stored under `'unknown'`. Non-persistent grants match only on exact `instanceId`
+(`grantMatches`, `browser-grant-policy.ts`). The LT-611 fix (`320a6f28`) changed the lookup
+sentinel from `''` to `'unknown'` in `browser-gateway-action-guard.ts` only. The same `''` lookup
+remained in:
+
+- `browser-grant-request-operations.ts`: the managed-profile and existing-tab `request_grant`
+  paths;
+- `browser-close-tab-operations.ts`: `matchingGrant`, used by `close_tab` and `close_matching`;
+- `browser-existing-tab-operations.ts`: cross-origin `navigate`;
+- `browser-upload-grant.ts`: file-upload candidate grants.
+
+### Fix
+
+All five lookups now use `'unknown'`, the same sentinel as approval creation. No `instanceId ?? ''`
+remains in `src/main/browser-gateway`. Regression tests, each shown red first:
+
+- `browser-grant-request-no-instance.spec.ts`: real SQLite stores, managed and existing-tab paths,
+  request → approve → repeat returns `allowed`;
+- `browser-close-tab-operations.spec.ts`: "redeems an approved destructive grant for a caller with
+  no instanceId";
+- `browser-gateway-service-existing-tabs.spec.ts`: "redeems an approved navigation grant for a
+  caller with no instanceId". This one was proven red by temporarily restoring the `''` line.
+
+### Acceptance
+
+After a rebuild, repeat the batch's live probe: a no-`instanceId` `request_grant` → approve →
+repeat returns `allowed`, with no second approval raised. A differently scoped request still raises
+its own approval.
+
+## LT-630 — light-theme text-on-tint contrast failures beyond LT-575 — FIXED 2026-09-24
+
+### Observed behaviour
+
+Live, 2026-09-24, `settings` batch (dev app at `f04f6748`, light theme, contrast computed from live
+styles). LT-575's two surfaces now measure 16.16:1. A sweep of six Settings tabs still found real
+failures: 4 on Remote Nodes, 7 on Permissions, 8 on Auxiliary Models and 3 on Ecosystem. General and
+Advanced had none. Examples:
+
+| Element | Ratio |
+| --- | --- |
+| `.status-badge.connected` "coordinator" | 2.62:1 |
+| `.health-badge[data-healthy]` "0 online" / "1 offline" | 2.62:1 / 3.17:1 |
+| save-state banner "All changes saved" | 2.94:1 |
+| `.role-choice-row .btn.selected` "Main Harness" | 2.92:1 |
+
+### Root cause
+
+These elements set the foreground to `--pill-ok-fg` or `--pill-error-fg` (which are
+`--success-color` and `--error-color`, `_theme.scss:54,64,204,210`), or to `--primary-color`,
+directly on a low-alpha tint of the same colour. In light theme the tint composites to near-white
+while the foreground stays tuned for dark backgrounds. This is a different root cause from
+LT-575's hardcoded dark values.
+
+### Required behaviour / acceptance
+
+Light-theme-aware `--pill-*-fg` values, or `--text-primary` as LT-575 used. Every cited element
+measures ≥ 4.5:1 in light theme, and dark theme is unchanged.
+
+### Fix and live re-check — 2026-09-24
+
+The fix is at the token level. Light-theme-only overrides were added in
+`src/renderer/styles/_theme.scss`, and mirrored into its `prefers-color-scheme` block:
+
+| Token | Value |
+| --- | --- |
+| `--pill-ok-fg` | `#14532d` |
+| `--pill-warn-fg` | `#92400e` |
+| `--pill-error-fg` | `#b91c1c` |
+| `--pill-info-fg` | `#1e40af` |
+| `--pill-accent-fg` | `#78350f` |
+
+Only the `*-fg` tokens changed, so the tints, borders, base colours and the dark theme are untouched.
+`.role-choice-row .btn.selected` now uses `--text-primary`
+(`remote-nodes-settings-tab.component.scss`). The fix agent's computed contrast against the
+composited tints was 4.6–8.1:1.
+
+**Live re-check (`verify-ui`, dev app from the working tree):**
+
+| Element | Before | After |
+| --- | --- | --- |
+| `status-badge.connected` | 2.62:1 | 7.45:1 |
+| `health-badge` | 2.62:1 / 3.17:1 | 7.45:1 / 5.29:1 |
+| save banner | 2.94:1 | 8.73:1 |
+| role choice | 2.92:1 | 18.11:1 |
+
+**CONFIRMED FIXED LIVE** for the cited elements. The residual sweep found 3/6/6/3 failures at about
+4.4:1 on generic `.field-hint` / `--text-muted` text. That is a different, smaller pattern, recorded
+as an observation, not part of LT-630.
+
+## LT-631 — the project menu is clipped by the instance list's scroll container — FIXED (three causes) + CONFIRMED LIVE 2026-09-24
+
+### Observed behaviour
+
+Live, 2026-09-24, `settings` batch, with 15 seeded Copilot rows so the section is tall.
+`.project-menu` has `max-height: min(60vh, 420px); overflow: hidden auto`
+(`instance-list.component.scss:514-515`). But it is a `position: absolute` descendant of
+`.cdk-drop-list.instance-viewport`, which has `overflow-y: auto` (`:239`) and a visible clip box of
+only 413 px in a 900 px window. `elementFromPoint()` returns `null` inside the menu's box past that
+line. This happens at the first row as well as near the bottom. About 260 px of the menu is visible,
+where 418 px was intended, and the menu ends in a flat clipped edge instead of its rounded corner.
+
+### Root cause
+
+The menu's height cap is computed and applied in isolation. It is painted inside a scroll container
+that clips it and is often shorter than the cap.
+
+### Required behaviour / acceptance
+
+The dropdown escapes the list's scroll container (a CDK overlay or `position: fixed` anchored to the
+trigger), or sizes itself against the space that is actually visible. Opening it at any row, with a
+list pane under 420 px high, shows every item reachable and the menu's own rounded corner intact.
+Owning check: copilot-account-routing check 10.
+
+### Fix and live re-check — 2026-09-24
+
+**First fix (renderer agent).** `.project-menu` is now `position: fixed`. It is placed against the
+viewport by the tested helper `computeProjectMenuPosition()`
+(`src/renderer/app/features/instance-list/project-menu-position.ts`), and it closes when
+`.instance-viewport` scrolls.
+
+**Live re-check (`verify-ui`).**
+
+- Check 11 passed.
+- The clipping itself was gone.
+- But opening any "…" menu on a scrollable list closed it again within the same click. The open
+  path's `firstMenuItem.focus()` made Chromium scroll the still-DOM-nested `.instance-viewport`
+  (`scrollTop` 0 → 431 measured), and the new close-on-scroll handler treated that as a user scroll.
+- **Reopened.**
+
+**Second fix.** Every focus move into the menu uses `focus({ preventScroll: true })`: the open path,
+plus the Home, End, Tab-wrap and Arrow handlers, which would have closed the menu the same way. The
+handler's doc comment records why. The instance-list specs pass (95). There is no DOM test, because
+signal inputs cannot be set in this vitest setup. The live re-check is still pending.
+
+### Third cause and live confirmation — 2026-09-24
+
+After the second fix the menu stayed open, but it rendered entirely off-screen (`left: -418px` in a
+1000 px window). `.project-actions` keeps a `transform` in every state, including `translateX(0)`
+when visible, and any non-`none` transform makes an element the containing block for its
+`position: fixed` descendants. So the viewport coordinates resolved against a box about 400 px wide.
+The visible, hover and focus-within states now use `transform: none`.
+
+Confirmed live by `verify-final`:
+
+- `.project-menu.offsetParent === null`;
+- the rect is fully in the viewport at the top and bottom rows and with a 362 px list pane;
+- every item hit-tests (the menu scrolls internally when tall);
+- the rounded corner is intact;
+- keyboard navigation keeps it open, a wheel scroll closes it, and Escape restores focus to the
+  trigger;
+- check 11's paint order still holds.
+
+## LT-650 — stale MiMo Token Plan quota survives a switch to a non-Plan model — FIXED + CONFIRMED LIVE 2026-09-24
+
+### Observed behaviour
+
+Live, 2026-09-24, `runtime` batch. After switching the OpenCode default model away from
+`xiaomi-token-plan-*`:
+
+- `quotaRefresh('opencode')` correctly returns `null`, because the gate is closed;
+- but `quotaGetProvider` and the Settings UI keep serving the pre-gate Token Plan snapshot
+  indefinitely.
+
+### Root cause
+
+`MimoTokenPlanProbe.probe()` returns `null` when gated. `ProviderQuotaService.refresh()`
+(`src/main/core/system/provider-quota-service.ts:268`) treats `null` as "no information, keep the
+previous snapshot". Other probes rely on that (for example `usage-monitor-source` returns `null` for
+"not fresh"), so nothing ever replaces the Token Plan snapshot.
+
+### Required behaviour / acceptance
+
+A gated probe must be able to say "not applicable" in a way that replaces the stored snapshot and
+renders as absent. It must not render as a neutral "ok" entry, which would show OpenCode to users who
+never had Token Plan numbers. Acceptance: switching off a Token Plan model and refreshing clears the
+numbers, and a user who never had Token Plan data sees no OpenCode quota entry.
+
+## LT-651 — a new instance's `contextEvidence` never reaches the renderer store — FIXED + CONFIRMED LIVE 2026-09-24
+
+### Observed behaviour
+
+Live, 2026-09-24, `runtime` batch. On a fresh instance, `contextEvidence` stayed `undefined` in the
+renderer `InstanceStore` for more than 5 s, while a direct IPC read at the same moment returned it.
+
+### Root cause (read, to be confirmed by the fix's failing test)
+
+`src/main/instance/instance-lifecycle.ts:1396-1397` emits `created` synchronously, before
+`initializeInstanceEvidenceOwnership` (`:1542`) sets `contextEvidence`. LT-602 closed the identical
+gap for `reasoningEffort` with a follow-up emit in the same continuation (`:1589-1594`). No such emit
+exists for `contextEvidence`.
+
+### Required behaviour / acceptance
+
+A follow-up state emit carries `contextEvidence`, and the renderer store shows it without a reload.
+This is context-evidence check 7, residual (a).
+
+## LT-640 — lifecycle-only loop state broadcasts were blocked by the event schema — FIXED 2026-09-24
+
+### Observed behaviour and root cause
+
+Found live by the `loops` batch on 2026-09-24: a loop's post-completion worktree outcome (promoted,
+blocked or cleaned) reached a running renderer only after a reload.
+`LoopCoordinator` emits `loop:state-changed` with `lifecycleOnly: true`
+(`loop-coordinator.ts:3939`), and `loop-handlers.ts` forwards `data` unchanged.
+`LoopStateChangedEventSchema` is `.strict()` and had no such key, so
+`validateRendererEventPayload` blocked every one of these broadcasts: `Blocked invalid renderer event
+payload … Unrecognized key: "lifecycleOnly"`, 19 times in the production `app.log`.
+
+### Fix and acceptance
+
+`lifecycleOnly: z.boolean().optional()` was added to the schema
+(`packages/contracts/src/schemas/loop-events.schemas.ts`), with a regression test in
+`renderer-event-validation.spec.ts` that failed red first. Live: stranded-worktree-rescue checks 2
+and 4 show the blocked or promoted outcome in the open loop panel without a reload.
+
+### Live re-check 2026-09-24 (`verify-loops`) — REOPENED, second fault fixed
+
+The schema fix held live: no `loop:state-changed` blocks, and `LoopStore.summaryByChat` held the final
+`worktreeLifecycle.phase: "blocked"` within about 100 ms. But the "Past loop prompts" panel stayed on
+"saving session work" for more than 2 minutes. `loop-control.component.ts`'s `lastTerminalSummaryId`
+was keyed by `loopRunId` alone, and the id does not change across harvesting → harvested → blocked,
+so the panel's `refreshHistory()` pull fired only once. Fixed: the key is now
+`terminalSummaryRefreshKey()` (`src/renderer/app/features/loop/loop-terminal-summary-key.ts`), which
+is `loopRunId` plus the lifecycle phase. The panel input is renamed to `terminalSummaryKey`. The
+spec `loop-terminal-summary-key.spec.ts` was mutation-checked: a run-id-only key fails it. The live
+re-check is still pending.
+
+## LT-641 — agent secret-card requests were blocked on the push channel — FIXED 2026-09-24
+
+### Observed behaviour and root cause
+
+Found live by the `loops` batch (stranded-worktree-rescue check 7): with agent secret requests
+allowed, an agent's `secret_required` request never rendered. `OrchestrationHandler` emits it on
+`user-action:request`. `UserActionRequestEventSchema`
+(`packages/contracts/src/schemas/orchestration.schemas.ts`) is strict: its `requestType` enum lacked
+`secret_required`, and it had no `secretRequest` field. The production log shows the block twice on
+2026-09-24 (`1790212064202`, `1790213021146`).
+
+This also reconciles the `settings` batch's same-day PASS of workspace-secret-card check 1. The
+renderer can also pull pending requests through the unvalidated `user-action:list-for-instance`
+invoke, so the card can appear when a view loads its pending list, but never through the live push.
+So workspace-secret-card check 1 is not trustworthy until it is re-run with this fix.
+
+### Fix and acceptance
+
+`secret_required` is added to the enum, and `secretRequest` is added as a **strict** object (`name`,
+`label`, `purpose`, optional `expectedFormat`), so a `value` key can never cross this channel. Tests
+cover acceptance of a metadata-only request and rejection of one carrying `value`. Main emits no
+`input_required` on this channel, so that type was not added. Live: an agent's `secret_required`
+request appears in an already-open session without navigating away and back.
+
+### Live re-check 2026-09-24 (`verify-loops`) — REOPENED, second fault fixed
+
+The schema fix held live: the request was forwarded and not blocked. But `app-user-action-request`
+was mounted only in `instance-detail.component.html:268`, and the dashboard shows
+`app-chat-detail` whenever a chat is selected. So within an open chat, **every** agent request (not
+only the secret card) was invisible. It was reachable only by Workboard → instance.
+`app-browser-approval-request` had the same gap.
+
+Fixed: `chat-detail.component.html` mounts both, bound to the chat's runtime instance
+(`currentInstance()?.id`, not `streamInstanceId`, which falls back to the chat id). The component
+already re-scopes on `instanceId` changes through an effect. Verified that the renderer compiles and
+that the chats and instance-detail specs pass (815 tests). There is no DOM test, because signal
+inputs cannot be set in this vitest setup. The live re-check is pending.
+
+## LT-642 — a terminal checkpoint-only loop got the restore path's internal error — FIXED 2026-09-24
+
+### Observed behaviour and root cause
+
+Found live by the `loops` batch (agent-reachable-loop-resume check 4). `aio-mcp loop resume` on an
+old terminal loop exits 1 correctly, but prints `Cannot restore non-paused loop checkpoint:
+<status>` instead of `Loop <id> is <status>, which is terminal…`. `resumeLoopRun()`
+(`src/main/orchestration/loop-resume.ts`) called `restoreLoopFromCheckpoint()` for any checkpoint,
+and that throws for terminal states before `notResumableReason()` is ever reached.
+
+### Fix and acceptance
+
+`resumeLoopRun()` now checks the checkpoint first. It is restorable if its status is `paused`,
+`running` (which restore reconciles to `paused`) or `provider-limit` with no `endedAt`. Anything else
+returns `notResumableReason()` without attempting a restore. A terminal provider-limit checkpoint
+also now gets the friendly reason instead of a thrown error. Tests: a terminal checkpoint-only loop
+gets the exact message and restore is never called (red first), and a crash-left `running`
+checkpoint is still restored. Two `automation-runner.spec.ts` fixtures gained the `status` every
+real checkpoint carries. Loop, automation and event-bus suites: 3,220 tests pass.
+
+## LT-643 — a ping-pong loop hangs after round 1's reviewer settles — FIXED 2026-09-24
+
+### Observed behaviour
+
+Live, 2026-09-24, `loops` batch, loop `loop-1790213435794-57df2268` (Claude builder, Codex reviewer,
+`pingPong.maxRounds: 4`, scratch repo). Timeline:
+
+- `T+11s`: reviewer instance `x40s9alwb` spawned.
+- `T+89s`: the reviewer went `idle` with a complete, valid `CHANGES_REQUESTED` JSON verdict as its
+  last output.
+- From then on, `app.log` has no line about the loop or the reviewer. The loop stayed `running`, at
+  0 iterations, stage `IMPLEMENT`. The UI's `pingPong()` state stayed `null`.
+- The 600 s review timeout never fired (checked 45 s past it).
+- The loop was cancelled by hand.
+
+### Root cause (as of the first pass)
+
+Not yet isolated. The batch traced `agentic-pingpong-reviewer.ts` →
+`ReviewerSessionSpawner.runReviewSession()` → `InstanceManager.waitForInstanceSettled()` →
+`InstanceSettledTracker.waitForSettled()`, and each step reads correctly in isolation. Full evidence
+is in [the ping-pong livetest](PINGPONG_IMPLEMENTATION_STATUS_livetest.md).
+
+### Required behaviour
+
+A settled reviewer's verdict advances the round, or the review timeout fires and surfaces. The loop
+never sits silent.
+
+### Investigation — 2026-09-24
+
+**Verified structural defect (high confidence, confirmed by a red→green deterministic test):**
+`ReviewerSessionSpawner.runReviewSession()` (`src/main/orchestration/reviewer-session-spawner.ts`,
+pre-fix lines 182–190) awaited `instance.readyPromise` **before** ever calling
+`InstanceManager.waitForInstanceSettled()` — the only call that carries the caller's configured
+`timeoutMs` (the review's 600s budget). The two prior "not fully isolated" checks in this doc were
+each individually correct; the break is upstream of both, in the ordering between them.
+
+`instance.readyPromise` is the `createInstance()` background-init promise
+(`src/main/instance/instance-lifecycle.ts:1875`); it resolves only once the initial prompt is
+delivered — but "delivered" is adapter-specific. For Claude, `sendInput` is fire-and-forget and
+returns almost immediately. For Codex in app-server mode, `sendInputImpl`
+(`src/main/cli/adapters/codex-app-server-adapter.ts:573-587`) awaits `appServerSendMessage()`, which
+awaits `captureTurn()` (`src/main/cli/adapters/codex-app-server-turn-adapter.ts:134`) for the
+**entire first turn**, resolving only on a `turn/completed` notification or an inferred-completion
+timer (`codex-app-server-notification-adapter.ts:518-537`, itself capped by the CLI's own internal
+900s notification-idle watchdog — see `CODEX_TIMEOUTS.NOTIFICATION_IDLE_ACTIVE_MS`, unrelated to the
+review's 600s setting). The class-level doc comment in `reviewer-session-spawner.ts` ("2. awaits
+`readyPromise` (initial prompt sent)") assumed the fast, Claude-shaped case; it does not hold for
+Codex/other stateless-turn adapters (same class of assumption break as
+[[wake-broken-for-stateless-exec-adapters]]).
+
+Net effect: if that first Codex turn stalls for any reason (a dropped `turn/completed`
+notification, a stuck app-server, etc.), `readyPromise` hangs, `waitForInstanceSettled()` — and its
+600s timer — is **never even called**, `agenticPingPongReviewer()` never returns, and nothing further
+is logged for that loop or instance. This matches every observed symptom: no
+`Ping-pong reviewer produced a verdict` log, no `Ping-pong reviewer did not settle cleanly` log, no
+600s timeout, and a reviewer instance that needed manual termination (the spawner's own `finally`
+teardown never ran either, because the `try` block never unwound).
+
+I could not, with the evidence retained from the live run alone, prove which specific Codex-side
+event (or non-event) made that particular turn's completion promise stall — that would need a fresh
+live repro with app-server protocol tracing. What is verified by reading the source and by a
+deterministic test is the AIO-side defect: there was no independent deadline guarding the
+`readyPromise` await, so *any* stall in a provider's first-turn delivery — regardless of cause — hung
+the whole round forever with the round's configured timeout never armed.
+
+**Reproduction:** `src/main/orchestration/reviewer-session-spawner.spec.ts`, test `'LT-643: times out
+(rather than hanging forever) when readyPromise itself never settles'`. A fake instance with a
+`readyPromise` that never settles, run under Vitest fake timers: pre-fix, the test hung until the
+harness's own 8s test-timeout failed it, with `waitForInstanceSettled` never invoked. Post-fix, the
+test passes deterministically once fake time is advanced past the configured budget.
+
+### Fix
+
+Added `ReviewerSessionSpawner.awaitReadyWithBudget()` (`reviewer-session-spawner.ts`), which races
+`instance.readyPromise` against the review's own `timeoutMs` (and against `signal`/`isCancelled`,
+polled every 250ms, resolving early — not erroring — on cancellation so the immediately-following
+`waitForInstanceSettled()` call unwinds the same way it always has). On budget exhaustion it rejects
+with a `/timed out/i` message, which the existing `runReviewSession` catch-block classification
+already maps to `outcome: 'timeout'` — no change needed there, and the `finally` teardown (instance
+termination) now actually runs in this case. `runReviewSession()` calls this helper in place of the
+old bare `await instance.readyPromise.catch(() => undefined)`.
+
+**Tests: red → green.** New test above went from a hard timeout (current code) to passing (fixed
+code). Full existing coverage unaffected: `reviewer-session-spawner.spec.ts` (6/6),
+`agentic-pingpong-reviewer.spec.ts`, `agentic-pingpong-reviewer.exclusions.spec.ts`,
+`loop-pingpong-builder-done.spec.ts`, `loop-pingpong-completion.spec.ts`,
+`pingpong-checking-policy.spec.ts`, `instance-settled-tracker.spec.ts` — 81/81 pass. `npx tsc --noEmit`
+clean. `npm run lint:fast` shows no new warnings in the touched file.
+
+**Residual / not verified here:** this fix bounds the *AIO-side* hang. It does not explain (nor was it
+asked to fix) why the live Codex turn's completion notification apparently never arrived at the
+protocol level; that remains a live-test item if it recurs post-fix. Also not exercised: the UI's
+`pingPong()` signal populating correctly once the round now times out cleanly instead of hanging —
+that is exactly what Checks 1 and 2 in
+[the ping-pong livetest](PINGPONG_IMPLEMENTATION_STATUS_livetest.md) still need to re-run live.
+
+### Orchestrator review — 2026-09-24 (fix replaced)
+
+The investigation's first fix bounded `await instance.readyPromise` with the review timeout. That
+ends the hang, but in the observed live run the reviewer was already **idle with a complete
+verdict** at T+89s. With that fix, the round would have waited out the 600 s budget and then
+discarded that verdict as a `timeout`.
+
+The live evidence shows `readyPromise` can stay unresolved after the reviewer's turn has visibly
+finished. For Codex app-server it covers the whole first turn through
+`deliverInitialPromptAfterSpawn` → `sendInput`. Gating the settle wait on it was the structural
+fault. `ReviewerSessionSpawner.runReviewSession()` now starts `waitForInstanceSettled()` at once:
+the settle wait owns `timeoutMs`, and `raceBackgroundInitFailure()` lets background init end the
+wait only by rejecting. Why this Codex first turn's `sendInput` did not resolve after the adapter
+reported idle is still unexplained. It is an adapter-level inconsistency and needs a protocol trace
+if it recurs.
+
+Tests in `reviewer-session-spawner.spec.ts`, all three failing against the HEAD version of the file
+and passing now:
+
+- the verdict is returned while `readyPromise` never resolves (the live case);
+- a timeout is reported when neither settles;
+- a background-init rejection fails fast.
+
+`src/main/orchestration`: 2,982 tests pass. The live re-check is the ping-pong livetest's checks 1
+and 2.
+
+## LT-644 — ping-pong reviewer verdicts request changes but carry no findings — FIXED 2026-09-24
+
+### Observed behaviour
+
+On 2026-09-24 the `verify-final` batch ran 3 real ping-pong loops (Claude builder, Codex reviewer).
+All 6 reviewer rounds logged `Ping-pong reviewer produced a verdict {verdict: CHANGES_REQUESTED,
+findings: 0}`. The `loops` batch's earlier run (`loop-1790213435794-57df2268`) shows the same shape:
+the captured final reviewer output had `verdict`, `summary` and `completeness`, but no usable
+`findings`. The open-issues ledger stays empty, so ping-pong check 2 (Arbitrate) can never meet its
+precondition.
+
+### What the code does
+
+`normalizeFindings()` (`src/main/orchestration/agentic-pingpong-reviewer.ts`) silently drops any
+finding without `title`, `evidence` and a valid `severity`. The verdict then still honours the
+reviewer's self-reported `CHANGES_REQUESTED` (`claimedVerdict`) with an empty findings list. That is
+a contradictory result: changes requested, but nothing to change.
+
+### Not yet known
+
+Whether Codex omits `findings`, or returns them under other field names or without `evidence`. No
+raw reviewer transcript was captured. Next step: capture one round's raw final output (for example
+by logging `parsed['findings']` shape at debug, or by reading the reviewer instance's `outputBuffer`
+before teardown). Then decide: fix the prompt contract or field mapping, or treat a
+`CHANGES_REQUESTED` verdict with zero valid findings as `malformed_output` so it is re-asked, rather
+than passing an empty issue list to the builder.
+
+### Required behaviour / acceptance
+
+A `CHANGES_REQUESTED` verdict reaches the builder with at least one concrete finding, or is
+classified as unreliable. Ping-pong check 2 can then reach Arbitrate with a real open issue.
+
+### Evidence found and fix — 2026-09-24 (later the same day)
+
+The raw reviewer output was not lost. AIO keeps every Codex session's rollout under
+`~/.ai-orchestrator/codex/sessions/2026/09/24/`. All 7 reviewer rollouts from that day were read:
+`02-30-47` (the `loops` batch's round) and `03-51-03`, `03-52-25`, `03-54-30`, `03-55-43`,
+`03-58-58`, `04-00-09` (the six `verify-final` rounds). Every one is a valid JSON verdict **with a
+populated `findings` array**, 8 findings in total. But every finding uses `issue` where the parser
+expects `title` and `suggestedFix` where it expects `body`, and one uses `location` for `file`.
+`normalizeFindings()` required `title`, so it dropped all 8.
+
+**Root cause:** the reviewer prompt never named the finding fields. The example shows
+`"findings": []`, and the field constraints cover only `severity` and `novelty`. So Codex supplied
+reasonable names of its own. The drop was then silent, and a `CHANGES_REQUESTED` verdict with no
+usable finding passed as "no findings". The house style forbids that ("Parse failure is an explicit
+unreliable/error outcome, never … no findings").
+
+**Fix:**
+
+- **The prompt states the finding fields.** `REVIEWER_FINDING_FIELDS_INSTRUCTION` names `title`,
+  `severity`, `file`, `evidence`, `body`, `novelty` and `ledgerId`.
+- **The parser is tolerant of the observed names.** Finding normalisation moved to
+  `src/main/orchestration/pingpong-reviewer-findings.ts`. It reads `issue` as the title,
+  `location` as the file, and `suggestedFix`/`description`/`detail` as the body, and it counts
+  what it drops.
+- **The verdict fails closed.** If the reviewer listed findings and none is usable (no title,
+  evidence or valid severity), the round is `UNRELIABLE` / `malformed_output`, not an empty issue
+  list.
+
+Evidence-required dropping of a single finding without evidence is unchanged.
+
+**Tests:**
+
+- `pingpong-reviewer-findings.spec.ts` uses the captured Codex shape, anonymised.
+- Three reviewer-level tests in `agentic-pingpong-reviewer.spec.ts` cover the Codex-shaped finding
+  reaching the builder, all-unusable findings becoming unreliable, and the prompt naming the fields.
+  All three fail against the HEAD reviewer and pass now.
+- `src/main/orchestration`: 2,990 tests pass. `tsc`, spec `tsc`, lint and the LOC ratchet are
+  green.
+
+**Still to do:** a live re-run of ping-pong check 2 (Arbitrate), which needs a real open issue and
+can now get one.

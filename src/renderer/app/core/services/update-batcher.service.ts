@@ -6,7 +6,7 @@ import { Injectable } from '@angular/core';
 import type { ExecutionLocation } from '../../../../shared/types/worker-node.types';
 import type { ActivityState } from '../../../../shared/types/activity.types';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
-import type { InstanceWaitReason, InstanceBackgroundWork, DesiredRuntime, ContextUsage } from '../../../../shared/types/instance.types';
+import type { InstanceWaitReason, InstanceBackgroundWork, DesiredRuntime, ContextUsage, InstanceContextEvidenceState } from '../../../../shared/types/instance.types';
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 import type { ComputerUseAutonomyLevel } from '../../../../shared/types/desktop-gateway-settings.types';
 import type { AccountRouteSource } from '../../../../shared/types/provider-account.types';
@@ -35,6 +35,13 @@ export interface StateUpdate {
   currentModel?: string;
   runtimeSummary?: InstanceRuntimeSummary | null;
   reasoningEffort?: ReasoningEffort | null;
+  /**
+   * Resolved after `initializeInstanceEvidenceOwnership` completes in the
+   * same background-init continuation that resolves `reasoningEffort` — see
+   * the follow-up `state-update` emit in `instance-lifecycle.ts` (LT-651,
+   * sibling to LT-602's `reasoningEffort` fix). Undefined preserves existing.
+   */
+  contextEvidence?: InstanceContextEvidenceState;
   executionLocation?: ExecutionLocation;
   providerSessionId?: string;
   restartEpoch?: number;
@@ -115,6 +122,9 @@ export class UpdateBatcherService {
       reasoningEffort: update.reasoningEffort !== undefined
         ? update.reasoningEffort
         : existing?.reasoningEffort,
+      contextEvidence: update.contextEvidence !== undefined
+        ? update.contextEvidence
+        : existing?.contextEvidence,
       providerSessionId: update.providerSessionId ?? existing?.providerSessionId,
       restartEpoch: update.restartEpoch ?? existing?.restartEpoch,
       recoveryMethod: update.recoveryMethod ?? existing?.recoveryMethod,

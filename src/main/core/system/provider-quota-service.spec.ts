@@ -238,6 +238,38 @@ describe('ProviderQuotaService', () => {
       expect(out!.error).toBeUndefined();
       expect(out!.windows[0].used).toBe(20);
     });
+
+    it('LT-650: a notApplicable refresh replaces a prior snapshot and emits quota-updated without the old windows', async () => {
+      svc.registerProbe(new FakeProbe('opencode', makeSnapshot('opencode', 20, 100)));
+      await svc.refresh('opencode');
+      expect(svc.getSnapshot('opencode')!.windows).toHaveLength(1);
+
+      const updates: ProviderQuotaSnapshot[] = [];
+      svc.on('quota-updated', (snap: ProviderQuotaSnapshot) => updates.push(snap));
+
+      svc.registerProbe({
+        provider: 'opencode',
+        async probe() {
+          return {
+            provider: 'opencode',
+            takenAt: Date.now(),
+            source: 'admin-api',
+            ok: false,
+            notApplicable: true,
+            windows: [],
+          };
+        },
+      });
+      const out = await svc.refresh('opencode');
+
+      expect(out).not.toBeNull();
+      expect(out!.notApplicable).toBe(true);
+      expect(out!.windows).toEqual([]);
+      expect(svc.getSnapshot('opencode')!.windows).toEqual([]);
+      expect(svc.getSnapshot('opencode')!.notApplicable).toBe(true);
+      expect(updates).toHaveLength(1);
+      expect(updates[0]).toMatchObject({ provider: 'opencode', notApplicable: true, windows: [] });
+    });
   });
 
   describe('CLI-installed gating', () => {

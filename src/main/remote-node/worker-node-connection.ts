@@ -65,8 +65,6 @@ export class WorkerNodeConnectionServer extends EventEmitter {
   // Grace + parked-work disconnect windows (see connection-disconnect-lifecycle).
   private readonly disconnectLifecycle = new ConnectionDisconnectLifecycle({
     isNodeConnected: (nodeId) => this.isNodeConnected(nodeId),
-    isDurableNode: (nodeId) =>
-      (getWorkerNodeRegistry().getNode(nodeId)?.capabilities?.streamDurability ?? 0) >= 1,
     hasPendingWork: (nodeId) =>
       [...this.pending.values()].some((pending) => pending.nodeId === nodeId && pending.isWork),
     rejectPending: (nodeId, reason, filter) => this.rejectPendingForNode(nodeId, reason, filter),
@@ -564,6 +562,8 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       });
     }
 
+    const capabilities = params?.['capabilities'] as Record<string, unknown> | undefined;
+
     // Replace any existing socket for this nodeId
     const existing = this.nodeToSocket.get(newNodeId);
     let resetAfterRegistration = false;
@@ -571,7 +571,6 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       logger.warn('Replacing existing socket for nodeId', { node: name, nodeId: newNodeId });
       this.socketToNode.delete(existing);
       existing.close(1001, 'Replaced by new connection');
-      const capabilities = params?.['capabilities'] as Record<string, unknown> | undefined;
       resetAfterRegistration = this.recordFlap(newNodeId, name, true, capabilities?.['streamEpoch']);
     } else if (withinGrace) {
       // A re-register after the previous socket already closed is still a flap
@@ -579,6 +578,8 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       // fast register/close/register storm is detected.
       this.recordFlap(newNodeId, name, false);
     }
+
+    this.disconnectLifecycle.noteNodeDurability(newNodeId, capabilities?.['streamDurability']);
 
     this.nodeToSocket.set(newNodeId, ws);
     this.socketToNode.set(ws, newNodeId);

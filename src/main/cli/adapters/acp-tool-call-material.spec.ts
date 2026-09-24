@@ -81,6 +81,41 @@ describe('buildAcpToolResultMessage', () => {
     expect(buildAcpToolResultMessage({ ...base, status: 'cancelled', rawOutput: { exitCode: 2 } }, 'm7', 11).metadata)
       .not.toHaveProperty('is_error');
   });
+
+  // LT-612 wire capture, 2026-09-24: `grok agent stdio`'s terminal `tool_call_update`
+  // for a failing `execute` reports the exit status as `rawOutput.exit_code` (snake_case),
+  // never `rawOutput.exitCode` (camelCase, which is what cursor-agent sends). The shape
+  // below is a trimmed, path-anonymised copy of the real payload for
+  // `/usr/bin/grep --bogus-flag needle haystack.txt` (exit 2) and
+  // `/usr/bin/grep -F needle haystack.txt` (exit 0).
+  it('marks a completed Grok command with a nonzero snake_case exit_code as failed', () => {
+    const grokFailedRawOutput = {
+      type: 'Bash',
+      output_for_prompt: "exit: 2\ngrep: unrecognized option `--bogus-flag'\n",
+      exit_code: 2,
+      command: '/usr/bin/grep --bogus-flag needle haystack.txt',
+      truncated: false,
+      signal: null,
+      timed_out: false,
+      current_dir: '/tmp/lt0924-grok-acp/ws1',
+    };
+    const grokSucceededRawOutput = {
+      type: 'Bash',
+      output_for_prompt: 'exit: 0\nneedle here\n',
+      exit_code: 0,
+      command: '/usr/bin/grep -F needle haystack.txt',
+      truncated: false,
+      signal: null,
+      timed_out: false,
+      current_dir: '/tmp/lt0924-grok-acp/ws2',
+    };
+    expect(buildAcpToolResultMessage({ ...base, status: 'completed', rawOutput: grokFailedRawOutput }, 'm8', 14).metadata)
+      .toMatchObject({ is_error: true });
+    expect(buildAcpToolResultMessage({ ...base, status: 'completed', rawOutput: grokSucceededRawOutput }, 'm9', 15).metadata)
+      .toMatchObject({ is_error: false });
+    expect(buildAcpToolResultMessage({ ...base, status: 'cancelled', rawOutput: grokFailedRawOutput }, 'm10', 16).metadata)
+      .not.toHaveProperty('is_error');
+  });
 });
 
 describe('buildAcpToolOutcomeFallback', () => {
@@ -94,5 +129,13 @@ describe('buildAcpToolOutcomeFallback', () => {
       toolCallId: 'c1', title: 'Run tests', status: 'cancelled', hasRenderedOutput: false,
       rawOutput: { exitCode: 2 },
     }, 'm2', 13)).toBeNull();
+  });
+
+  it('records a completed Grok command (snake_case exit_code, no rendered output) as failed', () => {
+    const outcome = buildAcpToolOutcomeFallback({
+      toolCallId: 'c1', title: 'Run tests', status: 'completed', hasRenderedOutput: false,
+      rawOutput: { exit_code: 2 },
+    }, 'm3', 17);
+    expect(outcome?.metadata).toMatchObject({ tool_use_id: 'c1', is_error: true });
   });
 });

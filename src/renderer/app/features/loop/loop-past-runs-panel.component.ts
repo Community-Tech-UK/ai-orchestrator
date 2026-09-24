@@ -298,10 +298,10 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
   /** Set by the parent when a loop is currently active for this chat,
    *  to disable the Reattempt action while one is in flight. */
   loopRunning = input<boolean>(false);
-  /** When non-null, signals the parent has just observed a new terminal
-   *  summary; we use this to trigger a fresh history pull so the new
-   *  row appears at the top without the user reloading. */
-  terminalSummaryRunId = input<string | null>(null);
+  /** Changes whenever the parent observes a new terminal summary or a new
+   *  worktree lifecycle phase for it; each change triggers a fresh history
+   *  pull so the row updates without the user reloading (LT-640). */
+  terminalSummaryKey = input<string | null>(null);
   /** Test seam — when set, used in place of `Date.now()` for relative
    *  time rendering. Production callers leave it at 0 (signal default)
    *  and the component re-evaluates on its 1Hz tick. */
@@ -357,8 +357,8 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
     // values mean "we already pulled for this run" — skip in that case.
     effect(() => {
       const id = this.chatId();
-      const summaryRunId = this.terminalSummaryRunId();
-      if (!id || !summaryRunId) return;
+      const summaryKey = this.terminalSummaryKey();
+      if (!id || !summaryKey) return;
       untracked(() => {
         void this.store.refreshHistory(id);
       });

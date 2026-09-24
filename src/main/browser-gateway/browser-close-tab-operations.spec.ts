@@ -132,6 +132,30 @@ describe('BrowserCloseTabOperations', () => {
     });
   });
 
+  // LT-620 family: an approval raised without an instanceId is stored under
+  // 'unknown'; the grant lookup has to use the same sentinel to redeem it.
+  it('redeems an approved destructive grant for a caller with no instanceId', async () => {
+    const { ops, sendCommand } = makeOps({
+      grants: [makeGrant({
+        instanceId: 'unknown',
+        profileId: undefined,
+        nodeId: 'local',
+        allowedOrigins: [{ scheme: 'https', hostPattern: 'example.test', includeSubdomains: false }],
+        allowedActionClasses: ['destructive'],
+        autonomous: true,
+        mode: 'autonomous',
+      })],
+    });
+    const result = await ops.closeTab({
+      provider: 'copilot',
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+    });
+
+    expect(result.decision).toBe('allowed');
+    expect(sendCommand).toHaveBeenCalledOnce();
+  });
+
   it('refuses to close the last shared tab in a window', async () => {
     const { ops, sendCommand } = makeOps({
       tabs: [attachment()],
@@ -246,6 +270,39 @@ describe('BrowserCloseTabOperations', () => {
     expect(result.outcome).toBe('succeeded');
     expect(result.data?.closed).toEqual([
       expect.objectContaining({ targetId: 'stale-1' }),
+    ]);
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
+  it('does not report an already-closed row as closed by a urlContains match', async () => {
+    const { ops, sendCommand } = makeOps({
+      tabs: [attachment(), attachment({
+        profileId: 'existing-tab:7:43',
+        targetId: 'existing-tab:7:43:target',
+        tabId: 43,
+        title: 'Other',
+        url: 'https://other-window.test/page',
+      })],
+      targets: [{
+        id: 'stale-1',
+        profileId: 'existing-tab:7:99',
+        status: 'closed',
+        title: 'Gone',
+        url: 'https://example.test/gone',
+        origin: 'https://example.test',
+      }],
+    });
+
+    const result = await ops.closeMatching({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      urlContains: 'example.test',
+      dryRun: true,
+    });
+
+    expect(result.data?.closed.map((item) => item.targetId)).toEqual(['existing-tab:7:42:target']);
+    expect(result.data?.skipped).toEqual([
+      expect.objectContaining({ targetId: 'stale-1', reason: 'already_closed' }),
     ]);
     expect(sendCommand).not.toHaveBeenCalled();
   });

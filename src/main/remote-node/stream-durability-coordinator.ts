@@ -50,17 +50,34 @@ export class StreamDurabilityCoordinator {
   constructor(private readonly deps: StreamDurabilityCoordinatorDeps) {}
 
   /**
-   * Gate a durable notification. Returns false when the frame is a replay
-   * duplicate (seq ≤ cursor). Frames without a durableSeq (legacy workers)
-   * are always accepted.
+   * Gate a durable notification. Returns false only for a REPLAYED frame the
+   * cursor has already passed (seq ≤ cursor) — that is the sole source of
+   * genuine duplicates, since the worker sends each live frame once. Frames
+   * without a durableSeq (legacy workers) are always accepted.
+   *
+   * A LIVE frame at or below the cursor means the worker put frames on the
+   * wire out of seq order. Dropping it silently destroyed user-visible output
+   * and, because the drop only logged at debug, stayed invisible in
+   * production for months (LT-541). Delivering a possible duplicate is
+   * strictly better than losing an assistant reply, so such a frame is passed
+   * through with a warning and the cursor is left where it is.
    */
-  accept(nodeId: string, instanceId: unknown, durableSeq: unknown): boolean {
+  accept(nodeId: string, instanceId: unknown, durableSeq: unknown, isReplay = false): boolean {
     if (typeof durableSeq !== 'number' || typeof instanceId !== 'string') return true;
     const state = this.stateFor(nodeId);
     const cursor = state.cursors.get(instanceId) ?? 0;
     if (durableSeq <= cursor) {
-      logger.debug('Dropping duplicate durable frame', { nodeId, instanceId, durableSeq, cursor });
-      return false;
+      if (isReplay) {
+        logger.debug('Dropping duplicate durable frame', { nodeId, instanceId, durableSeq, cursor });
+        return false;
+      }
+      logger.warn('Durable frame arrived out of order — delivering instead of dropping', {
+        nodeId,
+        instanceId,
+        durableSeq,
+        cursor,
+      });
+      return true;
     }
     state.cursors.set(instanceId, durableSeq);
     state.dirty.add(instanceId);

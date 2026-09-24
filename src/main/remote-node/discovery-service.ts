@@ -1,5 +1,6 @@
-import { Bonjour, type Service } from 'bonjour-service';
+import type { Bonjour, Service } from 'bonjour-service';
 import { getLogger } from '../logging/logger';
+import { createPublishingBonjour } from './mdns-response-errors';
 
 const logger = getLogger('DiscoveryService');
 
@@ -28,7 +29,7 @@ export class DiscoveryService {
     // pointing at the old port for workers to discover.
     this.unpublish();
     try {
-      this.bonjour = new Bonjour();
+      this.bonjour = createPublishingBonjour(logger, 'coordinator');
       this.published = this.bonjour.publish({
         name: `orchestrator-${coordinatorId.slice(0, 8)}`,
         type: 'ai-orchestrator',

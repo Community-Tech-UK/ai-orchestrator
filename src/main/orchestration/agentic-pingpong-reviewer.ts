@@ -18,10 +18,11 @@ import {
   normalizeAgenticReviewerCliList,
   normalizeReviewerCli,
 } from './cross-model-review-service.constants';
+import { REVIEW_SEVERITY_RUBRIC } from '../../shared/types/review-severity';
 import {
-  REVIEW_SEVERITY_RUBRIC,
-  ReviewSeveritySchema,
-} from '../../shared/types/review-severity';
+  normalizeReviewerFindings,
+  REVIEWER_FINDING_FIELDS_INSTRUCTION,
+} from './pingpong-reviewer-findings';
 import { extractLastJsonPayload } from '../agents/review-json-extract';
 import { MAX_REVIEW_DIFF_CHARS, renderDiffTruncationNote } from './loop-diff';
 import {
@@ -367,6 +368,7 @@ function requiredOutputInstructions(opening: string): string {
     `Field constraints:\n` +
     `- verdict: "APPROVED" or "CHANGES_REQUESTED".\n` +
     `- completeness.filesInspected and completeness.commandsRun: integers.\n` +
+    `${REVIEWER_FINDING_FIELDS_INSTRUCTION}\n` +
     `- findings[].severity: "critical", "high", "medium", or "low".\n` +
     `- findings[].novelty: "new", "persisted", or "regression".\n` +
     `- ledger[].status: "open", "resolved", "rebutted", or "regression".\n\n` +
@@ -418,42 +420,6 @@ export function parseReviewerJson(output: string): Record<string, unknown> | nul
   } catch {
     return null;
   }
-}
-
-function parseSeverity(value: unknown): PingPongSeverity | null {
-  const s = String(value ?? '').toLowerCase();
-  const parsed = ReviewSeveritySchema.safeParse(s);
-  return parsed.success ? parsed.data : null;
-}
-
-function coerceNovelty(value: unknown): PingPongReviewFinding['novelty'] {
-  const s = String(value ?? '').toLowerCase();
-  if (s === 'persisted' || s === 'regression') return s;
-  return 'new';
-}
-
-function normalizeFindings(raw: unknown): PingPongReviewFinding[] {
-  if (!Array.isArray(raw)) return [];
-  const out: PingPongReviewFinding[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue;
-    const f = item as Record<string, unknown>;
-    const evidence = String(f['evidence'] ?? '').trim();
-    const title = String(f['title'] ?? '').trim();
-    const severity = parseSeverity(f['severity']);
-    // Evidence-required: drop findings that cite nothing.
-    if (!title || !evidence || !severity) continue;
-    out.push({
-      title,
-      severity,
-      file: f['file'] ? String(f['file']) : undefined,
-      evidence,
-      body: String(f['body'] ?? '').trim(),
-      novelty: coerceNovelty(f['novelty']),
-      ledgerId: f['ledgerId'] ? String(f['ledgerId']) : undefined,
-    });
-  }
-  return out;
 }
 
 function normalizeLedgerClassifications(raw: unknown): PingPongLedgerClassification[] {
@@ -658,10 +624,17 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
   }
 
   const ledgerClassifications = normalizeLedgerClassifications(parsed['ledger']);
-  const allFindings = capLowSeverityChurn(
-    normalizeFindings(parsed['findings']),
-    input.blockingSeverities,
-  );
+  const normalized = normalizeReviewerFindings(parsed['findings']);
+  if (normalized.dropped > 0 && normalized.findings.length === 0) {
+    // Findings were reported but none could be used. Reading that as "no
+    // findings" handed the builder an empty issue list on every round (LT-644).
+    return unreliable(
+      `reviewer listed ${normalized.dropped} finding(s) but none had a title, evidence and a valid severity`,
+      'malformed_output',
+      { ...base(), completeness },
+    );
+  }
+  const allFindings = capLowSeverityChurn(normalized.findings, input.blockingSeverities);
   const blockingSet = new Set(input.blockingSeverities);
   const hasBlocking = allFindings.some((f) => blockingSet.has(f.severity));
   const claimedVerdict = String(parsed['verdict'] ?? '').toUpperCase();

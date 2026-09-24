@@ -163,7 +163,7 @@ export class SettingsComponent implements AfterViewChecked {
 
   /**
    * True at the compact-nav breakpoint (≤900px): the in-flow rail stays at
-   * its 56px-equivalent collapsed width and the full nav is reached through
+   * its 64px-equivalent collapsed width and the full nav is reached through
    * a temporary overlay (`compactNavOpen`) instead of the desktop collapse.
    */
   readonly compactViewport = signal(false);
@@ -185,7 +185,7 @@ export class SettingsComponent implements AfterViewChecked {
   readonly isEmbeddedTab = computed(() => this.layoutMode() === 'embedded');
   /**
    * The rail's actual collapsed state. In a compact viewport the rail is
-   * always the 56px-equivalent collapsed form; the desktop `navCollapsed`
+   * always the 64px-equivalent collapsed form; the desktop `navCollapsed`
    * preference stays untouched underneath and takes over again once the
    * viewport widens.
    */

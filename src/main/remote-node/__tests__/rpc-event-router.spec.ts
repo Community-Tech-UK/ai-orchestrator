@@ -382,6 +382,12 @@ describe('RpcEventRouter', () => {
         'cmd-unsent',
       );
     });
+    // The requeue must be observable so a live check can tie the failed
+    // `sendResponse` (poll request id) to the command it was carrying.
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      'Browser command poll handoff failed; requeued',
+      expect.objectContaining({ nodeId: 'node-ext', commandId: 'cmd-unsent', pollRequestId: 'req-unsent' }),
+    );
   });
 
   it('LT-371: does not requeue a null long-poll response when the node socket is gone', async () => {
@@ -1047,17 +1053,40 @@ describe('RpcEventRouter', () => {
     const outputs: unknown[] = [];
     registry.on('remote:instance-output', (payload) => outputs.push(payload));
 
-    const frame = (seq: number) => ({
+    const frame = (seq: number, replay = false) => ({
       jsonrpc: '2.0' as const,
       method: 'instance.output',
-      params: { instanceId: 'inst-1', message: { n: seq }, durableSeq: seq },
+      params: { instanceId: 'inst-1', message: { n: seq }, durableSeq: seq, ...(replay ? { replay: true } : {}) },
     });
     mockConnection.emit('rpc:notification', 'node-d', frame(1));
     mockConnection.emit('rpc:notification', 'node-d', frame(2));
-    mockConnection.emit('rpc:notification', 'node-d', frame(2)); // replay duplicate
-    mockConnection.emit('rpc:notification', 'node-d', frame(1)); // stale replay
+    mockConnection.emit('rpc:notification', 'node-d', frame(2, true)); // replay duplicate
+    mockConnection.emit('rpc:notification', 'node-d', frame(1, true)); // stale replay
 
     expect(outputs).toHaveLength(2);
+  });
+
+  it('delivers a LIVE instance.output frame that arrives behind the cursor', () => {
+    // The worker batches output on a timer while context/complete go out
+    // immediately, so an output frame can legitimately arrive with a lower
+    // durableSeq than a frame already processed. Dropping it silently lost
+    // every remote assistant reply (LT-541).
+    registry.registerNode(makeNode('node-o'));
+    const outputs: unknown[] = [];
+    registry.on('remote:instance-output', (payload) => outputs.push(payload));
+
+    mockConnection.emit('rpc:notification', 'node-o', {
+      jsonrpc: '2.0',
+      method: 'instance.context',
+      params: { instanceId: 'inst-1', usage: { used: 1 }, durableSeq: 2 },
+    });
+    mockConnection.emit('rpc:notification', 'node-o', {
+      jsonrpc: '2.0',
+      method: 'instance.output',
+      params: { instanceId: 'inst-1', message: { type: 'assistant' }, durableSeq: 1 },
+    });
+
+    expect(outputs).toHaveLength(1);
   });
 
   it('asks a durable worker to replay after cursors on re-registration', () => {

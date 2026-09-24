@@ -178,7 +178,12 @@ describe('MimoTokenPlanProbe', () => {
     expect(snap!.windows[0].id).toBe('opencode.plan');
   });
 
-  it('stays quiet when the configured model is not a Token Plan one', async () => {
+  it('returns an explicit notApplicable snapshot (not null) when the configured model is not a Token Plan one (LT-650)', async () => {
+    // A plain `null` here would mean "no fresh info, keep the previous
+    // snapshot" under ProviderQuotaService's general probe contract — which
+    // is exactly the LT-650 bug (stale Token Plan numbers survive a model
+    // switch). `notApplicable: true` instead tells the service to replace
+    // whatever was stored, with zero credential reads on this path.
     const { reader, state } = readerReturning({ session: SESSION });
     const probe = new MimoTokenPlanProbe({
       isTokenPlanModel: () => false,
@@ -188,7 +193,8 @@ describe('MimoTokenPlanProbe', () => {
 
     const snap = await probe.probe({ signal: new AbortController().signal });
 
-    expect(snap).toBeNull();
+    expect(snap).not.toBeNull();
+    expect(snap).toMatchObject({ provider: 'opencode', ok: false, notApplicable: true, windows: [] });
     expect(state.calls).toBe(0);
   });
 

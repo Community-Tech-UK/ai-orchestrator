@@ -69,6 +69,7 @@ import {
 } from '../../../../shared/types/hint-policy';
 import { SettingsStore } from '../../core/state/settings.store';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
+import { terminalSummaryRefreshKey } from './loop-terminal-summary-key';
 
 /**
  * Shows the Loop Mode HUD for one chat:
@@ -128,9 +129,10 @@ export class LoopControlComponent implements OnDestroy {
   private lastSummaryRunId: string | null = null;
   private lastInspectableLoopId: string | null = null;
 
-  /** Latest terminal summary's run id, propagated to the past-runs panel
-   *  so it knows when to re-pull history. Null while no summary is shown. */
-  lastTerminalSummaryId = computed<string | null>(() => this.summary()?.loopRunId ?? null);
+  /** Changes whenever the latest terminal summary's run or its worktree
+   *  lifecycle phase changes, so the past-runs panel re-pulls history.
+   *  Null while no summary is shown. */
+  lastTerminalSummaryKey = computed(() => terminalSummaryRefreshKey(this.summary()));
 
   active = computed(() => {
     const id = this.chatId();

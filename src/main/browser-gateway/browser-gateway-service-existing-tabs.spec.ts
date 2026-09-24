@@ -1849,6 +1849,38 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     }));
   });
 
+  // LT-620 family: approvals raised without an instanceId are stored under
+  // 'unknown', so the navigation grant lookup must use the same sentinel.
+  it('redeems an approved navigation grant for a caller with no instanceId', async () => {
+    const sendCommand = vi.fn(async () => ({
+      tab: { tabId: 42, windowId: 7, title: 'Identifiers', url: 'https://developer.apple.com/account' },
+    }));
+    const { service } = makeService({
+      existingTab: appStoreConnectTab,
+      extensionCommandStore: { sendCommand },
+      grants: [
+        makeGrant({
+          instanceId: 'unknown',
+          profileId: appStoreConnectTab.profileId,
+          targetId: appStoreConnectTab.targetId,
+          provider: 'claude',
+          allowedOrigins: [{ scheme: 'https', hostPattern: 'developer.apple.com', includeSubdomains: false }],
+          allowedActionClasses: ['navigate'],
+          allowExternalNavigation: true,
+        }),
+      ],
+    });
+
+    const result = await service.navigate({
+      provider: 'claude',
+      profileId: appStoreConnectTab.profileId,
+      targetId: appStoreConnectTab.targetId,
+      url: 'https://developer.apple.com/account',
+    });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+  });
+
   it('records existing-tab navigation against a live campaign lease', async () => {
     const sendCommand = vi.fn(async () => ({
       tab: {

@@ -39,7 +39,7 @@ export function resolveBrowserUploadGrant(input: BrowserUploadGrantInput): {
   for (const candidate of grants) {
     if (candidate.id === prepared.grant.id || !candidate.uploadRoots?.length) continue;
     const match = findMatchingBrowserGrant({
-      grants: [candidate], instanceId: request.instanceId ?? '', provider: providerFromContext(request.provider),
+      grants: [candidate], instanceId: request.instanceId ?? 'unknown', provider: providerFromContext(request.provider),
       profileId: request.profileId, targetId: request.targetId, nodeId: input.nodeId,
       origin: prepared.origin, actionClass: 'file-upload',
     });

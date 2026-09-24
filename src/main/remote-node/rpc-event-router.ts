@@ -387,15 +387,26 @@ export class RpcEventRouter {
     respond(createRpcResponse(request.id, { ok: true }));
   }
 
+  /**
+   * WS15 dedupe gate for a durable notification. Replays are tagged
+   * `replay: true` by the worker; live frames are never dropped (LT-541).
+   */
+  private acceptsDurableFrame(nodeId: string, params: Record<string, unknown> | undefined): boolean {
+    return this.streamDurability.accept(
+      nodeId,
+      params?.['instanceId'],
+      params?.['durableSeq'],
+      params?.['replay'] === true,
+    );
+  }
+
   private handleInstanceOutputNotification(nodeId: string, notification: RpcNotification): void {
     if (!this.registry.getNode(nodeId)) {
       logger.warn('Output notification from unknown node', { nodeId });
       return;
     }
     const params = notification.params as Record<string, unknown> | undefined;
-    if (!this.streamDurability.accept(nodeId, params?.['instanceId'], params?.['durableSeq'])) {
-      return;
-    }
+    if (!this.acceptsDurableFrame(nodeId, params)) return;
     this.registry.emit('remote:instance-output', {
       nodeId,
       instanceId: params?.['instanceId'],
@@ -416,6 +427,7 @@ export class RpcEventRouter {
     }
     for (const item of items) {
       const entry = item as Record<string, unknown>;
+      // Replays are re-sent one frame at a time, so a batch is always live.
       if (!this.streamDurability.accept(nodeId, entry['instanceId'], entry['durableSeq'])) {
         continue;
       }
@@ -445,9 +457,7 @@ export class RpcEventRouter {
       return;
     }
     const params = notification.params as Record<string, unknown> | undefined;
-    if (!this.streamDurability.accept(nodeId, params?.['instanceId'], params?.['durableSeq'])) {
-      return;
-    }
+    if (!this.acceptsDurableFrame(nodeId, params)) return;
     this.registry.emit('remote:instance-complete', {
       nodeId,
       instanceId: params?.['instanceId'],
@@ -461,9 +471,7 @@ export class RpcEventRouter {
       return;
     }
     const params = notification.params as Record<string, unknown> | undefined;
-    if (!this.streamDurability.accept(nodeId, params?.['instanceId'], params?.['durableSeq'])) {
-      return;
-    }
+    if (!this.acceptsDurableFrame(nodeId, params)) return;
     this.registry.emit('remote:instance-context', {
       nodeId,
       instanceId: params?.['instanceId'],
@@ -629,7 +637,9 @@ export class RpcEventRouter {
       if (sent) {
         bridge.confirmCommandHandoff(nodeId, result.id);
       } else {
-        bridge.requeueUndeliveredCommand(nodeId, result.id);
+        const requeued = bridge.requeueUndeliveredCommand(nodeId, result.id);
+        logger.info('Browser command poll handoff failed; requeued',
+          { nodeId, commandId: result.id, pollRequestId: request.id, requeued });
       }
     }
   }

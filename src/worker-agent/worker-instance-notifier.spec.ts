@@ -186,6 +186,43 @@ describe('WorkerInstanceNotifier durable-stream integration (WS15)', () => {
     expect(durability.stats().events).toBe(2);
   });
 
+  it('flushes pending output before a context frame so wire order matches seq order', () => {
+    const { socket, notifier } = makeDurableNotifier();
+    // Output is batched on a 50 ms timer; context/complete go out immediately.
+    // Without a flush the context frame overtakes the output frame while
+    // carrying a HIGHER durableSeq, and the coordinator's monotonic cursor
+    // then discards the assistant reply as a replay duplicate (LT-541).
+    notifier.sendOutputNotification('inst-1', { type: 'assistant', content: 'the answer' });
+    notifier.sendContextNotification('inst-1', { used: 5 });
+
+    const frames = socket.sent.map((raw) => JSON.parse(raw));
+    expect(frames.map((f) => f.method)).toEqual(['instance.output', 'instance.context']);
+    const seqs = frames.map((f) => f.params.durableSeq);
+    expect(seqs).toEqual([1, 2]);
+  });
+
+  it('flushes pending output before a complete frame so wire order matches seq order', () => {
+    const { socket, notifier } = makeDurableNotifier();
+    notifier.sendOutputNotification('inst-1', { type: 'assistant', content: 'the answer' });
+    notifier.sendCompleteNotification('inst-1', { ok: true });
+
+    const frames = socket.sent.map((raw) => JSON.parse(raw));
+    expect(frames.map((f) => f.method)).toEqual(['instance.output', 'instance.complete']);
+    expect(frames.map((f) => f.params.durableSeq)).toEqual([1, 2]);
+  });
+
+  it('keeps a multi-item output batch ahead of the completion frame', () => {
+    const { socket, notifier } = makeDurableNotifier();
+    notifier.sendOutputNotification('inst-1', { n: 1 });
+    notifier.sendOutputNotification('inst-1', { n: 2 });
+    notifier.sendCompleteNotification('inst-1', { ok: true });
+
+    const frames = socket.sent.map((raw) => JSON.parse(raw));
+    expect(frames.map((f) => f.method)).toEqual(['instance.outputBatch', 'instance.complete']);
+    expect(frames[0].params.items.map((i: { durableSeq: number }) => i.durableSeq)).toEqual([1, 2]);
+    expect(frames[1].params.durableSeq).toBe(3);
+  });
+
   it('replays after a cursor with replay flag and the CURRENT token', () => {
     const { socket, notifier } = makeDurableNotifier();
     notifier.sendOutputNotification('inst-1', { n: 1 });

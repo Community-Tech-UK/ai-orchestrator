@@ -119,11 +119,23 @@ export function getTailscaleIpv4Address(): string | null {
     .find((ip) => isTailscaleIpv4Address(ip)) ?? null;
 }
 
+/**
+ * The macOS App Store Tailscale binary runs as a CLI only when it sees a shell
+ * environment (TERM or SHLVL). Launched from Finder, Harness has neither, so
+ * `/Applications/Tailscale.app/Contents/MacOS/Tailscale status` prints "The
+ * Tailscale GUI failed to start" and exits 0. The /usr/local/bin shim works
+ * only because /bin/sh sets SHLVL.
+ */
+function tailscaleCliEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, TERM: process.env['TERM'] ?? 'dumb' };
+}
+
 export function getTailscaleMagicDnsName(): string | null {
   for (const command of getTailscaleCommandCandidates()) {
     try {
       const statusJson = execFileSync(command, ['status', '--json', '--self'], {
         encoding: 'utf8',
+        env: tailscaleCliEnv(),
         stdio: ['ignore', 'pipe', 'ignore'],
         timeout: 750,
       });
@@ -149,7 +161,7 @@ export type TailscaleStatusExec = (command: string, args: string[], timeoutMs: n
 
 const defaultTailscaleStatusExec: TailscaleStatusExec = (command, args, timeoutMs) =>
   new Promise<string>((resolve, reject) => {
-    execFile(command, args, { encoding: 'utf8', timeout: timeoutMs }, (error, stdout) => {
+    execFile(command, args, { encoding: 'utf8', timeout: timeoutMs, env: tailscaleCliEnv() }, (error, stdout) => {
       // A stopped backend can exit non-zero while still printing valid status
       // JSON; that JSON is exactly what reports "Stopped", so keep it.
       if (error && !stdout.trim().startsWith('{')) reject(error);
@@ -168,10 +180,14 @@ const defaultTailscaleStatusExec: TailscaleStatusExec = (command, args, timeoutM
 export async function readTailscaleSelfStatus(
   exec: TailscaleStatusExec = defaultTailscaleStatusExec,
   timeoutMs = 1_500,
+  candidates: readonly string[] = getTailscaleCommandCandidates(),
 ): Promise<TailscaleSelfStatus | null> {
-  for (const command of getTailscaleCommandCandidates()) {
+  for (const command of candidates) {
     try {
       const statusJson = await exec(command, ['status', '--json', '--self'], timeoutMs);
+      // Not an answer: the macOS GUI binary prints a sentence and exits 0 when
+      // it is not invoked in CLI mode. Try the next candidate.
+      if (!statusJson.trim().startsWith('{')) continue;
       return {
         backendState: getTailscaleBackendStateFromStatusJson(statusJson),
         dnsName: getTailscaleDnsNameFromStatusJson(statusJson),

@@ -77,6 +77,67 @@ describe('BrowserExtensionCommandStore', () => {
     await expect(pending).resolves.toEqual({ nodes: [] });
   });
 
+  it('LT-617: records a late report_inventory secretObservation after its own execution window already timed the command out', async () => {
+    vi.useFakeTimers();
+    const store = new BrowserExtensionCommandStore();
+    // Mirrors refreshBrowserExtensionInventory's tight refresh budget: the
+    // coordinator gives up on report_inventory well before a real multi-tab
+    // extension can finish rebuilding its inventory and answering.
+    const pending = store.sendCommand({
+      queueKey: 'node:windows-pc',
+      command: 'report_inventory',
+      timeoutMs: 3_000,
+      executionTimeoutMs: 2_500,
+    });
+    const rejected = expect(pending).rejects.toThrow();
+    const command = await store.pollCommand('node:windows-pc', { timeoutMs: 1 });
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    await rejected;
+
+    // Health has nothing yet: the coordinator gave up before any answer.
+    expect(store.describeSecretObservation('node:windows-pc')).toBeUndefined();
+
+    // The extension's real, successful command_result for the SAME command
+    // arrives late — after the coordinator already deleted the pending entry
+    // and rejected the caller. This is the "round trips successfully" case
+    // from LT-617: the channel is healthy and the extension really did
+    // answer, just later than the refresh's own 2.5-3s budget allowed.
+    store.resolveCommand({
+      queueKey: 'node:windows-pc',
+      commandId: command!.id,
+      ok: true,
+      result: {
+        reported: true,
+        secretObservation: { protectionEnabled: true, taintedOriginCount: 0, taintedTabCount: 0 },
+      },
+    });
+
+    expect(store.describeSecretObservation('node:windows-pc')).toMatchObject({
+      protectionEnabled: true,
+      taintedOriginCount: 0,
+      taintedTabCount: 0,
+    });
+  });
+
+  it('never records a secretObservation key carried by a non-inventory result', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const pending = store.sendCommand({ queueKey: 'node:windows-pc', command: 'evaluate', timeoutMs: 1_000 } as never);
+    const command = await store.pollCommand('node:windows-pc', { timeoutMs: 1 });
+
+    // An evaluate result is page-controlled; a page returning this shape must
+    // not be able to forge the extension's protection report.
+    store.resolveCommand({
+      queueKey: 'node:windows-pc',
+      commandId: command!.id,
+      ok: true,
+      result: { secretObservation: { protectionEnabled: false, taintedOriginCount: 0, taintedTabCount: 0 } },
+    });
+    await pending;
+
+    expect(store.describeSecretObservation('node:windows-pc')).toBeUndefined();
+  });
+
   it('removes an undelivered queued command when the caller wait budget expires', async () => {
     vi.useFakeTimers();
     const store = new BrowserExtensionCommandStore();

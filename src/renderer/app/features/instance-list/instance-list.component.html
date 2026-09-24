@@ -162,6 +162,7 @@
         [cdkDropListData]="projectGroups()"
         [cdkDropListDisabled]="isProjectDragDisabled()"
         (cdkDropListDropped)="onProjectDrop($event)"
+        (scroll)="onInstanceViewportScroll()"
       >
         @for (group of projectGroups(); track group.key) {
           <section
@@ -261,6 +262,10 @@
                         role="menu"
                         aria-label="Project options"
                         tabindex="-1"
+                        [style.top.px]="projectMenuPosition()?.top ?? null"
+                        [style.bottom.px]="projectMenuPosition()?.bottom ?? null"
+                        [style.right.px]="projectMenuPosition()?.right ?? null"
+                        [style.max-height.px]="projectMenuPosition()?.maxHeight ?? null"
                         (keydown)="onProjectMenuKeyDown($event)"
                       >
                         <button

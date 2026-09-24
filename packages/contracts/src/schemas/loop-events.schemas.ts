@@ -33,6 +33,8 @@ export const LoopStartedEventSchema = z.object({
 export const LoopStateChangedEventSchema = z.object({
   loopRunId: z.string(),
   state: LoopStateBroadcastSchema,
+  /** Post-completion lifecycle update (worktree promoted/blocked/cleaned); no new iteration. */
+  lifecycleOnly: z.boolean().optional(),
 }).strict();
 
 export const LoopIterationStartedEventSchema = z.object({

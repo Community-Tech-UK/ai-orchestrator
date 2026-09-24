@@ -646,7 +646,7 @@ export const OrchestrationActivityEventSchema = z.object({
 export const UserActionRequestEventSchema = z.object({
   id: z.string(),
   instanceId: z.string(),
-  requestType: z.enum(['switch_mode', 'approve_action', 'confirm', 'select_option', 'ask_questions']),
+  requestType: z.enum(['switch_mode', 'approve_action', 'confirm', 'select_option', 'ask_questions', 'secret_required']),
   title: z.string(),
   message: z.string(),
   targetMode: z.enum(['build', 'plan', 'review']).optional(),
@@ -656,6 +656,13 @@ export const UserActionRequestEventSchema = z.object({
     description: z.string().optional(),
   })).optional(),
   questions: z.array(z.string()).optional(),
+  /** Secret card metadata. Strict, so a credential value can never ride along. */
+  secretRequest: z.object({
+    name: z.string(),
+    label: z.string(),
+    purpose: z.string(),
+    expectedFormat: z.enum(['github_pat', 'openai_key', 'bearer', 'opaque']).optional(),
+  }).strict().optional(),
   context: z.record(z.string(), z.unknown()).optional(),
   createdAt: z.number(),
 }).strict();

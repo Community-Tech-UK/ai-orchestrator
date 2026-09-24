@@ -14,6 +14,7 @@ import { makeGrant, makeService } from './browser-gateway-service.test-helpers';
 
 interface BrowserExtensionBackgroundHarness {
   advanceTimeBy: (ms: number) => void;
+  applySecretObservationProtectionEnabled: (enabled: boolean) => Promise<void>;
   bridges: {
     hostName: string;
     nativePort: NativePortHarness | null;
@@ -162,6 +163,7 @@ describe('browser extension assets', () => {
     '0.2.32': '41673e46a456',
     '0.2.33': '9204adfa79c2',
     '0.2.34': '8393decbfb72',
+    '0.2.35': 'a7bb39633b15',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -1241,6 +1243,28 @@ describe('browser extension assets', () => {
     (commandWatchdog?.[0] as (() => void))();
     await flushPromises();
     expect(commandResults()).toHaveLength(1);
+  });
+
+  it('LT-618: applying an unchanged secretObservationProtectionEnabled value does not queue behind an occupied boundary', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+
+    // Occupy secretObservationBoundary with an operation that never resolves —
+    // standing in for a long-running (possibly orphaned/timed-out) boundary
+    // holder such as a stuck tab-inventory build. Every non-reload command
+    // re-stamps the SAME current protection value onto its payload
+    // (stampSecretObservationProtection on the coordinator), so without the
+    // no-op fast path every one of those commands would queue fully behind
+    // this indefinitely, even though nothing here actually needs to change.
+    harness.chrome.tabs.query.mockImplementationOnce(() => new Promise<never>(() => undefined));
+    void harness.markSecretTaint(42, 'https://example.test');
+    await flushPromises();
+
+    // Protection is already ON by default, so applying `true` again is a
+    // genuine no-op and must resolve immediately rather than wait for the
+    // still-pending boundary holder above.
+    await expect(harness.applySecretObservationProtectionEnabled(true))
+      .resolves.toBeUndefined();
   });
 
   it('does not re-enter a pending observation boundary from the reload watchdog failure path', async () => {
@@ -2554,7 +2578,7 @@ function loadBackgroundHarnessForTest(options: {
     }) | undefined,
   };
   runInNewContext(
-    `${background}\n;globalThis.__backgroundHarness = { bridges, captureAccessibilitySnapshot, captureTabScreenshot, deriveToolbarBadgeState, forceReleaseCommandResources, markSecretTaint, pageBridgeScript, reportTabInventory, selfHealIfWedged, startControlledTab, stopControlledTab, tabDebuggerChains, waitForTabComplete };`,
+    `${background}\n;globalThis.__backgroundHarness = { applySecretObservationProtectionEnabled, bridges, captureAccessibilitySnapshot, captureTabScreenshot, deriveToolbarBadgeState, forceReleaseCommandResources, markSecretTaint, pageBridgeScript, reportTabInventory, selfHealIfWedged, startControlledTab, stopControlledTab, tabDebuggerChains, waitForTabComplete };`,
     context,
     { filename: 'resources/browser-extension/background.js' },
   );

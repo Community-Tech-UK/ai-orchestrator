@@ -172,6 +172,7 @@ export class ProviderQuotaSettingsTabComponent implements OnInit {
     const snap: ProviderQuotaSnapshot | null = this.snapshots()[provider];
     if (!snap) return '—';
     if (snap.cliNotInstalled) return 'Not installed';
+    if (snap.notApplicable) return 'Not applicable';
     if (!snap.ok) return snap.error ?? 'Error';
     const plan = snap.plan ?? 'signed in';
     return `Signed in · ${plan}`;
@@ -194,7 +195,11 @@ export class ProviderQuotaSettingsTabComponent implements OnInit {
     const snap: ProviderQuotaSnapshot | null = this.snapshots()[provider];
     if (!snap) return 'No data yet — click “Refresh now” to check this provider.';
     if (snap.cliNotInstalled) return 'This CLI is not installed on this machine, so its usage is not tracked.';
-    if (!snap.ok) return 'The check failed before usage limits could be read. Try refreshing again.';
+    // notApplicable falls through to the provider's own explanatory copy
+    // (e.g. OpenCode's gate-by-model text) instead of the generic failure
+    // message below — it isn't a failed check, it's a config that doesn't
+    // apply right now.
+    if (!snap.ok && !snap.notApplicable) return 'The check failed before usage limits could be read. Try refreshing again.';
     return LIMIT_UNAVAILABLE_TEXT[provider];
   }
 

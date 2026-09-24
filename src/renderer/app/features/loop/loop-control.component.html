@@ -380,7 +380,7 @@
   <app-loop-past-runs-panel
     [chatId]="chatId()"
     [loopRunning]="!!active()"
-    [terminalSummaryRunId]="lastTerminalSummaryId()"
+    [terminalSummaryKey]="lastTerminalSummaryKey()"
   />
 
   @if (summary(); as s) {

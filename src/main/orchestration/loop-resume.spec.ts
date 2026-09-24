@@ -114,6 +114,38 @@ describe('resumeLoopRun', () => {
     expect(outcome.reason).toContain('no resume window');
   });
 
+  // LT-642: a terminal loop that only exists as a checkpoint (e.g. after a
+  // restart) got the restore path's internal error instead of this message.
+  it('explains a terminal checkpoint-only loop without trying to restore it', async () => {
+    const coordinator = coordinatorStub(new Map());
+    const done = loopState({ id: 'loop-7', status: 'completed', endedAt: 50 });
+    const store = storeStub({ 'loop-7': checkpointFor(done) });
+
+    const outcome = await resumeLoopRun(coordinator, store, 'loop-7');
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toBe(
+      'Loop loop-7 is completed, which is terminal. '
+      + 'Only paused loops and provider-limit loops parked with no end time can resume.',
+    );
+    expect(coordinator.restoreLoopFromCheckpoint).not.toHaveBeenCalled();
+  });
+
+  it('still restores a checkpoint left running by a crash (restore reconciles it to paused)', async () => {
+    const coordinator = coordinatorStub(new Map());
+    coordinator.restoreLoopFromCheckpoint.mockImplementationOnce(async (checkpoint: LoopCheckpoint) => {
+      checkpoint.state.status = 'paused';
+      return checkpoint.state;
+    });
+    // The stub's restore stores the state; reuse it for resumeLoop.
+    const crashed = loopState({ id: 'loop-8', status: 'running' });
+    const store = storeStub({ 'loop-8': checkpointFor(crashed) });
+
+    await resumeLoopRun(coordinator, store, 'loop-8');
+
+    expect(coordinator.restoreLoopFromCheckpoint).toHaveBeenCalledOnce();
+  });
+
   it('propagates a restore failure rather than reporting "not resumable"', async () => {
     const parked = loopState({ id: 'loop-5', status: 'paused' });
     const coordinator = coordinatorStub(new Map());

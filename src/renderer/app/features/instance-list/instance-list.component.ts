@@ -77,6 +77,7 @@ import {
   saveStatusFilter,
 } from './instance-list-preferences';
 import { getSystemFileManagerLabel } from '../instance-detail/output-stream.utils';
+import { computeProjectMenuPosition, type ProjectMenuPosition } from './project-menu-position';
 
 @Component({
   selector: 'app-instance-list',
@@ -128,6 +129,15 @@ export class InstanceListComponent implements OnDestroy {
   protected contextMenuX = signal(0);
   protected contextMenuY = signal(0);
   protected contextMenuItems = signal<ContextMenuItem[]>([]);
+  /**
+   * LT-631: `.project-menu` used to be `position: absolute` inside
+   * `.project-menu-anchor`, so the scrolling `.instance-viewport` ancestor
+   * clipped the bottom of any menu taller than the viewport's own visible
+   * (unscrolled) clip box — routinely shorter than the menu's 420px cap.
+   * `position: fixed`, anchored from this viewport-relative rect, escapes
+   * that clip; `openUpward`/`maxHeight` keep it fully on screen instead.
+   */
+  protected projectMenuPosition = signal<ProjectMenuPosition | null>(null);
   selectedId = this.store.selectedInstanceId;
   /**
    * Set of instance ids that currently have a non-terminal Loop Mode run.
@@ -823,12 +833,49 @@ export class InstanceListComponent implements OnDestroy {
 
     await this.ensurePreferredEditorLoaded();
     this.openProjectMenuKey.set(projectKey);
+    this.repositionOpenProjectMenu();
     requestAnimationFrame(() => {
       const firstMenuItem = this.host.nativeElement.querySelector('.project-menu .project-menu-item');
       if (firstMenuItem instanceof HTMLButtonElement) {
-        firstMenuItem.focus();
+        firstMenuItem.focus({ preventScroll: true });
       }
     });
+  }
+
+  /**
+   * Recomputes `.project-menu`'s fixed position from its trigger's current
+   * `getBoundingClientRect()`. Called on open, on window resize, and (with
+   * the menu already closed) it is a no-op — there is no trigger to measure.
+   */
+  private repositionOpenProjectMenu(): void {
+    if (!this.openProjectMenuKey() || !this.projectMenuTrigger) {
+      return;
+    }
+    const rect = this.projectMenuTrigger.getBoundingClientRect();
+    this.projectMenuPosition.set(
+      computeProjectMenuPosition(rect, { width: window.innerWidth, height: window.innerHeight })
+    );
+  }
+
+  @HostListener('window:resize')
+  onWindowResizeForProjectMenu(): void {
+    this.repositionOpenProjectMenu();
+  }
+
+  /**
+   * The menu is `position: fixed`, so it no longer tracks its trigger while
+   * `.instance-viewport` scrolls underneath it. Closing on scroll avoids a
+   * menu left floating over the wrong row. `overscroll-behavior: contain` on
+   * `.project-menu` keeps the menu's own internal scroll (e.g. a long
+   * Copilot account list) from chaining into this handler, and every focus
+   * move into the menu uses `preventScroll`: the menu is still DOM-nested in
+   * the viewport, so a plain `focus()` scrolled it and closed the menu the
+   * moment it opened (LT-631 live re-check).
+   */
+  onInstanceViewportScroll(): void {
+    if (this.openProjectMenuKey()) {
+      this.closeProjectMenu({ restoreFocus: false });
+    }
   }
 
   async openProjectInPreferredEditor(group: ProjectGroup, event: Event): Promise<void> {
@@ -1160,13 +1207,13 @@ export class InstanceListComponent implements OnDestroy {
 
     if (event.key === 'Home') {
       event.preventDefault();
-      items[0]?.focus();
+      items[0]?.focus({ preventScroll: true });
       return;
     }
 
     if (event.key === 'End') {
       event.preventDefault();
-      items[items.length - 1]?.focus();
+      items[items.length - 1]?.focus({ preventScroll: true });
       return;
     }
 
@@ -1174,14 +1221,14 @@ export class InstanceListComponent implements OnDestroy {
       event.preventDefault();
       const currentIndex = items.findIndex((item) => item === document.activeElement);
       if (currentIndex === -1) {
-        (event.shiftKey ? items[items.length - 1] : items[0])?.focus();
+        (event.shiftKey ? items[items.length - 1] : items[0])?.focus({ preventScroll: true });
         return;
       }
 
       const nextIndex = event.shiftKey
         ? (currentIndex - 1 + items.length) % items.length
         : (currentIndex + 1 + items.length) % items.length;
-      items[nextIndex]?.focus();
+      items[nextIndex]?.focus({ preventScroll: true });
       return;
     }
 
@@ -1195,7 +1242,7 @@ export class InstanceListComponent implements OnDestroy {
       event.key === 'ArrowDown'
         ? (currentIndex + 1 + items.length) % items.length
         : (currentIndex - 1 + items.length) % items.length;
-    items[nextIndex]?.focus();
+    items[nextIndex]?.focus({ preventScroll: true });
   }
 
   isRestoringHistory(entryId: string): boolean {
@@ -1422,6 +1469,7 @@ export class InstanceListComponent implements OnDestroy {
     }
 
     this.openProjectMenuKey.set(null);
+    this.projectMenuPosition.set(null);
     if (restoreFocus) {
       this.projectMenuTrigger?.focus();
     }

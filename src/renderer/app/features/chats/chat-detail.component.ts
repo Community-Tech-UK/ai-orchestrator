@@ -29,6 +29,8 @@ import { LoopStore } from '../../core/state/loop.store';
 import { LoopPromptHistoryService } from '../loop/loop-prompt-history.service';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import type { ChatOlderMessagesLoadResult } from '../../core/state/chat.store';
+import { UserActionRequestComponent } from '../instance-detail/user-action-request.component';
+import { BrowserApprovalRequestComponent } from '../instance-detail/browser-approval-request.component';
 
 @Component({
   selector: 'app-chat-detail',
@@ -44,6 +46,8 @@ import type { ChatOlderMessagesLoadResult } from '../../core/state/chat.store';
     SessionArtifactsStripComponent,
     ContextEvidencePanelComponent,
     AioTooltipDirective,
+    UserActionRequestComponent,
+    BrowserApprovalRequestComponent,
   ],
   templateUrl: './chat-detail.component.html',
   styleUrl: './chat-detail.component.scss',

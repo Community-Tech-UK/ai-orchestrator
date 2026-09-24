@@ -1048,6 +1048,24 @@ function isSecretObservationProtectionEnabled() {
 async function applySecretObservationProtectionEnabled(enabled) {
   await loadSecretObservationProtection();
   const next = enabled !== false;
+  if (secretObservationProtectionLoaded && secretObservationProtectionEnabled === next) {
+    // LT-618: the coordinator stamps this same value onto EVERY outgoing
+    // command (stampSecretObservationProtection), and every non-reload
+    // command applies it here before it does anything else
+    // (applySecretObservationProtectionFromCommand, called unconditionally
+    // from runBrowserCommand). Without this early return, a command whose
+    // stamped value never actually changes still queues fully behind
+    // whatever else currently holds secretObservationBoundary — including an
+    // unrelated, still-running (possibly orphaned/timed-out) tab-inventory
+    // build, since buildTabPayload/reportTabInventory hold that same
+    // boundary per tab. That turned "the operator setting didn't change"
+    // into head-of-line blocking for every subsequent command on a busy
+    // channel. The stale-recovery-request invalidation below is the only
+    // side effect a no-op call could otherwise cause, so it still runs here,
+    // outside the boundary, since it needs no serialization against a read.
+    secretRecoveryRequest = null;
+    return;
+  }
   return runWithSecretObservationBoundary(async () => {
     await loadSecretTaints();
     secretObservationProtectionEnabled = next;

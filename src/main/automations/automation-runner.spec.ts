@@ -217,7 +217,7 @@ describe('AutomationRunner thread wakeups', () => {
     // The whole point of this automation is to fire hours later. By then the
     // app has usually restarted, so the coordinator holds no state and a bare
     // resumeLoop returns false — the silent failure this covers.
-    const checkpoint = { loopRunId: 'loop-quota', state: { id: 'loop-quota' } };
+    const checkpoint = { loopRunId: 'loop-quota', state: { id: 'loop-quota', status: 'provider-limit', endedAt: null } };
     const live = new Set<string>();
     loopCoordinatorMocks.getLoop.mockImplementation((id: string) =>
       (live.has(id) ? { id, status: 'running' } : undefined));
@@ -257,7 +257,10 @@ describe('AutomationRunner thread wakeups', () => {
   it('reports the restore fault instead of throwing when the loop worktree is gone', async () => {
     loopCoordinatorMocks.resumeLoop.mockReturnValue(false);
     loopCoordinatorMocks.getLoop.mockReturnValue(undefined);
-    loopCoordinatorMocks.getCheckpoint.mockReturnValue({ loopRunId: 'loop-quota', state: {} });
+    loopCoordinatorMocks.getCheckpoint.mockReturnValue({
+      loopRunId: 'loop-quota',
+      state: { status: 'provider-limit', endedAt: null },
+    });
     loopCoordinatorMocks.restoreLoopFromCheckpoint.mockRejectedValue(
       new Error('isolateLoopWorkspaces: worktree missing on restore (fail-closed)'),
     );

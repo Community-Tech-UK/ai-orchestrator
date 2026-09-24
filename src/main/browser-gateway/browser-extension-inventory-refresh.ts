@@ -6,8 +6,27 @@ import {
 import type { BrowserGatewayListTargetsRequest } from './browser-gateway-service-types';
 import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
 
-const EXTENSION_INVENTORY_REFRESH_TIMEOUT_MS = 3_000;
-const EXTENSION_INVENTORY_REFRESH_EXECUTION_MS = 2_500;
+// LT-618: report_inventory rebuilds the FULL per-tab inventory (page-text
+// extraction plus secret-taint lineage checks) before it can ack at all — see
+// browser-gateway-refresh-support.ts's own comment, which already documents
+// that this "routinely outlives its [former] 2.5-3s execution window" on any
+// real multi-tab node. That budget was tight enough that a normal local
+// Chrome profile blew it on essentially every refresh: the extension's own
+// watchdog (runCommandWithWatchdog in background.js) fired first and replied
+// with a bare timeout while the real reportTabInventory() call kept running
+// in the background, uncancelled, still holding the extension's shared
+// secretObservationBoundary — which every subsequent non-reload command must
+// also wait on (applySecretObservationProtectionFromCommand). That is a
+// second, deeper defect (queueing every future command behind an orphaned
+// inventory build with no bound), but this budget being far too tight for
+// ordinary multi-tab machines is what triggers it on every single refresh
+// instead of only in a genuine slow-page edge case. Raised to give a normal
+// handful of real tabs room to finish while staying well under the 30s
+// default full-command budget non-refresh report_inventory calls already get
+// (browser-secret-observation-protection.ts uses 5s for a much smaller,
+// single-purpose ping).
+const EXTENSION_INVENTORY_REFRESH_TIMEOUT_MS = 10_500;
+const EXTENSION_INVENTORY_REFRESH_EXECUTION_MS = 10_000;
 
 export interface BrowserExtensionInventoryRefreshOutcome {
   queueKey: string;

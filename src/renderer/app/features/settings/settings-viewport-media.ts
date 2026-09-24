@@ -11,7 +11,7 @@
 
 import type { DestroyRef, WritableSignal } from '@angular/core';
 
-/** Compact-nav breakpoint: in-flow rail stays 56px-equivalent below this width. */
+/** Compact-nav breakpoint: in-flow rail stays 64px-equivalent below this width. */
 export const SETTINGS_COMPACT_NAV_QUERY = '(max-width: 900px)';
 /** Help-rail breakpoint: persistent Help rail is hidden below this width. */
 export const SETTINGS_HELP_DRAWER_QUERY = '(max-width: 1180px)';

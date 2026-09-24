@@ -101,7 +101,7 @@ export class BrowserExistingTabOperations {
       });
       const match = findMatchingBrowserGrant({
         grants: grants.filter((candidate) => candidate.allowExternalNavigation),
-        instanceId: request.instanceId ?? '',
+        instanceId: request.instanceId ?? 'unknown',
         provider: providerFromContext(request.provider),
         profileId: attachment.profileId,
         nodeId,

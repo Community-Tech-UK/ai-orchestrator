@@ -180,19 +180,22 @@ export class ReviewerSessionSpawner {
 
     let result: ReviewSessionResult;
     try {
-      // Ensure background init finished and the initial prompt was actually sent
-      // before we wait for the reviewer to settle.
-      if (instance.readyPromise) {
-        await instance.readyPromise.catch(() => undefined);
-      }
-
-      const settled = await im.waitForInstanceSettled(instanceId, {
-        afterTimestamp: startTs,
-        timeoutMs: opts.timeoutMs,
-        signal: opts.signal,
-        isCancelled: opts.isCancelled,
-        onProgress: opts.onProgress,
-      });
+      // LT-643: do NOT await `readyPromise` first. For Codex app-server it
+      // covers the whole first turn, and on 2026-09-24 it never resolved even
+      // though the reviewer went idle with a complete verdict — so the round
+      // hung with its timeout never armed. The settle wait is the real signal
+      // and owns the review's `timeoutMs`; background init can only cut it
+      // short by failing.
+      const settled = await this.raceBackgroundInitFailure(
+        instance,
+        im.waitForInstanceSettled(instanceId, {
+          afterTimestamp: startTs,
+          timeoutMs: opts.timeoutMs,
+          signal: opts.signal,
+          isCancelled: opts.isCancelled,
+          onProgress: opts.onProgress,
+        }),
+      );
 
       const live = settled ?? im.getInstance(instanceId) ?? instance;
       const tokensUsed = Math.max(0, live.totalTokensUsed ?? 0);
@@ -242,6 +245,17 @@ export class ReviewerSessionSpawner {
     }
 
     return result;
+  }
+
+  /**
+   * Resolve with `work`, unless the instance's background init fails first.
+   * A background init that never settles does not block `work` (LT-643).
+   */
+  private raceBackgroundInitFailure<T>(instance: Instance, work: Promise<T>): Promise<T> {
+    const ready = instance.readyPromise;
+    if (!ready) return work;
+    const initFailure = ready.then(() => new Promise<never>(() => { /* never wins on success */ }));
+    return Promise.race([work, initFailure]);
   }
 
   /** Read the reviewer's last assistant message as plain text. */

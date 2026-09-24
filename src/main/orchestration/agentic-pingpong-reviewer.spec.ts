@@ -481,6 +481,60 @@ describe('agenticPingPongReviewer', () => {
     expect(repairPrompt).toContain(prose);
   });
 
+  // LT-644: Codex reviewers named their finding fields `issue`/`suggestedFix`,
+  // the parser required `title`, and every CHANGES_REQUESTED round reached the
+  // builder with zero findings.
+  function reviewWithFindings(findings: unknown[]) {
+    runReviewSession.mockResolvedValueOnce({
+      outcome: 'settled',
+      finalOutput: '```json\n' + JSON.stringify({
+        verdict: 'CHANGES_REQUESTED',
+        summary: 'Scope creep.',
+        completeness: { filesInspected: 2, commandsRun: 1, scopeCovered: 'calc.py and git status' },
+        findings,
+        ledger: [],
+      }) + '\n```',
+      instanceId: 'rev-1',
+      tokensUsed: 100,
+      costCents: 1,
+    });
+    return agenticPingPongReviewer({
+      loopRunId: 'loop-1', workspaceCwd: '/repo', goal: 'add calc', subject: 'impl',
+      builderProvider: 'claude', reviewerProviderSetting: 'codex', triedReviewerProviders: [],
+      ledger: [], roundNumber: 1, maxRounds: 4, blockingSeverities: ['critical', 'high'], timeoutMs: 90_000,
+    });
+  }
+
+  it('LT-644: passes a Codex-shaped finding through to the builder', async () => {
+    const result = await reviewWithFindings([{
+      severity: 'high', novelty: 'new', file: 'calc.py:1',
+      issue: 'Generated files were added outside scope',
+      evidence: 'git status shows __pycache__/', suggestedFix: 'Remove them',
+    }]);
+
+    expect(result.verdict).toBe('CHANGES_REQUESTED');
+    expect(result.findings).toEqual([expect.objectContaining({
+      title: 'Generated files were added outside scope', body: 'Remove them',
+    })]);
+  });
+
+  it('LT-644: treats a list of findings with none usable as unreliable, not as no findings', async () => {
+    const result = await reviewWithFindings([{ severity: 'high', issue: 'Something', evidence: '' }]);
+
+    expect(result.verdict).toBe('UNRELIABLE');
+    expect(result.fault).toBe('malformed_output');
+    expect(result.findings).toEqual([]);
+  });
+
+  it('LT-644: states the finding field names in the reviewer prompt', async () => {
+    await reviewWithFindings([]);
+
+    const prompt = runReviewSession.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain('"title"');
+    expect(prompt).toContain('"evidence"');
+    expect(prompt).toContain('"body"');
+  });
+
   it('classifies a format-repair timeout as reviewer availability, not malformed reviewer output', async () => {
     const prose = 'I inspected src/widget.ts and found the reviewer answer, but forgot JSON.';
     runReviewSession

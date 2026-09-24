@@ -20,11 +20,13 @@ function makeLifecycle(overrides: {
   const onTrueDisconnect = vi.fn();
   const lifecycle = new ConnectionDisconnectLifecycle({
     isNodeConnected: () => state.connected,
-    isDurableNode: () => overrides.durable ?? false,
     hasPendingWork: () => overrides.hasWork ?? true,
     rejectPending,
     onTrueDisconnect,
   });
+  // Durability is learned from the registration handshake, not looked up on a
+  // registry entry that may already be gone by grace expiry (LT-542).
+  lifecycle.noteNodeDurability('n1', overrides.durable === true ? 1 : 0);
   return { lifecycle, rejectPending, onTrueDisconnect, state };
 }
 

@@ -1583,13 +1583,17 @@ export class InstanceLifecycleManager extends EventEmitter {
         instance.currentModel = resolvedModel;
         const resolvedReasoningEffort = resolveSpawnReasoningEffort(config, resolvedCliType, resolvedModel);
         instance.reasoningEffort = resolvedReasoningEffort;
-        // The early created event intentionally precedes model resolution.
-        // Publish the resolved effort separately so passive renderer sessions
-        // (including children) do not keep showing "Provider default".
+        // The early created event intentionally precedes model resolution AND
+        // evidence-ownership resolution (initializeInstanceEvidenceOwnership,
+        // above). Publish both resolved fields together here so passive
+        // renderer sessions (including children) do not keep showing
+        // "Provider default" (LT-602) or a missing contextEvidence mode
+        // (LT-651) until a reload.
         this.emit('state-update', {
           instanceId: instance.id,
           status: instance.status,
           reasoningEffort: resolvedReasoningEffort ?? null,
+          contextEvidence: instance.contextEvidence,
           timestamp: Date.now(),
         });
 

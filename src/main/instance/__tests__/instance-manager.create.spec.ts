@@ -1188,6 +1188,28 @@ describe('InstanceManager', () => {
       },
     );
 
+    it('publishes the resolved contextEvidence after early creation (LT-651, sibling of the reasoningEffort follow-up)', async () => {
+      // LT-651: the early synchronous `created` event fires before
+      // initializeInstanceEvidenceOwnership resolves instance.contextEvidence,
+      // so a passive renderer session never saw it without a reload. The fix
+      // mirrors LT-602's reasoningEffort follow-up: a `state-update` carrying
+      // the resolved contextEvidence, emitted in the same continuation.
+      const updates: Array<{ instanceId: string; contextEvidence?: unknown }> = [];
+      manager.on('instance:state-update', (payload) => updates.push(payload));
+
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        provider: 'claude',
+      });
+      await instance.readyPromise;
+
+      expect(instance.contextEvidence).toBeDefined();
+      expect(updates).toContainEqual(expect.objectContaining({
+        instanceId: instance.id,
+        contextEvidence: instance.contextEvidence,
+      }));
+    });
+
     it('sets parentId when parentId is provided in config', async () => {
       const parent = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,

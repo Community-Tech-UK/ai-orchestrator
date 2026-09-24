@@ -129,8 +129,20 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
   async probe({ signal }: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null> {
     if (!this.isTokenPlanModel()) {
       // A non-Token-Plan OpenCode backend (Zen, OpenRouter, …) has no numbers
-      // here — stay quiet rather than report another backend's allowance.
-      return null;
+      // here. Returning `null` would mean "no fresh info, keep the last
+      // snapshot" (the service's general probe contract) and leave a stale
+      // Token Plan allowance on screen after a model switch (LT-650) — so
+      // this gate returns an explicit `notApplicable` snapshot instead,
+      // which the service stores in place of whatever was there before.
+      // No credential read happens on this path.
+      return {
+        provider: 'opencode',
+        takenAt: this.now(),
+        source: 'admin-api',
+        ok: false,
+        notApplicable: true,
+        windows: [],
+      };
     }
     const takenAt = this.now();
     const credential = await this.reader.read();

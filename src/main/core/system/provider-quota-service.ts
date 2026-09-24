@@ -538,7 +538,11 @@ export function retainLastKnownQuotaWindows(
   previous: ProviderQuotaSnapshot | null,
   incoming: ProviderQuotaSnapshot,
 ): ProviderQuotaSnapshot {
-  if (incoming.windows.length > 0 || incoming.cliNotInstalled) return incoming;
+  // `notApplicable` (LT-650) is a deliberate "this configuration has no
+  // numbers" marker, not a transient failure — it must replace a stale
+  // snapshot from a different (e.g. since-abandoned) configuration rather
+  // than resurrecting that snapshot's windows, same as cliNotInstalled.
+  if (incoming.windows.length > 0 || incoming.cliNotInstalled || incoming.notApplicable) return incoming;
   if (incoming.ok) return incoming;
   if (!previous || previous.windows.length === 0 || previous.cliNotInstalled) return incoming;
   return {

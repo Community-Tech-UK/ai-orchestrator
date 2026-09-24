@@ -503,6 +503,35 @@ describe('renderer event validation', () => {
     })).toBe(false);
   });
 
+  // LT-640: the coordinator's post-completion worktree outcome is broadcast
+  // with `lifecycleOnly: true`; the strict schema used to reject it, so a
+  // running renderer never saw promoted/blocked/cleaned until a reload.
+  it('accepts a lifecycle-only loop state broadcast', () => {
+    expect(validateRendererEventPayload(IPC_CHANNELS.LOOP_STATE_CHANGED, {
+      loopRunId: 'loop-1',
+      state: { id: 'loop-1', chatId: 'chat-1', status: 'completed', config: {}, totalIterations: 3 },
+      lifecycleOnly: true,
+    })).toBe(true);
+  });
+
+  // LT-641: an agent's secret card request travels on user-action:request.
+  it('accepts a secret_required user action carrying metadata only, and rejects a value', () => {
+    const request = {
+      id: 'uar-1',
+      instanceId: 'inst-1',
+      requestType: 'secret_required',
+      title: 'Token needed',
+      message: 'Store the demo token',
+      secretRequest: { name: 'demo-token', label: 'Demo token', purpose: 'Live test', expectedFormat: 'opaque' },
+      createdAt: 1,
+    };
+    expect(validateRendererEventPayload(IPC_CHANNELS.USER_ACTION_REQUEST, request)).toBe(true);
+    expect(validateRendererEventPayload(IPC_CHANNELS.USER_ACTION_REQUEST, {
+      ...request,
+      secretRequest: { ...request.secretRequest, value: 'must-never-cross' },
+    })).toBe(false);
+  });
+
   it('validates WS-B9 per-angle coverage on fresh-eyes review events', () => {
     const coverage = [
       { angle: 'correctness', reviewerProvider: 'gemini', status: 'used', findingCount: 0, required: true },

@@ -515,7 +515,7 @@ describe('SettingsComponent', () => {
 
   // ─── Task 2 — adaptive navigation and Help ─────────────────────────────
 
-  it('starts compact mode on a 56px-equivalent collapsed rail without touching desktop nav prefs', () => {
+  it('starts compact mode on a 64px-equivalent collapsed rail without touching desktop nav prefs', () => {
     localStorage.setItem(NAV_COLLAPSED_KEY, 'false');
 
     media.setCompact(true);

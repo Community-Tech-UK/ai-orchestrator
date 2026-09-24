@@ -412,8 +412,10 @@ describe('BrowserGatewayService policy', () => {
     expect(sendCommand).toHaveBeenCalledWith({
       queueKey: 'node:node-1',
       command: 'report_inventory',
-      timeoutMs: 3_000,
-      executionTimeoutMs: 2_500,
+      // LT-618: raised from 3_000/2_500 — too tight for a real multi-tab node
+      // to finish rebuilding its full inventory before acking.
+      timeoutMs: 10_500,
+      executionTimeoutMs: 10_000,
       undeliveredWaitMs: 90_000,
     });
     expect(result.data).toEqual([

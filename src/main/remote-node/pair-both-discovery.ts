@@ -1,6 +1,10 @@
 import { Bonjour, type Browser, type Service, type ServiceConfig } from 'bonjour-service';
 import { PairBothCandidateSchema } from '@contracts/schemas/remote-node';
 import type { PairBothCandidate } from '../../shared/types/pair-both.types';
+import { getLogger } from '../logging/logger';
+import { createPublishingBonjour } from './mdns-response-errors';
+
+const logger = getLogger('PairBothDiscovery');
 
 export const PAIR_BOTH_DISCOVERY_SERVICE_TYPE = 'aio-worker-pair';
 
@@ -33,7 +37,8 @@ export class PairBothDiscoveryPublisher {
   private service: Service | null = null;
 
   constructor(options: PairBothDiscoveryPublisherOptions = {}) {
-    this.createBonjour = options.createBonjour ?? (() => new Bonjour());
+    this.createBonjour = options.createBonjour
+      ?? (() => createPublishingBonjour(logger, 'pairing offer'));
   }
 
   publish(candidate: PairBothCandidate): void {

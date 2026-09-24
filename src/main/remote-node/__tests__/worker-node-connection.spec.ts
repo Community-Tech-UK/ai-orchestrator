@@ -46,7 +46,10 @@ import {
   isWorkerNodeWorkDispatchMethod,
   WorkerNodeConnectionServer,
 } from '../worker-node-connection';
-import { DISCONNECT_GRACE_MS } from '../connection-disconnect-lifecycle';
+import {
+  DISCONNECT_GRACE_MS,
+  PARKED_WORK_RPC_WINDOW_MS,
+} from '../connection-disconnect-lifecycle';
 import { COORDINATOR_TO_NODE } from '../worker-node-rpc';
 
 // ---------------------------------------------------------------------------
@@ -86,6 +89,79 @@ function registerMessage(): string {
     },
   });
 }
+
+/** Registration that advertises the WS15 durable-stream handshake flag. */
+function durableRegisterMessage(): string {
+  return JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'node.register',
+    params: {
+      nodeId: NODE_ID,
+      name: 'windows-pc',
+      token: 'pairing-token',
+      capabilities: {
+        platform: 'win32',
+        supportedClis: ['claude'],
+        streamDurability: 1,
+        streamEpoch: 4242,
+      },
+    },
+  });
+}
+
+describe('WorkerNodeConnectionServer — parked work RPCs (WS15)', () => {
+  beforeEach(() => {
+    WorkerNodeConnectionServer._resetForTesting();
+    mockRemoteAuth.authenticateRegistration.mockClear();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('parks in-flight work for a durable worker whose registry entry is already gone', async () => {
+    // The health monitor deregisters a silent node BEFORE closing its socket,
+    // so by the time the grace window expires the registry can no longer say
+    // whether the worker was durable. Reading durability from the registry
+    // therefore skipped the parked-work window on the commonest real
+    // disconnect path and aborted the turn outright (LT-542).
+    const server = WorkerNodeConnectionServer.getInstance();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const internals = server as any;
+    const ws = makeFakeWs();
+    internals.handleConnection(ws);
+    ws.emit('message', durableRegisterMessage());
+
+    vi.useFakeTimers();
+    const settled = vi.fn();
+    const work = server.sendRpc(NODE_ID, COORDINATOR_TO_NODE.INSTANCE_SEND_INPUT, {}, 0);
+    void work.then(settled, settled);
+
+    ws.emit('close');
+    await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS + 1_000);
+    expect(settled).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(PARKED_WORK_RPC_WINDOW_MS);
+    expect(settled).toHaveBeenCalledTimes(1);
+    expect(String(settled.mock.calls[0][0])).toContain('parked-work window elapsed');
+  });
+
+  it('still rejects in-flight work immediately for a non-durable worker', async () => {
+    const server = WorkerNodeConnectionServer.getInstance();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const internals = server as any;
+    const ws = makeFakeWs();
+    internals.handleConnection(ws);
+    ws.emit('message', registerMessage()); // no streamDurability
+
+    vi.useFakeTimers();
+    const settled = vi.fn();
+    void server.sendRpc(NODE_ID, COORDINATOR_TO_NODE.INSTANCE_SEND_INPUT, {}, 0).then(settled, settled);
+
+    ws.emit('close');
+    await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS + 1_000);
+    expect(settled).toHaveBeenCalledTimes(1);
+    expect(String(settled.mock.calls[0][0])).not.toContain('parked-work window');
+  });
+});
 
 describe('WorkerNodeConnectionServer — socket replacement race', () => {
   beforeEach(() => {

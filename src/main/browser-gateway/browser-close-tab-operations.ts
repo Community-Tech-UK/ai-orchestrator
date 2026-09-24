@@ -351,7 +351,7 @@ export class BrowserCloseTabOperations {
         nodeId,
         authorizationOrigin: origin,
       }),
-      instanceId: request.instanceId ?? '',
+      instanceId: request.instanceId ?? 'unknown',
       provider: providerFromContext(request.provider),
       nodeId,
       profileId: candidate.profileId,
@@ -559,6 +559,11 @@ export class BrowserCloseTabOperations {
     candidate: CloseCandidate,
     request: BrowserGatewayCloseMatchingRequest,
   ): string | null {
+    // A row Chrome already reported gone is only swept by an explicit
+    // status=closed request; a url/title match must not count it as closed.
+    if (candidate.status === 'closed' && request.status !== 'closed') {
+      return 'already_closed';
+    }
     if (
       candidate.inspectionState === 'inspection_unavailable'
       && request.includeInspectionUnavailable !== true

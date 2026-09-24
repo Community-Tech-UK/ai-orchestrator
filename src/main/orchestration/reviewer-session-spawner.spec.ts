@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceManager } from '../instance/instance-manager';
+import type { Instance } from '../../shared/types/instance.types';
 import {
   getReviewerSessionSpawner,
   ReviewerSessionSpawner,
@@ -131,5 +132,74 @@ describe('ReviewerSessionSpawner', () => {
     });
     expect(result.outcome).toBe('cancelled');
     expect(manager.createInstance).not.toHaveBeenCalled();
+  });
+
+  // LT-643: for Codex app-server `readyPromise` covers the whole first turn,
+  // and live it never resolved although the reviewer went idle with a
+  // complete verdict. The spawner used to await it before arming the settle
+  // wait, so the round hung forever with its timeout never armed.
+  function stuckReviewer(buffer: unknown[]) {
+    return {
+      id: 'rev-1',
+      status: 'idle',
+      totalTokensUsed: 500,
+      readyPromise: new Promise<void>(() => { /* never settles */ }),
+      outputBuffer: buffer,
+    };
+  }
+
+  it('LT-643: returns the verdict when the reviewer settles while readyPromise never resolves', async () => {
+    const inst = stuckReviewer([{ type: 'assistant', content: '{"verdict":"CHANGES_REQUESTED"}' }]);
+    const manager = makeManager({
+      createInstance: vi.fn().mockResolvedValue(inst),
+      getInstance: vi.fn().mockReturnValue(inst),
+      waitForInstanceSettled: vi.fn().mockResolvedValue(inst),
+    });
+    const spawner = getReviewerSessionSpawner();
+    spawner.setInstanceManager(manager);
+
+    const result = await spawner.runReviewSession({
+      provider: 'codex', workingDirectory: '/repo', prompt: 'deep dive', timeoutMs: 600_000,
+    });
+
+    expect(result.outcome).toBe('settled');
+    expect(result.finalOutput).toContain('CHANGES_REQUESTED');
+    expect(manager.terminateInstance).toHaveBeenCalledWith('rev-1', false);
+  });
+
+  it('LT-643: reports a timeout when the reviewer never settles and readyPromise never resolves', async () => {
+    const inst = stuckReviewer([]);
+    const manager = makeManager({
+      createInstance: vi.fn().mockResolvedValue(inst),
+      getInstance: vi.fn().mockReturnValue(inst),
+      waitForInstanceSettled: vi.fn().mockRejectedValue(new Error('Timed out waiting for instance rev-1 to settle')),
+    });
+    const spawner = getReviewerSessionSpawner();
+    spawner.setInstanceManager(manager);
+
+    const result = await spawner.runReviewSession({
+      provider: 'codex', workingDirectory: '/repo', prompt: 'deep dive', timeoutMs: 600_000,
+    });
+
+    expect(result.outcome).toBe('timeout');
+    expect(manager.terminateInstance).toHaveBeenCalledWith('rev-1', false);
+  });
+
+  it('fails fast when background init rejects before the reviewer settles', async () => {
+    const inst = { ...stuckReviewer([]), readyPromise: Promise.reject(new Error('spawn failed')) };
+    const manager = makeManager({
+      createInstance: vi.fn().mockResolvedValue(inst),
+      getInstance: vi.fn().mockReturnValue(inst),
+      waitForInstanceSettled: vi.fn(() => new Promise<Instance | undefined>(() => { /* never settles */ })),
+    });
+    const spawner = getReviewerSessionSpawner();
+    spawner.setInstanceManager(manager);
+
+    const result = await spawner.runReviewSession({
+      provider: 'codex', workingDirectory: '/repo', prompt: 'deep dive', timeoutMs: 600_000,
+    });
+
+    expect(result.outcome).toBe('failed');
+    expect(result.error).toBe('spawn failed');
   });
 });

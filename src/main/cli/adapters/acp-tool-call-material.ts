@@ -9,6 +9,15 @@
  * every Cursor tool_result was `''` and every grep hashed to the same call;
  * the loop's repeat detectors then parked a run that was making progress
  * (`loop-1788631546543-593083f8`).
+ *
+ * Live wire capture of `grok agent stdio` (2026-09-24, LT-612): its `execute`
+ * result carries the same information under different keys — a terminal
+ * `tool_call_update` reports `{ type: "Bash", output_for_prompt, exit_code,
+ * command, current_dir, ... }`, i.e. `exit_code` (snake_case), not Cursor's
+ * `exitCode`. `content` (a text block on the notification, not `rawOutput`)
+ * already carries the human-readable stdout/stderr, so `renderAcpRawOutput()`
+ * is not the affected path — only `acpToolFailed()`'s `rawOutput.exitCode`
+ * lookup was, and it now also reads `exit_code`. See `acpExitCode()` below.
  */
 
 import { buildToolOutcomeMessage } from '../../../shared/types/tool-outcome';
@@ -88,9 +97,34 @@ export function isAcpTerminalToolStatus(status: string): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 
+/**
+ * The exit code of a completed `execute` tool call, from whichever field name
+ * the agent's own ACP server used.
+ *
+ * LT-612 wire capture (2026-09-24): `cursor-agent acp` sends `rawOutput.exitCode`
+ * (camelCase). `grok agent stdio` sends the same information as
+ * `rawOutput.exit_code` (snake_case) — confirmed on a real terminal
+ * `tool_call_update` for both a failing (`exit_code: 2`) and a succeeding
+ * (`exit_code: 0`) bare shell command. `acpToolFailed()` originally read only
+ * the camelCase key, so every Grok completed call fell through to "not
+ * failed" regardless of the real exit status. Both keys are read here; if a
+ * future provider sends both, the numeric one closest to "the real exit
+ * code" is `exitCode` first (Cursor's existing contract), falling back to
+ * `exit_code`.
+ */
+function acpExitCode(rawOutput?: Record<string, unknown>): number | undefined {
+  const camelCase = rawOutput?.['exitCode'];
+  if (typeof camelCase === 'number') return camelCase;
+  const snakeCase = rawOutput?.['exit_code'];
+  if (typeof snakeCase === 'number') return snakeCase;
+  return undefined;
+}
+
 function acpToolFailed(status: string, rawOutput?: Record<string, unknown>): boolean {
-  return status === 'failed' ||
-    (status === 'completed' && typeof rawOutput?.['exitCode'] === 'number' && rawOutput['exitCode'] !== 0);
+  if (status === 'failed') return true;
+  if (status !== 'completed') return false;
+  const exitCode = acpExitCode(rawOutput);
+  return typeof exitCode === 'number' && exitCode !== 0;
 }
 
 /**
