@@ -22,14 +22,12 @@ lifecycle. Keep it current; delete anything that stops being true.
 >
 > Any defect you reproduce goes into
 > `docs/plans/livetest-remediation-register.md` as a new `LT-NNN` item
-> (index row + a section with observed behaviour, root cause, required behaviour, acceptance), and
-> a matching implementation-status section in
-> `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. Per-check evidence still goes in
-> the owning `*_livetest.md`.
+> (index row + a section with observed behaviour, root cause, required behaviour, acceptance).
+> Create and link an item-specific implementation plan when that reproduced defect needs code
+> work. Per-check evidence still goes in the owning `*_livetest.md`.
 >
-> Finish by updating `docs/plans/livetest-backlog.md`. Do **not** create a new dated
-> status report — the fifteen that existed were merged into that one living document on
-> 2026-09-06 and deleted.
+> Finish by updating the owning active `*_livetest.md` document and, for a reproduced defect,
+> `docs/plans/livetest-remediation-register.md`. Do **not** create a separate dated status report.
 
 If you want a narrower run, replace the first line with e.g. "Work only the reconciler-family
 livetests" — everything else in the prompt still applies.
@@ -243,11 +241,12 @@ session — never kill by pattern match alone.
 
 ## 5. Recording rules
 
-The current backlog classification and operator punch-list live in
-[`livetest-backlog.md`](livetest-backlog.md#environment-preflight--verified-2026-09-06).
-Do not use `_scratch/livetest-matrix.md`, `_scratch/livetest-human-punchlist.md`, or an older dated
-status report as present-tense authority; they are disposable or historical. Rebuild the current
-matrix from active `*_livetest.md` files and the remediation register when the linked report ages.
+The active `*_livetest.md` documents and
+[`livetest-remediation-register.md`](livetest-remediation-register.md) are the current
+classification and operator record. Do not use `_scratch/livetest-matrix.md`,
+`_scratch/livetest-human-punchlist.md`, or an older dated status report as present-tense authority;
+they are disposable or historical. Rebuild the current matrix from active `*_livetest.md` files and
+the remediation register when needed.
 
 “Needs James” is reserved for a real operator-only boundary: login/OAuth/MFA, credential entry,
 TCC/System Settings, a hard-denied app, a physical device, destructive/release action, production
@@ -258,12 +257,12 @@ a technical/external prerequisite, not a James action.
 
 - **Per-check evidence** → the owning `*_livetest.md`, as a new dated `## Evidence run — <date>`
   section. Preserve prior dated sections; never rewrite history.
-- **Reproduced defects** → `docs/plans/livetest-remediation-register.md`
-  (index row + full section) and a status section in
-  `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. This is the spec's own rule 6.
-- **Cross-cutting rollup** → `docs/plans/livetest-backlog.md` (update in place). **Not
-  `_scratch/`** — that is disposable and the user will not find it there. `_scratch/` is fine for
-  the working matrix and scratch scripts.
+- **Reproduced defects** → `docs/plans/livetest-remediation-register.md` (index row + full
+  section). Create and link a current implementation plan only when the defect needs code work;
+  never point to the deleted 2026-07-19 master remediation plan.
+- **Cross-cutting rollup** → the owning active `*_livetest.md` document and, where a defect is
+  reproduced, the remediation register. **Not `_scratch/`** — that is disposable and the user will
+  not find it there. `_scratch/` is fine for the working matrix and scratch scripts.
 - **A quoted main-process log line needs a source that outlives the run.** Redirecting Electron's
   stdout does not capture it: `LogManager` fixes its path from `app.getPath('userData')` when the
   first `getLogger()` runs (`src/main/logging/logger.ts`), which is during module import — before
@@ -329,5 +328,5 @@ renderer bundle plus an unused preload wrapper.
   turn; a six-send skill probe is ~5 minutes of wall clock.
 - Some blockers are genuinely external and no amount of effort moves them: unsigned releases
   (needs CI secrets + a pushed tag), an exhausted provider quota, an extension/binary build that no
-  longer exists on disk. Record them plainly and move on — see the current operator list in
-  [`livetest-backlog.md`](livetest-backlog.md#recommended-order-of-work).
+  longer exists on disk. Record them plainly in the owning active live-test document and in the
+  remediation register, then move on.

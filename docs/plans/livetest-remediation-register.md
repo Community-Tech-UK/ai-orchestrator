@@ -6,11 +6,13 @@ live-test campaign reproduces a defect (see Operating Rule 6 below). It was prev
 `2026-07-18-livetest-failure-remediation_spec_planned.md`; renamed 2026-07-26 because a `_planned`
 suffix implies a terminal `_completed` that cannot apply to a rolling index, and because the
 untracked-until-complete rule would leave weeks of accumulated defect triage unbacked-up. Per-item
-status lives in the Remediation Index; implementation progress lives in the plan.
+status lives in the Remediation Index; implementation progress belongs in an item-specific plan
+when a defect requires code work.
 
 **Original status:** Approved in review `2026-07-18-livetest-failure-remediation`.
 
-**Plan:** [2026-07-19-livetest-failure-remediation_plan.md](2026-07-19-livetest-failure-remediation_plan.md)
+**Implementation planning:** Create an item-specific plan when a confirmed defect requires code
+work. The historical 2026-07-19 master remediation plan was removed and is not a current target.
 
 **Purpose:** Provide one execution index for every confirmed defect found while running the
 live-test backlog. The originating live-test files remain the canonical acceptance procedures and
@@ -6341,8 +6343,7 @@ subscription can forward it to the renderer (subject to the pre-existing, unrela
 `isHighVolumeContextStore()` filter for `'codebase-auto'`-tagged stores, which is intentional and out
 of scope for this ticket).
 
-**Fix.** See the index row and the plan doc's LT-207 section
-(`docs/plans/2026-07-19-livetest-failure-remediation_plan.md`) for the full mechanism.
+**Fix.** The index row and this section record the full mechanism.
 
 **Why this is filed separately from LT-206.** LT-206 explicitly flagged this lane as a related,
 out-of-scope finding — a different process with different wiring (a `LaneOutboundMessage` transport,
@@ -7831,9 +7832,8 @@ the Needs You lane specifically.
 ## LT-441: hardened mode does not confine a resident Claude session's own `CLAUDE_CONFIG_DIR` writes
 
 **Status: FOUND, NOT FIXED, 2026-08-24. Root cause narrowed but not isolated to a syscall.**
-Section added by the orchestrating session so this item is not left as an index row with no entry —
-the full investigation and its reasoning live in the
-[implementation-status section](2026-07-19-livetest-failure-remediation_plan.md).
+Section added by the orchestrating session so this item is not left as an index row with no entry;
+the full investigation and its reasoning are recorded below.
 
 ### Observed behaviour
 
@@ -8778,7 +8778,7 @@ artifact only.
   `runLoopPreflight stops after a passing quick-verify when the preflight is not a gate`
   (`expected 1 to be +0`), and the file was restored afterwards.
 
-Related and still open: [LT-350](2026-07-19-livetest-failure-remediation_plan.md) — cancelling a loop
+Related and still open: [LT-350](#remediation-index) — cancelling a loop
 does not kill an in-flight preflight verify subprocess. Same code path; a cancelled loop can leave
 this command running. Capping the budget bounds that orphan to 180s but does not close it.
 

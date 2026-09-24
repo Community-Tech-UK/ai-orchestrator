@@ -1,16 +1,15 @@
 # Harness Cross-Platform Auto-Update Live Test
 
-## Status — 2026-09-06
+## Status — 2026-09-24
 Open: 9 · Closed: 0 · Failed: 0
 James-only: add the seven CI signing/notarization secrets, bump the version, push a `vX.Y.Z` tag, and let `release.yml` publish a real N-to-N+1 release before any check below becomes agent-runnable.
 
 > **Found a defect while running these checks?** Record it in the remediation spec —
 > `docs/plans/livetest-remediation-register.md` — as a new `LT-NNN` item
 > (index row, then a section with observed behaviour, root cause, required behaviour and
-> acceptance), and add a matching implementation-status section to
-> `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. That is the spec's own rule 6:
-> a pending or unrun check is not automatically a defect, but a *reproduced* one belongs there,
-> not only here. Per-check evidence stays in this file.
+> acceptance). Create and link a current implementation plan only if that reproduced defect needs
+> code work. A pending or unrun check is not automatically a defect, but a *reproduced* one belongs
+> in the register, not only here. Per-check evidence stays in this file.
 >
 > Before starting a run, read `docs/plans/livetest-campaign-runbook.md`.
 
@@ -131,6 +130,24 @@ auto-update test target.
 
 Why deferred: needs a published N and N+1 AppImage release; none exists yet.
 
+## Evidence run — 2026-09-24
+
+Current GitHub preflight was run against `Community-Tech-UK/ai-orchestrator`:
+
+| Prerequisite | Command | Result |
+| --- | --- | --- |
+| Repository Actions secrets | `gh api repos/Community-Tech-UK/ai-orchestrator/actions/secrets --jq '.total_count'` | `0` |
+| Pushed release tags | `git tag -l 'v*' \| wc -l` | `0` |
+| GitHub Releases | `gh release list --repo Community-Tech-UK/ai-orchestrator --limit 10 --json tagName --jq 'length'` | `0` |
+| Release workflow runs | `gh run list --repo Community-Tech-UK/ai-orchestrator --workflow release.yml --limit 10 --json databaseId --jq 'length'` | `0` |
+| `package.json#version` | — | `0.1.0` |
+
+The updater's main-process, IPC, renderer-store, settings-card, global-banner, and release-asset/tag
+contract suites passed: `7 files · 44 tests passed`. There is no released signed N or N+1 artifact
+with which to execute a real update, trust, or data-preservation check, and no auto-update product
+defect was reproduced. The nine checks remain deferred solely on the release prerequisites and
+target machines listed above.
+
 ## Completion
 
 Record the release tags, machine/OS versions, artifact filenames, and observed
@@ -143,11 +160,12 @@ target rows and both install paths pass with evidence.
 None yet. No signed release has ever been published, so none of this doc's checks
 (shared N-to-N+1 behavior, macOS/Windows/Linux trust checks) have been run.
 
-## Latest verification (release prerequisites)
+## Prior verification (release prerequisites, through 2026-08-31)
 
 Checked repeatedly and identically since 2026-07-12 (also 2026-07-13, 07-26, 07-29,
 08-12, 08-18, 08-19, 08-24, 08-31): every run found the same blocked state, live
-against GitHub, not inferred. Most recent check (2026-08-31):
+against GitHub, not inferred. The most recent prior check was 2026-08-31; the current preflight is
+recorded above under Evidence run — 2026-09-24:
 
 | Prerequisite | Command | Result |
 | --- | --- | --- |
