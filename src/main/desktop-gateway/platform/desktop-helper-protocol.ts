@@ -12,11 +12,11 @@ import type {
 } from '../../../shared/types/desktop-gateway.types';
 
 /**
- * Bumped to 1.2.0 for the `activateWindow` command. The version is compared for
- * strict equality on both sides, so the bundled helper binary and this build
- * must ship together — `npm run build:desktop-helper` after pulling this change.
+ * Bumped to 1.3.0 for leased recovery when the calling Harness process reclaims
+ * focus between `activateWindow` and input. The version is compared for strict
+ * equality on both sides, so the bundled helper and this build ship together.
  */
-export const DESKTOP_HELPER_PROTOCOL_VERSION = '1.2.0';
+export const DESKTOP_HELPER_PROTOCOL_VERSION = '1.3.0';
 export const DESKTOP_HELPER_MAX_LINE_BYTES = 1024 * 1024;
 
 export type DesktopHelperCommandName =

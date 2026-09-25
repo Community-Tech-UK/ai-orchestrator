@@ -3,7 +3,7 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
-private let protocolVersion = "1.2.0"
+private let protocolVersion = "1.3.0"
 private let maxLineBytes = 1_048_576
 private let maxApps = 512
 private let maxWindowsPerApp = 128
@@ -188,10 +188,17 @@ private func listApplications() -> [String: Any] {
         guard let name = boundedString(app.localizedName, limit: 512) else {
             return nil
         }
+        var appWindows = windows[app.processIdentifier] ?? []
+        if let focusedID = focusedWindowID(pid: app.processIdentifier, windows: appWindows),
+           let focusedIndex = appWindows.firstIndex(where: { ($0["id"] as? Int) == focusedID }),
+           focusedIndex != appWindows.startIndex {
+            let focusedWindow = appWindows.remove(at: focusedIndex)
+            appWindows.insert(focusedWindow, at: appWindows.startIndex)
+        }
         var record: [String: Any] = [
             "name": name,
             "pid": Int(app.processIdentifier),
-            "windows": windows[app.processIdentifier] ?? [],
+            "windows": appWindows,
         ]
         if let bundleIdentifier = boundedString(app.bundleIdentifier, limit: 512) {
             record["bundleId"] = bundleIdentifier
@@ -256,10 +263,48 @@ private func requestedWindowID(_ payload: [String: Any]) throws -> Int? {
 
 private func assertTargetActive(_ payload: [String: Any]) throws -> pid_t {
     let pid = try processID(for: payload)
-    guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
+    if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
+        return pid
+    }
+    guard try restoreFocusIfReclaimedByCaller(payload, pid: pid) else {
         throw HelperFailure.targetNotActive
     }
     return pid
+}
+
+/// Harness can reclaim focus while it renders the result of activate_window.
+/// A short-lived gateway lease opts the next input into recovering only that
+/// caller-caused transition. Focus on any other process still fails closed.
+private func restoreFocusIfReclaimedByCaller(
+    _ payload: [String: Any],
+    pid: pid_t
+) throws -> Bool {
+    guard payload["restoreFromCallerFocus"] as? Bool == true,
+          NSWorkspace.shared.frontmostApplication?.processIdentifier == getppid() else {
+        return false
+    }
+    let requestedID = try requestedWindowID(payload)
+    let windows = windowsByPID()[pid] ?? []
+    guard !windows.isEmpty else {
+        throw HelperFailure.targetNotFound
+    }
+    if let requestedID,
+       !windows.contains(where: { ($0["id"] as? Int) == requestedID }) {
+        throw HelperFailure.targetNotFound
+    }
+    try activateAppWindow(pid: pid, requestedID: requestedID, windows: windows)
+
+    let deadline = Date().addingTimeInterval(0.75)
+    while Date() < deadline {
+        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+        let current = windowsByPID()[pid] ?? []
+        let focusedID = focusedWindowID(pid: pid, windows: current)
+        if frontmost && (requestedID == nil || focusedID == requestedID) {
+            return true
+        }
+        Thread.sleep(forTimeInterval: 0.025)
+    }
+    return false
 }
 
 private func requireRequestedWindowActive(_ payload: [String: Any], pid: pid_t) throws {
@@ -270,7 +315,7 @@ private func requireRequestedWindowActive(_ payload: [String: Any], pid: pid_t) 
     guard windows.contains(where: { ($0["id"] as? Int) == windowID }) else {
         throw HelperFailure.targetNotFound
     }
-    guard (windows.first?["id"] as? Int) == windowID else {
+    guard focusedWindowID(pid: pid, windows: windows) == windowID else {
         throw HelperFailure.targetNotActive
     }
 }
@@ -745,27 +790,22 @@ private func activateWindow(_ payload: [String: Any]) throws -> [String: Any] {
         throw HelperFailure.targetNotFound
     }
 
-    guard let app = NSRunningApplication(processIdentifier: pid) else {
-        throw HelperFailure.targetNotFound
-    }
-    app.activate(options: [])
+    try activateAppWindow(pid: pid, requestedID: requestedID, windows: windows)
 
-    if let requestedID,
-       let requestedFrame = windows.first(where: { ($0["id"] as? Int) == requestedID })?["frame"]
-           as? [String: Double] {
-        raiseAXWindow(pid: pid, frame: requestedFrame)
-    }
-
-    // Verify rather than assume: poll until the app is frontmost and (when a
-    // specific window was requested) that window is its front window.
+    // Verify rather than assume: Quartz list order is not a keyboard-focus
+    // oracle across Spaces and multiple displays, so use the app's AX focused
+    // window for the identity check.
     let deadline = Date().addingTimeInterval(2.0)
     while Date() < deadline {
         let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
         let current = windowsByPID()[pid] ?? []
-        let frontWindowID = current.first?["id"] as? Int
-        if frontmost && (requestedID == nil || frontWindowID == requestedID) {
+        let focusedID = focusedWindowID(pid: pid, windows: current)
+        if frontmost && (requestedID == nil || focusedID == requestedID) {
+            let activeWindow = focusedID.flatMap { id in
+                current.first(where: { ($0["id"] as? Int) == id })
+            } ?? current.first
             var result: [String: Any] = ["activated": true]
-            for (key, value) in activeWindowFields(current.first) {
+            for (key, value) in activeWindowFields(activeWindow) {
                 result[key] = value
             }
             return result
@@ -773,6 +813,27 @@ private func activateWindow(_ payload: [String: Any]) throws -> [String: Any] {
         Thread.sleep(forTimeInterval: 0.05)
     }
     throw HelperFailure.targetNotActive
+}
+
+private func activateAppWindow(
+    pid: pid_t,
+    requestedID: Int?,
+    windows: [[String: Any]]
+) throws {
+    guard let app = NSRunningApplication(processIdentifier: pid) else {
+        throw HelperFailure.targetNotFound
+    }
+    // This command is the operator-authorized focus transfer. The helper is a
+    // short-lived background process, so default cooperative activation can be
+    // surrendered as soon as the helper exits when another app was previously
+    // active. Explicitly ignore that app for this requested transfer.
+    app.activate(options: [.activateIgnoringOtherApps])
+
+    if let requestedID,
+       let requestedFrame = windows.first(where: { ($0["id"] as? Int) == requestedID })?["frame"]
+           as? [String: Double] {
+        focusAXWindow(pid: pid, frame: requestedFrame)
+    }
 }
 
 private func activeWindowFields(_ window: [String: Any]?) -> [String: Any] {
@@ -799,7 +860,7 @@ private func activeWindowFields(_ window: [String: Any]?) -> [String: Any] {
 /// CGWindowList entry by frame. Best-effort by design: if no AX window matches,
 /// plain app activation still ran and the caller's verification loop decides
 /// whether that was enough.
-private func raiseAXWindow(pid: pid_t, frame: [String: Double]) {
+private func focusAXWindow(pid: pid_t, frame: [String: Double]) {
     let appElement = AXUIElementCreateApplication(pid)
     guard let rawWindows = axAttribute(appElement, kAXWindowsAttribute) as? [AXUIElement] else {
         return
@@ -812,8 +873,47 @@ private func raiseAXWindow(pid: pid_t, frame: [String: Double]) {
         }
         AXUIElementPerformAction(window, kAXRaiseAction as CFString)
         AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+        AXUIElementSetAttributeValue(
+            appElement,
+            kAXFocusedWindowAttribute as CFString,
+            window
+        )
         return
     }
+}
+
+/// Resolve the app's actual keyboard-focused AX window back to its public
+/// CGWindowID. Frame matching preserves the global coordinates reported by
+/// both APIs, including positive-X and negative-Y display origins.
+private func focusedWindowID(pid: pid_t, windows: [[String: Any]]) -> Int? {
+    let appElement = AXUIElementCreateApplication(pid)
+    guard let focusedValue = axAttribute(appElement, kAXFocusedWindowAttribute),
+          CFGetTypeID(focusedValue) == AXUIElementGetTypeID() else {
+        return nil
+    }
+    let focusedWindow = focusedValue as! AXUIElement
+    guard let position = axPoint(axAttribute(focusedWindow, kAXPositionAttribute)),
+          let size = axSize(axAttribute(focusedWindow, kAXSizeAttribute)) else {
+        return nil
+    }
+    let focusedFrame = CGRect(origin: position, size: size)
+    let frameMatches = windows.filter { window in
+        guard let frame = window["frame"] as? [String: Double] else {
+            return false
+        }
+        return framesMatch(focusedFrame, frame)
+    }
+    if frameMatches.count == 1 {
+        return frameMatches[0]["id"] as? Int
+    }
+    guard let focusedTitle = axString(focusedWindow, kAXTitleAttribute) else {
+        return nil
+    }
+    let titleMatches = frameMatches.filter { ($0["title"] as? String) == focusedTitle }
+    guard titleMatches.count == 1 else {
+        return nil
+    }
+    return titleMatches[0]["id"] as? Int
 }
 
 /// One-point tolerance absorbs the rounding differences between the CoreGraphics

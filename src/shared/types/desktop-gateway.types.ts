@@ -217,6 +217,12 @@ export interface DesktopInputActionRequest {
   observationToken: string;
   /** Internal binding copied from the observation; callers cannot override it. */
   windowId?: string;
+  /**
+   * Gateway-only recovery for focus reclaimed by the calling Harness process
+   * after an explicit activate_window. This is intentionally absent from the
+   * strict IPC/MCP schemas, so external callers cannot opt themselves in.
+   */
+  restoreFromCallerFocus?: boolean;
   sensitive?: boolean;
   metadata?: Record<string, unknown>;
 }

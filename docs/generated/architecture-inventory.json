@@ -6201,6 +6201,10 @@
       "lines": 1847
     },
     {
+      "path": "src/main/desktop-gateway/desktop-gateway-service.spec.ts",
+      "lines": 1830
+    },
+    {
       "path": "packages/contracts/src/types/transport.types.ts",
       "lines": 1817
     },
@@ -6215,10 +6219,6 @@
     {
       "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
       "lines": 1784
-    },
-    {
-      "path": "src/main/desktop-gateway/desktop-gateway-service.spec.ts",
-      "lines": 1742
     },
     {
       "path": "src/main/session/session-continuity.ts",

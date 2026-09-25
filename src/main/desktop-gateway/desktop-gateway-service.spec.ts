@@ -572,6 +572,94 @@ describe('DesktopGatewayService', () => {
         reason: 'computer_use_target_not_active',
       });
     });
+
+    it('permits caller-focus recovery only after a recent explicit activation', async () => {
+      let now = 1783468800000;
+      const app: DesktopAppDescriptor = {
+        ...APP,
+        windows: [{
+          windowId: APP.windowId!,
+          bounds: { x: 5_120, y: -1_440, width: 1_440, height: 2_560 },
+        }],
+      };
+      const driver = makeDriver({
+        apps: [app],
+        snapshot: {
+          appId: app.appId,
+          windowId: app.windowId,
+          nodes: [{
+            uid: 'ax-safe',
+            role: 'AXButton',
+            label: 'Continue',
+            bounds: { x: 5_200, y: -1_300, width: 100, height: 30 },
+          }],
+          capturedAt: 1,
+        },
+      });
+      const service = makeService({
+        allowedApps: [app.appId],
+        driver,
+        requireApprovalForInput: false,
+        now: () => now,
+      });
+      const beforeActivation = await service.accessibilitySnapshot(context(), {
+        appId: app.appId,
+      });
+
+      await service.click(context(), {
+        appId: app.appId,
+        observationToken: beforeActivation.data!.observationToken!,
+        elementUid: 'ax-safe',
+      });
+      expect(vi.mocked(driver.click).mock.calls[0]?.[0])
+        .not.toHaveProperty('restoreFromCallerFocus');
+      vi.mocked(driver.click).mockClear();
+
+      await service.activateWindow(context(), {
+        appId: app.appId,
+        observationToken: beforeActivation.data!.observationToken!,
+      });
+      const afterActivation = await service.accessibilitySnapshot(context(), {
+        appId: app.appId,
+      });
+      await service.click({ instanceId: 'instance-1', provider: 'claude' }, {
+        appId: app.appId,
+        observationToken: afterActivation.data!.observationToken!,
+        elementUid: 'ax-safe',
+      });
+      expect(vi.mocked(driver.click).mock.calls[0]?.[0])
+        .not.toHaveProperty('restoreFromCallerFocus');
+      vi.mocked(driver.click).mockClear();
+
+      await service.click(context(), {
+        appId: app.appId,
+        observationToken: afterActivation.data!.observationToken!,
+        elementUid: 'ax-safe',
+      });
+
+      expect(driver.click).toHaveBeenCalledWith(expect.objectContaining({
+        appId: app.appId,
+        windowId: app.windowId,
+        restoreFromCallerFocus: true,
+      }));
+
+      vi.mocked(driver.click).mockClear();
+      await service.activateWindow(context(), {
+        appId: app.appId,
+        observationToken: afterActivation.data!.observationToken!,
+      });
+      now += 15_000;
+      const afterLeaseExpiry = await service.accessibilitySnapshot(context(), {
+        appId: app.appId,
+      });
+      await service.click(context(), {
+        appId: app.appId,
+        observationToken: afterLeaseExpiry.data!.observationToken!,
+        elementUid: 'ax-safe',
+      });
+      expect(vi.mocked(driver.click).mock.calls[0]?.[0])
+        .not.toHaveProperty('restoreFromCallerFocus');
+    });
   });
 
   it('allows navigation links whose labels contain action verbs, and still gates real commands', async () => {

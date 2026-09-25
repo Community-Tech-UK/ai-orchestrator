@@ -263,6 +263,38 @@ describe('BundledDarwinHelperClient', () => {
     })).rejects.toThrow('computer_use_missing_accessibility');
   });
 
+  it('forwards the gateway-only caller-focus recovery lease to input', async () => {
+    const run = vi.fn<DesktopHelperRunner>(async (_path, input) => {
+      const request = JSON.parse(input) as {
+        id: string;
+        command: string;
+        payload: Record<string, unknown>;
+      };
+      expect(request.command).toBe('click');
+      expect(request.payload).toMatchObject({
+        appId: 'darwin-app:com.apple.Preview',
+        windowId: '99',
+        restoreFromCallerFocus: true,
+      });
+      return { stdout: response(request.id, {}), stderr: '' };
+    });
+    const client = new BundledDarwinHelperClient({
+      helperPath: '/present/desktop-helper',
+      pathExists: () => true,
+      run,
+    });
+
+    await client.click({
+      appId: 'darwin-app:com.apple.Preview',
+      observationToken: 'obs',
+      windowId: '99',
+      restoreFromCallerFocus: true,
+      x: 1,
+      y: 2,
+    });
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it('maps helper sensitive-target refusals to the stable policy error', async () => {
     const run = vi.fn<DesktopHelperRunner>(async (_path, input) => {
       const request = JSON.parse(input) as { id: string };

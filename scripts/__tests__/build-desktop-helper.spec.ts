@@ -1,4 +1,6 @@
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
@@ -27,6 +29,20 @@ const {
 };
 
 describe('build-desktop-helper', () => {
+  it('uses the AX focused window instead of Quartz list order for input targeting', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'resources', 'desktop-helper', 'DesktopHelper.swift'),
+      'utf8',
+    );
+
+    expect(source).toContain('kAXFocusedWindowAttribute');
+    expect(source).toContain('focusedWindowID(pid:');
+    expect(source).toContain('app.activate(options: [.activateIgnoringOtherApps])');
+    expect(source).toContain('payload["restoreFromCallerFocus"] as? Bool == true');
+    expect(source).toContain('processIdentifier == getppid()');
+    expect(source).not.toContain('windows.first?.id != requestedWindowID');
+  });
+
   it('uses the release matrix architecture instead of the runner architecture', () => {
     expect(resolveRequestedArch({
       args: [],

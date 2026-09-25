@@ -20,7 +20,7 @@ import type {
 } from '../../shared/types/desktop-gateway.types';
 import type { ResolvedComputerUseAutonomy } from '../instance/lifecycle/computer-use-scoping';
 import { isSensitiveObservedElement } from './desktop-action-classifier';
-import { activateObservedWindow } from './desktop-window-activation';
+import { DesktopFocusRecovery } from './desktop-focus-recovery';
 import {
   grantAllowsInput,
   type DesktopPermissionGrant,
@@ -96,7 +96,9 @@ interface DesktopInputControllerDeps {
 }
 
 export class DesktopInputController {
-  constructor(private readonly deps: DesktopInputControllerDeps) {}
+  private readonly focusRecovery: DesktopFocusRecovery;
+
+  constructor(private readonly deps: DesktopInputControllerDeps) { this.focusRecovery = new DesktopFocusRecovery(deps); }
 
   async click(
     context: DesktopGatewayContext,
@@ -131,6 +133,7 @@ export class DesktopInputController {
           appId: request.appId,
           observationToken: request.observationToken,
           windowId: request.windowId,
+          ...(request.restoreFromCallerFocus ? { restoreFromCallerFocus: true } : {}),
           elementUid: request.elementUid,
           ...resolved.point,
         });
@@ -264,19 +267,11 @@ export class DesktopInputController {
    * Delegated so the policy rules live beside their own tests; see
    * desktop-window-activation.ts for why each guard exists.
    */
-  activateWindow(
+  async activateWindow(
     context: DesktopGatewayContext,
     request: DesktopActivateWindowRequest,
   ): Promise<DesktopGatewayResult<DesktopActivateWindowResult>> {
-    const autonomy = this.deps.autonomy(context);
-    return activateObservedWindow(context, request, {
-      driver: this.deps.driver,
-      requireObservableApp: (targetContext, toolName, appId) =>
-        this.deps.requireObservableApp(targetContext, toolName, appId, autonomy),
-      validateObservationToken: this.deps.validateObservationToken,
-      getObservationWindowId: this.deps.getObservationWindowId,
-      audit: this.deps.audit,
-    });
+    return this.focusRecovery.activate(context, request);
   }
 
   async waitFor(
@@ -365,6 +360,11 @@ export class DesktopInputController {
     const boundRequest = {
       ...request,
       windowId: readiness.observationWindowId,
+      ...this.focusRecovery.consume(
+        context,
+        readiness.app.appId,
+        readiness.observationWindowId,
+      ),
     };
     const lock = await this.deps.sessionLock.acquire({
       instanceId: context.instanceId,
