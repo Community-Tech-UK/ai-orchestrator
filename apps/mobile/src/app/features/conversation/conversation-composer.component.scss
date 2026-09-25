@@ -1,0 +1,121 @@
+:host { display: contents; }
+
+.composer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) var(--mobile-gutter) var(--space-3);
+  border: 1px solid var(--separator);
+  border-radius: 26px;
+  background: var(--surface-raised);
+  padding: var(--space-3);
+  box-shadow: 0 -8px 34px rgba(0, 0, 0, 0.28);
+}
+
+.attach-strip { display: flex; gap: var(--space-2); overflow-x: auto; }
+.chip { position: relative; width: 64px; height: 96px; flex: 0 0 64px; }
+
+.chip img {
+  width: 100%;
+  height: 56px;
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--radius-md);
+  object-fit: cover;
+}
+
+.chip-x {
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.composer textarea {
+  width: 100%;
+  min-height: 42px;
+  max-height: 22dvh;
+  flex: none;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  padding: var(--space-1);
+  font: inherit;
+  font-size: 1rem;
+  line-height: var(--line-height-normal);
+}
+
+.composer textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.composer textarea::placeholder { color: var(--text-tertiary); }
+.composer-shortcut { margin: 0; color: var(--text-secondary); font-size: var(--font-size-sm); }
+
+.composer-toolbar {
+  display: flex;
+  min-height: var(--control-size);
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.composer-toolbar__leading { display: flex; gap: var(--space-1); }
+
+.composer-tool,
+.send {
+  display: grid;
+  width: var(--control-size);
+  height: var(--control-size);
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text);
+  font-size: 1.2rem;
+}
+
+.composer-tool:active:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
+.composer-tool--listening { background: var(--accent-error); }
+.composer-tool--stop { border: 1px solid var(--separator); color: var(--accent-error); }
+
+.composer-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 var(--mobile-gutter);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.composer-notice span { flex: 1; }
+.composer-notice button { min-width: 44px; min-height: 44px; border: 0; background: transparent; color: var(--text); font: inherit; }
+.composer-notice.error { color: var(--accent-error); }
+app-composer-queue { margin: 0 var(--mobile-gutter); }
+
+.composer-status {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: right;
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.send { background: var(--primitive-white); color: var(--primitive-black); }
+.send:disabled { background: var(--surface-2); color: var(--text-tertiary); }
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .composer { margin-top: var(--space-1); margin-bottom: var(--space-1); padding: var(--space-2); }
+  .composer textarea { min-height: 34px; }
+}

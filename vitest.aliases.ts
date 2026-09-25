@@ -61,6 +61,7 @@ export const aliases = {
   '@contracts/types/transport': resolve(configDir, './packages/contracts/src/types/transport.types'),
   '@contracts/types/browser': resolve(configDir, './packages/contracts/src/types/browser.types'),
   '@contracts/types/context-evidence': resolve(configDir, './packages/contracts/src/types/context-evidence.types'),
+  '@contracts/types/mobile-gateway': resolve(configDir, './packages/contracts/src/types/mobile-gateway.types'),
   '@contracts': resolve(configDir, './packages/contracts/src'),
   '@sdk': resolve(configDir, './packages/sdk/src'),
 };

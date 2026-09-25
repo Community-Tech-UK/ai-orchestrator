@@ -3368,6 +3368,43 @@ describe('provider-limit park on thrown sendInput errors', () => {
     });
   });
 
+  // LT-657: a Harness-authored turn lost to an auth failure must be re-sent as
+  // Harness input after sign-in, not as the user's message.
+  it('keeps Harness provenance on the auth-repair resume turn and the adapter dispatch', async () => {
+    const adapter = new FakeAdapter('claude-cli');
+    const sendInput = vi.spyOn(adapter, 'sendInput');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    const onAuthFailureTurn = vi.fn();
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, a) => { adapters.set(id, a); },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      onAuthFailureTurn,
+    });
+    manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+    await manager.sendInput(instance.id, '<harness_internal_message source="async-work-continuation">…', undefined, null, {
+      autoContinuation: true,
+      internalSource: 'async-work-continuation',
+    });
+
+    expect(sendInput.mock.calls.at(-1)?.[2]).toEqual({ internalSource: 'async-work-continuation' });
+    adapter.emit('error', new ProviderAuthenticationError(
+      'Failed to authenticate: OAuth session expired and could not be refreshed',
+      'authentication_failed',
+    ));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(onAuthFailureTurn.mock.calls[0][0].resumeTurn).toMatchObject({
+      internalSource: 'async-work-continuation',
+    });
+  });
+
   it('notifies auth repair only after the adapter emits a real completion', async () => {
     const adapter = new FakeAdapter('claude-cli');
     adapters.set(instance.id, adapter as unknown as CliAdapter);

@@ -28,15 +28,15 @@
 
   @if (menuOpen()) {
     <app-mobile-sheet label="Session actions" (dismiss)="menuOpen.set(false)">
-    <div class="session-actions">
-      <button type="button" (click)="menuOpen.set(false); detailsOpen.set(true)">Session details</button>
-      <button (click)="rename()" [disabled]="!online()">Rename</button>
-      <button (click)="openModelSheet()" [disabled]="!online() || !instance()">Change model…</button>
-      <button (click)="interrupt(true)" [disabled]="!online()">
-        {{ stopping() ? 'Force-cancel (stop again)' : 'Stop (interrupt)' }}
-      </button>
-      <button class="danger" (click)="terminate()" [disabled]="!online()">Close</button>
-    </div>
+      <div class="session-actions">
+        <button type="button" (click)="menuOpen.set(false); detailsOpen.set(true)">Session details</button>
+        <button (click)="rename()" [disabled]="!online()">Rename</button>
+        <button (click)="openModelSheet()" [disabled]="!online() || !instance()">Change model…</button>
+        <button (click)="interrupt()" [disabled]="!online()">
+          {{ stopping() ? 'Force-cancel (stop again)' : 'Stop (interrupt)' }}
+        </button>
+        <button class="danger" (click)="terminate()" [disabled]="!online()">Close</button>
+      </div>
     </app-mobile-sheet>
   }
 
@@ -54,217 +54,26 @@
     </div>
   }
 
-  <div class="scroll-wrap">
-    <div
-      #scrollEl
-      class="transcript mobile-transcript"
-      appCodeCopy
-      (scroll)="onScroll()"
-      (touchstart)="onTouchStart()"
-      (touchend)="onTouchEnd()"
-      (touchcancel)="onTouchEnd()"
-    >
-      @if (transcriptState().status === 'error') {
-        <div class="mobile-load-state error" role="alert">
-          {{ transcriptState().error }}
-          <button type="button" (click)="retryTranscript()">Retry</button>
-        </div>
-      }
-      @if (transcriptState().status === 'loading' && messages().length) { <p class="muted" role="status">Updating conversation…</p> }
-      @for (item of displayItems(); track trackItem(item)) {
-        @if (item.kind === 'stamp') {
-          <div class="stamp">{{ item.label }}</div>
-        } @else if (item.kind === 'tools') {
-          <div class="tool-group">
-            <button
-              class="tool-toggle"
-              type="button"
-              (click)="toggleTools(item.id)"
-              [attr.aria-label]="toolGroupLabel(item)"
-              [attr.aria-expanded]="expandedTools().has(item.id)"
-            >
-              <app-mobile-icon
-                class="tool-caret"
-                [class.tool-caret--expanded]="expandedTools().has(item.id)"
-                name="chevron-down"
-              />
-              <app-mobile-icon name="tool" />
-              {{ item.items.length }} activity {{ item.items.length === 1 ? 'entry' : 'entries' }}
-            </button>
-            @if (expandedTools().has(item.id)) {
-              @for (t of item.items; track t.id) {
-                <details class="tool-entry">
-                  <summary>{{ toolLabel(t) }}</summary>
-                  <pre>{{ toolDetails(t) }}</pre>
-                  <app-copy-button [text]="toolDetails(t)" />
-                </details>
-              }
-            }
-          </div>
-        } @else {
-          <div
-            [class]="'message ' + item.message.type"
-            [class.loop-output]="isLoopTranscriptMessage(item.message)"
-          >
-            <div
-              class="content markdown-body"
-              [class.loop-output]="isLoopTranscriptMessage(item.message)"
-              [innerHTML]="renderMarkdown(item.message.content)"
-            ></div>
-            @if (item.message.hasAttachments) {
-              <span class="attach-flag"><app-mobile-icon name="attachment" /> Photo attached</span>
-            }
-            @if (item.message.type !== 'system' && item.message.content) {
-              <app-copy-button [text]="item.message.content" />
-            }
-          </div>
-        }
-      } @empty {
-        <p class="muted center">{{ emptyTranscript() }}</p>
-      }
-      @if (working()) {
-        <div class="typing" role="status" aria-label="Agent is working">
-          <span></span><span></span><span></span>
-          <span class="sr-only">Agent is working</span>
-        </div>
-      }
-    </div>
+  <app-transcript-view
+    [messages]="messages()"
+    [state]="transcriptState()"
+    [emptyText]="emptyTranscript()"
+    [working]="working()"
+    (retryTranscript)="retryTranscript()"
+  />
 
-    @if (messages().length > 0) {
-      <div class="scroll-btns">
-        @if (!atTop()) {
-          <button class="scroll-btn" (click)="scrollToTop()" aria-label="Scroll to top">
-            <app-mobile-icon class="scroll-icon--up" name="chevron-down" />
-          </button>
-        }
-        @if (!atBottom()) {
-          <button
-            class="scroll-btn"
-            [class.new-output]="hasNewOutput()"
-            (click)="scrollToBottom()"
-            aria-label="Scroll to bottom"
-          >
-            @if (hasNewOutput()) {
-              <span class="pill-label">New output</span>
-            }
-            <app-mobile-icon name="chevron-down" />
-          </button>
-        }
-      </div>
-    }
-  </div>
-
-  @if (queued().length > 0) {
-    <app-composer-queue [messages]="queued()" [pendingId]="queuePending()"
-      (cancelMessage)="cancelQueued($event)" (removeMessage)="cancelQueued($event, true)" />
-  }
-
-  @if (notice(); as text) {
-    <div class="composer-notice" [class.error]="noticeIsError()" [attr.role]="noticeIsError() ? 'alert' : 'status'">
-      <span>{{ text }}</span>
-      <button type="button" (click)="clearNotice()" aria-label="Dismiss message">Dismiss</button>
-    </div>
-  }
-
-  <form class="composer" (submit)="send($event)">
-    @if (legacyDraftAvailable()) {
-      <div class="mobile-load-state">
-        An older draft for this session has no saved host. Recover it here only if it belongs on {{ hostName() }}.
-        <button type="button" (click)="recoverLegacyDraft()">Recover older draft</button>
-      </div>
-    }
-    @if (attachments().length > 0) {
-      <div class="attach-strip" aria-label="Pending attachments">
-        @for (attachment of attachments(); track attachment) {
-          <div class="chip">
-            <img [src]="attachment.data" [alt]="attachment.name" />
-            <button
-              type="button"
-              class="chip-x"
-              (click)="removeAttachment(attachment)"
-              [attr.aria-label]="'Remove ' + attachment.name"
-            >
-              <app-mobile-icon name="close" />
-            </button>
-          </div>
-        }
-      </div>
-    }
-    <textarea
-      #draftEl
-      rows="1"
-      [ngModel]="draft()"
-      (ngModelChange)="draft.set($event)"
-      [ngModelOptions]="{ standalone: true }"
-      placeholder="Message…"
-      aria-label="Message to the agent"
-      aria-describedby="composer-shortcut"
-      (keydown.enter)="onEnter($event)"
-      (paste)="onPaste($event)"
-    ></textarea>
-    <p class="composer-shortcut" id="composer-shortcut">Return adds a line. ⌘/Ctrl + Return sends.</p>
-    <div class="composer-toolbar">
-      <div class="composer-toolbar__leading">
-        @if (canAttach) {
-          <button
-            type="button"
-            class="composer-tool"
-            (click)="pickImages()"
-            [disabled]="attachBusy() || sending()"
-            aria-label="Add photo"
-          >
-            <app-mobile-icon name="plus" />
-          </button>
-          <button
-            type="button"
-            class="composer-tool"
-            (click)="pasteImageFromClipboard()"
-            [disabled]="attachBusy() || sending()"
-            aria-label="Paste image from clipboard"
-          >
-            <app-mobile-icon name="clipboard" />
-          </button>
-        }
-      </div>
-      <span class="composer-status" role="status">{{ sending() ? 'Sending…' : interrupting() || stopping() ? 'Stopping…' : online() ? activityLabel() : connectionHeadline() }}</span>
-      @if (canDictate) {
-        <button
-          type="button"
-          class="composer-tool"
-          [class.composer-tool--listening]="listening()"
-          (click)="toggleDictation()"
-          [attr.aria-label]="listening() ? 'Stop dictation' : 'Dictate'"
-        >
-          <app-mobile-icon name="microphone" />
-        </button>
-      }
-      @if (working()) {
-        <button
-          type="button"
-          class="composer-tool composer-tool--stop"
-          (click)="interrupt()"
-          [disabled]="!online() || interrupting() || stopping()"
-          [attr.aria-label]="stopping() ? 'Stopping' : 'Stop the agent'"
-        >
-          <app-mobile-icon name="stop" />
-        </button>
-      }
-      <button
-        type="submit"
-        class="send"
-        [disabled]="!online() || !canSend() || sending()"
-        [attr.aria-label]="sending() ? 'Sending message' : 'Send message'"
-      >
-        <app-mobile-icon name="arrow-up" />
-      </button>
-    </div>
-  </form>
+  <app-conversation-composer
+    [instanceId]="instanceId()"
+    [activityLabel]="activityLabel()"
+    [working]="working()"
+    [stopping]="stopping()"
+  />
 
   @if (modelSheetOpen()) {
     <app-model-sheet
       [provider]="instance()?.provider ?? ''"
       [models]="modelsForProvider()"
-      [selected]="$safeNavigationMigration(instance()?.model)"
+      [selected]="instance()?.model"
       [includeDefault]="false"
       [loading]="modelsLoading()"
       [saving]="changingModel()"

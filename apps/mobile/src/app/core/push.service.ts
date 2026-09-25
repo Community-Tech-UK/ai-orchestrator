@@ -1,4 +1,4 @@
-import { Injectable, effect, inject } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { Capacitor } from '@capacitor/core';
 import { HostStore } from './host-store';
@@ -22,6 +22,11 @@ export class PushService {
 
   private started = false;
   private apnsToken: string | null = null;
+  private readonly _routingIssue = signal<'ended-session' | 'unknown-host' | 'host-unavailable' | null>(null);
+  private pendingNotificationTap: Record<string, unknown> | null = null;
+  readonly endedSession = computed(() => this._routingIssue() === 'ended-session');
+  readonly unknownHost = computed(() => this._routingIssue() === 'unknown-host');
+  readonly hostUnavailable = computed(() => this._routingIssue() === 'host-unavailable');
 
   constructor() {
     // Whenever the active host changes (or is first set), make sure it has our token.
@@ -54,7 +59,7 @@ export class PushService {
           void this.respondFromAction(action.actionId, data);
           return;
         }
-        this.handleTap(data);
+        void this.handleNotificationTap(data);
       });
       await PushNotifications.register();
     } catch {
@@ -81,10 +86,11 @@ export class PushService {
   ): Promise<void> {
     const instanceId = typeof data['instanceId'] === 'string' ? data['instanceId'] : '';
     const requestId = typeof data['requestId'] === 'string' ? data['requestId'] : '';
+    const hostDeviceId = typeof data['hostDeviceId'] === 'string' ? data['hostDeviceId'] : undefined;
     const host = typeof data['host'] === 'string' ? data['host'] : undefined;
     if (!instanceId || !requestId) return;
     try {
-      await this.gateway.respondFromPush(host, instanceId, {
+      await this.gateway.respondFromPush(hostDeviceId, host, instanceId, {
         requestId,
         decisionAction: actionId === 'APPROVE' ? 'allow' : 'deny',
         decisionScope: 'once',
@@ -94,18 +100,72 @@ export class PushService {
       // Couldn't reach the host (Tailscale down / prompt expired) — fall back
       // to opening the session so the user can act from the approval sheet.
       this.haptics.error();
-      this.handleTap(data);
+      void this.handleNotificationTap(data);
     }
   }
 
-  private handleTap(data: Record<string, unknown>): void {
+  async handleNotificationTap(data: Record<string, unknown>): Promise<void> {
     const instanceId = typeof data['instanceId'] === 'string' ? data['instanceId'] : '';
     if (!instanceId) {
-      void this.router.navigate(['/projects']);
+      this.pendingNotificationTap = null;
+      await this.router.navigate(['/projects']);
       return;
     }
-    const instance = this.gateway.snapshot()?.instances.find((i) => i.id === instanceId);
-    const key = instance?.workingDirectory || '__no_workspace__';
-    void this.router.navigate(['/projects', key, 'sessions', instanceId]);
+    this.pendingNotificationTap = data;
+    const hostDeviceId = typeof data['hostDeviceId'] === 'string' ? data['hostDeviceId'] : undefined;
+    const hostName = typeof data['host'] === 'string' ? data['host'] : undefined;
+    const legacyMatches = hostDeviceId || !hostName
+      ? []
+      : this.hostStore.hosts().filter((host) => host.name.toLowerCase() === hostName.toLowerCase());
+    const targetHost = hostDeviceId
+      ? this.hostStore.hosts().find((host) => host.id === hostDeviceId)
+      : legacyMatches.length === 1
+        ? legacyMatches[0]
+        : undefined;
+    if (!targetHost) {
+      this._routingIssue.set('unknown-host');
+      return;
+    }
+    let instances;
+    try {
+      if (this.hostStore.activeHost()?.id !== targetHost.id) {
+        await this.hostStore.setActive(targetHost.id);
+      }
+      instances = await this.gateway.liveInstances();
+    } catch {
+      this._routingIssue.set('host-unavailable');
+      return;
+    }
+    const instance = instances.find((item) => item.id === instanceId);
+    if (!instance) {
+      this._routingIssue.set('ended-session');
+      return;
+    }
+    this._routingIssue.set(null);
+    this.pendingNotificationTap = null;
+    const key = instance.workingDirectory || '__no_workspace__';
+    await this.router.navigate(['/projects', key, 'sessions', instanceId]);
+  }
+
+  dismissRoutingIssue(): void {
+    this._routingIssue.set(null);
+    this.pendingNotificationTap = null;
+  }
+
+  async retryNotificationRouting(): Promise<void> {
+    const data = this.pendingNotificationTap;
+    if (data) await this.handleNotificationTap(data);
+  }
+
+  openEndedSessionHistory(): void {
+    this._routingIssue.set(null);
+    this.pendingNotificationTap = null;
+    void this.router.navigate(['/history']);
+  }
+
+  openEndedSessionProjects(): void {
+    this._routingIssue.set(null);
+    this.pendingNotificationTap = null;
+    void this.router.navigate(['/projects']);
   }
 }

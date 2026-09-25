@@ -863,6 +863,9 @@ vi.mock('../../codemem', () => {
 // ---------------------------------------------------------------------------
 
 import { InstanceManager } from '../instance-manager';
+import { getInstanceProviderLimitHandler } from '../instance-provider-limit-handler';
+import { buildReplayContinuityMessage } from '../../session/replay-continuity';
+import { buildFallbackHistoryMessage } from '../../session/fallback-history';
 import { generateChildPrompt } from '../../orchestration/orchestration-protocol';
 import { getWorkerNodeRegistry, WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import type { RoutingDecision } from '../../routing';
@@ -1556,6 +1559,156 @@ describe('InstanceManager', () => {
         expect.stringContaining('send after compaction'),
         undefined,
       );
+    });
+
+    // LT-657: AIO-authored input (continuations, check-ins, child announcements,
+    // policy nudges) used to be stored and published as `type: 'user'`, recorded
+    // in prompt history, and sent unmarked, so the transcript, replay and model
+    // all attributed Harness text to the human.
+    describe('internal (Harness-authored) input provenance', () => {
+      const CHECK_IN = 'Automatic check-in: background work you started is still running. Check its output now.';
+
+      it('stores internal input as a Harness system message, never as the user, and marks it for the provider', async () => {
+        const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+        await instance.readyPromise;
+        const events: { event: { kind: string; messageType?: string; content?: string } }[] = [];
+        manager.on('provider:normalized-event', (payload) => events.push(payload));
+        mockAdapterSendInput.mockClear();
+
+        await manager.sendInput(instance.id, CHECK_IN, undefined, {
+          autoContinuation: true,
+          internalSource: 'async-work-continuation',
+        });
+
+        expect(instance.outputBuffer.filter((message) => message.type === 'user')).toEqual([]);
+        const stored = instance.outputBuffer.filter((message) => message.content === CHECK_IN);
+        expect(stored).toHaveLength(1);
+        expect(stored[0]).toMatchObject({
+          type: 'system',
+          metadata: { internalInput: { actor: 'harness', source: 'async-work-continuation' } },
+        });
+        expect(events.some((e) => e.event.messageType === 'user' && e.event.content === CHECK_IN)).toBe(false);
+        expect(mockPromptHistoryRecord).not.toHaveBeenCalled();
+
+        const sent = mockAdapterSendInput.mock.calls.at(-1)?.[0] as string;
+        // Adapters with a non-user channel (Codex developer items) get the source explicitly.
+        expect(mockAdapterSendInput.mock.calls.at(-1)?.[2]).toEqual({ internalSource: 'async-work-continuation' });
+        expect(sent).toContain('<harness_internal_message source="async-work-continuation">');
+        expect(sent).toContain('not written by the user');
+        expect(sent).toContain('never describe it as something the user said');
+        expect(sent).toContain(CHECK_IN);
+      });
+
+      it('keeps genuine user messages as user-role, unwrapped, and in order around internal input', async () => {
+        const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+        await instance.readyPromise;
+        mockAdapterSendInput.mockClear();
+
+        await manager.sendInput(instance.id, 'first real request');
+        await manager.sendInput(instance.id, CHECK_IN, undefined, {
+          autoContinuation: true,
+          internalSource: 'async-work-continuation',
+        });
+        await manager.sendInput(instance.id, 'second real request');
+
+        const conversational = instance.outputBuffer
+          .filter((message) => message.type === 'user' || message.metadata?.['internalInput'])
+          .map((message) => [message.type, message.content]);
+        expect(conversational).toEqual([
+          ['user', 'first real request'],
+          ['system', CHECK_IN],
+          ['user', 'second real request'],
+        ]);
+        const userSends = mockAdapterSendInput.mock.calls
+          .map(([text]) => text as string)
+          .filter((text) => text.includes('real request'));
+        expect(userSends).toHaveLength(2);
+        for (const text of userSends) expect(text).not.toContain('harness_internal_message');
+        const userCallOptions = mockAdapterSendInput.mock.calls
+          .filter(([text]) => (text as string).includes('real request'))
+          .map((call) => call[2]);
+        expect(userCallOptions).toEqual([undefined, undefined]);
+        expect(mockPromptHistoryRecord.mock.calls.map(([entry]) => entry.text)).toEqual([
+          'first real request',
+          'second real request',
+        ]);
+      });
+
+      it('never reintroduces internal input as a user message on retry or duplicate delivery', async () => {
+        const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+        await instance.readyPromise;
+        mockAdapterSendInput.mockClear();
+        const options = { autoContinuation: true, internalSource: 'child-announcement' as const };
+
+        await manager.sendInput(instance.id, 'Child agent finished: summary attached.', undefined, options);
+        await manager.sendInput(instance.id, 'Child agent finished: summary attached.', undefined, { ...options, isRetry: true });
+        await manager.sendInput(instance.id, 'Child agent finished: summary attached.', undefined, options);
+
+        expect(instance.outputBuffer.filter((message) => message.type === 'user')).toEqual([]);
+        expect(instance.outputBuffer.filter((message) => message.metadata?.['internalInput'])).toHaveLength(2);
+        for (const [text] of mockAdapterSendInput.mock.calls) {
+          expect(text).toContain('<harness_internal_message source="child-announcement">');
+        }
+      });
+
+      it('keeps Harness provenance when a provider-limit resume re-sends the dispatched turn', async () => {
+        const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+        await instance.readyPromise;
+        mockAdapterSendInput.mockClear();
+        await manager.sendInput(instance.id, CHECK_IN, undefined, {
+          autoContinuation: true,
+          internalSource: 'async-work-continuation',
+        });
+        const dispatched = mockAdapterSendInput.mock.calls.at(-1)?.[0] as string;
+        const providerTurn = dispatched.slice(dispatched.indexOf('<harness_internal_message'));
+
+        // The remembered resume prompt is the provider text; re-send it the way
+        // the real resume wiring does.
+        getInstanceProviderLimitHandler().resumeNow(instance.id, { resumePromptFallback: providerTurn });
+        await vi.waitFor(() => expect(mockAdapterSendInput).toHaveBeenCalledTimes(2));
+
+        expect(instance.outputBuffer.filter((message) => message.type === 'user')).toEqual([]);
+        const harnessTurns = instance.outputBuffer.filter((message) => message.metadata?.['internalInput']);
+        expect(harnessTurns.map((message) => [message.type, message.content])).toEqual([
+          ['system', CHECK_IN],
+          ['system', CHECK_IN],
+        ]);
+        const resent = mockAdapterSendInput.mock.calls.at(-1)?.[0] as string;
+        expect(resent.match(/<harness_internal_message /g)).toHaveLength(1);
+        expect(mockPromptHistoryRecord).not.toHaveBeenCalled();
+      });
+
+      it('never serialises internal input as the user when a resumed session replays the transcript', async () => {
+        const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+        await instance.readyPromise;
+        await manager.sendInput(instance.id, 'please fix the reply-review defects');
+        instance.outputBuffer.push({ id: 'a1', timestamp: Date.now(), type: 'assistant', content: 'Working on it.' });
+        await manager.sendInput(instance.id, 'Stop broad exploration and persist durable notes.', undefined, {
+          autoContinuation: true,
+          internalSource: 'context-policy',
+        });
+
+        const replay = buildReplayContinuityMessage(instance.outputBuffer, { reason: 'interrupt-resume' }) ?? '';
+        expect(replay).toContain('Current objective:\nplease fix the reply-review defects');
+        expect(replay).toContain('Human: please fix the reply-review defects');
+        expect(replay).not.toContain('Human: Stop broad exploration');
+        const fallback = buildFallbackHistoryMessage(instance.outputBuffer, 'resume-failed', 200_000) ?? '';
+        expect(fallback).toContain('please fix the reply-review defects');
+        expect(fallback).not.toContain('Stop broad exploration');
+      });
+
+      it('does not resolve internal text as a user slash command', async () => {
+        const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+        await instance.readyPromise;
+        mockCommandExecuteCommandString.mockClear();
+
+        await manager.sendInput(instance.id, '/compact now', undefined, {
+          automatedInput: true,
+          internalSource: 'reaction',
+        });
+
+        expect(mockCommandExecuteCommandString).not.toHaveBeenCalled();
+      });
     });
 
     it('injects indexed codebase context into normal root user turns', async () => {

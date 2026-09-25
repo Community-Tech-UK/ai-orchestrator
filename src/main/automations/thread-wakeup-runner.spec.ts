@@ -23,6 +23,10 @@ vi.mock('../session/session-admission-service', () => ({
 }));
 
 import { ThreadWakeupRunner } from './thread-wakeup-runner';
+import {
+  buildProviderLimitContinuationPrompt,
+  buildProviderLimitContinuationTurn,
+} from '../instance/instance-provider-limit-resume-scheduler';
 
 function makeAutomation(destination: AutomationDestination): Automation {
   return {
@@ -144,6 +148,26 @@ describe('ThreadWakeupRunner', () => {
       undefined,
       'Wakeup prompt delivered to thread instance-1.',
       3_000,
+    );
+  });
+
+  // LT-657: a provider-limit resume automation stores the throttled turn as
+  // provider text. After a restart it must come back as Harness input, never
+  // as a user message; user-written prompts (above) are unchanged.
+  it('re-delivers a stored Harness turn with its internal provenance', async () => {
+    const destination: AutomationDestination = { kind: 'thread', instanceId: 'instance-1', reviveIfArchived: true };
+    const automation = makeAutomation(destination);
+    automation.action.prompt = buildProviderLimitContinuationTurn();
+    revive.mockResolvedValue({ status: 'live', instanceId: 'instance-1' });
+    attachInstance.mockReturnValue(makeRun({ instanceId: 'instance-1' }));
+
+    await runner.fireThreadWakeup({ run: makeRun(), automation, destination });
+
+    expect(sendInput).toHaveBeenCalledWith(
+      'instance-1',
+      buildProviderLimitContinuationPrompt(),
+      automation.action.attachments,
+      { automatedInput: true, internalSource: 'provider-limit-resume' },
     );
   });
 

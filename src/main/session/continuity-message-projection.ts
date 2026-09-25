@@ -98,12 +98,14 @@ export function outputMessageToContinuityEntry(
     : undefined;
   const compactionMarkerId = metadataString(message.metadata, ['compactionMarkerId']);
   const compactionMethod = metadataString(message.metadata, ['method', 'compactionMethod']);
+  const internalInput = message.metadata?.internalInput;
 
   return {
     id: message.id,
     role,
     content: message.content,
     timestamp: message.timestamp,
+    ...(internalInput ? { internalInput: { ...internalInput } } : {}),
     ...(tokens === undefined ? {} : { tokens }),
     ...(tokenUsage ? { tokenUsage } : {}),
     ...(toolName
@@ -217,6 +219,7 @@ export function continuityEntryToOutputMessage(entry: ConversationEntry): Output
     || entry.tokenUsage
     || entry.isCompacted !== undefined
     || entry.compaction
+    || entry.internalInput
     ? {
         ...(entry.toolUse
           ? {
@@ -236,6 +239,7 @@ export function continuityEntryToOutputMessage(entry: ConversationEntry): Output
         ...(entry.compaction?.markerId ? { compactionMarkerId: entry.compaction.markerId } : {}),
         ...(entry.compaction?.method ? { method: entry.compaction.method } : {}),
         ...(entry.compaction ? { isCompactionBoundary: entry.compaction.boundary } : {}),
+        ...(entry.internalInput ? { internalInput: { ...entry.internalInput } } : {}),
       }
     : undefined;
 

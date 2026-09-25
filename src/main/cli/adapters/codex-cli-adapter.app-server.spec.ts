@@ -85,6 +85,7 @@ function createSyntheticTurnClient(notifications: SyntheticNotification[]): Synt
       // Intentionally pending for the lifetime of the synthetic turn.
     }),
     request: vi.fn(async (method: string) => {
+      if (method === 'thread/inject_items') return { turn: { id: 'n/a', status: 'n/a' } };
       if (method !== 'turn/start') throw new Error(`Unexpected synthetic RPC: ${method}`);
       for (const notification of notifications) {
         client.notificationHandler?.(notification);
@@ -1475,6 +1476,9 @@ describe('CodexCliAdapter', () => {
     ) {
       const order: string[] = [];
       const turnInputs: string[] = [];
+      // LT-657: which channel carried each turn's text.
+      const turnChannels: Array<'user' | 'developer'> = [];
+      let pendingDeveloperText: string | null = null;
       const interruptedTurnIds: unknown[] = [];
       let turnSequence = 0;
       const compactionItem = { type: 'contextCompaction', id: 'compaction-item' };
@@ -1498,10 +1502,19 @@ describe('CodexCliAdapter', () => {
         exitPromise: new Promise<void>(() => { /* intentionally pending */ }),
         request: vi.fn(async (method: string, params: Record<string, unknown>) => {
           order.push(method);
+          if (method === 'thread/inject_items') {
+            const items = params['items'] as Array<{ role: string; content: Array<{ text: string }> }>;
+            if (items.some((item) => item.role !== 'developer')) throw new Error('non-developer injected item');
+            pendingDeveloperText = items.map((item) => item.content.map((c) => c.text).join('')).join('\n');
+            return {};
+          }
           if (method === 'turn/start') {
             turnSequence += 1;
             const input = params['input'] as Array<{ type: string; text?: string }>;
-            turnInputs.push(input.find((item) => item.type === 'text')?.text ?? '');
+            const userText = input.find((item) => item.type === 'text')?.text;
+            turnInputs.push(userText ?? pendingDeveloperText ?? '');
+            turnChannels.push(userText === undefined && pendingDeveloperText !== null ? 'developer' : 'user');
+            pendingDeveloperText = null;
             const turnId = `turn-${turnSequence}`;
             client.notificationHandler?.({
               method: 'turn/started',
@@ -1617,7 +1630,7 @@ describe('CodexCliAdapter', () => {
       internals.appServerThreadId = 'thread-1';
       internals.useAppServer = true;
       client.setNotificationHandler((notification) => internals.handleIdleAppServerNotification(notification));
-      return { client, order, turnInputs, interruptedTurnIds, finishCompaction };
+      return { client, order, turnInputs, turnChannels, interruptedTurnIds, finishCompaction };
     }
 
     function collectRecoveryOutputs(adapter: CodexCliAdapter) {
@@ -1630,7 +1643,7 @@ describe('CodexCliAdapter', () => {
 
     it('interrupts, observes compaction, and continues once without replaying the original message', async () => {
       const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
-      const { order, turnInputs } = installSyntheticCostClient(adapter, {
+      const { order, turnInputs, turnChannels } = installSyntheticCostClient(adapter, {
         requestSharedRecovery: true,
       });
       const completions: string[] = [];
@@ -1644,8 +1657,12 @@ describe('CodexCliAdapter', () => {
         'turn/start',
         'turn/interrupt',
         'thread/compact/start',
+        'thread/inject_items',
         'turn/start',
       ]);
+      // LT-657: the user's task stays user input; Harness's continuation after
+      // compaction is a developer item, never a user message.
+      expect(turnChannels).toEqual(['user', 'developer']);
       expect(turnInputs).toHaveLength(2);
       expect(turnInputs[0]).toBe('Original expensive task');
       expect(turnInputs[1]).toMatch(/continue the interrupted task/i);
@@ -1690,7 +1707,7 @@ describe('CodexCliAdapter', () => {
       }).appServerSendMessageInner('Original expensive task');
 
       expect(pauses).toEqual([]);
-      expect(order).toEqual(['turn/start', 'turn/interrupt', 'thread/compact/start', 'turn/start']);
+      expect(order).toEqual(['turn/start', 'turn/interrupt', 'thread/compact/start', 'thread/inject_items', 'turn/start']);
       expect(turnInputs[1]).toMatch(/continue the interrupted task/i);
       expect(completions).toEqual(['Continued safely']);
       expect(adapter.nativeCompactionKnownUnsupported()).toBe(false);
@@ -1727,7 +1744,7 @@ describe('CodexCliAdapter', () => {
         await vi.advanceTimersByTimeAsync(0);
         await send;
 
-        expect(order).toEqual(['turn/start', 'turn/interrupt', 'thread/compact/start', 'turn/start']);
+        expect(order).toEqual(['turn/start', 'turn/interrupt', 'thread/compact/start', 'thread/inject_items', 'turn/start']);
         expect(turnInputs[1]).toMatch(/continue the interrupted task/i);
         expect(outputs.filter((output) => output.metadata?.['contextCostRecoveryPaused'])).toEqual([]);
 
@@ -3294,17 +3311,25 @@ describe('CodexCliAdapter', () => {
         params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } },
       });
       await firstTurn;
-      await vi.waitFor(() => expect(client.request).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(client.request).toHaveBeenCalledTimes(3));
 
       client.notificationHandler?.({
         method: 'turn/completed',
         params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } },
       });
       await confirmation;
-      expect(client.request).toHaveBeenCalledTimes(2);
-      expect(client.request.mock.calls[1]?.[1]?.['input']).toEqual(
-        expect.arrayContaining([expect.objectContaining({ text: expect.stringContaining('child-42') })]),
-      );
+      expect(client.request).toHaveBeenCalledTimes(3);
+      // LT-657: the orchestrator response (child results) reaches the parent as
+      // a developer item, and the turn it starts carries no user input.
+      expect(client.request.mock.calls[1]?.[0]).toBe('thread/inject_items');
+      expect(client.request.mock.calls[1]?.[1]?.['items']).toEqual([
+        expect.objectContaining({
+          role: 'developer',
+          content: [expect.objectContaining({ text: expect.stringContaining('child-42') })],
+        }),
+      ]);
+      expect(client.request.mock.calls[2]?.[0]).toBe('turn/start');
+      expect(client.request.mock.calls[2]?.[1]?.['input']).toEqual([]);
     });
 
     it('emits status=idle in app-server mode for response stream disconnect failures', async () => {

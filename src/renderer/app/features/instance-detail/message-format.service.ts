@@ -62,6 +62,22 @@ export class MessageFormatService {
     return null;
   }
 
+  /**
+   * Header label for a transcript message. Harness-authored input (LT-657) is
+   * labelled as Harness so it can never be mistaken for the user's own words.
+   */
+  formatMessageLabel(message: Pick<OutputMessage, 'type' | 'metadata'>, provider: string): string {
+    return message.metadata?.internalInput ? 'Harness (automated)' : this.formatType(message.type, provider);
+  }
+
+  /** Tooltip naming who sent a Harness-authored message; empty for everything else. */
+  describeMessageSender(message: Pick<OutputMessage, 'metadata'>): string {
+    const internal = message.metadata?.internalInput;
+    return internal
+      ? `Sent to the agent automatically by Harness (${internal.source}). This is not a message from you.`
+      : '';
+  }
+
   formatType(type: string, provider: string): string {
     if (type === 'assistant') {
       return this.getProviderDisplayName(provider);

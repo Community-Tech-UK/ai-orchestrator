@@ -67,6 +67,8 @@ export const SETTING_SURFACING = {
   autoTerminateOnMemoryPressure: 'tab',
   persistSessionContent: 'tab',
   cumulativeTokenCompactionTrigger: 'tab',
+  contextSpendRecoveryMinOccupancyPercent: 'tab',
+  contextSpendRecoveryBackstopMultiple: 'tab',
   compactionDecisionLogEnabled: 'tab',
   outputStyle: 'tab',
   fontSize: 'tab',

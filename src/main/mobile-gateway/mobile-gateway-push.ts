@@ -1,7 +1,7 @@
 import * as os from 'os';
 import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
 import type { MobilePromptDto } from '../../shared/types/mobile-gateway.types';
-import type { MobileApnsSender } from './mobile-apns-sender';
+import type { ApnsAlert, ApnsSendResult, MobileApnsSender } from './mobile-apns-sender';
 import type { MobileDeviceRegistry } from './mobile-device-registry';
 import type { SubsystemLogger } from '../logging/logger';
 
@@ -19,12 +19,41 @@ interface MobileGatewayPushDeps {
   logger: SubsystemLogger;
 }
 
+const LIVE_ACTIVITY_THROTTLE_MS = 15_000;
+interface PendingLiveActivity {
+  timer: ReturnType<typeof setTimeout> | null;
+  lastSentAt: number;
+  pending: { deps: MobileGatewayPushDeps; status: string } | null;
+}
+const liveActivityThrottle = new Map<string, PendingLiveActivity>();
+
+function invalidDeviceToken(result: ApnsSendResult): boolean {
+  return result.status === 410 || (
+    result.status === 400 && (result.reason === 'BadDeviceToken' || result.reason === 'Unregistered')
+  );
+}
+
+function sendPersonalizedAlerts(
+  deps: MobileGatewayPushDeps,
+  build: (hostDeviceId: string) => ApnsAlert,
+  logMessage: string,
+): void {
+  const targets = deps.registry.apnsTargets();
+  if (targets.length === 0) return;
+  void Promise.all(targets.map(async ({ deviceId, token }) => {
+    const results = await deps.apnsSender.send([token], build(deviceId));
+    for (const result of results) {
+      if (invalidDeviceToken(result)) deps.registry.clearApnsToken(result.deviceToken);
+    }
+  })).catch((err) => deps.logger.debug(logMessage, {
+    error: err instanceof Error ? err.message : String(err),
+  }));
+}
+
 export function sendMobilePromptPush(deps: MobileGatewayPushDeps, prompt: MobilePromptDto): void {
   try {
     const sender = deps.apnsSender;
     if (!sender.isConfigured()) return;
-    const tokens = deps.registry.apnsTokens();
-    if (tokens.length === 0) return;
     const instance = deps.instanceManager?.getInstance(prompt.instanceId);
     const where = instance?.workingDirectory
       ? crossPlatformBasename(instance.workingDirectory)
@@ -37,8 +66,7 @@ export function sendMobilePromptPush(deps: MobileGatewayPushDeps, prompt: Mobile
           : 'Approval needed'
         : prompt.title;
     const body = where ? `${agent} · ${where}` : agent;
-    void sender
-      .send(tokens, {
+    sendPersonalizedAlerts(deps, (hostDeviceId) => ({
         title,
         body,
         category: 'AIO_APPROVAL',
@@ -49,13 +77,9 @@ export function sendMobilePromptPush(deps: MobileGatewayPushDeps, prompt: Mobile
           kind: prompt.kind,
           // Lets a multi-host phone route one-tap Approve/Deny to this Mac.
           host: os.hostname(),
+          hostDeviceId,
         },
-      })
-      .catch((err) =>
-        deps.logger.debug('APNs send failed', {
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      );
+      }), 'APNs send failed');
   } catch (err) {
     deps.logger.debug('sendPush threw', { error: err instanceof Error ? err.message : String(err) });
   }
@@ -90,32 +114,68 @@ export function sendMobileLiveActivityPush(
   status: string,
   event: 'update' | 'end' = 'update',
 ): void {
+  if (event === 'end') {
+    const state = liveActivityThrottle.get(instanceId);
+    if (state?.timer) clearTimeout(state.timer);
+    liveActivityThrottle.delete(instanceId);
+    performLiveActivityPush(deps, instanceId, status, event);
+    return;
+  }
+  const now = Date.now();
+  const state = liveActivityThrottle.get(instanceId);
+  if (!state || now - state.lastSentAt >= LIVE_ACTIVITY_THROTTLE_MS) {
+    liveActivityThrottle.set(instanceId, { timer: null, lastSentAt: now, pending: null });
+    performLiveActivityPush(deps, instanceId, status, event);
+    return;
+  }
+  state.pending = { deps, status };
+  if (state.timer) return;
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    const pending = state.pending;
+    state.pending = null;
+    if (!pending) return;
+    state.lastSentAt = Date.now();
+    performLiveActivityPush(pending.deps, instanceId, pending.status, 'update');
+  }, Math.max(0, LIVE_ACTIVITY_THROTTLE_MS - (now - state.lastSentAt)));
+  state.timer.unref?.();
+}
+
+function performLiveActivityPush(
+  deps: MobileGatewayPushDeps,
+  instanceId: string,
+  status: string,
+  event: 'update' | 'end',
+): void {
   try {
     const sender = deps.apnsSender;
     if (!sender.isConfigured()) return;
-    const tokens = deps.registry.liveActivityTokensFor(instanceId);
-    if (tokens.length === 0) return;
+    const targets = deps.registry.liveActivityTargetsFor(instanceId);
+    if (targets.length === 0) return;
     const instance = deps.instanceManager?.getInstance(instanceId);
     const where = instance?.workingDirectory
       ? crossPlatformBasename(instance.workingDirectory)
       : '';
     const nowSeconds = Math.floor(Date.now() / 1000);
-    void sender
-      .sendLiveActivity(tokens, {
+    void Promise.all(targets.map(async ({ deviceId, token }) => {
+      const results = await sender.sendLiveActivity([token], {
         event,
         contentState: {
           status: liveActivityStatusLabel(status),
           detail: where,
+          hostDeviceId: deviceId,
         },
+        collapseId: `live-${instanceId}`.slice(0, 64),
         // Grey the activity out if no update lands within 30 minutes.
         staleDate: nowSeconds + 30 * 60,
         ...(event === 'end' ? { dismissalDate: nowSeconds + 5 * 60 } : {}),
-      })
-      .catch((err) =>
-        deps.logger.debug('Live Activity send failed', {
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      );
+      });
+      for (const result of results) {
+        if (invalidDeviceToken(result)) deps.registry.clearLiveActivityToken(result.deviceToken);
+      }
+    })).catch((err) => deps.logger.debug('Live Activity send failed', {
+      error: err instanceof Error ? err.message : String(err),
+    }));
   } catch (err) {
     deps.logger.debug('sendLiveActivityPush threw', {
       error: err instanceof Error ? err.message : String(err),
@@ -144,11 +204,8 @@ export function sendBrowserEscalationPush(
   try {
     const sender = deps.apnsSender;
     if (!sender.isConfigured()) return;
-    const tokens = deps.registry.apnsTokens();
-    if (tokens.length === 0) return;
     const kindLabel = escalation.kind.replace(/_/g, ' ');
-    void sender
-      .send(tokens, {
+    sendPersonalizedAlerts(deps, (hostDeviceId) => ({
         title: `Browser agent parked: ${kindLabel}`,
         body: escalation.reason.slice(0, 160),
         category: 'AIO_BROWSER_ESCALATION',
@@ -157,13 +214,9 @@ export function sendBrowserEscalationPush(
           escalationId: escalation.escalationId,
           kind: 'browser_escalation',
           host: os.hostname(),
+          hostDeviceId,
         },
-      })
-      .catch((err) =>
-        deps.logger.debug('APNs escalation send failed', {
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      );
+      }), 'APNs escalation send failed');
   } catch (err) {
     deps.logger.debug('sendBrowserEscalationPush threw', {
       error: err instanceof Error ? err.message : String(err),
@@ -178,33 +231,38 @@ export function sendMobileCompletionPush(
   try {
     const sender = deps.apnsSender;
     if (!sender.isConfigured()) return;
-    const tokens = deps.registry.apnsTokens();
-    if (tokens.length === 0) return;
     const instance = deps.instanceManager?.getInstance(instanceId);
     const where = instance?.workingDirectory
       ? crossPlatformBasename(instance.workingDirectory)
       : '';
     const agent = instance?.displayName || 'Agent';
-    void sender
-      .send(tokens, {
+    sendPersonalizedAlerts(deps, (hostDeviceId) => ({
         title: `${agent} finished`,
         body: where ? `Idle · ${where}` : 'Ready for your next message',
         category: 'AIO_COMPLETE',
         threadId: instanceId,
+        collapseId: `status-${instanceId}`.slice(0, 64),
         data: {
           instanceId,
           kind: 'completion',
           host: os.hostname(),
+          hostDeviceId,
         },
-      })
-      .catch((err) =>
-        deps.logger.debug('APNs completion send failed', {
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      );
+      }), 'APNs completion send failed');
   } catch (err) {
     deps.logger.debug('sendCompletionPush threw', {
       error: err instanceof Error ? err.message : String(err),
     });
   }
+}
+
+export function clearMobilePushThrottle(): void {
+  for (const state of liveActivityThrottle.values()) {
+    if (state.timer) clearTimeout(state.timer);
+  }
+  liveActivityThrottle.clear();
+}
+
+export function _resetMobilePushThrottleForTesting(): void {
+  clearMobilePushThrottle();
 }

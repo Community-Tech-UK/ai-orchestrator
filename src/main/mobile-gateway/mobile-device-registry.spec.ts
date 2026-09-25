@@ -90,6 +90,51 @@ describe('MobileDeviceRegistry', () => {
     expect(registry.setApnsToken(result.device.deviceId, 'apns-abc')).toBe(true);
     expect(registry.listDevices()[0].hasApnsToken).toBe(true);
     expect(registry.getDeviceById(result.device.deviceId)?.apnsToken).toBe('apns-abc');
+    expect(registry.apnsTargets()).toEqual([{ deviceId: result.device.deviceId, token: 'apns-abc' }]);
+    expect(registry.clearApnsToken('apns-abc')).toBe(true);
+    expect(registry.apnsTargets()).toEqual([]);
+  });
+
+  it('clears every legacy device record containing the same rejected APNs token', () => {
+    const now = Date.now();
+    persistence.save(JSON.stringify([
+      {
+        deviceId: 'legacy-a', label: 'A', token: 'auth-a', apnsToken: 'duplicate-invalid',
+        createdAt: now, lastSeenAt: now, expiresAt: now + 60_000, tokenTtlMs: 60_000,
+      },
+      {
+        deviceId: 'legacy-b', label: 'B', token: 'auth-b', apnsToken: 'duplicate-invalid',
+        createdAt: now, lastSeenAt: now, expiresAt: now + 60_000, tokenTtlMs: 60_000,
+      },
+      {
+        deviceId: 'other', label: 'Other', token: 'auth-other', apnsToken: 'unrelated',
+        createdAt: now, lastSeenAt: now, expiresAt: now + 60_000, tokenTtlMs: 60_000,
+      },
+    ]));
+    registry = new MobileDeviceRegistry(persistence);
+
+    expect(registry.clearApnsToken('duplicate-invalid')).toBe(true);
+    expect(registry.apnsTargets()).toEqual([{ deviceId: 'other', token: 'unrelated' }]);
+  });
+
+  it('moves a physical APNs token to the newest pairing', () => {
+    const firstPairing = registry.issuePairing();
+    const first = registry.pair({ pairingToken: firstPairing.pairingToken });
+    const secondPairing = registry.issuePairing();
+    const second = registry.pair({ pairingToken: secondPairing.pairingToken });
+    if (first.status !== 'paired' || second.status !== 'paired') throw new Error('expected pairings to succeed');
+
+    expect(registry.setApnsToken(first.device.deviceId, 'same-phone-token')).toBe(true);
+    expect(registry.setLiveActivityToken(first.device.deviceId, 'inst-1', 'activity-token')).toBe(true);
+    expect(registry.setApnsToken(second.device.deviceId, 'same-phone-token')).toBe(true);
+
+    expect(registry.apnsTargets()).toEqual([
+      { deviceId: second.device.deviceId, token: 'same-phone-token' },
+    ]);
+    expect(registry.getDeviceById(first.device.deviceId)?.apnsToken).toBeUndefined();
+    expect(registry.liveActivityTargetsFor('inst-1')).toEqual([
+      { deviceId: second.device.deviceId, token: 'activity-token' },
+    ]);
   });
 
   describe('expiry (fake timers)', () => {
@@ -182,11 +227,11 @@ describe('live activity tokens', () => {
     registry = new MobileDeviceRegistry(persistence);
   });
 
-  function pairDevice(): { deviceId: string } {
+  function pairDevice(): { deviceId: string; token: string } {
     const pairing = registry.issuePairing();
     const result = registry.pair({ pairingToken: pairing.pairingToken, label: 'phone' });
     if (result.status !== 'paired') throw new Error('pairing failed');
-    return { deviceId: result.device.deviceId };
+    return { deviceId: result.device.deviceId, token: result.device.token };
   }
 
   it('stores, retrieves and clears per-instance activity tokens', () => {
@@ -208,7 +253,101 @@ describe('live activity tokens', () => {
     expect(registry.liveActivityTokensFor('inst-1')).toEqual([]);
   });
 
+  it('clears an invalid activity token by value', () => {
+    const { deviceId } = pairDevice();
+    registry.setLiveActivityToken(deviceId, 'inst-1', 'dead-token');
+
+    expect(registry.clearLiveActivityToken('dead-token')).toBe(true);
+    expect(registry.liveActivityTokensFor('inst-1')).toEqual([]);
+  });
+
   it('rejects tokens for unknown devices', () => {
     expect(registry.setLiveActivityToken('ghost', 'inst-1', 'tok')).toBe(false);
+  });
+
+  it('reattaches activity tokens after the old pairing was revoked', () => {
+    const old = pairDevice();
+    registry.setApnsToken(old.deviceId, 'physical-token');
+    registry.setLiveActivityToken(old.deviceId, 'inst-1', 'activity-token');
+    registry.revokeDevice(old.deviceId);
+    expect(registry.liveActivityTargetsFor('inst-1')).toEqual([]);
+
+    const replacement = pairDevice();
+    registry.setApnsToken(replacement.deviceId, 'physical-token');
+
+    expect(registry.liveActivityTargetsFor('inst-1')).toEqual([
+      { deviceId: replacement.deviceId, token: 'activity-token' },
+    ]);
+  });
+
+  it('does not resurrect an ended activity from a revoked pairing', () => {
+    const old = pairDevice();
+    registry.setApnsToken(old.deviceId, 'physical-token');
+    registry.setLiveActivityToken(old.deviceId, 'ended-instance', 'stale-activity-token');
+    registry.revokeDevice(old.deviceId);
+    registry.clearLiveActivityTokensForInstance('ended-instance');
+
+    const replacement = pairDevice();
+    registry.setApnsToken(replacement.deviceId, 'physical-token');
+
+    expect(registry.liveActivityTargetsFor('ended-instance')).toEqual([]);
+  });
+
+  it('purges retired activities when APNs rejects the physical device token', () => {
+    const old = pairDevice();
+    registry.setApnsToken(old.deviceId, 'invalid-physical-token');
+    registry.setLiveActivityToken(old.deviceId, 'inst-1', 'activity-token');
+    registry.revokeDevice(old.deviceId);
+
+    expect(registry.clearApnsToken('invalid-physical-token')).toBe(true);
+    const replacement = pairDevice();
+    registry.setApnsToken(replacement.deviceId, 'invalid-physical-token');
+    expect(registry.liveActivityTargetsFor('inst-1')).toEqual([]);
+  });
+
+  it('purges a retired activity token when ActivityKit APNs rejects it', () => {
+    const first = pairDevice();
+    registry.setApnsToken(first.deviceId, 'physical-token-a');
+    registry.setLiveActivityToken(first.deviceId, 'inst-1', 'invalid-activity-token');
+    registry.setLiveActivityToken(first.deviceId, 'inst-safe', 'valid-activity-token');
+    registry.revokeDevice(first.deviceId);
+    const second = pairDevice();
+    registry.setApnsToken(second.deviceId, 'physical-token-b');
+    registry.setLiveActivityToken(second.deviceId, 'inst-2', 'invalid-activity-token');
+    registry.revokeDevice(second.deviceId);
+
+    expect(registry.clearLiveActivityToken('invalid-activity-token')).toBe(true);
+    const replacementA = pairDevice();
+    registry.setApnsToken(replacementA.deviceId, 'physical-token-a');
+    const replacementB = pairDevice();
+    registry.setApnsToken(replacementB.deviceId, 'physical-token-b');
+    expect(registry.liveActivityTargetsFor('inst-1')).toEqual([]);
+    expect(registry.liveActivityTargetsFor('inst-2')).toEqual([]);
+    expect(registry.liveActivityTargetsFor('inst-safe')).toEqual([
+      { deviceId: replacementA.deviceId, token: 'valid-activity-token' },
+    ]);
+  });
+
+  it('reattaches activity tokens after the old pairing expired', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-25T12:00:00Z'));
+    try {
+      const pairing = registry.issuePairing();
+      const old = registry.pair({ pairingToken: pairing.pairingToken, tokenTtlMs: 60_000 });
+      if (old.status !== 'paired') throw new Error('pairing failed');
+      registry.setApnsToken(old.device.deviceId, 'physical-token');
+      registry.setLiveActivityToken(old.device.deviceId, 'inst-1', 'activity-token');
+      vi.advanceTimersByTime(60_001);
+      expect(registry.validateToken(old.device.token)).toBeNull();
+
+      const replacement = pairDevice();
+      registry.setApnsToken(replacement.deviceId, 'physical-token');
+
+      expect(registry.liveActivityTargetsFor('inst-1')).toEqual([
+        { deviceId: replacement.deviceId, token: 'activity-token' },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

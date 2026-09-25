@@ -4,6 +4,7 @@ import type {
   AutomationRun,
 } from '../../shared/types/automation.types';
 import type { InstanceManager } from '../instance/instance-manager';
+import { automatedResendInput } from '../instance/internal-input-provenance';
 import { getLogger } from '../logging/logger';
 import type { SessionRevivalService } from '../session/session-revival-service';
 import type { AutomationStore } from './automation-store';
@@ -71,11 +72,14 @@ export class ThreadWakeupRunner {
     }
 
     try {
+      // A provider-limit resume automation can carry a Harness-authored turn;
+      // user-written automation prompts pass through unchanged (LT-657).
+      const delivery = automatedResendInput(automation.action.prompt);
       await this.instanceManager.sendInput(
         instanceId,
-        automation.action.prompt,
+        delivery.message,
         automation.action.attachments,
-        { automatedInput: true },
+        delivery.options,
       );
       getSessionAdmissionService().markDelivered(admission.admissionId);
       const summary = `Wakeup prompt delivered to thread ${instanceId}.`;
@@ -97,8 +101,9 @@ export class ThreadWakeupRunner {
   }
 
   private handleRedelivery(ctx: RedeliveryContext): void {
+    const delivery = automatedResendInput(ctx.message);
     void this.instanceManager
-      .sendInput(ctx.instanceId, ctx.message, ctx.attachments, { automatedInput: true })
+      .sendInput(ctx.instanceId, delivery.message, ctx.attachments, delivery.options)
       .then(() => getSessionAdmissionService().markDelivered(ctx.admissionId))
       .catch((error: unknown) => {
         getSessionAdmissionService().markFailed(

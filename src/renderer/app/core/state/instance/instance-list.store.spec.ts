@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IpcFacadeService } from '../../services/ipc';
 import { ProviderStateService } from '../../services/provider-state.service';
+import { getInstanceThreadId } from '../../../features/instance-list/instance-list.types';
 import { InstanceListStore } from './instance-list.store';
 import { InstanceStateService } from './instance-state.service';
 
@@ -228,6 +229,36 @@ describe('InstanceListStore', () => {
       if (intentionallyExcluded.has(key)) continue;
       expect(instance[key], `field "${key}" should survive deserializeInstance()`).toEqual(value);
     }
+  });
+
+  /**
+   * Main deliberately omits `sessionId`, `providerSessionId` and
+   * `historyThreadId` from a crash-recovery instance's IPC payload
+   * (`InstanceStateManager.serializeForIpc`). Passing those `undefined`s
+   * through as the `string` fields `Instance` promises made the project rail's
+   * `getInstanceThreadId()` throw on `.trim()`, which froze the whole rail: no
+   * live session in any project appeared until the recovered one closed.
+   */
+  it('gives a redacted crash-recovery payload empty-string identities and an id-based thread', () => {
+    const instance = store.deserializeInstance({
+      id: 'recovered-instance',
+      displayName: 'Recovered thread',
+      createdAt: 1,
+      parentId: null,
+      childrenIds: [],
+      status: 'busy',
+      lastActivity: 2,
+      workingDirectory: '/tmp/project',
+      yoloMode: true,
+      provider: 'codex',
+      metadata: { reason: 'crash-recovery', continuityRevival: true },
+      outputBuffer: [],
+    });
+
+    expect(instance.historyThreadId).toBe('');
+    expect(instance.sessionId).toBe('');
+    expect(instance.providerSessionId).toBe('');
+    expect(getInstanceThreadId(instance)).toBe('recovered-instance');
   });
 
   it('carries selfManagesAutoCompaction from the snapshot payload', () => {

@@ -50,6 +50,7 @@ export class InstanceCommunicationOverflowPolicy {
     message: string;
     attachments?: FileAttachment[];
     contextBlock?: string | null;
+    internalSource?: LastSentTurn['internalSource'];
     adapter: CliAdapter;
     beforeRetry?: () => void;
     extraFields?: Record<string, unknown>;
@@ -65,6 +66,7 @@ export class InstanceCommunicationOverflowPolicy {
         message: opts.message,
         attachments: opts.attachments,
         contextBlock: opts.contextBlock,
+        internalSource: opts.internalSource,
       },
       adapter: opts.adapter,
       beforeRetry: opts.beforeRetry,
@@ -190,7 +192,12 @@ export class InstanceCommunicationOverflowPolicy {
         this.host.transitionInstanceStatus(opts.instance, 'busy');
         this.host.queueUpdate(opts.instanceId, 'busy');
         opts.beforeRetry?.();
-        opts.adapter.sendInput(retryMessage, opts.retryTurn.attachments).catch((retryErr) => {
+        // LT-657: a retried Harness turn keeps its developer-channel provenance.
+        const internalSource = opts.retryTurn.internalSource;
+        const retry = internalSource
+          ? opts.adapter.sendInput(retryMessage, opts.retryTurn.attachments, { internalSource })
+          : opts.adapter.sendInput(retryMessage, opts.retryTurn.attachments);
+        retry.catch((retryErr) => {
           logger.error(
             sendInputPath ? 'Retry after compaction failed (sendInput path)' : 'Retry after compaction failed',
             retryErr instanceof Error ? retryErr : undefined,

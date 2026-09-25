@@ -271,7 +271,7 @@ function responseItemToLedgerMessage(
 ): ConversationMessageUpsertInput | null {
   if (itemType === 'message') {
     const content = extractResponseContent(payload['content']) ?? stringValue(payload['text']);
-    const role = stringValue(payload['role']) === 'user' ? 'user' : 'assistant';
+    const role = rolloutMessageRole(stringValue(payload['role']));
     return content ? makeMessage(role, content, entry, raw, currentTurnId, createdAt, sequence, sourcePath, lineNumber, stringValue(payload['phase'])) : null;
   }
   if (itemType === 'reasoning') {
@@ -288,6 +288,17 @@ function responseItemToLedgerMessage(
     return output ? makeMessage('tool', output, entry, raw, currentTurnId, createdAt, sequence, sourcePath, lineNumber) : null;
   }
   return null;
+}
+
+/**
+ * Maps a rollout message role onto the ledger. `developer`/`system` items are
+ * Harness or provider instructions (LT-657: context-policy steers now arrive as
+ * developer items) and must never be imported as the user or the assistant.
+ */
+function rolloutMessageRole(role: string | null): ConversationMessageUpsertInput['role'] {
+  if (role === 'user') return 'user';
+  if (role === 'developer' || role === 'system') return 'system';
+  return 'assistant';
 }
 
 function makeMessage(

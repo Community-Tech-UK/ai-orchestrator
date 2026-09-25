@@ -506,6 +506,7 @@ describe('InstanceAnnounceThenHaltContinuation', () => {
       undefined,
       {
         autoContinuation: true,
+        internalSource: 'announce-then-halt-continuation',
         signal: expect.any(AbortSignal),
         beforeProviderDispatch: expect.any(Function),
       },

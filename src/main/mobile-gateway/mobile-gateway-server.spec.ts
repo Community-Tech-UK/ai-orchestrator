@@ -668,6 +668,33 @@ describe('MobileGatewayServer', () => {
     expect(msgs.map((m) => m.id)).toEqual(['m0', 'm1', 'm2']);
   });
 
+  it('returns cursor generations in the opt-in full transcript envelope', async () => {
+    source.instances = [inst({
+      id: 'a',
+      adapterGeneration: 4,
+      outputBuffer: [
+        { id: 'm0', timestamp: 1, type: 'assistant', content: 'zero' },
+        { id: 'm1', timestamp: 2, type: 'assistant', content: 'one' },
+      ],
+    } as Partial<Instance>)];
+    const token = await pairToken();
+
+    const res = await authed(token, '/api/instances/a/messages?withCursor=1');
+    const envelope = (await res.json()) as MobileMessagesResumeDto;
+
+    expect(envelope.messages.map((message) => message.seq)).toEqual([0, 1]);
+    expect(envelope.meta).toMatchObject({
+      fromSeq: -1,
+      returned: 2,
+      hasMore: false,
+      maxSeq: 1,
+      bufferGeneration: 0,
+      cursorEpoch: expect.any(String),
+      adapterGeneration: 4,
+      streamSeq: -1,
+    });
+  });
+
   it('seq on legacy path reflects the actual buffer start index when buffer > REPLAY_LIMIT', async () => {
     // Build a buffer of 305 messages to exceed MESSAGE_REPLAY_LIMIT (300).
     const bigBuffer = Array.from({ length: 305 }, (_, i) => ({
@@ -737,6 +764,23 @@ describe('MobileGatewayServer', () => {
     expect(envelope.meta.maxSeq).toBe(2);
   });
 
+  it('includeFrom replays the last confirmed buffer entry for streaming revisions', async () => {
+    source.instances = [inst({
+      id: 'a',
+      outputBuffer: [
+        { id: 'stream', timestamp: 1, type: 'assistant', content: 'Hello' },
+        { id: 'next', timestamp: 2, type: 'assistant', content: 'Next' },
+      ],
+    } as Partial<Instance>)];
+    const token = await pairToken();
+
+    const res = await authed(token, '/api/instances/a/messages?fromSeq=0&includeFrom=1');
+    const envelope = (await res.json()) as MobileMessagesResumeDto;
+
+    expect(envelope.messages.map((message) => message.seq)).toEqual([0, 1]);
+    expect(envelope.messages.map((message) => message.content)).toEqual(['Hello', 'Next']);
+  });
+
   it('fromSeq=N beyond the end returns empty messages without error', async () => {
     source.instances = [
       inst({
@@ -756,6 +800,22 @@ describe('MobileGatewayServer', () => {
     expect(envelope.meta.hasMore).toBe(false);
     // maxSeq falls back to fromSeq when nothing returned.
     expect(envelope.meta.maxSeq).toBe(99);
+  });
+
+  it('marks a reset when a previously populated output buffer becomes empty', async () => {
+    source.instances = [inst({
+      id: 'a',
+      outputBuffer: [{ id: 'm0', timestamp: 1, type: 'assistant', content: 'zero' }],
+    } as Partial<Instance>)];
+    const token = await pairToken();
+    await authed(token, '/api/instances/a/messages');
+    source.instances[0].outputBuffer = [];
+
+    const res = await authed(token, '/api/instances/a/messages?fromSeq=7');
+    const envelope = (await res.json()) as MobileMessagesResumeDto;
+
+    expect(envelope.messages).toEqual([]);
+    expect(envelope.meta.bufferReset).toBe(true);
   });
 
   it('fromSeq with garbage value is handled safely (treated as 0)', async () => {
@@ -1852,9 +1912,10 @@ describe('MobileGatewayServer', () => {
 
   it('does not send a completion push for idle without a prior working status', async () => {
     const { posts } = await setupPushDevice();
+    source.instances.push(inst({ id: 'idle-only', status: 'idle' }));
 
-    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
-    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    source.emit('instance:state-update', { instanceId: 'idle-only', status: 'idle' });
+    source.emit('instance:state-update', { instanceId: 'idle-only', status: 'idle' });
     await new Promise((r) => setTimeout(r, 50));
 
     expect(posts).toHaveLength(0);
@@ -1887,8 +1948,9 @@ describe('MobileGatewayServer', () => {
 
   it('does not raise hasUnreadCompletion for idle without a prior working status', async () => {
     const token = await pairToken();
-    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
-    expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(false);
+    source.instances.push(inst({ id: 'idle-only', status: 'idle' }));
+    source.emit('instance:state-update', { instanceId: 'idle-only', status: 'idle' });
+    expect((await snapshotInstance(token, 'idle-only'))?.hasUnreadCompletion).toBe(false);
   });
 
   it('clears hasUnreadCompletion once the phone fetches the transcript', async () => {

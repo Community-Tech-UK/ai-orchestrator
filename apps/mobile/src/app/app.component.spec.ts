@@ -22,6 +22,17 @@ function setup() {
   const dataHostId = signal(HOST.id);
   const respond = vi.fn<() => Promise<void>>();
   const navigate = vi.fn();
+  const endedSession = signal(false);
+  const unknownHost = signal(false);
+  const hostUnavailable = signal(false);
+  const push = {
+    init: vi.fn(), endedSession, unknownHost, hostUnavailable,
+    dismissRoutingIssue: vi.fn(() => {
+      endedSession.set(false); unknownHost.set(false); hostUnavailable.set(false);
+    }),
+    retryNotificationRouting: vi.fn(),
+    openEndedSessionHistory: vi.fn(), openEndedSessionProjects: vi.fn(),
+  };
   const snapshot = signal<MobileSnapshot>({
     hostName: HOST.name, serverTime: 1, projects: [], prompts: [PROMPT],
     pause: { isPaused: false, reasons: [], pausedAt: null, lastChange: 0 },
@@ -34,7 +45,7 @@ function setup() {
     { provide: Router, useValue: { navigate } },
     { provide: AppLockService, useValue: { locked: signal(false), init: vi.fn().mockResolvedValue(undefined) } },
     { provide: LiveActivityService, useValue: { init: vi.fn() } },
-    { provide: PushService, useValue: { init: vi.fn() } },
+    { provide: PushService, useValue: push },
     { provide: ResumeService, useValue: { restore: vi.fn() } },
   ] });
   // Keep the real app template/store; child rendering has its own contract tests.
@@ -42,10 +53,52 @@ function setup() {
   const fixture = TestBed.createComponent(AppComponent);
   const store = TestBed.inject(ApprovalPresentationStore);
   fixture.detectChanges();
-  return { fixture, store, prompts, activeHost, dataHostId, respond, navigate };
+  return {
+    fixture, store, prompts, activeHost, dataHostId, respond, navigate, push,
+    endedSession, unknownHost, hostUnavailable,
+  };
 }
 
 describe('AppComponent approval wiring', () => {
+  it('offers History and Projects when a push targets an ended session', () => {
+    const { fixture, push, endedSession } = setup();
+    endedSession.set(true);
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent;
+    expect(fixture.nativeElement.querySelector('app-mobile-sheet')?.getAttribute('ng-reflect-label')
+      ?? fixture.nativeElement.querySelector('app-mobile-sheet')?.getAttribute('label'))
+      .toContain('This session has ended');
+    expect(text).toContain('History');
+    expect(text).toContain('Projects');
+    const buttons = [...fixture.nativeElement.querySelectorAll('button')] as HTMLButtonElement[];
+    buttons.find((button) => button.textContent?.trim() === 'History')?.click();
+    expect(push.openEndedSessionHistory).toHaveBeenCalled();
+  });
+
+  it('explains that the sending host must be paired when a push targets an unknown host', () => {
+    const { fixture, unknownHost } = setup();
+    unknownHost.set(true);
+    fixture.detectChanges();
+
+    const sheet = fixture.nativeElement.querySelector('app-mobile-sheet');
+    expect(sheet?.getAttribute('ng-reflect-label') ?? sheet?.getAttribute('label'))
+      .toContain('Host not paired');
+    expect(fixture.nativeElement.textContent).toContain('pair this host');
+  });
+
+  it('offers a retry when the paired host cannot be reached', () => {
+    const { fixture, push, hostUnavailable } = setup();
+    hostUnavailable.set(true);
+    fixture.detectChanges();
+
+    const sheet = fixture.nativeElement.querySelector('app-mobile-sheet');
+    expect(sheet?.getAttribute('ng-reflect-label') ?? sheet?.getAttribute('label'))
+      .toContain('Host unavailable');
+    const buttons = [...fixture.nativeElement.querySelectorAll('button')] as HTMLButtonElement[];
+    buttons.find((button) => button.textContent?.trim() === 'Retry')?.click();
+    expect(push.retryNotificationRouting).toHaveBeenCalledOnce();
+  });
   it('passes host, project and session context into every approval', () => {
     const { fixture } = setup();
     expect(fixture.debugElement.query((node) => node.name === 'app-approval-sheet').properties['context'])

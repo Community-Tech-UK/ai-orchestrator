@@ -8,6 +8,7 @@ import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import {
   applyCompaction,
+  CONTEXT_POLICY_STEER_NOTICE,
   recordProviderThreadCompactionMarker,
   setCompactionMarkerRecorderForTesting,
   setupCompactionCoordinator,
@@ -74,6 +75,30 @@ describe('setupCompactionCoordinator', () => {
     setCompactionMarkerRecorderForTesting(null);
     CompactionCoordinator._resetForTesting();
     vi.restoreAllMocks();
+  });
+
+  it('applies the spend-recovery limit settings at startup and when either one changes', () => {
+    const values: Record<string, number> = {
+      contextSpendRecoveryMinOccupancyPercent: 40,
+      contextSpendRecoveryBackstopMultiple: 12,
+    };
+    settingsManagerMock.get.mockImplementation(((key: string) => values[key] ?? 0) as () => number);
+    const setLimits = vi.spyOn(CompactionCoordinator.getInstance(), 'setCumulativeRecoveryLimits');
+
+    setupCompactionCoordinator({} as InstanceManager, makeWindowManager());
+    expect(setLimits).toHaveBeenLastCalledWith({ minOccupancyPercent: 40, backstopMultiple: 12 });
+
+    const listeners = settingsManagerMock.on.mock.calls
+      .filter(([event]) => event === 'setting-changed')
+      .map(([, listener]) => listener as (key: string) => void);
+    setLimits.mockClear();
+    listeners.forEach((listener) => listener('fontSize'));
+    expect(setLimits).not.toHaveBeenCalled();
+
+    values['contextSpendRecoveryBackstopMultiple'] = 20;
+    listeners.forEach((listener) => listener('contextSpendRecoveryBackstopMultiple'));
+    expect(setLimits).toHaveBeenCalledOnce();
+    expect(setLimits).toHaveBeenLastCalledWith({ minOccupancyPercent: 40, backstopMultiple: 20 });
   });
 
   it('uses adapter compactContext directly when the adapter exposes a programmatic hook', async () => {
@@ -177,6 +202,8 @@ describe('setupCompactionCoordinator', () => {
       getRuntimeSnapshot: vi.fn(() => ({ turnPhase: 'running' })),
     };
     const instance = { id: 'inst-boundary', contextEvidence: { mode: 'enforce' } };
+    const sendInput = vi.fn();
+    const emitSystemMessage = vi.fn();
     const instanceManager = {
       getAdapterRuntimeCapabilities: vi.fn(() => ({
         supportsNativeCompaction: true,
@@ -184,7 +211,8 @@ describe('setupCompactionCoordinator', () => {
       })),
       getAdapter: vi.fn(() => adapter),
       getInstance: vi.fn(() => instance),
-      sendInput: vi.fn(),
+      sendInput,
+      emitSystemMessage,
       emitOutputMessage: vi.fn(),
     } as unknown as InstanceManager;
 
@@ -196,6 +224,13 @@ describe('setupCompactionCoordinator', () => {
     await coordinator.drainPolicyDecisions('inst-boundary');
     expect(executeContextAction).toHaveBeenCalledWith('steer-turn');
     expect(compactContext).not.toHaveBeenCalled();
+    // LT-657: the steer reaches the agent through the adapter's policy channel
+    // only; the transcript records it as a Harness notice, never as user input.
+    expect(sendInput).not.toHaveBeenCalled();
+    expect(emitSystemMessage).toHaveBeenCalledWith('inst-boundary', CONTEXT_POLICY_STEER_NOTICE, {
+      internalInput: { actor: 'harness', source: 'context-policy' },
+    });
+    expect(CONTEXT_POLICY_STEER_NOTICE).toContain('not a message from you');
 
     adapter.getRuntimeSnapshot.mockReturnValue({ turnPhase: 'idle' });
     coordinator.onContextUpdate('inst-boundary', pressure);
@@ -543,7 +578,7 @@ describe('setupCompactionCoordinator', () => {
       'inst-1',
       expect.stringContaining('[Context Compaction Continuity Package]'),
       undefined,
-      { automatedInput: true },
+      { automatedInput: true, internalSource: 'compaction-continuity' },
     );
     // Real compaction → boundary marker should be emitted.
     expect(emitOutputMessage).toHaveBeenCalledWith(

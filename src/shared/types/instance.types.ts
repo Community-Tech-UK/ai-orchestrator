@@ -7,6 +7,7 @@ import type { ActivityState } from './activity.types';
 import type { ImageResolveFailureReason, ImageResolveKind } from '@contracts/schemas/image';
 import type { InstanceStatus } from '@contracts/types/instance-events';
 import type { CanonicalCliType } from './settings.types';
+import type { InternalInputMetadata } from './input-provenance.types';
 import type {
   TerminationPolicy,
   ContextInheritanceConfig,
@@ -251,7 +252,11 @@ export interface OutputMessage {
   timestamp: number;
   type: 'assistant' | 'user' | 'system' | 'tool_use' | 'tool_result' | 'tool_outcome' | 'error';
   content: string;
-  metadata?: Record<string, unknown> & { crossSessionMessage?: CrossSessionMessageMetadata };
+  metadata?: Record<string, unknown> & {
+    crossSessionMessage?: CrossSessionMessageMetadata;
+    /** Set when Harness authored this input (LT-657); such messages are `type: 'system'`. */
+    internalInput?: InternalInputMetadata;
+  };
   /** File attachments associated with this message. */
   attachments?: FileAttachment[];
   /** Image references that failed to resolve into inline attachments. */

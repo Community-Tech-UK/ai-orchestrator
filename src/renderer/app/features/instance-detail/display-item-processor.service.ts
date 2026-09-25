@@ -491,7 +491,10 @@ export class DisplayItemProcessor {
   }
 
   private getItemSenderType(item: DisplayItem): string | null {
-    if (item.type === 'message' && item.message) return item.message.type;
+    if (item.type === 'message' && item.message) {
+      // Harness-authored input keeps its own header even after a system notice (LT-657).
+      return item.message.metadata?.internalInput ? 'harness' : item.message.type;
+    }
     if (item.type === 'plan-update') return null;
     if (item.type === 'thought-group') return null;
     if (item.type === 'tool-group') return 'tool';

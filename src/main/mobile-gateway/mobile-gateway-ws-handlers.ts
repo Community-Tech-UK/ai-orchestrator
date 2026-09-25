@@ -112,6 +112,13 @@ export function handleWsClientMessage(deps: WsHandlerDeps, ws: WebSocket, data: 
           ? Buffer.from(data).toString('utf8')
           : String(data);
     const event = JSON.parse(raw) as MobileClientEvent;
+    if (event?.type === 'ping') {
+      ws.send(JSON.stringify({
+        type: 'pong',
+        data: { sentAt: Number.isFinite(event.sentAt) ? event.sentAt : Date.now() },
+      } satisfies MobileServerEvent));
+      return;
+    }
     if (event?.type === 'view') {
       const id = typeof event.instanceId === 'string' && event.instanceId ? event.instanceId : null;
       if (id) {

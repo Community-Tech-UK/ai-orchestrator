@@ -4,6 +4,7 @@ import { signal } from '@angular/core';
 import { GatewayClient } from './gateway-client.service';
 import { HostStore } from './host-store';
 import type { PairedHost } from './models';
+import { MOBILE_REQUEST_TIMEOUT_MS } from './gateway-request-state';
 
 const HOST: PairedHost = {
   id: 'h1',
@@ -161,7 +162,7 @@ describe('GatewayClient rejected-token REST handling', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Unauthorized' }, false, 401));
 
     await expect(
-      client.respondFromPush('mac', 'a', {
+      client.respondFromPush(undefined, 'mac', 'a', {
         requestId: 'r1',
         decisionAction: 'allow',
         decisionScope: 'once',
@@ -169,6 +170,71 @@ describe('GatewayClient rejected-token REST handling', () => {
     ).rejects.toThrow(/no longer paired/);
 
     expect(client.state()).toBe('unauthorized');
+  });
+
+  it('routes push approval by host device id when two hosts share a name', async () => {
+    TestBed.resetTestingModule();
+    const twin = { ...HOST, id: 'h2', host: '100.64.0.2' };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    TestBed.configureTestingModule({ providers: [
+      { provide: HostStore, useValue: { hosts: signal([HOST, twin]), activeHost: signal(HOST) } },
+    ] });
+    const scopedClient = TestBed.inject(GatewayClient);
+
+    await scopedClient.respondFromPush('h2', 'mac', 'a', {
+      requestId: 'r1', decisionAction: 'allow', decisionScope: 'once',
+    });
+
+    expect(fetchMock.mock.calls[0]![0]).toBe('http://100.64.0.2:8899/api/instances/a/respond');
+  });
+
+  it('does not fall back to a same-named host when a supplied device id is unknown', async () => {
+    TestBed.resetTestingModule();
+    const twin = { ...HOST, id: 'h2', host: '100.64.0.2' };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    TestBed.configureTestingModule({ providers: [
+      { provide: HostStore, useValue: { hosts: signal([HOST, twin]), activeHost: signal(HOST) } },
+    ] });
+    const scopedClient = TestBed.inject(GatewayClient);
+
+    await expect(scopedClient.respondFromPush('missing-host-id', 'mac', 'a', {
+      requestId: 'r1', decisionAction: 'allow', decisionScope: 'once',
+    })).rejects.toThrow('not paired');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects an ambiguous legacy hostname instead of choosing the first match', async () => {
+    TestBed.resetTestingModule();
+    const twin = { ...HOST, id: 'h2', host: '100.64.0.2' };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    TestBed.configureTestingModule({ providers: [
+      { provide: HostStore, useValue: { hosts: signal([HOST, twin]), activeHost: signal(HOST) } },
+    ] });
+    const scopedClient = TestBed.inject(GatewayClient);
+
+    await expect(scopedClient.respondFromPush(undefined, 'mac', 'a', {
+      requestId: 'r1', decisionAction: 'allow', decisionScope: 'once',
+    })).rejects.toThrow('not paired');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('bounds a stalled push quick action so the UI can recover', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockReturnValueOnce(new Promise<Response>(() => undefined));
+
+    const pending = client.respondFromPush('h1', undefined, 'a', {
+      requestId: 'r1', decisionAction: 'allow', decisionScope: 'once',
+    });
+    const rejected = expect(pending).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(MOBILE_REQUEST_TIMEOUT_MS);
+
+    await rejected;
+    vi.useRealTimers();
   });
 
   /**

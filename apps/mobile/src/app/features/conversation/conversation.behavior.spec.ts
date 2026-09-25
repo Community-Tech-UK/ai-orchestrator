@@ -1,15 +1,13 @@
 import { signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { Router } from '@angular/router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HostStore } from '../../core/host-store';
 import { DraftStore } from '../../core/draft-store';
-import { ApprovalPresentationStore } from '../../core/approval-presentation.store';
 import { VoiceInputService } from '../../core/voice-input.service';
 import { ImageAttachmentService } from '../../core/image-attachment.service';
 import { HapticsService } from '../../core/haptics.service';
-import { ConversationComponent } from './conversation.component';
+import { ConversationComposerComponent } from './conversation-composer.component';
 
 await resolveComponentResources(() => Promise.resolve(''));
 
@@ -19,19 +17,19 @@ function setup(load: (key: string) => Promise<string> = async () => '', voiceOve
   const gateway = { sendInput, snapshot: signal(null), online: signal(true), state: signal('connected'),
     dataHostId: signal('preview-host'), setActiveView: vi.fn(), clearActiveView: vi.fn(),
     messagesFor: () => [], loadMessages: vi.fn(), messageStateFor: () => ({ status: 'loaded', error: null }) };
-  TestBed.overrideComponent(ConversationComponent, { set: { template: '', imports: [], styleUrls: [] } });
+  TestBed.overrideComponent(ConversationComposerComponent, { set: { template: '', imports: [], styleUrls: [] } });
   TestBed.configureTestingModule({ providers: [
     { provide: GatewayClient, useValue: gateway },
     { provide: HostStore, useValue: { activeHost: host } },
     { provide: DraftStore, useValue: { load, save: vi.fn(), attachments: () => [], saveAttachments: vi.fn() } },
-    { provide: ApprovalPresentationStore, useValue: { requests: signal([]), open: vi.fn() } },
     { provide: VoiceInputService, useValue: voiceOverride ?? { available: false, listening: signal(false), text: signal(''), stop: vi.fn() } },
     { provide: ImageAttachmentService, useValue: { available: false } },
     { provide: HapticsService, useValue: { tap: vi.fn(), error: vi.fn(), heavyTap: vi.fn(), success: vi.fn() } },
-    { provide: Router, useValue: { getCurrentNavigation: () => null, navigate: vi.fn(), navigateByUrl: vi.fn() } },
   ] });
-  const fixture = TestBed.createComponent(ConversationComponent);
-  Object.defineProperty(fixture.componentInstance, 'instanceId', { value: signal('preview-session') });
+  const fixture = TestBed.createComponent(ConversationComposerComponent);
+  fixture.componentRef.setInput('instanceId', 'preview-session');
+  fixture.componentRef.setInput('activityLabel', 'running');
+  fixture.detectChanges();
   const component = fixture.componentInstance as unknown as {
     draft: ReturnType<typeof signal<string>>;
     notice: () => string | null;

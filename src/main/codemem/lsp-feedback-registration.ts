@@ -20,6 +20,7 @@ import { getLogger } from '../logging/logger';
 import { getLspManager } from '../workspace/lsp-manager';
 import { LspFeedbackCoordinator, type LspDiagnostic, type LspSeverity } from './lsp-feedback-coordinator';
 import { getSessionAdmissionService } from '../session/session-admission-service';
+import type { InternalInputSource } from '../../shared/types/input-provenance.types';
 
 const logger = getLogger('LspFeedbackReg');
 
@@ -64,7 +65,7 @@ export interface LspFeedbackInstanceHost {
     instanceId: string,
     message: string,
     attachments?: undefined,
-    options?: { autoContinuation?: boolean },
+    options?: { autoContinuation?: boolean; internalSource?: InternalInputSource },
   ): Promise<void>;
 }
 
@@ -103,7 +104,10 @@ export function registerLspFeedback(deps: { instanceManager: LspFeedbackInstance
         return;
       }
       try {
-        await deps.instanceManager.sendInput(instanceId, note, undefined, { autoContinuation: true });
+        await deps.instanceManager.sendInput(instanceId, note, undefined, {
+          autoContinuation: true,
+          internalSource: 'lsp-feedback',
+        });
         getSessionAdmissionService().markDelivered(outcome.admissionId);
       } catch (err) {
         getSessionAdmissionService().markFailed(

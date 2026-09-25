@@ -253,6 +253,45 @@ describe('IdleMonitor', () => {
     return { monitor, terminateInstance };
   }
 
+  // LT-657: Harness-authored turns are stored as `type: 'system'`; a child whose
+  // conversation is only Harness input must still hibernate, not be terminated.
+  it('hibernates an idle child whose conversation is Harness-authored input', () => {
+    const now = Date.now();
+    const harnessDriven = {
+      id: 'harness-driven', status: 'idle', parentId: 'parent-1', displayName: 'worker',
+      lastActivity: now - 10 * 60_000,
+      outputBuffer: [{
+        id: 'h1', timestamp: now - 11 * 60_000, type: 'system', content: 'Plan item 1: implement.',
+        metadata: { internalInput: { actor: 'harness', source: 'plan-queue' } },
+      }],
+    } as unknown as Instance;
+    const empty = { ...harnessDriven, id: 'empty', outputBuffer: [] } as unknown as Instance;
+    const terminateInstance = vi.fn(async () => undefined);
+    const hibernateInstance = vi.fn(async () => undefined);
+    const monitor = new IdleMonitor({
+      getSettings: () => ({ autoTerminateIdleMinutes: 5 }),
+      getRecoveryEngine: () => ({} as unknown as RecoveryRecipeEngine),
+      getActivityDetectors: () => new Map(),
+      getInstance: (id: string) => [harnessDriven, empty].find((i) => i.id === id),
+      forEachInstance: vi.fn((cb: (instance: Instance, id: string) => void) => {
+        for (const i of [harnessDriven, empty]) cb(i, i.id);
+      }),
+      getAdapter: vi.fn(),
+      queueUpdate: vi.fn(),
+      deleteAdapter: vi.fn(),
+      transitionState: vi.fn(),
+      terminateInstance,
+      hibernateInstance,
+      dispatchRecovery: vi.fn(async () => undefined),
+    } as never);
+
+    monitor.check();
+
+    expect(hibernateInstance).toHaveBeenCalledWith('harness-driven');
+    expect(terminateInstance).toHaveBeenCalledTimes(1);
+    expect(terminateInstance).toHaveBeenCalledWith('empty', true);
+  });
+
   it('terminateIdleHalf spares children that were active more recently than the guard', () => {
     const { monitor, terminateInstance } = makeIdleHalfMonitor([
       { id: 'just-sent-to', idleForMs: 1_000 },

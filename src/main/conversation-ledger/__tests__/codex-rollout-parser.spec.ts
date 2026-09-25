@@ -45,4 +45,27 @@ describe('Codex rollout parser', () => {
     expect(snapshot.messages.map(message => message.role)).toEqual(['user', 'event', 'tool']);
     expect(snapshot.tokenTotals).toMatchObject({ input: 2, output: 3 });
   });
+
+  // LT-657: the Harness context-policy steer is now injected as a developer
+  // item. Importing it must not attribute it to the user or the assistant.
+  it('imports developer and system response items as system, keeping user and assistant roles', () => {
+    const message = (role: string, text: string) => JSON.stringify({
+      type: 'response_item',
+      payload: { type: 'message', role, content: [{ type: 'input_text', text }] },
+    });
+    const snapshot = parseCodexRolloutJsonl([
+      JSON.stringify({ type: 'session_meta', payload: { id: 'thread-provenance', cwd: '/tmp/p' } }),
+      message('user', 'Please fix the defects.'),
+      message('developer', 'Harness context policy (automated; this is not a message from the user).'),
+      message('system', 'Provider system note.'),
+      message('assistant', 'Fixing now.'),
+    ].join('\n'));
+
+    expect(snapshot.messages.map(entry => [entry.role, entry.content])).toEqual([
+      ['user', 'Please fix the defects.'],
+      ['system', 'Harness context policy (automated; this is not a message from the user).'],
+      ['system', 'Provider system note.'],
+      ['assistant', 'Fixing now.'],
+    ]);
+  });
 });

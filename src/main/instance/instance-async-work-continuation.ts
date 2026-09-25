@@ -8,6 +8,7 @@ import { getLogger } from '../logging/logger';
 import { registerCleanup } from '../util/cleanup-registry';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { getInstanceAsyncWorkRegistry } from './instance-async-work-registry';
+import type { InternalInputSource } from '../../shared/types/input-provenance.types';
 
 const logger = getLogger('InstanceAsyncWorkContinuation');
 const SETTLEMENT_TIMEOUT_MS = 60_000;
@@ -42,7 +43,7 @@ export interface InstanceAsyncWorkContinuationHost {
     instanceId: string,
     message: string,
     attachments?: undefined,
-    options?: { autoContinuation?: boolean },
+    options?: { autoContinuation?: boolean; internalSource?: InternalInputSource },
   ): Promise<void>;
 }
 
@@ -176,7 +177,7 @@ export class InstanceAsyncWorkContinuation {
           instanceId,
           buildStalledWorkCheckInPrompt(silentForMs),
           undefined,
-          { autoContinuation: true },
+          { autoContinuation: true, internalSource: 'async-work-continuation' },
         );
       } catch (error: unknown) {
         logger.warn('Stalled background work check-in failed', {
@@ -243,7 +244,7 @@ export class InstanceAsyncWorkContinuation {
         instanceId,
         ASYNC_WORK_CONTINUATION_PROMPT,
         undefined,
-        { autoContinuation: true },
+        { autoContinuation: true, internalSource: 'async-work-continuation' },
       );
     } finally {
       if (this.pending.get(instanceId) === delivery) {

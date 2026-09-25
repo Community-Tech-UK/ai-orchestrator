@@ -54,7 +54,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       hasActiveTurn: () => this.appServerRuntime.hasActiveTurn(),
       isCompactionRunning: () => this.contextCostController.isCompactionRunning(),
       awaitCompactionSettled: () => this.contextCostController.awaitCompactionSettled(),
-      sendInput: (content) => this.sendInput(content),
+      sendInput: (content) => this.sendInput(content, undefined, { internalSource: 'orchestrator-response' }),
       onDelayed,
     });
   }
@@ -112,15 +112,18 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       this.rtkAwarenessSent = true;
     }
 
-    // Start the turn and capture notifications
+    // Start the turn and capture notifications. Harness-authored text
+    // (`metadata.internalSource`, LT-657) goes in as a developer-role item so
+    // Codex never records it as the user's message.
     const input: UserInput[] = [];
     const text = content.trim();
-    if (text) {
+    const developerInput = text && typeof metadata?.['internalSource'] === 'string' ? text : undefined;
+    if (text && !developerInput) {
       input.push({ type: 'text', text, text_elements: [] });
     }
     input.push(...preparedAttachments.input);
 
-    if (input.length === 0) {
+    if (input.length === 0 && !developerInput) {
       throw new Error('Cannot send empty app-server turn input');
     }
 
@@ -133,7 +136,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     this.usageAccounting.beginTurn(rootThreadId, resumed);
     const startedAtMs = Date.now();
     try {
-      turnState = await this.captureTurn(input, metadata);
+      turnState = await this.captureTurn(input, metadata, developerInput);
     } catch (error) {
       this.flushPartialUsage();
       throw error;
@@ -152,8 +155,9 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     if (await this.contextCostController.recoverAfterTurn({
       turnStatus: turnState.finalTurn?.status,
       recoveryCount: costRecoveryCount,
+      // The same-thread continuation is Harness's text, not the user's (LT-657).
       continueTurn: (continuation, nextCount) => this.appServerSendMessageInner(
-        continuation, undefined, nextCount, metadata,
+        continuation, undefined, nextCount, { ...metadata, internalSource: 'context-policy' },
       ),
     })) {
       if (turnState.turnId) this.scheduleChildRolloutRetry(rootThreadId, turnState.turnId, startedAtMs, endedAtMs);
@@ -347,6 +351,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
   private async captureTurn(
     input: UserInput[],
     metadata?: CliMessage['metadata'],
+    developerInput?: string,
   ): Promise<TurnCaptureState> {
     this.ensureAppServerRuntimeAttached();
     const turnParams: Record<string, unknown> = {};
@@ -356,6 +361,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
 
     return this.appServerRuntime.captureTurn({
       input,
+      ...(developerInput ? { developerInput } : {}),
       turnParams,
       createState: createCodexTurnCaptureState,
       belongsToTurn: (state, notification) => this.belongsToTurn(state, notification),

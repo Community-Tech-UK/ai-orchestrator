@@ -126,6 +126,24 @@ describe('ProjectRailBuilderService', () => {
     expect(groups[0]?.historyItems.map((item) => item.entry.id)).toEqual(['active-older']);
   });
 
+  it('shows a crash-recovery session with redacted identities without hiding other live sessions', () => {
+    const groups = service.buildProjectGroups(buildInput({
+      instances: [
+        makeInstance('recovered', {
+          historyThreadId: '',
+          sessionId: '',
+          providerSessionId: '',
+          workingDirectory: '/Users/james/work/other-project',
+          metadata: { reason: 'crash-recovery' },
+        }),
+        makeInstance('fresh'),
+      ],
+    }));
+
+    const liveIds = groups.flatMap((group) => group.liveItems.map((item) => item.instance.id));
+    expect(liveIds.sort()).toEqual(['fresh', 'recovered']);
+  });
+
   it('hides live run_on_node worker instances from project folders', () => {
     const groups = service.buildProjectGroups(buildInput({
       instances: [

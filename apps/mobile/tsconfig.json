@@ -9,10 +9,14 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "moduleResolution": "bundler",
+    "rootDir": "../..",
     "experimentalDecorators": true,
     "module": "ES2022",
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "paths": {
+      "@contracts/types/mobile-gateway": ["../../packages/contracts/src/types/mobile-gateway.types.ts"]
+    }
   },
   "angularCompilerOptions": {
     "strictTemplates": true,

@@ -1,32 +1,52 @@
 /**
- * Shared types for the Mobile Gateway — the small HTTP + WebSocket surface that
- * lets the companion phone app observe and control Harness instances
- * over a Tailscale tunnel. Lives in shared/ (like remote-observer.types.ts) so
- * both the Electron main process and any TypeScript client can reference it.
+ * Mobile Gateway types exposed from the desktop source tree.
  *
- * Plan: docs/mobile-app/2026-05-30-mobile-control-app-plan.md
+ * Phone-facing wire DTOs live in the dependency-free contracts module. Host
+ * persistence and settings types remain here because they are not part of the
+ * phone contract.
  */
 
-import type { ReasoningEffort } from './provider.types';
-import type { AttentionLevel } from '../attention/attention-level';
+export type {
+  MobileApnsTokenRequest,
+  MobileAttachmentDto,
+  MobileAttentionLevel,
+  MobileCancelledInputDto,
+  MobileClientEvent,
+  MobileCreateInstanceRequest,
+  MobileHistorySessionDto,
+  MobileInputRequest,
+  MobileInputResponse,
+  MobileInstanceDto,
+  MobileMessageDto,
+  MobileMessagesResumeDto,
+  MobileModelCatalog,
+  MobileModelDto,
+  MobilePairRequest,
+  MobilePairResponse,
+  MobilePauseDto,
+  MobileProjectDto,
+  MobilePromptDto,
+  MobilePromptOptionDto,
+  MobileQueuedMessageDto,
+  MobileReasoningEffort,
+  MobileRecentDirDto,
+  MobileRenameRequest,
+  MobileRespondRequest,
+  MobileServerEvent,
+  MobileSessionPlan,
+  MobileSnapshot,
+  MobileUserActionRequestType,
+} from '@contracts/types/mobile-gateway';
 
 /** A paired phone, as persisted by the gateway. The bearer `token` is secret. */
 export interface MobileDevice {
   deviceId: string;
   label: string;
-  /** Long-lived bearer token presented on every request. Secret. */
   token: string;
   createdAt: number;
   lastSeenAt: number;
-  /** Epoch ms when the device token expires and the phone must re-pair. */
   expiresAt: number;
-  /**
-   * The TTL this device was paired with, retained so sliding renewal extends the
-   * token by its own lifetime rather than the current default. Absent on records
-   * paired before renewal existed; those fall back to the default TTL.
-   */
   tokenTtlMs?: number;
-  /** APNs device token for push notifications (set after pairing, Phase 2). */
   apnsToken?: string;
 }
 
@@ -47,389 +67,26 @@ export interface MobilePairingCredential {
   expiresAt: number;
 }
 
-/** Request body for POST /pair. */
-export interface MobilePairRequest {
-  pairingToken: string;
-  /** Human label for the device, e.g. "James's iPhone". */
-  label?: string;
-}
-
-/** Response from POST /pair. */
-export interface MobilePairResponse {
-  deviceId: string;
-  token: string;
-  expiresAt: number;
-  /** The host's display name (machine hostname) for the phone's host list. */
-  hostName: string;
-}
-
-/** A single instance/agent as the phone sees it. */
-export interface MobileInstanceDto {
-  id: string;
-  displayName: string;
-  status: string;
-  /**
-   * WS-C2 unified attention scale (`src/shared/attention/attention-level.ts`)
-   * for this instance — the SAME ordered levels Workboard and the desktop
-   * session picker use, computed the same way, so the phone never has to
-   * re-derive its own status→urgency vocabulary from the raw `status`
-   * string. Closes a real gap: before this field, a `degraded` / `error` /
-   * `failed` instance produced no "needs you" signal on mobile at all
-   * (`pendingApprovalCount` only ever counted `waiting_for_permission` /
-   * `waiting_for_input`).
-   */
-  attentionLevel: AttentionLevel;
-  provider: string;
-  model?: string;
-  workingDirectory: string;
-  /** basename of workingDirectory — the project label. */
-  projectName: string;
-  createdAt: number;
-  lastActivity: number;
-  parentId?: string;
-  pendingApprovalCount: number;
-  hasUnreadCompletion: boolean;
-  /** True when this live session has an active Loop Mode run. */
-  isLooping?: boolean;
-  /** 0–100 context window usage, when known. */
-  contextPercentage?: number;
-  /**
-   * Messages the phone sent while the session was mid-turn, still waiting to be
-   * delivered. Omitted (not `[]`) when the queue is empty so the common snapshot
-   * stays small. Mirrors the desktop composer queue.
-   */
-  queuedMessages?: MobileQueuedMessageDto[];
-}
-
-/**
- * One phone-sent message parked until the session can accept input again. The
- * gateway holds these in memory (they do not survive a Harness restart) and
- * delivers them in order on the next ready edge.
- */
-export interface MobileQueuedMessageDto {
-  /** Stable id used to cancel the message (`DELETE /api/instances/:id/queue/:queueId`). */
-  id: string;
-  message: string;
-  hasAttachments: boolean;
-  enqueuedAt: number;
-  /** Delivery attempts made so far. */
-  attempts: number;
-  /**
-   * Set once delivery has failed too many times. The item stays at the head of
-   * the queue (so ordering is never silently reshuffled) and blocks the rest
-   * until the user cancels it.
-   */
-  error?: string;
-}
-
-export interface MobileModelDto {
-  id: string;
-  name: string;
-  tier: 'fast' | 'balanced' | 'powerful';
-  pinned?: boolean;
-  family?: string;
-}
-
-export type MobileModelCatalog = Record<string, MobileModelDto[]>;
-
-/**
- * A non-destructive preview of what a new session would actually start with,
- * given a chosen provider (`auto` or a specific one) and optional model
- * override. Computed on the host because it depends on which CLIs are installed
- * there and the host's saved per-provider model/default settings — the phone
- * can't know either. Mirrors the up-front resolution the spawn path performs
- * (provider auto-detect + model resolution/validation); see
- * mobile-gateway-session-plan.ts.
- */
-export interface MobileSessionPlan {
-  /** Resolved CLI provider id, e.g. 'claude' (what 'auto' picked). */
-  provider: string;
-  /** Human label for the provider, e.g. 'Claude'. */
-  providerLabel: string;
-  /** Resolved concrete model id, or null when the provider uses its built-in default. */
-  model: string | null;
-  /** Human label for the model, e.g. 'Opus 5', or null for the provider default. */
-  modelLabel: string | null;
-  /** Reasoning effort a fresh session runs at, or null when provider-decided. */
-  reasoningEffort: ReasoningEffort | null;
-  /** Human label for the effort, e.g. 'High', or null when provider-decided. */
-  reasoningEffortLabel: string | null;
-}
-
-/** A project = a distinct workingDirectory with its sessions rolled up. */
-export interface MobileProjectDto {
-  /** Stable key (the workingDirectory, or '__no_workspace__'). */
-  key: string;
-  path: string;
-  name: string;
-  sessionCount: number;
-  busyCount: number;
-  pendingApprovalCount: number;
-  /**
-   * WS-C2: count of instances in this project at `blocked` or `failed`
-   * attentionLevel — the same "needs you" bucket Workboard's `needs-you`
-   * lane uses (minus `review`, which has no instance-level equivalent
-   * today). A superset of `pendingApprovalCount`: it also counts
-   * `degraded` / `error` / `failed` instances, which never had an
-   * answerable prompt to count.
-   */
-  needsAttentionCount: number;
-  lastActivity: number;
-}
-
-/**
- * A single transcript message as the phone renders it. Structurally a subset of
- * the main-process `OutputMessage` (instance.types.ts) so the gateway can pass
- * buffered messages straight through. Heavy fields (attachment data, raw
- * thinking) are deliberately omitted from the wire — `hasAttachments` flags
- * their presence for the UI.
- *
- * `seq` is the 0-based index of this message in the instance's outputBuffer at
- * the time of the replay response. Clients persist their last-seen `seq` and
- * pass it back as `?fromSeq=N` on reconnect to resume from where they left off.
- */
-export interface MobileMessageDto {
-  id: string;
-  timestamp: number;
-  type: 'assistant' | 'user' | 'system' | 'tool_use' | 'tool_result' | 'error';
-  content: string;
-  metadata?: Record<string, unknown>;
-  hasAttachments?: boolean;
-  /** 0-based buffer index used as a resume cursor for `?fromSeq=N` replay. */
-  seq?: number;
-}
-
-/**
- * Response envelope returned by `GET /api/instances/:id/messages?fromSeq=N`.
- * The plain array form (no envelope) is returned when `fromSeq` is absent for
- * backwards-compatibility.
- */
-export interface MobileMessagesResumeDto {
-  messages: MobileMessageDto[];
-  meta: {
-    /** The `fromSeq` value the client supplied. */
-    fromSeq: number;
-    /** Number of messages returned in this response. */
-    returned: number;
-    /**
-     * True when the gap since `fromSeq` exceeded MESSAGE_REPLAY_LIMIT and the
-     * client should request again (future pagination) or do a full re-sync.
-     */
-    hasMore: boolean;
-    /** The highest `seq` in this response, or `fromSeq` when nothing was returned. */
-    maxSeq: number;
-  };
-}
-
-export type MobileUserActionRequestType =
-  | 'switch_mode'
-  | 'approve_action'
-  | 'confirm'
-  | 'select_option'
-  | 'ask_questions';
-
-export interface MobilePromptOptionDto {
-  id: string;
-  label: string;
-  description?: string;
-}
-
-/** A pending "needs you" prompt — a deferred permission or an orchestration question. */
-export interface MobilePromptDto {
-  /** Stable id (== requestId for permissions). */
-  id: string;
-  instanceId: string;
-  requestId: string;
-  kind: 'permission' | 'user-action';
-  /** For user-action prompts: drives the phone UI layout. */
-  requestType?: MobileUserActionRequestType;
-  /** For permissions: the tool awaiting approval (e.g. "Bash"). */
-  toolName?: string;
-  /** For permissions: the tool arguments (e.g. the command). */
-  toolInput?: Record<string, unknown>;
-  title: string;
-  message: string;
-  /** For user-action prompts: selectable options with stable ids. */
-  options?: MobilePromptOptionDto[];
-  /** For ask_questions prompts: free-form questions to answer. */
-  questions?: string[];
-  createdAt: number;
-}
-
-/** Global pause state — mirrors the desktop PauseStatePayload. */
-export interface MobilePauseDto {
-  isPaused: boolean;
-  reasons: string[];
-  pausedAt: number | null;
-  lastChange: number;
-}
-
-/** Snapshot sent to a phone on WebSocket connect (and on resync). */
-export interface MobileSnapshot {
-  hostName: string;
-  serverTime: number;
-  instances: MobileInstanceDto[];
-  projects: MobileProjectDto[];
-  /** Pending approval/question prompts at connect time. */
-  prompts: MobilePromptDto[];
-  /** Current global pause state at connect time. */
-  pause: MobilePauseDto;
-}
-
-/** Messages pushed down the WebSocket to the phone. */
-export type MobileServerEvent =
-  | { type: 'snapshot'; data: MobileSnapshot }
-  | { type: 'instance-created'; data: MobileInstanceDto }
-  | { type: 'instance-removed'; data: { instanceId: string } }
-  | { type: 'instance-state'; data: MobileInstanceDto[] }
-  /** A live transcript frame for one instance. `seq` is the per-instance monotonic counter for gap detection. */
-  | { type: 'instance-output'; data: { instanceId: string; seq: number; message: MobileMessageDto } }
-  | { type: 'permission-prompt'; data: MobilePromptDto }
-  | { type: 'permission-cleared'; data: { requestId: string; instanceId?: string } }
-  | { type: 'pause-state'; data: MobilePauseDto };
-
-/**
- * Control frames the phone sends UP the WebSocket to the gateway. Currently just
- * the active-view report: which conversation the phone is looking at, so the
- * gateway can suppress the "unread completion" dot for a session the user is
- * already watching (mirrors the desktop "selected instance" rule). `instanceId`
- * is null when the phone leaves the conversation for a list view.
- */
-export type MobileClientEvent =
-  | { type: 'view'; instanceId: string | null };
-
-/** Request body for POST /api/instances/:id/input. */
-export interface MobileInputRequest {
-  message: string;
-  attachments?: MobileAttachmentDto[];
-}
-
-/**
- * Response from POST /api/instances/:id/input. `queued` is true when the
- * session was mid-turn (or paused) and the message was parked for delivery on
- * the next ready edge instead of being sent immediately; `queueId` then
- * identifies it for cancellation.
- */
-export interface MobileInputResponse {
-  ok: true;
-  queued?: boolean;
-  queueId?: string;
-  /** True when an idempotency key matched an earlier request; nothing was sent. */
-  duplicate?: boolean;
-}
-
-/** Mirrors the main-process FileAttachment (base64 data URL). */
-export interface MobileAttachmentDto {
-  name: string;
-  type: string;
-  size: number;
-  data: string;
-}
-
-/** Draft recovered by cancelling a queued input before its delivery starts. */
-export interface MobileCancelledInputDto {
-  message: string;
-  attachments?: MobileAttachmentDto[];
-}
-
-/** Request body for POST /api/instances/:id/respond (answer a permission prompt). */
-export interface MobileRespondRequest {
-  requestId: string;
-  decisionAction: 'allow' | 'deny';
-  decisionScope?: 'once' | 'session' | 'always';
-  /**
-   * Optional user-action payload:
-   * - select_option: the chosen option id
-   * - ask_questions: a JSON object string mapping question -> answer
-   * - confirm / approve_action / switch_mode: usually omitted
-   */
-  response?: string;
-}
-
-/** Request body for POST /api/instances (create a new session). */
-export interface MobileCreateInstanceRequest {
-  workingDirectory: string;
-  provider?: string;
-  model?: string;
-  reasoningEffort?: ReasoningEffort;
-  initialPrompt?: string;
-}
-
-/** Request body for POST /api/instances/:id/rename. */
-export interface MobileRenameRequest {
-  displayName: string;
-}
-
-/** Request body for POST /api/devices/:id/apns-token. */
-export interface MobileApnsTokenRequest {
-  apnsToken: string;
-}
-
-/** A host recent directory offered to the phone's "new session" picker. */
-export interface MobileRecentDirDto {
-  path: string;
-  displayName: string;
-  lastAccessed: number;
-  isPinned: boolean;
-}
-
-/**
- * A persisted ("older") session as the phone's History view sees it. Sourced
- * from the desktop ChatService (live + archived), so closed sessions that are
- * no longer in InstanceManager still appear. `live` is true when the chat is
- * still backed by a running instance; `archived` when it was explicitly closed.
- */
-export interface MobileHistorySessionDto {
-  /** Chat id (use to fetch the transcript via /api/history/:id/messages). */
-  id: string;
-  name: string;
-  provider: string | null;
-  model: string | null;
-  workingDirectory: string;
-  /** basename of workingDirectory — the project label. */
-  projectName: string;
-  createdAt: number;
-  lastActiveAt: number;
-  archived: boolean;
-  live: boolean;
-  /** If still live, the instance id so the phone can deep-link to the live session. */
-  instanceId?: string;
-}
-
-/** Status of the gateway, surfaced to the desktop Settings → Mobile tab. */
+/** Status of the gateway, surfaced to the desktop Settings mobile tab. */
 export interface MobileGatewayStatus {
   running: boolean;
   host?: string;
   port?: number;
-  /** Tailscale IPv4 if detected, else null. */
   tailscaleIp: string | null;
-  /** True when the gateway is serving TLS (https/wss) from a configured cert. */
   secure?: boolean;
-  /** Primary DNS name from the TLS cert (what the phone must connect to), when secure. */
   tlsHostname?: string | null;
-  /** ws:// (or wss:// when secure) URL a phone would connect to over the tailnet, when running. */
   tailnetUrl?: string;
   startedAt?: number;
   connectedClientCount: number;
   pairedDeviceCount: number;
-  /** True when APNs push is fully configured (key + key id + team id + bundle id). */
   pushConfigured: boolean;
 }
 
-/**
- * APNs credentials for direct-from-Mac push (§4.4 of the plan). Sourced from
- * settings; the gateway POSTs to Apple's HTTP/2 endpoint with a short-lived
- * ES256 JWT. Empty `keyP8` => push disabled (the gateway no-ops).
- */
+/** APNs credentials used by the desktop gateway's direct push sender. */
 export interface MobileApnsConfig {
-  /** PEM contents of the APNs Auth Key (.p8). */
   keyP8: string;
-  /** 10-char Key ID from the Apple Developer account. */
   keyId: string;
-  /** 10-char Team ID. */
   teamId: string;
-  /** App bundle id (APNs topic), e.g. com.shutupandshave.aiorchestrator. */
   bundleId: string;
-  /** true → api.push.apple.com, false → api.sandbox.push.apple.com. */
   production: boolean;
 }

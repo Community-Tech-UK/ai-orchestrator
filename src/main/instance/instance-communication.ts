@@ -107,7 +107,7 @@ import { bindRawAdapterProviderEvents } from './instance-communication-provider-
 import { InstanceContinuityInputQueue } from './instance-continuity-input-queue';
 import { InstanceToolResultProcessor } from './instance-tool-result-processor';
 import { getInstanceAsyncWorkRegistry } from './instance-async-work-registry';
-import { throwIfInstanceInputAborted } from './instance-input-cancellation';
+import { throwIfInstanceInputAborted, type InstanceSendInputOptions } from './instance-input-cancellation';
 import { errorIdentityOf } from '../util/error-utils';
 export type { CommunicationDependencies } from './instance-communication.types';
 
@@ -563,13 +563,13 @@ export class InstanceCommunicationManager extends EventEmitter {
     message: string,
     attachments?: FileAttachment[],
     contextBlock?: string | null,
-    options?: {
-      autoContinuation?: boolean;
-      signal?: AbortSignal;
-      beforeProviderDispatch?: () => void;
-    }
+    options?: Pick<InstanceSendInputOptions, 'autoContinuation' | 'signal' | 'beforeProviderDispatch' | 'internalSource'>,
   ): Promise<void> {
     throwIfInstanceInputAborted(options?.signal);
+    // LT-657: only Harness-authored turns carry provenance to the adapter.
+    const dispatch = () => (options?.internalSource
+      ? adapter!.sendInput(finalMessage, attachments, { internalSource: options.internalSource })
+      : adapter!.sendInput(finalMessage, attachments));
     logger.info('sendInput called', { instanceId, autoContinuation: options?.autoContinuation === true });
     const instance = this.deps.getInstance(instanceId);
     let adapter = this.deps.getAdapter(instanceId);
@@ -827,7 +827,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       throwIfInstanceInputAborted(options?.signal);
       options?.beforeProviderDispatch?.();
       preparedContext.commit();
-      this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock });
+      this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource });
       // These mutations belong to a real provider-dispatch attempt. Keeping
       // them behind the cancellation and budget gates prevents an abandoned
       // auto-continuation from creating phantom send state.
@@ -851,7 +851,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         attachments,
         finalContextBlock,
       );
-      await adapter.sendInput(finalMessage, attachments);
+      await dispatch();
       logger.info('Message sent to adapter');
       if (admissionRecord) getSessionAdmissionService().markDelivered(admissionRecord.admissionId);
     } catch (initialError) {
@@ -866,7 +866,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (attachments?.length && isUnsupportedOrchestratorAttachmentError(sendError)) {
         this.emitAttachmentDropWarnings(instanceId, instance, adapter.getName(), attachments);
         attachments = undefined;
-        this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock });
+        this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource });
 
         if (!message.trim()) {
           logger.info('Dropped unsupported attachments from empty user input; skipping adapter retry', {
@@ -880,7 +880,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
         try {
           throwIfInstanceInputAborted(options?.signal);
-          await adapter.sendInput(finalMessage, attachments);
+          await dispatch();
           logger.info('Message sent to adapter after dropping unsupported attachments', {
             instanceId,
             adapter: adapter.getName(),
@@ -909,6 +909,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           message,
           attachments,
           contextBlock,
+          internalSource: options?.internalSource,
           adapter,
           beforeRetry: () => throwIfInstanceInputAborted(options?.signal),
           extraFields: { reason: overflowEvidence.reason, detail: overflowEvidence.detail },

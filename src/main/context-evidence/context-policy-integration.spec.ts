@@ -4,6 +4,7 @@ import type { ProviderContextCapabilities } from '@contracts/types/context-evide
 import { CodexContextCostController } from '../cli/adapters/codex/context-cost-controller';
 import { CompactionCoordinator, type ContextPolicyEvent } from '../context/compaction-coordinator';
 import { ProviderContextActionExecutor } from './provider-context-action-executor';
+import type { CumulativeRecoveryLimits } from './context-safety-policy';
 
 const codexObserved: ProviderContextCapabilities = {
   toolResultControl: 'post-retention',
@@ -41,15 +42,42 @@ describe('shared context policy integration', () => {
     });
 
     coordinator.onContextUpdate('codex-1', {
-      used: 10,
+      used: 55,
       total: 100,
-      percentage: 10,
+      percentage: 55,
       cumulativeTokens: 400,
     });
     await coordinator.drainPolicyDecisions('codex-1');
 
     expect(recovery).toHaveBeenCalledOnce();
     expect(interrupt).not.toHaveBeenCalled();
+  });
+
+  it('applies the configured spend-recovery limits to shared policy decisions', async () => {
+    const recoveriesAtTenPercent = async (limits?: CumulativeRecoveryLimits) => {
+      CompactionCoordinator._resetForTesting();
+      const recovery = vi.fn(async () => ({ proof: 'acknowledged' as const }));
+      const coordinator = CompactionCoordinator.getInstance();
+      coordinator.configure({
+        getContextCapabilities: () => codexObserved,
+        getContextEvidenceMode: () => 'enforce',
+        getProviderActionExecutor: () => new ProviderContextActionExecutor({
+          'controlled-recovery': recovery,
+        }),
+        selfManagesAutoCompaction: () => true,
+      });
+      if (limits) coordinator.setCumulativeRecoveryLimits(limits);
+      coordinator.onContextUpdate('codex-limits', {
+        used: 10, total: 100, percentage: 10, cumulativeTokens: 400,
+      });
+      await coordinator.drainPolicyDecisions('codex-limits');
+      return recovery.mock.calls.length;
+    };
+
+    expect(await recoveriesAtTenPercent()).toBe(0);
+    expect(await recoveriesAtTenPercent({ minOccupancyPercent: 0, backstopMultiple: 16 })).toBe(1);
+    // A non-finite floor falls back to the default rather than disabling it.
+    expect(await recoveriesAtTenPercent({ minOccupancyPercent: Number.NaN, backstopMultiple: 16 })).toBe(0);
   });
 
   it('records one content-free decision and distinct proof stages per threshold and epoch', async () => {

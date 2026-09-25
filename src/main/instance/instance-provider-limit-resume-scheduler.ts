@@ -1,5 +1,6 @@
 import type { InstanceProvider } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
+import { formatInternalInputForProvider } from './internal-input-provenance';
 
 const logger = getLogger('InstanceProviderLimitResumeScheduler');
 
@@ -16,7 +17,7 @@ export interface InstanceProviderLimitResumeRequest {
   provider: InstanceProvider;
   resumeAt: number;
   reason: string;
-  /** The user turn to re-send when the window resets; null when unknown. */
+  /** The turn to re-send when the window resets (provider text; see LT-657); null when unknown. */
   resumePrompt: string | null;
   /**
    * Stable app-level thread identity, captured at park time. Carried into the
@@ -56,6 +57,15 @@ export function buildProviderLimitContinuationPrompt(): string {
     '',
     'Pick the task back up from where that turn stopped. The conversation above is the record of what is already done: keep those results and do not repeat completed steps. If the task was already finished, say so in one line instead of redoing it.',
   ].join('\n');
+}
+
+/**
+ * The continuation turn as it is actually sent. Harness wrote it, so it carries
+ * the internal-input envelope and is re-sent as Harness input, never as a user
+ * message (LT-657).
+ */
+export function buildProviderLimitContinuationTurn(): string {
+  return formatInternalInputForProvider('provider-limit-resume', buildProviderLimitContinuationPrompt());
 }
 
 /**
@@ -118,11 +128,11 @@ export function scheduleInstanceProviderLimitResume(params: {
         // Dispatch fallback: used only when the systemAction handler decides it
         // cannot resume the live instance directly (e.g. after an app restart,
         // when the thread must be revived first). The runner then revives the
-        // thread and sends this prompt. Prefer the user's paused turn so the
+        // thread and sends this prompt. Prefer the paused turn so the
         // work actually continues; otherwise the shared continuation turn.
         prompt: request.resumePrompt
           ? request.resumePrompt
-          : buildProviderLimitContinuationPrompt(),
+          : buildProviderLimitContinuationTurn(),
       },
     });
     automationId = automation?.id ?? null;

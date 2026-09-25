@@ -1,7 +1,3 @@
-// SOURCE OF TRUTH: apps/mobile/resources/native/AppDelegate.swift
-// The copy under ios/App/App/ is OVERWRITTEN by `npm run sync`
-// (scripts/ensure-ios-native-sources.mjs). Edit THIS file, not the ios/ copy.
-
 import UIKit
 import Capacitor
 import Security
@@ -14,9 +10,8 @@ import ActivityKit
 /// don't adopt it (EXC_BREAKPOINT in
 /// `_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`). The window
 /// and the Capacitor bridge view controller belong to `SceneDelegate`, wired up by
-/// the `UIApplicationSceneManifest` that scripts/ensure-ios-scene-lifecycle.mjs
-/// writes into Info.plist. URL and user-activity callbacks arrive on the scene,
-/// not here.
+/// the `UIApplicationSceneManifest` in the tracked Info.plist. URL and
+/// user-activity callbacks arrive on the scene, not here.
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
@@ -28,17 +23,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     /// One-tap Approve/Deny directly on approval pushes. The gateway sends
     /// `category: "AIO_APPROVAL"` on permission prompts; these actions surface
     /// on long-press/pull-down of the notification. `.authenticationRequired`
-    /// keeps a pocketed, locked phone from approving tool runs.
+    /// keeps a pocketed, locked phone from approving tool runs, while
+    /// `.foreground` guarantees routing failures can show their recovery sheet.
     private func registerNotificationCategories() {
         let approve = UNNotificationAction(
             identifier: "APPROVE",
             title: "Approve",
-            options: [.authenticationRequired]
+            options: [.authenticationRequired, .foreground]
         )
         let deny = UNNotificationAction(
             identifier: "DENY",
             title: "Deny",
-            options: [.destructive, .authenticationRequired]
+            options: [.destructive, .authenticationRequired, .foreground]
         )
         let approval = UNNotificationCategory(
             identifier: "AIO_APPROVAL",

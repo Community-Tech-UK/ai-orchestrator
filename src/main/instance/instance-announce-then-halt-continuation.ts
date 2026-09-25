@@ -15,6 +15,7 @@ import {
   getInstanceAsyncWorkRegistry,
   type InstanceAsyncWorkRegistry,
 } from './instance-async-work-registry';
+import type { InternalInputSource } from '../../shared/types/input-provenance.types';
 
 const logger = getLogger('InstanceAnnounceThenHaltContinuation');
 const SETTLEMENT_TIMEOUT_MS = 60_000;
@@ -78,6 +79,7 @@ export interface InstanceAnnounceThenHaltContinuationHost {
     attachments?: undefined,
     options?: {
       autoContinuation?: boolean;
+      internalSource?: InternalInputSource;
       signal?: AbortSignal;
       beforeProviderDispatch?: () => void;
     },
@@ -354,6 +356,7 @@ export class InstanceAnnounceThenHaltContinuation {
         undefined,
         {
           autoContinuation: true,
+          internalSource: 'announce-then-halt-continuation',
           signal: delivery.abortController?.signal,
           beforeProviderDispatch: () => {
             if (!this.isDispatchEligible(instanceId, requestCountAtCompletion, state)) {

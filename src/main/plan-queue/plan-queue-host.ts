@@ -10,6 +10,7 @@ import type { PlanQueueInstanceTracker } from './plan-queue-instance-tracker';
 import type { VerifierSelectInput, VerifierSelection } from './plan-queue-verifier-select';
 import type { PlanQueueWorktreeService } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
+import type { InternalInputSource } from '../../shared/types/input-provenance.types';
 
 export interface PlanQueueInstanceRecord {
   id: string;
@@ -24,7 +25,12 @@ export interface PlanQueueInstanceRecord {
 /** The slice of InstanceManager the queue drives. */
 export interface PlanQueueInstancePort {
   createInstance(config: InstanceCreateConfig): Promise<{ id: string; readyPromise?: Promise<unknown> }>;
-  sendInput(instanceId: string, message: string, attachments?: undefined, options?: { automatedInput?: boolean }): Promise<void>;
+  sendInput(
+    instanceId: string,
+    message: string,
+    attachments?: undefined,
+    options?: { automatedInput?: boolean; internalSource?: InternalInputSource },
+  ): Promise<void>;
   terminateInstance(instanceId: string, graceful?: boolean): Promise<void>;
   getInstance(instanceId: string): PlanQueueInstanceRecord | undefined;
 }

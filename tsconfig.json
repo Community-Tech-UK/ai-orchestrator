@@ -89,6 +89,7 @@
       "@contracts/types/transport":          ["./packages/contracts/src/types/transport.types"],
       "@contracts/types/browser":            ["./packages/contracts/src/types/browser.types"],
       "@contracts/types/context-evidence":   ["./packages/contracts/src/types/context-evidence.types"],
+      "@contracts/types/mobile-gateway":     ["./packages/contracts/src/types/mobile-gateway.types"],
       "@sdk/*": ["./packages/sdk/src/*"],
       "@sdk": ["./packages/sdk/src/index"],
       "@sdk/provider-adapter": ["./packages/sdk/src/provider-adapter"],

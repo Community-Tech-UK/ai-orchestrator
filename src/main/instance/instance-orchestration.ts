@@ -46,6 +46,7 @@ import type { IndexedCodebaseContextService } from '../indexing/indexed-codebase
 import { FastPathRetriever } from './orchestration/fast-path-retriever';
 import { OrchestrationMessageFormatter } from './orchestration/orchestration-message-formatter';
 import { evaluateSpawn } from '../orchestration/subagent-spawn-guard';
+import type { InternalInputSource } from '../../shared/types/input-provenance.types';
 import { errorFromIdentity } from '../util/error-utils';
 import {
   routeRole,
@@ -60,7 +61,7 @@ export interface OrchestrationDependencies {
   getInstance: (id: string) => Instance | undefined;
   getInstanceCount: () => number;
   createChildInstance: (parentId: string, command: SpawnChildCommand, routingDecision: RoutingDecision) => Promise<Instance>;
-  sendInput: (instanceId: string, message: string) => Promise<void>;
+  sendInput: (instanceId: string, message: string, options?: { internalSource?: InternalInputSource }) => Promise<void>;
   terminateInstance: (instanceId: string, graceful: boolean) => Promise<void>;
   getAdapter: (id: string) => any;
   recordTaskOutcome: (taskId: string, success: boolean, score: number) => void;
@@ -401,7 +402,8 @@ export class InstanceOrchestrationManager {
       'message-child',
       async (parentId: string, command: MessageChildCommand) => {
         try {
-          await this.deps.sendInput(command.childId, command.message);
+          // The parent agent wrote this, not the human user (LT-657).
+          await this.deps.sendInput(command.childId, command.message, { internalSource: 'parent-agent-message' });
           this.orchestration.notifyMessageSent(parentId, command.childId);
         } catch (error) {
           logger.error('Failed to message child', error instanceof Error ? error : undefined);
@@ -577,7 +579,7 @@ export class InstanceOrchestrationManager {
                   publishOutput(instanceId, pendingMessage);
                 });
               } else {
-                await adapter.sendInput(response);
+                await adapter.sendInput(response, undefined, { internalSource: 'orchestrator-response' });
               }
               confirm();
             } catch (err) {

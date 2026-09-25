@@ -23,7 +23,7 @@ describe('MobileSheetComponent', () => {
 
   async function setup() {
     const fixture = TestBed.createComponent(MobileSheetComponent);
-    Object.defineProperty(fixture.componentInstance, 'label', { value: signal('Request details') });
+    fixture.componentRef.setInput('label', 'Request details');
     await fixture.whenStable();
     return fixture;
   }
@@ -70,8 +70,8 @@ describe('MobileSheetComponent', () => {
     const opener = document.createElement('button');
     document.body.append(opener);
     const fixture = TestBed.createComponent(MobileSheetComponent);
-    Object.defineProperty(fixture.componentInstance, 'label', { value: signal('Folders') });
-    Object.defineProperty(fixture.componentInstance, 'returnFocusTo', { value: signal(opener) });
+    fixture.componentRef.setInput('label', 'Folders');
+    fixture.componentRef.setInput('returnFocusTo', opener);
     await fixture.whenStable();
     fixture.destroy();
     expect(document.activeElement).toBe(opener);

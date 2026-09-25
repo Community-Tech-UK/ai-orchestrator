@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
+import { DEFAULT_SETTINGS } from '../../shared/types/settings-defaults';
 import {
   ContextSafetyPolicy,
   createInitialContextSafetyPolicyState,
+  DEFAULT_CUMULATIVE_RECOVERY_LIMITS,
   type ContextSafetyPolicyInput,
 } from './context-safety-policy';
 import { ProviderContextActionExecutor } from './provider-context-action-executor';
@@ -228,10 +230,92 @@ describe('ContextSafetyPolicy', () => {
     expect(atFour.occupancyPercent).toBeUndefined();
   });
 
+  it('holds the cumulative 4x recovery while a known context is too small to be worth compacting', () => {
+    // Live 2026-09-25: a Codex turn at 25% of a 258,400-token window crossed
+    // 4x cumulative spend 90s in, and was interrupted and compacted.
+    const policy = new ContextSafetyPolicy();
+    const window = 258_400;
+    const sample = (used: number) => ({
+      ...input().sample,
+      occupancy: { status: 'known' as const, used, total: window },
+      cumulativeTokens: window * 4 + 1,
+    });
+    const small = policy.decide(input({
+      sample: sample(Math.round(window * 0.25)),
+      capabilities: observed,
+      effectiveWindowTokens: window,
+    }));
+    const grown = policy.decide(input({
+      sample: sample(Math.round(window * 0.55)),
+      capabilities: observed,
+      effectiveWindowTokens: window,
+      state: small.nextState,
+    }));
+
+    expect(small.action).toMatchObject({ kind: 'convergence-review', trigger: 'cumulative-2x' });
+    expect(small.nextState.emittedTriggers).not.toContain('cumulative-4x');
+    expect(small.nextState.recoveriesInOuterSend).toBe(0);
+    expect(grown.action).toMatchObject({ kind: 'controlled-recovery', trigger: 'cumulative-4x' });
+  });
+
+  it('still recovers a small known context once spend reaches the 16x backstop', () => {
+    const policy = new ContextSafetyPolicy();
+    const window = 258_400;
+    const atOccupancy = (cumulativeTokens: number, state = input().state) => policy.decide(input({
+      sample: {
+        ...input().sample,
+        occupancy: { status: 'known', used: Math.round(window * 0.25), total: window },
+        cumulativeTokens,
+      },
+      capabilities: observed,
+      effectiveWindowTokens: window,
+      state,
+    }));
+    const belowBackstop = atOccupancy(window * 16 - 1);
+    const atBackstop = atOccupancy(window * 16, belowBackstop.nextState);
+
+    expect(belowBackstop.action.kind).toBe('convergence-review');
+    expect(atBackstop.action).toMatchObject({ kind: 'controlled-recovery', trigger: 'cumulative-4x' });
+  });
+
+  it('uses caller-supplied spend-recovery limits', () => {
+    const policy = new ContextSafetyPolicy();
+    const window = 258_400;
+    const decide = (cumulativeTokens: number, cumulativeRecoveryLimits: ContextSafetyPolicyInput['cumulativeRecoveryLimits']) =>
+      policy.decide(input({
+        sample: {
+          ...input().sample,
+          occupancy: { status: 'known', used: Math.round(window * 0.25), total: window },
+          cumulativeTokens,
+        },
+        capabilities: observed,
+        effectiveWindowTokens: window,
+        cumulativeRecoveryLimits,
+      }));
+
+    expect(decide(window * 4, { minOccupancyPercent: 20, backstopMultiple: 16 }).action.kind)
+      .toBe('controlled-recovery');
+    expect(decide(window * 8, { minOccupancyPercent: 50, backstopMultiple: 8 }).action.kind)
+      .toBe('controlled-recovery');
+    expect(decide(window * 8, { minOccupancyPercent: 50, backstopMultiple: 9 }).action.kind)
+      .toBe('convergence-review');
+  });
+
+  it('ships settings defaults that match the policy defaults', () => {
+    expect({
+      minOccupancyPercent: DEFAULT_SETTINGS.contextSpendRecoveryMinOccupancyPercent,
+      backstopMultiple: DEFAULT_SETTINGS.contextSpendRecoveryBackstopMultiple,
+    }).toEqual(DEFAULT_CUMULATIVE_RECOVERY_LIMITS);
+  });
+
   it('enforces the three-recovery ceiling per epoch and outer send', () => {
     const policy = new ContextSafetyPolicy();
     const recoveryInput = input({
-      sample: { ...input().sample, cumulativeTokens: 400 },
+      sample: {
+        ...input().sample,
+        occupancy: { status: 'known', used: 55, total: 100 },
+        cumulativeTokens: 400,
+      },
       effectiveWindowTokens: 100,
       capabilities: observed,
       state: {

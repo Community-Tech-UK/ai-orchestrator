@@ -1,0 +1,77 @@
+@if (queued().length > 0) {
+  <app-composer-queue
+    [messages]="queued()"
+    [pendingId]="queuePending()"
+    (cancelMessage)="cancelQueued($event)"
+    (removeMessage)="cancelQueued($event, true)"
+  />
+}
+
+@if (notice(); as text) {
+  <div class="composer-notice" [class.error]="noticeIsError()" [attr.role]="noticeIsError() ? 'alert' : 'status'">
+    <span>{{ text }}</span>
+    <button type="button" (click)="clearNotice()" aria-label="Dismiss message">Dismiss</button>
+  </div>
+}
+
+<form class="composer" (submit)="send($event)">
+  @if (legacyDraftAvailable()) {
+    <div class="mobile-load-state">
+      An older draft for this session has no saved host. Recover it here only if it belongs on {{ hostName() }}.
+      <button type="button" (click)="recoverLegacyDraft()">Recover older draft</button>
+    </div>
+  }
+  @if (attachments().length > 0) {
+    <div class="attach-strip" aria-label="Pending attachments">
+      @for (attachment of attachments(); track attachment) {
+        <div class="chip">
+          <img [src]="attachment.data" [alt]="attachment.name" />
+          <button type="button" class="chip-x" (click)="removeAttachment(attachment)" [attr.aria-label]="'Remove ' + attachment.name">
+            <app-mobile-icon name="close" />
+          </button>
+        </div>
+      }
+    </div>
+  }
+  <textarea
+    #draftEl
+    rows="1"
+    [ngModel]="draft()"
+    (ngModelChange)="draft.set($event)"
+    [ngModelOptions]="{ standalone: true }"
+    placeholder="Message…"
+    aria-label="Message to the agent"
+    aria-describedby="composer-shortcut"
+    (keydown.enter)="onEnter($event)"
+    (paste)="onPaste($event)"
+  ></textarea>
+  <p class="composer-shortcut" id="composer-shortcut">Return adds a line. ⌘/Ctrl + Return sends.</p>
+  <div class="composer-toolbar">
+    <div class="composer-toolbar__leading">
+      @if (canAttach) {
+        <button type="button" class="composer-tool" (click)="pickImages()" [disabled]="attachBusy() || sending()" aria-label="Add photo">
+          <app-mobile-icon name="plus" />
+        </button>
+        <button type="button" class="composer-tool" (click)="pasteImageFromClipboard()" [disabled]="attachBusy() || sending()" aria-label="Paste image from clipboard">
+          <app-mobile-icon name="clipboard" />
+        </button>
+      }
+    </div>
+    <span class="composer-status" role="status">
+      {{ sending() ? 'Sending…' : interrupting() || stopping() ? 'Stopping…' : online() ? activityLabel() : headline() }}
+    </span>
+    @if (canDictate) {
+      <button type="button" class="composer-tool" [class.composer-tool--listening]="listening()" (click)="toggleDictation()" [attr.aria-label]="listening() ? 'Stop dictation' : 'Dictate'">
+        <app-mobile-icon name="microphone" />
+      </button>
+    }
+    @if (working()) {
+      <button type="button" class="composer-tool composer-tool--stop" (click)="interrupt()" [disabled]="!online() || interrupting() || stopping()" [attr.aria-label]="stopping() ? 'Stopping' : 'Stop the agent'">
+        <app-mobile-icon name="stop" />
+      </button>
+    }
+    <button type="submit" class="send" [disabled]="!online() || !canSend() || sending()" [attr.aria-label]="sending() ? 'Sending message' : 'Send message'">
+      <app-mobile-icon name="arrow-up" />
+    </button>
+  </div>
+</form>

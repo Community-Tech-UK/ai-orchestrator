@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  ElementRef,
   NO_ERRORS_SCHEMA,
   signal,
   ɵresolveComponentResources as resolveComponentResources,
@@ -516,15 +515,9 @@ describe('New Session folder and submission behavior', () => {
   });
 
   it('focuses the composer only on entry and preserves the stable settings opener for both sheets', async () => {
+    const focus = vi.spyOn(HTMLTextAreaElement.prototype, 'focus');
     const { fixture, root, settle } = await setupSession();
-    const area = root.querySelector('textarea')!;
-    const focus = vi.spyOn(area, 'focus');
-    const composer = signal<ElementRef<HTMLTextAreaElement> | undefined>(undefined);
-    Object.defineProperty(fixture.componentInstance, 'composer', { value: composer });
-    // Trigger the existing effect after supplying the signal query omitted by the test compiler.
     const component = fixture.componentInstance as unknown as { chooseDirectory(path: string): void; completeSettings(): void; modelSheetOpen: { set(value: boolean): void } };
-    component.chooseDirectory('/focus/project'); await settle();
-    composer.set(new ElementRef(area)); await settle();
     expect(focus).toHaveBeenCalledTimes(1);
     focus.mockClear();
     const opener = root.querySelector<HTMLButtonElement>('button[aria-label="Session settings"]')!;

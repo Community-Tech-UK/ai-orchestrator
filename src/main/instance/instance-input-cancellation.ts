@@ -1,3 +1,5 @@
+import type { InternalInputSource } from '../../shared/types/input-provenance.types';
+
 export interface InstanceSendInputOptions {
   isRetry?: boolean;
   autoContinuation?: boolean;
@@ -16,6 +18,12 @@ export interface InstanceSendInputOptions {
   crossSessionSourceDisplayName?: string;
   /** Hop count computed by the loop guard; carried onto the stored message's metadata. */
   crossSessionHopCount?: number;
+  /**
+   * Set when Harness itself authored this text (LT-657). The message is stored
+   * as a Harness system message, kept out of prompt history and slash-command
+   * resolution, and wrapped so the provider cannot read it as the user's words.
+   */
+  internalSource?: InternalInputSource;
 }
 
 export function throwIfInstanceInputAborted(signal?: AbortSignal): void {

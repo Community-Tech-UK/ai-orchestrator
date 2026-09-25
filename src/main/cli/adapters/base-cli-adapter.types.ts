@@ -1,6 +1,7 @@
 import type { DegradedReason } from './degraded-output-classifier';
 import type { ContextUsage } from '../../../shared/types/instance.types';
 import type { CliAsyncWorkEvent } from './claude-cli-async-work';
+import type { InternalInputSource } from '../../../shared/types/input-provenance.types';
 export type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 
 /**
@@ -119,6 +120,15 @@ export interface AdapterRuntimeCapabilities {
    * Default: false (orchestrator drives compaction).
    */
   selfManagedAutoCompaction?: boolean;
+}
+
+/**
+ * Provenance of one `sendInput` turn (LT-657). Adapters with a non-user channel
+ * (Codex app-server developer items) use it; the rest receive the text already
+ * wrapped in the Harness envelope.
+ */
+export interface AdapterInputOptions {
+  internalSource?: InternalInputSource;
 }
 
 /**

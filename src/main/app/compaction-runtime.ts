@@ -22,6 +22,7 @@ import {
 import { getCheckpointManager } from '../session/checkpoint-manager';
 import { CheckpointType } from '../../shared/types/error-recovery.types';
 import type { InstanceManager } from '../instance/instance-manager';
+import { internalInputMetadata } from '../instance/internal-input-provenance';
 import type { WindowManager } from '../window-manager';
 import type { ContextUsage, Instance } from '../../shared/types/instance.types';
 import type { CompactionBoundaryOptions } from '../../shared/types/compaction-preview.types';
@@ -33,6 +34,11 @@ import {
 } from '../context-evidence/provider-context-action-executor';
 
 const logger = getLogger('CompactionRuntime');
+
+/** Transcript record of a context-policy steer; the instruction itself goes to the agent as developer input. */
+export const CONTEXT_POLICY_STEER_NOTICE =
+  'Harness context policy: context usage is high, so Harness told the agent to wrap up broad exploration '
+  + 'for the current turn and then continue your task. This was an automated instruction, not a message from you.';
 
 /**
  * Checkpoint created by `applyCompaction()` (WS-B7) just before triggering
@@ -203,6 +209,19 @@ export function setupCompactionCoordinator(
   applyCumulativeTrigger();
   settings.on('setting-changed', applyCumulativeTrigger);
 
+  const applyCumulativeRecoveryLimits = () => {
+    coordinator.setCumulativeRecoveryLimits({
+      minOccupancyPercent: settings.get('contextSpendRecoveryMinOccupancyPercent'),
+      backstopMultiple: settings.get('contextSpendRecoveryBackstopMultiple'),
+    });
+  };
+  applyCumulativeRecoveryLimits();
+  settings.on('setting-changed', (key: string) => {
+    if (key === 'contextSpendRecoveryMinOccupancyPercent' || key === 'contextSpendRecoveryBackstopMultiple') {
+      applyCumulativeRecoveryLimits();
+    }
+  });
+
   coordinator.configure({
     getContextCapabilities: (instanceId: string) => {
       const adapter = instanceManager.getAdapter(instanceId) as NativeCompactionAdapter | undefined;
@@ -241,7 +260,17 @@ export function setupCompactionCoordinator(
         handlers['controlled-interrupt'] = () => execute('controlled-interrupt');
         handlers['controlled-recovery'] = () => execute('controlled-recovery');
         handlers['same-thread-continuation'] = () => execute('same-thread-continuation');
-        handlers['steer-turn'] = () => execute('steer-turn');
+        handlers['steer-turn'] = async () => {
+          const result = await execute('steer-turn');
+          // LT-657: the steer travels as a developer-role instruction the
+          // transcript never shows, so record that Harness (not the user) sent it.
+          if (result.proof === 'acknowledged') {
+            instanceManager.emitSystemMessage(instanceId, CONTEXT_POLICY_STEER_NOTICE, {
+              internalInput: internalInputMetadata('context-policy'),
+            });
+          }
+          return result;
+        };
       }
       return new ProviderContextActionExecutor(handlers);
     },
@@ -453,7 +482,7 @@ export function setupCompactionCoordinator(
           instanceId,
           continuityPrompt,
           undefined,
-          { automatedInput: true },
+          { automatedInput: true, internalSource: 'compaction-continuity' },
         );
 
         logger.info('restart-with-summary compaction completed', {

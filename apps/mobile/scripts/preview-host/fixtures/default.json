@@ -1,0 +1,168 @@
+{
+  "snapshot": {
+    "hostName": "Harness Preview",
+    "serverTime": 0,
+    "instances": [
+      {
+        "id": "preview-active",
+        "displayName": "Improve mobile preview",
+        "status": "running",
+        "provider": "codex",
+        "model": "gpt-preview",
+        "workingDirectory": "/preview/mobile-app",
+        "projectName": "mobile-app",
+        "createdAt": 1758700800000,
+        "lastActivity": 1758787200000,
+        "pendingApprovalCount": 1,
+        "hasUnreadCompletion": false,
+        "attentionLevel": "blocked",
+        "contextPercentage": 42,
+        "queuedMessages": []
+      },
+      {
+        "id": "preview-busy",
+        "displayName": "Run regression suite",
+        "status": "busy",
+        "provider": "claude",
+        "model": "sonnet-preview",
+        "workingDirectory": "/preview/orchestrator",
+        "projectName": "orchestrator",
+        "createdAt": 1758614400000,
+        "lastActivity": 1758787140000,
+        "pendingApprovalCount": 0,
+        "hasUnreadCompletion": false,
+        "attentionLevel": "working",
+        "isLooping": true,
+        "queuedMessages": [
+          {
+            "id": "preview-queue-1",
+            "message": "This queued preview message can be cancelled.",
+            "hasAttachments": false,
+            "enqueuedAt": 1758787180000,
+            "attempts": 0
+          }
+        ]
+      },
+      {
+        "id": "preview-complete",
+        "displayName": "Review accessibility",
+        "status": "idle",
+        "provider": "gemini",
+        "workingDirectory": "/preview/mobile-app",
+        "projectName": "mobile-app",
+        "createdAt": 1758528000000,
+        "lastActivity": 1758783600000,
+        "pendingApprovalCount": 0,
+        "hasUnreadCompletion": true,
+        "attentionLevel": "review"
+      }
+    ],
+    "projects": [
+      {
+        "key": "/preview/mobile-app",
+        "path": "/preview/mobile-app",
+        "name": "mobile-app",
+        "sessionCount": 2,
+        "busyCount": 1,
+        "pendingApprovalCount": 1,
+        "needsAttentionCount": 2,
+        "lastActivity": 1758787200000
+      },
+      {
+        "key": "/preview/orchestrator",
+        "path": "/preview/orchestrator",
+        "name": "orchestrator",
+        "sessionCount": 1,
+        "busyCount": 1,
+        "pendingApprovalCount": 0,
+        "needsAttentionCount": 0,
+        "lastActivity": 1758787140000
+      }
+    ],
+    "prompts": [
+      {
+        "id": "preview-prompt-1",
+        "instanceId": "preview-active",
+        "requestId": "preview-request-1",
+        "kind": "permission",
+        "toolName": "Write",
+        "toolInput": { "path": "/preview/mobile-app/example.ts" },
+        "title": "Allow file change?",
+        "message": "The preview agent wants to update example.ts.",
+        "createdAt": 1758787200000
+      }
+    ],
+    "pause": { "isPaused": false, "reasons": [], "pausedAt": null, "lastChange": 1758780000000 }
+  },
+  "messages": {
+    "preview-active": [
+      { "id": "preview-message-1", "timestamp": 1758787000000, "type": "user", "content": "Show the mobile preview." },
+      { "id": "preview-message-2", "timestamp": 1758787010000, "type": "assistant", "content": "Opening the deterministic fixture now." },
+      { "id": "preview-message-3", "timestamp": 1758787020000, "type": "tool_use", "content": "Inspecting the preview state." },
+      { "id": "preview-message-4", "timestamp": 1758787030000, "type": "assistant", "content": "The preview is ready at all supported phone widths." }
+    ],
+    "preview-busy": [
+      { "id": "preview-busy-message-1", "timestamp": 1758787100000, "type": "assistant", "content": "The regression suite is still running." }
+    ],
+    "preview-complete": [
+      { "id": "preview-complete-message-1", "timestamp": 1758783600000, "type": "assistant", "content": "Accessibility review completed." }
+    ]
+  },
+  "models": {
+    "claude": [{ "id": "sonnet-preview", "name": "Sonnet Preview", "tier": "balanced", "pinned": true }],
+    "codex": [{ "id": "gpt-preview", "name": "GPT Preview", "tier": "powerful", "pinned": true }],
+    "gemini": [{ "id": "gemini-preview", "name": "Gemini Preview", "tier": "balanced" }],
+    "copilot": [],
+    "cursor": [],
+    "grok": [],
+    "opencode": []
+  },
+  "recentDirs": [
+    { "path": "/preview/mobile-app", "displayName": "mobile-app", "lastAccessed": 1758787200000, "isPinned": true },
+    { "path": "/preview/orchestrator", "displayName": "orchestrator", "lastAccessed": 1758783600000, "isPinned": false }
+  ],
+  "history": [
+    {
+      "id": "chat:preview-history-1",
+      "name": "Mobile layout review",
+      "provider": "codex",
+      "model": "gpt-preview",
+      "workingDirectory": "/preview/mobile-app",
+      "projectName": "mobile-app",
+      "createdAt": 1758528000000,
+      "lastActiveAt": 1758614400000,
+      "archived": true,
+      "live": false
+    },
+    {
+      "id": "inst:preview-active",
+      "name": "Improve mobile preview",
+      "provider": "codex",
+      "model": "gpt-preview",
+      "workingDirectory": "/preview/mobile-app",
+      "projectName": "mobile-app",
+      "createdAt": 1758700800000,
+      "lastActiveAt": 1758787200000,
+      "archived": false,
+      "live": true,
+      "instanceId": "preview-active"
+    }
+  ],
+  "historyMessages": {
+    "chat:preview-history-1": [
+      { "id": "preview-history-message-1", "timestamp": 1758614300000, "type": "user", "content": "Review the phone layout." },
+      { "id": "preview-history-message-2", "timestamp": 1758614400000, "type": "assistant", "content": "The layout review is archived." }
+    ],
+    "inst:preview-active": [
+      { "id": "preview-history-live-1", "timestamp": 1758787000000, "type": "assistant", "content": "This history entry links to the live preview session." }
+    ]
+  },
+  "sessionPlan": {
+    "provider": "codex",
+    "providerLabel": "Codex",
+    "model": "gpt-preview",
+    "modelLabel": "GPT Preview",
+    "reasoningEffort": "high",
+    "reasoningEffortLabel": "High"
+  }
+}

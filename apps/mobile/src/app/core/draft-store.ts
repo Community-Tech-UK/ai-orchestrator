@@ -17,7 +17,7 @@ function serializeNewSessionDraft(draft: NewSessionDraft): string {
   return JSON.stringify({ text, directory, provider, model, reasoningEffort });
 }
 
-const REASONING_EFFORTS: MobileReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow'];
+const REASONING_EFFORTS: MobileReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'workflow'];
 
 export function parseNewSessionDraft(serialized: string): NewSessionDraft | null {
   try {

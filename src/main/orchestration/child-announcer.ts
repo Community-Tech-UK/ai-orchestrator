@@ -212,7 +212,8 @@ export class ChildAnnouncer extends EventEmitter {
 
   /**
    * Format a single announcement into a human-readable message for injection
-   * into the parent's conversation as a user message.
+   * into the parent's conversation. It is delivered as Harness internal input
+   * (`internalSource: 'child-announcement'`, LT-657), never as a user message.
    */
   formatAnnouncement(announcement: ChildAnnouncement): string {
     const status = announcement.success ? 'completed successfully' : 'failed';

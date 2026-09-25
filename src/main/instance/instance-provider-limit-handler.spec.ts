@@ -4,7 +4,7 @@ import {
   EARLY_RESUME_PROBE_MS,
   type InstanceProviderLimitHandlerDeps,
 } from './instance-provider-limit-handler';
-import { buildProviderLimitContinuationPrompt } from './instance-provider-limit-resume-scheduler';
+import { buildProviderLimitContinuationTurn } from './instance-provider-limit-resume-scheduler';
 import type { InstanceProvider, InstanceWaitReason } from '../../shared/types/instance.types';
 import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 
@@ -305,7 +305,7 @@ describe('InstanceProviderLimitHandler.resumeNow', () => {
     expect(h.handler.resumeNow('i1')).toBe(true);
     expect(h.resends).toHaveLength(1);
     expect(h.resends[0]?.instanceId).toBe('i1');
-    expect(h.resends[0]?.prompt).toBe(buildProviderLimitContinuationPrompt());
+    expect(h.resends[0]?.prompt).toBe(buildProviderLimitContinuationTurn());
     expect(h.waitReasons.get('i1')).toBeNull();
     expect(h.handler.isParked('i1')).toBe(false);
   });
@@ -358,7 +358,7 @@ describe('InstanceProviderLimitHandler.resumeFromAutomation', () => {
     h.resumableIds.add('i-live');
     expect(h.handler.resumeFromAutomation('i-live')).toBe('resent');
     expect(h.resends).toEqual([
-      { instanceId: 'i-live', prompt: buildProviderLimitContinuationPrompt() },
+      { instanceId: 'i-live', prompt: buildProviderLimitContinuationTurn() },
     ]);
   });
 

@@ -239,6 +239,12 @@
         font-size: 8px;
       }
 
+      /* LT-657: Harness-authored input must read as Harness, never as the user */
+      .message-type-internal {
+        opacity: 0.75;
+        color: var(--color-warning, currentColor);
+      }
+
       /* #3: Timestamps hidden by default, shown on hover */
       .message-time {
         font-family: var(--font-mono);

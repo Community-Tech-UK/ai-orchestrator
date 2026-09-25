@@ -149,7 +149,10 @@ export function registerOrchestrationHandlers(instanceManager: InstanceManager):
             continue;
           }
           try {
-            await instanceManager.sendInput(childId, prompt, undefined, { autoContinuation: true });
+            await instanceManager.sendInput(childId, prompt, undefined, {
+              autoContinuation: true,
+              internalSource: 'orchestrator-status-request',
+            });
             sent += 1;
           } catch (error) {
             failedChildIds.push(childId);

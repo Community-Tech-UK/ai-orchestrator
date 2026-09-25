@@ -86,7 +86,7 @@ interface FakeInstance extends PlanQueueInstanceRecord {
 class FakeInstances extends EventEmitter {
   readonly live = new Map<string, FakeInstance>();
   readonly created: FakeInstance[] = [];
-  readonly inputs: { instanceId: string; message: string }[] = [];
+  readonly inputs: { instanceId: string; message: string; internalSource?: string }[] = [];
   readonly scripts: Partial<Record<Role, Script>> = {};
   maxLive: Partial<Record<Role, number>> = {};
   private next = 0;
@@ -124,10 +124,15 @@ class FakeInstances extends EventEmitter {
     return { id: instance.id };
   }
 
-  async sendInput(instanceId: string, message: string): Promise<void> {
+  async sendInput(
+    instanceId: string,
+    message: string,
+    _attachments?: undefined,
+    options?: { internalSource?: string },
+  ): Promise<void> {
     const instance = this.live.get(instanceId);
     if (!instance) throw new Error(`no instance ${instanceId}`);
-    this.inputs.push({ instanceId, message });
+    this.inputs.push({ instanceId, message, internalSource: options?.internalSource });
     if (instance.role === 'parent') return;
     setImmediate(() => void this.turn(instance, message));
   }
@@ -410,6 +415,11 @@ describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30
     const fix = fake.inputs.find((m) => m.instanceId === workers[0].id);
     expect(fix?.message).toContain('Missing retry test.');
     expect(fix?.message).toContain('verification round 1 of 3');
+    // LT-657: queue-authored worker and parent messages are Harness input, never the user's.
+    expect(fix?.internalSource).toBe('plan-queue');
+    const parentMessages = fake.inputs.filter((m) => m.instanceId === parent.id);
+    expect(parentMessages.length).toBeGreaterThan(0);
+    expect(parentMessages.every((m) => m.internalSource === 'plan-queue')).toBe(true);
   });
 
   it('parks at the round limit, keeps the branch and names it in the document', async () => {

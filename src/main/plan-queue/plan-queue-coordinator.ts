@@ -229,7 +229,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   notifyParent(run: PlanQueueRun, message: string): void {
     const parent = this.instances.getInstance(run.parentInstanceId);
     if (!parent || AUTOMATION_FAILURE_STATUSES.has(parent.status)) return;
-    void this.instances.sendInput(run.parentInstanceId, message, undefined, { automatedInput: true }).catch((error: unknown) => {
+    const options = { automatedInput: true, internalSource: 'plan-queue' as const };
+    void this.instances.sendInput(run.parentInstanceId, message, undefined, options).catch((error: unknown) => {
       logger.warn('Plan queue: could not message the parent session', { runId: run.id, error: errorMessage(error) });
     });
   }

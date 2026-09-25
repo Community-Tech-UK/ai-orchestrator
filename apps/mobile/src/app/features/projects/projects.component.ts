@@ -368,6 +368,8 @@ export class ProjectsComponent implements OnInit {
   private pauseGeneration = 0;
   private initialDisclosureApplied = this.saved.expandedKeys !== null;
   private rowPressReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly now = signal(Date.now());
+  private readonly freshnessTimer = setInterval(() => this.now.set(Date.now()), 1000);
 
   private readonly sourceGroups = computed(() =>
     this.gateway.dataHostId() !== (this.hostStore.activeHost()?.id ?? null) ? [] : buildProjectGroups(
@@ -393,7 +395,9 @@ export class ProjectsComponent implements OnInit {
     this.online() ? this.hostName() : `${this.hostName()} · ${connectionLabel(this.state())}`,
   );
   protected readonly connectionHelp = computed(() => connectionHelpText(this.state()));
-  protected readonly offlineBanner = computed(() => offlineBannerText(this.state()));
+  protected readonly offlineBanner = computed(() =>
+    offlineBannerText(this.state(), this.gateway.lastServerFrameAt(), this.now()),
+  );
   protected readonly connectionColor = computed(() =>
     this.online() ? 'var(--accent-online)' : 'var(--text-secondary)',
   );
@@ -408,6 +412,7 @@ export class ProjectsComponent implements OnInit {
       this.requestGeneration++;
       this.pauseGeneration++;
       if (this.rowPressReleaseTimer) clearTimeout(this.rowPressReleaseTimer);
+      clearInterval(this.freshnessTimer);
     });
 
     effect(() => {

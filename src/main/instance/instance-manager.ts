@@ -154,6 +154,7 @@ import {
   throwIfInstanceInputAborted,
   type InstanceSendInputOptions,
 } from './instance-input-cancellation';
+import { automatedResendInput, formatInternalInputForProvider, internalInputMetadata } from './internal-input-provenance';
 
 const logger = getLogger('InstanceManager');
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
@@ -275,7 +276,7 @@ export class InstanceManager extends EventEmitter {
       getInstance: (id) => this.state.getInstance(id),
       getInstanceCount: () => this.state.getInstanceCount(),
       createChildInstance: (parentId, cmd, routing) => this.createChildInstance(parentId, cmd, routing),
-      sendInput: (id, msg) => this.sendInput(id, msg),
+      sendInput: (id, msg, options) => this.sendInput(id, msg, undefined, options),
       terminateInstance: (id, graceful) => this.terminateInstance(id, graceful),
       getAdapter: (id) => this.state.getAdapter(id),
       recordTaskOutcome: (taskId, success, score) => this.context.recordTaskOutcome(taskId, success, score),
@@ -439,7 +440,8 @@ export class InstanceManager extends EventEmitter {
       isEnabled: () => this.settings.get('instanceProviderLimitResumeEnabled') === true,
       setWaitReason: (id, waitReason) => this.queueInstanceUpdate(id, { waitReason }),
       resendInput: (id, prompt) => {
-        void this.sendInput(id, prompt, undefined, { automatedInput: true }).catch((err) =>
+        const resend = automatedResendInput(prompt);
+        void this.sendInput(id, resend.message, undefined, resend.options).catch((err) =>
           logger.warn('Provider-limit resume re-send failed', {
             instanceId: id,
             error: err instanceof Error ? err.message : String(err),
@@ -473,7 +475,8 @@ export class InstanceManager extends EventEmitter {
         getInstance: (id) => this.state.getInstance(id),
         applyRuntimeChange: (id, desired) => this.applyAccountHandoff(id, desired),
         resendInput: (id, prompt) => {
-          void this.sendInput(id, prompt, undefined, { automatedInput: true }).catch((err) =>
+          const resend = automatedResendInput(prompt);
+          void this.sendInput(id, resend.message, undefined, resend.options).catch((err) =>
             logger.warn('Account failover re-send failed', { instanceId: id, error: err instanceof Error ? err.message : String(err) }));
         },
       }),
@@ -526,6 +529,7 @@ export class InstanceManager extends EventEmitter {
         turn.message,
         turn.attachments,
         turn.contextBlock,
+        turn.internalSource ? { internalSource: turn.internalSource } : undefined,
       ),
     });
 
@@ -1512,7 +1516,10 @@ export class InstanceManager extends EventEmitter {
       );
     }
 
-    if (!options?.isRetry && !options?.autoContinuation) {
+    // LT-657: Harness-authored text is not a user submission and must never be
+    // interpreted as one (hooks, switch-mode replies, slash commands, history).
+    const internalSource = options?.internalSource;
+    if (!options?.isRetry && !options?.autoContinuation && !internalSource) {
       await assertInstanceLifecycleHookAllowed('UserPromptSubmit', instance, {
         userPrompt: message,
         content: message,
@@ -1520,7 +1527,7 @@ export class InstanceManager extends EventEmitter {
       throwIfInstanceInputAborted(options?.signal);
     }
 
-    const handledSwitchModeReply = await runInputPreflight({
+    const handledSwitchModeReply = !internalSource && await runInputPreflight({
       instanceId,
       phase: 'switch-mode-reply',
       timeoutMs: INPUT_PREFLIGHT_DEADLINE_MS,
@@ -1545,7 +1552,7 @@ export class InstanceManager extends EventEmitter {
       uiActionId?: string;
     } | undefined;
     const isSlashCommandInput = message.trim().startsWith('/');
-    const resolvedCommand = await runInputPreflight({
+    const resolvedCommand = internalSource ? null : await runInputPreflight({
       instanceId,
       phase: 'command-resolution',
       timeoutMs: INPUT_PREFLIGHT_DEADLINE_MS,
@@ -1593,10 +1600,11 @@ export class InstanceManager extends EventEmitter {
     } catch (error) {
       logger.debug('Session reference resolution failed', { instanceId, error: String(error) });
     }
+    if (internalSource) resolvedMessage = formatInternalInputForProvider(internalSource, resolvedMessage);
     throwIfInstanceInputAborted(options?.signal);
 
     const recordPromptHistory = (): void => {
-      if (options?.isRetry || !message.trim()) return;
+      if (options?.isRetry || internalSource || !message.trim()) return;
       try {
         getPromptHistoryService().record({
           instanceId,
@@ -1658,9 +1666,11 @@ export class InstanceManager extends EventEmitter {
     const userMessage = {
       id: generateId(),
       timestamp: Date.now(),
-      type: 'user' as const,
+      type: internalSource ? 'system' as const : 'user' as const,
       content: message,
-      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+      metadata: internalSource
+        ? { ...metadata, internalInput: internalInputMetadata(internalSource) }
+        : Object.keys(metadata).length > 0 ? metadata : undefined,
       attachments: attachments?.map((a) => ({
         name: a.name,
         type: a.type,
@@ -1849,6 +1859,7 @@ export class InstanceManager extends EventEmitter {
       : undefined;
     await this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock, {
       autoContinuation: options?.autoContinuation === true,
+      internalSource,
       signal: options?.signal,
       beforeProviderDispatch,
     });

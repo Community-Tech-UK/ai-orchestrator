@@ -797,6 +797,8 @@ describe('formatCommandResponse', () => {
     expect(out).toContain('Status: SUCCESS');
     expect(out).toContain('"children": []');
     expect(out).toContain('[/Orchestrator Response]');
+    // LT-657: child results and command replies must never read as the user's words.
+    expect(out).toContain('Source: Harness orchestrator (automated; not a message from the user)');
   });
 
   it('reports FAILED status when success is false', () => {

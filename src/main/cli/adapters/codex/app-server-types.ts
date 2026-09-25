@@ -292,6 +292,24 @@ export interface TurnSteerResponse {
   turnId?: string;
 }
 
+/**
+ * A raw Responses API message appended to the thread's model-visible history
+ * by `thread/inject_items`. Harness uses the `developer` role so its own
+ * instructions are never recorded as a user message (LT-657).
+ */
+export interface InjectedDeveloperMessageItem {
+  type: 'message';
+  role: 'developer';
+  content: { type: 'input_text'; text: string }[];
+}
+
+export interface ThreadInjectItemsParams {
+  threadId: string;
+  items: InjectedDeveloperMessageItem[];
+}
+
+export type ThreadInjectItemsResponse = Record<string, never>;
+
 export interface Turn {
   id: string;
   status: 'inProgress' | 'completed' | 'interrupted' | 'failed' | string;
@@ -465,6 +483,7 @@ export interface AppServerMethodMap {
   'model/list': { params: ModelListParams; result: ModelListResponse };
   'turn/start': { params: TurnStartParams; result: TurnStartResponse };
   'turn/steer': { params: TurnSteerParams; result: TurnSteerResponse };
+  'thread/inject_items': { params: ThreadInjectItemsParams; result: ThreadInjectItemsResponse };
   'turn/interrupt': { params: TurnInterruptParams; result: TurnInterruptResponse };
   /** Identity for the signed-in account. Parsed with `parseCodexAccountRead`. */
   'account/read': { params: { refreshToken?: boolean }; result: unknown };

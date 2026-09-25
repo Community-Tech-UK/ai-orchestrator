@@ -6,14 +6,13 @@
   "scripts": {
     "test:quiet": "node scripts/run-tests-quiet.cjs",
     "start": "ng serve",
+    "preview": "node scripts/preview-host/cli.mjs",
     "build": "ng build",
     "lint": "npx eslint \"src/**/*.{ts,html}\"",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
-    "sync": "npm run build && npx cap sync ios && npm run ios:ensure-display-name && npm run ios:ensure-scene-lifecycle && npm run ios:ensure-brand-assets && npm run ios:ensure-native-sources",
-    "ios:ensure-display-name": "node scripts/ensure-ios-display-name.mjs",
-    "ios:ensure-scene-lifecycle": "node scripts/ensure-ios-scene-lifecycle.mjs",
+    "sync": "npm run build && npx cap sync ios && npm run ios:ensure-brand-assets",
     "ios:ensure-brand-assets": "node scripts/ensure-ios-brand-assets.mjs",
-    "ios:ensure-native-sources": "node scripts/ensure-ios-native-sources.mjs",
+    "ios:device": "node scripts/build-device.mjs",
     "ios": "npm run sync && npx cap open ios"
   },
   "dependencies": {
@@ -44,6 +43,7 @@
     "@angular/cli": "^22.1.7",
     "@angular/compiler-cli": "^22.1.5",
     "@capacitor/cli": "^7.0.0",
+    "ws": "^8.21.0",
     "typescript": "~6.0.3"
   }
 }

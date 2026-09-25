@@ -24,6 +24,8 @@ const files = [
   'features/history/history.component.ts',
   'features/history/history-detail.component.ts',
   'features/conversation/conversation.component.ts',
+  'features/conversation/conversation-composer.component.ts',
+  'features/conversation/transcript-view.component.ts',
   'features/lock/lock-screen.component.ts',
 ];
 
@@ -34,7 +36,7 @@ describe('structural icon audit', () => {
   });
 
   it.each([
-    'features/conversation/conversation.component.ts',
+    'features/conversation/transcript-view.component.ts',
     'features/history/history-detail.component.ts',
   ])('%s labels expandable tool groups', (file) => {
     const source = componentSource(file);
@@ -43,7 +45,7 @@ describe('structural icon audit', () => {
   });
 
   it('expresses attachment state with icon plus text', () => {
-    const source = componentSource('features/conversation/conversation.component.ts');
+    const source = componentSource('features/conversation/transcript-view.component.ts');
     expect(source).toContain('<app-mobile-icon name="attachment" />');
     expect(source).toContain('Photo attached');
     expect(source).not.toContain('📎');

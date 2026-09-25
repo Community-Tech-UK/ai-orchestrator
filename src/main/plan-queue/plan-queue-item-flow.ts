@@ -227,7 +227,7 @@ export class PlanQueueItemFlow {
       this.host.registerRole(workerId, { role: 'worker', runId: item.runId, itemId: item.id });
       this.host.tracker.beginTurn(workerId);
       try {
-        await this.host.instances.sendInput(workerId, prompt, undefined, { automatedInput: true });
+        await this.host.instances.sendInput(workerId, prompt, undefined, { automatedInput: true, internalSource: 'plan-queue' });
         return;
       } catch (error) {
         logger.warn('Plan queue: worker send failed; starting a fresh worker', { itemId: item.id, error: errorMessage(error) });

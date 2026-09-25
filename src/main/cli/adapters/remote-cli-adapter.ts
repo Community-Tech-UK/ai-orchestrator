@@ -14,7 +14,7 @@ import type { WorkerNodeConnectionServer } from '../../remote-node/worker-node-c
 import { getWorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import type { CliType } from '../cli-detection';
 import type { UnifiedSpawnOptions } from './adapter-factory';
-import type { AdapterRuntimeCapabilities, CliResponse, CliSpawnMode, InterruptResult, ResumeAttemptResult, TurnInterruptCompletion } from './base-cli-adapter';
+import type { AdapterInputOptions, AdapterRuntimeCapabilities, CliResponse, CliSpawnMode, InterruptResult, ResumeAttemptResult, TurnInterruptCompletion } from './base-cli-adapter';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
@@ -246,7 +246,8 @@ export class RemoteCliAdapter extends EventEmitter {
     return -1; // No local PID for remote instances
   }
 
-  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
+  /** Remote nodes receive the Harness envelope in the text; `_options` is not forwarded. */
+  async sendInput(message: string, attachments?: FileAttachment[], _options?: AdapterInputOptions): Promise<void> {
     if (!this.remoteInstanceId) {
       throw new Error('RemoteCliAdapter: not spawned — call spawn() before sendInput()');
     }

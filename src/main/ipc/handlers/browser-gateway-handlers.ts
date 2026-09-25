@@ -290,7 +290,7 @@ export function registerBrowserGatewayHandlers(
     const instanceManager = deps.instanceManager;
     getSessionAdmissionService().registerRedeliveryHandler('browser-gateway', (ctx) => {
       void instanceManager
-        .sendInput(ctx.instanceId, ctx.message, undefined, { automatedInput: true })
+        .sendInput(ctx.instanceId, ctx.message, undefined, { automatedInput: true, internalSource: 'browser-gateway' })
         .then(() => getSessionAdmissionService().markDelivered(ctx.admissionId))
         .catch((error: unknown) => {
           getSessionAdmissionService().markFailed(
@@ -412,7 +412,7 @@ function resumeInstanceAfterBrowserDecision(
     return;
   }
 
-  void instanceManager.sendInput(instanceId, message, undefined, { automatedInput: true })
+  void instanceManager.sendInput(instanceId, message, undefined, { automatedInput: true, internalSource: 'browser-gateway' })
     .then(() => getSessionAdmissionService().markDelivered(outcome.admissionId))
     .catch((error) => {
       getSessionAdmissionService().markFailed(

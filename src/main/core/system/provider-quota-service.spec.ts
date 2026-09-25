@@ -110,6 +110,23 @@ describe('ProviderQuotaService', () => {
     });
   });
 
+  describe('getAll()', () => {
+    it('surfaces a stored opencode snapshot (the renderer hydrates from getAll)', async () => {
+      svc.registerProbe(new FakeProbe('opencode', makeSnapshot('opencode', 20, 100)));
+      await svc.refresh('opencode');
+      const all = svc.getAll();
+      expect(all.snapshots.opencode).not.toBeNull();
+      expect(all.snapshots.opencode!.windows[0].used).toBe(20);
+    });
+
+    it('surfaces a stored gemini snapshot', () => {
+      svc.ingestFromAdapter('gemini', makeIngest('gemini', 5, 100));
+      const all = svc.getAll();
+      expect(all.snapshots.gemini).not.toBeNull();
+      expect(all.snapshots.gemini!.windows[0].used).toBe(5);
+    });
+  });
+
   describe('quota pacing', () => {
     it('emits an early pacing warning when a five-hour window is 90% used before 72% elapsed', () => {
       const warnings: unknown[] = [];

@@ -80,4 +80,26 @@ describe('MessageFormatService', () => {
       'Codex compacted its own context (awaiting updated usage)',
     );
   });
+
+  // LT-657: Harness-authored input must never be labelled as the user.
+  describe('message sender labels', () => {
+    const harnessMessage = {
+      type: 'system' as const,
+      metadata: { internalInput: { actor: 'harness' as const, source: 'context-policy' as const } },
+    };
+
+    it('labels Harness-authored input as Harness and explains it is not from the user', () => {
+      expect(service.formatMessageLabel(harnessMessage, 'codex')).toBe('Harness (automated)');
+      expect(service.describeMessageSender(harnessMessage)).toBe(
+        'Sent to the agent automatically by Harness (context-policy). This is not a message from you.',
+      );
+    });
+
+    it('keeps the ordinary labels for user, assistant and system messages', () => {
+      expect(service.formatMessageLabel({ type: 'user' }, 'codex')).toBe('You');
+      expect(service.formatMessageLabel({ type: 'assistant' }, 'codex')).toBe('Codex');
+      expect(service.formatMessageLabel({ type: 'system' }, 'codex')).toBe('System');
+      expect(service.describeMessageSender({})).toBe('');
+    });
+  });
 });

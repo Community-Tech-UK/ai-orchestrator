@@ -132,6 +132,17 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * 0 = disabled.
    */
   cumulativeTokenCompactionTrigger: number;
+  /**
+   * Shared context policy: known context fill (%) below which spend alone
+   * (4x the context window since the last compaction) does not interrupt and
+   * compact an agent. 0 = compact on spend at any fill.
+   */
+  contextSpendRecoveryMinOccupancyPercent: number;
+  /**
+   * Shared context policy: spend since the last compaction, in context
+   * windows, that interrupts and compacts an agent regardless of fill.
+   */
+  contextSpendRecoveryBackstopMultiple: number;
   /** Restart-with-summary compaction also records and injects a heuristic decision log. Default off. */
   compactionDecisionLogEnabled: boolean;
   /**

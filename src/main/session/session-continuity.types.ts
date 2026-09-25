@@ -1,6 +1,7 @@
 import type { AccountRouteSource } from '../../shared/types/provider-account.types';
 import type { InstanceProvider, ThinkingContent } from '../../shared/types/instance.types';
 import type { CopilotRouteSource } from '../../shared/types/copilot-account.types';
+import type { InternalInputMetadata } from '../../shared/types/input-provenance.types';
 
 export interface SessionSnapshot {
   id: string;
@@ -149,6 +150,8 @@ export interface ConversationEntry {
     markerId?: string;
     method?: string;
   };
+  /** Harness authored this entry (LT-657); it is never the user's message. */
+  internalInput?: InternalInputMetadata;
 }
 
 export interface PendingTask {

@@ -15,6 +15,7 @@ import type {
   GatewayChatHistorySource,
   GatewayInstanceHistorySource,
 } from './mobile-gateway-serializers';
+import type { MobileGatewayStreamCursor } from './mobile-gateway-stream-cursor';
 
 const HISTORY_CHAT_PREFIX = 'chat:';
 const HISTORY_INSTANCE_PREFIX = 'inst:';
@@ -110,7 +111,11 @@ export async function handleMobileHistoryMessages(
 
 /** What the instance-transcript route needs; kept narrow so it stays testable. */
 export interface MobileInstanceMessagesDeps {
-  getInstance: (instanceId: string) => { outputBuffer?: OutputMessage[] } | null | undefined;
+  getInstance: (instanceId: string) => {
+    outputBuffer?: OutputMessage[];
+    adapterGeneration?: number;
+  } | null | undefined;
+  streamCursor?: MobileGatewayStreamCursor;
   markCompletionViewed: (instanceId: string) => void;
   messageReplayLimit: number;
   sendJson: (res: ServerResponse, statusCode: number, payload: unknown) => void;
@@ -138,6 +143,8 @@ url: URL,
   deps.markCompletionViewed(instanceId);
 
   const buffer = instance.outputBuffer ?? [];
+  const cursor = deps.streamCursor?.inspect(instanceId, buffer);
+  const offset = cursor?.offset ?? 0;
   const rawFromSeq = url.searchParams.get('fromSeq');
 
   // Absent fromSeq: legacy path — last deps.messageReplayLimit messages, byte-for-byte
@@ -146,8 +153,27 @@ url: URL,
     const start = Math.max(0, buffer.length - deps.messageReplayLimit);
     const messages = buffer
       .slice(start)
-      .map((msg, sliceIdx) => serializeMessage(msg, start + sliceIdx))
+      .map((msg, sliceIdx) => serializeMessage(msg, offset + start + sliceIdx))
       .filter((dto): dto is NonNullable<typeof dto> => dto !== null);
+    if (url.searchParams.get('withCursor') === '1') {
+      const envelope: MobileMessagesResumeDto = {
+        messages,
+        meta: {
+          fromSeq: -1,
+          returned: messages.length,
+          hasMore: start > 0,
+          maxSeq: messages.at(-1)?.seq ?? -1,
+          ...(cursor ? { bufferGeneration: cursor.bufferGeneration } : {}),
+          ...(cursor ? { cursorEpoch: cursor.cursorEpoch } : {}),
+          ...(instance.adapterGeneration !== undefined
+            ? { adapterGeneration: instance.adapterGeneration }
+            : {}),
+          ...(cursor ? { streamSeq: cursor.nextStreamSeq - 1 } : {}),
+        },
+      };
+      deps.sendJson(res, 200, envelope);
+      return;
+    }
     deps.sendJson(res, 200, messages);
     return;
   }
@@ -161,14 +187,18 @@ url: URL,
   // Messages with buffer index strictly greater than fromSeq.
   // "seq" of message at buffer[i] === i (0-based).
   // Slice from (fromSeq + 1) onward, then cap to deps.messageReplayLimit.
-  const firstIdx = fromSeq + 1;
+  const includeFrom = url.searchParams.get('includeFrom') === '1';
+  const firstIdx = Math.max(0, fromSeq - offset + (includeFrom ? 0 : 1));
+  const bufferEndSeq = offset + buffer.length - 1;
+  const cursorFellBehind = includeFrom ? fromSeq < offset : fromSeq < offset - 1;
+  const bufferReset = fromSeq > bufferEndSeq;
   const available = Math.max(0, buffer.length - firstIdx);
-  const hasMore = available > deps.messageReplayLimit;
+  const hasMore = cursorFellBehind || available > deps.messageReplayLimit;
   // Take at most deps.messageReplayLimit messages starting at firstIdx.
   const sliceEnd = firstIdx + deps.messageReplayLimit;
   const sliced = buffer.slice(firstIdx, sliceEnd);
   const messages = sliced
-    .map((msg, sliceIdx) => serializeMessage(msg, firstIdx + sliceIdx))
+    .map((msg, sliceIdx) => serializeMessage(msg, offset + firstIdx + sliceIdx))
     .filter((dto): dto is NonNullable<typeof dto> => dto !== null);
 
   // LT-196: last survivor's own `seq`, not a count — a count under-reports
@@ -190,6 +220,13 @@ url: URL,
       returned: messages.length,
       hasMore,
       maxSeq,
+      ...(cursor ? { bufferGeneration: cursor.bufferGeneration } : {}),
+      ...(cursor ? { cursorEpoch: cursor.cursorEpoch } : {}),
+      ...(bufferReset ? { bufferReset: true } : {}),
+      ...(instance.adapterGeneration !== undefined
+        ? { adapterGeneration: instance.adapterGeneration }
+        : {}),
+      ...(cursor ? { streamSeq: cursor.nextStreamSeq - 1 } : {}),
     },
   };
   deps.sendJson(res, 200, envelope);

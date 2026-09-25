@@ -392,8 +392,10 @@ export function formatCommandResponse(
   success: boolean,
   data: unknown
 ): string {
+  // LT-657: this reaches the agent over user-input transport; name the real sender.
   return `
 [Orchestrator Response]
+Source: Harness orchestrator (automated; not a message from the user)
 Action: ${action}
 Status: ${success ? 'SUCCESS' : 'FAILED'}
 ${JSON.stringify(data, null, 2)}

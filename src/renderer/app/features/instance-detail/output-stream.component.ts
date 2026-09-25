@@ -953,8 +953,12 @@ export class OutputStreamComponent {
     return this.messageFormat.formatCycleDuration(item);
   }
 
-  formatType(type: string, provider: string): string {
-    return this.messageFormat.formatType(type, provider);
+  formatMessageLabel(message: OutputMessage, provider: string): string {
+    return this.messageFormat.formatMessageLabel(message, provider);
+  }
+
+  describeMessageSender(message: OutputMessage): string {
+    return this.messageFormat.describeMessageSender(message);
   }
 
   protected getProviderDisplayName(provider: string): string {

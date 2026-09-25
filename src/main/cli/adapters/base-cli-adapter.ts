@@ -20,6 +20,7 @@ import type { DegradedOutputSignals } from './degraded-output-classifier';
 import { CONSERVATIVE_PROVIDER_CONTEXT_CAPABILITIES } from '@contracts/types/context-evidence';
 import type {
   AdapterCapabilities,
+  AdapterInputOptions,
   AdapterRuntimeCapabilities,
   CliAdapterConfig,
   CliCapabilities,
@@ -63,6 +64,7 @@ export interface SpawnTarget {
 }
 export type {
   AdapterCapabilities,
+  AdapterInputOptions,
   AdapterRuntimeCapabilities,
   CliAdapterConfig,
   CliAdapterEvents,
@@ -282,7 +284,11 @@ export abstract class BaseCliAdapter extends EventEmitter {
   /**
    * Provider-specific implementation for sending renderer/user input.
    */
-  protected abstract sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void>;
+  protected abstract sendInputImpl(
+    message: string,
+    attachments?: FileAttachment[],
+    metadata?: CliMessage['metadata'],
+  ): Promise<void>;
 
   // ============ Common Methods with Default Implementations ============
 
@@ -336,12 +342,13 @@ export abstract class BaseCliAdapter extends EventEmitter {
   /**
    * Public user-input entry point shared by all local adapters.
    */
-  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
+  async sendInput(message: string, attachments?: FileAttachment[], options?: AdapterInputOptions): Promise<void> {
     if (getPauseCoordinator().isPaused()) {
       throw new OrchestratorPausedError('CLI input refused while orchestrator is paused');
     }
 
-    await this.sendInputImpl(message, attachments);
+    const internalSource = options?.internalSource;
+    await this.sendInputImpl(message, attachments, internalSource ? { internalSource } : undefined);
   }
 
   /**

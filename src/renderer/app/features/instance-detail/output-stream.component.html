@@ -244,7 +244,9 @@
                 [title]="item.message.timestamp | date: 'HH:mm:ss'">
                 @if (item.showHeader !== false && item.message.type !== 'user') {
                   <div class="message-header">
-                    <span class="message-type">{{ formatType(item.message.type, provider()) }}</span>
+                    <span class="message-type"
+                      [class.message-type-internal]="!!item.message.metadata?.internalInput"
+                      [attr.title]="describeMessageSender(item.message) || null">{{ formatMessageLabel(item.message, provider()) }}</span>
                     @if (item.repeatCount && item.repeatCount > 1) {
                       <span class="repeat-badge">&times;{{ item.repeatCount }}</span>
                     }

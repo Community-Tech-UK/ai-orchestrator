@@ -1,17 +1,15 @@
 import { signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { Router } from '@angular/router';
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApprovalPresentationStore } from '../../core/approval-presentation.store';
 import { DraftStore } from '../../core/draft-store';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HapticsService } from '../../core/haptics.service';
 import { HostStore } from '../../core/host-store';
 import { ImageAttachmentService } from '../../core/image-attachment.service';
 import { VoiceInputService } from '../../core/voice-input.service';
-import { ConversationComponent } from './conversation.component';
+import { ConversationComposerComponent } from './conversation-composer.component';
 
 vi.mock('@capacitor/preferences', () => ({ Preferences: { get: vi.fn(), set: vi.fn() } }));
 await resolveComponentResources(() => Promise.resolve(''));
@@ -22,7 +20,7 @@ function setup() {
   vi.mocked(Preferences.set).mockResolvedValue();
   const store = new DraftStore();
   const host = signal({ id: 'host-a', name: 'Host A' });
-  TestBed.overrideComponent(ConversationComponent, { set: { template: '', templateUrl: undefined, imports: [], styleUrls: [] } });
+  TestBed.overrideComponent(ConversationComposerComponent, { set: { template: '', templateUrl: undefined, imports: [], styleUrls: [] } });
   TestBed.configureTestingModule({ providers: [
     { provide: DraftStore, useValue: store },
     { provide: HostStore, useValue: { activeHost: host } },
@@ -34,12 +32,11 @@ function setup() {
     { provide: HapticsService, useValue: { tap: vi.fn(), error: vi.fn(), success: vi.fn() } },
     { provide: ImageAttachmentService, useValue: { available: false } },
     { provide: VoiceInputService, useValue: { available: false, listening: signal(false), text: signal(''), stop: vi.fn().mockResolvedValue(undefined) } },
-    { provide: ApprovalPresentationStore, useValue: { requests: signal([]), open: vi.fn() } },
-    { provide: Router, useValue: { navigate: vi.fn(), getCurrentNavigation: () => null } },
   ] });
   const create = () => {
-    const fixture = TestBed.createComponent(ConversationComponent);
-    Object.defineProperty(fixture.componentInstance, 'instanceId', { value: signal('session-a') });
+    const fixture = TestBed.createComponent(ConversationComposerComponent);
+    fixture.componentRef.setInput('instanceId', 'session-a');
+    fixture.componentRef.setInput('activityLabel', 'idle');
     fixture.detectChanges();
     const component = fixture.componentInstance as unknown as { draft: ReturnType<typeof signal<string>> };
     return { fixture, component };

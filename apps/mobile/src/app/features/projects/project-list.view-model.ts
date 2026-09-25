@@ -54,6 +54,7 @@ export function mergeProjects(
         sessionCount: 0,
         busyCount: 0,
         pendingApprovalCount: 0,
+        needsAttentionCount: 0,
       },
       sessionKeys: new Set<string>(),
     });
@@ -66,6 +67,9 @@ export function mergeProjects(
     entry.project.lastActivity = Math.max(entry.project.lastActivity, instance.lastActivity);
     if (isWorkingOrLooping(instance)) entry.project.busyCount += 1;
     entry.project.pendingApprovalCount += instance.pendingApprovalCount;
+    if (instance.attentionLevel === 'blocked' || instance.attentionLevel === 'failed') {
+      entry.project.needsAttentionCount += 1;
+    }
   }
 
   for (const session of history) {
@@ -230,6 +234,7 @@ function ensureProject(
     sessionCount: 0,
     busyCount: 0,
     pendingApprovalCount: 0,
+    needsAttentionCount: 0,
     lastActivity,
   };
   const created = { project, sessionKeys: new Set<string>() };

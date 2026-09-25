@@ -13,9 +13,9 @@ on your own device — not an App Store release.
 > provider/model), organize modes (By project / Chronological), and **APNs push**
 > registration with tap-to-approve.
 
-This app is a **standalone package** (not part of the root npm workspace). Its DTOs in
-`src/app/core/models.ts` mirror `src/shared/types/mobile-gateway.types.ts` in the main repo.
-If the gateway DTOs change, update both.
+The phone-facing gateway DTOs come from the repo's dependency-free `@contracts` package.
+`src/app/core/models.ts` re-exports them alongside phone-only view models, so desktop and
+phone wire types cannot drift independently.
 
 ## Prerequisites
 
@@ -25,30 +25,25 @@ If the gateway DTOs change, update both.
 - For push: an App ID with the **Push Notifications** capability and an **APNs Auth Key
   (`.p8`)**, configured in the desktop **Settings → Mobile → Push notifications** card.
 
-## One-time setup
+## Clone setup
 
 ```bash
-cd apps/mobile
-cp angular.json.template angular.json   # angular.json is git-ignored in this repo
-npm install
-npx cap add ios
+cd /path/to/ai-orchestrator/apps/mobile
+npm ci
+npm run sync
 ```
 
 > Bundle ID defaults to `com.shutupandshave.aiorchestrator` (`capacitor.config.ts`).
 > Change it there + in Xcode signing + the desktop APNs **Bundle ID** field if you prefer.
 
-### Native capabilities (Xcode, after `cap add ios`)
+### Tracked native project
 
-- **iOS deployment target ≥ 16.0** (required): the QR scanner pulls in GoogleMLKit 7,
-  which needs iOS 15.5+. `cap add ios` defaults the project + Podfile to 14.0, so
-  `pod install` fails until you bump it. Set it to 16.0 in `ios/App/Podfile`
-  (`platform :ios, '16.0'`) **and** the App target's *Minimum Deployments* in Xcode,
-  then `cd ios/App && pod install`. (Because `cap sync` regenerates these files, consider
-  committing the `ios/` project so the bump + capabilities persist.)
-- **Push Notifications**: add the *Push Notifications* capability to the App target.
-- **Camera** (QR pairing): add an `NSCameraUsageDescription` to `ios/App/App/Info.plist`,
-  e.g. *"Scan the pairing QR code shown on your Mac."* The barcode scanner uses
-  `@capacitor-mlkit/barcode-scanning` (Google ML Kit pods are added by `cap sync`).
+- `ios/App` is source-controlled. Do not run `npx cap add ios` over it.
+- The app target is iOS 16.0; the Live Activity widget is iOS 16.1 because ActivityKit
+  does not exist on 16.0. The Podfile, widget target, embed phase, push entitlement,
+  scene lifecycle, and Camera/Photos/Microphone/Speech/Face ID descriptions are tracked.
+- `npm run sync` builds Angular, runs `cap sync ios`, refreshes Pods, and verifies the
+  generated brand assets. It no longer patches tracked Swift or plist source files.
 - **Simulator caveat**: GoogleMLKit ships **no arm64-simulator slice**, so with the QR
   plugin the app builds for the simulator only as x86_64 and won't run on Apple-Silicon
   simulators. Run on a **real device** (the intended target — push + camera need one), or
@@ -59,13 +54,47 @@ npx cap add ios
 ## Build & run on your phone
 
 ```bash
-npm run sync             # build + copy native deps + patch iOS display metadata
-npx cap open ios         # opens Xcode
+npm run ios:device -- --device "your iPhone name" --team "your Apple team ID"
 ```
 
-In Xcode: select your iPhone, set your signing Team, and Run. (`npm run ios` chains
-build + sync + the tracked iOS display-name patch + open.) For fast UI iteration without native bits: `npm run start`
-(push + QR scanning are no-ops in the browser; paste-pairing still works).
+The command builds Angular, syncs Capacitor and Pods, signs for that device, installs the
+result with CoreDevice, then launches `com.shutupandshave.aiorchestrator`. Set
+`HARNESS_IOS_DEVICE_ID` and `HARNESS_IOS_TEAM_ID` instead of flags for repeated runs.
+`xcrun devicectl list devices` must show the phone as `available`; unlock it, connect it,
+and enable Developer Mode first. Signing is supplied at runtime and is not stored in the
+project. `npm run ios` remains the interactive Xcode path.
+
+For fast browser iteration, run `npm run start` (push and QR scanning are no-ops there;
+paste-pairing still works).
+
+## Deterministic browser preview
+
+Run the phone UI without a desktop Harness gateway:
+
+```bash
+npm run preview
+```
+
+The command starts the Angular dev server behind a fixture gateway at
+`http://127.0.0.1:4173`, then prints a preview-only connection code. Open the printed
+URL, choose **Add host → Paste connection code**, paste that complete JSON value, and
+pair. The fixture contains live and completed sessions, two projects, an approval,
+queued input, model choices, recent folders, and history.
+
+Switch deterministic transport cases with the page query string. Reload after changing
+it so the fixture selects the case before the app reconnects:
+
+- `?scenario=default`
+- `?scenario=streaming`
+- `?scenario=gap`
+- `?scenario=disconnect`
+- `?scenario=401`
+- `?scenario=transcript-1000`
+
+Override the fixture origin when another device or worker needs it with
+`HARNESS_PREVIEW_HOST` and `HARNESS_PREVIEW_PORT`. Set `HARNESS_PREVIEW_BIND=0.0.0.0`
+only for that remote run; the default remains loopback-only. These fixtures contain
+placeholders only; they do not connect to or expose a real Harness gateway.
 
 ## Pairing
 
@@ -76,21 +105,25 @@ build + sync + the tracked iOS display-name patch + open.) For fast UI iteration
 
 ## Verification status
 
-- **Type-checked + AOT-built here**: `npm run typecheck` (tsc) and `ng build`
-  (Angular `strictTemplates`) both pass; ESLint is clean.
-- **Not exercisable in this dev environment**: the native iOS build/run (Xcode),
-  real APNs delivery (needs a device + the `.p8` configured on the Mac), and the live
-  Tailscale link. Run those on your Mac.
+- **Type-checked + AOT-built here**: `npm run typecheck` (tsc), the rendered Vitest suite,
+  ESLint, and `ng build` pass.
+- **Native build checked here**: `npm run sync` followed by an unsigned iPhoneOS workspace
+  build compiles the app and embedded Live Activity extension. A signed install/launch
+  still requires an available physical phone and runtime signing.
+- **Physical-device-only**: APNs delivery, camera, Face ID, haptics, keyboard behaviour,
+  VoiceOver, and the live Tailscale link remain device checks.
 
 ## Layout
 
 ```
 src/app/
 ├── core/
-│   ├── models.ts                 # DTOs (mirror of the gateway's shared types)
+│   ├── models.ts                 # shared wire DTO re-exports + phone view models
 │   ├── status.ts                 # status → colour/label (mirrors desktop)
 │   ├── host-store.ts             # paired hosts + active selection (persisted)
-│   ├── gateway-client.service.ts # REST + live WebSocket (events, transcripts, reconnect, seq)
+│   ├── gateway-client.service.ts # REST commands and feature orchestration
+│   ├── gateway-socket.ts         # live WebSocket lifecycle
+│   ├── transcript-store.ts       # transcript state and replay merging
 │   ├── push.service.ts           # APNs register + token sync + tap deep-link (native only)
 │   └── qr-scanner.service.ts     # camera QR pairing (native only)
 └── features/

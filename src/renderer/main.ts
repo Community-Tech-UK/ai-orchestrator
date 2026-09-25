@@ -13,19 +13,19 @@ window.addEventListener('unhandledrejection', (event) => {
   const reason = event.reason;
   console.error('[Renderer] Unhandled Promise rejection:', reason);
 
+  // Preload domains are spread flat onto `electronAPI`, so `logMessage` is
+  // top-level (see `RendererErrorHandler`).
   const win = window as unknown as {
     electronAPI?: {
-      infrastructure?: {
-        logMessage?: (
-          level: string,
-          msg: string,
-          ctx?: string,
-          meta?: unknown,
-        ) => Promise<unknown>;
-      };
+      logMessage?: (
+        level: string,
+        msg: string,
+        ctx?: string,
+        meta?: unknown,
+      ) => Promise<unknown>;
     };
   };
-  const logFn = win.electronAPI?.infrastructure?.logMessage;
+  const logFn = win.electronAPI?.logMessage;
   if (typeof logFn === 'function') {
     const message =
       reason instanceof Error

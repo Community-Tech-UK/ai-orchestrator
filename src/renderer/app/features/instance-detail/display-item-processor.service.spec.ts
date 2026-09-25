@@ -246,6 +246,26 @@ describe('DisplayItemProcessor', () => {
     expect(items[2].showHeader).toBe(true);
   });
 
+  // LT-657: a Harness-authored message must show its own "Harness" header even
+  // when it lands straight after an ordinary system notice.
+  it('gives Harness-authored input its own header after a system notice', () => {
+    const now = Date.now();
+    const items = processor.process([
+      makeMsg({ type: 'system', timestamp: now, id: 's1', content: 'Context usage at 81%.' }),
+      makeMsg({
+        type: 'system',
+        timestamp: now + 500,
+        id: 'h1',
+        content: 'Automatic check-in: background work is still running.',
+        metadata: { internalInput: { actor: 'harness', source: 'async-work-continuation' } },
+      }),
+    ]);
+    expect(items.map((item) => [item.message?.id, item.showHeader])).toEqual([
+      ['s1', true],
+      ['h1', true],
+    ]);
+  });
+
   it('should reset on instance switch', () => {
     const msg1 = makeMsg({ id: 'a' });
     processor.process([msg1], 'instance-1');

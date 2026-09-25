@@ -26,6 +26,7 @@ import type {
   ThinkingContent,
   CrossSessionMessageMetadata,
 } from '../../../../../shared/types/instance.types';
+import type { InternalInputMetadata } from '../../../../../shared/types/input-provenance.types';
 import type { ExecutionLocation } from '../../../../../shared/types/worker-node.types';
 import type { ComputerUseAutonomyLevel } from '../../../../../shared/types/desktop-gateway-settings.types';
 
@@ -81,7 +82,10 @@ export interface OutputMessage {
   timestamp: number;
   type: 'assistant' | 'user' | 'system' | 'tool_use' | 'tool_result' | 'tool_outcome' | 'error';
   content: string;
-  metadata?: Record<string, unknown> & { crossSessionMessage?: CrossSessionMessageMetadata };
+  metadata?: Record<string, unknown> & {
+    crossSessionMessage?: CrossSessionMessageMetadata;
+    internalInput?: InternalInputMetadata;
+  };
   /** File attachments associated with this message. */
   attachments?: FileAttachment[];
   /** Image refs that failed to resolve into inline attachments. */

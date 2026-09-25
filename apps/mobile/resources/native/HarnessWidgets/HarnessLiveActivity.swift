@@ -1,9 +1,9 @@
 // HarnessWidgets extension — Live Activity UI for running agent sessions.
-// See docs/mobile-app/live-activities-setup.md for the one-time Xcode setup.
+// The tracked Xcode project references this source directly.
 //
 // NOTE: HarnessSessionAttributes is intentionally duplicated from
-// resources/native/AppDelegate.swift (the app target). ActivityKit matches the
-// two by type name + Codable shape — keep them identical.
+// ios/App/App/AppDelegate.swift (the app target). ActivityKit matches the two by
+// type name + Codable shape — keep them identical.
 
 import ActivityKit
 import SwiftUI

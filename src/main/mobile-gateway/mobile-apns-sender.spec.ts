@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { generateKeyPairSync, verify } from 'crypto';
 import {
   MobileApnsSender,
@@ -130,6 +130,17 @@ describe('MobileApnsSender', () => {
     expect(result.reason).toBe('Unregistered');
   });
 
+  it('passes collapse identifiers through to APNs', async () => {
+    const transport: ApnsTransport = { post: vi.fn(async () => ({ status: 200 })) };
+    const sender = new MobileApnsSender({ configProvider: () => config(), transport, now: () => 1 });
+
+    await sender.send(['token'], { title: 'Done', body: 'Idle', collapseId: 'status-instance' });
+
+    expect(transport.post).toHaveBeenCalledWith(expect.objectContaining({
+      collapseId: 'status-instance',
+    }));
+  });
+
   it('reuses the cached JWT across sends within the TTL', async () => {
     const jwts = new Set<string>();
     const transport: ApnsTransport = {
@@ -144,6 +155,28 @@ describe('MobileApnsSender', () => {
     now += 60_000; // +1 min, within the 50-min TTL
     await sender.send(['a'], { title: 't', body: 'b' });
     expect(jwts.size).toBe(1);
+  });
+
+  it('aborts and reports a stalled APNs request at the configured deadline', async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    const transport: ApnsTransport = {
+      post: async (args) => {
+        requestSignal = args.signal;
+        return new Promise(() => undefined);
+      },
+    };
+    const sender = new MobileApnsSender({
+      configProvider: () => config(), transport, now: () => 1, requestTimeoutMs: 100,
+    });
+
+    const pending = sender.send(['stalled-token'], { title: 't', body: 'b' });
+    await vi.advanceTimersByTimeAsync(100);
+    const [result] = await pending;
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/timed out/i) });
+    vi.useRealTimers();
   });
 });
 
@@ -184,10 +217,13 @@ describe('buildLiveActivityPayload', () => {
 
 describe('MobileApnsSender.sendLiveActivity', () => {
   it('posts with the liveactivity push type and topic suffix', async () => {
-    const seen: { topic: string; pushType?: string; payload: string }[] = [];
+    const seen: { topic: string; pushType?: string; payload: string; collapseId?: string; priority?: 5 | 10 }[] = [];
     const transport: ApnsTransport = {
       post: async (args) => {
-        seen.push({ topic: args.topic, pushType: args.pushType, payload: args.payload });
+        seen.push({
+          topic: args.topic, pushType: args.pushType, payload: args.payload,
+          collapseId: args.collapseId, priority: args.priority,
+        });
         return { status: 200 };
       },
     };
@@ -199,13 +235,25 @@ describe('MobileApnsSender.sendLiveActivity', () => {
     const results = await sender.sendLiveActivity(['activity-token'], {
       event: 'update',
       contentState: { status: 'working', detail: 'repo' },
+      collapseId: 'live-inst-1',
     });
     expect(results).toEqual([
       { deviceToken: 'activity-token', ok: true, status: 200, reason: undefined },
     ]);
     expect(seen[0].topic).toBe('com.example.app.push-type.liveactivity');
     expect(seen[0].pushType).toBe('liveactivity');
+    expect(seen[0].collapseId).toBe('live-inst-1');
+    expect(seen[0].priority).toBe(5);
     expect(JSON.parse(seen[0].payload).aps.timestamp).toBe(1_700_000_000);
+  });
+
+  it('sends final Live Activity state at immediate priority', async () => {
+    const transport: ApnsTransport = { post: vi.fn(async () => ({ status: 200 })) };
+    const sender = new MobileApnsSender({ configProvider: () => config(), transport, now: () => 1 });
+
+    await sender.sendLiveActivity(['token'], { event: 'end', contentState: { status: 'idle' } });
+
+    expect(transport.post).toHaveBeenCalledWith(expect.objectContaining({ priority: 10 }));
   });
 
   it('no-ops when unconfigured', async () => {

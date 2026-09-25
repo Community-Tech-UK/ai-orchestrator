@@ -66,7 +66,7 @@ export interface AccountFailoverParams {
   /** The profile that was just rejected (`legacy` for an unstamped session). */
   exhaustedProfileId: string;
   resumeAt: number | null;
-  /** The throttled user turn to re-send after the switch. */
+  /** The throttled turn (provider text, possibly a Harness-authored envelope) to re-send after the switch. */
   resumePrompt: string | null;
   reason: string;
   handoffKind?: Extract<AccountHandoffKind, 'failover' | 'preemptive'>;

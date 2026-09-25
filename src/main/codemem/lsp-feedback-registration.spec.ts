@@ -87,7 +87,10 @@ describe('registerLspFeedback — injectFeedback admission gating (A5)', () => {
       origin: 'lsp-feedback',
       message: 'Fix this error',
     });
-    expect(sendInput).toHaveBeenCalledWith('inst-1', 'Fix this error', undefined, { autoContinuation: true });
+    expect(sendInput).toHaveBeenCalledWith('inst-1', 'Fix this error', undefined, {
+      autoContinuation: true,
+      internalSource: 'lsp-feedback',
+    });
     expect(admissionMocks.markDelivered).toHaveBeenCalledWith('adm-default');
   });
 

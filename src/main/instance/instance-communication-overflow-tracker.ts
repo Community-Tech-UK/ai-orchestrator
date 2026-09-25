@@ -1,9 +1,12 @@
 import type { FileAttachment } from '../../shared/types/instance.types';
+import type { InternalInputSource } from '../../shared/types/input-provenance.types';
 
 export interface LastSentTurn {
   message: string;
   attachments?: FileAttachment[];
   contextBlock?: string | null;
+  /** Harness-authored turn (LT-657): every re-dispatch must keep this provenance. */
+  internalSource?: InternalInputSource;
 }
 
 /**

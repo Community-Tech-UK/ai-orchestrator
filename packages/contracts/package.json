@@ -70,7 +70,8 @@
     "./types/provider-runtime-events": { "types": "./src/types/provider-runtime-events.ts", "default": "./src/types/provider-runtime-events.ts" },
     "./types/transport":          { "types": "./src/types/transport.types.ts",             "default": "./src/types/transport.types.ts" },
     "./types/browser":            { "types": "./src/types/browser.types.ts",               "default": "./src/types/browser.types.ts" },
-    "./types/context-evidence":   { "types": "./src/types/context-evidence.types.ts",       "default": "./src/types/context-evidence.types.ts" }
+    "./types/context-evidence":   { "types": "./src/types/context-evidence.types.ts",       "default": "./src/types/context-evidence.types.ts" },
+    "./types/mobile-gateway":     { "types": "./src/types/mobile-gateway.types.ts",         "default": "./src/types/mobile-gateway.types.ts" }
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

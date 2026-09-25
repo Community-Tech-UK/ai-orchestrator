@@ -7,7 +7,9 @@ import type { ContextEvidenceMode } from '../../shared/types/settings.types';
 import {
   ContextSafetyPolicy,
   createInitialContextSafetyPolicyState,
+  DEFAULT_CUMULATIVE_RECOVERY_LIMITS,
   type ContextSafetyPolicyState,
+  type CumulativeRecoveryLimits,
 } from '../context-evidence/context-safety-policy';
 import type {
   ProviderContextActionExecutor,
@@ -64,8 +66,14 @@ export class ContextPolicyRuntime {
   private readonly requestCounts = new Map<string, number>();
   private readonly lastCumulativeTokens = new Map<string, number>();
   private readonly proofStages = new Set<string>();
+  private cumulativeRecoveryLimits: CumulativeRecoveryLimits = { ...DEFAULT_CUMULATIVE_RECOVERY_LIMITS };
 
   constructor(private readonly publish: (event: ContextPolicyEvent) => void) {}
+
+  /** Applies to decisions evaluated after the call, including already-queued ones. */
+  setCumulativeRecoveryLimits(limits: CumulativeRecoveryLimits): void {
+    this.cumulativeRecoveryLimits = { ...limits };
+  }
 
   observe(input: ContextPolicyObservation): void {
     const requestCount = (this.requestCounts.get(input.instanceId) ?? 0) + 1;
@@ -181,6 +189,7 @@ export class ContextPolicyRuntime {
       state,
       now: Date.now(),
       effectiveWindowTokens: input.usage.total,
+      cumulativeRecoveryLimits: this.cumulativeRecoveryLimits,
       atSafeProviderBoundary: input.atSafeProviderBoundary,
     });
     this.states.set(input.instanceId, decision.nextState);

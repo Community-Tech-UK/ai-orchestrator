@@ -705,12 +705,15 @@ export class InstanceListStore {
     const reasoningEffort = this.isReasoningEffort(d['reasoningEffort'])
       ? d['reasoningEffort']
       : undefined;
+    // Crash-recovery payloads omit all three identities (InstanceStateManager.serializeForIpc);
+    // '' keeps the `string` contract, so getInstanceThreadId() falls back to the id, not a throw.
+    const sessionId = typeof d['sessionId'] === 'string' ? d['sessionId'] : '';
 
     return {
       id: d['id'] as string,
       displayName: d['displayName'] as string,
       createdAt: d['createdAt'] as number,
-      historyThreadId: (d['historyThreadId'] as string) || (d['sessionId'] as string),
+      historyThreadId: (typeof d['historyThreadId'] === 'string' && d['historyThreadId']) || sessionId,
       parentId: d['parentId'] as string | null,
       childrenIds: (d['childrenIds'] as string[]) || [],
       agentId: (d['agentId'] as string) || 'build',
@@ -736,11 +739,8 @@ export class InstanceListStore {
           : undefined,
       currentTool:
         typeof d['currentTool'] === 'string' ? d['currentTool'] : undefined,
-      providerSessionId:
-        typeof d['providerSessionId'] === 'string'
-          ? d['providerSessionId']
-          : (d['sessionId'] as string),
-      sessionId: d['sessionId'] as string,
+      providerSessionId: typeof d['providerSessionId'] === 'string' ? d['providerSessionId'] : sessionId,
+      sessionId,
       restartEpoch:
         typeof d['restartEpoch'] === 'number' ? d['restartEpoch'] : 0,
       adapterGeneration:

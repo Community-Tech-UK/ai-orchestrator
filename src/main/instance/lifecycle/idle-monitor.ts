@@ -318,7 +318,11 @@ export class IdleMonitor {
       if (getInstanceAsyncWorkRegistry().hasInhibitor(instance.id)) return;
 
       if (instance.status === 'idle' && now - instance.lastActivity > idleThreshold) {
-        const hasUserMessages = instance.outputBuffer.some((msg: OutputMessage) => msg.type === 'user');
+        // Harness-authored turns are stored as system messages (LT-657) but are
+        // still conversation: a session driven only by them must hibernate, not die.
+        const hasUserMessages = instance.outputBuffer.some(
+          (msg: OutputMessage) => msg.type === 'user' || msg.metadata?.internalInput !== undefined,
+        );
 
         if (hasUserMessages) {
           logger.info('Auto-hibernating idle instance (has conversation)', {

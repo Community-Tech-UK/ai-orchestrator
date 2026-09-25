@@ -40,7 +40,7 @@ describe('late runtime child auto-announcement', () => {
       'parent-1',
       'Child completed.',
       undefined,
-      { automatedInput: true },
+      { automatedInput: true, internalSource: 'child-announcement' },
     );
   });
 });

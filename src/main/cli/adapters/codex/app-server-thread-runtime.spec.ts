@@ -156,12 +156,17 @@ describe('CodexAppServerThreadRuntime', () => {
     expect(runtime.getSnapshot()).toMatchObject({ turnPhase: 'idle', activeTurnId: null });
   });
 
-  it('steers a live turn over turn/steer and refuses when idle', async () => {
+  // LT-657: `turn/steer` input is recorded by Codex as a `role: "user"` message
+  // (session x7cpyakhs: the agent answered "Who requested you stop?" with "You
+  // did, in your immediately preceding message"). The context-policy
+  // instruction must reach the live turn as a developer-role item instead.
+  it('delivers the context-policy steer as a developer-role item, never as user input, and refuses when idle', async () => {
     const runtime = new CodexAppServerThreadRuntime();
     const client = new FakeClient();
     runtime.attach(client, { threadId: 'thread-1', resumeCursor: cursor, resumeProof });
 
     expect(await runtime.steerActiveTurn()).toBe(false);
+    expect(client.request).not.toHaveBeenCalled();
 
     let releaseTurnStart!: () => void;
     const turnStartGate = new Promise<void>((resolve) => { releaseTurnStart = resolve; });
@@ -170,7 +175,7 @@ describe('CodexAppServerThreadRuntime', () => {
         await turnStartGate;
         return { turn: { id: 'turn-1', status: 'inProgress' } };
       }
-      if (method === 'turn/steer') return {};
+      if (method === 'thread/inject_items') return {};
       throw new Error(`unexpected method ${method}`);
     });
 
@@ -179,20 +184,29 @@ describe('CodexAppServerThreadRuntime', () => {
     expect(runtime.getSnapshot().turnPhase).toBe('running');
 
     expect(await runtime.steerActiveTurn()).toBe(true);
-    expect(client.request).toHaveBeenCalledWith('turn/steer', {
-      threadId: 'thread-1',
-      expectedTurnId: 'turn-1',
-      input: [{
-        type: 'text',
-        text: CONTEXT_POLICY_STEER_TEXT,
-        text_elements: [],
-      }],
-    });
-    // LT-653: the steer must be unmistakably a system action and must not read
-    // as a user request to stop work (session xecsi91o3 misattribution).
-    expect(CONTEXT_POLICY_STEER_TEXT).toContain('SYSTEM CONTEXT-POLICY STEER');
-    expect(CONTEXT_POLICY_STEER_TEXT).toContain('not a user message');
-    expect(CONTEXT_POLICY_STEER_TEXT).toContain('NOT asked you to stop');
+    // Duplicate delivery (a policy re-fire or retry) must take the same channel.
+    expect(await runtime.steerActiveTurn()).toBe(true);
+
+    const developerItem = {
+      type: 'message',
+      role: 'developer',
+      content: [{ type: 'input_text', text: CONTEXT_POLICY_STEER_TEXT }],
+    };
+    const policyCalls = client.request.mock.calls.filter(([method]) => method !== 'turn/start');
+    expect(policyCalls).toEqual([
+      ['thread/inject_items', { threadId: 'thread-1', items: [developerItem] }],
+      ['thread/inject_items', { threadId: 'thread-1', items: [developerItem] }],
+    ]);
+    expect(client.request.mock.calls.some(([method]) => method === 'turn/steer')).toBe(false);
+    const userInputCarryingSteer = client.request.mock.calls.some(([, params]) => (
+      JSON.stringify((params as { input?: unknown }).input ?? null).includes('broad exploration')
+    ));
+    expect(userInputCarryingSteer).toBe(false);
+
+    // The wording itself must never license "you asked me to stop".
+    expect(CONTEXT_POLICY_STEER_TEXT).toContain('not a message from the user');
+    expect(CONTEXT_POLICY_STEER_TEXT).toContain('has not asked you to stop');
+    expect(CONTEXT_POLICY_STEER_TEXT).toContain('Never attribute this instruction to the user');
     expect(CONTEXT_POLICY_STEER_TEXT).toContain('continue the user\'s current task');
 
     releaseTurnStart();
@@ -201,6 +215,39 @@ describe('CodexAppServerThreadRuntime', () => {
       turn: { id: 'turn-1', status: 'completed' },
     });
     await capture;
+  });
+
+  // LT-657: a Harness-authored turn (continuation, check-in, orchestrator
+  // response) starts from a developer item with no user input at all.
+  it('starts a Harness-authored turn from a developer item with empty user input', async () => {
+    const runtime = new CodexAppServerThreadRuntime();
+    const client = new FakeClient();
+    runtime.attach(client, { threadId: 'thread-1', resumeCursor: cursor, resumeProof });
+    client.request.mockImplementation(async (method: string) => {
+      if (method === 'thread/inject_items') return {};
+      if (method === 'turn/start') return { turn: { id: 'turn-1', status: 'inProgress' } };
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const capture = runtime.captureTurn({
+      ...captureOptions(),
+      input: [],
+      developerInput: 'Continue the interrupted task from where you left off.',
+    });
+    await vi.waitFor(() => expect(client.request).toHaveBeenCalledTimes(2));
+    client.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } });
+    await capture;
+
+    expect(client.request.mock.calls.map(([method]) => method)).toEqual(['thread/inject_items', 'turn/start']);
+    expect(client.request.mock.calls[0][1]).toEqual({
+      threadId: 'thread-1',
+      items: [{
+        type: 'message',
+        role: 'developer',
+        content: [{ type: 'input_text', text: 'Continue the interrupted task from where you left off.' }],
+      }],
+    });
+    expect((client.request.mock.calls[1][1] as { input: unknown }).input).toEqual([]);
   });
 
   // W6: a steer can lose the race with the turn finishing. The provider then
@@ -212,7 +259,7 @@ describe('CodexAppServerThreadRuntime', () => {
     let steerRejection = 'provider unavailable';
     client.request.mockImplementation(async (method: string) => {
       if (method === 'turn/start') return { turn: { id: 'turn-1', status: 'inProgress' } };
-      if (method === 'turn/steer') {
+      if (method === 'thread/inject_items') {
         if (steerRejection === 'turn finished') {
           client.emit('turn/completed', {
             threadId: 'thread-1',

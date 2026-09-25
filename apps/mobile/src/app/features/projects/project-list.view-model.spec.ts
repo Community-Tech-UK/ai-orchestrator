@@ -26,6 +26,7 @@ const live: MobileInstanceDto[] = [
     id: 'live-1',
     displayName: 'Polish Harness Mobile UX',
     status: 'busy',
+    attentionLevel: 'working',
     provider: 'codex',
     model: 'gpt-5.6',
     workingDirectory: '/work/aio',
@@ -231,6 +232,30 @@ describe('project list view model', () => {
 });
 
 describe('project attention and large-group previews', () => {
+  it('rebuilds the canonical needs-attention count from instance attention levels', () => {
+    const projects = mergeProjects(
+      [{
+        key: '/work/aio',
+        path: '/work/aio',
+        name: 'aio',
+        sessionCount: 99,
+        busyCount: 99,
+        pendingApprovalCount: 99,
+        needsAttentionCount: 99,
+        lastActivity: 1,
+      }],
+      [
+        { ...live[0], id: 'blocked', attentionLevel: 'blocked', status: 'waiting_for_input' },
+        { ...live[0], id: 'failed', attentionLevel: 'failed', status: 'degraded' },
+        { ...live[0], id: 'review', attentionLevel: 'review', status: 'idle' },
+      ],
+      [],
+      [],
+    );
+
+    expect(projects[0].needsAttentionCount).toBe(2);
+  });
+
   it('finds failed and approval work separately from the unchanged Active filter', () => {
     const groups = buildProjectGroups([], [
       live[0],

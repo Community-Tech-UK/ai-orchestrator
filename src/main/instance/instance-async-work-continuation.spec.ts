@@ -54,7 +54,7 @@ describe('InstanceAsyncWorkContinuation', () => {
       'instance-1',
       ASYNC_WORK_CONTINUATION_PROMPT,
       undefined,
-      { autoContinuation: true },
+      { autoContinuation: true, internalSource: 'async-work-continuation' },
     );
     expect(registry.hasInhibitor('instance-1')).toBe(false);
   });
@@ -191,7 +191,7 @@ describe('InstanceAsyncWorkContinuation', () => {
         'instance-1',
         buildStalledWorkCheckInPrompt(STALLED_WORK_CHECK_IN_AFTER_MS),
         undefined,
-        { autoContinuation: true },
+        { autoContinuation: true, internalSource: 'async-work-continuation' },
       );
     });
 

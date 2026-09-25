@@ -33,7 +33,7 @@ export async function deliverAdmittedReactionFeedback(
   }
 
   try {
-    await instanceManager.sendInput(instanceId, message, undefined, { automatedInput: true });
+    await instanceManager.sendInput(instanceId, message, undefined, { automatedInput: true, internalSource: 'reaction' });
     admission.markDelivered(outcome.admissionId);
     logger.info('Sent reaction feedback to agent', {
       instanceId,

@@ -209,7 +209,7 @@ describe('registerBrowserGatewayHandlers', () => {
       'instance-7',
       expect.stringContaining('approved by the user'),
       undefined,
-      { automatedInput: true },
+      { automatedInput: true, internalSource: 'browser-gateway' },
     );
   });
 
@@ -234,7 +234,7 @@ describe('registerBrowserGatewayHandlers', () => {
       'instance-9',
       expect.stringContaining('denied by the user'),
       undefined,
-      { automatedInput: true },
+      { automatedInput: true, internalSource: 'browser-gateway' },
     );
   });
 
@@ -326,7 +326,7 @@ describe('registerBrowserGatewayHandlers', () => {
         'instance-7',
         'retry now',
         undefined,
-        { automatedInput: true },
+        { automatedInput: true, internalSource: 'browser-gateway' },
       );
       expect(admissionMocks.markDelivered).toHaveBeenCalledWith('adm-blocked');
     });

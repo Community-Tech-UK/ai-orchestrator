@@ -18,6 +18,7 @@ import type {
   InstanceWaitReason,
 } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
+import type { InternalInputSource } from '../../shared/types/input-provenance.types';
 import {
   canProbeProviderAuth,
   probeProviderAuth,
@@ -40,6 +41,8 @@ export interface AuthRepairTurn {
   message: string;
   attachments?: FileAttachment[];
   contextBlock?: string | null;
+  /** Harness-authored turn (LT-657); the re-send keeps its provenance. */
+  internalSource?: InternalInputSource;
 }
 
 export interface InstanceAuthRepairDeps {
@@ -60,7 +63,7 @@ export interface MaybeBlockOnAuthParams {
   instanceId: string;
   provider: InstanceProvider;
   reason: string;
-  /** The complete user turn to re-send once auth is repaired; null when unknown. */
+  /** The complete provider turn (user or Harness-authored) to re-send verbatim once auth is repaired; null when unknown. */
   resumeTurn: AuthRepairTurn | null;
   /** True when the provider protocol, rather than text matching, identified auth failure. */
   authoritative: boolean;

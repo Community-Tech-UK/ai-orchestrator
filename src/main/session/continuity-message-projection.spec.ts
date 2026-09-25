@@ -26,6 +26,30 @@ describe('outputMessagesToContinuityEntries', () => {
     expect(result.toolUse).toMatchObject({ kind: 'result', resultForCallId: 'acp-call-1', toolName: 'view' });
   });
 
+  // LT-657: Harness-authored input must survive a restart as Harness input,
+  // not come back as a user message or an anonymous system notice.
+  it('round-trips Harness-authored input with its provenance and keeps user turns as user', () => {
+    const messages: OutputMessage[] = [
+      { id: 'u1', timestamp: 1, type: 'user', content: 'please fix the defects' },
+      {
+        id: 'h1', timestamp: 2, type: 'system', content: 'Automatic check-in: background work is still running.',
+        metadata: { internalInput: { actor: 'harness', source: 'async-work-continuation' } },
+      },
+    ];
+
+    const entries = outputMessagesToContinuityEntries(messages);
+    expect(entries.map((entry) => [entry.role, entry.internalInput ?? null])).toEqual([
+      ['user', null],
+      ['system', { actor: 'harness', source: 'async-work-continuation' }],
+    ]);
+
+    const restored = entries.map(continuityEntryToOutputMessage);
+    expect(restored.map((message) => [message.type, message.metadata?.internalInput ?? null])).toEqual([
+      ['user', null],
+      ['system', { actor: 'harness', source: 'async-work-continuation' }],
+    ]);
+  });
+
   it('round-trips tool traffic back into typed output messages', () => {
     const messages: OutputMessage[] = [
       {

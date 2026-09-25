@@ -156,6 +156,21 @@ describe('DraftStore', () => {
 });
 
 describe('Structured New Session recovery', () => {
+  it('accepts every canonical reasoning effort added by the host contract', () => {
+    expect(parseNewSessionDraft(JSON.stringify({
+      text: 'Use the full budget',
+      directory: '/work/aio',
+      provider: 'codex',
+      reasoningEffort: 'ultra',
+    }))).toEqual({
+      text: 'Use the full budget',
+      directory: '/work/aio',
+      provider: 'codex',
+      model: undefined,
+      reasoningEffort: 'ultra',
+    });
+  });
+
   it.each(['', 'not-json', 'null', '[]', '{"text":42}', '{"text":"saved","directory":null,"provider":"auto"}'])('recovers early edits safely from invalid stored JSON %s', (serialized) => {
     const initial = { text: '', directory: '', provider: 'auto' };
     const early = { text: 'Early edit', directory: '/chosen', provider: 'codex' };

@@ -10,7 +10,7 @@ import { accountFailoverNote, type AccountFailoverNote } from './account-failove
 import { isPooledProvider } from '../../shared/types/provider-account.types';
 import { clearLimitLiftedSinceRecorded, snapshotShowsLimitLifted } from './provider-limit-lift';
 import {
-  buildProviderLimitContinuationPrompt,
+  buildProviderLimitContinuationTurn,
   scheduleInstanceProviderLimitResume,
   type InstanceProviderLimitResumeRequest,
 } from './instance-provider-limit-resume-scheduler';
@@ -130,7 +130,7 @@ export interface MaybeParkParams {
   /** Reset time parsed from the provider error/notice, if any (epoch ms). */
   resetAtHint: number | null;
   reason: string;
-  /** The user turn to re-send on resume; null when unknown. */
+  /** Provider text to re-send on resume (Harness turns keep their LT-657 envelope); null when unknown. */
   resumePrompt: string | null;
   /**
    * Account-pool profile the turn ran on (`legacy` for an unstamped
@@ -464,7 +464,7 @@ export class InstanceProviderLimitHandler {
    * automation) within {@link RESUME_DEDUPE_MS} is ignored. `resumePromptFallback`
    * covers the post-restart case where the in-memory park entry is gone but the
    * durable automation carried the prompt. A live park that captured no turn
-   * gets {@link buildProviderLimitContinuationPrompt}; with neither, nothing is
+   * gets {@link buildProviderLimitContinuationTurn}; with neither, nothing is
    * sent, so a stale Resume click stays a no-op.
    */
   resumeNow(instanceId: string, opts?: { resumePromptFallback?: string }): boolean {
@@ -501,7 +501,7 @@ export class InstanceProviderLimitHandler {
       // A live park that captured no turn was raised on a turn dispatched
       // outside sendInput() (the create-time initial prompt), so there is
       // nothing to replay — continue rather than resume into silence.
-      deps.resendInput(instanceId, buildProviderLimitContinuationPrompt());
+      deps.resendInput(instanceId, buildProviderLimitContinuationTurn());
       logger.info('Resumed regular session with a continuation turn; none captured', { instanceId });
     } else {
       // Stale action, e.g. a Resume click landing after the park cleared.
@@ -545,7 +545,7 @@ export class InstanceProviderLimitHandler {
       deps.setWaitReason(instanceId, null);
       // The automation only fires for a park that was still armed, so an absent
       // prompt means the park captured none — continue, never do nothing.
-      deps.resendInput(instanceId, fallbackPrompt || buildProviderLimitContinuationPrompt());
+      deps.resendInput(instanceId, fallbackPrompt || buildProviderLimitContinuationTurn());
       return 'resent';
     }
     return 'fell-through';

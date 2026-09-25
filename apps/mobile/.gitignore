@@ -2,10 +2,5 @@
 /www
 /out-tsc
 /.angular
-/ios
-/angular.json
-/package-lock.json
-/ios/App/Pods
-/ios/App/App/public
 *.log
 .DS_Store

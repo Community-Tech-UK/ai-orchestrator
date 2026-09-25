@@ -16,6 +16,8 @@ export interface ApnsAlert {
   category?: string;
   /** Thread id so related alerts group in Notification Center. */
   threadId?: string;
+  /** Coalesce replaceable status notifications for the same session. */
+  collapseId?: string;
 }
 
 export interface ApnsSendResult {
@@ -29,8 +31,7 @@ export interface ApnsSendResult {
  * Network transport — abstracted so the JWT/header/payload construction can be
  * unit-tested without opening a real HTTP/2 connection to Apple.
  */
-export interface ApnsTransport {
-  post(args: {
+export interface ApnsPostArgs {
     host: string;
     deviceToken: string;
     jwt: string;
@@ -38,7 +39,13 @@ export interface ApnsTransport {
     payload: string;
     /** APNs push type header; defaults to 'alert'. */
     pushType?: string;
-  }): Promise<{ status: number; reason?: string }>;
+    collapseId?: string;
+    priority?: 5 | 10;
+    signal: AbortSignal;
+}
+
+export interface ApnsTransport {
+  post(args: ApnsPostArgs): Promise<{ status: number; reason?: string }>;
 }
 
 /** A Live Activity content refresh (apns-push-type: liveactivity). */
@@ -50,6 +57,7 @@ export interface LiveActivityUpdate {
   staleDate?: number;
   /** For event 'end': unix seconds when the activity should dismiss. */
   dismissalDate?: number;
+  collapseId?: string;
 }
 
 export interface MobileApnsSenderOptions {
@@ -59,12 +67,15 @@ export interface MobileApnsSenderOptions {
   transport?: ApnsTransport;
   /** Defaults to Date.now. Injectable for deterministic JWT iat in tests. */
   now?: () => number;
+  /** Defaults to a bounded 15-second APNs connection/request deadline. */
+  requestTimeoutMs?: number;
 }
 
 const APNS_PROD_HOST = 'api.push.apple.com';
 const APNS_SANDBOX_HOST = 'api.sandbox.push.apple.com';
 /** APNs allows a provider JWT to be reused for up to 60 min; refresh well before. */
 const JWT_TTL_MS = 50 * 60 * 1000;
+const APNS_REQUEST_TIMEOUT_MS = 15_000;
 
 export function apnsHost(production: boolean): string {
   return production ? APNS_PROD_HOST : APNS_SANDBOX_HOST;
@@ -120,20 +131,15 @@ export function buildApnsPayload(alert: ApnsAlert): string {
 }
 
 class Http2ApnsTransport implements ApnsTransport {
-  post(args: {
-    host: string;
-    deviceToken: string;
-    jwt: string;
-    topic: string;
-    payload: string;
-    pushType?: string;
-  }): Promise<{ status: number; reason?: string }> {
+  post(args: ApnsPostArgs): Promise<{ status: number; reason?: string }> {
     return new Promise((resolve, reject) => {
       const client = http2.connect(`https://${args.host}`);
+      let req: http2.ClientHttp2Stream | undefined;
       let settled = false;
       const done = (fn: () => void) => {
         if (settled) return;
         settled = true;
+        args.signal.removeEventListener('abort', abort);
         try {
           client.close();
         } catch {
@@ -141,15 +147,22 @@ class Http2ApnsTransport implements ApnsTransport {
         }
         fn();
       };
+      const abort = () => {
+        try { req?.close(http2.constants.NGHTTP2_CANCEL); } catch { /* ignore */ }
+        try { client.destroy(); } catch { /* ignore */ }
+        done(() => reject(new Error('APNs request aborted')));
+      };
+      args.signal.addEventListener('abort', abort, { once: true });
       client.on('error', (err) => done(() => reject(err)));
 
-      const req = client.request({
+      req = client.request({
         ':method': 'POST',
         ':path': `/3/device/${args.deviceToken}`,
         authorization: `bearer ${args.jwt}`,
         'apns-topic': args.topic,
         'apns-push-type': args.pushType ?? 'alert',
-        'apns-priority': '10',
+        'apns-priority': String(args.priority ?? 10),
+        ...(args.collapseId ? { 'apns-collapse-id': args.collapseId.slice(0, 64) } : {}),
         'content-type': 'application/json',
       });
       let status = 0;
@@ -199,6 +212,7 @@ export class MobileApnsSender {
   private readonly configProvider: () => MobileApnsConfig;
   private readonly transport: ApnsTransport;
   private readonly now: () => number;
+  private readonly requestTimeoutMs: number;
 
   private cachedJwt: { token: string; issuedAt: number; keyId: string; teamId: string } | null = null;
 
@@ -206,6 +220,23 @@ export class MobileApnsSender {
     this.configProvider = opts.configProvider ?? settingsConfigProvider;
     this.transport = opts.transport ?? new Http2ApnsTransport();
     this.now = opts.now ?? Date.now;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? APNS_REQUEST_TIMEOUT_MS;
+  }
+
+  private async post(args: Omit<ApnsPostArgs, 'signal'>): Promise<{ status: number; reason?: string }> {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error(`APNs request timed out after ${this.requestTimeoutMs}ms`));
+      }, this.requestTimeoutMs);
+    });
+    try {
+      return await Promise.race([this.transport.post({ ...args, signal: controller.signal }), deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   getConfig(): MobileApnsConfig {
@@ -259,12 +290,13 @@ export class MobileApnsSender {
     const results = await Promise.all(
       deviceTokens.map(async (deviceToken): Promise<ApnsSendResult> => {
         try {
-          const { status, reason } = await this.transport.post({
+          const { status, reason } = await this.post({
             host,
             deviceToken,
             jwt,
             topic: config.bundleId,
             payload,
+            collapseId: alert.collapseId,
           });
           return { deviceToken, ok: status === 200, status, reason };
         } catch (err) {
@@ -322,13 +354,17 @@ export class MobileApnsSender {
     const results = await Promise.all(
       activityTokens.map(async (deviceToken): Promise<ApnsSendResult> => {
         try {
-          const { status, reason } = await this.transport.post({
+          const { status, reason } = await this.post({
             host,
             deviceToken,
             jwt,
             topic: `${config.bundleId}.push-type.liveactivity`,
             payload,
             pushType: 'liveactivity',
+            collapseId: update.collapseId,
+            // Apple recommends priority 5 for routine ActivityKit updates so
+            // they do not consume the high-priority budget; final state is 10.
+            priority: update.event === 'end' ? 10 : 5,
           });
           return { deviceToken, ok: status === 200, status, reason };
         } catch (err) {

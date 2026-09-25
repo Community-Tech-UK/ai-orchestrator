@@ -14,7 +14,7 @@ describe('ConversationComponent connection surfaces', () => {
   const ts = readFileSync(resolve(`${dir}/conversation.component.ts`), 'utf8');
 
   it('routes every connection-dependent string through the shared helpers', () => {
-    expect(html).toContain('{{ emptyTranscript() }}');
+    expect(html).toContain('[emptyText]="emptyTranscript()"');
     expect(html).toContain('connectionHeadline()');
     expect(ts).toContain('emptyTranscriptText(this.gateway.state())');
     expect(ts).toContain('connectionHeadline(this.gateway.state())');

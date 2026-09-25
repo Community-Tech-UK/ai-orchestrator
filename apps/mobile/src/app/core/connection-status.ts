@@ -117,9 +117,16 @@ export function connectionHelpText(state: ConnectionState): string {
  * always has cached sessions when its token finally expires, so this — not the
  * empty state — is where the re-pair prompt usually has to land.
  */
-export function offlineBannerText(state: ConnectionState): string {
+export function offlineBannerText(
+  state: ConnectionState,
+  lastServerFrameAt?: number | null,
+  now = Date.now(),
+): string {
   if (state === 'unauthorized') {
     return `${NOT_PAIRED} Cached sessions remain available. ${REPAIR_GUIDANCE}`;
   }
-  return 'Offline. Cached sessions remain available; reconnect to start new work.';
+  const updated = lastServerFrameAt === undefined || lastServerFrameAt === null
+    ? ''
+    : ` Updated ${Math.max(0, Math.floor((now - lastServerFrameAt) / 1000))}s ago.`;
+  return `Offline.${updated} Cached sessions remain available; reconnect to start new work.`;
 }

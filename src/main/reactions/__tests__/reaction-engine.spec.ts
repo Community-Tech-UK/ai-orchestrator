@@ -192,7 +192,7 @@ describe('ReactionEngine', () => {
         'inst-1',
         expect.stringContaining('CI failing'),
         undefined,
-        { automatedInput: true },
+        { automatedInput: true, internalSource: 'reaction' },
       );
       expect(mockMarkDelivered).toHaveBeenCalledWith('adm-default');
     });
@@ -277,7 +277,7 @@ describe('ReactionEngine', () => {
         'inst-1',
         expect.stringContaining('Changes requested'),
         undefined,
-        { automatedInput: true },
+        { automatedInput: true, internalSource: 'reaction' },
       );
     });
   });

@@ -24,6 +24,30 @@ const OCCUPANCY_TRIGGERS: {
 
 const MAX_RECOVERIES = 3;
 
+/** When cumulative spend alone may trigger the 4x controlled recovery. */
+export interface CumulativeRecoveryLimits {
+  /**
+   * Below this known occupancy, spend alone does not justify a recovery.
+   * Every model request resends the whole cached context, so an ordinary
+   * 20-tool-call turn at 50k tokens crosses 4x a 258k window. Compacting a
+   * context that small interrupts the task and pays for a slow compaction
+   * call while barely shrinking what later requests resend.
+   */
+  minOccupancyPercent: number;
+  /**
+   * Spend since the epoch, in context windows, that forces the recovery at
+   * any occupancy. Without it a turn that stays under the floor would have
+   * no spend ceiling at all. At 16x and 25% occupancy this is ~64 requests.
+   */
+  backstopMultiple: number;
+}
+
+/** Mirrored by the `contextSpendRecovery*` settings defaults. */
+export const DEFAULT_CUMULATIVE_RECOVERY_LIMITS: Readonly<CumulativeRecoveryLimits> = {
+  minOccupancyPercent: 50,
+  backstopMultiple: 16,
+};
+
 export interface ContextSafetyPolicyState {
   outerSendId: string;
   epoch: number;
@@ -39,6 +63,8 @@ export interface ContextSafetyPolicyInput {
   state: ContextSafetyPolicyState;
   now: number;
   effectiveWindowTokens?: number;
+  /** Defaults to {@link DEFAULT_CUMULATIVE_RECOVERY_LIMITS}. */
+  cumulativeRecoveryLimits?: CumulativeRecoveryLimits;
   oversizedResult?: boolean;
   atSafeProviderBoundary?: boolean;
   consecutiveNoProgressRequests?: number;
@@ -129,7 +155,7 @@ export class ContextSafetyPolicy {
       if (occupancyDecision) return occupancyDecision;
     }
 
-    const cumulativeDecision = this.decideCumulative(input);
+    const cumulativeDecision = this.decideCumulative(input, occupancyPercent);
     if (cumulativeDecision) return cumulativeDecision;
 
     if (
@@ -332,6 +358,7 @@ export class ContextSafetyPolicy {
 
   private decideCumulative(
     input: ContextSafetyPolicyInput,
+    occupancyPercent: number | undefined,
   ): ContextSafetyPolicyDecision | null {
     if (input.capabilities.cumulativeReporting !== 'available') return null;
     const window = input.effectiveWindowTokens
@@ -339,9 +366,17 @@ export class ContextSafetyPolicy {
     const cumulative = input.sample.cumulativeTokens;
     if (!window || cumulative === undefined || window <= 0) return null;
     const sinceEpoch = Math.max(0, cumulative - input.state.cumulativeBaselineTokens);
+    // Unknown occupancy keeps the recovery: spend is then the only signal.
+    // A known small context leaves 4x unemitted, so it still fires this epoch
+    // once occupancy reaches the floor or spend reaches the backstop.
+    const limits = input.cumulativeRecoveryLimits ?? DEFAULT_CUMULATIVE_RECOVERY_LIMITS;
+    const contextWorthCompacting = occupancyPercent === undefined
+      || occupancyPercent >= limits.minOccupancyPercent
+      || sinceEpoch >= window * limits.backstopMultiple;
 
     if (
       sinceEpoch >= window * 4
+      && contextWorthCompacting
       && !input.state.emittedTriggers.includes('cumulative-4x')
     ) {
       const nextState = this.withEmitted(input.state, ['cumulative-2x', 'cumulative-4x']);

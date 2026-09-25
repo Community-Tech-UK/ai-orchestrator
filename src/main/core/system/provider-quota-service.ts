@@ -35,7 +35,7 @@ import { providerQuotaKey } from '../../../shared/types/provider-quota.types';
 
 const logger = getLogger('ProviderQuotaService');
 
-const PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'antigravity', 'copilot', 'cursor', 'grok'];
+const PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'];
 const WARNING_THRESHOLDS: readonly number[] = [50, 75, 90];
 const EXHAUSTED_THRESHOLD = 100;
 const FIVE_HOUR_MS = 5 * 60 * 60 * 1000;
@@ -172,7 +172,6 @@ export class ProviderQuotaService extends EventEmitter {
       copilot: null,
       cursor: null,
       grok: null,
-      // No quota source: MiMo's Token Plan usage endpoint needs a console login.
       opencode: null,
     };
     for (const p of PROVIDERS) out[p] = this.snapshots.get(p) ?? null;

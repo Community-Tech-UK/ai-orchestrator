@@ -3,6 +3,7 @@ import type { ContextUsage, FileAttachment, InstanceStatus, OutputMessage } from
 import type { CliType } from '../cli-detection';
 import type { UnifiedSpawnOptions } from '../adapters/adapter-factory';
 import type {
+  AdapterInputOptions,
   AdapterRuntimeCapabilities,
   CliCapabilities,
   CliMessage,
@@ -183,7 +184,8 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     return result.pid;
   }
 
-  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
+  /** Claude/Gemini have no non-user channel; the Harness envelope is in the text. */
+  async sendInput(message: string, attachments?: FileAttachment[], _options?: AdapterInputOptions): Promise<void> {
     if (getPauseCoordinator().isPaused()) {
       throw new OrchestratorPausedError('CLI input refused while orchestrator is paused');
     }

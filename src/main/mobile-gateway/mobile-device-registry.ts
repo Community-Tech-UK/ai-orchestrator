@@ -118,6 +118,7 @@ export class MobileDeviceRegistry {
       return null;
     }
     if (device.expiresAt <= Date.now()) {
+      this.retireLiveActivities(device);
       this.devicesByToken.delete(token);
       this.persist();
       logger.info('Rejected expired mobile device token', { deviceId: device.deviceId });
@@ -165,6 +166,7 @@ export class MobileDeviceRegistry {
     this.ensureLoaded();
     for (const [token, device] of this.devicesByToken) {
       if (device.deviceId === deviceId) {
+        this.retireLiveActivities(device);
         this.devicesByToken.delete(token);
         this.persist();
         logger.info('Revoked mobile device', { deviceId });
@@ -208,14 +210,33 @@ export class MobileDeviceRegistry {
 
   setApnsToken(deviceId: string, apnsToken: string): boolean {
     this.ensureLoaded();
+    const target = this.getDeviceById(deviceId);
+    if (!target) return false;
     for (const device of this.devicesByToken.values()) {
-      if (device.deviceId === deviceId) {
-        device.apnsToken = apnsToken;
-        this.persist();
-        return true;
-      }
+      if (device.deviceId === deviceId || device.apnsToken !== apnsToken) continue;
+      this.transferLiveActivities(device.deviceId, deviceId);
+      delete device.apnsToken;
     }
-    return false;
+    const retired = this.retiredLiveActivityTokens.get(apnsToken);
+    if (retired) this.mergeLiveActivities(deviceId, retired);
+    this.retiredLiveActivityTokens.delete(apnsToken);
+    target.apnsToken = apnsToken;
+    this.persist();
+    return true;
+  }
+
+  clearApnsToken(apnsToken: string): boolean {
+    this.ensureLoaded();
+    let cleared = this.retiredLiveActivityTokens.delete(apnsToken);
+    let changedDevice = false;
+    for (const device of this.devicesByToken.values()) {
+      if (device.apnsToken !== apnsToken) continue;
+      delete device.apnsToken;
+      cleared = true;
+      changedDevice = true;
+    }
+    if (changedDevice) this.persist();
+    return cleared;
   }
 
   /**
@@ -224,6 +245,31 @@ export class MobileDeviceRegistry {
    * phone process, so persisting its token would only leak stale tokens.
    */
   private readonly liveActivityTokens = new Map<string, Map<string, string>>();
+  private readonly retiredLiveActivityTokens = new Map<string, Map<string, string>>();
+
+  private mergeLiveActivities(deviceId: string, source: Map<string, string>): void {
+    const merged = new Map(source);
+    for (const [instanceId, token] of this.liveActivityTokens.get(deviceId) ?? []) {
+      merged.set(instanceId, token);
+    }
+    this.liveActivityTokens.set(deviceId, merged);
+  }
+
+  private transferLiveActivities(fromDeviceId: string, toDeviceId: string): void {
+    const source = this.liveActivityTokens.get(fromDeviceId);
+    if (source) this.mergeLiveActivities(toDeviceId, source);
+    this.liveActivityTokens.delete(fromDeviceId);
+  }
+
+  private retireLiveActivities(device: MobileDevice): void {
+    const source = this.liveActivityTokens.get(device.deviceId);
+    if (device.apnsToken && source) {
+      const retained = new Map(this.retiredLiveActivityTokens.get(device.apnsToken) ?? []);
+      for (const [instanceId, token] of source) retained.set(instanceId, token);
+      this.retiredLiveActivityTokens.set(device.apnsToken, retained);
+    }
+    this.liveActivityTokens.delete(device.deviceId);
+  }
 
   setLiveActivityToken(deviceId: string, instanceId: string, token: string): boolean {
     this.ensureLoaded();
@@ -245,6 +291,29 @@ export class MobileDeviceRegistry {
     for (const byInstance of this.liveActivityTokens.values()) {
       byInstance.delete(instanceId);
     }
+    for (const byInstance of this.retiredLiveActivityTokens.values()) {
+      byInstance.delete(instanceId);
+    }
+  }
+
+  clearLiveActivityToken(token: string): boolean {
+    let cleared = false;
+    for (const byInstance of this.liveActivityTokens.values()) {
+      for (const [instanceId, registered] of byInstance) {
+        if (registered !== token) continue;
+        byInstance.delete(instanceId);
+        cleared = true;
+      }
+    }
+    for (const [apnsToken, byInstance] of this.retiredLiveActivityTokens) {
+      for (const [instanceId, registered] of byInstance) {
+        if (registered !== token) continue;
+        byInstance.delete(instanceId);
+        cleared = true;
+      }
+      if (byInstance.size === 0) this.retiredLiveActivityTokens.delete(apnsToken);
+    }
+    return cleared;
   }
 
   /** Activity tokens registered for an instance across all live devices. */
@@ -261,6 +330,18 @@ export class MobileDeviceRegistry {
       }
     }
     return tokens;
+  }
+
+  liveActivityTargetsFor(instanceId: string): { deviceId: string; token: string }[] {
+    this.ensureLoaded();
+    const now = Date.now();
+    const targets: { deviceId: string; token: string }[] = [];
+    for (const [deviceId, byInstance] of this.liveActivityTokens) {
+      const token = byInstance.get(instanceId);
+      const device = this.getDeviceById(deviceId);
+      if (token && device && device.expiresAt > now) targets.push({ deviceId, token });
+    }
+    return targets;
   }
 
   getDeviceById(deviceId: string): MobileDevice | undefined {
@@ -289,6 +370,18 @@ export class MobileDeviceRegistry {
       }
     }
     return tokens;
+  }
+
+  apnsTargets(): { deviceId: string; token: string }[] {
+    this.ensureLoaded();
+    const now = Date.now();
+    const targets: { deviceId: string; token: string }[] = [];
+    for (const device of this.devicesByToken.values()) {
+      if (device.apnsToken && device.expiresAt > now) {
+        targets.push({ deviceId: device.deviceId, token: device.apnsToken });
+      }
+    }
+    return targets;
   }
 
   // --- internals ---

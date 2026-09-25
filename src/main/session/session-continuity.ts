@@ -1074,8 +1074,9 @@ export class SessionContinuityManager extends EventEmitter {
       case 'markdown':
         return state.conversationHistory
           .map((entry) => {
-            const roleLabel =
-              entry.role === 'user'
+            const roleLabel = entry.internalInput
+              ? '*Harness (automated)*'
+              : entry.role === 'user'
                 ? '**User**'
                 : entry.role === 'assistant'
                   ? '**Assistant**'

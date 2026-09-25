@@ -10,6 +10,7 @@ import type {
   AppServerNotificationHandler,
   AppServerRequestParams,
   AppServerResponseResult,
+  InjectedDeveloperMessageItem,
   TurnCaptureState,
   UserInput,
 } from './app-server-types';
@@ -60,6 +61,12 @@ export interface CodexAppServerRuntimeClient {
 
 export interface CaptureCodexTurnOptions {
   input: UserInput[];
+  /**
+   * Harness-authored turn text (LT-657). Appended as a developer-role item
+   * before `turn/start`, so the turn starts without any user input and the
+   * text is never recorded as the user's message.
+   */
+  developerInput?: string;
   turnParams: Record<string, unknown>;
   createState(threadId: string): TurnCaptureState;
   belongsToTurn(state: TurnCaptureState, notification: AppServerNotification): boolean;
@@ -90,20 +97,26 @@ export interface CodexAppServerThreadRuntimeOptions {
 }
 
 /**
- * LT-653: the context-safety policy's `steer-turn` payload. It is delivered
- * over `turn/steer` as ordinary text input, so without this framing a model
- * reads it as a user instruction — session `xecsi91o3` recorded "James
- * requested a stop to broad exploration…" and halted work with no stop request
- * anywhere in the transcript. The text must stay unmistakably a system action,
- * must not authorise stopping the user's task, and must still close out broad
- * research for the current turn.
+ * The context-safety policy's `steer-turn` instruction.
+ *
+ * LT-653 reworded it after agents recorded "James requested a stop"; LT-657
+ * found the real cause: `turn/steer` input is persisted by Codex as a
+ * `role: "user"` message, so the model saw the policy text as the user's own
+ * words and later told the user "You did" ask to stop (session x7cpyakhs).
+ * It is now appended with `thread/inject_items` as a developer-role item,
+ * which reaches the running turn without ever becoming a user message.
  */
 export const CONTEXT_POLICY_STEER_TEXT =
-  '[SYSTEM CONTEXT-POLICY STEER — automated policy action, not a user message. '
-  + 'The user has NOT asked you to stop, pause, or change task. '
-  + 'For this turn only: wrap up broad exploration now, synthesize what you already have, '
-  + 'persist durable notes, and do not open new research threads. '
-  + 'Then continue the user\'s current task.]';
+  'Harness context policy (automated; this is not a message from the user). '
+  + 'Context usage is high. For the turn that is running now: wrap up broad exploration, '
+  + 'synthesize what you already have, persist durable notes, and do not open new research threads. '
+  + 'The user has not asked you to stop, pause, or change task. Never attribute this instruction to the user. '
+  + 'Afterwards, continue the user\'s current task.';
+
+/** A Harness instruction as a developer-role Responses item for `thread/inject_items`. */
+export function developerMessageItem(text: string): InjectedDeveloperMessageItem {
+  return { type: 'message', role: 'developer', content: [{ type: 'input_text', text }] };
+}
 
 /** Owns one Codex app-server connection and its authoritative native thread. */
 export class CodexAppServerThreadRuntime {
@@ -167,10 +180,15 @@ export class CodexAppServerThreadRuntime {
   getPid(): number | null { return this.isRunning() ? this.client?.getPid?.() ?? null : null; }
 
   /**
-   * Same-turn steer: stop broad research, synthesize, and archive.
+   * Same-turn context-policy steer: stop broad research, synthesize, and
+   * archive. Delivered as a developer-role history item, never as user input.
    * Returns false when no live turn exists to steer, including when the turn
    * finished while the steer was in flight and the provider rejected it.
-   * Other rejections still throw.
+   * Other rejections still throw. `thread/inject_items` has no expected-turn
+   * precondition: if the turn ends while the request is in flight, the item
+   * stays in history as a developer note for the next turn. It still names
+   * Harness and scopes itself to the turn that was running, so it cannot be
+   * read as a user request (LT-657).
    */
   async steerActiveTurn(): Promise<boolean> {
     const client = this.client;
@@ -181,15 +199,7 @@ export class CodexAppServerThreadRuntime {
       return false;
     }
     try {
-      await client.request('turn/steer', {
-        threadId,
-        expectedTurnId: turnId,
-        input: [{
-          type: 'text',
-          text: CONTEXT_POLICY_STEER_TEXT,
-          text_elements: [],
-        }],
-      });
+      await client.request('thread/inject_items', { threadId, items: [developerMessageItem(CONTEXT_POLICY_STEER_TEXT)] });
     } catch (error) {
       if (this.activeTurn !== active || active.turnId !== turnId || active.state.completed) return false;
       throw error;
@@ -318,6 +328,9 @@ export class CodexAppServerThreadRuntime {
 
     try {
       armIdleWatchdog();
+      if (options.developerInput) {
+        await client.request('thread/inject_items', { threadId, items: [developerMessageItem(options.developerInput)] });
+      }
       const turnResult = await Promise.race<AppServerResponseResult<'turn/start'>>([
         client.request('turn/start', {
           ...options.turnParams,

@@ -6,6 +6,7 @@ import { COORDINATOR_TO_NODE } from '../../remote-node/worker-node-rpc';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
 import type {
+  AdapterInputOptions,
   AdapterRuntimeCapabilities,
   CliCapabilities,
   CliResponse,
@@ -178,7 +179,7 @@ export class RemoteLocalModelAdapter extends EventEmitter {
     }
   }
 
-  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
+  async sendInput(message: string, attachments?: FileAttachment[], _options?: AdapterInputOptions): Promise<void> {
     if (!this.remoteSessionId) {
       throw new Error('RemoteLocalModelAdapter: not spawned - call spawn() before sendInput()');
     }

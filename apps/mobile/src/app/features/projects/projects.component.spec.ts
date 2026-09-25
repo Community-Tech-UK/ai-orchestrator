@@ -43,7 +43,7 @@ describe('ProjectsComponent structure', () => {
   it('drives every offline surface from the connection state', () => {
     expect(source).toContain('{{ offlineBanner() }}');
     expect(source).toContain('{{ connectionHelp() }}');
-    expect(source).toContain('offlineBannerText(this.state())');
+    expect(source).toContain('offlineBannerText(this.state(), this.gateway.lastServerFrameAt(), this.now())');
     expect(source).toContain('connectionHelpText(this.state())');
     // The header used to interpolate the raw enum, printing "Mac · unauthorized".
     expect(source).toContain('connectionLabel(this.state())');

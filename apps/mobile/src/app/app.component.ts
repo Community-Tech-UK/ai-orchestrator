@@ -9,12 +9,13 @@ import { AppLockService } from './core/app-lock.service';
 import { ApprovalSheetComponent } from './features/approval/approval-sheet.component';
 import { ApprovalPresentationStore, type ApprovalView } from './core/approval-presentation.store';
 import { LockScreenComponent } from './features/lock/lock-screen.component';
+import { MobileSheetComponent } from './shared/mobile-sheet.component';
 
 @Component({
   standalone: true,
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterOutlet, ApprovalSheetComponent, LockScreenComponent],
+  imports: [RouterOutlet, ApprovalSheetComponent, LockScreenComponent, MobileSheetComponent],
   template: `
     <router-outlet />
     @if (approvals.view(); as view) {
@@ -36,13 +37,42 @@ import { LockScreenComponent } from './features/lock/lock-screen.component';
     @if (appLock.locked()) {
       <app-lock-screen />
     }
+    @if (push.endedSession()) {
+      <app-mobile-sheet label="This session has ended" (dismiss)="push.dismissRoutingIssue()">
+        <p>The session is no longer running on this host. You can read its saved transcript or return to your projects.</p>
+        <div class="ended-session-actions">
+          <button class="mobile-secondary-button" type="button" (click)="push.openEndedSessionProjects()">Projects</button>
+          <button class="mobile-primary-button" type="button" (click)="push.openEndedSessionHistory()">History</button>
+        </div>
+      </app-mobile-sheet>
+    }
+    @if (push.unknownHost()) {
+      <app-mobile-sheet label="Host not paired" (dismiss)="push.dismissRoutingIssue()">
+        <p>This notification came from another host. You need to pair this host before you can open its prompt.</p>
+        <div class="ended-session-actions">
+          <button class="mobile-primary-button" type="button" (click)="push.openEndedSessionProjects()">Projects</button>
+        </div>
+      </app-mobile-sheet>
+    }
+    @if (push.hostUnavailable()) {
+      <app-mobile-sheet label="Host unavailable" (dismiss)="push.dismissRoutingIssue()">
+        <p>The paired host could not confirm whether this session is still running. Check the connection and try again.</p>
+        <div class="ended-session-actions">
+          <button class="mobile-secondary-button" type="button" (click)="push.openEndedSessionProjects()">Projects</button>
+          <button class="mobile-primary-button" type="button" (click)="push.retryNotificationRouting()">Retry</button>
+        </div>
+      </app-mobile-sheet>
+    }
   `,
+  styles: [`
+    .ended-session-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+  `],
 })
 export class AppComponent implements OnInit {
   private readonly hostStore = inject(HostStore);
   private readonly gateway = inject(GatewayClient);
   private readonly router = inject(Router);
-  private readonly push = inject(PushService);
+  protected readonly push = inject(PushService);
   private readonly liveActivity = inject(LiveActivityService);
   private readonly resume = inject(ResumeService);
   protected readonly appLock = inject(AppLockService);

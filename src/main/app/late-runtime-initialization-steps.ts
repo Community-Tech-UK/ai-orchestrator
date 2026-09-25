@@ -210,7 +210,7 @@ export function createLateRuntimeInitializationSteps(
                 parentId,
                 message,
                 undefined,
-                { automatedInput: true },
+                { automatedInput: true, internalSource: 'child-announcement' },
               ).catch((err) => {
                 logger.warn('Failed to deliver child announcement to parent', {
                   parentId,

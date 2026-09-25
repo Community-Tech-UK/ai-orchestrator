@@ -48,6 +48,9 @@ describe('connection status presentation', () => {
     expect(offlineBannerText('disconnected')).toBe(
       'Offline. Cached sessions remain available; reconnect to start new work.',
     );
+    expect(offlineBannerText('disconnected', 8_000, 20_500)).toBe(
+      'Offline. Updated 12s ago. Cached sessions remain available; reconnect to start new work.',
+    );
   });
 
   /**
