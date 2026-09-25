@@ -185,6 +185,15 @@ describe('LegacyContextEngine', () => {
 
     expect(hoisted.coordinator.onContextUpdate).toHaveBeenCalledWith('i1', u);
   });
+
+  it('afterTurn does not feed a preserved pre-compaction display estimate back into policy', () => {
+    const engine = new LegacyContextEngine();
+    const displayOnly = { ...usage(82), source: 'thread-compacted' as const, isEstimated: true };
+
+    engine.afterTurn({ instance: instance({ contextUsage: displayOnly }), status: 'idle' });
+
+    expect(hoisted.coordinator.onContextUpdate).not.toHaveBeenCalled();
+  });
 });
 
 describe('SafeContextEngine (quarantine/fallback)', () => {

@@ -11,7 +11,11 @@ describe('CodexCompactionSignalTracker', () => {
     const params = { threadId: 'thread-1', turnId: 'compact-turn', item };
 
     expect(tracker.accept({ method: 'item/started', params }, 'thread-1')).toBe('started');
-    expect(tracker.accept({ method: 'item/completed', params }, 'thread-1')).toBe('completed');
+    expect(tracker.accept({ method: 'item/completed', params }, 'thread-1')).toBe('observed-running');
+    expect(tracker.accept({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'completed' } },
+    }, 'thread-1')).toBe('settled');
   });
 
   it('still accepts the legacy thread/compacted notification', () => {
@@ -31,6 +35,19 @@ describe('CodexCompactionSignalTracker', () => {
       method: 'item/completed',
       params: { threadId: 'thread-1', turnId: 'next-compact-turn', item },
     }, 'thread-1')).toBe('completed');
+  });
+
+  it('deduplicates a legacy completion without a turn id after an item completion', () => {
+    const tracker = new CodexCompactionSignalTracker();
+
+    expect(tracker.accept({
+      method: 'item/completed',
+      params: { threadId: 'thread-1', turnId: 'compact-turn', item },
+    }, 'thread-1')).toBe('completed');
+    expect(tracker.accept({
+      method: 'thread/compacted',
+      params: { threadId: 'thread-1' },
+    }, 'thread-1')).toBeNull();
   });
 
   it('ignores other threads, other items, and an unbound adapter', () => {
@@ -71,11 +88,11 @@ describe('CodexCompactionSignalTracker', () => {
     const params = { threadId: 'thread-1', turnId: 'compact-turn', item };
 
     tracker.accept({ method: 'item/started', params }, 'thread-1');
-    expect(tracker.accept({ method: 'item/completed', params }, 'thread-1')).toBe('completed');
+    expect(tracker.accept({ method: 'item/completed', params }, 'thread-1')).toBe('observed-running');
     expect(tracker.accept({
       method: 'turn/completed',
       params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'completed' } },
-    }, 'thread-1')).toBeNull();
+    }, 'thread-1')).toBe('settled');
   });
 
   it('forgets a running compaction on reset', () => {
@@ -89,5 +106,48 @@ describe('CodexCompactionSignalTracker', () => {
       method: 'turn/completed',
       params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'interrupted' } },
     }, 'thread-1')).toBeNull();
+  });
+
+  it('tracks a provider compaction inferred from a rejected send until its turn settles', () => {
+    const tracker = new CodexCompactionSignalTracker();
+
+    tracker.markRunningFromRejection('compact-turn');
+
+    expect(tracker.isRunning).toBe(true);
+    expect(tracker.runningTurnId).toBe('compact-turn');
+    expect(tracker.accept({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'completed' } },
+    }, 'thread-1')).toBe('settled');
+    expect(tracker.isRunning).toBe(false);
+  });
+
+  it('settles an inferred compaction without a known turn id on the next completed turn', () => {
+    const tracker = new CodexCompactionSignalTracker();
+
+    tracker.markRunningFromRejection(null);
+
+    expect(tracker.accept({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turn: { id: 'provider-compact-turn', status: 'completed' } },
+    }, 'thread-1')).toBe('settled');
+    expect(tracker.isRunning).toBe(false);
+  });
+
+  it('keeps an inferred compaction gated through item completion until its turn completes', () => {
+    const tracker = new CodexCompactionSignalTracker();
+    const params = { threadId: 'thread-1', turnId: 'compact-turn', item };
+
+    tracker.markRunningFromRejection(null);
+
+    expect(tracker.accept({ method: 'item/started', params }, 'thread-1')).toBeNull();
+    expect(tracker.runningTurnId).toBe('compact-turn');
+    expect(tracker.accept({ method: 'item/completed', params }, 'thread-1')).toBe('observed-running');
+    expect(tracker.isRunning).toBe(true);
+    expect(tracker.accept({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'completed' } },
+    }, 'thread-1')).toBe('settled');
+    expect(tracker.isRunning).toBe(false);
   });
 });

@@ -42,6 +42,10 @@ import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import type { Instance, InstanceStatus, OutputMessage, ContextUsage } from '../../shared/types/instance.types';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
+import {
+  buildProviderCompactionStatusEvent,
+  ProviderCompactionLifecycleRecorder,
+} from './provider-compaction-lifecycle';
 
 const logger = getLogger('InstanceEventForwarding');
 
@@ -55,6 +59,11 @@ export interface InstanceEventForwardingOptions {
 
 function isProviderThreadCompactionMessage(message: OutputMessage): boolean {
   return message.metadata?.['threadCompacted'] === true;
+}
+
+function providerCompactionStatus(message: OutputMessage): 'started' | 'completed' | null {
+  const status = message.metadata?.['providerCompaction'];
+  return status === 'started' || status === 'completed' ? status : null;
 }
 
 type ContinuityTask =
@@ -81,6 +90,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   const previousStatus = new Map<string, string>();
   const lastTokenOwnerEntryId = new Map<string, string>();
   const toolNamesByCallIdByInstance = new Map<string, Map<string, string>>();
+  const providerCompactionLifecycle = new ProviderCompactionLifecycleRecorder();
   const toolEntryMerger = new ContinuityToolEntryMerger();
 
   // Continuity updates run off the hot event path. State updates coalesce per
@@ -154,6 +164,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     previousStatus.delete(instanceId as string);
     lastTokenOwnerEntryId.delete(instanceId as string);
     toolNamesByCallIdByInstance.delete(instanceId as string);
+    providerCompactionLifecycle.forget(instanceId as string);
     toolEntryMerger.forget(instanceId as string);
     observer.publishInstanceState({
       type: 'removed',
@@ -258,6 +269,16 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
 
     // Renderer IPC — the only synchronous operation in this hot path.
     windowManager.sendToRenderer(IPC_CHANNELS.PROVIDER_RUNTIME_EVENT, enrichedEnvelope);
+    if (message) {
+      const compactionStatus = providerCompactionStatus(message);
+      if (compactionStatus) {
+        providerCompactionLifecycle.record(enrichedEnvelope, message, compactionStatus);
+        windowManager.sendToRenderer(
+          IPC_CHANNELS.INSTANCE_COMPACT_STATUS,
+          buildProviderCompactionStatusEvent(enrichedEnvelope.instanceId, message, compactionStatus),
+        );
+      }
+    }
 
     if (instance) {
       const stateUpdate: Record<string, unknown> = {
@@ -375,6 +396,12 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
         if (update.contextUsage) {
           const instance = instanceManager.getInstance(update.instanceId);
           if (isStatelessExecProvider(instance?.provider, update.instanceId)) {
+            continue;
+          }
+          // A provider-observed compaction preserves the last known occupancy
+          // for display only. It is not a fresh pressure sample and must not
+          // immediately retrigger policy or context-window warnings.
+          if (update.contextUsage.source === 'thread-compacted') {
             continue;
           }
 

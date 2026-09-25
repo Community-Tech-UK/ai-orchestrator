@@ -244,6 +244,7 @@ const mockAutoTitleMaybeGenerate = vi.fn().mockResolvedValue(undefined);
 const mockAutoTitleRetryIfPending = vi.fn().mockResolvedValue(undefined);
 const mockAutoTitleClearInstance = vi.fn();
 let mockAdapterName = 'claude-cli';
+let mockProviderCompacting = false;
 
 // Build a per-test adapter factory so we can get fresh adapters
 function makeMockAdapter() {
@@ -253,6 +254,7 @@ function makeMockAdapter() {
     interrupt: () => ReturnType<typeof acceptedInterruptResult>;
     terminate: (graceful: boolean) => Promise<void>;
     getName: () => string;
+    isProviderCompacting: () => boolean;
     getRuntimeCapabilities: () => {
       supportsResume: boolean;
       supportsForkSession: boolean;
@@ -268,6 +270,7 @@ function makeMockAdapter() {
   adapter.interrupt = mockAdapterInterrupt;
   adapter.terminate = mockAdapterTerminate;
   adapter.getName = () => mockAdapterName;
+  adapter.isProviderCompacting = () => mockProviderCompacting;
   adapter.getRuntimeCapabilities = () => ({
     supportsResume: true,
     supportsForkSession: false,
@@ -921,6 +924,7 @@ describe('InstanceManager', () => {
     mockAdapterSendInput.mockResolvedValue(undefined);
     mockAdapterInterrupt.mockImplementation(acceptedInterruptResult);
     mockAdapterTerminate.mockResolvedValue(undefined);
+    mockProviderCompacting = false;
     mockCreateCliAdapter.mockImplementation(() => makeMockAdapter());
     mockCommandExecuteCommandString.mockReset();
     mockCommandExecuteCommandString.mockResolvedValue(null);
@@ -1531,6 +1535,27 @@ describe('InstanceManager', () => {
           message.content === 'stop and inspect the failing spec',
       );
       expect(userMessages).toHaveLength(1);
+    });
+
+    it('steerInput queues through the send path without interrupting a provider compaction', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Compaction Steer Test',
+      });
+      await instance.readyPromise;
+      manager.updateInstanceStatus(instance.id, 'ready');
+      manager.updateInstanceStatus(instance.id, 'busy');
+      mockProviderCompacting = true;
+      mockAdapterSendInput.mockClear();
+      mockAdapterInterrupt.mockClear();
+
+      await manager.steerInput(instance.id, 'send after compaction');
+
+      expect(mockAdapterInterrupt).not.toHaveBeenCalled();
+      expect(mockAdapterSendInput).toHaveBeenCalledWith(
+        expect.stringContaining('send after compaction'),
+        undefined,
+      );
     });
 
     it('injects indexed codebase context into normal root user turns', async () => {

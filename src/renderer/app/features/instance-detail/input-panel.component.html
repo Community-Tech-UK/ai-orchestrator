@@ -445,6 +445,8 @@
           <span class="hint">Enter to queue, Shift+Enter for new line</span>
         } @else if (isRespawning()) {
           <span class="hint">Enter to send after interrupt, Shift+Enter for new line</span>
+        } @else if (isCompacting() && queuedCount() > 0) {
+          <span class="hint hint-starting">Codex is compacting… your message will send afterwards</span>
         } @else if (isSteeringTarget()) {
           <span class="hint">Enter to queue, Shift+Enter for new line</span>
         } @else {
@@ -454,6 +456,8 @@
           <span class="hint hint-starting">Starting up...</span>
         } @else if (isRespawning()) {
           <span class="hint hint-respawning">Recovering session...</span>
+        } @else if (isCompacting()) {
+          <span class="hint hint-starting">Waiting for provider compaction to finish</span>
         } @else if (isBusy()) {
           <span class="hint hint-interrupt">Esc interrupts without sending</span>
         } @else if (isReplayFallback()) {

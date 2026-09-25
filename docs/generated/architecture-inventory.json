@@ -6018,7 +6018,11 @@
     },
     {
       "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 3593
+      "lines": 3601
+    },
+    {
+      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
+      "lines": 3566
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
@@ -6035,10 +6039,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
       "lines": 3408
-    },
-    {
-      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 3197
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
@@ -6085,11 +6085,11 @@
       "lines": 2659
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
-      "lines": 2545
+      "path": "src/main/instance/instance-communication.ts",
+      "lines": 2546
     },
     {
-      "path": "src/main/instance/instance-communication.ts",
+      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
       "lines": 2545
     },
     {
@@ -6102,7 +6102,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2434
+      "lines": 2442
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -6186,7 +6186,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1911
+      "lines": 1912
     },
     {
       "path": "src/main/session/session-continuity.spec.ts",
@@ -6257,6 +6257,10 @@
       "lines": 1616
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
+      "lines": 1613
+    },
+    {
       "path": "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
       "lines": 1605
     },
@@ -6267,10 +6271,6 @@
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
       "lines": 1596
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
-      "lines": 1588
     },
     {
       "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
@@ -6665,6 +6665,10 @@
       "lines": 1095
     },
     {
+      "path": "src/renderer/app/core/state/instance/instance-messaging.store.spec.ts",
+      "lines": 1093
+    },
+    {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
       "lines": 1092
     },
@@ -6683,6 +6687,10 @@
     {
       "path": "src/main/remote-node/__tests__/rpc-schemas.spec.ts",
       "lines": 1061
+    },
+    {
+      "path": "src/main/app/instance-event-forwarding.spec.ts",
+      "lines": 1051
     },
     {
       "path": "src/renderer/app/features/loop/loop-control.component.spec.ts",
@@ -6709,16 +6717,16 @@
       "lines": 1034
     },
     {
+      "path": "src/main/cli/adapters/base-cli-adapter.ts",
+      "lines": 1032
+    },
+    {
       "path": "src/renderer/app/features/hooks/hooks-config.component.ts",
       "lines": 1031
     },
     {
       "path": "docs/superpowers/plans/2026-03-14-worktree-safety-attention-cost_superseded.md",
       "lines": 1030
-    },
-    {
-      "path": "src/main/cli/adapters/base-cli-adapter.ts",
-      "lines": 1027
     },
     {
       "path": "src/main/mcp/mcp-manager.ts",
@@ -6821,10 +6829,6 @@
       "lines": 962
     },
     {
-      "path": "src/renderer/app/core/state/instance/instance-messaging.store.spec.ts",
-      "lines": 962
-    },
-    {
       "path": "docs/superpowers/plans/2026-05-03-browser-gateway-first-milestone_completed.md",
       "lines": 958
     },
@@ -6839,10 +6843,6 @@
     {
       "path": "src/main/plugins/plugin-manager.spec.ts",
       "lines": 951
-    },
-    {
-      "path": "src/main/app/instance-event-forwarding.spec.ts",
-      "lines": 950
     },
     {
       "path": "src/worker-agent/worker-local-ai-health.spec.ts",
@@ -6977,12 +6977,12 @@
       "lines": 867
     },
     {
-      "path": "docs/superpowers/specs/2026-08-25-copilot-account-routing_spec_completed.md",
-      "lines": 864
+      "path": "src/renderer/app/core/state/instance/instance-messaging.store.ts",
+      "lines": 866
     },
     {
-      "path": "src/renderer/app/core/state/instance/instance-messaging.store.ts",
-      "lines": 863
+      "path": "docs/superpowers/specs/2026-08-25-copilot-account-routing_spec_completed.md",
+      "lines": 864
     },
     {
       "path": "docs/superpowers/plans/_archive/2026-07-13-codex-context-pressure-guard-superseded.md",

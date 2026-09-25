@@ -516,6 +516,11 @@ export abstract class BaseCliAdapter extends EventEmitter {
     return { residentSession: false, liveInterrupt: false, liveSteer: false };
   }
 
+  /** Provider-owned maintenance that must finish before another turn can start. */
+  isProviderCompacting(): boolean {
+    return false;
+  }
+
   // ============ Protected Helper Methods ============
 
   /** Cached Windows launcher resolution: `undefined` = unattempted; `null` = failed. */

@@ -78,6 +78,12 @@ describe('runIdleHibernationSweep', () => {
     expect(hibernateInstance).not.toHaveBeenCalled();
   });
 
+  it('does not hibernate a Codex session whose provider compaction status is busy', () => {
+    sweep([instance({ id: 'codex-compacting', status: 'busy', lastActivity: NOW - 3 * 60 * MINUTE })]);
+
+    expect(hibernateInstance).not.toHaveBeenCalled();
+  });
+
   it('leaves child instances to the IdleMonitor', () => {
     sweep([instance({ id: 'child-1', parentId: 'root-1' })]);
 

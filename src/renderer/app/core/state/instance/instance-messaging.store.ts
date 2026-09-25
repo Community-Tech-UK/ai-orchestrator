@@ -24,16 +24,25 @@ import {
   isTransientQueueStatus,
   pickQueuedMetadata,
   removeQueuedEntry,
+  resolveMessageTarget,
   type SendInputImmediateOptions,
 } from './instance-messaging-queue-utils';
-import { getSendInputTimeoutMs } from './instance-messaging-send-utils';
-import { canRestartForTerminalSend, getRetryDisposition } from './messaging-retry-disposition';
+import { getSendInputTimeoutMs, sendInputWithTimeout } from './instance-messaging-send-utils';
+import {
+  canRestartForTerminalSend,
+  getRetryDisposition,
+  DEFAULT_SEND_RETRY_DELAY_MS,
+  type SendRetryDisposition,
+} from './messaging-retry-disposition';
 import { InstanceStatusReconcilerService } from './instance-status-reconciler.service';
 import { QueuePersistenceService } from './queue-persistence.service';
 import { createQueuePark } from './instance-queue-park';
+import { QueueRetryTimers } from './instance-queue-retry-timers';
 
 // Max transient-failure retries before dropping a queued message. Sized so the
 // cumulative wait exceeds one large-context restart (resume failure → replay).
+// LT-652: a provider-compaction rejection uses its own larger budget in
+// `messaging-retry-disposition.ts` — a compact outlives this one.
 const MAX_QUEUE_RETRIES = 5;
 
 @Injectable({ providedIn: 'root' })
@@ -52,6 +61,11 @@ export class InstanceMessagingStore {
   private queueWatchdog: ReturnType<typeof setInterval> | null = null;
   private interruptRequests = new Map<string, number>();
   private terminalRestartRequests = new Set<string>();
+  /**
+   * LT-652 (gate finding 2): at most one pending backoff timer per instance —
+   * see `QueueRetryTimers` for why uncoalesced drains fan out.
+   */
+  private retryTimers = new QueueRetryTimers();
   private static readonly RECENT_INTERRUPT_MS = 5000;
 
   constructor() {
@@ -165,6 +179,7 @@ export class InstanceMessagingStore {
   clearMessageQueue(instanceId: string): void {
     // B7: clearing the queue removes the thing being held back.
     this.queuePark.unpark(instanceId);
+    this.cancelScheduledDrain(instanceId);
     const cleared = this.stateService.messageQueue().get(instanceId);
     this.stateService.messageQueue.update((map) => {
       const newMap = new Map(map);
@@ -383,7 +398,7 @@ export class InstanceMessagingStore {
     if (attachments === null) return;
 
     this.noteInterruptRequested(targetInstanceId);
-    const result = await this.sendInputWithTimeout(
+    const result = await sendInputWithTimeout(
       this.ipc.steerInput(targetInstanceId, message, attachments),
       getSendInputTimeoutMs(instance.provider)
     );
@@ -424,6 +439,11 @@ export class InstanceMessagingStore {
     const steerMessage: QueuedMessage = {
       ...queuedMessage,
       kind: 'steer',
+      // LT-652 (gate finding 3): an explicit user promotion to steer is an
+      // intentional immediate send — it deliberately overrides a failure
+      // backoff. Stripping the gate here keeps that override honest instead
+      // of half-respecting it; a rejection re-gates on the retry path.
+      retryAfterAt: undefined,
     };
     // Content is unchanged (only `kind` differs), so carry the durable-row
     // association forward instead of cancelling+re-enqueuing under a new id.
@@ -511,6 +531,9 @@ export class InstanceMessagingStore {
         message,
         files,
         retryCount,
+        // LT-652 (gate finding 3): keep the gate when a send that reached here
+        // is re-queued by losing a race to Pause.
+        retryAfterAt: options.retryAfterAt,
         ...createQueuedMetadata(options),
       });
       return;
@@ -536,7 +559,7 @@ export class InstanceMessagingStore {
     this.statusReconciler.noteSendStarted(targetInstanceId);
     let result: IpcResponse;
     try {
-      result = await this.sendInputWithTimeout(
+      result = await sendInputWithTimeout(
         this.ipc.sendInput(
           targetInstanceId,
           message,
@@ -572,12 +595,15 @@ export class InstanceMessagingStore {
       }
 
       const nextRetryCount = retryCount + 1;
+      const maxRetries = retryDisposition.maxRetries ?? MAX_QUEUE_RETRIES;
+      const retryAfterMs = retryDisposition.retryAfterMs ?? DEFAULT_SEND_RETRY_DELAY_MS;
 
       // Enforce retry limit to prevent infinite re-queue loops
-      if (nextRetryCount > MAX_QUEUE_RETRIES) {
+      if (nextRetryCount > maxRetries) {
         console.error('InstanceMessagingStore: Max retries exceeded, dropping message', {
           instanceId: targetInstanceId,
           retryCount: nextRetryCount,
+          maxRetries,
           errorMessage,
         });
         if (currentInstance && currentInstance.status === 'busy') {
@@ -588,7 +614,7 @@ export class InstanceMessagingStore {
         this.restoreMessageToDraft(targetInstanceId, message);
         this.addErrorToOutput(
           targetInstanceId,
-          `Failed to send message after ${MAX_QUEUE_RETRIES} retries:\n${errorMessage}`
+          `Failed to send message after ${maxRetries} retries:\n${errorMessage}`
         );
         return;
       }
@@ -600,20 +626,24 @@ export class InstanceMessagingStore {
         });
       }
 
+      // LT-652: stamp the backoff on the entry itself. Drains are gated on it
+      // in `processMessageQueue`, so the ready-status drain in `instance.store.ts`
+      // cannot re-send before the delay elapses (the sub-second retry storm).
       this.enqueueMessageFront(targetInstanceId, {
         message,
         files,
         retryCount: nextRetryCount,
+        retryAfterAt: Date.now() + retryAfterMs,
         ...createQueuedMetadata(options),
       });
 
       // Schedule a retry. The primary drain trigger is batch-update → idle,
       // but if we're already idle locally we need to re-trigger ourselves.
+      // (`busy` is deliberately absent: `processMessageQueue` will not drain a
+      // busy instance — that case waits for the turn-completion status edge.)
       const nextStatus = retryDisposition.nextStatus ?? previousStatus ?? 'idle';
       if (nextStatus === 'idle' || nextStatus === 'waiting_for_input') {
-        setTimeout(() => {
-          this.processMessageQueue(targetInstanceId);
-        }, 2000);
+        this.scheduleQueueDrain(targetInstanceId, retryAfterMs);
       }
     }
   }
@@ -653,6 +683,15 @@ export class InstanceMessagingStore {
     // instead of silently vanishing before the send is confirmed).
     const nextMessage = queue[0];
 
+    // LT-652: honour the failure backoff. Without this gate the ready-status
+    // drain (and the 2 s watchdog) re-sends the moment the status revert
+    // lands, which is what burned 5 retries in 622 ms against a Compact turn.
+    const retryAfterAt = nextMessage.retryAfterAt;
+    if (retryAfterAt !== undefined && retryAfterAt > Date.now()) {
+      this.scheduleQueueDrain(instanceId, retryAfterAt - Date.now());
+      return;
+    }
+
     // Use setTimeout to avoid state update conflicts (unchanged 100ms timing).
     setTimeout(() => {
       void this.drainNextQueuedMessage(instanceId, nextMessage);
@@ -669,65 +708,29 @@ export class InstanceMessagingStore {
     await this.sendInputImmediate(instanceId, nextMessage.message, nextMessage.files, nextMessage.retryCount ?? 0, {
       skipUserBubble: nextMessage.seededAlready === true,
       queuedMetadata: pickQueuedMetadata(nextMessage),
+      retryAfterAt: nextMessage.retryAfterAt,
     });
+  }
+
+  /** LT-652: one pending backoff timer per instance (see `QueueRetryTimers`). */
+  private scheduleQueueDrain(instanceId: string, delayMs: number): void {
+    this.retryTimers.schedule(instanceId, delayMs, () => {
+      this.processMessageQueue(instanceId);
+    });
+  }
+
+  private cancelScheduledDrain(instanceId: string): void {
+    this.retryTimers.cancel(instanceId);
   }
 
   // ============================================
   // Private Helpers
   // ============================================
 
-  private async sendInputWithTimeout(
-    operation: Promise<IpcResponse>,
-    timeoutMs: number | null
-  ): Promise<IpcResponse> {
-    if (timeoutMs === null) {
-      return operation;
-    }
-
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<IpcResponse>((resolve) => {
-      timeoutId = setTimeout(() => {
-        resolve({
-          success: false,
-          error: {
-            message: `Send input timed out after ${timeoutMs / 1000}s. The app cleared the optimistic busy state; please retry after checking the session.`,
-          },
-        });
-      }, timeoutMs);
-    });
-
-    try {
-      return await Promise.race([operation, timeout]);
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    }
-  }
-
   private resolveMessageTarget(
     instanceId: string
   ): { instanceId: string; instance: Instance } | null {
-    const instance = this.stateService.getInstance(instanceId);
-    if (!instance) {
-      return null;
-    }
-
-    if (
-      instance.status === 'superseded'
-      && instance.cancelledForEdit === true
-      && instance.supersededBy
-    ) {
-      const replacement = this.stateService.getInstance(instance.supersededBy);
-      if (replacement && !isTerminalStatus(replacement.status)) {
-        return {
-          instanceId: replacement.id,
-          instance: replacement,
-        };
-      }
-    }
-
-    return { instanceId, instance };
+    return resolveMessageTarget(this.stateService, instanceId);
   }
 
   private canRestartForTerminalSend(status: InstanceStatus): boolean {
@@ -782,7 +785,7 @@ export class InstanceMessagingStore {
   private getRetryDisposition(
     status: InstanceStatus | undefined,
     errorMessage: string,
-  ): { shouldRetry: boolean; nextStatus?: InstanceStatus } {
+  ): SendRetryDisposition {
     return getRetryDisposition(status, errorMessage);
   }
 

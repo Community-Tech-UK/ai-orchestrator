@@ -6,6 +6,11 @@ import type { InstanceStateService } from './instance-state.service';
 export interface SendInputImmediateOptions {
   skipUserBubble?: boolean;
   queuedMetadata?: Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'>;
+  /**
+   * LT-652: forwarded when a send that already cleared its backoff gate is
+   * re-queued (e.g. losing a race to Pause), so the entry keeps its gate.
+   */
+  retryAfterAt?: number;
 }
 
 /** Append to the back of an instance's queue. Extracted so InstanceMessagingStore stays under its LOC ratchet. */
@@ -113,6 +118,37 @@ export function isTerminalStatus(status: InstanceStatus | undefined): boolean {
     || status === 'terminated'
     || status === 'cancelled'
     || status === 'superseded';
+}
+
+/**
+ * Resolve the instance a message should land on. A superseded edit-target is
+ * transparently redirected to its live replacement so a send during
+ * edit-and-resend reaches the conversation the user is now looking at.
+ */
+export function resolveMessageTarget(
+  stateService: InstanceStateService,
+  instanceId: string,
+): { instanceId: string; instance: Instance } | null {
+  const instance = stateService.getInstance(instanceId);
+  if (!instance) {
+    return null;
+  }
+
+  if (
+    instance.status === 'superseded'
+    && instance.cancelledForEdit === true
+    && instance.supersededBy
+  ) {
+    const replacement = stateService.getInstance(instance.supersededBy);
+    if (replacement && !isTerminalStatus(replacement.status)) {
+      return {
+        instanceId: replacement.id,
+        instance: replacement,
+      };
+    }
+  }
+
+  return { instanceId, instance };
 }
 
 export function createQueuedMetadata(

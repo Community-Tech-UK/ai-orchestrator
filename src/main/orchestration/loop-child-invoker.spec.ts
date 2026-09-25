@@ -165,6 +165,49 @@ describe('invokeLoopChildIteration timeout', () => {
     expect(emitter.listenerCount('loop:activity')).toBe(0);
   });
 
+  it('preserves aggregate tokens when the interrupted callback has an empty usage breakdown', async () => {
+    const emitter = new EventEmitter();
+    let callback: ((result: unknown) => void) | undefined;
+    emitter.on('loop:invoke-iteration', (payload: { callback: (result: unknown) => void }) => {
+      callback = payload.callback;
+    });
+
+    const pending = invokeLoopChildIteration({
+      emitter,
+      state: makeState(),
+      prompt: 'go',
+      stage: 'IMPLEMENT',
+      forceContextReset: false,
+      idempotencyKey: 'k-aggregate-usage',
+    });
+    const failurePromise = pending.then(
+      () => { throw new Error('expected timeout'); },
+      (err: unknown) => err as Error & { partialUsage?: { totalTokens?: number } },
+    );
+
+    await vi.advanceTimersByTimeAsync(40);
+    callback?.({
+      childInstanceId: null,
+      output: 'partial work',
+      tokens: 300,
+      usage: {
+        inputTokens: undefined,
+        outputTokens: undefined,
+        cacheReadTokens: undefined,
+        cacheWriteTokens: undefined,
+        reasoningTokens: undefined,
+      },
+      filesChanged: [],
+      toolCalls: [],
+      errors: [],
+      testPassCount: null,
+      testFailCount: null,
+      exitedCleanly: true,
+    });
+
+    expect((await failurePromise).partialUsage).toEqual(expect.objectContaining({ totalTokens: 300 }));
+  });
+
   it('retains a failed callback workspace observation after timeout', async () => {
     const emitter = new EventEmitter();
     let callback: ((result: unknown) => void) | undefined;

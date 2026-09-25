@@ -65,7 +65,7 @@ describe('CodexContextCostController shared-policy execution adapter', () => {
     ]));
   });
 
-  it('retries the same-thread continuation once when it races the provider compaction turn closing', async () => {
+  it('retries the same-thread continuation once only after the provider compaction turn settles', async () => {
     vi.useFakeTimers();
     try {
       const { controller, deps } = createController();
@@ -80,13 +80,38 @@ describe('CodexContextCostController shared-policy execution adapter', () => {
         .mockResolvedValueOnce(undefined);
 
       const pending = controller.recoverAfterTurn({ turnStatus: 'interrupted', recoveryCount: 0, continueTurn });
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(controller.isCompactionRunning()).toBe(true);
+      expect(continueTurn).toHaveBeenCalledOnce();
+      controller.acceptCompactionSignal({
+        method: 'turn/completed',
+        params: { threadId: 'thread-fixture', turn: { id: 'provider-compact-turn', status: 'completed' } },
+      }, 'thread-fixture');
+      await vi.advanceTimersByTimeAsync(0);
 
       await expect(pending).resolves.toBe(true);
       expect(continueTurn).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('does not retry another retry-thread failure as though it were provider compaction', async () => {
+    const { controller, deps } = createController();
+    deps.getCompactionTarget = () => ({
+      threadId: 'thread-fixture',
+      start: async () => controller.recordCompactionObserved(400_000),
+    });
+    await controller.requestRecovery('controlled-recovery');
+    const continueTurn = vi.fn().mockRejectedValue(new Error('RPC timeout: turn/start did not respond'));
+
+    await expect(controller.recoverAfterTurn({
+      turnStatus: 'interrupted',
+      recoveryCount: 0,
+      continueTurn,
+    })).rejects.toThrow('RPC timeout');
+    expect(continueTurn).toHaveBeenCalledOnce();
   });
 
   it('rethrows a non-transient continuation failure without retrying', async () => {
@@ -199,17 +224,24 @@ describe('CodexContextCostController shared-policy execution adapter', () => {
     it('fails a stalled compaction without marking native compaction unsupported', async () => {
       vi.useFakeTimers();
       try {
+        const lifecycle: Array<{ phase: 'started' | 'completed'; outcome?: string }> = [];
         const start = vi.fn(async () => { controller.recordCompactionStarted(); });
         const { controller } = createController({
           compactionTimeoutMs: 30,
           compactionRunningTimeoutMs: 180,
           getCompactionTarget: () => ({ threadId: 'thread-fixture', start }),
+          onCompactionStateChange: (phase, outcome) => lifecycle.push({ phase, outcome }),
         });
 
         const first = controller.compactContext(30);
         await vi.advanceTimersByTimeAsync(180);
         await expect(first).resolves.toBe(false);
         expect(controller.nativeCompactionKnownUnsupported()).toBe(false);
+        expect(controller.isCompactionRunning()).toBe(false);
+        expect(lifecycle).toEqual([
+          { phase: 'started', outcome: undefined },
+          { phase: 'completed', outcome: 'stalled' },
+        ]);
 
         // The next attempt still issues a real compaction request.
         void controller.compactContext(30);
@@ -508,13 +540,94 @@ describe('CodexContextCostController shared-policy execution adapter', () => {
     it('releases the wait when the app-server exits mid-compaction', async () => {
       vi.useFakeTimers();
       try {
-        const { controller, recovery } = await startRecoveryWait();
+        const lifecycle: Array<{ phase: 'started' | 'completed'; outcome?: string }> = [];
+        const { controller, recovery } = await startRecoveryWait({
+          onCompactionStateChange: (phase, outcome) => lifecycle.push({ phase, outcome }),
+        });
         const outcome = recovery.then(() => null, (error: unknown) => error);
 
         controller.handleRuntimeExit();
         await vi.advanceTimersByTimeAsync(0);
 
         expect(isSurfacedToUserError(await outcome)).toBe(true);
+        expect(controller.isCompactionRunning()).toBe(false);
+        expect(lifecycle).toEqual([
+          { phase: 'started', outcome: undefined },
+          { phase: 'completed', outcome: 'cancelled' },
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('exposes a bounded gate for sends that arrive while compaction is running', async () => {
+      vi.useFakeTimers();
+      try {
+        const { controller } = createController({ compactionRunningTimeoutMs: 20_000 });
+        controller.acceptCompactionSignal(started, 'thread-fixture');
+
+        let settled = false;
+        const wait = controller.awaitCompactionSettled().finally(() => { settled = true; });
+        await vi.advanceTimersByTimeAsync(19_999);
+        expect(settled).toBe(false);
+
+        controller.recordCompactionObserved(1_000);
+        await expect(wait).resolves.toBe('observed');
+        expect(controller.isCompactionRunning()).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps the reported turn id and single start when a rejection races the start notification', () => {
+      const lifecycle: Array<'started' | 'completed'> = [];
+      const { controller } = createController({
+        onCompactionStateChange: (phase) => lifecycle.push(phase),
+      });
+
+      controller.acceptCompactionSignal(started, 'thread-fixture');
+      controller.markCompactionRunningFromRejection(null);
+
+      expect(controller.runningCompactionTurnId()).toBe('compact-turn');
+      expect(lifecycle).toEqual(['started']);
+    });
+
+    it('resets the trigger after policy compaction so a later provider compaction is self-managed', async () => {
+      const lifecycle: Array<{ phase: 'started' | 'completed'; trigger: 'self-managed' | 'policy' }> = [];
+      let controller: CodexContextCostController;
+      ({ controller } = createController({
+        getCompactionTarget: () => ({
+          threadId: 'thread-fixture',
+          start: async () => controller.recordCompactionStarted(),
+        }),
+        onCompactionStateChange: (phase) => {
+          lifecycle.push({ phase, trigger: controller.runningCompactionTrigger() });
+        },
+      }));
+
+      const policyCompaction = controller.compactContext(50);
+      controller.recordCompactionObserved(1_000);
+      await expect(policyCompaction).resolves.toBe(true);
+
+      controller.acceptCompactionSignal(started, 'thread-fixture');
+
+      expect(lifecycle).toEqual([
+        { phase: 'started', trigger: 'policy' },
+        { phase: 'completed', trigger: 'policy' },
+        { phase: 'started', trigger: 'self-managed' },
+      ]);
+    });
+
+    it('returns stalled when a running compaction exceeds the bounded send gate', async () => {
+      vi.useFakeTimers();
+      try {
+        const { controller } = createController({ compactionRunningTimeoutMs: 20_000 });
+        controller.acceptCompactionSignal(started, 'thread-fixture');
+
+        const wait = controller.awaitCompactionSettled();
+        await vi.advanceTimersByTimeAsync(20_000);
+
+        await expect(wait).resolves.toBe('stalled');
       } finally {
         vi.useRealTimers();
       }

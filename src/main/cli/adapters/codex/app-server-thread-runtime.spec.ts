@@ -11,6 +11,7 @@ import type {
 } from './app-server-types';
 import {
   CodexAppServerThreadRuntime,
+  CONTEXT_POLICY_STEER_TEXT,
   createCodexTurnCaptureState,
 } from './app-server-thread-runtime';
 
@@ -183,10 +184,16 @@ describe('CodexAppServerThreadRuntime', () => {
       expectedTurnId: 'turn-1',
       input: [{
         type: 'text',
-        text: 'Stop broad exploration. Synthesize what you already have, persist durable notes, and do not open new research threads.',
+        text: CONTEXT_POLICY_STEER_TEXT,
         text_elements: [],
       }],
     });
+    // LT-653: the steer must be unmistakably a system action and must not read
+    // as a user request to stop work (session xecsi91o3 misattribution).
+    expect(CONTEXT_POLICY_STEER_TEXT).toContain('SYSTEM CONTEXT-POLICY STEER');
+    expect(CONTEXT_POLICY_STEER_TEXT).toContain('not a user message');
+    expect(CONTEXT_POLICY_STEER_TEXT).toContain('NOT asked you to stop');
+    expect(CONTEXT_POLICY_STEER_TEXT).toContain('continue the user\'s current task');
 
     releaseTurnStart();
     client.emit('turn/completed', {

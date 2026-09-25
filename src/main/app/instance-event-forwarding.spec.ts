@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { randomUUID } from 'node:crypto';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
+import { InstanceCompactStatusEventSchema } from '@contracts/schemas/instance';
 
 // ── Hoisted mocks (vi.mock factories are hoisted above const declarations) ────
 
@@ -20,6 +21,7 @@ const {
   mockRecordSpan,
   mockContinuity,
   mockRecordProviderThreadCompactionMarker,
+  mockRecordLifecycleTrace,
   mockCrossModelReview,
 } = vi.hoisted(() => ({
   mockTraceSink: { enqueue: vi.fn() },
@@ -32,6 +34,7 @@ const {
     patchConversationEntry: vi.fn(async () => true),
   },
   mockRecordProviderThreadCompactionMarker: vi.fn(),
+  mockRecordLifecycleTrace: vi.fn(),
   mockCrossModelReview: {
     bufferMessage: vi.fn(),
     onInstanceIdle: vi.fn().mockResolvedValue(undefined),
@@ -46,6 +49,10 @@ vi.mock('../observability/provider-runtime-trace-sink', () => ({
 
 vi.mock('../observability/otel-spans', () => ({
   recordProviderRuntimeEventSpan: mockRecordSpan,
+}));
+
+vi.mock('../observability/lifecycle-trace', () => ({
+  recordLifecycleTrace: mockRecordLifecycleTrace,
 }));
 
 vi.mock('../session/session-continuity', () => ({
@@ -275,6 +282,81 @@ describe('setupInstanceEventForwarding', () => {
         id: 'msg-compact', role: 'system', isCompacted: true,
       }),
     ));
+  });
+
+  it.each(['started', 'completed'] as const)(
+    'forwards provider compaction %s through the validated compact-status channel',
+    (status) => {
+      const mgr = buildManager({ 'inst-1': { id: 'inst-1', provider: 'codex' } });
+      setupInstanceEventForwarding({
+        instanceManager: mgr,
+        windowManager: mockWindowManager,
+        isStatelessExecProvider: () => false,
+        getNodeLatencyForInstance: () => undefined,
+      });
+
+      mgr.emit('provider:normalized-event', {
+        ...makeEnvelope('output'),
+        provider: 'codex',
+        event: {
+          kind: 'output', content: 'provider compaction', messageType: 'system',
+          metadata: { providerCompaction: status },
+        },
+      } as ProviderRuntimeEventEnvelope);
+
+      expect(mockSendToRenderer).toHaveBeenCalledWith(
+        IPC_CHANNELS.INSTANCE_COMPACT_STATUS,
+        status === 'started'
+          ? { instanceId: 'inst-1', status }
+          : {
+              instanceId: 'inst-1', status, success: true, method: 'native', blocking: false,
+            },
+      );
+      const compactStatusPayload = mockSendToRenderer.mock.calls.find(
+        ([channel]) => channel === IPC_CHANNELS.INSTANCE_COMPACT_STATUS,
+      )?.[1];
+      expect(InstanceCompactStatusEventSchema.safeParse(compactStatusPayload).success).toBe(true);
+      expect(mockRecordLifecycleTrace).toHaveBeenCalledWith(expect.objectContaining({
+        instanceId: 'inst-1',
+        provider: 'codex',
+        eventType: 'provider-compaction',
+        status,
+        metadata: expect.objectContaining({ phase: status }),
+      }));
+    },
+  );
+
+  it('forwards aborted provider compaction as a validated failure and records its outcome', () => {
+    const mgr = buildManager({ 'inst-1': { id: 'inst-1', provider: 'codex' } });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output'),
+      provider: 'codex',
+      event: {
+        kind: 'output', content: 'Codex compaction aborted', messageType: 'system',
+        metadata: { providerCompaction: 'completed', providerCompactionOutcome: 'aborted' },
+      },
+    } as ProviderRuntimeEventEnvelope);
+
+    const compactStatusPayload = mockSendToRenderer.mock.calls.find(
+      ([channel]) => channel === IPC_CHANNELS.INSTANCE_COMPACT_STATUS,
+    )?.[1];
+    expect(compactStatusPayload).toEqual({
+      instanceId: 'inst-1', status: 'completed', success: false,
+      method: 'native', blocking: false, error: 'Codex compaction aborted',
+    });
+    expect(InstanceCompactStatusEventSchema.safeParse(compactStatusPayload).success).toBe(true);
+    expect(mockRecordLifecycleTrace).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'provider-compaction',
+      status: 'aborted',
+      metadata: expect.objectContaining({ phase: 'completed', outcome: 'aborted' }),
+    }));
   });
 
   it('passes message identity and accumulated streaming content to cross-model review', () => {
@@ -890,7 +972,11 @@ describe('context:warning guard for aggregate-only providers (LT-034)', () => {
 describe('mid-turn context usage forwarding with the real stateless-exec predicate', () => {
   const usage = { used: 82_000, total: 100_000, percentage: 82, occupancyReported: true };
 
-  const forward = (instance: Record<string, unknown>, adapter: unknown) => {
+  const forward = (
+    instance: Record<string, unknown>,
+    adapter: unknown,
+    contextUsage = usage,
+  ) => {
     const onContextUpdate = vi.fn();
     setContextEngine({
       onContextUpdate,
@@ -914,7 +1000,7 @@ describe('mid-turn context usage forwarding with the real stateless-exec predica
     });
     // Mid-turn: the instance is busy, so this is not the afterTurn path.
     mgr.emit('instance:batch-update', {
-      updates: [{ instanceId: 'inst-1', status: 'busy', contextUsage: usage }],
+      updates: [{ instanceId: 'inst-1', status: 'busy', contextUsage }],
     });
     return onContextUpdate;
   };
@@ -930,6 +1016,21 @@ describe('mid-turn context usage forwarding with the real stateless-exec predica
   it('forwards mid-turn usage for a Codex instance running in app-server mode', () => {
     const onContextUpdate = forward({ id: 'inst-1', provider: 'codex' }, codexAdapter('current'));
     expect(onContextUpdate).toHaveBeenCalledWith('inst-1', usage);
+  });
+
+  it('keeps a post-compaction occupancy estimate display-only until fresh usage arrives', () => {
+    const displayOnly = {
+      ...usage,
+      source: 'thread-compacted' as const,
+      isEstimated: true,
+    };
+    const onContextUpdate = forward(
+      { id: 'inst-1', provider: 'codex' },
+      codexAdapter('current'),
+      displayOnly,
+    );
+
+    expect(onContextUpdate).not.toHaveBeenCalled();
   });
 
   it('still skips mid-turn usage for a Codex instance in exec mode', () => {

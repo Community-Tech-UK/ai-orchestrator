@@ -75,6 +75,7 @@ import {
 } from './instance-communication-adapter-helpers';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 import { isProviderAuthenticationError } from '../cli/adapters/provider-authentication-error';
+import { buildRepeatedErrorDiagnosticFields } from './repeated-error-diagnostics';
 import {
   createInvalidSessionNotice,
   getRecoverySensitiveValues,
@@ -2307,8 +2308,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (lastError && lastError.content === message.content) {
         lastError.count++;
         if (lastError.count > 3) {
-          // Silently suppress after 3 identical errors
-          logger.info('Suppressing repeated error', { instanceId: instance.id, content: message.content, count: lastError.count });
+          logger.warn('Suppressing repeated error', buildRepeatedErrorDiagnosticFields({ instanceId: instance.id, content: message.content, count: lastError.count, status: instance.status, adapter: this.deps.getAdapter(instance.id) }));
           return;
         }
       } else {
@@ -2439,6 +2439,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     instance: Instance,
     usage: ContextUsage,
   ): void {
+    if (usage.source === 'thread-compacted') return;
     // Skip if already warned
     if (this.overflow.hasWarning(instanceId)) return;
     // Skip child instances — they don't spawn children

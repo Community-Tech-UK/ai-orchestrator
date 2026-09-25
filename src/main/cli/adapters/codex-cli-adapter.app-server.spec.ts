@@ -18,6 +18,7 @@ vi.mock('../../browser-gateway/browser-approval-store', () => ({
 import { CodexCliAdapter } from './codex-cli-adapter';
 import * as codexCliAdapterModule from './codex-cli-adapter';
 import { CodexHomeManager } from './codex/codex-home-manager';
+import { CodexContextRecoveryPausedError } from './codex/context-cost-controller';
 import type {
   CodexContextDiagnosticRecord,
   CodexContextDiagnosticSink,
@@ -693,6 +694,346 @@ describe('CodexCliAdapter', () => {
       });
       expect(compactedOutputs).toHaveLength(1);
     });
+
+    it('publishes provider compaction busy/idle state and lifecycle metadata between AIO turns', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        appServerThreadId: string;
+        handleIdleAppServerNotification(notification: SyntheticNotification): void;
+      };
+      internals.appServerThreadId = 'thread-1';
+      const statuses: string[] = [];
+      const lifecycle: string[] = [];
+      adapter.on('status', (status: string) => statuses.push(status));
+      adapter.on('output', (output: { metadata?: Record<string, unknown> }) => {
+        const status = output.metadata?.['providerCompaction'];
+        if (typeof status === 'string') lifecycle.push(status);
+      });
+      const params = {
+        threadId: 'thread-1', turnId: 'compact-turn', item: { type: 'contextCompaction', id: 'compaction-item' },
+      };
+
+      internals.handleIdleAppServerNotification({ method: 'item/started', params });
+      expect(adapter.isProviderCompacting()).toBe(true);
+      internals.handleIdleAppServerNotification({ method: 'item/completed', params });
+      expect(adapter.isProviderCompacting()).toBe(true);
+      internals.handleIdleAppServerNotification({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'completed' } },
+      });
+
+      expect(statuses).toEqual(['busy', 'idle']);
+      expect(lifecycle).toEqual(['started', 'completed']);
+      expect(adapter.isProviderCompacting()).toBe(false);
+    });
+
+    it('holds a user send during provider compaction and releases it on completion', async () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        appServerThreadId: string;
+        handleIdleAppServerNotification(notification: SyntheticNotification): void;
+        appServerSendMessage(message: string): Promise<void>;
+        appServerSendMessageInner(message: string): Promise<void>;
+      };
+      internals.appServerThreadId = 'thread-1';
+      const send = vi.spyOn(internals, 'appServerSendMessageInner').mockResolvedValue(undefined);
+      const params = {
+        threadId: 'thread-1', turnId: 'compact-turn', item: { type: 'contextCompaction', id: 'compaction-item' },
+      };
+      internals.handleIdleAppServerNotification({ method: 'item/started', params });
+
+      const pending = internals.appServerSendMessage('held message');
+      await Promise.resolve();
+      expect(send).not.toHaveBeenCalled();
+
+      internals.handleIdleAppServerNotification({ method: 'item/completed', params });
+      await Promise.resolve();
+      expect(send).not.toHaveBeenCalled();
+      internals.handleIdleAppServerNotification({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'completed' } },
+      });
+      await pending;
+      expect(send).toHaveBeenCalledExactlyOnceWith('held message', undefined, 0, undefined);
+    });
+
+    it('returns to idle after a compaction-delayed steer finds no active turn and accepts later input', async () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        appServerThreadId: string;
+        isSpawned: boolean;
+        useAppServer: boolean;
+        getAppServerClient(): object | null;
+        handleIdleAppServerNotification(notification: SyntheticNotification): void;
+        appServerSendMessage(message: string): Promise<void>;
+        sendInputImpl(message: string): Promise<void>;
+      };
+      internals.appServerThreadId = 'thread-1';
+      const statuses: string[] = [];
+      adapter.on('status', (status: string) => statuses.push(status));
+      const params = {
+        threadId: 'thread-1', turnId: 'compact-turn', item: { type: 'contextCompaction', id: 'compaction-item' },
+      };
+      internals.handleIdleAppServerNotification({ method: 'item/started', params });
+
+      const steering = adapter.executeContextAction('steer-turn');
+      await Promise.resolve();
+      internals.handleIdleAppServerNotification({ method: 'item/completed', params });
+      internals.handleIdleAppServerNotification({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'completed' } },
+      });
+
+      await expect(steering).resolves.toEqual({ proof: 'none', skipped: 'turn-not-active' });
+      expect(statuses).toEqual(['busy', 'idle']);
+
+      internals.isSpawned = true;
+      internals.useAppServer = true;
+      vi.spyOn(internals, 'getAppServerClient').mockReturnValue({});
+      const send = vi.spyOn(internals, 'appServerSendMessage').mockResolvedValue(undefined);
+      await internals.sendInputImpl('after compaction');
+
+      expect(send).toHaveBeenCalledExactlyOnceWith('after compaction', undefined, undefined);
+      expect(statuses).toEqual(['busy', 'idle', 'busy', 'idle']);
+    });
+
+    it('infers an unseen Compact rejection while steering and retries once after turn completion', async () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        appServerThreadId: string;
+        appServerRuntime: { steerActiveTurn(): Promise<boolean> };
+        handleIdleAppServerNotification(notification: SyntheticNotification): void;
+      };
+      internals.appServerThreadId = 'thread-1';
+      const steer = vi.spyOn(internals.appServerRuntime, 'steerActiveTurn')
+        .mockRejectedValueOnce(new Error('failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }'))
+        .mockResolvedValueOnce(false);
+      const statuses: string[] = [];
+      const lifecycle: string[] = [];
+      adapter.on('status', (status: string) => statuses.push(status));
+      adapter.on('output', (output: { metadata?: Record<string, unknown> }) => {
+        const phase = output.metadata?.['providerCompaction'];
+        if (typeof phase === 'string') lifecycle.push(phase);
+      });
+
+      const steering = adapter.executeContextAction('steer-turn');
+      await vi.waitFor(() => expect(steer).toHaveBeenCalledOnce());
+      const params = {
+        threadId: 'thread-1', turnId: 'compact-turn', item: { type: 'contextCompaction', id: 'compaction-item' },
+      };
+      internals.handleIdleAppServerNotification({ method: 'item/started', params });
+      internals.handleIdleAppServerNotification({ method: 'item/completed', params });
+      expect(steer).toHaveBeenCalledOnce();
+      internals.handleIdleAppServerNotification({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'completed' } },
+      });
+
+      await expect(steering).resolves.toEqual({ proof: 'none', skipped: 'turn-not-active' });
+      expect(steer).toHaveBeenCalledTimes(2);
+      expect(lifecycle).toEqual(['started', 'completed']);
+      expect(statuses).toEqual(['busy', 'idle']);
+    });
+
+    it('does not publish idle when provider compaction starts before a successful send unwinds', async () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        appServerThreadId: string;
+        isSpawned: boolean;
+        useAppServer: boolean;
+        getAppServerClient(): object | null;
+        handleIdleAppServerNotification(notification: SyntheticNotification): void;
+        appServerSendMessage(message: string): Promise<void>;
+        sendInputImpl(message: string): Promise<void>;
+      };
+      internals.appServerThreadId = 'thread-1';
+      internals.isSpawned = true;
+      internals.useAppServer = true;
+      vi.spyOn(internals, 'getAppServerClient').mockReturnValue({});
+      const statuses: string[] = [];
+      adapter.on('status', (status: string) => statuses.push(status));
+      const params = {
+        threadId: 'thread-1', turnId: 'compact-turn', item: { type: 'contextCompaction', id: 'compaction-item' },
+      };
+      vi.spyOn(internals, 'appServerSendMessage').mockImplementation(async () => {
+        internals.handleIdleAppServerNotification({ method: 'item/started', params });
+      });
+
+      await internals.sendInputImpl('send before compaction');
+
+      expect(adapter.isProviderCompacting()).toBe(true);
+      expect(statuses).not.toContain('idle');
+      internals.handleIdleAppServerNotification({ method: 'item/completed', params });
+      internals.handleIdleAppServerNotification({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'completed' } },
+      });
+      expect(statuses.at(-1)).toBe('idle');
+    });
+
+    it('does not publish idle when a recoverable send failure leaves provider compaction running', async () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        appServerThreadId: string;
+        isSpawned: boolean;
+        useAppServer: boolean;
+        getAppServerClient(): object | null;
+        handleIdleAppServerNotification(notification: SyntheticNotification): void;
+        appServerSendMessage(message: string): Promise<void>;
+        sendInputImpl(message: string): Promise<void>;
+      };
+      internals.appServerThreadId = 'thread-1';
+      internals.isSpawned = true;
+      internals.useAppServer = true;
+      vi.spyOn(internals, 'getAppServerClient').mockReturnValue({});
+      const statuses: string[] = [];
+      adapter.on('status', (status: string) => statuses.push(status));
+      const params = {
+        threadId: 'thread-1', turnId: 'compact-turn', item: { type: 'contextCompaction', id: 'compaction-item' },
+      };
+      vi.spyOn(internals, 'appServerSendMessage').mockImplementation(async () => {
+        internals.handleIdleAppServerNotification({ method: 'item/started', params });
+        throw new Error('connection reset by peer');
+      });
+
+      await expect(internals.sendInputImpl('send before failure')).rejects.toThrow(/connection reset/);
+
+      expect(adapter.isProviderCompacting()).toBe(true);
+      expect(statuses).not.toContain('idle');
+      internals.handleIdleAppServerNotification({ method: 'item/completed', params });
+      internals.handleIdleAppServerNotification({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'completed' } },
+      });
+      expect(statuses.at(-1)).toBe('idle');
+    });
+
+    it('infers provider compaction from a strict rejection and retries the user send exactly once after turn completion', async () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        appServerThreadId: string;
+        handleIdleAppServerNotification(notification: SyntheticNotification): void;
+        appServerSendMessage(message: string): Promise<void>;
+        appServerSendMessageInner(message: string): Promise<void>;
+      };
+      internals.appServerThreadId = 'thread-1';
+      const send = vi.spyOn(internals, 'appServerSendMessageInner')
+        .mockRejectedValueOnce(new Error('failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }'))
+        .mockResolvedValueOnce(undefined);
+
+      const pending = internals.appServerSendMessage('race message');
+      await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+      internals.handleIdleAppServerNotification({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'provider-compact-turn', status: 'completed' } },
+      });
+
+      await pending;
+      expect(send).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps a rejection-first compaction gated through item completion and hands busy state to the retry', async () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        appServerThreadId: string;
+        handleIdleAppServerNotification(notification: SyntheticNotification): void;
+        appServerSendMessage(message: string): Promise<void>;
+        appServerSendMessageInner(message: string): Promise<void>;
+      };
+      internals.appServerThreadId = 'thread-1';
+      let releaseRetry!: () => void;
+      const retry = new Promise<void>((resolve) => { releaseRetry = resolve; });
+      const send = vi.spyOn(internals, 'appServerSendMessageInner')
+        .mockRejectedValueOnce(new Error('failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }'))
+        .mockImplementationOnce(async () => retry);
+      const statuses: string[] = [];
+      const lifecycle: string[] = [];
+      const lifecycleTurnIds: unknown[] = [];
+      adapter.on('status', (status: string) => statuses.push(status));
+      adapter.on('output', (output: { metadata?: Record<string, unknown> }) => {
+        const phase = output.metadata?.['providerCompaction'];
+        if (typeof phase === 'string') {
+          lifecycle.push(phase);
+          lifecycleTurnIds.push(output.metadata?.['providerCompactionTurnId']);
+        }
+      });
+      const params = {
+        threadId: 'thread-1', turnId: 'compact-turn', item: { type: 'contextCompaction', id: 'compaction-item' },
+      };
+
+      const pending = internals.appServerSendMessage('race message');
+      await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+      internals.handleIdleAppServerNotification({ method: 'item/started', params });
+      internals.handleIdleAppServerNotification({ method: 'item/completed', params });
+      await Promise.resolve();
+
+      expect(send).toHaveBeenCalledOnce();
+      expect(lifecycle).toEqual(['started']);
+      internals.handleIdleAppServerNotification({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'completed' } },
+      });
+      await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+
+      expect(statuses).toEqual(['busy']);
+      expect(lifecycle).toEqual(['started', 'completed']);
+      expect(lifecycleTurnIds).toEqual([null, 'compact-turn']);
+      releaseRetry();
+      await pending;
+    });
+
+    it('serializes multiple user sends released behind the same compaction', async () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        isSpawned: boolean;
+        useAppServer: boolean;
+        getAppServerClient(): object | null;
+        appServerSendMessage(message: string): Promise<void>;
+        sendInputImpl(message: string): Promise<void>;
+      };
+      internals.isSpawned = true;
+      internals.useAppServer = true;
+      vi.spyOn(internals, 'getAppServerClient').mockReturnValue({});
+      let releaseFirst!: () => void;
+      const firstTurn = new Promise<void>((resolve) => { releaseFirst = resolve; });
+      const send = vi.spyOn(internals, 'appServerSendMessage')
+        .mockImplementationOnce(async () => firstTurn)
+        .mockResolvedValueOnce(undefined);
+
+      const first = internals.sendInputImpl('first');
+      const second = internals.sendInputImpl('second');
+      await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+      expect(send).toHaveBeenLastCalledWith('first', undefined, undefined);
+
+      releaseFirst();
+      await first;
+      await second;
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(send).toHaveBeenLastCalledWith('second', undefined, undefined);
+    });
+
+    it('returns to idle when a compaction wait pauses the send for user action', async () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        isSpawned: boolean;
+        useAppServer: boolean;
+        getAppServerClient(): object | null;
+        appServerSendMessage(message: string): Promise<void>;
+        sendInputImpl(message: string): Promise<void>;
+      };
+      internals.isSpawned = true;
+      internals.useAppServer = true;
+      vi.spyOn(internals, 'getAppServerClient').mockReturnValue({});
+      vi.spyOn(internals, 'appServerSendMessage').mockRejectedValue(
+        new CodexContextRecoveryPausedError('Codex compaction stalled', 'compaction-unobserved'),
+      );
+      const statuses: string[] = [];
+      adapter.on('status', (status: string) => statuses.push(status));
+
+      await expect(internals.sendInputImpl('held')).rejects.toBeInstanceOf(CodexContextRecoveryPausedError);
+
+      expect(statuses).toEqual(['busy', 'idle']);
+    });
   });
 
   describe('context-pressure diagnostics', () => {
@@ -1310,6 +1651,25 @@ describe('CodexCliAdapter', () => {
       expect(turnInputs[1]).toMatch(/continue the interrupted task/i);
       expect(turnInputs[1]).not.toContain('Original expensive task');
       expect(completions).toEqual(['Continued safely']);
+    });
+
+    it('retains busy status from controlled compaction through the same-thread continuation', async () => {
+      const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
+      const { turnInputs } = installSyntheticCostClient(adapter, {
+        requestSharedRecovery: true,
+        compactionSignal: 'context-item',
+      });
+      (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+      const statuses: string[] = [];
+      adapter.on('status', (status: string) => statuses.push(status));
+
+      await (adapter as unknown as {
+        sendInputImpl(message: string): Promise<void>;
+      }).sendInputImpl('Original expensive task');
+
+      expect(turnInputs).toHaveLength(2);
+      expect(turnInputs[1]).toMatch(/continue the interrupted task/i);
+      expect(statuses).toEqual(['busy', 'busy', 'idle']);
     });
 
     it('confirms compaction from the contextCompaction item current Codex builds send instead of thread/compacted', async () => {
@@ -2211,7 +2571,7 @@ describe('CodexCliAdapter', () => {
       expect(state.error).toBeNull();
     });
 
-    it('resets cached context usage when Codex reports native thread compaction', () => {
+    it('keeps cached context usage as estimated when Codex reports native thread compaction', () => {
       const adapter = new CodexCliAdapter();
       const internals = adapter as unknown as {
         createTurnCaptureState(threadId: string): unknown;
@@ -2255,9 +2615,9 @@ describe('CodexCliAdapter', () => {
         cumulativeTokens: 500_000,
       });
       expect(contextEvents[1]).toMatchObject({
-        used: 0,
+        used: 188_000,
         total: 200_000,
-        percentage: 0,
+        percentage: 94,
         cumulativeTokens: 500_000,
         isEstimated: true,
       });
@@ -2878,7 +3238,7 @@ describe('CodexCliAdapter', () => {
       expect(statuses).toEqual(['busy', 'idle']);
     });
 
-    it('does not emit idle for a second-send collision while the first app-server turn is active', async () => {
+    it('queues a second send until the first app-server turn completes', async () => {
       const adapter = await spawnExecAdapter();
       const client = createSyntheticTurnClient([]);
       (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
@@ -2889,9 +3249,9 @@ describe('CodexCliAdapter', () => {
       const firstTurn = adapter.sendInput('first turn');
       await vi.waitFor(() => expect(client.request).toHaveBeenCalledTimes(1));
 
-      await expect(adapter.sendInput('second turn')).rejects.toThrow(
-        /already has an active turn/i,
-      );
+      const secondTurn = adapter.sendInput('second turn');
+      await Promise.resolve();
+      expect(client.request).toHaveBeenCalledTimes(1);
       expect(statuses).not.toContain('idle');
       expect(statuses.at(-1)).toBe('busy');
 
@@ -2903,7 +3263,16 @@ describe('CodexCliAdapter', () => {
         },
       });
       await firstTurn;
-      expect(statuses.at(-1)).toBe('idle');
+      await vi.waitFor(() => expect(client.request).toHaveBeenCalledTimes(2));
+      client.notificationHandler?.({
+        method: 'turn/completed',
+        params: {
+          threadId: 'thread-1',
+          turn: { id: 'turn-1', status: 'completed' },
+        },
+      });
+      await secondTurn;
+      expect(statuses).toEqual(['busy', 'idle', 'busy', 'idle']);
     });
 
     it('delivers an orchestration child ID once after the parent app-server turn settles', async () => {

@@ -541,6 +541,19 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     expect(fixture.nativeElement.querySelector('.fast-toggle')).toBeNull();
   });
 
+  it('explains that a queued Codex message will send after provider compaction', () => {
+    fixture.componentRef.setInput('provider', 'codex');
+    fixture.componentRef.setInput('isBusy', true);
+    fixture.componentRef.setInput('isCompacting', true);
+    fixture.componentRef.setInput('queuedCount', 1);
+    fixture.detectChanges();
+
+    const hints = fixture.nativeElement.querySelector('.input-hints')?.textContent ?? '';
+    expect(hints).toContain('Codex is compacting');
+    expect(hints).toContain('your message will send afterwards');
+    expect(hints).not.toContain('Esc interrupts');
+  });
+
   function getTextarea(): HTMLTextAreaElement {
     return fixture.nativeElement.querySelector('textarea.message-input') as HTMLTextAreaElement;
   }

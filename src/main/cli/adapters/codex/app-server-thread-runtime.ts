@@ -89,6 +89,22 @@ export interface CodexAppServerThreadRuntimeOptions {
   clock?: () => number;
 }
 
+/**
+ * LT-653: the context-safety policy's `steer-turn` payload. It is delivered
+ * over `turn/steer` as ordinary text input, so without this framing a model
+ * reads it as a user instruction — session `xecsi91o3` recorded "James
+ * requested a stop to broad exploration…" and halted work with no stop request
+ * anywhere in the transcript. The text must stay unmistakably a system action,
+ * must not authorise stopping the user's task, and must still close out broad
+ * research for the current turn.
+ */
+export const CONTEXT_POLICY_STEER_TEXT =
+  '[SYSTEM CONTEXT-POLICY STEER — automated policy action, not a user message. '
+  + 'The user has NOT asked you to stop, pause, or change task. '
+  + 'For this turn only: wrap up broad exploration now, synthesize what you already have, '
+  + 'persist durable notes, and do not open new research threads. '
+  + 'Then continue the user\'s current task.]';
+
 /** Owns one Codex app-server connection and its authoritative native thread. */
 export class CodexAppServerThreadRuntime {
   private readonly clock: () => number;
@@ -170,7 +186,7 @@ export class CodexAppServerThreadRuntime {
         expectedTurnId: turnId,
         input: [{
           type: 'text',
-          text: 'Stop broad exploration. Synthesize what you already have, persist durable notes, and do not open new research threads.',
+          text: CONTEXT_POLICY_STEER_TEXT,
           text_elements: [],
         }],
       });

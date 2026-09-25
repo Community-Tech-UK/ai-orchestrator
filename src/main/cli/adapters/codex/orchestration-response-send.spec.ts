@@ -58,6 +58,31 @@ describe('Codex orchestration response send', () => {
     expect(sendInput).not.toHaveBeenCalled();
   });
 
+  it('holds orchestration delivery until provider compaction settles', async () => {
+    let compacting = true;
+    let release!: (outcome: 'observed') => void;
+    const awaitCompactionSettled = vi.fn(() => new Promise<'observed'>((resolve) => { release = resolve; }));
+    const sendInput = vi.fn(async () => undefined);
+
+    const delivery = sendCodexOrchestrationResponse('childId: child-42', {
+      isAppServerMode: () => true,
+      isReady: () => true,
+      hasActiveTurn: () => false,
+      isCompactionRunning: () => compacting,
+      awaitCompactionSettled,
+      sendInput,
+    });
+    await Promise.resolve();
+    expect(sendInput).not.toHaveBeenCalled();
+
+    compacting = false;
+    release('observed');
+    await delivery;
+
+    expect(awaitCompactionSettled).toHaveBeenCalledOnce();
+    expect(sendInput).toHaveBeenCalledExactlyOnceWith('childId: child-42');
+  });
+
   it('keeps the child response pending after the first wait deadline and sends it on later idle', async () => {
     vi.useFakeTimers();
     try {

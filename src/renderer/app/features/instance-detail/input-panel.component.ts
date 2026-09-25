@@ -184,6 +184,7 @@ export class InputPanelComponent implements OnDestroy {
   queuedCount = input<number>(0);
   queuedMessages = input<ComposerQueuedMessage[]>([]);
   isBusy = input<boolean>(false);
+  isCompacting = input<boolean>(false);
   isRespawning = input<boolean>(false);
   outputMessages = input<OutputMessage[]>([]);
   instanceStatus = input<InstanceStatus>('idle');

@@ -1,4 +1,5 @@
 import { CodexAppServerRuntimeError } from './app-server-runtime-errors';
+import type { CompactionGateOutcome } from './compaction-gate';
 
 const READY_WARNING_MS = 120_000;
 const READY_HARD_TIMEOUT_MS = 30 * 60_000;
@@ -18,6 +19,8 @@ export async function sendCodexOrchestrationResponse(
     isAppServerMode: () => boolean;
     isReady: () => boolean;
     hasActiveTurn: () => boolean;
+    isCompactionRunning?: () => boolean;
+    awaitCompactionSettled?: () => Promise<CompactionGateOutcome>;
     sendInput: (message: string) => Promise<void>;
     onDelayed?: () => void;
   },
@@ -28,6 +31,13 @@ export async function sendCodexOrchestrationResponse(
   while (true) {
     if (!deps.isReady()) {
       throw new Error('Codex app-server ended before the orchestration response could be delivered');
+    }
+    if (deps.isCompactionRunning?.()) {
+      const outcome = await deps.awaitCompactionSettled?.();
+      if (outcome !== 'observed') {
+        throw new Error(`Codex provider compaction did not settle before orchestration delivery (${outcome ?? 'unknown'})`);
+      }
+      continue;
     }
     if (!deps.hasActiveTurn()) {
       try {

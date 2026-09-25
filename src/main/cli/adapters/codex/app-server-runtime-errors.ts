@@ -76,6 +76,14 @@ export function classifyCodexAppServerFailure(error: unknown): CodexAppServerRun
   return new CodexAppServerRuntimeError({ ...options, message, cause: error });
 }
 
+/** True only for Codex rejecting input because its own Compact turn owns the thread. */
+export function isCompactTurnRejection(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const isSubmissionRejection = /ActiveTurnNotSteerable|failed to submit turn input/i.test(message);
+  const identifiesCompactTurn = /["']?turn_kind["']?\s*[:=]\s*["']?Compact\b/i.test(message);
+  return isSubmissionRejection && identifiesCompactTurn;
+}
+
 function classifyMessage(message: string): Pick<
   CodexAppServerRuntimeErrorOptions,
   'kind' | 'recoverability'

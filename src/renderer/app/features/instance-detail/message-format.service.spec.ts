@@ -54,4 +54,30 @@ describe('MessageFormatService', () => {
     expect(service.formatCompactionFallbackMode('in-place')).toBe('in place');
     expect(service.formatCompactionFallbackMode('native-resume')).toBe('native resume');
   });
+
+  it('renders a legacy Compact-turn rejection as a compaction notice instead of an error card', () => {
+    const message = {
+      id: 'legacy-compact-error',
+      type: 'error' as const,
+      timestamp: 1,
+      content: 'Codex error: failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }',
+    };
+
+    expect(service.isCompactionBoundary(message)).toBe(true);
+    expect(service.getCompactionLabel(message)).toBe('Codex is compacting its context…');
+  });
+
+  it('labels a self-managed boundary truthfully while fresh usage is pending', () => {
+    const message = {
+      id: 'self-managed',
+      type: 'system' as const,
+      timestamp: 1,
+      content: 'Codex compacted the conversation.',
+      metadata: { threadCompacted: true, method: 'self-managed' },
+    };
+
+    expect(service.getCompactionLabel(message)).toBe(
+      'Codex compacted its own context (awaiting updated usage)',
+    );
+  });
 });

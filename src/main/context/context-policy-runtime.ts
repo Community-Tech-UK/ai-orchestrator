@@ -13,6 +13,9 @@ import type {
   ProviderContextActionExecutor,
   ProviderContextExecutableAction,
 } from '../context-evidence/provider-context-action-executor';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('ContextSafetyPolicy');
 
 export interface ContextPolicyEvent {
   instanceId: string;
@@ -181,6 +184,16 @@ export class ContextPolicyRuntime {
       atSafeProviderBoundary: input.atSafeProviderBoundary,
     });
     this.states.set(input.instanceId, decision.nextState);
+    const occupancyPercentage = input.usage.total > 0
+      ? (input.usage.used / input.usage.total) * 100
+      : null;
+    logger.info('Context policy decision', {
+      instanceId: input.instanceId,
+      trigger: decision.action.trigger,
+      action: decision.action.kind,
+      reasonCode: decision.reasonCode,
+      occupancyPercentage,
+    });
     if (decision.action.kind === 'none' && decision.reasonCode === 'NO_ACTION') return;
     const base = {
       recoveryEpoch: decision.action.recoveryEpoch,
@@ -205,7 +218,7 @@ export class ContextPolicyRuntime {
       });
       return;
     }
-    const result = await input.executor.execute(decision.action.kind);
+    const result = await input.executor.execute(decision.action.kind, { instanceId: input.instanceId });
     if (result.status === 'skipped') {
       this.record(input.instanceId, input.usage, {
         eventKind: 'action-proof', ...base, failureCode: result.errorCode,

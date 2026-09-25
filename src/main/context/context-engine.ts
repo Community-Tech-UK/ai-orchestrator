@@ -137,7 +137,7 @@ export class LegacyContextEngine implements ContextEngine {
 
   afterTurn({ instance, status }: ContextAfterTurnRequest): void {
     this.lastTurnStatus.set(instance.id, status);
-    if (instance.contextUsage) {
+    if (instance.contextUsage && instance.contextUsage.source !== 'thread-compacted') {
       this.onContextUpdate(instance.id, instance.contextUsage);
     }
   }

@@ -1301,11 +1301,19 @@ export class InstanceManager extends EventEmitter {
       throw new OrchestratorPausedError('Instance steer refused while orchestrator is paused');
     }
 
-    if (STEER_INTERRUPT_STATUSES.has(instance.status)) {
+    const adapter = this.state.getAdapter(instanceId) as unknown as {
+      isProviderCompacting?: () => boolean;
+    } | undefined;
+    const providerCompacting = adapter?.isProviderCompacting?.() === true;
+    if (STEER_INTERRUPT_STATUSES.has(instance.status) && !providerCompacting) {
       const interrupted = this.interruptInstance(instanceId, 'steer');
       if (!interrupted) {
         throw new Error(`Instance ${instanceId} did not accept steer interrupt`);
       }
+    }
+
+    if (providerCompacting) {
+      logger.info('Steer input queued behind provider compaction without interrupting', { instanceId });
     }
 
     await this.sendInput(instanceId, message, attachments);

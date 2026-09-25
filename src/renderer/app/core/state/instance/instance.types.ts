@@ -229,6 +229,13 @@ export interface QueuedMessage {
   seededAlready?: boolean;
   /** True while this entry's durable send-queue row is unconfirmed or failed to persist (WS-A1 review Finding 1). */
   notDurable?: boolean;
+  /**
+   * LT-652: earliest epoch-ms at which this entry may be sent again. Set when a
+   * transient send failure re-queues the message. Drains (including the
+   * ready-status drain in `instance.store.ts`) must respect it, so a status
+   * revert cannot re-send in under the failure's backoff.
+   */
+  retryAfterAt?: number;
 }
 
 // ============================================

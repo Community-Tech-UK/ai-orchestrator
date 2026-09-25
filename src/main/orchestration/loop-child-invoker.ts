@@ -219,9 +219,13 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
               }
             : {
                 error: `Loop iteration timed out after ${iterationTimeoutMs}ms`,
-                partialUsage: result.usage ?? (result.tokens > 0
-                  ? { totalTokens: result.tokens, isEstimated: true }
-                  : undefined),
+                partialUsage: Number.isFinite(result.tokens) && result.tokens > 0
+                  ? {
+                      ...result.usage,
+                      totalTokens: result.tokens,
+                      ...(result.usage ? {} : { isEstimated: true }),
+                    }
+                  : result.usage,
                 model: result.model,
                 attemptEvidence: {
                   ...(result.attemptEvidence ?? deriveAttemptEvidenceFromResult(result)),

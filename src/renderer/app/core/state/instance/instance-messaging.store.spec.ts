@@ -233,7 +233,9 @@ describe('InstanceMessagingStore', () => {
 
     expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
     expect(currentStateService.getInstance('inst-1')?.status).toBe('respawning');
-    expect(currentStore.getMessageQueue('inst-1')).toEqual([{ message: 'retry me', files: undefined, retryCount: 1 }]);
+    expect(currentStore.getMessageQueue('inst-1')).toEqual([
+      { message: 'retry me', files: undefined, retryCount: 1, retryAfterAt: expect.any(Number) },
+    ]);
 
     currentStateService.updateInstance('inst-1', { status: 'idle' });
     currentStore.processMessageQueue('inst-1');
@@ -258,7 +260,7 @@ describe('InstanceMessagingStore', () => {
     expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
     expect(currentStateService.getInstance('inst-1')?.status).toBe('busy');
     expect(currentStore.getMessageQueue('inst-1')).toEqual([
-      { message: 'continue', files: undefined, retryCount: 1 },
+      { message: 'continue', files: undefined, retryCount: 1, retryAfterAt: expect.any(Number) },
     ]);
   });
 
@@ -279,8 +281,137 @@ describe('InstanceMessagingStore', () => {
     expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
     expect(currentStateService.getInstance('inst-1')?.status).toBe('busy');
     expect(currentStore.getMessageQueue('inst-1')).toEqual([
-      { message: 'continue', files: undefined, retryCount: 1 },
+      { message: 'continue', files: undefined, retryCount: 1, retryAfterAt: expect.any(Number) },
     ]);
+  });
+
+  // LT-652 — session xecsi91o3: 6 sends in 622 ms against one Compact turn, then dropped.
+  it('LT-652: holds a Compact-turn rejection with backoff instead of a sub-second retry storm', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ provider: 'codex' }));
+    ipcMock.sendInput.mockResolvedValue({
+      success: false,
+      error: {
+        message: 'Codex error: failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }',
+      },
+    });
+
+    await currentStore.sendInput('inst-1', 'I never requested you to stop?!');
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+
+    // The instance stays idle through a provider compaction, so the ready-status
+    // drain in instance.store.ts keeps calling processMessageQueue — the exact
+    // shape of the xecsi91o3 storm. None of these may re-send early.
+    for (let i = 0; i < 5; i++) {
+      currentStore.processMessageQueue('inst-1');
+      await vi.advanceTimersByTimeAsync(120);
+    }
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(1);
+    expect(currentStore.getMessageQueue('inst-1')[0]).toMatchObject({
+      message: 'I never requested you to stop?!',
+      retryCount: 1,
+      retryAfterAt: expect.any(Number),
+    });
+
+    // Past the old 5 × 2 s budget the message must still be alive (the compact
+    // ran ~57 s in the incident), and the first backoffed retry is due at 15 s.
+    await vi.advanceTimersByTimeAsync(14_000);
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(2);
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(1);
+
+    const instance = currentStateService.getInstance('inst-1');
+    expect(
+      instance?.outputBuffer.some((m) => m.content?.includes('after 5 retries') === true),
+    ).toBe(false);
+  });
+
+  it('LT-652: delivers a held Compact-turn message once the provider stops rejecting', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ provider: 'codex' }));
+    ipcMock.sendInput
+      .mockResolvedValueOnce({
+        success: false,
+        error: {
+          message: 'Codex error: failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }',
+        },
+      })
+      .mockResolvedValue({ success: true });
+
+    await currentStore.sendInput('inst-1', 'after the compact');
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(16_000);
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(2);
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
+    expect(currentStateService.getInstance('inst-1')?.status).toBe('busy');
+  });
+
+  // Gate finding 2: the backoff gate must coalesce drains, not fan them out.
+  it('LT-652: many drain attempts during a hold produce exactly one send at expiry', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ provider: 'codex' }));
+    ipcMock.sendInput
+      .mockResolvedValueOnce({
+        success: false,
+        error: {
+          message: 'Codex error: failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }',
+        },
+      })
+      .mockResolvedValue({ success: true });
+
+    await currentStore.sendInput('inst-1', 'hold me');
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+
+    // Watchdog + ready-status edges all try to drain while the gate is shut.
+    for (let i = 0; i < 10; i++) {
+      currentStore.processMessageQueue('inst-1');
+      await vi.advanceTimersByTimeAsync(200);
+    }
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+
+    // At expiry the 10 scheduled drains must collapse to ONE send.
+    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(2);
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
+  });
+
+  // Gate finding 3: losing a race to Pause must keep the backoff gate.
+  it('LT-652: a paused re-queue keeps its retryAfterAt gate', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ provider: 'codex' }));
+    ipcMock.sendInput.mockResolvedValue({
+      success: false,
+      error: {
+        message: 'Codex error: failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }',
+      },
+    });
+
+    await currentStore.sendInput('inst-1', 'gate me');
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(1);
+
+    // Drain passes the gate, then Pause wins the race and re-queues.
+    const pausedState: PauseStatePayload = {
+      isPaused: true,
+      reasons: ['user'],
+      pausedAt: Date.now(),
+      lastChange: Date.now(),
+    };
+    TestBed.inject(PauseStore).applyState(pausedState);
+    await vi.advanceTimersByTimeAsync(16_000);
+    await vi.advanceTimersByTimeAsync(200);
+
+    const entry = currentStore.getMessageQueue('inst-1')[0];
+    expect(entry).toMatchObject({ message: 'gate me', retryAfterAt: expect.any(Number) });
   });
 
   it('restores optimistic busy state when sendInput IPC never resolves', async () => {

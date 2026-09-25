@@ -112,9 +112,11 @@ export class MessageFormatService {
   }
 
   isCompactionBoundary(message: OutputMessage): boolean {
-    return message.type === 'system' && (
-      !!message.metadata?.['isCompactionBoundary'] ||
-      message.metadata?.['threadCompacted'] === true
+    return this.isLegacyCompactTurnRejection(message) || (
+      message.type === 'system' && (
+        !!message.metadata?.['isCompactionBoundary'] ||
+        message.metadata?.['threadCompacted'] === true
+      )
     );
   }
 
@@ -123,12 +125,21 @@ export class MessageFormatService {
   }
 
   getCompactionLabel(message: OutputMessage): string {
+    if (this.isLegacyCompactTurnRejection(message)) {
+      return 'Codex is compacting its context…';
+    }
     const meta = message.metadata;
     if (!meta) return 'Context compacted';
 
     const prev = meta['previousUsage'] as { percentage?: number } | undefined;
     const next = meta['newUsage'] as { percentage?: number } | undefined;
-    const method = meta['method'] as 'native' | 'restart-with-summary' | undefined;
+    const method = meta['method'] as 'native' | 'restart-with-summary' | 'self-managed' | undefined;
+    if (method === 'self-managed') {
+      if (prev?.percentage !== undefined && next?.percentage !== undefined) {
+        return `Codex compacted its own context (${Math.round(prev.percentage)}% → ${Math.round(next.percentage)}%)`;
+      }
+      return 'Codex compacted its own context (awaiting updated usage)';
+    }
     const methodLabel = method ? `[${method}]` : '';
 
     if (prev?.percentage !== undefined && next?.percentage !== undefined) {
@@ -204,5 +215,11 @@ export class MessageFormatService {
       lastMessage?.timestamp ?? '',
       lastMessage?.content?.length ?? 0
     ].join(':');
+  }
+
+  private isLegacyCompactTurnRejection(message: OutputMessage): boolean {
+    return message.type === 'error'
+      && /ActiveTurnNotSteerable|failed to submit turn input/i.test(message.content ?? '')
+      && /["']?turn_kind["']?\s*[:=]\s*["']?Compact\b/i.test(message.content ?? '');
   }
 }

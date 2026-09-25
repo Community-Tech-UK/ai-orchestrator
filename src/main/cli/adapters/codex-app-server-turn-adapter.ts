@@ -52,6 +52,8 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       isAppServerMode: () => this.useAppServer,
       isReady: () => this.isSpawned && this.useAppServer && this.appServerRuntime.isRunning(),
       hasActiveTurn: () => this.appServerRuntime.hasActiveTurn(),
+      isCompactionRunning: () => this.contextCostController.isCompactionRunning(),
+      awaitCompactionSettled: () => this.contextCostController.awaitCompactionSettled(),
       sendInput: (content) => this.sendInput(content),
       onDelayed,
     });

@@ -16,12 +16,20 @@ import type { AppServerNotification } from './app-server-types';
  * it. An older build could send both the legacy notification and the
  * completed item for one compaction, so completions are de-duplicated by turn id.
  */
-export type CodexCompactionSignal = 'started' | 'completed' | 'aborted';
+export type CodexCompactionSignal = 'started' | 'completed' | 'observed-running' | 'settled' | 'aborted';
 
 export class CodexCompactionSignalTracker {
   private lastCompletedTurnId: string | null = null;
   private running = false;
   private runningTurnIdValue: string | null = null;
+  private runningInferredFromRejection = false;
+  private runningCompletionObserved = false;
+  private suppressLegacyCompletionWithoutTurnId = false;
+
+  /** Whether Codex currently owns the thread for a provider compaction turn. */
+  get isRunning(): boolean {
+    return this.running;
+  }
 
   /** Turn id of the compaction the provider is running now, when it reported one. */
   get runningTurnId(): string | null {
@@ -38,8 +46,10 @@ export class CodexCompactionSignalTracker {
       if (!this.running) return null;
       const turn = params['turn'] as { id?: unknown } | undefined;
       if (this.runningTurnIdValue && turn?.id !== this.runningTurnIdValue) return null;
-      this.reset();
-      return 'aborted';
+      const inferred = this.runningInferredFromRejection;
+      const observed = this.runningCompletionObserved;
+      this.resetRunningState();
+      return inferred || observed ? 'settled' : 'aborted';
     }
 
     let signal: CodexCompactionSignal;
@@ -54,19 +64,54 @@ export class CodexCompactionSignalTracker {
     }
 
     if (signal === 'started') {
+      this.suppressLegacyCompletionWithoutTurnId = false;
+      if (this.running) {
+        if (!this.runningTurnIdValue && turnId) this.runningTurnIdValue = turnId;
+        return null;
+      }
       this.running = true;
       this.runningTurnIdValue = turnId;
+      this.runningInferredFromRejection = false;
       return signal;
     }
-    this.reset();
+    if (method === 'thread/compacted' && !turnId && this.suppressLegacyCompletionWithoutTurnId) {
+      this.suppressLegacyCompletionWithoutTurnId = false;
+      return null;
+    }
+    if (this.running && this.runningTurnIdValue && turnId && this.runningTurnIdValue !== turnId) return null;
     if (turnId && turnId === this.lastCompletedTurnId) return null;
+    if (method === 'item/completed') this.suppressLegacyCompletionWithoutTurnId = true;
     this.lastCompletedTurnId = turnId;
+    if (this.running) {
+      if (!this.runningTurnIdValue && turnId) this.runningTurnIdValue = turnId;
+      if (!this.runningTurnIdValue || !turnId || this.runningTurnIdValue === turnId) {
+        this.runningCompletionObserved = true;
+        return 'observed-running';
+      }
+    }
+    this.resetRunningState();
     return signal;
+  }
+
+  /** Records the provider-owned compact turn exposed by a strict send rejection. */
+  markRunningFromRejection(turnId: string | null): void {
+    this.running = true;
+    this.runningTurnIdValue = turnId;
+    this.runningInferredFromRejection = true;
+    this.runningCompletionObserved = false;
   }
 
   /** Forgets a running compaction, e.g. when the app-server process is gone. */
   reset(): void {
+    this.resetRunningState();
+    this.lastCompletedTurnId = null;
+    this.suppressLegacyCompletionWithoutTurnId = false;
+  }
+
+  private resetRunningState(): void {
     this.running = false;
     this.runningTurnIdValue = null;
+    this.runningInferredFromRejection = false;
+    this.runningCompletionObserved = false;
   }
 }

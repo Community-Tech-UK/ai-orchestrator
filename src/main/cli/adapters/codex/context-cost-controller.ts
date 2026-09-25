@@ -5,20 +5,13 @@ import type { SurfacedToUserError } from '../surfaced-error';
 import type { AppServerNotification } from './app-server-types';
 import { CompactionGate, type CompactionGateOutcome } from './compaction-gate';
 import { CodexCompactionSignalTracker, type CodexCompactionSignal } from './compaction-signals';
-import { classifyCodexAppServerFailure } from './app-server-runtime-errors';
+import { CodexAppServerRuntimeError, isCompactTurnRejection } from './app-server-runtime-errors';
 import {
   CodexTurnCostGovernor,
   type CodexTurnCostObservation,
 } from './turn-cost-governor';
 
 const logger = getLogger('CodexContextCostController');
-
-/**
- * The provider's own compaction turn can still be closing when the
- * continuation is submitted right after `contextCompaction` completes.
- * One short retry clears that race without surfacing it to the user.
- */
-const CONTINUE_TURN_RETRY_DELAY_MS = 750;
 
 export const COST_RECOVERY_CONTINUATION =
   'Continue the interrupted task from where you left off. Inspect the current workspace state before acting, do not repeat completed edits or commands, and finish the original request.';
@@ -37,11 +30,11 @@ export type CodexContextActionProofStage = 'requested' | 'acknowledged' | 'obser
  * A controlled recovery paused. The controller has already posted the reason as
  * a system notice, so callers must not add their own notice for it.
  */
-export class CodexContextRecoveryPausedError extends Error implements SurfacedToUserError {
+export class CodexContextRecoveryPausedError extends CodexAppServerRuntimeError implements SurfacedToUserError {
   readonly surfacedToUser = true;
 
   constructor(message: string, readonly reasonCode: RecoveryReason) {
-    super(message);
+    super({ kind: 'recovery-paused', recoverability: 'user-action', message });
     this.name = 'CodexContextRecoveryPausedError';
   }
 }
@@ -80,6 +73,10 @@ export interface CodexContextCostControllerDeps {
   recordActionProof?(action: CodexContextAction, stage: CodexContextActionProofStage): void;
   recordRecovery?(stage: RecoveryStage, reasonCode?: RecoveryReason): void;
   recordCompactionRpc?(stage: 'requested' | 'accepted' | 'failed'): void;
+  onCompactionStateChange?(
+    phase: 'started' | 'completed',
+    outcome?: 'observed' | 'settled' | 'aborted' | Exclude<CompactionGateOutcome, 'observed'>,
+  ): void;
 }
 
 export interface RecoverAfterTurnParams {
@@ -114,6 +111,9 @@ export class CodexContextCostController {
   /** The user stopped the session while a controlled recovery was waiting on compaction. */
   private recoveryStopRequested = false;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private compactionRunning = false;
+  private compactionHandoffWaiters = 0;
+  private compactionTrigger: 'self-managed' | 'policy' = 'self-managed';
 
   constructor(private readonly deps: CodexContextCostControllerDeps) {}
 
@@ -164,42 +164,91 @@ export class CodexContextCostController {
   ): CodexCompactionSignal | null {
     const signal = this.signals.accept(notification, threadId);
     if (signal === 'started') this.recordCompactionStarted();
+    if (signal === 'settled') this.recordCompactionSettled();
     if (signal === 'aborted') this.recordCompactionAborted();
     return signal;
   }
 
   recordCompactionObserved(cumulativeTokens: number): void {
     this.stopHeartbeat();
+    this.compactionRunning = false;
     const awaited = this.gate.hasPendingWaiters();
     this.gate.settle();
-    this.governor.recordCompactionObserved(cumulativeTokens);
-    // The connected app-server demonstrably does signal compaction, so
-    // clear any earlier negative verdict — a CLI upgrade mid-session should
-    // re-enable the native path rather than stay disabled until restart.
-    this.nativeCompactionUnobserved = false;
-    if (!awaited) {
-      this.compactionObservedSinceCheck = true;
-      this.deps.recordActionProof?.('native-compaction', 'observed');
-    }
+    this.recordCompactionEvidence(cumulativeTokens, awaited);
+    this.deps.onCompactionStateChange?.('completed', 'observed');
+    this.resetCompactionTrigger();
+  }
+
+  /** Records the compacted context while retaining the send gate until the owning turn ends. */
+  recordCompactionObservedWhileRunning(cumulativeTokens: number): void {
+    this.recordCompactionEvidence(cumulativeTokens, this.gate.hasPendingWaiters());
   }
 
   /** The provider reported a compaction running; an explicit wait moves to its running window. */
   recordCompactionStarted(): void {
+    this.compactionRunning = true;
     this.gate.markRunning();
     this.startHeartbeat();
+    this.deps.onCompactionStateChange?.('started');
+  }
+
+  /** Marks a provider-owned compact turn inferred from a strict runtime rejection. */
+  markCompactionRunningFromRejection(turnId: string | null): void {
+    if (this.compactionRunning) return;
+    this.compactionTrigger = 'self-managed';
+    this.signals.markRunningFromRejection(turnId);
+    this.recordCompactionStarted();
+  }
+
+  runningCompactionTurnId(): string | null {
+    return this.signals.runningTurnId;
+  }
+
+  runningCompactionTrigger(): 'self-managed' | 'policy' {
+    return this.compactionTrigger;
+  }
+
+  /** Whether normal task input must wait for the provider-owned compact turn. */
+  isCompactionRunning(): boolean {
+    return this.compactionRunning;
+  }
+
+  hasPendingCompactionHandoff(): boolean {
+    return this.compactionHandoffWaiters > 0;
+  }
+
+  /** Waits on the existing bounded running-compaction window. */
+  async awaitCompactionSettled(retainBusy = true): Promise<CompactionGateOutcome> {
+    if (!this.compactionRunning) return 'observed';
+    if (retainBusy) this.compactionHandoffWaiters += 1;
+    try {
+      const runningTimeoutMs = this.deps.compactionRunningTimeoutMs ?? this.deps.compactionTimeoutMs;
+      const outcome = this.gate.wait(runningTimeoutMs, runningTimeoutMs);
+      this.gate.markRunning();
+      const settled = await outcome;
+      if (settled !== 'observed') this.finishRunningCompaction(settled);
+      return settled;
+    } finally {
+      if (retainBusy) this.compactionHandoffWaiters -= 1;
+    }
+  }
+
+  /** Releases send gates after an inferred compact turn closes without creating a duplicate boundary. */
+  private recordCompactionSettled(): void {
+    this.gate.settle();
+    this.finishRunningCompaction('settled');
   }
 
   /** The provider ended the compaction turn without completing the compaction. */
   recordCompactionAborted(): void {
-    this.stopHeartbeat();
     this.gate.fail();
+    this.finishRunningCompaction('aborted');
   }
 
   /** The app-server connection is gone, so no compaction signal can still arrive. */
   handleRuntimeExit(): void {
-    this.signals.reset();
-    this.stopHeartbeat();
     this.gate.cancel();
+    this.finishRunningCompaction('cancelled');
   }
 
   /**
@@ -276,6 +325,7 @@ export class CodexContextCostController {
       if (outcome === 'timed-out') {
         this.nativeCompactionUnobserved = true;
       }
+      this.finishRunningCompaction(outcome);
       logger.warn('Context compaction was acknowledged but not observed', {
         timeoutMs,
         runningTimeoutMs: this.deps.compactionRunningTimeoutMs ?? timeoutMs,
@@ -306,39 +356,44 @@ export class CodexContextCostController {
     this.deps.recordActionProof?.(pending.action, 'observed');
     this.deps.recordRecovery?.('interrupt-observed');
 
-    this.recoveryInProgress = true;
-    this.recoveryStopRequested = false;
-    let compacted: boolean;
+    this.compactionHandoffWaiters += 1;
     try {
-      compacted = await this.compactContext(this.deps.compactionTimeoutMs);
-    } finally {
-      this.recoveryInProgress = false;
-    }
-    if (this.recoveryStopRequested) {
-      // The user stopped the session. The interrupt handler reports the stop;
-      // continuing the task now would override it.
+      this.recoveryInProgress = true;
       this.recoveryStopRequested = false;
-      logger.info('Context recovery stopped by the user while Codex was compacting', { compacted });
-      this.deps.recordRecovery?.('paused');
-      return true;
-    }
-    if (!compacted) {
-      throw this.pause(
-        'compaction-unobserved',
-        'Codex context recovery paused because compaction could not be confirmed. The conversation was preserved; retry or compact manually before continuing.',
-      );
-    }
+      let compacted: boolean;
+      try {
+        compacted = await this.compactContext(this.deps.compactionTimeoutMs);
+      } finally {
+        this.recoveryInProgress = false;
+      }
+      if (this.recoveryStopRequested) {
+        // The user stopped the session. The interrupt handler reports the stop;
+        // continuing the task now would override it.
+        this.recoveryStopRequested = false;
+        logger.info('Context recovery stopped by the user while Codex was compacting', { compacted });
+        this.deps.recordRecovery?.('paused');
+        return true;
+      }
+      if (!compacted) {
+        throw this.pause(
+          'compaction-unobserved',
+          'Codex context recovery paused because compaction could not be confirmed. The conversation was preserved; retry or compact manually before continuing.',
+        );
+      }
 
-    this.deps.recordRecovery?.('compaction-observed');
-    this.deps.emitSystem(
-      'Codex reached a shared context-policy boundary, so Harness interrupted it, observed compaction, and is continuing on the same thread.',
-      { contextCostRecovery: true, action: pending.action },
-    );
-    this.deps.recordActionProof?.('same-thread-continuation', 'requested');
-    await this.continueTurnWithRetry(params);
-    this.deps.recordActionProof?.('same-thread-continuation', 'observed');
-    this.deps.recordRecovery?.('continued');
-    return true;
+      this.deps.recordRecovery?.('compaction-observed');
+      this.deps.emitSystem(
+        'Codex reached a shared context-policy boundary, so Harness interrupted it, observed compaction, and is continuing on the same thread.',
+        { contextCostRecovery: true, action: pending.action },
+      );
+      this.deps.recordActionProof?.('same-thread-continuation', 'requested');
+      await this.continueTurnWithRetry(params);
+      this.deps.recordActionProof?.('same-thread-continuation', 'observed');
+      this.deps.recordRecovery?.('continued');
+      return true;
+    } finally {
+      this.compactionHandoffWaiters -= 1;
+    }
   }
 
   clearPending(): void {
@@ -348,19 +403,20 @@ export class CodexContextCostController {
   /**
    * Submits the same-thread continuation, retrying once if the provider's own
    * compaction turn is still closing (surfaced as a "not steerable"/"failed
-   * to submit turn input" rejection for `turn_kind: Compact`). Codex clears
-   * that state almost immediately, so a single short-delayed retry is enough;
-   * any other error, or a second failure, is rethrown to the caller.
+   * to submit turn input" rejection for `turn_kind: Compact`). The retry is
+   * released by the provider turn's actual completion, never a guessed delay.
    */
   private async continueTurnWithRetry(params: RecoverAfterTurnParams): Promise<void> {
     try {
       await params.continueTurn(COST_RECOVERY_CONTINUATION, params.recoveryCount + 1);
     } catch (error) {
-      if (classifyCodexAppServerFailure(error).recoverability !== 'retry-thread') throw error;
-      logger.warn('Same-thread continuation raced the provider compaction turn closing; retrying once', {
+      if (!isCompactTurnRejection(error)) throw error;
+      this.markCompactionRunningFromRejection(null);
+      logger.warn('Same-thread continuation found a provider compaction turn; waiting to retry once', {
         error: error instanceof Error ? error.message : String(error),
       });
-      await new Promise((resolve) => setTimeout(resolve, CONTINUE_TURN_RETRY_DELAY_MS));
+      const outcome = await this.awaitCompactionSettled();
+      if (outcome !== 'observed') throw error;
       await params.continueTurn(COST_RECOVERY_CONTINUATION, params.recoveryCount + 1);
     }
   }
@@ -369,6 +425,7 @@ export class CodexContextCostController {
     const target = this.deps.getCompactionTarget();
     if (!target) return false;
     try {
+      this.compactionTrigger = 'policy';
       this.deps.recordActionProof?.('native-compaction', 'requested');
       this.deps.recordCompactionRpc?.('requested');
       await target.start();
@@ -376,6 +433,7 @@ export class CodexContextCostController {
       this.deps.recordCompactionRpc?.('accepted');
       return true;
     } catch (error) {
+      this.resetCompactionTrigger();
       this.deps.recordCompactionRpc?.('failed');
       logger.warn('Context compaction failed', {
         threadId: target.threadId,
@@ -383,6 +441,33 @@ export class CodexContextCostController {
       });
       return false;
     }
+  }
+
+  private resetCompactionTrigger(): void {
+    this.compactionTrigger = 'self-managed';
+  }
+
+  private recordCompactionEvidence(cumulativeTokens: number, awaited: boolean): void {
+    this.governor.recordCompactionObserved(cumulativeTokens);
+    // The connected app-server demonstrably does signal compaction, so
+    // clear any earlier negative verdict — a CLI upgrade mid-session should
+    // re-enable the native path rather than stay disabled until restart.
+    this.nativeCompactionUnobserved = false;
+    if (!awaited) {
+      this.compactionObservedSinceCheck = true;
+      this.deps.recordActionProof?.('native-compaction', 'observed');
+    }
+  }
+
+  private finishRunningCompaction(
+    outcome: 'settled' | 'aborted' | Exclude<CompactionGateOutcome, 'observed'>,
+  ): void {
+    if (!this.compactionRunning) return;
+    this.signals.reset();
+    this.stopHeartbeat();
+    this.compactionRunning = false;
+    this.deps.onCompactionStateChange?.('completed', outcome);
+    this.resetCompactionTrigger();
   }
 
   /**

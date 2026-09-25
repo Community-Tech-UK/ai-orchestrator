@@ -6,6 +6,7 @@
  * wedged — deliberately generous (or disabled) for providers whose adapters
  * keep the send promise open for a whole turn.
  */
+import type { IpcResponse } from '../../services/ipc';
 import type { Instance } from './instance.types';
 
 const DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS = 60_000;
@@ -28,4 +29,34 @@ export function getSendInputTimeoutMs(provider: Instance['provider']): number | 
     return NO_SEND_INPUT_IPC_TIMEOUT_MS;
   }
   return DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS;
+}
+
+/** Race a send IPC against its provider deadline. `null` timeout = wait for the bridge. */
+export async function sendInputWithTimeout(
+  operation: Promise<IpcResponse>,
+  timeoutMs: number | null
+): Promise<IpcResponse> {
+  if (timeoutMs === null) {
+    return operation;
+  }
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<IpcResponse>((resolve) => {
+    timeoutId = setTimeout(() => {
+      resolve({
+        success: false,
+        error: {
+          message: `Send input timed out after ${timeoutMs / 1000}s. The app cleared the optimistic busy state; please retry after checking the session.`,
+        },
+      });
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
 }

@@ -21,14 +21,10 @@ import { getClampedLoadWatchdogMultiplier } from '../../runtime/system-load-moni
 import type { FileAttachment, InstanceStatus } from '../../../shared/types/instance.types';
 import { getLogger } from '../../logging/logger';
 import { generateId } from '../../../shared/utils/id-generator';
-import { isProviderNotice } from '../provider-notice';
-import { isSurfacedToUserError } from './surfaced-error';
 import {
   isCodexInputTooLargeError,
-  isRecoverableThreadResumeError,
 } from './codex/exec-error-classifier';
 import { planCodexAppServerRecovery } from './codex/app-server-recovery-policy';
-import { isActiveTurnCollision } from './codex/orchestration-response-send';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 import type { ResumeCursor } from '../../session/session-continuity';
 import type {
@@ -43,7 +39,6 @@ import {
   buildCodexAppServerContextCapabilities,
   buildCodexExecContextCapabilities,
 } from './codex/codex-app-server-context-capabilities';
-import { recoverFromInputCap } from './codex/input-cap-recovery';
 import { CodexSessionScanner } from './codex/session-scanner';
 import {
   initializeCodexAppServer,
@@ -55,6 +50,12 @@ import {
   type CodexContextDiagnosticSink,
 } from './codex/context-pressure-diagnostics';
 import { CodexContextCostController } from './codex/context-cost-controller';
+import {
+  createProviderCompactionSendGate,
+} from './codex/provider-compaction-send-gate';
+import { sendCodexAppServerMessage } from './codex/app-server-message-send';
+import { runCodexInputSend } from './codex/input-send-lifecycle';
+import { CodexProviderCompactionPresentation } from './codex/provider-compaction-presentation';
 import { tokenCount } from './codex/token-usage-breakdown';
 import { buildObservedCompactionEvents } from './codex/compaction-presentation';
 import type {
@@ -90,7 +91,14 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   protected readonly contextCostController: CodexContextCostController;
   private contextDiagnosticsSink: CodexContextDiagnosticSink | null;
   private contextDiagnosticsWarningLogged = false;
+  private readonly providerCompactionPresentation = new CodexProviderCompactionPresentation({
+    hasActiveTurn: () => this.appServerRuntime.hasActiveTurn(),
+    hasPendingHandoff: () => this.contextCostController.hasPendingCompactionHandoff(),
+    emitStatus: (status) => this.emit('status', status),
+    emitOutput: (message) => this.emit('output', message),
+  });
   private readonly requestQueue = new SerializedCodexRequestQueue();
+  private readonly inputQueue = new SerializedCodexRequestQueue();
   private readonly mcpElicitationBridge = new CodexMcpElicitationBridge({
     onInputRequired: (payload) => this.emit('input_required', payload),
     onStatus: (status) => this.emit('status', status as InstanceStatus),
@@ -126,6 +134,16 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       }),
       recordRecovery: (stage, reasonCode) => this.contextDiagnostics?.recordCostRecovery(stage, reasonCode),
       recordCompactionRpc: (stage) => this.contextDiagnostics?.recordCompactionRpc(stage),
+      onCompactionStateChange: (phase, outcome) => {
+        if (phase === 'started') {
+          this.providerCompactionPresentation.started(
+            this.contextCostController.runningCompactionTurnId(),
+            this.contextCostController.runningCompactionTrigger(),
+          );
+        } else {
+          this.providerCompactionPresentation.completed(outcome ?? 'cancelled');
+        }
+      },
       recordActionProof: (action, stage) => {
         this.emit('context_action_proof', { action, stage, at: Date.now() });
         this.contextActionProofRecorder?.(action, stage);
@@ -226,7 +244,15 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   }
 
   protected async steerActiveTurn(): Promise<boolean> {
-    return this.appServerRuntime.steerActiveTurn();
+    const steer = createProviderCompactionSendGate({
+      controller: this.contextCostController,
+      emitPaused: (output) => this.emit('output', output),
+    });
+    const steered = await steer(() => this.appServerRuntime.steerActiveTurn());
+    if (!steered && !this.contextCostController.isCompactionRunning()) {
+      this.emit('status', 'idle' as InstanceStatus);
+    }
+    return steered;
   }
 
   protected clearPendingContextCost(): void {
@@ -271,10 +297,14 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       return;
     }
     const threadId = this.getAppServerThreadId();
-    // A running compaction is a silent model call; the controller keeps waits and liveness current.
-    if (this.contextCostController.acceptCompactionSignal(notification, threadId) !== 'completed' || !threadId) return;
-    this.contextDiagnostics?.recordCompactionObserved();
-    this.handleObservedThreadCompaction(threadId);
+    const signal = this.contextCostController.acceptCompactionSignal(notification, threadId);
+    this.providerCompactionPresentation.updateTurnId(this.contextCostController.runningCompactionTurnId());
+    if (!signal || !threadId) return;
+    if (signal === 'started') return;
+    if (signal === 'completed' || signal === 'observed-running') {
+      this.contextDiagnostics?.recordCompactionObserved();
+      this.handleObservedThreadCompaction(threadId, signal === 'completed');
+    }
   }
 
   private seedIdleUsage(notification: AppServerNotification): void {
@@ -313,17 +343,22 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     if (flush) this.flushPartialUsage();
   }
 
-  protected handleObservedThreadCompaction(threadId: string): void {
+  protected handleObservedThreadCompaction(threadId: string, completesLifecycle = true): void {
     logger.info('Thread compacted by Codex app-server', { threadId });
-    this.contextCostController.recordCompactionObserved(this.cumulativeTokensUsed);
-    this.lastTurnTokens = 0;
+    if (completesLifecycle) {
+      this.contextCostController.recordCompactionObserved(this.cumulativeTokensUsed);
+    } else {
+      this.contextCostController.recordCompactionObservedWhileRunning(this.cumulativeTokensUsed);
+    }
     const events = buildObservedCompactionEvents({
       contextWindow: this.resolveContextWindow(),
+      lastKnownUsed: this.lastTurnTokens > 0 ? this.lastTurnTokens : undefined,
       cumulativeTokens: this.cumulativeTokensUsed,
       costEstimate: this.cumulativeCostUsd,
     });
+    this.providerCompactionPresentation.enrichObserved(events.output, completesLifecycle);
     this.emit('output', events.output);
-    this.emit('context', events.context);
+    if (events.context) this.emit('context', events.context);
   }
 
   async spawn(): Promise<number> {
@@ -533,74 +568,35 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     attachments?: FileAttachment[],
     metadata?: CliMessage['metadata'],
   ): Promise<void> {
-    try {
-      await this.appServerSendMessageInner(message, attachments, 0, metadata);
-    } catch (error) {
-      if (isCodexInputTooLargeError(error)) {
-        logger.warn('Codex app-server turn exceeded per-turn input char cap; recovering', {
-          threadId: this.appServerThreadId,
-          cause: error instanceof Error ? error.message : String(error),
-        });
-        await recoverFromInputCap({
-          send: () => this.appServerSendMessageInner(message, attachments, 0, metadata),
-          compact: () => this.compactContext(),
-          reopenThread: () => this.reopenAppServerThread(),
-          onThreadReset: () => this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'system',
-            content:
-              'The conversation exceeded Codex’s per-turn size limit and could not be compacted, so a fresh Codex thread was started. Earlier context from this thread was cleared.',
-            metadata: { threadReset: true, reason: 'per-turn-input-cap' },
-          }),
-        });
-        return;
-      }
-      if (!isRecoverableThreadResumeError(error)) throw error;
-      logger.warn('Codex app-server thread became unavailable; refusing context-empty retry', {
-        threadId: this.appServerThreadId,
-        cause: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    } finally {
-      this.clearPendingContextCost();
-    }
+    return sendCodexAppServerMessage({
+      controller: this.contextCostController,
+      threadId: () => this.appServerThreadId,
+      sendInner: () => this.appServerSendMessageInner(message, attachments, 0, metadata),
+      compact: () => this.compactContext(),
+      reopenThread: () => this.reopenAppServerThread(),
+      clearPending: () => this.clearPendingContextCost(),
+      emitOutput: (output) => this.emit('output', output),
+    });
   }
+
 
   protected override async sendInputImpl(
     message: string,
     attachments?: FileAttachment[],
     metadata?: CliMessage['metadata'],
   ): Promise<void> {
-    if (!this.isSpawned) throw new Error('Adapter not spawned - call spawn() first');
-    this.emit('status', 'busy' as InstanceStatus);
-
-    try {
-      if (this.useAppServer && this.getAppServerClient()) {
-        await this.appServerSendMessage(message, attachments, metadata);
-      } else {
-        await this.execSendMessage(message, attachments);
-      }
-      this.emit('status', 'idle' as InstanceStatus);
-    } catch (error) {
-      const errorText = error instanceof Error ? error.message : String(error);
-      if (!isActiveTurnCollision(error) && !isSurfacedToUserError(error)) this.emit('output', {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'error',
-        content: `Codex error: ${errorText}`,
-      });
-      const recoverable =
-        !this.useAppServer ||
-        isProviderNotice(errorText) ||
-        this.isRecoverableTurnError(error);
-      const activeAppServerTurn = this.useAppServer && this.appServerRuntime.hasActiveTurn();
-      this.emit(
-        'status',
-        (recoverable ? (activeAppServerTurn ? 'busy' : 'idle') : 'error') as InstanceStatus,
-      );
-      throw error;
-    }
+    return this.inputQueue.run(() => runCodexInputSend({
+      isSpawned: () => this.isSpawned,
+      isAppServerMode: () => this.useAppServer,
+      hasAppServerClient: () => !!this.getAppServerClient(),
+      hasActiveTurn: () => this.appServerRuntime.hasActiveTurn(),
+      isProviderCompacting: () => this.contextCostController.isCompactionRunning(),
+      isRecoverableTurnError: (error) => this.isRecoverableTurnError(error),
+      sendAppServer: () => this.appServerSendMessage(message, attachments, metadata),
+      sendExec: () => this.execSendMessage(message, attachments),
+      emitStatus: (status) => this.emit('status', status),
+      emitOutput: (output) => this.emit('output', output),
+    }));
   }
 
   override isRunning(): boolean {
@@ -648,6 +644,10 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
 
   isAppServerMode(): boolean {
     return this.useAppServer;
+  }
+
+  override isProviderCompacting(): boolean {
+    return this.contextCostController.isCompactionRunning();
   }
 
   override getAdapterCapabilities(): AdapterCapabilities {

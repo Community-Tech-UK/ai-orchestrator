@@ -33,7 +33,6 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
 const MAX_LINES = 700;
-
 /**
  * Tolerance (in lines) added on top of each allowlisted file's recorded ceiling
  * before growth is treated as a violation. Gives breathing room during active
@@ -633,15 +632,16 @@ function main(): void {
 
     if (Object.prototype.hasOwnProperty.call(ALLOWLIST, relPath)) {
       const ceiling = ALLOWLIST[relPath];
-      const hardLimit = ceiling + SLACK;
+      const slack = SLACK;
+      const hardLimit = ceiling + slack;
       if (lines > hardLimit) {
         violations.push(
-          `RATCHET EXCEEDED: ${relPath} has ${lines} lines (ceiling: ${ceiling}, tolerance: +${SLACK}). ` +
+          `RATCHET EXCEEDED: ${relPath} has ${lines} lines (ceiling: ${ceiling}, tolerance: +${slack}). ` +
             `File grew well past its ceiling — refactor it down or raise the ceiling intentionally.`,
         );
       } else if (lines > ceiling) {
         nearLimit.push(
-          `${relPath} is ${lines} lines — ${lines - ceiling} over its ${ceiling} ceiling but within the +${SLACK} tolerance.`,
+          `${relPath} is ${lines} lines — ${lines - ceiling} over its ${ceiling} ceiling but within the +${slack} tolerance.`,
         );
       }
     } else {

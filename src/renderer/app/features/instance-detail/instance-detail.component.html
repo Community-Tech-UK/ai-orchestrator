@@ -42,6 +42,15 @@
             [contextUsage]="inst.contextUsage"
           />
 
+          @if (isCompacting()) {
+            <div class="recovery-banner" role="status" aria-live="polite">
+              <div class="recovery-banner-body">
+                <span class="recovery-banner-title">{{ getProviderDisplayName(inst.provider) }} is compacting context</span>
+                <span class="recovery-banner-desc">Messages will remain queued and send when compaction finishes.</span>
+              </div>
+            </div>
+          }
+
           <!-- Context warning -->
           @if (contextWarningLevel()) {
             <app-context-warning
@@ -308,6 +317,7 @@
             [queuedCount]="queuedMessageCount()"
             [queuedMessages]="queuedMessages()"
             [isBusy]="inst.status === 'busy' || inst.status === 'processing' || inst.status === 'thinking_deeply' || inst.status === 'waiting_for_permission'"
+            [isCompacting]="isCompacting()"
             [isRespawning]="inst.status === 'respawning' || inst.status === 'interrupting' || inst.status === 'cancelling' || inst.status === 'interrupt-escalating'"
             [outputMessages]="inst.outputBuffer"
             [instanceStatus]="inst.status"
