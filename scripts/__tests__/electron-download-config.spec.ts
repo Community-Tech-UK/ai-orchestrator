@@ -14,8 +14,11 @@ const defaultElectronMirror = 'https://github.com/electron/electron/releases/dow
 const electronMirror = 'https://npmmirror.com/mirrors/electron/';
 
 interface WorkflowStep {
+  name?: string;
   run?: string;
+  uses?: string;
   env?: Record<string, string>;
+  with?: Record<string, string>;
 }
 
 interface WorkflowJob {
@@ -26,6 +29,12 @@ interface WorkflowJob {
 interface WorkflowConfig {
   env?: Record<string, string>;
   jobs?: Record<string, WorkflowJob>;
+}
+
+const installRunPattern = /ci-npm-ci\.sh|npm ci/;
+
+function isInstallStep(step: WorkflowStep): boolean {
+  return installRunPattern.test(step.run?.trim() ?? '');
 }
 
 function parseNpmrc(content: string): Record<string, string> {
@@ -76,7 +85,7 @@ describe('Electron download npm config', () => {
     const workflow = load(readFileSync(ciWorkflowPath, 'utf8')) as WorkflowConfig;
     const installSteps = Object.entries(workflow.jobs ?? {}).flatMap(([jobName, job]) =>
       (job.steps ?? [])
-        .filter((step) => step.run?.trim() === 'npm ci')
+        .filter(isInstallStep)
         .map((step) => ({ jobName, job, step })),
     );
 
@@ -91,6 +100,50 @@ describe('Electron download npm config', () => {
       expect(configuredMirror, `${jobName} npm ci should use ELECTRON_MIRROR`).toBe(
         electronMirror,
       );
+    }
+  });
+
+  it('routes every CI install through the resilient ci-npm-ci wrapper', () => {
+    const workflow = load(readFileSync(ciWorkflowPath, 'utf8')) as WorkflowConfig;
+    const installSteps = Object.entries(workflow.jobs ?? {}).flatMap(([, job]) =>
+      (job.steps ?? []).filter(isInstallStep),
+    );
+
+    expect(installSteps.length).toBeGreaterThan(0);
+
+    for (const step of installSteps) {
+      expect(step.run?.trim(), `install step "${step.name ?? 'unnamed'}" should use the wrapper`).toBe(
+        'bash scripts/ci-npm-ci.sh',
+      );
+    }
+
+    // The wrapper retries the configured mirror and falls back to Electron's
+    // official GitHub releases URL before giving up, so a single 504 from the
+    // mirror cannot redden a job (run 36228688728).
+    const wrapper = readFileSync(join(repoRoot, 'scripts/ci-npm-ci.sh'), 'utf8');
+    expect(wrapper).toContain('npm ci');
+    expect(wrapper).toContain('ELECTRON_MIRROR');
+    expect(wrapper).toMatch(/env -u ELECTRON_MIRROR npm ci/);
+  });
+
+  it('caches the Electron download directory across CI runs', () => {
+    const workflow = load(readFileSync(ciWorkflowPath, 'utf8')) as WorkflowConfig;
+
+    expect(workflow.env?.['electron_config_cache']).toBe('${{ github.workspace }}/.electron-cache');
+
+    const jobsWithInstalls = Object.entries(workflow.jobs ?? {}).filter(([, job]) =>
+      (job.steps ?? []).some(isInstallStep),
+    );
+    expect(jobsWithInstalls.length).toBeGreaterThan(0);
+
+    for (const [jobName, job] of jobsWithInstalls) {
+      const cacheSteps = (job.steps ?? []).filter((step) => step.uses?.startsWith('actions/cache@'));
+      expect(cacheSteps, `${jobName} should restore the Electron cache`).toHaveLength(1);
+
+      const cacheStep = cacheSteps[0]!;
+      expect(cacheStep.uses, 'actions/cache should be SHA-pinned').toMatch(/^actions\/cache@[0-9a-f]{40}(?:\s|$)/);
+      expect(cacheStep.with?.['path']).toContain('.electron-cache');
+      expect(cacheStep.with?.['key']).toContain("hashFiles('package-lock.json')");
     }
   });
 

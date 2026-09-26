@@ -92,3 +92,6 @@ _scratch/
 
 # Orphaned pre-migration JS copies
 cross-model-review-service.js
+
+# CI Electron download cache (electron_config_cache workspace path in ci.yml)
+.electron-cache/

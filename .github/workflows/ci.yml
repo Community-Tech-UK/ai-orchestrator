@@ -12,6 +12,10 @@ concurrency:
 
 env:
   ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+  # Relocates @electron/get's download cache (electron's install.js passes this
+  # to downloadArtifact) into the workspace so the .electron-cache restore step
+  # below can serve the Electron zip without touching the mirror on most runs.
+  electron_config_cache: ${{ github.workspace }}/.electron-cache
 
 jobs:
   quality:
@@ -30,8 +34,16 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      - name: Restore Electron binary cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .electron-cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            electron-${{ runner.os }}-
+
       - name: Install dependencies
-        run: npm ci
+        run: bash scripts/ci-npm-ci.sh
 
       - name: Lint
         run: npm run lint
@@ -133,8 +145,16 @@ jobs:
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install --yes ripgrep
 
+      - name: Restore Electron binary cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .electron-cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            electron-${{ runner.os }}-
+
       - name: Install dependencies
-        run: npm ci
+        run: bash scripts/ci-npm-ci.sh
 
       - name: Run tests (shard ${{ matrix.shard }}/4)
         run: npm run test -- --shard=${{ matrix.shard }}/4
@@ -156,8 +176,16 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      - name: Restore Electron binary cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .electron-cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            electron-${{ runner.os }}-
+
       - name: Install dependencies
-        run: npm ci
+        run: bash scripts/ci-npm-ci.sh
 
       - name: Run slow-tier tests
         run: npm run test:slow
@@ -179,8 +207,16 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      - name: Restore Electron binary cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .electron-cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            electron-${{ runner.os }}-
+
       - name: Install dependencies
-        run: npm ci
+        run: bash scripts/ci-npm-ci.sh
 
       - name: Rebuild native modules
         run: npm run rebuild:native
