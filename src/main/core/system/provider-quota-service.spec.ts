@@ -228,7 +228,7 @@ describe('ProviderQuotaService', () => {
       expect(out!.takenAt).toBe(takenAt);
     });
 
-    it('keeps last-known windows when a later probe only reports reauth', async () => {
+    it('keeps last-known windows on a reauth-only failure, with the alarm carried onto them', async () => {
       svc.registerProbe(new FakeProbe('claude', makeSnapshot('claude', 20, 100)));
       await svc.refresh('claude');
       const takenAt = svc.getSnapshot('claude')!.takenAt;
@@ -247,11 +247,35 @@ describe('ProviderQuotaService', () => {
         },
       });
       const out = await svc.refresh('claude');
+      // Bars survive (last-known), but the expired login is not hidden behind
+      // them: the chip marks the numbers "⚠" and shows the instruction.
       expect(out).toMatchObject({
         ok: true,
-        needsReauth: false,
+        needsReauth: true,
+        error: 'expired',
         takenAt,
       });
+      expect(out!.windows[0].used).toBe(20);
+    });
+
+    it('keeps last-known windows quietly when the failure is not a login problem', async () => {
+      svc.registerProbe(new FakeProbe('claude', makeSnapshot('claude', 20, 100)));
+      await svc.refresh('claude');
+      svc.registerProbe({
+        provider: 'claude',
+        async probe() {
+          return {
+            provider: 'claude',
+            takenAt: Date.now(),
+            source: 'admin-api',
+            ok: false,
+            error: 'network down',
+            windows: [],
+          };
+        },
+      });
+      const out = await svc.refresh('claude');
+      expect(out).toMatchObject({ ok: true, needsReauth: false });
       expect(out!.error).toBeUndefined();
       expect(out!.windows[0].used).toBe(20);
     });
@@ -389,6 +413,21 @@ describe('ProviderQuotaService', () => {
       expect(codex.calls).toBe(0);
       expect(out?.ok).toBe(true);
       expect(svc.getSnapshot('claude', 'max-b')?.windows[0]?.used).toBe(95);
+    });
+
+    it('bypasses probe throttles with force so the Refresh button always answers', async () => {
+      const seen: Array<boolean | undefined> = [];
+      svc.registerProbe({
+        provider: 'opencode',
+        async probe(opts) {
+          seen.push(opts.force);
+          return makeSnapshot('opencode', 20, 100);
+        },
+      });
+
+      await svc.refreshProviderFamily('opencode');
+
+      expect(seen).toEqual([true]);
     });
   });
 

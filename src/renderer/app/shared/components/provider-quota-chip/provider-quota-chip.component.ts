@@ -596,5 +596,5 @@ const PROVIDER_REAUTH_HINTS: Record<ProviderId, string> = {
   copilot: 'Run `gh auth login` to sign in again',
   cursor: 'Open Cursor and sign in to refresh the session',
   grok: 'Run `grok login` (or set XAI_API_KEY) to sign in again',
-  opencode: 'Sign in to the MiMo console in Chrome to refresh Token Plan usage',
+  opencode: 'Click Refresh to renew the session via Xiaomi SSO, or sign in to the MiMo console in Chrome',
 };

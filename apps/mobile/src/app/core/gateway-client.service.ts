@@ -8,6 +8,8 @@ import { sendPushResponse } from './gateway-push-request';
 import { TranscriptStore } from './transcript-store';
 import type {
   MobileAttachmentDto,
+  MobileAutomationDto,
+  MobileAutomationRunResponse,
   MobileCancelledInputDto,
   MobileCreateInstanceRequest,
   MobileHistorySessionDto,
@@ -17,12 +19,15 @@ import type {
   MobileMessagesResumeDto,
   MobileSessionPlan,
   MobilePauseDto,
+  MobileQuotaStateDto,
   MobilePromptDto,
   MobileRecentDirDto,
   MobileReasoningEffort,
   MobileRespondRequest,
   MobileServerEvent,
   MobileSnapshot,
+  MobileSteerRequest,
+  MobileSteerResponse,
 } from './models';
 
 export type { ConnectionState } from './gateway-socket';
@@ -37,6 +42,7 @@ export class GatewayClient {
   private readonly _snapshot = signal<MobileSnapshot | null>(null);
   private readonly _prompts = signal<MobilePromptDto[]>([]);
   private readonly _pause = signal<MobilePauseDto>(EMPTY_PAUSE);
+  private readonly _quotaEvent = signal<{ hostId: string; data: MobileQuotaStateDto } | null>(null);
   private readonly _history = signal<MobileHistorySessionDto[]>([]);
   private readonly _models = signal<MobileModelCatalog | null>(null);
   private readonly _dataHostId = signal<string | null>(null);
@@ -51,6 +57,7 @@ export class GatewayClient {
   readonly transcripts = this.transcriptStore.transcripts;
   readonly prompts = this._prompts.asReadonly();
   readonly pause = this._pause.asReadonly();
+  readonly quotaEvent = this._quotaEvent.asReadonly();
   readonly historySessions = this._history.asReadonly();
   readonly modelCatalog = this._models.asReadonly();
   readonly dataHostId = this._dataHostId.asReadonly();
@@ -69,6 +76,15 @@ export class GatewayClient {
   messagesFor(instanceId: string): MobileMessageDto[] { return this.transcriptStore.messagesFor(instanceId); }
 
   messageStateFor(instanceId: string): MobileLoadState { return this.transcriptStore.messageStateFor(instanceId); }
+  hasEarlierFor(instanceId: string): boolean { return this.transcriptStore.hasEarlierFor(instanceId); }
+  earlierStateFor(instanceId: string): MobileLoadState { return this.transcriptStore.earlierStateFor(instanceId); }
+
+  async loadEarlier(instanceId: string): Promise<void> {
+    await this.transcriptStore.loadEarlier(instanceId,
+      beforeSeq => this.request<MobileMessagesResumeDto>('GET',
+        `/api/instances/${encodeURIComponent(instanceId)}/messages?beforeSeq=${beforeSeq}&limit=100`),
+      this.requestScope());
+  }
 
   reconnect(): void {
     const host = this.hostStore.activeHost();
@@ -95,6 +111,7 @@ export class GatewayClient {
     this._snapshot.set(null);
     this._prompts.set([]);
     this._pause.set(EMPTY_PAUSE);
+    this._quotaEvent.set(null);
     this.transcriptStore.reset();
     this._models.set(null);
     this._history.set([]);
@@ -138,6 +155,9 @@ export class GatewayClient {
         break;
       case 'pause-state':
         this._pause.set(event.data);
+        break;
+      case 'quota-state':
+        if (this.socket.hostId) this._quotaEvent.set({ hostId: this.socket.hostId, data: event.data });
         break;
       case 'instance-removed':
         this.dropInstance(event.data.instanceId);
@@ -255,6 +275,19 @@ export class GatewayClient {
     message: string,
     attachments?: MobileAttachmentDto[],
   ): Promise<{ queued: boolean }> {
+    return this.submitInput(instanceId, message, attachments, 'input');
+  }
+
+  async steerInput(instanceId: string, message: string, attachments?: MobileAttachmentDto[]): Promise<void> {
+    await this.submitInput(instanceId, message, attachments, 'steer');
+  }
+
+  private async submitInput(
+    instanceId: string,
+    message: string,
+    attachments: MobileAttachmentDto[] | undefined,
+    action: 'input' | 'steer',
+  ): Promise<{ queued: boolean }> {
     const current = this.requestScope();
     const echoId = `${LOCAL_MESSAGE_ID_PREFIX}${crypto.randomUUID()}`;
     this.transcriptStore.appendMessage(instanceId, {
@@ -266,10 +299,11 @@ export class GatewayClient {
     });
     let result: { queued?: boolean };
     try {
-      result = await this.request<{ queued?: boolean }>(
+      const body: MobileSteerRequest = { message, attachments };
+      result = await this.request<MobileSteerResponse & { queued?: boolean }>(
         'POST',
-        `/api/instances/${encodeURIComponent(instanceId)}/input`,
-        { message, attachments },
+        `/api/instances/${encodeURIComponent(instanceId)}/${action}`,
+        body,
         true,
       );
     } catch (err) {
@@ -414,6 +448,20 @@ export class GatewayClient {
 
   async recentDirs(): Promise<MobileRecentDirDto[]> { return this.request('GET', '/api/recent-dirs'); }
 
+  async quota(): Promise<MobileQuotaStateDto> { return this.request('GET', '/api/quota'); }
+
+  async automations(): Promise<MobileAutomationDto[]> {
+    return this.request('GET', '/api/automations');
+  }
+
+  async runAutomation(automationId: string, idempotencyKey: string): Promise<MobileAutomationRunResponse> {
+    return this.request(
+      'POST',
+      `/api/automations/${encodeURIComponent(automationId)}/run`,
+      { idempotencyKey },
+    );
+  }
+
   /** Persisted sessions (live + archived), newest first. */
   async history(): Promise<MobileHistorySessionDto[]> { return this.request('GET', '/api/history'); }
 
@@ -423,6 +471,11 @@ export class GatewayClient {
       'GET',
       `/api/history/${encodeURIComponent(chatId)}/messages`,
     );
+  }
+
+  async historyMessagePage(chatId: string, beforeSeq?: number): Promise<MobileMessageDto[] | MobileMessagesResumeDto> {
+    return this.request('GET', `/api/history/${encodeURIComponent(chatId)}/messages?${
+      beforeSeq === undefined ? 'withCursor=1' : `beforeSeq=${beforeSeq}&limit=100`}`);
   }
 
   async setPause(paused: boolean): Promise<void> {

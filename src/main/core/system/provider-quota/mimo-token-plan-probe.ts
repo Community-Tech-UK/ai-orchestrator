@@ -11,6 +11,10 @@
  * `GET /api/v1/tokenPlan/usage` + `GET /api/v1/tokenPlan/detail` — which
  * accepts only the browser console session (the Token Plan API key is refused
  * with 401). Session cookies come from {@link MimoConsoleCredentialsReader}.
+ * When the console session is rejected (401/403), the probe walks the
+ * platform's own Xiaomi SSO renewal URL once
+ * ({@link MimoConsoleSessionRenewer}, no credential entry) and re-pulls the
+ * quota before surfacing a reauth state.
  *
  * One snapshot merges both responses: `usage` carries the token buckets,
  * `detail` the plan name and period end. Percentages come from used/limit
@@ -31,7 +35,9 @@ import { getLogger } from '../../../logging/logger';
 import {
   MimoConsoleCredentialsReader,
   type MimoConsoleSession,
+  type MimoCredentialResult,
 } from './mimo-console-credentials-reader';
+import { MimoConsoleSessionRenewer } from './mimo-console-session-renewer';
 
 const logger = getLogger('MimoTokenPlanProbe');
 
@@ -49,11 +55,19 @@ export type MimoTokenPlanFetch = (
   detail: { status: number; body: unknown };
 }>;
 
+/** Cookie source: the console session plus (optionally) Xiaomi account SSO. */
+export interface MimoCredentialSource {
+  read(): Promise<MimoCredentialResult>;
+  readAccountSso?(): Promise<{ cookieHeader: string }>;
+}
+
 export interface MimoTokenPlanProbeOptions {
   /** Gate from the configured OpenCode model (Task 3.7). Required. */
   isTokenPlanModel: () => boolean;
-  reader?: Pick<MimoConsoleCredentialsReader, 'read'>;
+  reader?: MimoCredentialSource;
   fetchPlans?: MimoTokenPlanFetch;
+  /** Session auto-renewal on 401/403 (SSO walk). Injected in tests. */
+  renewer?: Pick<MimoConsoleSessionRenewer, 'renew'>;
   timeoutMs?: number;
   now?: () => number;
 }
@@ -113,8 +127,9 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
   readonly provider = 'opencode' as const;
 
   private readonly isTokenPlanModel: () => boolean;
-  private readonly reader: Pick<MimoConsoleCredentialsReader, 'read'>;
+  private readonly reader: MimoCredentialSource;
   private readonly fetchPlans: MimoTokenPlanFetch;
+  private readonly renewer: Pick<MimoConsoleSessionRenewer, 'renew'>;
   private readonly timeoutMs: number;
   private readonly now: () => number;
 
@@ -122,6 +137,7 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
     this.isTokenPlanModel = opts.isTokenPlanModel;
     this.reader = opts.reader ?? new MimoConsoleCredentialsReader();
     this.fetchPlans = opts.fetchPlans ?? defaultFetchPlans;
+    this.renewer = opts.renewer ?? new MimoConsoleSessionRenewer();
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.now = opts.now ?? Date.now;
   }
@@ -164,6 +180,34 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
     }
 
     if (usage.status === 401 || detail.status === 401 || usage.status === 403 || detail.status === 403) {
+      // The platform's 401 body publishes the Xiaomi SSO renewal URL. Walk it
+      // once (persistent account cookies from Chrome — no credential entry)
+      // and re-pull the quota before declaring the session dead; a rejection
+      // under heavy polling is often a stale/risk-controlled session that SSO
+      // re-mints instantly (verified live 2026-09-25).
+      const revived = await this.attemptSessionRenewal(usage.body, detail.body, credential.session, signal);
+      if (revived) {
+        try {
+          const retry = await this.fetchPlans(revived, { signal, timeoutMs: this.timeoutMs });
+          const parsedRetry = retry.usage.status >= 200 && retry.usage.status < 300
+            && retry.detail.status >= 200 && retry.detail.status < 300
+            ? parseMimoTokenPlanResponses(retry.usage.body, retry.detail.body)
+            : null;
+          if (parsedRetry && parsedRetry.windows.length > 0) {
+            logger.info('MiMo console session renewed through Xiaomi SSO');
+            return {
+              provider: 'opencode',
+              takenAt: this.now(),
+              source: 'admin-api',
+              ok: true,
+              windows: parsedRetry.windows,
+              ...(parsedRetry.plan ? { plan: parsedRetry.plan } : {}),
+            };
+          }
+        } catch (err) {
+          logger.debug(`MiMo quota re-pull after session renewal failed: ${(err as Error).message}`);
+        }
+      }
       return failedSnapshot(
         takenAt,
         'MiMo console session rejected (401/403) — sign in to the MiMo console in Chrome again',
@@ -191,6 +235,51 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
       ...(parsed.plan ? { plan: parsed.plan } : {}),
     };
   }
+
+  /**
+   * Walk the platform's SSO renewal URL with the account cookies already in
+   * Chrome. Returns the session to retry with (merging any rotated platform
+   * cookies the walk minted), or null when renewal is impossible — no
+   * loginUrl in the body, throttled, or the walk failed. The SSO cookie read
+   * is a lazy supplier so skipped walks never pay a Keychain/cookie-DB read.
+   */
+  private async attemptSessionRenewal(
+    usageBody: unknown,
+    detailBody: unknown,
+    session: MimoConsoleSession,
+    signal: AbortSignal,
+  ): Promise<MimoConsoleSession | null> {
+    const loginUrl = extractLoginUrl(usageBody) ?? extractLoginUrl(detailBody);
+    if (!loginUrl) return null;
+    const result = await this.renewer.renew(loginUrl, async () => {
+      const sso = await this.reader.readAccountSso?.();
+      return sso?.cookieHeader ?? '';
+    }, { signal });
+    if (!result.completed) return null;
+    return {
+      cookieHeader: mergeSessionCookies(session.cookieHeader, result.setCookies),
+      userId: session.userId,
+    };
+  }
+}
+
+/** The platform's 401 body: `{ code: 401, loginUrl: "https://account.xiaomi.com/..." }`. */
+function extractLoginUrl(body: unknown): string | null {
+  const url = asRecord(body)?.['loginUrl'];
+  return typeof url === 'string' && url.trim().length > 0 ? url.trim() : null;
+}
+
+/** Overlay wins per cookie name — a rotated session cookie replaces the stale one. */
+function mergeSessionCookies(header: string, overlay: Map<string, string>): string {
+  if (overlay.size === 0) return header;
+  const merged = new Map<string, string>();
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq <= 0) continue;
+    merged.set(part.slice(0, eq).trim(), part.slice(eq + 1).trim());
+  }
+  for (const [name, value] of overlay) merged.set(name, value);
+  return [...merged].map(([name, value]) => `${name}=${value}`).join('; ');
 }
 
 export function parseMimoTokenPlanResponses(

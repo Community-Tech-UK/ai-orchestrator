@@ -1,5 +1,6 @@
 import type { CliRateLimitInfo } from '../../shared/types/cli.types';
 import { isProviderNotice } from '../cli/provider-notice';
+import { getSettingsManager } from '../core/config/settings-manager';
 import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
 
 /**
@@ -68,27 +69,82 @@ export function detectErrorProviderLimit(
 }
 
 /**
+ * The "never ride paid overage" stop for regular sessions — the session
+ * counterpart of `loop-quota-throttle`'s overage-guard. Live CLI telemetry is
+ * the only place this is observable: when the subscription window is refused
+ * (`status: 'rejected'`, e.g. the Claude 5-hour limit) or the CLI reports
+ * `isUsingOverage`, further requests are billed as API-priced overage/credits.
+ * Returns the stop signal unless the user explicitly opted in
+ * (`sessionAllowProviderOverage`, default off).
+ */
+export function detectUsageOverageStop(
+  telemetry: CliRateLimitInfo | null | undefined,
+  opts: { allowOverage?: boolean; completionTime?: boolean } = {},
+): ProviderLimitTurnSignal | null {
+  if (!telemetry) return null;
+  const allowOverage = opts.allowOverage ?? readSessionOverageOptIn();
+  if (allowOverage) return null;
+  const usingOverage = telemetry.isUsingOverage === true;
+  const refused = telemetry.status === 'rejected';
+  if (!usingOverage && !refused) return null;
+  // At completion time a *successful* turn is only evidence of an overage burn
+  // when the telemetry itself says overage is in play. A bare refused window
+  // (possibly stale — the turn just completed) must not reclassify an ordinary
+  // completion as a limit stop; the live event path above already acted on it.
+  if (opts.completionTime && !usingOverage && telemetry.overageStatus !== 'allowed') return null;
+  return {
+    resetAtHint: telemetryResetAtMs(telemetry),
+    reason: usingOverage
+      ? 'provider is billing paid overage on this session — stopping (sessionAllowProviderOverage is off)'
+      : `provider refused its usage window (${telemetry.rateLimitType ?? 'limit'}) and paid overage is not allowed — stopping`,
+  };
+}
+
+function readSessionOverageOptIn(): boolean {
+  try {
+    return getSettingsManager().get('sessionAllowProviderOverage') === true;
+  } catch {
+    // A settings read must never decide a session's fate by throwing; the safe
+    // default is the conservative one (never ride paid overage).
+    return false;
+  }
+}
+
+/**
  * Classify a *completed* turn (exit 0) whose assistant content is actually a
- * provider limit notice ("You've hit your session limit · resets 6:30pm").
+ * provider limit notice ("You've hit your session limit · resets 3:45pm").
+ *
+ * Also classifies a turn that *completed while live telemetry says the
+ * subscription window is refused or paid overage is being consumed*: that
+ * success was bought with overage credits and must not be read as a lifted
+ * limit (it used to clear the provider-limit gate, re-opening the next send).
  */
 export function detectCompletionProviderLimit(
   response: { content?: string; metadata?: unknown },
   telemetry?: CliRateLimitInfo | null,
+  opts: { allowOverage?: boolean } = {},
 ): ProviderLimitTurnSignal | null {
   const diagnostics = extractProviderErrorDiagnostics(response.metadata);
   // Claude's plan 429 (`result.is_error` + `api_error_status: 429`) is a
   // structured signal: the adapter attaches `metadata.quota`, so the turn is a
   // limit stop even when the assistant content carries no notice text.
   const structuredLimit = diagnostics.quota?.exhausted === true;
-  if (!structuredLimit && !isProviderNotice(response.content)) return null;
-  return {
-    resetAtHint:
-      diagnostics.rateLimit?.resetAt
-      ?? diagnostics.quota?.resetAt
-      ?? parseResetHintFromText(response.content ?? '', Date.now())
-      ?? telemetryResetAtMs(telemetry),
-    reason: `provider limit notice on completed turn: ${(response.content || diagnostics.quota?.message || '').slice(0, 160)}`,
-  };
+  const noticeLimit = structuredLimit || isProviderNotice(response.content);
+  const overageStop = detectUsageOverageStop(telemetry, {
+    ...opts,
+    completionTime: true,
+  });
+  if (noticeLimit) {
+    return {
+      resetAtHint:
+        diagnostics.rateLimit?.resetAt
+        ?? diagnostics.quota?.resetAt
+        ?? parseResetHintFromText(response.content ?? '', Date.now())
+        ?? telemetryResetAtMs(telemetry),
+      reason: `provider limit notice on completed turn: ${(response.content || diagnostics.quota?.message || '').slice(0, 160)}`,
+    };
+  }
+  return overageStop;
 }
 
 const EIGHT_DAYS_MS = 8 * 24 * 60 * 60 * 1000;

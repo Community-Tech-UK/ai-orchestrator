@@ -54,6 +54,38 @@ describe('account quota probes', () => {
     expect(inner.probe).toHaveBeenCalledTimes(2);
   });
 
+  it('leaves the throttle window open when the inner probe throws, so retries are not swallowed', async () => {
+    const clock = { now: 1_000 };
+    let attempts = 0;
+    const inner = {
+      provider: 'opencode' as const,
+      probe: vi.fn(async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('network down');
+        return null;
+      }),
+    };
+    const throttled = new ThrottledAccountQuotaProbe(inner, () => 120_000, () => clock.now);
+    const signal = new AbortController().signal;
+
+    await expect(throttled.probe({ signal })).rejects.toThrow('network down');
+    // A retry right after the failure must reach the probe, not a throttled null.
+    await expect(throttled.probe({ signal })).resolves.toBeNull();
+    expect(inner.probe).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs immediately when force is set, ignoring the throttle window', async () => {
+    const clock = { now: 1_000 };
+    const inner = { provider: 'opencode' as const, probe: vi.fn(async () => null) };
+    const throttled = new ThrottledAccountQuotaProbe(inner, () => 120_000, () => clock.now);
+    const signal = new AbortController().signal;
+
+    await throttled.probe({ signal });
+    await throttled.probe({ signal, force: true });
+
+    expect(inner.probe).toHaveBeenCalledTimes(2);
+  });
+
   it('falls back to the usage monitor for an account when the native probe has no windows', async () => {
     const readProvider = vi.fn(async () => ({
       provider: 'claude' as const,

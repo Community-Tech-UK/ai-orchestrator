@@ -602,7 +602,15 @@ function postNativeMessage(bridge, message, options = {}) {
   if (!gatewayEnabled) {
     return false;
   }
-  const stampedMessage = stampNativeMessage(message);
+  let stampedMessage;
+  try {
+    stampedMessage = stampNativeMessage(message);
+  } catch {
+    // Stamping reads chrome.runtime state and can throw. This function is on
+    // the command-result path and inside the commandChain terminal catch, where
+    // an escape re-wedges the shared chain. Treat it as a failed post instead.
+    return false;
+  }
   // Poll requests are transient — never buffer/replay them (a stale poll would
   // just confuse the host). Everything else is queued if the channel is down.
   const isPoll = stampedMessage?.type === 'poll_command';
@@ -677,14 +685,25 @@ function broadcastShareMessage(message) {
 }
 
 function persistBridgeStatus() {
-  const snapshots = bridges.map(statusSnapshotForBridge);
-  refreshToolbarBadge(snapshots);
-  refreshToolbarIcon();
-  void chrome.storage?.session?.set?.({
-    browserGatewayEnabled: gatewayEnabled,
-    browserGatewayBridgeStatus: snapshots,
-    browserGatewayBridgeStatusUpdatedAt: Date.now(),
-  })?.catch(() => undefined);
+  // Total by design. This is called from command finally blocks, the
+  // commandChain terminal catch, the port message listener, every poll re-arm
+  // and the inventory alarm, so a synchronous throw from chrome.action (badge
+  // and icon refresh) or from snapshotting would escape into whichever caller
+  // fired it and skip that caller's remaining work — including a poll re-arm.
+  // On the command path it also re-wedges the shared commandChain. Bridge
+  // status is best-effort observability; it must never be able to do that.
+  try {
+    const snapshots = bridges.map(statusSnapshotForBridge);
+    refreshToolbarBadge(snapshots);
+    refreshToolbarIcon();
+    void chrome.storage?.session?.set?.({
+      browserGatewayEnabled: gatewayEnabled,
+      browserGatewayBridgeStatus: snapshots,
+      browserGatewayBridgeStatusUpdatedAt: Date.now(),
+    })?.catch(() => undefined);
+  } catch {
+    // Best-effort only; nothing here may escape.
+  }
 }
 
 function statusSnapshotForBridge(bridge) {
@@ -914,8 +933,11 @@ async function handleNativeMessage(message, bridge) {
   recordPollAck(bridge);
   if (!message.command) {
     clearPollInFlight(bridge);
-    persistBridgeStatus();
+    // Re-arm BEFORE the status write: losing the re-arm strands the bridge
+    // until the 30s inventory alarm notices, so it must not depend on
+    // best-effort observability succeeding.
     scheduleNextPoll(bridge, POLL_IDLE_DELAY_MS);
+    persistBridgeStatus();
     return;
   }
   const command = message.command;
@@ -926,7 +948,67 @@ async function handleNativeMessage(message, bridge) {
     type: 'command_received',
     commandId: command.id,
   });
-  commandChain = commandChain.then(() => runBrowserCommand(command, bridge));
+  // The chain link must never be left rejected. This promise is shared by every
+  // bridge and every command, and a rejection that escaped runBrowserCommand
+  // used to poison it: from then on `.then(...)` skipped the callback for EVERY
+  // later command without running it, while the poll loop kept going. The
+  // channel then reported "polling 2s ago" and every command timed out — and
+  // because the state lives in the service worker, restarting the worker relay
+  // could not clear it; only reloading the extension could.
+  //
+  // A rejection can still escape runBrowserCommand in more than one shape: it
+  // can leave before its try (so its finally never ran and pollInFlight is
+  // stuck), or its own catch/finally can throw (so the finally may or may not
+  // have run). The handler therefore re-arms in either case rather than
+  // assuming one — and it re-arms BEFORE any best-effort work, so nothing that
+  // follows can cost the bridge its next poll.
+  //
+  // The whole body is fenced because this handler is the last line of defence:
+  // if it throws, the chain is left rejected again and the wedge returns. A
+  // duplicate command_result is harmless — the coordinator's resolveCommand
+  // no-ops once the command is no longer pending.
+  commandChain = commandChain
+    .then(() => runBrowserCommand(command, bridge))
+    .catch(async (error) => {
+      // Each step is fenced individually. They must not be able to cost one
+      // another: the re-arm is the recovery priority (losing it strands the
+      // bridge until the 30s inventory alarm), but the failure report must
+      // still reach the gateway even if re-arming throws, and no step may let
+      // an exception escape and re-poison the shared chain.
+      try {
+        clearPollInFlight(bridge);
+      } catch {
+        // Must not escape this handler.
+      }
+      try {
+        scheduleNextPoll(bridge, 0);
+      } catch {
+        // Must not escape this handler.
+      }
+      try {
+        // Re-read taint rather than assume. This report may be the ONLY one
+        // that reaches the gateway, so it must apply the same sanitisation
+        // runBrowserCommand uses on its own failure path: a tainted tab can
+        // mirror a vault value into a thrown message, and a non-credential
+        // command is exactly the case the fixed credential branch does not
+        // already cover. targetSecretTaintOrigin is total and fails CLOSED —
+        // it returns '' for a tainted or uncertain tab.
+        const taint = await targetSecretTaintOrigin(command);
+        postNativeMessage(bridge, {
+          type: 'command_result',
+          commandId: command.id,
+          ok: false,
+          error: browserCommandErrorMessage(command, error, typeof taint === 'string'),
+        });
+      } catch {
+        // Must not escape this handler.
+      }
+      try {
+        persistBridgeStatus();
+      } catch {
+        // Must not escape this handler.
+      }
+    });
   await commandChain;
 }
 
@@ -936,8 +1018,9 @@ function handleNativePollError(message, bridge) {
   }
   bridge.lastError = message.error;
   clearPollInFlight(bridge);
-  persistBridgeStatus();
+  // Re-arm before the status write; see the empty-poll path.
   scheduleNextPoll(bridge, POLL_TIMEOUT_MS);
+  persistBridgeStatus();
   return true;
 }
 
@@ -1406,12 +1489,6 @@ function browserCommandErrorMessage(command, error, targetSecretTainted = false)
 
 async function runBrowserCommand(command, bridge) {
   const reloadCommand = command?.command === 'reload';
-  // Reload has a dedicated post-dispatch protection path. Awaiting the shared
-  // observation boundary here would let an older wedged inventory prevent the
-  // browser-process recovery action from ever starting.
-  if (!reloadCommand) {
-    await applySecretObservationProtectionFromCommand(command);
-  }
   // The internal origin-bound writer is itself proof that this command may
   // carry a vault value. Preclassify every non-public credential write before
   // dispatch so a synchronous page-driven tab close cannot clear storage and
@@ -1426,6 +1503,21 @@ async function runBrowserCommand(command, bridge) {
     ? command.payload.credentialOrigin
     : null;
   try {
+    // Reload has a dedicated post-dispatch protection path. Awaiting the shared
+    // observation boundary here would let an older wedged inventory prevent the
+    // browser-process recovery action from ever starting.
+    //
+    // This call sits INSIDE the try on purpose. It reaches the shared secret
+    // observation boundary and can reject (storage faults, a boundary already
+    // poisoned by an unrelated operation). Outside the try that rejection
+    // escaped runBrowserCommand: no command_result was sent, the finally never
+    // cleared pollInFlight, and the shared commandChain was left rejected so
+    // every later command was skipped while the poll loop kept running — the
+    // "polling without executing" wedge. Inside, the catch reports the failure
+    // and the finally re-arms the poll as it does for any other command error.
+    if (!reloadCommand) {
+      await applySecretObservationProtectionFromCommand(command);
+    }
     assertGatewayEnabled();
     // Snapshot taint BEFORE dispatch as well as afterward. A later mutation can
     // close the tab, which fires onRemoved and legitimately clears persisted
@@ -1480,8 +1572,12 @@ async function runBrowserCommand(command, bridge) {
     // if the channel drops mid-command; the commandChain stays the correctness
     // backstop for any command that arrives through that path).
     clearPollInFlight(bridge);
-    persistBridgeStatus();
+    // Re-arm BEFORE the status write. Ordering matters twice over here: losing
+    // the re-arm would strand this bridge until the 30s inventory alarm, and a
+    // throw from the status write is exactly what can still escape this finally
+    // and reach the commandChain terminal catch.
     scheduleNextPoll(bridge, 0);
+    persistBridgeStatus();
   }
 }
 

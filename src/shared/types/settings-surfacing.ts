@@ -121,6 +121,7 @@ export const SETTING_SURFACING = {
   codebaseAutoIndexEnabled: 'tab',
   instanceProviderLimitResumeEnabled: 'tab',
   loopAllowProviderOverage: 'tab',
+  sessionAllowProviderOverage: 'tab',
   quotaPacingWarningEnabled: 'tab',
   quotaPacingUtilizationThresholdPercent: 'tab',
   quotaPacingLatestElapsedPercent: 'tab',

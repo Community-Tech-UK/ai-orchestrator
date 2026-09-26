@@ -240,6 +240,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Regular-session provider-limit auto-resume (default OFF — see interface doc)
   instanceProviderLimitResumeEnabled: false,
   loopAllowProviderOverage: false,
+  sessionAllowProviderOverage: false,
   quotaPacingWarningEnabled: true,
   quotaPacingUtilizationThresholdPercent: 90,
   quotaPacingLatestElapsedPercent: 72,

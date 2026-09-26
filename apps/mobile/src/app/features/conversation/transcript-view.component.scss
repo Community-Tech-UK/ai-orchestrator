@@ -16,6 +16,20 @@
   overscroll-behavior: contain;
 }
 
+.message, .tool-group {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 100px;
+}
+
+.show-earlier {
+  overflow-anchor: none;
+  flex: none;
+  min-height: var(--control-size);
+  border: 0;
+  background: transparent;
+  color: var(--accent-action);
+}
+
 .scroll-btns {
   position: absolute;
   right: var(--mobile-gutter);

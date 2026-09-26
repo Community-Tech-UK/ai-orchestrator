@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import {
@@ -56,7 +56,38 @@ describe('AutomationStore', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     db.close();
+  });
+
+  it('bounds automation rows before hydration while desktop list remains unbounded', async () => {
+    const attachments = fakeAttachmentService();
+    const boundedStore = new AutomationStore(db, attachments);
+    const ids: string[] = [];
+    for (let index = 0; index < 5; index++) {
+      const item = await boundedStore.create({ name: `Job ${index}`, schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' }, action: { prompt: 'Check', workingDirectory: '/tmp' } }, 100 + index);
+      ids.push(item.id);
+    }
+    const hydrate = vi.spyOn(attachments, 'listForAutomation');
+    expect((await boundedStore.list({ limit: 2 })).map(item => item.id)).toEqual(ids.slice(0, 2));
+    expect(hydrate).toHaveBeenCalledTimes(2);
+    expect(await boundedStore.list()).toHaveLength(5);
+    expect(await boundedStore.list({ limit: 0 })).toEqual([]);
+  });
+
+  it('joins one latest run per requested automation in a single SQL query', async () => {
+    const items = [];
+    for (const name of ['A', 'B', 'No runs']) items.push(await store.create({ name, schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' }, action: { prompt: 'Check', workingDirectory: '/tmp' } }, 100));
+    store.recordSkipped(items[0], 'manual', 100, 'old', 100);
+    const latestA = store.recordSkipped(items[0], 'manual', 200, 'latest A', 200);
+    const latestB = store.recordSkipped(items[1], 'manual', 150, 'latest B', 150);
+    const prepare = vi.spyOn(db, 'prepare');
+    const latest = store.listLatestRuns([items[0].id, items[1].id, items[2].id, items[0].id]);
+    expect(latest).toEqual(new Map([[items[0].id, latestA], [items[1].id, latestB]]));
+    expect(prepare).toHaveBeenCalledTimes(1);
+    prepare.mockClear();
+    expect(store.listLatestRuns([])).toEqual(new Map());
+    expect(prepare).not.toHaveBeenCalled();
   });
 
   it('keeps scheduled baseline separate from manual runs', async () => {
@@ -414,6 +445,33 @@ describe('AutomationStore', () => {
     expect(asDecision(duplicate).run?.id).toBe(asDecision(first).run!.id);
     expect(asDecision(duplicate).run?.triggerSource?.deliveryId).toBe('delivery-1');
     expect(asDecision(duplicate).run?.deliveryMode).toBe('localOnly');
+  });
+
+  it('records an idempotent preflight policy refusal as a skipped run', async () => {
+    const automation = await store.create({
+      name: 'Automatic provider check',
+      schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+      missedRunPolicy: 'notify', concurrencyPolicy: 'queue',
+      action: { prompt: 'Check', workingDirectory: '/tmp', provider: 'auto' },
+    }, 1_000, 100);
+
+    const first = store.decideAndInsertRun(automation, 'manual', 2_000, 2_000, {
+      idempotencyKey: 'mobile-run-1',
+      preflightSkipReason: 'Resolved provider codex is excluded from automation',
+    });
+    expect(first.kind).toBe('skipped');
+    expect(asDecision(first).run).toMatchObject({
+      status: 'skipped', error: 'Resolved provider codex is excluded from automation',
+      idempotencyKey: 'mobile-run-1',
+    });
+
+    const duplicate = store.decideAndInsertRun(automation, 'manual', 3_000, 3_000, {
+      idempotencyKey: 'mobile-run-1',
+      preflightSkipReason: 'Resolved provider codex is excluded from automation',
+    });
+    expect(duplicate.kind).toBe('skipped');
+    expect(asDecision(duplicate).run?.id).toBe(asDecision(first).run?.id);
+    expect(store.listRuns({ automationId: automation.id })).toHaveLength(1);
   });
 
   it('persists a webhook trigger configuration with its route and declarative filters', async () => {

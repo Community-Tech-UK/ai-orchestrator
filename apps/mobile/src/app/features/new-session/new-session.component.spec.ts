@@ -15,9 +15,12 @@ import { GatewayClient } from '../../core/gateway-client.service';
 import { HapticsService } from '../../core/haptics.service';
 import { HostStore } from '../../core/host-store';
 import { ImageAttachmentService } from '../../core/image-attachment.service';
-import type { MobileSessionPlan } from '../../core/models';
+import type { MobileQuotaStateDto, MobileSessionPlan } from '../../core/models';
 import { VoiceInputService } from '../../core/voice-input.service';
 import { NewSessionComponent } from './new-session.component';
+import { UsageStore } from '../usage/usage.store';
+import { MobileGatewayQuotaHandlers } from '../../../../../../src/main/mobile-gateway/mobile-gateway-quota-handlers';
+import type { ProviderQuotaState } from '../../../../../../src/shared/types/provider-quota.types';
 
 const NEW_SESSION_TEMPLATE = readFileSync(resolve('src/app/features/new-session/new-session.component.html'), 'utf8');
 
@@ -105,6 +108,7 @@ describe('NewSessionComponent provider settings', () => {
             sessionPlan: vi.fn().mockResolvedValue(RESOLVED_PLAN),
           },
         },
+        { provide: UsageStore, useValue: { isExhausted: () => false } },
         { provide: HostStore, useValue: { activeHost: signal(null) } },
         {
           provide: ImageAttachmentService,
@@ -174,9 +178,11 @@ describe('NewSessionComponent provider settings', () => {
 });
 
 
-async function setupSession(options: { recentDirs?: ReturnType<typeof vi.fn>; createInstance?: ReturnType<typeof vi.fn>; draft?: string; draftLoad?: ReturnType<typeof vi.fn>; beforeReady?: (root: HTMLElement) => void; realDrafts?: DraftStore; hostId?: string; navigationState?: unknown; legacyText?: string; historyReentry?: boolean } = {}) {
+async function setupSession(options: { quota?: () => MobileQuotaStateDto; recentDirs?: ReturnType<typeof vi.fn>; createInstance?: ReturnType<typeof vi.fn>; draft?: string; draftLoad?: ReturnType<typeof vi.fn>; beforeReady?: (root: HTMLElement) => void; realDrafts?: DraftStore; hostId?: string; navigationState?: unknown; legacyText?: string; historyReentry?: boolean } = {}) {
   const gateway = {
     online: signal(true), state: signal('connected'), snapshot: signal(null),
+    dataHostId: signal(options.hostId ?? 'host-a'), quotaEvent: signal<{ hostId: string; data: MobileQuotaStateDto } | null>(null),
+    quota: vi.fn().mockImplementation(async () => options.quota?.()),
     recentDirs: options.recentDirs ?? vi.fn().mockResolvedValue([{ path: '/work/b', displayName: 'Project B', lastAccessed: 0, isPinned: false }]),
     sessionPlan: vi.fn().mockResolvedValue(RESOLVED_PLAN),
     models: vi.fn().mockResolvedValue({ codex: [] }),
@@ -187,9 +193,12 @@ async function setupSession(options: { recentDirs?: ReturnType<typeof vi.fn>; cr
   const images = { available: true, pickImages: vi.fn().mockRejectedValue(new Error('Photo permission denied')), pasteImageFromClipboard: vi.fn().mockResolvedValue(null) };
   const voice = { available: true, listening: signal(false), text: signal(''), start: vi.fn().mockResolvedValue(false), stop: vi.fn().mockResolvedValue(undefined) };
   const activeHost = signal({ id: options.hostId ?? 'host-a', name: 'Host A' });
+  const exhaustedProvider = signal<string | null>(null);
+  const usage = { isExhausted: (provider: string) => activeHost().id === 'host-a' && provider === exhaustedProvider() };
   TestBed.overrideComponent(NewSessionComponent, { set: { template: NEW_SESSION_TEMPLATE, templateUrl: undefined, imports: [FormsModule], schemas: [NO_ERRORS_SCHEMA], styleUrls: [] } });
   await TestBed.configureTestingModule({ imports: [NewSessionComponent], providers: [
     { provide: GatewayClient, useValue: gateway },
+    options.quota ? UsageStore : { provide: UsageStore, useValue: usage },
     { provide: HostStore, useValue: { activeHost } },
     { provide: DraftStore, useValue: options.realDrafts ?? drafts }, { provide: ImageAttachmentService, useValue: images },
     { provide: VoiceInputService, useValue: voice },
@@ -206,10 +215,42 @@ async function setupSession(options: { recentDirs?: ReturnType<typeof vi.fn>; cr
   const root = fixture.nativeElement as HTMLElement;
   const settle = async () => { fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges(); };
   const type = (text: string) => { const area = root.querySelector('textarea')!; area.value = text; area.dispatchEvent(new Event('input')); fixture.detectChanges(); };
-  return { fixture, root, gateway, drafts, images, voice, activeHost, settle, type };
+  return { fixture, root, gateway, drafts, images, voice, activeHost, exhaustedProvider, settle, type };
 }
 
 describe('New Session folder and submission behavior', () => {
+  it('never warns for a full Claude plan with unknown credits through the real projection and usage store', async () => {
+    const now = Date.now();
+    const state: ProviderQuotaState = { snapshots: { claude: {
+      provider: 'claude', takenAt: now, source: 'admin-api', ok: true,
+      usageAccess: { ordinaryUsageAllowed: false, creditsAvailable: null },
+      windows: [{ id: 'claude.5h', label: '5 hours', kind: 'rolling-window', unit: 'messages', used: 100, limit: 100, remaining: 0, resetsAt: now + 3_600_000 }],
+    }, codex: null, gemini: null, antigravity: null, copilot: null, cursor: null, grok: null, opencode: null } };
+    const handler = new MobileGatewayQuotaHandlers({ getSource: () => ({ getAll: () => state, on: vi.fn(), removeListener: vi.fn() }), broadcast: vi.fn(), sendExhaustedPush: vi.fn() });
+    const { root, gateway, settle } = await setupSession({ quota: () => handler.read() });
+    root.querySelector<HTMLButtonElement>('[aria-label="Session settings"]')!.click(); await settle();
+    buttonContaining(root, 'Run with Claude').click(); await settle();
+    expect(TestBed.inject(UsageStore).providers().find(provider => provider.provider === 'claude')?.windows[0].percentUsed).toBe(100);
+    expect(root.querySelector('[data-testid="quota-warning"]')).toBeNull();
+    state.snapshots.claude!.usageAccess!.creditsAvailable = false;
+    gateway.quotaEvent.set({ hostId: 'host-a', data: handler.read() }); await settle();
+    expect(root.querySelector('[data-testid="quota-warning"]')?.textContent).toContain('Claude');
+    state.snapshots.claude!.usageAccess!.creditsAvailable = null;
+    gateway.quotaEvent.set({ hostId: 'host-a', data: handler.read() }); await settle();
+    expect(root.querySelector('[data-testid="quota-warning"]')).toBeNull();
+  });
+  it('warns only for the chosen exhausted provider and removes the chip on provider or host switch', async () => {
+    const { root, fixture, exhaustedProvider, activeHost, settle } = await setupSession();
+    exhaustedProvider.set('codex'); await settle();
+    expect(root.querySelector('[data-testid="quota-warning"]')?.textContent).toContain('Codex');
+    root.querySelector<HTMLButtonElement>('[aria-label="Session settings"]')!.click(); await settle();
+    buttonContaining(root, 'Run with Claude').click(); await settle();
+    expect(root.querySelector('[data-testid="quota-warning"]')).toBeNull();
+    buttonContaining(root, 'Run with Codex').click(); await settle();
+    expect(root.querySelector('[data-testid="quota-warning"]')).not.toBeNull();
+    activeHost.set({ id: 'host-b', name: 'Host B' }); fixture.detectChanges();
+    expect(root.querySelector('[data-testid="quota-warning"]')).toBeNull();
+  });
   it('loads recent B when opening project A chooser and starts B with the preserved prompt', async () => {
     const { root, gateway, settle, type } = await setupSession();
     type('Keep this draft');

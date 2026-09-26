@@ -2,8 +2,6 @@ import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 
 const renderer = new marked.Renderer();
-const renderCache = new Map<string, string>();
-const RENDER_CACHE_LIMIT = 300;
 
 renderer.link = ({ href, title, text }) => {
   const isExternal = href.startsWith('http://') || href.startsWith('https://');
@@ -50,13 +48,6 @@ renderer.table = ({ header, rows }) => {
 
 export function renderMobileMarkdown(content: string): string {
   if (!content) return '';
-  const cached = renderCache.get(content);
-  if (cached !== undefined) {
-    renderCache.delete(content);
-    renderCache.set(content, cached);
-    return cached;
-  }
-
   const rawHtml = marked.parse(content, {
     async: false,
     breaks: true,
@@ -112,12 +103,6 @@ export function renderMobileMarkdown(content: string): string {
       'value',
     ],
   });
-  renderCache.set(content, sanitized);
-  while (renderCache.size > RENDER_CACHE_LIMIT) {
-    const oldest = renderCache.keys().next().value;
-    if (oldest === undefined) break;
-    renderCache.delete(oldest);
-  }
   return sanitized;
 }
 

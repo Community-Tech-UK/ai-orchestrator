@@ -361,6 +361,15 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * plan window as overage could wedge a loop with no way out.
    */
   loopAllowProviderOverage: boolean;
+  /**
+   * When true, a *regular* (non-loop) interactive session may keep taking
+   * turns while paid overage/credits are being consumed (Claude extra usage),
+   * instead of stopping when the subscription window refuses requests.
+   * Default OFF: a session that keeps working through a rejected usage window
+   * silently bills API-priced overage — the loop equivalent of this policy
+   * (`loopAllowProviderOverage`) is likewise off by default.
+   */
+  sessionAllowProviderOverage: boolean;
   /** Enable early warnings when known quota windows are consumed ahead of time. */
   quotaPacingWarningEnabled: boolean;
   /** Utilization percentage that begins an ahead-of-window pacing warning. */

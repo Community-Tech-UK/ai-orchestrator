@@ -546,6 +546,66 @@ describe('AutomationRunner thread wakeups', () => {
     }));
   });
 
+  it('skips an automatically resolved provider excluded from automation before dispatch', async () => {
+    const automation = makeAutomation({
+      destination: { kind: 'newInstance' },
+      action: { prompt: 'Do the thing', workingDirectory: '/repo/current', provider: 'auto' },
+    });
+    const skippedRun = { ...makeRun(), status: 'skipped' as const, finishedAt: 2_000 };
+    vi.mocked(store.get).mockResolvedValue(automation);
+    vi.mocked(store.decideAndInsertRun).mockReturnValue({
+      kind: 'skipped', run: skippedRun,
+      reason: 'Resolved provider codex is excluded from automation',
+    });
+    const runner = new AutomationRunner(
+      store, undefined, () => 2_000, threadWakeupFactory, undefined, undefined,
+      () => ({
+        automationDefaultCli: 'auto', automationDefaultModel: '',
+        modelPickerFavorites: ['codex:gpt-5.4'],
+      }),
+      provider => provider === 'codex',
+    );
+    runner.initialize(manager);
+
+    await expect(runner.fire('automation-1', {
+      trigger: 'manual', idempotencyKey: 'mobile-run-1',
+    })).resolves.toMatchObject({ status: 'skipped', run: { id: 'run-1' } });
+    expect(store.decideAndInsertRun).toHaveBeenCalledWith(
+      automation, 'manual', 2_000, 2_000,
+      expect.objectContaining({
+        idempotencyKey: 'mobile-run-1',
+        preflightSkipReason: 'Resolved provider codex is excluded from automation',
+      }),
+    );
+    expect(manager.createInstance).not.toHaveBeenCalled();
+  });
+
+  it('keeps an explicitly pinned excluded provider available as an operator choice', async () => {
+    const automation = makeAutomation({
+      destination: { kind: 'newInstance' },
+      action: { prompt: 'Do the thing', workingDirectory: '/repo/current', provider: 'codex' },
+    });
+    const run = makeRun();
+    run.configSnapshot = { ...run.configSnapshot!, destination: { kind: 'newInstance' }, action: automation.action };
+    vi.mocked(store.get).mockResolvedValue(automation);
+    vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+    manager.createInstance.mockResolvedValue({ id: 'explicit-codex', outputBuffer: [], status: 'working' });
+    const runner = new AutomationRunner(
+      store, undefined, () => 2_000, threadWakeupFactory, undefined, undefined,
+      () => ({ automationDefaultCli: 'auto', automationDefaultModel: '', modelPickerFavorites: [] }),
+      () => true,
+    );
+    runner.initialize(manager);
+
+    await runner.fire('automation-1', { trigger: 'manual' });
+
+    expect(store.decideAndInsertRun).toHaveBeenCalledWith(
+      automation, 'manual', 2_000, 2_000,
+      expect.not.objectContaining({ preflightSkipReason: expect.anything() }),
+    );
+    expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({ provider: 'codex' }));
+  });
+
   describe('hidden automation provenance', () => {
     function newInstanceRun(hidden?: boolean): AutomationRun {
       const run = makeRun();

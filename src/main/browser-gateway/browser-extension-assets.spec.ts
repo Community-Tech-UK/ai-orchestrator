@@ -164,6 +164,7 @@ describe('browser extension assets', () => {
     '0.2.33': '9204adfa79c2',
     '0.2.34': '8393decbfb72',
     '0.2.35': 'a7bb39633b15',
+    '0.2.36': 'aec2ae55e31a',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -873,6 +874,197 @@ describe('browser extension assets', () => {
       type: 'command_result',
       commandId: 'relay-command-1',
     }));
+  });
+
+  // Regression for the "polling without executing" wedge (windows-pc,
+  // 2026-09-25). A command whose execution rejected OUTSIDE runBrowserCommand's
+  // try left the module-scope commandChain rejected. From then on every later
+  // command was skipped without running while the poll loop carried on, so the
+  // channel reported "polling 2s ago" and every command timed out. That state
+  // lives in the MV3 service worker, so restarting the worker relay could not
+  // clear it — only reloading the extension in chrome://extensions could.
+  it('keeps executing commands after one fails before its error reporter', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayBridge = harness.bridges.find((candidate) => candidate.hostName === RELAY_HOST_NAME)!;
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+
+    // The state-changing branch of applySecretObservationProtectionEnabled
+    // writes through the shared secret-observation boundary. Rejecting that
+    // write reproduces the throw that used to escape runBrowserCommand before
+    // its try existed.
+    harness.chrome.storage.local.set.mockImplementation(async (values: Record<string, unknown>) => {
+      if (values && 'browserSecretObservationProtectionEnabled' in values) {
+        throw new Error('storage write failed');
+      }
+      return undefined;
+    });
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'cmd-that-throws',
+        command: 'snapshot',
+        target: { tabId: 42 },
+        payload: { secretObservationProtectionEnabled: false },
+      },
+    });
+    await flushPromises();
+
+    // The failure is reported to the gateway rather than vanishing...
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'cmd-that-throws',
+      ok: false,
+    }));
+    // ...and the bridge does not sit with a stuck in-flight poll, which would
+    // stop it polling altogether.
+    expect(relayBridge.pollInFlight).toBe(false);
+    relayPort.postMessage.mockClear();
+
+    // The property that was lost: the NEXT command still executes.
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'cmd-after',
+        command: 'snapshot',
+        target: { tabId: 42 },
+      },
+    });
+    await flushPromises();
+
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'cmd-after',
+      ok: true,
+    }));
+  });
+
+  // The terminal catch on the shared commandChain is the last line of defence
+  // and must itself be total: if it throws, the chain is left rejected and every
+  // later command is skipped. It must also still re-arm the bridge's next poll —
+  // losing that re-arm strands the bridge until the 30s inventory alarm, a
+  // degraded echo of the failure class being fixed.
+  //
+  // The escape is forced at the zero-delay re-arm timer, which is both what can
+  // still throw out of runBrowserCommand's finally and what must not be lost.
+  it('survives a command path that throws from its finally after reporting', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayBridge = harness.bridges.find((candidate) => candidate.hostName === RELAY_HOST_NAME)!;
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+
+    let zeroDelaySchedules = 0;
+    harness.timers.setTimeout.mockImplementation((fn: unknown, delayMs: number) => {
+      if (delayMs === 0) {
+        zeroDelaySchedules += 1;
+        throw new Error('timer scheduling unavailable');
+      }
+      return 0;
+    });
+    // Also throw from the status write, which is what previously cost the bridge
+    // its re-arm (it sat before the re-arm, so its throw skipped it entirely).
+    // persistBridgeStatus is total now, so this must be absorbed and must not
+    // stop the re-arm from being attempted.
+    harness.chrome.action.setBadgeText.mockImplementation(() => {
+      throw new Error('action.setBadgeText unavailable');
+    });
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'cmd-then-throw',
+        command: 'snapshot',
+        target: { tabId: 42 },
+      },
+    });
+    await flushPromises();
+
+    // The command still reported its own result before the finally threw...
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'cmd-then-throw',
+      ok: true,
+    }));
+    expect(relayBridge.pollInFlight).toBe(false);
+    // ...and the re-arm was ATTEMPTED twice: once from runBrowserCommand's
+    // finally and once from the terminal catch. Both are zero-delay by design,
+    // so this pins that the recovery path re-arms before any best-effort work
+    // instead of dropping it.
+    expect(zeroDelaySchedules).toBe(2);
+    relayPort.postMessage.mockClear();
+
+    harness.timers.setTimeout.mockImplementation(() => 0);
+
+    // ...and the NEXT command still runs. Before the chain was fenced this was
+    // skipped without running, because the shared chain stayed rejected.
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'cmd-after-escape',
+        command: 'snapshot',
+        target: { tabId: 42 },
+      },
+    });
+    await flushPromises();
+
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'cmd-after-escape',
+      ok: true,
+    }));
+  });
+
+  // The terminal catch can be the ONLY reporter for a command. Its failure text
+  // must therefore go through the same sanitisation as runBrowserCommand's own
+  // failure path: a tainted tab can mirror a vault value into a thrown message.
+  // Note the fixed credential branch of browserCommandErrorMessage does NOT
+  // cover this — it returns before the taint flag is consulted — so passing a
+  // credential-write predicate there is a no-op and a non-credential command on
+  // a tainted tab is exactly the case that must use the real taint state.
+  it('sanitises the terminal failure report for a tainted tab', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+
+    await harness.markSecretTaint(42, 'https://example.test');
+
+    harness.timers.setTimeout.mockImplementation((fn: unknown, delayMs: number) => {
+      if (delayMs === 0) {
+        throw new Error('page echoed the vault value: TEST_ONLY_SECRET');
+      }
+      return 0;
+    });
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'tainted-cmd',
+        command: 'snapshot',
+        target: { tabId: 42 },
+      },
+    });
+    await flushPromises();
+
+    const results = relayPort.postMessage.mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>)
+      .filter((message) => message['type'] === 'command_result'
+        && message['commandId'] === 'tainted-cmd');
+    // The command's own catch reports first (with the guard's fixed text); the
+    // terminal catch reports afterwards. Neither may carry the raw throwable.
+    expect(results.length).toBeGreaterThan(0);
+    for (const result of results) {
+      expect(JSON.stringify(result)).not.toContain('TEST_ONLY_SECRET');
+    }
+    // The terminal catch's report specifically must use the sanitised fixed
+    // text. This is the one the credential branch does NOT cover.
+    const terminal = results[results.length - 1];
+    expect(terminal['error']).toBe(
+      'secret_tainted_command_failed_or_may_have_applied_DO_NOT_retry_without_user_verification',
+    );
   });
 
   it('does not treat native-host acknowledgements as poll responses', async () => {

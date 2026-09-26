@@ -2,6 +2,7 @@ import { signal, untracked } from '@angular/core';
 import { IDLE_LOAD, LOADING, LOADED, failedLoad, type MobileLoadState } from './gateway-request-state';
 import { findOptimisticUserEchoIndex } from './mobile-optimistic-echo';
 import type { MobileMessageDto, MobileMessagesResumeDto } from './models';
+import { buildDisplayItems } from '../shared/transcript-items';
 
 export interface MobileOutputCursor {
   legacySeq: number;
@@ -25,6 +26,15 @@ interface TranscriptCursorState {
   adapterGeneration?: number;
 }
 
+interface OlderMessagesState {
+  beforeSeq: number;
+  /** End of known authoritative coverage, independent of newer live frames. */
+  throughSeq: number;
+  generation: TranscriptCursorState | undefined;
+  hasMore: boolean;
+  state: MobileLoadState;
+}
+
 /** Host-scoped live transcripts and their per-instance replay/load state. */
 export class TranscriptStore {
   private readonly _transcripts = signal<Record<string, MobileMessageDto[]>>({});
@@ -33,6 +43,7 @@ export class TranscriptStore {
   private readonly liveMessageStreamSeq = new Map<string, Map<string, number>>();
   private readonly resumeFrom = new Map<string, number>();
   private readonly messageLoads = new Map<string, number>();
+  private readonly older = signal<Record<string, OlderMessagesState>>({});
 
   readonly transcripts = this._transcripts.asReadonly();
 
@@ -43,6 +54,7 @@ export class TranscriptStore {
     this.liveMessageStreamSeq.clear();
     this.resumeFrom.clear();
     this.messageLoads.clear();
+    this.older.set({});
   }
 
   messagesFor(instanceId: string): MobileMessageDto[] {
@@ -51,6 +63,57 @@ export class TranscriptStore {
 
   messageStateFor(instanceId: string): MobileLoadState {
     return this._messageStates()[instanceId] ?? IDLE_LOAD;
+  }
+
+  hasEarlierFor(instanceId: string): boolean { return this.older()[instanceId]?.hasMore ?? false; }
+  earlierStateFor(instanceId: string): MobileLoadState { return this.older()[instanceId]?.state ?? IDLE_LOAD; }
+
+  /** Older pages never move the live/reconnect watermark backwards. */
+  async loadEarlier(
+    instanceId: string,
+    request: (beforeSeq: number) => Promise<MobileMessagesResumeDto>,
+    isCurrent: () => boolean,
+  ): Promise<void> {
+    const initial = this.older()[instanceId];
+    if (!initial?.hasMore || initial.state.status === 'loading') return;
+    const load = this.messageLoads.get(instanceId);
+    const state = { ...initial, state: LOADING };
+    this.older.update(all => ({ ...all, [instanceId]: state }));
+    const current = () => isCurrent() && this.messageLoads.get(instanceId) === load && this.older()[instanceId] === state;
+    let beforeSeq = initial.beforeSeq;
+    let hasMore = true;
+    const additions: MobileMessageDto[] = [];
+    const existing = this.messagesFor(instanceId);
+    const existingItems = buildDisplayItems(existing).length;
+    try {
+      // Two 100-entry pages normally supply the next 150 display items. Hidden
+      // records may need further requests; each response must advance the cursor.
+      while (hasMore && buildDisplayItems([...additions, ...existing]).length - existingItems < 150) {
+        const page = await request(beforeSeq);
+        if (!current()) return;
+        if (fullPayloadConflicts(this.cursors.get(instanceId), page.meta)) {
+          throw new Error('The transcript changed while loading earlier messages. Refresh the conversation.');
+        }
+        const next = page.meta.nextBeforeSeq ?? page.messages[0]?.seq ?? beforeSeq;
+        if (page.meta.hasMore && next >= beforeSeq) throw new Error('Earlier messages did not advance. Try refreshing the conversation.');
+        additions.unshift(...page.messages);
+        beforeSeq = next;
+        hasMore = page.meta.hasMore;
+      }
+      this._transcripts.update(all => ({ ...all, [instanceId]: mergeMessages(additions, all[instanceId] ?? []) }));
+      this.older.update(all => ({ ...all, [instanceId]: { ...initial, beforeSeq, hasMore, state: LOADED } }));
+    } catch (error) {
+      if (current()) this.older.update(all => ({ ...all, [instanceId]: { ...initial, state: failedLoad(error) } }));
+    } finally {
+      // Replay can supersede this request without replacing the older-page
+      // state. Release only the state object owned by this request: a dropped
+      // or reloaded instance (or a newer request) must remain untouched.
+      this.older.update(all => all[instanceId] === state
+        ? { ...all, [instanceId]: { ...initial, state: failedLoad(new Error(
+          'The conversation refreshed while loading earlier messages. Try again.',
+        )) } }
+        : all);
+    }
   }
 
   /** Apply a live frame and say whether the client needs replay or a full reset. */
@@ -135,6 +198,7 @@ export class TranscriptStore {
     this.liveMessageStreamSeq.delete(instanceId);
     this.resumeFrom.delete(instanceId);
     this.messageLoads.delete(instanceId);
+    this.older.update(all => { const next = { ...all }; delete next[instanceId]; return next; });
     this._messageStates.update((states) => {
       const next = { ...states };
       delete next[instanceId];
@@ -159,7 +223,7 @@ export class TranscriptStore {
         () => isCurrent() && this.messageLoads.get(instanceId) === load,
       );
       if (!payload) return;
-      const messages = Array.isArray(payload) ? payload : payload.messages;
+      const messages = this.fullMessagesWithEarlier(instanceId, payload);
       const merged = mergeMessages(
         messages,
         this.messagesFor(instanceId).filter((message) =>
@@ -206,7 +270,7 @@ export class TranscriptStore {
           transition,
         );
         if (!payload) return;
-        const messages = Array.isArray(payload) ? payload : payload.messages;
+        const messages = this.fullMessagesWithEarlier(instanceId, payload);
         const merged = mergeMessages(
           messages,
           this.messagesFor(instanceId).filter((message) =>
@@ -241,6 +305,30 @@ export class TranscriptStore {
       return;
     }
     current.bufferIndex = Math.max(current.bufferIndex ?? value, value);
+  }
+
+  private fullMessagesWithEarlier(instanceId: string, payload: FullTranscriptPayload): MobileMessageDto[] {
+    const messages = Array.isArray(payload) ? payload : payload.messages;
+    const previous = this.older()[instanceId];
+    const nextBeforeSeq = Array.isArray(payload) ? messages[0]?.seq ?? 0 : payload.meta.nextBeforeSeq ?? messages[0]?.seq ?? 0;
+    // A live cursor (or isolated live message) may have jumped over missing
+    // output. Only the prior authoritative range can prove that its prefix
+    // reaches this capped snapshot. Otherwise restart paging at the new window.
+    const compatible = !Array.isArray(payload) && previous?.generation &&
+      sameGeneration(previous.generation, payload.meta) && nextBeforeSeq <= previous.throughSeq + 1;
+    const prefix = compatible ? this.messagesFor(instanceId).filter(message => message.seq !== undefined && message.seq < nextBeforeSeq) : [];
+    this.older.update(all => ({ ...all, [instanceId]: {
+      beforeSeq: prefix.length && previous ? previous.beforeSeq : nextBeforeSeq,
+      throughSeq: Array.isArray(payload) ? messages.at(-1)?.seq ?? -1 : payload.meta.maxSeq,
+      generation: Array.isArray(payload) ? undefined : {
+        bufferGeneration: payload.meta.bufferGeneration,
+        cursorEpoch: payload.meta.cursorEpoch,
+        adapterGeneration: payload.meta.adapterGeneration,
+      },
+      hasMore: prefix.length && previous ? previous.hasMore : Array.isArray(payload) ? nextBeforeSeq > 0 : payload.meta.hasMore,
+      state: LOADED,
+    } }));
+    return prefix.length ? [...prefix, ...messages] : messages;
   }
 
   private updateReplayCursor(instanceId: string, meta: MobileMessagesResumeDto['meta']): void {
@@ -354,6 +442,7 @@ function fullPayloadConflicts(
   cursor: TranscriptCursorState | undefined,
   meta: MobileMessagesResumeDto['meta'],
 ): boolean {
+  if (!cursor) return false;
   return generationChanged(cursor?.bufferGeneration, meta.bufferGeneration) ||
     cursorEpochChanged(cursor?.cursorEpoch, meta.cursorEpoch) ||
     generationChanged(cursor?.adapterGeneration, meta.adapterGeneration);

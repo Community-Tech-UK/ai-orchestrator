@@ -1,0 +1,89 @@
+{
+  "label": "baseline",
+  "viewport": "390x844",
+  "cpuThrottle": 4,
+  "messagesRendered": 1000,
+  "initialScriptingMs": 557.14,
+  "appends": [
+    {
+      "appendMs": 0.800000011920929,
+      "scriptingMs": 214.55800000000002
+    },
+    {
+      "appendMs": 0.19999998807907104,
+      "scriptingMs": 236.88500000000002
+    },
+    {
+      "appendMs": 0.09999999403953552,
+      "scriptingMs": 264.0469999999999
+    },
+    {
+      "appendMs": 0,
+      "scriptingMs": 216.96700000000013
+    },
+    {
+      "appendMs": 0.10000002384185791,
+      "scriptingMs": 215.75999999999996
+    },
+    {
+      "appendMs": 0.10000002384185791,
+      "scriptingMs": 241.70199999999986
+    },
+    {
+      "appendMs": 0.09999999403953552,
+      "scriptingMs": 219.96600000000032
+    },
+    {
+      "appendMs": 0,
+      "scriptingMs": 225.64199999999968
+    },
+    {
+      "appendMs": 0.19999998807907104,
+      "scriptingMs": 242.4550000000001
+    },
+    {
+      "appendMs": 0.699999988079071,
+      "scriptingMs": 236.17700000000008
+    },
+    {
+      "appendMs": 0.10000002384185791,
+      "scriptingMs": 223.21999999999997
+    },
+    {
+      "appendMs": 0.09999999403953552,
+      "scriptingMs": 254.343
+    },
+    {
+      "appendMs": 0.5999999940395355,
+      "scriptingMs": 246.86599999999981
+    },
+    {
+      "appendMs": 0,
+      "scriptingMs": 242.1540000000002
+    },
+    {
+      "appendMs": 0,
+      "scriptingMs": 243.33199999999965
+    },
+    {
+      "appendMs": 0.09999999403953552,
+      "scriptingMs": 230.51200000000006
+    },
+    {
+      "appendMs": 0.09999999403953552,
+      "scriptingMs": 225.26000000000045
+    },
+    {
+      "appendMs": 0.19999998807907104,
+      "scriptingMs": 239.15400000000008
+    },
+    {
+      "appendMs": 0,
+      "scriptingMs": 215.6880000000001
+    },
+    {
+      "appendMs": 0,
+      "scriptingMs": 216.56599999999938
+    }
+  ]
+}

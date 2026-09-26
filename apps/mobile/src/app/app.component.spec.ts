@@ -12,6 +12,7 @@ import { LiveActivityService } from './core/live-activity.service';
 import { PushService } from './core/push.service';
 import { ResumeService } from './core/resume.service';
 import type { MobilePromptDto, MobileSnapshot, PairedHost } from './core/models';
+import { NeedsYouStore } from './features/inbox/needs-you.store';
 
 const PROMPT: MobilePromptDto = { id: 'prompt-a', instanceId: 'session-a', requestId: 'request-a', kind: 'permission', toolName: 'Edit', title: 'Review edit', message: 'Update the file', createdAt: 1 };
 const HOST: PairedHost = { id: 'host-a', name: 'Preview host', host: 'preview.invalid', token: 'PLACEHOLDER', port: 8899, addedAt: 0 };
@@ -33,6 +34,7 @@ function setup() {
     retryNotificationRouting: vi.fn(),
     openEndedSessionHistory: vi.fn(), openEndedSessionProjects: vi.fn(),
   };
+  const needsYou = { init: vi.fn() };
   const snapshot = signal<MobileSnapshot>({
     hostName: HOST.name, serverTime: 1, projects: [], prompts: [PROMPT],
     pause: { isPaused: false, reasons: [], pausedAt: null, lastChange: 0 },
@@ -47,6 +49,7 @@ function setup() {
     { provide: LiveActivityService, useValue: { init: vi.fn() } },
     { provide: PushService, useValue: push },
     { provide: ResumeService, useValue: { restore: vi.fn() } },
+    { provide: NeedsYouStore, useValue: needsYou },
   ] });
   // Keep the real app template/store; child rendering has its own contract tests.
   TestBed.overrideComponent(AppComponent, { set: { imports: [], schemas: [NO_ERRORS_SCHEMA] } });
@@ -55,11 +58,18 @@ function setup() {
   fixture.detectChanges();
   return {
     fixture, store, prompts, activeHost, dataHostId, respond, navigate, push,
-    endedSession, unknownHost, hostUnavailable,
+    endedSession, unknownHost, hostUnavailable, needsYou,
   };
 }
 
 describe('AppComponent approval wiring', () => {
+  it('starts cross-host attention probes after host storage has loaded', async () => {
+    const { needsYou } = setup();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(needsYou.init).toHaveBeenCalledOnce();
+  });
+
   it('offers History and Projects when a push targets an ended session', () => {
     const { fixture, push, endedSession } = setup();
     endedSession.set(true);

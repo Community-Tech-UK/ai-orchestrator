@@ -55,6 +55,12 @@
   }
 
   <app-transcript-view
+    [transcriptKey]="transcriptKey()"
+    [hasEarlier]="hasEarlier()"
+    [earlierLoading]="earlierState().status === 'loading'"
+    [earlierError]="earlierState().error"
+    [earlierDisabled]="!online()"
+    (loadEarlier)="loadEarlier()"
     [messages]="messages()"
     [state]="transcriptState()"
     [emptyText]="emptyTranscript()"
@@ -65,6 +71,7 @@
   <app-conversation-composer
     [instanceId]="instanceId()"
     [activityLabel]="activityLabel()"
+    [status]="instance()?.status ?? ''"
     [working]="working()"
     [stopping]="stopping()"
   />

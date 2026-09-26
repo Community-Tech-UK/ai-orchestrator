@@ -113,6 +113,7 @@ import type {
 } from '@contracts/types/provider-runtime-events';
 import { buildProviderRuntimeEventIngress } from './instance-provider-event-ingress';
 import { observeToolLoopEvent as observeToolLoopEventWiring, resolveToolLoopWiringDeps, type ToolLoopWiringDeps } from './instance-tool-loop-wiring';
+import { configureUsageOverageStop } from './instance-usage-overage-wiring';
 import { toProviderOutputEvent } from '../providers/provider-output-event';
 import { toJsonSafeProviderEventPayload } from '../providers/provider-event-raw-payload';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
@@ -239,6 +240,17 @@ export class InstanceManager extends EventEmitter {
       getAutoInterruptSetting: () => this.settings.get('toolLoopAutoInterrupt'),
       interruptInstance: (instanceId) => this.interruptInstance(instanceId, 'tool-loop-auto'),
     }, injectedToolLoopDeps);
+
+    // Session usage-overage stop: live CLI telemetry that says the subscription
+    // window is refused (e.g. the Claude 5-hour limit) or paid overage is being
+    // consumed stops the session instead of quietly billing API-priced overage.
+    configureUsageOverageStop({
+      getAllowOverageSetting: () => this.settings.get('sessionAllowProviderOverage') === true,
+      interruptInstance: (instanceId) => this.interruptInstance(instanceId, 'usage-overage'),
+      holdOnUsageLimit: (instanceId, signal) => getInstanceProviderLimitHandler().maybeParkOnUsageLimit({
+        instanceId, resetAtHint: signal.resetAtHint, reason: signal.reason,
+      }),
+    });
 
     // Initialize the warm-start manager. The spawnAdapter callback creates a
     // fresh adapter for the given provider and immediately spawns it so that

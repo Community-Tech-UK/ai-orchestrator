@@ -59,6 +59,19 @@
 .composer textarea::placeholder { color: var(--text-tertiary); }
 .composer-shortcut { margin: 0; color: var(--text-secondary); font-size: var(--font-size-sm); }
 
+.composer-steer {
+  min-height: var(--control-size);
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--accent-action);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+.composer-steer:disabled { color: var(--text-secondary); }
+.composer-steer:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
 .composer-toolbar {
   display: flex;
   min-height: var(--control-size);

@@ -131,6 +131,9 @@ export function previewPairingCode(host, port) {
 
 export async function createPreviewHost(options = {}) {
   const fixture = await loadPreviewFixture();
+  if (options.hostName) fixture.snapshot.hostName = options.hostName;
+  const previewHostName = fixture.snapshot.hostName;
+  let previewDeviceId = options.deviceId ?? null;
   const state = createFixtureState(fixture, options.scenario);
   const timers = new Set();
   const wss = new WebSocketServer({ noServer: true });
@@ -150,11 +153,14 @@ export async function createPreviewHost(options = {}) {
       return;
     }
     if (url.pathname === '/health') {
-      sendJson(response, 200, { ok: true, scenario: state.scenario });
+      sendJson(response, state.scenario === 'offline' ? 503 : 200, {
+        ok: state.scenario !== 'offline', scenario: state.scenario,
+      });
       return;
     }
     if (url.pathname === '/__preview/scenario') {
       const selected = state.setScenario(requestedScenario ?? 'default');
+      broadcast(wss.clients, { type: 'quota-state', data: state.quota() });
       sendJson(response, 200, { scenario: selected });
       return;
     }
@@ -171,9 +177,9 @@ export async function createPreviewHost(options = {}) {
         return;
       }
       sendJson(response, 200, {
-        deviceId: 'preview-device',
+        deviceId: previewDeviceId,
         token: PREVIEW_DEVICE_TOKEN,
-        hostName: 'Harness Preview',
+        hostName: previewHostName,
         expiresAt: Date.now() + 24 * 60 * 60 * 1000,
       });
       return;
@@ -188,9 +194,17 @@ export async function createPreviewHost(options = {}) {
       return;
     }
 
+    if (state.scenario === 'stale-probe'
+      && method === 'GET'
+      && (url.pathname === '/api/prompts' || url.pathname === '/api/snapshot')) {
+      await new Promise((resolve) => setTimeout(resolve, options.attentionDelayMs ?? 250));
+    }
+
     const segments = url.pathname.split('/').filter(Boolean);
     try {
       if (url.pathname === '/api/snapshot' && method === 'GET') return sendJson(response, 200, state.snapshot());
+      if (url.pathname === '/api/quota' && method === 'GET') return sendJson(response, 200, state.quota());
+      if (url.pathname === '/api/automations' && method === 'GET') return sendJson(response, 200, state.automations());
       if (url.pathname === '/api/instances' && method === 'GET') return sendJson(response, 200, state.instances());
       if (url.pathname === '/api/projects' && method === 'GET') return sendJson(response, 200, state.projects());
       if (url.pathname === '/api/prompts' && method === 'GET') return sendJson(response, 200, state.prompts());
@@ -204,6 +218,15 @@ export async function createPreviewHost(options = {}) {
         const pause = state.setPause(body.paused);
         broadcast(wss.clients, { type: 'pause-state', data: pause });
         return sendJson(response, 200, pause);
+      }
+      if (segments[1] === 'automations' && segments.length === 4 && segments[3] === 'run' && method === 'POST') {
+        const id = decodeURIComponent(segments[2]);
+        const body = await readJson(request);
+        if (!id || id.length > 100 || typeof body.idempotencyKey !== 'string'
+          || !body.idempotencyKey.trim() || body.idempotencyKey.length > 500) {
+          return sendJson(response, 400, { error: 'A valid automation id and idempotencyKey are required' });
+        }
+        return sendJson(response, 200, state.runAutomation(id, body.idempotencyKey.trim()));
       }
       if (url.pathname === '/api/session-plan' && method === 'GET') {
         return sendJson(response, 200, state.sessionPlan(
@@ -328,6 +351,7 @@ export async function createPreviewHost(options = {}) {
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Preview host did not bind a TCP port');
   const publicHost = options.publicHost ?? '127.0.0.1';
+  previewDeviceId ??= `preview-device-${publicHost.replace(/[^a-z0-9]+/gi, '-')}-${address.port}`;
 
   return {
     baseUrl: `http://${publicHost}:${address.port}`,

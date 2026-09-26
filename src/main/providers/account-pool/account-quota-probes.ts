@@ -61,8 +61,16 @@ export class ThrottledAccountQuotaProbe implements ProviderQuotaProbe {
     if (!opts.force && this.lastRunAt > 0 && now - this.lastRunAt < this.minIntervalMs()) {
       return null;
     }
+    // Stamp at entry so overlapping refreshes stay serialized within the
+    // window; a thrown attempt resets it so the service's retryWithBackoff can
+    // retry immediately instead of being throttled into a silent null.
     this.lastRunAt = now;
-    return this.inner.probe(opts);
+    try {
+      return await this.inner.probe(opts);
+    } catch (err) {
+      this.lastRunAt = 0;
+      throw err;
+    }
   }
 }
 

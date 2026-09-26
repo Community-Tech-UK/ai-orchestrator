@@ -323,6 +323,59 @@ describe('WorkerExtensionRelay', () => {
     })).resolves.toBeNull();
   });
 
+  // Regression: windows-pc 2026-09-25 20:01. A tab-inventory flood exhausted the
+  // coordinator's shared rate budget, so `browser.ext.pollCommand` came back as
+  // `browser_extension_relay_rate_limited`. Returning `null` for that made the
+  // extension treat a refused poll as a healthy idle poll and re-issue it 250ms
+  // later, driving into the same rejection while queued commands timed out —
+  // with the channel still reporting "polling 2s ago". A coordinator refusal must
+  // surface so the extension's poll-error path backs the poll off instead.
+  it('surfaces a coordinator rejection on poll instead of calling it an empty queue', async () => {
+    const sendRequest = vi.fn(async () => {
+      throw new Error(
+        'RPC error -32603: browser_extension_relay_rate_limited:node-1:control',
+      );
+    });
+    const relay = new WorkerExtensionRelay({
+      config: {
+        enabled: true,
+        socketPath: '/tmp/aio-extension-relay.sock',
+        extensionToken: 'extension-token',
+      },
+      sendRequest,
+    });
+
+    await expect(relay.handleExtensionRpcRequest({
+      method: 'browser.extension_poll_command',
+      params: {
+        extensionToken: 'extension-token',
+        payload: { timeoutMs: 1000 },
+      },
+    })).rejects.toThrow('browser_extension_relay_rate_limited');
+  });
+
+  it('still reports an empty queue when the poll merely timed out', async () => {
+    const sendRequest = vi.fn(async () => {
+      throw new Error('worker_request_timeout:browser.ext.pollCommand');
+    });
+    const relay = new WorkerExtensionRelay({
+      config: {
+        enabled: true,
+        socketPath: '/tmp/aio-extension-relay.sock',
+        extensionToken: 'extension-token',
+      },
+      sendRequest,
+    });
+
+    await expect(relay.handleExtensionRpcRequest({
+      method: 'browser.extension_poll_command',
+      params: {
+        extensionToken: 'extension-token',
+        payload: { timeoutMs: 1000 },
+      },
+    })).resolves.toBeNull();
+  });
+
   it('forwards command-result RPC without passing the extension token upstream', async () => {
     const { relay, sendRequest } = makeRelay();
 

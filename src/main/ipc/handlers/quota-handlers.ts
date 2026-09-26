@@ -21,7 +21,7 @@ import {
 import { getProviderQuotaService } from '../../core/system/provider-quota-service';
 import type { WindowManager } from '../../window-manager';
 import { getNotificationService, type NotificationInput } from '../../notifications/notification-service';
-import type { ProviderQuotaPacingAlert } from '../../../shared/types/provider-quota.types';
+import type { ProviderQuotaPacingAlert, ProviderQuotaSnapshot } from '../../../shared/types/provider-quota.types';
 
 /**
  * Fable WS2 Task 4: an early pacing warning is operator-actionable ("this
@@ -39,6 +39,24 @@ export function buildQuotaPacingNotification(alert: ProviderQuotaPacingAlert): N
       `${Math.round(alert.elapsedPercent)}% of the window elapsed — on pace to exhaust before reset.`,
     urgency: 'normal',
     fingerprintFields: { provider: alert.provider, windowId: alert.window.id },
+  };
+}
+
+/**
+ * An expired provider login while cached usage bars are still on screen is
+ * actionable exactly once — when the login first expires. Pure builder,
+ * exported for the spec; the transition tracking lives in the listener.
+ */
+export function buildQuotaReauthNotification(snapshot: ProviderQuotaSnapshot): NotificationInput {
+  return {
+    kind: 'quota-reauth',
+    title: `${snapshot.provider} usage numbers are stale`,
+    body: `${snapshot.error ?? 'Sign in again to refresh usage numbers'} Cached figures stay marked until then.`,
+    urgency: 'normal',
+    fingerprintFields: {
+      provider: snapshot.provider,
+      accountProfileId: snapshot.accountProfileId ?? null,
+    },
   };
 }
 
@@ -184,8 +202,25 @@ export function registerQuotaHandlers(deps: {
   // Event Forwarding to Renderer
   // ============================================
 
-  quotaService.on('quota-updated', (snapshot) => {
+  // Reauth notification fires on the expired-login TRANSITION only (not on
+  // every refresh of a stale snapshot), keyed per provider/account.
+  const reauthActive = new Set<string>();
+  quotaService.on('quota-updated', (snapshot: ProviderQuotaSnapshot) => {
     deps.windowManager.sendToRenderer(IPC_CHANNELS.QUOTA_UPDATED, snapshot);
+    const key = snapshot.accountProfileId
+      ? `${snapshot.provider}:${snapshot.accountProfileId}`
+      : snapshot.provider;
+    if (snapshot.needsReauth === true) {
+      if (reauthActive.has(key)) return;
+      reauthActive.add(key);
+      try {
+        getNotificationService().notify(buildQuotaReauthNotification(snapshot));
+      } catch {
+        // Notification failure must never break quota event forwarding.
+      }
+    } else {
+      reauthActive.delete(key);
+    }
   });
 
   quotaService.on('quota-warning', (alert) => {

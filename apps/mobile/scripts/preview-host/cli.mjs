@@ -29,7 +29,7 @@ console.log('\nHarness mobile preview');
 console.log(`Open: ${preview.baseUrl}/?scenario=${preview.scenario()}`);
 console.log('Paste this connection code in Add host:');
 console.log(preview.pairingCode);
-console.log('Scenarios: default, streaming, gap, disconnect, 401, transcript-1000\n');
+console.log('Scenarios: default, streaming, gap, disconnect, 401, empty-inbox, offline, stale-probe, transcript-1000\n');
 
 let stopping = false;
 async function stop(exitCode = 0) {

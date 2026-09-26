@@ -301,12 +301,16 @@ export class ProviderQuotaService extends EventEmitter {
   /**
    * Refresh the provider-level probe and every pool-account probe for that
    * provider. The title-bar chip's per-provider Refresh uses this so a second
-   * Claude/Codex account is not left stale.
+   * Claude/Codex account is not left stale. User-initiated: `force` bypasses
+   * probe throttles (e.g. the OpenCode console-API cooldown) so the button
+   * always answers with fresh numbers.
    */
   async refreshProviderFamily(provider: ProviderId): Promise<ProviderQuotaSnapshot | null> {
     const probes = [...this.probes.values()].filter((probe) => probe.provider === provider);
-    if (probes.length === 0) return this.refresh(provider);
-    const results = await Promise.all(probes.map((probe) => this.refresh(probe.provider, probe.accountProfileId)));
+    if (probes.length === 0) return this.refresh(provider, null, { force: true });
+    const results = await Promise.all(
+      probes.map((probe) => this.refresh(probe.provider, probe.accountProfileId, { force: true })),
+    );
     return results.find((snap) => snap && !snap.accountProfileId) ?? results.find((snap) => snap) ?? null;
   }
 
@@ -530,8 +534,10 @@ export function knownWindowDurationMs(window: ProviderQuotaWindow): number | nul
 /**
  * Keep last-known usage bars when a later probe cannot produce windows.
  * Token-usage-monitor does the same: it skips an expired Claude token and
- * leaves the previous bars on screen with an older "updated" time, without
- * a reauth alarm.
+ * leaves the previous bars on screen with an older "updated" time. An expired
+ * login is still surfaced on those bars (`needsReauth` + the instruction),
+ * because cached numbers presented as current are exactly the silent staleness
+ * the chip warns about; ordinary transient failures stay quiet.
  */
 export function retainLastKnownQuotaWindows(
   previous: ProviderQuotaSnapshot | null,
@@ -547,8 +553,8 @@ export function retainLastKnownQuotaWindows(
   return {
     ...previous,
     ok: true,
-    needsReauth: false,
-    error: undefined,
+    needsReauth: incoming.needsReauth ?? false,
+    error: incoming.needsReauth ? incoming.error : undefined,
   };
 }
 

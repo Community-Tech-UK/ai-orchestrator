@@ -164,5 +164,27 @@
     "modelLabel": "GPT Preview",
     "reasoningEffort": "high",
     "reasoningEffortLabel": "High"
-  }
+  },
+  "automations": [
+    {
+      "id": "preview-daily-review",
+      "name": "Daily review",
+      "schedule": { "type": "cron", "expression": "0 8 * * *", "timezone": "Europe/London" },
+      "enabled": true,
+      "nextRunAt": 1758873600000,
+      "lastRun": { "status": "succeeded", "at": 1758780000000 },
+      "provider": "codex",
+      "model": "gpt-preview"
+    },
+    {
+      "id": "preview-disabled",
+      "name": "Monthly archive",
+      "schedule": { "type": "oneTime", "runAt": 1759305600000, "timezone": "Europe/London" },
+      "enabled": false,
+      "nextRunAt": null,
+      "lastRun": { "status": "failed", "at": 1758700000000 },
+      "provider": "claude",
+      "model": "sonnet-preview"
+    }
+  ]
 }

@@ -25,7 +25,16 @@ import { getSettingsManager } from '../../config/settings-manager';
 import { getCopilotAccountRoutingService } from '../../../providers/copilot/copilot-account-routing-service';
 import { resolveCopilotProfileHome } from '../../../cli/adapters/copilot/copilot-account-home-resolver';
 import { COPILOT_LEGACY_PROFILE_ID } from '../../../../shared/types/copilot-account.types';
-import { registerAccountQuotaProbes } from '../../../providers/account-pool/account-quota-probes';
+import { registerAccountQuotaProbes, ThrottledAccountQuotaProbe } from '../../../providers/account-pool/account-quota-probes';
+
+/**
+ * The MiMo console quota API is a human-facing meter behind web-session auth.
+ * Polling it every idle tick (~2.9k GETs/day) invited intermittent
+ * 401/403 risk-control rejections (observed 2026-09-24/25), so the OpenCode
+ * probe keeps a five-minute floor. The chip's Refresh button bypasses it via
+ * `force`.
+ */
+export const OPENCODE_QUOTA_PROBE_MIN_INTERVAL_MS = 5 * 60_000;
 
 export { ClaudeUsageEndpointProbe, parseUsagePayload } from './claude-usage-endpoint-probe';
 export type {
@@ -244,9 +253,15 @@ export function registerDefaultQuotaProbes(): void {
       return false;
     }
   };
-  service.registerProbe(new CompositeQuotaProbe(
-    new MimoTokenPlanProbe({ isTokenPlanModel }),
-    gatedUsageMonitor(usageMonitor, isTokenPlanModel),
+  // Throttled at source: the console quota API is a human-facing meter and
+  // per-tick polling only invites risk-control rejections. `force` (the chip's
+  // Refresh button) still answers instantly.
+  service.registerProbe(new ThrottledAccountQuotaProbe(
+    new CompositeQuotaProbe(
+      new MimoTokenPlanProbe({ isTokenPlanModel }),
+      gatedUsageMonitor(usageMonitor, isTokenPlanModel),
+    ),
+    () => OPENCODE_QUOTA_PROBE_MIN_INTERVAL_MS,
   ));
   // Claude/Codex account pools: one probe per non-legacy profile (D6/D7).
   registerAccountQuotaProbes(usageMonitor);

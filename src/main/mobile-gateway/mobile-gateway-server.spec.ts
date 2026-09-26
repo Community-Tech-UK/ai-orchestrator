@@ -52,6 +52,7 @@ class FakeInstanceSource extends EventEmitter implements GatewayInstanceSource {
   sendInput = vi.fn<
     (instanceId: string, message: string, attachments?: FileAttachment[]) => Promise<void>
   >(async () => undefined);
+  steerInput = vi.fn(async () => undefined);
   interruptInstance = vi.fn(() => true);
   terminateInstance = vi.fn(async () => undefined);
   changeModel = vi.fn(async (id: string, model: string) => {
@@ -314,6 +315,8 @@ describe('MobileGatewayServer', () => {
   let registry: MobileDeviceRegistry;
   let pause: FakePause;
   let loopSource: FakeLoopSource;
+  let automationEvents: EventEmitter;
+  let automationFire: ReturnType<typeof vi.fn>;
   let port: number;
 
   function initServer(apnsConfigured = false): { posts: { deviceToken: string; payload: string }[] } {
@@ -325,6 +328,12 @@ describe('MobileGatewayServer', () => {
       recentDirs: fakeRecentDirs,
       apnsSender: sender,
       loopCoordinator: loopSource,
+      automationStore: { list: async () => [], listLatestRuns: () => new Map() },
+      automationRunner: { fire: automationFire } as never,
+      automationEvents: automationEvents as never,
+      automationModelDefaults: () => ({
+        automationDefaultCli: 'auto', automationDefaultModel: '', modelPickerFavorites: [],
+      }),
     });
     return { posts };
   }
@@ -336,6 +345,8 @@ describe('MobileGatewayServer', () => {
     registry = new MobileDeviceRegistry(memPersistence());
     pause = new FakePause();
     loopSource = new FakeLoopSource();
+    automationEvents = new EventEmitter();
+    automationFire = vi.fn(async () => ({ status: 'skipped', reason: 'Preview policy' }));
     server = new MobileGatewayServer();
     initServer(false);
     const status = await server.start({ port: 0, bindInterface: 'all' });
@@ -385,6 +396,41 @@ describe('MobileGatewayServer', () => {
   it('requires a bearer token for /api/instances', async () => {
     const res = await fetch(`http://127.0.0.1:${port}/api/instances`);
     expect(res.status).toBe(401);
+  });
+
+  it('authenticates automation reads and validates run-now before using the manual runner path', async () => {
+    expect((await fetch(`http://127.0.0.1:${port}/api/automations`)).status).toBe(401);
+    const token = await pairToken();
+    const listed = await authed(token, '/api/automations');
+    expect(listed.status).toBe(200);
+    expect(await listed.json()).toEqual([]);
+
+    const invalid = await authed(token, '/api/automations/daily-review/run', {
+      method: 'POST', body: JSON.stringify({ idempotencyKey: '' }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(automationFire).not.toHaveBeenCalled();
+
+    const oversized = await authed(token, '/api/automations/daily-review/run', {
+      method: 'POST', body: JSON.stringify({ idempotencyKey: 'mobile-run-1', padding: 'x'.repeat(3_000) }),
+    });
+    expect(oversized.status).toBe(400);
+    expect(automationFire).not.toHaveBeenCalled();
+
+    const malformedId = await authed(token, '/api/automations/%E0%A4%A/run', {
+      method: 'POST', body: JSON.stringify({ idempotencyKey: 'mobile-run-1' }),
+    });
+    expect(malformedId.status).toBe(400);
+    expect(automationFire).not.toHaveBeenCalled();
+
+    const fired = await authed(token, '/api/automations/daily-review/run', {
+      method: 'POST', body: JSON.stringify({ idempotencyKey: 'mobile-run-1' }),
+    });
+    expect(fired.status).toBe(200);
+    expect(await fired.json()).toEqual({ status: 'skipped', reason: 'Preview policy' });
+    expect(automationFire).toHaveBeenCalledWith('daily-review', {
+      trigger: 'manual', idempotencyKey: 'mobile-run-1', triggerSource: { type: 'manual', id: 'mobile' },
+    });
   });
 
   /**
@@ -603,6 +649,36 @@ describe('MobileGatewayServer', () => {
     const token = await pairToken();
     const res = await authed(token, '/api/instances/nope/messages');
     expect(res.status).toBe(404);
+  });
+
+  it('pages back through a 1000-message transcript beyond the replay cap', async () => {
+    source.instances[0].outputBuffer = Array.from({ length: 1000 }, (_, index) => ({
+      id: `page-${index}`, type: 'assistant', timestamp: index, content: `Message ${index}`,
+    }));
+    const token = await pairToken();
+    const first = await authed(token, '/api/instances/a/messages?withCursor=1').then(res => res.json());
+    expect(first.messages).toHaveLength(300);
+    const seen = [...first.messages];
+    let beforeSeq = first.messages[0].seq;
+    for (let page = 0; page < 7; page++) {
+      const response = await authed(token, `/api/instances/a/messages?beforeSeq=${beforeSeq}&limit=100`);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.messages).toHaveLength(100);
+      expect(body.messages.at(-1).seq).toBe(beforeSeq - 1);
+      beforeSeq = body.meta.nextBeforeSeq;
+      seen.unshift(...body.messages);
+      expect(body.meta.hasMore).toBe(page < 6);
+    }
+    expect(seen.map(message => message.seq)).toEqual(Array.from({ length: 1000 }, (_, i) => i));
+  });
+
+  it('authenticates and validates backward paging requests', async () => {
+    expect((await fetch(`http://127.0.0.1:${port}/api/instances/a/messages?beforeSeq=700&limit=100`)).status).toBe(401);
+    const token = await pairToken();
+    for (const query of ['beforeSeq=nope', 'beforeSeq=-1', 'beforeSeq=1.5', 'beforeSeq=2&limit=0', 'beforeSeq=2&limit=101', 'beforeSeq=2&fromSeq=1']) {
+      expect((await authed(token, `/api/instances/a/messages?${query}`)).status).toBe(400);
+    }
   });
 
   // ---- seq / fromSeq resume (B2 transport-hardening) ----
@@ -1880,6 +1956,21 @@ describe('MobileGatewayServer', () => {
     expect(posts).toHaveLength(1);
     expect(posts[0].deviceToken).toBe('apns-device-1');
     expect(JSON.parse(posts[0].payload).aps.alert.title).toContain('Bash');
+  });
+
+  it('attaches automation failure push handling for the gateway lifetime', async () => {
+    const { posts } = await setupPushDevice();
+    const failed = { automationId: 'daily-review', runId: 'run-failed', status: 'failed' };
+    automationEvents.emit('automation:run-terminal', failed);
+    automationEvents.emit('automation:run-terminal', failed);
+    await vi.waitFor(() => expect(posts).toHaveLength(1));
+    const payload = JSON.parse(posts[0]!.payload);
+    expect(payload.aps.alert).toEqual({
+      title: 'Automation failed', body: 'Open Harness to review the failed run.',
+    });
+    expect(payload).toMatchObject({
+      kind: 'automation_failed', automationId: 'daily-review', runId: 'run-failed',
+    });
   });
 
   async function setupPushDevice(): Promise<{ posts: { deviceToken: string; payload: string }[] }> {

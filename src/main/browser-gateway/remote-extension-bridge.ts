@@ -85,6 +85,36 @@ interface RateBucket {
   count: number;
 }
 
+/**
+ * Traffic classes that must never share a rate budget.
+ *
+ * `bulk` is deferrable telemetry (tab inventory/attachment): a dropped report
+ * only degrades the tab list until the next inventory pass.
+ *
+ * `control` is the correctness-critical command path (`pollCommand`,
+ * `commandResult`, `commandReceived`) plus lifecycle signals. Dropping a poll is
+ * indistinguishable from "the queue is empty", so the extension re-polls into the
+ * same limiter and queued commands time out while the channel still *reports*
+ * healthy — the `commands_unanswered` / "the service worker is polling without
+ * executing" state.
+ *
+ * Observed on windows-pc 2026-09-25 20:01: 234 `attachTab` and 2 `pollCommand`
+ * rejections in 14s from one tab-inventory burst, which starved command delivery
+ * until the extension service worker was reloaded by hand. Partitioning the
+ * budget means a flood of the lossy class can no longer silence the lossless one.
+ *
+ * Both classes keep `maxRequestsPerWindow` because control traffic is naturally
+ * bounded well below it (a handful of polls per second) and exists only as a
+ * runaway safety net, while `bulk` is the class the original ceiling was written
+ * to bound. This is a partition of the budget, not a removal of rate limiting —
+ * but be precise: the aggregate ceiling does rise, to `maxRequestsPerWindow` per
+ * class (240/s combined at the default). That is acceptable because control
+ * traffic never approaches its own budget in normal operation, so realistic
+ * combined load is unchanged; what changes is that bulk can no longer spend the
+ * control path's allowance.
+ */
+type RateClass = 'control' | 'bulk';
+
 type ContactTransitionState = 'never' | 'active' | 'lost';
 
 export class RemoteBrowserExtensionBridge {
@@ -99,7 +129,7 @@ export class RemoteBrowserExtensionBridge {
   private readonly now: () => number;
   private readonly maxRequestsPerWindow: number;
   private readonly rateLimitWindowMs: number;
-  private readonly rateBuckets = new Map<string, RateBucket>();
+  private readonly rateBuckets = new Map<string, Partial<Record<RateClass, RateBucket>>>();
   private readonly contactTransitions = new Map<string, ContactTransitionState>();
   private readonly lastIncompatibilityReason = new Map<string, string>();
 
@@ -131,7 +161,7 @@ export class RemoteBrowserExtensionBridge {
     nodeId: string,
     params: BrowserExtAttachTabParams,
   ): Promise<BrowserGatewayResult<unknown>> {
-    this.consumeRateLimit(nodeId);
+    this.consumeRateLimit(nodeId, 'bulk');
     const node = this.registry.getNode(nodeId);
     if (!node) {
       throw new Error(`unknown_remote_browser_node:${nodeId}`);
@@ -159,7 +189,7 @@ export class RemoteBrowserExtensionBridge {
     nodeId: string,
     params: BrowserExtPollCommandParams,
   ): ReturnType<RemoteExtensionCommandStore['pollCommand']> {
-    this.consumeRateLimit(nodeId);
+    this.consumeRateLimit(nodeId, 'control');
     const allowBrowserCommands = this.recordExtensionContact(nodeId, params);
     return this.commandStore.pollCommand(
       browserExtensionQueueKeyForNode(nodeId),
@@ -190,7 +220,7 @@ export class RemoteBrowserExtensionBridge {
   }
 
   commandResult(nodeId: string, params: BrowserExtCommandResultParams): { ok: true } {
-    this.consumeRateLimit(nodeId);
+    this.consumeRateLimit(nodeId, 'control');
     if (!this.recordExtensionContact(nodeId, params)) {
       this.commandStore.resolveCommand({
         queueKey: browserExtensionQueueKeyForNode(nodeId),
@@ -211,7 +241,7 @@ export class RemoteBrowserExtensionBridge {
   }
 
   commandReceived(nodeId: string, params: BrowserExtCommandReceivedParams): { ok: true } {
-    this.consumeRateLimit(nodeId);
+    this.consumeRateLimit(nodeId, 'control');
     if (!this.recordExtensionContact(nodeId, params)) {
       return { ok: true };
     }
@@ -229,7 +259,7 @@ export class RemoteBrowserExtensionBridge {
    * queued commands should keep waiting for it.
    */
   extensionDisconnected(nodeId: string, params: BrowserExtDisconnectedParams): { ok: true } {
-    this.consumeRateLimit(nodeId);
+    this.consumeRateLimit(nodeId, 'control');
     const reason = params.reason ?? 'unknown';
     this.contactState.markExtensionDisconnect(nodeId, reason);
     this.logger.info('Remote browser extension channel disconnected', { nodeId, reason });
@@ -257,16 +287,28 @@ export class RemoteBrowserExtensionBridge {
     );
   }
 
-  private consumeRateLimit(nodeId: string): void {
+  /**
+   * Per-node, per-class fixed-window counter. Classes are counted separately so
+   * a burst of one class cannot exhaust another class's allowance — see
+   * `RateClass` for why the command path must not share with tab chatter.
+   */
+  private consumeRateLimit(nodeId: string, rateClass: RateClass): void {
     const now = this.now();
-    const bucket = this.rateBuckets.get(nodeId);
+    let buckets = this.rateBuckets.get(nodeId);
+    if (!buckets) {
+      buckets = {};
+      this.rateBuckets.set(nodeId, buckets);
+    }
+    const bucket = buckets[rateClass];
     if (!bucket || now - bucket.startedAt >= this.rateLimitWindowMs) {
-      this.rateBuckets.set(nodeId, { startedAt: now, count: 1 });
+      buckets[rateClass] = { startedAt: now, count: 1 };
       return;
     }
     bucket.count += 1;
     if (bucket.count > this.maxRequestsPerWindow) {
-      throw new Error(`browser_extension_relay_rate_limited:${nodeId}`);
+      // The class is named so an operator can tell "tab inventory is flooding"
+      // (bulk) from "the command path is being throttled" (control) at a glance.
+      throw new Error(`browser_extension_relay_rate_limited:${nodeId}:${rateClass}`);
     }
   }
 

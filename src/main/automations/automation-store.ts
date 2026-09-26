@@ -203,7 +203,11 @@ export class AutomationStore {
     return row ? this.mapAutomation(row) : null;
   }
 
-  async list(): Promise<Automation[]> {
+  async list(options: { limit?: number } = {}): Promise<Automation[]> {
+    const limit = options.limit;
+    if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) {
+      throw new RangeError('Automation list limit must be a non-negative integer');
+    }
     const rows = this.db.prepare(`
       SELECT a.*,
              (SELECT COUNT(*)
@@ -213,7 +217,8 @@ export class AutomationStore {
                 AND r.seen_at IS NULL) AS unread_run_count
       FROM automations a
       ORDER BY active DESC, enabled DESC, next_fire_at IS NULL ASC, next_fire_at ASC, updated_at DESC
-    `).all<AutomationRow>();
+      ${limit === undefined ? '' : 'LIMIT ?'}
+    `).all<AutomationRow>(...(limit === undefined ? [] : [limit]));
 
     const automations: Automation[] = [];
     for (const row of rows) {
@@ -285,6 +290,16 @@ export class AutomationStore {
         if (existing) {
           return { kind: 'skipped', reason: 'Automation trigger idempotency key already processed', run: this.mapRun(existing) };
         }
+      }
+
+      if (options.preflightSkipReason) {
+        const run = this.insertRun(current, 'skipped', trigger, fireTime, now, {
+          finishedAt: now,
+          error: options.preflightSkipReason,
+          ...options,
+        });
+        this.advanceScheduleBaselineIfNeeded(current.id, run.id, trigger, fireTime);
+        return { kind: 'skipped', reason: options.preflightSkipReason, run };
       }
 
       if (this.isScheduleTrigger(trigger) && current.lastFiredAt !== null && fireTime <= current.lastFiredAt) {
@@ -567,6 +582,23 @@ export class AutomationStore {
     `).all<AutomationRunRow>();
 
     return rows.map((row) => this.mapRun(row));
+  }
+
+  /** One bounded result per requested automation, without per-item history queries. */
+  listLatestRuns(automationIds: readonly string[]): Map<string, AutomationRun> {
+    const ids = [...new Set(automationIds)];
+    if (ids.length === 0) return new Map();
+    const rows = this.db.prepare(`
+      SELECT * FROM (
+        SELECT r.*, ROW_NUMBER() OVER (
+          PARTITION BY automation_id
+          ORDER BY scheduled_at DESC, created_at DESC, id DESC
+        ) AS latest_rank
+        FROM automation_runs r
+        WHERE automation_id IN (${ids.map(() => '?').join(', ')})
+      ) WHERE latest_rank = 1
+    `).all<AutomationRunRow>(...ids);
+    return new Map(rows.map(row => [row.automation_id, this.mapRun(row)]));
   }
 
   getRun(runId: string): AutomationRun | null {

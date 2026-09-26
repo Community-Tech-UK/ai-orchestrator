@@ -53,13 +53,19 @@ export class CompositeQuotaProbe implements ProviderQuotaProbe {
       fallback = null;
     }
     if (fallback && fallback.windows.length > 0) {
-      // Last-known monitor bars replace a window-less native result. Do not
-      // stamp needsReauth onto them: token-usage-monitor shows the same
-      // cached numbers without a sign-in alarm when it skips an expired
-      // Claude token.
-      return this.accountProfileId
+      // Last-known monitor bars replace a window-less native result. Keep the
+      // bars, but carry the native probe's reauth verdict onto them: showing
+      // another snapshot's numbers as current while the login that produced
+      // the source is expired is exactly the silent staleness this composite
+      // must not create (the chip renders "X% ⚠" plus a reauth row from it).
+      // An ordinary failure (network, shape change) stays silent — the bars
+      // speak for themselves and no login needs attention.
+      const merged = this.accountProfileId
         ? { ...fallback, accountProfileId: this.accountProfileId }
         : fallback;
+      return nativeSnap?.needsReauth
+        ? { ...merged, needsReauth: true, ...(nativeSnap.error ? { error: nativeSnap.error } : {}) }
+        : merged;
     }
 
     return nativeSnap;

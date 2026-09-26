@@ -18,6 +18,7 @@ import { getAdapterGuidanceBlocks } from '../cli/adapters/adapter-spawn-helpers'
 import { recordAdapterGuidanceBlocks } from '../context/context-manifest-store';
 import { rememberAdapterAccountRoute } from './account-pool/adapter-account-routes';
 import { attachAccountTelemetryBridge } from './account-pool/account-telemetry-bridge';
+import { attachUsageOverageStopGuard } from '../instance/instance-usage-overage-wiring';
 import {
   getCliSpawnWorkerGateway,
   type CliSpawnGatewayPort,
@@ -85,6 +86,12 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
       if (input.options.accountRoute && typeof (adapter as { on?: unknown }).on === 'function') {
         // Live sessions on a pool route feed their account's quota snapshot (spec §10).
         attachAccountTelemetryBridge(adapter as unknown as Parameters<typeof attachAccountTelemetryBridge>[0], input.options.accountRoute);
+      }
+      if (input.options.instanceId && typeof (adapter as { on?: unknown }).on === 'function') {
+        // Stop a session whose provider is billing paid overage at a refused
+        // usage window (e.g. the Claude 5-hour limit) instead of letting it
+        // quietly spend API-priced credits. See instance-usage-overage-wiring.ts.
+        attachUsageOverageStopGuard(adapter as unknown as Parameters<typeof attachUsageOverageStopGuard>[0], input.options.instanceId);
       }
       this.registry.recordAvailable({
         provider: input.cliType,

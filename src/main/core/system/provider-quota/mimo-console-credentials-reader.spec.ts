@@ -1,9 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { createCipheriv, pbkdf2Sync } from 'crypto';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import {
   MimoConsoleCredentialsReader,
   decryptChromeV10,
   defaultChromeCookiesPath,
+  snapshotChromeCookiesDb,
   type MimoChromeSecurityExec,
 } from './mimo-console-credentials-reader';
 import type { SqliteDriver, SqliteDriverFactory } from '../../../db/sqlite-driver';
@@ -259,5 +263,89 @@ describe('MimoConsoleCredentialsReader', () => {
       '/h/Library/Application Support/Google/Chrome/Default/Cookies');
     expect(defaultChromeCookiesPath('win32', { HOME: 'C:\\h', APPDATA: 'C:\\a' })).toContain(
       'Google');
+  });
+
+  it('falls back to a snapshot copy when the live store is locked', async () => {
+    // Regression: Chrome holds the live Cookies store often enough that the
+    // direct read fails with OperationalError. The snapshot is opened
+    // read-write (a copied hot journal needs recovery), the live store
+    // read-only.
+    const { factory, probe } = cookiesFactory(fullRows());
+    let calls = 0;
+    const throwingFactory: SqliteDriverFactory = (path, options) => {
+      calls += 1;
+      if (calls === 1) throw new Error('database is locked');
+      return factory(path, options);
+    };
+    const snapshots: string[] = [];
+    const reader = new MimoConsoleCredentialsReader({
+      ...base,
+      driverFactory: throwingFactory,
+      takeDbSnapshot: (cookiesPath) => {
+        snapshots.push(cookiesPath);
+        return '/tmp/snapshot-cookies';
+      },
+    });
+
+    const { session } = await reader.read();
+
+    expect(calls).toBe(2);
+    expect(snapshots).toEqual(['/tmp/chrome-cookies']);
+    expect(session?.userId).toBe('test-user-id');
+    expect(probe.options).toEqual([{ readonly: false }]);
+  });
+
+  it('reads Xiaomi account SSO cookies best-effort for the renewal walk', async () => {
+    const rows: FakeRow[] = [
+      { host_key: 'account.xiaomi.com', name: 'passToken', encrypted_value: chromeBlob(PASSWORD, 'sso-pass') },
+      { host_key: 'account.xiaomi.com', name: 'cUserId', encrypted_value: chromeBlob(PASSWORD, 'account-cuser') },
+      { host_key: '.xiaomi.com', name: 'cUserId', encrypted_value: chromeBlob(PASSWORD, 'dot-cuser') },
+      // Console cookie — never part of the SSO header.
+      { host_key: '.platform.xiaomimimo.com', name: 'api-platform_serviceToken', encrypted_value: chromeBlob(PASSWORD, 'console-token') },
+    ];
+    const { factory } = cookiesFactory(rows);
+    const reader = new MimoConsoleCredentialsReader({ ...base, driverFactory: factory });
+
+    const { cookieHeader } = await reader.readAccountSso();
+
+    // Missing SSO cookies (userId, deviceId, pass_ua) are fine — the walk is
+    // best-effort. The account host wins the duplicate cUserId; the console
+    // cookie is excluded.
+    expect(cookieHeader).toBe('cUserId=account-cuser; passToken=sso-pass');
+  });
+
+  it('returns an empty SSO header rather than throwing when the store is unreadable', async () => {
+    const throwingFactory: SqliteDriverFactory = () => {
+      throw new Error('database is locked');
+    };
+    const reader = new MimoConsoleCredentialsReader({
+      ...base,
+      driverFactory: throwingFactory,
+      takeDbSnapshot: () => null,
+    });
+
+    await expect(reader.readAccountSso()).resolves.toEqual({ cookieHeader: '' });
+  });
+});
+
+describe('snapshotChromeCookiesDb', () => {
+  it('copies the store and its rollback journal into a temp snapshot', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'harness-mimo-test-'));
+    const source = path.join(dir, 'Cookies');
+    writeFileSync(source, 'db-bytes');
+    writeFileSync(`${source}-journal`, 'journal-bytes');
+
+    try {
+      const snapshot = snapshotChromeCookiesDb(source);
+      expect(snapshot).toBeTruthy();
+      expect(readFileSync(snapshot!, 'utf8')).toBe('db-bytes');
+      expect(readFileSync(`${snapshot}-journal`, 'utf8')).toBe('journal-bytes');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns null when the store does not exist', () => {
+    expect(snapshotChromeCookiesDb('/nonexistent/chrome/Cookies')).toBeNull();
   });
 });

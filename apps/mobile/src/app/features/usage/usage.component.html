@@ -1,0 +1,30 @@
+<button class="usage-row" type="button" aria-haspopup="dialog" (click)="open.set(true)">
+  <app-mobile-icon name="provider" />
+  <span><strong>Usage</strong><small>{{ summary() }}</small></span>
+  <app-mobile-icon name="chevron-down" />
+</button>
+@if (open()) {
+  <app-mobile-sheet label="Usage" (dismiss)="open.set(false)">
+    <p class="usage-host">{{ usage.hostName() }} · Provider usage, not spend</p>
+    @if (!usage.online()) { <p role="status">Offline. Last known usage is informational only.</p> }
+    @if (usage.status() === 'loading') { <p role="status">Checking usage…</p> }
+    @if (usage.status() === 'error') { <p role="status">Usage could not be loaded from this host.</p> }
+    <button class="usage-refresh" type="button" (click)="usage.refresh()" [disabled]="!usage.online() || usage.status() === 'loading'">Refresh usage</button>
+    @for (provider of usage.providers(); track provider.provider) {
+      <section class="usage-provider" [attr.aria-label]="providerName(provider.provider) + ' usage'">
+        <h3>{{ providerName(provider.provider) }}</h3>
+        <p class="usage-freshness">{{ provider.freshness === 'fresh' ? 'Current' : provider.freshness === 'stale' ? 'Stale · not confirmed' : 'Unavailable' }}
+          @if (provider.updatedAt) { · Updated {{ provider.updatedAt | date:'shortTime' }} }
+        </p>
+        @for (window of provider.windows; track window.id) {
+          <div class="usage-window">
+            <span>{{ window.label }}</span>
+            <strong>{{ window.percentUsed === null ? 'Usage unknown' : window.percentUsed + '%' }}</strong>
+            @if (window.exhausted) { <span class="usage-limit">Limit reached</span> }
+            <small>{{ window.resetsAt ? 'Resets ' + (window.resetsAt | date:'short') : 'Reset time unknown' }}</small>
+          </div>
+        } @empty { <p class="usage-freshness">Usage unknown</p> }
+      </section>
+    }
+  </app-mobile-sheet>
+}

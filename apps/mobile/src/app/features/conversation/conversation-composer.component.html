@@ -46,6 +46,12 @@
     (paste)="onPaste($event)"
   ></textarea>
   <p class="composer-shortcut" id="composer-shortcut">Return adds a line. ⌘/Ctrl + Return sends.</p>
+  @if (canSteer()) {
+    <button type="button" class="composer-steer" aria-label="Steer current turn"
+      [disabled]="!online() || !canSend() || sending()" (click)="send($event, true)">
+      Steer current turn
+    </button>
+  }
   <div class="composer-toolbar">
     <div class="composer-toolbar__leading">
       @if (canAttach) {

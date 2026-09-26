@@ -2,12 +2,12 @@ import { NO_ERRORS_SCHEMA, signal, ɵresolveComponentResources as resolveCompone
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApprovalPresentationStore } from '../../core/approval-presentation.store';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HostStore } from '../../core/host-store';
 import { MobileBrowseStateStore } from '../../core/mobile-browse-state.store';
 import type { MobileHistorySessionDto, MobileSnapshot } from '../../core/models';
 import { ProjectsComponent } from './projects.component';
+import { NeedsYouStore } from '../inbox/needs-you.store';
 
 await resolveComponentResources(() => Promise.resolve(''));
 
@@ -20,28 +20,28 @@ const snapshot: MobileSnapshot = {
 function setup(savedScrollTop = 0) {
   const activeHost = signal({ id: 'host-a', name: 'Example host' });
   const gateway = { historyState: signal({ status: 'loaded', error: null }), loadHistory: vi.fn(), dataHostId: () => activeHost().id, snapshot: signal(snapshot), state: signal('connected'), online: signal(true), historySessions: signal<MobileHistorySessionDto[]>([]), pause: signal(snapshot.pause), recentDirs: vi.fn().mockResolvedValue([]), setPause: vi.fn().mockResolvedValue(undefined) };
-  const approvals = { requests: signal([{ id: 'request-a' }]), open: vi.fn() };
+  const needsYou = { items: signal([{ key: 'host-a:request-a' }]) };
   const navigate = vi.fn();
   TestBed.configureTestingModule({ imports: [ProjectsComponent], providers: [
     { provide: HostStore, useValue: { activeHost } }, { provide: GatewayClient, useValue: gateway },
-    { provide: Router, useValue: { navigate } }, { provide: ApprovalPresentationStore, useValue: approvals },
+    { provide: Router, useValue: { navigate } }, { provide: NeedsYouStore, useValue: needsYou },
   ] });
   TestBed.overrideComponent(ProjectsComponent, { set: { imports: [], schemas: [NO_ERRORS_SCHEMA], styleUrls: [], styles: [] } });
   const browse = TestBed.inject(MobileBrowseStateStore);
   browse.save('/projects', { ...browse.read('/projects'), scrollTop: savedScrollTop });
   const fixture = TestBed.createComponent(ProjectsComponent);
-  return { fixture, activeHost, gateway, approvals, navigate, browse: TestBed.inject(MobileBrowseStateStore) };
+  return { fixture, activeHost, gateway, needsYou, navigate, browse: TestBed.inject(MobileBrowseStateStore) };
 }
 
 beforeEach(() => { vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined); });
 afterEach(() => vi.restoreAllMocks());
 
 describe('Projects browse behavior', () => {
-  it('reopens requests and records a safe browse origin when opening sessions', async () => {
-    const { fixture, approvals, navigate } = setup();
+  it('opens the cross-host inbox and records a safe browse origin when opening sessions', async () => {
+    const { fixture, navigate } = setup();
     fixture.detectChanges(); await fixture.whenStable();
     fixture.nativeElement.querySelector('.projects-needs-you').click();
-    expect(approvals.open).toHaveBeenCalledOnce();
+    expect(navigate).toHaveBeenCalledWith(['/inbox']);
     fixture.nativeElement.querySelector('app-mobile-session-row').dispatchEvent(new Event('activate'));
     expect(navigate).toHaveBeenCalledWith(['/projects', '/work/example', 'sessions', 'session-a'], { state: { mobileBrowseOrigin: { hostId: 'host-a', route: '/projects' } } });
   });

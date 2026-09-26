@@ -19,7 +19,10 @@
  * quota fetch — never logged, never persisted. The cookies are browser-session
  * scoped (`is_persistent = 0` in Chrome's schema), so a missing set simply
  * means "sign in to the MiMo console again"; readers fail closed to a typed
- * reason, never to partial numbers.
+ * reason, never to partial numbers. {@link MimoConsoleCredentialsReader.readAccountSso}
+ * additionally reads the persistent Xiaomi account SSO cookies, used only to
+ * walk the console's own session-renewal URL; when Chrome holds the SQLite
+ * lock, the read falls back to a temp-file snapshot of the store.
  *
  * Cookie blob layout (verified against the live store this reads):
  * `b"v10" + 16-byte prefix + 16-byte IV + AES-128-CBC(PKCS#7)` with key
@@ -28,7 +31,7 @@
 
 import { execFile as execFileCb } from 'child_process';
 import { createDecipheriv, pbkdf2Sync } from 'crypto';
-import { existsSync } from 'fs';
+import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { defaultDriverFactory } from '../../../db/better-sqlite3-driver';
@@ -50,11 +53,30 @@ const WANTED_COOKIES: ReadonlyArray<{ hostKey: string; name: string }> = [
   { hostKey: '.xiaomimimo.com', name: 'userId' },
 ];
 
+/**
+ * The persistent Xiaomi account SSO cookies (`account.xiaomi.com`), used only
+ * to walk the console's own session-renewal URL when the console session has
+ * been rejected. Best-effort: any subset is enough to attempt the walk.
+ */
+const ACCOUNT_SSO_COOKIES: ReadonlyArray<{ hostKey: string; name: string }> = [
+  { hostKey: 'account.xiaomi.com', name: 'passToken' },
+  { hostKey: 'account.xiaomi.com', name: 'cUserId' },
+  { hostKey: 'account.xiaomi.com', name: 'userId' },
+  { hostKey: 'account.xiaomi.com', name: 'deviceId' },
+  { hostKey: 'account.xiaomi.com', name: 'pass_ua' },
+  { hostKey: '.xiaomi.com', name: 'cUserId' },
+];
+
 export interface MimoConsoleSession {
   /** Cookie header value: the three `api-platform_*` cookies plus `userId`. */
   cookieHeader: string;
   /** The Xiaomi account user id (also sent as the `userId` query parameter). */
   userId: string;
+}
+
+/** Xiaomi account SSO cookies for the renewal walk; empty when unreadable. */
+export interface MimoAccountSso {
+  cookieHeader: string;
 }
 
 export type MimoCredentialFailureReason =
@@ -84,6 +106,12 @@ export interface MimoConsoleCredentialsReaderOptions {
   driverFactory?: SqliteDriverFactory;
   /** File-existence check (tests). */
   fileExists?: (filePath: string) => boolean;
+  /**
+   * Produce a stable copy of the live Cookies DB when the direct read fails
+   * (Chrome holds the lock often enough to matter). Defaults to a temp-file
+   * copy of `Cookies` + its rollback journal. Returns null to give up.
+   */
+  takeDbSnapshot?: (cookiesPath: string) => string | null;
 }
 
 export class MimoConsoleCredentialsReader {
@@ -92,6 +120,7 @@ export class MimoConsoleCredentialsReader {
   private readonly cookiesPath: string;
   private readonly driverFactory: SqliteDriverFactory;
   private readonly fileExists: (filePath: string) => boolean;
+  private readonly takeDbSnapshot: (cookiesPath: string) => string | null;
 
   constructor(opts: MimoConsoleCredentialsReaderOptions = {}) {
     this.platform = opts.platform ?? process.platform;
@@ -99,6 +128,7 @@ export class MimoConsoleCredentialsReader {
     this.cookiesPath = opts.cookiesPath ?? defaultChromeCookiesPath(this.platform, opts.env);
     this.driverFactory = opts.driverFactory ?? defaultDriverFactory;
     this.fileExists = opts.fileExists ?? existsSync;
+    this.takeDbSnapshot = opts.takeDbSnapshot ?? snapshotChromeCookiesDb;
   }
 
   async read(): Promise<MimoCredentialResult> {
@@ -138,38 +168,117 @@ export class MimoConsoleCredentialsReader {
     }
   }
 
+  /**
+   * Xiaomi account SSO cookies for the session-renewal walk. Best-effort and
+   * never throws: an empty header just means the walk goes out without
+   * cookies and cannot renew. No failure reason — renewal is an optimisation
+   * on top of the ordinary reauth flow, not a second credential surface.
+   */
+  async readAccountSso(): Promise<MimoAccountSso> {
+    if (this.platform !== 'darwin') return { cookieHeader: '' };
+    const password = await this.readSafeStoragePassword();
+    if (!password) return { cookieHeader: '' };
+    const values = this.readCookieValues(password, ACCOUNT_SSO_COOKIES);
+    if (!values) return { cookieHeader: '' };
+    // Duplicate names across hosts (cUserId): the account host wins, because
+    // the renewal walk starts at account.xiaomi.com.
+    const byName = new Map<string, string>();
+    for (const entry of [...ACCOUNT_SSO_COOKIES].reverse()) {
+      const value = values.get(`${entry.hostKey}|${entry.name}`);
+      if (value) byName.set(entry.name, value);
+    }
+    const parts = [...byName].map(([name, value]) => `${name}=${value}`);
+    return { cookieHeader: parts.join('; ') };
+  }
+
   private readCookies(password: string): MimoCredentialResult {
     if (!this.fileExists(this.cookiesPath)) {
       return { session: null, reason: 'not-found' };
     }
+    const values = this.readCookieValues(password, WANTED_COOKIES);
+    if (!values) return { session: null, reason: 'not-found' };
 
-    let driver: SqliteDriver | null = null;
+    const parts: string[] = [];
+    for (const entry of WANTED_COOKIES) {
+      const value = values.get(`${entry.hostKey}|${entry.name}`);
+      if (!value) return { session: null, reason: 'malformed' };
+      parts.push(`${entry.name}=${value}`);
+    }
+    return {
+      session: { cookieHeader: parts.join('; '), userId: values.get(`.xiaomimimo.com|userId`) as string },
+    };
+  }
+
+  /**
+   * Decrypt the wanted cookie rows. Keyed `hostKey|name`. Returns null when
+   * the store cannot be read at all — a direct read is tried first (Chrome
+   * holds the lock often enough to matter), then a stable snapshot copy.
+   */
+  private readCookieValues(
+    password: string,
+    wanted: ReadonlyArray<{ hostKey: string; name: string }>,
+  ): Map<string, string> | null {
+    const rows = this.readCookieRows(wanted) ?? this.readCookieRowsFromSnapshot(wanted);
+    if (!rows) return null;
+
     const values = new Map<string, string>();
+    for (const row of rows) {
+      const hostKey = typeof row.host_key === 'string' ? row.host_key : '';
+      const name = typeof row.name === 'string' ? row.name : '';
+      const blob = toBuffer(row.encrypted_value);
+      const plain = blob ? decryptChromeV10(password, blob) : null;
+      if (!plain) continue;
+      // Some values are stored DQUOTE-wrapped (RFC 6265 cookie quoting); the
+      // console accepts the bare token and so do we. Printable ASCII only —
+      // anything else means the decrypt was wrong and the value is garbage.
+      const text = plain.toString('utf8').trim().replace(/^"+|"+$/g, '');
+      if (text && /^[\x20-\x7E]+$/.test(text)) values.set(`${hostKey}|${name}`, text);
+    }
+    return values;
+  }
+
+  private readCookieRows(
+    wanted: ReadonlyArray<{ hostKey: string; name: string }>,
+  ): Array<{ host_key?: unknown; name?: unknown; encrypted_value?: unknown }> | null {
+    if (!this.fileExists(this.cookiesPath)) return null;
+    return this.queryCookies(this.cookiesPath, wanted);
+  }
+
+  private readCookieRowsFromSnapshot(
+    wanted: ReadonlyArray<{ hostKey: string; name: string }>,
+  ): Array<{ host_key?: unknown; name?: unknown; encrypted_value?: unknown }> | null {
+    let snapshot: string | null = null;
     try {
-      driver = this.driverFactory(this.cookiesPath, { readonly: true });
-      // Parameterised per pair would mean four round-trips; one bounded IN
-      // query over constants is fine and keeps the read single-shot.
-      const wanted = WANTED_COOKIES.map((entry) => `('${entry.hostKey}', '${entry.name}')`).join(', ');
-      const rows = driver
+      snapshot = this.takeDbSnapshot(this.cookiesPath);
+    } catch (err) {
+      logger.debug(`Chrome cookie snapshot failed: ${(err as Error).message}`);
+      return null;
+    }
+    // Read-write on the snapshot: the copy is disposable, and a copied hot
+    // rollback journal can only be recovered with write access.
+    return snapshot ? this.queryCookies(snapshot, wanted, { readonly: false }) : null;
+  }
+
+  private queryCookies(
+    dbPath: string,
+    wanted: ReadonlyArray<{ hostKey: string; name: string }>,
+    opts: { readonly?: boolean } = {},
+  ): Array<{ host_key?: unknown; name?: unknown; encrypted_value?: unknown }> | null {
+    let driver: SqliteDriver | null = null;
+    try {
+      driver = this.driverFactory(dbPath, { readonly: opts.readonly !== false });
+      // Parameterised per pair would mean one round-trip per cookie; one
+      // bounded IN query over constants is fine and keeps the read single-shot.
+      const pairs = wanted.map((entry) => `('${entry.hostKey}', '${entry.name}')`).join(', ');
+      return driver
         .prepare(
           `SELECT host_key, name, encrypted_value FROM cookies
-           WHERE (host_key, name) IN (${wanted}) AND encrypted_value != ''`,
+           WHERE (host_key, name) IN (${pairs}) AND encrypted_value != ''`,
         )
         .all<{ host_key?: unknown; name?: unknown; encrypted_value?: unknown }>();
-      for (const row of rows) {
-        const name = typeof row.name === 'string' ? row.name : '';
-        const blob = toBuffer(row.encrypted_value);
-        const plain = blob ? decryptChromeV10(password, blob) : null;
-        if (!plain) continue;
-        // Some values are stored DQUOTE-wrapped (RFC 6265 cookie quoting); the
-        // console accepts the bare token and so do we. Printable ASCII only —
-        // anything else means the decrypt was wrong and the value is garbage.
-        const text = plain.toString('utf8').trim().replace(/^"+|"+$/g, '');
-        if (text && /^[\x20-\x7E]+$/.test(text)) values.set(name, text);
-      }
     } catch (err) {
       logger.debug(`Chrome cookie read failed: ${(err as Error).message}`);
-      return { session: null, reason: 'not-found' };
+      return null;
     } finally {
       try {
         driver?.close();
@@ -177,16 +286,6 @@ export class MimoConsoleCredentialsReader {
         /* best-effort close */
       }
     }
-
-    const parts: string[] = [];
-    for (const entry of WANTED_COOKIES) {
-      const value = values.get(entry.name);
-      if (!value) return { session: null, reason: 'malformed' };
-      parts.push(`${entry.name}=${value}`);
-    }
-    return {
-      session: { cookieHeader: parts.join('; '), userId: values.get('userId') as string },
-    };
   }
 }
 
@@ -229,6 +328,49 @@ export function defaultChromeCookiesPath(
     return path.win32.join(appData, 'Google', 'Chrome', 'User Data', 'Default', 'Cookies');
   }
   return path.posix.join(home, '.config', 'google-chrome', 'Default', 'Cookies');
+}
+
+/** Snapshot files kept from earlier fallback reads (deleted on the next one). */
+const priorSnapshots: string[] = [];
+
+/**
+ * Stable copy of Chrome's Cookies DB for the lock-proof fallback read. Chrome
+ * keeps the live store locked or mid-write often enough that a direct
+ * read-only open fails with `OperationalError`; a plain file copy is lock-free
+ * and SQLite recovers any half-committed state from the copied rollback
+ * journal. Previous snapshots are deleted on the next call so the temp dir
+ * cannot grow without bound.
+ */
+export function snapshotChromeCookiesDb(cookiesPath: string): string | null {
+  // Prior snapshots hold decrypted-able cookie blobs: drop the whole temp
+  // directory (files and dir) as soon as a new one supersedes it.
+  for (const prior of priorSnapshots.splice(0)) {
+    try {
+      rmSync(path.dirname(prior), { recursive: true, force: true });
+    } catch {
+      /* best-effort cleanup */
+    }
+  }
+  if (!existsSync(cookiesPath)) return null;
+  let dir: string | null = null;
+  try {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'harness-mimo-cookies-'));
+    const snapshot = path.join(dir, 'Cookies');
+    copyFileSync(cookiesPath, snapshot);
+    if (existsSync(`${cookiesPath}-journal`)) copyFileSync(`${cookiesPath}-journal`, `${snapshot}-journal`);
+    priorSnapshots.push(snapshot);
+    return snapshot;
+  } catch (err) {
+    logger.debug(`Chrome cookie snapshot copy failed: ${(err as Error).message}`);
+    if (dir) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* best-effort cleanup */
+      }
+    }
+    return null;
+  }
 }
 
 function toBuffer(value: unknown): Buffer | null {

@@ -43,6 +43,9 @@
   </div>
 
   <form class="new-session-composer" [attr.aria-busy]="busy()" (submit)="create($event)">
+    @if (quotaWarning(); as warning) {
+      <p class="quota-warning" data-testid="quota-warning" role="status">{{ warning }}. Check usage before starting.</p>
+    }
     @if (attachments().length > 0) {
       <div class="composer-attachments" aria-label="Attachments">
         @for (attachment of attachments(); track attachment) {

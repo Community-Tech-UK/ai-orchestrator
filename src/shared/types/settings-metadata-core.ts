@@ -169,6 +169,13 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'orchestration',
   },
   {
+    key: 'sessionAllowProviderOverage',
+    label: 'Let sessions run on paid overage credits',
+    description: 'By default a chat session stops as soon as the provider reports its subscription window refused (e.g. the Claude 5-hour limit) or paid overage being consumed, and holds until the window resets. Turn this on to let sessions keep working and bill the overage. Off by default: a session left running at a usage limit quietly spends API-priced credits.',
+    type: 'boolean',
+    category: 'orchestration',
+  },
+  {
     key: 'docReviewResumeOnSubmit',
     label: 'Resume sessions when document reviews are submitted',
     description: 'Wake a hibernated session or revive its archived continuity record so it receives your review decision. The decision is saved even when this is off.',

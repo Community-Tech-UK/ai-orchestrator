@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   MimoTokenPlanProbe,
   isTokenPlanModelSetting,
@@ -241,6 +241,92 @@ describe('MimoTokenPlanProbe', () => {
     expect(snap!.ok).toBe(false);
     expect(snap!.needsReauth).toBe(true);
     expect(snap!.error).toMatch(/401/);
+  });
+
+  it('renews the console session through the platform SSO URL and re-pulls the quota', async () => {
+    const renewCalls: Array<{ url: string; sso: string }> = [];
+    const fetchSessions: MimoConsoleSession[] = [];
+    let first = true;
+    const probe = new MimoTokenPlanProbe({
+      isTokenPlanModel: () => true,
+      reader: {
+        read: async () => ({ session: SESSION }),
+        readAccountSso: async () => ({ cookieHeader: 'cUserId=abc; passToken=def' }),
+      },
+      fetchPlans: async (session) => {
+        fetchSessions.push(session);
+        if (first) {
+          first = false;
+          return {
+            usage: { status: 401, body: { code: 401, loginUrl: 'https://account.xiaomi.com/pass/serviceLogin?callback=platform' } },
+            detail: { status: 401, body: { code: 401 } },
+          };
+        }
+        return { usage: { status: 200, body: USAGE_BODY }, detail: { status: 200, body: DETAIL_BODY } };
+      },
+      renewer: {
+        renew: async (url, sso) => {
+          renewCalls.push({ url, sso: await (typeof sso === 'function' ? sso() : sso) });
+          return {
+            attempted: true,
+            completed: true,
+            setCookies: new Map([['api-platform_serviceToken', 'fresh-token']]),
+          };
+        },
+      },
+    });
+
+    const snap = await probe.probe({ signal: new AbortController().signal });
+
+    expect(snap).toMatchObject({ provider: 'opencode', ok: true, plan: 'Pro' });
+    expect(renewCalls).toEqual([{
+      url: 'https://account.xiaomi.com/pass/serviceLogin?callback=platform',
+      sso: 'cUserId=abc; passToken=def',
+    }]);
+    // The retry carries a rotated session cookie over the stored session.
+    expect(fetchSessions).toHaveLength(2);
+    expect(fetchSessions[1].cookieHeader).toContain('api-platform_serviceToken=fresh-token');
+  });
+
+  it('still reports needsReauth when the SSO renewal cannot revive the session', async () => {
+    let fetches = 0;
+    const probe = new MimoTokenPlanProbe({
+      isTokenPlanModel: () => true,
+      reader: readerReturning({ session: SESSION }).reader,
+      fetchPlans: async () => {
+        fetches += 1;
+        return {
+          usage: { status: 401, body: { code: 401, loginUrl: 'https://account.xiaomi.com/pass/serviceLogin' } },
+          detail: { status: 401, body: { code: 401 } },
+        };
+      },
+      renewer: { renew: async () => ({ attempted: true, completed: false, setCookies: new Map() }) },
+    });
+
+    const snap = await probe.probe({ signal: new AbortController().signal });
+
+    expect(snap!.ok).toBe(false);
+    expect(snap!.needsReauth).toBe(true);
+    expect(snap!.error).toMatch(/401/);
+    expect(fetches).toBe(1);
+  });
+
+  it('does not attempt renewal when the 401 body publishes no login URL', async () => {
+    const renew = vi.fn(async () => ({ attempted: true, completed: true, setCookies: new Map<string, string>() }));
+    const probe = new MimoTokenPlanProbe({
+      isTokenPlanModel: () => true,
+      reader: readerReturning({ session: SESSION }).reader,
+      fetchPlans: async () => ({
+        usage: { status: 401, body: { code: 401 } },
+        detail: { status: 401, body: { code: 401 } },
+      }),
+      renewer: { renew },
+    });
+
+    const snap = await probe.probe({ signal: new AbortController().signal });
+
+    expect(renew).not.toHaveBeenCalled();
+    expect(snap!.needsReauth).toBe(true);
   });
 
   it('reports a failed request without fabricating windows', async () => {

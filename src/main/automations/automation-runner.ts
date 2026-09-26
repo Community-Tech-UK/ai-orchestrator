@@ -52,6 +52,7 @@ import {
   handleTerminalRun as handleTerminalRunImpl,
   type AutomationTerminalRunHost,
 } from './automation-runner-terminal';
+import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
 
 const logger = getLogger('AutomationRunner');
 
@@ -92,6 +93,7 @@ export class AutomationRunner {
     private readonly maxRetryAttempts = DEFAULT_MAX_RETRY_ATTEMPTS,
     private readonly baseRetryDelayMs = DEFAULT_RETRY_BASE_DELAY_MS,
     private readonly automationModelDefaults: () => AutomationModelDefaults = readAutomationModelDefaults,
+    private readonly isProviderExcluded: (provider: string) => boolean = isProviderExcludedFromAutomation,
   ) {}
 
   /**
@@ -148,6 +150,9 @@ export class AutomationRunner {
     const promptOverride = options.trigger === 'webhook' && options.webhookPayload && automation
       ? renderWebhookPromptTemplate(automation.action.prompt, options.webhookPayload).content
       : undefined;
+    const preflightSkipReason = automation
+      ? this.automaticProviderExclusionReason(automation.action, automation.destination.kind)
+      : undefined;
     const decision = this.store.decideAndInsertRun(
       automation,
       options.trigger,
@@ -160,6 +165,7 @@ export class AutomationRunner {
         maxAttempts: this.maxRetryAttempts,
         attempt: 1,
         promptOverride,
+        ...(preflightSkipReason ? { preflightSkipReason } : {}),
       },
     );
 
@@ -239,6 +245,8 @@ export class AutomationRunner {
       this.handleTerminalRun(terminal);
       return;
     }
+
+    if (this.refuseExcludedAutomaticProvider(claimed.snapshot.action, claimed.run.id)) return;
 
     // WS5: loop actions spawn an autonomous loop instead of a one-shot
     // instance. The dispatcher terminalizes the run when the loop ends.
@@ -440,6 +448,25 @@ export class AutomationRunner {
       this.handleTerminalRun(failed, { retryable: false }); // deterministic refusal — never retry
     }
     return null;
+  }
+
+  private automaticProviderExclusionReason(
+    action: AutomationAction,
+    destinationKind: ClaimedAutomationRun['snapshot']['destination']['kind'] = 'newInstance',
+  ): string | undefined {
+    if (destinationKind !== 'newInstance' || action.systemAction) return undefined;
+    if (action.provider && action.provider !== 'auto') return undefined;
+    const resolved = resolveAutomationSpawnTarget(action, this.automationModelDefaults()).provider;
+    if (!resolved || resolved === 'auto' || !this.isProviderExcluded(resolved)) return undefined;
+    return `Resolved provider ${resolved} is excluded from automation`;
+  }
+
+  private refuseExcludedAutomaticProvider(action: AutomationAction, runId: string): boolean {
+    const reason = this.automaticProviderExclusionReason(action);
+    if (!reason) return false;
+    const skipped = this.store.terminalizeRun(runId, 'skipped', reason, undefined, this.now());
+    if (skipped) this.handleTerminalRun(skipped, { retryable: false });
+    return true;
   }
 
   private requireLoopRunDispatcher(): AutomationLoopRunDispatcher {
@@ -695,6 +722,10 @@ export class AutomationRunner {
         destination: retryRun.configSnapshot.destination,
       });
       this.handleTerminalRun(terminal);
+      return;
+    }
+
+    if (retryRun.configSnapshot && this.refuseExcludedAutomaticProvider(retryRun.configSnapshot.action, retryRun.id)) {
       return;
     }
 

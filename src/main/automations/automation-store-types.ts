@@ -17,4 +17,6 @@ export interface AutomationRunDecisionOptions {
    * reusable automation template remains unchanged.
    */
   promptOverride?: string;
+  /** Deterministic fire-time policy refusal recorded as one idempotent skipped run. */
+  preflightSkipReason?: string;
 }

@@ -3,6 +3,7 @@ import type { SubsystemLogger } from '../logging/logger';
 import type {
   MobileHistorySessionDto,
   MobileMessagesResumeDto,
+  MobileMessageDto,
 } from '../../shared/types/mobile-gateway.types';
 import type { OutputMessage } from '../../shared/types/instance.types';
 import {
@@ -70,7 +71,13 @@ export async function handleMobileHistoryMessages(
   deps: MobileHistoryHandlerDeps,
   res: ServerResponse,
   id: string,
+  url?: URL,
 ): Promise<void> {
+  const paging = parseBackwardPage(url);
+  if (paging === 'invalid') {
+    deps.sendJson(res, 400, { error: 'Invalid message page cursor or limit' });
+    return;
+  }
   try {
     if (id.startsWith(HISTORY_INSTANCE_PREFIX)) {
       const source = deps.instanceHistory;
@@ -83,11 +90,15 @@ export async function handleMobileHistoryMessages(
         deps.sendJson(res, 404, { error: 'Session not found' });
         return;
       }
-      const messages = (data.messages ?? [])
-        .slice(-deps.messageReplayLimit)
-        .map((msg) => serializeMessage(msg))
+      const buffer = data.messages ?? [];
+      const end = Math.min(buffer.length, paging?.beforeSeq ?? buffer.length);
+      const start = Math.max(0, end - (paging?.limit ?? deps.messageReplayLimit));
+      const messages = buffer
+        .slice(start, end)
+        .map((msg, index) => serializeMessage(msg, start + index))
         .filter((dto): dto is NonNullable<typeof dto> => dto !== null);
-      deps.sendJson(res, 200, messages);
+      deps.sendJson(res, 200, paging || url?.searchParams.get('withCursor') === '1'
+        ? backwardEnvelope(messages, start, 0, end) : messages);
       return;
     }
 
@@ -100,10 +111,13 @@ export async function handleMobileHistoryMessages(
       ? id.slice(HISTORY_CHAT_PREFIX.length)
       : id;
     const detail = await source.getChat(chatId);
-    const messages = (detail.conversation.messages ?? [])
-      .slice(-deps.messageReplayLimit)
-      .map(serializeHistoryMessage);
-    deps.sendJson(res, 200, messages);
+    const buffer = detail.conversation.messages ?? [];
+    const end = Math.min(buffer.length, paging?.beforeSeq ?? buffer.length);
+    const start = Math.max(0, end - (paging?.limit ?? deps.messageReplayLimit));
+    const messages = buffer.slice(start, end)
+      .map((message, index) => ({ ...serializeHistoryMessage(message), seq: start + index }));
+    deps.sendJson(res, 200, paging || url?.searchParams.get('withCursor') === '1'
+      ? backwardEnvelope(messages, start, 0, end) : messages);
   } catch {
     deps.sendJson(res, 404, { error: 'Session not found' });
   }
@@ -146,6 +160,27 @@ url: URL,
   const cursor = deps.streamCursor?.inspect(instanceId, buffer);
   const offset = cursor?.offset ?? 0;
   const rawFromSeq = url.searchParams.get('fromSeq');
+  const paging = parseBackwardPage(url);
+  if (paging === 'invalid') {
+    deps.sendJson(res, 400, { error: 'Invalid message page cursor or limit' });
+    return;
+  }
+  if (paging) {
+    const end = Math.max(0, Math.min(buffer.length, paging.beforeSeq - offset));
+    const start = Math.max(0, end - paging.limit);
+    const messages = buffer.slice(start, end)
+      .map((message, index) => serializeMessage(message, offset + start + index))
+      .filter((dto): dto is NonNullable<typeof dto> => dto !== null);
+    const envelope = backwardEnvelope(messages, start, offset, end);
+    if (cursor) {
+      envelope.meta.bufferGeneration = cursor.bufferGeneration;
+      envelope.meta.cursorEpoch = cursor.cursorEpoch;
+      envelope.meta.streamSeq = cursor.nextStreamSeq - 1;
+    }
+    if (instance.adapterGeneration !== undefined) envelope.meta.adapterGeneration = instance.adapterGeneration;
+    deps.sendJson(res, 200, envelope);
+    return;
+  }
 
   // Absent fromSeq: legacy path — last deps.messageReplayLimit messages, byte-for-byte
   // equivalent to before except each DTO now carries its buffer index as `seq`.
@@ -162,6 +197,7 @@ url: URL,
           fromSeq: -1,
           returned: messages.length,
           hasMore: start > 0,
+          nextBeforeSeq: offset + start,
           maxSeq: messages.at(-1)?.seq ?? -1,
           ...(cursor ? { bufferGeneration: cursor.bufferGeneration } : {}),
           ...(cursor ? { cursorEpoch: cursor.cursorEpoch } : {}),
@@ -230,4 +266,20 @@ url: URL,
     },
   };
   deps.sendJson(res, 200, envelope);
+}
+
+function parseBackwardPage(url?: URL): { beforeSeq: number; limit: number } | 'invalid' | null {
+  const raw = url?.searchParams.get('beforeSeq');
+  if (raw === null || raw === undefined) return null;
+  const beforeSeq = Number(raw);
+  const rawLimit = url?.searchParams.get('limit');
+  const limit = rawLimit === null || rawLimit === undefined ? 100 : Number(rawLimit);
+  if (!raw.trim() || !Number.isSafeInteger(beforeSeq) || beforeSeq < 0 ||
+      !Number.isSafeInteger(limit) || limit < 1 || limit > 100 || url?.searchParams.has('fromSeq')) return 'invalid';
+  return { beforeSeq, limit };
+}
+
+function backwardEnvelope(messages: MobileMessageDto[], start: number, offset: number, end: number): MobileMessagesResumeDto {
+  return { messages, meta: { fromSeq: -1, returned: messages.length, hasMore: start > 0,
+    maxSeq: offset + end - 1, nextBeforeSeq: offset + start } };
 }

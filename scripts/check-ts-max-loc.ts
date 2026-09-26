@@ -266,7 +266,10 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/instance/instance-manager.ts': 2417,
   // Raised 1068 -> 1105 (2026-07-17 loop-issue fixes).
   'src/main/instance/instance-orchestration.ts': 1105,
-  'src/main/instance/instance-provider-limit-handler.ts': 715,
+  // Raised 715 -> 935 for the session usage-overage stop (maybeParkOnUsageLimit,
+  // the hold-vs-auto-resume park split, and the hold/release announcements;
+  // 2026-09-26).
+  'src/main/instance/instance-provider-limit-handler.ts': 935,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1421,
   // Was 697 of 700. LT-018 added occupancy resets to the two fresh-session
   // fallback branches (`applyRuntimeChange`'s resume failure and

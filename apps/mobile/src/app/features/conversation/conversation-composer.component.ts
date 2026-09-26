@@ -52,6 +52,9 @@ export class ConversationComposerComponent {
   readonly activityLabel = input.required<string>();
   readonly working = input(false);
   readonly stopping = input(false);
+  readonly status = input('');
+  protected readonly canSteer = computed(() =>
+    ['busy', 'processing', 'thinking_deeply', 'waiting_for_permission'].includes(this.status()));
 
   protected readonly draft = signal('');
   protected readonly legacyDraftAvailable = signal(false);
@@ -206,9 +209,10 @@ export class ConversationComposerComponent {
     }
   }
 
-  protected async send(event: Event): Promise<void> {
+  protected async send(event: Event, steer = false): Promise<void> {
     event.preventDefault();
     if (!this.canSend() || this.sending() || !this.online()) return;
+    if (steer && !this.canSteer()) return;
     const key = this.contextKey();
     const current = this.operationScope();
     this.sending.set(true);
@@ -225,15 +229,19 @@ export class ConversationComposerComponent {
       this.clearNotice();
       if (stopped) await stopped;
       if (!current()) { await this.restoreDraft(key, text, attachments); return; }
-      const result = await this.gateway.sendInput(
-        this.instanceId(), text, attachments.length ? attachments : undefined,
-      );
-      if (current() && result.queued) this.showNotice('Queued. It will send when this session is free.');
+      if (steer) {
+        await this.gateway.steerInput(this.instanceId(), text, attachments.length ? attachments : undefined);
+      } else {
+        const result = await this.gateway.sendInput(
+          this.instanceId(), text, attachments.length ? attachments : undefined,
+        );
+        if (current() && result.queued) this.showNotice('Queued. It will send when this session is free.');
+      }
     } catch (error) {
       await this.restoreDraft(key, text, attachments);
       if (current()) {
         this.haptics.error();
-        this.showNotice(`Send not confirmed: ${errorText(error)}`, true);
+        this.showNotice(`${steer ? 'Steer' : 'Send'} not confirmed: ${errorText(error)}`, true);
       }
     } finally {
       if (current()) this.sending.set(false);

@@ -1,14 +1,20 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { TestBed } from '@angular/core/testing';
 import WebSocket from 'ws';
 import { MOBILE_ATTENTION_LEVELS } from '../../../../packages/contracts/src/types/mobile-gateway.types';
 import { createFixtureState, loadPreviewFixture } from './fixture-state.mjs';
 import { createPreviewHost } from './server.mjs';
 import { TranscriptStore } from '../../src/app/core/transcript-store';
+import { HostStore } from '../../src/app/core/host-store';
+import { pairWithHost } from '../../src/app/core/pairing';
 
 const openHosts: Array<{ close(): Promise<void> }> = [];
 
 afterEach(async () => {
   await Promise.all(openHosts.splice(0).map((host) => host.close()));
+  TestBed.resetTestingModule();
+  localStorage.clear();
+  vi.unstubAllGlobals();
 });
 
 async function start(scenario = 'default') {
@@ -33,6 +39,84 @@ function auth(token: string): HeadersInit {
 }
 
 describe('preview host gateway contract', () => {
+  it.each([
+    ['quota-known', 40, 'fresh', false], ['quota-unknown', null, 'fresh', false],
+    ['quota-stale', 100, 'stale', false], ['quota-exhausted', 100, 'fresh', true],
+    ['quota-reset', 0, 'fresh', false], ['quota-multi-window', 40, 'fresh', false],
+  ])('serves the authenticated %s usage fixture', async (scenario, percent, freshness, exhausted) => {
+    const host = await start(String(scenario));
+    expect((await fetch(`${host.baseUrl}/api/quota`)).status).toBe(401);
+    const token = await pair(host.baseUrl);
+    const response = await fetch(`${host.baseUrl}/api/quota`, { headers: auth(token) });
+    expect(response.status).toBe(200);
+    const state = await response.json() as { providers: Array<{ freshness: string; exhausted: boolean; windows: Array<{ percentUsed: number | null }> }> };
+    expect(state.providers[0]).toMatchObject({ freshness, exhausted });
+    expect(state.providers[0].windows[0].percentUsed).toBe(percent);
+    if (scenario === 'quota-multi-window') expect(state.providers[0].windows).toHaveLength(2);
+  });
+
+  it('pairs two preview servers into the real HostStore without identity replacement', async () => {
+    const first = await createPreviewHost({ port: 0, hostName: 'Studio A' });
+    const second = await createPreviewHost({ port: 0, hostName: 'Studio B', scenario: 'empty-inbox' });
+    openHosts.push(first, second);
+    const store = TestBed.inject(HostStore);
+    const runtimeFetch = globalThis.fetch.bind(globalThis);
+    // jsdom installs its own AbortSignal, which Node's real fetch rejects. The
+    // production pairWithHost path is retained; only this test bridge omits the
+    // incompatible signal while exercising the real HTTP servers.
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+      runtimeFetch(input, { ...init, signal: undefined }));
+    const pairedIds: string[] = [];
+
+    for (const host of [first, second]) {
+      const paired = await pairWithHost('127.0.0.1', host.port, 'preview-only', 'Browser preview');
+      pairedIds.push(paired.deviceId);
+      await store.addHost({
+        id: paired.deviceId,
+        name: paired.hostName,
+        host: '127.0.0.1',
+        port: host.port,
+        token: paired.token,
+        addedAt: host.port,
+      });
+      await store.setActive(paired.deviceId);
+    }
+
+    expect(store.hosts()).toHaveLength(2);
+    expect(new Set(store.hosts().map((host) => host.id)).size).toBe(2);
+    expect(store.hosts().map((host) => host.name)).toEqual(['Studio A', 'Studio B']);
+    await expect(pairWithHost('127.0.0.1', first.port, 'preview-only', 'Browser preview'))
+      .resolves.toMatchObject({ deviceId: pairedIds[0] });
+  });
+
+  it('provides deterministic cross-host inbox, empty, offline, unauthorized, and stale-probe fixtures', async () => {
+    const first = await createPreviewHost({ port: 0, scenario: 'default', hostName: 'Studio A', scenarioDelayMs: 5 });
+    const second = await createPreviewHost({ port: 0, scenario: 'empty-inbox', hostName: 'Studio B', scenarioDelayMs: 5 });
+    openHosts.push(first, second);
+    const firstToken = await pair(first.baseUrl);
+    const secondToken = await pair(second.baseUrl);
+    const firstSnapshot = await fetch(`${first.baseUrl}/api/snapshot`, { headers: auth(firstToken) }).then((res) => res.json()) as { hostName: string; prompts: unknown[]; instances: Array<{ hasUnreadCompletion: boolean }> };
+    const secondSnapshot = await fetch(`${second.baseUrl}/api/snapshot`, { headers: auth(secondToken) }).then((res) => res.json()) as { hostName: string; prompts: unknown[]; instances: Array<{ hasUnreadCompletion: boolean }> };
+    expect([firstSnapshot.hostName, secondSnapshot.hostName]).toEqual(['Studio A', 'Studio B']);
+    expect(firstSnapshot.prompts.length).toBeGreaterThan(0);
+    expect(firstSnapshot.instances.some((instance) => instance.hasUnreadCompletion)).toBe(true);
+    expect(secondSnapshot.prompts).toEqual([]);
+    expect(secondSnapshot.instances.every((instance) => !instance.hasUnreadCompletion)).toBe(true);
+
+    const offline = await start('offline');
+    expect((await fetch(`${offline.baseUrl}/health`)).status).toBe(503);
+    const unauthorized = await start('401');
+    const unauthorizedToken = await pair(unauthorized.baseUrl);
+    expect((await fetch(`${unauthorized.baseUrl}/api/prompts`, { headers: auth(unauthorizedToken) })).status).toBe(401);
+
+    const stale = await start('stale-probe');
+    const staleToken = await pair(stale.baseUrl);
+    const startedAt = Date.now();
+    const staleResponse = await fetch(`${stale.baseUrl}/api/snapshot`, { headers: auth(staleToken) });
+    expect(staleResponse.status).toBe(200);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(200);
+  });
+
   it('keeps fixture and generated attention levels inside the canonical contract', async () => {
     const fixture = await loadPreviewFixture();
     const state = createFixtureState(fixture);
@@ -102,6 +186,25 @@ describe('preview host gateway contract', () => {
       method: 'POST', headers, body: JSON.stringify({ paused: true }),
     }).then((res) => res.json()) as { isPaused: boolean };
     expect(paused.isPaused).toBe(true);
+  });
+
+  it('serves safe automations and idempotently starts a run through the normal snapshot path', async () => {
+    const host = await start();
+    expect((await fetch(`${host.baseUrl}/api/automations`)).status).toBe(401);
+    const token = await pair(host.baseUrl);
+    const headers = auth(token);
+    const listed = await fetch(`${host.baseUrl}/api/automations`, { headers }).then(response => response.json()) as Array<Record<string, unknown>>;
+    expect(listed[0]).toMatchObject({ id: 'preview-daily-review', name: 'Daily review', model: 'gpt-preview' });
+    expect(JSON.stringify(listed)).not.toContain('prompt');
+    expect(JSON.stringify(listed)).not.toContain('workingDirectory');
+
+    const request = { method: 'POST', headers, body: JSON.stringify({ idempotencyKey: 'mobile-preview-1' }) };
+    const first = await fetch(`${host.baseUrl}/api/automations/preview-daily-review/run`, request).then(response => response.json());
+    const duplicate = await fetch(`${host.baseUrl}/api/automations/preview-daily-review/run`, request).then(response => response.json());
+    expect(first).toEqual(duplicate);
+    expect(first).toMatchObject({ status: 'started' });
+    const snapshot = await fetch(`${host.baseUrl}/api/snapshot`, { headers }).then(response => response.json()) as { instances: Array<{ workingDirectory: string }> };
+    expect(snapshot.instances.filter(instance => instance.workingDirectory === '/preview/automations')).toHaveLength(1);
   });
 
   it('switches the active scenario from the browser query flag', async () => {

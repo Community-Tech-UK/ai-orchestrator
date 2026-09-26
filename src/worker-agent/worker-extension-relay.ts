@@ -44,6 +44,21 @@ type WorkerExtensionRelayRegistrationSummary = Pick<
   'registration' | 'lastRegistrationCheckAt' | 'manifestPath' | 'registrationError'
 >;
 
+/**
+ * Whether a relay RPC failure came from the coordinator actively REFUSING the
+ * request (it answered, with an RPC error — e.g. `browser_extension_relay_rate_limited`)
+ * as opposed to a transport problem (`worker_request_timeout:*`,
+ * `coordinator_not_connected`, `worker_not_registered`) where nothing ever
+ * answered. The two need opposite handling: a refusal must be surfaced so the
+ * caller can back off, while a transport gap on a long poll is best reported as
+ * "nothing available". Mirrors the shape produced by the worker RPC client
+ * (`RPC error <code>: <message>`) and by `shouldRetryCommandResult`.
+ */
+function isCoordinatorRpcRejection(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.startsWith('RPC error ');
+}
+
 export class WorkerExtensionRelay {
   private server: net.Server | null = null;
   private readonly clientSockets = new Set<net.Socket>();
@@ -266,7 +281,22 @@ export class WorkerExtensionRelay {
         payload,
         pollWindowMs + POLL_FORWARD_TIMEOUT_BUFFER_MS,
       );
-    } catch {
+    } catch (error) {
+      // A poll the coordinator REFUSED is not the same as "the queue is empty".
+      // Swallowing every failure as `null` makes the extension treat a throttled
+      // or rejected poll as a healthy idle poll and re-issue it ~250ms later,
+      // driving straight back into the same rejection while queued commands time
+      // out — the channel keeps reporting "polling 2s ago" the whole time
+      // (windows-pc 2026-09-25 20:01, where tab-inventory floods starved
+      // `browser.ext.pollCommand` of its rate budget). Surface the rejection and
+      // the extension's poll-error path backs the poll off instead.
+      //
+      // A timeout or transport failure is genuinely different: the long-poll
+      // window elapsed or the link blipped, "nothing available" is the honest
+      // answer, and the extension's next poll is the correct recovery.
+      if (isCoordinatorRpcRejection(error)) {
+        throw error;
+      }
       return null;
     }
   }
@@ -321,8 +351,7 @@ export class WorkerExtensionRelay {
   }
 
   private shouldRetryCommandResult(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error);
-    return !message.startsWith('RPC error ');
+    return !isCoordinatorRpcRejection(error);
   }
 
   /**

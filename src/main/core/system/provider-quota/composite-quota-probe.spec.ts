@@ -60,7 +60,7 @@ describe('CompositeQuotaProbe', () => {
     expect(snap).toBe(OK_NO_WINDOWS);
   });
 
-  it('keeps last-known monitor bars without a reauth alarm', async () => {
+  it('keeps last-known monitor bars and carries the reauth verdict onto them', async () => {
     const nativeReauth: ProviderQuotaSnapshot = {
       provider: 'codex', takenAt: 1, source: 'admin-api', ok: false,
       error: 'token expired', needsReauth: true, windows: [],
@@ -68,7 +68,23 @@ describe('CompositeQuotaProbe', () => {
     const probe = new CompositeQuotaProbe(nativeProbe(nativeReauth), fallback(STATE_JSON));
     const snap = await probe.probe({ signal: signal() });
     expect(snap!.windows).toEqual(STATE_JSON.windows);
+    // Cached bars under an expired login must not look current: the chip
+    // renders "X% ⚠" plus a reauth row from these two fields.
+    expect(snap!.needsReauth).toBe(true);
+    expect(snap!.error).toBe('token expired');
+    expect(snap!.ok).toBe(true);
+  });
+
+  it('keeps ordinary native failures quiet under the cached bars', async () => {
+    const nativeError: ProviderQuotaSnapshot = {
+      provider: 'codex', takenAt: 1, source: 'admin-api', ok: false,
+      error: 'network down', windows: [],
+    };
+    const probe = new CompositeQuotaProbe(nativeProbe(nativeError), fallback(STATE_JSON));
+    const snap = await probe.probe({ signal: signal() });
+    expect(snap!.windows).toEqual(STATE_JSON.windows);
     expect(snap!.needsReauth).toBeFalsy();
+    expect(snap!.error).toBeUndefined();
     expect(snap!.ok).toBe(true);
   });
 
@@ -94,7 +110,8 @@ describe('CompositeQuotaProbe', () => {
     const snap = await probe.probe({ signal: signal() });
     expect(calls).toEqual([['claude', 'max-b']]);
     expect(snap!.windows).toEqual(accountWindows.windows);
-    expect(snap!.needsReauth).toBeFalsy();
+    // The reauth verdict carries onto account-scoped cached bars too.
+    expect(snap!.needsReauth).toBe(true);
     expect(snap!.accountProfileId).toBe('max-b');
   });
 

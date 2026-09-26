@@ -51,6 +51,7 @@ import type {
 } from "./mobile-gateway-serializers";
 import {
   clearMobilePushThrottle,
+  sendMobileAutomationFailurePush,
   sendBrowserEscalationPush,
   sendMobileCompletionPush,
   sendMobileLiveActivityPush,
@@ -74,6 +75,23 @@ import {
 import { MobileGatewayPromptStore } from "./mobile-gateway-prompt-store";
 import { MobileGatewaySnapshotService } from "./mobile-gateway-snapshot";
 import { MobileGatewayStreamCursor } from "./mobile-gateway-stream-cursor";
+import { MobileGatewayQuotaHandlers, type GatewayQuotaSource } from "./mobile-gateway-quota-handlers";
+import { getProviderQuotaService } from "../core/system/provider-quota-service";
+import { sendMobileQuotaPush } from "./mobile-gateway-push";
+import {
+  MobileAutomationRequestError,
+  MobileGatewayAutomationHandlers,
+  readMobileAutomationRunRequest,
+  type GatewayAutomationEvents,
+  type GatewayAutomationRunner,
+  type GatewayAutomationStore,
+} from './mobile-gateway-automation-handlers';
+import { getAutomationRunner, getAutomationStore } from '../automations';
+import { getAutomationEvents } from '../automations/automation-events';
+import {
+  readAutomationModelDefaults,
+  type AutomationModelDefaults,
+} from '../automations/automation-model-defaults';
 
 export {
   buildProjects,
@@ -125,6 +143,11 @@ export interface MobileGatewayDeps {
   modelCatalog?: MobileModelCatalogSource;
   listDynamicModels?: MobileModelLister;
   nodeResolver?: (nameOrId: string) => string | null;
+  quotaSource?: GatewayQuotaSource;
+  automationStore?: GatewayAutomationStore;
+  automationRunner?: GatewayAutomationRunner;
+  automationEvents?: GatewayAutomationEvents;
+  automationModelDefaults?: () => AutomationModelDefaults;
 }
 
 export interface MobileGatewayStartOptions {
@@ -158,6 +181,18 @@ export class MobileGatewayServer {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribeRevocations: (() => void) | null = null;
   private readonly streamCursor = new MobileGatewayStreamCursor();
+  private readonly quota = new MobileGatewayQuotaHandlers({
+    getSource: () => this.deps?.quotaSource ?? getProviderQuotaService(),
+    broadcast: event => this.snapshots.broadcast(event),
+    sendExhaustedPush: () => sendMobileQuotaPush(this.pushDeps()),
+  });
+  private readonly automations = new MobileGatewayAutomationHandlers({
+    getStore: () => this.deps?.automationStore ?? getAutomationStore(),
+    getRunner: () => this.deps?.automationRunner ?? getAutomationRunner(),
+    getEvents: () => this.deps?.automationEvents ?? getAutomationEvents(),
+    getModelDefaults: () => this.deps?.automationModelDefaults?.() ?? readAutomationModelDefaults(),
+    sendFailedPush: failure => sendMobileAutomationFailurePush(this.pushDeps(), failure),
+  });
 
   private readonly promptStore = new MobileGatewayPromptStore({
     broadcast: (event) => this.snapshots.broadcast(event),
@@ -330,6 +365,8 @@ export class MobileGatewayServer {
       });
     });
     this.events.attach();
+    this.quota.attach();
+    this.automations.attach();
     this.startHeartbeat();
     logger.info("Mobile gateway started", {
       host: this.boundHost,
@@ -343,6 +380,8 @@ export class MobileGatewayServer {
   }
 
   async stop(): Promise<MobileGatewayStatus> {
+    this.automations.detach();
+    this.quota.detach();
     this.snapshots.stop();
     clearMobilePushThrottle();
     if (this.heartbeatTimer) {
@@ -559,6 +598,23 @@ export class MobileGatewayServer {
     const segments = url.pathname.split("/").filter(Boolean);
     try {
       if (segments[0] === "api") {
+        if (segments[1] === 'automations' && segments.length === 2 && method === 'GET') {
+          return this.sendJson(res, 200, await this.automations.list());
+        }
+        if (segments[1] === 'automations' && segments.length === 4 && segments[3] === 'run' && method === 'POST') {
+          const body = await readMobileAutomationRunRequest(req);
+          let automationId: string;
+          try {
+            automationId = decodeURIComponent(segments[2]);
+          } catch {
+            throw new MobileAutomationRequestError('A valid automation id is required');
+          }
+          const result = await this.automations.run(automationId, body);
+          return this.sendJson(res, 200, result);
+        }
+        if (segments[1] === "quota" && segments.length === 2 && method === "GET") {
+          return this.sendJson(res, 200, this.quota.read());
+        }
         if (await this.instanceRoutes.handle(req, res, url, segments, method))
           return;
         if (
@@ -604,6 +660,7 @@ export class MobileGatewayServer {
             return await this.handleHistoryMessages(
               res,
               decodeURIComponent(segments[2]),
+              url,
             );
           }
         }
@@ -625,7 +682,7 @@ export class MobileGatewayServer {
         path: url.pathname,
         error: error instanceof Error ? error.message : String(error),
       });
-      this.sendJson(res, 500, {
+      this.sendJson(res, error instanceof MobileAutomationRequestError ? error.statusCode : 500, {
         error: error instanceof Error ? error.message : "Internal error",
       });
     }
@@ -666,8 +723,9 @@ export class MobileGatewayServer {
   private async handleHistoryMessages(
     res: ServerResponse,
     id: string,
+    url: URL,
   ): Promise<void> {
-    await handleMobileHistoryMessages(this.historyDeps(), res, id);
+    await handleMobileHistoryMessages(this.historyDeps(), res, id, url);
   }
 
   private historyDeps() {

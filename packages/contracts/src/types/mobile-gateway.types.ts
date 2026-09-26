@@ -119,6 +119,8 @@ export interface MobileMessagesResumeDto {
     returned: number;
     hasMore: boolean;
     maxSeq: number;
+    /** Exclusive cursor for the next older page, including filtered buffer entries. */
+    nextBeforeSeq?: number;
     /** Changes when the gateway detects that the live buffer was replaced. */
     bufferGeneration?: number;
     /** Changes whenever the gateway's process-local stream cursor state restarts. */
@@ -167,6 +169,57 @@ export interface MobilePauseDto {
   lastChange: number;
 }
 
+/** Usage only: no account identifiers, probe errors, credentials, or spend data. */
+export interface MobileQuotaWindowDto {
+  id: string;
+  label: string;
+  percentUsed: number | null;
+  resetsAt: number | null;
+  exhausted: boolean;
+}
+
+export interface MobileQuotaProviderDto {
+  provider: string;
+  freshness: 'fresh' | 'stale' | 'unavailable';
+  updatedAt: number | null;
+  /** Expiry of the authoritative evidence, independent of the phone clock. */
+  validUntil: number | null;
+  exhausted: boolean;
+  windows: MobileQuotaWindowDto[];
+}
+
+export interface MobileQuotaStateDto {
+  serverTime: number;
+  providers: MobileQuotaProviderDto[];
+}
+
+/** Safe automation schedule projection. Automation action/body data is never mobile-visible. */
+export type MobileAutomationScheduleDto =
+  | { type: 'cron'; expression: string; timezone: string }
+  | { type: 'oneTime'; runAt: number; timezone?: string };
+
+export interface MobileAutomationDto {
+  id: string;
+  name: string;
+  schedule: MobileAutomationScheduleDto;
+  enabled: boolean;
+  nextRunAt: number | null;
+  lastRun: {
+    status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'cancelled';
+    at: number;
+  } | null;
+  provider: string | null;
+  model: string | null;
+}
+
+export interface MobileAutomationRunRequest {
+  idempotencyKey: string;
+}
+
+export type MobileAutomationRunResponse =
+  | { status: 'started' | 'queued'; runId: string }
+  | { status: 'skipped'; runId?: string; reason: string };
+
 export interface MobileSnapshot {
   hostName: string;
   serverTime: number;
@@ -203,7 +256,8 @@ export type MobileServerEvent =
     }
   | { type: 'permission-prompt'; data: MobilePromptDto }
   | { type: 'permission-cleared'; data: { requestId: string; instanceId?: string } }
-  | { type: 'pause-state'; data: MobilePauseDto };
+  | { type: 'pause-state'; data: MobilePauseDto }
+  | { type: 'quota-state'; data: MobileQuotaStateDto };
 
 export type MobileClientEvent =
   | { type: 'view'; instanceId: string | null }
@@ -226,6 +280,12 @@ export interface MobileInputResponse {
   queued?: boolean;
   queueId?: string;
   duplicate?: boolean;
+}
+
+/** Steer delegates active-turn/compaction decisions to the host instance manager. */
+export type MobileSteerRequest = MobileInputRequest;
+export interface MobileSteerResponse {
+  ok: true;
 }
 
 export interface MobileCancelledInputDto {

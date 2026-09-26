@@ -574,4 +574,90 @@ describe('RemoteBrowserExtensionBridge', () => {
       error: 'failed',
     })).toThrow('browser_extension_relay_rate_limited:node-1');
   });
+
+  // Regression: windows-pc 2026-09-25 20:01. One tab-inventory burst produced
+  // 234 attachTab + 2 pollCommand rejections in 14s. The shared budget meant
+  // bulk tab chatter silenced the command path, so queued commands timed out
+  // while the channel still reported "polling 2s ago". Dropping a poll is
+  // indistinguishable from "the queue is empty", which is why the two classes
+  // must not share a bucket.
+  it('keeps tab-report floods from starving the command path', async () => {
+    const { service, commandStore, tabStore, registry, contactState, logger, setNow } = makeBridge();
+    // One clock for the bridge and its contact state: runtime evidence is
+    // judged against the contact clock, so two different clocks make a
+    // freshly-started extension look incompatible.
+    setNow(3_000);
+    const bridge = new RemoteBrowserExtensionBridge({
+      service,
+      commandStore,
+      tabStore,
+      registry,
+      contactState,
+      logger,
+      reliabilityEvents: { record: vi.fn() },
+      now: () => 3_000,
+      maxRequestsPerWindow: 2,
+      rateLimitWindowMs: 1_000,
+    });
+    const runtime = { extensionVersion: '0.2.18', extensionStartedAt: 3_000 };
+
+    // Saturate the BULK budget: the first two attaches are accepted, the third
+    // is rejected. This is the tab-inventory flood.
+    await bridge.attachTab('node-1', {
+      ...runtime,
+      payload: { tabId: 1, windowId: 1, url: 'https://example.test/a', title: 'A' },
+    });
+    await bridge.attachTab('node-1', {
+      ...runtime,
+      payload: { tabId: 2, windowId: 1, url: 'https://example.test/b', title: 'B' },
+    });
+    await expect(bridge.attachTab('node-1', {
+      ...runtime,
+      payload: { tabId: 3, windowId: 1, url: 'https://example.test/c', title: 'C' },
+    })).rejects.toThrow('browser_extension_relay_rate_limited:node-1:bulk');
+
+    // The CONTROL budget is untouched by that flood: both the poll that
+    // delivers a command and the result that answers it get through.
+    await expect(bridge.pollCommand('node-1', { ...runtime })).resolves.toBeNull();
+    expect(() => bridge.commandResult('node-1', {
+      ...runtime,
+      commandId: 'cmd-1',
+      ok: true,
+      result: { done: true },
+    })).not.toThrow();
+    expect(commandStore.resolveCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ commandId: 'cmd-1', ok: true }),
+    );
+
+    // Control is still independently bounded, so this partitions the budget
+    // rather than simply removing the runaway safety net.
+    expect(() => bridge.commandReceived('node-1', {
+      ...runtime,
+      commandId: 'cmd-1',
+    })).toThrow('browser_extension_relay_rate_limited:node-1:control');
+  });
+
+  it('names the throttled traffic class in the rate-limit error', async () => {
+    const { service, commandStore, tabStore, registry, contactState, logger, setNow } = makeBridge();
+    setNow(4_000);
+    const bridge = new RemoteBrowserExtensionBridge({
+      service,
+      commandStore,
+      tabStore,
+      registry,
+      contactState,
+      logger,
+      reliabilityEvents: { record: vi.fn() },
+      now: () => 4_000,
+      maxRequestsPerWindow: 1,
+      rateLimitWindowMs: 1_000,
+    });
+
+    const runtime = { extensionVersion: '0.2.18', extensionStartedAt: 4_000 };
+    await bridge.pollCommand('node-1', { ...runtime });
+    expect(() => bridge.commandReceived('node-1', {
+      ...runtime,
+      commandId: 'cmd-1',
+    })).toThrow('browser_extension_relay_rate_limited:node-1:control');
+  });
 });

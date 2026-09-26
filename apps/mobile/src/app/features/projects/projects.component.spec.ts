@@ -12,6 +12,18 @@ describe('ProjectsComponent structure', () => {
     expect(source).toContain('projectComposeAriaLabel(group.project)');
   });
 
+  it('links the cross-host Needs you inbox from Projects', () => {
+    expect(source).toContain('(click)="openInbox()"');
+    expect(source).toContain('Needs you · {{ needsYouCount() }}');
+    expect(source).toContain("void this.router.navigate(['/inbox'])");
+  });
+
+  it('links the read-and-run Automations surface from Projects', () => {
+    expect(source).toContain('(click)="openAutomations()"');
+    expect(source).toContain('<span>Automations</span>');
+    expect(source).toContain("void this.router.navigate(['/automations'])");
+  });
+
   it('uses a search and New bottom dock instead of rollup pills and a detached fab', () => {
     expect(source).toContain('class="mobile-bottom-dock"');
     expect(source).toContain('aria-label="Search sessions"');

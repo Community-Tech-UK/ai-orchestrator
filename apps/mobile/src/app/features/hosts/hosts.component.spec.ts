@@ -7,6 +7,7 @@ import { GatewayClient, type ConnectionState } from '../../core/gateway-client.s
 import { HostStore } from '../../core/host-store';
 import type { PairedHost } from '../../core/models';
 import { HostsComponent } from './hosts.component';
+import { NeedsYouStore } from '../inbox/needs-you.store';
 
 const hosts: PairedHost[] = [
   { id: 'host-a', name: 'Example A', host: 'a.example.test', port: 4879, token: 'PLACEHOLDER_DEVICE_A', addedAt: 0 },
@@ -25,6 +26,14 @@ function setup() {
     { provide: GatewayClient, useValue: { state, dataHostId, online: () => state() === 'connected', reconnect } },
     { provide: Router, useValue: { navigate } },
     { provide: AppLockService, useValue: { available: signal(false), enabled: signal(true), locked: signal(false), biometryLabel: () => 'Face ID' } },
+    { provide: NeedsYouStore, useValue: {
+      stateFor: (id: string) => id !== activeId()
+        ? id === 'host-b' && activeId() === 'host-a' ? 'offline' : 'checking'
+        : dataHostId() !== id ? 'checking'
+          : state() === 'connected' ? 'online'
+            : state() === 'unauthorized' ? 'unauthorized'
+              : state() === 'connecting' ? 'checking' : 'offline',
+    } },
   ] });
   TestBed.overrideComponent(HostsComponent, { set: { imports: [], schemas: [NO_ERRORS_SCHEMA] } });
   const fixture = TestBed.createComponent(HostsComponent); fixture.detectChanges();
@@ -38,11 +47,11 @@ describe('Hosts recovery behavior', () => {
   it('never gives an inactive or newly selected host another host’s health', () => {
     const { fixture, activeId } = setup();
     let rows = fixture.nativeElement.querySelectorAll('.host-row');
-    expect(rows[1].textContent).toContain('Not selected');
+    expect(rows[1].textContent).toContain('Offline');
     activeId.set('host-b'); fixture.detectChanges();
     rows = fixture.nativeElement.querySelectorAll('.host-row');
-    expect(rows[0].textContent).toContain('Not selected');
-    expect(rows[1].textContent).toContain('Not checked');
+    expect(rows[0].textContent).toContain('Checking');
+    expect(rows[1].textContent).toContain('Checking');
     expect(rows[1].querySelector('.host-row__status--online')).toBeNull();
     expect(fixture.nativeElement.textContent).not.toContain('PLACEHOLDER_DEVICE');
   });
@@ -65,7 +74,7 @@ describe('Hosts recovery behavior', () => {
     expect(setActive).toHaveBeenCalledWith('host-b');
     expect(activeId()).toBe('host-b');
     expect(navigate).toHaveBeenCalledWith(['/projects']);
-    expect(fixture.nativeElement.querySelectorAll('.host-row')[1].textContent).toContain('Not checked');
+    expect(fixture.nativeElement.querySelectorAll('.host-row')[1].textContent).toContain('Checking');
   });
 
   it('requires secondary options and confirmation before revoking and removing', async () => {

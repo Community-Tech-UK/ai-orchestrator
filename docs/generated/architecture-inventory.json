@@ -5981,12 +5981,12 @@
       "lines": 11267
     },
     {
-      "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
-      "lines": 5547
+      "path": "resources/browser-extension/background.js",
+      "lines": 5596
     },
     {
-      "path": "resources/browser-extension/background.js",
-      "lines": 5500
+      "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
+      "lines": 5547
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-pause-on-vpn_completed.md",
@@ -6045,6 +6045,10 @@
       "lines": 3193
     },
     {
+      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
+      "lines": 2988
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
       "lines": 2952
     },
@@ -6059,10 +6063,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-17-wave2-provider-normalization_completed.md",
       "lines": 2832
-    },
-    {
-      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 2796
     },
     {
       "path": "docs/superpowers/plans/2026-04-21-cursor-cli-provider_completed.md",
@@ -6102,7 +6102,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2453
+      "lines": 2465
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -6125,12 +6125,12 @@
       "lines": 2244
     },
     {
-      "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
-      "lines": 2157
+      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
+      "lines": 2222
     },
     {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
-      "lines": 2131
+      "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
+      "lines": 2157
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
@@ -6685,6 +6685,10 @@
       "lines": 1061
     },
     {
+      "path": "src/main/automations/automation-runner.spec.ts",
+      "lines": 1055
+    },
+    {
       "path": "src/main/app/instance-event-forwarding.spec.ts",
       "lines": 1051
     },
@@ -6751,10 +6755,6 @@
     {
       "path": "src/main/browser-gateway/browser-extension-command-store.spec.ts",
       "lines": 996
-    },
-    {
-      "path": "src/main/automations/automation-runner.spec.ts",
-      "lines": 995
     },
     {
       "path": "src/main/context/context-compactor.ts",
@@ -6861,6 +6861,10 @@
       "lines": 936
     },
     {
+      "path": "src/main/instance/instance-provider-limit-handler.ts",
+      "lines": 936
+    },
+    {
       "path": "docs/superpowers/plans/2026-06-05-auxiliary-local-model-routing_completed.md",
       "lines": 935
     },
@@ -6869,12 +6873,20 @@
       "lines": 934
     },
     {
+      "path": "src/main/automations/automation-store.ts",
+      "lines": 931
+    },
+    {
       "path": "src/renderer/app/features/memory/memory-browser.component.ts",
       "lines": 926
     },
     {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",
       "lines": 925
+    },
+    {
+      "path": "src/main/instance/instance-provider-limit-handler.spec.ts",
+      "lines": 924
     },
     {
       "path": "packages/contracts/src/schemas/loop.schemas.ts",
@@ -6903,10 +6915,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-09-remote-session-latency_completed.md",
       "lines": 900
-    },
-    {
-      "path": "src/main/automations/automation-store.ts",
-      "lines": 899
     },
     {
       "path": "src/main/workspace/lsp-manager.ts",
@@ -6993,6 +7001,10 @@
       "lines": 862
     },
     {
+      "path": "src/shared/types/settings.types.ts",
+      "lines": 862
+    },
+    {
       "path": "src/shared/types/instance.types.ts",
       "lines": 860
     },
@@ -7021,10 +7033,6 @@
       "lines": 854
     },
     {
-      "path": "src/shared/types/settings.types.ts",
-      "lines": 853
-    },
-    {
       "path": "src/renderer/app/features/stats/stats-page.component.ts",
       "lines": 852
     },
@@ -7041,15 +7049,15 @@
       "lines": 848
     },
     {
+      "path": "src/main/core/config/settings-control-policy.ts",
+      "lines": 845
+    },
+    {
       "path": "src/main/orchestration/embedding-service.ts",
       "lines": 845
     },
     {
       "path": "docs/superpowers/specs/2026-04-05-bash-validation-pipeline-design_completed.md",
-      "lines": 844
-    },
-    {
-      "path": "src/main/core/config/settings-control-policy.ts",
       "lines": 844
     },
     {
@@ -7059,6 +7067,10 @@
     {
       "path": "src/main/orchestration/loop-completion-detector.ts",
       "lines": 844
+    },
+    {
+      "path": "src/main/automations/automation-store.spec.ts",
+      "lines": 843
     },
     {
       "path": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts",

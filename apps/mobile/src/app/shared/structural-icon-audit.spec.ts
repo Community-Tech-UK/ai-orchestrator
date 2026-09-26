@@ -35,13 +35,13 @@ describe('structural icon audit', () => {
     expect(source).not.toMatch(/[☰🕘🗀🔧📎🔒⛶▶⏸‹›＋]/u);
   });
 
-  it.each([
-    'features/conversation/transcript-view.component.ts',
-    'features/history/history-detail.component.ts',
-  ])('%s labels expandable tool groups', (file) => {
-    const source = componentSource(file);
+  it('labels expandable tool groups in the transcript shared by live and archived views', () => {
+    const source = componentSource('features/conversation/transcript-view.component.ts');
     expect(source).toContain('[attr.aria-label]="toolGroupLabel(item)"');
     expect(source).not.toContain('🔧');
+    for (const file of ['features/conversation/conversation.component.ts', 'features/history/history-detail.component.ts']) {
+      expect(componentSource(file)).toContain('<app-transcript-view');
+    }
   });
 
   it('expresses attachment state with icon plus text', () => {

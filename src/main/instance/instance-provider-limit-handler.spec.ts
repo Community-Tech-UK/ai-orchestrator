@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   InstanceProviderLimitHandler,
   EARLY_RESUME_PROBE_MS,
+  ASSUMED_ACCOUNT_LIMIT_MS,
   type InstanceProviderLimitHandlerDeps,
 } from './instance-provider-limit-handler';
 import { buildProviderLimitContinuationTurn } from './instance-provider-limit-resume-scheduler';
@@ -258,6 +259,33 @@ describe('InstanceProviderLimitHandler.maybeParkKnown', () => {
     expect(ledger.record).not.toHaveBeenCalled();
     expect(h.refreshCalls).toEqual([]);
     expect(h.waitReasons.get('second')).toEqual({ kind: 'quota-park', provider: 'claude', resumeAt });
+  });
+
+  it('holds the send off a durable gate even when the auto-resume feature is off', () => {
+    // Restart mid-window: the in-memory park is gone but the durable row
+    // survives. The pre-send gate must hold — auto-resume being off only means
+    // "no unattended re-send", never "dispatch into a refused window".
+    const resumeAt = Date.now() + 60_000;
+    const ledger = {
+      record: vi.fn(),
+      getActive: vi.fn(() => ({ resumeAt, source: 'usage-overage' })),
+      clearActive: vi.fn(() => 0),
+    };
+    const h = makeHarness({
+      providerLimitLedger: ledger,
+      isEnabled: () => false,
+    } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+
+    expect(h.handler.maybeParkKnown({
+      instanceId: 'restarted',
+      provider: CLAUDE,
+      model: 'claude-sonnet-4-5',
+      reason: 'known active limit',
+      resumePrompt: 'the held turn',
+    })).toBe('parked');
+    expect(h.waitReasons.get('restarted')).toEqual({ kind: 'quota-park', provider: 'claude', resumeAt });
+    expect(h.scheduleCalls).toBe(0);
+    expect(h.resends).toEqual([]);
   });
 });
 
@@ -658,5 +686,238 @@ describe('InstanceProviderLimitHandler early-resume quota probe', () => {
 
     await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS + 5);
     expect(probe).not.toHaveBeenCalled(); // within 60s of resumeAt — the timer path owns it
+  });
+});
+
+describe('InstanceProviderLimitHandler.maybeParkOnUsageLimit', () => {
+  const modelInfo = { provider: CLAUDE, model: 'opus', accountProfileId: null };
+
+  it('holds the session even when the auto-resume feature is off', () => {
+    const h = makeHarness({
+      getProviderModel: () => modelInfo,
+      isEnabled: () => false,
+    } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+
+    const resumeAt = Date.now() + 60_000;
+    expect(h.handler.maybeParkOnUsageLimit({
+      instanceId: 'i1',
+      resetAtHint: resumeAt,
+      reason: 'overage',
+    })).toBe('parked');
+
+    expect(h.waitReasons.get('i1')).toEqual({ kind: 'quota-park', provider: 'claude', resumeAt });
+    // No unattended spend: nothing is scheduled to re-send.
+    expect(h.scheduleCalls).toBe(0);
+    expect(h.resends).toEqual([]);
+  });
+
+  it('still auto-resumes when the feature is on', () => {
+    const h = makeHarness({
+      getProviderModel: () => modelInfo,
+    } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+
+    expect(h.handler.maybeParkOnUsageLimit({
+      instanceId: 'i1',
+      resetAtHint: Date.now() + 60_000,
+      reason: 'overage',
+    })).toBe('parked');
+    expect(h.scheduleCalls).toBe(1);
+  });
+
+  it('records the stop in the durable ledger with its own source tag', () => {
+    const ledger = {
+      record: vi.fn(),
+      getActive: vi.fn(() => null),
+      clearActive: vi.fn(() => 0),
+    };
+    const h = makeHarness({
+      providerLimitLedger: ledger,
+      getProviderModel: () => modelInfo,
+    } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+
+    const resumeAt = Date.now() + 60_000;
+    h.handler.maybeParkOnUsageLimit({ instanceId: 'i1', resetAtHint: resumeAt, reason: 'overage' });
+    expect(ledger.record).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'claude',
+      source: 'usage-overage',
+      resumeAt,
+      instanceId: 'i1',
+    }));
+  });
+
+  it('holds on an assumed horizon when no reset time is known anywhere', () => {
+    const h = makeHarness({
+      getProviderModel: () => modelInfo,
+    } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+
+    const before = Date.now();
+    expect(h.handler.maybeParkOnUsageLimit({
+      instanceId: 'i1',
+      resetAtHint: null,
+      reason: 'overage',
+    })).toBe('parked');
+    const wait = h.waitReasons.get('i1');
+    expect(wait?.kind).toBe('quota-park');
+    const resumeAt = (wait as { resumeAt: number }).resumeAt;
+    expect(resumeAt).toBeGreaterThanOrEqual(before + ASSUMED_ACCOUNT_LIMIT_MS);
+  });
+
+  it('does not double-hold an already-parked session', () => {
+    const h = makeHarness({
+      getProviderModel: () => modelInfo,
+    } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+
+    const resumeAt = Date.now() + 60_000;
+    expect(h.handler.maybeParkOnUsageLimit({ instanceId: 'i1', resetAtHint: resumeAt, reason: 'overage' })).toBe('parked');
+    expect(h.handler.maybeParkOnUsageLimit({ instanceId: 'i1', resetAtHint: resumeAt, reason: 'overage' })).toBe('already-parked');
+  });
+
+  it('skips without provider identity instead of parking blind', () => {
+    const h = makeHarness({
+      getProviderModel: () => null,
+    } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+    expect(h.handler.maybeParkOnUsageLimit({
+      instanceId: 'gone',
+      resetAtHint: Date.now() + 60_000,
+      reason: 'overage',
+    })).toBe('skipped');
+    expect(h.waitReasons.get('gone')).toBeUndefined();
+  });
+
+  it('records a durable assumed gate even when no reset time is known anywhere', () => {
+    const ledger = {
+      record: vi.fn(),
+      getActive: vi.fn(() => null),
+      clearActive: vi.fn(() => 0),
+    };
+    const h = makeHarness({
+      providerLimitLedger: ledger,
+      getProviderModel: () => modelInfo,
+    } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+
+    const before = Date.now();
+    expect(h.handler.maybeParkOnUsageLimit({
+      instanceId: 'i1',
+      resetAtHint: null,
+      reason: 'overage (isUsingOverage)',
+    })).toBe('parked');
+    // A restart mid-hold must still find this row at the pre-send gate.
+    expect(ledger.record).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'usage-overage',
+      resumeAt: expect.any(Number),
+    }));
+    const row = ledger.record.mock.calls[0]?.[0] as { resumeAt: number };
+    expect(row.resumeAt).toBeGreaterThanOrEqual(before + ASSUMED_ACCOUNT_LIMIT_MS);
+  });
+
+  it('holds without a workspace when auto-resume is off', () => {
+    const h = makeHarness({
+      getProviderModel: () => modelInfo,
+      getWorkspaceCwd: () => undefined,
+      isEnabled: () => false,
+    } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+
+    expect(h.handler.maybeParkOnUsageLimit({
+      instanceId: 'i1',
+      resetAtHint: Date.now() + 60_000,
+      reason: 'overage',
+    })).toBe('parked');
+    expect(h.handler.isParked('i1')).toBe(true);
+    expect(h.scheduleCalls).toBe(0);
+  });
+
+  it('degrades to a hold-only park when auto-resume is on but the instance has no workspace', () => {
+    // The durable resume automation needs a workspace; the money stop must
+    // not disappear with it — otherwise the pre-send gate falls through and
+    // dispatches into a refused window.
+    const h = makeHarness({
+      getProviderModel: () => modelInfo,
+      getWorkspaceCwd: () => undefined,
+    } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+
+    expect(h.handler.maybeParkOnUsageLimit({
+      instanceId: 'i1',
+      resetAtHint: Date.now() + 60_000,
+      reason: 'overage',
+    })).toBe('parked');
+    expect(h.handler.isParked('i1')).toBe(true);
+    expect(h.scheduleCalls).toBe(0);
+    expect(h.waitReasons.get('i1')).toEqual({ kind: 'quota-park', provider: 'claude', resumeAt: expect.any(Number) });
+  });
+
+  it('releases the hold at the window reset when auto-resume is off', () => {
+    vi.useFakeTimers();
+    try {
+      const h = makeHarness({
+        getProviderModel: () => modelInfo,
+        isEnabled: () => false,
+      } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+
+      const resumeAt = Date.now() + 60_000;
+      h.handler.maybeParkOnUsageLimit({ instanceId: 'i1', resetAtHint: resumeAt, reason: 'overage' });
+      expect(h.handler.isParked('i1')).toBe(true);
+
+      vi.advanceTimersByTime(60_000 + 6_000);
+      // The park must not wedge the session behind the renderer's quota-park
+      // gate after the limit actually lifted.
+      expect(h.handler.isParked('i1')).toBe(false);
+      expect(h.waitReasons.get('i1')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('announces the hold and the later release of a swallowed turn', () => {
+    vi.useFakeTimers();
+    try {
+      const emitSystemMessage = vi.fn();
+      const h = makeHarness({
+        getProviderModel: () => modelInfo,
+        isEnabled: () => false,
+        emitSystemMessage,
+      } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+
+      const resumeAt = Date.now() + 60_000;
+      h.handler.maybeParkOnUsageLimit({
+        instanceId: 'i1',
+        resetAtHint: resumeAt,
+        reason: 'overage',
+        resumePrompt: 'the held turn',
+      });
+      expect(emitSystemMessage).toHaveBeenCalledWith('i1', expect.stringContaining('not sent'), expect.anything());
+
+      vi.advanceTimersByTime(60_000 + 6_000);
+      // Without this notice a held turn vanishes silently when the banner
+      // clears at the reset (it is deliberately not re-sent — hold-only mode
+      // must not spend unattended). The copy must not offer Resume: the
+      // banner (the only Resume affordance) goes away with this very release.
+      expect(emitSystemMessage).toHaveBeenCalledWith('i1', expect.stringContaining('no longer held'), expect.anything());
+      expect(emitSystemMessage).toHaveBeenCalledWith('i1', expect.stringContaining('re-send it to continue'), expect.anything());
+      const releaseCall = emitSystemMessage.mock.calls.find(([, content]) => String(content).includes('no longer held'));
+      expect(String(releaseCall?.[1])).not.toContain('press Resume');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the hold-only release timer on teardown even when durable resumes are preserved', () => {
+    vi.useFakeTimers();
+    try {
+      const h = makeHarness({
+        getProviderModel: () => modelInfo,
+        isEnabled: () => false,
+      } as unknown as Partial<InstanceProviderLimitHandlerDeps>);
+
+      const resumeAt = Date.now() + 60_000;
+      h.handler.maybeParkOnUsageLimit({ instanceId: 'i1', resetAtHint: resumeAt, reason: 'overage' });
+      h.handler.release('i1', { preserveDurableResume: true });
+
+      // A hold-only park has no durable resume to preserve; if its timer
+      // survived teardown it would fire cancel() on a deleted instance later.
+      vi.advanceTimersByTime(60_000 + 6_000);
+      expect(h.waitReasons.get('i1')).toEqual({ kind: 'quota-park', provider: 'claude', resumeAt });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

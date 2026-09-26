@@ -3,6 +3,7 @@ import {
   _resetMobilePushThrottleForTesting,
   clearMobilePushThrottle,
   sendBrowserEscalationPush,
+  sendMobileAutomationFailurePush,
   sendMobileLiveActivityPush,
   sendMobilePromptPush,
 } from './mobile-gateway-push';
@@ -91,6 +92,21 @@ describe('sendBrowserEscalationPush', () => {
 });
 
 describe('mobile push identity and invalid-token lifecycle', () => {
+  it('sends only generic automation failure copy and safe identifiers', () => {
+    const { deps, send } = makeDeps();
+
+    sendMobileAutomationFailurePush(deps, { automationId: 'daily-review', runId: 'run-1' });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    const payload = send.mock.calls[0]![1] as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      title: 'Automation failed', category: 'AIO_AUTOMATION_FAILED',
+      data: { kind: 'automation_failed', automationId: 'daily-review', runId: 'run-1', hostDeviceId: 'host-0' },
+    });
+    expect(JSON.stringify(payload)).not.toContain('prompt');
+    expect(JSON.stringify(payload)).not.toContain('error');
+  });
+
   it('adds the paired host device id and clears a 410 APNs token', async () => {
     const { deps, send, clearApnsToken } = makeDeps();
     send.mockResolvedValueOnce([{ deviceToken: 'token-1', ok: false, status: 410, reason: 'Unregistered' }]);

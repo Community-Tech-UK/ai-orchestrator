@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   detectErrorProviderLimit,
   detectCompletionProviderLimit,
+  detectUsageOverageStop,
   readAdapterRateLimitTelemetry,
   parseResetHintFromText,
 } from './instance-provider-limit-detection';
@@ -266,5 +267,101 @@ describe('readAdapterRateLimitTelemetry', () => {
   it('returns null for adapters without telemetry', () => {
     expect(readAdapterRateLimitTelemetry({})).toBeNull();
     expect(readAdapterRateLimitTelemetry(null)).toBeNull();
+  });
+});
+
+describe('detectUsageOverageStop', () => {
+  const resetsAtSec = Math.floor(Date.now() / 1000) + 3600;
+
+  it('stops on a rejected subscription window (the 5-hour limit shape)', () => {
+    const signal = detectUsageOverageStop({
+      status: 'rejected',
+      rateLimitType: 'five_hour',
+      overageStatus: 'allowed',
+      resetsAt: resetsAtSec,
+    }, { allowOverage: false });
+    expect(signal).not.toBeNull();
+    expect(signal?.resetAtHint).toBe(resetsAtSec * 1000);
+  });
+
+  it('stops when the CLI reports paid overage being consumed', () => {
+    const signal = detectUsageOverageStop({
+      status: 'allowed',
+      isUsingOverage: true,
+    }, { allowOverage: false });
+    expect(signal).not.toBeNull();
+    expect(signal?.reason).toContain('overage');
+  });
+
+  it('leaves the session alone on steady-state allowed telemetry', () => {
+    expect(detectUsageOverageStop({ status: 'allowed', rateLimitType: 'five_hour' }, { allowOverage: false })).toBeNull();
+    expect(detectUsageOverageStop({ status: 'allowed_warning', rateLimitType: 'five_hour' }, { allowOverage: false })).toBeNull();
+  });
+
+  it('honours the overage opt-in', () => {
+    expect(detectUsageOverageStop({
+      status: 'rejected',
+      rateLimitType: 'five_hour',
+      resetsAt: resetsAtSec,
+    }, { allowOverage: true })).toBeNull();
+    expect(detectUsageOverageStop({ status: 'allowed', isUsingOverage: true }, { allowOverage: true })).toBeNull();
+  });
+
+  it('is null without telemetry', () => {
+    expect(detectUsageOverageStop(null, { allowOverage: false })).toBeNull();
+    expect(detectUsageOverageStop(undefined, { allowOverage: false })).toBeNull();
+  });
+});
+
+describe('detectCompletionProviderLimit on overage telemetry', () => {
+  const resetsAtSec = Math.floor(Date.now() / 1000) + 3600;
+
+  it('treats a successful turn over a refused window as a limit signal, not a lifted one', () => {
+    const signal = detectCompletionProviderLimit(
+      { content: 'All tests pass.' },
+      // The 2026-09-26 incident shape: window refused, extra usage enabled.
+      { status: 'rejected', rateLimitType: 'five_hour', overageStatus: 'allowed', resetsAt: resetsAtSec },
+      { allowOverage: false },
+    );
+    expect(signal).not.toBeNull();
+    // A non-null signal is what stops clearProviderLimitAfterSuccessfulTurn
+    // from wiping the durable gate an overage-paid success must not clear.
+    expect(signal?.resetAtHint).toBe(resetsAtSec * 1000);
+  });
+
+  it('treats a successful turn billed to overage as a limit signal even with a healthy window', () => {
+    const signal = detectCompletionProviderLimit(
+      { content: 'All tests pass.' },
+      { status: 'allowed', isUsingOverage: true },
+      { allowOverage: false },
+    );
+    expect(signal).not.toBeNull();
+    expect(signal?.reason).toContain('overage');
+  });
+
+  it('still returns null for a clean turn when nothing is limited', () => {
+    expect(detectCompletionProviderLimit(
+      { content: 'All tests pass.' },
+      { status: 'allowed', rateLimitType: 'five_hour' },
+      { allowOverage: false },
+    )).toBeNull();
+  });
+
+  it('keeps notice-content detection winning over the overage signal', () => {
+    const signal = detectCompletionProviderLimit(
+      { content: "You've hit your session limit · resets 3:45pm" },
+      { status: 'allowed', isUsingOverage: true },
+      { allowOverage: true },
+    );
+    expect(signal).not.toBeNull();
+    expect(signal?.reason).toContain('completed turn');
+  });
+
+  it('lets an overage-opted-in user keep a successful turn clean', () => {
+    expect(detectCompletionProviderLimit(
+      { content: 'All tests pass.' },
+      { status: 'rejected', rateLimitType: 'five_hour', resetsAt: resetsAtSec },
+      { allowOverage: true },
+    )).toBeNull();
   });
 });

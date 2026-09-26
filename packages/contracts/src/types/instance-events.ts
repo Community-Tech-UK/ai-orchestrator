@@ -40,6 +40,7 @@ export type InterruptOrigin =
   | 'steer'
   | 'pause'
   | 'tool-loop-auto'
+  | 'usage-overage'
   | 'unknown';
 
 export type InstanceFailureClass =

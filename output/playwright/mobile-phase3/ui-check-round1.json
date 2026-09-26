@@ -1,0 +1,61 @@
+{
+  "anchorChecks": [
+    {
+      "expected": 300,
+      "delta": 0.5,
+      "before": 195,
+      "after": 194.5,
+      "primaryKind": "assistant message",
+      "removed": {
+        "primary": false,
+        "tool": true
+      }
+    },
+    {
+      "expected": 450,
+      "delta": 0.5,
+      "before": 280.5,
+      "after": 280,
+      "primaryKind": "stamp",
+      "removed": {
+        "primary": true,
+        "tool": true
+      }
+    },
+    {
+      "expected": 300,
+      "delta": 0.5,
+      "before": 178,
+      "after": 177.5,
+      "primaryKind": "assistant message",
+      "removed": {
+        "primary": false,
+        "tool": true
+      }
+    },
+    {
+      "expected": 450,
+      "delta": 0.5,
+      "before": 263.5,
+      "after": 263,
+      "primaryKind": "stamp",
+      "removed": {
+        "primary": true,
+        "tool": true
+      }
+    }
+  ],
+  "requests": [
+    "/api/instances/preview-active/messages?withCursor=1",
+    "/api/instances/preview-active/messages?beforeSeq=700&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=600&limit=100",
+    "/api/history/chat%3Apreview-history-1/messages?withCursor=1",
+    "/api/history/chat%3Apreview-history-1/messages?beforeSeq=700&limit=100",
+    "/api/history/chat%3Apreview-history-1/messages?beforeSeq=600&limit=100",
+    "/api/instances/preview-busy/messages?withCursor=1",
+    "/api/instances/preview-busy/steer",
+    "/api/instances/preview-busy/steer",
+    "/api/instances/preview-busy/messages?withCursor=1"
+  ],
+  "steering": "fixture failure restores; success consumes and reconciles exactly one bubble"
+}

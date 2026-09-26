@@ -263,6 +263,47 @@ export function clearMobilePushThrottle(): void {
   liveActivityThrottle.clear();
 }
 
+/** Quota/account identifiers deliberately never enter APNs. */
+export function sendMobileQuotaPush(deps: MobileGatewayPushDeps): void {
+  try {
+    if (!deps.apnsSender.isConfigured()) return;
+    sendPersonalizedAlerts(deps, hostDeviceId => ({
+      title: 'Usage limit reached',
+      body: 'Open Harness to check usage and reset times.',
+      data: { kind: 'quota', hostDeviceId },
+    }), 'APNs usage send failed');
+  } catch (err) {
+    deps.logger.debug('Usage push failed', { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+/** Generic by design: automation prompts, paths and failure details never enter APNs. */
+export function sendMobileAutomationFailurePush(
+  deps: MobileGatewayPushDeps,
+  failure: { automationId: string; runId: string },
+): void {
+  try {
+    if (!deps.apnsSender.isConfigured()) return;
+    sendPersonalizedAlerts(deps, hostDeviceId => ({
+      title: 'Automation failed',
+      body: 'Open Harness to review the failed run.',
+      category: 'AIO_AUTOMATION_FAILED',
+      threadId: failure.automationId,
+      collapseId: `automation-${failure.runId}`.slice(0, 64),
+      data: {
+        kind: 'automation_failed',
+        automationId: failure.automationId,
+        runId: failure.runId,
+        hostDeviceId,
+      },
+    }), 'APNs automation failure send failed');
+  } catch (err) {
+    deps.logger.debug('Automation failure push failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export function _resetMobilePushThrottleForTesting(): void {
   clearMobilePushThrottle();
 }

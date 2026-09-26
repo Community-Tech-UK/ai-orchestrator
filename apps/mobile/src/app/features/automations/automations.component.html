@@ -1,0 +1,71 @@
+<section class="automations-screen">
+  <app-mobile-header title="Automations" [subtitle]="automation.hostName()">
+    <button mobileHeaderLeading class="mobile-icon-button" type="button" (click)="back()" aria-label="Back to Projects">
+      <app-mobile-icon name="chevron-left" />
+    </button>
+  </app-mobile-header>
+
+  @if (!automation.online()) {
+    <p class="automations-feedback" role="status">Offline. Reconnect to view or run automations.</p>
+  } @else if (automation.status() === 'loading' && automation.automations().length === 0) {
+    <p class="automations-feedback" role="status">Loading automations…</p>
+  } @else if (automation.status() === 'error') {
+    <div class="automations-feedback" role="alert">
+      Automations could not be loaded from this host.
+      <button type="button" (click)="automation.refresh()">Retry</button>
+    </div>
+  } @else {
+    <div class="automation-list">
+      @for (item of automation.automations(); track item.id) {
+        <article class="automation-card">
+          <header>
+            <h2>{{ item.name }}</h2>
+            <span [class.automation-card__disabled]="!item.enabled">{{ item.enabled ? 'Enabled' : 'Disabled' }}</span>
+          </header>
+          <p>{{ scheduleLabel(item.schedule) }}</p>
+          <dl>
+            <div><dt>Model</dt><dd>{{ item.model || 'Host default' }}@if (item.provider) { · {{ item.provider }} }</dd></div>
+            <div><dt>Next</dt><dd>{{ item.nextRunAt ? (item.nextRunAt | date:'medium') : 'Not scheduled' }}</dd></div>
+            <div><dt>Last run</dt><dd>{{ statusLabel(item.lastRun?.status) }}@if (item.lastRun) { · {{ item.lastRun.at | date:'medium' }} }</dd></div>
+          </dl>
+          @if (automation.feedbackFor(item.id); as feedback) {
+            <p class="automation-card__feedback" role="status">{{ feedback }}</p>
+          }
+          <button class="mobile-primary-button" type="button" [disabled]="!automation.hasCurrentList() || !item.enabled || automation.running(item.id)"
+            [attr.aria-label]="'Run ' + item.name + ' now'" (click)="beginRun(item)">
+            {{ automation.running(item.id) ? 'Starting…' : 'Run now' }}
+          </button>
+        </article>
+      } @empty {
+        <div class="mobile-empty-state">
+          <app-mobile-icon name="history" />
+          <h2>No automations</h2>
+          <p>Create and edit automations in the desktop Harness app.</p>
+        </div>
+      }
+    </div>
+  }
+
+  @if (confirming(); as item) {
+    <app-mobile-sheet [label]="'Run ' + item.name + '?'" [dismissible]="!automation.running(item.id)"
+      (dismiss)="dismissRun()">
+      <p>This starts the automation on {{ automation.hostName() }} now.</p>
+      @if (automation.feedbackFor(item.id); as feedback) { <p role="status">{{ feedback }}</p> }
+      @if (!automation.online()) {
+        <p role="status">Reconnect to verify this automation before trying again.</p>
+      } @else if (automation.status() === 'error') {
+        <div class="automations-feedback" role="alert">
+          Automations could not be refreshed. Refresh before trying again.
+          <button type="button" data-refresh-automations (click)="automation.refresh()">Refresh automations</button>
+        </div>
+      } @else if (!automation.hasCurrentList()) {
+        <p role="status">Verifying the current automation…</p>
+      }
+      <div class="automation-confirm-actions">
+        <button type="button" (click)="dismissRun()" [disabled]="automation.running(item.id)">Cancel</button>
+        <button class="mobile-primary-button" type="button" data-confirm-run (click)="confirmRun()"
+          [disabled]="!automation.hasCurrentList() || automation.running(item.id)">{{ automation.running(item.id) ? 'Starting…' : 'Run now' }}</button>
+      </div>
+    </app-mobile-sheet>
+  }
+</section>

@@ -7,7 +7,11 @@ export const PREVIEW_SCENARIOS = Object.freeze([
   'gap',
   'disconnect',
   '401',
+  'empty-inbox',
+  'offline',
+  'stale-probe',
   'transcript-1000',
+  'quota-known', 'quota-unknown', 'quota-stale', 'quota-exhausted', 'quota-reset', 'quota-multi-window',
 ]);
 
 const fixturePath = resolve(process.cwd(), 'scripts/preview-host/fixtures/default.json');
@@ -25,7 +29,26 @@ export function createFixtureState(fixture, initialScenario = 'default') {
   let snapshot = structuredClone(fixture.snapshot);
   const messages = structuredClone(fixture.messages);
   const historyMessages = structuredClone(fixture.historyMessages);
+  let automations = structuredClone(fixture.automations ?? []);
+  const automationOutcomes = new Map();
   const cursors = new Map();
+
+  const projectedSnapshot = () => {
+    const projected = structuredClone(snapshot);
+    if (scenario === 'empty-inbox') {
+      projected.prompts = [];
+      projected.instances = projected.instances.map((instance) => ({
+        ...instance,
+        pendingApprovalCount: 0,
+        hasUnreadCompletion: false,
+        attentionLevel: instance.attentionLevel === 'working' ? 'working' : 'idle',
+      }));
+      projected.projects = projected.projects.map((project) => ({
+        ...project, pendingApprovalCount: 0, needsAttentionCount: 0,
+      }));
+    }
+    return projected;
+  };
 
   const cursorFor = (instanceId) => {
     let cursor = cursors.get(instanceId);
@@ -43,12 +66,40 @@ export function createFixtureState(fixture, initialScenario = 'default') {
       return scenario;
     },
     snapshot() {
-      return { ...structuredClone(snapshot), serverTime: Date.now() };
+      return { ...projectedSnapshot(), serverTime: Date.now() };
     },
-    instances() { return structuredClone(snapshot.instances); },
-    projects() { return structuredClone(snapshot.projects); },
-    prompts() { return structuredClone(snapshot.prompts); },
+    instances() { return projectedSnapshot().instances; },
+    projects() { return projectedSnapshot().projects; },
+    prompts() { return projectedSnapshot().prompts; },
     pause() { return structuredClone(snapshot.pause); },
+    quota() {
+      const now = Date.now();
+      const stale = scenario === 'quota-stale';
+      const exhausted = scenario === 'quota-exhausted';
+      const percentUsed = scenario === 'quota-unknown' ? null : scenario === 'quota-reset' ? 0 : exhausted || stale ? 100 : 40;
+      const windows = [{ id: 'codex.5h', label: '5 hours', percentUsed, resetsAt: scenario === 'quota-unknown' ? null : now + 3_600_000, exhausted }];
+      if (scenario === 'quota-multi-window') windows.push({ id: 'codex.weekly', label: 'Weekly', percentUsed: 72, resetsAt: now + 86_400_000, exhausted: false });
+      return { serverTime: now, providers: [{ provider: 'codex', freshness: stale ? 'stale' : 'fresh', updatedAt: stale ? now - 600_000 : now, validUntil: stale ? now - 300_000 : now + 300_000, exhausted, windows }] };
+    },
+    automations() { return structuredClone(automations); },
+    runAutomation(id, idempotencyKey) {
+      const dedupeKey = `${id}:${idempotencyKey}`;
+      const existing = automationOutcomes.get(dedupeKey);
+      if (existing) return structuredClone(existing);
+      const item = automations.find((candidate) => candidate.id === id);
+      if (!item) return { status: 'skipped', reason: 'Automation no longer exists' };
+      if (!item.enabled) return { status: 'skipped', reason: 'Automation is disabled' };
+      const now = Date.now();
+      const outcome = { status: 'started', runId: `preview-automation-run-${automationOutcomes.size + 1}` };
+      automationOutcomes.set(dedupeKey, outcome);
+      item.lastRun = { status: 'running', at: now };
+      this.createInstance({
+        workingDirectory: '/preview/automations', provider: item.provider ?? 'codex',
+        model: item.model ?? undefined, initialPrompt: `${item.name} preview run`,
+      });
+      automations = automations.map(candidate => candidate.id === id ? item : candidate);
+      return structuredClone(outcome);
+    },
     setPause(paused) {
       snapshot.pause = {
         isPaused: paused,

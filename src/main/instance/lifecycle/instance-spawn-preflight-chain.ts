@@ -14,6 +14,7 @@ import { resolveExecutionLocation } from './execution-location-resolver';
 import { attachCopilotRoute } from './copilot-route-preflight';
 import { attachAccountRoute } from './account-route-preflight';
 import { isAccountPoolActive } from '../../providers/account-pool/provider-account-store';
+import { attachUsageOverageStopGuard } from '../instance-usage-overage-wiring';
 
 export interface InstanceSpawnPreflightDeps {
   consumeWarmAdapter: (provider: CliType, workingDirectory: string) => CliAdapter | null;
@@ -92,6 +93,15 @@ export class InstanceSpawnPreflightChain {
     if (!warmStartBlocked) {
       const adapter = this.deps.consumeWarmAdapter(provider, instance.workingDirectory);
       if (adapter) {
+        if (spawnOptions.instanceId) {
+          // A warm process was created before it had an instance identity, so
+          // the createAdapter-time usage-overage guard never saw it — attach
+          // at adoption instead of leaving warm-reused sessions unprotected.
+          attachUsageOverageStopGuard(
+            adapter as unknown as Parameters<typeof attachUsageOverageStopGuard>[0],
+            spawnOptions.instanceId,
+          );
+        }
         return { kind: 'warm', adapter };
       }
     }

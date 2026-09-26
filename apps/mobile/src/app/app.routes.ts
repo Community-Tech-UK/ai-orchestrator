@@ -16,6 +16,16 @@ export const routes: Routes = [
       import('./features/projects/projects.component').then((m) => m.ProjectsComponent),
   },
   {
+    path: 'inbox',
+    loadComponent: () =>
+      import('./features/inbox/inbox.component').then((m) => m.InboxComponent),
+  },
+  {
+    path: 'automations',
+    loadComponent: () =>
+      import('./features/automations/automations.component').then((m) => m.AutomationsComponent),
+  },
+  {
     path: 'projects/:projectKey/sessions',
     loadComponent: () =>
       import('./features/sessions/sessions.component').then((m) => m.SessionsComponent),

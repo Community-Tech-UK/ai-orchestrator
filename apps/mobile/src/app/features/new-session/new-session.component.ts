@@ -43,6 +43,7 @@ import {
 } from './new-session.presentation';
 
 import { trustedNewSessionDirectory } from './new-session.navigation';
+import { UsageStore } from '../usage/usage.store';
 
 const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor', 'grok', 'opencode'] as const;
 
@@ -62,6 +63,7 @@ const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor', 'gr
 })
 export class NewSessionComponent implements OnInit {
   private readonly gateway = inject(GatewayClient);
+  private readonly usage = inject(UsageStore);
   private readonly hostStore = inject(HostStore);
   private readonly images = inject(ImageAttachmentService);
   private readonly drafts = inject(DraftStore);
@@ -140,6 +142,11 @@ export class NewSessionComponent implements OnInit {
     () => this.gateway.snapshot()?.hostName ?? this.hostStore.activeHost()?.name ?? 'Choose a host',
   );
   protected readonly providerDisplay = computed(() => providerDisplayName(this.provider()));
+  protected readonly quotaWarning = computed(() => {
+    if (!this.isCurrentHost()) return null;
+    const provider = this.provider() === 'auto' ? this.plan()?.provider : this.provider();
+    return provider && this.usage.isExhausted(provider) ? `${providerDisplayName(provider)} usage limit reached` : null;
+  });
   protected readonly planSummary = computed(() =>
     this.planError() ? 'Resolution unavailable' : sessionPlanSummary(this.plan()),
   );

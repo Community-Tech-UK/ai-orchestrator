@@ -146,6 +146,12 @@ interface ParkEntry {
   resumePrompt: string | null;
   /** Stops the periodic early-resume quota probe for this park. */
   stopEarlyResumeProbe: () => void;
+  /**
+   * A park that only holds (no scheduled resume, no durable automation) — its
+   * cancel is pure timer cleanup and must run even when teardown preserves
+   * durable resumes.
+   */
+  holdOnly?: boolean;
 }
 
 /**
@@ -253,6 +259,89 @@ export class InstanceProviderLimitHandler {
   }
 
   /**
+   * Usage-overage stop entry point ({@link
+   * ../instance/instance-usage-overage-wiring.attachUsageOverageStopGuard}).
+   *
+   * Live telemetry said the subscription window is refused or paid overage is
+   * being consumed, so every further request is billed at API prices. Unlike
+   * the error-path {@link maybePark} this holds the session regardless of the
+   * auto-resume opt-in (the money-burn stop must not sit behind a setting
+   * whose documented risk is unattended re-sending) and does not auto-switch
+   * accounts — the point is to stop the spend, not to continue it on another
+   * profile. The existing send-path preflight may still offer/perform an
+   * account switch when the user resumes.
+   *
+   * `resumePrompt` is intentionally unset from the wiring: the interrupted
+   * turn had already done part of its work, so a resume sends the standard
+   * continuation turn (see {@link resumeNow}) instead of replaying the user's
+   * message from the top.
+   */
+  maybeParkOnUsageLimit(params: {
+    instanceId: string;
+    resetAtHint: number | null;
+    reason: string;
+    resumePrompt?: string | null;
+  }): ProviderLimitTurnOutcome {
+    const deps = this.deps;
+    if (!deps) return 'skipped';
+    if (this.parked.has(params.instanceId)) return 'already-parked';
+
+    const info = deps.getProviderModel?.(params.instanceId) ?? null;
+    if (!info) return 'skipped';
+    const providerId = toProviderId(info.provider);
+    if (!providerId) return 'skipped';
+    const accountProfileId = info.accountProfileId ?? null;
+    const model = info.model;
+
+    const now = Date.now();
+    const resetAtHint = typeof params.resetAtHint === 'number' && params.resetAtHint > now
+      ? params.resetAtHint
+      : null;
+    const snapshotResumeAt = this.deriveResumeFromSnapshot(
+      deps.getQuotaSnapshot(providerId, accountProfileId),
+    );
+    const knownLimit = deps.providerLimitLedger?.getActive({
+      provider: providerId,
+      model,
+      accountProfileId,
+      now,
+    }) ?? null;
+    // A stop with no reset hint anywhere still needs a hold horizon; the
+    // assumed-window clamp matches the account-failover path's.
+    const resumeAt = resetAtHint ?? snapshotResumeAt ?? knownLimit?.resumeAt ?? now + ASSUMED_ACCOUNT_LIMIT_MS;
+
+    // Always durable: the in-memory hold dies with the process, and a restart
+    // mid-window must not let the next send walk past a still-refused window.
+    try {
+      deps.providerLimitLedger?.record({
+        provider: providerId,
+        model,
+        accountProfileId,
+        detectedAt: now,
+        resumeAt,
+        source: 'usage-overage',
+        instanceId: params.instanceId,
+      });
+    } catch (err) {
+      // A durability failure must not turn a valid limit signal into a paid retry.
+      logger.warn('Failed to record usage-overage stop in durable ledger', {
+        instanceId: params.instanceId,
+        provider: providerId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    return this.park({
+      instanceId: params.instanceId,
+      provider: info.provider,
+      model,
+      reason: params.reason,
+      resumePrompt: params.resumePrompt ?? null,
+      accountProfileId,
+    }, providerId, resumeAt, { forceHold: true });
+  }
+
+  /**
    * Consult the durable ledger before dispatching a new regular-session turn.
    * Unlike {@link maybePark}, a miss is intentionally silent: preflight runs
    * for every send, so it must not start a quota probe or write another row.
@@ -284,7 +373,11 @@ export class InstanceProviderLimitHandler {
       this.startAccountFailover(failoverParams, params, providerId, knownLimit.resumeAt);
       return 'switching-account';
     }
-    const parked = this.park(params, providerId, knownLimit.resumeAt);
+    // forceHold: this is the pre-send gate — a known active limit must hold the
+    // turn even when the auto-resume feature is off (the hold is not the spend;
+    // the unattended re-send is). Without it a restart mid-window dropped the
+    // in-memory park and dispatched straight through a still-refused window.
+    const parked = this.park(params, providerId, knownLimit.resumeAt, { forceHold: true });
     if (failoverParams && plan?.kind === 'offer') deps.accountFailover?.offer(failoverParams, plan.toProfileId);
     return parked;
   }
@@ -400,12 +493,26 @@ export class InstanceProviderLimitHandler {
     params: MaybeParkKnownParams,
     providerId: ProviderId,
     resumeAt: number,
+    opts?: { forceHold?: boolean },
   ): ProviderLimitTurnOutcome {
     const deps = this.deps;
-    if (!deps || !deps.isEnabled()) return 'skipped';
+    if (!deps) return 'skipped';
+    // `isEnabled()` gates the *spend* half of the feature (unattended
+    // auto-resume re-sends a turn). The hold itself is additionally allowed
+    // unconditionally via `forceHold` (the usage-overage stop): stopping a
+    // silent money burn must not depend on an opt-in whose documented risk is
+    // unattended re-sending, never the holding.
+    const autoResume = deps.isEnabled();
+    if (!autoResume && !opts?.forceHold) return 'skipped';
 
+    // The working directory only feeds the durable resume automation, so a
+    // hold-only park works without one. Skipping entirely here would let a
+    // forceHold stop (the usage-overage stop, the pre-send gate) fall through
+    // and dispatch into a refused window — so a missing workspace degrades a
+    // forceHold park to hold-only instead of skipping it.
     const workspaceCwd = deps.getWorkspaceCwd(params.instanceId);
-    if (!workspaceCwd) {
+    const autoResuming = autoResume && Boolean(workspaceCwd);
+    if (autoResume && !workspaceCwd && !opts?.forceHold) {
       logger.debug('Cannot park instance on provider limit: no working directory', {
         instanceId: params.instanceId,
       });
@@ -423,27 +530,90 @@ export class InstanceProviderLimitHandler {
 
     const identifiers = deps.getThreadIdentifiers?.(params.instanceId) ?? null;
 
-    const schedule = deps.scheduleResume ?? scheduleInstanceProviderLimitResume;
-    const cancel = schedule({
-      request: {
-        instanceId: params.instanceId,
-        workspaceCwd,
-        provider: params.provider,
-        resumeAt,
-        reason: params.reason,
-        resumePrompt: params.resumePrompt,
-        historyThreadId: identifiers?.historyThreadId,
-        sessionId: identifiers?.sessionId,
-      },
-      resumeInstance: (id, opts) => this.resumeNow(id, opts),
-    });
+    if (autoResuming && workspaceCwd) {
+      const schedule = deps.scheduleResume ?? scheduleInstanceProviderLimitResume;
+      const cancel = schedule({
+        request: {
+          instanceId: params.instanceId,
+          workspaceCwd,
+          provider: params.provider,
+          resumeAt,
+          reason: params.reason,
+          resumePrompt: params.resumePrompt,
+          historyThreadId: identifiers?.historyThreadId,
+          sessionId: identifiers?.sessionId,
+        },
+        resumeInstance: (id, resumeOpts) => this.resumeNow(id, resumeOpts),
+      });
 
-    this.parked.set(params.instanceId, {
-      cancel,
-      resumePrompt: params.resumePrompt,
-      stopEarlyResumeProbe: this.startEarlyResumeProbe(params, providerId, resumeAt, params.accountProfileId ?? null),
-    });
-    logger.info('Parked regular session on provider limit; will auto-resume at window reset', {
+      this.parked.set(params.instanceId, {
+        cancel,
+        resumePrompt: params.resumePrompt,
+        stopEarlyResumeProbe: this.startEarlyResumeProbe(params, providerId, resumeAt, params.accountProfileId ?? null),
+      });
+    } else {
+      // Hold-only park (auto-resume off): no unattended re-send and no
+      // early-lift resume probe — both would spend while the user is away.
+      // Release at the window reset so the session cannot stay wedged behind
+      // the renderer's quota-park gate after the limit actually lifted; until
+      // then sends are held and the user's Resume click still works.
+      const heldPrompt = params.resumePrompt;
+      const timer = setTimeout(() => {
+        logger.info('Releasing hold-only provider-limit park at window reset', {
+          instanceId: params.instanceId,
+          provider: providerId,
+          resumeAt,
+        });
+        // A held turn is deliberately NOT re-sent here (that would be the
+        // unattended spend this mode exists to prevent) — say so, instead of
+        // letting the message vanish silently when the banner clears. The
+        // Resume affordance goes away with the banner at this exact moment, so
+        // the notice must only offer re-sending.
+        try {
+          deps.emitSystemMessage?.(
+            params.instanceId,
+            heldPrompt
+              ? 'The provider limit has lifted — this session is no longer held. Your earlier message was not sent; re-send it to continue.'
+              : 'The provider limit has lifted — this session is no longer held.',
+            { providerLimitParked: true, holdReleased: true },
+          );
+        } catch {
+          // best-effort — the release must never depend on a transcript write
+        }
+        this.cancel(params.instanceId);
+      }, Math.max(0, resumeAt - Date.now()) + 5_000);
+      if (typeof timer.unref === 'function') timer.unref();
+      this.parked.set(params.instanceId, {
+        cancel: () => clearTimeout(timer),
+        resumePrompt: params.resumePrompt,
+        stopEarlyResumeProbe: () => {},
+        holdOnly: true,
+      });
+    }
+    // forceHold parks swallow a turn that never ran (the pre-send gate, or the
+    // usage-overage stop) — unlike the error path there is no failure in the
+    // transcript to explain the silence, so say what happened to the message.
+    if (opts?.forceHold) {
+      const promptNote = params.resumePrompt
+        ? (autoResuming
+            ? ' Your message will be re-sent automatically once the window resets.'
+            : ' Your message was not sent — press Resume or re-send it once the window resets.')
+        : '';
+      try {
+        deps.emitSystemMessage?.(
+          params.instanceId,
+          `Provider limit reached. ${autoResuming
+            ? 'This session is parked and will auto-resume when the quota window resets.'
+            : 'Holding this session until the quota window resets.'}${promptNote}`,
+          { providerLimitParked: true },
+        );
+      } catch {
+        // best-effort — the hold must never depend on a transcript write
+      }
+    }
+    logger.info(autoResuming
+      ? 'Parked regular session on provider limit; will auto-resume at window reset'
+      : 'Holding regular session on provider limit until window reset (auto-resume off)', {
       instanceId: params.instanceId,
       provider: providerId,
       resumeAt,
@@ -592,7 +762,9 @@ export class InstanceProviderLimitHandler {
     this.deps?.accountFailover?.release(instanceId);
     if (!entry) return;
     entry.stopEarlyResumeProbe();
-    if (!opts?.preserveDurableResume) {
+    // A hold-only park has no durable resume to preserve; its cancel is just
+    // the release timer, which teardown must still clear.
+    if (!opts?.preserveDurableResume || entry.holdOnly) {
       entry.cancel();
     }
     logger.info('Released provider-limit park state on instance termination', {

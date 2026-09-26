@@ -7,6 +7,7 @@ import type {
 } from "../../shared/types/instance.types";
 import type {
   MobileInputResponse,
+  MobileSteerResponse,
   MobileInstanceDto,
   MobilePauseDto,
   MobileQueuedMessageDto,
@@ -37,6 +38,7 @@ import {
   MobileInputQueue,
   shouldQueueInput,
 } from "./mobile-input-queue";
+import { validateMobileInput } from './mobile-input-validation';
 
 const MESSAGE_REPLAY_LIMIT = 300;
 const VALID_PROVIDERS = new Set([
@@ -68,6 +70,7 @@ export interface GatewayInstanceSource extends EmitterLike {
     message: string,
     attachments?: FileAttachment[],
   ): Promise<void>;
+  steerInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<void>;
   interruptInstance(instanceId: string, origin?: InterruptOrigin): boolean;
   terminateInstance(instanceId: string, graceful?: boolean): Promise<void>;
   resumeAfterDeferredPermission(
@@ -170,6 +173,10 @@ export class MobileGatewayInstanceRoutes {
       }
       if (action === "input" && method === "POST") {
         await this.handleInput(req, res, instanceId);
+        return true;
+      }
+      if (action === "steer" && method === "POST") {
+        await this.handleSteer(req, res, instanceId);
         return true;
       }
       if (action === "respond" && method === "POST") {
@@ -278,19 +285,12 @@ export class MobileGatewayInstanceRoutes {
     res: ServerResponse,
     instanceId: string,
   ): Promise<void> {
-    const body = (await readJsonBody(req)) as {
-      message?: unknown;
-      attachments?: unknown;
-      idempotencyKey?: unknown;
-    };
-    const message = typeof body.message === "string" ? body.message : "";
-    const attachments = Array.isArray(body.attachments)
-      ? (body.attachments as FileAttachment[])
-      : undefined;
-    if (!message && (!attachments || attachments.length === 0)) {
-      sendJsonResponse(res, 400, { error: "message or attachments required" });
+    const body = validateMobileInput(await readJsonBody(req).catch(() => null));
+    if (!body) {
+      sendJsonResponse(res, 400, { error: "Invalid message or attachments" });
       return;
     }
+    const { message, attachments } = body;
     const instance = this.source().getInstance(instanceId);
     if (!instance) {
       sendJsonResponse(res, 404, { error: "Instance not found" });
@@ -336,6 +336,23 @@ export class MobileGatewayInstanceRoutes {
     await this.dispatchSend(instanceId, message, attachments);
     const sent: MobileInputResponse = { ok: true };
     sendJsonResponse(res, 200, sent);
+  }
+
+  private async handleSteer(req: IncomingMessage, res: ServerResponse, instanceId: string): Promise<void> {
+    const body = validateMobileInput(await readJsonBody(req).catch(() => null));
+    if (!body) {
+      sendJsonResponse(res, 400, { error: 'Invalid message or attachments' });
+      return;
+    }
+    if (!this.source().getInstance(instanceId)) {
+      sendJsonResponse(res, 404, { error: 'Instance not found' });
+      return;
+    }
+    this.deps.markCompletionViewed(instanceId);
+    // The manager owns status races and compaction; do not queue or interrupt here.
+    await this.source().steerInput(instanceId, body.message, body.attachments);
+    const response: MobileSteerResponse = { ok: true };
+    sendJsonResponse(res, 200, response);
   }
 
   private async dispatchSend(

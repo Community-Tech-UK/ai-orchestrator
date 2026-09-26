@@ -10,6 +10,7 @@ import { ApprovalSheetComponent } from './features/approval/approval-sheet.compo
 import { ApprovalPresentationStore, type ApprovalView } from './core/approval-presentation.store';
 import { LockScreenComponent } from './features/lock/lock-screen.component';
 import { MobileSheetComponent } from './shared/mobile-sheet.component';
+import { NeedsYouStore } from './features/inbox/needs-you.store';
 
 @Component({
   standalone: true,
@@ -77,6 +78,7 @@ export class AppComponent implements OnInit {
   private readonly resume = inject(ResumeService);
   protected readonly appLock = inject(AppLockService);
   protected readonly approvals = inject(ApprovalPresentationStore);
+  private readonly needsYou = inject(NeedsYouStore);
   protected readonly approvalContext = computed(() => {
     const prompt = this.approvals.activePrompt();
     const instance = this.gateway.snapshot()?.instances.find((item) => item.id === prompt?.instanceId);
@@ -91,6 +93,7 @@ export class AppComponent implements OnInit {
     void this.gateway; // keep the eager injection (its auto-reconnect effect is live)
     await this.appLock.init(); // raise the biometric gate before anything renders behind it
     await this.hostStore.load();
+    this.needsYou.init();
     void this.push.init(); // request push permission + register token (native only)
     void this.liveActivity.init(); // lock-screen session activity (native only)
     // If iOS evicted the app while backgrounded, return to where the user was.

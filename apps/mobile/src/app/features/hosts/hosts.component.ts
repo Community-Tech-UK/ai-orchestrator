@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { AppLockService } from '../../core/app-lock.service';
-import { connectionHelpText, connectionLabel } from '../../core/connection-status';
+import { connectionHelpText } from '../../core/connection-status';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HostStore } from '../../core/host-store';
 import type { PairedHost } from '../../core/models';
@@ -9,6 +9,7 @@ import { unpairFromHost } from '../../core/pairing';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
 import { MobileSheetComponent } from '../../shared/mobile-sheet.component';
+import { NeedsYouStore, type HostAttentionState } from '../inbox/needs-you.store';
 
 @Component({
   standalone: true,
@@ -195,6 +196,7 @@ export class HostsComponent {
   private readonly gateway = inject(GatewayClient);
   private readonly router = inject(Router);
   private readonly appLock = inject(AppLockService);
+  private readonly needsYou = inject(NeedsYouStore);
 
   protected readonly hosts = this.hostStore.hosts;
   protected readonly activeId = this.hostStore.activeId;
@@ -222,13 +224,14 @@ export class HostsComponent {
   }
 
   protected stateLabel(id: string): string {
-    if (id !== this.activeId()) return 'Not selected';
-    const state = this.connectionState();
-    return state ? connectionLabel(state) : 'Not checked';
+    const labels: Record<HostAttentionState, string> = {
+      checking: 'Checking', online: 'Online', offline: 'Offline', unauthorized: 'Pair again',
+    };
+    return labels[this.needsYou.stateFor(id)];
   }
 
   protected isOnline(id: string): boolean {
-    return id === this.activeId() && this.connectionState() === 'connected';
+    return this.needsYou.stateFor(id) === 'online';
   }
 
   protected reconnect(): void {

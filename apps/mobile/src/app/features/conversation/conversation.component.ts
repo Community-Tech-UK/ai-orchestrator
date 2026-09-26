@@ -79,6 +79,9 @@ export class ConversationComponent {
   protected readonly online = this.gateway.online;
   protected readonly connectionHeadline = computed(() => connectionHeadline(this.gateway.state()));
   protected readonly transcriptState = computed(() => this.gateway.messageStateFor(this.instanceId()));
+  protected readonly transcriptKey = computed(() => `${this.hosts.activeHost()?.id ?? ''}:${this.instanceId()}`);
+  protected readonly hasEarlier = computed(() => this.gateway.hasEarlierFor(this.instanceId()));
+  protected readonly earlierState = computed(() => this.gateway.earlierStateFor(this.instanceId()));
   protected readonly emptyTranscript = computed(() => {
     const state = this.transcriptState();
     if (state.status === 'loading') return 'Loading conversation…';
@@ -221,6 +224,7 @@ export class ConversationComponent {
   }
 
   protected retryTranscript(): void { void this.gateway.loadMessages(this.instanceId()); }
+  protected loadEarlier(): void { void this.gateway.loadEarlier(this.instanceId()); }
   protected reconnect(): void { this.gateway.reconnect(); }
   protected changeHost(): void { void this.router.navigate(['/hosts']); }
   protected pairAgain(): void { void this.router.navigate(['/add-host']); }

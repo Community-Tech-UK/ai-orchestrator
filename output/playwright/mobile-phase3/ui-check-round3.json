@@ -1,0 +1,103 @@
+{
+  "anchorChecks": [
+    {
+      "expected": 300,
+      "delta": 0.5,
+      "before": 195,
+      "after": 194.5,
+      "primaryKind": "assistant message",
+      "removed": {
+        "primary": false,
+        "tool": true
+      }
+    },
+    {
+      "expected": 450,
+      "delta": 0.5,
+      "before": 280.5,
+      "after": 280,
+      "primaryKind": "stamp",
+      "removed": {
+        "primary": true,
+        "tool": true
+      }
+    },
+    {
+      "expected": 300,
+      "delta": 0.5,
+      "before": 178,
+      "after": 177.5,
+      "primaryKind": "assistant message",
+      "removed": {
+        "primary": false,
+        "tool": true
+      }
+    },
+    {
+      "expected": 450,
+      "delta": 0.5,
+      "before": 263.5,
+      "after": 263,
+      "primaryKind": "stamp",
+      "removed": {
+        "primary": true,
+        "tool": true
+      }
+    }
+  ],
+  "gapRecovery": {
+    "total": 2000,
+    "uniqueIds": 2000,
+    "hasEarlier": false,
+    "requests": [
+      "/api/instances/preview-active/messages?beforeSeq=1700&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=1600&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=1500&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=1400&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=1300&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=1200&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=1100&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=1000&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=900&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=800&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=700&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=600&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=500&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=400&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=300&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=200&limit=100",
+      "/api/instances/preview-active/messages?beforeSeq=100&limit=100"
+    ]
+  },
+  "requests": [
+    "/api/instances/preview-active/messages?withCursor=1",
+    "/api/instances/preview-active/messages?beforeSeq=700&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=600&limit=100",
+    "/api/instances/preview-active/messages?withCursor=1",
+    "/api/instances/preview-active/messages?beforeSeq=1700&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=1600&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=1500&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=1400&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=1300&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=1200&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=1100&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=1000&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=900&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=800&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=700&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=600&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=500&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=400&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=300&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=200&limit=100",
+    "/api/instances/preview-active/messages?beforeSeq=100&limit=100",
+    "/api/history/chat%3Apreview-history-1/messages?withCursor=1",
+    "/api/history/chat%3Apreview-history-1/messages?beforeSeq=700&limit=100",
+    "/api/history/chat%3Apreview-history-1/messages?beforeSeq=600&limit=100",
+    "/api/instances/preview-busy/messages?withCursor=1",
+    "/api/instances/preview-busy/steer",
+    "/api/instances/preview-busy/steer",
+    "/api/instances/preview-busy/messages?withCursor=1"
+  ],
+  "steering": "fixture failure restores; success consumes and reconciles exactly one bubble"
+}

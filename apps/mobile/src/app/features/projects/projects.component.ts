@@ -20,8 +20,9 @@ import { GatewayClient } from '../../core/gateway-client.service';
 import { HostStore } from '../../core/host-store';
 import { MobileBrowseStateStore } from '../../core/mobile-browse-state.store';
 import { newSessionPresetState } from '../new-session/new-session.navigation';
-import { ApprovalPresentationStore } from '../../core/approval-presentation.store';
 import type { MobileRecentDirDto } from '../../core/models';
+import { NeedsYouStore } from '../inbox/needs-you.store';
+import { UsageComponent } from '../usage/usage.component';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
 import {
@@ -75,6 +76,7 @@ export function projectsEmptyStateTitle(
     MobileHeaderComponent,
     MobileIconComponent,
     MobileSessionRowComponent,
+    UsageComponent,
   ],
   template: `
     <section class="projects-screen">
@@ -130,13 +132,12 @@ export function projectsEmptyStateTitle(
 
           <span class="projects-menu__separator"></span>
           <span class="projects-menu__caption">Manage</span>
-          @if (promptCount() > 0) {
-            <button type="button" class="projects-menu__attention" (click)="openFirstPrompt()">
-              <span class="projects-menu__icon"></span>
-              <app-mobile-icon name="warning" />
-              <span>{{ promptCount() }} awaiting approval</span>
-            </button>
-          }
+          <app-usage />
+          <button type="button" class="projects-menu__attention" (click)="openInbox()">
+            <span class="projects-menu__icon"></span>
+            <app-mobile-icon name="warning" />
+            <span>Needs you@if (needsYouCount() > 0) { · {{ needsYouCount() }} }</span>
+          </button>
           <button type="button" (click)="togglePause()" [disabled]="!online() || pausePending()">
             <span class="projects-menu__icon"></span>
             <app-mobile-icon [name]="paused() ? 'play' : 'pause'" />
@@ -146,6 +147,11 @@ export function projectsEmptyStateTitle(
             <span class="projects-menu__icon"></span>
             <app-mobile-icon name="history" />
             <span>History</span>
+          </button>
+          <button type="button" (click)="openAutomations()">
+            <span class="projects-menu__icon"></span>
+            <app-mobile-icon name="play" />
+            <span>Automations</span>
           </button>
           <button type="button" (click)="toHosts()">
             <span class="projects-menu__icon"></span>
@@ -184,10 +190,10 @@ export function projectsEmptyStateTitle(
         </div>
       </div>
 
-      @if (promptCount() > 0) {
-        <button type="button" class="projects-needs-you" (click)="openFirstPrompt()">
+      @if (needsYouCount() > 0) {
+        <button type="button" class="projects-needs-you" (click)="openInbox()">
           <app-mobile-icon name="warning" />
-          <span>Needs you · {{ promptCount() }} {{ promptCount() === 1 ? 'request' : 'requests' }}</span>
+          <span>Needs you · {{ needsYouCount() }}</span>
           <app-mobile-icon class="needs-you-caret" name="chevron-down" />
         </button>
       }
@@ -341,7 +347,7 @@ export class ProjectsComponent implements OnInit {
   private readonly hostStore = inject(HostStore);
   private readonly router = inject(Router);
   private readonly browse = inject(MobileBrowseStateStore);
-  private readonly approvals = inject(ApprovalPresentationStore);
+  private readonly needsYou = inject(NeedsYouStore);
   private currentHostId = this.hostStore.activeHost()?.id ?? null;
   private readonly saved = this.browse.read('/projects', this.currentHostId);
   private scrollTop = this.saved.scrollTop;
@@ -385,8 +391,8 @@ export class ProjectsComponent implements OnInit {
   protected readonly chronologicalRows = computed(() =>
     flattenChronologicalSessions(this.visibleGroups()),
   );
-  private heldPromptCount = 0;
-  protected readonly promptCount = computed(() => this.rowPressActive() ? this.heldPromptCount : this.approvals.requests().length);
+  private heldNeedsYouCount = 0;
+  protected readonly needsYouCount = computed(() => this.rowPressActive() ? this.heldNeedsYouCount : this.needsYou.items().length);
   protected readonly paused = computed(() => this.gateway.pause().isPaused);
   protected readonly hostName = computed(
     () => this.gateway.snapshot()?.hostName ?? this.hostStore.activeHost()?.name ?? 'Host',
@@ -544,7 +550,7 @@ export class ProjectsComponent implements OnInit {
       clearTimeout(this.rowPressReleaseTimer);
       this.rowPressReleaseTimer = null;
     }
-    this.heldPromptCount = this.approvals.requests().length;
+    this.heldNeedsYouCount = this.needsYou.items().length;
     this.rowPressActive.set(true);
   }
 
@@ -607,9 +613,14 @@ export class ProjectsComponent implements OnInit {
     void this.router.navigate(['/history']);
   }
 
-  protected openFirstPrompt(): void {
+  protected openAutomations(): void {
     this.menuOpen.set(false);
-    this.approvals.open();
+    void this.router.navigate(['/automations']);
+  }
+
+  protected openInbox(): void {
+    this.menuOpen.set(false);
+    void this.router.navigate(['/inbox']);
   }
 
   protected openSession(projectKey: string, session: MobileSessionRowView): void {

@@ -418,6 +418,7 @@ export const SETTINGS_TOOL_POLICY = {
   codebaseAutoIndexEnabled: open(z.boolean()),
   instanceProviderLimitResumeEnabled: open(z.boolean()),
   loopAllowProviderOverage: open(z.boolean()),
+  sessionAllowProviderOverage: open(z.boolean()),
   codebaseAutoIndexMaxFiles: open(numberSettingSchema('codebaseAutoIndexMaxFiles')),
   codebaseAutoIndexMaxBytes: open(numberSettingSchema('codebaseAutoIndexMaxBytes')),
   codebaseAutoIndexConcurrent: open(numberSettingSchema('codebaseAutoIndexConcurrent')),

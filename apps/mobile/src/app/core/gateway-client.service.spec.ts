@@ -83,6 +83,40 @@ describe('GatewayClient.sendInput', () => {
   });
 });
 
+describe('GatewayClient.steerInput', () => {
+  beforeEach(() => vi.stubGlobal('WebSocket', class {
+    close(): void { /* no network in this HTTP boundary test */ }
+    send(): void { /* no network in this HTTP boundary test */ }
+  }));
+  afterEach(() => vi.unstubAllGlobals());
+  const attachments = [{ name: 'photo.png', type: 'image/png', size: 4, data: 'data:image/png;base64,AAAA' }];
+
+  it('optimistically renders then reconciles steering text and attachments through the steer route', async () => {
+    const { client, fetchMock } = makeClient();
+    fetchMock.mockResolvedValue(jsonResponse([]));
+    TestBed.tick();
+    fetchMock.mockClear();
+    let finish!: (response: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>(resolve => { finish = resolve; }));
+    fetchMock.mockResolvedValueOnce(jsonResponse([{ id: 'host-message', type: 'user', timestamp: Date.now(), content: 'Change course', hasAttachments: true }]));
+    const pending = client.steerInput('a', 'Change course', attachments);
+    expect(client.messagesFor('a')).toEqual([expect.objectContaining({ content: 'Change course', hasAttachments: true })]);
+    expect(fetchMock.mock.calls[0][0]).toBe('http://100.64.0.1:8899/api/instances/a/steer');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ message: 'Change course', attachments });
+    finish(jsonResponse({ ok: true }));
+    await pending;
+    await vi.waitFor(() => expect(client.messagesFor('a').map(message => message.id)).toEqual(['host-message']));
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/input'))).toBe(false);
+  });
+
+  it('retracts the optimistic steering bubble after rejection', async () => {
+    const { client, fetchMock } = makeClient();
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Steer refused' }, false, 500));
+    await expect(client.steerInput('a', 'Change course', attachments)).rejects.toThrow('Steer refused');
+    expect(client.messagesFor('a')).toEqual([]);
+  });
+});
+
 describe('GatewayClient queue + interrupt', () => {
   let client: GatewayClient;
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -112,6 +146,23 @@ describe('GatewayClient queue + interrupt', () => {
 
     fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true, accepted: true }));
     await expect(client.interrupt('a')).resolves.toEqual({ accepted: true });
+  });
+});
+
+describe('GatewayClient automations', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reads the safe list and sends a bounded idempotency key to run-now', async () => {
+    const { client, fetchMock } = makeClient();
+    fetchMock.mockResolvedValueOnce(jsonResponse([{ id: 'daily-review', name: 'Daily review' }]));
+    await expect(client.automations()).resolves.toEqual([{ id: 'daily-review', name: 'Daily review' }]);
+    expect(fetchMock.mock.calls[0]![0]).toBe('http://100.64.0.1:8899/api/automations');
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'queued', runId: 'run-1' }));
+    await expect(client.runAutomation('daily/review', 'mobile-key')).resolves.toEqual({ status: 'queued', runId: 'run-1' });
+    const [url, init] = fetchMock.mock.calls[1]!;
+    expect(url).toBe('http://100.64.0.1:8899/api/automations/daily%2Freview/run');
+    expect(init).toMatchObject({ method: 'POST', body: JSON.stringify({ idempotencyKey: 'mobile-key' }) });
   });
 });
 
@@ -309,6 +360,24 @@ describe('GatewayClient failed handshake diagnosis', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it('scopes quota events and authenticated reads to the active host', async () => {
+    const { client, fetchMock } = makeClient();
+    fetchMock.mockResolvedValue(jsonResponse([])); TestBed.tick();
+    const socket = FakeWebSocket.last!;
+    const data = { serverTime: 1, providers: [] };
+    socket.onmessage?.({ data: JSON.stringify({ type: 'quota-state', data }) } as MessageEvent);
+    expect(client.quotaEvent()).toEqual({ hostId: 'h1', data });
+    fetchMock.mockResolvedValueOnce(jsonResponse(data));
+    await expect(client.quota()).resolves.toEqual(data);
+    expect(fetchMock).toHaveBeenLastCalledWith('http://100.64.0.1:8899/api/quota', expect.objectContaining({
+      method: 'GET', headers: expect.objectContaining({ authorization: 'Bearer test-token' }),
+    }));
+    const hosts = TestBed.inject(HostStore) as unknown as { activeHost: { set(value: PairedHost): void } };
+    hosts.activeHost.set({ ...HOST, id: 'h2' }); TestBed.tick();
+    expect(client.quotaEvent()).toBeNull();
+    expect(socket.onmessage).toBeNull();
   });
 
   it('reports an expired pairing when the host answers but rejects the token', async () => {

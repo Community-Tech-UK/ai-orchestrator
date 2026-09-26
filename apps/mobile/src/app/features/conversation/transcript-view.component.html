@@ -7,6 +7,13 @@
   (touchend)="onTouchEnd()"
   (touchcancel)="onTouchEnd()"
 >
+  @if (canShowEarlier()) {
+    <button type="button" class="show-earlier" aria-label="Show earlier messages"
+      [disabled]="cannotShowEarlier()" (click)="showEarlier()">
+      {{ earlierLoading() ? 'Loading earlier messages…' : 'Show earlier' }}
+    </button>
+  }
+  @if (earlierError()) { <p class="mobile-load-state error" role="alert">{{ earlierError() }}</p> }
   @if (state().status === 'error') {
     <div class="mobile-load-state error" role="alert">
       {{ state().error }}
@@ -18,9 +25,9 @@
   }
   @for (item of displayItems(); track trackItem(item)) {
     @if (item.kind === 'stamp') {
-      <div class="stamp">{{ item.label }}</div>
+      <div class="stamp" data-transcript-item>{{ item.label }}</div>
     } @else if (item.kind === 'tools') {
-      <div class="tool-group">
+      <div class="tool-group" data-transcript-item>
         <button
           class="tool-toggle"
           type="button"
@@ -48,13 +55,17 @@
       </div>
     } @else {
       <div
+        data-transcript-item
         [class]="'message ' + item.message.type"
         [class.loop-output]="isLoopTranscriptMessage(item.message)"
       >
+        @if (item.message.type === 'error' || item.message.type === 'system') {
+          <span class="role">{{ item.message.type }}</span>
+        }
         <div
           class="content markdown-body"
           [class.loop-output]="isLoopTranscriptMessage(item.message)"
-          [innerHTML]="renderMarkdown(item.message.content)"
+          [innerHTML]="item.html"
         ></div>
         @if (item.message.hasAttachments) {
           <span class="attach-flag"><app-mobile-icon name="attachment" /> Photo attached</span>
