@@ -13,6 +13,9 @@ const GENERATED_ARTIFACTS = [
 
 const HOOK_COMMANDS = {
   'pre-commit': [
+    // Sub-second lint catch first so obvious breakage fails before the slower
+    // generate/test steps below.
+    { command: 'npm', args: ['run', 'lint:fast'] },
     { command: 'npm', args: ['run', 'generate:aliases'] },
     { command: 'npm', args: ['run', 'generate:ipc'] },
     { command: 'npm', args: ['run', 'generate:architecture'] },
@@ -23,30 +26,47 @@ const HOOK_COMMANDS = {
     // Fast feedback at commit time: run only the tests related to the staged
     // source files (`vitest related`), not the full suite. This is the "best of
     // both" gate — quick, scoped test coverage on commit, with the slow
-    // CI-mirror full suite still living on pre-push. test-staged.js excludes the
+    // full suite still living in CI. test-staged.js excludes the
     // generated artifacts staged just above (they're widely imported and would
     // balloon the run) and skips entirely when no source files are staged, so
     // the loop agents' high-frequency auto-commits stay near-instant. Bypass in
     // an emergency with `git commit --no-verify`.
     { command: 'npm', args: ['run', 'test:staged'] },
   ],
+  // This mirrors the checks in CI's "Lint, Typecheck, Build Smoke" job
+  // (~90s locally): lint/typecheck/build failures are exactly what used to
+  // reach CI and redden whole runs (e.g. the typecheck:spec error that sat on
+  // main because no local gate ran it and CI died in npm ci before reaching
+  // the step). Deviations from CI by design: checks run in local fast-fail
+  // order, check:ts-max-loc is --warn here (CI runs it enforcing), and CI's
+  // non-blocking model-catalog drift notice is omitted (meaningless at push).
+  // Fast structural checks run first so obvious breakage fails before the
+  // ~25s typechecks and builds.
   'pre-push': [
+    { command: 'npm', args: ['run', 'lint:fast'] },
+    { command: 'npm', args: ['run', 'verify:exports'] },
+    { command: 'npm', args: ['run', 'check:provider-parity'] },
     { command: 'npm', args: ['run', 'verify:ipc'] },
     { command: 'npm', args: ['run', 'check:contracts'] },
-    // Warn-only locally so a commit/push is never blocked purely by file size.
-    // CI runs `npm run check:ts-max-loc` without --warn, so it stays the enforcing gate.
     { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },
     { command: 'npm', args: ['run', 'verify:architecture'] },
-    // The full `npm run test` suite is deliberately NOT run here. git opens the
-    // SSH connection to the remote to read refs before running this hook, then
-    // sends the pack over that same connection afterwards. A multi-minute suite
-    // left that connection idle long enough for the remote's sshd to drop it
-    // ("Connection to github.com closed by remote host"), so the pack send then
-    // failed on a dead socket — a push that looked broken but was only stalled.
-    // The full suite is a CI-mirror gate, and CI already runs it (plus the
-    // slow-tier `test:slow`), so it lives in CI, not on every local push. The
-    // fast structural checks above stay here as a cheap pre-push guard. Bypass
-    // any of them in an emergency with `git push --no-verify`.
+    { command: 'npm', args: ['run', 'lint'] },
+    { command: 'npm', args: ['run', 'typecheck'] },
+    { command: 'npm', args: ['run', 'typecheck:spec'] },
+    { command: 'npm', args: ['run', 'build:main'] },
+    { command: 'npm', args: ['run', 'build:worker-agent'] },
+    { command: 'npm', args: ['run', 'build:renderer'] },
+    // The full `npm run test` suite is deliberately NOT run here. It is a
+    // CI gate (plus the slow-tier `test:slow`), and a multi-minute suite per
+    // push is the wrong latency for agent-driven workflows; a flaky test would
+    // also block pushes that are fine. The old socket-drop hazard (git runs
+    // this hook on the same idle SSH connection it later sends the pack over)
+    // is mitigated by the keepalives install-git-hooks.js installs in
+    // core.sshCommand when that key is unset, so these ~90s of gates should
+    // no longer drop the push connection the way the old full suite did —
+    // provided the hooks have been (re)installed and no custom core.sshCommand
+    // without keepalives of its own was preserved. Bypass anything here in an
+    // emergency with `git push --no-verify`.
   ],
 };
 

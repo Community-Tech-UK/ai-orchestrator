@@ -13,8 +13,9 @@ const { getHookCommands, runHook } = require('../run-git-hook.js') as {
 };
 
 describe('run-git-hook', () => {
-  it('pre-commit regenerates generated artifacts, stages them, and runs changed-file tests', () => {
+  it('pre-commit lints fast, regenerates generated artifacts, stages them, and runs changed-file tests', () => {
     expect(getHookCommands('pre-commit')).toEqual([
+      { command: 'npm', args: ['run', 'lint:fast'] },
       { command: 'npm', args: ['run', 'generate:aliases'] },
       { command: 'npm', args: ['run', 'generate:ipc'] },
       { command: 'npm', args: ['run', 'generate:architecture'] },
@@ -32,12 +33,21 @@ describe('run-git-hook', () => {
     ]);
   });
 
-  it('pre-push runs fast structural checks only (full suite is a CI gate)', () => {
+  it('pre-push mirrors the CI quality gates (full test suite stays a CI gate)', () => {
     expect(getHookCommands('pre-push')).toEqual([
+      { command: 'npm', args: ['run', 'lint:fast'] },
+      { command: 'npm', args: ['run', 'verify:exports'] },
+      { command: 'npm', args: ['run', 'check:provider-parity'] },
       { command: 'npm', args: ['run', 'verify:ipc'] },
       { command: 'npm', args: ['run', 'check:contracts'] },
       { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },
       { command: 'npm', args: ['run', 'verify:architecture'] },
+      { command: 'npm', args: ['run', 'lint'] },
+      { command: 'npm', args: ['run', 'typecheck'] },
+      { command: 'npm', args: ['run', 'typecheck:spec'] },
+      { command: 'npm', args: ['run', 'build:main'] },
+      { command: 'npm', args: ['run', 'build:worker-agent'] },
+      { command: 'npm', args: ['run', 'build:renderer'] },
     ]);
   });
 
