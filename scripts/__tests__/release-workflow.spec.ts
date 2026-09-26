@@ -84,7 +84,6 @@ describe("Harness release workflow", () => {
     const install = steps.find((step) => step.name === "Install dependencies");
     const refresh = steps.find((step) => step.name === "Refresh model-catalog snapshot");
     const issue = steps.find((step) => step.name === "Open or update drift issue");
-    const fail = steps.find((step) => step.name === "Fail until catalog drift is reviewed");
 
     expect(checkout?.with).toEqual({ "persist-credentials": false });
     expect(install?.run).toBe("npm ci --ignore-scripts");
@@ -97,8 +96,10 @@ describe("Harness release workflow", () => {
     expect(issue?.run).toContain("gh issue create");
     expect(issue?.run).toContain("gh issue edit");
     expect(issue?.run).toContain("Model catalog drift detected");
-    expect(fail?.if).toContain("steps.refresh.outputs.drift == 'true'");
-    expect(fail?.run).toBe("exit 1");
+    // Drift must not fail the run: the fail-hard nag stayed red for weeks
+    // (runs 35537054620..36219920786) without driving the sync, and trained
+    // everyone to ignore the Actions tab. The durable issue is the signal.
+    expect(steps.some((step) => step.run === "exit 1")).toBe(false);
   });
 
   it("grants write permission only to the final publish job", () => {

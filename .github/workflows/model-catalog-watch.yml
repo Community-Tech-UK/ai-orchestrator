@@ -68,6 +68,8 @@ jobs:
             echo
             echo 'Run `npm run sync:model-catalog`, review every added/removed/changed model, and update curated metadata plus `PROVIDER_MODEL_REPLACEMENTS` when a model is intentionally replaced.'
             echo
+            echo 'This issue is the actionable signal: the workflow run itself stays green on drift so the Actions tab only goes red on real failures (a permanently-red nag was ignored for weeks without driving the sync — runs 35537054620..36219920786).'
+            echo
             echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo
             echo '<details><summary>Generated snapshot diff</summary>'
@@ -84,7 +86,3 @@ jobs:
           else
             gh issue create --title "$issue_title" --body-file "$issue_body_file"
           fi
-
-      - name: Fail until catalog drift is reviewed
-        if: steps.refresh.outputs.drift == 'true'
-        run: exit 1
