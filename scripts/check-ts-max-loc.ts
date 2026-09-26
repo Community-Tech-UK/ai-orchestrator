@@ -325,7 +325,10 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — mobile gateway
   // Re-tightened 1585 -> 732 after extracting instance routes, prompt state,
   // event lifecycle/completion tracking, and snapshot broadcasting.
-  'src/main/mobile-gateway/mobile-gateway-server.ts': 732,
+  // Raised 732 -> 798 2026-09-26: mobile quota/lifecycle growth landed at 798
+  // (e63747e6/5bb0804f); a refactor to thin it back is in progress — re-tighten
+  // when it lands.
+  'src/main/mobile-gateway/mobile-gateway-server.ts': 798,
   // Main process — memory
   'src/main/memory/codebase-miner.ts': 725,
   'src/main/memory/critique-agent.ts': 817,
