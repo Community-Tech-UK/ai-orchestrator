@@ -10,9 +10,15 @@ const now = () => Date.now();
 function window(used = 100, overrides: Partial<ProviderQuotaWindow> = {}): ProviderQuotaWindow {
   return { id: 'codex.5h', label: '5 hours', kind: 'rolling-window', unit: 'percent', used, limit: 100, remaining: 100 - used, resetsAt: now() + 3_600_000, ...overrides };
 }
-function snapshot(overrides: Partial<ProviderQuotaSnapshot> = {}): ProviderQuotaSnapshot {
+// `it.each(... as const)` produces readonly window tuples; accept them and copy
+// into the mutable `ProviderQuotaWindow[]` that ProviderQuotaSnapshot declares.
+type SnapshotOverrides = Omit<Partial<ProviderQuotaSnapshot>, 'windows'> & {
+  windows?: readonly ProviderQuotaWindow[];
+};
+function snapshot(overrides: SnapshotOverrides = {}): ProviderQuotaSnapshot {
+  const { windows, ...rest } = overrides;
   return { provider: 'codex', takenAt: now(), source: 'admin-api', ok: true,
-    windows: [window()], usageAccess: { ordinaryUsageAllowed: false, creditsAvailable: false }, ...overrides };
+    windows: windows ? [...windows] : [window()], usageAccess: { ordinaryUsageAllowed: false, creditsAvailable: false }, ...rest };
 }
 class QuotaSource extends EventEmitter {
   state: ProviderQuotaState = { snapshots: { claude: null, codex: null, gemini: null, antigravity: null, copilot: null, cursor: null, grok: null, opencode: null } };
