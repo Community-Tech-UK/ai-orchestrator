@@ -67,18 +67,4 @@ export interface RailChangeSummary {
   deletions: number;
 }
 
-export function getInstanceThreadId(
-  instance: Pick<Instance, 'historyThreadId' | 'sessionId' | 'id'>,
-): string {
-  const historyThreadId = instance.historyThreadId.trim();
-  if (historyThreadId) {
-    return historyThreadId;
-  }
-
-  const sessionId = instance.sessionId.trim();
-  if (sessionId) {
-    return sessionId;
-  }
-
-  return instance.id;
-}
+export { getInstanceThreadId } from '../../core/state/instance/instance.types';

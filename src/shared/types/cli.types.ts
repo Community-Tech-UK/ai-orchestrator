@@ -5,6 +5,7 @@
  * optional ACP transport.
  */
 
+import type { AcpMcpServerConfig } from './acp-mcp.types';
 import type { AcpAgentThoughtChunkUpdate, AcpUsageUpdate } from './acp-session-update.types';
 
 /**
@@ -376,12 +377,8 @@ export interface AcpInitializeResult {
   authMethods?: Array<Record<string, unknown>>;
 }
 
-export interface AcpMcpServerConfig {
-  name: string;
-  command: string;
-  args?: string[];
-  env?: Array<{ name: string; value: string }>;
-}
+/** Re-exported for existing import sites; definition lives in acp-mcp.types.ts. */
+export type { AcpMcpServerConfig } from './acp-mcp.types';
 
 export interface AcpSessionConfigOption {
   id: string;

@@ -37,7 +37,7 @@ describe('AutomationsComponent', () => {
 
   it.each(['recover', 'switch-host'])('retains a lost-response intent through a failed reconnect list until %s', async next => {
     const activeHost = signal({ id: 'a', name: 'Host A' });
-    const gateway = { online: signal(true), dataHostId: signal('a'),
+    const gateway = { online: signal(true), dataHostId: signal('a'), connectionEpoch: signal(1),
       automations: vi.fn<() => Promise<MobileAutomationDto[]>>().mockResolvedValue([ITEM]), runAutomation: vi.fn() };
     const keys: string[] = [];
     const fires = new Set<string>();
@@ -60,6 +60,7 @@ describe('AutomationsComponent', () => {
     await fixture.whenStable(); fixture.detectChanges();
     gateway.online.set(false); fixture.detectChanges(); await fixture.whenStable();
     gateway.automations.mockRejectedValue(new Error('List temporarily unavailable'));
+    gateway.connectionEpoch.set(gateway.connectionEpoch() + 1);
     gateway.online.set(true); fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
     expect(store.status()).toBe('error');
     expect(root.querySelector('dialog')).not.toBeNull();
@@ -95,7 +96,7 @@ describe('AutomationsComponent', () => {
   it('closes a host-A confirmation on host change and a stale confirm click sends no request', async () => {
     const activeHost = signal({ id: 'a', name: 'Host A' });
     const dataHostId = signal('a');
-    const gateway = { online: signal(true), dataHostId, automations: vi.fn().mockResolvedValue([ITEM]), runAutomation: vi.fn().mockResolvedValue({ status: 'started', runId: 'run' }) };
+    const gateway = { online: signal(true), dataHostId, connectionEpoch: signal(1), automations: vi.fn().mockResolvedValue([ITEM]), runAutomation: vi.fn().mockResolvedValue({ status: 'started', runId: 'run' }) };
     TestBed.configureTestingModule({ imports: [AutomationsComponent], providers: [
       { provide: HostStore, useValue: { activeHost } }, { provide: GatewayClient, useValue: gateway },
       { provide: AppLockService, useValue: { locked: signal(false) } },
@@ -146,7 +147,7 @@ describe('AutomationsComponent', () => {
 
   it('retains confirmation and its lost-response key across same-host reconnect with fresh JSON objects', async () => {
     const activeHost = signal({ id: 'a', name: 'Host A' });
-    const gateway = { online: signal(true), dataHostId: signal('a'),
+    const gateway = { online: signal(true), dataHostId: signal('a'), connectionEpoch: signal(1),
       automations: vi.fn(async () => JSON.parse(JSON.stringify([ITEM])) as MobileAutomationDto[]),
       runAutomation: vi.fn(),
     };
@@ -173,6 +174,7 @@ describe('AutomationsComponent', () => {
     root.querySelector<HTMLButtonElement>('[data-confirm-run]')!.click();
     await fixture.whenStable(); fixture.detectChanges();
     gateway.online.set(false); fixture.detectChanges(); await fixture.whenStable();
+    gateway.connectionEpoch.set(gateway.connectionEpoch() + 1);
     gateway.online.set(true); fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
     expect(store.automations()[0]).not.toBe(original);
     expect(root.querySelector('dialog')).not.toBeNull();
@@ -187,7 +189,7 @@ describe('AutomationsComponent', () => {
   });
 
   it.each(['removed', 'disabled'])('cancels a confirmation when the refreshed automation is %s', async change => {
-    const gateway = { online: signal(true), dataHostId: signal('a'),
+    const gateway = { online: signal(true), dataHostId: signal('a'), connectionEpoch: signal(1),
       automations: vi.fn<() => Promise<MobileAutomationDto[]>>().mockResolvedValue([ITEM]),
       runAutomation: vi.fn().mockRejectedValue(new Error('Uncertain result')) };
     TestBed.configureTestingModule({ imports: [AutomationsComponent], providers: [

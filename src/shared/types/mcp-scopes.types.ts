@@ -17,12 +17,12 @@ export type McpScope = ProviderMcpScope | OrchestratorMcpScope | 'shared';
 
 export type SupportedProvider = Extract<
   CanonicalCliType,
-  'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot'
+  'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'grok' | 'opencode'
 >;
 
 export type OrchestratorRuntimeInjectionProvider = Extract<
   CanonicalCliType,
-  'claude' | 'codex' | 'copilot' | 'cursor'
+  'claude' | 'codex' | 'copilot' | 'cursor' | 'grok' | 'opencode'
 >;
 
 export const ALL_MCP_SCOPES: readonly McpScope[] = [
@@ -44,12 +44,16 @@ export const SUPPORTED_PROVIDERS: readonly SupportedProvider[] = [
   'gemini',
   'antigravity',
   'copilot',
+  'grok',
+  'opencode',
 ];
 
 export const ORCHESTRATOR_INJECTION_PROVIDERS: readonly SupportedProvider[] = [
   'claude',
   'codex',
   'copilot',
+  'grok',
+  'opencode',
 ];
 
 export const ORCHESTRATOR_RUNTIME_INJECTION_PROVIDERS: readonly OrchestratorRuntimeInjectionProvider[] = [
@@ -57,6 +61,8 @@ export const ORCHESTRATOR_RUNTIME_INJECTION_PROVIDERS: readonly OrchestratorRunt
   'codex',
   'copilot',
   'cursor',
+  'grok',
+  'opencode',
 ];
 
 export const PROVIDER_SCOPES: Record<SupportedProvider, readonly ProviderMcpScope[]> = {
@@ -65,6 +71,12 @@ export const PROVIDER_SCOPES: Record<SupportedProvider, readonly ProviderMcpScop
   gemini: ['user'],
   antigravity: ['user'],
   copilot: ['user', 'workspace', 'managed', 'system'],
+  // `~/.grok/config.toml` (user) and `.grok/config.toml` (project) — see the
+  // Grok Build README, "MCP Servers" / "Project-Scoped MCP Servers".
+  grok: ['user', 'project'],
+  // `opencode.json(c)` in the OpenCode config dir (user) and the workspace
+  // root (project).
+  opencode: ['user', 'project'],
 };
 
 export const WRITABLE_SCOPES_BY_PROVIDER: Record<
@@ -76,15 +88,13 @@ export const WRITABLE_SCOPES_BY_PROVIDER: Record<
   gemini: ['user'],
   antigravity: ['user'],
   copilot: ['user'],
+  grok: ['user'],
+  opencode: ['user'],
 };
 
 export function isProviderScope(scope: McpScope): scope is ProviderMcpScope {
-  return (
-    (PROVIDER_SCOPES.claude as readonly McpScope[]).includes(scope) ||
-    (PROVIDER_SCOPES.codex as readonly McpScope[]).includes(scope) ||
-    (PROVIDER_SCOPES.gemini as readonly McpScope[]).includes(scope) ||
-    (PROVIDER_SCOPES.copilot as readonly McpScope[]).includes(scope)
-  );
+  return (Object.values(PROVIDER_SCOPES) as readonly (readonly McpScope[])[])
+    .some((scopes) => scopes.includes(scope));
 }
 
 export function isSupportedProvider(provider: string | undefined): provider is SupportedProvider {

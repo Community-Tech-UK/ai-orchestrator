@@ -21,6 +21,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
 import { isSandboxCredentialFailure, isSandboxFileDenial } from '../../shared/sandbox-failure-keywords';
+import { applySignalFence, isSignalFenceAvailable } from './signal-fence';
 
 const logger = getLogger('Seatbelt');
 
@@ -205,9 +206,20 @@ export function resolveHardenedSpawn(params: {
   claudeConfigDir?: string;
   available?: boolean;
   basePolicy?: string;
+  /**
+   * Signal-fence a non-hardened spawn. Default: on when Seatbelt exists.
+   * `available: false` (tests, and "sandbox-exec is missing") leaves the
+   * command raw. Hardened spawns already deny cross-sandbox signals.
+   */
+  signalFence?: boolean;
 }): SeatbeltCommand {
   if (!params.hardened) {
-    return { command: params.command, args: [...params.args] };
+    const enabled = params.signalFence ?? (params.available !== false && isSignalFenceAvailable());
+    return applySignalFence({
+      command: params.command,
+      args: params.args,
+      enabled,
+    });
   }
   if (params.claudeConfigDir !== undefined) {
     assertClaudeConfigDirGranted(params.claudeConfigDir, params.writableRoots);

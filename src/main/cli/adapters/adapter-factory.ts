@@ -464,8 +464,14 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
       '--acp',
       '--stdio',
       '--no-auto-update',
+      // `info`, not `none`/`error`: the CLI's three clean-shutdown triggers are
+      // only visible at info or via raw stderr — stdin EOF logs at info
+      // ("Received EOF on stdin, shutting down ACP server"), stdin error at
+      // error ("Shutting down after receiving stdin error"), and a caught
+      // SIGTERM/INT/HUP/QUIT writes " Exiting… " to stderr. With `none` a
+      // mid-turn self-exit is undiagnosable (all process-*.log were 0 bytes).
       '--log-level',
-      'none',
+      'info',
       '--allow-all-tools',
       '--allow-all-paths',
       '--allow-all-urls',

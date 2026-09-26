@@ -12,10 +12,12 @@ import { buildBrowserGatewayAcpMcpServers } from '../../browser-gateway/browser-
 import { buildChromeDevtoolsAcpMcpServers } from '../../browser-gateway/chrome-devtools-mcp-config';
 import { buildMobileMcpAcpMcpServers } from '../../browser-gateway/mobile-mcp-config';
 import type { UnifiedSpawnOptions } from './adapter-factory.types';
+import { buildStaticMcpServersAcpMcpServers } from './static-mcp-acp-config';
 import {
   buildAcpPermissionContext,
   buildInlineMcpServersAcpMcpServers,
   extendEnvWithRtk,
+  mergeAcpMcpServers,
   mergeSpawnEnv,
   withBrowserGatewayProvider,
 } from './adapter-spawn-helpers';
@@ -40,6 +42,9 @@ export function createGrokAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
     ? buildMobileMcpAcpMcpServers(options.mobileMcp)
     : [];
   const inlineMcpServers = buildInlineMcpServersAcpMcpServers(options.mcpConfig);
+  // Static, user-managed servers from config/mcp-servers.json (lsp, imap, …) —
+  // the same file Claude consumes via --mcp-config and Codex via TOML.
+  const staticMcpServers = buildStaticMcpServersAcpMcpServers(options.mcpConfig);
   const agentArgs: string[] = ['agent'];
   // Normalized at the spawn boundary, not only at session-create: wake/restart/
   // resume rebuild spawn options from the persisted `instance.currentModel`, and
@@ -76,13 +81,14 @@ export function createGrokAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
     sessionId: options.sessionId,
     resume: options.resume,
     ...(Object.keys(env).length > 0 ? { env } : {}),
-    mcpServers: [
-      ...(options.mcpServers ?? []),
-      ...inlineMcpServers,
-      ...browserGatewayMcpServers,
-      ...chromeDevtoolsMcpServers,
-      ...mobileMcpServers,
-    ],
+    mcpServers: mergeAcpMcpServers(
+      options.mcpServers,
+      inlineMcpServers,
+      staticMcpServers,
+      browserGatewayMcpServers,
+      chromeDevtoolsMcpServers,
+      mobileMcpServers,
+    ),
     model: options.model,
     systemPrompt: options.systemPrompt,
     rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),

@@ -209,6 +209,30 @@ export interface Instance {
   allowIncomingSessionMessages?: boolean;
 }
 
+/**
+ * Resolve the stable app-level thread identity for an instance.
+ *
+ * `historyThreadId` is assigned at creation and carried across restore and
+ * fallback copies, so it is the identity to key anything that must survive an
+ * instance id changing. The `sessionId` and `id` fallbacks keep the contract
+ * total when a payload (e.g. crash recovery) omits the earlier fields as `''`.
+ */
+export function getInstanceThreadId(
+  instance: { historyThreadId?: string; sessionId?: string; id: string },
+): string {
+  const historyThreadId = instance.historyThreadId?.trim();
+  if (historyThreadId) {
+    return historyThreadId;
+  }
+
+  const sessionId = instance.sessionId?.trim();
+  if (sessionId) {
+    return sessionId;
+  }
+
+  return instance.id;
+}
+
 // ============================================
 // Store State
 // ============================================

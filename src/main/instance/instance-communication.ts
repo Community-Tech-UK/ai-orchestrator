@@ -71,6 +71,7 @@ import {
   isCorruptedSessionMessage,
   isRecoverableAcpPromptTurnError,
   isRecoverableStatelessExecTurnError,
+  isRecoveringStatus,
   isStatelessExecAdapter,
 } from './instance-communication-adapter-helpers';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
@@ -1374,17 +1375,10 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('status')) {
         return;
       }
-      const normalizedStatus = status === 'error' && isStatelessExecAdapter(adapter)
-        ? 'idle'
-        : status;
+      const normalizedStatus = status === 'error' && isStatelessExecAdapter(adapter) ? 'idle' : status;
 
       if (normalizedStatus !== status) {
-        logger.info('Downgrading stateless exec adapter error status to idle', {
-          instanceId,
-          adapter: adapter.getName(),
-          originalStatus: status,
-          normalizedStatus,
-        });
+        logger.info('Downgrading stateless exec adapter error status to idle', { instanceId, adapter: adapter.getName(), originalStatus: status, normalizedStatus });
       }
 
       emitProviderRuntimeEvent(
@@ -1393,6 +1387,12 @@ export class InstanceCommunicationManager extends EventEmitter {
       );
 
       const instance = this.deps.getInstance(instanceId);
+      // Mirror of the adapter-error handler's recovery guard: an advisory
+      // `error` status must not flip a recovering instance terminal (plan 2026-09-26).
+      if (instance && normalizedStatus === 'error' && isRecoveringStatus(instance.status)) {
+        logger.info('Ignoring advisory error status during recovery', { instanceId, adapter: adapter.getName(), status: instance.status });
+        return;
+      }
       if (instance && instance.status === normalizedStatus) {
         this.transitionInstanceStatus(instance, normalizedStatus);
         if (normalizedStatus === 'idle' || normalizedStatus === 'ready' || normalizedStatus === 'waiting_for_input') {
@@ -1936,7 +1936,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           message: safeErrorMessage,
           recoverableKind: recoverableAcpPromptTurnError ? 'acp-prompt-timeout' : 'stateless-exec',
         });
-        if (instance.status !== 'respawning' && instance.status !== 'interrupting' && instance.status !== 'cancelling') {
+        if (!isRecoveringStatus(instance.status)) {
           this.transitionInstanceStatus(instance, 'idle');
           this.deps.onToolStateChange?.(instanceId, 'idle');
           this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
@@ -1952,7 +1952,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       }, logger, this.hookManager);
 
       // Don't mark as error if we're in the middle of interrupt recovery - let lifecycle handle it.
-      if (instance.status !== 'respawning' && instance.status !== 'interrupting' && instance.status !== 'cancelling') {
+      if (!isRecoveringStatus(instance.status)) {
         this.transitionInstanceStatus(instance, 'error');
         this.deps.queueUpdate(instanceId, 'error');
 

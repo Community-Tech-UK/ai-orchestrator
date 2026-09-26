@@ -5,6 +5,9 @@ import * as path from 'node:path';
 import { ClaudeMcpAdapter } from '../claude-mcp-adapter';
 import { CodexMcpAdapter } from '../codex-mcp-adapter';
 import { CodexTomlEditor } from '../codex-toml-editor';
+import { GrokMcpAdapter } from '../grok-mcp-adapter';
+import { OpenCodeMcpAdapter } from '../opencode-mcp-adapter';
+import { stripJsonc } from '../opencode-mcp-config';
 import { WriteSafetyHelper } from '../../write-safety-helper';
 
 describe('provider MCP adapters', () => {
@@ -170,6 +173,250 @@ describe('provider MCP adapters', () => {
     expect(stripped).toContain('[profiles.default]');
   });
 
+
+  it('Codex TOML editor round-trips the enabled flag', () => {
+    const editor = new CodexTomlEditor();
+    const output = editor.upsertMcpServer('', 'lsp', { command: 'node', enabled: false });
+    expect(output).toContain('[mcp_servers.lsp]');
+    expect(editor.parseMcpServers(output)['lsp']).toMatchObject({ enabled: false });
+    expect(editor.parseMcpServers('[mcp_servers.a]\ncommand = "x"\nenabled = true\n')['a'])
+      .toMatchObject({ enabled: true });
+    expect(editor.parseMcpServers('[mcp_servers.a]\ncommand = "x"\n')['a']?.enabled).toBeUndefined();
+  });
+
+  it('Codex TOML editor keeps values that contain " #" (comment strip is string-aware)', () => {
+    // Regression: `rawLine.replace(/\s+#.*$/, '')` truncated any value with a
+    // ` #` inside it, silently dropping the entry on parse.
+    const editor = new CodexTomlEditor();
+    const input = [
+      '[mcp_servers.x]',
+      'command = "node"',
+      'description = "a # b"',
+      'env = { P = "x # y" }',
+    ].join('\n');
+    expect(editor.parseMcpServers(input)['x']).toMatchObject({
+      command: 'node',
+      description: 'a # b',
+      env: { P: 'x # y' },
+    });
+    // Full-line and trailing comments still strip.
+    expect(editor.parseMcpServers('[mcp_servers.y]\ncommand = "c" # trailing\n')['y'])
+      .toMatchObject({ command: 'c' });
+  });
+
+  it('Grok adapter reads and writes ~/.grok/config.toml, preserving other sections', async () => {
+    const adapter = new GrokMcpAdapter({
+      home: tmp,
+      writeSafety: new WriteSafetyHelper({ allowWorldWritableParent: false, writeBackups: true }),
+    });
+    const configPath = path.join(tmp, '.grok', 'config.toml');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, '# keep\n[ui]\ncompact_mode = false\n');
+    expect((await adapter.discoverScopes({ cwd: tmp })).scopeFiles).toEqual({
+      user: configPath,
+      project: path.join(tmp, '.grok', 'config.toml'),
+    });
+
+    await adapter.writeUserServer({
+      kind: 'upsert',
+      sourceFile: configPath,
+      record: {
+        id: 'linear',
+        name: 'linear',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', 'mcp-remote'],
+        env: { TOKEN: 'abc' },
+        autoConnect: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    });
+    const output = fs.readFileSync(configPath, 'utf8');
+    expect(output).toContain('# keep');
+    expect(output).toContain('[ui]');
+    expect(output).toContain('[mcp_servers.linear]');
+    expect(output).toContain('[mcp_servers.linear.env]');
+
+    const snapshot = await adapter.readScope('user', configPath);
+    expect(snapshot.servers[0]).toMatchObject({ name: 'linear', command: 'npx', args: ['-y', 'mcp-remote'] });
+
+    await adapter.writeUserServer({ kind: 'delete', serverId: 'grok:user:linear', sourceFile: configPath });
+    expect(fs.readFileSync(configPath, 'utf8')).not.toContain('[mcp_servers.linear]');
+    expect(fs.readFileSync(configPath, 'utf8')).toContain('[ui]');
+  });
+
+  it('Grok adapter reports a disabled server from `enabled = false`', async () => {
+    const adapter = new GrokMcpAdapter({
+      home: tmp,
+      writeSafety: new WriteSafetyHelper({ allowWorldWritableParent: false, writeBackups: true }),
+    });
+    const configPath = path.join(tmp, '.grok', 'config.toml');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, '[mcp_servers.off]\ncommand = "x"\nenabled = false\n');
+    const snapshot = await adapter.readScope('user', configPath);
+    expect(snapshot.servers[0]).toMatchObject({ name: 'off', command: 'x', autoConnect: false });
+  });
+
+  it('Codex TOML editor maps autoConnect=false to enabled=false on write', () => {
+    const editor = new CodexTomlEditor();
+    expect(editor.toCodexServer({
+      id: 'x',
+      name: 'x',
+      transport: 'stdio',
+      command: 'node',
+      autoConnect: false,
+      createdAt: 1,
+      updatedAt: 1,
+    })).toMatchObject({ enabled: false });
+    const output = editor.upsertMcpServer('', 'x', editor.toCodexServer({
+      id: 'x',
+      name: 'x',
+      transport: 'stdio',
+      command: 'node',
+      autoConnect: false,
+      createdAt: 1,
+      updatedAt: 1,
+    }));
+    expect(output).toContain('enabled = false');
+  });
+
+  it('Codex TOML editor parses inline env and headers tables (Grok README form)', () => {
+    const editor = new CodexTomlEditor();
+    const input = [
+      '[mcp_servers.github]',
+      'command = "npx"',
+      'args = ["-y", "@modelcontextprotocol/server-github"]',
+      'env = { GITHUB_TOKEN = "ghp_x", OTHER = "a,b" }',
+      'headers = { "X-Header" = "value" }',
+    ].join('\n');
+    expect(editor.parseMcpServers(input)['github']).toMatchObject({
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-github'],
+      env: { GITHUB_TOKEN: 'ghp_x', OTHER: 'a,b' },
+      headers: { 'X-Header': 'value' },
+    });
+
+    // A UI edit must not strip the inline tables' data: it round-trips through
+    // the sub-table form (semantically identical TOML).
+    const rewritten = editor.upsertMcpServer(input, 'github', editor.toCodexServer({
+      id: 'github',
+      name: 'github',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-github'],
+      env: { GITHUB_TOKEN: 'ghp_x', OTHER: 'a,b' },
+      headers: { 'X-Header': 'value' },
+      autoConnect: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }));
+    expect(editor.parseMcpServers(rewritten)['github']).toMatchObject({
+      env: { GITHUB_TOKEN: 'ghp_x', OTHER: 'a,b' },
+      headers: { 'X-Header': 'value' },
+    });
+  });
+
+  it('stripJsonc removes comments and trailing commas outside strings', () => {
+    const raw = [
+      '{',
+      '  // line comment',
+      '  "mcp": {',
+      '    "a": { "type": "local", "command": ["node", "x.js"], }, /* block */',
+      '    "note": "keep // and , and /* this */"',
+      '  },',
+      '}',
+    ].join('\n');
+    const parsed = JSON.parse(stripJsonc(raw)) as {
+      mcp: Record<string, { command: string[] }>;
+    };
+    expect(parsed.mcp['a']?.command).toEqual(['node', 'x.js']);
+    expect(parsed.mcp['note']).toBe('keep // and , and /* this */');
+  });
+
+  it('stripJsonc drops a trailing comma even when a comment sits between it and the closer', () => {
+    // Regression: the comma look-ahead once skipped whitespace only, so
+    // `{"a": 1, // note\n}` kept its comma and failed to parse.
+    expect(() => JSON.parse(stripJsonc('{\n  "a": 1, // note\n}'))).not.toThrow();
+    expect(() => JSON.parse(stripJsonc('{\n  "a": 1, /* note */\n}'))).not.toThrow();
+    expect(() => JSON.parse(stripJsonc('{\n  "a": [1, 2,], // c\n  "b": 2,\n}'))).not.toThrow();
+    expect(JSON.parse(stripJsonc('{\n  "a": 1, // note\n}'))).toEqual({ a: 1 });
+    // A non-trailing comma followed by a comment must survive.
+    expect(JSON.parse(stripJsonc('{\n  "a": 1, // c\n  "b": 2\n}'))).toEqual({ a: 1, b: 2 });
+  });
+
+  it('OpenCode adapter reads the mcp map (argv arrays, environment) and writes it back', async () => {
+    const configDir = path.join(tmp, '.config', 'opencode');
+    fs.mkdirSync(configDir, { recursive: true });
+    const configPath = path.join(configDir, 'opencode.jsonc');
+    fs.writeFileSync(configPath, [
+      '{',
+      '  "$schema": "https://opencode.ai/config.json",',
+      '  "mcp": {',
+      '    "lsp": { "type": "local", "command": ["node", "lsp.js"], "environment": { "K": "v" }, "enabled": true },',
+      '    "remote": { "type": "remote", "url": "https://mcp.example/mcp", "headers": { "X-A": "1" } },',
+      '    "off": { "enabled": false }',
+      '  }',
+      '}',
+    ].join('\n'));
+
+    const adapter = new OpenCodeMcpAdapter({
+      home: tmp,
+      writeSafety: new WriteSafetyHelper({ allowWorldWritableParent: false, writeBackups: true }),
+    });
+    const { scopeFiles } = await adapter.discoverScopes({ cwd: path.join(tmp, 'proj') });
+    expect(scopeFiles['user']).toBe(configPath);
+    expect(scopeFiles['project']).toBe(path.join(tmp, 'proj', 'opencode.json'));
+
+    const snapshot = await adapter.readScope('user', configPath);
+    expect(snapshot.servers).toEqual([
+      expect.objectContaining({ name: 'lsp', transport: 'stdio', command: 'node', args: ['lsp.js'], env: { K: 'v' }, autoConnect: true }),
+      expect.objectContaining({ name: 'remote', transport: 'sse', url: 'https://mcp.example/mcp', headers: { 'X-A': '1' } }),
+      expect.objectContaining({ name: 'off', autoConnect: false }),
+    ]);
+
+    await adapter.writeUserServer({
+      kind: 'upsert',
+      sourceFile: configPath,
+      record: {
+        id: 'imap',
+        name: 'imap',
+        transport: 'stdio',
+        command: 'node',
+        args: ['imap.js'],
+        autoConnect: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    });
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+      $schema: string;
+      mcp: Record<string, { type: string; command: string[] }>;
+    };
+    expect(written.$schema).toBe('https://opencode.ai/config.json');
+    expect(written.mcp['imap']).toEqual({ type: 'local', command: ['node', 'imap.js'] });
+    expect(written.mcp['lsp']).toMatchObject({ type: 'local' });
+
+    await adapter.writeUserServer({ kind: 'delete', serverId: 'opencode:user:imap', sourceFile: configPath });
+    const afterDelete = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+      mcp: Record<string, unknown>;
+    };
+    expect(afterDelete.mcp['imap']).toBeUndefined();
+    expect(afterDelete.mcp['lsp']).toBeDefined();
+  });
+
+  it('OpenCode adapter prefers opencode.json when both config names exist', async () => {
+    const configDir = path.join(tmp, '.config', 'opencode');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, 'opencode.json'), '{"mcp":{}}');
+    fs.writeFileSync(path.join(configDir, 'opencode.jsonc'), '{"mcp":{}}');
+    const adapter = new OpenCodeMcpAdapter({
+      home: tmp,
+      writeSafety: new WriteSafetyHelper({ allowWorldWritableParent: false, writeBackups: true }),
+    });
+    const { scopeFiles } = await adapter.discoverScopes({ cwd: tmp });
+    expect(scopeFiles['user']).toBe(path.join(configDir, 'opencode.json'));
+  });
 
   it('Codex adapter reads and writes config.toml', async () => {
     const codexHome = path.join(tmp, '.codex');

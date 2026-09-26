@@ -219,6 +219,21 @@ describe('classifySandboxFailure', () => {
 describe('resolveHardenedSpawn', () => {
   beforeEach(() => _resetSeatbeltForTesting());
 
+  it('signal-fences a non-hardened spawn when asked, without the deny-default jail', () => {
+    const result = resolveHardenedSpawn({
+      hardened: false,
+      command: 'opencode',
+      args: ['acp'],
+      writableRoots: [],
+      available: false,
+      signalFence: true,
+    });
+    expect(result.command).toBe(SANDBOX_EXEC_PATH);
+    expect(result.args.slice(-3)).toEqual(['--', 'opencode', 'acp']);
+    expect(result.args[1]).toContain('(deny signal)');
+    expect(result.args[1]).not.toContain('(deny default)');
+  });
+
   it('returns the command unchanged when not hardened', () => {
     const result = resolveHardenedSpawn({
       hardened: false,

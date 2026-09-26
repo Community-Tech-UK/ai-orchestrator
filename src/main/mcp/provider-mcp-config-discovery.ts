@@ -4,6 +4,8 @@ import { constants as fsConstants } from 'fs';
 import { createHash } from 'crypto';
 import type { McpServerConfig, McpServerSourceEntry } from '../../shared/types/mcp.types';
 import { getLogger } from '../logging/logger';
+import { CodexTomlEditor } from './adapters/codex-toml-editor';
+import { stripJsonc, toStandardMcpEntry } from './adapters/opencode-mcp-config';
 
 const logger = getLogger('ProviderMcpConfigDiscovery');
 
@@ -28,14 +30,6 @@ interface DiscoveredJsonSource {
   servers: Record<string, unknown>;
   disabled?: boolean;
   excludedNames?: Set<string>;
-}
-
-interface TomlServerDraft {
-  name: string;
-  command?: string;
-  args?: string[];
-  url?: string;
-  enabled?: boolean;
 }
 
 const DISABLED_JSON_BUCKET = 'orchDisabledMcpServers';
@@ -195,6 +189,22 @@ async function readJson(filePath: string): Promise<JsonMcpConfigFile | null> {
   }
 }
 
+async function readJsonc(filePath: string): Promise<JsonMcpConfigFile | null> {
+  try {
+    const content = await fsp.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(stripJsonc(content)) as unknown;
+    return isRecord(parsed) ? parsed as JsonMcpConfigFile : null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      logger.debug('Failed to read MCP JSONC config', {
+        path: filePath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return null;
+  }
+}
+
 function mcpServersFromJson(parsed: JsonMcpConfigFile | null): Record<string, unknown> {
   if (!parsed) {
     return {};
@@ -325,94 +335,22 @@ function resolveOrchestratorBootstrapPaths(): string[] {
   ]);
 }
 
-function parseTomlString(value: string): string | undefined {
-  const trimmed = value.trim();
-  const doubleQuoted = trimmed.match(/^"((?:\\.|[^"\\])*)"/);
-  if (doubleQuoted) {
-    return doubleQuoted[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-  }
-  const singleQuoted = trimmed.match(/^'([^']*)'/);
-  return singleQuoted?.[1];
-}
-
-function parseTomlStringArray(value: string): string[] | undefined {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) {
-    return undefined;
-  }
-  const matches = Array.from(trimmed.matchAll(/"((?:\\.|[^"\\])*)"|'([^']*)'/g));
-  return matches.map((match) => (match[1] ?? match[2] ?? '').replace(/\\"/g, '"').replace(/\\\\/g, '\\'));
-}
-
-function parseTomlBoolean(value: string): boolean | undefined {
-  const trimmed = value.trim();
-  if (trimmed === 'true') {
-    return true;
-  }
-  if (trimmed === 'false') {
-    return false;
-  }
-  return undefined;
-}
-
-function parseCodexMcpServersToml(content: string): TomlServerDraft[] {
-  const drafts = new Map<string, TomlServerDraft>();
-  let currentServer: TomlServerDraft | null = null;
-
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) {
-      continue;
-    }
-
-    const section = trimmed.match(/^\[mcp_servers\.([^\].]+)(?:\.[^\]]+)?\]$/);
-    if (section) {
-      const serverName = section[1].replace(/^"|"$/g, '');
-      const isNestedSection = trimmed.slice('[mcp_servers.'.length, -1).includes('.');
-      const draft = drafts.get(serverName) ?? { name: serverName };
-      currentServer = isNestedSection ? null : draft;
-      if (!isNestedSection) {
-        drafts.set(serverName, draft);
-      }
-      continue;
-    }
-
-    if (!currentServer) {
-      continue;
-    }
-
-    const assignment = trimmed.match(/^([A-Za-z0-9_-]+)\s*=\s*(.+)$/);
-    if (!assignment) {
-      continue;
-    }
-    const [, key, rawValue] = assignment;
-    if (key === 'command') {
-      currentServer.command = parseTomlString(rawValue);
-    } else if (key === 'url') {
-      currentServer.url = parseTomlString(rawValue);
-    } else if (key === 'args') {
-      currentServer.args = parseTomlStringArray(rawValue);
-    } else if (key === 'enabled') {
-      currentServer.enabled = parseTomlBoolean(rawValue);
-    }
-  }
-
-  return Array.from(drafts.values());
-}
-
-async function discoverCodexServers(): Promise<McpServerConfig[]> {
-  const home = homeDir();
-  if (!home) {
-    return [];
-  }
-
-  const filePath = path.join(home, '.codex', 'config.toml');
+/**
+ * Reads `[mcp_servers.<name>]` TOML tables from a Codex/Grok-style config
+ * file. Both CLIs use the same shape (Grok Build README, "MCP Servers").
+ */
+async function discoverTomlServers(
+  provider: ProviderName,
+  label: string,
+  filePath: string,
+): Promise<McpServerConfig[]> {
   let content: string;
   try {
     content = await fsp.readFile(filePath, 'utf-8');
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      logger.debug('Failed to read Codex MCP config', {
+      logger.debug('Failed to read TOML MCP config', {
+        provider,
         path: filePath,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -420,12 +358,12 @@ async function discoverCodexServers(): Promise<McpServerConfig[]> {
     return [];
   }
 
-  return parseCodexMcpServersToml(content).map((server) =>
+  return Object.entries(new CodexTomlEditor().parseMcpServers(content)).map(([name, server]) =>
     createServerConfig(
-      'codex',
-      'Codex config',
+      provider,
+      label,
       filePath,
-      server.name,
+      name,
       server,
       undefined,
       server.enabled !== false,
@@ -433,10 +371,49 @@ async function discoverCodexServers(): Promise<McpServerConfig[]> {
   );
 }
 
+/**
+ * OpenCode keeps its servers under a top-level `mcp` map in `opencode.json(c)`
+ * (JSONC, own entry shape) — normalized here so the shared config reader sees
+ * the usual `mcpServers` fields.
+ */
+async function discoverOpenCodeServers(): Promise<McpServerConfig[]> {
+  const home = homeDir();
+  if (!home) {
+    return [];
+  }
+
+  const servers: McpServerConfig[] = [];
+  for (const fileName of ['opencode.json', 'opencode.jsonc']) {
+    const filePath = path.join(home, '.config', 'opencode', fileName);
+    const parsed = await readJsonc(filePath);
+    const mcp: Record<string, unknown> = isRecord(parsed?.mcp) ? parsed.mcp : {};
+    for (const [name, raw] of Object.entries(mcp)) {
+      const normalized = toStandardMcpEntry(raw);
+      servers.push(createServerConfig(
+        'opencode',
+        'OpenCode config',
+        filePath,
+        name,
+        normalized,
+        undefined,
+        getBoolean(normalized, 'enabled') !== false,
+      ));
+    }
+  }
+  return servers;
+}
+
 export async function discoverProviderMcpServers(): Promise<McpServerConfig[]> {
-  const [jsonSources, codexServers] = await Promise.all([
+  const home = homeDir();
+  const [jsonSources, codexServers, grokServers, openCodeServers] = await Promise.all([
     discoverJsonSources(),
-    discoverCodexServers(),
+    home
+      ? discoverTomlServers('codex', 'Codex config', path.join(home, '.codex', 'config.toml'))
+      : Promise.resolve([]),
+    home
+      ? discoverTomlServers('grok', 'Grok config', path.join(home, '.grok', 'config.toml'))
+      : Promise.resolve([]),
+    discoverOpenCodeServers(),
   ]);
 
   const servers: McpServerConfig[] = [
@@ -454,6 +431,8 @@ export async function discoverProviderMcpServers(): Promise<McpServerConfig[]> {
       )
     ),
     ...codexServers,
+    ...grokServers,
+    ...openCodeServers,
   ];
 
   return collapseDuplicateServers(servers);
@@ -611,24 +590,25 @@ async function setJsonMcpServerEnabled(source: McpServerSourceEntry, enabled: bo
   await writeFileWithBackup(source.sourcePath, `${JSON.stringify(parsed, null, 2)}\n`);
 }
 
-function codexSectionName(rawName: string): string {
-  return rawName.replace(/^"|"$/g, '');
-}
-
+/**
+ * Name + nesting for a `[mcp_servers.<name>]` header. Quoted names may contain
+ * dots (`mcp_servers."a.b"`), so nesting is decided by whatever follows the
+ * name, not by counting dots across the whole header.
+ */
 function codexSectionHeader(line: string): { name: string; nested: boolean } | null {
-  const section = line.trim().match(/^\[mcp_servers\.([^\].]+)(?:\.[^\]]+)?\]$/);
-  if (!section) {
+  const match = line.trim().match(/^\[mcp_servers\.(?:"([^"]+)"|([^.]+))((?:\.[^\]]*)?)\]$/);
+  if (!match) {
     return null;
   }
   return {
-    name: codexSectionName(section[1]),
-    nested: line.trim().slice('[mcp_servers.'.length, -1).includes('.'),
+    name: match[1] ?? match[2] ?? '',
+    nested: Boolean(match[3]),
   };
 }
 
 async function setCodexMcpServerEnabled(source: McpServerSourceEntry, enabled: boolean): Promise<void> {
   if (!source.sourcePath || !source.name) {
-    throw new Error('Codex MCP source is missing its config path or server name.');
+    throw new Error('TOML MCP source is missing its config path or server name.');
   }
 
   const content = await fsp.readFile(source.sourcePath, 'utf-8');
@@ -638,7 +618,7 @@ async function setCodexMcpServerEnabled(source: McpServerSourceEntry, enabled: b
     return header?.name === source.name && !header.nested;
   });
   if (start === -1) {
-    throw new Error(`Codex MCP server not found: ${source.name}`);
+    throw new Error(`TOML MCP server not found: ${source.name}`);
   }
 
   let end = lines.length;
@@ -652,7 +632,7 @@ async function setCodexMcpServerEnabled(source: McpServerSourceEntry, enabled: b
   const enabledLine = `enabled = ${enabled ? 'true' : 'false'}`;
   const existing = lines
     .slice(start + 1, end)
-    .findIndex((line) => line.trim().startsWith('enabled ='));
+    .findIndex((line) => /^enabled\s*=/.test(line.trim()));
   if (existing === -1) {
     lines.splice(start + 1, 0, enabledLine);
   } else {
@@ -660,6 +640,27 @@ async function setCodexMcpServerEnabled(source: McpServerSourceEntry, enabled: b
   }
 
   await writeFileWithBackup(source.sourcePath, lines.join('\n'));
+}
+
+/**
+ * OpenCode toggles a server with an `enabled` boolean on its `mcp.<name>` entry
+ * (schema: https://opencode.ai/config.json) — no move between buckets.
+ */
+async function setOpenCodeMcpServerEnabled(source: McpServerSourceEntry, enabled: boolean): Promise<void> {
+  if (!source.sourcePath || !source.name) {
+    throw new Error('OpenCode MCP source is missing its config path or server name.');
+  }
+
+  const content = await fsp.readFile(source.sourcePath, 'utf-8');
+  const parsed = JSON.parse(stripJsonc(content)) as JsonMcpConfigFile;
+  const mcp: Record<string, unknown> = isRecord(parsed.mcp) ? parsed.mcp : {};
+  const entry = mcp[source.name];
+  if (!isRecord(entry)) {
+    throw new Error(`OpenCode MCP server not found: ${source.name}`);
+  }
+  mcp[source.name] = { ...entry, enabled };
+  parsed.mcp = mcp;
+  await writeFileWithBackup(source.sourcePath, `${JSON.stringify(parsed, null, 2)}\n`);
 }
 
 export async function setProviderMcpServerEnabled(serverId: string, enabled: boolean): Promise<void> {
@@ -676,8 +677,10 @@ export async function setProviderMcpServerEnabled(serverId: string, enabled: boo
     if (!source.sourcePath || source.sourceProvider === 'orchestrator') {
       continue;
     }
-    if (source.sourceProvider === 'codex') {
+    if (source.sourceProvider === 'codex' || source.sourceProvider === 'grok') {
       await setCodexMcpServerEnabled(source, enabled);
+    } else if (source.sourceProvider === 'opencode') {
+      await setOpenCodeMcpServerEnabled(source, enabled);
     } else {
       await setJsonMcpServerEnabled(source, enabled);
     }

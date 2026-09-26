@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { createCliAdapter, getCliDisplayName, mapSettingsToDetectionType } from '../adapter-factory';
 import {
   buildOpenCodeConfigContent,
@@ -16,7 +19,14 @@ interface OpenCodeAcpConfig {
   startupGate?: unknown;
   reportedCostOnly?: boolean;
   concurrencyKey?: string;
-  mcpServers?: { name: string; args?: string[] }[];
+  mcpServers?: {
+    name: string;
+    args?: string[];
+    command?: string;
+    type?: 'http' | 'sse';
+    url?: string;
+    headers?: Array<{ name: string; value: string }>;
+  }[];
 }
 
 const acpConfig = (adapter: unknown): OpenCodeAcpConfig =>
@@ -135,5 +145,47 @@ describe('adapter factory — opencode', () => {
     });
     const chromeDevtools = (acpConfig(adapter).mcpServers ?? []).find((server) => server.name === 'chrome-devtools');
     expect(chromeDevtools?.args).toContain('http://127.0.0.1:31234');
+  });
+
+  it('delivers static config/mcp-servers.json and remote inline entries to acpConfig.mcpServers', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-factory-mcp-'));
+    try {
+      const staticPath = path.join(dir, 'mcp-servers.json');
+      fs.writeFileSync(staticPath, JSON.stringify({
+        mcpServers: {
+          lsp: { command: 'node', args: ['/x/lsp.js'] },
+          remoteStatic: { transport: 'http', url: 'https://mcp.example/mcp' },
+        },
+      }));
+      const adapter = createCliAdapter('opencode', {
+        workingDirectory: '/tmp',
+        mcpConfig: [
+          staticPath,
+          JSON.stringify({
+            mcpServers: {
+              wsConn: { url: 'https://ws.example/mcp', headers: { 'X-A': '1' } },
+            },
+          }),
+        ],
+      });
+      const servers = acpConfig(adapter).mcpServers ?? [];
+      const byName = new Map(servers.map((server) => [server.name, server]));
+
+      expect(byName.get('lsp')).toEqual({ name: 'lsp', command: 'node', args: ['/x/lsp.js'] });
+      expect(byName.get('remoteStatic')).toEqual({
+        name: 'remoteStatic',
+        type: 'http',
+        url: 'https://mcp.example/mcp',
+        headers: [],
+      });
+      expect(byName.get('wsConn')).toEqual({
+        name: 'wsConn',
+        type: 'sse',
+        url: 'https://ws.example/mcp',
+        headers: [{ name: 'X-A', value: '1' }],
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

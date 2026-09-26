@@ -15,7 +15,7 @@ function outcomeLabel(outcome: MobileAutomationRunResponse): string {
 export class AutomationStore {
   private readonly gateway = inject(GatewayClient);
   private readonly hosts = inject(HostStore);
-  private readonly value = signal<{ hostId: string; items: MobileAutomationDto[] } | null>(null);
+  private readonly value = signal<{ hostId: string; epoch: number; items: MobileAutomationDto[] } | null>(null);
   private readonly loadStatus = signal<AutomationLoadStatus>('loading');
   private readonly operation = signal<{ hostId: string; automationId: string; pending: boolean; message: string | null } | null>(null);
   private intent: { hostId: string; automationId: string; key: string } | null = null;
@@ -28,8 +28,12 @@ export class AutomationStore {
   readonly status = this.loadStatus.asReadonly();
   readonly hasCurrentList = computed(() => {
     const hostId = this.hostId();
+    const value = this.value();
     return this.online() && this.loadStatus() === 'loaded' && hostId !== null &&
-      this.gateway.dataHostId() === hostId && this.value()?.hostId === hostId;
+      this.gateway.dataHostId() === hostId && value !== null &&
+      // A list fetched under a previous connection is never authority for a
+      // reconnected one, even before the refresh effect marks it loading.
+      value.hostId === hostId && value.epoch === this.gateway.connectionEpoch();
   });
   readonly automations = computed(() => {
     const value = this.value();
@@ -71,16 +75,18 @@ export class AutomationStore {
     const host = this.hosts.activeHost();
     if (!host || !this.online() || this.gateway.dataHostId() !== host.id) return;
     const generation = ++this.generation;
+    // Record which connection this list was fetched under: authority dies with it.
+    const epoch = this.gateway.connectionEpoch();
     this.loadStatus.set('loading');
     try {
       const items = await this.gateway.automations();
       if (generation !== this.generation || host !== this.hosts.activeHost()) return;
-      this.value.set({ hostId: host.id, items });
+      this.value.set({ hostId: host.id, epoch, items });
       if (this.intent && !items.some(item => item.id === this.intent?.automationId && item.enabled)) this.cancelRun();
       this.loadStatus.set('loaded');
     } catch {
       if (generation !== this.generation || host !== this.hosts.activeHost()) return;
-      this.value.set({ hostId: host.id, items: [] });
+      this.value.set({ hostId: host.id, epoch, items: [] });
       this.loadStatus.set('error');
     }
   }

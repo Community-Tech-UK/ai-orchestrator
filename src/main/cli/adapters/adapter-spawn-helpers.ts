@@ -14,6 +14,7 @@ import type { CodexReasoningEffort } from './codex/app-server-types';
 import type { AcpMcpServerConfig } from '../../../shared/types/cli.types';
 import type { UnifiedSpawnOptions } from './adapter-factory.types';
 import { getSafeEnvStrict } from '../../security/env-filter';
+import { getLogger } from '../../logging/logger';
 import {
   buildBrowserGatewayGeminiSettingsJson,
   buildBrowserGatewayMcpConfigJson,
@@ -489,13 +490,27 @@ export function writeGeminiBrowserGatewaySettings(
 export function buildCopilotAdditionalMcpConfig(
   servers: AcpMcpServerConfig[],
 ): string | undefined {
-  if (servers.length === 0) {
+  // Remote (HTTP/SSE) entries have no verified shape for Copilot's
+  // `--additional-mcp-config` (it takes Claude-style `{command,args,env}`
+  // records). Skip them here rather than write a broken entry — Copilot is not
+  // on the ACP `session/new` path where remote servers are protocol-defined.
+  const stdioServers = servers.filter((server) => {
+    if (!server.type) {
+      return true;
+    }
+    logger.warn('Skipping remote MCP server for Copilot --additional-mcp-config', {
+      serverName: server.name,
+      remoteType: server.type,
+    });
+    return false;
+  });
+  if (stdioServers.length === 0) {
     return undefined;
   }
 
   return JSON.stringify({
     mcpServers: Object.fromEntries(
-      servers.map((server) => [
+      stdioServers.map((server) => [
         server.name,
         {
           command: server.command,
@@ -511,75 +526,17 @@ export function buildCopilotAdditionalMcpConfig(
   });
 }
 
-const DEDICATED_ACP_BRIDGE_SERVERS = new Set([
-  'browser-gateway',
-  'chrome-devtools',
-  'mobile-mcp',
-  'maestro',
-]);
+// ACP MCP-server conversion lives in acp-mcp-server-convert.ts; re-exported
+// here so long-standing import sites keep resolving.
+export {
+  DEDICATED_ACP_BRIDGE_SERVERS,
+  buildInlineMcpServersAcpMcpServers,
+  mergeAcpMcpServers,
+  toAcpMcpServer,
+} from './acp-mcp-server-convert';
+export type { InlineJsonMcpServer } from './acp-mcp-server-convert';
 
-interface InlineJsonMcpServer {
-  command?: unknown;
-  args?: unknown;
-  env?: unknown;
-}
-
-function toAcpMcpServer(name: string, server: InlineJsonMcpServer): AcpMcpServerConfig | null {
-  if (typeof server.command !== 'string' || !server.command.trim()) {
-    return null;
-  }
-  const args = Array.isArray(server.args)
-    ? server.args.filter((arg): arg is string => typeof arg === 'string')
-    : undefined;
-  const env = server.env &&
-    typeof server.env === 'object' &&
-    !Array.isArray(server.env)
-    ? Object.entries(server.env)
-        .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-        .map(([envName, value]) => ({ name: envName, value }))
-    : undefined;
-  return {
-    name,
-    command: server.command,
-    ...(args && args.length > 0 ? { args } : {}),
-    ...(env && env.length > 0 ? { env } : {}),
-  };
-}
-
-export function buildInlineMcpServersAcpMcpServers(
-  mcpConfigEntries: string[] | undefined,
-): AcpMcpServerConfig[] {
-  if (!mcpConfigEntries?.length) {
-    return [];
-  }
-
-  const servers = new Map<string, AcpMcpServerConfig>();
-  for (const entry of mcpConfigEntries) {
-    const trimmed = entry.trim();
-    if (!trimmed.startsWith('{')) {
-      continue;
-    }
-
-    let parsed: { mcpServers?: Record<string, InlineJsonMcpServer> };
-    try {
-      parsed = JSON.parse(trimmed) as { mcpServers?: Record<string, InlineJsonMcpServer> };
-    } catch {
-      continue;
-    }
-
-    for (const [name, server] of Object.entries(parsed.mcpServers ?? {})) {
-      if (DEDICATED_ACP_BRIDGE_SERVERS.has(name)) {
-        continue;
-      }
-      const acpServer = toAcpMcpServer(name, server);
-      if (acpServer) {
-        servers.set(name, acpServer);
-      }
-    }
-  }
-
-  return [...servers.values()];
-}
+const logger = getLogger('AdapterSpawnHelpers');
 
 function hasInlineMcpServerConfig(configs: string[], serverName: string): boolean {
   return configs.some((config) => {

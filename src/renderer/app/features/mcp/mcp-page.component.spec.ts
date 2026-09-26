@@ -12,13 +12,13 @@ describe('McpPageComponent template', () => {
     expect(template).toContain('/browser');
   });
 
-  it('renders the seven multi-provider management tabs', () => {
+  it('renders the multi-provider management tabs', () => {
     const source = readFileSync(
       'src/renderer/app/features/mcp/mcp-page.component.ts',
       'utf-8',
     );
 
-    for (const label of ['Orchestrator', 'Shared', 'Workspace', 'Claude', 'Codex', 'Gemini', 'Copilot']) {
+    for (const label of ['Orchestrator', 'Shared', 'Workspace', 'Claude', 'Codex', 'Gemini', 'Copilot', 'Grok', 'OpenCode']) {
       expect(source).toContain(`label: '${label}'`);
     }
   });

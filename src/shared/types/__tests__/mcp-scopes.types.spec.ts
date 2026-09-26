@@ -32,10 +32,14 @@ describe('mcp-scopes.types', () => {
     expect(PROVIDER_SCOPES.codex).toEqual(['user']);
     expect(PROVIDER_SCOPES.gemini).toEqual(['user']);
     expect(PROVIDER_SCOPES.copilot).toEqual(['user', 'workspace', 'managed', 'system']);
+    expect(PROVIDER_SCOPES.grok).toEqual(['user', 'project']);
+    expect(PROVIDER_SCOPES.opencode).toEqual(['user', 'project']);
   });
 
   it('restricts writes to user scope in v1', () => {
     expect(WRITABLE_SCOPES_BY_PROVIDER.claude).toEqual(['user']);
+    expect(WRITABLE_SCOPES_BY_PROVIDER.grok).toEqual(['user']);
+    expect(WRITABLE_SCOPES_BY_PROVIDER.opencode).toEqual(['user']);
     expect(isWritableScope('claude', 'project')).toBe(false);
     expect(isWritableScope('claude', 'user')).toBe(true);
   });
@@ -48,12 +52,20 @@ describe('mcp-scopes.types', () => {
 
   it('guards supported provider identifiers', () => {
     expect(isSupportedProvider('claude')).toBe(true);
+    expect(isSupportedProvider('grok')).toBe(true);
+    expect(isSupportedProvider('opencode')).toBe(true);
     expect(isSupportedProvider('cursor')).toBe(false);
     expect(isSupportedProvider(undefined)).toBe(false);
   });
 
   it('keeps persisted orchestrator injection scoped to managed provider configs', () => {
-    expect(ORCHESTRATOR_INJECTION_PROVIDERS).toEqual(['claude', 'codex', 'copilot']);
+    expect(ORCHESTRATOR_INJECTION_PROVIDERS).toEqual([
+      'claude',
+      'codex',
+      'copilot',
+      'grok',
+      'opencode',
+    ]);
   });
 
   it('allows runtime orchestrator-tools injection for providers with spawn-time bridges', () => {
@@ -62,8 +74,12 @@ describe('mcp-scopes.types', () => {
       'codex',
       'copilot',
       'cursor',
+      'grok',
+      'opencode',
     ]);
     expect(isOrchestratorRuntimeInjectionProvider('cursor')).toBe(true);
+    expect(isOrchestratorRuntimeInjectionProvider('grok')).toBe(true);
+    expect(isOrchestratorRuntimeInjectionProvider('opencode')).toBe(true);
     expect(isOrchestratorRuntimeInjectionProvider('gemini')).toBe(false);
   });
 });

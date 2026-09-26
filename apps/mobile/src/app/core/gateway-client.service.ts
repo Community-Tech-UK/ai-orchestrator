@@ -54,6 +54,7 @@ export class GatewayClient {
   readonly state = this.socket.state;
   readonly online = this.socket.online;
   readonly lastServerFrameAt = this.socket.lastServerFrameAt;
+  readonly connectionEpoch = this.socket.connectionEpoch;
   readonly transcripts = this.transcriptStore.transcripts;
   readonly prompts = this._prompts.asReadonly();
   readonly pause = this._pause.asReadonly();

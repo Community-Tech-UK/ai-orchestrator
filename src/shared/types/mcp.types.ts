@@ -14,7 +14,7 @@ export interface McpServerConfig {
   description?: string;
   // Where this server configuration came from.
   source?: 'orchestrator' | 'provider-config' | 'orchestrator-bootstrap';
-  sourceProvider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'orchestrator';
+  sourceProvider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'grok' | 'opencode' | 'orchestrator';
   sourceLabel?: string;
   sourcePath?: string;
   scope?: string;

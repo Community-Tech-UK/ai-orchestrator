@@ -190,6 +190,8 @@ export class McpPageComponent implements OnInit, OnDestroy {
     { id: 'codex', label: 'Codex' },
     { id: 'gemini', label: 'Gemini' },
     { id: 'copilot', label: 'Copilot' },
+    { id: 'grok', label: 'Grok' },
+    { id: 'opencode', label: 'OpenCode' },
   ];
 
   readonly activeManagementTab = signal<ManagementTab>('orchestrator');

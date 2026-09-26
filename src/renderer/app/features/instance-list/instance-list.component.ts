@@ -33,7 +33,7 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
-import { HistoryRailService } from './history-rail.service';
+import { HistoryRailService, type HistoryProviderVisual } from './history-rail.service';
 import {
   type HistoryTimeWindow,
   type HistoryVisibilityMode,
@@ -1054,6 +1054,7 @@ export class InstanceListComponent implements OnDestroy {
       const result = await this.historyStore.restoreEntry(entryId, entry?.workingDirectory);
       if (result.success && result.instanceId) {
         if (entry) {
+          this.historyRail.clearThreadUnread(entry);
           this.historyRail.markHistoryEntriesSeen([entry]);
         }
         // Populate restored messages into the new instance's output buffer.
@@ -1105,6 +1106,7 @@ export class InstanceListComponent implements OnDestroy {
     }
 
     if (entry) {
+      this.historyRail.clearThreadUnread(entry);
       this.historyRail.markHistoryEntriesSeen([entry]);
       this.lastVisitedHistoryThreadId.set(this.historyRail.getHistoryThreadId(entry));
     }
@@ -1305,11 +1307,7 @@ export class InstanceListComponent implements OnDestroy {
     return this.historyRail.getHistoryChangeSummary(entry);
   }
 
-  getHistoryProviderVisual(entry: ConversationHistoryEntry): {
-    icon: 'anthropic' | 'openai' | 'google' | 'github' | 'cursor' | 'generic';
-    color: string;
-    label: string;
-  } {
+  getHistoryProviderVisual(entry: ConversationHistoryEntry): HistoryProviderVisual {
     return this.historyRail.getHistoryProviderVisual(entry);
   }
 

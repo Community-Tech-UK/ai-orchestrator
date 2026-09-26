@@ -4,6 +4,7 @@ import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { buildCliSpawnOptions } from '../cli-environment';
 import { killProcessGroup } from '../adapters/base-cli-process-utils';
 import { resolveWindowsSpawn } from '../adapters/windows-cli-spawn';
+import { applySignalFence } from '../../sandbox/signal-fence';
 import type {
   SpawnWorkerInboundMsg,
   SpawnWorkerOutboundMsg,
@@ -128,8 +129,14 @@ function spawnInstance(msg: Extract<SpawnWorkerInboundMsg, { type: 'spawn' }>): 
     Boolean(spawnOptions.shell),
     spawnOptions.env ?? mergedEnv,
   );
+  // Shell shims (Windows) cannot be prefixed with sandbox-exec. Direct
+  // spawns get the same signal fence as BaseCliAdapter so a worker-hosted
+  // CLI cannot pkill a sibling session.
+  const fenced = target.shell
+    ? { command: target.command, args: target.args }
+    : applySignalFence({ command: target.command, args: target.args });
 
-  const proc = spawn(target.command, target.args, {
+  const proc = spawn(fenced.command, fenced.args, {
     cwd: msg.cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
     ...spawnOptions,

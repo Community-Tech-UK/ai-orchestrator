@@ -164,4 +164,20 @@ describe('Copilot ACP spawn environment — through the real factory', () => {
     }
     expect(env['COPILOT_HOME']).toBeTruthy();
   });
+
+  it('spawns the agent with --log-level info so a silent self-exit keeps its trigger', () => {
+    // Plan 2026-09-26: with `--log-level none` every process-*.log was empty,
+    // so a mid-turn clean shutdown (stdin EOF / stdin error / caught signal)
+    // left nothing to attribute. The EOF discriminator is logged at info.
+    const adapter = createCliAdapter('copilot', {
+      workingDirectory: tmpdir(),
+      copilotAccountRoute: legacyRoute(),
+    });
+    (adapter as unknown as { spawnProcess(args: string[]): unknown }).spawnProcess([]);
+
+    const spawnArgs = spawnMock.mock.calls[0][1] as string[];
+    const logLevelIndex = spawnArgs.indexOf('--log-level');
+    expect(logLevelIndex).toBeGreaterThanOrEqual(0);
+    expect(spawnArgs[logLevelIndex + 1]).toBe('info');
+  });
 });

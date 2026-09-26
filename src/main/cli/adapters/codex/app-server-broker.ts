@@ -26,6 +26,7 @@ import { join } from 'path';
 import { app } from 'electron';
 import { getLogger } from '../../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../../security/env-filter';
+import { applySignalFence } from '../../../sandbox/signal-fence';
 import { terminateProcessTree } from './app-server-client';
 import { CODEX_TIMEOUTS } from '../../../../shared/constants/limits';
 import { buildCliSpawnOptions } from '../../cli-environment';
@@ -156,7 +157,11 @@ export class CodexBrokerManager {
     // Use sanitized env to prevent credential leakage (matching BaseCliAdapter behavior).
     const logFile = join(this.sessionDir, 'broker.log');
     const spawnOptions = buildCliSpawnOptions(getSafeEnvForTrustedProcess());
-    const proc = spawn('codex', ['app-server', '--broker', '--endpoint', endpoint], {
+    const fenced = applySignalFence({
+      command: 'codex',
+      args: ['app-server', '--broker', '--endpoint', endpoint],
+    });
+    const proc = spawn(fenced.command, fenced.args, {
       cwd,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],

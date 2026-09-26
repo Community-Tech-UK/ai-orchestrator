@@ -7,6 +7,7 @@
 
 import { Injectable, signal } from '@angular/core';
 import { readStorage, writeStorage, type StorageField } from '../../../shared/utils/typed-storage';
+import { getInstanceThreadId } from './instance.types';
 import type {
   InstanceStoreState,
   Instance,
@@ -14,9 +15,17 @@ import type {
   QueuedMessage,
 } from './instance.types';
 
+/**
+ * Unread-completion markers are keyed by `historyThreadId`, not by instance id.
+ * An instance id is minted per spawn and is replaced whenever a thread is
+ * restored, so keying by it stranded every marker across an app restart — the
+ * id simply stopped matching anything the rail could render. `historyThreadId`
+ * is the stable app-level thread identity that survives restore and fallback,
+ * which is exactly what a "you have not viewed this yet" marker needs.
+ */
 const UNREAD_COMPLETIONS_FIELD: StorageField<string[]> = {
   key: 'instance-unread-completions',
-  version: 1,
+  version: 2,
   defaultValue: [],
   validate: (value): value is string[] =>
     Array.isArray(value) && value.every((id) => typeof id === 'string'),
@@ -24,7 +33,7 @@ const UNREAD_COMPLETIONS_FIELD: StorageField<string[]> = {
 
 @Injectable({ providedIn: 'root' })
 export class InstanceStateService {
-  private readonly unreadCompletionIds = new Set<string>(readStorage(UNREAD_COMPLETIONS_FIELD));
+  private readonly unreadThreadIds = new Set<string>(readStorage(UNREAD_COMPLETIONS_FIELD));
 
   // ============================================
   // Main State Signal
@@ -86,7 +95,7 @@ export class InstanceStateService {
    * is conservative (a fresh reference counts as a change, never a false skip).
    */
   updateInstance(instanceId: string, updates: Partial<Instance>): void {
-    const exists = this.state().instances.has(instanceId);
+    const existing = this.state().instances.get(instanceId);
     this.state.update((current) => {
       const instance = current.instances.get(instanceId);
       if (!instance) {
@@ -106,19 +115,41 @@ export class InstanceStateService {
       newMap.set(instanceId, { ...instance, ...updates });
       return { ...current, instances: newMap };
     });
-    if (exists && typeof updates.hasUnreadCompletion === 'boolean') {
-      this.setUnreadCompletion(instanceId, updates.hasUnreadCompletion);
+    if (existing && typeof updates.hasUnreadCompletion === 'boolean') {
+      this.setUnreadThread(
+        getInstanceThreadId({ ...existing, ...updates }),
+        updates.hasUnreadCompletion,
+      );
     }
   }
 
-  private setUnreadCompletion(instanceId: string, unread: boolean): void {
-    if (this.unreadCompletionIds.has(instanceId) === unread) return;
+  /**
+   * True when this thread finished work that has not been viewed yet.
+   *
+   * Keyed by thread id so the marker survives a restart and any restore that
+   * mints a fresh instance id. Read by both the live row and the history row.
+   */
+  isThreadUnread(threadId: string): boolean {
+    return this.unreadThreadIds.has(threadId);
+  }
+
+  /**
+   * Clear the unviewed-completion marker for a thread. Called when the user
+   * actually opens the thread — the only thing the marker is meant to wait for.
+   */
+  clearThreadUnread(threadId: string): void {
+    this.setUnreadThread(threadId, false);
+  }
+
+  private setUnreadThread(threadId: string, unread: boolean): void {
+    if (!threadId) return;
+    if (this.unreadThreadIds.has(threadId) === unread) return;
     if (unread) {
-      this.unreadCompletionIds.add(instanceId);
+      this.unreadThreadIds.add(threadId);
     } else {
-      this.unreadCompletionIds.delete(instanceId);
+      this.unreadThreadIds.delete(threadId);
     }
-    writeStorage(UNREAD_COMPLETIONS_FIELD, [...this.unreadCompletionIds]);
+    writeStorage(UNREAD_COMPLETIONS_FIELD, [...this.unreadThreadIds]);
   }
 
   /**
@@ -133,7 +164,8 @@ export class InstanceStateService {
       const newMap = new Map(current.instances);
       newMap.set(instance.id, {
         ...instance,
-        hasUnreadCompletion: instance.hasUnreadCompletion || this.unreadCompletionIds.has(instance.id),
+        hasUnreadCompletion:
+          instance.hasUnreadCompletion || this.isThreadUnread(getInstanceThreadId(instance)),
       });
       return {
         ...current,
@@ -144,7 +176,13 @@ export class InstanceStateService {
   }
 
   /**
-   * Remove an instance from the store
+   * Remove an instance from the store.
+   *
+   * Deliberately does NOT clear the thread's unviewed-completion marker. The
+   * marker means "you have not viewed this thread's output yet", and an
+   * instance leaving the live map is not a view. On shutdown every instance is
+   * removed, so clearing here is exactly what erased every marker across a
+   * restart — the thread survives as history and the marker must survive with it.
    */
   removeInstance(instanceId: string): void {
     this.state.update((current) => {
@@ -157,7 +195,6 @@ export class InstanceStateService {
           current.selectedInstanceId === instanceId ? null : current.selectedInstanceId,
       };
     });
-    this.setUnreadCompletion(instanceId, false);
   }
 
   /**
@@ -182,7 +219,8 @@ export class InstanceStateService {
     for (const [id, instance] of instances) {
       restored.set(id, {
         ...instance,
-        hasUnreadCompletion: instance.hasUnreadCompletion || this.unreadCompletionIds.has(id),
+        hasUnreadCompletion:
+          instance.hasUnreadCompletion || this.isThreadUnread(getInstanceThreadId(instance)),
       });
     }
     this.state.update((s) => ({

@@ -8,6 +8,8 @@ export interface CodexTomlServer {
   env?: Record<string, string>;
   transport?: 'stdio' | 'sse' | 'http';
   description?: string;
+  /** Absent means enabled (Codex and Grok Build default `enabled = true`). */
+  enabled?: boolean;
   startupTimeoutSec?: number;
   toolTimeoutSec?: number;
   /** Explicit Codex approval policy for selected tools on this server. */
@@ -17,6 +19,37 @@ export interface CodexTomlServer {
 interface Section {
   name: string;
   lines: string[];
+}
+
+/**
+ * Strip a trailing `#` comment — but only outside quoted strings. The old
+ * `/\s+#.*$/` form truncated any value containing ` #` (e.g.
+ * `env = { P = "x # y" }`), silently dropping the entry on parse.
+ */
+function stripTomlComment(line: string): string {
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\' && quote === '"') {
+        escaped = true;
+      } else if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === '#') {
+      return line.slice(0, i);
+    }
+  }
+  return line;
 }
 
 export class CodexTomlEditor {
@@ -55,6 +88,8 @@ export class CodexTomlEditor {
       env: record.env,
       transport: record.transport === 'stdio' ? undefined : record.transport,
       description: record.description,
+      // Enabled is the default; only an explicit disable is written out.
+      ...(record.autoConnect === false ? { enabled: false as const } : {}),
     };
   }
 
@@ -137,7 +172,7 @@ export class CodexTomlEditor {
     const server: CodexTomlServer = {};
     let currentTable: 'env' | 'headers' | null = null;
     for (const rawLine of lines) {
-      const line = rawLine.replace(/\s+#.*$/, '').trim();
+      const line = stripTomlComment(rawLine).trim();
       if (!line) continue;
       const table = line.match(/^\[(?:mcp_servers\.(?:"[^"]+"|[^\]]+)\.)?(env|headers)\]$/);
       if (table) {
@@ -160,6 +195,18 @@ export class CodexTomlEditor {
         server.startupTimeoutSec = this.parseNumber(value);
       } else if (key === 'tool_timeout_sec') {
         server.toolTimeoutSec = this.parseNumber(value);
+      } else if (key === 'enabled') {
+        const parsed = value.trim();
+        if (parsed === 'true' || parsed === 'false') {
+          server.enabled = parsed === 'true';
+        }
+      } else if (key === 'env' || key === 'headers') {
+        // Inline tables — `env = { VAR = "value" }` — the form the Grok Build
+        // README documents. Sub-tables (`[.env]`) are handled above.
+        const table = this.parseInlineTable(value);
+        if (table) {
+          server[key] = table;
+        }
       } else if (key === 'command' || key === 'url' || key === 'transport' || key === 'description') {
         (server as Record<string, unknown>)[key] = this.parseString(value);
       }
@@ -175,6 +222,7 @@ export class CodexTomlEditor {
     if (entry.command) lines.push(`command = ${JSON.stringify(entry.command)}`);
     if (entry.args) lines.push(`args = [${entry.args.map((arg) => JSON.stringify(arg)).join(', ')}]`);
     if (entry.url) lines.push(`url = ${JSON.stringify(entry.url)}`);
+    if (entry.enabled === false) lines.push('enabled = false');
     if (entry.transport && entry.transport !== 'stdio') {
       lines.push(`transport = ${JSON.stringify(entry.transport)}`);
     }
@@ -236,6 +284,63 @@ export class CodexTomlEditor {
     } catch {
       return trimmed.slice(1, -1);
     }
+  }
+
+  /** Parse a TOML inline table (`{ KEY = "value", ... }`) of string values. */
+  private parseInlineTable(value: string): Record<string, string> | undefined {
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+      return undefined;
+    }
+    const result: Record<string, string> = {};
+    for (const part of this.splitTopLevel(trimmed.slice(1, -1))) {
+      const assignment = part.trim().match(/^(?:"((?:\\.|[^"\\])*)"|'([^']*)'|([A-Za-z0-9_-]+))\s*=\s*(.+)$/);
+      if (!assignment) {
+        continue;
+      }
+      const key = assignment[1] !== undefined
+        ? this.parseString(`"${assignment[1]}"`)
+        : assignment[2] ?? assignment[3];
+      if (!key) {
+        continue;
+      }
+      result[key] = this.parseString((assignment[4] ?? '').trim()) ?? '';
+    }
+    return Object.keys(result).length > 0 ? result : undefined;
+  }
+
+  /** Split on commas that sit outside quoted strings. */
+  private splitTopLevel(input: string): string[] {
+    const parts: string[] = [];
+    let current = '';
+    let quote: '"' | "'" | null = null;
+    let escaped = false;
+    for (const ch of input) {
+      if (quote) {
+        current += ch;
+        if (escaped) {
+          escaped = false;
+        } else if (ch === '\\' && quote === '"') {
+          escaped = true;
+        } else if (ch === quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        current += ch;
+        continue;
+      }
+      if (ch === ',') {
+        parts.push(current);
+        current = '';
+        continue;
+      }
+      current += ch;
+    }
+    parts.push(current);
+    return parts.filter((part) => part.trim().length > 0);
   }
 
   private parseArray(value: string): string[] | undefined {

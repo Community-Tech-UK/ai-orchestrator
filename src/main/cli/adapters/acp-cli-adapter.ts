@@ -26,6 +26,8 @@ import {
   type ResumeAttemptResult,
   ndjsonSafeStringify,
 } from './base-cli-adapter';
+import { StderrTailBuffer } from './acp-stderr-tail';
+import { filterSessionMcpServers } from './acp-session-mcp-servers';
 import { getLogger } from '../../logging/logger';
 import { generateId } from '../../../shared/utils/id-generator';
 import {
@@ -336,6 +338,12 @@ function isAcpActiveTurnCollision(error: Error): boolean {
   );
 }
 
+/** True for the exit handler's pending-request rejection (`ACP agent exited (…)`).
+ *  Excludes terminate()'s "ACP adapter terminated…" — caller-driven teardown. */
+function isAcpAgentExitRejection(error: Error): boolean {
+  return /^ACP agent exited \(/.test(error.message);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -381,6 +389,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private protocolErrorOutputCount = 0;
   /** `configOptions` from the last `session/new`/`session/load` response. */
   private sessionConfigOptions: unknown;
+  /** Bounded stderr tail, logged at exit/error so a silent CLI self-shutdown
+   *  keeps its trigger (e.g. the raw " Exiting… " signal marker). */
+  private readonly stderrTail = new StderrTailBuffer();
   private readonly costLedger = new AcpSessionCostLedger();
   /** True once the agent reported measured occupancy via `usage_update`. */
   private measuredOccupancy = false;
@@ -413,6 +424,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   getName(): string {
     return this.acpConfig.adapterName?.trim() || 'ACP';
+  }
+
+  /** Bounded stderr tail — for tests and exit-context diagnostics. */
+  getStderrTail(): string | undefined {
+    return this.stderrTail.dump();
   }
 
   getCapabilities(): CliCapabilities {
@@ -609,6 +625,16 @@ export class AcpCliAdapter extends BaseCliAdapter {
       if (isAcpPromptCancelledByClient(err)) {
         this.clearStreamIdleWatchdog();
         this.emit('status', 'idle');
+        return;
+      }
+      // The process already exited — its `exit` event owns the aftermath
+      // (auto-respawn with resend, or the terminal crash error). Emitting
+      // `status: 'error'`/`error` here races that handling exactly like the
+      // EPIPE case guarded in instance-communication.ts, marking the instance
+      // unrecoverable before auto-respawn's abort check runs (plan 2026-09-26).
+      if (isAcpAgentExitRejection(err)) {
+        this.clearStreamIdleWatchdog();
+        logger.info('ACP prompt rejected by agent exit — deferring to exit recovery', { adapter: this.getName(), message: err.message });
         return;
       }
       // This is a scheduling collision, not a provider/runtime failure. Let
@@ -983,15 +1009,18 @@ export class AcpCliAdapter extends BaseCliAdapter {
     });
 
     this.process.stderr?.on('data', (chunk: string) => {
+      this.stderrTail.push(chunk);
       logger.debug('ACP stderr', { chunk: chunk.trim() });
     });
 
     this.process.on('error', (error) => {
+      logger.info('ACP process error — stderr tail', { adapter: this.getName(), error: error instanceof Error ? error.message : String(error), stderrTail: this.stderrTail.dump() });
       this.rejectPendingRequests(toError(error, 'ACP transport error'));
       this.emit('error', toError(error, 'ACP transport error'));
     });
 
     this.process.on('exit', (code, signal) => {
+      logger.info('ACP process exited — stderr tail', { adapter: this.getName(), code, signal, stderrTail: this.stderrTail.dump() });
       this.initialized = false;
       this.currentPromptRequestId = null;
       this.currentPrompt = null;
@@ -1013,6 +1042,15 @@ export class AcpCliAdapter extends BaseCliAdapter {
       cleanup?.();
       if (this.spawnCleanup === cleanup) this.spawnCleanup = null;
     });
+  }
+
+  /** session/new + session/load servers, HTTP/SSE gated on `mcpCapabilities`. */
+  private sessionMcpServers(): AcpMcpServerConfig[] {
+    const { servers, dropped } = filterSessionMcpServers(this.acpConfig.mcpServers ?? [], this.agentCapabilities);
+    if (dropped.length > 0) {
+      logger.warn('ACP agent lacks mcpCapabilities for remote MCP servers — skipping them', { adapter: this.getName(), dropped });
+    }
+    return servers;
   }
 
   private async openSession(): Promise<string> {
@@ -1038,7 +1076,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       const loadParams: AcpSessionLoadParams = {
         sessionId: this.acpConfig.sessionId,
         cwd: this.acpConfig.workingDirectory,
-        mcpServers: this.acpConfig.mcpServers ?? [],
+        mcpServers: this.sessionMcpServers(),
       };
       try {
         const loaded = await this.sendRequest<{ configOptions?: unknown } | null>('session/load', loadParams);
@@ -1067,7 +1105,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     const newParams: AcpSessionNewParams = {
       cwd: this.acpConfig.workingDirectory,
-      mcpServers: this.acpConfig.mcpServers ?? [],
+      mcpServers: this.sessionMcpServers(),
     };
     const result = await this.sendRequest<AcpSessionNewResult>('session/new', newParams);
     this.sessionConfigOptions = result.configOptions;

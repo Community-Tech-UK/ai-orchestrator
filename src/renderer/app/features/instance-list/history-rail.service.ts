@@ -1,13 +1,21 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import {
   getConversationHistoryTitle,
   type ConversationHistoryEntry,
 } from '../../../../shared/types/history.types';
+import { InstanceStateService } from '../../core/state/instance/instance-state.service';
 import type { HierarchicalHistoryItem } from './instance-list.types';
 
 const PINNED_HISTORY_STORAGE_KEY = 'instance-list-pinned-history';
 const SEEN_HISTORY_THREADS_STORAGE_KEY = 'instance-list-seen-history-threads';
 type HistorySortMode = 'last-interacted' | 'created';
+
+/** Provider badge rendering for a history row — mirrors InstanceRow's providerVisual. */
+export interface HistoryProviderVisual {
+  icon: 'anthropic' | 'openai' | 'google' | 'github' | 'cursor' | 'grok' | 'opencode' | 'generic';
+  color: string;
+  label: string;
+}
 
 interface RailChangeSummary {
   additions: number;
@@ -27,6 +35,22 @@ export class HistoryRailService {
   readonly restoringHistoryIds = signal<Set<string>>(new Set());
 
   readonly historyDisplayLimit = 5;
+
+  private readonly instanceState = inject(InstanceStateService);
+
+  /**
+   * True when this thread finished work the user has not viewed yet. Keyed by
+   * `historyThreadId`, so a marker set on a live instance still resolves on the
+   * same thread's history row after a restart mints no live rows at all.
+   */
+  isThreadUnread(entry: Pick<ConversationHistoryEntry, 'historyThreadId' | 'sessionId' | 'id'>): boolean {
+    return this.instanceState.isThreadUnread(this.getHistoryThreadId(entry));
+  }
+
+  /** Clear the unviewed-completion marker — called when the user opens a thread. */
+  clearThreadUnread(entry: Pick<ConversationHistoryEntry, 'historyThreadId' | 'sessionId' | 'id'>): void {
+    this.instanceState.clearThreadUnread(this.getHistoryThreadId(entry));
+  }
 
   // -------------------------------------------------------------------------
   // localStorage persistence
@@ -236,11 +260,7 @@ export class HistoryRailService {
     };
   }
 
-  getHistoryProviderVisual(entry: ConversationHistoryEntry): {
-    icon: 'anthropic' | 'openai' | 'google' | 'github' | 'cursor' | 'generic';
-    color: string;
-    label: string;
-  } {
+  getHistoryProviderVisual(entry: ConversationHistoryEntry): HistoryProviderVisual {
     switch (entry.provider) {
       case 'claude':
         return { icon: 'anthropic', color: '#D97706', label: 'Claude' };
@@ -248,6 +268,8 @@ export class HistoryRailService {
         return { icon: 'openai', color: '#10A37F', label: 'Codex' };
       case 'gemini':
         return { icon: 'google', color: '#4285F4', label: 'Gemini' };
+      case 'antigravity':
+        return { icon: 'google', color: '#00B8D4', label: 'Antigravity' };
       case 'copilot':
         return { icon: 'github', color: '#B89A66', label: 'Copilot' };
       case 'cursor':
@@ -255,6 +277,10 @@ export class HistoryRailService {
         // Use a light neutral so it stays visible on the app's dark surfaces
         // instead of disappearing as a black-on-black square.
         return { icon: 'cursor', color: '#E5E7EB', label: 'Cursor' };
+      case 'grok':
+        return { icon: 'grok', color: '#1DA1F2', label: 'Grok' };
+      case 'opencode':
+        return { icon: 'opencode', color: '#D4D4D8', label: 'OpenCode' };
       default:
         return { icon: 'generic', color: 'rgba(214, 221, 208, 0.76)', label: 'AI session' };
     }

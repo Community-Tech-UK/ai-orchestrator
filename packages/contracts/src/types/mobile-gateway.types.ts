@@ -147,11 +147,30 @@ export interface MobilePromptOptionDto {
   description?: string;
 }
 
+/**
+ * Browser action risk classes mirrored from the Browser Gateway contract.
+ * `credential` covers login/2FA/CAPTCHA steps: the phone shows "Open on your
+ * Mac" and never offers approve/deny for them.
+ */
+export type MobileBrowserActionClass =
+  | 'read'
+  | 'navigate'
+  | 'input'
+  | 'credential'
+  | 'file-upload'
+  | 'file-download'
+  | 'submit'
+  | 'destructive'
+  | 'financial_identity'
+  | 'sensitive_identity'
+  | 'payment'
+  | 'unknown';
+
 export interface MobilePromptDto {
   id: string;
   instanceId: string;
   requestId: string;
-  kind: 'permission' | 'user-action';
+  kind: 'permission' | 'user-action' | 'browser';
   requestType?: MobileUserActionRequestType;
   toolName?: string;
   toolInput?: Record<string, unknown>;
@@ -160,6 +179,12 @@ export interface MobilePromptDto {
   options?: MobilePromptOptionDto[];
   questions?: string[];
   createdAt: number;
+  /** Present when `kind` is 'browser': the Browser Gateway approval request id. */
+  browserRequestId?: string;
+  /** Present when `kind` is 'browser': the risk class of the requested action. */
+  actionClass?: MobileBrowserActionClass;
+  /** Present when `kind` is 'browser': matched origin or target URL, for display. */
+  site?: string;
 }
 
 export interface MobilePauseDto {
@@ -257,7 +282,12 @@ export type MobileServerEvent =
   | { type: 'permission-prompt'; data: MobilePromptDto }
   | { type: 'permission-cleared'; data: { requestId: string; instanceId?: string } }
   | { type: 'pause-state'; data: MobilePauseDto }
-  | { type: 'quota-state'; data: MobileQuotaStateDto };
+  | { type: 'quota-state'; data: MobileQuotaStateDto }
+  | { type: 'loop-state'; data: { runId: string; run: MobileLoopRunDto | null } }
+  | {
+      type: 'plan-queue-state';
+      data: { runId: string; itemId?: string; run: MobilePlanQueueRunDto | null };
+    };
 
 export type MobileClientEvent =
   | { type: 'view'; instanceId: string | null }
@@ -336,4 +366,255 @@ export interface MobileHistorySessionDto {
   archived: boolean;
   live: boolean;
   instanceId?: string;
+}
+
+/** Result of POST /api/history/:id/continue — a restored (new) instance. */
+export interface MobileHistoryContinueResponse {
+  instanceId: string;
+  sessionId: string;
+  historyThreadId: string;
+  restoreMode: 'native-resume' | 'resume-unconfirmed' | 'replay-fallback';
+}
+
+/** Result of POST /api/instances/:id/wake — revives a hibernated instance in place. */
+export interface MobileWakeResponse {
+  ok: true;
+}
+
+/* ------------------------------------------------------------------ */
+/* M4.a Loop runs                                                      */
+/* ------------------------------------------------------------------ */
+
+export const MOBILE_LOOP_STATUSES = [
+  'running',
+  'paused',
+  'completed',
+  'completed-needs-review',
+  'cancelled',
+  'failed',
+  'error',
+  'no-progress',
+  'cap-reached',
+  'provider-limit',
+  'cost-exceeded',
+  'needs-human-arbitration',
+  'reviewer-unreliable',
+  'reviewer-unavailable',
+  'builder-unreliable',
+] as const;
+
+export type MobileLoopStatus = (typeof MOBILE_LOOP_STATUSES)[number];
+
+export type MobileLoopStage = 'PLAN' | 'REVIEW' | 'IMPLEMENT';
+
+export type MobileLoopVerdict = 'OK' | 'WARN' | 'CRITICAL';
+
+export interface MobileLoopIterationDto {
+  seq: number;
+  stage: MobileLoopStage;
+  startedAt: number;
+  endedAt: number | null;
+  verdict: MobileLoopVerdict;
+  testPassCount: number | null;
+  testFailCount: number | null;
+  filesChanged: number;
+  /** Short output excerpt for the iteration card. */
+  summary: string;
+}
+
+export interface MobileLoopRunDto {
+  id: string;
+  chatId: string;
+  status: MobileLoopStatus;
+  currentStage: MobileLoopStage;
+  /** Completed iterations so far (the loop's own counter, not the cap). */
+  iteration: number;
+  maxIterations: number | null;
+  startedAt: number;
+  endedAt: number | null;
+  totalTokens: number;
+  totalCostCents: number;
+  workspaceCwd: string;
+  endReason: string | null;
+  pausedForInput: boolean;
+  lastIteration?: MobileLoopIterationDto;
+}
+
+export interface MobileLoopOutstandingItemDto {
+  id: string;
+  kind: 'needs-human' | 'open-question';
+  text: string;
+  status: 'open' | 'resolved' | 'dismissed';
+  userResponse: string | null;
+  recommendedAnswer: string | null;
+}
+
+export interface MobileLoopDetailDto {
+  run: MobileLoopRunDto;
+  iterations: MobileLoopIterationDto[];
+  outstanding: MobileLoopOutstandingItemDto[];
+}
+
+export type MobileLoopControlResponse =
+  | { ok: true; run: MobileLoopRunDto | null }
+  | { ok: false; error: string };
+
+/* ------------------------------------------------------------------ */
+/* M4.g Plan Queue                                                     */
+/* ------------------------------------------------------------------ */
+
+export const MOBILE_PLAN_QUEUE_ITEM_STATES = [
+  'discovered',
+  'needs-answer',
+  'queued',
+  'preparing',
+  'working',
+  'fixing',
+  'awaiting-slot',
+  'verifying',
+  'landing',
+  'landed',
+  'parked',
+  'skipped',
+] as const;
+
+export type MobilePlanQueueItemState =
+  (typeof MOBILE_PLAN_QUEUE_ITEM_STATES)[number];
+
+export const MOBILE_PLAN_QUEUE_RUN_STATUSES = [
+  'running',
+  'paused',
+  'completed',
+  'cancelled',
+] as const;
+
+export type MobilePlanQueueRunStatus =
+  (typeof MOBILE_PLAN_QUEUE_RUN_STATUSES)[number];
+
+export interface MobilePlanQueueOptionDto {
+  id: string;
+  label: string;
+}
+
+export interface MobilePlanQueueQuestionDto {
+  question: string;
+  options: MobilePlanQueueOptionDto[];
+}
+
+/** Safe projection of a plan-queue item: no worktree or branch internals. */
+export interface MobilePlanQueueItemDto {
+  id: string;
+  runId: string;
+  /** Display name of the plan document. */
+  title: string;
+  documentPath: string;
+  state: MobilePlanQueueItemState;
+  round: number;
+  question: MobilePlanQueueQuestionDto | null;
+  answer: string | null;
+  parkReason: string | null;
+  detail: string | null;
+  verdict: 'PASS' | 'FAIL' | null;
+  workerInstanceId: string | null;
+  updatedAt: number;
+}
+
+export interface MobilePlanQueueRunDto {
+  id: string;
+  kind: 'plans' | 'livetests';
+  status: MobilePlanQueueRunStatus;
+  workspaceCwd: string;
+  startedAt: number;
+  endedAt: number | null;
+  workerProvider: string | null;
+  workerModel: string | null;
+  items: MobilePlanQueueItemDto[];
+}
+
+export interface MobilePlanQueueAnswerRequest {
+  optionId: string;
+}
+
+/** Run-level controls only; item-level landing stays on the desktop. */
+export interface MobilePlanQueueControlRequest {
+  action: 'pause' | 'resume' | 'cancel';
+}
+
+export interface MobilePlanQueueDiffstatDto {
+  diffstat: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* M4.h Doc review                                                     */
+/* ------------------------------------------------------------------ */
+
+export type MobileDocReviewStatus =
+  | 'pending'
+  | 'approved'
+  | 'changes_requested'
+  | 'rejected';
+
+export interface MobileDocReviewOptionDto {
+  id: string;
+  label: string;
+  /** false = radio (single choice), true = checkbox (multiple). */
+  multi: boolean;
+  isDefault: boolean;
+}
+
+export interface MobileDocReviewItemDto {
+  id: string;
+  title: string;
+  decisionId: string | null;
+  options: MobileDocReviewOptionDto[];
+}
+
+export interface MobileDocReviewSummaryDto {
+  id: string;
+  title: string;
+  status: MobileDocReviewStatus;
+  instanceId: string;
+  createdAt: number;
+  decidedAt: number | null;
+}
+
+export interface MobileDocReviewDetailDto {
+  review: MobileDocReviewSummaryDto;
+  items: MobileDocReviewItemDto[];
+}
+
+/** Mirrors the canonical DocReviewItemDecision feedback entry. */
+export interface MobileDocReviewItemDecisionDto {
+  itemId: string;
+  title?: string;
+  decisionId?: string | null;
+  decision: 'approve' | 'reject' | null;
+  comment?: string;
+  choice?: string | null;
+  choices?: string[];
+}
+
+/** Mirrors DocReviewSubmitDecisionPayload; must match the canonical block. */
+export interface MobileDocReviewDecisionRequest {
+  overall: 'approved' | 'changes_requested' | 'rejected';
+  decisions: MobileDocReviewItemDecisionDto[];
+  generalComment?: string;
+}
+
+export interface MobileDocReviewDecisionResponse {
+  ok: true;
+  status: MobileDocReviewStatus;
+}
+
+/* ------------------------------------------------------------------ */
+/* M4.d Browser approval responses                                     */
+/* ------------------------------------------------------------------ */
+
+export interface MobileBrowserApprovalRespondRequest {
+  decisionAction: 'allow' | 'deny';
+  reason?: string;
+}
+
+export interface MobileBrowserApprovalRespondResponse {
+  ok: true;
 }

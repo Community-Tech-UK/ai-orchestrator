@@ -154,7 +154,8 @@ const ALLOWLIST: Record<string, number> = {
   // acp-assistant-stream.ts.
   // Raised 2326 -> 2379: ACP client-cancel now emits idle and clears the
   // stream-idle watchdog so Stop does not leave the stuck detector generating.
-  'src/main/cli/adapters/acp-cli-adapter.ts': 2379,
+  // Raised 2379 -> 2437: remote-MCP mcpCapabilities gate (this work) plus concurrent ACP-exit-observability growth; re-tighten when both land.
+  'src/main/cli/adapters/acp-cli-adapter.ts': 2437,
   // Sat at 699 — one line under the cap — so the automation-provider-exclusion
   // guard in resolveCliType could not be added without crossing it. Entered at
   // 706 rather than dropping the guard; the file is a refactor candidate.
@@ -324,11 +325,9 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/remote-node/node-filesystem-handler.ts': 760,
   // Main process — mobile gateway
   // Re-tightened 1585 -> 732 after extracting instance routes, prompt state,
-  // event lifecycle/completion tracking, and snapshot broadcasting.
-  // Raised 732 -> 798 2026-09-26: mobile quota/lifecycle growth landed at 798
-  // (e63747e6/5bb0804f); a refactor to thin it back is in progress — re-tighten
-  // when it lands.
-  'src/main/mobile-gateway/mobile-gateway-server.ts': 798,
+  // event lifecycle/completion tracking, and snapshot broadcasting. Thinned
+  // again 2026-09-26: endpoint routes delegate to the handler modules.
+  'src/main/mobile-gateway/mobile-gateway-server.ts': 732,
   // Main process — memory
   'src/main/memory/codebase-miner.ts': 725,
   'src/main/memory/critique-agent.ts': 817,
@@ -538,7 +537,8 @@ const ALLOWLIST: Record<string, number> = {
   // already in the working tree; file sat 1 over 1074+50 slack and failed
   // check:ts-max-loc. Re-tighten after a HUD-strip extract.
   'src/renderer/app/features/loop/loop-control.component.ts': 1125,
-  'src/renderer/app/features/mcp/mcp-page.component.ts': 1123,
+  // Raised 1123 -> 1130 for the Grok/OpenCode multi-provider management tabs.
+  'src/renderer/app/features/mcp/mcp-page.component.ts': 1130,
   'src/renderer/app/features/memory/memory-browser.component.ts': 957,
   // Raised 946 -> 957 for hybrid usage-based row ordering in Favorites/provider tabs.
   // Raised 957 -> 964: default favorites now mirror each provider tab's usage-ordered top row.

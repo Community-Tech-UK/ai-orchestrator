@@ -21,6 +21,8 @@ import { CodexMcpAdapter } from './adapters/codex-mcp-adapter';
 import { CopilotMcpAdapter } from './adapters/copilot-mcp-adapter';
 import { GeminiMcpAdapter } from './adapters/gemini-mcp-adapter';
 import { AntigravityMcpAdapter } from './adapters/antigravity-mcp-adapter';
+import { GrokMcpAdapter } from './adapters/grok-mcp-adapter';
+import { OpenCodeMcpAdapter } from './adapters/opencode-mcp-adapter';
 
 let orchestratorRepo: OrchestratorMcpRepository | null = null;
 let sharedRepo: SharedMcpRepository | null = null;
@@ -84,6 +86,8 @@ function buildAdapters(): Record<SupportedProvider, ProviderMcpAdapter> {
     gemini: new GeminiMcpAdapter({ home, writeSafety: safety }),
     antigravity: new AntigravityMcpAdapter({ home, writeSafety: safety }),
     copilot: new CopilotMcpAdapter({ home, writeSafety: safety }),
+    grok: new GrokMcpAdapter({ home, writeSafety: safety }),
+    opencode: new OpenCodeMcpAdapter({ home, writeSafety: safety }),
   };
 }
 

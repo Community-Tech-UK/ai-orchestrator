@@ -15,6 +15,7 @@ vi.mock('child_process', async (importOriginal) => {
 });
 
 import { connectToAppServer } from './app-server-client';
+import { unwrapSignalFence } from '../../../sandbox/signal-fence';
 
 function makeFakeProc(options?: { failExitCode?: number; stderr?: string }): ChildProcess {
   const proc = new EventEmitter() as EventEmitter & {
@@ -68,8 +69,12 @@ describe('isolated app-server spawn output limit', () => {
     const client = await connectToAppServer('/tmp/project', { disableBroker: true });
     try {
       expect(spawnMock).toHaveBeenCalledTimes(1);
-      expect(spawnMock.mock.calls[0]?.[0]).toBe('codex');
-      expect(spawnMock.mock.calls[0]?.[1]).toEqual([
+      const first = unwrapSignalFence(
+        spawnMock.mock.calls[0]?.[0] as string,
+        spawnMock.mock.calls[0]?.[1] as string[],
+      );
+      expect(first.command).toBe('codex');
+      expect(first.args).toEqual([
         '-c',
         'tool_output_token_limit=6000',
         'app-server',
@@ -91,12 +96,18 @@ describe('isolated app-server spawn output limit', () => {
     const client = await connectToAppServer('/tmp/project', { disableBroker: true });
     try {
       expect(spawnMock).toHaveBeenCalledTimes(2);
-      expect(spawnMock.mock.calls[0]?.[1]).toEqual([
+      expect(unwrapSignalFence(
+        spawnMock.mock.calls[0]?.[0] as string,
+        spawnMock.mock.calls[0]?.[1] as string[],
+      ).args).toEqual([
         '-c',
         'tool_output_token_limit=6000',
         'app-server',
       ]);
-      expect(spawnMock.mock.calls[1]?.[1]).toEqual(['app-server']);
+      expect(unwrapSignalFence(
+        spawnMock.mock.calls[1]?.[0] as string,
+        spawnMock.mock.calls[1]?.[1] as string[],
+      ).args).toEqual(['app-server']);
       expect(client.getOutputLimitState()).toBe('unsupported');
     } finally {
       await client.close();

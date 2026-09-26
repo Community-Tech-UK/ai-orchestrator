@@ -1,5 +1,6 @@
 import { BaseCliAdapter, type AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
+import type { InstanceStatus } from '../../shared/types/instance.types';
 import { getErrorRecoveryManager } from '../core/error-recovery';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { classifyContextOverflow, isContextOverflowError } from '../context/ptl-retry';
@@ -107,6 +108,15 @@ export function isRecoverableStatelessExecTurnError(adapter: CliAdapter, error: 
 export function isRecoverableAcpPromptTurnError(errorMessage: string): boolean {
   return /^ACP session\/prompt request timed out after \d+ms(?: without a session\/update)? \(id=.+\)\./.test(errorMessage)
     || errorMessage === 'ACP prompt turn was cancelled by the client.';
+}
+
+/**
+ * Statuses during which lifecycle owns the instance's fate and advisory
+ * adapter events must not flip it to terminal `error` (respawn/interrupt
+ * recovery will settle it). Mirrors the guard in the adapter-error handler.
+ */
+export function isRecoveringStatus(status: InstanceStatus): boolean {
+  return status === 'respawning' || status === 'interrupting' || status === 'cancelling';
 }
 
 export function isContextOverflowMessage(content: string): boolean {

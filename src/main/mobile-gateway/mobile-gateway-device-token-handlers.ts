@@ -1,3 +1,4 @@
+import * as os from 'os';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { readJsonBody } from './mobile-gateway-http-utils';
 import type { MobileDeviceRegistry } from './mobile-device-registry';
@@ -112,4 +113,40 @@ export async function handleMobileDeviceRoutes(
     }
   }
   return false;
+}
+
+/** POST /pair — the unauthenticated pairing exchange that mints a device token. */
+export async function handleMobilePair(
+  deps: DeviceTokenHandlerDeps,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  let body: unknown;
+  try {
+    body = await readJsonBody(req);
+  } catch (error) {
+    deps.sendJson(res, 400, {
+      error: error instanceof Error ? error.message : "Invalid body",
+    });
+    return;
+  }
+  const pairingToken =
+    typeof (body as Record<string, unknown>)?.["pairingToken"] === "string"
+      ? ((body as Record<string, unknown>)["pairingToken"] as string)
+      : "";
+  const label =
+    typeof (body as Record<string, unknown>)?.["label"] === "string"
+      ? ((body as Record<string, unknown>)["label"] as string)
+      : undefined;
+  const result = deps.registry.pair({ pairingToken, label });
+  if (result.status === "rejected") {
+    deps.sendJson(res, 403, { error: result.reason });
+    return;
+  }
+  deps.sendJson(res, 200, {
+    deviceId: result.device.deviceId,
+    token: result.device.token,
+    expiresAt: result.device.expiresAt,
+    hostName: os.hostname(),
+  });
 }

@@ -6042,7 +6042,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 3193
+      "lines": 3263
     },
     {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
@@ -6106,7 +6106,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2400
+      "lines": 2438
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
@@ -6298,7 +6298,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1484
+      "lines": 1482
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
@@ -6398,7 +6398,7 @@
     },
     {
       "path": "src/main/cli/adapters/__tests__/cursor-cli-adapter.spec.ts",
-      "lines": 1315
+      "lines": 1319
     },
     {
       "path": "src/main/plugins/plugin-manager.ts",
@@ -6585,6 +6585,10 @@
       "lines": 1145
     },
     {
+      "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
+      "lines": 1142
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-28-wave2-navigation-pickers-prompt-recall-design_completed.md",
       "lines": 1139
     },
@@ -6598,7 +6602,7 @@
     },
     {
       "path": "src/renderer/app/features/mcp/mcp-page.component.ts",
-      "lines": 1129
+      "lines": 1131
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md",
@@ -6611,10 +6615,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-20-ai-orchestrator-cross-repo-remediation-plan_completed.md",
       "lines": 1126
-    },
-    {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
-      "lines": 1124
     },
     {
       "path": "src/main/remote-node/__tests__/rpc-event-router.spec.ts",

@@ -1,4 +1,3 @@
-import * as os from "os";
 import { readFileSync } from "fs";
 import {
   createServer,
@@ -58,7 +57,10 @@ import {
   sendMobilePromptPush,
   type BrowserEscalationPushInput,
 } from "./mobile-gateway-push";
-import { handleMobileDeviceRoutes } from "./mobile-gateway-device-token-handlers";
+import {
+  handleMobileDeviceRoutes,
+  handleMobilePair,
+} from "./mobile-gateway-device-token-handlers";
 import type {
   MobileModelCatalogSource,
   MobileModelLister,
@@ -81,7 +83,6 @@ import { sendMobileQuotaPush } from "./mobile-gateway-push";
 import {
   MobileAutomationRequestError,
   MobileGatewayAutomationHandlers,
-  readMobileAutomationRunRequest,
   type GatewayAutomationEvents,
   type GatewayAutomationRunner,
   type GatewayAutomationStore,
@@ -585,7 +586,7 @@ export class MobileGatewayServer {
       return;
     }
     if (url.pathname === "/pair" && method === "POST") {
-      await this.handlePair(req, res);
+      await handleMobilePair(this.deviceTokenDeps(), req, res);
       return;
     }
     const device = this.registry.validateToken(
@@ -598,23 +599,8 @@ export class MobileGatewayServer {
     const segments = url.pathname.split("/").filter(Boolean);
     try {
       if (segments[0] === "api") {
-        if (segments[1] === 'automations' && segments.length === 2 && method === 'GET') {
-          return this.sendJson(res, 200, await this.automations.list());
-        }
-        if (segments[1] === 'automations' && segments.length === 4 && segments[3] === 'run' && method === 'POST') {
-          const body = await readMobileAutomationRunRequest(req);
-          let automationId: string;
-          try {
-            automationId = decodeURIComponent(segments[2]);
-          } catch {
-            throw new MobileAutomationRequestError('A valid automation id is required');
-          }
-          const result = await this.automations.run(automationId, body);
-          return this.sendJson(res, 200, result);
-        }
-        if (segments[1] === "quota" && segments.length === 2 && method === "GET") {
-          return this.sendJson(res, 200, this.quota.read());
-        }
+        if (await this.automations.handle(req, res, segments, method)) return;
+        if (this.quota.handle(res, segments, method)) return;
         if (await this.instanceRoutes.handle(req, res, url, segments, method))
           return;
         if (
@@ -655,9 +641,10 @@ export class MobileGatewayServer {
           return await this.handleRecentDirs(res);
         }
         if (segments[1] === "history" && method === "GET") {
-          if (segments.length === 2) return this.handleHistory(res);
+          if (segments.length === 2) return handleMobileHistory(this.historyDeps(), res);
           if (segments.length === 4 && segments[3] === "messages") {
-            return await this.handleHistoryMessages(
+            return await handleMobileHistoryMessages(
+              this.historyDeps(),
               res,
               decodeURIComponent(segments[2]),
               url,
@@ -716,18 +703,6 @@ export class MobileGatewayServer {
     );
   }
 
-  private handleHistory(res: ServerResponse): void {
-    handleMobileHistory(this.historyDeps(), res);
-  }
-
-  private async handleHistoryMessages(
-    res: ServerResponse,
-    id: string,
-    url: URL,
-  ): Promise<void> {
-    await handleMobileHistoryMessages(this.historyDeps(), res, id, url);
-  }
-
   private historyDeps() {
     return {
       chatHistory: this.chatHistory,
@@ -748,40 +723,6 @@ export class MobileGatewayServer {
       sendJson: (res: ServerResponse, statusCode: number, payload: unknown) =>
         this.sendJson(res, statusCode, payload),
     };
-  }
-
-  private async handlePair(
-    req: IncomingMessage,
-    res: ServerResponse,
-  ): Promise<void> {
-    let body: unknown;
-    try {
-      body = await readJsonBody(req);
-    } catch (error) {
-      this.sendJson(res, 400, {
-        error: error instanceof Error ? error.message : "Invalid body",
-      });
-      return;
-    }
-    const pairingToken =
-      typeof (body as Record<string, unknown>)?.["pairingToken"] === "string"
-        ? ((body as Record<string, unknown>)["pairingToken"] as string)
-        : "";
-    const label =
-      typeof (body as Record<string, unknown>)?.["label"] === "string"
-        ? ((body as Record<string, unknown>)["label"] as string)
-        : undefined;
-    const result = this.registry.pair({ pairingToken, label });
-    if (result.status === "rejected") {
-      this.sendJson(res, 403, { error: result.reason });
-      return;
-    }
-    this.sendJson(res, 200, {
-      deviceId: result.device.deviceId,
-      token: result.device.token,
-      expiresAt: result.device.expiresAt,
-      hostName: os.hostname(),
-    });
   }
 
   private sendJson(

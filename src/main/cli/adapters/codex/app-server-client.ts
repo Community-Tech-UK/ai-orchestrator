@@ -18,6 +18,7 @@ import { getSafeEnvForTrustedProcess } from '../../../security/env-filter';
 import { getClampedLoadWatchdogMultiplier } from '../../../runtime/system-load-monitor';
 import { CODEX_TIMEOUTS } from '../../../../shared/constants/limits';
 import { buildCliSpawnOptions } from '../../cli-environment';
+import { applySignalFence } from '../../../sandbox/signal-fence';
 import { parseNdjsonLine } from '../../json-parse';
 import { CliStreamLineParser } from '../cli-stream-line-parser';
 import {
@@ -421,7 +422,11 @@ class SpawnedAppServerClient extends AppServerClientBase {
   async connect(options: CodexAppServerClientOptions = {}, applyOutputLimit = true): Promise<void> {
     const spawnOptions = buildCliSpawnOptions(options.env || getSafeEnvForTrustedProcess());
     // Isolated AIO spawn only: `-c tool_output_token_limit=6000`. Never ~/.codex/config.toml.
-    this.proc = spawn('codex', buildIsolatedAppServerArgs(applyOutputLimit, options.configOverrides), {
+    const fenced = applySignalFence({
+      command: 'codex',
+      args: buildIsolatedAppServerArgs(applyOutputLimit, options.configOverrides),
+    });
+    this.proc = spawn(fenced.command, fenced.args, {
       cwd: this.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       // Unix: isolate into its own process group for clean tree kills

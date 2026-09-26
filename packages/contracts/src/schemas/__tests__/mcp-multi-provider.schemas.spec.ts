@@ -51,6 +51,8 @@ describe('mcp-multi-provider schemas', () => {
   it('validates fan-out providers', () => {
     expect(McpFanOutPayloadSchema.safeParse({ serverId: 'x', providers: ['claude'] }).success)
       .toBe(true);
+    expect(McpFanOutPayloadSchema.safeParse({ serverId: 'x', providers: ['grok', 'opencode'] }).success)
+      .toBe(true);
     expect(McpFanOutPayloadSchema.safeParse({ serverId: 'x', providers: ['cursor'] }).success)
       .toBe(false);
   });

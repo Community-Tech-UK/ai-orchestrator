@@ -10,6 +10,8 @@ import { CodexMcpAdapter } from '../adapters/codex-mcp-adapter';
 import { GeminiMcpAdapter } from '../adapters/gemini-mcp-adapter';
 import { AntigravityMcpAdapter } from '../adapters/antigravity-mcp-adapter';
 import { CopilotMcpAdapter } from '../adapters/copilot-mcp-adapter';
+import { GrokMcpAdapter } from '../adapters/grok-mcp-adapter';
+import { OpenCodeMcpAdapter } from '../adapters/opencode-mcp-adapter';
 import { CliMcpConfigService } from '../cli-mcp-config-service';
 import { OrchestratorMcpRepository } from '../orchestrator-mcp-repository';
 import { RedactionService } from '../redaction-service';
@@ -40,6 +42,8 @@ describe('MCP multi-provider service', () => {
       gemini: new GeminiMcpAdapter({ home: tmp, writeSafety }),
       antigravity: new AntigravityMcpAdapter({ home: tmp, writeSafety }),
       copilot: new CopilotMcpAdapter({ home: tmp, writeSafety }),
+      grok: new GrokMcpAdapter({ home: tmp, writeSafety }),
+      opencode: new OpenCodeMcpAdapter({ home: tmp, writeSafety }),
     };
     shared = new SharedMcpRepository(db, secrets);
     coordinator = new SharedMcpCoordinator({
@@ -82,6 +86,31 @@ describe('MCP multi-provider service', () => {
     await coordinator.resolveDrift(record.id, 'claude', 'overwrite-target');
     expect((await coordinator.getDrift(record.id)).find((status) => status.provider === 'claude')?.state)
       .toBe('in-sync');
+  });
+
+  it('fans out shared records to Grok and OpenCode config files', async () => {
+    const record = shared.upsert({
+      name: 'fs',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y'],
+      targets: ['grok', 'opencode'],
+    });
+    expect(await coordinator.fanOut(record.id)).toMatchObject([
+      { provider: 'grok', state: 'in-sync' },
+      { provider: 'opencode', state: 'in-sync' },
+    ]);
+
+    const grokConfig = path.join(tmp, '.grok', 'config.toml');
+    expect(fs.readFileSync(grokConfig, 'utf8')).toContain('[mcp_servers.fs]');
+    const openCodeConfig = path.join(tmp, '.config', 'opencode', 'opencode.json');
+    const parsed = JSON.parse(fs.readFileSync(openCodeConfig, 'utf8')) as {
+      mcp: Record<string, { command: string[] }>;
+    };
+    expect(parsed.mcp['fs']?.command).toEqual(['npx', '-y']);
+    const drift = await coordinator.getDrift(record.id);
+    expect(drift.find((status) => status.provider === 'grok')?.state).toBe('in-sync');
+    expect(drift.find((status) => status.provider === 'opencode')?.state).toBe('in-sync');
   });
 
   it('returns redacted multi-provider state', async () => {

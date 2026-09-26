@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { createCliAdapter, getCliDisplayName, mapSettingsToDetectionType } from '../adapter-factory';
 
 describe('adapter factory — grok', () => {
@@ -112,5 +115,55 @@ describe('adapter factory — grok', () => {
     expect(chromeDevtools).toBeDefined();
     expect(chromeDevtools?.args).toContain('--browserUrl');
     expect(chromeDevtools?.args).toContain('http://127.0.0.1:31234');
+  });
+
+  it('delivers static config/mcp-servers.json and remote inline entries to acpConfig.mcpServers', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-factory-mcp-'));
+    try {
+      const staticPath = path.join(dir, 'mcp-servers.json');
+      fs.writeFileSync(staticPath, JSON.stringify({
+        mcpServers: {
+          lsp: { command: 'node', args: ['/x/lsp.js'] },
+          remoteStatic: { url: 'https://mcp.example/mcp', headers: { Authorization: 'Bearer x' } },
+          // Same name as an inline entry below — inline (workspace-scoped) wins.
+          sharedName: { command: 'static-cmd' },
+        },
+      }));
+      const adapter = createCliAdapter('grok', {
+        workingDirectory: '/tmp',
+        mcpConfig: [
+          staticPath,
+          JSON.stringify({
+            mcpServers: {
+              wsConn: { transport: 'http', url: 'https://ws.example/mcp', headers: { 'X-A': '1' } },
+              sharedName: { command: 'inline-cmd' },
+            },
+          }),
+        ],
+      });
+      const servers = (adapter as unknown as {
+        acpConfig: { mcpServers?: Array<Record<string, unknown>> };
+      }).acpConfig.mcpServers ?? [];
+      const byName = new Map(servers.map((server) => [server['name'], server]));
+
+      expect(byName.get('lsp')).toEqual({ name: 'lsp', command: 'node', args: ['/x/lsp.js'] });
+      expect(byName.get('remoteStatic')).toEqual({
+        name: 'remoteStatic',
+        type: 'sse',
+        url: 'https://mcp.example/mcp',
+        headers: [{ name: 'Authorization', value: 'Bearer x' }],
+      });
+      expect(byName.get('wsConn')).toEqual({
+        name: 'wsConn',
+        type: 'http',
+        url: 'https://ws.example/mcp',
+        headers: [{ name: 'X-A', value: '1' }],
+      });
+      // First-wins dedupe: exactly one sharedName entry, the inline one.
+      expect(servers.filter((server) => server['name'] === 'sharedName')).toHaveLength(1);
+      expect(byName.get('sharedName')).toEqual({ name: 'sharedName', command: 'inline-cmd' });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

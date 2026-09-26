@@ -16,8 +16,9 @@ function setup() {
   const activeHost = signal({ id: 'a', name: 'Host A' });
   const online = signal(true);
   const dataHostId = signal('a');
+  const connectionEpoch = signal(1);
   const gateway = {
-    online, dataHostId,
+    online, dataHostId, connectionEpoch,
     automations: vi.fn<() => Promise<MobileAutomationDto[]>>().mockResolvedValue([ITEM]),
     runAutomation: vi.fn().mockResolvedValue({ status: 'started', runId: 'run-1' }),
   };
@@ -25,7 +26,7 @@ function setup() {
     { provide: HostStore, useValue: { activeHost } },
     { provide: GatewayClient, useValue: gateway },
   ] });
-  return { store: TestBed.inject(AutomationStore), activeHost, dataHostId, gateway };
+  return { store: TestBed.inject(AutomationStore), activeHost, dataHostId, connectionEpoch, gateway };
 }
 
 afterEach(() => TestBed.resetTestingModule());
@@ -40,6 +41,45 @@ describe('host-scoped AutomationStore', () => {
     await store.runNow(ITEM);
     expect(gateway.runAutomation).not.toHaveBeenCalled();
     release([{ ...ITEM }]); await refresh;
+    await store.runNow(store.automations()[0]);
+    expect(gateway.runAutomation).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes list authority in the reconnect window until a fresh list lands', async () => {
+    const { store, connectionEpoch, gateway } = setup(); TestBed.tick();
+    await vi.waitFor(() => expect(store.automations()).toEqual([ITEM]));
+    gateway.online.set(false); TestBed.tick();
+    // The socket opens a new connection attempt before it reports 'connected'.
+    connectionEpoch.set(connectionEpoch() + 1);
+    gateway.online.set(true);
+    // No effect flush yet: the cached pre-outage list is not authority here.
+    expect(store.hasCurrentList()).toBe(false);
+    await store.runNow(ITEM);
+    expect(gateway.runAutomation).not.toHaveBeenCalled();
+    TestBed.tick();
+    await vi.waitFor(() => expect(store.hasCurrentList()).toBe(true));
+    await store.runNow(store.automations()[0]);
+    expect(gateway.runAutomation).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a pre-outage list response that lands after a reconnect', async () => {
+    const { store, connectionEpoch, gateway } = setup(); TestBed.tick();
+    await vi.waitFor(() => expect(store.automations()).toEqual([ITEM]));
+    let release!: (items: MobileAutomationDto[]) => void;
+    gateway.automations.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    const inflight = store.refresh();
+    gateway.online.set(false);
+    connectionEpoch.set(connectionEpoch() + 1);
+    gateway.online.set(true);
+    release([{ ...ITEM, name: 'Renamed while offline' }]);
+    await inflight;
+    // The response began under the previous connection; it cannot authorize sends.
+    expect(store.hasCurrentList()).toBe(false);
+    await store.runNow(store.automations()[0]);
+    expect(gateway.runAutomation).not.toHaveBeenCalled();
+    TestBed.tick();
+    await vi.waitFor(() => expect(store.automations()[0]?.name).toBe('Daily review'));
+    expect(store.hasCurrentList()).toBe(true);
     await store.runNow(store.automations()[0]);
     expect(gateway.runAutomation).toHaveBeenCalledTimes(1);
   });
@@ -109,13 +149,14 @@ describe('host-scoped AutomationStore', () => {
   });
 
   it('keeps uncertain intent across reconnect but rotates it when the automation changes', async () => {
-    const { store, gateway } = setup(); TestBed.tick();
+    const { store, connectionEpoch, gateway } = setup(); TestBed.tick();
     await vi.waitFor(() => expect(store.automations()).toEqual([ITEM]));
     gateway.runAutomation.mockRejectedValue(new Error('Uncertain transport result'));
     await store.runNow(ITEM);
     const key = gateway.runAutomation.mock.calls[0][1];
-    gateway.online.set(false); TestBed.tick(); gateway.online.set(true); TestBed.tick();
-    await vi.waitFor(() => expect(store.status()).toBe('loaded'));
+    gateway.online.set(false); TestBed.tick();
+    connectionEpoch.set(connectionEpoch() + 1); gateway.online.set(true); TestBed.tick();
+    await vi.waitFor(() => expect(store.hasCurrentList()).toBe(true));
     await store.runNow(ITEM);
     expect(gateway.runAutomation.mock.calls[1][1]).toBe(key);
     const other = { ...ITEM, id: 'another-job' };

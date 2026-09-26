@@ -2360,8 +2360,12 @@ describe('AcpCliAdapter', () => {
     adapter.on('stall_warning', (payload: Record<string, unknown>) => stallEvents.push(payload));
 
     const pending = adapter.sendMessage({ role: 'user', content: 'hang please' });
-    // Wait past the stall threshold.
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    // Wait for the first warning instead of sleeping a fixed 80ms: the
+    // watchdog re-arms every intervalMs (40ms here), so a sleep of exactly
+    // 2× the interval raced the second fire and flaked under suite load.
+    await new Promise<void>((resolve) => {
+      adapter.once('stall_warning', () => resolve());
+    });
 
     expect(stallEvents).toHaveLength(1);
     expect(stallEvents[0]).toMatchObject({ adapter: expect.any(String), waitKind: 'unowned' });
@@ -3186,6 +3190,72 @@ describe('AcpCliAdapter liveness and failed-turn usage', () => {
     expect(failure).not.toBeNull();
     expect(failure!.partialUsage?.totalTokens).toBeGreaterThan(0);
     expect(failure!.partialUsage?.isEstimated).toBe(true);
+
+    proc.exit();
+  });
+});
+
+describe('AcpCliAdapter agent-exit rejection (plan 2026-09-26)', () => {
+  it('defers to exit recovery: a pending prompt rejected by agent exit emits no error or error status', async () => {
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', () => {
+      /* keep the turn in flight until the process dies */
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 60_000,
+    });
+    await adapter.spawn();
+
+    const statusEvents: string[] = [];
+    adapter.on('status', (status: string) => statusEvents.push(status));
+    const errorEvents: Error[] = [];
+    adapter.on('error', (err: Error) => errorEvents.push(err));
+    const outputs: { type: string }[] = [];
+    adapter.on('output', (message: { type: string }) => outputs.push(message));
+
+    const pending = adapter.sendInput('work');
+    await proc.waitForMessage((message) =>
+      'method' in message && message.method === 'session/prompt',
+    );
+    proc.stderr.write(' Exiting… ');
+    // PassThrough delivers 'data' asynchronously — let it land before exit.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    proc.exit(0, null);
+
+    // Swallowed, not rejected: the exit event owns the recovery decision.
+    await expect(pending).resolves.toBeUndefined();
+    expect(errorEvents).toHaveLength(0);
+    expect(statusEvents).not.toContain('error');
+    expect(outputs.filter((m) => m.type === 'error')).toHaveLength(0);
+    expect(adapter.getStderrTail()).toContain('Exiting');
+  });
+
+  it('still surfaces non-exit turn failures as an error status and error event', async () => {
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', (message) => {
+      proc.respondError(message.id, -32000, 'model exploded');
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 60_000,
+    });
+    await adapter.spawn();
+
+    const statusEvents: string[] = [];
+    adapter.on('status', (status: string) => statusEvents.push(status));
+    const errorEvents: Error[] = [];
+    adapter.on('error', (err: Error) => errorEvents.push(err));
+
+    await adapter.sendInput('work');
+
+    expect(statusEvents).toContain('error');
+    expect(errorEvents).toHaveLength(1);
+    expect(errorEvents[0].message).toContain('model exploded');
 
     proc.exit();
   });

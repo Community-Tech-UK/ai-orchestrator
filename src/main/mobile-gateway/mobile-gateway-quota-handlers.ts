@@ -1,5 +1,7 @@
 import type { ProviderId, ProviderQuotaSnapshot, ProviderQuotaState } from '../../shared/types/provider-quota.types';
 import type { MobileQuotaProviderDto, MobileQuotaStateDto, MobileServerEvent } from '../../shared/types/mobile-gateway.types';
+import type { ServerResponse } from 'http';
+import { sendJsonResponse } from './mobile-gateway-http-utils';
 import type { EmitterLike } from './mobile-gateway-events';
 
 export interface GatewayQuotaSource extends EmitterLike {
@@ -49,6 +51,13 @@ export class MobileGatewayQuotaHandlers {
     const now = Date.now();
     const state = this.deps.getSource().getAll();
     return { serverTime: now, providers: PROVIDERS.map(provider => projectProvider(provider, state.snapshots[provider], now)) };
+  }
+
+  /** GET /api/quota. Returns false when the request is not this route. */
+  handle(res: ServerResponse, segments: string[], method: string): boolean {
+    if (segments[1] !== 'quota' || segments.length !== 2 || method !== 'GET') return false;
+    sendJsonResponse(res, 200, this.read());
+    return true;
   }
 
   attach(): void {

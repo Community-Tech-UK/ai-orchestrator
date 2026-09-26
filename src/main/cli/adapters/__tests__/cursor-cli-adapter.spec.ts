@@ -944,7 +944,11 @@ describe('CursorCliAdapter — lifecycle + status + stderr', () => {
     await new Promise<void>((r) => setImmediate(r));
 
     const proc = spawnedProcesses[0];
-    expect(lastSpawnState.lastSpawnArgs?.args).toEqual(['--version']);
+    const spawned = lastSpawnState.lastSpawnArgs;
+    const cliArgs = spawned?.command?.endsWith('sandbox-exec')
+      ? spawned.args.slice(spawned.args.lastIndexOf('--') + 2)
+      : spawned?.args;
+    expect(cliArgs).toEqual(['--version']);
 
     proc.stdout.emit('data', '2026.04.17-787b533\n');
     proc.emit('close', 0);

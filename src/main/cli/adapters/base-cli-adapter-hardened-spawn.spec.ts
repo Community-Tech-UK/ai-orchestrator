@@ -33,6 +33,7 @@ import type {
   CliStatus,
 } from './base-cli-adapter';
 import { SANDBOX_EXEC_PATH } from '../../sandbox/seatbelt';
+import { unwrapSignalFence } from '../../sandbox/signal-fence';
 import type { ChildProcess } from 'child_process';
 
 function makeFakeProc(): ChildProcess {
@@ -77,15 +78,25 @@ describe('BaseCliAdapter hardened spawn wrap', () => {
     spawnMock.mockReset();
   });
 
-  it('spawns the raw command when hardened mode is not configured', () => {
+  it('signal-fences a non-hardened spawn on macOS and leaves other platforms raw', () => {
     spawnMock.mockReturnValue(makeFakeProc());
     const adapter = new TestAdapter({ command: 'fake-cli', cwd: tmpdir() });
 
     adapter.spawnForTest(['--print']);
 
     expect(spawnMock).toHaveBeenCalledTimes(1);
-    expect(spawnMock.mock.calls[0][0]).toBe('fake-cli');
-    expect(spawnMock.mock.calls[0][1]).toEqual(['--print']);
+    const command = spawnMock.mock.calls[0][0] as string;
+    const args = spawnMock.mock.calls[0][1] as string[];
+    if (process.platform === 'darwin') {
+      expect(command).toBe(SANDBOX_EXEC_PATH);
+      expect(unwrapSignalFence(command, args)).toEqual({ command: 'fake-cli', args: ['--print'] });
+      const policy = args[args.indexOf('-p') + 1];
+      expect(policy).toContain('(deny signal)');
+      expect(policy).not.toContain('(deny default)');
+    } else {
+      expect(command).toBe('fake-cli');
+      expect(args).toEqual(['--print']);
+    }
   });
 
   it('rejects a hardened Claude spawn whose caller-supplied config dir is not granted', () => {

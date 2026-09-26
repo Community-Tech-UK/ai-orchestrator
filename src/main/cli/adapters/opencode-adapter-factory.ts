@@ -22,10 +22,12 @@ import { buildChromeDevtoolsAcpMcpServers } from '../../browser-gateway/chrome-d
 import { buildMobileMcpAcpMcpServers } from '../../browser-gateway/mobile-mcp-config';
 import { getLogger } from '../../logging/logger';
 import type { UnifiedSpawnOptions } from './adapter-factory.types';
+import { buildStaticMcpServersAcpMcpServers } from './static-mcp-acp-config';
 import {
   buildAcpPermissionContext,
   buildInlineMcpServersAcpMcpServers,
   extendEnvWithRtk,
+  mergeAcpMcpServers,
   mergeSpawnEnv,
   withBrowserGatewayProvider,
 } from './adapter-spawn-helpers';
@@ -120,6 +122,9 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
     ? buildMobileMcpAcpMcpServers(options.mobileMcp)
     : [];
   const inlineMcpServers = buildInlineMcpServersAcpMcpServers(options.mcpConfig);
+  // Static, user-managed servers from config/mcp-servers.json (lsp, imap, …) —
+  // the same file Claude consumes via --mcp-config and Codex via TOML.
+  const staticMcpServers = buildStaticMcpServersAcpMcpServers(options.mcpConfig);
   const yoloMode = options.yoloMode !== false;
   const env = mergeSpawnEnv(options);
   env[OPENCODE_CONFIG_CONTENT_ENV] = buildOpenCodeConfigContent(env[OPENCODE_CONFIG_CONTENT_ENV], yoloMode);
@@ -134,13 +139,14 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
     sessionId: options.sessionId,
     resume: options.resume,
     env,
-    mcpServers: [
-      ...(options.mcpServers ?? []),
-      ...inlineMcpServers,
-      ...browserGatewayMcpServers,
-      ...chromeDevtoolsMcpServers,
-      ...mobileMcpServers,
-    ],
+    mcpServers: mergeAcpMcpServers(
+      options.mcpServers,
+      inlineMcpServers,
+      staticMcpServers,
+      browserGatewayMcpServers,
+      chromeDevtoolsMcpServers,
+      mobileMcpServers,
+    ),
     model: options.model,
     ...(model || effort ? { sessionConfig: { ...(model ? { model } : {}), ...(effort ? { effort } : {}) } } : {}),
     startupGate: openCodeProcessGate,

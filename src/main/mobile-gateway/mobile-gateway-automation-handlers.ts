@@ -14,7 +14,8 @@ import {
 } from '../../shared/automations/automation-model-resolution';
 import type { AutomationEventMap } from '../automations/automation-events';
 import type { AutomationFireOptions } from '../automations/automation-runner';
-import type { IncomingMessage } from 'http';
+import type { IncomingMessage, ServerResponse } from 'http';
+import { sendJsonResponse } from './mobile-gateway-http-utils';
 
 const MAX_AUTOMATION_ID_LENGTH = 100;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 500;
@@ -159,5 +160,29 @@ export class MobileGatewayAutomationHandlers {
       triggerSource: { type: 'manual', id: 'mobile' },
     });
     return responseFor(outcome);
+  }
+
+  /**
+   * GET /api/automations and POST /api/automations/:id/run. Returns false when
+   * the request is not one of these routes; request errors propagate to the
+   * caller's error mapping so their status codes survive.
+   */
+  async handle(req: IncomingMessage, res: ServerResponse, segments: string[], method: string): Promise<boolean> {
+    if (segments[1] === 'automations' && segments.length === 2 && method === 'GET') {
+      sendJsonResponse(res, 200, await this.list());
+      return true;
+    }
+    if (segments[1] === 'automations' && segments.length === 4 && segments[3] === 'run' && method === 'POST') {
+      const body = await readMobileAutomationRunRequest(req);
+      let automationId: string;
+      try {
+        automationId = decodeURIComponent(segments[2]);
+      } catch {
+        throw new MobileAutomationRequestError('A valid automation id is required');
+      }
+      sendJsonResponse(res, 200, await this.run(automationId, body));
+      return true;
+    }
+    return false;
   }
 }

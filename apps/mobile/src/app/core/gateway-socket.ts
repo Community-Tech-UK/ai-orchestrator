@@ -17,6 +17,8 @@ export class GatewaySocket {
   readonly online = computed(() => this._state() === 'connected');
   private readonly _lastServerFrameAt = signal<number | null>(null);
   readonly lastServerFrameAt = this._lastServerFrameAt.asReadonly();
+  private readonly _connectionEpoch = signal(0);
+  readonly connectionEpoch = this._connectionEpoch.asReadonly();
 
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -96,6 +98,10 @@ export class GatewaySocket {
   }
 
   private openSocket(host: PairedHost): void {
+    // Every connection attempt gets a new epoch, bumped before this socket can
+    // report 'connected', so cached data from a previous connection can never
+    // pass as authority for the new one.
+    this._connectionEpoch.set(this._connectionEpoch() + 1);
     this._state.set('connecting');
     const scheme = host.secure ? 'wss' : 'ws';
     const url = `${scheme}://${host.host}:${host.port}/ws?token=${encodeURIComponent(host.token)}`;
