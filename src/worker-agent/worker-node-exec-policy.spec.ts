@@ -1,4 +1,4 @@
-import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { execFile, execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { createServer } from 'node:net';
@@ -35,6 +35,15 @@ import {
 } from './worker-node-command-resolver';
 
 const SCRIPT_LIMIT_BYTES = 256 * 1024;
+
+function canInspectProcesses(): boolean {
+  try {
+    execFileSync('ps', ['-o', 'pid=', '-p', String(process.pid)], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 const TRUSTED_WINDOWS_CURL = 'C:\\Windows\\System32\\curl.exe';
 const TRUSTED_WINDOWS_POWERSHELL =
   'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
@@ -638,7 +647,7 @@ describe('WorkerNodeExecutor PowerShell file policy', () => {
     expect(killProcess).toHaveBeenCalledTimes(2);
   });
 
-  it.skipIf(process.platform === 'win32')(
+  it.skipIf(process.platform === 'win32' || !canInspectProcesses())(
     'terminates a real descendant after premature script-input closure',
     async () => {
       const { allowed } = await fixture();

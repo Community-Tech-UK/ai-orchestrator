@@ -136,7 +136,10 @@ export async function createPreviewHost(options = {}) {
   let previewDeviceId = options.deviceId ?? null;
   const state = createFixtureState(fixture, options.scenario);
   const timers = new Set();
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    handleProtocols: (protocols) => (protocols.has('aio.v1') ? 'aio.v1' : false),
+  });
   const upstreamOrigin = options.upstreamOrigin;
   const requestCounts = new Map();
 
@@ -205,6 +208,21 @@ export async function createPreviewHost(options = {}) {
       if (url.pathname === '/api/snapshot' && method === 'GET') return sendJson(response, 200, state.snapshot());
       if (url.pathname === '/api/quota' && method === 'GET') return sendJson(response, 200, state.quota());
       if (url.pathname === '/api/automations' && method === 'GET') return sendJson(response, 200, state.automations());
+      if (url.pathname === '/api/loops' && method === 'GET') return sendJson(response, 200, []);
+      if (url.pathname === '/api/plan-queue' && method === 'GET') return sendJson(response, 200, { runs: [] });
+      if (url.pathname === '/api/doc-reviews' && method === 'GET') return sendJson(response, 200, []);
+      if (segments[1] === 'history' && segments[3] === 'continue' && method === 'POST') {
+        return sendJson(response, 200, {
+          instanceId: 'preview-active', sessionId: 'preview-session',
+          historyThreadId: segments[2], restoreMode: 'native-resume',
+        });
+      }
+      if (segments[1] === 'instances' && segments[3] === 'wake' && method === 'POST') {
+        return sendJson(response, 200, { ok: true });
+      }
+      if (segments[1] === 'browser-approvals' && segments[3] === 'respond' && method === 'POST') {
+        return sendJson(response, 200, { ok: true });
+      }
       if (url.pathname === '/api/instances' && method === 'GET') return sendJson(response, 200, state.instances());
       if (url.pathname === '/api/projects' && method === 'GET') return sendJson(response, 200, state.projects());
       if (url.pathname === '/api/prompts' && method === 'GET') return sendJson(response, 200, state.prompts());
@@ -305,7 +323,10 @@ export async function createPreviewHost(options = {}) {
       socket.destroy();
       return;
     }
-    const authorized = state.scenario !== '401' && url.searchParams.get('token') === PREVIEW_DEVICE_TOKEN;
+    const offered = String(request.headers['sec-websocket-protocol'] || '');
+    const bearer = offered.split(',').map((part) => part.trim()).find((part) => part.startsWith('bearer.'));
+    const token = bearer ? bearer.slice('bearer.'.length) : url.searchParams.get('token');
+    const authorized = state.scenario !== '401' && token === PREVIEW_DEVICE_TOKEN;
     if (!authorized) {
       socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
       socket.destroy();

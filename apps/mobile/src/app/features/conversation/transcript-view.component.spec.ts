@@ -53,7 +53,7 @@ describe('Windowed memoised transcript', () => {
       expect(scroll.scrollTop).toBe(5000);
       expect(survivor.getBoundingClientRect().top).toBe(150);
     } finally { animation.mockRestore(); }
-  });
+  }, 60_000);
 
   it('uses scroll extent fallback and releases the anchor when every old display item was rekeyed', async () => {
     const tool = { ...messages[1], type: 'tool_use' as const, timestamp: 1_750_000_001_000 };
@@ -80,7 +80,7 @@ describe('Windowed memoised transcript', () => {
     fixture.componentRef.setInput('messages', [...merged, { ...messages[2], timestamp: tool.timestamp + 1000 }]);
     await fixture.whenStable();
     expect(scroll.scrollTop).toBe(600);
-  });
+  }, 60_000);
   it('resets a pending earlier-message anchor when the transcript identity changes', async () => {
     const fixture = await setup();
     const scroll = fixture.nativeElement.querySelector('.transcript') as HTMLElement;
@@ -91,7 +91,7 @@ describe('Windowed memoised transcript', () => {
     await fixture.whenStable();
     expect(scroll.scrollTop).toBe(10_000);
     expect(fixture.nativeElement.querySelectorAll('.message')).toHaveLength(150);
-  });
+  }, 60_000);
   // Multi-page JSDOM fixtures can exceed 5s under load; keep the real DOM assertions.
   it('keeps the same reveal size when retrying an earlier-page failure', async () => {
     const fixture = await setup();

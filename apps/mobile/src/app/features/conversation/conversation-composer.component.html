@@ -76,6 +76,12 @@
         <app-mobile-icon name="stop" />
       </button>
     }
+    @if (forceCancelOpen()) {
+      <app-mobile-sheet label="Force-cancel" (dismiss)="dismissForceCancel()">
+        <p>This session is already stopping. Force-cancel it? The session ends.</p>
+        <button type="button" (click)="confirmForceCancel()">Force-cancel</button>
+      </app-mobile-sheet>
+    }
     <button type="submit" class="send" [disabled]="!online() || !canSend() || sending()" [attr.aria-label]="sending() ? 'Sending message' : 'Send message'">
       <app-mobile-icon name="arrow-up" />
     </button>

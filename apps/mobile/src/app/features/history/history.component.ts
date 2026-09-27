@@ -16,6 +16,7 @@ import { HostStore } from '../../core/host-store';
 import { MobileBrowseStateStore } from '../../core/mobile-browse-state.store';
 import { newSessionPresetState } from '../new-session/new-session.navigation';
 import type { MobileHistorySessionDto } from '../../core/models';
+import { PullRefreshDirective } from '../../shared/pull-refresh.directive';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
 import {
@@ -40,9 +41,9 @@ interface HistoryGroup {
     '(window:pointerdown)': 'cancelScrollRestore()',
     '(window:keydown)': 'onScrollKey($event)',
   },
-  imports: [MobileHeaderComponent, MobileIconComponent, MobileSessionRowComponent],
+  imports: [MobileHeaderComponent, MobileIconComponent, MobileSessionRowComponent, PullRefreshDirective],
   template: `
-    <section class="history-screen">
+    <section class="history-screen" appPullRefresh (refresh)="pullRefresh()">
       <app-mobile-header title="History">
         <button
           mobileHeaderLeading
@@ -171,6 +172,11 @@ export class HistoryComponent implements OnInit {
   }
 
   async ngOnInit(): Promise<void> { await this.load(); }
+
+  protected pullRefresh(): void {
+    void this.gateway.refreshSnapshot();
+    void this.load();
+  }
 
   protected async load(): Promise<void> {
     const generation = ++this.loadGeneration;

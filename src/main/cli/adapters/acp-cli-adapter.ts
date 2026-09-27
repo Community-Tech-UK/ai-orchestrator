@@ -2361,6 +2361,16 @@ export class AcpCliAdapter extends BaseCliAdapter {
     });
   }
 
+  /**
+   * True while the live turn has a tool call the agent reported as `pending`
+   * or `in_progress`. Parallel calls settle one at a time, so the last
+   * `tool_result` message is not proof the agent has stopped running tools.
+   * The generic stuck detector reads this (instance-manager.ts).
+   */
+  hasActiveToolCalls(): boolean {
+    return this.currentPromptRequestId !== null && hasActiveAcpToolCall(this.toolCalls.values());
+  }
+
   private refreshCurrentPromptTimeout(): void {
     const id = this.currentPromptRequestId;
     if (!id) return;

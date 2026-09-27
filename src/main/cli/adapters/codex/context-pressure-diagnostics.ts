@@ -29,7 +29,7 @@ export type CodexContextDiagnosticRecord =
   | { kind: 'compaction-rpc'; schemaVersion: 1; at: number; turnSequence: number | null; stage: 'requested' | 'accepted' | 'failed'; lastKnownUsedTokens: number | null }
   | { kind: 'compaction-observed'; schemaVersion: 1; at: number; turnSequence: number | null; requestSequence: number | null; lastKnownUsedTokens: number | null }
   | { kind: 'cost-governor-decision'; schemaVersion: 1; at: number; turnSequence: number | null; action: 'warn' | 'recover' | 'recover-urgent'; spendSinceCompaction: number; contextWindow: number; multiple: number }
-  | { kind: 'cost-recovery'; schemaVersion: 1; at: number; turnSequence: number | null; stage: 'interrupt-requested' | 'interrupt-observed' | 'compaction-observed' | 'continued' | 'paused'; reasonCode?: 'interrupt-unconfirmed' | 'compaction-unobserved' | 'recovery-limit' }
+  | { kind: 'cost-recovery'; schemaVersion: 1; at: number; turnSequence: number | null; stage: 'interrupt-requested' | 'interrupt-observed' | 'compaction-observed' | 'continued' | 'paused'; reasonCode?: 'interrupt-unconfirmed' | 'compaction-unobserved' | 'continuation-failed' | 'recovery-limit' }
   | { kind: 'turn-complete'; schemaVersion: 1; at: number; turnSequence: number; requestSequence: number; rootItems: number; subagentItems: number; observedPayloadBytes: number; peakUsedTokens: number | null; peakPercentage: number | null; compactionsObserved: number; completionStatus: 'completed' | 'interrupted' | 'failed' | 'unknown' };
 
 export interface CodexContextDiagnosticSink {

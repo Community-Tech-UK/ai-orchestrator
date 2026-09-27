@@ -113,9 +113,10 @@ export interface AdapterRuntimeCapabilities {
    * compact at the model/CLI's own threshold and surface that on the output
    * stream (e.g. Claude CLI's headless `--input-format stream-json` mode
    * auto-compacts at the model's internal threshold; Codex app-server emits
-   * a `contextCompaction` item). The shared safety policy still owns cumulative and
-   * occupancy decisions; this flag changes available execution paths, not
-   * policy scope.
+   * a `contextCompaction` item). This flag gates Harness-side extras such as
+   * the 80% delegation-guidance message and the renderer's context banner.
+   * The shared safety policy reads `ProviderContextCapabilities` instead;
+   * `providerAutoCompaction: 'inline'` is what suspends its occupancy actions.
    *
    * Default: false (orchestrator drives compaction).
    */

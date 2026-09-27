@@ -4,6 +4,22 @@ import { IPC_CHANNELS } from '../generated/channels';
 import { createInfrastructureDomain } from '../domains/infrastructure.preload';
 
 describe('infrastructure preload domain', () => {
+  it('wraps a single settings key in the validated SETTINGS_GET payload', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ success: true, data: 'trusted' }),
+      on: vi.fn(),
+      removeListener: vi.fn(),
+    } as unknown as IpcRenderer;
+    const domain = createInfrastructureDomain(ipcRenderer, IPC_CHANNELS);
+
+    await domain.getSetting('computerUseAutonomyLevel');
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+      IPC_CHANNELS.SETTINGS_GET,
+      { key: 'computerUseAutonomyLevel' },
+    );
+  });
+
   it('exposes stateResync for the renderer generic invoke mapping', async () => {
     const ipcRenderer = {
       invoke: vi.fn().mockResolvedValue({ success: true, data: { seq: 1 } }),

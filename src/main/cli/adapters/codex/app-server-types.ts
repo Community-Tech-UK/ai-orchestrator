@@ -292,6 +292,20 @@ export interface TurnSteerResponse {
   turnId?: string;
 }
 
+// ─── Thread Goals ───────────────────────────────────────────────────────────
+
+/**
+ * A thread goal set by the model's `create_goal` tool. While one is `active`,
+ * Codex starts a continuation turn itself whenever the thread goes idle.
+ */
+export type ThreadGoalStatus = 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete';
+
+export interface ThreadGoal {
+  threadId: string;
+  objective: string;
+  status: ThreadGoalStatus;
+}
+
 /**
  * A raw Responses API message appended to the thread's model-visible history
  * by `thread/inject_items`. Harness uses the `developer` role so its own
@@ -466,6 +480,8 @@ export type AppServerNotificationMethod =
   | 'item/reasoning/textDelta'
   | 'serverRequest/resolved'
   | 'account/rateLimits/updated'
+  | 'thread/goal/updated'
+  | 'thread/goal/cleared'
   | 'error';
 
 // ─── Method Map (for typed request/response) ────────────────────────────────
@@ -485,6 +501,8 @@ export interface AppServerMethodMap {
   'turn/steer': { params: TurnSteerParams; result: TurnSteerResponse };
   'thread/inject_items': { params: ThreadInjectItemsParams; result: ThreadInjectItemsResponse };
   'turn/interrupt': { params: TurnInterruptParams; result: TurnInterruptResponse };
+  'thread/goal/get': { params: { threadId: string }; result: { goal: ThreadGoal | null } };
+  'thread/goal/set': { params: { threadId: string; status?: ThreadGoalStatus }; result: { goal: ThreadGoal } };
   /** Identity for the signed-in account. Parsed with `parseCodexAccountRead`. */
   'account/read': { params: { refreshToken?: boolean }; result: unknown };
   /** Current rate-limit windows. Parsed with `parseCodexAccountRateLimitsRead`. */

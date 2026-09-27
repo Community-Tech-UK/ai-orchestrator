@@ -51,6 +51,16 @@ function button(fixture: ComponentFixture<TerminateConfirmDialogComponent>, cls:
   return el as HTMLButtonElement;
 }
 
+function pressTab(target: HTMLElement): KeyboardEvent {
+  const event = new KeyboardEvent('keydown', {
+    key: 'Tab',
+    bubbles: true,
+    cancelable: true,
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
 describe('TerminateConfirmDialogComponent (Decision 16b)', () => {
   beforeEach(() => terminateInstance.mockClear());
 
@@ -145,6 +155,24 @@ describe('TerminateConfirmDialogComponent (Decision 16b)', () => {
     store.request('i1');
     fixture.detectChanges();
     expect(document.activeElement).toBe(fixture.nativeElement.querySelector('.confirm-dialog'));
+  });
+
+  it('keeps Tab focus inside the modal actions', () => {
+    const { fixture, store } = mount();
+    store.request('i1');
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('.confirm-dialog') as HTMLElement;
+    const keepRunning = button(fixture, '.btn-cancel');
+    const closeSession = button(fixture, '.btn-confirm');
+
+    expect(document.activeElement).toBe(dialog);
+    expect(pressTab(dialog).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(keepRunning);
+    expect(pressTab(keepRunning).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(closeSession);
+    expect(pressTab(closeSession).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(keepRunning);
   });
 
   it('a click on the backdrop dismisses', () => {

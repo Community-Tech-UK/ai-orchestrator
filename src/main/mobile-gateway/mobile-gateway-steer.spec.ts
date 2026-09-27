@@ -22,6 +22,10 @@ describe('Mobile steering HTTP boundary', () => {
       recordInputRequiredPermissionDecision: vi.fn(), clearPendingInputRequiredPermission: vi.fn(),
       renameInstance: vi.fn(), changeModel: vi.fn(), createInstance: vi.fn(),
       getOrchestrationHandler: () => Object.assign(new EventEmitter(), { respondToUserAction: vi.fn() }),
+      restoreFromHistory: vi.fn(async (entryId: string) => ({
+        instanceId: 'restored', sessionId: 'session', historyThreadId: entryId, restoreMode: 'native-resume' as const,
+      })),
+      wakeInstance: vi.fn(async () => undefined),
     });
     const registry = new MobileDeviceRegistry({ load: () => undefined, save: () => undefined });
     const pause = Object.assign(new EventEmitter(), {

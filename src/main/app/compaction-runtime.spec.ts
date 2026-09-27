@@ -77,30 +77,6 @@ describe('setupCompactionCoordinator', () => {
     vi.restoreAllMocks();
   });
 
-  it('applies the spend-recovery limit settings at startup and when either one changes', () => {
-    const values: Record<string, number> = {
-      contextSpendRecoveryMinOccupancyPercent: 40,
-      contextSpendRecoveryBackstopMultiple: 12,
-    };
-    settingsManagerMock.get.mockImplementation(((key: string) => values[key] ?? 0) as () => number);
-    const setLimits = vi.spyOn(CompactionCoordinator.getInstance(), 'setCumulativeRecoveryLimits');
-
-    setupCompactionCoordinator({} as InstanceManager, makeWindowManager());
-    expect(setLimits).toHaveBeenLastCalledWith({ minOccupancyPercent: 40, backstopMultiple: 12 });
-
-    const listeners = settingsManagerMock.on.mock.calls
-      .filter(([event]) => event === 'setting-changed')
-      .map(([, listener]) => listener as (key: string) => void);
-    setLimits.mockClear();
-    listeners.forEach((listener) => listener('fontSize'));
-    expect(setLimits).not.toHaveBeenCalled();
-
-    values['contextSpendRecoveryBackstopMultiple'] = 20;
-    listeners.forEach((listener) => listener('contextSpendRecoveryBackstopMultiple'));
-    expect(setLimits).toHaveBeenCalledOnce();
-    expect(setLimits).toHaveBeenLastCalledWith({ minOccupancyPercent: 40, backstopMultiple: 20 });
-  });
-
   it('uses adapter compactContext directly when the adapter exposes a programmatic hook', async () => {
     const compactContext = vi.fn(async () => true);
     const sendInput = vi.fn(async () => undefined);

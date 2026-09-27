@@ -165,7 +165,8 @@ describe('the confirmation itself', () => {
 
   it('the overlay Escape binding is not decorative — the dialog takes focus', () => {
     expect(DIALOG).toContain('(keydown.escape)="');
-    expect(DIALOG).toContain('nativeElement.focus()');
+    expect(DIALOG).toContain('createFocusTrap(dialog, { initialFocus: dialog })');
+    expect(DIALOG).toContain('this.focusTrap.activate()');
   });
 
   /**

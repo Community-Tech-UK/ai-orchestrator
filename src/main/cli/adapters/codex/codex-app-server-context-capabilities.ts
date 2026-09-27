@@ -17,6 +17,10 @@ export function buildCodexAppServerContextCapabilities(
     interruptProof: 'observed',
     compactionProof: 'observed',
     sameThreadContinuation: true,
+    // Codex compacts inside the running turn at 90% of the window. Harness's
+    // own 70/75/80% actions pre-empted it with turn interrupts and replaced
+    // turns. t3code, another Codex app-server client, leaves compaction to Codex.
+    providerAutoCompaction: 'inline',
   };
 }
 

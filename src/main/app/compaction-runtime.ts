@@ -209,19 +209,6 @@ export function setupCompactionCoordinator(
   applyCumulativeTrigger();
   settings.on('setting-changed', applyCumulativeTrigger);
 
-  const applyCumulativeRecoveryLimits = () => {
-    coordinator.setCumulativeRecoveryLimits({
-      minOccupancyPercent: settings.get('contextSpendRecoveryMinOccupancyPercent'),
-      backstopMultiple: settings.get('contextSpendRecoveryBackstopMultiple'),
-    });
-  };
-  applyCumulativeRecoveryLimits();
-  settings.on('setting-changed', (key: string) => {
-    if (key === 'contextSpendRecoveryMinOccupancyPercent' || key === 'contextSpendRecoveryBackstopMultiple') {
-      applyCumulativeRecoveryLimits();
-    }
-  });
-
   coordinator.configure({
     getContextCapabilities: (instanceId: string) => {
       const adapter = instanceManager.getAdapter(instanceId) as NativeCompactionAdapter | undefined;

@@ -555,66 +555,6 @@ export class AutoTitleService {
       return null;
     }
 
-    let cliType: Awaited<ReturnType<typeof resolveCliType>> | null = null;
-    // Same lever as every other automatic-selection site (magic prompts,
-    // scaffolding, cross-model review, …): a provider the operator barred from
-    // automatic pick (e.g. a work-scoped Copilot seat) must not be silently
-    // borrowed for background title generation either.
-    const candidates = filterProvidersForAutomation(FAST_PROVIDER_PREFERENCE, 'autoTitle');
-    for (const candidate of candidates) {
-      try {
-        const info = await isCliAvailable(candidate);
-        if (info.installed) {
-          cliType = await resolveCliType(candidate);
-          break;
-        }
-      } catch {
-        // Skip unavailable providers
-      }
-    }
-
-    if (!cliType) {
-      // Persisted, not debug: every exit from here down used to be invisible, so
-      // an escalation that silently produced nothing was indistinguishable from
-      // one that never ran. That is the LT-533 fault.
-      logger.warn('AI title escalation abandoned — no fast-tier CLI available', {
-        tried: [...FAST_PROVIDER_PREFERENCE],
-      });
-      return null;
-    }
-
-    const model = resolveModelForTier('fast', cliType);
-
-    // Copilot account routing: title generation runs unattended, so it uses
-    // the `internal` origin and is blocked for a manual-only profile.
-    const titleSpawnOptions = await attachProviderRoutes(
-      cliType,
-      {
-        workingDirectory: process.cwd(),
-        model,
-        systemPrompt: CLI_TITLE_SYSTEM_PROMPT,
-        // One-shot, no tools: replace the CLI's default system prompt instead
-        // of appending — inheriting the full default prompt would add cost and
-        // latency to every title generation for no benefit.
-        systemPromptMode: 'replace' as const,
-        yoloMode: false,
-        timeout: AI_TITLE_TIMEOUT,
-      },
-      'internal',
-    );
-    const adapter = getProviderRuntimeService().createAdapter({
-      cliType,
-      options: titleSpawnOptions,
-    });
-
-    if (!hasSendMessage(adapter)) {
-      logger.warn('AI title escalation abandoned — CLI adapter cannot do a one-shot send', {
-        cliType,
-        model,
-      });
-      return null;
-    }
-
     const attachmentLine = labels.length > 0
       ? `\n\nAttached file${labels.length > 1 ? 's' : ''}: ${labels.join(', ')}`
       : '';
@@ -622,60 +562,89 @@ export class AutoTitleService {
       ? modelMessage
       : '(no message text — the task is about the attached file)';
     const userInstruction = `${CLI_TITLE_USER_INSTRUCTION}\n\n${messageBlock}${attachmentLine}`;
+    const candidates = filterProvidersForAutomation(FAST_PROVIDER_PREFERENCE, 'autoTitle');
+    let resolvedAnyCli = false;
+    for (const candidate of candidates) {
+      let cliType: Awaited<ReturnType<typeof resolveCliType>>;
+      try {
+        const info = await isCliAvailable(candidate);
+        if (!info.installed) continue;
+        cliType = await resolveCliType(candidate);
+      } catch {
+        continue;
+      }
+      resolvedAnyCli = true;
+      const model = resolveModelForTier('fast', cliType);
+      let titleSpawnOptions;
+      let adapter: CliAdapter;
+      try {
+        titleSpawnOptions = await attachProviderRoutes(cliType, {
+          workingDirectory: process.cwd(),
+          model,
+          systemPrompt: CLI_TITLE_SYSTEM_PROMPT,
+          systemPromptMode: 'replace' as const,
+          yoloMode: false,
+          timeout: AI_TITLE_TIMEOUT,
+        }, 'internal');
+        adapter = getProviderRuntimeService().createAdapter({ cliType, options: titleSpawnOptions });
+      } catch (error) {
+        logger.warn('AI title escalation provider setup failed', {
+          cliType, model, error: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
+      if (!hasSendMessage(adapter)) {
+        logger.warn('AI title escalation abandoned — CLI adapter cannot do a one-shot send', {
+          cliType, model,
+        });
+        continue;
+      }
 
-    const send = async () => {
-      const result = await runCorrelatedPaidFrontierCall(() => adapter.sendMessage!({
-        role: 'user',
-        content: userInstruction,
-      }));
-      const usage = cliType === 'antigravity' && result.usage?.inputTokens === 0
-        ? { ...result.usage, inputTokens: undefined }
-        : result.usage;
-      recordCorrelatedFrontierAttribution({
-        taskType: 'aux:titleGeneration',
-        provider: cliType,
-        model,
-        inputTexts: [CLI_TITLE_SYSTEM_PROMPT, userInstruction],
-        outputText: result.content,
-        usage,
+      const startedAt = Date.now();
+      let response: { content: string };
+      try {
+        response = await runAuthorizedFrontierFallback(fallbackDecision, async () => {
+          const result = await runCorrelatedPaidFrontierCall(() => adapter.sendMessage({
+            role: 'user', content: userInstruction,
+          }));
+          const usage = cliType === 'antigravity' && result.usage?.inputTokens === 0
+            ? { ...result.usage, inputTokens: undefined }
+            : result.usage;
+          recordCorrelatedFrontierAttribution({
+            taskType: 'aux:titleGeneration', provider: cliType, model,
+            inputTexts: [CLI_TITLE_SYSTEM_PROMPT, userInstruction], outputText: result.content, usage,
+          });
+          return result;
+        });
+      } catch (error) {
+        logger.warn('AI title escalation failed', {
+          cliType, model, elapsedMs: Date.now() - startedAt, timeoutMs: AI_TITLE_TIMEOUT,
+          workingDirectory: titleSpawnOptions.workingDirectory,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
+
+      const cliTitle = finalizeDocumentTitle(response.content, modelMessage, labels, documentSubject);
+      if (!cliTitle) {
+        logger.warn('AI title escalation returned unusable output', {
+          cliType, model, elapsedMs: Date.now() - startedAt,
+          outputLength: response.content?.length ?? 0,
+        });
+        return null;
+      }
+      logger.info('AI title generated via CLI escalation', {
+        cliType, model, elapsedMs: Date.now() - startedAt,
       });
-      return result;
-    };
-    let response: { content: string };
-    const startedAt = Date.now();
-    try {
-      response = await runAuthorizedFrontierFallback(fallbackDecision, send);
-    } catch (error) {
-      // `workingDirectory` is logged because a packaged app's `process.cwd()` is
-      // not a sensible cwd for a spawned CLI and is a live suspect for this
-      // failure — recorded rather than changed on a hypothesis (LT-533).
-      logger.warn('AI title escalation failed', {
-        cliType,
-        model,
-        elapsedMs: Date.now() - startedAt,
-        timeoutMs: AI_TITLE_TIMEOUT,
-        workingDirectory: titleSpawnOptions.workingDirectory,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
+      return cliTitle;
     }
 
-    const cliTitle = finalizeDocumentTitle(response.content, modelMessage, labels, documentSubject);
-    if (!cliTitle) {
-      logger.warn('AI title escalation returned unusable output', {
-        cliType,
-        model,
-        elapsedMs: Date.now() - startedAt,
-        outputLength: response.content?.length ?? 0,
+    if (!resolvedAnyCli) {
+      logger.warn('AI title escalation abandoned — no fast-tier CLI available', {
+        tried: [...FAST_PROVIDER_PREFERENCE],
       });
-      return null;
     }
-    logger.info('AI title generated via CLI escalation', {
-      cliType,
-      model,
-      elapsedMs: Date.now() - startedAt,
-    });
-    return cliTitle;
+    return null;
   }
 
   /**

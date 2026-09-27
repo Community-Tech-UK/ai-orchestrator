@@ -15,7 +15,7 @@ import type {
   UserInput,
 } from './app-server-types';
 import type { CodexOutputLimitState } from './codex-app-server-spawn-policy';
-import { CodexAppServerRuntimeError } from './app-server-runtime-errors';
+import { CodexAppServerRuntimeError, isEmptyInputSteerRejection } from './app-server-runtime-errors';
 
 export type CodexAppServerConnectionPhase =
   | 'detached'
@@ -25,6 +25,12 @@ export type CodexAppServerConnectionPhase =
   | 'failed';
 
 export type CodexAppServerTurnPhase = 'idle' | 'starting' | 'running' | 'interrupting';
+
+/**
+ * Who started the active turn. `provider` turns were started by Codex itself,
+ * e.g. a thread-goal continuation, and are followed rather than requested.
+ */
+export type CodexAppServerTurnOrigin = 'harness' | 'provider';
 
 export interface CodexAppServerThreadBinding {
   threadId: string;
@@ -59,7 +65,19 @@ export interface CodexAppServerRuntimeClient {
   getOutputLimitState?(): CodexOutputLimitState;
 }
 
-export interface CaptureCodexTurnOptions {
+/** Callbacks shared by Harness-started and provider-started turn capture. */
+export interface CodexTurnCaptureCallbacks {
+  createState(threadId: string): TurnCaptureState;
+  belongsToTurn(state: TurnCaptureState, notification: AppServerNotification): boolean;
+  handleNotification(state: TurnCaptureState, notification: AppServerNotification): void;
+  toInterruptCompletion(state: TurnCaptureState): TurnInterruptCompletion;
+  resolveNotificationIdleTimeoutMs(turnEstablished: boolean): number;
+  hasPendingApproval(): boolean;
+  onHeartbeat(): void;
+  onAbandonedTurn(): void;
+}
+
+export interface CaptureCodexTurnOptions extends CodexTurnCaptureCallbacks {
   input: UserInput[];
   /**
    * Harness-authored turn text (LT-657). Appended as a developer-role item
@@ -68,15 +86,7 @@ export interface CaptureCodexTurnOptions {
    */
   developerInput?: string;
   turnParams: Record<string, unknown>;
-  createState(threadId: string): TurnCaptureState;
-  belongsToTurn(state: TurnCaptureState, notification: AppServerNotification): boolean;
-  handleNotification(state: TurnCaptureState, notification: AppServerNotification): void;
   completeTurn(state: TurnCaptureState, turn: TurnCaptureState['finalTurn']): void;
-  toInterruptCompletion(state: TurnCaptureState): TurnInterruptCompletion;
-  resolveNotificationIdleTimeoutMs(turnEstablished: boolean): number;
-  hasPendingApproval(): boolean;
-  onHeartbeat(): void;
-  onAbandonedTurn(): void;
 }
 
 interface PendingInterrupt {
@@ -88,6 +98,7 @@ interface PendingInterrupt {
 interface ActiveTurn {
   state: TurnCaptureState;
   turnId: string | null;
+  origin: CodexAppServerTurnOrigin;
   completionProof: Promise<TurnInterruptCompletion>;
   pendingInterrupt: PendingInterrupt | null;
 }
@@ -175,6 +186,7 @@ export class CodexAppServerThreadRuntime {
   getClient(): CodexAppServerRuntimeClient | null { return this.client; }
   getThreadId(): string | null { return this.binding?.threadId ?? null; }
   getCurrentTurnId(): string | null { return this.activeTurn?.turnId ?? null; }
+  getActiveTurnOrigin(): CodexAppServerTurnOrigin | null { return this.activeTurn?.origin ?? null; }
   hasActiveTurn(): boolean { return this.activeTurn !== null; }
   isRunning(): boolean { return this.connectionPhase === 'ready' && (this.client?.isRunning?.() ?? true); }
   getPid(): number | null { return this.isRunning() ? this.client?.getPid?.() ?? null : null; }
@@ -205,6 +217,40 @@ export class CodexAppServerThreadRuntime {
       throw error;
     }
     return true;
+  }
+
+  /**
+   * Delivers Harness input into the running provider turn: developer text via
+   * `thread/inject_items`, user text via `turn/steer` pinned to that turn.
+   * `delivered` is false when there is no such turn or it ended while a request
+   * was in flight; `developerInjected` then says whether the developer item
+   * already reached the thread history, so the caller must not send it again.
+   */
+  async steerProviderTurn(
+    input: UserInput[],
+    developerInput?: string,
+  ): Promise<{ delivered: boolean; developerInjected: boolean }> {
+    const client = this.client;
+    const threadId = this.binding?.threadId;
+    const active = this.activeTurn;
+    const turnId = active?.turnId;
+    let developerInjected = false;
+    if (!client || !threadId || !active || !turnId || active.origin !== 'provider' || active.state.completed) {
+      return { delivered: false, developerInjected };
+    }
+    try {
+      if (developerInput) {
+        await client.request('thread/inject_items', { threadId, items: [developerMessageItem(developerInput)] });
+        developerInjected = true;
+      }
+      if (input.length > 0) {
+        await client.request('turn/steer', { threadId, expectedTurnId: turnId, input });
+      }
+    } catch (error) {
+      if (this.activeTurn !== active || active.state.completed) return { delivered: false, developerInjected };
+      throw error;
+    }
+    return { delivered: true, developerInjected };
   }
 
   getSnapshot(): CodexAppServerRuntimeSnapshot {
@@ -246,6 +292,88 @@ export class CodexAppServerThreadRuntime {
   }
 
   async captureTurn(options: CaptureCodexTurnOptions): Promise<TurnCaptureState> {
+    const { client, threadId } = this.requireIdleConnection();
+    const active = this.beginActiveTurn(options, 'harness');
+    return this.runCapture(active, client, threadId, options, async (capture) => {
+      if (options.developerInput) {
+        await client.request('thread/inject_items', { threadId, items: [developerMessageItem(options.developerInput)] });
+      }
+      let turnResult: AppServerResponseResult<'turn/start'>;
+      try {
+        turnResult = await Promise.race<AppServerResponseResult<'turn/start'>>([
+          client.request('turn/start', {
+            ...options.turnParams,
+            threadId,
+            input: options.input,
+          } as AppServerRequestParams<'turn/start'>),
+          new Promise<never>((_, reject) => { void active.state.completion.catch(reject); }),
+          client.exitPromise.then(() => {
+            throw this.transportClosedError(client, 'during turn/start');
+          }) as Promise<never>,
+        ]);
+      } catch (error) {
+        // `turn/start` steers into a turn Codex started on its own (a goal
+        // continuation), and Codex rejects an empty steer. The developer item
+        // injected above already reached that turn, so follow it instead.
+        if (!options.developerInput || !isEmptyInputSteerRejection(error)) throw error;
+        const runningTurnId = active.turnId ?? await this.findInProgressTurnId(client, threadId);
+        if (!runningTurnId) throw error;
+        turnResult = { turn: { id: runningTurnId, status: 'inProgress' } };
+      }
+
+      const responseTurnId = turnResult.turn?.id;
+      if (responseTurnId) this.establishTurn(active, threadId, responseTurnId);
+      capture.flushBuffered();
+
+      if (turnResult.turn?.status && turnResult.turn.status !== 'inProgress') {
+        options.completeTurn(active.state, turnResult.turn);
+      }
+    });
+  }
+
+  /**
+   * Follows a turn Codex started without a Harness request, such as a
+   * thread-goal continuation. Without this the turn's output never reached the
+   * transcript and the session read as idle while it worked (xqs4fg7sl).
+   * Returns null when a turn is already being captured.
+   */
+  captureProviderTurn(
+    turnId: string,
+    options: CodexTurnCaptureCallbacks,
+    startedNotification?: AppServerNotification,
+  ): Promise<TurnCaptureState> | null {
+    const client = this.client;
+    const threadId = this.binding?.threadId;
+    if (!client || !threadId || this.connectionPhase !== 'ready' || this.activeTurn) return null;
+    const active = this.beginActiveTurn(options, 'provider');
+    this.establishTurn(active, threadId, turnId);
+    if (startedNotification) options.handleNotification(active.state, startedNotification);
+    return this.runCapture(active, client, threadId, options, async () => undefined);
+  }
+
+  async close(): Promise<void> {
+    const client = this.client;
+    if (!client || this.connectionPhase === 'closed') return;
+    this.connectionPhase = 'closing';
+    this.bumpRevision();
+    this.connectionUnsubscribe?.();
+    this.connectionUnsubscribe = null;
+    this.failActiveTurn(new Error('Codex app-server runtime closed'));
+    try {
+      await client.close?.();
+    } finally {
+      if (this.client === client) {
+        this.client = null;
+        this.binding = null;
+        this.activeTurn = null;
+        this.turnPhase = 'idle';
+        this.connectionPhase = 'closed';
+        this.bumpRevision();
+      }
+    }
+  }
+
+  private requireIdleConnection(): { client: CodexAppServerRuntimeClient; threadId: string } {
     const client = this.client;
     const threadId = this.binding?.threadId;
     if (!client || !threadId || this.connectionPhase !== 'ready') {
@@ -262,7 +390,11 @@ export class CodexAppServerThreadRuntime {
         recoverability: 'retry-thread',
       });
     }
+    return { client, threadId };
+  }
 
+  private beginActiveTurn(options: CodexTurnCaptureCallbacks, origin: CodexAppServerTurnOrigin): ActiveTurn {
+    const threadId = this.binding!.threadId;
     const state = options.createState(threadId);
     const completionProof = state.completion
       .then(options.toInterruptCompletion)
@@ -271,16 +403,31 @@ export class CodexAppServerThreadRuntime {
         turnId: state.turnId ?? undefined,
         reason: error instanceof Error ? error.message : String(error),
       }));
-    const active: ActiveTurn = { state, turnId: null, completionProof, pendingInterrupt: null };
+    const active: ActiveTurn = { state, turnId: null, origin, completionProof, pendingInterrupt: null };
     this.activeTurn = active;
     this.turnPhase = 'starting';
     this.bumpRevision();
+    return active;
+  }
 
+  /**
+   * Routes notifications to the active turn, arms the stall watchdog, runs
+   * `start`, then waits for completion. Always releases the turn slot.
+   */
+  private async runCapture(
+    active: ActiveTurn,
+    client: CodexAppServerRuntimeClient,
+    threadId: string,
+    options: CodexTurnCaptureCallbacks,
+    start: (capture: { flushBuffered(): void }) => Promise<void>,
+  ): Promise<TurnCaptureState> {
+    const state = active.state;
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     let turnEstablished = false;
     const armIdleWatchdog = () => {
       if (idleTimer) clearTimeout(idleTimer);
-      const timeoutMs = options.resolveNotificationIdleTimeoutMs(turnEstablished);
+      // A known turn id proves the turn started, even if its turn/started was missed.
+      const timeoutMs = options.resolveNotificationIdleTimeoutMs(turnEstablished || active.turnId !== null);
       idleTimer = setTimeout(() => {
         if (state.completed) return;
         if (options.hasPendingApproval()) {
@@ -328,32 +475,14 @@ export class CodexAppServerThreadRuntime {
 
     try {
       armIdleWatchdog();
-      if (options.developerInput) {
-        await client.request('thread/inject_items', { threadId, items: [developerMessageItem(options.developerInput)] });
-      }
-      const turnResult = await Promise.race<AppServerResponseResult<'turn/start'>>([
-        client.request('turn/start', {
-          ...options.turnParams,
-          threadId,
-          input: options.input,
-        } as AppServerRequestParams<'turn/start'>),
-        new Promise<never>((_, reject) => { void state.completion.catch(reject); }),
-        client.exitPromise.then(() => {
-          throw this.transportClosedError(client, 'during turn/start');
-        }) as Promise<never>,
-      ]);
-
-      const responseTurnId = turnResult.turn?.id;
-      if (responseTurnId) this.establishTurn(active, threadId, responseTurnId);
-
-      for (const buffered of state.bufferedNotifications) {
-        if (options.belongsToTurn(state, buffered)) options.handleNotification(state, buffered);
-      }
-      state.bufferedNotifications.length = 0;
-
-      if (turnResult.turn?.status && turnResult.turn.status !== 'inProgress') {
-        options.completeTurn(state, turnResult.turn);
-      }
+      await start({
+        flushBuffered: () => {
+          for (const buffered of state.bufferedNotifications) {
+            if (options.belongsToTurn(state, buffered)) options.handleNotification(state, buffered);
+          }
+          state.bufferedNotifications.length = 0;
+        },
+      });
       armIdleWatchdog();
 
       return await Promise.race([
@@ -377,25 +506,17 @@ export class CodexAppServerThreadRuntime {
     }
   }
 
-  async close(): Promise<void> {
-    const client = this.client;
-    if (!client || this.connectionPhase === 'closed') return;
-    this.connectionPhase = 'closing';
-    this.bumpRevision();
-    this.connectionUnsubscribe?.();
-    this.connectionUnsubscribe = null;
-    this.failActiveTurn(new Error('Codex app-server runtime closed'));
+  /** The newest turn when Codex reports it still running, else null. */
+  private async findInProgressTurnId(
+    client: CodexAppServerRuntimeClient,
+    threadId: string,
+  ): Promise<string | null> {
     try {
-      await client.close?.();
-    } finally {
-      if (this.client === client) {
-        this.client = null;
-        this.binding = null;
-        this.activeTurn = null;
-        this.turnPhase = 'idle';
-        this.connectionPhase = 'closed';
-        this.bumpRevision();
-      }
+      const turns = await client.request('thread/turns/list', { threadId, limit: 1, sortDirection: 'desc' });
+      const latest = turns.data[0];
+      return latest?.status === 'inProgress' ? latest.id : null;
+    } catch {
+      return null;
     }
   }
 

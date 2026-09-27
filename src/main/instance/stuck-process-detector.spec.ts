@@ -9,7 +9,7 @@ vi.mock('../logging/logger', () => ({
   }),
 }));
 
-import { StuckProcessDetector } from './stuck-process-detector';
+import { adapterHasActiveToolCalls, StuckProcessDetector } from './stuck-process-detector';
 
 describe('StuckProcessDetector', () => {
   let detector: StuckProcessDetector;
@@ -500,6 +500,76 @@ describe('StuckProcessDetector', () => {
         expect.objectContaining({ instanceId: 'inst-1', state: 'generating' })
       );
       expect(hardHandler).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('provider-reported active tool call', () => {
+    let toolDetector: StuckProcessDetector;
+    const activeTools = new Set<string>();
+
+    beforeEach(() => {
+      toolDetector = new StuckProcessDetector({
+        isProcessAlive: () => true,
+        hasActiveToolCall: (id) => activeTools.has(id),
+        getTimeoutMultiplier: () => 1,
+      });
+    });
+
+    afterEach(() => {
+      toolDetector.shutdown();
+      activeTools.clear();
+    });
+
+    it('keeps the tool grace when a parallel sibling settles first (ix8csfgps)', () => {
+      // Two OpenCode `task` sub-agents ran in parallel. The first result flipped
+      // the tracker to `generating` while the other still ran silently, and the
+      // session was killed ~482s later at the alive `generating` hard timeout.
+      const softHandler = vi.fn();
+      const hardHandler = vi.fn();
+      toolDetector.on('process:suspect-stuck', softHandler);
+      toolDetector.on('process:stuck', hardHandler);
+      toolDetector.startTracking('inst-1');
+      toolDetector.updateState('inst-1', 'tool_executing');
+      activeTools.add('inst-1');
+      toolDetector.updateState('inst-1', 'generating'); // sibling's tool_result
+
+      vi.advanceTimersByTime(900_000);
+      expect(softHandler).not.toHaveBeenCalled();
+      expect(hardHandler).not.toHaveBeenCalled();
+    });
+
+    it('still escalates past the tool grace ceiling', () => {
+      const hardHandler = vi.fn();
+      toolDetector.on('process:stuck', hardHandler);
+      toolDetector.startTracking('inst-1');
+      toolDetector.updateState('inst-1', 'generating');
+      activeTools.add('inst-1');
+
+      vi.advanceTimersByTime(2_410_000); // alive tool_executing hard = 1200s × 2
+      expect(hardHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ instanceId: 'inst-1', state: 'tool_executing' })
+      );
+    });
+
+    it('uses the generating thresholds once no tool call is active', () => {
+      const hardHandler = vi.fn();
+      toolDetector.on('process:stuck', hardHandler);
+      toolDetector.startTracking('inst-1');
+      toolDetector.updateState('inst-1', 'generating');
+
+      vi.advanceTimersByTime(490_000); // alive generating hard = 240s × 2
+      expect(hardHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ instanceId: 'inst-1', state: 'generating' })
+      );
+    });
+  });
+
+  describe('adapterHasActiveToolCalls', () => {
+    it('reads the adapter only when it can report in-flight tool calls', () => {
+      expect(adapterHasActiveToolCalls(undefined)).toBe(false);
+      expect(adapterHasActiveToolCalls({ isRunning: () => true })).toBe(false);
+      expect(adapterHasActiveToolCalls({ hasActiveToolCalls: () => false })).toBe(false);
+      expect(adapterHasActiveToolCalls({ hasActiveToolCalls: () => true })).toBe(true);
     });
   });
 

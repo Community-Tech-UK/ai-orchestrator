@@ -121,6 +121,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       compactionRunningTimeoutMs: CODEX_TIMEOUTS.COMPACTION_RUNNING_MS,
       compactionHeartbeatMs: CODEX_TIMEOUTS.EXEC_LIVENESS_HEARTBEAT_MS,
       interrupt: () => this.interrupt(),
+      hasActiveTurn: () => this.appServerRuntime.hasActiveTurn(),
       getCompactionTarget: () => this.getAppServerClient() && this.getAppServerThreadId() && this.useAppServer
         ? {
             threadId: this.getAppServerThreadId()!,
@@ -297,10 +298,10 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       return;
     }
     const threadId = this.getAppServerThreadId();
-    const signal = this.contextCostController.acceptCompactionSignal(notification, threadId);
+    const signal = this.contextCostController.acceptCompactionSignal(notification, threadId, this.appServerRuntime.getCurrentTurnId());
     this.providerCompactionPresentation.updateTurnId(this.contextCostController.runningCompactionTurnId());
     if (!signal || !threadId) return;
-    if (signal === 'started') return;
+    if (signal === 'started' || signal === 'inline-started') return;
     if (signal === 'completed' || signal === 'observed-running') {
       this.contextDiagnostics?.recordCompactionObserved();
       this.handleObservedThreadCompaction(threadId, signal === 'completed');
@@ -579,7 +580,6 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     });
   }
 
-
   protected override async sendInputImpl(
     message: string,
     attachments?: FileAttachment[],
@@ -664,7 +664,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       supportsResume: this.supportsNativeResume(),
       supportsForkSession: false,
       supportsNativeCompaction: this.useAppServer,
-      selfManagedAutoCompaction: false,
+      selfManagedAutoCompaction: this.useAppServer, // compacts inline at 90%; see context capabilities
       supportsPermissionPrompts: this.useAppServer,
       supportsDeferPermission: false,
     };

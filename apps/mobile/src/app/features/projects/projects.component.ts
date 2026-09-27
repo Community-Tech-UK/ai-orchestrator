@@ -17,11 +17,13 @@ import {
   offlineBannerText,
 } from '../../core/connection-status';
 import { GatewayClient } from '../../core/gateway-client.service';
+import { PinnedProjectsService } from '../../core/pinned-projects.service';
 import { HostStore } from '../../core/host-store';
 import { MobileBrowseStateStore } from '../../core/mobile-browse-state.store';
 import { newSessionPresetState } from '../new-session/new-session.navigation';
 import type { MobileRecentDirDto } from '../../core/models';
 import { NeedsYouStore } from '../inbox/needs-you.store';
+import { PullRefreshDirective } from '../../shared/pull-refresh.directive';
 import { UsageComponent } from '../usage/usage.component';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
@@ -37,6 +39,7 @@ import {
   newSessionNavigation,
   projectComposeAriaLabel,
   projectSummary,
+  orderPinnedGroups,
   projectParentLabel,
   projectSessionPreview,
   reconcileProjectGroupUpdate,
@@ -77,9 +80,10 @@ export function projectsEmptyStateTitle(
     MobileIconComponent,
     MobileSessionRowComponent,
     UsageComponent,
+    PullRefreshDirective,
   ],
   template: `
-    <section class="projects-screen">
+    <section class="projects-screen" appPullRefresh (refresh)="pullRefresh()">
       <app-mobile-header
         title="Harness"
         [subtitle]="hostSubtitle()"
@@ -152,6 +156,21 @@ export function projectsEmptyStateTitle(
             <span class="projects-menu__icon"></span>
             <app-mobile-icon name="play" />
             <span>Automations</span>
+          </button>
+          <button type="button" (click)="openAway('/loops')">
+            <span class="projects-menu__icon"></span>
+            <app-mobile-icon name="play" />
+            <span>Loops</span>
+          </button>
+          <button type="button" (click)="openAway('/plan-queue')">
+            <span class="projects-menu__icon"></span>
+            <app-mobile-icon name="history" />
+            <span>Plan queue</span>
+          </button>
+          <button type="button" (click)="openAway('/reviews')">
+            <span class="projects-menu__icon"></span>
+            <app-mobile-icon name="warning" />
+            <span>Reviews</span>
           </button>
           <button type="button" (click)="toHosts()">
             <span class="projects-menu__icon"></span>
@@ -253,6 +272,9 @@ export function projectsEmptyStateTitle(
                       <app-mobile-icon name="chevron-down" />
                     </span>
                   </button>
+                  <button type="button" class="project-pin mobile-icon-button" (click)="pins.toggle(hostId(), group.project.key)" [attr.aria-pressed]="pins.has(hostId(), group.project.key)" [attr.aria-label]="pins.has(hostId(), group.project.key) ? 'Unpin ' + group.project.name : 'Pin ' + group.project.name">
+                    <app-mobile-icon name="pin" />
+                  </button>
                   <button
                     type="button"
                     class="project-compose mobile-icon-button"
@@ -348,6 +370,7 @@ export class ProjectsComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly browse = inject(MobileBrowseStateStore);
   private readonly needsYou = inject(NeedsYouStore);
+  protected readonly pins = inject(PinnedProjectsService);
   private currentHostId = this.hostStore.activeHost()?.id ?? null;
   private readonly saved = this.browse.read('/projects', this.currentHostId);
   private scrollTop = this.saved.scrollTop;
@@ -385,9 +408,16 @@ export class ProjectsComponent implements OnInit {
       this.recentDirs(),
     ),
   );
-  protected readonly visibleGroups = computed(() =>
+  protected readonly visibleGroups = computed(() => orderPinnedGroups(
     filterProjectGroups(this.renderedGroups(), this.searchQuery(), this.stateFilter()),
-  );
+    this.pins.keysFor(this.hostId()),
+  ));
+  protected hostId(): string { return this.hostStore.activeHost()?.id ?? ''; }
+  protected pullRefresh(): void {
+    void this.gateway.refreshSnapshot();
+    void this.gateway.loadHistory();
+    void this.loadDirectories();
+  }
   protected readonly chronologicalRows = computed(() =>
     flattenChronologicalSessions(this.visibleGroups()),
   );
@@ -616,6 +646,11 @@ export class ProjectsComponent implements OnInit {
   protected openAutomations(): void {
     this.menuOpen.set(false);
     void this.router.navigate(['/automations']);
+  }
+
+  protected openAway(path: string): void {
+    this.menuOpen.set(false);
+    void this.router.navigate([path]);
   }
 
   protected openInbox(): void {

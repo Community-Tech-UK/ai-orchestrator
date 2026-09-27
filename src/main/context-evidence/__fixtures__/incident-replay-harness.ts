@@ -183,6 +183,7 @@ export const PROVIDER_CAPABILITY_MATRIX: Record<string, ProviderContextCapabilit
     interruptProof: 'observed',
     compactionProof: 'observed',
     sameThreadContinuation: true,
+    providerAutoCompaction: 'inline',
   },
   'codex-exec': {
     ...POST_RETENTION_FULL_BASE,

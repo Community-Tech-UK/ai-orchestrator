@@ -740,6 +740,53 @@ describe('InterruptRespawnHandler recovery replay', () => {
     expect(release).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    { label: 'stuck-detector respawn of a busy instance', status: 'busy' as const, torn: true },
+    { label: 'interrupt respawn (the CLI already exited)', status: 'respawning' as const, torn: false },
+  ])('respawnAfterInterrupt: $label → previous adapter torn down: $torn', async ({ status, torn }) => {
+    // The stuck detector respawns a LIVE process. Before the fix the old
+    // OpenCode process kept running beside its replacement (it4rjmax0,
+    // ix8csfgps) and its orphaned prompt later surfaced a phantom failure.
+    const release = vi.fn();
+    mockSessionMutex.acquire.mockImplementation(async () => {
+      mockSessionMutex.getLockInfo.mockReturnValue({
+        source: 'respawn-interrupt', acquiredAt: Date.now(), durationMs: 0,
+      });
+      return release;
+    });
+    const calls: string[] = [];
+    const previousAdapter = makeAdapter({
+      isRunning: vi.fn(() => true),
+      terminate: vi.fn(async () => { calls.push('terminate'); }),
+    });
+    Object.assign(previousAdapter, { removeAllListeners: vi.fn(() => { calls.push('removeAllListeners'); }) });
+    const replacementAdapter = makeAdapter({
+      spawn: vi.fn(async () => { calls.push('spawn'); return 86; }),
+    });
+    mockCreateAdapter.mockReturnValue(replacementAdapter);
+    const instance = makeInstance({
+      status,
+      executionLocation: { type: 'local' },
+      sessionId: 'live-session',
+      outputBuffer: [],
+    });
+    const state: FakeDepsState = {
+      instance,
+      adapter: previousAdapter,
+      queueUpdateCalls: [],
+      outputMessages: [],
+      transitions: [],
+    };
+    const handler = new InterruptRespawnHandler(makeDeps(state));
+
+    await handler.respawnAfterInterrupt('inst-1');
+
+    expect(calls).toEqual(torn ? ['removeAllListeners', 'terminate', 'spawn'] : ['spawn']);
+    if (torn) expect(previousAdapter.terminate).toHaveBeenCalledWith(true);
+    expect(state.adapter).toBe(replacementAdapter);
+    expect(release).toHaveBeenCalledOnce();
+  });
+
   it('queues transcript fallback after native resume fails instead of replaying it under the session lock', async () => {
     const release = vi.fn();
     // Mirror the real mutex: after acquire, getLockInfo reports a holder —

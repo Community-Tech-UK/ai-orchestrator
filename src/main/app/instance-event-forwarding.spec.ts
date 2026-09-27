@@ -272,6 +272,8 @@ describe('setupInstanceEventForwarding', () => {
             compactionMarkerId: 'marker-1',
             isCompactionBoundary: true,
             method: 'self-managed',
+            // The last measured reading, so the one boundary row can say how full it was.
+            previousUsage: { percentage: 25 },
           }),
         }),
       }),

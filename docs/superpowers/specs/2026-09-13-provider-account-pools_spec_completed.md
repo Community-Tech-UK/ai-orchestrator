@@ -1,6 +1,6 @@
 # Provider Account Pools (Claude Code and Codex CLI): Specification
 
-**Status:** IMPLEMENTED (2026-09-15) with the recommended choice for every decision in §15. Live checks are deferred to [2026-09-13-provider-account-pools_livetest.md](../../plans/2026-09-13-provider-account-pools_livetest.md).
+**Status:** IMPLEMENTED (2026-09-15) with the recommended choice for every decision in §15. Live checks are deferred to [2026-09-13-provider-account-pools_livetest_completed.md](../../plans/2026-09-13-provider-account-pools_livetest_completed.md).
 **Date:** 2026-09-13
 **Owner:** James
 **Implementation plan:** [2026-09-13-provider-account-pools_plan_completed.md](../../plans/2026-09-13-provider-account-pools_plan_completed.md)

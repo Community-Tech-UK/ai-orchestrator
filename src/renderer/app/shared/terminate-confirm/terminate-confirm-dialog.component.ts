@@ -19,11 +19,13 @@ import {
   Component,
   ElementRef,
   HostListener,
+  OnDestroy,
   effect,
   inject,
   viewChild,
 } from '@angular/core';
 
+import { createFocusTrap, type FocusTrapHandle } from '../utils/focus-trap';
 import { TerminateConfirmStore } from './terminate-confirm.store';
 
 @Component({
@@ -67,18 +69,31 @@ import { TerminateConfirmStore } from './terminate-confirm.store';
   `,
   styleUrl: './terminate-confirm-dialog.component.scss',
 })
-export class TerminateConfirmDialogComponent {
+export class TerminateConfirmDialogComponent implements OnDestroy {
   protected readonly confirmStore = inject(TerminateConfirmStore);
 
   private readonly dialog = viewChild<ElementRef<HTMLElement>>('dialog');
+  private focusTrap: FocusTrapHandle | null = null;
 
   constructor() {
-    // Focus follows the prompt, so Escape and Tab land where the user is being
-    // asked a question rather than on whatever they were doing before.
+    // Focus follows the prompt and remains inside it until the question is
+    // resolved. The shared trap also restores the element that opened it.
     effect(() => {
-      if (this.confirmStore.pendingId() === null) return;
-      this.dialog()?.nativeElement.focus();
+      const pendingId = this.confirmStore.pendingId();
+      const dialog = this.dialog()?.nativeElement ?? null;
+      if (pendingId === null || !dialog) {
+        this.closeFocusTrap();
+        return;
+      }
+      if (this.focusTrap) return;
+
+      this.focusTrap = createFocusTrap(dialog, { initialFocus: dialog });
+      this.focusTrap.activate();
     });
+  }
+
+  ngOnDestroy(): void {
+    this.closeFocusTrap();
   }
 
   /**
@@ -99,5 +114,11 @@ export class TerminateConfirmDialogComponent {
     if (this.confirmStore.pendingId() === null) return;
     event.preventDefault();
     this.confirmStore.cancel();
+  }
+
+  private closeFocusTrap(): void {
+    this.focusTrap?.deactivate();
+    this.focusTrap?.restore();
+    this.focusTrap = null;
   }
 }

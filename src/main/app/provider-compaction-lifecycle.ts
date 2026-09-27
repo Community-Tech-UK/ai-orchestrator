@@ -5,6 +5,10 @@ import { recordLifecycleTrace } from '../observability/lifecycle-trace';
 
 const logger = getLogger('InstanceEventForwarding');
 
+/** More compactions than this within an hour is a storm worth investigating (xqs4fg7sl ran ~5/hour for 6 hours). */
+export const COMPACTION_STORM_PER_HOUR = 6;
+const HOUR_MS = 60 * 60 * 1000;
+
 export function buildProviderCompactionStatusEvent(
   instanceId: string,
   message: OutputMessage,
@@ -21,9 +25,11 @@ export function buildProviderCompactionStatusEvent(
 
 export class ProviderCompactionLifecycleRecorder {
   private readonly startedAt = new Map<string, number>();
+  private readonly recentStarts = new Map<string, number[]>();
 
   forget(instanceId: string): void {
     this.startedAt.delete(instanceId);
+    this.recentStarts.delete(instanceId);
   }
 
   record(
@@ -56,5 +62,15 @@ export class ProviderCompactionLifecycleRecorder {
       metadata: { phase, outcome, threadId: envelope.sessionId, durationMs, trigger },
     });
     if (phase === 'completed') this.startedAt.delete(envelope.instanceId);
+    else this.warnOnStorm(envelope.instanceId, at, trigger);
+  }
+
+  private warnOnStorm(instanceId: string, at: number, trigger: 'policy' | 'self-managed'): void {
+    const starts = (this.recentStarts.get(instanceId) ?? []).filter((start) => at - start < HOUR_MS);
+    starts.push(at);
+    this.recentStarts.set(instanceId, starts);
+    if (starts.length > COMPACTION_STORM_PER_HOUR) {
+      logger.warn('Codex compaction storm', { instanceId, compactionsLastHour: starts.length, trigger });
+    }
   }
 }

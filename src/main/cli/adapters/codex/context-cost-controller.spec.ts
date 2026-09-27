@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { isSurfacedToUserError } from '../surfaced-error';
 import type { AppServerNotification } from './app-server-types';
-import { CodexContextCostController } from './context-cost-controller';
+import { CodexContextCostController, CodexContextRecoveryPausedError } from './context-cost-controller';
 
 function createController(overrides: Partial<ConstructorParameters<typeof CodexContextCostController>[0]> = {}) {
   const proofEvents: Array<{ action: string; stage: string }> = [];
@@ -106,12 +106,21 @@ describe('CodexContextCostController shared-policy execution adapter', () => {
     await controller.requestRecovery('controlled-recovery');
     const continueTurn = vi.fn().mockRejectedValue(new Error('RPC timeout: turn/start did not respond'));
 
-    await expect(controller.recoverAfterTurn({
+    // The user's own turn already finished: a transient continuation failure is a
+    // paused recovery with its own notice, surfaced so no caller re-reports it as
+    // that send's failure (xqs4fg7sl), while orchestration callers still see why.
+    const outcome = controller.recoverAfterTurn({
       turnStatus: 'interrupted',
       recoveryCount: 0,
       continueTurn,
-    })).rejects.toThrow('RPC timeout');
+    });
+    await expect(outcome).rejects.toBeInstanceOf(CodexContextRecoveryPausedError);
+    await expect(outcome).rejects.toMatchObject({ reasonCode: 'continuation-failed', surfacedToUser: true });
     expect(continueTurn).toHaveBeenCalledOnce();
+    expect(deps.emitSystem).toHaveBeenLastCalledWith(
+      expect.stringContaining('could not continue the task (RPC timeout'),
+      expect.objectContaining({ contextCostRecoveryPaused: true, reasonCode: 'continuation-failed' }),
+    );
   });
 
   it('rethrows a non-transient continuation failure without retrying', async () => {
@@ -632,5 +641,92 @@ describe('CodexContextCostController shared-policy execution adapter', () => {
         vi.useRealTimers();
       }
     });
+  });
+});
+
+describe('CodexContextCostController with turns Codex runs itself', () => {
+  const compactionItem = { type: 'contextCompaction', id: 'compaction-item' };
+
+  it('refuses thread/compact/start while a turn runs, because Codex would replace that turn', async () => {
+    const start = vi.fn(async () => undefined);
+    const { controller } = createController({
+      hasActiveTurn: () => true,
+      getCompactionTarget: () => ({ threadId: 'thread-1', start }),
+    });
+
+    await expect(controller.compactContext(50)).resolves.toBe(false);
+    expect(start).not.toHaveBeenCalled();
+    expect(controller.nativeCompactionKnownUnsupported()).toBe(false);
+  });
+
+  it('presents inline compaction without opening the send gate, and ends it with the turn', () => {
+    const states: Array<[string, string | undefined]> = [];
+    const emitHeartbeat = vi.fn();
+    const { controller } = createController({
+      emitHeartbeat,
+      onCompactionStateChange: (phase, outcome) => states.push([phase, outcome]),
+    });
+    const params = { threadId: 'thread-1', turnId: 'work-turn', item: compactionItem };
+
+    expect(controller.acceptCompactionSignal({ method: 'item/started', params }, 'thread-1', 'work-turn'))
+      .toBe('inline-started');
+    expect(controller.isCompactionRunning()).toBe(false);
+    expect(controller.isCompactTurnExpected()).toBe(false);
+    expect(controller.runningCompactionTurnId()).toBe('work-turn');
+    expect(emitHeartbeat).toHaveBeenCalled();
+    controller.acceptCompactionSignal({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turn: { id: 'work-turn', status: 'interrupted' } },
+    }, 'thread-1', 'work-turn');
+
+    expect(states).toEqual([['started', undefined], ['completed', 'aborted']]);
+  });
+
+  it('marks the Compact turn of a Harness request as expected so it is not followed as work', async () => {
+    let signalStart!: () => void;
+    const started = new Promise<void>((resolve) => { signalStart = resolve; });
+    const { controller } = createController({
+      getCompactionTarget: () => ({ threadId: 'thread-1', start: async () => { signalStart(); } }),
+    });
+
+    const compaction = controller.compactContext(1_000);
+    await started;
+    expect(controller.isCompactTurnExpected()).toBe(true);
+    controller.acceptCompactionSignal({
+      method: 'item/started',
+      params: { threadId: 'thread-1', turnId: 'compact-turn', item: compactionItem },
+    }, 'thread-1', 'compact-turn');
+    expect(controller.isCompactionRunning()).toBe(true);
+    controller.acceptCompactionSignal({
+      method: 'item/completed',
+      params: { threadId: 'thread-1', turnId: 'compact-turn', item: compactionItem },
+    }, 'thread-1', 'compact-turn');
+    controller.recordCompactionObserved(0);
+
+    await expect(compaction).resolves.toBe(true);
+    expect(controller.isCompactTurnExpected()).toBe(false);
+  });
+
+  it('leaves the continuation to Codex when it resumes the task by itself', async () => {
+    const { controller, deps } = createController();
+    deps.getCompactionTarget = () => ({
+      threadId: 'thread-fixture',
+      start: async () => controller.recordCompactionObserved(400_000),
+    });
+    await controller.requestRecovery('controlled-recovery');
+    const continueTurn = vi.fn(async () => undefined);
+
+    await expect(controller.recoverAfterTurn({
+      turnStatus: 'interrupted',
+      recoveryCount: 0,
+      continueTurn,
+      providerWillContinue: async () => true,
+    })).resolves.toBe(true);
+
+    expect(continueTurn).not.toHaveBeenCalled();
+    expect(deps.emitSystem).toHaveBeenLastCalledWith(
+      expect.stringContaining('Codex is continuing the task by itself'),
+      expect.objectContaining({ contextCostRecovery: true }),
+    );
   });
 });

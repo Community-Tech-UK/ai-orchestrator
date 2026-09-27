@@ -6,6 +6,7 @@ import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.ty
 import type { LocalReviewerLimits } from '../review/local-reviewer';
 
 const localReviewState = vi.hoisted(() => ({
+  settingsUnavailable: false,
   enabled: false,
   selectorId: '',
   qualityModel: '',
@@ -35,8 +36,12 @@ vi.mock('../pause/pause-coordinator', () => ({
 }));
 
 vi.mock('../core/config/settings-manager', () => ({
-  getSettingsManager: () => ({
-    getAll: () => ({
+  getSettingsManager: () => {
+    if (localReviewState.settingsUnavailable) {
+      throw new Error('Please specify the `projectName` option.');
+    }
+    return {
+      getAll: () => ({
       crossModelReviewEnabled: true,
       crossModelReviewDepth: 'structured',
       crossModelReviewMaxReviewers: 2,
@@ -49,8 +54,9 @@ vi.mock('../core/config/settings-manager', () => ({
       crossModelReviewLocalTimeout: 120,
       crossModelReviewLocalMaxToolRounds: 12,
       auxiliaryLlmQualityModel: localReviewState.qualityModel,
-    }),
-  }),
+      }),
+    };
+  },
 }));
 
 vi.mock('../core/system/provider-quota-service', () => ({
@@ -84,6 +90,7 @@ const MISSING_REMOTE_WINDOWS_CWD = 'C:\\__aio_missing_remote_node_workspace__\\r
 describe('CrossModelReviewService headless review', () => {
   beforeEach(() => {
     CrossModelReviewService._resetForTesting();
+    localReviewState.settingsUnavailable = false;
     localReviewState.enabled = false;
     localReviewState.selectorId = '';
     localReviewState.qualityModel = '';
@@ -387,6 +394,29 @@ describe('CrossModelReviewService headless review', () => {
     const result = await service.runHeadlessReview({
       target: 'HEAD',
       cwd: '/repo',
+      content: 'diff',
+      taskDescription: 'Review',
+      reviewers: [],
+    });
+
+    expect(result.reviewers).toEqual([]);
+    expect(result.findings).toEqual([]);
+    expect(result.infrastructureErrors).toEqual([]);
+    expect(result.summary).toContain('No reviewers available');
+  });
+
+  it('runs an explicit zero-reviewer request when Electron settings are unavailable', async () => {
+    localReviewState.settingsUnavailable = true;
+    const service = CrossModelReviewService.getInstance();
+    service.setReviewExecutionHost({
+      getWorkingDirectory: () => REPO_CWD,
+      getTaskDescription: () => 'Review',
+      dispatchReviewerPrompt: vi.fn(),
+    });
+
+    const result = await service.runHeadlessReview({
+      target: 'HEAD',
+      cwd: REPO_CWD,
       content: 'diff',
       taskDescription: 'Review',
       reviewers: [],

@@ -104,9 +104,9 @@ export class GatewaySocket {
     this._connectionEpoch.set(this._connectionEpoch() + 1);
     this._state.set('connecting');
     const scheme = host.secure ? 'wss' : 'ws';
-    const url = `${scheme}://${host.host}:${host.port}/ws?token=${encodeURIComponent(host.token)}`;
+    const url = `${scheme}://${host.host}:${host.port}/ws`;
     let ws: WebSocket;
-    try { ws = new WebSocket(url); }
+    try { ws = new WebSocket(url, ['aio.v1', `bearer.${host.token}`]); }
     catch { this.scheduleReconnect(host); return; }
     this.ws = ws;
     let opened = false;

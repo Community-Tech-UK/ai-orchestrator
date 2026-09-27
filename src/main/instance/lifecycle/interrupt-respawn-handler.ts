@@ -909,6 +909,25 @@ export class InterruptRespawnHandler {
         return;
       }
 
+      // After an interrupt the old CLI has already exited, but the stuck
+      // detector calls this on a LIVE process. `setupAdapterEvents` only strips
+      // the old adapter's listeners, so without this the process leaked: it kept
+      // running beside its resumed replacement, and when its orphaned ACP prompt
+      // later timed out, `emit('error')` with no listener threw into the
+      // initial-prompt path as a phantom "could not be delivered" notice.
+      // Same teardown as `respawnAfterUnexpectedExit`. Skipped for interrupts:
+      // an exited ACP child still reads `isRunning()` (exit never nulls
+      // `process`), and terminate() would then wait 5s for an exit that
+      // already happened.
+      if (!triggeredByInterrupt && previousAdapter?.isRunning()) {
+        logger.info('Previous CLI process still running at respawn; terminating it first', {
+          instanceId,
+          pid: previousAdapter.getPid?.() ?? null,
+        });
+        previousAdapter.removeAllListeners();
+        await previousAdapter.terminate(true).catch(() => undefined);
+      }
+
       const spawnOptions: UnifiedSpawnOptions = {
         instanceId: instance.id,
         sessionId: shouldResume ? sessionId : newSessionId,

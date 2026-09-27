@@ -138,12 +138,16 @@ export class ApprovalPresentationStore {
     const generation = this.hostGeneration;
     this.setDecision(key, { pending: true, error: null, accepted: false });
     try {
-      await this.gateway.respond(prompt.instanceId, {
-        requestId: prompt.requestId,
-        decisionAction: decision.action,
-        decisionScope: decision.scope,
-        response: decision.response,
-      });
+      if (prompt.kind === 'browser') {
+        await this.gateway.respondBrowser(prompt.browserRequestId ?? prompt.requestId, decision.action === 'allow' ? 'allow' : 'deny');
+      } else {
+        await this.gateway.respond(prompt.instanceId, {
+          requestId: prompt.requestId,
+          decisionAction: decision.action,
+          decisionScope: decision.scope,
+          response: decision.response,
+        });
+      }
       if (this.hostId() !== hostId || this.hostGeneration !== generation) return;
       this.setDecision(key, { pending: false, error: null, accepted: true });
       this.drafts.update((all) => {

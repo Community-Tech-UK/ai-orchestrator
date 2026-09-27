@@ -13,7 +13,7 @@ import { URL } from 'url';
 import type { WebSocketServer, WebSocket } from 'ws';
 import { getLogger } from '../logging/logger';
 import type { MobileDeviceRegistry } from './mobile-device-registry';
-import { bearerFromHeader } from './mobile-gateway-http-utils';
+import { bearerFromHeader, redactUrlToken } from './mobile-gateway-http-utils';
 import type {
   MobileClientEvent,
   MobileServerEvent,
@@ -21,6 +21,19 @@ import type {
 } from '../../shared/types/mobile-gateway.types';
 
 const logger = getLogger('MobileGatewayWs');
+
+/** `Sec-WebSocket-Protocol: aio.v1, bearer.<token>` plus the one-release query form. */
+export function tokenFromWsUpgrade(req: IncomingMessage, url: URL): string | undefined {
+  const header = req.headers['sec-websocket-protocol'];
+  const offered = Array.isArray(header) ? header.join(',') : header;
+  if (offered) {
+    for (const part of offered.split(',')) {
+      const trimmed = part.trim();
+      if (trimmed.startsWith('bearer.')) return trimmed.slice('bearer.'.length);
+    }
+  }
+  return url.searchParams.get('token') || bearerFromHeader(req.headers['authorization']);
+}
 
 /** State and callbacks the WS handlers need from the gateway server. */
 export interface WsHandlerDeps {
@@ -51,7 +64,8 @@ export function handleWsUpgrade(
       socket.destroy();
       return;
     }
-    const token = url.searchParams.get('token') || bearerFromHeader(req.headers['authorization']);
+    const token = tokenFromWsUpgrade(req, url);
+    if (req.url) req.url = redactUrlToken(req.url);
     const device = deps.registry.validateToken(token);
     if (!device) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');

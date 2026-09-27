@@ -1,4 +1,4 @@
-import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { execFile, execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { mkdtemp, mkdir, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -16,6 +16,15 @@ import {
 } from './worker-node-process-tree';
 import { WorkerRpcDispatcher } from './worker-rpc-dispatcher';
 import type { RpcMessage } from './worker-rpc-types';
+
+function canInspectProcesses(): boolean {
+  try {
+    execFileSync('ps', ['-o', 'pid=', '-p', String(process.pid)], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function prepareUncheckedForLifecycleTest(params: NodeExecParams) {
   return { executable: params.executable, args: [...params.args], env: { ...process.env } };
@@ -208,7 +217,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
     expect(Date.now() - startedAt).toBeLessThan(2_000);
   });
 
-  it('terminates a detached descendant instead of leaving it alive after timeout', async () => {
+  it.skipIf(!canInspectProcesses())('terminates a detached descendant instead of leaving it alive after timeout', async () => {
     const fixtureDir = await mkdtemp(join(tmpdir(), 'aio-node-exec-tree-'));
     const descendantPidPath = join(fixtureDir, 'descendant.pid');
     const heartbeatPath = join(fixtureDir, 'descendant.heartbeat');
@@ -250,7 +259,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
     }
   }, 10_000);
 
-  it('terminates immediate-orphan detached inherited-pipe descendants in three trials', async () => {
+  it.skipIf(!canInspectProcesses())('terminates immediate-orphan detached inherited-pipe descendants in three trials', async () => {
     const fixtureDir = await mkdtemp(join(tmpdir(), 'aio-node-exec-early-parent-exit-'));
     const { dispatcher, sendResult, sendError } = makeDispatcher();
 
@@ -309,19 +318,24 @@ describe('WorkerRpcDispatcher node.exec', () => {
       psCalls += 1;
       activePsCalls += 1;
       maxActivePsCalls = Math.max(maxActivePsCalls, activePsCalls);
-      return (execFile as unknown as (...args: unknown[]) => unknown)(
-        file,
-        args,
-        options,
-        (error: Error | null, stdout: string, stderr: string) => {
-          activePsCalls -= 1;
-          (callback as (
-            error: Error | null,
-            stdout: string,
-            stderr: string,
-          ) => void)(error, stdout, stderr);
-        },
-      );
+      try {
+        return (execFile as unknown as (...args: unknown[]) => unknown)(
+          file,
+          args,
+          options,
+          (error: Error | null, stdout: string, stderr: string) => {
+            activePsCalls -= 1;
+            (callback as (
+              error: Error | null,
+              stdout: string,
+              stderr: string,
+            ) => void)(error, stdout, stderr);
+          },
+        );
+      } catch (error) {
+        activePsCalls -= 1;
+        throw error;
+      }
     }) as unknown as typeof execFile;
     const executor = new WorkerNodeExecutor([process.cwd()], undefined, Date.now, {
       platform: process.platform,

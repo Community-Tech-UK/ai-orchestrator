@@ -5982,7 +5982,7 @@
     },
     {
       "path": "resources/browser-extension/background.js",
-      "lines": 5596
+      "lines": 5624
     },
     {
       "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
@@ -6022,7 +6022,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 3591
+      "lines": 3594
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
@@ -6042,11 +6042,11 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 3299
+      "lines": 3328
     },
     {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 2988
+      "lines": 2989
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -6085,11 +6085,11 @@
       "lines": 2659
     },
     {
-      "path": "src/main/instance/instance-communication.ts",
-      "lines": 2547
+      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
+      "lines": 2545
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
+      "path": "src/main/instance/instance-communication.ts",
       "lines": 2545
     },
     {
@@ -6102,11 +6102,11 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2465
+      "lines": 2468
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2438
+      "lines": 2448
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
@@ -6126,7 +6126,7 @@
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
-      "lines": 2222
+      "lines": 2229
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
@@ -6333,6 +6333,10 @@
       "lines": 1411
     },
     {
+      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
+      "lines": 1405
+    },
+    {
       "path": "src/main/ipc/handlers/__tests__/session-handlers.spec.ts",
       "lines": 1405
     },
@@ -6341,12 +6345,12 @@
       "lines": 1394
     },
     {
-      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 1386
-    },
-    {
       "path": "src/main/browser-gateway/browser-gateway-service.approvals.spec.ts",
       "lines": 1383
+    },
+    {
+      "path": "src/main/browser-gateway/browser-extension-accessibility-frames.spec.ts",
+      "lines": 1376
     },
     {
       "path": "src/main/chats/chat-service.spec.ts",
@@ -6375,10 +6379,6 @@
     {
       "path": "docs/superpowers/plans/2026-06-28-pi-borrowed-capabilities_completed.md",
       "lines": 1343
-    },
-    {
-      "path": "src/main/browser-gateway/browser-extension-accessibility-frames.spec.ts",
-      "lines": 1338
     },
     {
       "path": "src/main/mcp/__tests__/orchestrator-tools.spec.ts",
@@ -6485,6 +6485,10 @@
       "lines": 1239
     },
     {
+      "path": "src/worker-agent/worker-node-exec-policy.spec.ts",
+      "lines": 1238
+    },
+    {
       "path": "docs/superpowers/plans/2026-03-14-session-recovery-features_completed.md",
       "lines": 1234
     },
@@ -6493,16 +6497,16 @@
       "lines": 1233
     },
     {
-      "path": "src/worker-agent/worker-node-exec-policy.spec.ts",
-      "lines": 1229
-    },
-    {
       "path": "src/renderer/app/core/state/local-ai-guard.store.spec.ts",
       "lines": 1228
     },
     {
       "path": "src/main/orchestration/__tests__/campaign-coordinator.spec.ts",
       "lines": 1221
+    },
+    {
+      "path": "src/main/instance/auto-title-service.spec.ts",
+      "lines": 1220
     },
     {
       "path": "src/main/orchestration/debate-coordinator.ts",
@@ -6527,10 +6531,6 @@
     {
       "path": "src/main/orchestration/loop-store.spec.ts",
       "lines": 1206
-    },
-    {
-      "path": "src/main/instance/auto-title-service.spec.ts",
-      "lines": 1204
     },
     {
       "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
@@ -6690,7 +6690,7 @@
     },
     {
       "path": "src/main/app/instance-event-forwarding.spec.ts",
-      "lines": 1051
+      "lines": 1053
     },
     {
       "path": "src/renderer/app/features/loop/loop-control.component.spec.ts",
@@ -6781,6 +6781,10 @@
       "lines": 986
     },
     {
+      "path": "src/main/orchestration/cross-model-review-service.ts",
+      "lines": 984
+    },
+    {
       "path": "src/main/rlm/context-residency-controller.spec.ts",
       "lines": 984
     },
@@ -6813,16 +6817,16 @@
       "lines": 967
     },
     {
+      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.spec.ts",
+      "lines": 965
+    },
+    {
       "path": "src/renderer/app/features/debate/debate-visualization.component.ts",
       "lines": 964
     },
     {
       "path": "docs/superpowers/plans/2026-04-27-phase1-orchestration-protocol-tests_completed.md",
       "lines": 963
-    },
-    {
-      "path": "src/main/orchestration/cross-model-review-service.ts",
-      "lines": 962
     },
     {
       "path": "docs/superpowers/plans/2026-05-03-browser-gateway-first-milestone_completed.md",
@@ -6897,10 +6901,6 @@
       "lines": 920
     },
     {
-      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.spec.ts",
-      "lines": 918
-    },
-    {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",
       "lines": 914
     },
@@ -6927,10 +6927,6 @@
     {
       "path": "src/main/orchestration/loop-coordinator-terminal-intents.spec.ts",
       "lines": 895
-    },
-    {
-      "path": "src/main/app/compaction-runtime.spec.ts",
-      "lines": 892
     },
     {
       "path": "benchmarks/external-benchmarks/swe-bench/runner.ts",
@@ -6977,6 +6973,10 @@
       "lines": 869
     },
     {
+      "path": "src/main/app/compaction-runtime.spec.ts",
+      "lines": 868
+    },
+    {
       "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
       "lines": 868
     },
@@ -6998,10 +6998,6 @@
     },
     {
       "path": "docs/superpowers/plans/_archive/2026-07-13-codex-context-pressure-guard-superseded.md",
-      "lines": 862
-    },
-    {
-      "path": "src/shared/types/settings.types.ts",
       "lines": 862
     },
     {
@@ -7041,16 +7037,16 @@
       "lines": 851
     },
     {
+      "path": "src/shared/types/settings.types.ts",
+      "lines": 851
+    },
+    {
       "path": "src/main/services/voice/providers/local-whisper-transcription-provider.ts",
       "lines": 850
     },
     {
       "path": "packages/contracts/src/schemas/browser.schemas.ts",
       "lines": 848
-    },
-    {
-      "path": "src/main/core/config/settings-control-policy.ts",
-      "lines": 845
     },
     {
       "path": "src/main/orchestration/embedding-service.ts",
@@ -7070,6 +7066,10 @@
     },
     {
       "path": "src/main/automations/automation-store.spec.ts",
+      "lines": 843
+    },
+    {
+      "path": "src/main/core/config/settings-control-policy.ts",
       "lines": 843
     },
     {

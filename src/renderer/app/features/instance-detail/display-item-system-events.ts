@@ -1,3 +1,5 @@
+import type { OutputMessage } from '../../core/state/instance/instance.types';
+
 export const SYSTEM_GROUP_TIME_GAP_MS = 5 * 60 * 1000;
 
 const SYSTEM_GROUP_PREVIEW_MAX_LEN = 120;
@@ -16,6 +18,21 @@ export const QUIET_INTERRUPT_SYSTEM_MESSAGES = new Set<string>([
   'Interrupted — waiting for input',
   'Interrupted — session restarted (resume failed)',
 ]);
+
+/**
+ * A provider compaction's start/finish notices. The compaction boundary row
+ * (which also carries `providerCompaction: 'completed'`) says it happened, so a
+ * successful lifecycle shows one row instead of three. Failures stay visible.
+ */
+export function isQuietProviderCompactionMarker(message: OutputMessage): boolean {
+  const metadata = message.metadata;
+  if (message.type !== 'system' || !metadata) return false;
+  if (metadata['threadCompacted'] === true || metadata['isCompactionBoundary'] === true) return false;
+  const phase = metadata['providerCompaction'];
+  if (phase === 'started') return true;
+  const outcome = metadata['providerCompactionOutcome'];
+  return phase === 'completed' && (outcome === undefined || outcome === 'settled');
+}
 
 const SYSTEM_ACTION_LABELS: Readonly<Record<string, string>> = {
   consensus_query: 'Consensus query',

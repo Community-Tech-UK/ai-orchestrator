@@ -494,6 +494,28 @@ describe('uidTypeFn refuses targets that cannot hold a value', () => {
     expect(input.value).toBe('DN827315');
   });
 
+  it('refuses a disabled input without changing its value', () => {
+    const { fn, document } = buildTypeFn();
+    const input = document.createElement('input');
+    input.disabled = true;
+    input.value = 'original';
+    document.body.appendChild(input);
+
+    expect(() => fn.call(input, 'replacement')).toThrow(/<input>.*disabled/i);
+    expect(input.value).toBe('original');
+  });
+
+  it('refuses a readonly input without changing its value', () => {
+    const { fn, document } = buildTypeFn();
+    const input = document.createElement('input');
+    input.readOnly = true;
+    input.value = 'original';
+    document.body.appendChild(input);
+
+    expect(() => fn.call(input, 'replacement')).toThrow(/<input>.*read.?only/i);
+    expect(input.value).toBe('original');
+  });
+
   it('throws instead of reporting success when the uid points at an iframe', () => {
     const { fn, document } = buildTypeFn();
     const iframe = document.createElement('iframe');
@@ -667,6 +689,22 @@ describe('selector type path refuses what the uid path refuses', () => {
 
     expect(result.valueApplied).toBe(true);
     expect(input.value).toBe('DN827315');
+  });
+
+  it('refuses disabled and readonly selector targets without changing them', () => {
+    const { applyType, document } = buildApplyType();
+    const disabled = document.createElement('input');
+    disabled.disabled = true;
+    disabled.value = 'disabled original';
+    const readonly = document.createElement('textarea');
+    readonly.readOnly = true;
+    readonly.value = 'readonly original';
+    document.body.append(disabled, readonly);
+
+    expect(() => applyType(disabled, 'replacement')).toThrow(/<input>.*disabled/i);
+    expect(() => applyType(readonly, 'replacement')).toThrow(/<textarea>.*read.?only/i);
+    expect(disabled.value).toBe('disabled original');
+    expect(readonly.value).toBe('readonly original');
   });
 });
 

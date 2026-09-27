@@ -18,8 +18,8 @@ import type {
 } from './mobile-gateway-serializers';
 import type { MobileGatewayStreamCursor } from './mobile-gateway-stream-cursor';
 
-const HISTORY_CHAT_PREFIX = 'chat:';
-const HISTORY_INSTANCE_PREFIX = 'inst:';
+export const HISTORY_CHAT_PREFIX = 'chat:';
+export const HISTORY_INSTANCE_PREFIX = 'inst:';
 
 interface MobileHistoryHandlerDeps {
   chatHistory: GatewayChatHistorySource | null;

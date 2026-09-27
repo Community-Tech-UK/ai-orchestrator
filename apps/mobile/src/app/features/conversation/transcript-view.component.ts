@@ -50,7 +50,9 @@ export class TranscriptViewComponent {
   readonly earlierLoading = input(false);
   readonly earlierError = input<string | null>(null);
   readonly earlierDisabled = input(false);
+  readonly query = input('');
   readonly loadEarlier = output<void>();
+  readonly searchEarlier = output<void>();
   readonly retryTranscript = output<void>();
 
   protected readonly isLoopTranscriptMessage = isLoopTranscriptMessage;
@@ -60,6 +62,12 @@ export class TranscriptViewComponent {
   private markdownKey = '';
   private readonly visibleCount = linkedSignal({ source: this.transcriptKey, computation: () => 150 });
   private readonly allItems = computed(() => buildDisplayItems(this.messages()));
+  private readonly visibleSource = computed(() => {
+    const query = this.query().trim().toLowerCase();
+    if (!query) return this.allItems();
+    return this.allItems().filter((item) => item.kind === 'msg' && item.message.content.toLowerCase().includes(query));
+  });
+  protected readonly searchMiss = computed(() => this.query().trim().length > 0 && this.visibleSource().length === 0);
   protected readonly canShowEarlier = computed(() => this.hasEarlier() || this.allItems().length > this.visibleCount());
   protected readonly cannotShowEarlier = computed(() => this.earlierLoading() ||
     (this.earlierDisabled() && this.allItems().length <= this.visibleCount()));
@@ -70,7 +78,7 @@ export class TranscriptViewComponent {
       this.markdownKey = key;
     }
     // Cache the exact content as its fingerprint: no hash collisions or global eviction.
-    return this.allItems().slice(-this.visibleCount()).map(item => {
+    return this.visibleSource().slice(-this.visibleCount()).map(item => {
       if (item.kind !== 'msg') return item;
       const { id, content } = item.message;
       let cached = this.markdown.get(id);

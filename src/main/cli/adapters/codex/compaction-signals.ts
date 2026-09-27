@@ -16,7 +16,13 @@ import type { AppServerNotification } from './app-server-types';
  * it. An older build could send both the legacy notification and the
  * completed item for one compaction, so completions are de-duplicated by turn id.
  */
-export type CodexCompactionSignal = 'started' | 'completed' | 'observed-running' | 'settled' | 'aborted';
+export type CodexCompactionSignal =
+  | 'started'
+  | 'inline-started'
+  | 'completed'
+  | 'observed-running'
+  | 'settled'
+  | 'aborted';
 
 export class CodexCompactionSignalTracker {
   private lastCompletedTurnId: string | null = null;
@@ -25,6 +31,7 @@ export class CodexCompactionSignalTracker {
   private runningInferredFromRejection = false;
   private runningCompletionObserved = false;
   private suppressLegacyCompletionWithoutTurnId = false;
+  private readonly completedInlineItemIds = new Set<string>();
 
   /** Whether Codex currently owns the thread for a provider compaction turn. */
   get isRunning(): boolean {
@@ -36,11 +43,23 @@ export class CodexCompactionSignalTracker {
     return this.running ? this.runningTurnIdValue : null;
   }
 
-  /** Classifies a notification for `threadId`; null for anything unrelated or already counted. */
-  accept(notification: AppServerNotification, threadId: string | null): CodexCompactionSignal | null {
+  /**
+   * Classifies a notification for `threadId`; null for anything unrelated or
+   * already counted. `inlineTurnId` is the running regular turn when Harness
+   * has not asked for a compaction: Codex's own compaction runs inside that
+   * turn, which stays steerable once the item completes, so it opens no
+   * compaction gate (`inline-started`, then `completed`).
+   */
+  accept(
+    notification: AppServerNotification,
+    threadId: string | null,
+    inlineTurnId: string | null = null,
+  ): CodexCompactionSignal | null {
     const { method, params } = notification;
     if (!threadId || params['threadId'] !== threadId) return null;
     const turnId = typeof params['turnId'] === 'string' ? params['turnId'] : null;
+    const inlineSignal = this.acceptInline(method, params, turnId, inlineTurnId);
+    if (inlineSignal !== undefined) return inlineSignal;
 
     if (method === 'turn/completed') {
       if (!this.running) return null;
@@ -93,6 +112,29 @@ export class CodexCompactionSignalTracker {
     return signal;
   }
 
+  /** Returns undefined when the notification is not an inline compaction item. */
+  private acceptInline(
+    method: string,
+    params: Record<string, unknown>,
+    turnId: string | null,
+    inlineTurnId: string | null,
+  ): CodexCompactionSignal | null | undefined {
+    if (this.running || !inlineTurnId || turnId !== inlineTurnId) return undefined;
+    if (method !== 'item/started' && method !== 'item/completed') return undefined;
+    const item = params['item'] as { type?: unknown; id?: unknown } | undefined;
+    if (item?.type !== 'contextCompaction') return undefined;
+    if (method === 'item/started') return 'inline-started';
+    // One turn can compact more than once, so inline completions de-duplicate by item id.
+    const itemId = typeof item.id === 'string' ? item.id : null;
+    if (itemId) {
+      if (this.completedInlineItemIds.has(itemId)) return null;
+      this.completedInlineItemIds.add(itemId);
+    }
+    this.lastCompletedTurnId = turnId;
+    this.suppressLegacyCompletionWithoutTurnId = true;
+    return 'completed';
+  }
+
   /** Records the provider-owned compact turn exposed by a strict send rejection. */
   markRunningFromRejection(turnId: string | null): void {
     this.running = true;
@@ -104,6 +146,7 @@ export class CodexCompactionSignalTracker {
   /** Forgets a running compaction, e.g. when the app-server process is gone. */
   reset(): void {
     this.resetRunningState();
+    this.completedInlineItemIds.clear();
     this.lastCompletedTurnId = null;
     this.suppressLegacyCompletionWithoutTurnId = false;
   }

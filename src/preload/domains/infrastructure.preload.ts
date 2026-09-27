@@ -50,7 +50,7 @@ export function createInfrastructureDomain(
       return ipcRenderer.invoke(ch.SETTINGS_GET_ALL);
     },
     getSetting: (key: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.SETTINGS_GET, key);
+      return ipcRenderer.invoke(ch.SETTINGS_GET, { key });
     },
     setSetting: (key: string, value: unknown): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SETTINGS_SET, { key, value });

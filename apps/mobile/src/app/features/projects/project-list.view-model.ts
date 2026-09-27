@@ -327,3 +327,11 @@ export function projectParentLabel(group: ProjectListGroup, groups: ProjectListG
   }
   return parts.join('/') || group.project.path;
 }
+
+export function orderPinnedGroups(groups: ProjectListGroup[], pinnedKeys: readonly string[]): ProjectListGroup[] {
+  const pinned = new Set(pinnedKeys);
+  return [
+    ...groups.filter((group) => pinned.has(group.project.key)),
+    ...groups.filter((group) => !pinned.has(group.project.key)),
+  ];
+}

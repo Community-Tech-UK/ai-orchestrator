@@ -127,6 +127,25 @@ export class MobileGatewayPromptStore {
     });
   }
 
+  /** Replace the browser-approval prompts. New ones push; unchanged ones stay quiet. */
+  syncBrowser(next: MobilePromptDto[]): void {
+    const incoming = new Map(next.filter((prompt) => prompt.kind === 'browser').map((prompt) => [prompt.id, prompt]));
+    for (const [id, existing] of this.prompts) {
+      if (existing.kind === 'browser' && !incoming.has(id)) this.clear(id);
+    }
+    let changed = false;
+    for (const prompt of incoming.values()) {
+      const existing = this.prompts.get(prompt.id);
+      if (existing && JSON.stringify(existing) === JSON.stringify(prompt)) continue;
+      const isNew = !existing;
+      this.prompts.set(prompt.id, prompt);
+      this.deps.broadcast({ type: 'permission-prompt', data: prompt });
+      if (isNew) this.deps.sendPush(prompt);
+      changed = true;
+    }
+    if (changed) this.deps.scheduleSnapshotBroadcast();
+  }
+
   clear(requestId: string): void {
     const prompt = this.prompts.get(requestId);
     if (!prompt) return;

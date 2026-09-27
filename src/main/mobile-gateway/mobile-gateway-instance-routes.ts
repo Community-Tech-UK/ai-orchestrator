@@ -92,6 +92,13 @@ export interface GatewayInstanceSource extends EmitterLike {
   changeModel(instanceId: string, newModel: string): Promise<Instance>;
   createInstance(config: InstanceCreateConfig): Promise<Instance>;
   getOrchestrationHandler(): GatewayOrchestrationSource;
+  restoreFromHistory(entryId: string): Promise<{
+    instanceId: string;
+    sessionId: string;
+    historyThreadId: string;
+    restoreMode: 'native-resume' | 'resume-unconfirmed' | 'replay-fallback';
+  }>;
+  wakeInstance(instanceId: string): Promise<void>;
 }
 
 export interface MobileGatewayInstanceRouteDeps {

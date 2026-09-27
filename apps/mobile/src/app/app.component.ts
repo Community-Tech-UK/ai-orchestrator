@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject } from '@angular/core';
-import { Router, RouterOutlet } from '@angular/router';
+import { Router } from '@angular/router';
+import { AppShellComponent } from './shell/app-shell.component';
 import { HostStore } from './core/host-store';
 import { GatewayClient } from './core/gateway-client.service';
 import { LiveActivityService } from './core/live-activity.service';
@@ -16,9 +17,9 @@ import { NeedsYouStore } from './features/inbox/needs-you.store';
   standalone: true,
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterOutlet, ApprovalSheetComponent, LockScreenComponent, MobileSheetComponent],
+  imports: [AppShellComponent, ApprovalSheetComponent, LockScreenComponent, MobileSheetComponent],
   template: `
-    <router-outlet />
+    <app-shell />
     @if (approvals.view(); as view) {
       <app-approval-sheet
         [prompt]="view.prompt"

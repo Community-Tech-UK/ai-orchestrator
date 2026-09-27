@@ -20,10 +20,6 @@ import { CompactionEpochTracker } from './compaction-epoch';
 import { measureAsync } from '../util/slow-operations';
 import type { ProviderContextActionExecutor } from '../context-evidence/provider-context-action-executor';
 import {
-  DEFAULT_CUMULATIVE_RECOVERY_LIMITS,
-  type CumulativeRecoveryLimits,
-} from '../context-evidence/context-safety-policy';
-import {
   ContextPolicyRuntime,
   type ContextPolicyEvent,
 } from './context-policy-runtime';
@@ -263,16 +259,6 @@ export class CompactionCoordinator extends EventEmitter {
     return this.cumulativeTokenTrigger;
   }
 
-  /**
-   * Sets when the shared policy's spend-based (cumulative 4x) recovery may run.
-   * Non-finite values fall back to the defaults; the rest are clamped into range.
-   */
-  setCumulativeRecoveryLimits(limits: CumulativeRecoveryLimits): void {
-    const next = normalizeCumulativeRecoveryLimits(limits);
-    this.policyRuntime.setCumulativeRecoveryLimits(next);
-    logger.info('Spend-based context recovery limits set', { ...next });
-  }
-
   /** Records the sample synchronously, then serializes shared-policy decisions per instance. */
   onContextUpdate(instanceId: string, usage: ContextUsage): void {
     this.latestUsage.set(instanceId, usage);
@@ -482,7 +468,8 @@ export class CompactionCoordinator extends EventEmitter {
 
   /**
    * Legacy capability accessor retained for callers and renderer telemetry.
-   * The shared policy does not exempt these providers from pressure rules.
+   * The shared policy reads `ProviderContextCapabilities.providerAutoCompaction`
+   * rather than this flag.
    *
    * Public so tests and callers can verify the gating decision without
    * depending on private state.
@@ -658,19 +645,4 @@ export class CompactionCoordinator extends EventEmitter {
 // Convenience getter
 export function getCompactionCoordinator(): CompactionCoordinator {
   return CompactionCoordinator.getInstance();
-}
-
-function normalizeCumulativeRecoveryLimits(limits: CumulativeRecoveryLimits): CumulativeRecoveryLimits {
-  const clamp = (value: number, fallback: number, min: number, max: number) => (
-    Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
-  );
-  return {
-    minOccupancyPercent: clamp(
-      limits.minOccupancyPercent, DEFAULT_CUMULATIVE_RECOVERY_LIMITS.minOccupancyPercent, 0, 100,
-    ),
-    // Below 4 the backstop would fire before the 4x rule it backs up.
-    backstopMultiple: clamp(
-      limits.backstopMultiple, DEFAULT_CUMULATIVE_RECOVERY_LIMITS.backstopMultiple, 4, 1000,
-    ),
-  };
 }

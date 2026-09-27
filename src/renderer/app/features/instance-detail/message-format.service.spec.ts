@@ -81,6 +81,18 @@ describe('MessageFormatService', () => {
     );
   });
 
+  it('says how full the context was when the boundary carries the last measured reading', () => {
+    const message = {
+      id: 'self-managed-with-prior',
+      type: 'system' as const,
+      timestamp: 1,
+      content: 'Codex compacted the conversation.',
+      metadata: { threadCompacted: true, method: 'self-managed', previousUsage: { percentage: 88.4 } },
+    };
+
+    expect(service.getCompactionLabel(message)).toBe('Codex compacted its own context (was 88%)');
+  });
+
   // LT-657: Harness-authored input must never be labelled as the user.
   describe('message sender labels', () => {
     const harnessMessage = {

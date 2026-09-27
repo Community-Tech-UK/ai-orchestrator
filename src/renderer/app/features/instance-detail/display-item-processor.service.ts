@@ -16,6 +16,7 @@ import {
   ALWAYS_VISIBLE_SYSTEM_ACTIONS,
   QUIET_INTERRUPT_SYSTEM_MESSAGES,
   SYSTEM_GROUP_TIME_GAP_MS,
+  isQuietProviderCompactionMarker,
   buildSystemGroupPreview,
   resolveSystemActionLabel,
 } from './display-item-system-events';
@@ -297,7 +298,8 @@ export class DisplayItemProcessor {
 
     if (
       message.metadata?.['kind'] === 'interrupt-boundary' ||
-      message.metadata?.['contextCostRecovery'] === true
+      message.metadata?.['contextCostRecovery'] === true ||
+      isQuietProviderCompactionMarker(message)
     ) {
       return true;
     }

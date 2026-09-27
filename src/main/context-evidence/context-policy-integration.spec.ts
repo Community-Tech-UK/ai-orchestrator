@@ -4,7 +4,6 @@ import type { ProviderContextCapabilities } from '@contracts/types/context-evide
 import { CodexContextCostController } from '../cli/adapters/codex/context-cost-controller';
 import { CompactionCoordinator, type ContextPolicyEvent } from '../context/compaction-coordinator';
 import { ProviderContextActionExecutor } from './provider-context-action-executor';
-import type { CumulativeRecoveryLimits } from './context-safety-policy';
 
 const codexObserved: ProviderContextCapabilities = {
   toolResultControl: 'post-retention',
@@ -33,7 +32,8 @@ describe('shared context policy integration', () => {
     const recovery = vi.fn(async () => ({ proof: 'acknowledged' as const }));
     const coordinator = CompactionCoordinator.getInstance();
     coordinator.configure({
-      getContextCapabilities: () => codexObserved,
+      // Spend recovers only when occupancy is unknown.
+      getContextCapabilities: () => ({ ...codexObserved, occupancyReporting: 'aggregate-only' }),
       getContextEvidenceMode: () => 'enforce',
       getProviderActionExecutor: () => new ProviderContextActionExecutor({
         'controlled-recovery': recovery,
@@ -53,31 +53,34 @@ describe('shared context policy integration', () => {
     expect(interrupt).not.toHaveBeenCalled();
   });
 
-  it('applies the configured spend-recovery limits to shared policy decisions', async () => {
-    const recoveriesAtTenPercent = async (limits?: CumulativeRecoveryLimits) => {
-      CompactionCoordinator._resetForTesting();
-      const recovery = vi.fn(async () => ({ proof: 'acknowledged' as const }));
-      const coordinator = CompactionCoordinator.getInstance();
-      coordinator.configure({
-        getContextCapabilities: () => codexObserved,
-        getContextEvidenceMode: () => 'enforce',
-        getProviderActionExecutor: () => new ProviderContextActionExecutor({
-          'controlled-recovery': recovery,
-        }),
-        selfManagesAutoCompaction: () => true,
-      });
-      if (limits) coordinator.setCumulativeRecoveryLimits(limits);
-      coordinator.onContextUpdate('codex-limits', {
-        used: 10, total: 100, percentage: 10, cumulativeTokens: 400,
-      });
-      await coordinator.drainPolicyDecisions('codex-limits');
-      return recovery.mock.calls.length;
-    };
+  it('leaves a Codex session that compacts inline alone at every occupancy and spend', async () => {
+    CompactionCoordinator._resetForTesting();
+    const handler = vi.fn(async () => ({ proof: 'observed' as const }));
+    const coordinator = CompactionCoordinator.getInstance();
+    let atBoundary = false;
+    coordinator.configure({
+      getContextCapabilities: () => ({ ...codexObserved, providerAutoCompaction: 'inline' }),
+      getContextEvidenceMode: () => 'enforce',
+      getProviderActionExecutor: () => new ProviderContextActionExecutor({
+        'native-compaction': handler,
+        'steer-turn': handler,
+        'controlled-interrupt': handler,
+        'controlled-recovery': handler,
+      }),
+      getAtSafeProviderBoundary: () => atBoundary,
+    });
 
-    expect(await recoveriesAtTenPercent()).toBe(0);
-    expect(await recoveriesAtTenPercent({ minOccupancyPercent: 0, backstopMultiple: 16 })).toBe(1);
-    // A non-finite floor falls back to the default rather than disabling it.
-    expect(await recoveriesAtTenPercent({ minOccupancyPercent: Number.NaN, backstopMultiple: 16 })).toBe(0);
+    for (const used of [32, 60, 70, 75, 80, 95]) {
+      for (const boundary of [false, true]) {
+        atBoundary = boundary;
+        coordinator.onContextUpdate('codex-inline', {
+          used, total: 100, percentage: used, cumulativeTokens: used * 100,
+        });
+        await coordinator.drainPolicyDecisions('codex-inline');
+      }
+    }
+
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('records one content-free decision and distinct proof stages per threshold and epoch', async () => {
@@ -194,5 +197,31 @@ describe('shared context policy integration', () => {
     expect(tripped).not.toHaveBeenCalled();
     expect(events.filter((event) => event.failureCode === 'TURN_NOT_ACTIVE')).toHaveLength(4);
     expect(events.some((event) => event.failureCode === 'CIRCUIT_BREAKER_TRIPPED')).toBe(false);
+  });
+
+  // A compaction placeholder repeats the pre-compaction reading until the
+  // provider measures again; deciding on it re-fired actions on a compacted context.
+  it('ignores post-compaction placeholder readings until a fresh measurement arrives', async () => {
+    CompactionCoordinator._resetForTesting();
+    const nativeCompaction = vi.fn(async () => ({ proof: 'observed' as const }));
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.configure({
+      getContextCapabilities: () => codexObserved,
+      getContextEvidenceMode: () => 'enforce',
+      getProviderActionExecutor: () => new ProviderContextActionExecutor({ 'native-compaction': nativeCompaction }),
+      getAtSafeProviderBoundary: () => true,
+    });
+
+    for (const source of ['thread-compacted', 'post-compaction-reset']) {
+      coordinator.onContextUpdate('codex-placeholder', {
+        used: 85, total: 100, percentage: 85, isEstimated: true, source,
+      });
+    }
+    await coordinator.drainPolicyDecisions('codex-placeholder');
+    expect(nativeCompaction).not.toHaveBeenCalled();
+
+    coordinator.onContextUpdate('codex-placeholder', { used: 85, total: 100, percentage: 85 });
+    await coordinator.drainPolicyDecisions('codex-placeholder');
+    expect(nativeCompaction).toHaveBeenCalledOnce();
   });
 });

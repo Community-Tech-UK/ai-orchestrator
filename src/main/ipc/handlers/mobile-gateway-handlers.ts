@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
 import * as QRCode from 'qrcode';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
@@ -44,6 +44,7 @@ export function registerMobileGatewayHandlers(): void {
         bindInterface: settings.get('mobileGatewayBindInterface'),
         tlsCertPath: settings.get('mobileGatewayTlsCertPath'),
         tlsKeyPath: settings.get('mobileGatewayTlsKeyPath'),
+        devCors: !app.isPackaged,
       });
       return { success: true, data: status };
     } catch (error) {

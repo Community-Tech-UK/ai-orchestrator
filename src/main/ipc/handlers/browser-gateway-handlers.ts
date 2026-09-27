@@ -362,7 +362,7 @@ function register<TPayload extends BrowserGatewayIpcPayload>(
  * `autoContinuation`) so it retains the user-input context-budget behavior,
  * rather than hard-blocking at high context.
  */
-function resumeInstanceAfterBrowserDecision(
+export function resumeInstanceAfterBrowserDecision(
   instanceManager: InstanceManager | undefined,
   decision: 'approved' | 'denied',
   requestId: string,

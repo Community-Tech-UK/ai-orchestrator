@@ -41,6 +41,14 @@ import { newSessionPresetState } from '../new-session/new-session.navigation';
           @if (info.workingDirectory) {
             <button type="button" (click)="newSession()" [disabled]="!online()">Start a new session in this project</button>
           }
+          @if (info.live && info.instanceId) {
+            <button type="button" (click)="openLive(info.instanceId, info.workingDirectory)">Open live session</button>
+          } @else {
+            <button type="button" (click)="continueSession()" [disabled]="!online() || continuing()">
+              {{ continuing() ? 'Continuing…' : 'Continue' }}
+            </button>
+          }
+          @if (continueError(); as message) { <p role="alert">{{ message }}</p> }
         }
         <p>{{ hostName() }} · {{ online() ? 'Connected' : 'Offline' }} · Read-only</p>
       </details>
@@ -84,6 +92,8 @@ export class HistoryDetailComponent {
   protected readonly session = signal<MobileHistorySessionDto | null>(null);
   protected readonly identityLoading = signal(true);
   protected readonly identityError = signal<string | null>(null);
+  protected readonly continuing = signal(false);
+  protected readonly continueError = signal<string | null>(null);
   readonly chatId = input<string>('');
   protected readonly transcriptKey = computed(() => JSON.stringify([this.hosts.activeHost()?.id ?? '', this.chatId()]));
   protected readonly messages = computed(() => this.transcripts.messagesFor(this.chatId()));
@@ -149,6 +159,25 @@ export class HistoryDetailComponent {
       if (current()) this.identityError.set('Session details could not be loaded. Check the host connection and try again.');
     } finally {
       if (current()) this.identityLoading.set(false);
+    }
+  }
+
+  protected openLive(instanceId: string, directory: string): void {
+    void this.router.navigate(['/projects', directory || '__no_workspace__', 'sessions', instanceId]);
+  }
+
+  protected async continueSession(): Promise<void> {
+    const session = this.session();
+    if (!session || this.continuing() || typeof this.gateway.continueHistory !== 'function') return;
+    this.continuing.set(true);
+    this.continueError.set(null);
+    try {
+      const restored = await this.gateway.continueHistory(session.id);
+      await this.router.navigate(['/projects', session.workingDirectory || '__no_workspace__', 'sessions', restored.instanceId]);
+    } catch (error) {
+      this.continueError.set(error instanceof Error ? error.message : 'This session could not be continued');
+    } finally {
+      this.continuing.set(false);
     }
   }
 

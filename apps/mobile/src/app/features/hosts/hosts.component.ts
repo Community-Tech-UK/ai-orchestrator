@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import { AppearanceService } from '../../core/appearance.service';
 import { AppLockService } from '../../core/app-lock.service';
 import { connectionHelpText } from '../../core/connection-status';
 import { GatewayClient } from '../../core/gateway-client.service';
@@ -109,6 +110,12 @@ import { NeedsYouStore, type HostAttentionState } from '../inbox/needs-you.store
           <p class="host-sheet-copy">You’ll need a new pairing code to connect again. If the host is offline, revoke this phone’s access later in Settings, Mobile.</p>
         </app-mobile-sheet>
       }
+      @if (pendingRemoval(); as host) {
+        <app-mobile-sheet [label]="'Remove ' + host.name + '?'" [dismissible]="!busy()" (dismiss)="dismissRemoval()">
+          <p class="host-sheet-copy">You’ll need to pair again to reconnect.</p>
+          <button class="host-action host-action--remove" type="button" (click)="confirmRemoval()" [disabled]="busy()">Remove host</button>
+        </app-mobile-sheet>
+      }
       @if (changingHost()) {
         <app-mobile-sheet label="Change host" [dismissible]="!busy()" (dismiss)="changingHost.set(false)">
           @for (host of hosts(); track host.id) {
@@ -120,6 +127,14 @@ import { NeedsYouStore, type HostAttentionState } from '../inbox/needs-you.store
         </app-mobile-sheet>
       }
 
+      <section class="security-section" aria-labelledby="appearance-heading">
+        <h2 id="appearance-heading">Appearance</h2>
+        <div class="appearance-choices" role="group" aria-label="Appearance">
+          @for (choice of appearanceChoices; track choice) {
+            <button type="button" class="mobile-pressable" [attr.aria-pressed]="appearance.preference() === choice" (click)="appearance.set(choice)">{{ choice }}</button>
+          }
+        </div>
+      </section>
       <section class="security-section" aria-labelledby="security-heading">
         <h2 id="security-heading">Security</h2>
         <button
@@ -182,6 +197,9 @@ import { NeedsYouStore, type HostAttentionState } from '../inbox/needs-you.store
       .host-choice small { flex: none; color: var(--text-secondary); }
       .security-section { margin-top: var(--space-10); border-top: 1px solid var(--separator); padding-top: var(--space-5); }
       .security-section h2 { margin: 0 var(--space-3) var(--space-2); color: var(--text-secondary); font-size: var(--font-size-sm); text-transform: uppercase; }
+      .appearance-choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); }
+      .appearance-choices button { min-height: 44px; border: 1px solid var(--separator); border-radius: var(--radius-md); background: var(--surface); color: var(--text); text-transform: capitalize; }
+      .appearance-choices button[aria-pressed='true'] { background: var(--surface-2); }
       .lock-row { grid-template-columns: 24px minmax(0, 1fr) 44px; }
       .lock-row > app-mobile-icon { color: var(--text-secondary); font-size: 1.25rem; }
       .switch { position: relative; width: 44px; height: 26px; border-radius: var(--radius-pill); background: var(--surface-2); transition: background var(--motion-press) ease-out; }
@@ -196,6 +214,8 @@ export class HostsComponent {
   private readonly gateway = inject(GatewayClient);
   private readonly router = inject(Router);
   private readonly appLock = inject(AppLockService);
+  protected readonly appearance = inject(AppearanceService);
+  protected readonly appearanceChoices = ['system', 'light', 'dark'] as const;
   private readonly needsYou = inject(NeedsYouStore);
 
   protected readonly hosts = this.hostStore.hosts;
@@ -207,6 +227,7 @@ export class HostsComponent {
     return state ? connectionHelpText(state) : 'Checking the selected host’s connection.';
   });
   protected readonly options = signal<PairedHost | null>(null);
+  protected readonly pendingRemoval = signal<PairedHost | null>(null);
   protected readonly changingHost = signal(false);
   protected readonly busy = signal(false);
   protected readonly lockEnabled = this.appLock.enabled;
@@ -254,7 +275,16 @@ export class HostsComponent {
    * told when the token may still be live so they can finish the job on the Mac.
    */
   protected async remove(host: PairedHost): Promise<void> {
-    if (this.busy() || !confirm(`Remove ${host.name}? You'll need to pair again to reconnect.`)) return;
+    if (this.busy()) return;
+    this.pendingRemoval.set(host);
+  }
+
+  protected dismissRemoval(): void { this.pendingRemoval.set(null); }
+
+  protected async confirmRemoval(): Promise<void> {
+    const host = this.pendingRemoval();
+    this.pendingRemoval.set(null);
+    if (!host || this.busy()) return;
     this.busy.set(true);
     this.notice.set(null);
     try {

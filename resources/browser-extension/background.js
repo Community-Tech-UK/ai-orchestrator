@@ -2591,6 +2591,20 @@ function uidTypeFn(value) {
       + 'selector from query_elements.',
     );
   }
+  if (element.disabled === true) {
+    throw new Error(
+      'uid type target cannot accept typed text: <'
+      + String(element.tagName || 'unknown').toLowerCase()
+      + '> is disabled. Enable the control or choose an enabled typeable target before retrying.',
+    );
+  }
+  if (element.readOnly === true) {
+    throw new Error(
+      'uid type target cannot accept typed text: <'
+      + String(element.tagName || 'unknown').toLowerCase()
+      + '> is readonly. Remove readonly or choose an editable target before retrying.',
+    );
+  }
   // Sample this BEFORE any assignment: on an element with no value property,
   // `element.value = ...` silently creates an expando that the read-back below
   // would happily report as applied.
@@ -4926,6 +4940,20 @@ function pageBridgeScript(action, args, expectedCredentialOrigin, credentialProt
         'type target is not an element (it resolved to '
         + (element && element.nodeName ? String(element.nodeName) : 'a non-element')
         + '). Target the control element itself.',
+      );
+    }
+    if (element.disabled === true) {
+      throw new Error(
+        'type target cannot accept typed text: <'
+        + String(element.tagName || 'unknown').toLowerCase()
+        + '> is disabled. Enable the control or choose an enabled typeable target before retrying.',
+      );
+    }
+    if (element.readOnly === true) {
+      throw new Error(
+        'type target cannot accept typed text: <'
+        + String(element.tagName || 'unknown').toLowerCase()
+        + '> is readonly. Remove readonly or choose an editable target before retrying.',
       );
     }
     const acceptsTypedText = element.isContentEditable

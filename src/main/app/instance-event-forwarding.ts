@@ -219,11 +219,15 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
         messageMetadata: message.metadata,
       });
       if (markerId) {
+        // The last measured reading, so the boundary can say how full the context was.
+        const prior = instance?.contextUsage;
+        const previousUsage = prior && !prior.isEstimated && prior.total > 0 ? { percentage: prior.percentage } : undefined;
         const metadata = {
           ...(enrichedEnvelope.event.kind === 'output' ? enrichedEnvelope.event.metadata : {}),
           compactionMarkerId: markerId,
           isCompactionBoundary: true,
           method: 'self-managed',
+          ...(previousUsage ? { previousUsage } : {}),
         };
         enrichedEnvelope = {
           ...enrichedEnvelope,
@@ -238,6 +242,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
             compactionMarkerId: markerId,
             isCompactionBoundary: true,
             method: 'self-managed',
+            ...(previousUsage ? { previousUsage } : {}),
           },
         };
       }

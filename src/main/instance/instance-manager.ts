@@ -74,7 +74,8 @@ import type {
   InstanceSettledWaitOptions,
 } from './instance-settled-tracker';
 import { WarmStartManager } from './warm-start-manager';
-import { StuckProcessDetector } from './stuck-process-detector';
+import { stopProviderAutoContinuation } from './provider-auto-continuation';
+import { adapterHasActiveToolCalls, StuckProcessDetector } from './stuck-process-detector';
 import { shouldProbeAdapterProcess, StaleRuntimeReconciler } from './stale-runtime-reconciler';
 import { getClampedLoadWatchdogMultiplier } from '../runtime/system-load-monitor';
 import { computeInitWaitBudgetMs as resolveInitWaitBudgetMs } from './init-wait-budget';
@@ -306,6 +307,7 @@ export class InstanceManager extends EventEmitter {
         return adapter?.isRunning() ?? false;
       },
       hasExternalActivity: (id) => this.orchestrationMgr.hasActiveWork(id),
+      hasActiveToolCall: (id) => adapterHasActiveToolCalls(this.state.getAdapter(id)),
     });
     this.staleReconciler = StaleRuntimeReconciler.getInstance({
       getInstances: () => this.state.getAllInstances(),
@@ -1300,6 +1302,7 @@ export class InstanceManager extends EventEmitter {
   interruptInstance(instanceId: string, origin: InterruptOrigin = 'unknown'): boolean {
     // Cancel pending automatic input even when an idle adapter rejects the interrupt.
     this.emitObserversSafely('instance:interrupt-requested', { instanceId, origin });
+    stopProviderAutoContinuation(this.state.getAdapter(instanceId), origin);
     return this.lifecycle.interruptInstance(instanceId, origin);
   }
 

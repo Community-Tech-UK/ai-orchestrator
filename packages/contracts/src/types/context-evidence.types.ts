@@ -110,6 +110,12 @@ export interface ProviderContextCapabilities {
   interruptProof: 'observed' | 'acknowledged-only' | 'none';
   compactionProof: 'observed' | 'acknowledged-only' | 'none';
   sameThreadContinuation: boolean;
+  /**
+   * `inline`: the provider compacts by itself inside the running turn at its
+   * own threshold (Codex app-server, 90% of the window by default), so Harness
+   * takes no occupancy-driven action. Omitted: Harness's occupancy ladder applies.
+   */
+  providerAutoCompaction?: 'inline';
 }
 
 export const CONSERVATIVE_PROVIDER_CONTEXT_CAPABILITIES: ProviderContextCapabilities = {

@@ -30,6 +30,7 @@ describe('mobile icon registry', () => {
       'error',
       'qr',
       'stop',
+      'pin',
     ]);
 
     for (const name of MOBILE_ICON_NAMES) {

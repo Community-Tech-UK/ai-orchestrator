@@ -23,6 +23,7 @@ import { ImageAttachmentService } from '../../core/image-attachment.service';
 import type { MobileAttachmentDto, MobileQueuedMessageDto } from '../../core/models';
 import { VoiceInputService } from '../../core/voice-input.service';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
+import { MobileSheetComponent } from '../../shared/mobile-sheet.component';
 import { ComposerQueueComponent } from './composer-queue.component';
 
 const NOTICE_TIMEOUT_MS = 6000;
@@ -35,7 +36,8 @@ function errorText(error: unknown): string {
   standalone: true,
   selector: 'app-conversation-composer',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, ComposerQueueComponent, MobileIconComponent],
+  imports: [FormsModule, ComposerQueueComponent, MobileIconComponent, MobileSheetComponent],
+  host: { '[style.padding-bottom.px]': 'keyboardInset()' },
   templateUrl: './conversation-composer.component.html',
   styleUrls: ['./conversation-composer.component.scss'],
 })
@@ -57,6 +59,8 @@ export class ConversationComposerComponent {
     ['busy', 'processing', 'thinking_deeply', 'waiting_for_permission'].includes(this.status()));
 
   protected readonly draft = signal('');
+  protected readonly forceCancelOpen = signal(false);
+  protected readonly keyboardInset = signal(0);
   protected readonly legacyDraftAvailable = signal(false);
   protected readonly attachments = signal<MobileAttachmentDto[]>([]);
   protected readonly attachBusy = signal(false);
@@ -87,7 +91,16 @@ export class ConversationComposerComponent {
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
+    const viewport = window.visualViewport;
+    const applyInset = () => {
+      const inset = viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
+      this.keyboardInset.set(inset);
+    };
+    viewport?.addEventListener('resize', applyInset);
+    viewport?.addEventListener('scroll', applyInset);
     inject(DestroyRef).onDestroy(() => {
+      viewport?.removeEventListener('resize', applyInset);
+      viewport?.removeEventListener('scroll', applyInset);
       this.persistDraftOnExit();
       this.detachDraft?.();
       this.destroyed = true;
@@ -123,8 +136,20 @@ export class ConversationComposerComponent {
     if (this.interrupting()) return;
     if (this.stopping()) {
       if (!escalate) return;
-      if (!confirm('This session is already stopping. Force-cancel it? The session ends.')) return;
+      this.forceCancelOpen.set(true);
+      return;
     }
+    await this.runInterrupt();
+  }
+
+  protected dismissForceCancel(): void { this.forceCancelOpen.set(false); }
+
+  protected async confirmForceCancel(): Promise<void> {
+    this.forceCancelOpen.set(false);
+    await this.runInterrupt();
+  }
+
+  private async runInterrupt(): Promise<void> {
     this.haptics.heavyTap();
     this.interrupting.set(true);
     const current = this.operationScope();
@@ -211,6 +236,7 @@ export class ConversationComposerComponent {
 
   protected async send(event: Event, steer = false): Promise<void> {
     event.preventDefault();
+    if ('submitter' in event && (event as SubmitEvent).submitter) this.draftEl()?.nativeElement.blur();
     if (!this.canSend() || this.sending() || !this.online()) return;
     if (steer && !this.canSteer()) return;
     const key = this.contextKey();

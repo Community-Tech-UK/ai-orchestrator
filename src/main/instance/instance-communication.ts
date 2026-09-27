@@ -2460,10 +2460,8 @@ export class InstanceCommunicationManager extends EventEmitter {
     if (!isOccupancyPressureReading(usage)) return;
     // Skip if under threshold
     if (usage.percentage < 80) return;
-    // Skip adapters that truly auto-compact internally (Claude CLI).
-    // Codex app-server exposes a compact hook (`supportsNativeCompaction`)
-    // but does not compact soon enough on its own — AIO owns the 70% steer /
-    // 80% interrupt ladder (T62), so Codex still receives this warning.
+    // Skip adapters that auto-compact internally (Claude CLI, Codex
+    // app-server): the provider owns compaction, so Harness does not coach it.
     const adapter = this.deps.getAdapter(instanceId);
     if (adapter) {
       const capabilities = getAdapterRuntimeCapabilities(adapter);

@@ -45,6 +45,10 @@ vi.mock('../browser-automation/browser-automation-health', () => ({
   }),
 }));
 
+vi.mock('../sandbox/seatbelt', () => ({
+  probeSeatbelt: vi.fn(async () => ({ supported: true })),
+}));
+
 import { CapabilityProbe } from './capability-probe';
 
 describe('CapabilityProbe', () => {

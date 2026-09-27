@@ -1,10 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
-import { DEFAULT_SETTINGS } from '../../shared/types/settings-defaults';
 import {
   ContextSafetyPolicy,
   createInitialContextSafetyPolicyState,
-  DEFAULT_CUMULATIVE_RECOVERY_LIMITS,
   type ContextSafetyPolicyInput,
 } from './context-safety-policy';
 import { ProviderContextActionExecutor } from './provider-context-action-executor';
@@ -230,82 +228,57 @@ describe('ContextSafetyPolicy', () => {
     expect(atFour.occupancyPercent).toBeUndefined();
   });
 
-  it('holds the cumulative 4x recovery while a known context is too small to be worth compacting', () => {
-    // Live 2026-09-25: a Codex turn at 25% of a 258,400-token window crossed
-    // 4x cumulative spend 90s in, and was interrupted and compacted.
+  it('never compacts on spend when occupancy is known, at any fill or multiple', () => {
+    // Live 2026-09-27 (xqs4fg7sl): the old 16x "backstop" was reached every ~40
+    // requests at ~100k context, forcing a compaction every 4-6 minutes at
+    // 32-50% occupancy.
     const policy = new ContextSafetyPolicy();
     const window = 258_400;
-    const sample = (used: number) => ({
-      ...input().sample,
-      occupancy: { status: 'known' as const, used, total: window },
-      cumulativeTokens: window * 4 + 1,
-    });
-    const small = policy.decide(input({
-      sample: sample(Math.round(window * 0.25)),
-      capabilities: observed,
-      effectiveWindowTokens: window,
-    }));
-    const grown = policy.decide(input({
-      sample: sample(Math.round(window * 0.55)),
-      capabilities: observed,
-      effectiveWindowTokens: window,
-      state: small.nextState,
-    }));
-
-    expect(small.action).toMatchObject({ kind: 'convergence-review', trigger: 'cumulative-2x' });
-    expect(small.nextState.emittedTriggers).not.toContain('cumulative-4x');
-    expect(small.nextState.recoveriesInOuterSend).toBe(0);
-    expect(grown.action).toMatchObject({ kind: 'controlled-recovery', trigger: 'cumulative-4x' });
-  });
-
-  it('still recovers a small known context once spend reaches the 16x backstop', () => {
-    const policy = new ContextSafetyPolicy();
-    const window = 258_400;
-    const atOccupancy = (cumulativeTokens: number, state = input().state) => policy.decide(input({
+    const decide = (used: number, cumulativeTokens: number) => policy.decide(input({
       sample: {
         ...input().sample,
-        occupancy: { status: 'known', used: Math.round(window * 0.25), total: window },
+        occupancy: { status: 'known', used, total: window },
         cumulativeTokens,
       },
       capabilities: observed,
       effectiveWindowTokens: window,
-      state,
+      state: {
+        ...createInitialContextSafetyPolicyState('outer-send-1'),
+        emittedTriggers: ['cumulative-2x'],
+      },
     }));
-    const belowBackstop = atOccupancy(window * 16 - 1);
-    const atBackstop = atOccupancy(window * 16, belowBackstop.nextState);
 
-    expect(belowBackstop.action.kind).toBe('convergence-review');
-    expect(atBackstop.action).toMatchObject({ kind: 'controlled-recovery', trigger: 'cumulative-4x' });
+    for (const [used, cumulative] of [
+      [82_291, 4_180_270],
+      [Math.round(window * 0.55), window * 4 + 1],
+      [Math.round(window * 0.32), window * 100],
+    ]) {
+      const decision = decide(used, cumulative);
+      expect(decision.action.kind).toBe('none');
+      expect(decision.nextState.recoveriesInOuterSend).toBe(0);
+    }
   });
 
-  it('uses caller-supplied spend-recovery limits', () => {
+  it('takes no occupancy action for a provider that compacts inline by itself', () => {
     const policy = new ContextSafetyPolicy();
-    const window = 258_400;
-    const decide = (cumulativeTokens: number, cumulativeRecoveryLimits: ContextSafetyPolicyInput['cumulativeRecoveryLimits']) =>
-      policy.decide(input({
-        sample: {
-          ...input().sample,
-          occupancy: { status: 'known', used: Math.round(window * 0.25), total: window },
-          cumulativeTokens,
-        },
-        capabilities: observed,
-        effectiveWindowTokens: window,
-        cumulativeRecoveryLimits,
-      }));
-
-    expect(decide(window * 4, { minOccupancyPercent: 20, backstopMultiple: 16 }).action.kind)
-      .toBe('controlled-recovery');
-    expect(decide(window * 8, { minOccupancyPercent: 50, backstopMultiple: 8 }).action.kind)
-      .toBe('controlled-recovery');
-    expect(decide(window * 8, { minOccupancyPercent: 50, backstopMultiple: 9 }).action.kind)
-      .toBe('convergence-review');
-  });
-
-  it('ships settings defaults that match the policy defaults', () => {
-    expect({
-      minOccupancyPercent: DEFAULT_SETTINGS.contextSpendRecoveryMinOccupancyPercent,
-      backstopMultiple: DEFAULT_SETTINGS.contextSpendRecoveryBackstopMultiple,
-    }).toEqual(DEFAULT_CUMULATIVE_RECOVERY_LIMITS);
+    const inline: ProviderContextCapabilities = { ...observed, providerAutoCompaction: 'inline' };
+    for (const used of [60, 70, 75, 80, 95]) {
+      for (const atSafeProviderBoundary of [true, false]) {
+        const decision = policy.decide(input({
+          sample: { ...input().sample, occupancy: { status: 'known', used, total: 100 } },
+          capabilities: inline,
+          atSafeProviderBoundary,
+        }));
+        expect(decision.action.kind).toBe('none');
+        expect(decision.nextState.emittedTriggers).toEqual([]);
+      }
+    }
+    // The same samples still drive the ladder for a provider without it.
+    expect(policy.decide(input({
+      sample: { ...input().sample, occupancy: { status: 'known', used: 80, total: 100 } },
+      capabilities: observed,
+      atSafeProviderBoundary: true,
+    })).action.kind).toBe('native-compaction');
   });
 
   it('enforces the three-recovery ceiling per epoch and outer send', () => {
@@ -313,7 +286,7 @@ describe('ContextSafetyPolicy', () => {
     const recoveryInput = input({
       sample: {
         ...input().sample,
-        occupancy: { status: 'known', used: 55, total: 100 },
+        occupancy: { status: 'unknown', reason: 'opaque provider' },
         cumulativeTokens: 400,
       },
       effectiveWindowTokens: 100,

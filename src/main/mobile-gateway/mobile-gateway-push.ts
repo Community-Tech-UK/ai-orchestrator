@@ -304,6 +304,61 @@ export function sendMobileAutomationFailurePush(
   }
 }
 
+export function sendMobileLoopPush(
+  deps: MobileGatewayPushDeps,
+  run: { id: string; status: string },
+  kind: 'completed' | 'failed' | 'needs-review',
+): void {
+  const title = kind === 'completed' ? 'Loop finished'
+    : kind === 'needs-review' ? 'Loop needs you'
+      : 'Loop failed';
+  try {
+    if (!deps.apnsSender.isConfigured()) return;
+    sendPersonalizedAlerts(deps, (hostDeviceId) => ({
+      title,
+      body: 'Open Harness to see the loop.',
+      category: 'AIO_LOOP',
+      threadId: run.id,
+      collapseId: `loop-${run.id}`.slice(0, 64),
+      data: { kind: 'loop', loopRunId: run.id, status: run.status, hostDeviceId },
+    }), 'APNs loop send failed');
+  } catch (err) {
+    deps.logger.debug('Loop push failed', { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+export function sendMobilePlanQueuePush(deps: MobileGatewayPushDeps, itemId: string): void {
+  try {
+    if (!deps.apnsSender.isConfigured()) return;
+    sendPersonalizedAlerts(deps, (hostDeviceId) => ({
+      title: 'Plan queue needs an answer',
+      body: 'Open Harness to answer the question.',
+      category: 'AIO_PLAN_QUEUE',
+      threadId: itemId,
+      collapseId: `plan-queue-${itemId}`.slice(0, 64),
+      data: { kind: 'plan-queue', itemId, hostDeviceId },
+    }), 'APNs plan queue send failed');
+  } catch (err) {
+    deps.logger.debug('Plan queue push failed', { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+export function sendMobileDocReviewPush(deps: MobileGatewayPushDeps, reviewId: string): void {
+  try {
+    if (!deps.apnsSender.isConfigured()) return;
+    sendPersonalizedAlerts(deps, (hostDeviceId) => ({
+      title: 'Document review is ready',
+      body: 'Open Harness to approve or reject it.',
+      category: 'AIO_DOC_REVIEW',
+      threadId: reviewId,
+      collapseId: `doc-review-${reviewId}`.slice(0, 64),
+      data: { kind: 'doc-review', reviewId, hostDeviceId },
+    }), 'APNs doc review send failed');
+  } catch (err) {
+    deps.logger.debug('Doc review push failed', { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 export function _resetMobilePushThrottleForTesting(): void {
   clearMobilePushThrottle();
 }

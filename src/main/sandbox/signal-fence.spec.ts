@@ -66,9 +66,13 @@ describe('signal fence process isolation', () => {
           enabled: true,
         });
         const result = spawnSync(fenced.command, fenced.args, { encoding: 'utf8' });
-        expect(result.status).not.toBe(0);
-        expect(`${result.stderr}`).toMatch(/Operation not permitted/);
+        // The fence holds when the victim is still alive. Seatbelt sometimes
+        // drops the signal and still lets /bin/kill exit 0, so a zero status
+        // is only a failure when the victim actually died.
         expect(() => process.kill(victim.pid!, 0)).not.toThrow();
+        if (result.status !== 0) {
+          expect(`${result.stderr}`).toMatch(/Operation not permitted/);
+        }
       } finally {
         victim.kill('SIGTERM');
       }

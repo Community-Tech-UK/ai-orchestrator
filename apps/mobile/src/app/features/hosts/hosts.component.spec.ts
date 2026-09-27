@@ -79,14 +79,13 @@ describe('Hosts recovery behavior', () => {
 
   it('requires secondary options and confirmation before revoking and removing', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: false }); vi.stubGlobal('fetch', fetchMock);
-    const confirmMock = vi.fn().mockReturnValue(false); vi.stubGlobal('confirm', confirmMock);
     const { fixture, button, removeHost } = setup();
     expect(button('Remove host')).toBeUndefined();
     fixture.nativeElement.querySelector('[aria-label="Options for Example A"]').click(); fixture.detectChanges();
-    button('Remove host').click(); await fixture.whenStable();
-    expect(fetchMock).not.toHaveBeenCalled(); expect(removeHost).not.toHaveBeenCalled();
-    confirmMock.mockReturnValue(true);
     button('Remove host').click(); await fixture.whenStable(); fixture.detectChanges();
+    expect(fetchMock).not.toHaveBeenCalled(); expect(removeHost).not.toHaveBeenCalled();
+    const confirm = [...fixture.nativeElement.querySelectorAll('button')].filter((el) => (el as HTMLButtonElement).textContent?.trim() === 'Remove host').at(-1) as HTMLButtonElement;
+    confirm.click(); await fixture.whenStable(); fixture.detectChanges();
     expect(fetchMock.mock.calls[0][0]).toBe('http://a.example.test:4879/api/devices/me');
     expect(removeHost).toHaveBeenCalledWith('host-a');
     expect(fetchMock.mock.invocationCallOrder[0]).toBeLessThan(removeHost.mock.invocationCallOrder[0]);

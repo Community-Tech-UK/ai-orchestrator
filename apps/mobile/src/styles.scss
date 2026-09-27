@@ -71,9 +71,54 @@
   --z-lock: 1000;
 }
 
+:root[data-appearance='light'],
+:root[data-appearance='system'] {
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-appearance='system'] {
+    --bg: #f2f2f7;
+    --surface: #ffffff;
+    --surface-2: #e5e5ea;
+    --surface-raised: #ffffff;
+    --text: #1c1c1e;
+    --text-secondary: #3a3a3c;
+    --text-tertiary: #636366;
+    --separator: rgba(0, 0, 0, 0.12);
+    --separator-strong: rgba(0, 0, 0, 0.2);
+    --accent-online: #248a3d;
+    --accent-attention: #c93400;
+    --accent-error: #d70015;
+    --accent-action: #0040dd;
+    --focus-ring: rgba(0, 0, 0, 0.85);
+  }
+}
+
+:root[data-appearance='light'] {
+  --bg: #f2f2f7;
+  --surface: #ffffff;
+  --surface-2: #e5e5ea;
+  --surface-raised: #ffffff;
+  --text: #1c1c1e;
+  --text-secondary: #3a3a3c;
+  --text-tertiary: #636366;
+  --separator: rgba(0, 0, 0, 0.12);
+  --separator-strong: rgba(0, 0, 0, 0.2);
+  --accent-online: #248a3d;
+  --accent-attention: #c93400;
+  --accent-error: #d70015;
+  --accent-action: #0040dd;
+  --focus-ring: rgba(0, 0, 0, 0.85);
+}
+
 * {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  font: -apple-system-body;
 }
 
 html,
@@ -84,7 +129,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-family-sans);
-  font-size: 17px;
+  font-size: 1rem;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -97,13 +142,13 @@ app-root {
 }
 
 h1 {
-  font-size: 34px;
+  font-size: 2rem;
   font-weight: 700;
   margin: 0;
 }
 
 h2 {
-  font-size: 17px;
+  font-size: 1.0625rem;
   font-weight: 600;
   color: var(--text);
   margin: 0;
@@ -151,6 +196,12 @@ code {
 .mobile-icon-button:active:not(:disabled),
 .mobile-pressable:active:not(:disabled) {
   transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .mobile-pressable:hover:not(:disabled) {
+    background: var(--surface-2);
+  }
 }
 
 .mobile-icon-button:disabled,
@@ -358,7 +409,7 @@ code {
 
 .markdown-body .md-code-lang {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-family: 'SF Mono', ui-monospace, Menlo, monospace;
   text-transform: lowercase;
 }
@@ -370,7 +421,7 @@ code {
   min-width: 44px;
   min-height: 44px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 0.75rem;
   padding: 8px;
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.08);
@@ -468,13 +519,51 @@ code {
 input,
 textarea {
   font-family: inherit;
-  font-size: 16px;
+  font-size: 1rem;
   color: var(--text);
   background: var(--surface);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--separator);
   border-radius: 10px;
   padding: 12px 14px;
   width: 100%;
+}
+
+.app-frame {
+  position: fixed;
+  inset: 0;
+  min-height: 0;
+}
+
+.app-frame--split {
+  display: grid;
+  grid-template-columns: minmax(20rem, 23.75rem) minmax(0, 1fr);
+}
+
+.app-frame__stage,
+.app-frame__list {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-frame__list { border-right: 1px solid var(--separator); }
+
+.app-frame__stage > :not(router-outlet),
+.app-frame__list > :not(router-outlet) {
+  position: absolute !important;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+.app-frame__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: var(--text-secondary);
 }
 
 @media (prefers-reduced-motion: reduce) {

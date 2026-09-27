@@ -1502,6 +1502,8 @@ describe('CodexCliAdapter', () => {
         exitPromise: new Promise<void>(() => { /* intentionally pending */ }),
         request: vi.fn(async (method: string, params: Record<string, unknown>) => {
           order.push(method);
+          // Recovery asks whether a Codex goal will resume the task by itself.
+          if (method === 'thread/goal/get') return { goal: null };
           if (method === 'thread/inject_items') {
             const items = params['items'] as Array<{ role: string; content: Array<{ text: string }> }>;
             if (items.some((item) => item.role !== 'developer')) throw new Error('non-developer injected item');
@@ -1657,6 +1659,7 @@ describe('CodexCliAdapter', () => {
         'turn/start',
         'turn/interrupt',
         'thread/compact/start',
+        'thread/goal/get',
         'thread/inject_items',
         'turn/start',
       ]);
@@ -1707,7 +1710,7 @@ describe('CodexCliAdapter', () => {
       }).appServerSendMessageInner('Original expensive task');
 
       expect(pauses).toEqual([]);
-      expect(order).toEqual(['turn/start', 'turn/interrupt', 'thread/compact/start', 'thread/inject_items', 'turn/start']);
+      expect(order).toEqual(['turn/start', 'turn/interrupt', 'thread/compact/start', 'thread/goal/get', 'thread/inject_items', 'turn/start']);
       expect(turnInputs[1]).toMatch(/continue the interrupted task/i);
       expect(completions).toEqual(['Continued safely']);
       expect(adapter.nativeCompactionKnownUnsupported()).toBe(false);
@@ -1744,7 +1747,7 @@ describe('CodexCliAdapter', () => {
         await vi.advanceTimersByTimeAsync(0);
         await send;
 
-        expect(order).toEqual(['turn/start', 'turn/interrupt', 'thread/compact/start', 'thread/inject_items', 'turn/start']);
+        expect(order).toEqual(['turn/start', 'turn/interrupt', 'thread/compact/start', 'thread/goal/get', 'thread/inject_items', 'turn/start']);
         expect(turnInputs[1]).toMatch(/continue the interrupted task/i);
         expect(outputs.filter((output) => output.metadata?.['contextCostRecoveryPaused'])).toEqual([]);
 
@@ -2024,13 +2027,13 @@ describe('CodexCliAdapter', () => {
       expect(adapter.getRuntimeCapabilities().selfManagedAutoCompaction).toBe(false);
     });
 
-    it('reports app-server native compaction without claiming Codex will auto-compact', () => {
+    it('reports app-server native compaction and leaves automatic compaction to Codex', () => {
       const adapter = new CodexCliAdapter();
       (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
 
       expect(adapter.getRuntimeCapabilities()).toMatchObject({
         supportsNativeCompaction: true,
-        selfManagedAutoCompaction: false,
+        selfManagedAutoCompaction: true,
       });
     });
 

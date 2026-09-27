@@ -24,6 +24,7 @@ const transcript: MobileMessageDto[] = [
 
 async function setup(sendInput = vi.fn().mockResolvedValue({ queued: false }), options: {
   status?: string; isLooping?: boolean; online?: boolean; steerInput?: ReturnType<typeof vi.fn>;
+  wakeInstance?: ReturnType<typeof vi.fn>;
 } = {}) {
   const host = signal({ id: 'host', name: 'Preview' });
   const snapshot = signal<MobileSnapshot>({
@@ -40,6 +41,7 @@ async function setup(sendInput = vi.fn().mockResolvedValue({ queued: false }), o
       messagesFor: () => transcript, messageStateFor: () => ({ status: 'loaded', error: null }),
       hasEarlierFor: () => false, earlierStateFor: () => ({ status: 'idle', error: null }),
       loadMessages: vi.fn(), sendInput, steerInput: options.steerInput ?? vi.fn().mockResolvedValue(undefined), setActiveView: vi.fn(), clearActiveView: vi.fn(),
+      wakeInstance: options.wakeInstance,
     } },
     { provide: HostStore, useValue: { activeHost: host } },
     { provide: DraftStore, useValue: { load: async () => '', save: vi.fn(), attachments: () => [], saveAttachments: vi.fn() } },
@@ -53,7 +55,7 @@ async function setup(sendInput = vi.fn().mockResolvedValue({ queued: false }), o
   const fixture = TestBed.createComponent(ConversationComponent);
   fixture.componentRef.setInput('instanceId', 'session');
   await fixture.whenStable();
-  return fixture;
+  return Object.assign(fixture, { snapshot });
 }
 
 describe('Conversation rendered split boundary', () => {
@@ -114,6 +116,56 @@ describe('Conversation rendered split boundary', () => {
     toggle?.click();
     fixture.detectChanges();
     expect(root.querySelector('.tool-entry summary')?.textContent).toContain('Read file');
+  });
+
+  it('clears Waking after the wake request resolves', async () => {
+    let finish!: () => void;
+    const wakeInstance = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const fixture = await setup(undefined, { status: 'hibernated', wakeInstance });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Waking…');
+    finish();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Waking…');
+  });
+
+  it('does not let an older wake clear Waking for a newer hibernated snapshot', async () => {
+    const finishes: Array<() => void> = [];
+    const wakeInstance = vi.fn(() => new Promise<void>((resolve) => { finishes.push(resolve); }));
+    const fixture = await setup(undefined, { status: 'hibernated', wakeInstance });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Waking…');
+    fixture.snapshot.update((current) => ({
+      ...current,
+      instances: [{ ...current.instances[0]!, status: 'hibernated' }],
+    }));
+    fixture.detectChanges();
+    expect(wakeInstance).toHaveBeenCalledTimes(2);
+    finishes[0]?.();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Waking…');
+    finishes[1]?.();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Waking…');
+  });
+
+  it('clears Waking when the session leaves hibernation', async () => {
+    let finish!: () => void;
+    const wakeInstance = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const fixture = await setup(undefined, { status: 'hibernated', wakeInstance });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Waking…');
+    fixture.snapshot.update((current) => ({
+      ...current,
+      instances: [{ ...current.instances[0]!, status: 'idle' }],
+    }));
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Waking…');
+    finish();
+    await fixture.whenStable();
   });
 
   it('keeps the composer usable and shows a queued-send notice', async () => {

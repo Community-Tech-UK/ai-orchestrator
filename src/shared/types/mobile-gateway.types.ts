@@ -77,6 +77,12 @@ export type {
   MobileWakeResponse,
 } from '@contracts/types/mobile-gateway';
 
+export {
+  MOBILE_LOOP_STATUSES,
+  MOBILE_PLAN_QUEUE_ITEM_STATES,
+  MOBILE_PLAN_QUEUE_RUN_STATUSES,
+} from '@contracts/types/mobile-gateway';
+
 /** A paired phone, as persisted by the gateway. The bearer `token` is secret. */
 export interface MobileDevice {
   deviceId: string;

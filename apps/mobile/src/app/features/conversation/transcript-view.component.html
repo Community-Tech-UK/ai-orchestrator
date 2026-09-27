@@ -7,6 +7,9 @@
   (touchend)="onTouchEnd()"
   (touchcancel)="onTouchEnd()"
 >
+  @if (searchMiss() && hasEarlier()) {
+    <button type="button" class="show-earlier" (click)="searchEarlier.emit()">Search earlier</button>
+  }
   @if (canShowEarlier()) {
     <button type="button" class="show-earlier" aria-label="Show earlier messages"
       [disabled]="cannotShowEarlier()" (click)="showEarlier()">
@@ -100,7 +103,7 @@
         (click)="scrollToBottom()"
         aria-label="Scroll to bottom"
       >
-        @if (hasNewOutput()) { <span class="pill-label">New output</span> }
+        @if (hasNewOutput()) { <span class="pill-label" aria-live="polite">New output</span> }
         <app-mobile-icon name="chevron-down" />
       </button>
     }

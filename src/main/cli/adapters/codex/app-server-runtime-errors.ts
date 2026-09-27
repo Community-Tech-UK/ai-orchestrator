@@ -84,6 +84,15 @@ export function isCompactTurnRejection(error: unknown): boolean {
   return isSubmissionRejection && identifiesCompactTurn;
 }
 
+/**
+ * True for Codex refusing an empty `turn/start`. `turn/start` steers into a
+ * running turn, and an empty steer is rejected (`NotSubmittedReason::EmptyInput`).
+ */
+export function isEmptyInputSteerRejection(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /failed to submit turn input:\s*EmptyInput\b/i.test(message);
+}
+
 function classifyMessage(message: string): Pick<
   CodexAppServerRuntimeErrorOptions,
   'kind' | 'recoverability'

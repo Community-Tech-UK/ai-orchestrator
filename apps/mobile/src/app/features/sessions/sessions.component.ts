@@ -6,6 +6,7 @@ import { HostStore } from '../../core/host-store';
 import { newSessionPresetState } from '../new-session/new-session.navigation';
 import { MobileBrowseStateStore } from '../../core/mobile-browse-state.store';
 import { isWorking, statusLabel } from '../../core/status';
+import { PullRefreshDirective } from '../../shared/pull-refresh.directive';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
 import {
@@ -67,9 +68,9 @@ function sessionTone(row: SessionChipInput): MobileSessionRowView['tone'] {
   standalone: true,
   selector: 'app-sessions',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MobileHeaderComponent, MobileIconComponent, MobileSessionRowComponent],
+  imports: [MobileHeaderComponent, MobileIconComponent, MobileSessionRowComponent, PullRefreshDirective],
   template: `
-    <section class="sessions-screen">
+    <section class="sessions-screen" appPullRefresh (refresh)="pullRefresh()">
       <app-mobile-header
         [title]="projectName()"
         [subtitle]="connectionHeadline()"
@@ -214,6 +215,8 @@ export class SessionsComponent {
     if (key === '__no_workspace__') return 'No workspace';
     return key.split('/').filter(Boolean).pop() || 'Sessions';
   });
+
+  protected pullRefresh(): void { void this.gateway.refreshSnapshot(); }
 
   protected showMore(): void {
     this.visibleCount.update((count) => count + this.nextPageSize());

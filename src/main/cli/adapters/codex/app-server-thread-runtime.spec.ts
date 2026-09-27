@@ -345,4 +345,141 @@ describe('CodexAppServerThreadRuntime', () => {
       turnPhase: 'idle',
     });
   });
+
+  // xqs4fg7sl: Codex's goal extension starts a turn 10-35 ms after a Compact
+  // turn ends. Harness's empty developer `turn/start` then lands on that turn as
+  // a steer and Codex rejects it with EmptyInput.
+  describe('turns Codex starts by itself', () => {
+    const emptyInput = new Error('failed to submit turn input: EmptyInput');
+
+    function developerOnly() {
+      return { ...captureOptions(), input: [] as UserInput[], developerInput: 'Continue the task.' };
+    }
+
+    it('follows the goal turn when an empty developer turn/start is rejected as a steer', async () => {
+      const runtime = new CodexAppServerThreadRuntime();
+      const client = new FakeClient();
+      runtime.attach(client, { threadId: 'thread-1', resumeCursor: cursor, resumeProof });
+      client.request.mockImplementation(async (method: string) => {
+        if (method === 'thread/inject_items') {
+          client.emit('turn/started', { threadId: 'thread-1', turn: { id: 'goal-turn', status: 'inProgress' } });
+          return {};
+        }
+        if (method === 'turn/start') throw emptyInput;
+        throw new Error(`unexpected method ${method}`);
+      });
+
+      const capture = runtime.captureTurn(developerOnly());
+      await vi.waitFor(() => expect(runtime.getCurrentTurnId()).toBe('goal-turn'));
+      client.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'goal-turn', status: 'completed' } });
+
+      await expect(capture).resolves.toMatchObject({ turnId: 'goal-turn', completed: true });
+      expect(runtime.hasActiveTurn()).toBe(false);
+    });
+
+    it('finds the running turn when its turn/started was missed', async () => {
+      const runtime = new CodexAppServerThreadRuntime();
+      const client = new FakeClient();
+      runtime.attach(client, { threadId: 'thread-1', resumeCursor: cursor, resumeProof });
+      client.request.mockImplementation(async (method: string) => {
+        if (method === 'thread/inject_items') return {};
+        if (method === 'turn/start') throw emptyInput;
+        if (method === 'thread/turns/list') return { data: [{ id: 'goal-turn', status: 'inProgress' }], nextCursor: null, backwardsCursor: null };
+        throw new Error(`unexpected method ${method}`);
+      });
+
+      const capture = runtime.captureTurn(developerOnly());
+      await vi.waitFor(() => expect(runtime.getCurrentTurnId()).toBe('goal-turn'));
+      client.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'goal-turn', status: 'completed' } });
+
+      await expect(capture).resolves.toMatchObject({ turnId: 'goal-turn' });
+      expect(client.request).toHaveBeenCalledWith('thread/turns/list', { threadId: 'thread-1', limit: 1, sortDirection: 'desc' });
+    });
+
+    it('still rejects EmptyInput for user input or when no turn is running', async () => {
+      const runtime = new CodexAppServerThreadRuntime();
+      const client = new FakeClient();
+      runtime.attach(client, { threadId: 'thread-1', resumeCursor: cursor, resumeProof });
+      client.request.mockImplementation(async (method: string) => {
+        if (method === 'thread/inject_items') return {};
+        if (method === 'turn/start') throw emptyInput;
+        if (method === 'thread/turns/list') return { data: [{ id: 'old', status: 'completed' }], nextCursor: null, backwardsCursor: null };
+        throw new Error(`unexpected method ${method}`);
+      });
+
+      await expect(runtime.captureTurn(captureOptions())).rejects.toThrow('EmptyInput');
+      await expect(runtime.captureTurn(developerOnly())).rejects.toThrow('EmptyInput');
+      expect(runtime.hasActiveTurn()).toBe(false);
+    });
+
+    it('captures a provider-started turn until it completes, then frees the slot', async () => {
+      const runtime = new CodexAppServerThreadRuntime();
+      const client = new FakeClient();
+      runtime.attach(client, { threadId: 'thread-1', resumeCursor: cursor, resumeProof });
+      const handled: string[] = [];
+      const options = {
+        ...captureOptions(),
+        handleNotification: (state: TurnCaptureState, notification: AppServerNotification) => {
+          handled.push(notification.method);
+          captureOptions().handleNotification(state, notification);
+        },
+      };
+      const started = { method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'goal-turn' } } } as AppServerNotification;
+
+      const capture = runtime.captureProviderTurn('goal-turn', options, started);
+      expect(capture).not.toBeNull();
+      expect(runtime.getActiveTurnOrigin()).toBe('provider');
+      expect(runtime.getSnapshot()).toMatchObject({ activeTurnId: 'goal-turn', turnPhase: 'running' });
+      expect(runtime.captureProviderTurn('other', options)).toBeNull();
+      await expect(runtime.captureTurn(captureOptions())).rejects.toThrow('already has an active turn');
+
+      client.emit('item/completed', { threadId: 'thread-1', turnId: 'goal-turn', item: { type: 'agentMessage', text: 'working' } });
+      client.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'goal-turn', status: 'completed' } });
+
+      await expect(capture).resolves.toMatchObject({ turnId: 'goal-turn', completed: true });
+      expect(handled).toEqual(['turn/started', 'item/completed', 'turn/completed']);
+      expect(runtime.hasActiveTurn()).toBe(false);
+      expect(runtime.getActiveTurnOrigin()).toBeNull();
+      expect(client.request).not.toHaveBeenCalled();
+    });
+
+    it('steers Harness input into a provider turn, never into a Harness turn', async () => {
+      const runtime = new CodexAppServerThreadRuntime();
+      const client = new FakeClient();
+      runtime.attach(client, { threadId: 'thread-1', resumeCursor: cursor, resumeProof });
+      const input = [{ type: 'text', text: 'also check the tests', text_elements: [] }] as UserInput[];
+
+      const capture = runtime.captureProviderTurn('goal-turn', captureOptions())!;
+      await expect(runtime.steerProviderTurn(input, 'Harness note'))
+        .resolves.toEqual({ delivered: true, developerInjected: true });
+      expect(client.request.mock.calls.map(([method, params]) => [method, params])).toEqual([
+        ['thread/inject_items', { threadId: 'thread-1', items: [expect.objectContaining({ role: 'developer' })] }],
+        ['turn/steer', { threadId: 'thread-1', expectedTurnId: 'goal-turn', input }],
+      ]);
+
+      client.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'goal-turn', status: 'completed' } });
+      await capture;
+      await expect(runtime.steerProviderTurn(input)).resolves.toEqual({ delivered: false, developerInjected: false });
+    });
+
+    it('reports a developer item already injected when the turn ends before the steer', async () => {
+      const runtime = new CodexAppServerThreadRuntime();
+      const client = new FakeClient();
+      runtime.attach(client, { threadId: 'thread-1', resumeCursor: cursor, resumeProof });
+      const input = [{ type: 'text', text: 'attachment note', text_elements: [] }] as UserInput[];
+      client.request.mockImplementation(async (method: string) => {
+        if (method === 'thread/inject_items') {
+          client.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'goal-turn', status: 'completed' } });
+          return {};
+        }
+        if (method === 'turn/steer') throw new Error('no active turn to steer');
+        throw new Error(`unexpected method ${method}`);
+      });
+
+      const capture = runtime.captureProviderTurn('goal-turn', captureOptions())!;
+      await expect(runtime.steerProviderTurn(input, 'Harness note'))
+        .resolves.toEqual({ delivered: false, developerInjected: true });
+      await capture;
+    });
+  });
 });

@@ -19,6 +19,7 @@ const expected = {
     interruptProof: 'observed',
     compactionProof: 'observed',
     sameThreadContinuation: true,
+    providerAutoCompaction: 'inline',
   },
   codexExec: {
     ...postRetentionBase,

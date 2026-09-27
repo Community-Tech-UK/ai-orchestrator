@@ -1,8 +1,8 @@
-<section class="screen">
+<section class="screen" appPullRefresh (refresh)="pullRefresh()">
   <app-mobile-header
     class="conversation-header"
     [title]="instance()?.displayName ?? 'Session'"
-    [subtitle]="headerSubtitle()"
+    [subtitle]="waking() ? 'Waking…' : headerSubtitle()"
     [statusColor]="activityColor()"
   >
     <button
@@ -31,6 +31,7 @@
       <div class="session-actions">
         <button type="button" (click)="menuOpen.set(false); detailsOpen.set(true)">Session details</button>
         <button (click)="rename()" [disabled]="!online()">Rename</button>
+        <button type="button" (click)="menuOpen.set(false); searchOpen.set(true)">Search</button>
         <button (click)="openModelSheet()" [disabled]="!online() || !instance()">Change model…</button>
         <button (click)="interrupt()" [disabled]="!online()">
           {{ stopping() ? 'Force-cancel (stop again)' : 'Stop (interrupt)' }}
@@ -38,6 +39,13 @@
         <button class="danger" (click)="terminate()" [disabled]="!online()">Close</button>
       </div>
     </app-mobile-sheet>
+  }
+
+  <app-loop-card [chatId]="instanceId()" [visible]="instance()?.isLooping === true" />
+  @if (searchOpen()) {
+    <label class="transcript-search">Search
+      <input [value]="searchQuery()" (input)="searchQuery.set(searchText($event))" />
+    </label>
   }
 
   @if (requests().length) {
@@ -62,6 +70,8 @@
     [earlierDisabled]="!online()"
     (loadEarlier)="loadEarlier()"
     [messages]="messages()"
+    [query]="searchQuery()"
+    (searchEarlier)="loadEarlier()"
     [state]="transcriptState()"
     [emptyText]="emptyTranscript()"
     [working]="working()"
@@ -90,6 +100,26 @@
       [retryLabel]="pendingModel ? 'Retry model change' : 'Retry loading models'"
       (dismiss)="!changingModel() && modelSheetOpen.set(false)"
     />
+  }
+  @if (closeConfirm()) {
+    <app-mobile-sheet label="Close session" (dismiss)="dismissClose()">
+      <p>The agent stops and unsaved work is lost.</p>
+      <div class="session-actions">
+        <button type="button" (click)="dismissClose()">Keep open</button>
+        <button type="button" class="danger" (click)="confirmClose()">Close session</button>
+      </div>
+    </app-mobile-sheet>
+  }
+  @if (renameOpen()) {
+    <app-mobile-sheet label="Rename session" (dismiss)="renameOpen.set(false)">
+      <label>Name
+        <input [value]="renameDraft()" (input)="renameDraft.set(searchText($event))" />
+      </label>
+      <div class="session-actions">
+        <button type="button" (click)="renameOpen.set(false)">Cancel</button>
+        <button type="button" (click)="confirmRename()">Save</button>
+      </div>
+    </app-mobile-sheet>
   }
   @if (detailsOpen()) {
     <app-mobile-sheet label="Session details" (dismiss)="detailsOpen.set(false)">

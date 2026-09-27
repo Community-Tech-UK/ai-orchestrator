@@ -34,7 +34,7 @@ class SocketDouble {
   readyState = 0;
   readonly sent: unknown[] = [];
 
-  constructor(readonly url: string) { SocketDouble.sockets.push(this); }
+  constructor(readonly url: string, readonly protocols?: string[]) { SocketDouble.sockets.push(this); }
   open(): void { this.readyState = SocketDouble.OPEN; this.onopen?.(); }
   close(): void { this.readyState = 3; }
   receive(value: unknown): void {
@@ -62,6 +62,8 @@ describe('GatewaySocket reconnect and foreground liveness', () => {
   it('backs failed handshakes off at 1, 2, 4, 8, then 15 seconds', async () => {
     const socket = new GatewaySocket();
     socket.connect(HOST, () => undefined);
+    expect(SocketDouble.sockets[0].url).toBe('ws://host.invalid:8899/ws');
+    expect(SocketDouble.sockets[0].protocols).toEqual(['aio.v1', 'bearer.TEST_ONLY']);
     const delays = [1_000, 2_000, 4_000, 8_000, 15_000];
 
     for (const delay of delays) {

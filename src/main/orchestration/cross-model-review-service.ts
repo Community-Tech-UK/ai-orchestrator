@@ -63,6 +63,7 @@ import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { resolveAntigravityReviewModelPlan } from './antigravity-review-model-routing';
 import { redactForEgress } from '../security/content-egress-gate';
 import { runHeadlessReviewCommand } from './headless-review-runner';
+import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
 const logger = getLogger('CrossModelReviewService');
 
 // Codex and Antigravity both run noticeably slower than other reviewer CLIs
@@ -98,6 +99,21 @@ function findLatestUserMessage(messages: readonly OutputMessage[] | undefined): 
     if (message?.type === 'user' && message.content.trim().length > 0) return message;
   }
   return undefined;
+}
+
+function readHeadlessReviewSettings() {
+  try {
+    return getSettingsManager().getAll();
+  } catch (error) {
+    logger.warn('Headless review settings unavailable; using defaults', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    // The product default enables the local advisory pass, but discovering its
+    // configured target reaches persisted remote-node state too. With no
+    // settings manager there is no authoritative local target to run, so keep
+    // the standalone fallback remote-only.
+    return { ...DEFAULT_SETTINGS, crossModelReviewLocalEnabled: false };
+  }
 }
 
 export class CrossModelReviewService extends EventEmitter {
@@ -710,7 +726,13 @@ export class CrossModelReviewService extends EventEmitter {
   }
 
   async runHeadlessReview(request: HeadlessReviewRequest) {
-    const settings = getSettingsManager().getAll();
+    // `aio review` is a plain Node/tsx entrypoint. In that process Electron's
+    // `app` and userData path do not exist, so electron-store can reject before
+    // the routing layer reaches its own manager-unavailable fallback. A missing
+    // settings manager means no persisted local-review configuration is
+    // available; use the immutable defaults while preserving normal persisted
+    // settings in every Electron-hosted call.
+    const settings = readHeadlessReviewSettings();
     return runHeadlessReviewCommand(request, {
       host: this.reviewExecutionHost,
       resolveReviewers: (headlessRequest) => this.resolveHeadlessReviewers(headlessRequest),

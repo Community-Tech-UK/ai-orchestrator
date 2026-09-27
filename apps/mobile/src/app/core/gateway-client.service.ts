@@ -12,13 +12,23 @@ import type {
   MobileAutomationRunResponse,
   MobileCancelledInputDto,
   MobileCreateInstanceRequest,
+  MobileDocReviewDecisionRequest,
+  MobileDocReviewDecisionResponse,
+  MobileDocReviewDetailDto,
+  MobileDocReviewSummaryDto,
+  MobileHistoryContinueResponse,
   MobileHistorySessionDto,
+  MobileLoopControlResponse,
+  MobileLoopDetailDto,
+  MobileLoopRunDto,
   MobileInstanceDto,
   MobileModelCatalog,
   MobileMessageDto,
   MobileMessagesResumeDto,
   MobileSessionPlan,
   MobilePauseDto,
+  MobilePlanQueueDiffstatDto,
+  MobilePlanQueueRunDto,
   MobileQuotaStateDto,
   MobilePromptDto,
   MobileRecentDirDto,
@@ -28,6 +38,7 @@ import type {
   MobileSnapshot,
   MobileSteerRequest,
   MobileSteerResponse,
+  MobileWakeResponse,
 } from './models';
 
 export type { ConnectionState } from './gateway-socket';
@@ -43,6 +54,8 @@ export class GatewayClient {
   private readonly _prompts = signal<MobilePromptDto[]>([]);
   private readonly _pause = signal<MobilePauseDto>(EMPTY_PAUSE);
   private readonly _quotaEvent = signal<{ hostId: string; data: MobileQuotaStateDto } | null>(null);
+  private readonly _loopEvent = signal<{ hostId: string; data: Extract<MobileServerEvent, { type: 'loop-state' }>['data'] } | null>(null);
+  private readonly _planQueueEvent = signal<{ hostId: string; data: Extract<MobileServerEvent, { type: 'plan-queue-state' }>['data'] } | null>(null);
   private readonly _history = signal<MobileHistorySessionDto[]>([]);
   private readonly _models = signal<MobileModelCatalog | null>(null);
   private readonly _dataHostId = signal<string | null>(null);
@@ -59,6 +72,8 @@ export class GatewayClient {
   readonly prompts = this._prompts.asReadonly();
   readonly pause = this._pause.asReadonly();
   readonly quotaEvent = this._quotaEvent.asReadonly();
+  readonly loopEvent = this._loopEvent.asReadonly();
+  readonly planQueueEvent = this._planQueueEvent.asReadonly();
   readonly historySessions = this._history.asReadonly();
   readonly modelCatalog = this._models.asReadonly();
   readonly dataHostId = this._dataHostId.asReadonly();
@@ -113,6 +128,8 @@ export class GatewayClient {
     this._prompts.set([]);
     this._pause.set(EMPTY_PAUSE);
     this._quotaEvent.set(null);
+    this._loopEvent.set(null);
+    this._planQueueEvent.set(null);
     this.transcriptStore.reset();
     this._models.set(null);
     this._history.set([]);
@@ -159,6 +176,12 @@ export class GatewayClient {
         break;
       case 'quota-state':
         if (this.socket.hostId) this._quotaEvent.set({ hostId: this.socket.hostId, data: event.data });
+        break;
+      case 'loop-state':
+        if (this.socket.hostId) this._loopEvent.set({ hostId: this.socket.hostId, data: event.data });
+        break;
+      case 'plan-queue-state':
+        if (this.socket.hostId) this._planQueueEvent.set({ hostId: this.socket.hostId, data: event.data });
         break;
       case 'instance-removed':
         this.dropInstance(event.data.instanceId);
@@ -236,6 +259,16 @@ export class GatewayClient {
     const id = this.hostStore.activeHost()?.id;
     const generation = this.socket.generation;
     return () => this.hostStore.activeHost()?.id === id && this.socket.generation === generation;
+  }
+
+  async refreshSnapshot(): Promise<void> {
+    const current = this.requestScope();
+    const snapshot = await this.request<MobileSnapshot>('GET', '/api/snapshot');
+    if (current()) this._snapshot.set(snapshot);
+  }
+
+  async catchUpMessages(instanceId: string): Promise<void> {
+    await this.resumeMessages(instanceId);
   }
 
   /** Fetch and store the authoritative transcript for an instance. */
@@ -450,6 +483,56 @@ export class GatewayClient {
   async recentDirs(): Promise<MobileRecentDirDto[]> { return this.request('GET', '/api/recent-dirs'); }
 
   async quota(): Promise<MobileQuotaStateDto> { return this.request('GET', '/api/quota'); }
+
+  async loops(): Promise<MobileLoopRunDto[]> { return this.request('GET', '/api/loops'); }
+
+  async loop(id: string): Promise<MobileLoopDetailDto> {
+    return this.request('GET', `/api/loops/${encodeURIComponent(id)}`);
+  }
+
+  async controlLoop(id: string, action: 'pause' | 'resume' | 'stop'): Promise<MobileLoopControlResponse> {
+    return this.request('POST', `/api/loops/${encodeURIComponent(id)}/${action}`, {});
+  }
+
+  async planQueue(): Promise<{ runs: MobilePlanQueueRunDto[] }> {
+    return this.request('GET', '/api/plan-queue');
+  }
+
+  async answerPlanQueue(itemId: string, optionId: string): Promise<{ ok: true }> {
+    return this.request('POST', `/api/plan-queue/${encodeURIComponent(itemId)}/answer`, { optionId });
+  }
+
+  async controlPlanQueue(runId: string, action: 'pause' | 'resume' | 'cancel'): Promise<{ ok: true }> {
+    return this.request('POST', `/api/plan-queue/${encodeURIComponent(runId)}/control`, { action });
+  }
+
+  async planQueueDiffstat(itemId: string): Promise<MobilePlanQueueDiffstatDto> {
+    return this.request('GET', `/api/plan-queue/${encodeURIComponent(itemId)}/diffstat`);
+  }
+
+  async docReviews(): Promise<MobileDocReviewSummaryDto[]> {
+    return this.request('GET', '/api/doc-reviews');
+  }
+
+  async docReview(id: string): Promise<MobileDocReviewDetailDto> {
+    return this.request('GET', `/api/doc-reviews/${encodeURIComponent(id)}`);
+  }
+
+  async submitDocReview(id: string, body: MobileDocReviewDecisionRequest): Promise<MobileDocReviewDecisionResponse> {
+    return this.request('POST', `/api/doc-reviews/${encodeURIComponent(id)}/decision`, body);
+  }
+
+  async continueHistory(id: string): Promise<MobileHistoryContinueResponse> {
+    return this.request('POST', `/api/history/${encodeURIComponent(id)}/continue`, {});
+  }
+
+  async wakeInstance(instanceId: string): Promise<MobileWakeResponse> {
+    return this.request('POST', `/api/instances/${encodeURIComponent(instanceId)}/wake`, {});
+  }
+
+  async respondBrowser(requestId: string, decisionAction: 'allow' | 'deny'): Promise<{ ok: true }> {
+    return this.request('POST', `/api/browser-approvals/${encodeURIComponent(requestId)}/respond`, { decisionAction });
+  }
 
   async automations(): Promise<MobileAutomationDto[]> {
     return this.request('GET', '/api/automations');

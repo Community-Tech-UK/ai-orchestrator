@@ -29,10 +29,14 @@ import {
 } from "./mobile-apns-sender";
 import {
   bearerFromHeader,
+  bindCorsOrigin,
   corsHeaders,
   extractCertHostname,
   readJsonBody,
+  redactUrlToken,
+  routeErrorStatus,
   sendJsonResponse,
+  setMobileGatewayCorsDev,
 } from "./mobile-gateway-http-utils";
 import {
   handleMobileHistory,
@@ -93,6 +97,7 @@ import {
   readAutomationModelDefaults,
   type AutomationModelDefaults,
 } from '../automations/automation-model-defaults';
+import { MobileGatewayAwayFeatures } from './mobile-gateway-away-features';
 
 export {
   buildProjects,
@@ -156,6 +161,8 @@ export interface MobileGatewayStartOptions {
   bindInterface: "tailscale" | "all";
   tlsCertPath?: string;
   tlsKeyPath?: string;
+  /** Allow localhost browser origins. The desktop start path sets this from the unpackaged app. */
+  devCors?: boolean;
 }
 
 interface ResolvedTls {
@@ -194,11 +201,26 @@ export class MobileGatewayServer {
     getModelDefaults: () => this.deps?.automationModelDefaults?.() ?? readAutomationModelDefaults(),
     sendFailedPush: failure => sendMobileAutomationFailurePush(this.pushDeps(), failure),
   });
-
   private readonly promptStore = new MobileGatewayPromptStore({
     broadcast: (event) => this.snapshots.broadcast(event),
     scheduleSnapshotBroadcast: () => this.snapshots.scheduleBroadcast(),
     sendPush: (prompt) => sendMobilePromptPush(this.pushDeps(), prompt),
+  });
+  private readonly away = new MobileGatewayAwayFeatures({
+    broadcast: (event) => this.snapshots.broadcast(event),
+    pushDeps: () => this.pushDeps(),
+    prompts: () => this.promptStore,
+    instanceManager: () => this.deps?.instanceManager,
+    restore: async (entryId) => {
+      const restored = await this.source().restoreFromHistory(entryId);
+      return {
+        instanceId: restored.instanceId,
+        sessionId: restored.sessionId,
+        historyThreadId: restored.historyThreadId,
+        restoreMode: restored.restoreMode,
+      };
+    },
+    wake: (instanceId) => this.source().wakeInstance(instanceId),
   });
 
   private readonly instanceRoutes: MobileGatewayInstanceRoutes = new MobileGatewayInstanceRoutes({
@@ -345,7 +367,11 @@ export class MobileGatewayServer {
     const httpServer = tls
       ? createHttpsServer({ cert: tls.cert, key: tls.key }, requestHandler)
       : createServer(requestHandler);
-    this.wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+    this.wss = new WebSocketServer({
+      noServer: true,
+      maxPayload: 64 * 1024,
+      handleProtocols: (protocols) => (protocols.has('aio.v1') ? 'aio.v1' : false),
+    });
     this.unsubscribeRevocations?.();
     this.unsubscribeRevocations = this.registry.onDeviceRevoked((deviceId) =>
       closeSocketsForDevice(this.wsDeps(), deviceId),
@@ -365,9 +391,11 @@ export class MobileGatewayServer {
         resolve();
       });
     });
+    setMobileGatewayCorsDev(options.devCors === true);
     this.events.attach();
     this.quota.attach();
     this.automations.attach();
+    this.away.attach();
     this.startHeartbeat();
     logger.info("Mobile gateway started", {
       host: this.boundHost,
@@ -381,6 +409,7 @@ export class MobileGatewayServer {
   }
 
   async stop(): Promise<MobileGatewayStatus> {
+    this.away.detach();
     this.automations.detach();
     this.quota.detach();
     this.snapshots.stop();
@@ -576,8 +605,10 @@ export class MobileGatewayServer {
       `http://${this.boundHost || "localhost"}:${this.boundPort}`,
     );
     const method = req.method || "GET";
+    bindCorsOrigin(res, req.headers.origin);
+    if (req.url) req.url = redactUrlToken(req.url);
     if (method === "OPTIONS") {
-      res.writeHead(204, corsHeaders());
+      res.writeHead(204, corsHeaders(res));
       res.end();
       return;
     }
@@ -601,6 +632,7 @@ export class MobileGatewayServer {
       if (segments[0] === "api") {
         if (await this.automations.handle(req, res, segments, method)) return;
         if (this.quota.handle(res, segments, method)) return;
+        if (await this.away.handle(req, res, segments, method)) return;
         if (await this.instanceRoutes.handle(req, res, url, segments, method))
           return;
         if (
@@ -669,7 +701,7 @@ export class MobileGatewayServer {
         path: url.pathname,
         error: error instanceof Error ? error.message : String(error),
       });
-      this.sendJson(res, error instanceof MobileAutomationRequestError ? error.statusCode : 500, {
+      this.sendJson(res, routeErrorStatus(error) ?? (error instanceof MobileAutomationRequestError ? error.statusCode : 500), {
         error: error instanceof Error ? error.message : "Internal error",
       });
     }

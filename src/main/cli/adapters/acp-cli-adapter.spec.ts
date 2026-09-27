@@ -574,6 +574,35 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('reports an active tool call until every parallel call has settled', async () => {
+    // OpenCode runs `task` sub-agents in parallel; the first to finish must not
+    // read as "no tool running" while its sibling is still in progress.
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      const update = (payload: Record<string, unknown>) =>
+        proc.notify('session/update', { sessionId: 'sess-acp-1', update: payload });
+      update({ sessionUpdate: 'tool_call', toolCallId: 'task-a', title: 'Research A', kind: 'think', status: 'in_progress' });
+      update({ sessionUpdate: 'tool_call', toolCallId: 'task-b', title: 'Research B', kind: 'think', status: 'pending' });
+      update({ sessionUpdate: 'tool_call_update', toolCallId: 'task-b', status: 'completed' });
+      update({ sessionUpdate: 'tool_call_update', toolCallId: 'task-a', status: 'completed' });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, { command: process.execPath, workingDirectory: '/tmp' });
+    await adapter.spawn();
+    expect(adapter.hasActiveToolCalls()).toBe(false);
+    const activeWhenSettled = new Map<string, boolean>();
+    adapter.on('tool_result', (call: { id: string }) => activeWhenSettled.set(call.id, adapter.hasActiveToolCalls()));
+
+    await adapter.sendMessage({ role: 'user', content: 'go' });
+
+    expect([...activeWhenSettled]).toEqual([['task-b', true], ['task-a', false]]);
+    expect(adapter.hasActiveToolCalls()).toBe(false);
+
+    proc.exit();
+  });
+
   it('surfaces an unsettled call once, before a failed turn rejects', async () => {
     const proc = createInitializedAgentHarness();
     proc.onRequest('session/prompt', (message) => {

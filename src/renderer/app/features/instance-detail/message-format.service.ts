@@ -154,6 +154,9 @@ export class MessageFormatService {
       if (prev?.percentage !== undefined && next?.percentage !== undefined) {
         return `Codex compacted its own context (${Math.round(prev.percentage)}% → ${Math.round(next.percentage)}%)`;
       }
+      if (prev?.percentage !== undefined) {
+        return `Codex compacted its own context (was ${Math.round(prev.percentage)}%)`;
+      }
       return 'Codex compacted its own context (awaiting updated usage)';
     }
     const methodLabel = method ? `[${method}]` : '';

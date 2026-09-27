@@ -29,6 +29,8 @@ import { MobileIconComponent } from '../../shared/mobile-icon.component';
 import { MobileSheetComponent } from '../../shared/mobile-sheet.component';
 import { ModelSheetComponent } from '../../shared/model-sheet.component';
 import { ConversationComposerComponent } from './conversation-composer.component';
+import { LoopCardComponent } from '../loops/loop-card.component';
+import { PullRefreshDirective } from '../../shared/pull-refresh.directive';
 import { TranscriptViewComponent } from './transcript-view.component';
 
 function errorText(error: unknown): string {
@@ -47,6 +49,8 @@ function errorText(error: unknown): string {
     MobileHeaderComponent,
     MobileIconComponent,
     MobileSheetComponent,
+    LoopCardComponent,
+    PullRefreshDirective,
   ],
   templateUrl: './conversation.component.html',
   styleUrls: ['./conversation.component.scss'],
@@ -109,9 +113,16 @@ export class ConversationComponent {
     return provider ? this.modelCatalog()?.[provider] ?? [] : [];
   });
   protected readonly pairingExpired = computed(() => this.gateway.state() === 'unauthorized');
+  protected readonly closeConfirm = signal(false);
+  protected readonly renameOpen = signal(false);
+  protected readonly renameDraft = signal('');
+  protected readonly waking = signal(false);
+  protected readonly searchQuery = signal('');
+  protected readonly searchOpen = signal(false);
 
   private readonly composer = viewChild(ConversationComposerComponent);
   private contextGeneration = 0;
+  private wakeGeneration = 0;
   private destroyed = false;
 
   constructor() {
@@ -144,6 +155,27 @@ export class ConversationComponent {
         void this.gateway.loadMessages(id);
       }
     });
+
+    effect(() => {
+      const instance = this.instance();
+      if (!instance || instance.status !== 'hibernated') {
+        if (!this.destroyed) this.waking.set(false);
+        return;
+      }
+      if (typeof this.gateway.wakeInstance !== 'function') return;
+      untracked(() => { void this.wake(instance.id); });
+    });
+  }
+
+  private async wake(id: string): Promise<void> {
+    const current = this.operationScope();
+    if (!current()) return;
+    const generation = ++this.wakeGeneration;
+    this.waking.set(true);
+    try { await this.gateway.wakeInstance(id); }
+    finally {
+      if (generation === this.wakeGeneration && current()) this.waking.set(false);
+    }
   }
 
   protected async interrupt(): Promise<void> {
@@ -153,7 +185,13 @@ export class ConversationComponent {
 
   protected async terminate(): Promise<void> {
     this.menuOpen.set(false);
-    if (!confirm('Close this session? The agent stops and unsaved work is lost.')) return;
+    this.closeConfirm.set(true);
+  }
+
+  protected dismissClose(): void { this.closeConfirm.set(false); }
+
+  protected async confirmClose(): Promise<void> {
+    this.closeConfirm.set(false);
     this.haptics.heavyTap();
     const current = this.operationScope();
     try {
@@ -166,10 +204,20 @@ export class ConversationComponent {
     }
   }
 
-  protected async rename(): Promise<void> {
+  protected searchText(event: Event): string {
+    return (event.target as HTMLInputElement).value;
+  }
+
+  protected rename(): void {
     this.menuOpen.set(false);
-    const name = prompt('Rename session', this.instance()?.displayName ?? '');
-    if (!name?.trim()) return;
+    this.renameDraft.set(this.instance()?.displayName ?? '');
+    this.renameOpen.set(true);
+  }
+
+  protected async confirmRename(): Promise<void> {
+    const name = this.renameDraft().trim();
+    this.renameOpen.set(false);
+    if (!name) return;
     const current = this.operationScope();
     try {
       await this.gateway.rename(this.instanceId(), name.trim());
@@ -224,6 +272,7 @@ export class ConversationComponent {
   }
 
   protected retryTranscript(): void { void this.gateway.loadMessages(this.instanceId()); }
+  protected pullRefresh(): void { void this.gateway.catchUpMessages(this.instanceId()); }
   protected loadEarlier(): void { void this.gateway.loadEarlier(this.instanceId()); }
   protected reconnect(): void { this.gateway.reconnect(); }
   protected changeHost(): void { void this.router.navigate(['/hosts']); }

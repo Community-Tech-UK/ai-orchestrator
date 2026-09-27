@@ -26,6 +26,35 @@ export const routes: Routes = [
       import('./features/automations/automations.component').then((m) => m.AutomationsComponent),
   },
   {
+    path: 'loops',
+    loadComponent: () => import('./features/loops/loops.component').then((m) => m.LoopsComponent),
+  },
+  {
+    path: 'loops/:id',
+    loadComponent: () =>
+      import('./features/loops/loop-detail.component').then((m) => m.LoopDetailComponent),
+  },
+  {
+    path: 'plan-queue',
+    loadComponent: () =>
+      import('./features/plan-queue/plan-queue.component').then((m) => m.PlanQueueComponent),
+  },
+  {
+    path: 'plan-queue/:id',
+    loadComponent: () =>
+      import('./features/plan-queue/plan-queue-detail.component').then((m) => m.PlanQueueDetailComponent),
+  },
+  {
+    path: 'reviews',
+    loadComponent: () =>
+      import('./features/doc-review/doc-reviews.component').then((m) => m.DocReviewsComponent),
+  },
+  {
+    path: 'reviews/:id',
+    loadComponent: () =>
+      import('./features/doc-review/doc-review-detail.component').then((m) => m.DocReviewDetailComponent),
+  },
+  {
     path: 'projects/:projectKey/sessions',
     loadComponent: () =>
       import('./features/sessions/sessions.component').then((m) => m.SessionsComponent),

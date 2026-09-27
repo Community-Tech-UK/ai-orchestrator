@@ -72,6 +72,18 @@ const INTERACTIVE_PROMPT_DETECT_MS = 45_000;
 
 export type ProcessState = 'generating' | 'tool_executing' | 'idle';
 
+/**
+ * `hasActiveToolCall` source for an instance's adapter. Only adapters that can
+ * see every in-flight call implement `hasActiveToolCalls()` (ACP today); the
+ * rest report false and keep the message-driven state. Claude is deliberately
+ * absent: its CLI streams sub-agent turns into the parent NDJSON, so a running
+ * sibling keeps resetting the clock without this.
+ */
+export function adapterHasActiveToolCalls(adapter: object | undefined): boolean {
+  return !!adapter && 'hasActiveToolCalls' in adapter
+    && typeof adapter.hasActiveToolCalls === 'function' && adapter.hasActiveToolCalls() === true;
+}
+
 export interface StuckDetectorOptions {
   /**
    * Callback to check whether the CLI process for a given instance is still
@@ -87,6 +99,17 @@ export interface StuckDetectorOptions {
    * provider process is expected and should not produce stuck warnings.
    */
   hasExternalActivity?: (instanceId: string) => boolean;
+  /**
+   * Callback reporting whether the provider still has a tool call in flight
+   * for this instance's live turn. The tracker's state is driven by the last
+   * `tool_use`/`tool_result` message, so when an agent runs tools in parallel
+   * the FIRST result flips it back to `generating` while its siblings are
+   * still running. OpenCode's parallel `task` sub-agents stream nothing over
+   * ACP, so a sibling that outlived the first by ~8 minutes hit the
+   * `generating` hard timeout and the session was killed mid-work. While this
+   * returns true, a `generating` tracker is judged as `tool_executing`.
+   */
+  hasActiveToolCall?: (instanceId: string) => boolean;
   /**
    * Grace window (ms) for a live process sitting in `tool_executing` before
    * stuck escalation resumes. Long MCP sub-agent reviews (codex/gemini) can be
@@ -151,6 +174,7 @@ export class StuckProcessDetector extends EventEmitter {
   private checkInterval: NodeJS.Timeout | null = null;
   private isProcessAlive: ((instanceId: string) => boolean) | undefined;
   private hasExternalActivity: ((instanceId: string) => boolean) | undefined;
+  private hasActiveToolCall: ((instanceId: string) => boolean) | undefined;
   private readonly toolExecutingAliveGraceMs: number;
   private readonly getTimeoutMultiplier: () => number;
   private lastCheckTime = Date.now();
@@ -159,6 +183,7 @@ export class StuckProcessDetector extends EventEmitter {
     super();
     this.isProcessAlive = options?.isProcessAlive;
     this.hasExternalActivity = options?.hasExternalActivity;
+    this.hasActiveToolCall = options?.hasActiveToolCall;
     this.toolExecutingAliveGraceMs =
       options?.toolExecutingAliveGraceMs ?? TOOL_EXECUTING_ALIVE_GRACE_MS;
     this.getTimeoutMultiplier = options?.getTimeoutMultiplier ?? getLoadWatchdogMultiplier;
@@ -321,7 +346,13 @@ export class StuckProcessDetector extends EventEmitter {
       if (tracker.paused) continue;
       if (tracker.instanceState === 'idle') continue;
 
-      const config = TIMEOUTS[tracker.instanceState];
+      // A provider-reported in-flight tool call outranks the last message
+      // type (see `hasActiveToolCall`).
+      const state: ProcessState =
+        tracker.instanceState === 'generating' && this.hasActiveToolCall?.(instanceId)
+          ? 'tool_executing'
+          : tracker.instanceState;
+      const config = TIMEOUTS[state];
       if (!config) continue;
 
       if (this.hasExternalActivity?.(instanceId)) {
@@ -344,13 +375,13 @@ export class StuckProcessDetector extends EventEmitter {
       if (livenessKnown && !processAlive && elapsed >= config.softMs) {
         logger.warn('Process stuck — provider process is not running', {
           instanceId,
-          state: tracker.instanceState,
+          state,
           elapsedMs: elapsed,
           processAlive,
         });
         this.emit('process:stuck', {
           instanceId,
-          state: tracker.instanceState,
+          state,
           elapsedMs: elapsed,
         });
         this.trackers.delete(instanceId);
@@ -364,7 +395,7 @@ export class StuckProcessDetector extends EventEmitter {
       // (interactive-prompt detection below still runs); past the ceiling the
       // normal escalation resumes so a genuinely hung tool is still caught.
       const inToolExecutingGrace =
-        tracker.instanceState === 'tool_executing' &&
+        state === 'tool_executing' &&
         processAlive &&
         elapsed < this.toolExecutingAliveGraceMs * loadMultiplier;
 
@@ -375,7 +406,7 @@ export class StuckProcessDetector extends EventEmitter {
       if (!inToolExecutingGrace && elapsed >= effectiveHardMs) {
         logger.warn('Process stuck — hard timeout exceeded', {
           instanceId,
-          state: tracker.instanceState,
+          state,
           elapsedMs: elapsed,
           processAlive,
           aliveDeferrals: tracker.aliveDeferrals,
@@ -383,19 +414,19 @@ export class StuckProcessDetector extends EventEmitter {
         });
         this.emit('process:stuck', {
           instanceId,
-          state: tracker.instanceState,
+          state,
           elapsedMs: elapsed,
         });
         this.trackers.delete(instanceId);
       } else if (!inToolExecutingGrace && elapsed >= effectiveSoftMs && !tracker.softWarningEmitted) {
         // If process is alive and we haven't exhausted deferrals, defer
         // instead of warning — the instance is actively working.
-        const maxDeferrals = MAX_ALIVE_DEFERRALS_BY_STATE[tracker.instanceState] ?? DEFAULT_MAX_ALIVE_DEFERRALS;
+        const maxDeferrals = MAX_ALIVE_DEFERRALS_BY_STATE[state] ?? DEFAULT_MAX_ALIVE_DEFERRALS;
         if (processAlive && tracker.aliveDeferrals < maxDeferrals) {
           tracker.aliveDeferrals++;
           logger.info('Process alive — deferring stuck warning', {
             instanceId,
-            state: tracker.instanceState,
+            state,
             elapsedMs: elapsed,
             deferral: tracker.aliveDeferrals,
             maxDeferrals,
@@ -405,7 +436,7 @@ export class StuckProcessDetector extends EventEmitter {
 
         logger.warn('Process may be stuck — soft timeout exceeded', {
           instanceId,
-          state: tracker.instanceState,
+          state,
           elapsedMs: elapsed,
           processAlive,
           loadMultiplier,
@@ -413,7 +444,7 @@ export class StuckProcessDetector extends EventEmitter {
         tracker.softWarningEmitted = true;
         this.emit('process:suspect-stuck', {
           instanceId,
-          state: tracker.instanceState,
+          state,
           elapsedMs: elapsed,
         });
       }
@@ -423,7 +454,7 @@ export class StuckProcessDetector extends EventEmitter {
       // Inspired by Claude Code 2.1.84 interactive-prompt surface detection.
       if (
         !tracker.interactivePromptWarningEmitted &&
-        tracker.instanceState === 'tool_executing' &&
+        state === 'tool_executing' &&
         elapsed >= INTERACTIVE_PROMPT_DETECT_MS &&
         tracker.lastStderrAt > tracker.lastOutputAt &&
         now - tracker.lastStderrAt < INTERACTIVE_PROMPT_DETECT_MS
@@ -436,7 +467,7 @@ export class StuckProcessDetector extends EventEmitter {
         tracker.interactivePromptWarningEmitted = true;
         this.emit('process:interactive-prompt', {
           instanceId,
-          state: tracker.instanceState,
+          state,
           stdoutSilentMs: elapsed,
           lastStderrMs: now - tracker.lastStderrAt,
         });

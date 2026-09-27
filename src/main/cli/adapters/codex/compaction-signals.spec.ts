@@ -150,4 +150,32 @@ describe('CodexCompactionSignalTracker', () => {
     }, 'thread-1')).toBe('settled');
     expect(tracker.isRunning).toBe(false);
   });
+
+  // Codex's own compaction runs inside the running regular turn (turn.rs
+  // run_auto_compact); only `thread/compact/start` produces a separate Compact turn.
+  it('treats a compaction item inside the running regular turn as inline, with no gate', () => {
+    const tracker = new CodexCompactionSignalTracker();
+    const params = { threadId: 'thread-1', turnId: 'work-turn', item };
+
+    expect(tracker.accept({ method: 'item/started', params }, 'thread-1', 'work-turn')).toBe('inline-started');
+    expect(tracker.isRunning).toBe(false);
+    expect(tracker.accept({ method: 'item/completed', params }, 'thread-1', 'work-turn')).toBe('completed');
+    expect(tracker.accept({ method: 'item/completed', params }, 'thread-1', 'work-turn')).toBeNull();
+    expect(tracker.accept({
+      method: 'item/completed',
+      params: { ...params, item: { ...item, id: 'second-compaction' } },
+    }, 'thread-1', 'work-turn')).toBe('completed');
+    expect(tracker.accept({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turn: { id: 'work-turn', status: 'completed' } },
+    }, 'thread-1', 'work-turn')).toBeNull();
+  });
+
+  it('keeps the Compact-turn lifecycle when no regular turn is named', () => {
+    const tracker = new CodexCompactionSignalTracker();
+    const params = { threadId: 'thread-1', turnId: 'compact-turn', item };
+
+    expect(tracker.accept({ method: 'item/started', params }, 'thread-1', null)).toBe('started');
+    expect(tracker.accept({ method: 'item/completed', params }, 'thread-1', 'compact-turn')).toBe('observed-running');
+  });
 });

@@ -248,6 +248,7 @@ export const ProviderContextCapabilitiesSchema: z.ZodType<ProviderContextCapabil
   interruptProof: z.enum(['observed', 'acknowledged-only', 'none']),
   compactionProof: z.enum(['observed', 'acknowledged-only', 'none']),
   sameThreadContinuation: z.boolean(),
+  providerAutoCompaction: z.literal('inline').optional(),
 }).strict();
 
 export const EvidenceCaptureRequestSchema: z.ZodType<EvidenceCaptureRequest> = z.object({

@@ -44,7 +44,18 @@ interface FileDiffView {
         </label>
       }
 
-      @if (prompt().kind === 'permission') {
+      @if (browserBlocked()) {
+        <h3 class="title">Open on your Mac</h3>
+        <p class="msg">{{ prompt().message || 'This browser step has to be approved on the Mac that owns the browser.' }}</p>
+      } @else if (prompt().kind === 'browser') {
+        <h3 class="title">{{ prompt().title || 'Approve browser action?' }}</h3>
+        @if (prompt().site) { <p class="msg">{{ prompt().site }}</p> }
+        @if (prompt().message) { <p class="msg">{{ prompt().message }}</p> }
+        <div class="actions">
+          <button type="button" class="deny" [disabled]="pending()" (click)="decide('deny')">Deny</button>
+          <button type="button" class="allow" [disabled]="pending()" (click)="decide('allow')">Allow</button>
+        </div>
+      } @else if (prompt().kind === 'permission') {
         <h3 class="title">{{ prompt().toolName ? prompt().toolName + ' needs approval' : 'Approve action?' }}</h3>
         @if (fileDiff(); as d) {
           <div class="diff-head">
@@ -243,6 +254,15 @@ interface FileDiffView {
 })
 export class ApprovalSheetComponent {
   readonly prompt = input.required<MobilePromptDto>();
+  protected readonly browserBlocked = computed(() => {
+    const prompt = this.prompt();
+    return prompt.kind === 'browser' && (
+      prompt.actionClass === 'credential'
+      || prompt.actionClass === 'payment'
+      || prompt.actionClass === 'financial_identity'
+      || prompt.actionClass === 'sensitive_identity'
+    );
+  });
   /**
    * Why the last decision didn't go through. The sheet covers most of the screen,
    * so without this a rejected token left the prompt sitting there with no

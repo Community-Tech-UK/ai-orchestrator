@@ -87,6 +87,13 @@ class FakeInstanceSource extends EventEmitter implements GatewayInstanceSource {
   getOrchestrationHandler() {
     return this.orchestration;
   }
+  restoreFromHistory = vi.fn(async (entryId: string) => ({
+    instanceId: `restored-${entryId}`,
+    sessionId: 'session',
+    historyThreadId: entryId,
+    restoreMode: 'native-resume' as const,
+  }));
+  wakeInstance = vi.fn(async () => undefined);
 }
 
 class FakePause extends EventEmitter implements GatewayPauseSource {

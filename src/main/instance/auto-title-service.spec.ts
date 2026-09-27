@@ -488,19 +488,35 @@ describe('AutoTitleService', () => {
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
-  it('returns null without retrying when the authorized paid title call rejects', async () => {
+  it('falls through to the next eligible provider when the preferred CLI call rejects', async () => {
     mockIsCliAvailable.mockImplementation(async (type: string) => ({
-      installed: type === 'claude',
+      installed: type === 'antigravity' || type === 'claude',
     }));
-    mockResolveCliType.mockResolvedValue('claude');
-    mockSendMessage.mockRejectedValue(new Error('provider failed'));
+    mockResolveCliType.mockImplementation(async (type: string) => type);
+    const antigravitySend = vi.fn().mockRejectedValue(new Error('agy exited with code 1'));
+    const claudeSend = vi.fn().mockResolvedValue({ content: 'Deployment fallback title' });
+    mockCreateAdapter.mockImplementation((input?: { cliType?: string }) => ({
+      sendMessage: input?.cliType === 'antigravity' ? antigravitySend : claudeSend,
+    }));
 
     const title = await AutoTitleService.getInstance().generateTitle(
       'Investigate the broken deployment and summarize the fix.',
     );
 
-    expect(title).toBeNull();
-    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(title).toBe('Deployment fallback title');
+    expect(antigravitySend).toHaveBeenCalledTimes(1);
+    expect(claudeSend).toHaveBeenCalledTimes(1);
+    expect(mockLog.warn).toHaveBeenCalledWith(
+      expect.stringContaining('AI title escalation failed'),
+      expect.objectContaining({
+        cliType: 'antigravity',
+        error: 'agy exited with code 1',
+      }),
+    );
+    expect(mockLog.info).toHaveBeenCalledWith(
+      expect.stringContaining('generated via CLI escalation'),
+      expect.objectContaining({ cliType: 'claude' }),
+    );
   });
 
   it('automatically attributes the real paid CLI adapter winner inside routing correlation', async () => {

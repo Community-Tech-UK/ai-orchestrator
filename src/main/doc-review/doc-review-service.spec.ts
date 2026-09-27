@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -589,6 +590,54 @@ describe('DocReviewService', () => {
     });
     await service.submitDecision(approvedSession.id, { overall: 'approved', decisions: [] });
     expect(recorded).toEqual([approvedSession.id]);
+  });
+
+  it('records a phone submission as the service decision', async () => {
+    const { getDocReviewService } = await loadService();
+    const { createLiveDocReviewSource } = await import('../mobile-gateway/mobile-gateway-doc-review-source');
+    const { MobileGatewayDocReviewHandlers } = await import('../mobile-gateway/mobile-gateway-doc-review-handlers');
+    const service = getDocReviewService();
+    const sent: string[] = [];
+    service.setInstanceManager({
+      sendInput: async (_id, message) => { sent.push(message); },
+    });
+    const artifactPath = join(reviewDir, 'phone.html');
+    writeFileSync(artifactPath, '<!DOCTYPE html><html><head><meta name="aio-doc-review" content="v1">'
+      + '<meta name="aio-doc-review-title" content="Phone Plan"></head><body>'
+      + '<section data-review-item="scope" data-review-title="Scope" data-decision-id="1">'
+      + '<ul data-review-options><li data-option="keep">Keep it</li></ul></section></body></html>');
+    const session = await service.createSession({
+      instanceId: 'inst-1', workspacePath: workspace, title: 'Phone Plan', artifactPath,
+    });
+    const handlers = new MobileGatewayDocReviewHandlers({
+      getSource: () => createLiveDocReviewSource(),
+      sendPendingPush: () => undefined,
+    });
+    const captured: { status: number; body: string }[] = [];
+    const respond = () => ({
+      writeHead(status: number) { captured.push({ status, body: '' }); },
+      end(payload: string) { captured[captured.length - 1].body = payload; },
+    });
+    await handlers.handle({} as never, respond() as never, ['api', 'doc-reviews', session.id], 'GET');
+    expect(JSON.parse(captured[0].body).items).toEqual([
+      expect.objectContaining({ id: 'scope', title: 'Scope', decisionId: '1' }),
+    ]);
+    const req = new EventEmitter();
+    const pending = handlers.handle(req as never, respond() as never, ['api', 'doc-reviews', session.id, 'decision'], 'POST');
+    req.emit('data', Buffer.from(JSON.stringify({
+      overall: 'approved',
+      decisions: [{ itemId: 'scope', title: 'Scope', decisionId: '1', decision: 'approve', choice: 'keep' }],
+      generalComment: 'ship it',
+    })));
+    req.emit('end');
+    await pending;
+    expect(captured[1].status).toBe(200);
+    expect(service.getSession(session.id)).toMatchObject({
+      status: 'approved',
+      decisions: [expect.objectContaining({ itemId: 'scope', decision: 'approve' })],
+    });
+    expect(sent[0]).toContain('Overall: APPROVED');
+    expect(sent[0]).toContain('[Scope] approve');
   });
 
   it('dismiss removes a pending session', async () => {

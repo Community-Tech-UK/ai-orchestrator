@@ -5,7 +5,11 @@ import type { SurfacedToUserError } from '../surfaced-error';
 import type { AppServerNotification } from './app-server-types';
 import { CompactionGate, type CompactionGateOutcome } from './compaction-gate';
 import { CodexCompactionSignalTracker, type CodexCompactionSignal } from './compaction-signals';
-import { CodexAppServerRuntimeError, isCompactTurnRejection } from './app-server-runtime-errors';
+import {
+  classifyCodexAppServerFailure,
+  CodexAppServerRuntimeError,
+  isCompactTurnRejection,
+} from './app-server-runtime-errors';
 import {
   CodexTurnCostGovernor,
   type CodexTurnCostObservation,
@@ -16,7 +20,7 @@ const logger = getLogger('CodexContextCostController');
 export const COST_RECOVERY_CONTINUATION =
   'Continue the interrupted task from where you left off. Inspect the current workspace state before acting, do not repeat completed edits or commands, and finish the original request.';
 
-type RecoveryReason = 'interrupt-unconfirmed' | 'compaction-unobserved';
+type RecoveryReason = 'interrupt-unconfirmed' | 'compaction-unobserved' | 'continuation-failed';
 type RecoveryStage = 'interrupt-requested' | 'interrupt-observed' | 'compaction-observed' | 'continued' | 'paused';
 export type CodexContextAction =
   | 'controlled-interrupt'
@@ -66,6 +70,11 @@ export interface CodexContextCostControllerDeps {
    */
   compactionHeartbeatMs?: number;
   interrupt(): InterruptResult;
+  /**
+   * True while any Codex turn runs. `thread/compact/start` aborts the running
+   * turn (`turn_aborted reason: replaced`), so compaction is refused then.
+   */
+  hasActiveTurn?(): boolean;
   getCompactionTarget(): CompactionTarget | null;
   emitSystem(content: string, metadata: Record<string, unknown>): void;
   emitHeartbeat?(): void;
@@ -83,6 +92,12 @@ export interface RecoverAfterTurnParams {
   turnStatus: string | null | undefined;
   recoveryCount: number;
   continueTurn(message: string, nextRecoveryCount: number): Promise<void>;
+  /**
+   * True when Codex resumes the task by itself: a turn it started is already
+   * running, or an active thread goal will start one. A Harness continuation
+   * then only races it (the `EmptyInput` rejections in xqs4fg7sl).
+   */
+  providerWillContinue?(): Promise<boolean>;
 }
 
 /** Codex action executor and proof observer. It contains no pressure thresholds. */
@@ -112,6 +127,10 @@ export class CodexContextCostController {
   private recoveryStopRequested = false;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private compactionRunning = false;
+  /** Harness sent `thread/compact/start` and the compaction has not reported running yet. */
+  private compactionRequested = false;
+  /** The regular turn running Codex's own inline compaction, until it completes. */
+  private inlineCompactionTurnId: string | null = null;
   private compactionHandoffWaiters = 0;
   private compactionTrigger: 'self-managed' | 'policy' = 'self-managed';
 
@@ -161,8 +180,14 @@ export class CodexContextCostController {
   acceptCompactionSignal(
     notification: AppServerNotification,
     threadId: string | null,
+    activeTurnId: string | null = null,
   ): CodexCompactionSignal | null {
-    const signal = this.signals.accept(notification, threadId);
+    this.abortInlineCompactionIfTurnEnded(notification, threadId);
+    // Only a Harness request produces a separate Compact turn; any other
+    // compaction item belongs to the running regular turn.
+    const inlineTurnId = this.compactionRequested || this.compactionRunning ? null : activeTurnId;
+    const signal = this.signals.accept(notification, threadId, inlineTurnId);
+    if (signal === 'inline-started') this.recordInlineCompactionStarted(inlineTurnId);
     if (signal === 'started') this.recordCompactionStarted();
     if (signal === 'settled') this.recordCompactionSettled();
     if (signal === 'aborted') this.recordCompactionAborted();
@@ -172,6 +197,8 @@ export class CodexContextCostController {
   recordCompactionObserved(cumulativeTokens: number): void {
     this.stopHeartbeat();
     this.compactionRunning = false;
+    this.compactionRequested = false;
+    this.inlineCompactionTurnId = null;
     const awaited = this.gate.hasPendingWaiters();
     this.gate.settle();
     this.recordCompactionEvidence(cumulativeTokens, awaited);
@@ -187,6 +214,7 @@ export class CodexContextCostController {
   /** The provider reported a compaction running; an explicit wait moves to its running window. */
   recordCompactionStarted(): void {
     this.compactionRunning = true;
+    this.compactionRequested = false;
     this.gate.markRunning();
     this.startHeartbeat();
     this.deps.onCompactionStateChange?.('started');
@@ -200,8 +228,34 @@ export class CodexContextCostController {
     this.recordCompactionStarted();
   }
 
+  /**
+   * Codex compacting inside a running regular turn. That turn stays live and
+   * steerable, so no send gate opens; only liveness and the transcript note.
+   */
+  private recordInlineCompactionStarted(turnId: string | null): void {
+    this.inlineCompactionTurnId = turnId;
+    this.compactionTrigger = 'self-managed';
+    this.startHeartbeat();
+    this.deps.onCompactionStateChange?.('started');
+  }
+
+  private abortInlineCompactionIfTurnEnded(notification: AppServerNotification, threadId: string | null): void {
+    const turnId = this.inlineCompactionTurnId;
+    if (!turnId || notification.method !== 'turn/completed' || notification.params['threadId'] !== threadId) return;
+    const turn = notification.params['turn'] as { id?: unknown } | undefined;
+    if (turn?.id !== turnId) return;
+    this.inlineCompactionTurnId = null;
+    this.stopHeartbeat();
+    this.deps.onCompactionStateChange?.('completed', 'aborted');
+  }
+
+  /** Harness asked for a compaction whose Compact turn has not finished; that turn is not task work. */
+  isCompactTurnExpected(): boolean {
+    return this.compactionRequested || this.compactionRunning;
+  }
+
   runningCompactionTurnId(): string | null {
-    return this.signals.runningTurnId;
+    return this.signals.runningTurnId ?? this.inlineCompactionTurnId;
   }
 
   runningCompactionTrigger(): 'self-managed' | 'policy' {
@@ -247,6 +301,11 @@ export class CodexContextCostController {
 
   /** The app-server connection is gone, so no compaction signal can still arrive. */
   handleRuntimeExit(): void {
+    this.compactionRequested = false;
+    if (this.inlineCompactionTurnId) {
+      this.inlineCompactionTurnId = null;
+      this.stopHeartbeat();
+    }
     this.gate.cancel();
     this.finishRunningCompaction('cancelled');
   }
@@ -310,6 +369,10 @@ export class CodexContextCostController {
       logger.info('Skipping native compaction — a compaction was already observed since the last check');
       return true;
     }
+    if (this.deps.hasActiveTurn?.()) {
+      logger.info('Skipping native compaction — a Codex turn is running and thread/compact/start would replace it');
+      return false;
+    }
     const observed = this.gate.wait(timeoutMs, this.deps.compactionRunningTimeoutMs ?? timeoutMs);
     if (this.recoveryInProgress && !this.recoveryWait) this.recoveryWait = observed;
     try {
@@ -334,6 +397,7 @@ export class CodexContextCostController {
       });
       return false;
     } finally {
+      this.compactionRequested = false;
       if (this.recoveryWait === observed) this.recoveryWait = null;
     }
   }
@@ -382,12 +446,37 @@ export class CodexContextCostController {
       }
 
       this.deps.recordRecovery?.('compaction-observed');
+      if (await params.providerWillContinue?.()) {
+        this.deps.emitSystem(
+          'Codex reached a shared context-policy boundary, so Harness interrupted it and observed compaction. Codex is continuing the task by itself.',
+          { contextCostRecovery: true, action: pending.action },
+        );
+        this.deps.recordRecovery?.('continued');
+        return true;
+      }
       this.deps.emitSystem(
         'Codex reached a shared context-policy boundary, so Harness interrupted it, observed compaction, and is continuing on the same thread.',
         { contextCostRecovery: true, action: pending.action },
       );
       this.deps.recordActionProof?.('same-thread-continuation', 'requested');
-      await this.continueTurnWithRetry(params);
+      try {
+        await this.continueTurnWithRetry(params);
+      } catch (error) {
+        // The user's own turn already finished. A raw failure here was reported as
+        // that send's failure ("initial message could not be delivered"). A paused
+        // recovery posts its own notice and is surfaced, so callers add none, while
+        // orchestration callers still learn why. Usage limits and terminal failures
+        // (e.g. auth) propagate unchanged to their handling.
+        const failure = classifyCodexAppServerFailure(error);
+        if (error instanceof CodexContextRecoveryPausedError) throw error;
+        if (failure.kind === 'provider-limit' || failure.recoverability === 'terminal') throw error;
+        const reason = error instanceof Error ? error.message : String(error);
+        logger.warn('Same-thread continuation after compaction failed', { error: reason });
+        throw this.pause(
+          'continuation-failed',
+          `Harness compacted the context but could not continue the task (${reason}). The conversation was preserved; send a message to continue.`,
+        );
+      }
       this.deps.recordActionProof?.('same-thread-continuation', 'observed');
       this.deps.recordRecovery?.('continued');
       return true;
@@ -426,6 +515,7 @@ export class CodexContextCostController {
     if (!target) return false;
     try {
       this.compactionTrigger = 'policy';
+      this.compactionRequested = true;
       this.deps.recordActionProof?.('native-compaction', 'requested');
       this.deps.recordCompactionRpc?.('requested');
       await target.start();
@@ -433,6 +523,7 @@ export class CodexContextCostController {
       this.deps.recordCompactionRpc?.('accepted');
       return true;
     } catch (error) {
+      this.compactionRequested = false;
       this.resetCompactionTrigger();
       this.deps.recordCompactionRpc?.('failed');
       logger.warn('Context compaction failed', {

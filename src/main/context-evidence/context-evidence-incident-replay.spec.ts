@@ -334,7 +334,8 @@ describe('governed context-evidence incident replay', () => {
     const policy = new ContextSafetyPolicy();
     const window = 100_000;
     // Providers with `occupancyReporting: 'current'` (codex app-server, resident
-    // Claude) get a known 93%-occupancy sample (hard interrupt is 80%); the shared policy never
+    // Claude) get a known 93%-occupancy sample (hard interrupt is 80%, but Codex
+    // app-server compacts inline by itself, so Harness takes no action); the shared policy never
     // synthesizes a percentage for `aggregate-only` reporters, so those instead
     // get an unknown-occupancy byte-budget sample. Each provider must only
     // receive an action its own capabilities permit.
@@ -356,11 +357,11 @@ describe('governed context-evidence incident replay', () => {
     };
     const expected: Record<string, {
       sample: ContextPressureSample;
-      action: 'controlled-interrupt' | 'pause';
+      action: 'none' | 'pause';
       reasonCode: string;
     }> = {
       'codex-app-server': {
-        sample: knownOccupancySample, action: 'controlled-interrupt', reasonCode: 'CONTROLLED_CONTINUATION_REQUIRED',
+        sample: knownOccupancySample, action: 'none', reasonCode: 'NO_ACTION',
       },
       'codex-exec': {
         sample: unknownBudgetSample, action: 'pause', reasonCode: 'UNKNOWN_OCCUPANCY_BUDGET_REACHED',
@@ -394,7 +395,8 @@ function cumulativeSample(
   window: number,
 ): ContextPressureSample {
   return {
-    occupancy: { status: 'known', used: window / 2, total: window },
+    // Spend recovers only when occupancy is unknown.
+    occupancy: { status: 'unknown', reason: 'not reported' },
     cumulativeTokens: state.cumulativeBaselineTokens + window * 4 + 1,
     outputBytesSinceCompaction: 0,
     providerRequestCount: 1,
