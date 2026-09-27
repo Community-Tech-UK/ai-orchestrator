@@ -6042,7 +6042,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 3263
+      "lines": 3299
     },
     {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",

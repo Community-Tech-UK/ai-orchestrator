@@ -146,7 +146,7 @@ describe('adapter factory — grok', () => {
       }).acpConfig.mcpServers ?? [];
       const byName = new Map(servers.map((server) => [server['name'], server]));
 
-      expect(byName.get('lsp')).toEqual({ name: 'lsp', command: 'node', args: ['/x/lsp.js'] });
+      expect(byName.get('lsp')).toEqual({ name: 'lsp', command: 'node', args: ['/x/lsp.js'], env: [] });
       expect(byName.get('remoteStatic')).toEqual({
         name: 'remoteStatic',
         type: 'sse',
@@ -161,7 +161,7 @@ describe('adapter factory — grok', () => {
       });
       // First-wins dedupe: exactly one sharedName entry, the inline one.
       expect(servers.filter((server) => server['name'] === 'sharedName')).toHaveLength(1);
-      expect(byName.get('sharedName')).toEqual({ name: 'sharedName', command: 'inline-cmd' });
+      expect(byName.get('sharedName')).toEqual({ name: 'sharedName', command: 'inline-cmd', args: [], env: [] });
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

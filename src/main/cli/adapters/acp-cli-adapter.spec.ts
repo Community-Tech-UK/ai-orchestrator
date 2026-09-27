@@ -121,6 +121,42 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('fills the MCP server arrays OpenCode requires before session/new', async () => {
+    const proc = new FakeAcpProcess();
+    proc.onRequest('initialize', (message) => {
+      proc.respond(message.id, {
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: true, mcpCapabilities: { http: true } },
+      });
+    });
+    proc.onRequest('session/new', (message) => {
+      proc.respond(message.id, { sessionId: 'sess-mcp-arrays' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      mcpServers: [
+        { name: 'lsp', command: 'node', args: ['lsp.js'] },
+        { name: 'remote', type: 'http', url: 'https://mcp.example/mcp' },
+      ],
+    });
+
+    await adapter.spawn();
+
+    const sessionNewRequest = proc.receivedMessages.find((message) =>
+      'method' in message && message.method === 'session/new',
+    ) as AcpJsonRpcRequest | undefined;
+    expect(sessionNewRequest?.params).toMatchObject({
+      mcpServers: [
+        { name: 'lsp', command: 'node', args: ['lsp.js'], env: [] },
+        { name: 'remote', type: 'http', url: 'https://mcp.example/mcp', headers: [] },
+      ],
+    });
+
+    proc.exit();
+  });
+
   it('authenticates with the configured ACP method before opening a session', async () => {
     const proc = new FakeAcpProcess();
     proc.onRequest('initialize', (message) => {

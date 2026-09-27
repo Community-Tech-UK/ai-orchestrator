@@ -3,10 +3,12 @@
  * `agentCapabilities.mcpCapabilities` (agent-client-protocol, "Checking
  * Transport Support"): clients MUST verify HTTP/SSE support during
  * initialization before sending those entries. stdio is mandatory for every
- * agent and always passes.
+ * agent and always passes. Kept entries are completed so required arrays
+ * (`args`/`env` on stdio, `headers` on HTTP/SSE) are present even when empty.
  */
 
 import type { AcpAgentCapabilities, AcpMcpServerConfig } from '../../../shared/types/cli.types';
+import { completeAcpMcpServer } from './acp-mcp-server-convert';
 
 export interface FilteredSessionMcpServers {
   servers: AcpMcpServerConfig[];
@@ -28,7 +30,7 @@ export function filterSessionMcpServers(
       dropped.push({ name: server.name, remoteType: 'sse' });
       continue;
     }
-    kept.push(server);
+    kept.push(completeAcpMcpServer(server));
   }
   return { servers: kept, dropped };
 }

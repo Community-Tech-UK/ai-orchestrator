@@ -1,8 +1,9 @@
 /**
  * ACP `session/new` / `session/load` MCP server entry (agent-client-protocol,
  * "MCP Servers"). stdio is name/command/args/env; remote HTTP/SSE is
- * type/url/headers (the headers array is required by the protocol even when
- * empty). Remote entries are only sendable to agents advertising
+ * type/url/headers. The stdio `args` and `env` arrays, and the remote
+ * `headers` array, are required by the protocol even when empty. Remote
+ * entries are only sendable to agents advertising
  * `agentCapabilities.mcpCapabilities.http` / `.sse` — see
  * src/main/cli/adapters/acp-session-mcp-servers.ts.
  */

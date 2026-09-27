@@ -171,7 +171,7 @@ describe('adapter factory — opencode', () => {
       const servers = acpConfig(adapter).mcpServers ?? [];
       const byName = new Map(servers.map((server) => [server.name, server]));
 
-      expect(byName.get('lsp')).toEqual({ name: 'lsp', command: 'node', args: ['/x/lsp.js'] });
+      expect(byName.get('lsp')).toEqual({ name: 'lsp', command: 'node', args: ['/x/lsp.js'], env: [] });
       expect(byName.get('remoteStatic')).toEqual({
         name: 'remoteStatic',
         type: 'http',

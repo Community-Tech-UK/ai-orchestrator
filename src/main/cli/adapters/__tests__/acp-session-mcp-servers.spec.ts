@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AcpMcpServerConfig } from '../../../../shared/types/cli.types';
 import { filterSessionMcpServers } from '../acp-session-mcp-servers';
 
-const STDIO: AcpMcpServerConfig = { name: 'lsp', command: 'node', args: ['lsp.js'] };
+const STDIO: AcpMcpServerConfig = { name: 'lsp', command: 'node', args: ['lsp.js'], env: [] };
 const HTTP: AcpMcpServerConfig = {
   name: 'http-server',
   type: 'http',
@@ -17,6 +17,13 @@ const SSE: AcpMcpServerConfig = {
 };
 
 describe('filterSessionMcpServers', () => {
+  it('fills the stdio arrays a server omitted before the agent sees it', () => {
+    expect(filterSessionMcpServers(
+      [{ name: 'lsp', command: 'node', args: ['lsp.js'] }],
+      null,
+    ).servers).toEqual([STDIO]);
+  });
+
   it('always passes stdio servers', () => {
     for (const capabilities of [null, undefined, {}, { mcpCapabilities: {} }]) {
       expect(filterSessionMcpServers([STDIO], capabilities).servers).toEqual([STDIO]);

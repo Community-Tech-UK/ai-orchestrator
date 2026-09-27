@@ -2,7 +2,39 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { completeAcpMcpServer } from '../acp-mcp-server-convert';
 import { buildStaticMcpServersAcpMcpServers } from '../static-mcp-acp-config';
+
+describe('completeAcpMcpServer', () => {
+  it('fills the stdio arrays OpenCode requires when a server omitted them', () => {
+    expect(completeAcpMcpServer({ name: 'lsp', command: 'node', args: ['lsp.js'] })).toEqual({
+      name: 'lsp',
+      command: 'node',
+      args: ['lsp.js'],
+      env: [],
+    });
+    expect(completeAcpMcpServer({ name: 'bare', command: 'node' })).toEqual({
+      name: 'bare',
+      command: 'node',
+      args: [],
+      env: [],
+    });
+  });
+
+  it('fills an empty headers array on remote servers and leaves other servers alone', () => {
+    expect(completeAcpMcpServer({
+      name: 'remote',
+      type: 'http',
+      url: 'https://mcp.example/mcp',
+    })).toEqual({
+      name: 'remote',
+      type: 'http',
+      url: 'https://mcp.example/mcp',
+      headers: [],
+    });
+    expect(completeAcpMcpServer({ name: 'unnamed' })).toEqual({ name: 'unnamed' });
+  });
+});
 
 describe('buildStaticMcpServersAcpMcpServers', () => {
   let dir: string;
@@ -30,7 +62,7 @@ describe('buildStaticMcpServersAcpMcpServers', () => {
     }));
 
     expect(buildStaticMcpServersAcpMcpServers([filePath])).toEqual([
-      { name: 'lsp', command: 'node', args: ['/x/lsp/index.js'] },
+      { name: 'lsp', command: 'node', args: ['/x/lsp/index.js'], env: [] },
       {
         name: 'imap',
         command: 'node',
@@ -79,7 +111,7 @@ describe('buildStaticMcpServersAcpMcpServers', () => {
         url: 'https://h.example/mcp',
         headers: [],
       },
-      { name: 'good', command: 'node' },
+      { name: 'good', command: 'node', args: [], env: [] },
     ]);
   });
 

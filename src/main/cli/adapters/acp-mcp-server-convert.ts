@@ -5,8 +5,11 @@
  * paths and inline `{mcpServers: …}` JSON) plus dedicated bridge channels. This
  * module converts the generic entries into `AcpMcpServerConfig` wire entries
  * (agent-client-protocol, "MCP Servers"): stdio as name/command/args/env, and
- * remote HTTP/SSE as type/url/headers. Extracted from adapter-spawn-helpers.ts
- * (which re-exports these) to keep that file under its size cap.
+ * remote HTTP/SSE as type/url/headers. OpenCode's schema requires the stdio
+ * `args` and `env` arrays, and the remote `headers` array, even when empty —
+ * omitting them makes `session/new` fail with -32602 and the new session is
+ * rolled back. Extracted from adapter-spawn-helpers.ts (which re-exports
+ * these) to keep that file under its size cap.
  */
 
 import type { AcpMcpServerConfig } from '../../../shared/types/cli.types';
@@ -38,23 +41,45 @@ function toAcpHeaders(value: unknown): Array<{ name: string; value: string }> {
     .map(([name, headerValue]) => ({ name, value: headerValue }));
 }
 
+/**
+ * Fill the arrays the ACP MCP-server schema requires even when empty.
+ * Stdio needs `args` and `env`; HTTP/SSE needs `headers`. A missing array is
+ * `undefined` on the wire, and OpenCode rejects the whole `session/new`.
+ */
+export function completeAcpMcpServer(server: AcpMcpServerConfig): AcpMcpServerConfig {
+  if (typeof server.command === 'string' && server.command.length > 0) {
+    return {
+      ...server,
+      args: server.args ?? [],
+      env: server.env ?? [],
+    };
+  }
+  if (server.type === 'http' || server.type === 'sse') {
+    return {
+      ...server,
+      headers: server.headers ?? [],
+    };
+  }
+  return server;
+}
+
 export function toAcpMcpServer(name: string, server: InlineJsonMcpServer): AcpMcpServerConfig | null {
   if (typeof server.command === 'string' && server.command.trim()) {
     const args = Array.isArray(server.args)
       ? server.args.filter((arg): arg is string => typeof arg === 'string')
-      : undefined;
+      : [];
     const env = server.env &&
       typeof server.env === 'object' &&
       !Array.isArray(server.env)
       ? Object.entries(server.env)
           .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
           .map(([envName, value]) => ({ name: envName, value }))
-      : undefined;
+      : [];
     return {
       name,
       command: server.command,
-      ...(args && args.length > 0 ? { args } : {}),
-      ...(env && env.length > 0 ? { env } : {}),
+      args,
+      env,
     };
   }
   if (typeof server.url === 'string' && server.url.trim()) {

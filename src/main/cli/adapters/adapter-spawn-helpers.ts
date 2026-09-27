@@ -531,6 +531,7 @@ export function buildCopilotAdditionalMcpConfig(
 export {
   DEDICATED_ACP_BRIDGE_SERVERS,
   buildInlineMcpServersAcpMcpServers,
+  completeAcpMcpServer,
   mergeAcpMcpServers,
   toAcpMcpServer,
 } from './acp-mcp-server-convert';
