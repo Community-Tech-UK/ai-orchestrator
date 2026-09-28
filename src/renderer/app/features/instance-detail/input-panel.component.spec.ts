@@ -550,14 +550,14 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     expect(component.hardenedUnavailable()).toBe(false);
     expect(component.hardenedLabel()).toBe('OFF');
 
-    newSessionDraft.provider.set('codex');
+    newSessionDraft.provider.set('gemini');
     fixture.detectChanges();
     expect(component.hardenedUnavailable()).toBe(true);
     expect(component.hardenedLabel()).toBe('N/A');
     let hardenedButton = fixture.nativeElement.querySelector('.hardened-toggle') as HTMLButtonElement;
     expect(hardenedButton.disabled).toBe(true);
     expect(hardenedButton.textContent).toContain('Hardened N/A');
-    expect(hardenedButton.title).toContain('not supported for Codex yet');
+    expect(hardenedButton.title).toContain('not supported for Gemini yet');
     hardenedButton.click();
     expect(newSessionDraft.setHardened).not.toHaveBeenCalled();
 

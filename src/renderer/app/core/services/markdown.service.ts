@@ -22,6 +22,12 @@ const DOUBLE_TILDE_DEL_RE = /^(~~)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\
 /** Matches the literal number an author wrote for an ordered-list item, e.g. "4)" or "4.". */
 const ORDERED_ITEM_NUMBER_RE = /^\s*(\d{1,9})[.)]/;
 
+/** A URL scheme prefix such as `https:`, `mailto:` or `vscode:`. */
+const URL_SCHEME_RE = /^[A-Za-z][A-Za-z0-9+.-]*:/;
+
+/** A Windows drive path such as `C:\` or `C:/`, which URL_SCHEME_RE would misread as a scheme. */
+const WINDOWS_DRIVE_PATH_RE = /^[A-Za-z]:[\\/]/;
+
 class ConversationMarkdownTokenizer extends Tokenizer {
   override del(src: string): Tokens.Del | undefined {
     const match = DOUBLE_TILDE_DEL_RE.exec(src);
@@ -232,7 +238,26 @@ export class MarkdownService {
     }
 
     const ranges = detectLinks(href, { kinds: ['file-path'] });
-    return ranges.length === 1 && ranges[0].start === 0 && ranges[0].end === href.length;
+    if (ranges.length === 1 && ranges[0].start === 0 && ranges[0].end === href.length) {
+      return true;
+    }
+
+    // An authored link target with no URL scheme is a local path even when
+    // detectLinks' free-text extension list does not know it (e.g. `.docx`).
+    // Left as a plain anchor, Chromium resolves it against the renderer's own
+    // file:// base URL and navigates the whole app window to a missing file.
+    return this.isSchemelessLocalHref(href);
+  }
+
+  private isSchemelessLocalHref(href: string): boolean {
+    const trimmed = href.trim();
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('?')) {
+      return false;
+    }
+    if (WINDOWS_DRIVE_PATH_RE.test(trimmed)) {
+      return true;
+    }
+    return !URL_SCHEME_RE.test(trimmed);
   }
 
   private buildFilePathAttributes(rawPath: string, title = 'Click to open file'): string {

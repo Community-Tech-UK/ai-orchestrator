@@ -7,12 +7,14 @@ import * as fs from 'fs';
 import { app, BrowserWindow, screen, Menu, shell, clipboard, nativeImage, session } from 'electron';
 import type { WebContents } from 'electron';
 import * as path from 'path';
+import { pathToFileURL } from 'url';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { getLogger } from './logging/logger';
 import { getSettingsManager } from './core/config/settings-manager';
 import { ElectronWindowTransport } from './event-bus/electron-window-transport';
 import { getMainEventBus, type MainEventBus } from './event-bus/main-event-bus';
 import { getNotificationService } from './notifications/notification-service';
+import { isAppDocumentNavigation } from './window-navigation-policy';
 
 const logger = getLogger('WindowManager');
 const SAMPLE_DURATION_SECONDS = 5;
@@ -104,19 +106,21 @@ export class WindowManager {
     }
 
     // Load the app
+    let appUrl: string;
     if (this.isDev) {
       // Development: load from Angular dev server
       // Check both ports in case start:fresh was used
       const port = process.env['PORT'] || '4567';
-      await this.mainWindow.loadURL(`http://localhost:${port}`);
+      appUrl = `http://localhost:${port}`;
+      await this.mainWindow.loadURL(appUrl);
 
       // Don't auto-open DevTools - user can open with Cmd+Option+I if needed
       // this.mainWindow.webContents.openDevTools();
     } else {
       // Production: load built files
-      await this.mainWindow.loadFile(
-        path.join(__dirname, '../renderer/browser/index.html')
-      );
+      const indexPath = path.join(__dirname, '../renderer/browser/index.html');
+      appUrl = pathToFileURL(indexPath).href;
+      await this.mainWindow.loadFile(indexPath);
     }
 
     // Handle window closed
@@ -182,10 +186,13 @@ export class WindowManager {
       }
     });
 
-    // Prevent navigation to external URLs
+    // Keep the window on the app document. Any cross-document navigation,
+    // including a relative link resolved against the file:// base URL, would
+    // replace the whole UI with a blank error page.
     this.mainWindow.webContents.on('will-navigate', (event, url) => {
-      if (!url.startsWith('http://localhost:') && !url.startsWith('file://')) {
+      if (!isAppDocumentNavigation(url, appUrl)) {
         event.preventDefault();
+        logger.warn('Blocked main window navigation away from the app', { url });
       }
     });
 

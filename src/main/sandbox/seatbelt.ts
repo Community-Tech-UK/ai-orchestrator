@@ -178,6 +178,42 @@ export function defaultHardenedWritableRoots(workingDirectory: string | undefine
   ];
 }
 
+/**
+ * Extra writable roots one provider needs on top of the shared defaults, kept
+ * per provider so a hardened session of one provider cannot write another's
+ * state. Each entry is backed by the 2026-09-28 hardened probe: without it the
+ * CLI failed at start (Grok `FS_PERMISSION_DENIED`, OpenCode could not open its
+ * log in `~/.local/share/opencode`, Cursor could not create
+ * `~/.cursor/projects/…`), and with it a jailed turn completed while a
+ * `~/Desktop` write stayed blocked. Copilot's home is per account, so the
+ * adapter factory grants the resolved home instead.
+ */
+export function providerHardenedWritableRoots(
+  provider: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const os = require('node:os') as typeof import('node:os'); // eslint-disable-line @typescript-eslint/no-require-imports
+  const home = os.homedir();
+  // OpenCode follows the XDG base directories, falling back to the usual defaults.
+  const xdg = (variable: string, fallback: string): string =>
+    env[variable] && path.isAbsolute(env[variable]!) ? env[variable]! : path.join(home, fallback);
+  switch (provider) {
+    case 'grok':
+      return [path.join(home, '.grok')];
+    case 'opencode':
+      return [
+        path.join(xdg('XDG_DATA_HOME', '.local/share'), 'opencode'),
+        path.join(xdg('XDG_CONFIG_HOME', '.config'), 'opencode'),
+        path.join(xdg('XDG_CACHE_HOME', '.cache'), 'opencode'),
+        path.join(xdg('XDG_STATE_HOME', '.local/state'), 'opencode'),
+      ];
+    case 'cursor':
+      return [path.join(home, '.cursor')];
+    default:
+      return [];
+  }
+}
+
 /** Refuse a Claude config path that the Seatbelt invocation will not grant. */
 function assertClaudeConfigDirGranted(configDir: string, writableRoots: readonly string[]): void {
   if (!path.isAbsolute(configDir)) {

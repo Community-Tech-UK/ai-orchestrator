@@ -6,6 +6,7 @@ import {
   buildSeatbeltCommand,
   classifySandboxFailure,
   defaultHardenedWritableRoots,
+  providerHardenedWritableRoots,
   loadBasePolicy,
   resolveHardenedSpawn,
   SANDBOX_EXEC_PATH,
@@ -157,6 +158,26 @@ describe('buildSeatbeltCommand', () => {
     expect(policy).toContain('com.apple.SecurityServer');
     expect(policy).toContain('com.apple.securityd.xpc');
   });
+
+  /**
+   * Hardened-probe 2026-09-28: CLIs that verify certificates through the macOS
+   * Security framework (Antigravity, Codex, Grok, Cursor) failed every HTTPS
+   * call with OSStatus -26276 until the trust and network-configuration
+   * services were reachable.
+   */
+  it('grants the TLS trust and network-configuration lookups', () => {
+    _resetSeatbeltForTesting();
+    const policy = loadBasePolicy();
+    for (const service of [
+      'com.apple.trustd',
+      'com.apple.trustd.agent',
+      'com.apple.ocspd',
+      'com.apple.SystemConfiguration.configd',
+      'com.apple.SystemConfiguration.DNSConfiguration',
+    ]) {
+      expect(policy).toContain(`(global-name "${service}")`);
+    }
+  });
 });
 
 describe('classifySandboxFailure', () => {
@@ -306,6 +327,36 @@ describe('resolveHardenedSpawn', () => {
       available: true,
       basePolicy: BASE,
     })).toThrow(/CLAUDE_CONFIG_DIR.*outside.*writable roots/);
+  });
+});
+
+describe('providerHardenedWritableRoots', () => {
+  const home = os.homedir();
+
+  it('grants each provider only the state folders the hardened probe proved it needs', () => {
+    expect(providerHardenedWritableRoots('grok', {})).toEqual([path.join(home, '.grok')]);
+    expect(providerHardenedWritableRoots('cursor', {})).toEqual([path.join(home, '.cursor')]);
+    expect(providerHardenedWritableRoots('opencode', {})).toEqual([
+      path.join(home, '.local/share/opencode'),
+      path.join(home, '.config/opencode'),
+      path.join(home, '.cache/opencode'),
+      path.join(home, '.local/state/opencode'),
+    ]);
+  });
+
+  it('follows absolute XDG overrides for OpenCode and ignores relative ones', () => {
+    const roots = providerHardenedWritableRoots('opencode', {
+      XDG_DATA_HOME: '/xdg/data',
+      XDG_CONFIG_HOME: 'relative/config',
+    });
+    expect(roots).toContain('/xdg/data/opencode');
+    expect(roots).toContain(path.join(home, '.config/opencode'));
+  });
+
+  it('adds nothing for providers whose state is already under a default root', () => {
+    for (const provider of ['claude', 'codex', 'antigravity', 'copilot']) {
+      expect(providerHardenedWritableRoots(provider, {})).toEqual([]);
+    }
   });
 });
 

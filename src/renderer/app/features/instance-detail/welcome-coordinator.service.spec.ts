@@ -70,7 +70,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     pendingFiles: ReturnType<typeof signal<File[]>>;
     pendingFolders: ReturnType<typeof signal<string[]>>;
     workingDirectory: ReturnType<typeof signal<string | null>>;
-    provider: ReturnType<typeof signal<'claude' | 'codex' | 'grok' | null>>;
+    provider: ReturnType<typeof signal<'claude' | 'codex' | 'gemini' | null>>;
     model: ReturnType<typeof signal<string | null>>;
     modelRuntimeTarget: ReturnType<typeof signal<ModelRuntimeTarget | null>>;
     reasoningEffort: ReturnType<typeof signal<ReasoningEffort | null>>;
@@ -115,7 +115,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       pendingFiles: signal<File[]>([]),
       pendingFolders: signal<string[]>(['plans']),
       workingDirectory: signal<string | null>('/repo'),
-      provider: signal<'claude' | 'codex' | 'grok' | null>('claude'),
+      provider: signal<'claude' | 'codex' | 'gemini' | null>('claude'),
       model: signal<string | null>(null),
       modelRuntimeTarget: signal<ModelRuntimeTarget | null>(null),
       reasoningEffort: signal<ReasoningEffort | null>('high'),
@@ -302,21 +302,8 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     }));
   });
 
-  it('refuses a hardened Grok launch, which has no jail evidence', async () => {
-    newSessionDraft.provider.set('grok');
-    newSessionDraft.hardened.set(true);
-
-    const result = await service.submitWelcomeMessage('Check the docs', vi.fn());
-
-    expect(result).toEqual({
-      ok: false,
-      error: 'Hardened mode is not supported for Grok yet. Turn Hardened off or choose Claude, then send again.',
-    });
-    expect(store.createInstanceWithMessageResult).not.toHaveBeenCalled();
-  });
-
-  it('refuses a hardened Codex launch before any session is created', async () => {
-    newSessionDraft.provider.set('codex');
+  it('refuses a hardened launch for a provider with no jail evidence, keeping the draft', async () => {
+    newSessionDraft.provider.set('gemini');
     newSessionDraft.hardened.set(true);
     const creatingChange = vi.fn();
 
@@ -324,13 +311,26 @@ describe('WelcomeCoordinatorService workflow launch', () => {
 
     expect(result).toEqual({
       ok: false,
-      error: 'Hardened mode is not supported for Codex yet. Turn Hardened off or choose Claude, then send again.',
+      error: 'Hardened mode is not supported for Gemini yet. Turn Hardened off or choose Claude, then send again.',
     });
     expect(store.setError).toHaveBeenCalledWith(
-      'Hardened mode is not supported for Codex yet. Turn Hardened off or choose Claude, then send again.',
+      'Hardened mode is not supported for Gemini yet. Turn Hardened off or choose Claude, then send again.',
     );
     expect(store.createInstanceWithMessageResult).not.toHaveBeenCalled();
     expect(creatingChange).not.toHaveBeenCalled();
+  });
+
+  it('launches a hardened Codex session now that Codex is proven in the jail', async () => {
+    newSessionDraft.provider.set('codex');
+    newSessionDraft.hardened.set(true);
+
+    const result = await service.submitWelcomeMessage('Check the docs are correct', vi.fn());
+
+    expect(result.ok).toBe(true);
+    expect(store.createInstanceWithMessageResult).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'codex',
+      hardened: true,
+    }));
   });
 
   it('forwards an explicit provider-decide effort instead of collapsing it to the default', async () => {

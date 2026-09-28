@@ -138,6 +138,39 @@ describe('MarkdownService.renderSync command stripping', () => {
     expect(html).toContain('href="myplan.md"');
   });
 
+  it('marks relative links to files with unlisted extensions as file paths', () => {
+    // Regression: a `.docx` link was not recognised, rendered as a plain
+    // anchor, and navigated the whole app window to a missing file:// URL.
+    const html = service.renderSync(
+      '[KPI Testing Guide](docs/2026-09-go-ahead/KPI-Testing-Guide.docx)',
+    );
+
+    expect(html).toContain('class="file-path"');
+    expect(html).toContain('data-file-path="docs/2026-09-go-ahead/KPI-Testing-Guide.docx"');
+  });
+
+  it('marks extensionless relative link targets as file paths', () => {
+    expect(service.renderSync('[readme](docs/README)')).toContain('data-file-path="docs/README"');
+  });
+
+  it('keeps absolute and Windows drive link targets as file paths', () => {
+    expect(service.renderSync('[a](/Users/someone/report.docx)'))
+      .toContain('data-file-path="/Users/someone/report.docx"');
+    expect(service.renderSync('[a](C:\\Users\\someone\\report.docx)'))
+      .toContain('class="file-path"');
+  });
+
+  it('does not mark scheme or fragment links as file paths', () => {
+    for (const markdown of [
+      '[a](https://example.com/report.docx)',
+      '[a](mailto:someone@example.com)',
+      '[a](vscode://file/tmp/x)',
+      '[a](#section)',
+    ]) {
+      expect(service.renderSync(markdown), markdown).not.toContain('data-file-path');
+    }
+  });
+
   it('does not mark plain codespan text as a file path', () => {
     expect(service.renderSync('`hello`')).not.toContain('data-file-path');
   });

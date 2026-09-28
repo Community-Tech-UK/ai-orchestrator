@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCliAdapter } from '../adapter-factory';
 import {
   _resetHardenedModeScopingForTesting,
@@ -7,7 +10,10 @@ import {
 
 describe('adapter factory — hardened remote execution', () => {
   beforeEach(() => _resetHardenedModeScopingForTesting());
-  afterEach(() => _resetHardenedModeScopingForTesting());
+  afterEach(() => {
+    _resetHardenedModeScopingForTesting();
+    vi.unstubAllEnvs();
+  });
 
   it('fails closed before constructing a remote adapter for a hardened instance', () => {
     setInstanceHardened('hardened-remote', true);
@@ -25,28 +31,54 @@ describe('adapter factory — hardened remote execution', () => {
     )).toThrow('Hardened mode is not supported for remote instances');
   });
 
-  it('refuses a hardened local Codex session up front (LT-028)', () => {
-    setInstanceHardened('hardened-codex', true);
+  it('refuses the legacy gemini CLI, which was never run jailed', () => {
+    setInstanceHardened('hardened-gemini', true);
 
-    expect(() => createCliAdapter('codex', {
-      instanceId: 'hardened-codex',
+    expect(() => createCliAdapter('gemini', {
+      instanceId: 'hardened-gemini',
       workingDirectory: '/tmp',
-    })).toThrow('Hardened mode is not supported for Codex');
+    })).toThrow('Hardened mode is not supported for Gemini yet');
   });
 
+  // Hardened probe 2026-09-28: each completed a jailed turn with these grants.
   it.each([
-    ['grok', 'Grok'],
-    ['cursor', 'Cursor'],
-    ['opencode', 'OpenCode'],
-    ['copilot', 'Copilot'],
-    ['antigravity', 'Antigravity'],
-  ] as const)('refuses a hardened %s session that has no jail evidence', (cliType, name) => {
+    ['codex', []],
+    ['antigravity', []],
+    ['grok', ['.grok']],
+    ['opencode', ['.local/share/opencode', '.config/opencode', '.cache/opencode', '.local/state/opencode']],
+    ['cursor', ['.cursor']],
+  ] as const)('builds a hardened %s adapter with only its own extra roots', (cliType, extra) => {
     setInstanceHardened(`hardened-${cliType}`, true);
 
-    expect(() => createCliAdapter(cliType, {
+    const adapter = createCliAdapter(cliType, {
       instanceId: `hardened-${cliType}`,
-      workingDirectory: '/tmp',
-    })).toThrow(`Hardened mode is not supported for ${name} yet`);
+      workingDirectory: '/tmp/hardened-ws',
+    }) as unknown as { hardenedMode: { writableRoots: string[] } | null };
+
+    const roots = adapter.hardenedMode?.writableRoots ?? [];
+    expect(roots).toContain('/tmp/hardened-ws');
+    for (const relative of extra) expect(roots).toContain(path.join(os.homedir(), relative));
+    // Another provider's private state stays read-only.
+    if (cliType !== 'grok') expect(roots).not.toContain(path.join(os.homedir(), '.grok'));
+  });
+
+  it('grants a routed hardened Copilot session its own account home, and not another provider\'s state', () => {
+    const copilotHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-copilot-home-'));
+    vi.stubEnv('AI_ORCHESTRATOR_COPILOT_HOME', copilotHome);
+    setInstanceHardened('hardened-copilot', true);
+
+    const adapter = createCliAdapter('copilot', {
+      instanceId: 'hardened-copilot',
+      workingDirectory: '/tmp/hardened-ws',
+      copilotAccountRoute: { profileId: 'legacy', source: 'legacy', executionNodeId: 'local' },
+    } as never) as unknown as {
+      hardenedMode: { writableRoots: string[] } | null;
+      getConfig(): { env?: Record<string, string> };
+    };
+
+    expect(adapter.getConfig().env?.['COPILOT_HOME']).toBe(copilotHome);
+    expect(adapter.hardenedMode?.writableRoots).toContain(copilotHome);
+    expect(adapter.hardenedMode?.writableRoots).not.toContain(path.join(os.homedir(), '.grok'));
   });
 
   it('still builds a hardened local Claude adapter', () => {
