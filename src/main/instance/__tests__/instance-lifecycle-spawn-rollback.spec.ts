@@ -4,12 +4,14 @@
  * Exercises the REAL InstanceLifecycleManager.createInstance() against a mocked
  * environment and injects failures at each resource-acquisition point:
  *
- *   1. RLM init failure          → Phase-1 registrations rolled back
- *      (instance store, output storage, state machine, parent-child link,
- *       supervisor tree, orchestration registry)
- *   2. adapter.spawn() failure   → all of the above plus prompt-history,
- *      RLM session, and adapter registration (listeners removed, adapter
- *      deleted, process terminated)
+ *   1. RLM init failure          → published session KEPT in `error` with a
+ *      notice (instance store, output storage, state machine, parent-child
+ *      link, supervisor tree, orchestration registry all retained so the
+ *      session does not vanish; termination cleans them up later)
+ *   2. adapter.spawn() failure   → same record retention, while runtime
+ *      resources roll back: RLM session and adapter registration (listeners
+ *      removed, adapter deleted, process terminated). Unpublished recovery
+ *      creations still roll back completely.
  *   3. initial-prompt send fail  → session PRESERVED after a successful spawn
  *      (the CLI is already live; a failed first turn must not delete the
  *       session — it settles to idle with a notice so the user can resend)
@@ -488,7 +490,7 @@ describe('createInstance spawn transaction rollback', () => {
     mocks.settings.defaultModelByProvider = {};
   });
 
-  it('rolls back Phase-1 registrations when RLM init fails (before any adapter exists)', async () => {
+  it('keeps Phase-1 registrations and settles to error when RLM init fails (before any adapter exists)', async () => {
     const harness = makeHarness();
     harness.initializeRlm.mockRejectedValue(new Error('rlm boom'));
 
@@ -497,13 +499,13 @@ describe('createInstance spawn transaction rollback', () => {
       provider: 'claude',
     });
 
-    // Everything registered in Phase 1 is gone again.
-    expect(harness.instances.has(instance.id)).toBe(false);
-    expect(harness.stateMachines.has(instance.id)).toBe(false);
-    expect(mocks.supervisorUnregister).toHaveBeenCalledWith(instance.id);
-    expect(harness.unregisterOrchestration).toHaveBeenCalledWith(instance.id);
-    expect(mocks.outputStorageDelete).toHaveBeenCalledWith(instance.id);
-    expect(harness.removedEvents).toContain(instance.id);
+    // The published session record stays; termination owns its later cleanup.
+    expect(harness.instances.has(instance.id)).toBe(true);
+    expect(harness.stateMachines.get(instance.id)?.current).toBe('error');
+    expect(mocks.supervisorUnregister).not.toHaveBeenCalledWith(instance.id);
+    expect(harness.unregisterOrchestration).not.toHaveBeenCalledWith(instance.id);
+    expect(mocks.outputStorageDelete).not.toHaveBeenCalledWith(instance.id);
+    expect(harness.removedEvents).not.toContain(instance.id);
     // The RLM session was never created, so it must not be torn down.
     expect(harness.endRlmSession).not.toHaveBeenCalled();
     // No adapter was ever created.
@@ -511,7 +513,7 @@ describe('createInstance spawn transaction rollback', () => {
     expect(harness.adapters.size).toBe(0);
   });
 
-  it('unlinks the child from its parent when spawn fails for a child instance', async () => {
+  it('keeps a failed child linked to its parent so the parent sees it fail', async () => {
     const harness = makeHarness();
     const parent = {
       id: 'parent-1',
@@ -530,11 +532,13 @@ describe('createInstance spawn transaction rollback', () => {
       parentId: parent.id,
     });
 
-    expect(parent.childrenIds).not.toContain(instance.id);
-    expect(harness.instances.has(instance.id)).toBe(false);
+    // The child-startup watchdog reports a failed child to its parent only
+    // while the child still exists in `error`.
+    expect(parent.childrenIds).toContain(instance.id);
+    expect(harness.instances.get(instance.id)?.status).toBe('error');
   });
 
-  it('rolls back adapter registration, RLM session, and prompt history when adapter.spawn() throws', async () => {
+  it('rolls back adapter registration and RLM session but keeps the session record when adapter.spawn() throws', async () => {
     const harness = makeHarness();
     const adapter = makeFakeAdapter();
     adapter.spawn.mockRejectedValue(new Error('spawn ENOENT'));
@@ -546,22 +550,57 @@ describe('createInstance spawn transaction rollback', () => {
       initialPrompt: 'hello world',
     });
 
-    // UI state was partially registered before the spawn — all of it is gone.
-    expect(harness.instances.has(instance.id)).toBe(false);
-    expect(harness.stateMachines.has(instance.id)).toBe(false);
-    expect(mocks.supervisorUnregister).toHaveBeenCalledWith(instance.id);
-    expect(harness.unregisterOrchestration).toHaveBeenCalledWith(instance.id);
-    expect(mocks.outputStorageDelete).toHaveBeenCalledWith(instance.id);
-    expect(harness.removedEvents).toContain(instance.id);
+    // The session record the user sees is kept, in error.
+    expect(harness.instances.get(instance.id)?.status).toBe('error');
+    expect(harness.stateMachines.get(instance.id)?.current).toBe('error');
+    expect(mocks.supervisorUnregister).not.toHaveBeenCalledWith(instance.id);
+    expect(harness.unregisterOrchestration).not.toHaveBeenCalledWith(instance.id);
+    expect(mocks.outputStorageDelete).not.toHaveBeenCalledWith(instance.id);
+    expect(harness.removedEvents).not.toContain(instance.id);
     // Adapter listeners removed, adapter deregistered and terminated.
     expect(adapter.removeAllListeners).toHaveBeenCalled();
     expect(harness.adapters.has(instance.id)).toBe(false);
     expect(adapter.terminate).toHaveBeenCalledWith(false);
     expect(harness.deleteDiffTracker).toHaveBeenCalledWith(instance.id);
-    // Later-phase acquisitions rolled back too.
+    // The RLM session is runtime and is released; the prompt stays recallable.
     expect(harness.endRlmSession).toHaveBeenCalledWith(instance.id);
     expect(mocks.promptHistoryRecord).toHaveBeenCalled();
-    expect(mocks.promptHistoryClear).toHaveBeenCalledWith(instance.id);
+    expect(mocks.promptHistoryClear).not.toHaveBeenCalledWith(instance.id);
+  });
+
+  it('keeps a session that could not start visible in error with its prompt, instead of deleting it', async () => {
+    const harness = makeHarness();
+    // The real failure that made a dingley-kpi session vanish on 2026-09-27:
+    // adapter creation refused before any process existed.
+    mocks.createAdapter.mockImplementation(() => {
+      throw new Error('Hardened mode is not supported for Codex yet: it cannot run inside the Seatbelt sandbox. Start this session without hardened mode.');
+    });
+
+    const instance = await createAndAwaitFailure(harness, {
+      workingDirectory: '/tmp/project',
+      provider: 'codex',
+      initialPrompt: 'check the docs are correct',
+      initialOutputBuffer: [{ id: 'u1', timestamp: 1, type: 'user', content: 'check the docs are correct' }],
+    });
+
+    // The session record survives: still listed, never announced as removed.
+    expect(harness.instances.has(instance.id)).toBe(true);
+    expect(harness.removedEvents).not.toContain(instance.id);
+    expect(mocks.outputStorageDelete).not.toHaveBeenCalledWith(instance.id);
+    expect(mocks.promptHistoryClear).not.toHaveBeenCalledWith(instance.id);
+    expect(mocks.supervisorUnregister).not.toHaveBeenCalledWith(instance.id);
+    expect(harness.unregisterOrchestration).not.toHaveBeenCalledWith(instance.id);
+    // Runtime resources are still released.
+    expect(harness.endRlmSession).toHaveBeenCalledWith(instance.id);
+
+    // It lands in `error` with the typed prompt and the reason both visible.
+    expect(instance.status).toBe('error');
+    expect(harness.stateMachines.get(instance.id)?.current).toBe('error');
+    expect(instance.outputBuffer.some((m) => m.type === 'user' && m.content === 'check the docs are correct')).toBe(true);
+    const notice = instance.outputBuffer.find((m) => m.metadata?.['source'] === 'session-start-failed');
+    expect(notice?.type).toBe('error');
+    expect(notice?.content).toContain('Hardened mode is not supported for Codex yet');
+    expect(harness.deps.queueUpdate).toHaveBeenCalledWith(instance.id, 'error', instance.contextUsage);
   });
 
   it('preserves the session when the initial prompt send fails after a successful spawn', async () => {

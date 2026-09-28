@@ -31,6 +31,20 @@ describe('SpawnTransaction', () => {
     expect(calls).toEqual(['third', 'broken', 'first']);
   });
 
+  it('skips retained labels and still runs the rest in LIFO order', async () => {
+    const calls: string[] = [];
+    const transaction = createSpawnTransaction('spawn-test');
+
+    transaction.addRollback('record', () => { calls.push('record'); });
+    transaction.addRollback('runtime', () => { calls.push('runtime'); });
+    transaction.addRollback('adapter', () => { calls.push('adapter'); });
+
+    await transaction.rollback(new Error('spawn failed'), { retain: new Set(['record']) });
+    await transaction.rollback(new Error('again'));
+
+    expect(calls).toEqual(['adapter', 'runtime']);
+  });
+
   it('does not run rollback actions after commit', async () => {
     const cleanup = vi.fn();
     const transaction = createSpawnTransaction('spawn-test');

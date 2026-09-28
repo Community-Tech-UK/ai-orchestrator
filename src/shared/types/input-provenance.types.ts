@@ -14,6 +14,7 @@ export type InternalInputSource =
   | 'context-policy'
   | 'async-work-continuation'
   | 'announce-then-halt-continuation'
+  | 'crash-turn-continuation'
   | 'orchestrator-status-request'
   | 'child-announcement'
   | 'lsp-feedback'

@@ -194,10 +194,11 @@
             <button
               class="yolo-toggle hardened-toggle"
               [class.active]="draftHardened()"
+              [disabled]="hardenedUnavailable() && !draftHardened()"
               (click)="onToggleHardened()"
-              [title]="draftHardened() ? 'Hardened ON — CLI runs inside the macOS Seatbelt sandbox (writes confined to the workspace)' : 'Hardened OFF — CLI runs unsandboxed'"
+              [title]="hardenedTitle()"
             >
-              <span class="yolo-label">Hardened {{ draftHardened() ? 'ON' : 'OFF' }}</span>
+              <span class="yolo-label">Hardened {{ hardenedLabel() }}</span>
             </button>
           }
         </div>

@@ -2244,7 +2244,7 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
     await expect(spawn).resolves.toMatchObject({ instanceId: 'inst-1' });
   });
 
-  it('propagates a worker provider-startup failure instead of returning a vanishing instance', async () => {
+  it('propagates a worker provider-startup failure and removes the failed instance', async () => {
     const node = makeNode({ supportedClis: ['copilot'] });
     const createInstance = vi.fn(async () => ({
       id: 'inst-1',
@@ -2253,8 +2253,9 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
         'GitHub Copilot account "legacy" cannot run on this node: it is not signed in on this node.',
       )),
     }));
+    const terminateInstance = vi.fn().mockResolvedValue(undefined);
     captured.registry.getAllNodes.mockReturnValue([node]);
-    await startStep({ createInstance });
+    await startStep({ createInstance, terminateInstance });
 
     await expect(
       captured.initializeOptions!.spawnRemoteInstance!({
@@ -2263,6 +2264,8 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
         provider: 'copilot',
       } as never),
     ).rejects.toThrow(/Copilot account "legacy".*not signed in on this node/i);
+    // A failed create keeps its session in `error`; the caller never got the id.
+    expect(terminateInstance).toHaveBeenCalledWith('inst-1', false);
   });
 
   it('rejects legacy nodes that do not advertise supported CLIs', async () => {

@@ -181,6 +181,27 @@ describe('ChatService', () => {
     ]);
   });
 
+  it('replaces a runtime that failed to start instead of reusing it', async () => {
+    const { service, instanceManager } = createHarness();
+    const chat = await service.createChat({
+      provider: 'codex',
+      currentCwd: '/work/project',
+      name: 'Failed start',
+      yolo: true,
+    });
+    const first = await service.sendMessage({ chatId: chat.chat.id, text: 'First try' });
+    const failedId = first.chat.currentInstanceId!;
+    // A create whose runtime never started now stays listed in `error`.
+    instanceManager.getInstance(failedId)!.status = 'error';
+
+    const second = await service.sendMessage({ chatId: chat.chat.id, text: 'Second try' });
+
+    expect(instanceManager.terminations).toEqual([failedId]);
+    expect(instanceManager.creates).toHaveLength(2);
+    expect(second.chat.currentInstanceId).not.toBe(failedId);
+    expect(instanceManager.inputs.at(-1)?.instanceId).toBe(second.chat.currentInstanceId);
+  });
+
   it('restarts runtime on project switch and replays bounded prior context into the next provider turn', async () => {
     const { service, ledger, instanceManager } = createHarness();
     const created = await service.createChat({

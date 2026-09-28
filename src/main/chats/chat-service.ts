@@ -530,7 +530,7 @@ export class ChatService {
   private async terminateRuntime(
     chat: ChatRecord,
     instanceId: string,
-    reason: 'provider' | 'model' | 'reasoning' | 'archive' | 'cwd' | 'delete',
+    reason: 'provider' | 'model' | 'reasoning' | 'archive' | 'cwd' | 'delete' | 'failed',
   ): Promise<void> {
     const inst = this.instanceManager.getInstance(instanceId);
     if (inst && inst.status !== 'terminated') {
@@ -554,8 +554,13 @@ export class ChatService {
       ? this.instanceManager.getInstance(chat.currentInstanceId)
       : undefined;
     if (existing && existing.status !== 'terminated') {
-      this.bridge.link(chat.id, existing.id);
-      return { instance: existing, isFresh: false };
+      if (existing.status !== 'error' && existing.status !== 'failed') {
+        this.bridge.link(chat.id, existing.id);
+        return { instance: existing, isFresh: false };
+      }
+      // A failed runtime (including one that never started, which now stays
+      // listed in `error`) refuses input; replace it and replay the ledger.
+      await this.terminateRuntime(chat, existing.id, 'failed');
     }
 
     this.assertBootstrapComplete(chat);

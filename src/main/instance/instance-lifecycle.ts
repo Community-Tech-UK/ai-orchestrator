@@ -74,6 +74,9 @@ import {
   deliverInitialPromptAfterSpawn,
   type InitialPromptRecoveryDeps,
 } from './lifecycle/initial-prompt-recovery';
+import {
+  retainFailedCreation, SESSION_RECORD_ROLLBACK_LABELS, shouldRetainFailedCreation,
+} from './lifecycle/failed-creation-retention';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
 import {
   attachCopilotRoute,
@@ -1306,6 +1309,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     setInstanceContainedExecution(instance.id, instance.containedExecution);
     const abortController = instance.abortController!;
     const isCrashRecoveryCreation = config.metadata?.['reason'] === 'crash-recovery';
+    // A failed published create keeps the steps in SESSION_RECORD_ROLLBACK_LABELS.
     const spawnTransaction = createInstanceSpawnTransaction(
       `create:${instance.id}`, isCrashRecoveryCreation,
     );
@@ -1856,13 +1860,14 @@ export class InstanceLifecycleManager extends EventEmitter {
         if (!deferPublication) spawnTransaction.commit();
       } catch (error) {
         if (!signal.aborted) {
+          const retain = shouldRetainFailedCreation({ deferPublication, isCrashRecovery: isCrashRecoveryCreation });
           await spawnTransaction.rollback(isCrashRecoveryCreation
             ? new Error('Recovery runtime startup rollback')
-            : error);
-          const isCrashRecovery = config.metadata?.['reason'] === 'crash-recovery';
+            : error, retain ? { retain: SESSION_RECORD_ROLLBACK_LABELS } : undefined);
           logger.error('Instance background init failed',
-            !isCrashRecovery && error instanceof Error ? error : undefined,
-            { instanceId: instance.id, ...(isCrashRecovery ? { recoverySession: true } : {}) });
+            !isCrashRecoveryCreation && error instanceof Error ? error : undefined,
+            { instanceId: instance.id, retained: retain, ...(isCrashRecoveryCreation ? { recoverySession: true } : {}) });
+          if (retain) retainFailedCreation(instance, error, this.initialPromptRecoveryDeps);
         }
         throw error;
       } finally {

@@ -131,7 +131,7 @@ describe('Conversation rendered split boundary', () => {
   });
 
   it('does not let an older wake clear Waking for a newer hibernated snapshot', async () => {
-    const finishes: Array<() => void> = [];
+    const finishes: (() => void)[] = [];
     const wakeInstance = vi.fn(() => new Promise<void>((resolve) => { finishes.push(resolve); }));
     const fixture = await setup(undefined, { status: 'hibernated', wakeInstance });
     fixture.detectChanges();

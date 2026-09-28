@@ -35,6 +35,7 @@ import {
 const logger = getLogger('OpenCodeAdapterFactory');
 
 export const OPENCODE_CONFIG_CONTENT_ENV = 'OPENCODE_CONFIG_CONTENT';
+const OPENCODE_MIMO_PROMPT_TIMEOUT_MS = 45 * 60_000;
 
 type OpenCodePermissionAction = 'allow' | 'ask';
 
@@ -108,6 +109,18 @@ export function resolveOpenCodeSessionModel(model: string | undefined): string |
   return normalizeModelForProvider('opencode', requested)?.trim() || undefined;
 }
 
+/**
+ * MiMo can legitimately spend tens of minutes reasoning over large cached
+ * prompts without emitting an ACP update. Recorded local history includes
+ * successful turns just under 39 minutes, so use a bounded 45-minute lease;
+ * other OpenCode models retain the normal ACP 10-minute timeout.
+ */
+export function resolveOpenCodePromptTimeoutMs(model: string | undefined): number | undefined {
+  return model && /(?:^|\/)mimo(?:-|$)/i.test(model)
+    ? OPENCODE_MIMO_PROMPT_TIMEOUT_MS
+    : undefined;
+}
+
 export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
   const workingDirectory = options.workingDirectory ?? process.cwd();
   const browserGatewayMcpServers = options.browserGatewayMcp
@@ -130,6 +143,7 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
   env[OPENCODE_CONFIG_CONTENT_ENV] = buildOpenCodeConfigContent(env[OPENCODE_CONFIG_CONTENT_ENV], yoloMode);
   extendEnvWithRtk(env, options.rtk);
   const model = resolveOpenCodeSessionModel(options.model);
+  const promptTimeoutMs = resolveOpenCodePromptTimeoutMs(model);
   const effort = mapAcpEffort(options.reasoningEffort);
   return new AcpCliAdapter({
     adapterName: 'opencode-acp',
@@ -154,6 +168,7 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
     systemPrompt: options.systemPrompt,
     rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
     timeout: options.timeout,
+    ...(promptTimeoutMs ? { promptTimeoutMs } : {}),
     stallWarningMs: resolveAcpStallWarningMs(Boolean(options.childId)),
     permissionRegistry: getPermissionRegistry(),
     permissionContext: buildAcpPermissionContext(options, 'opencode'),

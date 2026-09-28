@@ -5993,6 +5993,10 @@
       "lines": 5156
     },
     {
+      "path": "docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md",
+      "lines": 4454
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan_completed.md",
       "lines": 4447
     },
@@ -6009,16 +6013,16 @@
       "lines": 3817
     },
     {
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 3754
+    },
+    {
       "path": "src/main/instance/rlm-process-ownership.spec.ts",
       "lines": 3688
     },
     {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 3638
-    },
-    {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3611
+      "lines": 3616
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
@@ -6042,7 +6046,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 3328
+      "lines": 3355
     },
     {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
@@ -6085,11 +6089,11 @@
       "lines": 2659
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
-      "lines": 2545
+      "path": "src/main/instance/instance-communication.ts",
+      "lines": 2547
     },
     {
-      "path": "src/main/instance/instance-communication.ts",
+      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
       "lines": 2545
     },
     {
@@ -6106,15 +6110,15 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2448
+      "lines": 2457
+    },
+    {
+      "path": "src/main/app/orchestrator-tools-step.spec.ts",
+      "lines": 2373
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
       "lines": 2372
-    },
-    {
-      "path": "src/main/app/orchestrator-tools-step.spec.ts",
-      "lines": 2370
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
@@ -6186,7 +6190,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1912
+      "lines": 1933
     },
     {
       "path": "src/main/session/session-continuity.spec.ts",
@@ -6195,6 +6199,10 @@
     {
       "path": "docs/superpowers/specs/2026-04-26-automations-design_completed.md",
       "lines": 1867
+    },
+    {
+      "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening_completed.md",
+      "lines": 1851
     },
     {
       "path": "docs/plans/2026-09-03-enhancements-backlog_plan_completed.md",
@@ -6245,12 +6253,16 @@
       "lines": 1660
     },
     {
+      "path": "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
+      "lines": 1644
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
       "lines": 1635
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
-      "lines": 1619
+      "lines": 1631
     },
     {
       "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
@@ -6259,10 +6271,6 @@
     {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements_completed.md",
       "lines": 1616
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
-      "lines": 1605
     },
     {
       "path": "src/main/mcp/orchestrator-tools-rpc-server.spec.ts",
@@ -6345,16 +6353,16 @@
       "lines": 1394
     },
     {
+      "path": "src/main/chats/chat-service.spec.ts",
+      "lines": 1390
+    },
+    {
       "path": "src/main/browser-gateway/browser-gateway-service.approvals.spec.ts",
       "lines": 1383
     },
     {
       "path": "src/main/browser-gateway/browser-extension-accessibility-frames.spec.ts",
       "lines": 1376
-    },
-    {
-      "path": "src/main/chats/chat-service.spec.ts",
-      "lines": 1369
     },
     {
       "path": "src/main/memory/unified-controller.ts",
@@ -6489,6 +6497,10 @@
       "lines": 1238
     },
     {
+      "path": "src/main/app/instance-event-forwarding.spec.ts",
+      "lines": 1235
+    },
+    {
       "path": "docs/superpowers/plans/2026-03-14-session-recovery-features_completed.md",
       "lines": 1234
     },
@@ -6537,16 +6549,16 @@
       "lines": 1203
     },
     {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
+      "lines": 1195
+    },
+    {
       "path": "src/renderer/app/features/browser/browser-page.component.scss",
       "lines": 1187
     },
     {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase5-integration.COMPLETED.md",
       "lines": 1186
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
-      "lines": 1185
     },
     {
       "path": "docs/superpowers/plans/2026-07-26-local-ai-guard_plan_completed.md",
@@ -6689,8 +6701,8 @@
       "lines": 1055
     },
     {
-      "path": "src/main/app/instance-event-forwarding.spec.ts",
-      "lines": 1053
+      "path": "docs/plans/2026-09-03-enhancements-backlog_livetest_completed.md",
+      "lines": 1046
     },
     {
       "path": "src/renderer/app/features/loop/loop-control.component.spec.ts",
@@ -7077,6 +7089,10 @@
       "lines": 841
     },
     {
+      "path": "src/main/chats/chat-service.ts",
+      "lines": 839
+    },
+    {
       "path": "src/main/orchestration/child-result-storage.ts",
       "lines": 839
     },
@@ -7095,10 +7111,6 @@
     {
       "path": "src/renderer/app/features/review/review-results.component.ts",
       "lines": 838
-    },
-    {
-      "path": "src/main/chats/chat-service.ts",
-      "lines": 834
     },
     {
       "path": "docs/plans/2026-07-30-sibling-audit-round2_plan_completed.md",
@@ -7127,6 +7139,10 @@
     {
       "path": "src/main/learning/ab-testing.ts",
       "lines": 824
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-13-codex-context-pressure-observability-discovery-plan_livetest_completed.md",
+      "lines": 822
     },
     {
       "path": "src/main/indexing/benchmarks/benchmark-utils.ts",

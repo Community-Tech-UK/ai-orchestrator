@@ -603,6 +603,33 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('reports provider-owned work while session/prompt is in flight', async () => {
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', () => {
+      /* held open until the assertion below */
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 60_000,
+    });
+    await adapter.spawn();
+
+    expect(adapter.hasActiveTurn()).toBe(false);
+    const pending = adapter.sendMessage({ role: 'user', content: 'investigate' });
+    const prompt = await proc.waitForMessage((message) =>
+      'method' in message && message.method === 'session/prompt',
+    ) as AcpJsonRpcRequest;
+
+    expect(adapter.hasActiveTurn()).toBe(true);
+    proc.respond(prompt.id, { stopReason: 'end_turn' });
+    await pending;
+    expect(adapter.hasActiveTurn()).toBe(false);
+
+    proc.exit();
+  });
+
   it('surfaces an unsettled call once, before a failed turn rejects', async () => {
     const proc = createInitializedAgentHarness();
     proc.onRequest('session/prompt', (message) => {

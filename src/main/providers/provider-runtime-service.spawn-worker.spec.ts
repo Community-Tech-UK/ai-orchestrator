@@ -1,9 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProviderRuntimeService } from './provider-runtime-service';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliCapabilities, CliStatus } from '../cli/adapters/base-cli-adapter';
 import type { AppSettings } from '../../shared/types/settings.types';
 import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
+import {
+  _resetHardenedModeScopingForTesting,
+  setInstanceHardened,
+} from '../instance/lifecycle/hardened-mode-scoping';
 
 function makeAdapter(name: string): CliAdapter {
   return {
@@ -42,6 +46,9 @@ function makeAdapter(name: string): CliAdapter {
 }
 
 describe('ProviderRuntimeService spawn worker offload gate', () => {
+  beforeEach(() => _resetHardenedModeScopingForTesting());
+  afterEach(() => _resetHardenedModeScopingForTesting());
+
   it('adds a default-off settings flag', () => {
     expect(DEFAULT_SETTINGS.enableSpawnWorkerOffload).toBe(false);
   });
@@ -117,5 +124,45 @@ describe('ProviderRuntimeService spawn worker offload gate', () => {
     });
 
     expect(adapter).toBe(normal);
+  });
+
+  it('keeps hardened Claude on the normal adapter path so Seatbelt is applied', () => {
+    setInstanceHardened('hardened-claude', true);
+    const service = new ProviderRuntimeService({
+      registry: {
+        recordAvailable: vi.fn(),
+        recordUnavailable: vi.fn(),
+      } as never,
+      settings: {
+        get: <K extends keyof AppSettings>(key: K): AppSettings[K] =>
+          ({ ...DEFAULT_SETTINGS, enableSpawnWorkerOffload: true })[key],
+      },
+    });
+
+    const adapter = service.createAdapter({
+      cliType: 'claude',
+      options: { workingDirectory: '/repo', instanceId: 'hardened-claude' },
+    }) as unknown as { hardenedMode: { writableRoots: string[] } | null };
+
+    expect(adapter.hardenedMode?.writableRoots).toContain('/repo');
+  });
+
+  it('keeps hardened Gemini on the normal adapter path so unsupported providers fail closed', () => {
+    setInstanceHardened('hardened-gemini', true);
+    const service = new ProviderRuntimeService({
+      registry: {
+        recordAvailable: vi.fn(),
+        recordUnavailable: vi.fn(),
+      } as never,
+      settings: {
+        get: <K extends keyof AppSettings>(key: K): AppSettings[K] =>
+          ({ ...DEFAULT_SETTINGS, enableSpawnWorkerOffload: true })[key],
+      },
+    });
+
+    expect(() => service.createAdapter({
+      cliType: 'gemini',
+      options: { workingDirectory: '/repo', instanceId: 'hardened-gemini' },
+    })).toThrow('Hardened mode is not supported for Gemini yet');
   });
 });

@@ -19,6 +19,7 @@ import {
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { hardenedProviderName, isHardenedModeSupported } from '../../../../shared/hardened-mode-support';
 import { CopilotAccountChipComponent } from '../../shared/components/copilot-account-chip.component';
 import { ProviderAccountChipComponent } from '../../shared/components/provider-account-chip.component';
 import { CommandStore } from '../../core/state/command.store';
@@ -1776,6 +1777,26 @@ export class InputPanelComponent implements OnDestroy {
     () => this.isDraftComposer() && this.electronIpc.platform === 'darwin',
   );
   readonly draftHardened = computed(() => this.newSessionDraft.hardened() ?? false);
+  /** The picked provider cannot run hardened; `auto` is only decided at spawn. */
+  readonly hardenedUnavailable = computed(() => {
+    const provider = this.selectedProvider();
+    return provider !== 'auto' && !isHardenedModeSupported(provider);
+  });
+  readonly hardenedLabel = computed(() => {
+    if (!this.hardenedUnavailable()) return this.draftHardened() ? 'ON' : 'OFF';
+    return this.draftHardened() ? 'ON — unsupported' : 'N/A';
+  });
+  readonly hardenedTitle = computed(() => {
+    if (this.hardenedUnavailable()) {
+      const name = hardenedProviderName(this.selectedProvider());
+      return this.draftHardened()
+        ? `Hardened mode is not supported for ${name} yet. Click to turn it off, or choose Claude`
+        : `Hardened mode is not supported for ${name} yet`;
+    }
+    return this.draftHardened()
+      ? 'Hardened ON — CLI runs inside the macOS Seatbelt sandbox (writes confined to the workspace)'
+      : 'Hardened OFF — CLI runs unsandboxed';
+  });
 
   onToggleHardened(): void {
     // null (not false) keeps the draft's "no override" semantics when turning off.

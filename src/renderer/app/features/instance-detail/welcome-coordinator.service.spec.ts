@@ -70,7 +70,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     pendingFiles: ReturnType<typeof signal<File[]>>;
     pendingFolders: ReturnType<typeof signal<string[]>>;
     workingDirectory: ReturnType<typeof signal<string | null>>;
-    provider: ReturnType<typeof signal<'claude' | null>>;
+    provider: ReturnType<typeof signal<'claude' | 'codex' | 'grok' | null>>;
     model: ReturnType<typeof signal<string | null>>;
     modelRuntimeTarget: ReturnType<typeof signal<ModelRuntimeTarget | null>>;
     reasoningEffort: ReturnType<typeof signal<ReasoningEffort | null>>;
@@ -115,7 +115,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       pendingFiles: signal<File[]>([]),
       pendingFolders: signal<string[]>(['plans']),
       workingDirectory: signal<string | null>('/repo'),
-      provider: signal<'claude' | null>('claude'),
+      provider: signal<'claude' | 'codex' | 'grok' | null>('claude'),
       model: signal<string | null>(null),
       modelRuntimeTarget: signal<ModelRuntimeTarget | null>(null),
       reasoningEffort: signal<ReasoningEffort | null>('high'),
@@ -300,6 +300,37 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       workingDirectory: '/repo',
       hardened: true,
     }));
+  });
+
+  it('refuses a hardened Grok launch, which has no jail evidence', async () => {
+    newSessionDraft.provider.set('grok');
+    newSessionDraft.hardened.set(true);
+
+    const result = await service.submitWelcomeMessage('Check the docs', vi.fn());
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'Hardened mode is not supported for Grok yet. Turn Hardened off or choose Claude, then send again.',
+    });
+    expect(store.createInstanceWithMessageResult).not.toHaveBeenCalled();
+  });
+
+  it('refuses a hardened Codex launch before any session is created', async () => {
+    newSessionDraft.provider.set('codex');
+    newSessionDraft.hardened.set(true);
+    const creatingChange = vi.fn();
+
+    const result = await service.submitWelcomeMessage('Check the docs are correct', creatingChange);
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'Hardened mode is not supported for Codex yet. Turn Hardened off or choose Claude, then send again.',
+    });
+    expect(store.setError).toHaveBeenCalledWith(
+      'Hardened mode is not supported for Codex yet. Turn Hardened off or choose Claude, then send again.',
+    );
+    expect(store.createInstanceWithMessageResult).not.toHaveBeenCalled();
+    expect(creatingChange).not.toHaveBeenCalled();
   });
 
   it('forwards an explicit provider-decide effort instead of collapsing it to the default', async () => {

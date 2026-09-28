@@ -32,6 +32,7 @@ import { initializeLocalAiGuardRuntime } from '../local-ai-guard';
 import { initializeInstanceAsyncWorkContinuation } from '../instance/instance-async-work-continuation';
 import { initializeInstanceAsyncWorkPublisher } from '../instance/instance-async-work-publisher';
 import { initializeInstanceAnnounceThenHaltContinuation } from '../instance/instance-announce-then-halt-continuation';
+import { initializeInstanceCrashTurnContinuation } from '../instance/instance-crash-turn-continuation';
 import { getCrossSessionMessagingService } from '../instance/cross-session-messaging';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import { isActiveLoopRuntimeState } from '../orchestration/loop-runtime-status';
@@ -97,6 +98,27 @@ export function createAnnounceThenHaltContinuationInitializationStep(
 ): AppInitializationStep {
   return {
     name: 'Announce-then-halt continuation',
+    fn: () => {
+      initialize(
+        instanceManager,
+        (instanceId) => getActiveLoops().some(
+          (loop) => loop.chatId === instanceId && isActiveLoopRuntimeState(loop),
+        ),
+      );
+    },
+  };
+}
+
+/** Resumes a turn cut off by a provider crash once Harness has restarted the session. */
+export function createCrashTurnContinuationInitializationStep(
+  instanceManager: InstanceManager,
+  initialize: typeof initializeInstanceCrashTurnContinuation =
+    initializeInstanceCrashTurnContinuation,
+  getActiveLoops: () => Pick<LoopState, 'chatId' | 'status' | 'endedAt'>[] =
+    () => getLoopCoordinator().getActiveLoops(),
+): AppInitializationStep {
+  return {
+    name: 'Crash-turn continuation',
     fn: () => {
       initialize(
         instanceManager,
@@ -372,6 +394,7 @@ export function createInitializationSteps(
       },
     },
     createAnnounceThenHaltContinuationInitializationStep(instanceManager),
+    createCrashTurnContinuationInitializationStep(instanceManager),
     { name: 'Verification invokers', fn: () => registerDefaultMultiVerifyInvoker(instanceManager) },
     { name: 'Automations', fn: () => initializeAutomations(instanceManager) },
     { name: 'Review invokers', fn: () => registerDefaultReviewInvoker(instanceManager) },

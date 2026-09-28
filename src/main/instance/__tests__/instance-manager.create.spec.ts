@@ -1077,7 +1077,7 @@ describe('InstanceManager', () => {
       expect(mockAdapterSpawn).not.toHaveBeenCalled();
     });
 
-    it('rolls back create-time registrations when adapter spawn fails', async () => {
+    it('keeps a session whose adapter spawn fails in error, then cleans it up on terminate', async () => {
       const spawnFailure = new Error('spawn token=sk-test-1234567890abcdef failed');
       mockCreateCliAdapter.mockImplementation((_cliType, options) => {
         const adapter = makeMockAdapter();
@@ -1098,10 +1098,22 @@ describe('InstanceManager', () => {
       expect(readyPromise).toBeDefined();
       await expect(readyPromise).rejects.toThrow('spawn token=sk-test-1234567890abcdef failed');
 
+      // The runtime is torn down, but the session stays listed with its reason.
+      expect(mockAdapterTerminate).toHaveBeenCalled();
+      expect(manager.getInstance(instance.id)?.status).toBe('error');
+      const notice = manager.getInstance(instance.id)?.outputBuffer.find(
+        (m) => m.metadata?.['source'] === 'session-start-failed',
+      );
+      expect(notice?.content).toContain('This session could not start');
+      expect(notice?.content).not.toContain('sk-test-1234567890abcdef');
+      expect(mockSupervisorTree.unregisterInstance).not.toHaveBeenCalledWith(instance.id);
+      expect(removedPayloads).not.toContain(instance.id);
+
+      // Closing it goes through normal termination, which owns the cleanup.
+      await manager.terminateInstance(instance.id, false);
       expect(manager.getInstance(instance.id)).toBeUndefined();
       expect(manager.getAllInstances()).toHaveLength(0);
       expect(mockSupervisorTree.unregisterInstance).toHaveBeenCalledWith(instance.id);
-      expect(mockAdapterTerminate).toHaveBeenCalled();
       expect(removedPayloads).toContain(instance.id);
     });
 

@@ -58,7 +58,7 @@ import {
   shouldSkipKnownProviderLimitDispatch,
   tryParkOnProviderLimit as tryParkOnProviderLimitImpl,
 } from './instance-communication-provider-limit';
-import { scheduleSuppressedAutoRespawnRetry } from './instance-communication-recent-respawn-retry';
+import { deferExitToRecoveryOwner, scheduleSuppressedAutoRespawnRetry } from './instance-communication-recent-respawn-retry';
 import { emitRecoverySafeAdapterError, notePendingRecoveryExit, settleExitRecoveryFailure } from './instance-communication-recovery-safety';
 import {
   assertInstanceLifecycleHookAllowed,
@@ -2023,7 +2023,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       this.deps.queueUpdate(instanceId, instance.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, null);
     });
 
-    adapter.on('exit', (code: number | null, signal: string | null) => {
+    const handleExit = (code: number | null, signal: string | null): void => {
       if (isStaleAdapterEvent('exit')) {
         return;
       }
@@ -2033,6 +2033,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         getInstanceAsyncWorkRegistry().clearInstance(instanceId);
         return;
       }
+      if (deferExitToRecoveryOwner(instanceId, this.deps.getInstance, () => handleExit(code, signal))) return;
       emitProviderRuntimeEvent(
         { kind: 'exit', code, signal },
         { raw: { source: 'adapter-event:exit', payload: { code, signal } } },
@@ -2243,7 +2244,8 @@ export class InstanceCommunicationManager extends EventEmitter {
         // concurrently, leading to duplicate entries and corrupted index saves
         // (the same index.json.tmp file was written by concurrent operations).
       }
-    });
+    };
+    adapter.on('exit', handleExit);
   }
 
   // ============================================

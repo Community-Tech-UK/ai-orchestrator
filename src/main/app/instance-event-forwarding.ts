@@ -46,6 +46,7 @@ import {
   buildProviderCompactionStatusEvent,
   ProviderCompactionLifecycleRecorder,
 } from './provider-compaction-lifecycle';
+import { ProviderCompactionUsageTracker } from './provider-compaction-usage';
 
 const logger = getLogger('InstanceEventForwarding');
 
@@ -90,6 +91,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   const previousStatus = new Map<string, string>();
   const lastTokenOwnerEntryId = new Map<string, string>();
   const toolNamesByCallIdByInstance = new Map<string, Map<string, string>>();
+  const providerCompactionUsage = new ProviderCompactionUsageTracker();
   const providerCompactionLifecycle = new ProviderCompactionLifecycleRecorder();
   const toolEntryMerger = new ContinuityToolEntryMerger();
 
@@ -164,6 +166,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     previousStatus.delete(instanceId as string);
     lastTokenOwnerEntryId.delete(instanceId as string);
     toolNamesByCallIdByInstance.delete(instanceId as string);
+    providerCompactionUsage.forget(instanceId as string);
     providerCompactionLifecycle.forget(instanceId as string);
     toolEntryMerger.forget(instanceId as string);
     observer.publishInstanceState({
@@ -209,6 +212,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     // the role fallback would file it as an ordinary turn.
     if (message?.type === 'tool_outcome') return;
     if (message && isProviderThreadCompactionMessage(message)) {
+      const usageBoundary = providerCompactionUsage.consumeBoundary(enrichedEnvelope.instanceId, enrichedEnvelope.adapterGeneration, instance?.contextUsage);
       const markerId = recordProviderThreadCompactionMarker({
         instanceId: enrichedEnvelope.instanceId,
         instance,
@@ -219,15 +223,12 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
         messageMetadata: message.metadata,
       });
       if (markerId) {
-        // The last measured reading, so the boundary can say how full the context was.
-        const prior = instance?.contextUsage;
-        const previousUsage = prior && !prior.isEstimated && prior.total > 0 ? { percentage: prior.percentage } : undefined;
         const metadata = {
           ...(enrichedEnvelope.event.kind === 'output' ? enrichedEnvelope.event.metadata : {}),
           compactionMarkerId: markerId,
           isCompactionBoundary: true,
           method: 'self-managed',
-          ...(previousUsage ? { previousUsage } : {}),
+          ...usageBoundary,
         };
         enrichedEnvelope = {
           ...enrichedEnvelope,
@@ -242,7 +243,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
             compactionMarkerId: markerId,
             isCompactionBoundary: true,
             method: 'self-managed',
-            ...(previousUsage ? { previousUsage } : {}),
+            ...usageBoundary,
           },
         };
       }
@@ -277,6 +278,11 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     if (message) {
       const compactionStatus = providerCompactionStatus(message);
       if (compactionStatus) {
+        if (compactionStatus === 'started') {
+          providerCompactionUsage.started(enrichedEnvelope.instanceId, enrichedEnvelope.adapterGeneration, instance?.contextUsage);
+        } else if (!isProviderThreadCompactionMessage(message)) {
+          providerCompactionUsage.forget(enrichedEnvelope.instanceId);
+        }
         providerCompactionLifecycle.record(enrichedEnvelope, message, compactionStatus);
         windowManager.sendToRenderer(
           IPC_CHANNELS.INSTANCE_COMPACT_STATUS,

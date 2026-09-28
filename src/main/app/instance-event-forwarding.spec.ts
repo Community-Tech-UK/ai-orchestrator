@@ -272,18 +272,200 @@ describe('setupInstanceEventForwarding', () => {
             compactionMarkerId: 'marker-1',
             isCompactionBoundary: true,
             method: 'self-managed',
-            // The last measured reading, so the one boundary row can say how full it was.
-            previousUsage: { percentage: 25 },
           }),
         }),
       }),
     );
+    const boundaryEnvelope = mockSendToRenderer.mock.calls
+      .find(([channel, payload]) => channel === IPC_CHANNELS.PROVIDER_RUNTIME_EVENT
+        && (payload as ProviderRuntimeEventEnvelope).event.kind === 'output'
+        && (payload as ProviderRuntimeEventEnvelope & { event: { metadata?: Record<string, unknown> } })
+          .event.metadata?.['threadCompacted'] === true)?.[1] as ProviderRuntimeEventEnvelope | undefined;
+    expect(boundaryEnvelope?.event.kind === 'output' ? boundaryEnvelope.event.metadata : undefined)
+      .not.toHaveProperty('previousUsage');
     await vi.waitFor(() => expect(mockContinuity.addConversationEntry).toHaveBeenCalledWith(
       'inst-1',
       expect.objectContaining({
         id: 'msg-compact', role: 'system', isCompacted: true,
       }),
     ));
+  });
+
+  it('keeps the pre-compaction usage when fresh post-compaction usage arrives before the boundary', () => {
+    const instance = {
+      id: 'inst-1',
+      provider: 'codex',
+      providerSessionId: 'provider-thread-1',
+      sessionId: 'session-1',
+      workingDirectory: '/repo',
+      contextUsage: { used: 211_011, total: 258_400, percentage: 81.6606 },
+    };
+    const mgr = buildManager({ 'inst-1': instance });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output'),
+      provider: 'codex',
+      sessionId: 'provider-thread-1',
+      event: {
+        kind: 'output',
+        content: 'Codex is compacting the conversation before continuing.',
+        messageType: 'system',
+        metadata: { providerCompaction: 'started' },
+      },
+    } as ProviderRuntimeEventEnvelope);
+    instance.contextUsage = { used: 33_095, total: 258_400, percentage: 12.8077 };
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output'),
+      provider: 'codex',
+      sessionId: 'provider-thread-1',
+      event: {
+        kind: 'output',
+        content: 'Codex compacted the conversation to free context space.',
+        messageType: 'system',
+        metadata: { threadCompacted: true, providerCompaction: 'completed' },
+      },
+    } as ProviderRuntimeEventEnvelope);
+
+    const boundary = mockSendToRenderer.mock.calls
+      .filter(([channel]) => channel === IPC_CHANNELS.PROVIDER_RUNTIME_EVENT)
+      .map(([, payload]) => payload as ProviderRuntimeEventEnvelope)
+      .find((payload) => payload.event.kind === 'output' && payload.event.metadata?.['threadCompacted'] === true);
+    expect(boundary?.event.kind === 'output' ? boundary.event.metadata : undefined).toMatchObject({
+      previousUsage: { percentage: 81.6606 },
+      newUsage: { percentage: 12.8077 },
+    });
+  });
+
+  it('does not reuse pre-compaction usage after an aborted lifecycle', () => {
+    const instance = {
+      id: 'inst-1', provider: 'codex',
+      contextUsage: { used: 211_011, total: 258_400, percentage: 81.6606 },
+    };
+    const mgr = buildManager({ 'inst-1': instance });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output'), provider: 'codex',
+      event: {
+        kind: 'output', content: 'Codex is compacting.', messageType: 'system',
+        metadata: { providerCompaction: 'started' },
+      },
+    } as ProviderRuntimeEventEnvelope);
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output'), provider: 'codex',
+      event: {
+        kind: 'output', content: 'Codex compaction aborted.', messageType: 'system',
+        metadata: { providerCompaction: 'completed', providerCompactionOutcome: 'aborted' },
+      },
+    } as ProviderRuntimeEventEnvelope);
+    instance.contextUsage = { used: 33_095, total: 258_400, percentage: 12.8077 };
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output'), provider: 'codex',
+      event: {
+        kind: 'output', content: 'Legacy compaction boundary.', messageType: 'system',
+        metadata: { threadCompacted: true },
+      },
+    } as ProviderRuntimeEventEnvelope);
+
+    const boundary = mockSendToRenderer.mock.calls
+      .filter(([channel]) => channel === IPC_CHANNELS.PROVIDER_RUNTIME_EVENT)
+      .map(([, payload]) => payload as ProviderRuntimeEventEnvelope)
+      .find((payload) => payload.event.kind === 'output' && payload.event.metadata?.['threadCompacted'] === true);
+    const metadata = boundary?.event.kind === 'output' ? boundary.event.metadata : undefined;
+    expect(metadata).not.toHaveProperty('previousUsage');
+    expect(metadata).not.toHaveProperty('newUsage');
+  });
+
+  it('does not reuse pre-compaction usage after the adapter generation changes', () => {
+    const instance = {
+      id: 'inst-1', provider: 'codex',
+      contextUsage: { used: 211_011, total: 258_400, percentage: 81.6606 },
+    };
+    const mgr = buildManager({ 'inst-1': instance });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output'), provider: 'codex', adapterGeneration: 1,
+      event: {
+        kind: 'output', content: 'Codex is compacting.', messageType: 'system',
+        metadata: { providerCompaction: 'started' },
+      },
+    } as ProviderRuntimeEventEnvelope);
+    instance.contextUsage = { used: 33_095, total: 258_400, percentage: 12.8077 };
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output'), provider: 'codex', adapterGeneration: 2,
+      event: {
+        kind: 'output', content: 'Boundary after adapter replacement.', messageType: 'system',
+        metadata: { threadCompacted: true },
+      },
+    } as ProviderRuntimeEventEnvelope);
+
+    const boundary = mockSendToRenderer.mock.calls
+      .filter(([channel]) => channel === IPC_CHANNELS.PROVIDER_RUNTIME_EVENT)
+      .map(([, payload]) => payload as ProviderRuntimeEventEnvelope)
+      .find((payload) => payload.event.kind === 'output' && payload.event.metadata?.['threadCompacted'] === true);
+    const metadata = boundary?.event.kind === 'output' ? boundary.event.metadata : undefined;
+    expect(metadata).not.toHaveProperty('previousUsage');
+    expect(metadata).not.toHaveProperty('newUsage');
+  });
+
+  it('discards pre-compaction usage when marker persistence rejects the boundary', () => {
+    mockRecordProviderThreadCompactionMarker
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce('marker-2');
+    const instance = {
+      id: 'inst-1', provider: 'codex',
+      contextUsage: { used: 211_011, total: 258_400, percentage: 81.6606 },
+    };
+    const mgr = buildManager({ 'inst-1': instance });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output'), provider: 'codex',
+      event: {
+        kind: 'output', content: 'Codex is compacting.', messageType: 'system',
+        metadata: { providerCompaction: 'started' },
+      },
+    } as ProviderRuntimeEventEnvelope);
+    instance.contextUsage = { used: 33_095, total: 258_400, percentage: 12.8077 };
+    for (const content of ['Rejected boundary.', 'Next boundary.']) {
+      mgr.emit('provider:normalized-event', {
+        ...makeEnvelope('output'), provider: 'codex',
+        event: {
+          kind: 'output', content, messageType: 'system', metadata: { threadCompacted: true },
+        },
+      } as ProviderRuntimeEventEnvelope);
+    }
+
+    const acceptedBoundary = mockSendToRenderer.mock.calls
+      .filter(([channel]) => channel === IPC_CHANNELS.PROVIDER_RUNTIME_EVENT)
+      .map(([, payload]) => payload as ProviderRuntimeEventEnvelope)
+      .find((payload) => payload.event.kind === 'output'
+        && payload.event.metadata?.['compactionMarkerId'] === 'marker-2');
+    const metadata = acceptedBoundary?.event.kind === 'output' ? acceptedBoundary.event.metadata : undefined;
+    expect(metadata).not.toHaveProperty('previousUsage');
+    expect(metadata).not.toHaveProperty('newUsage');
   });
 
   it.each(['started', 'completed'] as const)(

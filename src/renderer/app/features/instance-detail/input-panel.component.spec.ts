@@ -20,6 +20,7 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { DraftService } from '../../core/services/draft.service';
 import { KeybindingService } from '../../core/services/keybinding.service';
 import { OrchestrationIpcService } from '../../core/services/ipc';
+import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { CodebaseIpcService } from '../../core/services/ipc/codebase-ipc.service';
 import { PerfInstrumentationService } from '../../core/services/perf-instrumentation.service';
 import { PromptSuggestionService } from '../../core/services/prompt-suggestion.service';
@@ -257,6 +258,7 @@ describe('InputPanelComponent composer autocomplete integration', () => {
           useValue: { setContext: vi.fn(), onAction: vi.fn(() => vi.fn()) },
         },
         { provide: OrchestrationIpcService, useValue: createOrchestrationIpcMock() },
+        { provide: ElectronIpcService, useValue: { platform: 'darwin' } },
         { provide: PromptHistoryStore, useValue: createPromptHistoryStoreMock() },
         { provide: VoiceConversationStore, useValue: createVoiceConversationStoreMock() },
         { provide: CodebaseIpcService, useValue: { search: codebaseSearch } },
@@ -539,6 +541,42 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.fast-toggle')).toBeNull();
+  });
+
+  it('marks Hardened unavailable for a provider with no jail support, but still lets it be turned off', () => {
+    fixture.componentRef.setInput('instanceId', 'new');
+    newSessionDraft.provider.set('claude');
+    fixture.detectChanges();
+    expect(component.hardenedUnavailable()).toBe(false);
+    expect(component.hardenedLabel()).toBe('OFF');
+
+    newSessionDraft.provider.set('codex');
+    fixture.detectChanges();
+    expect(component.hardenedUnavailable()).toBe(true);
+    expect(component.hardenedLabel()).toBe('N/A');
+    let hardenedButton = fixture.nativeElement.querySelector('.hardened-toggle') as HTMLButtonElement;
+    expect(hardenedButton.disabled).toBe(true);
+    expect(hardenedButton.textContent).toContain('Hardened N/A');
+    expect(hardenedButton.title).toContain('not supported for Codex yet');
+    hardenedButton.click();
+    expect(newSessionDraft.setHardened).not.toHaveBeenCalled();
+
+    // A folder that remembered Hardened ON must show it and allow switching it off.
+    newSessionDraft.hardened.set(true);
+    fixture.detectChanges();
+    expect(component.hardenedLabel()).toBe('ON — unsupported');
+    expect(component.hardenedTitle()).toContain('Click to turn it off');
+    hardenedButton = fixture.nativeElement.querySelector('.hardened-toggle') as HTMLButtonElement;
+    expect(hardenedButton.disabled).toBe(false);
+    expect(hardenedButton.textContent).toContain('Hardened ON — unsupported');
+    hardenedButton.click();
+    expect(newSessionDraft.setHardened).toHaveBeenCalledWith(null);
+
+    // Auto is decided at spawn, so it is not flagged here.
+    newSessionDraft.provider.set('auto');
+    fixture.detectChanges();
+    expect(component.hardenedUnavailable()).toBe(false);
+    expect((fixture.nativeElement.querySelector('.hardened-toggle') as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('explains that a queued Codex message will send after provider compaction', () => {

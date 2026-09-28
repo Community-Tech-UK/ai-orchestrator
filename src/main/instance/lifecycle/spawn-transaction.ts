@@ -7,7 +7,16 @@ export interface SpawnTransaction {
   readonly id: string;
   addRollback(label: string, action: () => Promise<void> | void): void;
   commit(): void;
-  rollback(cause: unknown): Promise<void>;
+  rollback(cause: unknown, options?: SpawnRollbackOptions): Promise<void>;
+}
+
+export interface SpawnRollbackOptions {
+  /**
+   * Labels whose rollback actions are discarded instead of run. Used to keep a
+   * failed session's record (store entry, transcript, registrations) while
+   * still releasing its runtime resources.
+   */
+  readonly retain?: ReadonlySet<string>;
 }
 
 interface RollbackAction {
@@ -43,7 +52,7 @@ export function createSpawnTransaction(
       rollbacks.length = 0;
     },
 
-    async rollback(cause) {
+    async rollback(cause, rollbackOptions) {
       if (committed) {
         return;
       }
@@ -51,6 +60,7 @@ export function createSpawnTransaction(
       committed = true;
       for (let index = rollbacks.length - 1; index >= 0; index -= 1) {
         const rollbackAction = rollbacks[index]!;
+        if (rollbackOptions?.retain?.has(rollbackAction.label)) continue;
         try {
           await rollbackAction.action();
         } catch (error) {
@@ -68,9 +78,13 @@ export function createSpawnTransaction(
 }
 
 function formatRollbackError(error: unknown): string {
-  const raw = error instanceof Error
+  return redactSpawnFailureText(error instanceof Error
     ? `${error.name}: ${error.message}`
-    : String(error);
+    : String(error));
+}
+
+/** Scrub secret-shaped values from spawn-failure text bound for logs or the transcript. */
+export function redactSpawnFailureText(raw: string): string {
   const redacted = redactForSink(raw);
   return redacted.replace(
     /\b(api[_-]?key|token|secret|password|credential|authorization|cookie)\s*=\s*[^,\s]+/gi,

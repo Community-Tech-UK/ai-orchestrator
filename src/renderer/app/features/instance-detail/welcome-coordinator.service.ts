@@ -11,6 +11,7 @@ import { ProviderStateService } from '../../core/services/provider-state.service
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { FileAttachmentService } from './file-attachment.service';
 import { normalizeModelForProvider } from '../../../../shared/types/provider.types';
+import { hardenedProviderName, isHardenedModeSupported } from '../../../../shared/hardened-mode-support';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
 import type { InstanceLaunchMode } from '../../../../shared/types/instance.types';
@@ -366,6 +367,14 @@ export class WelcomeCoordinatorService {
       : this.newSessionDraft.reasoningEffort();
     const yoloMode = this.newSessionDraft.yoloMode();
     const hardened = this.newSessionDraft.hardened();
+    // The main process refuses hardened spawns for unproven providers. The draft
+    // remembers Hardened per folder, so catch it here, before a session exists,
+    // instead of creating one that can only fail.
+    if (hardened && provider && !isHardenedModeSupported(provider)) {
+      return this.failPreparation(
+        `Hardened mode is not supported for ${hardenedProviderName(provider)} yet. Turn Hardened off or choose Claude, then send again.`,
+      );
+    }
     const copilotAccountProfileId = this.newSessionDraft.copilotAccountProfileId();
     const accountProfileId = this.newSessionDraft.accountProfileId();
     const pendingFolders = content?.pendingFolders ?? this.pendingFolders();

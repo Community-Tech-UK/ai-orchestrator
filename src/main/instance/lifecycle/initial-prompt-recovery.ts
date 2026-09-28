@@ -27,8 +27,8 @@ export interface InitialPromptRecoveryDeps {
  * Deliver the create-time initial prompt after the CLI has already spawned and
  * settled to idle. Post-spawn the instance is a real, live session, so a failure
  * delivering the first turn must NOT be fatal: throwing here propagates to the
- * spawn-transaction rollback, which deletes the instance and makes the session
- * vanish from the session list.
+ * create failure path, which tears down the live runtime and parks the session
+ * in `error` as one that could not start (see failed-creation-retention.ts).
  *
  * Codex in particular fails this first turn in several ways while the session is
  * healthy — context-cost recovery pausing on an unconfirmed interrupt, or the

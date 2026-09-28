@@ -19,15 +19,81 @@
  * Extracted out of instance-communication.ts to keep that file within its
  * size ceiling (`npm run check:ts-max-loc`) — mirrors why provider-limit
  * park handling already lives in instance-communication-provider-limit.ts.
+ *
+ * `deferExitToRecoveryOwner` (below) is the sibling case: an exit that lands
+ * while a recovery owner is mid-respawn.
  */
 
 import type { Instance, InstanceStatus } from '../../shared/types/instance.types';
 import type { ErrorInfo } from '../../shared/types/ipc.types';
 import type { CommunicationDependencies } from './instance-communication.types';
 import { getLogger } from '../logging/logger';
+import { getSessionMutex } from '../session/session-mutex';
 import { redactRecoveryError } from './instance-recovery-redaction';
 
 const logger = getLogger('InstanceCommunication');
+
+/** Statuses a recovery owner settles an instance into; mirrors `shouldAbortRespawn`. */
+const RECOVERY_SETTLED_STATUSES: ReadonlySet<InstanceStatus> = new Set<InstanceStatus>([
+  'terminated',
+  'failed',
+  'superseded',
+  'cancelled',
+  'error',
+]);
+
+/**
+ * An adapter that exits while its instance is `respawning` and the session
+ * lock is held is a recovery owner's replacement dying mid-spawn: the
+ * interrupt and unexpected-exit respawns both run `applyRecoveryRespawn`
+ * under that lock. The owner observes the failure itself and has a fallback
+ * ladder (native resume → fresh session with replay). Settling the exit here
+ * first — `respawning` is not auto-respawn eligible, so exit code 0 became a
+ * `terminated` with no error or message — tripped the owner's abort check and
+ * skipped that fallback, leaving a silently dead session (Copilot `pogg12k15`,
+ * 2026-09-28, whose native `session/load` died on stdout EAGAIN).
+ *
+ * Returns true when the exit was deferred. Once the owner releases the lock,
+ * `replay` re-runs normal exit handling unless the owner already settled the
+ * instance; the handler's own stale-adapter guard drops the replay if the
+ * owner swapped in a fallback adapter.
+ */
+export function deferExitToRecoveryOwner(
+  instanceId: string,
+  getInstance: CommunicationDependencies['getInstance'],
+  replay: () => void,
+): boolean {
+  const instance = getInstance(instanceId);
+  const mutex = getSessionMutex();
+  if (instance?.status !== 'respawning' || !mutex.isLocked(instanceId)) {
+    return false;
+  }
+  logger.info('Adapter exited during a recovery respawn; deferring to the recovery owner', {
+    instanceId,
+    lockSource: mutex.getLockInfo(instanceId)?.source,
+  });
+  // Runs from a promise callback, so nothing may escape as an unhandled rejection.
+  const settle = (release?: () => void): void => {
+    try {
+      release?.();
+      const current = getInstance(instanceId);
+      if (current !== instance || RECOVERY_SETTLED_STATUSES.has(current.status)) {
+        logger.info('Deferred adapter exit already settled by the recovery owner', {
+          instanceId,
+          status: current?.status,
+        });
+        return;
+      }
+      replay();
+    } catch (error) {
+      logger.error('Deferred adapter exit handling failed', redactRecoveryError(instance, error), { instanceId });
+    }
+  };
+  // Acquire only to wait for the owner, then release at once. A timeout means
+  // the owner is wedged: fall through to normal handling rather than drop it.
+  mutex.acquire(instanceId, 'deferred-adapter-exit').then(settle, () => settle());
+  return true;
+}
 
 export interface RecentRespawnSuppressionRetryDeps {
   getInstance: CommunicationDependencies['getInstance'];

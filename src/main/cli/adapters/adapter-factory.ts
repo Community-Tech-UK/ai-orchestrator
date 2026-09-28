@@ -33,6 +33,7 @@ import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-con
 import { getLogger } from '../../logging/logger';
 import { BaseCliAdapter } from './base-cli-adapter';
 import { defaultHardenedWritableRoots } from '../../sandbox/seatbelt';
+import { hardenedModeUnsupportedMessage, isHardenedModeSupported } from '../../../shared/hardened-mode-support';
 import { getInstanceExtraWritableRoots, isInstanceHardened } from '../../instance/lifecycle/hardened-mode-scoping';
 import { isInstanceContainedExecution } from '../../instance/lifecycle/contained-execution-scoping';
 import { getPermissionRegistry } from '../../orchestration/permission-registry';
@@ -687,10 +688,15 @@ export function createCliAdapter(
     return new RemoteCliAdapter(connection, executionLocation.nodeId, cliType, effectiveOptions);
   }
 
-  // LT-028: inside the Seatbelt jail Codex's MCP transport dies and the session never
-  // answers. Refuse up front rather than spawn a session that cannot work.
-  if (cliType === 'codex' && isInstanceHardened(effectiveOptions.instanceId)) {
-    throw new Error('Hardened mode is not supported for Codex yet: it cannot run inside the Seatbelt sandbox. Start this session without hardened mode.');
+  const hardenedModeRequested = isInstanceHardened(effectiveOptions.instanceId);
+  // Ollama is an HTTP-only, tool-free local-model adapter: it spawns no child
+  // CLI for Seatbelt to confine, so the flag intentionally remains a no-op.
+  const hardenedModeApplies = hardenedModeRequested && cliType !== 'ollama';
+
+  // LT-028 and siblings: only providers proven inside the Seatbelt jail may run
+  // hardened. Refuse the rest up front rather than spawn a session that hangs.
+  if (hardenedModeApplies && !isHardenedModeSupported(cliType)) {
+    throw new Error(hardenedModeUnsupportedMessage(cliType));
   }
 
   const adapter = (() => {
@@ -730,7 +736,7 @@ export function createCliAdapter(
   })();
   // WS13 hardened mode: per-instance registry keyed by instance id (browser-tool-scoping
   // precedent) — every create/respawn path inherits it with no threading.
-  if (isInstanceHardened(effectiveOptions.instanceId)) {
+  if (hardenedModeApplies) {
     if (!(adapter instanceof BaseCliAdapter)) {
       // Remote adapters spawn on a worker node, outside the local Seatbelt choke point. FAIL CLOSED.
       throw new Error(

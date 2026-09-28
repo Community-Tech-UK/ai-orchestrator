@@ -2371,6 +2371,15 @@ export class AcpCliAdapter extends BaseCliAdapter {
     return this.currentPromptRequestId !== null && hasActiveAcpToolCall(this.toolCalls.values());
   }
 
+  /**
+   * True while `session/prompt` is in flight. The generic stuck-process
+   * detector uses this to defer to ACP's activity-aware prompt timeout rather
+   * than imposing its shorter message-silence ceiling on provider inference.
+   */
+  hasActiveTurn(): boolean {
+    return this.currentPromptRequestId !== null;
+  }
+
   private refreshCurrentPromptTimeout(): void {
     const id = this.currentPromptRequestId;
     if (!id) return;

@@ -9,7 +9,11 @@ vi.mock('../logging/logger', () => ({
   }),
 }));
 
-import { adapterHasActiveToolCalls, StuckProcessDetector } from './stuck-process-detector';
+import {
+  adapterHasActiveProviderTurn,
+  adapterHasActiveToolCalls,
+  StuckProcessDetector,
+} from './stuck-process-detector';
 
 describe('StuckProcessDetector', () => {
   let detector: StuckProcessDetector;
@@ -564,12 +568,78 @@ describe('StuckProcessDetector', () => {
     });
   });
 
+  describe('provider-owned active turn', () => {
+    let providerDetector: StuckProcessDetector;
+    const activeTurns = new Set<string>();
+    const aliveProcesses = new Set<string>();
+
+    beforeEach(() => {
+      providerDetector = new StuckProcessDetector({
+        isProcessAlive: (id) => aliveProcesses.has(id),
+        hasActiveProviderTurn: (id) => activeTurns.has(id),
+        getTimeoutMultiplier: () => 1,
+      });
+    });
+
+    afterEach(() => {
+      providerDetector.shutdown();
+      activeTurns.clear();
+      aliveProcesses.clear();
+    });
+
+    it('leaves a live ACP prompt to the adapter timeout instead of killing it at eight minutes', () => {
+      const softHandler = vi.fn();
+      const hardHandler = vi.fn();
+      providerDetector.on('process:suspect-stuck', softHandler);
+      providerDetector.on('process:stuck', hardHandler);
+      providerDetector.startTracking('inst-1');
+      providerDetector.updateState('inst-1', 'generating');
+      activeTurns.add('inst-1');
+      aliveProcesses.add('inst-1');
+
+      vi.advanceTimersByTime(900_000);
+
+      expect(softHandler).not.toHaveBeenCalled();
+      expect(hardHandler).not.toHaveBeenCalled();
+
+      activeTurns.delete('inst-1');
+      vi.advanceTimersByTime(130_000);
+
+      expect(softHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ instanceId: 'inst-1', state: 'generating' }),
+      );
+    });
+
+    it('still detects a dead provider process while the adapter reports an active turn', () => {
+      const hardHandler = vi.fn();
+      providerDetector.on('process:stuck', hardHandler);
+      providerDetector.startTracking('inst-1');
+      providerDetector.updateState('inst-1', 'generating');
+      activeTurns.add('inst-1');
+
+      vi.advanceTimersByTime(70_000);
+
+      expect(hardHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ instanceId: 'inst-1', state: 'generating' }),
+      );
+    });
+  });
+
   describe('adapterHasActiveToolCalls', () => {
     it('reads the adapter only when it can report in-flight tool calls', () => {
       expect(adapterHasActiveToolCalls(undefined)).toBe(false);
       expect(adapterHasActiveToolCalls({ isRunning: () => true })).toBe(false);
       expect(adapterHasActiveToolCalls({ hasActiveToolCalls: () => false })).toBe(false);
       expect(adapterHasActiveToolCalls({ hasActiveToolCalls: () => true })).toBe(true);
+    });
+  });
+
+  describe('adapterHasActiveProviderTurn', () => {
+    it('reads the adapter only when it can report provider-owned prompt work', () => {
+      expect(adapterHasActiveProviderTurn(undefined)).toBe(false);
+      expect(adapterHasActiveProviderTurn({ isRunning: () => true })).toBe(false);
+      expect(adapterHasActiveProviderTurn({ hasActiveTurn: () => false })).toBe(false);
+      expect(adapterHasActiveProviderTurn({ hasActiveTurn: () => true })).toBe(true);
     });
   });
 

@@ -84,6 +84,17 @@ export function adapterHasActiveToolCalls(adapter: object | undefined): boolean 
     && typeof adapter.hasActiveToolCalls === 'function' && adapter.hasActiveToolCalls() === true;
 }
 
+/**
+ * Whether the adapter currently owns an in-flight provider turn. ACP adapters
+ * have their own activity-aware request lease and can distinguish a slow
+ * provider response from an abandoned request more accurately than this
+ * message-driven watchdog can.
+ */
+export function adapterHasActiveProviderTurn(adapter: object | undefined): boolean {
+  return !!adapter && 'hasActiveTurn' in adapter
+    && typeof adapter.hasActiveTurn === 'function' && adapter.hasActiveTurn() === true;
+}
+
 export interface StuckDetectorOptions {
   /**
    * Callback to check whether the CLI process for a given instance is still
@@ -110,6 +121,13 @@ export interface StuckDetectorOptions {
    * returns true, a `generating` tracker is judged as `tool_executing`.
    */
   hasActiveToolCall?: (instanceId: string) => boolean;
+  /**
+   * Callback reporting that a live adapter still owns the provider turn and
+   * has an authoritative request timeout. While both this and
+   * `isProcessAlive` are true, the generic silence clock is reset so it cannot
+   * kill a valid slow response. A dead process is never suppressed.
+   */
+  hasActiveProviderTurn?: (instanceId: string) => boolean;
   /**
    * Grace window (ms) for a live process sitting in `tool_executing` before
    * stuck escalation resumes. Long MCP sub-agent reviews (codex/gemini) can be
@@ -175,6 +193,7 @@ export class StuckProcessDetector extends EventEmitter {
   private isProcessAlive: ((instanceId: string) => boolean) | undefined;
   private hasExternalActivity: ((instanceId: string) => boolean) | undefined;
   private hasActiveToolCall: ((instanceId: string) => boolean) | undefined;
+  private hasActiveProviderTurn: ((instanceId: string) => boolean) | undefined;
   private readonly toolExecutingAliveGraceMs: number;
   private readonly getTimeoutMultiplier: () => number;
   private lastCheckTime = Date.now();
@@ -184,6 +203,7 @@ export class StuckProcessDetector extends EventEmitter {
     this.isProcessAlive = options?.isProcessAlive;
     this.hasExternalActivity = options?.hasExternalActivity;
     this.hasActiveToolCall = options?.hasActiveToolCall;
+    this.hasActiveProviderTurn = options?.hasActiveProviderTurn;
     this.toolExecutingAliveGraceMs =
       options?.toolExecutingAliveGraceMs ?? TOOL_EXECUTING_ALIVE_GRACE_MS;
     this.getTimeoutMultiplier = options?.getTimeoutMultiplier ?? getLoadWatchdogMultiplier;
@@ -385,6 +405,19 @@ export class StuckProcessDetector extends EventEmitter {
           elapsedMs: elapsed,
         });
         this.trackers.delete(instanceId);
+        continue;
+      }
+
+      // ACP owns the complete `session/prompt` lifecycle and enforces an
+      // activity-aware timeout itself. Its providers can legitimately spend
+      // far longer than the generic 8-minute alive-process ceiling reasoning
+      // over a large prompt without emitting tokens. Let that provider lease
+      // remain authoritative while the subprocess is demonstrably alive.
+      if (processAlive && this.hasActiveProviderTurn?.(instanceId)) {
+        tracker.lastOutputAt = now;
+        tracker.softWarningEmitted = false;
+        tracker.interactivePromptWarningEmitted = false;
+        tracker.aliveDeferrals = 0;
         continue;
       }
 

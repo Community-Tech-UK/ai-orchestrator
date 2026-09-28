@@ -34,6 +34,43 @@ describe('adapter factory — hardened remote execution', () => {
     })).toThrow('Hardened mode is not supported for Codex');
   });
 
+  it.each([
+    ['grok', 'Grok'],
+    ['cursor', 'Cursor'],
+    ['opencode', 'OpenCode'],
+    ['copilot', 'Copilot'],
+    ['antigravity', 'Antigravity'],
+  ] as const)('refuses a hardened %s session that has no jail evidence', (cliType, name) => {
+    setInstanceHardened(`hardened-${cliType}`, true);
+
+    expect(() => createCliAdapter(cliType, {
+      instanceId: `hardened-${cliType}`,
+      workingDirectory: '/tmp',
+    })).toThrow(`Hardened mode is not supported for ${name} yet`);
+  });
+
+  it('still builds a hardened local Claude adapter', () => {
+    setInstanceHardened('hardened-claude', true);
+
+    const adapter = createCliAdapter('claude', {
+      instanceId: 'hardened-claude',
+      workingDirectory: '/tmp',
+    }) as unknown as { hardenedMode: { writableRoots: string[] } | null };
+
+    expect(adapter.hardenedMode?.writableRoots).toContain('/tmp');
+  });
+
+  it('keeps hardened mode a no-op for the tool-free Ollama adapter', () => {
+    setInstanceHardened('hardened-ollama', true);
+
+    const adapter = createCliAdapter('ollama', {
+      instanceId: 'hardened-ollama',
+      workingDirectory: '/tmp',
+    }) as unknown as { hardenedMode: { writableRoots: string[] } | null };
+
+    expect(adapter.hardenedMode).toBeNull();
+  });
+
   it('still builds a non-hardened local Codex adapter', () => {
     expect(() => createCliAdapter('codex', {
       instanceId: 'plain-codex',

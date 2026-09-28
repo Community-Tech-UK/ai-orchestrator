@@ -529,14 +529,17 @@ textarea {
 }
 
 .app-frame {
-  position: fixed;
-  inset: 0;
-  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 100dvh;
 }
 
 .app-frame--split {
+  position: fixed;
+  inset: 0;
   display: grid;
   grid-template-columns: minmax(20rem, 23.75rem) minmax(0, 1fr);
+  min-height: 0;
 }
 
 .app-frame__stage,
@@ -544,12 +547,16 @@ textarea {
   position: relative;
   min-width: 0;
   min-height: 0;
+}
+
+.app-frame__list,
+.app-frame--split .app-frame__stage {
   overflow: hidden;
 }
 
 .app-frame__list { border-right: 1px solid var(--separator); }
 
-.app-frame__stage > :not(router-outlet),
+.app-frame--split .app-frame__stage > :not(router-outlet),
 .app-frame__list > :not(router-outlet) {
   position: absolute !important;
   inset: 0 !important;

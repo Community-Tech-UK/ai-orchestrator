@@ -2,6 +2,8 @@ import { signal } from '@angular/core';
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GatewayClient } from '../core/gateway-client.service';
 import { HostStore } from '../core/host-store';
@@ -45,6 +47,24 @@ describe('companionForPath', () => {
 
 describe('AppShellComponent', () => {
   afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('keeps the routed stage full-height in the single-column phone layout', () => {
+    const styles = readFileSync(resolve('src/styles.scss'), 'utf8');
+    expect(styles).toMatch(
+      /\.app-frame\s*{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s,
+    );
+  });
+
+  it('keeps phone routes in document flow and confines fixed positioning to split view', () => {
+    const styles = readFileSync(resolve('src/styles.scss'), 'utf8');
+    expect(styles).not.toMatch(/\.app-frame\s*{[^}]*position:\s*fixed;/s);
+    expect(styles).toMatch(/\.app-frame\s*{[^}]*min-height:\s*100dvh;/s);
+    expect(styles).toMatch(/\.app-frame--split\s*{[^}]*position:\s*fixed;[^}]*inset:\s*0;/s);
+    expect(styles).toMatch(
+      /\.app-frame__list,\s*\.app-frame--split \.app-frame__stage\s*{[^}]*overflow:\s*hidden;/s,
+    );
+    expect(styles).toContain('.app-frame--split .app-frame__stage > :not(router-outlet)');
+  });
 
   async function setup(width: number) {
     const media = installMatchMedia(width);

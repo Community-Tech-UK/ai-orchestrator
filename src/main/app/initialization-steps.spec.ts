@@ -12,6 +12,7 @@ import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import {
   createAnnounceThenHaltContinuationInitializationStep,
+  createCrashTurnContinuationInitializationStep,
   createGovernedProposalInitializationStep,
   createInitializationSteps,
   createLocalAiGuardInitializationStep,
@@ -38,6 +39,38 @@ describe('Announce-then-halt continuation initialization', () => {
     expect(isManagedLoopInstance('active-root')).toBe(true);
     expect(isManagedLoopInstance('finished-root')).toBe(false);
     expect(isManagedLoopInstance('ordinary-root')).toBe(false);
+  });
+});
+
+describe('Crash-turn continuation initialization', () => {
+  it('is registered and supplies an active managed-loop ownership predicate', () => {
+    const instanceManager = {} as InstanceManager;
+    const initialize = vi.fn();
+    const step = createCrashTurnContinuationInitializationStep(
+      instanceManager,
+      initialize,
+      () => [
+        { chatId: 'active-root', status: 'running', endedAt: null },
+        { chatId: 'finished-root', status: 'completed', endedAt: 1 },
+      ],
+    );
+
+    step.fn();
+
+    expect(initialize).toHaveBeenCalledOnce();
+    expect(initialize.mock.calls[0]?.[0]).toBe(instanceManager);
+    const isManagedLoopInstance = initialize.mock.calls[0]?.[1] as (instanceId: string) => boolean;
+    expect(isManagedLoopInstance('active-root')).toBe(true);
+    expect(isManagedLoopInstance('finished-root')).toBe(false);
+
+    const names = createInitializationSteps({
+      instanceManager: {} as InstanceManager,
+      windowManager: {} as WindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+      syncRemoteNodeMetricsToLoadBalancer: () => undefined,
+    }).map((candidate) => candidate.name);
+    expect(names).toContain('Crash-turn continuation');
   });
 });
 

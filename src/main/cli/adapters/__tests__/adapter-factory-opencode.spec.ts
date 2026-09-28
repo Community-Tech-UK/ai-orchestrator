@@ -19,6 +19,7 @@ interface OpenCodeAcpConfig {
   startupGate?: unknown;
   reportedCostOnly?: boolean;
   concurrencyKey?: string;
+  promptTimeoutMs?: number;
   mcpServers?: {
     name: string;
     args?: string[];
@@ -122,6 +123,16 @@ describe('adapter factory — opencode', () => {
       effort: 'high',
     });
     expect(acpConfig(adapter).args).not.toContain('--model');
+    expect(acpConfig(adapter).promptTimeoutMs).toBe(45 * 60_000);
+  });
+
+  it('keeps the standard ACP prompt timeout for non-MiMo OpenCode models', () => {
+    const adapter = createCliAdapter('opencode', {
+      workingDirectory: '/tmp',
+      model: 'openai/gpt-5.4',
+    });
+
+    expect(acpConfig(adapter).promptTimeoutMs).toBe(10 * 60_000);
   });
 
   it('keeps OpenCode default when the model is absent, `auto`, or not a provider/model id', () => {

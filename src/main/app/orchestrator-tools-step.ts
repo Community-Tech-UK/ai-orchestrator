@@ -467,9 +467,13 @@ export function createOrchestratorToolsStep(
           });
           // Remote provider startup includes worker-local checks that the
           // coordinator cannot perform (for example Copilot account binding).
-          // Do not return an optimistic instance id that rolls back moments
-          // later; a run_on_node success means the worker is actually ready.
-          await instance.readyPromise;
+          // Do not return an optimistic instance id; a run_on_node success means
+          // the worker is actually ready. A failed start keeps its session in
+          // `error`, and this caller never learns the id, so remove it here.
+          await instance.readyPromise?.catch(async (error: unknown) => {
+            await instanceManager.terminateInstance(instance.id, false).catch(() => undefined);
+            throw error;
+          });
           return {
             instanceId: instance.id,
             nodeId: node.id,

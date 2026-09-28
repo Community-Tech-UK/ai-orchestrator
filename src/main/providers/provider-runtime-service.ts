@@ -28,6 +28,7 @@ import {
   runtimeDescriptorForSpawn,
   type ProviderRuntimeRegistry,
 } from './provider-runtime-registry';
+import { isInstanceHardened } from '../instance/lifecycle/hardened-mode-scoping';
 
 export interface ProviderRuntimeStartInput {
   cliType: CliType;
@@ -128,6 +129,12 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
 
   private shouldUseSpawnWorker(input: ProviderRuntimeStartInput): boolean {
     if (this.readSpawnWorkerSetting() !== true) {
+      return false;
+    }
+    // The worker proxy launches the provider binary directly and therefore
+    // cannot apply the adapter factory's Seatbelt configuration or refusal.
+    // Keep every hardened instance on that single enforcement path.
+    if (isInstanceHardened(input.options.instanceId)) {
       return false;
     }
     if (input.executionLocation?.type === 'remote') {

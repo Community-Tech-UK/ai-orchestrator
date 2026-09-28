@@ -90,6 +90,7 @@ vi.mock('../browser-gateway/browser-approval-store', () => ({
 }));
 
 import { InstanceCommunicationManager } from './instance-communication';
+import { _resetSessionMutexForTesting, getSessionMutex } from '../session/session-mutex';
 import { _resetToolOutcomeStoreForTesting, getToolOutcomes } from '../learning/tool-outcome-store';
 import { InstanceStateMachine } from './instance-state-machine';
 import { TokenBudgetTracker } from '../context/token-budget-tracker';
@@ -2590,6 +2591,121 @@ describe('LT-023: a suppressed respawn defers and retries instead of dying silen
 
     expect(instance.status).toBe('error');
     expect(onUnexpectedExit).not.toHaveBeenCalled();
+  });
+});
+
+describe('an exit during a recovery respawn defers to the recovery owner', () => {
+  // Copilot pogg12k15 (2026-09-28): the respawn's replacement died during its
+  // native session/load. This handler settled the exit first — `respawning` is
+  // not auto-respawn eligible, so code 0 became a silent `terminated` — which
+  // made the owner abort instead of falling back to a fresh session.
+  let instance: Instance;
+  let adapters: Map<string, CliAdapter>;
+  let queueUpdate: ReturnType<typeof vi.fn>;
+  let onUnexpectedExit: ReturnType<typeof vi.fn>;
+  let manager: InstanceCommunicationManager;
+  let releaseOwnerLock: () => void;
+
+  const flushDeferredExit = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+  beforeEach(async () => {
+    _resetSessionMutexForTesting();
+    adapters = new Map();
+    queueUpdate = vi.fn();
+    onUnexpectedExit = vi.fn().mockResolvedValue(undefined);
+    instance = createInstance('respawning');
+    instance.outputBuffer = [createMessage('user', 'continue')];
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, adapter) => adapters.set(id, adapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      onUnexpectedExit,
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+    });
+    // The recovery owner (respawnAfterUnexpectedExit / interrupt respawn) holds
+    // the session lock across the replacement's spawn.
+    releaseOwnerLock = await getSessionMutex().acquire(instance.id, 'respawn-unexpected', { operation: 'respawn' });
+  });
+
+  afterEach(() => {
+    releaseOwnerLock();
+    _resetSessionMutexForTesting();
+  });
+
+  function replacementAdapter(): EventEmitter {
+    const adapter = new FakeAdapter('copilot-acp');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+    return adapter;
+  }
+
+  const queuedTerminal = () => queueUpdate.mock.calls.some(([, status]) => status === 'terminated' || status === 'error');
+
+  it('leaves the instance to the owner instead of terminating it', () => {
+    const adapter = replacementAdapter();
+
+    adapter.emit('exit', 0, null);
+
+    expect(instance.status).toBe('respawning');
+    expect(adapters.get(instance.id)).toBe(adapter);
+    expect(queuedTerminal()).toBe(false);
+  });
+
+  it('drops the deferred exit once the owner falls back to a new adapter', async () => {
+    const doomed = replacementAdapter();
+    doomed.emit('exit', 0, null);
+    expect(instance.status).toBe('respawning');
+
+    // Owner: resume failed → fresh-session adapter → idle.
+    const fallback = replacementAdapter();
+    instance.status = 'idle';
+    releaseOwnerLock();
+    await flushDeferredExit();
+
+    expect(instance.status).toBe('idle');
+    expect(adapters.get(instance.id)).toBe(fallback);
+    expect(onUnexpectedExit).not.toHaveBeenCalled();
+    expect(queuedTerminal()).toBe(false);
+  });
+
+  it('does not overwrite a state the owner already settled', async () => {
+    replacementAdapter().emit('exit', 0, null);
+    expect(instance.status).toBe('respawning');
+
+    // Owner's own terminal handling (auto-respawn failed → error).
+    instance.status = 'error';
+    releaseOwnerLock();
+    await flushDeferredExit();
+
+    expect(instance.status).toBe('error');
+    expect(onUnexpectedExit).not.toHaveBeenCalled();
+    expect(queuedTerminal()).toBe(false);
+  });
+
+  it('handles the exit normally once the owner finishes with the dead adapter still current', async () => {
+    replacementAdapter().emit('exit', 0, null);
+
+    // Owner reported success (e.g. the process died after spawn resolved).
+    instance.status = 'idle';
+    releaseOwnerLock();
+    await flushDeferredExit();
+
+    expect(instance.status).toBe('respawning');
+    expect(onUnexpectedExit).toHaveBeenCalledWith(instance.id);
+  });
+
+  it('still settles immediately when no recovery owner holds the lock', () => {
+    releaseOwnerLock();
+    const adapter = replacementAdapter();
+
+    adapter.emit('exit', 0, null);
+
+    expect(instance.status).toBe('terminated');
   });
 });
 
