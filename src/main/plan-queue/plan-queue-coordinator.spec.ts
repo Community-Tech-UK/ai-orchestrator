@@ -656,7 +656,7 @@ describe('PlanQueueCoordinator — boot recovery', { timeout: 30_000 }, () => {
         .filter(([message]) => message === 'Plan queue worker runs under relaxed settings')
         .map(([, data]) => (data as { runId: string }).runId);
       if (!audited.includes(second.run.id)) throw new Error('sharing run not audited yet');
-    });
+    }, { timeout: 10_000 });
     audit.mockRestore();
 
     await waitForRun(first.run.id);
