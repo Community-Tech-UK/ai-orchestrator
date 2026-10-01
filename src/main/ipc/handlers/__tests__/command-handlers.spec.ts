@@ -214,6 +214,23 @@ describe('registerCommandHandlers', () => {
     }));
   });
 
+  it('reveals a hidden automation session the operator runs a command in', async () => {
+    mocks.commandManager.executeCommand.mockResolvedValue(makeParsedGoal(['ship', 'settings']));
+    const instance = { ...makeInstance(), metadata: { automationId: 'a1', automationHidden: true } } as Instance;
+    const instanceManager = { ...makeInstanceManager(instance), queueInstanceUpdate: vi.fn() };
+    registerCommandHandlers(instanceManager as never);
+
+    const response = await invoke(IPC_CHANNELS.COMMAND_EXECUTE, {
+      instanceId: 'inst-1',
+      commandId: 'builtin-goal',
+      args: ['ship', 'settings'],
+    });
+
+    expect(response.success).toBe(true);
+    expect(instance.metadata).toEqual(expect.objectContaining({ automationRevealed: true }));
+    expect(instanceManager.queueInstanceUpdate).toHaveBeenCalledWith('inst-1', {});
+  });
+
   it('allows /goal for non-Claude/Codex providers because Loop Mode owns execution', async () => {
     mocks.commandManager.executeCommand.mockResolvedValue(makeParsedGoal(['ship', 'settings']));
     const instanceManager = makeInstanceManager(makeInstance('gemini'));

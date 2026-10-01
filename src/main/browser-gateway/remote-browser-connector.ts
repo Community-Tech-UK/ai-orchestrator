@@ -93,7 +93,8 @@ export class RemoteBrowserConnector {
   }
 
   async closeAll(): Promise<void> {
-    for (const profileId of [...this.browsers.keys()]) {
+    // Snapshot: close() deletes from this.browsers while we iterate.
+    for (const profileId of Array.from(this.browsers.keys())) {
       await this.close(profileId);
     }
   }

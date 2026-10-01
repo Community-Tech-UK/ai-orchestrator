@@ -15,7 +15,6 @@ import type {
   LoopAuditConfig,
 } from './loop-audit.types';
 import type { LoopPhase4Config } from './loop-phase4.types';
-import { defaultLoopAuditConfig } from './loop-audit.types';
 export type {
   LoopAuditConfig,
   LoopAuditFinding,

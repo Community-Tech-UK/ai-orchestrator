@@ -46,7 +46,7 @@ import type {
 } from './instance-types';
 import type { InstanceContextPort } from './instance-context-port';
 import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy';
-import { COMPACTION_KEEP_RECENT, trimBufferRetainingPrompts } from './prompt-retention';
+import { COMPACTION_KEEP_RECENT, trimBufferRetainingPrompts } from '../../shared/utils/prompt-retention';
 import {
   buildMcpRuntimeToolContextSelection,
   type MCPToolSearchSnapshot,
@@ -261,7 +261,7 @@ export class InstanceContextManager implements InstanceContextPort {
             logger.info('Summarized RLM sections during compaction', { instanceId, sectionCount: sectionsToSummarize.length });
           }
         }
-      } catch (error) {
+      } catch {
         logger.warn('RLM summarization failed during compaction, continuing', { instanceId });
         // Continue with other compaction strategies
       }
@@ -942,7 +942,7 @@ export class InstanceContextManager implements InstanceContextPort {
     let cacheHits = 0;
     const parts: string[] = [];
 
-    for (const [id, resource] of loadedMap) {
+    for (const [, resource] of loadedMap) {
       if (!resource) continue;
 
       if (usedTokens + resource.tokens > maxTokens) {

@@ -7,8 +7,11 @@ import type { CopilotRouteSource } from './copilot-account.types';
 import type { AccountRouteSource } from './provider-account.types';
 import type { InstanceRuntimeSummary } from './local-model-runtime.types';
 import type { SessionRecallResult } from './session-recall.types';
+import { isGenuineUserPrompt } from '../utils/prompt-retention';
 import {
   deriveRailTitle,
+  frontLoadTitle,
+  isBareIdentifierLine,
   isLowSignalTitle,
   normalizeHistoryTitlePart,
   sanitizeGeneratedTitle,
@@ -221,14 +224,25 @@ export interface ConversationData {
   messages: OutputMessage[];
 }
 
+const UNTITLED_THREAD_TITLE = 'Untitled thread';
+
 function normalizeGeneratedHistoryTitlePart(value: string | null | undefined): string {
   // Resolver path: the input may already be a rail-truncated title, so its
   // trailing `...` is a truncation marker to keep, not punctuation to strip.
-  const cleaned = sanitizeGeneratedTitle(value, { preserveTruncationMarker: true });
+  const cleaned = sanitizeGeneratedTitle(value, {
+    preserveTruncationMarker: true, rejectInvalidPresentation: true,
+  });
   // Generated titles are capped at the rail budget. A model that ignores the
   // "3-6 words" instruction — or leaks its reasoning into the answer — must not
   // be able to push a 190-character paragraph into a 60-character rail.
-  return cleaned ? truncateForRail(cleaned) : '';
+  const title = cleaned ? truncateForRail(cleaned) : '';
+  // Old names may carry lead-ins that expose invalid structure when removed.
+  // Check that form too, while returning useful established names unchanged.
+  const plainTitle = sanitizeGeneratedTitle(frontLoadTitle(title), { rejectInvalidPresentation: true });
+  // These cannot identify an automatic title even as the last fallback. Keep
+  // ordinary filler words eligible below to preserve established names when
+  // no useful alternative exists; explicit user renames bypass this helper.
+  return title && plainTitle && /\p{L}/u.test(title) && !isBareIdentifierLine(title) ? title : '';
 }
 
 
@@ -322,7 +336,8 @@ function inferHistoryProviderFromText(
  *      rather than drifting to short follow-ups like "hi".
  */
 export function getConversationHistoryTitle(
-  entry: Pick<ConversationHistoryEntry, 'displayName' | 'isRenamed' | 'aiTitle' | 'firstUserMessage' | 'lastUserMessage'>
+  entry: Pick<ConversationHistoryEntry, 'displayName' | 'isRenamed' | 'aiTitle' | 'firstUserMessage' | 'lastUserMessage'>,
+  options: { allowLastMessageFallback?: boolean } = {},
 ): string {
   // User-set title always takes priority
   if (entry.isRenamed) {
@@ -335,7 +350,11 @@ export function getConversationHistoryTitle(
   // trailing full stop.
   const stored = normalizeGeneratedHistoryTitlePart(entry.displayName);
   const derivedFirst = normalizeGeneratedHistoryTitlePart(deriveRailTitle(entry.firstUserMessage));
-  const derivedLast = normalizeGeneratedHistoryTitlePart(deriveRailTitle(entry.lastUserMessage));
+  // A known generic opener still anchors the task. The last preview is only
+  // evidence of the original request when that request is entirely unknown.
+  const derivedLast = !(entry.firstUserMessage ?? '').trim() && options.allowLastMessageFallback !== false
+    ? normalizeGeneratedHistoryTitlePart(deriveRailTitle(entry.lastUserMessage))
+    : '';
 
   // `stored` outranks re-derivation, and that is deliberate (LT-534b).
   //
@@ -356,7 +375,7 @@ export function getConversationHistoryTitle(
   //
   // Re-derivation remains the fallback for entries with no usable stored title.
   //
-  // The `isLowSignalTitle(stored)` valve matters more than it looks. A restored
+  // The low-signal candidate valve matters more than it looks. A restored
   // session takes its `displayName` from this function once
   // (`history-restore-coordinator.ts`), never re-runs auto-titling (restore sets
   // neither an initial prompt nor attachments, and `markFirstMessageReceived`
@@ -367,24 +386,23 @@ export function getConversationHistoryTitle(
   // reach it. Letting re-derivation win when the stored title identifies nothing
   // keeps that escape hatch open, while a stored title with real content still
   // wins and the session keeps its name.
-  // Both halves are required. Overriding whenever the stored title is filler
-  // would swap "work" for "hi" — churn with no gain — so re-derivation only wins
-  // when it actually offers content the stored title lacks.
-  const rederivationBeatsStored =
-    Boolean(stored)
-    && isLowSignalTitle(stored)
-    && Boolean(derivedFirst)
-    && !isLowSignalTitle(derivedFirst);
-
+  // Prefer the first useful candidate in the existing priority order. If all
+  // remaining candidates are filler words, preserve that order: swapping
+  // "work" for "hi" would create churn with no gain. Bare numbers and opaque
+  // identifiers were excluded during normalization and cannot be a fallback.
   const candidates = [
     normalizeGeneratedHistoryTitlePart(entry.aiTitle),
-    rederivationBeatsStored ? '' : stored,
+    stored,
     derivedFirst,
     derivedLast,
-    stored,
   ].filter(Boolean);
 
-  return candidates[0] || 'Untitled thread';
+  // Preserve established priority among useful names; stale AI numbers/filler
+  // must not outrank a real stored title or a meaningful message preview. When
+  // every candidate is filler, retain the existing name to avoid pointless churn.
+  return candidates.find((candidate) => !isLowSignalTitle(candidate))
+    || candidates[0]
+    || UNTITLED_THREAD_TITLE;
 }
 
 /**
@@ -395,39 +413,60 @@ export function getConversationHistoryTitle(
  * Priority:
  *   1. The live `instance.displayName` when it has meaningful content. Manual
  *      renames win verbatim; generated titles are sanitized before display.
- *   2. The matching history entry's derived title — only used as a fallback
- *      when the live `displayName` is empty/whitespace, so the rail still
- *      shows something sensible.
- *   3. `'Untitled thread'` as a last-resort fallback.
+ *   2. A useful matching history title or the earliest genuine opening request,
+ *      including prompts retained after buffer eviction, for bad automatic names.
+ *   3. The existing filler title, or `'Untitled thread'` when no title is usable.
  */
 export function resolveEffectiveInstanceTitle(
-  instance: { displayName: string; isRenamed?: boolean },
+  instance: {
+    displayName: string;
+    isRenamed?: boolean;
+    outputBuffer?: readonly OutputMessage[];
+    retainedPrompts?: readonly OutputMessage[];
+  },
   matchingHistoryEntry?: Pick<
     ConversationHistoryEntry,
     'displayName' | 'isRenamed' | 'aiTitle' | 'firstUserMessage' | 'lastUserMessage'
   >
 ): string {
-  // Live displayName wins whenever it has content. Manual renames are user text;
-  // generated names are cleaned before display so stale reasoning tags cannot
-  // leak into the rail/header.
-  if (instance.displayName.trim()) {
-    if (instance.isRenamed) {
-      return instance.displayName;
-    }
+  if (instance.isRenamed && instance.displayName.trim()) return instance.displayName;
 
-    // Capped exactly as the history resolver caps its generated candidates, so
-    // a title cannot change length the moment a session stops being live.
-    const generatedTitle = normalizeGeneratedHistoryTitlePart(instance.displayName);
-    if (generatedTitle) {
-      return generatedTitle;
-    }
+  // Useful live titles remain stable. Only invalid/low-signal automatic names
+  // consult fallbacks, so transcript updates cannot rewrite established names.
+  const generatedTitle = normalizeGeneratedHistoryTitlePart(instance.displayName);
+  if (generatedTitle && !isLowSignalTitle(generatedTitle)) return generatedTitle;
+
+  // Both buffers are chronological. Retained prompts usually precede the live
+  // window, but scroll-loaded history can contain an even earlier opener.
+  // Select the first genuine request before assessing its title: a generic
+  // opener must not let a later follow-up become the session's task subject.
+  const retainedOpening = instance.retainedPrompts?.find(isGenuineUserPrompt);
+  const bufferedOpening = instance.outputBuffer?.find(isGenuineUserPrompt);
+  const openingMessage = retainedOpening && bufferedOpening
+    ? (bufferedOpening.timestamp < retainedOpening.timestamp ? bufferedOpening : retainedOpening)
+    : retainedOpening ?? bufferedOpening;
+  // Matching history must not reintroduce a follow-up excluded by the live
+  // opener policy, even when its own first-message preview is missing.
+  const historyTitle = matchingHistoryEntry
+    ? getConversationHistoryTitle(matchingHistoryEntry, { allowLastMessageFallback: !openingMessage })
+    : '';
+  const hasManualHistoryTitle = matchingHistoryEntry?.isRenamed
+    && Boolean(matchingHistoryEntry.displayName.trim());
+  // An absence label is not positive history evidence. Only an actual manual
+  // name may deliberately use it; an empty rename field does not qualify.
+  if (historyTitle && (hasManualHistoryTitle
+    || (historyTitle !== UNTITLED_THREAD_TITLE && !isLowSignalTitle(historyTitle)))) {
+    return historyTitle;
   }
+  const openingTitle = openingMessage
+    ? normalizeGeneratedHistoryTitlePart(deriveRailTitle(
+      openingMessage.content,
+      openingMessage.attachments?.map((attachment) => attachment.name),
+    ))
+    : '';
+  if (openingTitle && !isLowSignalTitle(openingTitle)) return openingTitle;
 
-  if (matchingHistoryEntry) {
-    return getConversationHistoryTitle(matchingHistoryEntry);
-  }
-
-  return 'Untitled thread';
+  return generatedTitle || (!openingMessage ? historyTitle : '') || UNTITLED_THREAD_TITLE;
 }
 
 /**

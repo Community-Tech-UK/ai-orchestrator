@@ -353,7 +353,7 @@ describe('browser extension assets', () => {
       (call: unknown[]) => call[1] === 48_000,
     );
     expect(deadline).toBeDefined();
-    (deadline?.[0] as () => void)();
+    (deadline?.[0] as (() => void) | undefined)?.();
 
     const error = await settled;
     expect(error?.message).toContain(
@@ -378,7 +378,7 @@ describe('browser extension assets', () => {
       (call: unknown[]) => call[1] === 10_000,
     );
     expect(deadline).toBeDefined();
-    (deadline?.[0] as () => void)();
+    (deadline?.[0] as (() => void) | undefined)?.();
 
     const error = await settled;
     expect(error?.message).toContain('browser_extension_cdp_timeout:attach');
@@ -447,7 +447,7 @@ describe('browser extension assets', () => {
       (call: unknown[]) => call[1] === 48_000,
     );
     expect(deadline).toBeDefined();
-    (deadline?.[0] as () => void)();
+    (deadline?.[0] as (() => void) | undefined)?.();
 
     const error = await settled;
     expect(error?.message).toContain('browser_extension_cdp_timeout:Page.captureScreenshot');
@@ -1342,7 +1342,7 @@ describe('browser extension assets', () => {
       .slice(timerCallCountBeforeReload)
       .find((call: unknown[]) => call[1] === 5_000);
     expect(postReloadDeadline).toBeDefined();
-    (postReloadDeadline?.[0] as (() => void))();
+    (postReloadDeadline?.[0] as (() => void) | undefined)?.();
     await flushPromises();
 
     const commandResult = relayPort.postMessage.mock.calls
@@ -1411,7 +1411,7 @@ describe('browser extension assets', () => {
       .find((call: unknown[]) => call[1] === 30_000);
     expect(postReloadDeadline).toBeDefined();
     expect(commandWatchdog).toBeDefined();
-    (postReloadDeadline?.[0] as (() => void))();
+    (postReloadDeadline?.[0] as (() => void) | undefined)?.();
     await flushPromises();
 
     const commandResults = () => relayPort.postMessage.mock.calls
@@ -1433,7 +1433,7 @@ describe('browser extension assets', () => {
     })]);
     expect(JSON.stringify(commandResults())).not.toContain(marker);
 
-    (commandWatchdog?.[0] as (() => void))();
+    (commandWatchdog?.[0] as (() => void) | undefined)?.();
     await flushPromises();
     expect(commandResults()).toHaveLength(1);
   });
@@ -1498,7 +1498,7 @@ describe('browser extension assets', () => {
       .slice(timerCallCountBeforeReload)
       .find((call: unknown[]) => call[1] === 30_000);
     expect(commandWatchdog).toBeDefined();
-    (commandWatchdog?.[0] as (() => void))();
+    (commandWatchdog?.[0] as (() => void) | undefined)?.();
     await flushPromises();
 
     const commandResults = relayPort.postMessage.mock.calls
@@ -1676,7 +1676,7 @@ describe('browser extension assets', () => {
     expect(postReloadDeadline).toBeDefined();
     harness.tabState(42)!.url = `https://disallowed.example.test/late?value=${marker}`;
     harness.tabState(42)!.title = marker;
-    (postReloadDeadline?.[0] as (() => void))();
+    (postReloadDeadline?.[0] as (() => void) | undefined)?.();
     await flushPromises();
 
     const commandResults = relayPort.postMessage.mock.calls
@@ -2842,7 +2842,8 @@ function createChromeEvent<TArgs extends unknown[] = unknown[]>(): {
       }
     }),
     emit: (...args: TArgs) => {
-      for (const listener of [...listeners]) {
+      // Snapshot: a listener may unsubscribe itself during emit.
+      for (const listener of Array.from(listeners)) {
         listener(...args);
       }
     },

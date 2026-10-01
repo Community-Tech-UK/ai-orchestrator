@@ -745,6 +745,27 @@ describe('instance-handlers', () => {
   // INSTANCE_SEND_INPUT
   // ----------------------------------------------------------
 
+  describe('operator takeover of a hidden automation session', () => {
+    it.each([
+      [IPC_CHANNELS.INSTANCE_SEND_INPUT, { instanceId: 'inst-hidden', message: 'carry on' }],
+      [IPC_CHANNELS.INSTANCE_STEER_INPUT, { instanceId: 'inst-hidden', message: 'also this' }],
+      [IPC_CHANNELS.INSTANCE_RESTART, { instanceId: 'inst-hidden' }],
+      [IPC_CHANNELS.INSTANCE_RESTART_FRESH, { instanceId: 'inst-hidden' }],
+    ])('%s reveals the session so the rail keeps it', async (channel, payload) => {
+      const instance = { id: 'inst-hidden', metadata: { automationId: 'a1', automationHidden: true } };
+      const queueInstanceUpdate = vi.fn();
+      Object.assign(mockInstanceManager, { queueInstanceUpdate });
+      vi.mocked(mockInstanceManager.getInstance).mockReturnValue(instance as never);
+      vi.mocked(mockInstanceManager.restartInstance).mockResolvedValue({ success: true, method: 'native-resume' });
+
+      const result = await invoke(channel, payload);
+
+      expect(result.success).toBe(true);
+      expect(instance.metadata).toEqual(expect.objectContaining({ automationRevealed: true }));
+      expect(queueInstanceUpdate).toHaveBeenCalledWith('inst-hidden', {});
+    });
+  });
+
   describe('INSTANCE_SEND_INPUT', () => {
     it('sends message on valid INSTANCE_SEND_INPUT', async () => {
       vi.mocked(mockInstanceManager.sendInput).mockResolvedValue(undefined);

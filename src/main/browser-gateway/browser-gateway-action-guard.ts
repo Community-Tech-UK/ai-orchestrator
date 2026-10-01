@@ -1,5 +1,4 @@
 import type {
-  BrowserActionClass,
   BrowserApprovalRequest,
   BrowserGatewayResult,
   BrowserPermissionGrant,

@@ -87,6 +87,39 @@ describe('mergeRetainedPrompts', () => {
     expect(merged[merged.length - 1].id).toBe(`p${PINNED_PROMPT_LIMIT + 24}`);
   });
 
+  it.each(['internal', 'cross', 'empty'] as const)(
+    'pins the genuine opener when older %s input precedes it', (kind) => {
+      const earlier: OutputMessage = { ...message('earlier', 'user', kind === 'empty' ? '' : 'Injected input'),
+        timestamp: 0, metadata: kind === 'internal'
+          ? { internalInput: { actor: 'harness', source: 'context-policy' } }
+          : kind === 'cross'
+            ? { crossSessionMessage: { sourceInstanceId: 'source', sourceDisplayName: 'Source', hopCount: 1 } }
+            : undefined };
+      const opening = { ...message('opening', 'user', 'Work Finder watchdog faults'), timestamp: 1 };
+      const later = prompts(30).map((prompt, index) => ({ ...prompt, timestamp: index + 2 }));
+      const merged = mergeRetainedPrompts(undefined, [earlier, opening, ...later]);
+      expect(merged).toHaveLength(PINNED_PROMPT_LIMIT);
+      expect(merged.map(prompt => prompt.id)).toEqual(['opening', ...later.slice(-19).map(prompt => prompt.id)]);
+      expect(merged.map(prompt => prompt.timestamp)).toEqual([1, ...later.slice(-19).map(prompt => prompt.timestamp)]);
+    },
+  );
+
+  it('keeps chronology when the first genuine request is newer than retained injections', () => {
+    const internal = prompts(25).map((prompt, index) => ({ ...prompt, timestamp: index,
+      metadata: { internalInput: { actor: 'harness' as const, source: 'context-policy' as const } } }));
+    const opening = { ...message('opening', 'user', 'Work Finder watchdog faults'), timestamp: 100 };
+    const merged = mergeRetainedPrompts(undefined, [...internal, opening]);
+    expect(merged).toHaveLength(PINNED_PROMPT_LIMIT);
+    expect(merged.map(prompt => prompt.id)).toEqual([...internal.slice(-19).map(prompt => prompt.id), 'opening']);
+  });
+
+  it('preserves the oldest-input fallback for an injection-only session', () => {
+    const internal = prompts(30).map((prompt, index) => ({ ...prompt, timestamp: index,
+      metadata: { internalInput: { actor: 'harness' as const, source: 'context-policy' as const } } }));
+    const merged = mergeRetainedPrompts(undefined, internal);
+    expect(merged.map(prompt => prompt.id)).toEqual(['p0', ...internal.slice(-19).map(prompt => prompt.id)]);
+  });
+
   it('stays bounded across many successive trims', () => {
     let retained: OutputMessage[] | undefined;
     for (let trim = 0; trim < 200; trim++) {
@@ -138,6 +171,17 @@ describe('findOriginalRequest', () => {
     ]);
 
     expect(found?.content).toBe('only ask on record');
+  });
+
+  it('skips internal and cross-session input when choosing the original request', () => {
+    const internal = { ...message('internal', 'user', 'Injected input'), timestamp: 0,
+      metadata: { internalInput: { actor: 'harness' as const, source: 'context-policy' as const } } };
+    const cross = { ...message('cross', 'user', 'Other session task'), timestamp: 1,
+      metadata: { crossSessionMessage: { sourceInstanceId: 'src', sourceDisplayName: 'Src', hopCount: 1 } } };
+    const genuine = message('genuine', 'user', 'The real opening ask');
+
+    expect(findOriginalRequest([internal, cross, genuine], [])?.content).toBe('The real opening ask');
+    expect(findOriginalRequest(undefined, [internal, cross, genuine])?.content).toBe('The real opening ask');
   });
 
   it('returns undefined when no prompt is known', () => {

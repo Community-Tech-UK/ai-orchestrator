@@ -164,8 +164,8 @@ export async function prepareLoopStartConfig(
     extra?: Partial<LoopConfig['completion']>,
   ): LoopConfig['completion'] => ({
     ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
-    ...(config.completion ?? {}),
-    ...(extra ?? {}),
+    ...config.completion,
+    ...extra,
     verifyCommand,
     mode,
   });

@@ -22,6 +22,13 @@ import type {
 import { CONTEXT_MANAGEMENT_BETA, supportsContextEditing } from '../../shared/types/api-features.types';
 import { getMetricsCollector } from '../learning/metrics-collector';
 
+/** Loose view of `client.beta.messages` so beta-only params (context_management) can be passed without SDK typings. */
+interface LooseBetaMessages {
+  create(
+    params: Record<string, unknown>,
+  ): Promise<Anthropic.Message & { context_management?: ContextManagementResponse }>;
+}
+
 // ============================================
 // Types
 // ============================================
@@ -317,7 +324,7 @@ export class ContextEditingFallback extends EventEmitter {
 
     try {
       // Use beta API for context management
-      const response = await (client.beta.messages as any).create({
+      const response = await (client.beta.messages as unknown as LooseBetaMessages).create({
         model: params.model,
         max_tokens: params.max_tokens,
         betas: [CONTEXT_MANAGEMENT_BETA, 'token-efficient-tools-2025-02-19'],

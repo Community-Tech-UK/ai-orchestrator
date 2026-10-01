@@ -14,8 +14,12 @@ import {
   ContextManagement,
   ClearToolUsesStrategy,
   ClearThinkingStrategy,
-  ContextManagementResponse,
 } from '../../shared/types/api-features.types';
+
+/** Loose view of `client.beta.messages` so beta-only params can be passed without SDK typings. */
+interface LooseBetaMessages {
+  create(params: Record<string, unknown>): Promise<{ id?: string; content?: unknown }>;
+}
 
 const API_KEY = process.env['ANTHROPIC_API_KEY'];
 const TEST_MODEL = 'claude-sonnet-4-5-20250929';
@@ -70,7 +74,7 @@ describe('Context Editing Integration', () => {
       };
 
       // Note: beta.messages.create for beta features
-      const response = await (client.beta.messages as any).create({
+      const response = await (client.beta.messages as unknown as LooseBetaMessages).create({
         model: TEST_MODEL,
         max_tokens: 100,
         betas: [CONTEXT_MANAGEMENT_BETA],
@@ -119,7 +123,7 @@ describe('Context Editing Integration', () => {
         clear_tool_inputs: false,
       };
 
-      const response = await (client.beta.messages as any).create({
+      const response = await (client.beta.messages as unknown as LooseBetaMessages).create({
         model: TEST_MODEL,
         max_tokens: 100,
         betas: [CONTEXT_MANAGEMENT_BETA],
@@ -171,7 +175,7 @@ describe('Context Editing Integration', () => {
       // Note: This test requires extended thinking to be enabled
       // Extended thinking is only for certain models
       try {
-        const response = await (client.beta.messages as any).create({
+        const response = await (client.beta.messages as unknown as LooseBetaMessages).create({
           model: 'claude-sonnet-4-5-20250929',
           max_tokens: 1000,
           betas: [CONTEXT_MANAGEMENT_BETA],
@@ -191,9 +195,9 @@ describe('Context Editing Integration', () => {
         });
 
         expect(response.id).toBeDefined();
-      } catch (error: any) {
+      } catch (error: unknown) {
         // Extended thinking may not be available for all accounts
-        if (error.message?.includes('thinking')) {
+        if ((error as Error).message?.includes('thinking')) {
           console.log('Extended thinking not available, skipping test');
         } else {
           throw error;
@@ -208,7 +212,7 @@ describe('Context Editing Integration', () => {
       };
 
       try {
-        const response = await (client.beta.messages as any).create({
+        const response = await (client.beta.messages as unknown as LooseBetaMessages).create({
           model: 'claude-sonnet-4-5-20250929',
           max_tokens: 500,
           betas: [CONTEXT_MANAGEMENT_BETA],
@@ -228,8 +232,8 @@ describe('Context Editing Integration', () => {
         });
 
         expect(response.id).toBeDefined();
-      } catch (error: any) {
-        if (error.message?.includes('thinking')) {
+      } catch (error: unknown) {
+        if ((error as Error).message?.includes('thinking')) {
           console.log('Extended thinking not available, skipping test');
         } else {
           throw error;
@@ -241,7 +245,7 @@ describe('Context Editing Integration', () => {
   describe('combining strategies', () => {
     it('should accept both thinking and tool clearing (thinking first)', async () => {
       try {
-        const response = await (client.beta.messages as any).create({
+        const response = await (client.beta.messages as unknown as LooseBetaMessages).create({
           model: 'claude-sonnet-4-5-20250929',
           max_tokens: 500,
           betas: [CONTEXT_MANAGEMENT_BETA],
@@ -282,8 +286,8 @@ describe('Context Editing Integration', () => {
         });
 
         expect(response.id).toBeDefined();
-      } catch (error: any) {
-        if (error.message?.includes('thinking')) {
+      } catch (error: unknown) {
+        if ((error as Error).message?.includes('thinking')) {
           console.log('Extended thinking not available, skipping test');
         } else {
           throw error;
@@ -306,7 +310,7 @@ describe('Context Editing Integration', () => {
     it('should return context_management in response when edits applied', async () => {
       // Note: Context edits are only applied when threshold is exceeded
       // This test just verifies the response structure exists
-      const response = await (client.beta.messages as any).create({
+      const response = await (client.beta.messages as unknown as LooseBetaMessages).create({
         model: TEST_MODEL,
         max_tokens: 100,
         betas: [CONTEXT_MANAGEMENT_BETA],
@@ -347,7 +351,7 @@ describe('Context Editing Integration', () => {
 
   describe('trigger by tool_uses', () => {
     it('should accept trigger by tool_uses count', async () => {
-      const response = await (client.beta.messages as any).create({
+      const response = await (client.beta.messages as unknown as LooseBetaMessages).create({
         model: TEST_MODEL,
         max_tokens: 100,
         betas: [CONTEXT_MANAGEMENT_BETA],
@@ -406,11 +410,6 @@ describe('Context Editing Types', () => {
     const thinkingStrategy: ClearThinkingStrategy = {
       type: 'clear_thinking_20251015',
       keep: { type: 'thinking_turns', value: 2 },
-    };
-
-    const thinkingStrategyAll: ClearThinkingStrategy = {
-      type: 'clear_thinking_20251015',
-      keep: 'all',
     };
 
     const contextMgmt: ContextManagement = {

@@ -195,6 +195,31 @@ describe('ProjectRailBuilderService', () => {
     expect(groups[0]?.sessionCount).toBe(1);
   });
 
+  describe('the open session', () => {
+    it('stays in the rail when it falls outside the activity window', () => {
+      const groups = service.buildProjectGroups(buildInput({
+        historyTimeWindow: 'day',
+        selectedId: 'old-open',
+        instances: [
+          makeInstance('old-open', { lastActivity: 1000, createdAt: 1000 }),
+          makeInstance('old-other', { lastActivity: 1000, createdAt: 1000 }),
+        ],
+      }));
+
+      expect(groups.flatMap((group) => group.liveItems.map((item) => item.instance.id))).toEqual(['old-open']);
+    });
+
+    it('still honours explicit text filters', () => {
+      const groups = service.buildProjectGroups(buildInput({
+        filter: 'nothing-matches-this',
+        selectedId: 'open',
+        instances: [makeInstance('open')],
+      }));
+
+      expect(groups.flatMap((group) => group.liveItems)).toEqual([]);
+    });
+  });
+
   describe('hidden automations', () => {
     it('keeps healthy hidden automation runs out of the rail', () => {
       const groups = service.buildProjectGroups(buildInput({
@@ -239,6 +264,33 @@ describe('ProjectRailBuilderService', () => {
       }));
 
       expect(groups[0]?.liveItems.map((item) => item.instance.id)).toEqual(['hidden-parked']);
+    });
+
+    it('never drops the open session, even a healthy hidden run', () => {
+      const hidden = (id: string) => makeInstance(id, {
+        status: 'busy',
+        metadata: { automationId: 'a1', automationHidden: true },
+      });
+      const groups = service.buildProjectGroups(buildInput({
+        selectedId: 'hidden-open',
+        instances: [hidden('hidden-open'), hidden('hidden-other')],
+      }));
+
+      expect(groups[0]?.liveItems.map((item) => item.instance.id)).toEqual(['hidden-open']);
+      expect(groups[0]?.hasSelectedInstance).toBe(true);
+    });
+
+    it('keeps a revealed hidden run in the rail after it recovers', () => {
+      const groups = service.buildProjectGroups(buildInput({
+        instances: [
+          makeInstance('hidden-revealed', {
+            status: 'busy',
+            metadata: { automationId: 'a1', automationHidden: true, automationRevealed: true },
+          }),
+        ],
+      }));
+
+      expect(groups[0]?.liveItems.map((item) => item.instance.id)).toEqual(['hidden-revealed']);
     });
 
     it('reveals hidden runs when the toggle is on', () => {

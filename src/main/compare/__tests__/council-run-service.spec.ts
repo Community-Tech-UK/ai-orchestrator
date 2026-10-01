@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { CouncilRunService, type CouncilRunServiceDeps, type CouncilRunStoreLike } from '../council-run-service';
 import type { ProviderInvokeDeps } from '../council-provider-invoke';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';

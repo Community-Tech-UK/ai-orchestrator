@@ -19,7 +19,6 @@ import {
   LearningInsight,
   SelfImprovementConfig,
   PatternType,
-  ToolUsageRecord,
   ExamplePrompt,
   LearningStats,
   TaskTypeStats,

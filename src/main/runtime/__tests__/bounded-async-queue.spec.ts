@@ -41,15 +41,6 @@ describe('BoundedAsyncQueue', () => {
 
   it('drops items when capacity is exceeded', () => {
     const dropped: number[] = [];
-    const queue = new BoundedAsyncQueue<number>({
-      name: 'test-capacity',
-      maxSize: 3,
-      concurrency: 0, // won't start processing without schedule
-      process: async () => { /* no-op */ },
-      onDrop: (item) => { dropped.push(item); },
-    });
-
-    // Concurrency 0 means nothing drains, so queue fills
     // Use a blocking process function to prevent draining
     const blocking = new BoundedAsyncQueue<number>({
       name: 'test-capacity-blocking',

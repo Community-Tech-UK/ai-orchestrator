@@ -143,9 +143,9 @@ export class CoordinatorEventBridge {
     eventName: string,
     handler: (payload: T) => void,
   ): void {
-    emitter.on(eventName, handler as (...args: any[]) => void);
+    emitter.on(eventName, handler);
     this.disposers.push(() => {
-      emitter.off(eventName, handler as (...args: any[]) => void);
+      emitter.off(eventName, handler);
     });
   }
 

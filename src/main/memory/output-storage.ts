@@ -418,7 +418,7 @@ export class OutputStorageManager {
       const chunkPath = this.getChunkPath(instanceId, chunk.chunkIndex);
       try {
         await fs.promises.unlink(chunkPath);
-      } catch (error) {
+      } catch {
         // Ignore if file doesn't exist
       }
     }
@@ -427,7 +427,7 @@ export class OutputStorageManager {
     const indexPath = this.getIndexPath(instanceId);
     try {
       await fs.promises.unlink(indexPath);
-    } catch (error) {
+    } catch {
       // Ignore if file doesn't exist
     }
 
@@ -435,7 +435,7 @@ export class OutputStorageManager {
     const instanceDir = path.join(this.storageDir, instanceId);
     try {
       await fs.promises.rmdir(instanceDir);
-    } catch (error) {
+    } catch {
       // Ignore if not empty or doesn't exist
     }
 
@@ -568,7 +568,7 @@ export class OutputStorageManager {
           const chunkPath = this.getChunkPath(index.instanceId, oldestChunk.chunkIndex);
           try {
             await fs.promises.unlink(chunkPath);
-          } catch (error) {
+          } catch {
             // Ignore if file doesn't exist
           }
         }

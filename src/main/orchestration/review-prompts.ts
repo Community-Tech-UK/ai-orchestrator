@@ -256,7 +256,6 @@ export const MAX_REVIEW_PAYLOAD_CHARS = 32000;
 
 export function truncateForReview(content: string): string {
   if (content.length <= MAX_REVIEW_PAYLOAD_CHARS) return content;
-  const totalChars = content.length;
   return content.slice(0, MAX_REVIEW_PAYLOAD_CHARS) +
     `\n\n[... truncated, showing first ~8000 tokens of ~${estimateTokens(content)} total ...]`;
 }

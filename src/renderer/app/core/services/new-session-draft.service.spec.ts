@@ -5,6 +5,7 @@ import { ProviderStateService } from './provider-state.service';
 import { WorkspaceIpcService } from './ipc/workspace-ipc.service';
 import { ScratchDirectoryService } from './scratch-directory.service';
 import { clearKnownModelCatalogSnapshotForTesting } from '../../../../shared/types/provider.types';
+import { INTERACTIVE_LAUNCH_MODE_AVAILABLE } from '../../../../shared/types/instance.types';
 
 /**
  * Lightweight stub of ProviderStateService so we don't have to spin up
@@ -391,7 +392,43 @@ describe('NewSessionDraftService', () => {
     expect(service.reasoningEffort()).toBe('high');
   });
 
-  it('persists Claude launch mode across reload', () => {
+  it.runIf(!INTERACTIVE_LAUNCH_MODE_AVAILABLE)('restores a persisted interactive draft as orchestrated while the terminal runtime is unavailable', () => {
+    vi.useFakeTimers();
+    try {
+      service.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
+      service.setProvider('claude');
+      service.setPrompt('keep this draft');
+      vi.advanceTimersByTime(250);
+
+      // Simulate a draft saved by a build that still offered interactive mode.
+      const stored = JSON.parse(window.localStorage.getItem('new-session-drafts:v1') ?? '{}') as {
+        drafts: Record<string, { launchMode?: string }>;
+      };
+      for (const draft of Object.values(stored.drafts)) {
+        draft.launchMode = 'interactive';
+      }
+      window.localStorage.setItem('new-session-drafts:v1', JSON.stringify(stored));
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          NewSessionDraftService,
+          { provide: ProviderStateService, useClass: StubProviderStateService },
+          { provide: WorkspaceIpcService, useValue: workspaceIpc },
+          { provide: ScratchDirectoryService, useValue: scratchDirectory },
+        ],
+      });
+      const reloaded = createService();
+      reloaded.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
+      expect(reloaded.provider()).toBe('claude');
+      expect(reloaded.prompt()).toBe('keep this draft');
+      expect(reloaded.launchMode()).toBe('orchestrated');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.runIf(INTERACTIVE_LAUNCH_MODE_AVAILABLE)('persists Claude launch mode across reload', () => {
     vi.useFakeTimers();
     try {
       service.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
@@ -558,7 +595,7 @@ describe('NewSessionDraftService', () => {
     }
   });
 
-  it('uses remembered Claude launch mode when switching providers', () => {
+  it.runIf(INTERACTIVE_LAUNCH_MODE_AVAILABLE)('uses remembered Claude launch mode when switching providers', () => {
     service.setProvider('claude');
     service.setLaunchMode('interactive');
     service.setProvider('codex');
@@ -566,5 +603,11 @@ describe('NewSessionDraftService', () => {
 
     service.setProvider('claude');
     expect(service.launchMode()).toBe('interactive');
+  });
+
+  it.runIf(!INTERACTIVE_LAUNCH_MODE_AVAILABLE)('resolves an interactive selection to orchestrated while the terminal runtime is unavailable', () => {
+    service.setProvider('claude');
+    service.setLaunchMode('interactive');
+    expect(service.launchMode()).toBe('orchestrated');
   });
 });

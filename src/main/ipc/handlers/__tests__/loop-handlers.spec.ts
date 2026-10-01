@@ -854,8 +854,10 @@ describe('LOOP_INTERVENE handler', () => {
     await handler({}, { loopRunId: state.id, message: 'second' });
 
     expect(hoisted.chatService.appendSystemEvent).toHaveBeenCalledTimes(2);
-    const firstId = (hoisted.chatService.appendSystemEvent.mock.calls[0]?.[0] as { nativeMessageId: string }).nativeMessageId;
-    const secondId = (hoisted.chatService.appendSystemEvent.mock.calls[1]?.[0] as { nativeMessageId: string }).nativeMessageId;
+    const firstId = (hoisted.chatService.appendSystemEvent.mock.calls[0]?.[0] as { nativeMessageId: string } | undefined)?.nativeMessageId;
+    const secondId = (hoisted.chatService.appendSystemEvent.mock.calls[1]?.[0] as { nativeMessageId: string } | undefined)?.nativeMessageId;
+    expect(firstId).toBeDefined();
+    expect(secondId).toBeDefined();
     expect(firstId).not.toBe(secondId);
   });
 

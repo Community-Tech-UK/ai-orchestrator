@@ -3,9 +3,9 @@
  * Extends BaseCliAdapter for multi-CLI support
  */
 
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import type { ChildProcess } from 'child_process';
-import { homedir, tmpdir } from 'os';
+import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   BaseCliAdapter,
@@ -36,9 +36,7 @@ import { buildAskUserQuestionPrompt, parseAskUserQuestions } from './ask-user-qu
 import { buildClaudeCliArgs, DEFER_MIN_VERSION } from './claude-cli-argv-builder';
 import type { CliStreamMessage, CliRateLimitInfo } from '../../../shared/types/cli.types';
 import type {
-  OutputMessage,
   InstanceStatus,
-  ThinkingContent,
   FileAttachment
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
@@ -176,7 +174,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     // Build env passthrough for the spawned CLI process. The PreToolUse hook
     // script reads ORCHESTRATOR_RTK_ENABLED and ORCHESTRATOR_RTK_PATH from env,
     // so they need to be present in the CLI's environment, not the orchestrator's.
-    const env: Record<string, string> = { ...(options.env ?? {}) };
+    const env: Record<string, string> = { ...options.env };
     applyClaudeHygieneEnv(env, options.sessionId);
     if (options.rtk?.enabled && options.rtk.binaryPath) {
       env['ORCHESTRATOR_RTK_ENABLED'] = '1';

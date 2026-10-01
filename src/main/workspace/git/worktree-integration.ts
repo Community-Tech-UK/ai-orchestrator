@@ -629,6 +629,8 @@ export async function integrateIntoSharedBranch(
       if (remaining.some((checkout) =>
         canonicalPath(checkout.path) === canonicalPath(intPath)
       )) {
+        // Intentional: a failed temp-worktree cleanup must override the try/catch result.
+        // eslint-disable-next-line no-unsafe-finally -- cleanup failure must not be masked
         throw new Error('Temporary integration worktree cleanup failed');
       }
     }

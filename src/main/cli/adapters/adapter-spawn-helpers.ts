@@ -392,7 +392,7 @@ export function toCodexReasoningEffort(
 export function mergeSpawnEnv(options: UnifiedSpawnOptions, base: Record<string, string> = {}): Record<string, string> {
   const merged = {
     ...base,
-    ...(options.env ?? {}),
+    ...options.env,
   };
   // WS-C7: a contained-execution-profile spawn derives its environment from
   // getSafeEnvStrict() (src/main/security/env-filter.ts) — the host env AND any

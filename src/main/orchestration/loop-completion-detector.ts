@@ -191,7 +191,7 @@ export class CompletedFileWatcher {
       }
     };
     const pruneInitialMatches = () => {
-      for (const filePath of [...initialMatches]) {
+      for (const filePath of initialMatches) {
         if (!fs.existsSync(filePath)) initialMatches.delete(filePath);
       }
     };
@@ -237,7 +237,8 @@ export class CompletedFileWatcher {
     // stale completed files ignored while still catching files created later.
     this.scanTimer = setInterval(() => {
       recordCurrentInRunMatches();
-      for (const filePath of [...this.observedPaths]) {
+      // Snapshot: fireUndone re-scans and can add newly observed paths mid-loop.
+      for (const filePath of Array.from(this.observedPaths)) {
         if (!fs.existsSync(filePath)) fireUndone(filePath);
       }
     }, 250);

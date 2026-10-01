@@ -360,7 +360,7 @@ export class CodebaseIndexingService extends EventEmitter {
       }
 
       return null;
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -417,7 +417,7 @@ export class CodebaseIndexingService extends EventEmitter {
         if (shouldIncludeFile(file, this.config, stats.size)) {
           validFiles.push(file);
         }
-      } catch (error) {
+      } catch {
         // Skip files that can't be read
       }
     }
@@ -429,7 +429,7 @@ export class CodebaseIndexingService extends EventEmitter {
   // Private: Processing
   // ==========================================================================
 
-  private async processBatch(files: string[], rootPath: string): Promise<ProcessedChunk[]> {
+  private async processBatch(files: string[], _rootPath: string): Promise<ProcessedChunk[]> {
     const allChunks: ProcessedChunk[] = [];
 
     await Promise.all(
@@ -442,7 +442,6 @@ export class CodebaseIndexingService extends EventEmitter {
         try {
           const content = await fs.promises.readFile(filePath, 'utf-8');
           const language = getLanguageFromExtension(filePath);
-          const relativePath = path.relative(rootPath, filePath);
 
           // Extract metadata
           const metadata = await this.metadataExtractor.extractFileMetadata(filePath, content);

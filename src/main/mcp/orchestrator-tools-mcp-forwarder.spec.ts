@@ -193,7 +193,7 @@ describe('createOrchestratorToolsForwarderTools', () => {
       required: ['node'],
       additionalProperties: false,
     });
-    expect((tool?.inputSchema['properties'] as Record<string, unknown>)['targetId']).toBeUndefined();
+    expect((tool?.inputSchema['properties'] as Record<string, unknown> | undefined)?.['targetId']).toBeUndefined();
   });
 
   it('advertises localPath as optional for download_from_node', () => {

@@ -92,22 +92,6 @@ interface NormalizedAdapterRuntimeEventBase<K extends ProviderRuntimeEventKind, 
   rawPayload: TRawPayload;
 }
 
-type NormalizedAdapterRuntimeRawPayload<K extends ProviderRuntimeEventKind> =
-  K extends 'output' ? OutputMessage | string
-    : K extends 'tool_use' | 'tool_result' ? CliToolCall
-      : K extends 'status' ? string
-        : K extends 'context' ? ContextUsage
-          : K extends 'error' ? Error | string
-            : K extends 'complete' ? CliResponse
-              : K extends 'exit' ? { code: number | null; signal: string | null }
-                : K extends 'spawned' ? number
-                  // WS-B10: `unknown` is the only new kind that can flow through
-                  // observeAdapterRuntimeEvents() today (output/context fail-closed
-                  // routing); tool_use_observed/tool_result_observed are pure
-                  // normalizers not yet wired into this live stream.
-                  : K extends 'unknown' ? unknown
-                    : never;
-
 export type NormalizedAdapterRuntimeEvent =
   | NormalizedAdapterRuntimeEventBase<'output', OutputMessage | string>
   | NormalizedAdapterRuntimeEventBase<'tool_use', CliToolCall>

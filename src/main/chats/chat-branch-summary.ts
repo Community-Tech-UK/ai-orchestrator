@@ -77,7 +77,7 @@ export class ChatBranchSummaryScheduler {
   }
 
   async drainForTesting(): Promise<void> {
-    while (this.pending.size > 0) await Promise.allSettled([...this.pending]);
+    while (this.pending.size > 0) await Promise.allSettled(this.pending);
   }
 }
 

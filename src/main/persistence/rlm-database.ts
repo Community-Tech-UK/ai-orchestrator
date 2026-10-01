@@ -38,10 +38,15 @@ import {
   createTables,
   createMigrationsTable,
   runMigrations,
-  getSchemaInfo,
-  MIGRATIONS
+  getSchemaInfo
 } from './rlm/rlm-schema';
-import { ensureDirectories } from './rlm/rlm-content';
+import {
+  ensureDirectories,
+  saveContent,
+  loadContent,
+  deleteContent,
+  shouldStoreInline,
+} from './rlm/rlm-content';
 import * as stores from './rlm/rlm-stores';
 import * as sections from './rlm/rlm-sections';
 import * as sessions from './rlm/rlm-sessions';
@@ -166,22 +171,18 @@ export class RLMDatabase extends EventEmitter {
   // ============================================
 
   saveContent(sectionId: string, content: string): string {
-    const { saveContent } = require('./rlm/rlm-content');
     return saveContent(this.contentDir, sectionId, content);
   }
 
   loadContent(sectionId: string): string | null {
-    const { loadContent } = require('./rlm/rlm-content');
     return loadContent(this.contentDir, sectionId);
   }
 
   deleteContent(sectionId: string): void {
-    const { deleteContent } = require('./rlm/rlm-content');
     deleteContent(this.contentDir, sectionId);
   }
 
   shouldStoreInline(content: string): boolean {
-    const { shouldStoreInline } = require('./rlm/rlm-content');
     return shouldStoreInline(content);
   }
 

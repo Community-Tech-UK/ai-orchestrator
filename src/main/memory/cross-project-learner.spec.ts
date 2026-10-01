@@ -33,9 +33,7 @@ describe('CrossProjectLearner', () => {
   let learner: CrossProjectLearner;
 
   // Sample embeddings
-  const sampleEmbedding = new Array(384).fill(0).map((_, i) => Math.sin(i * 0.1));
-  const similarEmbedding = new Array(384).fill(0).map((_, i) => Math.sin(i * 0.1) + 0.01);
-  const differentEmbedding = new Array(384).fill(0).map((_, i) => Math.cos(i * 0.5));
+  const sampleEmbedding = Array.from({ length: 384 }, (_, i) => Math.sin(i * 0.1));
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -347,7 +345,7 @@ describe('CrossProjectLearner', () => {
       await learner.promoteToGlobal(pattern1);
 
       // The second call will use the embedding service which we're mocking
-      const result = await learner.promoteToGlobal(pattern2);
+      await learner.promoteToGlobal(pattern2);
 
       // Since our mock is returning 0.95 similarity, it should merge
       // But this depends on the Map iteration order and when cosineSimilarity is called
@@ -653,7 +651,7 @@ describe('CrossProjectLearner', () => {
       // Make each pattern have a unique embedding to avoid merging
       let embeddingIndex = 0;
       mockEmbed.mockImplementation(async () => {
-        const uniqueEmbedding = new Array(384).fill(0).map((_, i) => Math.sin(i * 0.1 + embeddingIndex * 10));
+        const uniqueEmbedding = Array.from({ length: 384 }, (_, i) => Math.sin(i * 0.1 + embeddingIndex * 10));
         embeddingIndex++;
         return {
           embedding: uniqueEmbedding,

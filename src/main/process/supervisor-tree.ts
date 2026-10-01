@@ -14,15 +14,12 @@ import { getLogger } from '../logging/logger';
 
 const logger = getLogger('SupervisorTree');
 import type {
-  SupervisionTree,
   SupervisorNode,
-  WorkerNode,
   ChildSpec,
   TerminationPolicy,
   ContextInheritanceConfig,
   HierarchyTreeNode,
   HealthStatus,
-  createDefaultContextInheritance,
 } from '../../shared/types/supervision.types';
 
 export interface SupervisorTreeConfig {
@@ -412,7 +409,7 @@ export class SupervisorTree extends EventEmitter {
 
     // Get worker status if registered
     let status = 'unknown';
-    let contextUsage = { used: 0, total: 200000, percentage: 0 };
+    const contextUsage = { used: 0, total: 200000, percentage: 0 };
 
     if (registration.workerNodeId) {
       const worker = this.rootSupervisor?.getWorker(registration.workerNodeId);

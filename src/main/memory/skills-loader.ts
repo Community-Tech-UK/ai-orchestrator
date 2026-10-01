@@ -14,7 +14,7 @@ import * as path from 'path';
 import { EmbeddingService, getEmbeddingService } from '../rlm/embedding-service';
 import { getSkillAttribution } from '../skills/skill-attribution-service';
 import { SkillRegistry, getSkillRegistry } from '../skills/skill-registry';
-import type { SkillBundle, LoadedSkill } from '../../shared/types/skill.types';
+import type { SkillBundle } from '../../shared/types/skill.types';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import { getLogger } from '../logging/logger';
 import type {
@@ -230,7 +230,7 @@ export class SkillsLoader extends EventEmitter {
 
       this.stats.totalSkills = this.manifestSkills.size;
       this.emit('manifest:loaded', { path: manifestPath, count: manifest.skills.length });
-    } catch (error) {
+    } catch {
       // Manifest doesn't exist or is invalid - that's OK, we'll use registry
       this.emit('manifest:notFound', { path: manifestPath });
     }

@@ -71,7 +71,7 @@ export function applyConsensusCheckingPolicy(
     // taking over general consensus queries, which callers never asked for.
     const override = modelOverrideOptionFor(candidate);
     return {
-      ...(original ?? {}),
+      ...original,
       provider: candidate.provider as ConsensusProviderSpec['provider'],
       ...('modelOverride' in override ? { model: override.modelOverride } : {}),
     };

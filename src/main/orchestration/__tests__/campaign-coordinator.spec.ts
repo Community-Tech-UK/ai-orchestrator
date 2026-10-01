@@ -10,8 +10,8 @@ import Database from 'better-sqlite3';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import { CampaignCoordinator, validateCampaignSpec, evaluatePredicate } from '../campaign-coordinator';
 import { CampaignStore } from '../campaign-store';
-import { createLoopMigrationsTable, runLoopMigrations } from '../loop-schema';
-import type { CampaignSpec, CampaignRun, TerminalStatusPredicate, CampaignNodeStatus } from '../campaign.types';
+import { runLoopMigrations } from '../loop-schema';
+import type { CampaignSpec, CampaignRun, TerminalStatusPredicate } from '../campaign.types';
 
 // ---------------------------------------------------------------------------
 // Helpers

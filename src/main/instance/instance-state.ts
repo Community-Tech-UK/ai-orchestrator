@@ -427,6 +427,12 @@ export class InstanceStateManager extends EventEmitter {
       // stamp reaches the renderer on the next status update.
       accountProfileId: runtimeInstance?.accountProfileId ?? existing?.accountProfileId,
       accountRoutingSource: runtimeInstance?.accountRoutingSource ?? existing?.accountRoutingSource,
+      // Same live-stamp rule: revealHiddenAutomationSession writes this onto
+      // metadata, and the renderer only receives metadata at creation.
+      automationRevealed:
+        runtimeInstance?.metadata?.['automationRevealed'] === true || existing?.automationRevealed
+          ? true
+          : undefined,
     });
   }
 
@@ -489,11 +495,10 @@ export class InstanceStateManager extends EventEmitter {
    * webContents.send() or ipcMain.handle().
    */
   serializeForIpc(instance: Instance): Record<string, unknown> {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const {
-      readyPromise,
-      respawnPromise,
-      abortController,
+      readyPromise: _readyPromise,
+      respawnPromise: _respawnPromise,
+      abortController: _abortController,
       communicationTokens,
       sessionId,
       providerSessionId,

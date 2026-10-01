@@ -33,7 +33,7 @@ const VIRTUAL_INTERFACE_NAME_PATTERNS = [
 ];
 
 export function isLinkLocalIpv4Address(address: string): boolean {
-  return /^169\.254\./.test(address);
+  return address.startsWith('169.254.');
 }
 
 export function isVirtualInterfaceName(name: string): boolean {
@@ -57,9 +57,9 @@ export function scoreLocalIpv4Candidate({ name, address }: LocalIpv4Candidate): 
   }
 
   // Prefer the most common physical LAN ranges, in a stable order.
-  if (/^192\.168\./.test(address)) {
+  if (address.startsWith('192.168.')) {
     score += 0;
-  } else if (/^10\./.test(address)) {
+  } else if (address.startsWith('10.')) {
     score += 10;
   } else if (/^172\.(1[6-9]|2\d|3[01])\./.test(address)) {
     score += 20;

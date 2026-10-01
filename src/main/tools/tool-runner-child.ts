@@ -45,9 +45,17 @@ type RunnerResponse =
   | { ok: true; output: unknown }
   | { ok: false; error: string };
 
-function loadTool(filePath: string): any {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mod = require(filePath);
+type ToolDefinition = {
+  execute?: (
+    args: unknown,
+    ctx: RunnerRequest['ctx'] & { progress: (message: string) => void }
+  ) => unknown;
+};
+
+function loadTool(filePath: string): ToolDefinition | undefined {
+  // Dynamic path chosen at runtime by the parent, so this cannot be a static import.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- tool module path is only known at runtime
+  const mod = require(filePath) as (ToolDefinition & { default?: ToolDefinition }) | undefined;
   return mod && (mod.default || mod);
 }
 

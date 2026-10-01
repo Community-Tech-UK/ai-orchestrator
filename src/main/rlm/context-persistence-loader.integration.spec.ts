@@ -512,7 +512,6 @@ describe('RLM aggregate persisted-load regression', () => {
   });
 
   it('repairs exactly one durable vector gap through a semantic query after restart', async () => {
-    const existingContent = 'durable existing vector';
     const missingContent = 'durable missing vector';
     const queryText = 'find durable vectors';
     const hangingChild = await runHangingChildIntegrityProof(temporaryRoot);

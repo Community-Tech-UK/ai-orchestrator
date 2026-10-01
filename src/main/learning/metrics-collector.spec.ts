@@ -7,11 +7,6 @@ import {
   MetricsCollector,
   getMetricsCollector,
 } from './metrics-collector';
-import type {
-  SessionMetrics,
-  MetricsReport,
-  BaselineSnapshot,
-} from '../../shared/types/metrics.types';
 
 // Mock RLM database
 vi.mock('../persistence/rlm-database', () => ({

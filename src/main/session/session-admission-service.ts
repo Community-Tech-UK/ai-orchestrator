@@ -595,7 +595,7 @@ export class SessionAdmissionService {
         logger.warn('SessionAdmissionStore.sweepExpired failed', { error: errorMessageOf(err) });
       }
     }
-    for (const [admissionId, entry] of [...this.pendingRedeliveries]) {
+    for (const [admissionId, entry] of this.pendingRedeliveries) {
       if (!this.redeliveryHandlers.has(entry.origin)) {
         this.pendingRedeliveries.delete(admissionId);
         this.markExpired(admissionId);

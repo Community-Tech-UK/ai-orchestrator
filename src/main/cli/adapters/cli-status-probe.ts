@@ -77,16 +77,15 @@ function probeOnce(
     let stdout = '';
     let stderr = '';
     let settled = false;
-    let timeout: NodeJS.Timeout | undefined;
 
     const finish = (status: CliStatus, timedOut = false, starved = false): void => {
       if (settled) return;
       settled = true;
-      if (timeout) clearTimeout(timeout);
+      clearTimeout(timeout);
       resolve({ status, timedOut, starved });
     };
 
-    timeout = setTimeout(() => {
+    const timeout = setTimeout(() => {
       const timerLatenessMs = now() - startedAt - timeoutMs;
       const signal = options.killSignal ?? 'SIGTERM';
       // Group kill reaps children of npm-wrapper CLIs; falls back to a plain

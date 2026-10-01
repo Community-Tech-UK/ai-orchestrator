@@ -17,7 +17,12 @@ export function toAcpPromptBlockFromAttachment(
         type: 'image',
         data: base64Data,
         mimeType,
-        uri: buildAttachmentUri(attachment.name),
+        // A durable local copy (acp-attachment-store) is referenced by file://
+        // so the agent uses that file instead of a temp copy it deletes when
+        // the session closes. The inline data stays for agents that ignore uri.
+        uri: attachment.path && !attachment.path.startsWith('data:')
+          ? toUnencodedFileUri(attachment.path)
+          : buildAttachmentUri(attachment.name),
       };
     }
 
@@ -45,13 +50,10 @@ export function toAcpPromptBlockFromAttachment(
   }
 
   if (attachment.path) {
-    const resourceUri = attachment.path.startsWith('file://')
-      ? attachment.path
-      : pathToFileURL(attachment.path).toString();
     return {
       type: 'resource',
       resource: {
-        uri: resourceUri,
+        uri: toFileUri(attachment.path),
         mimeType: attachment.mimeType,
         text: attachment.content,
         title: attachment.name,
@@ -60,6 +62,26 @@ export function toAcpPromptBlockFromAttachment(
   }
 
   return null;
+}
+
+function toFileUri(filePath: string): string {
+  return filePath.startsWith('file://') ? filePath : pathToFileURL(filePath).toString();
+}
+
+/**
+ * Copilot does not match a percent-encoded file:// image uri to its file, so
+ * a path with a space (the macOS userData dir is under "Application Support")
+ * falls back to Copilot's deleted-on-close temp copy. Verified live against
+ * Copilot 1.0.89-5 for spaces: `file://` + the raw POSIX path resolves, `%20`
+ * does not. Any uri Copilot cannot resolve (a Windows path, or characters
+ * that were not probed) still carries the inline data, so it degrades to that
+ * temp-copy behaviour rather than failing.
+ */
+function toUnencodedFileUri(filePath: string): string {
+  if (filePath.startsWith('file://')) {
+    return filePath;
+  }
+  return filePath.startsWith('/') ? `file://${filePath}` : pathToFileURL(filePath).toString();
 }
 
 function stripDataUrlPrefix(data: string): string {

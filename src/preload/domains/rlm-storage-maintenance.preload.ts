@@ -17,14 +17,10 @@ export function createRlmStorageMaintenanceDomain(
       ipcRenderer.invoke(ch.RLM_STORAGE_GET_HEALTH, {}),
 
     rlmStoragePreviewMaintenance: (loopRunId?: string): Promise<IpcResponse<RlmMaintenancePreview>> =>
-      ipcRenderer.invoke(ch.RLM_STORAGE_PREVIEW_MAINTENANCE, {
-        ...(loopRunId ? { loopRunId } : {}),
-      }),
+      ipcRenderer.invoke(ch.RLM_STORAGE_PREVIEW_MAINTENANCE, loopRunId ? { loopRunId } : {}),
 
     rlmStorageRunMaintenance: (loopRunId?: string): Promise<IpcResponse<RlmMaintenanceResult>> =>
-      ipcRenderer.invoke(ch.RLM_STORAGE_RUN_MAINTENANCE, {
-        ...(loopRunId ? { loopRunId } : {}),
-      }),
+      ipcRenderer.invoke(ch.RLM_STORAGE_RUN_MAINTENANCE, loopRunId ? { loopRunId } : {}),
 
     rlmStorageGetMaintenanceStatus: (): Promise<IpcResponse<RlmMaintenanceResult | null>> =>
       ipcRenderer.invoke(ch.RLM_STORAGE_GET_MAINTENANCE_STATUS, {}),

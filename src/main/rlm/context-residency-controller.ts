@@ -323,7 +323,7 @@ export class ContextResidencyController {
   /** Release every old graph reference before a persistence reload. */
   clear(): void {
     this.cancelHotPrewarm();
-    for (const storeId of [...this.states.keys()]) this.unregisterStore(storeId);
+    for (const storeId of this.states.keys()) this.unregisterStore(storeId);
     this.states.clear();
     this.estimatedBytesByStore.clear();
     this.residentBytesByStore.clear();

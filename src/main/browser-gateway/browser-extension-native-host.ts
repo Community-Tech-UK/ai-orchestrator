@@ -413,33 +413,6 @@ export async function sendBrowserExtensionDisconnected(input: {
   }
 }
 
-function readNativeMessageFrame(): Promise<Buffer> {
-  return new Promise<Buffer>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let totalLength = 0;
-    let expectedLength: number | null = null;
-
-    stdin.on('data', (chunk: Buffer) => {
-      chunks.push(chunk);
-      totalLength += chunk.length;
-      const buffer = Buffer.concat(chunks, totalLength);
-      if (expectedLength === null && buffer.length >= 4) {
-        expectedLength = buffer.readUInt32LE(0);
-      }
-      if (expectedLength !== null && buffer.length >= expectedLength + 4) {
-        resolve(buffer.subarray(0, expectedLength + 4));
-      }
-    });
-    stdin.on('error', reject);
-    stdin.on('end', () => {
-      if (expectedLength !== null && totalLength >= expectedLength + 4) {
-        return;
-      }
-      reject(new Error('native_message_frame_incomplete'));
-    });
-  });
-}
-
 function toAttachTabRpcInput(input: {
   tab: BrowserAttachExistingTabRequest;
   runtimeEvidence: BrowserExtensionRuntimeEvidence;

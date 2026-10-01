@@ -9,12 +9,7 @@
 import type { InstanceCreateConfig, OutputMessage } from './instance.types';
 import type { AutomationDeliveryMode, AutomationTriggerSource } from './automation.types';
 import type { ChildDiagnosticBundle } from './agent-tree.types';
-import type {
-  PluginCapability,
-  PluginHookEvent,
-  PluginIsolation,
-  PluginSlot,
-} from '@contracts/schemas/plugin';
+import type { PluginHookEvent, PluginSlot } from '@contracts/schemas/plugin';
 
 export type PluginRecord = Record<string, unknown>;
 

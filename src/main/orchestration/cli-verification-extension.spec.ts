@@ -12,6 +12,19 @@ import { VerificationRequest } from '../../shared/types/verification.types';
 import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
 import type { ProviderName } from '@contracts/types/provider-runtime-events';
 
+/** Private coordinator state the cancellation tests seed and inspect directly. */
+interface CoordinatorInternals {
+  activeVerifications: Map<string, VerificationRequest>;
+  activeSessions: Map<string, { cancelled: boolean }>;
+}
+
+interface CancellationEvent {
+  verificationId: string;
+  reason?: string;
+  agentsCancelled?: number;
+  agentId?: string;
+}
+
 /**
  * Mock Provider for testing
  */
@@ -59,12 +72,12 @@ class MockProvider extends BaseProvider {
     };
   }
 
-  async initialize(options: ProviderSessionOptions): Promise<void> {
+  async initialize(_options: ProviderSessionOptions): Promise<void> {
     this.sessionId = 'mock-session-' + Date.now();
     this.isActive = true;
   }
 
-  async sendMessage(message: string): Promise<void> {
+  async sendMessage(_message: string): Promise<void> {
     // Simulate async work
     await new Promise(resolve => setTimeout(resolve, 100));
   }
@@ -119,7 +132,7 @@ describe('CliVerificationCoordinator - Cancellation', () => {
     };
 
     // Access private properties via type casting
-    const coordinatorAny = coordinator as any;
+    const coordinatorAny = coordinator as unknown as CoordinatorInternals;
 
     // Add to activeVerifications
     coordinatorAny.activeVerifications.set(verificationId, request);
@@ -133,7 +146,7 @@ describe('CliVerificationCoordinator - Cancellation', () => {
         enabled: true,
       });
       mockProviders.set(`${verificationId}-agent-${i}`, mockProvider);
-      providers.set(`${verificationId}-agent-${i}`, mockProvider as any);
+      providers.set(`${verificationId}-agent-${i}`, mockProvider);
     }
 
     const activeSession = {
@@ -162,7 +175,7 @@ describe('CliVerificationCoordinator - Cancellation', () => {
       expect(result.error).toBeUndefined();
 
       // Verify all providers were terminated
-      providers.forEach((provider: any) => {
+      providers.forEach((provider) => {
         expect(provider.terminateCalled).toBe(true);
         expect(provider.terminateGraceful).toBe(false); // Force terminate
       });
@@ -200,7 +213,7 @@ describe('CliVerificationCoordinator - Cancellation', () => {
       };
 
       // Add to activeVerifications only (no session)
-      const coordinatorAny = coordinator as any;
+      const coordinatorAny = coordinator as unknown as CoordinatorInternals;
       coordinatorAny.activeVerifications.set(verificationId, request);
 
       // Act
@@ -244,7 +257,7 @@ describe('CliVerificationCoordinator - Cancellation', () => {
       const verificationId = 'test-verify-events';
       createMockSession(verificationId, 3);
 
-      const eventPromise = new Promise<any>((resolve) => {
+      const eventPromise = new Promise<CancellationEvent>((resolve) => {
         coordinator.once('verification:cancelled', resolve);
       });
 
@@ -264,7 +277,7 @@ describe('CliVerificationCoordinator - Cancellation', () => {
       const agentCount = 3;
       createMockSession(verificationId, agentCount);
 
-      const agentEvents: any[] = [];
+      const agentEvents: CancellationEvent[] = [];
       coordinator.on('verification:agent-cancelled', (event) => {
         agentEvents.push(event);
       });
@@ -325,7 +338,7 @@ describe('CliVerificationCoordinator - Cancellation', () => {
 
       // Make one provider throw an error on terminate
       const providerArray = Array.from(providers.values());
-      (providerArray[1] as any).terminateError = new Error('Termination failed');
+      providerArray[1].terminateError = new Error('Termination failed');
 
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -349,7 +362,7 @@ describe('CliVerificationCoordinator - Cancellation', () => {
       const { providers } = createMockSession(verificationId, 2);
 
       // Make providers take a very long time to terminate
-      providers.forEach((provider: any) => {
+      providers.forEach((provider) => {
         provider.terminateDelay = 20000; // 20 seconds
       });
 
@@ -486,7 +499,7 @@ describe('CliVerificationCoordinator - Cancellation', () => {
       const cancellationPromise = coordinator.cancelVerification(verificationId);
 
       // Check state during cancellation (before it completes)
-      const coordinatorAny = coordinator as any;
+      const coordinatorAny = coordinator as unknown as CoordinatorInternals;
       const session = coordinatorAny.activeSessions.get(verificationId);
       if (session) {
         expect(session.cancelled).toBe(true);
@@ -550,7 +563,7 @@ describe('CliVerificationCoordinator - Cancellation', () => {
         },
       };
 
-      const coordinatorAny = coordinator as any;
+      const coordinatorAny = coordinator as unknown as CoordinatorInternals;
       coordinatorAny.activeVerifications.set(verificationId, request);
 
       // Act & Assert

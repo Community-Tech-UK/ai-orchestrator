@@ -312,7 +312,8 @@ export class HistoryManager {
         // that has since failed in front of them.
         isHiddenAutomation:
           (instance.metadata?.['automationHidden'] === true
-            && instance.metadata?.['automationRunSucceeded'] === true)
+            && instance.metadata?.['automationRunSucceeded'] === true
+            && instance.metadata?.['automationRevealed'] !== true) // operator took it over
           || undefined,
         hideFromProjectRail:
           this.shouldHideInstanceFromProjectRail(instance)

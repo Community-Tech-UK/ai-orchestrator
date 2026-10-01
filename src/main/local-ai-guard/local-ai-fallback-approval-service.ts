@@ -183,7 +183,8 @@ export class LocalAiFallbackApprovalService {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    for (const requestId of [...this.awaiters.keys()]) {
+    // Snapshot: settle()/reject() delete from this.awaiters while we iterate.
+    for (const requestId of Array.from(this.awaiters.keys())) {
       try {
         const request = this.repository.resolveFallbackRequest(requestId, 'block');
         if (!request?.resolution) throw new Error(`Local AI fallback request not found: ${requestId}`);

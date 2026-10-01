@@ -381,7 +381,7 @@ describe('MobileGatewayServer', () => {
   function authed(token: string, path: string, init?: RequestInit) {
     return fetch(`http://127.0.0.1:${port}${path}`, {
       ...init,
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(init?.headers ?? {}) },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...init?.headers },
     });
   }
 

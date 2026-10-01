@@ -144,7 +144,7 @@ export function createCommunicationDomain(
         operatorConfirmedPlatform?: boolean;
       },
     ): Promise<unknown> =>
-      ipcRenderer.invoke(ch.REMOTE_NODE_REPAIR_COMMAND, { nodeId, ...(options ?? {}) }),
+      ipcRenderer.invoke(ch.REMOTE_NODE_REPAIR_COMMAND, { nodeId, ...options }),
 
     remoteNodeProviderDiagnose: (nodeId: string, provider: string): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_PROVIDER_DIAGNOSE, { nodeId, provider }),

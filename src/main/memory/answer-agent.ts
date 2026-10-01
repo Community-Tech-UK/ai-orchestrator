@@ -138,8 +138,6 @@ export class AnswerAgent extends EventEmitter {
   // ============ Answer Generation ============
 
   async generateAnswer(request: AnswerRequest): Promise<AnswerResponse> {
-    const startTime = Date.now();
-
     this.emit('answer:started', { query: request.query, taskId: request.taskId });
 
     // 1. Select relevant memories

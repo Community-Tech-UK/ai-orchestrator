@@ -15,6 +15,7 @@
 import { EventEmitter } from 'events';
 import { getRLMDatabase, RLMDatabase } from '../persistence/rlm-database';
 import { getLogger } from '../logging/logger';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import type {
   PreferenceType,
@@ -41,6 +42,28 @@ export type {
 } from './preference-store.types';
 
 const logger = getLogger('PreferenceStore');
+
+/** Row shape of the `preferences` table. */
+interface PreferenceRow {
+  id: string;
+  key: string;
+  value_json: string;
+  type: string;
+  scope: string;
+  source: string;
+  metadata_json: string | null;
+  created_at: number;
+  updated_at: number;
+  accessed_at: number;
+}
+
+/**
+ * RLMDatabase keeps its SQLite driver in a private field. Read it directly so
+ * test doubles that lack a driver yield undefined (callers bail out on that).
+ */
+function rawDriver(rlm: RLMDatabase): SqliteDriver | undefined {
+  return (rlm as unknown as { db?: SqliteDriver }).db;
+}
 
 // ============================================
 // PreferenceStore Class
@@ -141,7 +164,7 @@ export class PreferenceStore extends EventEmitter {
   private createPreferencesTable(): void {
     if (!this.db) return;
 
-    const dbInternal = (this.db as any).db;
+    const dbInternal = rawDriver(this.db);
     if (!dbInternal) return;
 
     dbInternal.exec(`
@@ -174,7 +197,7 @@ export class PreferenceStore extends EventEmitter {
   private loadFromPersistence(): void {
     if (!this.db) return;
 
-    const dbInternal = (this.db as any).db;
+    const dbInternal = rawDriver(this.db);
     if (!dbInternal) return;
 
     try {
@@ -183,7 +206,7 @@ export class PreferenceStore extends EventEmitter {
         WHERE expires_at IS NULL OR expires_at > ?
         ORDER BY updated_at DESC
       `);
-      const rows = stmt.all(Date.now());
+      const rows = stmt.all<PreferenceRow>(Date.now());
 
       for (const row of rows) {
         const preference: Preference = {
@@ -224,7 +247,7 @@ export class PreferenceStore extends EventEmitter {
   private persistPreference(preference: Preference): void {
     if (!this.db || !this.persistenceEnabled || !this.config.persistImmediately) return;
 
-    const dbInternal = (this.db as any).db;
+    const dbInternal = rawDriver(this.db);
     if (!dbInternal) return;
 
     try {
@@ -260,7 +283,7 @@ export class PreferenceStore extends EventEmitter {
   private deletePreferenceFromDB(key: string): void {
     if (!this.db || !this.persistenceEnabled) return;
 
-    const dbInternal = (this.db as any).db;
+    const dbInternal = rawDriver(this.db);
     if (!dbInternal) return;
 
     try {
@@ -375,7 +398,7 @@ export class PreferenceStore extends EventEmitter {
       : ['session', 'project', 'workspace', 'global'];
 
     for (const scope of scopes) {
-      for (const [mapKey, pref] of this.preferences) {
+      for (const pref of this.preferences.values()) {
         if (pref.key === key && pref.scope === scope) {
           return pref;
         }
@@ -604,8 +627,8 @@ export class PreferenceStore extends EventEmitter {
 
   private pruneOldest(): void {
     const prefs = Array.from(this.preferences.entries())
-      .filter(([_, p]) => p.source !== 'default')
-      .sort(([_, a], [__, b]) => a.accessedAt - b.accessedAt);
+      .filter(([, p]) => p.source !== 'default')
+      .sort(([, a], [, b]) => a.accessedAt - b.accessedAt);
 
     const toRemove = prefs.slice(0, Math.floor(this.config.maxPreferences * 0.1));
 

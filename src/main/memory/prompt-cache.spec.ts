@@ -8,7 +8,6 @@ import {
   PromptCacheManager,
   getPromptCacheManager,
   CacheableContext,
-  CacheMetrics,
 } from './prompt-cache';
 import type { CacheUsageMetrics } from '../../shared/types/api-features.types';
 

@@ -40,4 +40,12 @@ describe('UpdateBatcherService', () => {
     expect(byId.get('i1')?.waitReason).toEqual({ kind: 'backoff', attempt: 1, retryAt: 9 });
     expect(byId.get('i2')?.waitReason).toBeNull();
   });
+
+  it('keeps automationRevealed when a later update in the window carries undefined', () => {
+    batcher.queueUpdate({ instanceId: 'i1', status: 'error', automationRevealed: true });
+    batcher.queueUpdate({ instanceId: 'i1', status: 'busy', automationRevealed: undefined });
+    batcher.forceFlush();
+
+    expect(flushed[0]?.[0]?.automationRevealed).toBe(true);
+  });
 });

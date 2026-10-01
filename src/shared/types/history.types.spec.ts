@@ -12,6 +12,12 @@ import {
   sanitizeGeneratedTitle,
   truncateForRail,
 } from './title-derivation';
+import type { OutputMessage } from './instance.types';
+import { ALL_INSTANCE_STATUSES } from '../attention/attention-level';
+
+function message(type: OutputMessage['type'], content: string, metadata?: OutputMessage['metadata']): OutputMessage {
+  return { id: 'message-1', timestamp: 1, type, content, metadata };
+}
 
 function makeEntry(
   overrides: Partial<ConversationHistoryEntry> = {}
@@ -34,6 +40,271 @@ function makeEntry(
 }
 
 describe('history title helpers', () => {
+  it.each([
+    '1. Work Finder filters', 'Title: Work Finder filters',
+    'The session involves Work Finder filters', 'Work Finder filters\n1. Delivery repairs',
+    'Please 1)Work Finder filters', 'Please Title: Work Finder filters',
+    '1: Work Finder filters', '1 - Work Finder filters', '(1) Work Finder filters',
+    '## Work Finder filters', '١:Work Finder filters', '１: Work Finder filters',
+    "Suggested title: Work Finder watchdog",
+    'Topic: Work Finder watchdog',
+    'Suggested topic: Work Finder watchdog',
+    'Here is the suggested topic: Work Finder watchdog',
+    'Tab: Work Finder watchdog',
+    'Suggested tab: Work Finder watchdog',
+    'Summary: Work Finder watchdog',
+    'Suggested summary: Work Finder watchdog',
+    "Here is the suggested title: Work Finder watchdog",
+    "Recommended name for this session: Work Finder watchdog",
+    "Candidate heading: Work Finder watchdog",
+    "Here’s a proposed title: Work Finder watchdog",
+    "Title — Work Finder watchdog",
+    "Suggested title -Work Finder watchdog",
+    "I've fixed Work Finder watchdog",
+    "We’re investigating Work Finder watchdog",
+    "You should check Work Finder watchdog",
+    "1– Work Finder watchdog",
+    "1 -Work Finder watchdog",
+    "1—Work Finder watchdog",
+    "1- Work Finder watchdog",
+  ])('recovers malformed automatic title %j across live and saved candidates', (bad) => {
+    const entry = makeEntry({
+      displayName: 'Work Finder watchdog faults', aiTitle: bad,
+      firstUserMessage: 'Work Finder watchdog faults', lastUserMessage: 'yes',
+    });
+    expect(getConversationHistoryTitle(entry)).toBe('Work Finder watchdog faults');
+    expect(getConversationHistoryTitle({ ...entry, displayName: bad, aiTitle: undefined }))
+      .toBe('Work Finder watchdog faults');
+    expect(resolveEffectiveInstanceTitle({ displayName: bad }, entry)).toBe('Work Finder watchdog faults');
+    expect(resolveEffectiveInstanceTitle({ displayName: bad,
+      outputBuffer: [message('user', 'Work Finder watchdog faults')] })).toBe('Work Finder watchdog faults');
+    expect(resolveEffectiveInstanceTitle({ displayName: bad, isRenamed: true }, entry)).toBe(bad);
+    expect(getConversationHistoryTitle({ ...entry, displayName: bad, isRenamed: true }))
+      .toBe(bad.replace(/\s+/g, ' ').trim());
+  });
+
+  it.each(['__init__.py startup', 'auth__handler.ts parser', 'R', 'Work Finder readiness...',
+    '1.2 compatibility repairs', 'Report pagination', 'Work Finder issues found',
+    'HTTP process diagnostics', '404 error diagnostics', 'HTTP 500: gateway faults', '3D renderer fixes',
+    'Job runner metrics', 'Operation logs routing', 'Analysis dashboard layout',
+    'Result table sorting', 'Execution trace viewer', 'Agent settings editor',
+    "I/O stream diagnostics",
+    "IT inventory sync",
+    "2-factor authentication fixes",
+    "64-bit migration",
+    "3-D renderer faults",
+    "Work Finder title: parsing fixes",
+    'Work Finder topic editor',
+    'Tab layout accessibility',
+    'Summary dashboard rendering',
+    'Session-settings',
+    "New chat message routing",
+    "Title editor accessibility",
+    "Default theme contrast",
+    "Unknown HTTP status handling",
+    "Idle timeout diagnostics",
+    "Permission editor accessibility",
+    "Thread restore routing",
+    "Untitled document rendering",
+    "Chat history pagination",
+  ])(
+    'preserves useful legacy automatic title %s without imposing the model contract', (displayName) => {
+      const entry = makeEntry({ displayName, firstUserMessage: 'OAuth2 migration' });
+      expect(getConversationHistoryTitle(entry)).toBe(displayName);
+      expect(resolveEffectiveInstanceTitle({ displayName }, entry)).toBe(displayName);
+    },
+  );
+
+  it.each(['Completed', 'Finished', 'Task completed', 'Task complete', 'In progress', 'Success', 'Pending', 'Work completed successfully', 'In-progress', 'Task-completed',
+    'All work has been completed', 'We are done', 'All set', 'Awaiting instructions', 'The task is complete',
+    'No action required', 'Waiting for input', 'Not yet completed', 'Currently in progress', 'Cancelled',
+    'cz3mwn04e', 'Cz3mwn04e', 'x8f3k2m1p', 's7j4x1q9w',
+    'All tests passed', 'Finished without errors', 'Ready for testing', 'Needs clarification',
+    'I am done', 'Nothing to report', 'Ready to assist', 'No issues found',
+    'Everything looks good', 'In process', 'Acknowledged', 'Understood', 'No problem',
+    'Happy to help', 'Ready for your request', 'All checks look fine', 'No issues detected',
+    'No further assistance needed', 'Everything appears normal',
+    'I’m done', "I'm ready to assist", "We've found no issues",
+    "Job completed", "Operation successful", "Activity in progress",
+    "Result ready", "All requests processed", "Ready when you are",
+    "No more changes needed", "No additional action needed", "Analysis complete",
+    "Response provided", "Successfully processed", "Task handled",
+    "Standing by", "Waiting for next instruction", "Completed as requested",
+    "Execution complete", "No errors encountered", "Help available",
+    "Work accomplished", "Everything working perfectly", "Nothing left to do",
+    "No outstanding issues", "Pending confirmation", "Ready to answer",
+    "Preparing response", "Proceeding with task", "Action taken",
+    "Request accepted", "Task wrapped up", "No change required",
+    "No fixes needed", "Investigation complete", "Done investigating",
+    "Task completion", "Assistant ready", "Agent ready",
+    "I'm fixing this",
+    "Fixing this issue",
+    "Reviewing this request",
+    "Investigating this problem",
+    "Debugging this issue",
+    "Handling this request",
+    "Resolving this issue",
+    "Completing this task",
+    "Implementing this request",
+    "Processing this request",
+    "Reporting this issue",
+    "Assisting with this task",
+    "Investigations completed",
+    "Agents ready",
+    "Assistants awaiting instructions",
+    "Requesting assistance",
+    "Needing more input",
+    "Addressing this issue",
+    "Helping with this request",
+    "Looking at this issue",
+    "Verifying this task",
+    "Applying changes",
+    "Accepting this request",
+    "Delivering the result",
+    "Executing this task",
+    "Achieving completion",
+    "Accomplishing this task",
+    "Concluding the investigation",
+    "Satisfying this request",
+    "Detecting issues",
+    "Observing the issue",
+    "Identifying this issue",
+    "Answering this request",
+    "Replying to this request",
+    "Wrapping up this task",
+    "Resuming this task",
+    "Restarting this task",
+    "Stopping this task",
+    "Pausing this task",
+    "Cancelling this task",
+    "Restoring the session",
+    "Untitled thread",
+    "Untitled session",
+    "New conversation",
+    "New chat",
+    "Untitled",
+    "Unnamed",
+    "Unnamed session",
+    "New session",
+    "New thread",
+    "Empty conversation",
+    "Default session",
+    "Unknown task",
+    "No subject",
+    "No title",
+    "Session title",
+    "Conversation name",
+    "Untitled chat",
+    "Untitled conversation",
+    "New task",
+    "Unknown subject",
+    "Idle",
+    "Busy",
+    "Initializing",
+    "Terminated",
+    "Hibernated",
+    "Hibernating",
+    "Waking",
+    "Approved",
+    "Rejected",
+    "Denied",
+    "Aborted",
+    "Awaiting command",
+    "Acknowledging receipt",
+    "Pending approval",
+    "Session initialized",
+    "Request rejected",
+    "Task aborted",
+    "Request approved",
+    "Request denied",
+    ...ALL_INSTANCE_STATUSES,
+    "Short title",
+    "Suggested title",
+    "Proposed name",
+    "Recommended heading",
+    "Concise summary",
+    "Brief session",
+    "Candidate title",
+    "Descriptive name",
+    "Final title",
+    "Title suggestion",
+    "Suggested name",
+    "Name proposal",
+    "Session recommendation",
+  ])(
+    'recovers automatic status title %j while preserving deliberate renames', (displayName) => {
+      const entry = makeEntry({ displayName, aiTitle: displayName, firstUserMessage: 'Work Finder watchdog faults' });
+      expect(getConversationHistoryTitle(entry)).toBe('Work Finder watchdog faults');
+      expect(resolveEffectiveInstanceTitle({
+        displayName, outputBuffer: [message('user', 'Work Finder watchdog faults')],
+      })).toBe('Work Finder watchdog faults');
+      expect(getConversationHistoryTitle({ ...entry, isRenamed: true })).toBe(displayName);
+      expect(resolveEffectiveInstanceTitle({ displayName, isRenamed: true }, entry)).toBe(displayName);
+    },
+  );
+  it.each(['1.', '42', '1ed2be54-1026-428c-a407-9a52c835759b'])(
+    'shows an untitled fallback for hard-invalid automatic names %j without context', (displayName) => {
+      expect(getConversationHistoryTitle(makeEntry({
+        displayName, aiTitle: displayName, firstUserMessage: '', lastUserMessage: '',
+      }))).toBe('Untitled thread');
+    },
+  );
+  it.each(['1.', '42', 'yes', 'OK', 'Done', 'Continue', 'Question 5', '**Question 5**', '1ed2be54-1026-428c-a407-9a52c835759b'])(
+    'uses a meaningful stored title ahead of low-signal aiTitle %j', (aiTitle) => {
+      expect(getConversationHistoryTitle(makeEntry({ aiTitle, displayName: 'Work Finder filters' })))
+        .toBe('Work Finder filters');
+    },
+  );
+
+  it('recovers a stale numeric AI and display title from the opening message', () => {
+    expect(getConversationHistoryTitle(makeEntry({
+      aiTitle: '1.', displayName: '1.', firstUserMessage: 'Work Finder search filters',
+    }))).toBe('Work Finder search filters');
+  });
+
+  it('recovers wrapped heading names in history and live display while preserving manual names', () => {
+    const entry = makeEntry({
+      aiTitle: '**Question 5**', displayName: '**Question 5**', firstUserMessage: 'Work Finder watchdog faults',
+    });
+    expect(getConversationHistoryTitle(entry)).toBe('Work Finder watchdog faults');
+    expect(resolveEffectiveInstanceTitle({ displayName: '**Question 5**' }, entry))
+      .toBe('Work Finder watchdog faults');
+    expect(resolveEffectiveInstanceTitle({ displayName: '**Question 5**', isRenamed: true }, entry))
+      .toBe('**Question 5**');
+    expect(getConversationHistoryTitle({ ...entry, isRenamed: true })).toBe('**Question 5**');
+  });
+
+  it('keeps a known generic opener instead of promoting a later useful follow-up', () => {
+    expect(getConversationHistoryTitle(makeEntry({
+      aiTitle: '1.', displayName: '1.', firstUserMessage: 'yes', lastUserMessage: 'Work Finder search filters',
+    }))).toBe('Yes');
+  });
+
+  it('recovers from the last preview only when the original request is unknown', () => {
+    expect(getConversationHistoryTitle(makeEntry({
+      aiTitle: '1.', displayName: '1.', firstUserMessage: '', lastUserMessage: 'Work Finder search filters',
+    }))).toBe('Work Finder search filters');
+  });
+
+  it('tolerates nullish firstUserMessage without throwing', () => {
+    expect(getConversationHistoryTitle(makeEntry({
+      firstUserMessage: undefined as unknown as string,
+      displayName: 'Work Finder filters',
+    }))).toBe('Work Finder filters');
+    expect(getConversationHistoryTitle(makeEntry({
+      displayName: '1.', aiTitle: '1.',
+      firstUserMessage: null as unknown as string,
+      lastUserMessage: 'Work Finder search filters',
+    }))).toBe('Work Finder search filters');
+  });
+
+  it.each(['1.', 'Done', '1ed2be54-1026-428c-a407-9a52c835759b'])(
+    'preserves explicit user title %j over useful alternatives', (displayName) => {
+      expect(getConversationHistoryTitle(makeEntry({
+        isRenamed: true, displayName, aiTitle: 'Work Finder filters',
+      }))).toBe(displayName);
+    },
+  );
   it('prefers the stored title over re-deriving from the first message (LT-534b)', () => {
     // The stored title is what the live rail showed: derived from the COMPLETE
     // first message, with line structure and attachment names. `firstUserMessage`
@@ -333,6 +604,95 @@ describe('frontLoadTitle', () => {
 });
 
 describe('resolveEffectiveInstanceTitle', () => {
+  it.each(['', '   '])('does not treat empty matching history as a title with preview %j', (firstUserMessage) => {
+    const instance = { displayName: '1.', outputBuffer: [message('user', 'Work Finder watchdog faults')] };
+    const history = makeEntry({ displayName: '1.', aiTitle: '42', firstUserMessage, lastUserMessage: '' });
+    expect(resolveEffectiveInstanceTitle(instance, history)).toBe('Work Finder watchdog faults');
+    expect(resolveEffectiveInstanceTitle(instance, history)).toBe(resolveEffectiveInstanceTitle(instance));
+    expect(resolveEffectiveInstanceTitle(instance, { ...history, displayName: firstUserMessage, isRenamed: true }))
+      .toBe('Work Finder watchdog faults');
+    expect(resolveEffectiveInstanceTitle(instance, { ...history, displayName: 'Untitled thread', isRenamed: true }))
+      .toBe('Untitled thread');
+  });
+
+  it.each(['please continue', '', '   '])(
+    'does not promote matching history follow-up with known generic opener and preview %j', (firstUserMessage) => {
+      const opening = { ...message('user', 'please continue'), id: 'opening', timestamp: 1 };
+      const followup = { ...message('user', 'OAuth2 HTTP 500 followup'), id: 'later', timestamp: 2 };
+      const instance = { displayName: '1.', retainedPrompts: [opening], outputBuffer: [followup] };
+      const entry = makeEntry({ displayName: '1.', aiTitle: '1.', firstUserMessage, lastUserMessage: followup.content });
+      expect(resolveEffectiveInstanceTitle(instance)).toBe('Untitled thread');
+      expect(resolveEffectiveInstanceTitle(instance, entry)).toBe('Untitled thread');
+      expect(resolveEffectiveInstanceTitle(instance, { ...entry, aiTitle: 'Work Finder diagnosis' }))
+        .toBe('Work Finder diagnosis');
+      expect(resolveEffectiveInstanceTitle(instance, { ...entry, displayName: 'Work Finder diagnosis' }))
+        .toBe('Work Finder diagnosis');
+      expect(resolveEffectiveInstanceTitle(instance, { ...entry, isRenamed: true })).toBe('1.');
+      expect(resolveEffectiveInstanceTitle({ ...instance, isRenamed: true }, entry)).toBe('1.');
+    },
+  );
+
+  it('retains last-preview recovery when neither live nor saved data knows the opener', () => {
+    expect(resolveEffectiveInstanceTitle({ displayName: '1.' }, makeEntry({
+      displayName: '1.', aiTitle: '1.', firstUserMessage: '', lastUserMessage: 'Work Finder search filters',
+    }))).toBe('Work Finder search filters');
+  });
+
+  it.each(['1.', '42', '1ed2be54-1026-428c-a407-9a52c835759b'])(
+    'shows an untitled fallback for hard-invalid live names %j without context', (displayName) => {
+      expect(resolveEffectiveInstanceTitle({ displayName })).toBe('Untitled thread');
+    },
+  );
+  it('recovers a stale numeric live title from a meaningful history candidate', () => {
+    expect(resolveEffectiveInstanceTitle(
+      { displayName: '1.' },
+      makeEntry({ displayName: '1.', aiTitle: '1.', firstUserMessage: 'Work Finder filters' }),
+    )).toBe('Work Finder filters');
+  });
+
+  it('recovers an unarchived numeric live title from its opening human prompt', () => {
+    expect(resolveEffectiveInstanceTitle({
+      displayName: '1.',
+      outputBuffer: [
+        message('system', 'Injected system instructions'),
+        message('assistant', 'Unrelated assistant answer'),
+        message('user', 'Agent instructions', { crossSessionMessage: {
+          sourceInstanceId: 'source', sourceDisplayName: 'Other session', hopCount: 1,
+        } }),
+        message('user', 'Work Finder filters'),
+        message('user', 'yes'),
+      ],
+    })).toBe('Work Finder filters');
+  });
+
+  it('uses opening attachments when the human prompt carries no subject', () => {
+    expect(resolveEffectiveInstanceTitle({
+      displayName: '1.',
+      outputBuffer: [{
+        ...message('user', 'Please implement this'),
+        attachments: [{ name: 'work-finder-plan.md', type: 'text/markdown', size: 0, data: '' }],
+      }],
+    })).toBe('Work finder implementation');
+  });
+
+  it('keeps a meaningful live title even when the transcript has another subject', () => {
+    expect(resolveEffectiveInstanceTitle({
+      displayName: 'OAuth2 HTTP 500', outputBuffer: [message('user', 'Work Finder filters')],
+    })).toBe('OAuth2 HTTP 500');
+  });
+
+  it('preserves explicit numeric live renames over transcript recovery', () => {
+    expect(resolveEffectiveInstanceTitle({
+      displayName: '1.', isRenamed: true, outputBuffer: [message('user', 'Work Finder filters')],
+    })).toBe('1.');
+  });
+
+  it('does not retitle from a later follow-up when the opening prompt is generic', () => {
+    expect(resolveEffectiveInstanceTitle({
+      displayName: 'work', outputBuffer: [message('user', 'hi'), message('user', 'Work Finder filters')],
+    })).toBe('work');
+  });
+
   it('returns the live displayName when it is populated', () => {
     // Covers the regression where the sidebar rail diverged from the detail
     // header because the rail preferred the matching history entry's

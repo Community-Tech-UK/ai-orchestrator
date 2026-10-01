@@ -305,7 +305,7 @@ export class AnthropicApiProvider extends BaseProvider {
     }
   }
 
-  async terminate(graceful: boolean = true): Promise<void> {
+  async terminate(_graceful: boolean = true): Promise<void> {
     this.client = null;
     this.session = null;
     this.isActive = false;

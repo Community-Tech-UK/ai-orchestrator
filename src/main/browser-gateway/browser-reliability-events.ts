@@ -77,7 +77,7 @@ export class BrowserReliabilityEvents {
     const logContext = {
       ...(event.nodeId ? { nodeId: event.nodeId } : {}),
       ...(event.instanceId ? { instanceId: event.instanceId } : {}),
-      ...(event.detail ?? {}),
+      ...event.detail,
     };
     if (
       kind.startsWith('write_rejected')

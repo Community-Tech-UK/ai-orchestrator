@@ -14,7 +14,7 @@ import { EventEmitter } from 'events';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type { Instance } from '../../shared/types/instance.types';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
-import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
+import type { CliMessage } from '../cli/adapters/base-cli-adapter';
 import type { CliType } from '../cli/cli-detection';
 import { getLogger } from '../logging/logger';
 
@@ -417,7 +417,7 @@ export class HotModelSwitcher extends EventEmitter {
       }
 
       // 3. Transform for target provider
-      const { messages: transformedMessages, systemPrompt, warnings } =
+      const { messages: transformedMessages, warnings } =
         this.importConversationState(state, request.targetProvider, request.targetModel);
 
       // 4. Terminate current adapter gracefully
@@ -479,7 +479,7 @@ export class HotModelSwitcher extends EventEmitter {
   /**
    * Check if a switch is in progress for an instance
    */
-  isSwitching(instanceId: string): boolean {
+  isSwitching(_instanceId: string): boolean {
     for (const [, switchInfo] of this.activeSwitches) {
       // Would need to track instanceId in switch info
       return true;
@@ -624,7 +624,7 @@ class DefaultProviderTransformer implements ProviderTransformer {
     prompt: string,
     sourceProvider: CliType,
     targetProvider: CliType,
-    targetModel?: string
+    _targetModel?: string
   ): string {
     let adapted = prompt;
 
@@ -650,7 +650,7 @@ class DefaultProviderTransformer implements ProviderTransformer {
     return adapted.trim();
   }
 
-  isSupported(message: ConversationMessage, targetProvider: CliType): boolean {
+  isSupported(message: ConversationMessage, _targetProvider: CliType): boolean {
     // Most message types are supported across providers
     // Tool use requires special handling but is generally supported
     switch (message.role) {

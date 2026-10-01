@@ -5,6 +5,7 @@ import { ProviderStateService } from '../../services/provider-state.service';
 import { getInstanceThreadId } from '../../../features/instance-list/instance-list.types';
 import { InstanceListStore } from './instance-list.store';
 import { InstanceStateService } from './instance-state.service';
+import { INTERACTIVE_LAUNCH_MODE_AVAILABLE } from '../../../../../shared/types/instance.types';
 
 describe('InstanceListStore', () => {
   let store: InstanceListStore;
@@ -159,10 +160,9 @@ describe('InstanceListStore', () => {
    * also silently gone, each with a real, silently-broken consumer (WS13
    * hardened-denial banner, context-evidence panel, FAST badge, remote-node
    * badge/grouping). This test enumerates every field main can send over the
-   * wire (`Instance` in `instance.types.ts`) except two that are deliberately
-   * NOT wire-carried by design — `isRenamed` (no renderer reads it) and
-   * `pendingYoloMode` (sourced from `desiredRuntime` instead, per the comment
-   * at this file's `handleRestartResponse`/yolo-toggle site) — and fails if a
+   * wire (`Instance` in `instance.types.ts`) except `pendingYoloMode`, which is
+   * sourced from `desiredRuntime` instead, per the comment at the yolo-toggle
+   * site. This fails if a
    * future field is added to the wire type but not wired into
    * `deserializeInstance()`, instead of passing silently the way this bug did.
    *
@@ -173,6 +173,7 @@ describe('InstanceListStore', () => {
     const fixture: Record<string, unknown> = {
       id: 'instance-complete',
       displayName: 'Complete instance',
+      isRenamed: true,
       createdAt: 111,
       historyThreadId: 'thread-complete',
       contextEvidence: { mode: 'shadow', conversationId: 'conv-1', captureFailureCount: 0 },
@@ -212,6 +213,7 @@ describe('InstanceListStore', () => {
       runtimeSummary: { kind: 'local' },
       outputBuffer: [],
       restoreMode: 'native-resume',
+      retainedPrompts: [{ id: 'opening', timestamp: 1, type: 'user', content: 'Original task' }],
       diffStats: { totalAdded: 1, totalDeleted: 0, files: {} },
       executionLocation: { type: 'remote', nodeId: 'node-1' },
       metadata: { key: 'value' },
@@ -221,7 +223,7 @@ describe('InstanceListStore', () => {
     };
 
     // Deliberately NOT wire-carried by design — excluded from this check.
-    const intentionallyExcluded = new Set(['isRenamed', 'pendingYoloMode']);
+    const intentionallyExcluded = new Set(['pendingYoloMode']);
 
     const instance = store.deserializeInstance(fixture) as unknown as Record<string, unknown>;
 
@@ -368,6 +370,35 @@ describe('InstanceListStore', () => {
     });
 
     expect(instance.activityState).toBe('blocked');
+  });
+
+  it.runIf(!INTERACTIVE_LAUNCH_MODE_AVAILABLE)('recreates a failed interactive session as orchestrated when its folder changes', async () => {
+    const ipcWithTerminate = ipc as typeof ipc & { terminateInstance: ReturnType<typeof vi.fn> };
+    ipcWithTerminate.terminateInstance = vi.fn().mockResolvedValue({ success: true });
+    stateService.addInstance(store.deserializeInstance({
+      id: 'failed-interactive',
+      displayName: 'Failed interactive',
+      createdAt: 1,
+      historyThreadId: 'thread-failed-interactive',
+      parentId: null,
+      childrenIds: [],
+      status: 'error',
+      lastActivity: 2,
+      sessionId: 'session-failed-interactive',
+      workingDirectory: '/tmp/old-project',
+      yoloMode: false,
+      launchMode: 'interactive',
+      provider: 'claude',
+      outputBuffer: [],
+    }));
+
+    await store.setWorkingDirectory('failed-interactive', '/tmp/project');
+
+    expect(ipcWithTerminate.terminateInstance).toHaveBeenCalledWith('failed-interactive', true);
+    expect(ipc.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      workingDirectory: '/tmp/project',
+      launchMode: 'orchestrated',
+    }));
   });
 
   it('never auto-selects instances arriving via passive instance:created events', () => {

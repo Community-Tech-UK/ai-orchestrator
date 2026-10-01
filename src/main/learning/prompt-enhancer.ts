@@ -241,7 +241,7 @@ export class PromptEnhancer extends EventEmitter {
     return isLong && !hasSteps && !hasConstraints;
   }
 
-  private applyStructureImprovement(ctx: EnhancementContext): EnhancementResult | null {
+  private applyStructureImprovement(_ctx: EnhancementContext): EnhancementResult | null {
     // Suggest a structured approach
     const insertedText =
       '\n\nPlease approach this task systematically:\n1. First understand the requirements\n2. Then explore the relevant code\n3. Finally implement the changes';

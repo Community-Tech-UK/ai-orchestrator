@@ -16,7 +16,6 @@ import {
   tabForSetting,
   type SettingsSearchEntry,
 } from './settings-search-catalog';
-import { SETTINGS_METADATA } from './settings.types';
 import type { SettingMetadata } from './settings-metadata.types';
 
 function meta(over: { key: string } & Partial<Omit<SettingMetadata, 'key'>>): SettingMetadata {

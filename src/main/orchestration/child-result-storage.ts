@@ -18,7 +18,6 @@ import { getArtifactAttributionStore } from '../session/artifact-attribution-sto
 const logger = getLogger('ChildResultStorage');
 import type {
   ChildResult,
-  ChildResultSummary,
   ChildArtifact,
   ArtifactType,
   ArtifactSeverity,

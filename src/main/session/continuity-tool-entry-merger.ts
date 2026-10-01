@@ -119,7 +119,7 @@ export class ContinuityToolEntryMerger {
 
   /** Drop every scope belonging to an instance (`<instanceId>` or `<instanceId>:<generation>`). */
   forget(instanceId: string): void {
-    for (const scope of [...this.byScope.keys()]) {
+    for (const scope of this.byScope.keys()) {
       if (scope === instanceId || scope.startsWith(`${instanceId}:`)) this.byScope.delete(scope);
     }
   }

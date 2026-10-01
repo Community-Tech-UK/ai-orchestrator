@@ -29,7 +29,7 @@ export class ReadOnlyValidator implements BashValidatorSubmodule {
     }
 
     for (const seg of parsed.segments) {
-      if (seg.redirects.some(r => /^>/.test(r.trim()))) {
+      if (seg.redirects.some(r => r.trim().startsWith('>'))) {
         return { action: 'block', reason: 'Write redirection blocked in read-only mode', submodule: this.name };
       }
 

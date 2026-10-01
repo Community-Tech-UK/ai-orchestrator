@@ -836,7 +836,7 @@ export class PermissionManager extends EventEmitter {
 
   private getHomeDir(): string | null {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports -- lazy electron load; this module must stay importable outside the Electron main process
       const { app } = require('electron');
       return app.getPath('home');
     } catch {

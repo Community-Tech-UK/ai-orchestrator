@@ -34,6 +34,7 @@ import { installShutdownSignalProbes } from './app/shutdown-forensics';
 import { createInitializationSteps } from './app/initialization-steps';
 import { createStatelessExecProviderPredicate } from './app/stateless-exec-provider';
 import { resolveHarnessUserDataPath } from './app/user-data-path';
+import { getStartupSmokeDirectory, STARTUP_SMOKE_READY_MARKER } from './app/startup-smoke-markers';
 import { shutdownTracer } from './observability/otel-setup';
 import { shutdownMetrics } from './observability/otel-metrics';
 import { flushLifecycleTraces } from './observability/lifecycle-trace';
@@ -202,13 +203,10 @@ class HarnessApp {
     this.contextWorkerClient.signalAppReady();
 
     logger.info('Harness initialized');
-    if (
-      app.isPackaged
-      && process.env['AIO_STARTUP_SMOKE'] === '1'
-      && process.env['AIO_STARTUP_SMOKE_USER_DATA_PATH']
-    ) {
+    const startupSmokeDirectory = getStartupSmokeDirectory({ isPackaged: app.isPackaged, env: process.env });
+    if (startupSmokeDirectory) {
       fs.writeFileSync(
-        path.join(process.env['AIO_STARTUP_SMOKE_USER_DATA_PATH'], 'startup-smoke-ready'),
+        path.join(startupSmokeDirectory, STARTUP_SMOKE_READY_MARKER),
         'Harness initialized\n',
         'utf8',
       );

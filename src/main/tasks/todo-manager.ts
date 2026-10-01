@@ -17,7 +17,6 @@ import {
   sortTodos,
   filterOldCompletedTodos,
   parseTodoInput,
-  ParsedTodoInput,
 } from '../../shared/types/todo.types';
 
 export class TodoManager extends EventEmitter {

@@ -114,7 +114,7 @@ export class ConversationLedgerStore {
     const id = existing?.id ?? input.id ?? randomUUID();
     const createdAt = existing?.createdAt ?? input.createdAt ?? now;
     const updatedAt = input.updatedAt ?? now;
-    const metadata = { ...(existing?.metadata ?? {}), ...(input.metadata ?? {}) };
+    const metadata = { ...existing?.metadata, ...input.metadata };
 
     this.db.prepare(`
       INSERT INTO conversation_threads (

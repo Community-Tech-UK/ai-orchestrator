@@ -56,16 +56,16 @@ export function defaultLoopPhase4Config(): LoopPhase4Config {
 export function normalizeLoopPhase4Config(input?: LoopPhase4ConfigInput | null): LoopPhase4Config {
   const defaults = defaultLoopPhase4Config();
   return {
-    commitRatchet: { ...defaults.commitRatchet, ...(input?.commitRatchet ?? {}) },
+    commitRatchet: { ...defaults.commitRatchet, ...input?.commitRatchet },
     freshSessionPerIteration: {
       ...defaults.freshSessionPerIteration,
-      ...(input?.freshSessionPerIteration ?? {}),
+      ...input?.freshSessionPerIteration,
     },
     subagentContracts: {
       ...defaults.subagentContracts,
-      ...(input?.subagentContracts ?? {}),
+      ...input?.subagentContracts,
     },
-    toolRwLocks: { ...defaults.toolRwLocks, ...(input?.toolRwLocks ?? {}) },
+    toolRwLocks: { ...defaults.toolRwLocks, ...input?.toolRwLocks },
   };
 }
 

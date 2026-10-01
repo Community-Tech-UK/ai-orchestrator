@@ -503,7 +503,7 @@ describe('LLM provider request sanitization', () => {
     );
 
     const anthropicCall = fetchMock.mock.calls.find(([url]) => url === 'https://api.anthropic.com/v1/messages');
-    const body = JSON.parse((anthropicCall?.[1] as RequestInit).body as string);
+    const body = JSON.parse((anthropicCall?.[1] as RequestInit | undefined)?.body as string);
     expect(body.system).toBe('sys prompt \uD83D\uDE00 zerowidth');
     expect(body.messages).toEqual([
       { role: 'user', content: 'user prompt \uD83D\uDE00 zerowidth' },
@@ -523,7 +523,7 @@ describe('LLM provider request sanitization', () => {
     );
 
     const generateCall = fetchMock.mock.calls.find(([url]) => url === 'http://ollama.test/api/generate');
-    const body = JSON.parse((generateCall?.[1] as RequestInit).body as string);
+    const body = JSON.parse((generateCall?.[1] as RequestInit | undefined)?.body as string);
     expect(body.prompt).toBe('sys\n\nUser: user \uD83D\uDE00 zerowidth');
   });
 
@@ -542,7 +542,7 @@ describe('LLM provider request sanitization', () => {
     );
 
     const openAiCall = fetchMock.mock.calls.find(([url]) => url === 'https://api.openai.com/v1/chat/completions');
-    const body = JSON.parse((openAiCall?.[1] as RequestInit).body as string);
+    const body = JSON.parse((openAiCall?.[1] as RequestInit | undefined)?.body as string);
     expect(body.messages).toEqual([
       { role: 'system', content: 'sys prompt \uD83D\uDE00 zerowidth' },
       { role: 'user', content: 'user prompt \uD83D\uDE00 zerowidth' },

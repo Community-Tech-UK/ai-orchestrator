@@ -66,7 +66,7 @@ async function walk(
     if (dirent.isDirectory() && SecurityFilter.shouldSkipDirectory(name)) continue;
 
     // Exclude patterns (simple substring match)
-    if (exclude.length > 0 && exclude.some(pat => relativePath.includes(pat))) continue;
+    if (exclude.some(pat => relativePath.includes(pat))) continue;
 
     if (dirent.isDirectory()) {
       await walk(rootPath, fullPath, exclude, entries);

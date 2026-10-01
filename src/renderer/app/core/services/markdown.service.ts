@@ -16,6 +16,10 @@ import DOMPurify from 'dompurify';
 import { detectLinks } from '../../../../shared/utils/link-detection';
 import { formatAssistantTextForDisplay } from '../../../../shared/utils/assistant-text-format';
 import { CLIPBOARD_SERVICE } from './clipboard.service';
+import { codexFollowupExtension, transformTextWithFollowups } from './codex-followup-markdown';
+
+// Register once per module, rather than stacking extensions on every service instance.
+marked.use({ extensions: [codexFollowupExtension] });
 
 const DOUBLE_TILDE_DEL_RE = /^(~~)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))\1(?=[^~]|$)/;
 
@@ -153,10 +157,10 @@ export class MarkdownService {
     // Custom table rendering
     renderer.table = ({ header, rows }: Tokens.Table): string => {
       const headerHtml = header
-        .map((cell) => `<th>${cell.text}</th>`)
+        .map((cell) => `<th>${renderer.parser.parseInline(cell.tokens)}</th>`)
         .join('');
       const bodyHtml = rows
-        .map((row) => `<tr>${row.map((cell) => `<td>${cell.text}</td>`).join('')}</tr>`)
+        .map((row) => `<tr>${row.map((cell) => `<td>${renderer.parser.parseInline(cell.tokens)}</td>`).join('')}</tr>`)
         .join('');
 
       return `
@@ -416,7 +420,8 @@ export class MarkdownService {
     }
 
     // Clean content
-    const cleaned = formatAssistantTextForDisplay(this.stripOrchestrationCommands(content));
+    const cleaned = transformTextWithFollowups(content,
+      (text) => formatAssistantTextForDisplay(this.stripOrchestrationCommands(text)));
 
     // Parse markdown (block-memoized for cheap streaming re-renders)
     const rawHtml = this.renderBlocksToHtml(cleaned);
@@ -436,9 +441,37 @@ export class MarkdownService {
       return '';
     }
 
-    const cleaned = formatAssistantTextForDisplay(this.stripOrchestrationCommands(content));
+    const cleaned = transformTextWithFollowups(content,
+      (text) => formatAssistantTextForDisplay(this.stripOrchestrationCommands(text)));
     const rawHtml = this.renderBlocksToHtml(cleaned);
     return this.sanitizeHtml(rawHtml);
+  }
+
+  /**
+   * Copy a follow-up prompt without submitting another turn or changing drafts.
+   */
+  async handleFollowupClick(button: HTMLButtonElement): Promise<void> {
+    const encoded = button.getAttribute('data-followup-prompt');
+    if (!encoded) return;
+    let prompt: unknown;
+    try {
+      prompt = JSON.parse(encoded);
+    } catch {
+      button.title = 'Invalid follow-up prompt';
+      return;
+    }
+    if (typeof prompt !== 'string' || !prompt.trim()) {
+      button.title = 'Invalid follow-up prompt';
+      return;
+    }
+    const result = await this.clipboard.copyText(prompt, { label: 'follow-up prompt' });
+    if (result.ok) {
+      button.classList.add('copied');
+      button.title = 'Prompt copied. Click to copy again';
+    } else {
+      button.classList.remove('copied');
+      button.title = 'Could not copy prompt. Click to retry';
+    }
   }
 
   /**

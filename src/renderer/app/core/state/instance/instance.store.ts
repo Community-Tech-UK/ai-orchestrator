@@ -41,6 +41,7 @@ import {
   isTerminalStatus,
 } from './instance-messaging-queue-utils';
 import { withStatusTimeline } from './instance-status-timeline';
+import { withAutomationRevealed } from './instance-automation-metadata';
 import { RespawnWatchdog } from './instance-respawn-watchdog';
 
 @Injectable({ providedIn: 'root' })
@@ -323,9 +324,12 @@ export class InstanceStore implements OnDestroy {
             activityState: update.activityState ?? inst.activityState,
             contextUsage: update.contextUsage || inst.contextUsage,
             lastActivity: Date.now(),
-            metadata: newStatus
-              ? withStatusTimeline(inst.metadata, newStatus, Date.now())
-              : inst.metadata,
+            metadata: withAutomationRevealed(
+              newStatus
+                ? withStatusTimeline(inst.metadata, newStatus, Date.now())
+                : inst.metadata,
+              update.automationRevealed,
+            ),
           diffStats:
             update.diffStats !== undefined ? update.diffStats ?? undefined : inst.diffStats,
           // currentModel is populated by Phase 2 of createInstance (and any
@@ -441,9 +445,12 @@ export class InstanceStore implements OnDestroy {
             activityState: update.activityState ?? instance.activityState,
             contextUsage: update.contextUsage || instance.contextUsage,
             lastActivity: timestamp,
-            metadata: update.status
-              ? withStatusTimeline(instance.metadata, status, timestamp)
-              : instance.metadata,
+            metadata: withAutomationRevealed(
+              update.status
+                ? withStatusTimeline(instance.metadata, status, timestamp)
+                : instance.metadata,
+              update.automationRevealed,
+            ),
             diffStats:
               update.diffStats !== undefined ? update.diffStats ?? undefined : instance.diffStats,
             // Same Phase 2 propagation rationale as in applyUpdate above.

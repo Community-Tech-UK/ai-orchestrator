@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ResourceGovernor } from './resource-governor';
+import type { GovernorDependencies, ResourceGovernorConfig } from './resource-governor';
 import { _resetReclaimHoldsForTesting, holdFromReclaim } from './reclaim-holds';
 import type { MemoryPressureLevel } from '../memory/memory-monitor';
+
+/** Test-only view of the governor's private dependency bag. */
+type GovernorInternals = { deps: GovernorDependencies };
+
+/** The mocks below intentionally implement only the slice of each dependency the governor touches. */
+const asDeps = (deps: unknown): Partial<GovernorDependencies> => deps as Partial<GovernorDependencies>;
 
 describe('ResourceGovernor', () => {
   let governor: ResourceGovernor;
@@ -36,7 +43,7 @@ describe('ResourceGovernor', () => {
     mockInstanceManager.getInstanceCount.mockReturnValue(3);
     mockInstanceManager.getIdleInstances.mockReturnValue([]);
 
-    governor = new ResourceGovernor(mockDeps as any);
+    governor = new ResourceGovernor(asDeps(mockDeps));
   });
 
   // ---------------------------------------------------------------------------
@@ -54,7 +61,7 @@ describe('ResourceGovernor', () => {
 
   it('should allow creation at warning pressure', () => {
     mockDeps.getMemoryMonitor().getPressureLevel.mockReturnValue('warning');
-    governor = new ResourceGovernor(mockDeps as any);
+    governor = new ResourceGovernor(asDeps(mockDeps));
     expect(governor.isCreationAllowed()).toBe(true);
     expect(governor.getCreationBlockReason()).toBeNull();
   });
@@ -70,22 +77,43 @@ describe('ResourceGovernor', () => {
 
   it('should allow creation at critical pressure', () => {
     mockDeps.getMemoryMonitor().getPressureLevel.mockReturnValue('critical');
-    governor = new ResourceGovernor(mockDeps as any);
+    governor = new ResourceGovernor(asDeps(mockDeps));
+    expect(governor.isCreationAllowed()).toBe(true);
+    expect(governor.getCreationBlockReason()).toBeNull();
+  });
+
+  it.each([50, 51, 500])('does not impose a hidden default cap with %i retained sessions', (count) => {
+    mockInstanceManager.getInstanceCount.mockReturnValue(count);
+    expect(governor.isCreationAllowed()).toBe(true);
+    expect(governor.getCreationBlockReason()).toBeNull();
+  });
+
+  it('allows creation below an explicitly configured cap', () => {
+    mockInstanceManager.getInstanceCount.mockReturnValue(49);
+    governor = new ResourceGovernor(asDeps(mockDeps), { maxTotalInstances: 50 });
     expect(governor.isCreationAllowed()).toBe(true);
     expect(governor.getCreationBlockReason()).toBeNull();
   });
 
   it('should block creation when instance count reaches maxTotalInstances', () => {
     mockInstanceManager.getInstanceCount.mockReturnValue(50);
-    governor = new ResourceGovernor(mockDeps as any);
+    governor = new ResourceGovernor(asDeps(mockDeps), { maxTotalInstances: 50 });
     expect(governor.isCreationAllowed()).toBe(false);
     expect(governor.getCreationBlockReason()).toBe('instance-limit');
   });
 
   it('should treat maxTotalInstances=0 as unlimited', () => {
     mockInstanceManager.getInstanceCount.mockReturnValue(50);
-    governor = new ResourceGovernor(mockDeps as any, { maxTotalInstances: 0 });
+    governor = new ResourceGovernor(asDeps(mockDeps), { maxTotalInstances: 0 });
     expect(governor.isCreationAllowed()).toBe(true);
+    expect(governor.getCreationBlockReason()).toBeNull();
+  });
+
+  it('applies and removes an explicitly configured cap without restarting', () => {
+    mockInstanceManager.getInstanceCount.mockReturnValue(50);
+    governor.configure({ maxTotalInstances: 50 });
+    expect(governor.getCreationBlockReason()).toBe('instance-limit');
+    governor.configure({ maxTotalInstances: 0 });
     expect(governor.getCreationBlockReason()).toBeNull();
   });
 
@@ -102,10 +130,10 @@ describe('ResourceGovernor', () => {
       getPressureLevel: vi.fn(() => 'normal' as const),
     };
 
-    const g = new ResourceGovernor({
+    const g = new ResourceGovernor(asDeps({
       ...mockDeps,
       getMemoryMonitor: () => capturingMonitor,
-    } as any);
+    }));
     g.start();
 
     const emitted: unknown[] = [];
@@ -154,7 +182,7 @@ describe('ResourceGovernor', () => {
       getPressureLevel: vi.fn(() => 'normal' as const),
     };
 
-    const g = new ResourceGovernor({
+    const g = new ResourceGovernor(asDeps({
       getMemoryMonitor: () => capturingMonitor,
       getInstanceManager: () => ({
         on: vi.fn(),
@@ -165,7 +193,7 @@ describe('ResourceGovernor', () => {
         emitSystemMessage,
       }),
       getLogger: () => mockLogger,
-    } as any, config as any);
+    }), config as unknown as Partial<ResourceGovernorConfig>);
 
     const terminatedEvents: unknown[] = [];
     g.on('instances:terminated', (data) => terminatedEvents.push(data));
@@ -184,7 +212,7 @@ describe('ResourceGovernor', () => {
     delete process.env['HARNESS_HEAP_SNAPSHOT_ON_CRITICAL'];
 
     const h = makeCriticalHarness([]);
-    (h.g as any).deps.getDiagnosticsDir = getDiagnosticsDir;
+    (h.g as unknown as GovernorInternals).deps.getDiagnosticsDir = getDiagnosticsDir;
     h.fireCritical();
 
     // Snapshotting pauses the isolate for seconds — it must never fire on its own.
@@ -195,7 +223,7 @@ describe('ResourceGovernor', () => {
     const h = makeCriticalHarness([]);
     h.fireCritical();
     // Reaches into the same monitor the governor holds.
-    expect((h.g as any).deps.getMemoryMonitor().requestGC).toHaveBeenCalled();
+    expect((h.g as unknown as GovernorInternals).deps.getMemoryMonitor().requestGC).toHaveBeenCalled();
   });
 
   it('queries idle instances using the configured threshold, never 0', () => {
@@ -266,7 +294,7 @@ describe('ResourceGovernor', () => {
     await Promise.resolve();
 
     expect(h.terminateInstance.mock.calls.map((c) => c[0])).toEqual(['oldest', 'older']);
-    expect((h.terminatedEvents[0] as any).count).toBe(2);
+    expect((h.terminatedEvents[0] as { count: number }).count).toBe(2);
   });
 
   it('reclaims unheld instances before ones a coordinator holds, even when the held one is older', async () => {
@@ -326,10 +354,10 @@ describe('ResourceGovernor', () => {
       getPressureLevel: vi.fn(() => 'normal' as const),
     };
 
-    const g = new ResourceGovernor({
+    const g = new ResourceGovernor(asDeps({
       ...mockDeps,
       getMemoryMonitor: () => capturingMonitor,
-    } as any);
+    }));
     g.start();
 
     capturedHandlers['warning'][0]({ heapUsedMB: 1100, heapTotalMB: 2048, externalMB: 0, rssMB: 0, percentUsed: 54 });
@@ -357,10 +385,10 @@ describe('ResourceGovernor', () => {
       requestGC: vi.fn(),
       getPressureLevel: vi.fn(() => 'normal' as const),
     };
-    const g = new ResourceGovernor({
+    const g = new ResourceGovernor(asDeps({
       ...mockDeps,
       getMemoryMonitor: () => capturingMonitor,
-    } as any);
+    }));
     g.start();
     g.stop();
     expect(capturingMonitor.off).toHaveBeenCalledWith('warning', expect.any(Function));

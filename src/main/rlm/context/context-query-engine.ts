@@ -9,7 +9,6 @@
 
 import type {
   ContextStore,
-  ContextSection,
   ContextQuery,
   ContextQueryResult,
   RLMSession,
@@ -195,7 +194,6 @@ async function executeSummarize(
     .map((s) => `## ${s.name}\n${s.content}`)
     .join('\n\n---\n\n');
 
-  const tokenEstimator = deps.tokenEstimator || estimateTokens;
   const totalTokens = sections.reduce((sum, s) => sum + s.tokens, 0);
   const targetTokens = Math.ceil(
     totalTokens * deps.config.summaryTargetRatio

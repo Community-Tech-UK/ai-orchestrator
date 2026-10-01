@@ -74,6 +74,20 @@ describe('Mobile steering HTTP boundary', () => {
     const snapshot = await fetch(`${base}/api/snapshot`, { headers: { authorization: `Bearer ${token}` } }).then(r => r.json());
     expect(snapshot.instances[0].queuedMessages).toBeUndefined();
   });
+  it.each([['steer', 'busy'], ['input', 'idle']] as const)(
+    '%s from the phone reveals a hidden automation session to the desktop rail',
+    async (action, status) => {
+      const instance = source.getInstance('a')!;
+      Object.assign(instance, { status, metadata: { automationId: 'a1', automationHidden: true } });
+      const queueInstanceUpdate = vi.fn();
+      Object.assign(source, { queueInstanceUpdate });
+
+      expect((await post(action, { message: 'carry on' })).status).toBe(200);
+
+      expect(instance.metadata).toEqual(expect.objectContaining({ automationRevealed: true }));
+      expect(queueInstanceUpdate).toHaveBeenCalledWith('a', {});
+    },
+  );
   it('keeps normal Send queued during an active turn', async () => {
     expect(await (await post('input', { message: 'later' })).json()).toMatchObject({ ok: true, queued: true });
     expect(source.steerInput).not.toHaveBeenCalled();

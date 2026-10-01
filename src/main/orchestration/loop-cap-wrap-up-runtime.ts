@@ -28,7 +28,7 @@ export function finishCapWrapUpTurn(args: {
   const { state, intent } = args;
   state.capWrapUpIntent = { ...intent, phase: 'turn-complete' };
   state.endEvidence = {
-    ...(state.endEvidence ?? {}),
+    ...state.endEvidence,
     cap: intent.cap,
     capTriggerIteration: intent.triggerIteration,
     ...args.extraEvidence,

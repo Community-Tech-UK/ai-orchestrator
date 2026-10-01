@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ChannelPersistence } from '../channel-persistence';
 import type { ChannelMessageRow } from '../../../shared/types/channels';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 
 // Mock better-sqlite3 prepared statement
 const mockRun = vi.fn();
@@ -10,7 +11,7 @@ const mockPrepare = vi.fn().mockReturnValue({ run: mockRun, get: mockGet, all: m
 
 const mockDb = {
   prepare: mockPrepare,
-} as any;
+} as unknown as SqliteDriver;
 
 const baseMessage: Omit<ChannelMessageRow, 'created_at'> = {
   id: 'msg-1',

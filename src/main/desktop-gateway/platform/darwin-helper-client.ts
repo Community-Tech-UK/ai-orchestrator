@@ -1,6 +1,6 @@
 import { constants as fsConstants } from 'node:fs';
 import { access } from 'node:fs/promises';
-import { join, posix as pathPosix } from 'node:path';
+import { posix as pathPosix } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { app } from 'electron';

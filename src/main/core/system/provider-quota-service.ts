@@ -125,7 +125,7 @@ export class ProviderQuotaService extends EventEmitter {
 
   /** Drop every non-legacy account probe (and its polling) for a provider, before re-registering. */
   unregisterAccountProbes(provider: ProviderId): void {
-    for (const [key, probe] of [...this.probes]) {
+    for (const [key, probe] of this.probes) {
       if (probe.provider === provider && probe.accountProfileId && probe.accountProfileId !== 'legacy') {
         this.probes.delete(key);
         this.stopPolling(provider, probe.accountProfileId);
@@ -424,10 +424,10 @@ export class ProviderQuotaService extends EventEmitter {
       if (prev !== undefined && w.used < prev) {
         // Window reset — clear all alert keys for this (provider/profile, window).
         const prefix = `${quotaKey}:${w.id}:`;
-        for (const k of [...this.alertedKeys]) {
+        for (const k of this.alertedKeys) {
           if (k.startsWith(prefix)) this.alertedKeys.delete(k);
         }
-        for (const k of [...this.pacingAlertedKeys]) {
+        for (const k of this.pacingAlertedKeys) {
           if (k.startsWith(prefix)) this.pacingAlertedKeys.delete(k);
         }
       }

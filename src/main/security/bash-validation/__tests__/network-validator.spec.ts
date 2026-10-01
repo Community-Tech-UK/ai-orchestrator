@@ -1,13 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { NetworkValidator } from '../validators/network-validator';
 import { CommandParser } from '../command-parser';
-import type { ValidationContext } from '../types';
 
 const validator = new NetworkValidator();
 const parser = new CommandParser();
-const ctx: ValidationContext = {
-  mode: 'prompt', workspacePath: '/workspace', instanceDepth: 0, yoloMode: false, instanceId: 'test',
-};
 
 function check(cmd: string) {
   return validator.validate(cmd, parser.parse(cmd));

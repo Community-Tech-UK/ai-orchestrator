@@ -6,6 +6,26 @@ import type { LoopState } from '../../shared/types/loop.types';
 import type { LoopCheckpoint } from '../orchestration/loop-checkpoint';
 
 describe('createThinClientCommandExecutor', () => {
+  it.each(['instance:send-input', 'instance:wake'] as const)(
+    '%s reveals a hidden automation session to the desktop rail',
+    async (command) => {
+      const instance = { id: 'inst-1', metadata: { automationId: 'a1', automationHidden: true } };
+      const queueInstanceUpdate = vi.fn();
+      const instanceManager = {
+        getInstance: vi.fn(() => instance),
+        sendInput: vi.fn(async () => undefined),
+        wakeInstance: vi.fn(async () => undefined),
+        queueInstanceUpdate,
+      };
+      const execute = createThinClientCommandExecutor({ instanceManager } as never);
+
+      await execute(command, { ipcAuthToken: 'secret', instanceId: 'inst-1', message: 'carry on' });
+
+      expect(instance.metadata).toEqual(expect.objectContaining({ automationRevealed: true }));
+      expect(queueInstanceUpdate).toHaveBeenCalledWith('inst-1', {});
+    },
+  );
+
   it('implements the instance remote-control command subset', async () => {
     const instanceManager = {
       getAllInstancesForIpc: vi.fn(() => [{ id: 'inst-1' }]),

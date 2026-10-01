@@ -301,8 +301,7 @@ function getActiveSessionActivity(
 }
 
 function createReadonlyMapView<Key, Value>(source: ReadonlyMap<Key, Value>): ReadonlyMap<Key, Value> {
-  let view: ReadonlyMap<Key, Value>;
-  view = new Proxy(source, {
+  const view: ReadonlyMap<Key, Value> = new Proxy(source, {
     get(target, property) {
       if (property === 'set' || property === 'delete' || property === 'clear') {
         return () => {

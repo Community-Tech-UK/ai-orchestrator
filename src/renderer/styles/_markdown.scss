@@ -87,6 +87,31 @@
     }
   }
 
+  // Follow-up prompt controls
+  .codex-followup {
+    font: inherit;
+    text-align: left;
+    white-space: normal;
+    max-width: 100%;
+    padding: 0.35em 0.7em;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+    color: var(--primary-color);
+    cursor: pointer;
+
+    &:hover,
+    &.copied {
+      border-color: var(--primary-color);
+      color: var(--primary-hover);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 2px;
+    }
+  }
+
   // Inline code
   .inline-code {
     font-family: var(--font-mono);

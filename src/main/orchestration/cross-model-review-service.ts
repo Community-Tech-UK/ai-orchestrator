@@ -15,7 +15,6 @@ import { CliDetectionService } from '../cli/cli-detection';
 import { OutputClassifier } from './output-classifier';
 import { ReviewerPool } from './reviewer-pool';
 import {
-  angleForReviewer,
   buildReviewFormatRepairPrompt,
   buildStructuredReviewPrompt,
   buildTieredReviewPrompt,

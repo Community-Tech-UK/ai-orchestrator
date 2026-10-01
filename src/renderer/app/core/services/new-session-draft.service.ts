@@ -6,7 +6,10 @@ import {
   REASONING_EFFORTS,
   type ReasoningEffort,
 } from '../../../../shared/types/provider.types';
-import type { InstanceLaunchMode } from '../../../../shared/types/instance.types';
+import {
+  toAvailableLaunchMode,
+  type InstanceLaunchMode,
+} from '../../../../shared/types/instance.types';
 import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 import { BUILTIN_AGENTS, getDefaultAgent } from '../../../../shared/types/agent.types';
 import {
@@ -722,7 +725,7 @@ export class NewSessionDraftService {
       return null;
     }
     if (launchMode === 'orchestrated' || launchMode === 'interactive') {
-      return launchMode;
+      return toAvailableLaunchMode(launchMode);
     }
     return this.providerState.getLaunchModeForProvider('claude');
   }

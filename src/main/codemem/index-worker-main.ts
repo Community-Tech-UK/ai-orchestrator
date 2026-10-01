@@ -381,7 +381,8 @@ async function runPeriodicDriftScan(): Promise<void> {
   }
   periodicScanRunning = true;
   try {
-    for (const workspaceHash of [...watchedWorkspaces]) {
+    // Snapshot: the set can change across the awaited scans.
+    for (const workspaceHash of Array.from(watchedWorkspaces)) {
       if (shuttingDown) {
         return;
       }

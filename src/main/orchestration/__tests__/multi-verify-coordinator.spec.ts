@@ -197,15 +197,6 @@ function registerDistinctAgentHandler(coordinator: MultiVerifyCoordinator) {
 }
 
 /**
- * Registers a handler that always errors.
- */
-function registerFailingAgentHandler(coordinator: MultiVerifyCoordinator) {
-  coordinator.on('verification:invoke-agent', (payload: InvokeAgentPayload) => {
-    payload.callback('Agent failed with an internal error');
-  });
-}
-
-/**
  * Waits for a coordinator event and resolves with its payload.
  */
 function waitForEvent<T>(coordinator: MultiVerifyCoordinator, event: string): Promise<T> {

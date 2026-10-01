@@ -43,7 +43,7 @@ export function saveInstanceQueue(
   queue: PersistedQueueEntry[],
 ): void {
   const store = getQueueStore();
-  const queues = { ...(store.store.queues ?? {}) };
+  const queues = { ...store.store.queues };
   if (queue.length === 0) {
     delete queues[instanceId];
   } else {

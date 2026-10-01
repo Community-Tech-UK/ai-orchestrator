@@ -1695,7 +1695,7 @@ export class InstanceManager extends EventEmitter {
     };
     if (resolvedCommandName) {
       userMessage.metadata = {
-        ...(userMessage.metadata || {}),
+        ...userMessage.metadata,
         command: {
           name: resolvedCommandName,
           resolved: true,
@@ -1711,7 +1711,7 @@ export class InstanceManager extends EventEmitter {
     }
     if (options?.crossSessionSourceId) {
       userMessage.metadata = {
-        ...(userMessage.metadata || {}),
+        ...userMessage.metadata,
         crossSessionMessage: {
           sourceInstanceId: options.crossSessionSourceId,
           sourceDisplayName: options.crossSessionSourceDisplayName ?? options.crossSessionSourceId,
@@ -1951,7 +1951,7 @@ export class InstanceManager extends EventEmitter {
     // we copied in for context — producing an echo-back result.
     const seededOutputBuffer = parent.outputBuffer.filter((m) => m.type !== 'tool_outcome').slice(-50).map((msg) => ({
       ...msg,
-      metadata: { ...(msg.metadata ?? {}), seededFromParent: true },
+      metadata: { ...msg.metadata, seededFromParent: true },
     }));
 
     const child = await this.createInstance({
@@ -2281,7 +2281,7 @@ export class InstanceManager extends EventEmitter {
       .map((msg) => ({
         ...msg,
         content: stripOrchestrationMarkers(msg.content),
-        metadata: { ...(msg.metadata ?? {}), seededFromParent: true },
+        metadata: { ...msg.metadata, seededFromParent: true },
       }))
       .filter((msg) => msg.content.length > 0);
 

@@ -49,7 +49,7 @@ import type {
   MemoryR1Stats,
   MemoryR1Snapshot
 } from '../../shared/types/memory-r1.types';
-import type { DebateResult, ActiveDebate, DebateStats } from '../../shared/types/debate.types';
+import type { ActiveDebate, DebateStats } from '../../shared/types/debate.types';
 import { validatedHandler } from './validated-handler';
 // Training types moved to training-ipc-handler.ts
 

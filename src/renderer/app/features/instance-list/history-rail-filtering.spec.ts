@@ -173,6 +173,13 @@ describe('hidden automation rail filtering', () => {
     expect(isHiddenAutomationInstance(liveRun('waiting_for_input'), false)).toBe(false);
   });
 
+  it('keeps a failed hidden run revealed after the operator restarts it', () => {
+    const failed = { automationHidden: true, automationRevealed: true };
+    for (const status of ['busy', 'idle', 'hibernated'] as const) {
+      expect(isHiddenAutomationInstance(liveRun(status, failed), false)).toBe(false);
+    }
+  });
+
   it('reveals every hidden run when the toggle is on', () => {
     expect(isHiddenAutomationInstance(liveRun('busy'), true)).toBe(false);
   });

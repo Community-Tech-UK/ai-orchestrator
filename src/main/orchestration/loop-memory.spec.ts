@@ -4,7 +4,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -166,7 +166,7 @@ describe('DurableLoopMemoryStore', () => {
       observations: [`Remove ${privateKeyHeader} from the fixture.`],
     });
 
-    const raw = require('node:fs').readFileSync(filePath, 'utf8');
+    const raw = readFileSync(filePath, 'utf8');
     expect(raw).not.toContain(privateKeyHeader);
     expect(raw).toContain('[REDACTED — potential secret]');
     expect(store.surfaceLearnings('/proj/app', 1).join('\n')).not.toContain(privateKeyHeader);

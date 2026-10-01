@@ -25,7 +25,7 @@ import { getSessionMutex } from './session-mutex';
 import { measureAsync } from '../util/slow-operations';
 import { getResumeHintManager } from './resume-hint';
 import { getLastStopSnapshotIfInitialized } from './last-stop-snapshot';
-import { getCanonicalRecoveryKey, type RecoverableSessionSelectionInput } from './recoverable-session-selection';
+import type { RecoverableSessionSelectionInput } from './recoverable-session-selection';
 import { getSafeStorage } from './safe-storage-accessor';
 import { getProjectStoragePaths } from '../storage/project-storage-paths';
 import { SessionAutoSaveCoordinator } from './autosave-coordinator';

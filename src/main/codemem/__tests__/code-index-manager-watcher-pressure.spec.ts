@@ -4,8 +4,13 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import type { CasStore } from '../cas-store';
 
+interface FakeWatcher {
+  close: unknown;
+  emitForTesting(event: string, value?: unknown): void;
+}
+
 const chokidarState = vi.hoisted(() => ({
-  watchers: [] as any[],
+  watchers: [] as FakeWatcher[],
 }));
 
 vi.mock('chokidar', () => ({
@@ -74,7 +79,7 @@ describe('CodeIndexManager watcher pressure relief', () => {
       store: createStoreStub(),
       debounceMs: 30,
       maxNativeWatchFiles: 1,
-    } as any);
+    });
 
     await manager.start(workDir);
 
@@ -89,7 +94,7 @@ describe('CodeIndexManager watcher pressure relief', () => {
       store: createStoreStub(),
       debounceMs: 30,
       maxNativeWatchFiles: 10,
-    } as any);
+    });
 
     await manager.start(workDir);
     expect(chokidarState.watchers).toHaveLength(1);
@@ -104,7 +109,8 @@ describe('CodeIndexManager watcher pressure relief', () => {
     });
 
     const workspaceHash = workspaceHashForPath(path.resolve(workDir));
-    const activeWatcher = (manager as any).watcher.getWatcherForTesting(workspaceHash);
+    const activeWatcher = (manager as unknown as { watcher: { getWatcherForTesting(hash: unknown): unknown } })
+      .watcher.getWatcherForTesting(workspaceHash);
     expect(activeWatcher).toBeDefined();
     expect(activeWatcher).not.toBe(chokidarState.watchers[0]);
 
@@ -117,7 +123,7 @@ describe('CodeIndexManager watcher pressure relief', () => {
       store: createStoreStub(),
       debounceMs: 30,
       maxNativeWatchFiles: 10,
-    } as any);
+    });
 
     await manager.start(workDir);
 

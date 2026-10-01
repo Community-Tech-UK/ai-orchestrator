@@ -10,7 +10,7 @@
 import { ipcMain, type IpcMainInvokeEvent } from 'electron';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
-import type { GRPOConfig, TrainingOutcome, GRPOBatch, TrainingStats } from '../learning/grpo-trainer';
+import type { TrainingOutcome, GRPOBatch, TrainingStats } from '../learning/grpo-trainer';
 import {
   TrainingConfigPayloadSchema,
   TrainingDashboardListPayloadSchema,

@@ -14,6 +14,7 @@ import type {
 import { LIMITS } from '../../../../../shared/constants/limits';
 import { stabilizeThinkingBlocks } from '../../../../../shared/utils/thinking-extractor';
 import { nextMonotonicStreamingContent } from '../../../../../shared/utils/streaming-content';
+import { trimBufferRetainingPrompts } from '../../../../../shared/utils/prompt-retention';
 import { ImageAttachmentService, type ImageAttachmentSink } from '../../../features/instance-detail/image-attachment.service';
 
 function getAccumulatedStreamingContent(message: OutputMessage): string {
@@ -134,16 +135,15 @@ export class InstanceOutputStore implements ImageAttachmentSink {
         // History the user loaded is exempt until releaseLoadedHistory():
         // trimming from the front would delete exactly what they are reading.
         const max = LIMITS.OUTPUT_BUFFER_MAX_SIZE;
-        const trimmed =
-          outputBuffer.length > max && !this.stateService.loadedHistoryInstances.has(instanceId)
-            ? outputBuffer.slice(-max)
-            : outputBuffer;
-
-        newMap.set(instanceId, {
+        const updated = {
           ...instance,
-          outputBuffer: trimmed,
+          outputBuffer,
           lastActivity: Date.now(),
-        });
+        };
+        if (!this.stateService.loadedHistoryInstances.has(instanceId)) {
+          trimBufferRetainingPrompts(updated, max);
+        }
+        newMap.set(instanceId, updated);
       }
 
       return { ...current, instances: newMap };
@@ -221,8 +221,11 @@ export class InstanceOutputStore implements ImageAttachmentSink {
     }
     const dropped = instance.outputBuffer.length - max;
     pinned.delete(instanceId);
+    const updated = { ...instance };
+    trimBufferRetainingPrompts(updated, max);
     this.stateService.updateInstance(instanceId, {
-      outputBuffer: instance.outputBuffer.slice(-max),
+      outputBuffer: updated.outputBuffer,
+      retainedPrompts: updated.retainedPrompts,
     });
     return dropped;
   }

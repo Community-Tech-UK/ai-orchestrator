@@ -25,7 +25,7 @@ const SCAN_DIRS = ['src/main', 'src/renderer'];
 // Matches a quoted concrete Claude model id, e.g. 'claude-3-sonnet',
 // "claude-opus-4-7", `claude-sonnet-4.6`. Bare prefix checks like 'claude-3'
 // or 'claude-' do NOT match (they require a family + separator).
-const CONCRETE_CLAUDE_ID = /['"`]claude-(?:3|opus|sonnet|haiku)[-.][\w.\-]*['"`]/;
+const CONCRETE_CLAUDE_ID = /['"`]claude-(?:3|opus|sonnet|haiku)[-.][\w.-]*['"`]/;
 
 // Files that legitimately contain raw model ids (data tables, not app logic).
 const ALLOWLIST = new Set<string>([

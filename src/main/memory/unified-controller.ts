@@ -396,7 +396,7 @@ export class UnifiedMemoryController extends EventEmitter {
         results.longTerm = filteredEntries.map((e) =>
           stripMemoryTags(e.content)
         );
-      } catch (_error) {
+      } catch {
         // Fallback to direct Memory-R1 if hybrid fails
         try {
           const entries = await this.memoryR1.retrieve(query, taskId);

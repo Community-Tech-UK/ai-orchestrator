@@ -81,6 +81,8 @@ export interface StateUpdate {
   /** Claude/Codex account-pool profile and how it was chosen; undefined preserves. */
   accountProfileId?: string;
   accountRoutingSource?: AccountRouteSource;
+  /** Sticky: keep this hidden automation's session in the rail. undefined preserves. */
+  automationRevealed?: boolean;
 }
 
 type FlushCallback = (updates: StateUpdate[]) => void;
@@ -137,6 +139,7 @@ export class UpdateBatcherService {
       computerUseMode: update.computerUseMode !== undefined
         ? update.computerUseMode
         : existing?.computerUseMode,
+      automationRevealed: update.automationRevealed ?? existing?.automationRevealed,
     });
   }
 

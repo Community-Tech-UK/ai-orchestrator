@@ -346,7 +346,7 @@ export class RemoteConfigManager {
         if (result.config) {
           return result;
         }
-      } catch (error) {
+      } catch {
         // Try next path
         continue;
       }
@@ -413,8 +413,8 @@ export class RemoteConfigManager {
           },
           cached: false,
         };
-      } catch (error: any) {
-        if (error.code === 'NOT_MODIFIED') {
+      } catch (error: unknown) {
+        if ((error as { code?: string }).code === 'NOT_MODIFIED') {
           const cached = this.cache.get(cacheKey);
           if (cached) {
             return {
@@ -424,7 +424,7 @@ export class RemoteConfigManager {
             };
           }
         }
-        lastError = error;
+        lastError = error as Error;
 
         // Wait before retry (exponential backoff)
         if (attempt < opts.maxRetries!) {

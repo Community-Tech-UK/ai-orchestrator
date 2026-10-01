@@ -63,7 +63,7 @@ export class InternalOrchestratorConversationAdapter implements NativeConversati
         scope: 'chat',
         operatorThreadKind: 'chat',
         ...(chatId ? { chatId } : {}),
-        ...(request.metadata ?? {}),
+        ...request.metadata,
       },
     };
   }

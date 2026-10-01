@@ -174,7 +174,8 @@ function hiddenAutomationNeedsVisibility(summary: ArchiveInstanceSummary): boole
   return Boolean(
     summary.metadata?.['automationId']
     && summary.metadata?.['automationHidden'] === true
-    && summary.metadata?.['automationRunSucceeded'] !== true,
+    && (summary.metadata?.['automationRunSucceeded'] !== true
+      || summary.metadata?.['automationRevealed'] === true),
   );
 }
 

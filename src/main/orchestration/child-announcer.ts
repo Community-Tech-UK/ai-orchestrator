@@ -116,7 +116,8 @@ export class ChildAnnouncer extends EventEmitter {
    * Immediately flush all pending batches (e.g., during shutdown).
    */
   flushAll(): void {
-    for (const parentId of [...this.pending.keys()]) {
+    // Snapshot: flush() deletes entries and emitBatch listeners may enqueue new ones.
+    for (const parentId of Array.from(this.pending.keys())) {
       this.flush(parentId);
     }
   }

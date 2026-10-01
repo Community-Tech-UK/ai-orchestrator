@@ -30,7 +30,8 @@ class FakeClient {
   }
 
   emit(method: AppServerNotification['method'], params: Record<string, unknown>): void {
-    for (const subscriber of [...this.subscribers]) subscriber({ method, params });
+    // Snapshot: a subscriber may unsubscribe while we emit.
+    for (const subscriber of Array.from(this.subscribers)) subscriber({ method, params });
   }
 
   isRunning(): boolean { return true; }

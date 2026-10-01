@@ -232,4 +232,30 @@ describe('InstanceStateManager', () => {
     state.destroy();
     vi.useRealTimers();
   });
+
+  it('carries the live automationRevealed stamp on every broadcast once set', () => {
+    vi.useFakeTimers();
+    const state = new InstanceStateManager();
+    const instance = makeInstance({ metadata: { automationHidden: true } });
+    state.setInstance(instance);
+    const batches: Array<{ updates: Array<{ automationRevealed?: boolean }> }> = [];
+    state.on('batch-update', (batch) => batches.push(batch));
+
+    state.queueUpdate('instance-1', 'busy');
+    vi.advanceTimersByTime(1_000);
+    expect(batches.at(-1)?.updates[0]?.automationRevealed).toBeUndefined();
+
+    instance.metadata = { ...instance.metadata, automationRevealed: true };
+    state.queueUpdate('instance-1', 'error');
+    vi.advanceTimersByTime(1_000);
+    expect(batches.at(-1)?.updates[0]?.automationRevealed).toBe(true);
+
+    // Restarting the session to carry on must not drop it.
+    state.queueUpdate('instance-1', 'busy');
+    vi.advanceTimersByTime(1_000);
+    expect(batches.at(-1)?.updates[0]?.automationRevealed).toBe(true);
+
+    state.destroy();
+    vi.useRealTimers();
+  });
 });

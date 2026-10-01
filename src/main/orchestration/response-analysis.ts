@@ -6,7 +6,18 @@
  * collected AgentResponse set (agreement clustering, disagreement detection,
  * ranking, outlier detection).
  */
-import type { AgentResponse } from '../../shared/types/verification.types';
+import type {
+  AgentResponse,
+  AgreementPoint,
+  DisagreementPoint,
+  ExtractedKeyPoint,
+  ResponseRanking,
+} from '../../shared/types/verification.types';
+
+/** Ranking produced by `rankResponses`; only scores completeness and accuracy. */
+export interface ScoredResponseRanking extends Omit<ResponseRanking, 'criteria'> {
+  criteria: Pick<ResponseRanking['criteria'], 'completeness' | 'accuracy'>;
+}
 
 export function pointSimilarity(left: string, right: string): number {
   const words = (value: string) => new Set(value.toLowerCase().match(/[a-z0-9]+/g) ?? []);
@@ -20,8 +31,8 @@ export function pointSimilarity(left: string, right: string): number {
 /**
  * Find agreement points across responses
  */
-export function findAgreements(responses: AgentResponse[]): any[] {
-  const clusters: Array<{ point: any; agents: string[]; confidences: number[] }> = [];
+export function findAgreements(responses: AgentResponse[]): AgreementPoint[] {
+  const clusters: Array<{ point: ExtractedKeyPoint; agents: string[]; confidences: number[] }> = [];
 
   for (const response of responses) {
     for (const point of response.keyPoints) {
@@ -51,7 +62,7 @@ export function findAgreements(responses: AgentResponse[]): any[] {
 /**
  * Find disagreement points
  */
-export function findDisagreements(responses: AgentResponse[]): any[] {
+export function findDisagreements(responses: AgentResponse[]): DisagreementPoint[] {
   const recommendations = responses.flatMap(r =>
     r.keyPoints
       .filter(p => p.category === 'recommendation')
@@ -79,7 +90,7 @@ export function findDisagreements(responses: AgentResponse[]): any[] {
 /**
  * Rank responses by quality
  */
-export function rankResponses(responses: AgentResponse[]): any[] {
+export function rankResponses(responses: AgentResponse[]): ScoredResponseRanking[] {
   return responses
     .map(r => {
       const completeness = Math.min(1, r.keyPoints.length / 5);
@@ -100,7 +111,7 @@ export function rankResponses(responses: AgentResponse[]): any[] {
 /**
  * Detect outlier agents
  */
-export function detectOutliers(responses: AgentResponse[], agreements: any[]): string[] {
+export function detectOutliers(responses: AgentResponse[], agreements: AgreementPoint[]): string[] {
   const outliers: string[] = [];
   const majorityPoints = new Set(
     agreements.filter(a => a.strength >= 0.5).map(a => a.point.toLowerCase())

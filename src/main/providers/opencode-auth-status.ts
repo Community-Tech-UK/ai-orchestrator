@@ -19,6 +19,7 @@ export interface OpenCodeAuthCounts {
   environmentVariables: number;
 }
 
+// eslint-disable-next-line no-control-regex -- intentional: strips ANSI SGR escape sequences (ESC char)
 const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
 
 export function parseOpenCodeAuthList(output: string): OpenCodeAuthCounts | null {

@@ -10,7 +10,6 @@ import {
   HookContext,
   HookResult,
   HookEvent,
-  ConditionOperator,
 } from '../../shared/types/hook.types';
 import { builtInHookRules } from './built-in-rules';
 import { getLogger } from '../logging/logger';

@@ -40,7 +40,7 @@ export interface ResourceGovernorConfig {
   idleThresholdMs: number;
   /** Request GC when memory warning fires (default: true) */
   gcOnWarning: boolean;
-  /** Hard cap on total running instances (default: 50) */
+  /** Optional independent instance cap (default: 0 = unlimited). */
   maxTotalInstances: number;
   /**
    * Maximum instances reclaimed per critical episode (default: 3). Reclaiming
@@ -58,7 +58,10 @@ const DEFAULT_CONFIG: ResourceGovernorConfig = {
   terminateIdleAtCritical: true,
   idleThresholdMs: 5 * 60 * 1000,
   gcOnWarning: true,
-  maxTotalInstances: 50,
+  // Session records include hibernated conversations. An implicit cap here
+  // blocks manual session creation even when no agent process is running.
+  // Orchestration already enforces the user-configured AppSettings limit.
+  maxTotalInstances: 0,
   maxReclaimsPerCriticalEpisode: 3,
 };
 

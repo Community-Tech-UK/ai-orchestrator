@@ -139,7 +139,12 @@ describe('AutomationRunner thread wakeups', () => {
   } as unknown as AutomationStore;
   const manager = Object.assign(new EventEmitter(), {
     createInstance: vi.fn(),
-  }) as unknown as InstanceManager & { createInstance: ReturnType<typeof vi.fn> };
+    getInstance: vi.fn(),
+    queueInstanceUpdate: vi.fn(),
+  }) as unknown as InstanceManager & {
+    createInstance: ReturnType<typeof vi.fn>;
+    queueInstanceUpdate: ReturnType<typeof vi.fn>;
+  };
   const fireThreadWakeup = vi.fn();
   const threadWakeupFactory = vi.fn();
 
@@ -669,6 +674,8 @@ describe('AutomationRunner thread wakeups', () => {
       expect(metadata['automationHidden']).toBeUndefined();
     });
 
+    let hiddenRunner: AutomationRunner;
+
     async function fireHiddenRun(instanceId: string) {
       const run = newInstanceRun(true);
       const instance = {
@@ -685,9 +692,9 @@ describe('AutomationRunner thread wakeups', () => {
       (manager as unknown as { getInstance: (id: string) => unknown }).getInstance = (id) =>
         id === instanceId ? instance : undefined;
 
-      const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
-      runner.initialize(manager);
-      await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+      hiddenRunner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
+      hiddenRunner.initialize(manager);
+      await hiddenRunner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
       return instance;
     }
 
@@ -711,6 +718,71 @@ describe('AutomationRunner thread wakeups', () => {
       });
 
       expect(instance.metadata['automationRunSucceeded']).toBeUndefined();
+    });
+
+    it('stamps a failed hidden run so the rail keeps it after a restart, and re-broadcasts', async () => {
+      const instance = await fireHiddenRun('i-error');
+
+      manager.emit('instance:event', {
+        instanceId: 'i-error',
+        event: { kind: 'status_changed', status: 'error' },
+      });
+
+      expect(instance.metadata['automationRevealed']).toBe(true);
+      expect(manager.queueInstanceUpdate).toHaveBeenCalledWith('i-error', {});
+    });
+
+    it('stamps a provider-limit reclassified run even though the instance is idle', async () => {
+      const instance = await fireHiddenRun('i-limit');
+      instance.outputBuffer = [];
+      manager.emit('provider:normalized-event', {
+        instanceId: 'i-limit',
+        event: {
+          kind: 'output',
+          messageType: 'assistant',
+          content: "You've hit your session limit · resets 6:30pm (Europe/London)",
+        },
+      });
+
+      manager.emit('instance:event', {
+        instanceId: 'i-limit',
+        event: { kind: 'status_changed', status: 'idle' },
+      });
+
+      expect(store.terminalizeRun).toHaveBeenLastCalledWith(
+        expect.any(String), 'failed', expect.any(String), expect.anything(), expect.anything(),
+      );
+      expect(instance.metadata['automationRunSucceeded']).toBeUndefined();
+      expect(instance.metadata['automationRevealed']).toBe(true);
+      expect(manager.queueInstanceUpdate).toHaveBeenCalledWith('i-limit', {});
+    });
+
+    it('reveals a hidden run whose automation is deleted mid-run', async () => {
+      const instance = await fireHiddenRun('i-orphan');
+
+      hiddenRunner.untrackInstances(['i-orphan']);
+
+      expect(instance.metadata['automationRevealed']).toBe(true);
+      expect(manager.queueInstanceUpdate).toHaveBeenCalledWith('i-orphan', {});
+      // Untracked: a later failure no longer terminalizes the deleted run.
+      vi.mocked(store.terminalizeRun).mockClear();
+      manager.emit('instance:event', {
+        instanceId: 'i-orphan',
+        event: { kind: 'status_changed', status: 'error' },
+      });
+      expect(store.terminalizeRun).not.toHaveBeenCalled();
+    });
+
+    it('does not stamp a cleanly-finished hidden run as failed', async () => {
+      const instance = await fireHiddenRun('i-clean');
+
+      manager.emit('instance:event', {
+        instanceId: 'i-clean',
+        event: { kind: 'status_changed', status: 'idle' },
+      });
+
+      expect(instance.metadata['automationRevealed']).toBeUndefined();
+      expect(manager.queueInstanceUpdate).not.toHaveBeenCalled();
     });
 
     it('leaves a hidden run killed mid-run unstamped', async () => {

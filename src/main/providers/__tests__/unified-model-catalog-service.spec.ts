@@ -1014,6 +1014,19 @@ describe('UnifiedModelCatalogService — FIX 1: models.dev-only entries included
     expect(sonnetEntries[0].provider).toBe('claude');
   });
 
+  it('adds the same id once per models.dev namespace that publishes it', () => {
+    const devEntries: ModelsDevEntry[] = [
+      { id: 'gpt-6.1-sol', provider: 'azure', rate: { input: 5, output: 30 } },
+      { id: 'gpt-6.1-sol', provider: 'github-copilot', rate: { input: 5, output: 30 } },
+      { id: 'gpt-6.1-sol', provider: 'openai', rate: { input: 5, output: 30 } },
+    ];
+    const svc = makeServiceWithMock({}, devEntries);
+
+    expect(svc.getModelsByProvider('azure').map((m) => m.id)).toContain('gpt-6.1-sol');
+    expect(svc.getModelsByProvider('codex').map((m) => m.id)).toContain('gpt-6.1-sol');
+    expect(svc.getModelsByProvider('copilot').map((m) => m.id)).toContain('gpt-6.1-sol');
+  });
+
   it('models.dev-only entries appear in getAllModels()', () => {
     const devEntries: ModelsDevEntry[] = [
       { id: 'only-in-dev-a', provider: 'devprovider', rate: { input: 1, output: 4 } },

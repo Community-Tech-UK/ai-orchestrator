@@ -404,7 +404,7 @@ export class NetworkPolicy extends EventEmitter {
 
       const urlObj = new URL(processedUrl);
       return urlObj.hostname;
-    } catch (error) {
+    } catch {
       // If URL parsing fails, try to extract domain manually
       const match = url.match(/(?:https?:\/\/)?(?:www\.)?([^/:?#]+)/i);
       if (match && match[1]) {

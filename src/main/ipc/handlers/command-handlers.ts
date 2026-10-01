@@ -26,6 +26,7 @@ import {
 } from '@contracts/schemas/instance';
 import { getCommandManager } from '../../commands/command-manager';
 import { emitPluginHook } from '../../plugins/hook-emitter';
+import { revealHiddenAutomationSession } from '../../automations/automation-hidden-outcome';
 import { getContextEngine } from '../../context/context-engine';
 import { isGitRepository } from '../../git/git-probe-service';
 import { InstanceManager } from '../../instance/instance-manager';
@@ -167,6 +168,7 @@ export function registerCommandHandlers(
           workingDirectory,
           timestamp: Date.now(),
         });
+        revealHiddenAutomationSession(instanceManager, validated.instanceId); // operator took it over
 
         // Special handling for /compact command — route through the ContextEngine boundary
         if (executed.execution.type === 'compact') {

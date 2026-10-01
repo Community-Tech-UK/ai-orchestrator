@@ -4,7 +4,6 @@
 
 import {
   TaskExecution,
-  TaskStatus,
   TaskResult,
   TaskProgress,
   TaskError,

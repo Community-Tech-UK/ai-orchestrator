@@ -420,7 +420,7 @@ export class EmbeddingService extends EventEmitter {
    * Uses character n-grams and hash projection for consistent dimensions
    */
   private generateLocalEmbedding(text: string, dimensions: number): number[] {
-    const embedding = new Array(dimensions).fill(0);
+    const embedding = Array.from({ length: dimensions }, () => 0);
 
     // Normalize text
     const normalizedText = text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');

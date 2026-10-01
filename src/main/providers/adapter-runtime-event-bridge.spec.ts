@@ -313,7 +313,7 @@ describe('WS-B10 unknown-event routing', () => {
       rawType: 'output',
       payload: malformed,
     });
-    expect(typeof (mapped?.event as { receivedAt: number }).receivedAt).toBe('number');
+    expect(typeof (mapped?.event as { receivedAt: number } | undefined)?.receivedAt).toBe('number');
   });
 
   it('still silently drops empty-string output (intentional no-op, not unrecognized)', () => {

@@ -13,6 +13,12 @@ import {
   type CodebaseIndexingLaneJob,
 } from './codebase-indexing-lane-protocol';
 import { registerWorkerEventForwarding } from '../instance/context-worker-event-forwarding';
+import { installFatalTrapSignalGuard } from '../app/fatal-trap-signal-guard';
+
+// This utility process loads electron-store (→ when-exit) through the imports
+// above; without the guard a Chromium fatal error here spins forever instead
+// of crashing. The guard also strips listeners registered before it ran.
+installFatalTrapSignalGuard();
 
 type RunJobMessage = Extract<LaneInboundMessage, { type: 'run-job' }> & {
   payload: CodebaseIndexingLaneJob;

@@ -49,7 +49,7 @@ export class UsageTracker {
     const entries = { ...store.get('entries') };
     const key = keyFor(kind, id);
     const previous = entries[key];
-    const contexts = { ...(previous?.contexts ?? {}) };
+    const contexts = { ...previous?.contexts };
     if (context) {
       contexts[context] = (contexts[context] ?? 0) + 1;
     }

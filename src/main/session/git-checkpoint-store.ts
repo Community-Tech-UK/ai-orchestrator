@@ -3,10 +3,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { getLogger } from '../logging/logger';
 import { getProjectStoragePaths } from '../storage/project-storage-paths';
 
-const logger = getLogger('GitCheckpointStore');
 const execFileAsync = promisify(execFile);
 
 export interface GitCheckpointSummary {

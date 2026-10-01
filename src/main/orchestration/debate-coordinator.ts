@@ -13,7 +13,7 @@ import { EventEmitter } from 'events';
 import type {
   ActiveDebate, AgentCritique, ConsensusAnalysis,
   CritiqueSeverity, DebateConfig, DebateContribution,
-  DebateResult, DebateRoundType, DebateSessionRound, DebateStats, DebateStatus,
+  DebateResult, DebateSessionRound, DebateStats,
 } from '../../shared/types/debate.types';
 import { getLogger } from '../logging/logger';
 import {

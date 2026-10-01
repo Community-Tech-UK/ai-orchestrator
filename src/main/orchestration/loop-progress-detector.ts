@@ -409,7 +409,7 @@ export function signalE_errorRepeat(
         for (const h of hashes) exact.add(h);
       } else {
         // intersect
-        for (const h of [...exact]) if (!hashes.has(h)) exact.delete(h);
+        for (const h of exact) if (!hashes.has(h)) exact.delete(h);
       }
     }
     if (exact.size > 0) {

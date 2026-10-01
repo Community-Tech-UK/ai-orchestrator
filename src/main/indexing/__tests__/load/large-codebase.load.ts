@@ -200,7 +200,7 @@ describe('Large Codebase Load Tests', () => {
           const chunks = chunker.chunk(content, lang, filePath);
           totalChunks += chunks.length;
           processedFiles++;
-        } catch (error) {
+        } catch {
           errors++;
         }
       }

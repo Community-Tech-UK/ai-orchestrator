@@ -343,14 +343,13 @@ describe('RLM observability', () => {
 
   it('classifies every discovered section when invalidated before the first attempt', async () => {
     const candidates = semanticCandidates();
-    let repair!: SemanticVectorDeltaRepair;
     const addSection = vi.fn();
     const removeSection = vi.fn();
     const fakeDb = semanticDb(candidates, () => {
       repair.invalidateForReload();
       return candidates;
     });
-    repair = semanticRepair(fakeDb, addSection, removeSection);
+    const repair: SemanticVectorDeltaRepair = semanticRepair(fakeDb, addSection, removeSection);
 
     await expect(repair.repairStore('store')).resolves.toEqual({
       missing: 2, indexed: 0, skipped: 2, failed: 0, retried: 0,
@@ -365,13 +364,12 @@ describe('RLM observability', () => {
 
   it('reclassifies rolled-back success and unattempted work after partial stale invalidation', async () => {
     const candidates = semanticCandidates();
-    let repair!: SemanticVectorDeltaRepair;
     const addSection = vi.fn(async () => {
       repair.invalidateForReload();
       return {};
     });
     const removeSection = vi.fn();
-    repair = semanticRepair(semanticDb(candidates), addSection, removeSection);
+    const repair: SemanticVectorDeltaRepair = semanticRepair(semanticDb(candidates), addSection, removeSection);
 
     await expect(repair.repairStore('store')).resolves.toEqual({
       missing: 2, indexed: 0, skipped: 2, failed: 0, retried: 0,
@@ -386,7 +384,6 @@ describe('RLM observability', () => {
 
   it('reconciles failure plus staleness and does not leak the old failure into retry state', async () => {
     const candidates = semanticCandidates();
-    let repair!: SemanticVectorDeltaRepair;
     const listMissing = vi.fn()
       .mockImplementationOnce(() => candidates)
       .mockImplementationOnce(() => [candidates[0]]);
@@ -396,7 +393,7 @@ describe('RLM observability', () => {
         throw new Error('test-only-stale-failure');
       })
       .mockResolvedValueOnce({});
-    repair = semanticRepair(semanticDb(candidates, listMissing), addSection, vi.fn());
+    const repair: SemanticVectorDeltaRepair = semanticRepair(semanticDb(candidates, listMissing), addSection, vi.fn());
 
     await expect(repair.repairStore('store')).resolves.toEqual({
       missing: 2, indexed: 0, skipped: 1, failed: 1, retried: 0,
@@ -413,7 +410,6 @@ describe('RLM observability', () => {
 
   it('keeps retried as a subset while stale retry work is rolled back and reconciled', async () => {
     const candidates = semanticCandidates();
-    let repair!: SemanticVectorDeltaRepair;
     const listMissing = vi.fn()
       .mockImplementationOnce(() => [candidates[0]])
       .mockImplementationOnce(() => candidates);
@@ -424,7 +420,7 @@ describe('RLM observability', () => {
         return {};
       });
     const removeSection = vi.fn();
-    repair = semanticRepair(semanticDb(candidates, listMissing), addSection, removeSection);
+    const repair: SemanticVectorDeltaRepair = semanticRepair(semanticDb(candidates, listMissing), addSection, removeSection);
 
     await expect(repair.repairStore('store')).resolves.toEqual({
       missing: 1, indexed: 0, skipped: 0, failed: 1, retried: 0,

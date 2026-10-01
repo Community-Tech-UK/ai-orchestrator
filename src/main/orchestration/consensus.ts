@@ -331,7 +331,7 @@ export class ConsensusManager extends EventEmitter {
     // Find winner
     let winner: ConsensusOption | null = null;
     let maxVotes = 0;
-    let totalVotes = votes.length;
+    const totalVotes = votes.length;
 
     for (const [optionId, count] of tally) {
       if (count > maxVotes) {
@@ -418,8 +418,8 @@ export class ConsensusManager extends EventEmitter {
 
   runRankedChoice(proposal: ConsensusProposal, votes: ConsensusVote[]): ConsensusResult {
     const tally = new Map<string, number>();
-    let remainingVotes = [...votes];
-    let eliminatedOptions = new Set<string>();
+    const remainingVotes = [...votes];
+    const eliminatedOptions = new Set<string>();
     let rounds = 0;
     const maxRounds = proposal.options.length - 1;
 

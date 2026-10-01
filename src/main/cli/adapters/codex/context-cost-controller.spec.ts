@@ -603,8 +603,7 @@ describe('CodexContextCostController shared-policy execution adapter', () => {
 
     it('resets the trigger after policy compaction so a later provider compaction is self-managed', async () => {
       const lifecycle: Array<{ phase: 'started' | 'completed'; trigger: 'self-managed' | 'policy' }> = [];
-      let controller: CodexContextCostController;
-      ({ controller } = createController({
+      const { controller }: { controller: CodexContextCostController } = createController({
         getCompactionTarget: () => ({
           threadId: 'thread-fixture',
           start: async () => controller.recordCompactionStarted(),
@@ -612,7 +611,7 @@ describe('CodexContextCostController shared-policy execution adapter', () => {
         onCompactionStateChange: (phase) => {
           lifecycle.push({ phase, trigger: controller.runningCompactionTrigger() });
         },
-      }));
+      });
 
       const policyCompaction = controller.compactContext(50);
       controller.recordCompactionObserved(1_000);

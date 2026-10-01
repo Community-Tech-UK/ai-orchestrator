@@ -305,7 +305,7 @@ export class ClaudeMdLoader extends EventEmitter {
       try {
         const frontmatter = yaml.load(frontmatterMatch[1]) as Record<string, unknown>;
         Object.assign(config, this.normalizeYamlConfig(frontmatter));
-      } catch (error) {
+      } catch {
         // Invalid YAML, ignore frontmatter
       }
 

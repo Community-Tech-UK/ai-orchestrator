@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { parseRouteArgs, runCopilotAccountCli } from './copilot-account-cli';
 import { COPILOT_ACCOUNT_CLI_METHODS } from './copilot-account-cli-contracts';
 import { dispatchCopilotAccountCliRpc } from './orchestrator-tools-rpc-copilot-account';

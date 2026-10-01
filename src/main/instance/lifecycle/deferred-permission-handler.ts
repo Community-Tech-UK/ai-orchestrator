@@ -277,7 +277,7 @@ export class DeferredPermissionHandler {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (adapter as any).config.env = {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ...((adapter as any).config.env || {}),
+        ...(adapter as any).config.env,
         ORCHESTRATOR_DECISION_DIR: this.services.getDecisionDir(),
       };
 

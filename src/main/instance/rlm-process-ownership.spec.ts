@@ -682,14 +682,6 @@ function executionScope(node: ts.Node): ts.Node {
   return current ?? node.getSourceFile();
 }
 
-function sameResolvedSymbol(
-  checker: ts.TypeChecker,
-  left: ts.Symbol | undefined,
-  right: ts.Symbol,
-): boolean {
-  return resolveAliasedSymbol(checker, left) === right;
-}
-
 function initialWriteForDeclaration(declaration: ts.Declaration): SymbolWrite | null {
   if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
     return {

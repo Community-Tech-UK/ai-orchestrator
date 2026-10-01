@@ -13,7 +13,6 @@ import type {
   FailurePattern,
   AvoidanceRule,
   WorkflowVersion,
-  FailureReason,
 } from '../../shared/types/unified-memory.types';
 
 export interface ProceduralStoreConfig {

@@ -170,7 +170,7 @@ export class OperatorRunStore {
   createRun(input: OperatorRunCreateInput): OperatorRunRecord {
     const now = Date.now();
     const id = randomUUID();
-    const budget = validateStructuredJson('budget', OperatorRunBudgetSchema, { ...DEFAULT_BUDGET, ...(input.budget ?? {}) });
+    const budget = validateStructuredJson('budget', OperatorRunBudgetSchema, { ...DEFAULT_BUDGET, ...input.budget });
     const usage = validateStructuredJson('usageJson', OperatorRunUsageSchema, { ...DEFAULT_USAGE });
     const planJson = validateStructuredJson(
       'planJson',

@@ -460,7 +460,7 @@ export class ReactionEngine extends EventEmitter {
       eventType === 'merge.ready' && this.config.enabled && armed &&
       this.isAutoMergeAllowed(state.instanceId)
     ) {
-      reactionConfig = { ...(reactionConfig ?? {}), auto: true, action: 'auto-merge' };
+      reactionConfig = { ...reactionConfig, auto: true, action: 'auto-merge' };
     }
 
     if (!reactionConfig || !reactionConfig.auto) return null;

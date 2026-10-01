@@ -93,7 +93,7 @@ describe('performAutoMerge', () => {
     expect(result.success).toBe(true);
     expect(ctx._emitted.find((e) => e.name === 'reaction:auto-merged')).toBeDefined();
     const audit = ctx._emitted.find((e) => e.name === 'reaction:auto-merge-audit');
-    expect((audit?.payload as { outcome: string }).outcome).toBe('merged');
+    expect((audit?.payload as { outcome: string } | undefined)?.outcome).toBe('merged');
   });
 
   it('does NOT merge when live state regressed (CI now failing)', async () => {
@@ -108,7 +108,7 @@ describe('performAutoMerge', () => {
     expect(result.success).toBe(false);
     expect(ctx.notifyHuman).toHaveBeenCalled();
     const audit = ctx._emitted.find((e) => e.name === 'reaction:auto-merge-audit');
-    expect((audit?.payload as { outcome: string }).outcome).toBe('skipped');
+    expect((audit?.payload as { outcome: string } | undefined)?.outcome).toBe('skipped');
   });
 
   it('aborts (does not merge) when live state cannot be confirmed', async () => {
@@ -121,7 +121,7 @@ describe('performAutoMerge', () => {
     expect(merge).not.toHaveBeenCalled();
     expect(result.success).toBe(false);
     const audit = ctx._emitted.find((e) => e.name === 'reaction:auto-merge-audit');
-    expect((audit?.payload as { outcome: string }).outcome).toBe('skipped');
+    expect((audit?.payload as { outcome: string } | undefined)?.outcome).toBe('skipped');
   });
 
   it('audits a failed merge and notifies a human', async () => {
@@ -134,6 +134,6 @@ describe('performAutoMerge', () => {
     expect(result.success).toBe(false);
     expect(ctx.notifyHuman).toHaveBeenCalled();
     const audit = ctx._emitted.find((e) => e.name === 'reaction:auto-merge-audit');
-    expect((audit?.payload as { outcome: string }).outcome).toBe('failed');
+    expect((audit?.payload as { outcome: string } | undefined)?.outcome).toBe('failed');
   });
 });

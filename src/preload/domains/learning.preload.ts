@@ -1,4 +1,4 @@
-import { IpcRenderer, IpcRendererEvent } from 'electron';
+import { IpcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
 

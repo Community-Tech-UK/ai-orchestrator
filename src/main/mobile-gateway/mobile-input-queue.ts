@@ -234,7 +234,7 @@ export class MobileInputQueue {
   }
 
   clearAll(): void {
-    for (const instanceId of [...this.followUps.keys()]) this.cancelFollowUp(instanceId);
+    for (const instanceId of this.followUps.keys()) this.cancelFollowUp(instanceId);
     this.queues.clear();
     this.draining.clear();
   }

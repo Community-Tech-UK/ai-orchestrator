@@ -81,7 +81,7 @@ export class OperatorProjectStore {
         input.isPinned ? 1 : 0,
         input.lastSeenAt ?? now,
         input.lastAccessedAt ?? null,
-        stringifyJsonObject({ ...(existing?.metadata ?? {}), ...(input.metadata ?? {}) }),
+        stringifyJsonObject({ ...existing?.metadata, ...input.metadata }),
       );
 
       this.db.prepare('DELETE FROM operator_project_aliases WHERE project_id = ?').run(id);

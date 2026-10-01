@@ -1,14 +1,8 @@
 // src/main/security/bash-validation/__tests__/evasion-detector.spec.ts
 import { describe, it, expect } from 'vitest';
 import { EvasionDetector } from '../validators/evasion-detector';
-import { CommandParser } from '../command-parser';
-import type { ValidationContext } from '../types';
 
 const detector = new EvasionDetector();
-const parser = new CommandParser();
-const ctx: ValidationContext = {
-  mode: 'prompt', workspacePath: '/workspace', instanceDepth: 0, yoloMode: false, instanceId: 'test',
-};
 
 function check(cmd: string) {
   return detector.validate(cmd);

@@ -66,7 +66,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     const accountEnv = opts.cliType === 'claude'
       ? resolveClaudeAccountSpawnEnv(opts.options)
       : { env: {}, envRemove: [] };
-    this.childEnv = { ...(opts.options.env ?? {}), ...accountEnv.env };
+    this.childEnv = { ...opts.options.env, ...accountEnv.env };
     this.childEnvRemove = [...accountEnv.envRemove];
     this.gateway = opts.gateway ?? getCliSpawnWorkerGateway();
     this.sessionId = opts.options.sessionId ?? `${opts.cliType}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

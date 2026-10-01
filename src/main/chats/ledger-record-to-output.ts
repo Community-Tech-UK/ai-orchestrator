@@ -19,7 +19,7 @@ export function ledgerRecordToOutputMessage(record: ConversationMessageRecord): 
     type: toOutputMessageType(record, rawMetadata),
     content: record.content,
     metadata: {
-      ...(rawMetadata ?? {}),
+      ...rawMetadata,
       ledgerMessageId: record.id,
       ledgerSequence: record.sequence,
       nativeTurnId: record.nativeTurnId,

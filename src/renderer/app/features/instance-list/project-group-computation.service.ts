@@ -80,6 +80,8 @@ export class ProjectGroupComputationService {
       historyEntriesByParent?: ReadonlyMap<string, readonly ConversationHistoryEntry[]>;
       instanceMap: Map<string, Instance>;
       activityCutoff: number | null;
+      /** The open session. Exempt from the activity window so it never leaves the rail. */
+      selectedId?: string | null;
     }
   ): HierarchicalInstance | null {
     if (this.isSupersededEditSourceWithReplacement(instance, context.instanceMap)) {
@@ -112,6 +114,7 @@ export class ProjectGroupComputationService {
       (context.location === 'local' && (instance.executionLocation === undefined || instance.executionLocation.type === 'local'));
     const activityMatches =
       context.activityCutoff === null ||
+      instance.id === context.selectedId ||
       Math.max(instance.lastActivity, instance.createdAt) >= context.activityCutoff;
     const selfVisible = textMatches && statusMatches && locationMatches && activityMatches;
 

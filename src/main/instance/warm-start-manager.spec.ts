@@ -58,7 +58,6 @@ describe('WarmStartManager', () => {
     });
 
     it('kills an existing warm process before spawning a new one', async () => {
-      const firstAdapter = { id: 'first' };
       let callCount = 0;
       const deps = makeDeps({
         spawnAdapter: vi.fn().mockImplementation(() => {

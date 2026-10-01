@@ -398,7 +398,6 @@ function coherentTransition(input: LocalAiHealthTransition): LocalAiHealthTransi
     return recoveredState
       && transition.current.incidentOpen === false
       && transition.current.consecutiveSuccesses >= 2
-      && probes.length > 0
       && probes.some((probe) => probe.required && probe.ok)
       && requiredHealthy
       ? transition

@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { describe, expect, it, vi } from 'vitest';
 import type { CopilotRouteOutcome } from '../../../shared/types/copilot-account.types';
@@ -225,7 +225,6 @@ describe('Copilot spawn-path bypass detection', () => {
     // `createAdapter(\n  {`, and shelling out made the result depend on which
     // grep is on PATH — the very vacuous-pass hazard the assertion below
     // guards against.
-    const { readdirSync } = require('fs') as typeof import('fs');
     const PATTERNS = [
       'createAdapter({',
       'createCliAdapter(',

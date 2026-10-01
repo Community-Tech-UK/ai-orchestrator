@@ -47,6 +47,8 @@ import { FastPathRetriever } from './orchestration/fast-path-retriever';
 import { OrchestrationMessageFormatter } from './orchestration/orchestration-message-formatter';
 import { evaluateSpawn } from '../orchestration/subagent-spawn-guard';
 import type { InternalInputSource } from '../../shared/types/input-provenance.types';
+import type { ChildInfo } from '../orchestration/orchestration-handler.types';
+import type { OrchestrationResponseAdapter } from './orchestration/orchestration-response-adapter.types';
 import { errorFromIdentity } from '../util/error-utils';
 import {
   routeRole,
@@ -63,7 +65,7 @@ export interface OrchestrationDependencies {
   createChildInstance: (parentId: string, command: SpawnChildCommand, routingDecision: RoutingDecision) => Promise<Instance>;
   sendInput: (instanceId: string, message: string, options?: { internalSource?: InternalInputSource }) => Promise<void>;
   terminateInstance: (instanceId: string, graceful: boolean) => Promise<void>;
-  getAdapter: (id: string) => any;
+  getAdapter: (id: string) => OrchestrationResponseAdapter | undefined;
   recordTaskOutcome: (taskId: string, success: boolean, score: number) => void;
   indexedCodebaseContext?: Pick<IndexedCodebaseContextService, 'buildFastPathResult'>;
 }
@@ -414,7 +416,7 @@ export class InstanceOrchestrationManager {
     // Handle get children requests
     this.orchestration.on(
       'get-children',
-      (parentId: string, callback: (children: any[]) => void) => {
+      (parentId: string, callback: (children: ChildInfo[]) => void) => {
         const parent = this.deps.getInstance(parentId);
         if (!parent) {
           callback([]);
@@ -422,7 +424,7 @@ export class InstanceOrchestrationManager {
         }
 
         const children = parent.childrenIds
-          .map((childId) => {
+          .map((childId): ChildInfo | null => {
             const child = this.deps.getInstance(childId);
             return child
               ? {
@@ -433,7 +435,7 @@ export class InstanceOrchestrationManager {
                 }
               : null;
           })
-          .filter(Boolean);
+          .filter((child): child is ChildInfo => child !== null);
 
         callback(children);
       }
@@ -536,7 +538,7 @@ export class InstanceOrchestrationManager {
           const action = actionMatch ? actionMatch[1] : 'unknown';
           const status = statusMatch ? statusMatch[1] : 'unknown';
 
-          let data: any = {};
+          let data: Record<string, unknown> = {};
           try {
             const jsonMatch = response.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
@@ -567,7 +569,7 @@ export class InstanceOrchestrationManager {
               }
               if (typeof adapter.sendOrchestrationResponse === 'function') {
                 await adapter.sendOrchestrationResponse(response, () => {
-                  const childId = typeof data.childId === 'string' ? data.childId : undefined;
+                  const childId = typeof data['childId'] === 'string' ? data['childId'] : undefined;
                   const pendingMessage: OutputMessage = {
                     id: `orch-pending-${Date.now()}`,
                     timestamp: Date.now(),
@@ -585,7 +587,7 @@ export class InstanceOrchestrationManager {
             } catch (err) {
               logger.error('Failed to inject response to instance', err instanceof Error ? err : undefined, { instanceId });
               const error = err instanceof Error ? err : new Error(String(err));
-              const childId = typeof data.childId === 'string' ? data.childId : undefined;
+              const childId = typeof data['childId'] === 'string' ? data['childId'] : undefined;
               const deliveryError: OutputMessage = {
                 id: `orch-error-${Date.now()}`,
                 timestamp: Date.now(),

@@ -16,11 +16,21 @@ import { EventEmitter } from 'events';
 import * as crypto from 'crypto';
 import { RLMDatabase, getRLMDatabase } from '../persistence/rlm-database';
 import { getLogger } from '../logging/logger';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import { loadHabitTrackerStateFromWorker } from './learning-state-loader';
 import { loadHabitTrackerStateSnapshot } from './learning-state-snapshots';
 import type { HabitTrackerStateSnapshot } from './learning-state.types';
 
 const logger = getLogger('HabitTracker');
+
+/**
+ * RLMDatabase keeps its SQLite driver in a private field. Read it directly so
+ * test doubles that lack a driver yield undefined. Callers either bail out on
+ * that or assert it inside a try block, where a missing driver is caught and logged.
+ */
+function rawDriver(rlm: RLMDatabase): SqliteDriver | undefined {
+  return (rlm as unknown as { db?: SqliteDriver }).db;
+}
 
 // ============ Interfaces ============
 
@@ -150,7 +160,7 @@ export class HabitTracker extends EventEmitter {
   private ensureTables(): void {
     if (!this.db) return;
 
-    const db = (this.db as any).db;
+    const db = rawDriver(this.db);
     if (!db) return;
 
     db.exec(`
@@ -264,7 +274,7 @@ export class HabitTracker extends EventEmitter {
 
     if (this.db && this.persistenceEnabled) {
       try {
-        const db = (this.db as any).db;
+        const db = rawDriver(this.db)!;
         const stmt = db.prepare(`
           INSERT INTO user_actions (id, type, action, timestamp, context_json, metadata_json)
           VALUES (?, ?, ?, ?, ?, ?)
@@ -632,7 +642,7 @@ export class HabitTracker extends EventEmitter {
 
     if (this.actions.length < oldCount && this.db && this.persistenceEnabled) {
       try {
-        const db = (this.db as any).db;
+        const db = rawDriver(this.db)!;
         const stmt = db.prepare(`DELETE FROM user_actions WHERE timestamp < ?`);
         stmt.run(cutoff);
       } catch (error) {
@@ -674,7 +684,7 @@ export class HabitTracker extends EventEmitter {
     if (!this.db || !this.persistenceEnabled) return;
 
     try {
-      const db = (this.db as any).db;
+      const db = rawDriver(this.db)!;
       const stmt = db.prepare(`
         INSERT INTO user_habits
           (id, type, pattern, frequency, confidence, context_json, observations, last_observed, first_observed)
@@ -705,7 +715,7 @@ export class HabitTracker extends EventEmitter {
     if (!this.db || !this.persistenceEnabled) return;
 
     try {
-      const db = (this.db as any).db;
+      const db = rawDriver(this.db)!;
       const stmt = db.prepare(`DELETE FROM user_habits WHERE id = ?`);
       stmt.run(habitId);
     } catch (error) {

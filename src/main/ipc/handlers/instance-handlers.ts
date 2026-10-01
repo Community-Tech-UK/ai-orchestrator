@@ -8,6 +8,7 @@ import * as path from 'path';
 import { getLogger } from '../../logging/logger'; import { addInstanceWritableRoot } from '../../instance/lifecycle/hardened-mode-scoping';
 import { getIdempotencyStore, IdempotencyStore } from '../../transport/idempotency-store';
 import { registerInstanceProviderLimitHandlers } from './instance-provider-limit-ipc';
+import { revealHiddenAutomationSession } from '../../automations/automation-hidden-outcome';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { validateIpcPayload } from '@contracts/schemas/common';
@@ -228,6 +229,7 @@ export function registerInstanceHandlers(deps: {
           }
         }
 
+        revealHiddenAutomationSession(instanceManager, validatedPayload.instanceId); // operator took it over
         await instanceManager.sendInput(
           validatedPayload.instanceId,
           validatedPayload.message,
@@ -270,6 +272,7 @@ export function registerInstanceHandlers(deps: {
           attachmentNames: validatedPayload.attachments?.map((a) => a.name)
         });
 
+        revealHiddenAutomationSession(instanceManager, validatedPayload.instanceId); // operator took it over
         await instanceManager.steerInput(
           validatedPayload.instanceId,
           validatedPayload.message,
@@ -364,6 +367,7 @@ export function registerInstanceHandlers(deps: {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(InstanceRestartPayloadSchema, payload, 'INSTANCE_RESTART');
+        revealHiddenAutomationSession(instanceManager, validated.instanceId); // operator took it over
         const outcome = await instanceManager.restartInstance(validated.instanceId);
         if (!outcome.success) {
           return {
@@ -451,6 +455,7 @@ export function registerInstanceHandlers(deps: {
           payload,
           'INSTANCE_RESTART_FRESH'
         );
+        revealHiddenAutomationSession(instanceManager, validated.instanceId); // operator took it over
         await instanceManager.restartFreshInstance(validated.instanceId);
 
         return { success: true };

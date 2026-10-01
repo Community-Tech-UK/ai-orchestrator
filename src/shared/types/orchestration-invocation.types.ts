@@ -3,7 +3,7 @@ import { z } from 'zod';
 const NonEmptyStringSchema = z.string().min(1);
 const OptionalNonEmptyStringSchema = z.string().min(1).optional();
 
-function functionSchema<T extends (...args: any[]) => unknown>(name: string): z.ZodType<T> {
+function functionSchema<T extends (...args: never[]) => unknown>(name: string): z.ZodType<T> {
   return z.custom<T>((value) => typeof value === 'function', {
     message: `${name} must be a function`,
   });

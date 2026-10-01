@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ALL_INSTANCE_STATUSES } from '../../shared/attention/attention-level';
 
 const { mockAuxGenerate, mockCreateAdapter, mockResolveCliType, mockSendMessage, mockIsCliAvailable } = vi.hoisted(() => {
   const sendMessage = vi.fn();
@@ -1200,6 +1201,343 @@ describe('AutoTitleService', () => {
         content: expect.stringContaining('loopfixex.md'),
       }),
     );
+  });
+
+  describe('title quality repair', () => {
+    it.each(['Completed', 'Finished', 'Task completed', 'Task complete', 'In progress', 'Success', 'Pending', 'Work completed successfully', 'In-progress', 'Task-completed',
+      'All work has been completed', 'We are done', 'All set', 'Awaiting instructions', 'The task is complete',
+      'No action required', 'Waiting for input', 'Not yet completed', 'Currently in progress', 'Cancelled',
+      'cz3mwn04e', 'Cz3mwn04e', 'x8f3k2m1p', 's7j4x1q9w',
+      'All tests passed', 'Finished without errors', 'Ready for testing', 'Needs clarification'])(
+      'keeps the task subject when opening and contextual naming return %s', async (text) => {
+        mockAuxGenerate.mockResolvedValue({ text, decision: { source: 'local', allowFrontierFallback: false } });
+        const applyTitle = vi.fn();
+        const service = AutoTitleService.getInstance();
+        await service.maybeGenerateTitle('status', 'Work Finder watchdog faults', applyTitle);
+        await service.maybeUpgradeTitleWithFirstReply('status', 'Work Finder watchdog faults were investigated.', applyTitle);
+        expect(applyTitle).toHaveBeenCalledTimes(1);
+        expect(applyTitle).toHaveBeenCalledWith('status', 'Work Finder watchdog faults', 'instant');
+      },
+    );
+    const localDecision = { source: 'local', allowFrontierFallback: false };
+    const invalidBoundaryAnswers = [
+      "Short title",
+      "Suggested title",
+      "Proposed name",
+      "Recommended heading",
+      "Concise summary",
+      "Brief session",
+      "Candidate title",
+      "Descriptive name",
+      "Final title",
+      "Title suggestion",
+      "Suggested name",
+      "Name proposal",
+      "Session recommendation",
+      ...ALL_INSTANCE_STATUSES,
+      "Untitled thread",
+      "Untitled session",
+      "New conversation",
+      "New chat",
+      "Untitled",
+      "Unnamed",
+      "Unnamed session",
+      "New session",
+      "New thread",
+      "Empty conversation",
+      "Default session",
+      "Unknown task",
+      "No subject",
+      "No title",
+      "Session title",
+      "Conversation name",
+      "Untitled chat",
+      "Untitled conversation",
+      "New task",
+      "Unknown subject",
+      "Idle",
+      "Busy",
+      "Initializing",
+      "Terminated",
+      "Hibernated",
+      "Hibernating",
+      "Waking",
+      "Approved",
+      "Rejected",
+      "Denied",
+      "Aborted",
+      "Awaiting command",
+      "Acknowledging receipt",
+      "Pending approval",
+      "Session initialized",
+      "Request rejected",
+      "Task aborted",
+      "Request approved",
+      "Request denied",
+      'Please 1) Work Finder filters', 'Please Title: Work Finder filters',
+      'Please The session involves Work Finder filters',
+      '1)Work Finder filters', '1.Work Finder filters', '１２３', '١٢٣',
+      'Please 1)Work Finder filters', 'Question ١٢٣',
+      'I am done', 'Nothing to report', 'Ready to assist', 'No issues found',
+      'Everything looks good', 'In process', 'Acknowledged', 'Understood', 'No problem',
+      'Happy to help', 'Ready for your request', 'All checks look fine', 'No issues detected',
+      'No further assistance needed', 'Everything appears normal',
+      'I’m done', "I'm ready to assist", "We've found no issues",
+      "Job completed", "Operation successful", "Activity in progress",
+      "Result ready", "All requests processed", "Ready when you are",
+      "No more changes needed", "No additional action needed", "Analysis complete",
+      "Response provided", "Successfully processed", "Task handled",
+      "Standing by", "Waiting for next instruction", "Completed as requested",
+      "Execution complete", "No errors encountered", "Help available",
+      "Work accomplished", "Everything working perfectly", "Nothing left to do",
+      "No outstanding issues", "Pending confirmation", "Ready to answer",
+      "Preparing response", "Proceeding with task", "Action taken",
+      "Request accepted", "Task wrapped up", "No change required",
+      "No fixes needed", "Investigation complete", "Done investigating",
+      "Task completion", "Assistant ready", "Agent ready",
+      '1: Work Finder filters', '1 - Work Finder filters', '(1) Work Finder filters',
+      '## Work Finder filters', '١:Work Finder filters', '１: Work Finder filters',
+      "Suggested title: Work Finder watchdog",
+      'Topic: Work Finder watchdog',
+      'Suggested topic: Work Finder watchdog',
+      'Here is the suggested topic: Work Finder watchdog',
+      'Tab: Work Finder watchdog',
+      'Suggested tab: Work Finder watchdog',
+      'Summary: Work Finder watchdog',
+      'Suggested summary: Work Finder watchdog',
+      "Here is the suggested title: Work Finder watchdog",
+      "Recommended name for this session: Work Finder watchdog",
+      "Candidate heading: Work Finder watchdog",
+      "Here’s a proposed title: Work Finder watchdog",
+      "Title — Work Finder watchdog",
+      "Suggested title -Work Finder watchdog",
+      "I've fixed Work Finder watchdog",
+      "We’re investigating Work Finder watchdog",
+      "You should check Work Finder watchdog",
+      "1– Work Finder watchdog",
+      "1 -Work Finder watchdog",
+      "1—Work Finder watchdog",
+      "1- Work Finder watchdog",
+      "I'm fixing this",
+      "Fixing this issue",
+      "Reviewing this request",
+      "Investigating this problem",
+      "Debugging this issue",
+      "Handling this request",
+      "Resolving this issue",
+      "Completing this task",
+      "Implementing this request",
+      "Processing this request",
+      "Reporting this issue",
+      "Assisting with this task",
+      "Investigations completed",
+      "Agents ready",
+      "Assistants awaiting instructions",
+      "Requesting assistance",
+      "Needing more input",
+      "Addressing this issue",
+      "Helping with this request",
+      "Looking at this issue",
+      "Verifying this task",
+      "Applying changes",
+      "Accepting this request",
+      "Delivering the result",
+      "Executing this task",
+      "Achieving completion",
+      "Accomplishing this task",
+      "Concluding the investigation",
+      "Satisfying this request",
+      "Detecting issues",
+      "Observing the issue",
+      "Identifying this issue",
+      "Answering this request",
+      "Replying to this request",
+      "Wrapping up this task",
+      "Resuming this task",
+      "Restarting this task",
+      "Stopping this task",
+      "Pausing this task",
+      "Cancelling this task",
+      "Restoring the session",
+    ];
+
+    it.each(invalidBoundaryAnswers)(
+      'keeps the opening subject across local, opening, retry and settled naming for %s', async (text) => {
+        mockAuxGenerate.mockResolvedValue({ text, decision: localDecision });
+        const service = AutoTitleService.getInstance();
+        expect(await service.generateLocalTitle('Work Finder watchdog faults')).toBeNull();
+        const applyTitle = vi.fn();
+        await service.maybeGenerateTitle('boundary', 'Work Finder watchdog faults', applyTitle);
+        await service.retryTitleUpgradeIfPending('boundary', applyTitle);
+        await service.maybeUpgradeTitleWithFirstReply('boundary', 'Work Finder faults need investigation.', applyTitle);
+        expect(mockAuxGenerate).toHaveBeenCalledTimes(4);
+        expect(applyTitle.mock.calls).toEqual([['boundary', 'Work Finder watchdog faults', 'instant']]);
+        expect(mockIsCliAvailable).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      ['Please Work Finder filters', 'Work Finder filters'],
+      ['Work Finder delivery readiness research case ownership reconciliation repairs',
+        'Work Finder delivery readiness research case ownership...'],
+      ['1.2 compatibility repairs', '1.2 compatibility repairs'],
+      ['OAuth2 HTTP 500', 'OAuth2 HTTP 500'],
+      ['Angular ２２ migration', 'Angular ２２ migration'],
+      ['Report pagination', 'Report pagination'], ['Work Finder issues found', 'Work Finder issues found'],
+      ['HTTP process diagnostics', 'HTTP process diagnostics'], ['404 error diagnostics', '404 error diagnostics'],
+      ['HTTP 500: gateway faults', 'HTTP 500: gateway faults'], ['3D renderer fixes', '3D renderer fixes'],
+      ['Job runner metrics', 'Job runner metrics'], ['Operation logs routing', 'Operation logs routing'],
+      ['Analysis dashboard layout', 'Analysis dashboard layout'], ['Result table sorting', 'Result table sorting'],
+      ['Execution trace viewer', 'Execution trace viewer'], ['Agent settings editor', 'Agent settings editor'],
+      ["I/O stream diagnostics", "I/O stream diagnostics"],
+      ["IT inventory sync", "IT inventory sync"],
+      ["2-factor authentication fixes", "2-factor authentication fixes"],
+      ["64-bit migration", "64-bit migration"],
+      ["3-D renderer faults", "3-D renderer faults"],
+      ["Work Finder title: parsing fixes", "Work Finder title: parsing fixes"],
+      ['Work Finder topic editor', 'Work Finder topic editor'],
+      ['Tab layout accessibility', 'Tab layout accessibility'],
+      ['Summary dashboard rendering', 'Summary dashboard rendering'],
+      ['Session-settings', 'Session-settings'],
+      ["New chat message routing", "New chat message routing"],
+      ["Title editor accessibility", "Title editor accessibility"],
+      ["Default theme contrast", "Default theme contrast"],
+      ["Unknown HTTP status handling", "Unknown HTTP status handling"],
+      ["Idle timeout diagnostics", "Idle timeout diagnostics"],
+      ["Permission editor accessibility", "Permission editor accessibility"],
+      ["Thread restore routing", "Thread restore routing"],
+      ["Untitled document rendering", "Untitled document rendering"],
+      ["Chat history pagination", "Chat history pagination"],
+    ])('preserves useful formatted title %s', async (text, expected) => {
+      mockAuxGenerate.mockResolvedValue({ text, decision: localDecision });
+      expect(await AutoTitleService.getInstance().generateLocalTitle('Work Finder watchdog faults')).toBe(expected);
+    });
+
+    it('keeps the Work Finder title when the contextual model answers with numbered prose', async () => {
+      mockAuxGenerate.mockResolvedValue({ text: 'Work Finder health watchdog', decision: localDecision });
+      const applyTitle = vi.fn();
+      const service = AutoTitleService.getInstance();
+      await service.maybeGenerateTitle('watchdog', 'The Work Finder health watchdog found 4 faults.', applyTitle);
+      mockAuxGenerate.mockResolvedValue({
+        text: '1. Work Finder job search filters and contextual summary of the session',
+        decision: localDecision,
+      });
+
+      await service.maybeUpgradeTitleWithFirstReply(
+        'watchdog', 'Work Finder delivery readiness and research case faults were investigated.', applyTitle,
+      );
+
+      expect(applyTitle).toHaveBeenLastCalledWith('watchdog', 'Work Finder health watchdog', 'ai');
+      expect(applyTitle.mock.calls.some(([, title]) => /^1\.?$/.test(title))).toBe(false);
+    });
+
+    it.each(['1.', '12345', '1. Work Finder filters', 'Done', 'Please implement this', '**Question 5**', 'Completed', 'Finished', 'Task complete', 'In progress', 'Success'])(
+      'rejects unusable local-only history title %s', async (text) => {
+        mockAuxGenerate.mockResolvedValue({ text, decision: localDecision });
+        expect(await AutoTitleService.getInstance().generateLocalTitle('Work Finder delivery readiness faults')).toBeNull();
+        expect(mockIsCliAvailable).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['1. Work Finder filters', ...invalidBoundaryAnswers])(
+      'tries the next eligible CLI after invalid answer %s from the first', async (content) => {
+        mockIsCliAvailable.mockResolvedValue({ installed: true });
+        mockResolveCliType.mockImplementation(async (type: string) => type);
+        mockSendMessage.mockResolvedValueOnce({ content })
+          .mockResolvedValueOnce({ content: 'Work Finder watchdog faults' });
+
+        expect(await AutoTitleService.getInstance().generateTitle('Work Finder health watchdog found faults')).toBe(
+          'Work Finder watchdog faults',
+        );
+        expect(mockCreateAdapter).toHaveBeenCalledTimes(2);
+        expect(mockCreateAdapter).toHaveBeenNthCalledWith(1, expect.objectContaining({ cliType: 'antigravity' }));
+        expect(mockCreateAdapter).toHaveBeenNthCalledWith(2, expect.objectContaining({ cliType: 'claude' }));
+      },
+    );
+
+    it('uses the first reply to name a short opener without calling a model for the opener alone', async () => {
+      mockAuxGenerate.mockResolvedValue({ text: 'Work Finder watchdog faults', decision: localDecision });
+      const applyTitle = vi.fn();
+      const service = AutoTitleService.getInstance();
+      await service.maybeGenerateTitle('short', 'fix it', applyTitle);
+      expect(mockAuxGenerate).not.toHaveBeenCalled();
+      await service.maybeUpgradeTitleWithFirstReply('short', 'Work Finder watchdog faults need repairing.', applyTitle);
+      expect(applyTitle).toHaveBeenCalledWith('short', 'Work Finder watchdog faults', 'ai');
+    });
+
+    it('does not replace a known subject with an incidental attachment after a generic model answer', async () => {
+      mockAuxGenerate.mockResolvedValue({ text: '1.', decision: localDecision });
+      const service = AutoTitleService.getInstance();
+      expect(await service.generateLocalTitle('Work Finder watchdog faults need repairing', ['1'])).toBeNull();
+      expect(await service.generateLocalTitle('Work Finder watchdog faults need repairing', ['screenshot.png']))
+        .toBeNull();
+      expect(await service.generateLocalTitle('Please implement this', ['1'])).toBeNull();
+      expect(await service.generateLocalTitle('Please implement this', ['work-finder-plan.md']))
+        .toBe('Work finder implementation');
+    });
+
+    it('includes the reply even when the opening message exceeds the input budget', async () => {
+      mockAuxGenerate.mockResolvedValue({ text: 'Work Finder watchdog faults', decision: localDecision });
+      const service = AutoTitleService.getInstance();
+      await service.maybeGenerateTitle('long', 'Work Finder watchdog fault details '.repeat(100), vi.fn());
+      await service.maybeUpgradeTitleWithFirstReply('long', 'Delivery readiness research case is unclaimed.', vi.fn());
+      expect(mockAuxGenerate.mock.calls[1][2]).toContain('Delivery readiness research case is unclaimed.');
+    });
+
+    it('keeps the contextual title when the opening-message request resolves later', async () => {
+      let finishOpening!: (result: unknown) => void;
+      mockAuxGenerate.mockImplementationOnce(() => new Promise((resolve) => { finishOpening = resolve; }))
+        .mockResolvedValueOnce({ text: 'Work Finder watchdog faults', decision: localDecision });
+      const applyTitle = vi.fn();
+      const service = AutoTitleService.getInstance();
+      const opening = service.maybeGenerateTitle('race', 'Work Finder watchdog found faults', applyTitle);
+      await service.maybeUpgradeTitleWithFirstReply('race', 'Delivery readiness research case is unclaimed.', applyTitle);
+      finishOpening({ text: 'Older Work Finder title', decision: localDecision });
+      await opening;
+      expect(applyTitle).toHaveBeenLastCalledWith('race', 'Work Finder watchdog faults', 'ai');
+      expect(applyTitle).not.toHaveBeenCalledWith('race', 'Older Work Finder title', 'ai');
+    });
+
+    it('does not apply an in-flight title after the instance is cleared', async () => {
+      let finishOpening!: (result: unknown) => void;
+      mockAuxGenerate.mockImplementationOnce(() => new Promise((resolve) => { finishOpening = resolve; }));
+      const applyTitle = vi.fn();
+      const service = AutoTitleService.getInstance();
+      const opening = service.maybeGenerateTitle('closed', 'Work Finder watchdog found faults', applyTitle);
+      service.clearInstance('closed');
+      finishOpening({ text: 'Work Finder watchdog faults', decision: localDecision });
+      await opening;
+      expect(applyTitle.mock.calls.filter(([, , source]) => source === 'ai')).toEqual([]);
+    });
+
+    it('logs instance-cleared when contextual naming finishes after termination', async () => {
+      let finishNaming!: (result: unknown) => void;
+      mockAuxGenerate.mockResolvedValueOnce({ text: 'Work Finder watchdog faults', decision: localDecision })
+        .mockImplementationOnce(() => new Promise((resolve) => { finishNaming = resolve; }));
+      const applyTitle = vi.fn();
+      const service = AutoTitleService.getInstance();
+      await service.maybeGenerateTitle('cleared-race', 'Work Finder watchdog found faults', applyTitle);
+      const naming = service.maybeUpgradeTitleWithFirstReply('cleared-race', 'Delivery readiness research case is unclaimed.', applyTitle);
+      service.clearInstance('cleared-race');
+      finishNaming({ text: 'Work Finder watchdog faults', decision: localDecision });
+      await naming;
+      expect(mockLog.debug).toHaveBeenCalledWith(
+        expect.stringContaining('Instance cleared during contextual naming'),
+        { instanceId: 'cleared-race' },
+      );
+    });
+
+    it('logs unusable-title when contextual naming returns filler', async () => {
+      mockAuxGenerate.mockResolvedValue({ text: '1.', decision: localDecision });
+      const applyTitle = vi.fn();
+      const service = AutoTitleService.getInstance();
+      await service.maybeGenerateTitle('filler', 'Work Finder watchdog found faults', applyTitle);
+      await service.maybeUpgradeTitleWithFirstReply('filler', 'Delivery readiness research case is unclaimed.', applyTitle);
+      expect(mockLog.debug).toHaveBeenCalledWith(
+        expect.stringContaining('produced no usable title'),
+        { instanceId: 'filler' },
+      );
+    });
   });
 
   it('repairs a low-signal AI title using the attached plan subject', async () => {

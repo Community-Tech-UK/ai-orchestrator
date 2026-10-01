@@ -1,13 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { EventEmitter } from 'events';
 
 // We test the EPIPE guard logic directly — no need to mock Electron.
 // Simulate the stdin/stdout stream error handler pattern.
 
 function makeStream(writable: boolean, destroyed: boolean) {
-  const emitter = new EventEmitter() as NodeJS.WritableStream & EventEmitter;
-  (emitter as any).writable = writable;
-  (emitter as any).destroyed = destroyed;
+  const emitter = new EventEmitter() as NodeJS.WritableStream & EventEmitter & { destroyed: boolean };
+  Object.assign(emitter, { writable, destroyed });
   return emitter;
 }
 
@@ -16,19 +15,19 @@ describe('EPIPE handling helpers', () => {
     it('returns true when stdin is writable and not destroyed', () => {
       // Simulate the isRealPipe check directly
       const stdin = makeStream(true, false);
-      const result = (stdin as any).writable === true && !(stdin as any).destroyed;
+      const result = stdin.writable === true && !stdin.destroyed;
       expect(result).toBe(true);
     });
 
     it('returns false when stdin is not writable', () => {
       const stdin = makeStream(false, false);
-      const result = (stdin as any).writable === true && !(stdin as any).destroyed;
+      const result = stdin.writable === true && !stdin.destroyed;
       expect(result).toBe(false);
     });
 
     it('returns false when stdin is destroyed', () => {
       const stdin = makeStream(true, true);
-      const result = (stdin as any).writable === true && !(stdin as any).destroyed;
+      const result = stdin.writable === true && !stdin.destroyed;
       expect(result).toBe(false);
     });
   });

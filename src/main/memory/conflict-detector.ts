@@ -267,7 +267,7 @@ export class ConflictDetector {
     const pairs = new Map<string, string>();
 
     // Pattern A: "key = value" or "key: value" (multi-word keys, any value)
-    const explicitPattern = /([a-z][a-z0-9_\s]{0,30}?)\s*(?:=|:)\s*([a-z0-9_.\-]+)/g;
+    const explicitPattern = /([a-z][a-z0-9_\s]{0,30}?)\s*(?:=|:)\s*([a-z0-9_.-]+)/g;
     let match: RegExpExecArray | null;
 
     while ((match = explicitPattern.exec(text)) !== null) {
@@ -352,7 +352,7 @@ export class ConflictDetector {
       .replace(/aren't/g, 'arent')
       .replace(/wasn't/g, 'wasnt')
       .replace(/weren't/g, 'werent')
-      .replace(/[^\w\s.!?=:\-]/g, ' ')
+      .replace(/[^\w\s.!?=:-]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   }

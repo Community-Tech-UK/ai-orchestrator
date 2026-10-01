@@ -19,16 +19,6 @@ import {
   runtimeChangeNoticesFor,
   yoloNoticeText,
 } from './runtime-change-notices';
-import type { CliAdapter } from '../../cli/adapters/adapter-factory';
-import type { Instance } from '../../../shared/types/instance.types';
-
-const instance = { id: 'inst-1' } as unknown as Instance;
-
-function makeAdapter(): CliAdapter & { sendInput: ReturnType<typeof vi.fn> } {
-  return { sendInput: vi.fn().mockResolvedValue(undefined) } as unknown as CliAdapter & {
-    sendInput: ReturnType<typeof vi.fn>;
-  };
-}
 
 describe('notice wording', () => {
   it('names the permission posture in both directions', () => {

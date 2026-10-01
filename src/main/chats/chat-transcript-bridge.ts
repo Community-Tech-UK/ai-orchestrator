@@ -498,7 +498,7 @@ export class ChatTranscriptBridge {
       rawRef: null,
       rawJson: {
         metadata: {
-          ...(output.metadata ?? {}),
+          ...output.metadata,
           kind: output.type,
           instanceId: envelope.instanceId,
         },

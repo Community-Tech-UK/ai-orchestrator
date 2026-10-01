@@ -611,6 +611,7 @@ describe('LT-189: notify-and-allow fallback notifications', () => {
     });
 
     it('tolerates a getter that has not yet resolved a runtime (deferred-closure construction order)', () => {
+      // eslint-disable-next-line prefer-const -- the getter must read it before it is assigned (deferred closure)
       let current: LocalAiGuardRuntime | undefined;
       const notify = notifyFallbackInto(() => current);
 

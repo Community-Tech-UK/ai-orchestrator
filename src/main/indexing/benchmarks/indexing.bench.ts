@@ -21,17 +21,6 @@ import {
   formatBytes,
 } from './benchmark-utils';
 
-// Mock dependencies for isolated benchmarks
-const mockDb = {
-  prepare: () => ({
-    run: () => {},
-    get: () => undefined,
-    all: () => [],
-  }),
-  transaction: (fn: Function) => fn,
-  exec: () => {},
-};
-
 // ============================================================================
 // Test Setup
 // ============================================================================

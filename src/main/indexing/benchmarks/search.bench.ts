@@ -11,12 +11,9 @@
  * Target: < 500ms p95 latency
  */
 
-import { describe, bench, beforeAll, afterAll, expect, vi } from 'vitest';
+import { describe, bench, expect, vi } from 'vitest';
 import {
-  createSyntheticCodebase,
   generateTypeScriptFile,
-  getMemorySnapshot,
-  formatBytes,
   calculatePercentiles,
 } from './benchmark-utils';
 
@@ -76,7 +73,7 @@ vi.mock('../../rlm/hyde-service', () => ({
       // Simulate HyDE generation latency (typically 100-300ms)
       await new Promise((resolve) => setTimeout(resolve, 50));
       return {
-        embedding: new Array(384).fill(0).map(() => Math.random()),
+        embedding: Array.from({ length: 384 }, () => Math.random()),
         hydeUsed: true,
         hypotheticalDocument: `Code that handles ${query}`,
       };
@@ -132,23 +129,6 @@ function generateMockHybridResults(count: number) {
 }
 
 // ============================================================================
-// Test Data
-// ============================================================================
-
-const SEARCH_QUERIES = [
-  'authentication handler',
-  'database connection pool',
-  'error handling middleware',
-  'user validation function',
-  'async data processing',
-  'file upload service',
-  'cache invalidation',
-  'event emitter pattern',
-  'dependency injection',
-  'rate limiting implementation',
-];
-
-// ============================================================================
 // BM25 Search Benchmarks
 // ============================================================================
 
@@ -157,7 +137,6 @@ describe('BM25 Search', () => {
     'BM25 search - 10 results',
     async () => {
       // Simulate BM25 search with mocked results
-      const query = SEARCH_QUERIES[Math.floor(Math.random() * SEARCH_QUERIES.length)];
       const startTime = performance.now();
 
       // Simulate FTS5 query execution
@@ -176,7 +155,6 @@ describe('BM25 Search', () => {
   bench(
     'BM25 search - 50 results',
     async () => {
-      const query = SEARCH_QUERIES[Math.floor(Math.random() * SEARCH_QUERIES.length)];
       const startTime = performance.now();
 
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -194,7 +172,6 @@ describe('BM25 Search', () => {
   bench(
     'BM25 search - 100 results',
     async () => {
-      const query = SEARCH_QUERIES[Math.floor(Math.random() * SEARCH_QUERIES.length)];
       const startTime = performance.now();
 
       await new Promise((resolve) => setTimeout(resolve, 15));
@@ -256,9 +233,9 @@ describe('Vector Search', () => {
     'vector similarity calculation (100 vectors)',
     async () => {
       // Simulate cosine similarity calculation
-      const queryVector = new Array(384).fill(0).map(() => Math.random());
+      const queryVector = Array.from({ length: 384 }, () => Math.random());
       const candidates = Array.from({ length: 100 }, () =>
-        new Array(384).fill(0).map(() => Math.random())
+        Array.from({ length: 384 }, () => Math.random())
       );
 
       const startTime = performance.now();
@@ -298,7 +275,7 @@ describe('Hybrid Search', () => {
       const startTime = performance.now();
 
       // Parallel BM25 + Vector search
-      const [bm25Results, vectorResults] = await Promise.all([
+      await Promise.all([
         (async () => {
           await new Promise((resolve) => setTimeout(resolve, 10));
           return generateMockBM25Results(20);
@@ -394,7 +371,7 @@ describe('HyDE Search', () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Parallel searches
-      const [bm25Results, vectorResults] = await Promise.all([
+      await Promise.all([
         (async () => {
           await new Promise((resolve) => setTimeout(resolve, 10));
           return generateMockBM25Results(20);
@@ -430,7 +407,7 @@ describe('Reranking', () => {
       const startTime = performance.now();
 
       // Simulate local reranking (e.g., BM25 re-scoring)
-      const reranked = candidates.map((candidate, i) => ({
+      const reranked = candidates.map((candidate) => ({
         ...candidate,
         rerankScore: candidate.score * (1 + Math.random() * 0.1),
       }));
@@ -475,7 +452,7 @@ describe('Reranking', () => {
       const startTime = performance.now();
 
       // 1. Parallel BM25 + Vector
-      const [bm25Results, vectorResults] = await Promise.all([
+      await Promise.all([
         (async () => {
           await new Promise((resolve) => setTimeout(resolve, 10));
           return generateMockBM25Results(30);
@@ -558,7 +535,7 @@ describe('Concurrent Search', () => {
     async () => {
       const startTime = performance.now();
 
-      const searchPromises = Array.from({ length: 10 }, async (_, i) => {
+      const searchPromises = Array.from({ length: 10 }, async () => {
         // Simulate a search
         await new Promise((resolve) => setTimeout(resolve, 30 + Math.random() * 20));
         return generateMockHybridResults(10);

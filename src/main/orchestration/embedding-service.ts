@@ -283,7 +283,7 @@ export class EmbeddingService extends EventEmitter {
     }
 
     // Build TF-IDF vector
-    const vector = new Array(this.vocabulary.size).fill(0);
+    const vector = Array.from({ length: this.vocabulary.size }, () => 0);
 
     for (const [term, tf] of termFrequency) {
       const index = this.vocabulary.get(term);
@@ -311,7 +311,7 @@ export class EmbeddingService extends EventEmitter {
   private async getOpenAIEmbeddings(texts: string[]): Promise<number[][]> {
     try {
       // Check cache first — fixed-dimension embeddings are safe to reuse
-      const results = new Array<number[] | null>(texts.length).fill(null);
+      const results: Array<number[] | null> = Array.from({ length: texts.length }, () => null);
       const uncachedIndices: number[] = [];
       const uncachedTexts: string[] = [];
 
@@ -383,7 +383,7 @@ export class EmbeddingService extends EventEmitter {
   private async getLocalEmbeddings(texts: string[]): Promise<number[][]> {
     try {
       // Check cache first — fixed-dimension embeddings are safe to reuse
-      const results = new Array<number[] | null>(texts.length).fill(null);
+      const results: Array<number[] | null> = Array.from({ length: texts.length }, () => null);
       const uncachedIndices: number[] = [];
       const uncachedTexts: string[] = [];
 
@@ -628,7 +628,7 @@ export class EmbeddingService extends EventEmitter {
     const centroids = centroidIndices.map(i => [...embeddings[i]]);
 
     // Run k-means
-    let assignments = new Array(n).fill(0);
+    let assignments = Array.from({ length: n }, () => 0);
 
     for (let iter = 0; iter < maxIterations; iter++) {
       // Assign points to nearest centroid
@@ -748,7 +748,7 @@ export class EmbeddingService extends EventEmitter {
     if (embeddings.length === 1) return [...embeddings[0]];
 
     const dim = embeddings[0].length;
-    const centroid = new Array(dim).fill(0);
+    const centroid = Array.from({ length: dim }, () => 0);
 
     for (const emb of embeddings) {
       for (let i = 0; i < dim; i++) {

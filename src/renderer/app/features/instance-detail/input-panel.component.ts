@@ -87,7 +87,11 @@ import type {
   OutputMessage,
 } from '../../core/state/instance/instance.types';
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
-import type { InstanceWaitReason, DesiredRuntime } from '../../../../shared/types/instance.types';
+import {
+  INTERACTIVE_LAUNCH_MODE_AVAILABLE,
+  type InstanceWaitReason,
+  type DesiredRuntime,
+} from '../../../../shared/types/instance.types';
 import type { AccountRouteSource } from '../../../../shared/types/provider-account.types';
 import { ComposerToolbarComponent } from './composer-toolbar.component';
 import { ComposerBannersComponent } from './composer-banners.component';
@@ -701,7 +705,9 @@ export class InputPanelComponent implements OnDestroy {
   });
 
   readonly showLaunchModeSelector = computed(() =>
-    this.isDraftComposer() && this.selectedProvider() === 'claude',
+    INTERACTIVE_LAUNCH_MODE_AVAILABLE
+      && this.isDraftComposer()
+      && this.selectedProvider() === 'claude',
   );
 
   onLaunchModeSelected(launchMode: InstanceLaunchMode): void {

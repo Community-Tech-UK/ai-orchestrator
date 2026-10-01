@@ -4,7 +4,7 @@
     "no-unused-vars": "warn",
     "no-console": "off",
     "no-debugger": "error",
-    "eqeqeq": "warn",
+    "eqeqeq": ["warn", "always", { "null": "ignore" }],
     "prefer-const": "warn",
     "no-var": "error",
     "no-duplicate-imports": "off",

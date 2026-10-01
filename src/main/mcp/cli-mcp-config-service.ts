@@ -83,7 +83,7 @@ export class CliMcpConfigService {
       kind: 'upsert',
       sourceFile,
       record: {
-        ...(existing ?? {}),
+        ...existing,
         ...payload,
         id: payload.id || `${payload.provider}:user:${payload.name}`,
         transport,
@@ -91,10 +91,10 @@ export class CliMcpConfigService {
         args: transport === 'stdio' ? payload.args ?? existing?.args : undefined,
         url: transport !== 'stdio' ? payload.url ?? existing?.url : undefined,
         headers: payload.headers
-          ? { ...(existing?.headers ?? {}), ...payload.headers }
+          ? { ...existing?.headers, ...payload.headers }
           : existing?.headers,
         env: payload.env
-          ? { ...(existing?.env ?? {}), ...payload.env }
+          ? { ...existing?.env, ...payload.env }
           : existing?.env,
         autoConnect: payload.autoConnect ?? true,
         createdAt: existing?.createdAt ?? payload.createdAt ?? Date.now(),

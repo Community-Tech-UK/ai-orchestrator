@@ -10,7 +10,6 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import Anthropic from '@anthropic-ai/sdk';
 import {
-  CacheControl,
   CacheableTextBlock,
   CacheUsageMetrics,
   calculateCachePerformance,

@@ -31,7 +31,6 @@ import {
   updateGovernedProposal,
   type GovernedProposal,
   type GovernedProposalKind,
-  type GovernedProposalStatus,
   type InsertGovernedProposalParams,
   type ListGovernedProposalsQuery,
   type ProposalAuditAction,

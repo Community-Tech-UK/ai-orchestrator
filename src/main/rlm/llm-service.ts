@@ -591,6 +591,8 @@ Answer:`;
   }
 
   private providerAvailability(): LlmProviderAvailability {
+    // Accessors below need their own `this` (the returned object), so the service is captured here.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- getters/setters cannot be arrow functions
     const self = this;
     return {
       get anthropicAvailable() { return self.anthropicAvailable; },

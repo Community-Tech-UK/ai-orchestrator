@@ -11,11 +11,8 @@ import {
   WorkerNode,
   ChildSpec,
   SupervisorConfig,
-  RestartAction,
   RestartEvent,
-  BackoffState,
   CircuitBreakerState,
-  HealthStatus,
   createDefaultSupervisorConfig,
   createDefaultBackoffState,
   calculateBackoffDelay,
@@ -629,7 +626,7 @@ export class Supervisor extends EventEmitter {
   private findWorkerAndParent(
     node: SupervisorNode,
     childInstanceId: string,
-    parent?: SupervisorNode
+    _parent?: SupervisorNode
   ): { worker: WorkerNode | null; parent: SupervisorNode | null } {
     for (const child of node.children) {
       if (isWorkerNode(child) && child.instanceId === childInstanceId) {

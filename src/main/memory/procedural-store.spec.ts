@@ -7,7 +7,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ProceduralStore, getProceduralStore } from './procedural-store';
 import type {
   WorkflowMemory,
-  StrategyMemory,
   WorkflowOutcome,
 } from '../../shared/types/unified-memory.types';
 

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import type {
-  UnifiedMemoryWorkerPort,
   UnifiedMemoryWorkerRequest,
   UnifiedMemoryWorkerResult,
 } from '../instance/unified-memory-worker-port';

@@ -13,7 +13,6 @@ import {
   createLargeFile,
   getMemorySnapshot,
   formatBytes,
-  measureAsync,
 } from '../../benchmarks/benchmark-utils';
 
 // ============================================================================
@@ -476,11 +475,11 @@ describe('Memory Load Tests', () => {
       takeSnapshot('baseline');
 
       // Allocate some memory
-      const data1: number[] = new Array(100000).fill(0).map((_, i) => i);
+      const data1: number[] = Array.from({ length: 100000 }, (_, i) => i);
       takeSnapshot('after 100K numbers');
 
       // Allocate more
-      const data2: string[] = new Array(10000).fill(0).map(() => 'x'.repeat(100));
+      const data2: string[] = Array.from({ length: 10000 }, () => 'x'.repeat(100));
       takeSnapshot('after 10K strings');
 
       // Clear some

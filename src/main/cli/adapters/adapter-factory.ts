@@ -491,6 +491,10 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     requestTimeoutMs: 20_000,
     concurrencyAcquireTimeoutMs: 30_000,
     stallWarningMs: resolveAcpStallWarningMs(Boolean(options.childId)),
+    // Copilot deletes its $TMPDIR copy of an inline image when the ACP session
+    // closes (hibernation included), so after a resume the transcript points at
+    // missing files. Given a file:// URI it references our copy instead.
+    persistImageAttachments: true,
     // Wire the permission registry so Copilot's `session/request_permission`
     // RPCs can be auto-timed-out and surfaced to the UI. Without this,
     // a permission prompt from Copilot would block the `session/prompt`

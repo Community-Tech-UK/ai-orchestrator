@@ -83,9 +83,8 @@ describe('WorktreeManager.adoptWorktree — restore-path re-registration', () =>
     // adoptWorktree falls back gracefully when git calls fail (empty string).
     // Drive the test by providing a worktreePath that gitExecSafe can handle.
     // We'll accept any outcome as long as the session is registered.
-    let session: Awaited<ReturnType<typeof mgr.adoptWorktree>> | null = null;
     try {
-      session = await mgr.adoptWorktree('loop-restore-1', fakePath, 'restore test prompt');
+      await mgr.adoptWorktree('loop-restore-1', fakePath, 'restore test prompt');
     } catch {
       // gitExecSafe throws on non-existent path — that's fine for this test.
       // The key check is below.

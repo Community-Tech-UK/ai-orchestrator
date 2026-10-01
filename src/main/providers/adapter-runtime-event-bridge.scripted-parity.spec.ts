@@ -117,7 +117,7 @@ describe('ScriptedCliAdapter → adapter-runtime-event-bridge (parity)', () => {
         message: '5-hour window has headroom',
       },
     });
-    expect((complete?.rawPayload as { usage?: { cacheReadTokens?: number; cacheWriteTokens?: number } }).usage)
+    expect((complete?.rawPayload as { usage?: { cacheReadTokens?: number; cacheWriteTokens?: number } } | undefined)?.usage)
       .toMatchObject({ cacheReadTokens: 400, cacheWriteTokens: 100 });
   });
 

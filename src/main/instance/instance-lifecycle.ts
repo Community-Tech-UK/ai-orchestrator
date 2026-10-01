@@ -3189,7 +3189,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     }
     const effectiveYolo = instance.desiredRuntime?.yoloMode ?? instance.yoloMode;
     const result = await this.desiredRuntimeQueue.requestChange(instanceId, {
-      ...(instance.desiredRuntime ?? {}),
+      ...instance.desiredRuntime,
       provider: instance.desiredRuntime?.provider ?? instance.provider,
       yoloMode: !effectiveYolo,
     });

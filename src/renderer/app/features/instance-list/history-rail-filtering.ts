@@ -37,12 +37,20 @@ export function isNativeImportedHistoryEntry(entry: ConversationHistoryEntry): b
  * that has parked waiting for a human, is always shown. Hiding a health check
  * that has silently stopped working would be strictly worse than the rail noise
  * hiding is meant to remove.
+ *
+ * A session stays shown for good once the main process stamps it
+ * `automationRevealed`: its run failed, its automation was deleted mid-run, or
+ * the operator took it over. Without the stamp, restarting a failed session to
+ * carry on with it made the session vanish from the rail mid-conversation.
  */
 export function isHiddenAutomationInstance(
   instance: Pick<Instance, 'status' | 'metadata'>,
   showHiddenAutomations: boolean,
 ): boolean {
   if (showHiddenAutomations || instance.metadata?.['automationHidden'] !== true) {
+    return false;
+  }
+  if (instance.metadata?.['automationRevealed'] === true) {
     return false;
   }
   return !isAutomationAttentionStatus(instance.status);

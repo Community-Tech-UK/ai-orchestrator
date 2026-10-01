@@ -106,7 +106,7 @@ function assertLiteralPowerShellArguments(value: string): void {
       else if (quote === char) quote = undefined;
       continue;
     }
-    if (char === '$' || (!quote && /[<>|&(){}\[\],#@]/u.test(char))) {
+    if (char === '$' || (!quote && /[<>|&(){}[\],#@]/u.test(char))) {
       throw new Error(NODE_EXEC_BROWSER_POLICY_ERROR);
     }
   }

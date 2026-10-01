@@ -14,6 +14,7 @@ import type {
 import type { IpcResponse } from '../../shared/types/ipc.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { serializeInstance } from '../ipc/handlers/instance-handler-serializers';
+import { revealHiddenAutomationSession } from '../automations/automation-hidden-outcome';
 import type { ThinClientCommandExecutorDeps } from './thin-client-command-executor';
 
 export async function createInstance(
@@ -55,6 +56,7 @@ export async function sendInput(
     payload,
     'THIN_CLIENT_INSTANCE_SEND_INPUT',
   );
+  revealHiddenAutomationSession(deps.instanceManager, validated.instanceId); // operator took it over
   await deps.instanceManager.sendInput(
     validated.instanceId,
     validated.message,
@@ -118,6 +120,7 @@ export async function wakeInstance(
     payload,
     'THIN_CLIENT_INSTANCE_WAKE',
   );
+  revealHiddenAutomationSession(deps.instanceManager, validated.instanceId); // operator took it over
   await deps.instanceManager.wakeInstance(validated.instanceId);
   return { success: true };
 }

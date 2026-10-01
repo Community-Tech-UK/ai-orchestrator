@@ -148,7 +148,7 @@ function buildExcerpt(content: string, queryTokens: Set<string>, maxChars: numbe
 
   const halfWindow = Math.floor(maxChars / 2);
   let start = Math.max(0, center - halfWindow);
-  let end = Math.min(cleaned.length, start + maxChars);
+  const end = Math.min(cleaned.length, start + maxChars);
   start = Math.max(0, end - maxChars);
 
   let excerpt = cleaned.slice(start, end);

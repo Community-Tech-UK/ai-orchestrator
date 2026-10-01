@@ -5,6 +5,7 @@ import { AutomationRunner } from './automation-runner';
 import { CatchUpCoordinator } from './catch-up-coordinator';
 import { computeNextFireAt } from './automation-schedule';
 import { getAutomationEvents } from './automation-events';
+import { defaultAutomationNetworkGate, type AutomationNetworkGate } from './automation-network-gate';
 import type { Automation, AutomationRun } from '../../shared/types/automation.types';
 
 const logger = getLogger('AutomationScheduler');
@@ -39,6 +40,7 @@ export class AutomationScheduler {
     private readonly catchUp: CatchUpCoordinator,
     private readonly events = getAutomationEvents(),
     private readonly now = () => Date.now(),
+    private readonly networkGate: AutomationNetworkGate = defaultAutomationNetworkGate,
   ) {
     // Register this scheduler as the retry callback so the runner can schedule
     // retries without holding a direct reference back to the scheduler.
@@ -397,7 +399,9 @@ export class AutomationScheduler {
     });
 
     try {
-      await this.runner.dispatchRetryRun(retryRun);
+      // Retries are unattended; hold them until DNS works so a post-wake outage
+      // cannot burn every attempt (see automation-network-gate.ts).
+      await this.networkGate(retryRun, this.store, () => this.runner.dispatchRetryRun(retryRun));
     } catch (error) {
       logger.error(
         'Automation retry dispatch threw unexpectedly',

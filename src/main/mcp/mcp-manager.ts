@@ -563,7 +563,7 @@ export class McpManager extends EventEmitter {
     });
 
     // Handle process exit
-    proc.on('exit', (code) => {
+    proc.on('exit', () => {
       if (connection.config.status === 'connected') {
         connection.config.status = 'disconnected';
         this.emit('server:disconnected', connection.config.id);

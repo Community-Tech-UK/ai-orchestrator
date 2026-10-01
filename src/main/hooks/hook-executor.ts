@@ -493,7 +493,7 @@ export class HookExecutor extends EventEmitter {
   ): Promise<HookExecutorResult> {
     return new Promise((resolve) => {
       const timeout = handler.timeout ?? this.config.defaultTimeout;
-      const env: Record<string, string> = { ...process.env, ...(handler.env ?? {}) } as Record<string, string>;
+      const env: Record<string, string> = { ...process.env, ...handler.env } as Record<string, string>;
 
       const child = spawn(handler.executablePath, [], {
         env,

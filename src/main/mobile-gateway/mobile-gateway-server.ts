@@ -317,8 +317,8 @@ export class MobileGatewayServer {
     if (this.deps?.chatHistory) return this.deps.chatHistory;
     if (!this.deps?.instanceManager) return null;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getChatService } =
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         require("../chats") as typeof import("../chats");
       return getChatService({
         instanceManager: this.deps.instanceManager as unknown as Parameters<
@@ -333,8 +333,8 @@ export class MobileGatewayServer {
   private get instanceHistory(): GatewayInstanceHistorySource | null {
     if (this.deps?.instanceHistory) return this.deps.instanceHistory;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getHistoryManager } =
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         require("../history/history-manager") as typeof import("../history/history-manager");
       return getHistoryManager() as unknown as GatewayInstanceHistorySource;
     } catch {

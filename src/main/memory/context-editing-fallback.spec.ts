@@ -212,7 +212,7 @@ describe('ContextEditingFallback', () => {
     it('should respect exclude_tools configuration', () => {
       fallback.configure({ excludeTools: ['important_tool'] });
       const config = fallback.buildContextManagement();
-      const toolStrategy = config.edits[0] as any;
+      const toolStrategy = config.edits[0] as ClearToolUsesStrategy;
 
       expect(toolStrategy.exclude_tools).toEqual(['important_tool']);
     });
@@ -220,7 +220,7 @@ describe('ContextEditingFallback', () => {
     it('should respect clear_tool_inputs configuration', () => {
       fallback.configure({ clearToolInputs: true });
       const config = fallback.buildContextManagement();
-      const toolStrategy = config.edits[0] as any;
+      const toolStrategy = config.edits[0] as ClearToolUsesStrategy;
 
       expect(toolStrategy.clear_tool_inputs).toBe(true);
     });

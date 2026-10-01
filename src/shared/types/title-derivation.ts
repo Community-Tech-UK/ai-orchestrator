@@ -14,6 +14,8 @@
  * renderer.
  */
 
+import { INSTANCE_ID_PREFIXES, ORCHESTRATION_ID_PREFIXES } from '../utils/id-generator';
+
 /** Maximum length of a rail-visible title before truncation. */
 export const MAX_FALLBACK_TITLE_LENGTH = 60;
 
@@ -39,6 +41,26 @@ const GENERATED_TITLE_BRACKET_THINKING_BLOCK_PATTERN =
 const GENERATED_TITLE_BRACKET_THINKING_TAG_PATTERN =
   /\[\s*\/?\s*THINKING\s*\]/i;
 
+/** Only unwrap matching outer markers; never extract a title from narration. */
+function unwrapTitlePresentation(value: string): string {
+  const wrappers: readonly [string, string][] = [
+    ['**', '**'], ['__', '__'], ['`', '`'], ['*', '*'], ['_', '_'],
+    ['"', '"'], ["'", "'"], ['“', '”'], ['‘', '’'],
+  ];
+  let plain = value.trim();
+  if (plain.startsWith('```')) return plain;
+  for (let pass = 0; pass < 4; pass++) {
+    const wrapper = wrappers.find(([start, end]) => {
+      if (!plain.startsWith(start) || !plain.endsWith(end) || plain.length <= start.length + end.length) return false;
+      const inner = plain.slice(start.length, -end.length);
+      return !inner.includes(start) && !inner.includes(end);
+    });
+    if (!wrapper) break;
+    plain = plain.slice(wrapper[0].length, -wrapper[1].length).trim();
+  }
+  return plain;
+}
+
 /**
  * Canonical header that {@link renderAttachmentBlock} (loop-attachments) emits
  * at the top of an attachment preamble. Shared so the producer and the title
@@ -48,15 +70,40 @@ const GENERATED_TITLE_BRACKET_THINKING_TAG_PATTERN =
 export const ATTACHMENT_PREAMBLE_HEADER =
   'Attached files (relative to workspace; use your file-read tools):';
 
+const MODEL_TITLE_LABEL_NOUNS = new Set<string>([
+  'title', 'name', 'heading', 'label', 'tab', 'task', 'subject', 'session', 'topic', 'summary',
+]);
+
+const MODEL_TITLE_LABEL_WORDS = new Set<string>([
+  ...MODEL_TITLE_LABEL_NOUNS, 'suggested', 'proposed', 'recommended',
+  'candidate', 'possible', 'potential', 'alternative', 'appropriate', 'suitable',
+  'short', 'concise', 'brief', 'descriptive', 'final', 'new', 'best', 'better',
+  'chosen', 'selected', 'ideal', 'suggestion', 'proposal', 'recommendation',
+]);
+
 /**
- * Words that, on their own, identify nothing — generic openers, instruction
- * verbs, and pointers. A title built entirely from these is "low signal": it
- * needs the attachment filename to become recognizable.
+ * Words that, on their own, identify nothing: generic openers, instruction
+ * verbs, pointers and states. A title built entirely from these lacks a subject.
  */
+const GENERIC_TITLE_ACTION_ROOTS = new Set<string>([
+  'fix', 'review', 'investigate', 'debug', 'check', 'update', 'handle', 'resolve',
+  'complete', 'finish', 'implement', 'process', 'report', 'assist', 'confirm',
+  'wait', 'continue', 'work', 'test', 'prepare', 'acknowledge', 'need', 'want', 'require', 'request',
+  'address', 'look', 'take', 'help', 'go', 'stay', 'make', 'do', 'proceed', 'get',
+  'start', 'run', 'resume', 'restart', 'stop', 'pause', 'cancel', 'apply', 'verify',
+  'restore', 'accept', 'deliver', 'execute', 'achieve', 'accomplish', 'conclude',
+  'satisfy', 'detect', 'find', 'observe', 'identify', 'answer', 'reply', 'wrap',
+  'approve', 'reject', 'deny', 'abort', 'initialize', 'interrupt', 'respawn',
+  'hibernate', 'wake', 'degrade', 'terminate', 'supersede', 'think', 'escalate',
+  'suggest', 'propose', 'recommend', 'summarize', 'describe', 'name',
+]);
+
 export const LOW_SIGNAL_TITLE_WORDS = new Set<string>([
+  ...GENERIC_TITLE_ACTION_ROOTS,
+  ...MODEL_TITLE_LABEL_WORDS,
   'please', 'pls', 'plz', 'kindly', 'hey', 'hi', 'hello', 'yo',
   'can', 'could', 'would', 'will', 'you', 'i', 'we', 'need', 'want', 'wanna', 'to',
-  'implement', 'fully', 'complete', 'completely', 'finish', 'do', 'make',
+  'implement', 'implementation', 'fully', 'complete', 'completely', 'finish', 'do', 'make',
   'fix', 'address', 'resolve', 'handle', 'investigate', 'debug', 'review',
   'check', 'update', 'look', 'at', 'take', 'a', 'work', 'on', 'help', 'me', 'with',
   'go', 'ahead', 'and', 'lets', 'let', 'just', 'now', 'all',
@@ -65,6 +112,53 @@ export const LOW_SIGNAL_TITLE_WORDS = new Set<string>([
   'comprehensively', 'detailed', 'meticulous', 'rigorous', 'robust', 'well',
   'this', 'that', 'these', 'those', 'it', 'them', 'the', 'following', 'everything',
   'for', 'of', 'in',
+  'yes', 'yep', 'yeah', 'ok', 'okay', 'done', 'continue', 'continuing',
+  'proceed', 'sure', 'thanks', 'thank', 'no',
+  // Status alone carries no subject; these remain useful beside identifying nouns.
+  'task', 'tasks', 'session', 'instance', 'thread', 'conversation', 'request', 'response',
+  'status', 'completed', 'finished', 'success', 'successful', 'successfully',
+  'progress', 'pending', 'waiting', 'blocked', 'unblocked', 'started', 'starting',
+  'running', 'processing', 'ready', 'failed', 'failure', 'resolved', 'fixed',
+  'updated', 'reviewed', 'checked', 'implemented',
+  'is', 'are', 'was', 'were', 'has', 'have', 'had', 'been', 'being',
+  'not', 'yet', 'currently', 'still', 'working', 'ongoing', 'under', 'hold',
+  'set', 'clear', 'awaiting', 'instructions', 'user', 'input', 'action', 'further',
+  'required', 'needed', 'necessary', 'nothing', 'changes',
+  'cancelled', 'canceled', 'stopped', 'paused', 'abandoned', 'deferred', 'scheduled', 'queued',
+  'restarting', 'resuming', 'resumed', 'requested', 'approval',
+  'error', 'errors', 'warning', 'warnings', 'pass', 'passed', 'test', 'tests', 'tested', 'testing',
+  'verified', 'verification', 'checks', 'restored', 'without', 'by',
+  'needs', 'requires', 'specified', 'clarification', 'applied', 'good',
+  // Acknowledgements and diagnostic states still need an identifying subject.
+  'am', 'my', 'your', 'our', 'get', 'got', 'getting',
+  'acknowledged', 'acknowledgement', 'acknowledgment', 'understood', 'noted',
+  'received', 'confirmed', 'affirmative', 'roger', 'happy', 'glad', 'welcome',
+  'assist', 'assisting', 'assistance', 'report', 'reports', 'reporting',
+  'issue', 'issues', 'problem', 'problems', 'concern', 'concerns',
+  'found', 'finding', 'findings', 'detected', 'observed', 'identified',
+  'looks', 'looked', 'appears', 'appeared', 'seems', 'seemed',
+  'fine', 'normal', 'healthy', 'clean', 'process', 'underway',
+  // Generic actors, operations, outcomes and their completion states are not
+  // subjects by themselves. Identifying nouns still make the whole title useful.
+  'job', 'jobs', 'operation', 'operations', 'activity', 'activities',
+  'result', 'results', 'outcome', 'outcomes', 'requests', 'responses',
+  'analysis', 'investigation', 'investigating', 'execution', 'completion',
+  'assistant', 'agent', 'handled', 'processed', 'provided', 'concluded',
+  'executed', 'achieved', 'accomplished', 'satisfied', 'delivered',
+  'available', 'unavailable', 'standing', 'encountered', 'left', 'outstanding',
+  'confirmation', 'answer', 'answered', 'reply', 'replying', 'prepare', 'preparing',
+  'proceeding', 'taken', 'accepted', 'wrapped', 'up', 'change', 'fixes',
+  'when', 'whenever', 'more', 'only', 'any', 'additional', 'another', 'remaining',
+  'next', 'previous', 'again', 'as', 'instruction', 'perfect', 'perfectly',
+  // Default naming metadata is no task subject, including our absence sentinel.
+  'untitled', 'unnamed', 'new', 'empty', 'default', 'unknown', 'chat',
+  'title', 'name', 'heading', 'label', 'subject', 'summary',
+  // Bare lifecycle/permission states must not become names. Subject-bearing
+  // phrases still survive (e.g. idle timeout diagnostics, permission editor).
+  'idle', 'busy', 'initializing', 'thinking', 'deeply', 'permission',
+  'interrupting', 'interrupt', 'escalating', 'cancelling', 'superseded',
+  'respawning', 'hibernating', 'hibernated', 'waking', 'degraded', 'terminated',
+  'approved', 'rejected', 'denied', 'aborted', 'command', 'receipt',
 ]);
 
 const GENERIC_QUALITY_TAIL_PATTERN =
@@ -107,9 +201,32 @@ const BARE_UUID_LINE_PATTERN =
 const LEADING_BARE_UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[\s:,.-]+(?=\S)/i;
 
-/** True when a line is nothing but a bare UUID (plus optional trailing punctuation). */
+const BARE_HASH_LINE_PATTERN = /^[0-9a-f]{16,}[\s:,.-]*$/i;
+const BARE_SESSION_IDENTIFIER_PATTERN =
+  /^(?:(?:session|instance|thread|request)[-_](?:\d+|[0-9a-f]{16,}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})|(?:claude|codex|gemini|copilot)-\d{10,}-[a-z0-9]+)[\s:,.-]*$/i;
+
+const HARNESS_ID_PREFIXES = new Set<string>([
+  ...Object.values(INSTANCE_ID_PREFIXES), ...Object.values(ORCHESTRATION_ID_PREFIXES),
+]);
+
+/** Recognize random-looking Harness IDs without treating words/version labels as IDs. */
+function isBareHarnessId(line: string): boolean {
+  const token = line.replace(/[\s:,.-]+$/, '');
+  return /^[A-Za-z][a-z0-9]{8}$/.test(token)
+    && HARNESS_ID_PREFIXES.has(token.charAt(0).toLowerCase())
+    // A digit followed by a lowercase letter distinguishes observed random IDs
+    // from words (component) and version labels (Angular22/Copilot22). All-letter
+    // IDs are inherently ambiguous; preserve real subjects instead of guessing.
+    && /\d[a-z]/.test(token.slice(1));
+}
+
+/** True when a line is a bare UUID, hash, or recognizable generated session ID. */
 export function isBareIdentifierLine(line: string): boolean {
-  return BARE_UUID_LINE_PATTERN.test(line.trim());
+  const trimmed = line.trim();
+  return BARE_UUID_LINE_PATTERN.test(trimmed)
+    || BARE_HASH_LINE_PATTERN.test(trimmed)
+    || BARE_SESSION_IDENTIFIER_PATTERN.test(trimmed)
+    || isBareHarnessId(trimmed);
 }
 
 /** Reduce an attachment name to a clean basename for use in a title. */
@@ -155,6 +272,33 @@ export function titleFromAttachments(labels: readonly string[]): string | null {
   return `${labels[0]} +${labels.length - 1} more`;
 }
 
+/** Recognize answer labels, while preserving subject-bearing labels such as HTTP 500. */
+function hasModelAnswerLabel(plain: string): boolean {
+  const separator = plain.search(/:|\s+[-–—]\s*|[-–—]\s+/u);
+  if (separator < 0 || separator > 80) return false;
+  const prefix = plain.slice(0, separator)
+    .replace(/^(?:here(?:['’]s| is)|this is)\s+/i, '').toLowerCase();
+  const words = prefix.match(/[\p{L}\p{N}]+/gu) ?? [];
+  return words.some((word) => MODEL_TITLE_LABEL_NOUNS.has(word))
+    && words.every((word) => MODEL_TITLE_LABEL_WORDS.has(word) || LOW_SIGNAL_TITLE_WORDS.has(word));
+}
+
+/** Check structure before whitespace collapse or truncation can hide it. */
+function hasPlainTitlePresentation(plain: string): boolean {
+  return !(
+    plain.startsWith('```')
+    || /[\r\n\u2028\u2029]/u.test(plain)
+    || /^(?:\p{N}+(?:[):]|\.(?!\p{N})|\s+[-–—]\s*|[-–—]\s+|[–—](?!\p{N}))|\(\p{N}+\)(?:\s|$))/u.test(plain)
+    || /^#{1,6}\s+/u.test(plain)
+    || /^(?:[a-z][.)]|[-*+•])\s+/i.test(plain)
+    || /[.!?]\s+\p{L}/u.test(plain)
+    || hasModelAnswerLabel(plain)
+    || /^(?:i|we|you|he|she|they)(?:\s|['’](?:m|re|ve|ll|d|s)\b)/i.test(plain)
+    || (!/^IT(?:\s|$)/.test(plain) && /^it(?:\s|['’](?:s|ll|d)\b)/i.test(plain))
+    || /^(?:(?:here(?:'s| is)|this is)\s+(?:the|a|your)\s+title|(?:the\s+)?title\s*:|(?:the|this)\s+(?:session|conversation|task|title)\s+(?:is|was|should|involves|involved)|(?:i|we)\s+(?:am|are|will|have|need|can|would|should)|the user\s+(?:wants|asked|needs))/i.test(plain)
+  );
+}
+
 /**
  * Convert model-generated title output into a display-safe title.
  *
@@ -165,7 +309,7 @@ export function titleFromAttachments(labels: readonly string[]): string | null {
  */
 export function sanitizeGeneratedTitle(
   rawTitle: string | null | undefined,
-  options: { preserveTruncationMarker?: boolean } = {},
+  options: { preserveTruncationMarker?: boolean; rejectInvalidPresentation?: boolean } = {},
 ): string | null {
   if (!rawTitle) return null;
 
@@ -180,11 +324,14 @@ export function sanitizeGeneratedTitle(
     return null;
   }
 
-  const collapsed = withoutClosedThinking
+  if (options.rejectInvalidPresentation
+    && !hasPlainTitlePresentation(unwrapTitlePresentation(withoutClosedThinking.trim()))) return null;
+
+  const collapsed = unwrapTitlePresentation(withoutClosedThinking
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^["']|["']$/g, '')
-    .trim();
+    .trim());
 
   const stripped = collapsed.replace(/[.!?]+$/, '').trim();
 
@@ -202,6 +349,28 @@ export function sanitizeGeneratedTitle(
   const cleaned = preserve && stripped ? `${stripped}${RAIL_TRUNCATION_SUFFIX}` : stripped;
 
   return cleaned || null;
+}
+
+/**
+ * Accept one plain model-generated title, both before and after rail formatting.
+ * Keep line structure until validation: collapsing a numbered answer first can
+ * make its opening "1." look like the sentence the rail should display.
+ * Deterministic prompt-derived/stored names have a different contract and use
+ * sanitizeGeneratedTitle instead, so useful existing titles remain stable.
+ */
+export function validateGeneratedTitle(rawTitle: string | null | undefined): string | null {
+  if (!rawTitle) return null;
+  const plain = unwrapTitlePresentation(rawTitle
+    .replace(GENERATED_TITLE_THINKING_BLOCK_PATTERN, '')
+    .replace(GENERATED_TITLE_BRACKET_THINKING_BLOCK_PATTERN, '')
+    .trim());
+  // Generated answers must also be plain text. Stored deterministic names can
+  // legitimately contain identifier punctuation such as __init__.py.
+  if (!hasPlainTitlePresentation(plain) || /`|\*|__/.test(plain)) return null;
+
+  const title = sanitizeGeneratedTitle(plain);
+  if (!title || title.length < 3 || title.length > 80 || isLowSignalTitle(title)) return null;
+  return title;
 }
 
 export function stripGenericQualityTail(value: string): string {
@@ -252,11 +421,38 @@ export function titleFromGenericAttachmentTask(message: string, labels: readonly
   return truncateForRail(`${attachmentSubjectForAction(labels[0], action)} ${action}`);
 }
 
-/** True when a title is built entirely from generic filler words. */
+/** Normalize only action inflections; broad stemming would turn settings into set. */
+function isGenericTitleWord(word: string): boolean {
+  if (LOW_SIGNAL_TITLE_WORDS.has(word)) return true;
+  const roots: string[] = [];
+  // Plural nouns can use the complete generic vocabulary. Tense stemming is
+  // restricted to actions so a feature noun such as settings stays meaningful.
+  if (word.endsWith('s') && LOW_SIGNAL_TITLE_WORDS.has(word.slice(0, -1))) return true;
+  if (word.endsWith('es') && LOW_SIGNAL_TITLE_WORDS.has(word.slice(0, -2))) return true;
+  if (word.endsWith('ed')) roots.push(word.slice(0, -2), word.slice(0, -1));
+  if (word.endsWith('ing')) {
+    const stem = word.slice(0, -3);
+    roots.push(stem, `${stem}e`);
+    if (/(.)\1$/.test(stem)) roots.push(stem.slice(0, -1));
+  }
+  return roots.some((root) => GENERIC_TITLE_ACTION_ROOTS.has(root));
+}
+
+/** True when a title is filler, a bare number, or an opaque identifier. */
 export function isLowSignalTitle(title: string): boolean {
-  const words = title.toLowerCase().match(/[\p{L}\p{N}.+#-]+/gu) ?? [];
+  const trimmed = unwrapTitlePresentation(title);
+  if (
+    isBareIdentifierLine(trimmed)
+    || /^[\p{N}\s.,:;!?()[\]#+-]+$/u.test(trimmed)
+    || /^(?:question|step|option|item|point|section|task|answer)\s+\p{N}+[.!?:)]*$/iu.test(trimmed)
+  ) return true;
+  // Hyphenated status phrases carry the same signal as their spaced forms.
+  const words = trimmed.toLowerCase()
+    .replace(/\b(i|we|you|it|that|this)['’](?:m|re|ve|ll|d|s)\b/g, '$1')
+    .replace(/-/g, ' ').match(/[\p{L}\p{N}.+#]+/gu) ?? [];
   if (words.length === 0) return true;
-  return words.every((word) => LOW_SIGNAL_TITLE_WORDS.has(word));
+  return words.every((word) =>
+    isGenericTitleWord(word.replace(/[.!?]+$/, '')) || /^\p{N}+(?:\.\p{N}+)*\.?$/u.test(word));
 }
 
 /** Trim a long title down to the rail-visible length at a sentence/word boundary. */

@@ -241,7 +241,7 @@ describe('continuity recovery metadata index', () => {
         recoveryKey: `history:claude:thread-${index}`,
         sourceInstanceId: instanceId,
         stateFileGeneration: stateFileGeneration(stat),
-        ...(mutation ?? {}),
+        ...mutation,
       }));
     }));
 

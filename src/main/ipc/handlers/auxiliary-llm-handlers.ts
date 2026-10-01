@@ -187,10 +187,10 @@ function isPrivateOrLocalhostUrl(baseUrl: string): boolean {
     return (
       hostname === 'localhost' ||
       hostname === '127.0.0.1' ||
-      /^192\.168\./.test(hostname) ||
-      /^10\./.test(hostname) ||
+      hostname.startsWith('192.168.') ||
+      hostname.startsWith('10.') ||
       /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
-      /^100\./.test(hostname)
+      hostname.startsWith('100.')
     );
   } catch {
     return false;

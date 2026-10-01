@@ -21,7 +21,6 @@ import type {
 import {
   describeBrowserExtensionContact,
   getBrowserExtensionContactState,
-  isBrowserExtensionContactFresh,
   type BrowserExtensionContactSnapshot,
   type BrowserExtensionContactState,
 } from './browser-extension-contact-state';

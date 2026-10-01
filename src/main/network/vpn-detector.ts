@@ -179,7 +179,7 @@ export class VpnDetector extends EventEmitter {
     const current = Object.keys(interfaces);
     const matching = this.matchingInterfaces(interfaces);
 
-    for (const name of [...this.knownNonVpnIfaces]) {
+    for (const name of this.knownNonVpnIfaces) {
       if (!current.includes(name)) this.knownNonVpnIfaces.delete(name);
     }
 

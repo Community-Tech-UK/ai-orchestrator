@@ -384,8 +384,8 @@ export class CodebaseMiner extends EventEmitter {
       result.factsExtracted++;
 
       const allDeps = {
-        ...((pkg['dependencies'] as Record<string, string> | undefined) ?? {}),
-        ...((pkg['devDependencies'] as Record<string, string> | undefined) ?? {}),
+        ...(pkg['dependencies'] as Record<string, string> | undefined),
+        ...(pkg['devDependencies'] as Record<string, string> | undefined),
       };
 
       for (const [depName] of Object.entries(allDeps)) {

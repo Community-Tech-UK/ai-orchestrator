@@ -178,6 +178,8 @@ export interface Instance {
   reasoningEffort?: ReasoningEffort; // Optional thinking/reasoning effort override
   runtimeSummary?: InstanceRuntimeSummary;
   outputBuffer: OutputMessage[];
+  /** Opening and recent user prompts retained beside the bounded live buffer. */
+  retainedPrompts?: OutputMessage[];
   /** How this instance was restored from history, if applicable */
   restoreMode?: HistoryRestoreMode;
   /** Accumulated diff stats from file content snapshots */

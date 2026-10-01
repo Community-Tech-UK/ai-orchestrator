@@ -230,7 +230,7 @@ export class ProjectRegistry {
       metadata: {
         ...(packageName ? { packageName } : {}),
         ...(readmeTitle ? { readmeTitle } : {}),
-        ...(options.metadata ?? {}),
+        ...options.metadata,
       },
     };
   }

@@ -19,7 +19,8 @@ function makeAdapter(): UsageOverageGuardAdapter & { emit: (info: CliRateLimitIn
       return undefined;
     },
     emit: (info) => {
-      for (const listener of [...listeners]) listener(info);
+      // Snapshot: a listener may call off() during emit.
+      for (const listener of Array.from(listeners)) listener(info);
     },
   };
 }

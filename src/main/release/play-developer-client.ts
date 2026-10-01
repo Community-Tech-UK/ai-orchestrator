@@ -226,7 +226,7 @@ export class PlayDeveloperClient {
       accept: 'application/json',
       authorization: `Bearer ${token}`,
       ...(options.json === undefined ? {} : { 'content-type': 'application/json' }),
-      ...(options.headers ?? {}),
+      ...options.headers,
     };
     const response = await this.fetchImpl(url, {
       method,

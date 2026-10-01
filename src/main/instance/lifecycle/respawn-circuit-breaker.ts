@@ -88,7 +88,7 @@ export class RespawnCircuitBreaker {
     return this.remainingDelayMs(now) > 0;
   }
 
-  snapshot(now = Date.now()): CircuitBreakerState {
+  snapshot(_now = Date.now()): CircuitBreakerState {
     return {
       attempt: this.attempt,
       lastAttemptAt: this.lastAttemptAt,

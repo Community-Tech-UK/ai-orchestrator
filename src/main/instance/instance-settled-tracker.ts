@@ -144,7 +144,11 @@ export class InstanceSettledTracker {
 
     return new Promise<Instance | undefined>((resolve, reject) => {
       let completed = false;
+      // Assigned once, after the early-finish paths below: cleanup() can run (and
+      // read these) before they exist, so they cannot be const.
+      // eslint-disable-next-line prefer-const
       let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+      // eslint-disable-next-line prefer-const
       let progressTimer: ReturnType<typeof setInterval> | undefined;
 
       const cleanup = (): void => {

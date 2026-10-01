@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => ({
   promptHistoryRecord: vi.fn(),
   promptHistoryClear: vi.fn(),
   maybeGenerateTitle: vi.fn().mockResolvedValue(undefined),
+  clearAutoTitleInstance: vi.fn(),
   localModelInventory: [] as unknown[],
   localModelRefresh: vi.fn(),
   getProviderCapabilities: vi.fn(),
@@ -217,7 +218,10 @@ vi.mock('../../prompt-history/prompt-history-service', () => ({
 }));
 
 vi.mock('../auto-title-service', () => ({
-  getAutoTitleService: () => ({ maybeGenerateTitle: mocks.maybeGenerateTitle }),
+  getAutoTitleService: () => ({
+    maybeGenerateTitle: mocks.maybeGenerateTitle,
+    clearInstance: mocks.clearAutoTitleInstance,
+  }),
 }));
 
 vi.mock('../../observability/lifecycle-trace', () => ({
@@ -1039,6 +1043,7 @@ describe('createInstance spawn transaction rollback', () => {
     expect(harness.unregisterOrchestration).toHaveBeenCalledWith(instance.id);
     expect(harness.endRlmSession).toHaveBeenCalledWith(instance.id);
     expect(harness.removedEvents).toContain(instance.id);
+    expect(mocks.clearAutoTitleInstance).toHaveBeenCalledWith(instance.id);
   });
 
   it('rolls back an in-flight create when termination wins the race', async () => {

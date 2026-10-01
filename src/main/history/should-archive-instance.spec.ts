@@ -161,6 +161,23 @@ describe('shouldArchiveInstance', () => {
     }));
   });
 
+  it('archives a cleanly-finished hidden run the operator took over, even when coverage matches', () => {
+    expect(shouldArchiveInstance(
+      summary({
+        metadata: {
+          automationId: 'automation-placeholder',
+          automationHidden: true,
+          automationRunSucceeded: true,
+          automationRevealed: true,
+        },
+      }),
+      matchingCoverage({ coveredThrough: 999 }),
+    )).toEqual(expect.objectContaining({
+      shouldArchive: true,
+      reason: 'automation-needs-visibility',
+    }));
+  });
+
   it('archives when there is no meaningful message to compare against coverage', () => {
     expect(shouldArchiveInstance(
       summary({ outputMessageCount: 1, lastMeaningfulMessageAt: undefined }),

@@ -34,7 +34,7 @@ export function stampSecretObservationProtection(
     return payload;
   }
   return {
-    ...(payload ?? {}),
+    ...payload,
     [SECRET_OBSERVATION_PROTECTION_PAYLOAD_KEY]: isSecretObservationProtectionEnabled(),
   };
 }

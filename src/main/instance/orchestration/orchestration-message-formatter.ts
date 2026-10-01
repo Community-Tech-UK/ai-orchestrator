@@ -1,5 +1,12 @@
+/**
+ * Orchestration response payloads are JSON parsed out of CLI text and vary per
+ * action; each formatter probes the fields it needs defensively.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped per-action JSON payload
+type OrchestrationData = Record<string, any>;
+
 export class OrchestrationMessageFormatter {
-  format(action: string, status: string, data: Record<string, any>): string {
+  format(action: string, status: string, data: OrchestrationData): string {
     switch (action) {
       case 'spawn_child':
         if (status === 'SUCCESS') {
@@ -51,7 +58,7 @@ export class OrchestrationMessageFormatter {
     }
   }
 
-  private formatGetChildrenMessage(data: Record<string, any>): string {
+  private formatGetChildrenMessage(data: OrchestrationData): string {
     const activeConsensusQueries = typeof data['activeConsensusQueries'] === 'number'
       ? data['activeConsensusQueries']
       : 0;
@@ -60,7 +67,7 @@ export class OrchestrationMessageFormatter {
       : [];
     if (data['children'] && data['children'].length > 0) {
       const childList = data['children']
-        .map((c: any) => `- **${c.name}** (\`${c.id}\`) - ${c.status}`)
+        .map((c: { name: string; id: string; status: string }) => `- **${c.name}** (\`${c.id}\`) - ${c.status}`)
         .join('\n');
       const consensusLine = activeConsensusQueries > 0
         ? `\n\n**Consensus queries running:** ${activeConsensusQueries}`
@@ -82,7 +89,7 @@ export class OrchestrationMessageFormatter {
     return '**No active children**';
   }
 
-  private formatChildOutputMessage(status: string, data: Record<string, any>): string {
+  private formatChildOutputMessage(status: string, data: OrchestrationData): string {
     if (status !== 'SUCCESS') {
       const errChildId = data['childId'] ? ` \`${data['childId']}\`` : '';
       return `**Failed to get child output**${errChildId}: ${data['error'] || 'Unknown error'}`;
@@ -93,7 +100,7 @@ export class OrchestrationMessageFormatter {
     return `**No output from child** \`${data['childId'] ?? '(unknown)'}\``;
   }
 
-  private formatToolCallMessage(status: string, data: Record<string, any>): string {
+  private formatToolCallMessage(status: string, data: OrchestrationData): string {
     if (status === 'SUCCESS') {
       const toolId = data['toolId'] || data['tool']?.id || 'tool';
       const outputPreview =
@@ -111,7 +118,7 @@ export class OrchestrationMessageFormatter {
     return `**Tool failed:** \`${data['toolId'] || data['tool']?.id || 'tool'}\`\n\n${data['error'] || 'Unknown error'}`;
   }
 
-  private formatConsensusQueryMessage(status: string, data: Record<string, any>): string {
+  private formatConsensusQueryMessage(status: string, data: OrchestrationData): string {
     if (data['status'] === 'dispatching') {
       const requestedProviders = Array.isArray(data['providersRequested']) && data['providersRequested'].length > 0
         ? data['providersRequested'].join(', ')
@@ -160,7 +167,7 @@ export class OrchestrationMessageFormatter {
     return parts.join('\n');
   }
 
-  private formatRequestUserActionMessage(data: Record<string, any>): string {
+  private formatRequestUserActionMessage(data: OrchestrationData): string {
     const title = data['title'] || 'User Action Required';
     const message = data['message'] || '';
     const questions = data['questions'] as string[] | undefined;
@@ -186,7 +193,7 @@ export class OrchestrationMessageFormatter {
     return parts.join('\n');
   }
 
-  private formatChildResultMessage(data: Record<string, any>): string {
+  private formatChildResultMessage(data: OrchestrationData): string {
     const parts: string[] = [];
     parts.push(`**Child Result** from \`${data['childId']}\``);
     parts.push('');
@@ -214,7 +221,7 @@ export class OrchestrationMessageFormatter {
     return parts.join('\n');
   }
 
-  private formatChildSummaryMessage(status: string, data: Record<string, any>): string {
+  private formatChildSummaryMessage(status: string, data: OrchestrationData): string {
     if (status !== 'SUCCESS') {
       return `**Child Summary Error:** ${data['error'] || 'Unknown error'}\n\n${data['suggestion'] || ''}`;
     }
@@ -239,7 +246,7 @@ export class OrchestrationMessageFormatter {
     return parts.join('\n');
   }
 
-  private formatChildArtifactsMessage(status: string, data: Record<string, any>): string {
+  private formatChildArtifactsMessage(status: string, data: OrchestrationData): string {
     if (status !== 'SUCCESS') {
       return `**Artifacts Error:** ${data['error'] || 'Unknown error'}`;
     }
@@ -270,7 +277,7 @@ export class OrchestrationMessageFormatter {
     return parts.join('\n');
   }
 
-  private formatChildSectionMessage(status: string, data: Record<string, any>): string {
+  private formatChildSectionMessage(status: string, data: OrchestrationData): string {
     if (status !== 'SUCCESS') {
       return `**Section Error:** ${data['error'] || 'Unknown error'}`;
     }
@@ -289,7 +296,7 @@ export class OrchestrationMessageFormatter {
     return parts.join('\n');
   }
 
-  private formatChildCompletedMessage(data: Record<string, any>): string {
+  private formatChildCompletedMessage(data: OrchestrationData): string {
     const parts: string[] = [];
     const name = data['name'] || data['childId'] || 'Unknown child';
     const statusLabel = data['success'] ? 'Success' : 'Failed';
@@ -310,7 +317,7 @@ export class OrchestrationMessageFormatter {
     return parts.join('\n');
   }
 
-  private formatAllChildrenCompletedMessage(data: Record<string, any>): string {
+  private formatAllChildrenCompletedMessage(data: OrchestrationData): string {
     const parts: string[] = [];
     parts.push(`**All ${data['totalChildren']} children completed**`);
     parts.push('');

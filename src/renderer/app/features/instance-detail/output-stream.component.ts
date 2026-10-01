@@ -846,6 +846,14 @@ export class OutputStreamComponent {
       const mouseEvent = event as MouseEvent;
       const target = mouseEvent.target as HTMLElement;
 
+      const followupButton = target.closest<HTMLButtonElement>('button[data-followup-prompt]');
+      if (followupButton) {
+        mouseEvent.preventDefault();
+        mouseEvent.stopPropagation();
+        void this.markdownService.handleFollowupClick(followupButton);
+        return;
+      }
+
       // Check for copy button clicks (walk up to find button with data-copy-id)
       const copyButton = target.closest('[data-copy-id]') as HTMLElement | null;
       if (copyButton) {

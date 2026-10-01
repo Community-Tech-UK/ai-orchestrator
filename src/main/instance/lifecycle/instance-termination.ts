@@ -18,6 +18,7 @@ import { getInstanceProviderLimitHandler } from '../instance-provider-limit-hand
 import { getInstanceAuthRepairHandler } from '../instance-auth-repair-handler';
 import { deleteCircuitBreaker } from './respawn-circuit-breaker';
 import { mergeSessionBranchToMain } from './session-branch-merge';
+import { getAutoTitleService } from '../auto-title-service';
 
 const logger = getLogger('InstanceTermination');
 
@@ -82,6 +83,9 @@ export class InstanceTerminationCoordinator {
     graceful = true,
     options: TerminateInstanceOptions = {},
   ): Promise<void> {
+    // Every termination route (including idle/child/bulk cleanup) crosses here.
+    // Cancel naming before teardown awaits, so no late title changes the archive.
+    getAutoTitleService().clearInstance(instanceId);
     const adapter = this.deps.getAdapter(instanceId);
     const instance = this.deps.getInstance(instanceId);
 

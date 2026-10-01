@@ -32,7 +32,7 @@ export function registerRendererTelemetryHandlers(): void {
       RendererLogMessagePayloadSchema,
       async (payload): Promise<IpcResponse> => {
         const metadata = {
-          ...(payload.metadata ?? {}),
+          ...payload.metadata,
           ...(payload.context ? { context: payload.context } : {}),
         };
         if (payload.level === 'error') {

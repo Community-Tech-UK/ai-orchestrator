@@ -142,6 +142,13 @@ export interface InstanceStateUpdatePayload {
   accountProfileId?: string;
   /** How that account was chosen (default, failover, …). */
   accountRoutingSource?: AccountRouteSource;
+  /**
+   * True once a hidden automation's session must stay in the project rail
+   * whatever its status: its run ended without a clean success, its
+   * automation was deleted mid-run, or the operator took it over. Sticky;
+   * undefined preserves.
+   */
+  automationRevealed?: boolean;
 }
 
 export interface InstanceOutputPayload {

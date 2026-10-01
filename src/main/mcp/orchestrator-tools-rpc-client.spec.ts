@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as os from 'node:os';

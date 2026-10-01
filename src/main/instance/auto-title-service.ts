@@ -29,6 +29,7 @@ import {
   isLowSignalTitle,
   LOW_SIGNAL_TITLE_WORDS,
   sanitizeGeneratedTitle,
+  validateGeneratedTitle,
   standaloneDocumentPathTitle,
   titleFromAttachments,
   truncateForRail,
@@ -44,6 +45,7 @@ import {
   runCorrelatedPaidFrontierCall,
 } from '../local-ai-guard/local-ai-cost-correlation';
 import { recordCorrelatedFrontierAttribution } from '../rlm/frontier-cost-attribution';
+import { buildContextualTitleText, buildTitleUserPrompt, TITLE_SYSTEM_PROMPT } from './auto-title-prompt';
 
 const logger = getLogger('AutoTitle');
 
@@ -72,26 +74,6 @@ const AI_TITLE_TIMEOUT = 60_000;
  * discarded in favour of the deterministic first-message title.
  */
 const MAX_GENERATED_TITLE_LENGTH = 80;
-
-/**
- * Shared clause telling the model a pasted session/instance ID, hash, or UUID
- * is not the subject. Without this, "lead with the most distinctive word" is
- * bad advice when the message opens with a copy-pasted ID (a common way bug
- * reports start, e.g. from a title-bar screenshot) — a UUID reads as maximally
- * "distinctive" character-wise to a model while carrying zero identifying
- * signal, since every session's ID is equally random hex. The deterministic
- * fallback (`deriveRailTitle`/`isBareIdentifierLine`) already skips such
- * lines, but this keeps the AI-generated title from reintroducing the same
- * failure when it runs on the raw, unfiltered message text.
- */
-const IGNORE_BARE_IDS_CLAUSE =
-  'Ignore any bare session ID, instance ID, hash, or UUID in the message when choosing the ' +
-  'distinctive word — those are random and identify nothing; use the real subject instead.';
-
-const CLI_TITLE_SYSTEM_PROMPT =
-  `You generate very short tab titles (3-6 words) that summarize a task. The title is shown in a narrow sidebar and is realistically only legible by its first ~25 characters, so LEAD WITH THE MOST DISTINCTIVE, IDENTIFYING WORD — the project, feature, file, repo, or subject. Never start with generic filler ("Please", "Implement", "Fix", "Review this PR", "Help", "I need", "We need to") or a URL; drop it and open with what makes this task unique. ${IGNORE_BARE_IDS_CLAUSE} If the message text is generic filler with no specific subject, build the title around the attached file name instead. Reply with ONLY the title — no quotes, no trailing punctuation, no explanation.`;
-const CLI_TITLE_USER_INSTRUCTION =
-  "Summarize this task in 3-6 words for a sidebar tab title. Put the most distinctive, identifying word first so it's recognizable from just the first ~25 characters. If the message text is generic filler with no specific subject, use the attached file name as the subject:";
 
 /** Provider preference order for title generation (fastest first) */
 const FAST_PROVIDER_PREFERENCE = ['antigravity', 'claude', 'codex'] as const;
@@ -137,7 +119,16 @@ function finalizeGeneratedTitle(
   sourceMessage: string,
   labels: readonly string[],
 ): string | null {
-  const title = sanitizeGeneratedTitle(raw);
+  const candidate = sanitizeGeneratedTitle(raw);
+  if (candidate && labels.length > 0 && isLowSignalTitle(candidate)) {
+    // A generic model answer must not replace a known subject with an incidental
+    // screenshot filename. Attachment repair is for generic opening text only.
+    if (!isLowSignalTitle(deriveRailTitle(sourceMessage))) return null;
+    const fallback = deriveAttachmentTaskTitle(sourceMessage, labels);
+    const title = fallback ? truncateForRail(fallback) : null;
+    return title && title.length >= 3 && !isLowSignalTitle(title) ? title : null;
+  }
+  const title = validateGeneratedTitle(raw);
   // Too short to mean anything, or long enough to prove the model ignored the
   // "3-6 words" instruction and is narrating instead of answering.
   if (!title || title.length < 3 || title.length > MAX_GENERATED_TITLE_LENGTH) {
@@ -151,10 +142,9 @@ function finalizeGeneratedTitle(
   }
 
   const frontLoadedTitle = truncateForRail(frontLoadTitle(title));
-  if (labels.length > 0 && isLowSignalTitle(frontLoadedTitle)) {
-    return deriveAttachmentTaskTitle(sourceMessage, labels) ?? frontLoadedTitle;
-  }
-  return frontLoadedTitle;
+  // Removing lead-ins can expose numbered answers or narration. Revalidate the
+  // entire contract, but return the formatted string to keep its rail ellipsis.
+  return validateGeneratedTitle(frontLoadedTitle) ? frontLoadedTitle : null;
 }
 
 /** Keep a filename-only task anchored to its document, not a parent directory. */
@@ -223,6 +213,9 @@ export class AutoTitleService {
    */
   private awaitingFirstReplyContext = new Map<string, { message: string; attachmentNames: readonly string[] }>();
 
+  /** A slower opening-message request must not overwrite a successful contextual title. */
+  private completedContextualTitles = new Set<string>();
+
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   private constructor() {}
 
@@ -238,6 +231,7 @@ export class AutoTitleService {
       this.instance.processed.clear();
       this.instance.pendingRetries.clear();
       this.instance.awaitingFirstReplyContext.clear();
+      this.instance.completedContextualTitles.clear();
     }
     (this.instance as AutoTitleService | undefined) = undefined;
   }
@@ -270,10 +264,6 @@ export class AutoTitleService {
     // Guard: user already renamed
     if (isRenamed) return;
 
-    // Guard: nothing to summarize — short message AND no attachment to fall back on
-    const hasAttachment = attachmentLabels(attachmentNames).length > 0;
-    if (message.trim().length < MIN_MESSAGE_LENGTH && !hasAttachment) return;
-
     // Register for the Phase 3 contextual upgrade (see
     // `maybeUpgradeTitleWithFirstReply`): the opening message is often vague
     // ("fix this issue", a raw paste) with no real subject in the text yet.
@@ -281,6 +271,11 @@ export class AutoTitleService {
     // actual subject, so the caller gets one more chance to retitle using that
     // richer context.
     this.awaitingFirstReplyContext.set(instanceId, { message, attachmentNames });
+
+
+    // Short openers still get contextual naming once the assistant supplies a subject.
+    const hasAttachment = attachmentLabels(attachmentNames).length > 0;
+    if (message.trim().length < MIN_MESSAGE_LENGTH && !hasAttachment) return;
 
     // Phase 1: Immediate fallback — truncated first message (or attachment) title
     const instantTitle = deriveInstantTitle(message, attachmentNames);
@@ -294,6 +289,7 @@ export class AutoTitleService {
     // and a single opportunistic retry is queued (see `pendingRetries`).
     try {
       const title = await this.generateTitle(message, attachmentNames);
+      if (!this.processed.has(instanceId) || this.completedContextualTitles.has(instanceId)) return;
       if (title) {
         applyTitle(instanceId, title, 'ai');
         logger.info('Auto-titled instance (AI)', { instanceId, title });
@@ -301,6 +297,7 @@ export class AutoTitleService {
         this.pendingRetries.set(instanceId, { message, attachmentNames });
       }
     } catch (error) {
+      if (!this.processed.has(instanceId) || this.completedContextualTitles.has(instanceId)) return;
       logger.warn('AI title upgrade failed, keeping instant title', {
         instanceId,
         error: error instanceof Error ? error.message : String(error),
@@ -336,6 +333,7 @@ export class AutoTitleService {
 
     try {
       const title = await this.generateTitle(pending.message, pending.attachmentNames);
+      if (!this.processed.has(instanceId) || this.completedContextualTitles.has(instanceId)) return;
       if (title) {
         applyTitle(instanceId, title, 'ai');
         logger.info('Auto-titled instance (AI retry)', { instanceId, title });
@@ -396,13 +394,17 @@ export class AutoTitleService {
     const openingContext = documentSubject
       ? `Document filename subject: ${documentSubject}. Ignore directory names.`
       : pending.message;
-    const combinedText = `${openingContext}\n\nWhat actually happened: ${trimmedReply}`;
+    const combinedText = buildContextualTitleText(openingContext, trimmedReply);
 
     try {
       const title = await this.generateTitle(combinedText, pending.attachmentNames, documentSubject);
-      if (title) {
+      if (title && this.processed.has(instanceId)) {
+        this.completedContextualTitles.add(instanceId);
+        this.pendingRetries.delete(instanceId);
         applyTitle(instanceId, title, 'ai');
         logger.info('Auto-titled instance (AI, contextual upgrade)', { instanceId, title });
+      } else if (!this.processed.has(instanceId)) {
+        logger.debug('Instance cleared during contextual naming, discarding title', { instanceId });
       } else {
         logger.debug('Contextual title upgrade produced no usable title, keeping existing title', { instanceId });
       }
@@ -441,13 +443,8 @@ export class AutoTitleService {
     const modelMessage = documentSubject
       ? `Document filename subject: ${documentSubject}. Ignore directory names.`
       : truncatedMessage;
-    const systemPrompt =
-      'You generate very short tab titles (3-6 words) that summarize a task. '
-      + `Lead with the most distinctive word. ${IGNORE_BARE_IDS_CLAUSE} `
-      + 'Reply with ONLY the title — no quotes, no trailing punctuation.';
-    const userPrompt = labels.length > 0
-      ? `${modelMessage}\n\nAttached: ${labels.join(', ')}`
-      : modelMessage;
+    const systemPrompt = TITLE_SYSTEM_PROMPT;
+    const userPrompt = buildTitleUserPrompt(modelMessage, labels);
 
     try {
       const { text: generatedTitle, decision } = await getAuxiliaryLlmService().generate(
@@ -512,13 +509,8 @@ export class AutoTitleService {
       : truncatedMessage;
 
     // Try auxiliary LLM (local/cheap model) first — much cheaper than a full CLI spawn
-    const auxSystemPrompt =
-      'You generate very short tab titles (3-6 words) that summarize a task. ' +
-      `Lead with the most distinctive word. ${IGNORE_BARE_IDS_CLAUSE} ` +
-      'Reply with ONLY the title — no quotes, no trailing punctuation.';
-    const auxUserPrompt = labels.length > 0
-      ? `${modelMessage}\n\nAttached: ${labels.join(', ')}`
-      : modelMessage;
+    const auxSystemPrompt = TITLE_SYSTEM_PROMPT;
+    const auxUserPrompt = buildTitleUserPrompt(modelMessage, labels);
     let fallbackDecision: AuxiliaryLlmDecision;
     try {
       const { text: auxTitle, decision: auxDecision } = await getAuxiliaryLlmService().generate(
@@ -555,13 +547,7 @@ export class AutoTitleService {
       return null;
     }
 
-    const attachmentLine = labels.length > 0
-      ? `\n\nAttached file${labels.length > 1 ? 's' : ''}: ${labels.join(', ')}`
-      : '';
-    const messageBlock = modelMessage.length > 0
-      ? modelMessage
-      : '(no message text — the task is about the attached file)';
-    const userInstruction = `${CLI_TITLE_USER_INSTRUCTION}\n\n${messageBlock}${attachmentLine}`;
+    const userInstruction = buildTitleUserPrompt(modelMessage, labels);
     const candidates = filterProvidersForAutomation(FAST_PROVIDER_PREFERENCE, 'autoTitle');
     let resolvedAnyCli = false;
     for (const candidate of candidates) {
@@ -581,7 +567,7 @@ export class AutoTitleService {
         titleSpawnOptions = await attachProviderRoutes(cliType, {
           workingDirectory: process.cwd(),
           model,
-          systemPrompt: CLI_TITLE_SYSTEM_PROMPT,
+          systemPrompt: TITLE_SYSTEM_PROMPT,
           systemPromptMode: 'replace' as const,
           yoloMode: false,
           timeout: AI_TITLE_TIMEOUT,
@@ -612,7 +598,7 @@ export class AutoTitleService {
             : result.usage;
           recordCorrelatedFrontierAttribution({
             taskType: 'aux:titleGeneration', provider: cliType, model,
-            inputTexts: [CLI_TITLE_SYSTEM_PROMPT, userInstruction], outputText: result.content, usage,
+            inputTexts: [TITLE_SYSTEM_PROMPT, userInstruction], outputText: result.content, usage,
           });
           return result;
         });
@@ -631,7 +617,7 @@ export class AutoTitleService {
           cliType, model, elapsedMs: Date.now() - startedAt,
           outputLength: response.content?.length ?? 0,
         });
-        return null;
+        continue;
       }
       logger.info('AI title generated via CLI escalation', {
         cliType, model, elapsedMs: Date.now() - startedAt,
@@ -654,6 +640,7 @@ export class AutoTitleService {
     this.processed.delete(instanceId);
     this.pendingRetries.delete(instanceId);
     this.awaitingFirstReplyContext.delete(instanceId);
+    this.completedContextualTitles.delete(instanceId);
   }
 }
 

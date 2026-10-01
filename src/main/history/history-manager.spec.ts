@@ -1287,6 +1287,29 @@ describe('HistoryManager', () => {
     expect(entries.find((e) => e.historyThreadId === 'thread-visible')?.isHiddenAutomation).toBeUndefined();
   });
 
+  it('does not hide an archived hidden run the operator took over after it finished', async () => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+
+    await manager.archiveInstance(makeInstance({
+      id: 'instance-hidden-taken-over',
+      historyThreadId: 'thread-hidden-taken-over',
+      sessionId: 'session-hidden-taken-over',
+      metadata: {
+        automationId: 'automation-8',
+        automationRunId: 'run-8',
+        automationHidden: true,
+        automationRunSucceeded: true,
+        automationRevealed: true,
+      },
+      outputBuffer: [message('m-taken-over', 'user', 'carry on from here', 10)],
+    }), 'completed');
+
+    const entry = manager.getEntries().find((e) => e.historyThreadId === 'thread-hidden-taken-over');
+    expect(entry?.isAutomation).toBe(true);
+    expect(entry?.isHiddenAutomation).toBeUndefined();
+  });
+
   it('does not hide an archived hidden run that did not finish cleanly', async () => {
     // Termination maps every non-`error` status to the `completed`
     // ConversationEndStatus, so the archived entry cannot infer the outcome

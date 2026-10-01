@@ -8,6 +8,9 @@ import {
   type RecoveryOutcome,
 } from '../../shared/types/error-recovery.types';
 
+type EscalatedOutcome = Extract<RecoveryOutcome, { status: 'escalated' }>;
+type EngineArgs = ConstructorParameters<typeof RecoveryRecipeEngine>;
+
 // Mock CheckpointManager
 const mockCheckpointManager = {
   createCheckpoint: vi.fn().mockResolvedValue('checkpoint-123'),
@@ -47,8 +50,8 @@ describe('RecoveryRecipeEngine', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     engine = new RecoveryRecipeEngine(
-      mockCheckpointManager as any,
-      mockSessionContinuity as any,
+      mockCheckpointManager as unknown as EngineArgs[0],
+      mockSessionContinuity as unknown as EngineArgs[1],
     );
   });
 
@@ -134,7 +137,7 @@ describe('RecoveryRecipeEngine', () => {
     // Immediate second attempt: skipped due to cooldown
     const outcome = await engine.handleFailure(createFailure());
     expect(outcome.status).toBe('escalated');
-    expect((outcome as any).reason).toContain('cooldown');
+    expect((outcome as EscalatedOutcome).reason).toContain('cooldown');
   });
 
   it('should trigger global circuit breaker after too many attempts', async () => {
@@ -153,7 +156,7 @@ describe('RecoveryRecipeEngine', () => {
     // 6th attempt should hit circuit breaker
     const outcome = await engine.handleFailure(createFailure({ id: 'f-ctx-1', category: 'context_window_exhausted' }));
     expect(outcome.status).toBe('escalated');
-    expect((outcome as any).reason).toContain('circuit breaker');
+    expect((outcome as EscalatedOutcome).reason).toContain('circuit breaker');
   });
 
   it('should track attempt history per instance', async () => {

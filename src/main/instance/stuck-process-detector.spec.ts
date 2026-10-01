@@ -15,6 +15,18 @@ import {
   StuckProcessDetector,
 } from './stuck-process-detector';
 
+/** Private members of StuckProcessDetector that the sleep/wake tests drive directly. */
+interface DetectorInternals {
+  trackers: Map<string, {
+    lastOutputAt: number;
+    softWarningEmitted: boolean;
+    interactivePromptWarningEmitted: boolean;
+    aliveDeferrals: number;
+  }>;
+  lastCheckTime: number;
+  checkAll(): void;
+}
+
 describe('StuckProcessDetector', () => {
   let detector: StuckProcessDetector;
 
@@ -657,7 +669,7 @@ describe('StuckProcessDetector', () => {
       detector.updateState('inst-1', 'generating');
 
       // Simulate: lastOutputAt was 200s ago, lastCheckTime was 120s ago (system slept)
-      const d = detector as any;
+      const d = detector as unknown as DetectorInternals;
       const now = Date.now();
       d.trackers.get('inst-1')!.lastOutputAt = now - 200_000;
       d.lastCheckTime = now - 120_000;
@@ -693,7 +705,7 @@ describe('StuckProcessDetector', () => {
       detector.updateState('inst-2', 'tool_executing');
 
       // Simulate system sleep: both instances had output 300s ago
-      const d = detector as any;
+      const d = detector as unknown as DetectorInternals;
       const now = Date.now();
       d.trackers.get('inst-1')!.lastOutputAt = now - 300_000;
       d.trackers.get('inst-2')!.lastOutputAt = now - 300_000;
@@ -708,7 +720,7 @@ describe('StuckProcessDetector', () => {
     });
 
     it('clears warning flags and deferral counts on sleep reset', () => {
-      const d = detector as any;
+      const d = detector as unknown as DetectorInternals;
       detector.startTracking('inst-1');
       detector.updateState('inst-1', 'generating');
 

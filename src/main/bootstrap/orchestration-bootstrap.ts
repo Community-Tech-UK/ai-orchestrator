@@ -5,6 +5,8 @@
  * activity bridge singletons.
  */
 
+/* eslint-disable @typescript-eslint/no-require-imports -- init() bodies lazy-require singletons so bootstrap ordering controls when each module's import-time side effects run */
+
 import { registerBootstrapModule } from './index';
 import { isFeatureEnabled } from '../../shared/constants/feature-flags';
 

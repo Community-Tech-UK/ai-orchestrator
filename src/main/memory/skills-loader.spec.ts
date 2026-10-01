@@ -62,9 +62,7 @@ describe('SkillsLoader', () => {
   let loader: SkillsLoader;
 
   // Sample embeddings (384 dimensions like nomic-embed-text)
-  const sampleEmbedding = new Array(384).fill(0).map((_, i) => Math.sin(i * 0.1));
-  const similarEmbedding = new Array(384).fill(0).map((_, i) => Math.sin(i * 0.1) + 0.01);
-  const differentEmbedding = new Array(384).fill(0).map((_, i) => Math.cos(i * 0.5));
+  const sampleEmbedding = Array.from({ length: 384 }, (_, i) => Math.sin(i * 0.1));
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -265,7 +263,7 @@ describe('SkillsLoader', () => {
 
     it('should detect relevant skills based on embedding similarity', async () => {
       // Mock high similarity for first skill
-      mockCosineSimilarity.mockImplementation((a: number[], b: number[]) => 0.8);
+      mockCosineSimilarity.mockImplementation((_a: number[], _b: number[]) => 0.8);
 
       const detected = await loader.detectRelevantSkills('How do I create an Angular component?');
 

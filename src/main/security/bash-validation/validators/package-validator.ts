@@ -53,7 +53,7 @@ export class PackageValidator implements BashValidatorSubmodule {
         // npm install with no args or `.` → installing from lockfile/local → safe
         if (subCmd === 'install' || subCmd === 'add' || subCmd === 'i') {
           const installArgs = args.slice(1);
-          if (installArgs.length === 0 || installArgs.every(a => a === '.' || a.startsWith('-'))) {
+          if (installArgs.every(a => a === '.' || a.startsWith('-'))) {
             continue;
           }
           if (installArgs.includes('-g') || installArgs.includes('--global')) {

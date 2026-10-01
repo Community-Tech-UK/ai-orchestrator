@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { ORCHESTRATION_FEATURES, isFeatureEnabled, type FeatureFlag } from './feature-flags';
+import { ORCHESTRATION_FEATURES, isFeatureEnabled } from './feature-flags';
 
 describe('Feature Flags', () => {
   afterEach(() => {

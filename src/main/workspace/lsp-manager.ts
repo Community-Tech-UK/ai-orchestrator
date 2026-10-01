@@ -21,6 +21,10 @@ import { registerCleanup } from '../util/cleanup-registry';
 
 const logger = getLogger('LspManager');
 
+/** Untyped JSON-RPC wire payload from a language server (shape depends on the LSP method). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- LSP JSON-RPC payloads are untyped wire data
+type LspPayload = any;
+
 // ============================================
 // Types
 // ============================================
@@ -264,7 +268,7 @@ export class LspManager extends EventEmitter {
     const clientKey = `${server.id}:${rootPath}`;
 
     // Return existing client if available
-    let client = this.clients.get(clientKey);
+    const client = this.clients.get(clientKey);
     if (client && client.status === 'running') {
       return client;
     }
@@ -317,21 +321,14 @@ export class LspManager extends EventEmitter {
    * Set up JSON-RPC message handling
    */
   private setupMessageHandling(client: LspClient): void {
-    const rl = readline.createInterface({
+    // Attached for its side effect on stdout; message framing is parsed by the
+    // 'data' listener below.
+    readline.createInterface({
       input: client.process.stdout!,
       terminal: false,
     });
 
     let buffer = '';
-    let contentLength = -1;
-
-    rl.on('line', (line) => {
-      if (line.startsWith('Content-Length: ')) {
-        contentLength = parseInt(line.slice(16), 10);
-      } else if (line === '') {
-        // Header complete, read body
-      }
-    });
 
     client.process.stdout!.on('data', (data: Buffer) => {
       buffer += data.toString();
@@ -376,7 +373,7 @@ export class LspManager extends EventEmitter {
   /**
    * Handle incoming LSP message
    */
-  private handleMessage(client: LspClient, message: any): void {
+  private handleMessage(client: LspClient, message: LspPayload): void {
     if ('id' in message && message.id !== undefined) {
       // Response to a request
       const pending = client.pendingRequests.get(message.id);
@@ -397,11 +394,11 @@ export class LspManager extends EventEmitter {
   /**
    * Handle server notification
    */
-  private handleNotification(client: LspClient, method: string, params: any): void {
+  private handleNotification(client: LspClient, method: string, params: LspPayload): void {
     switch (method) {
       case 'textDocument/publishDiagnostics':
         const uri = params.uri;
-        const diagnostics = params.diagnostics.map((d: any) => ({
+        const diagnostics = params.diagnostics.map((d: LspPayload) => ({
           range: d.range,
           severity: SEVERITY_MAP[d.severity] || 'information',
           code: d.code,
@@ -422,7 +419,7 @@ export class LspManager extends EventEmitter {
   /**
    * Send a JSON-RPC request
    */
-  private async sendRequest<T>(client: LspClient, method: string, params: any): Promise<T> {
+  private async sendRequest<T>(client: LspClient, method: string, params: LspPayload): Promise<T> {
     const id = ++client.requestId;
 
     const message = JSON.stringify({
@@ -435,7 +432,7 @@ export class LspManager extends EventEmitter {
     const content = `Content-Length: ${Buffer.byteLength(message)}\r\n\r\n${message}`;
 
     return new Promise((resolve, reject) => {
-      client.pendingRequests.set(id, { resolve: resolve as any, reject });
+      client.pendingRequests.set(id, { resolve: resolve as LspPayload, reject });
       client.process.stdin!.write(content);
 
       // Timeout after 30 seconds
@@ -451,7 +448,7 @@ export class LspManager extends EventEmitter {
   /**
    * Send a notification (no response expected)
    */
-  private sendNotification(client: LspClient, method: string, params: any): void {
+  private sendNotification(client: LspClient, method: string, params: LspPayload): void {
     const message = JSON.stringify({
       jsonrpc: '2.0',
       method,
@@ -466,7 +463,7 @@ export class LspManager extends EventEmitter {
    * Initialize the LSP server
    */
   private async initializeServer(client: LspClient, server: LspServerInfo, rootPath: string): Promise<void> {
-    const result = await this.sendRequest<any>(client, 'initialize', {
+    const result = await this.sendRequest<LspPayload>(client, 'initialize', {
       processId: process.pid,
       rootPath,
       rootUri: `file://${rootPath}`,
@@ -538,7 +535,7 @@ export class LspManager extends EventEmitter {
     await this.openFile(client, filePath);
 
     try {
-      const result = await this.sendRequest<any>(client, 'textDocument/definition', {
+      const result = await this.sendRequest<LspPayload>(client, 'textDocument/definition', {
         textDocument: { uri: `file://${path.resolve(filePath)}` },
         position: { line, character },
       });
@@ -547,7 +544,7 @@ export class LspManager extends EventEmitter {
 
       // Normalize to array
       const locations = Array.isArray(result) ? result : [result];
-      return locations.map((loc: any) => ({
+      return locations.map((loc: LspPayload) => ({
         uri: loc.uri || loc.targetUri,
         range: loc.range || loc.targetRange,
       }));
@@ -567,7 +564,7 @@ export class LspManager extends EventEmitter {
     await this.openFile(client, filePath);
 
     try {
-      const result = await this.sendRequest<any>(client, 'textDocument/references', {
+      const result = await this.sendRequest<LspPayload>(client, 'textDocument/references', {
         textDocument: { uri: `file://${path.resolve(filePath)}` },
         position: { line, character },
         context: { includeDeclaration },
@@ -590,7 +587,7 @@ export class LspManager extends EventEmitter {
     await this.openFile(client, filePath);
 
     try {
-      const result = await this.sendRequest<any>(client, 'textDocument/implementation', {
+      const result = await this.sendRequest<LspPayload>(client, 'textDocument/implementation', {
         textDocument: { uri: `file://${path.resolve(filePath)}` },
         position: { line, character },
       });
@@ -598,7 +595,7 @@ export class LspManager extends EventEmitter {
       if (!result) return [];
 
       const locations = Array.isArray(result) ? result : [result];
-      return locations.map((loc: any) => ({
+      return locations.map((loc: LspPayload) => ({
         uri: loc.uri || loc.targetUri,
         range: loc.range || loc.targetRange,
       }));
@@ -618,7 +615,7 @@ export class LspManager extends EventEmitter {
     await this.openFile(client, filePath);
 
     try {
-      const result = await this.sendRequest<any>(client, 'textDocument/hover', {
+      const result = await this.sendRequest<LspPayload>(client, 'textDocument/hover', {
         textDocument: { uri: `file://${path.resolve(filePath)}` },
         position: { line, character },
       });
@@ -629,7 +626,7 @@ export class LspManager extends EventEmitter {
       if (typeof result.contents === 'string') {
         contents = result.contents;
       } else if (Array.isArray(result.contents)) {
-        contents = result.contents.map((c: any) => typeof c === 'string' ? c : c.value).join('\n');
+        contents = result.contents.map((c: LspPayload) => typeof c === 'string' ? c : c.value).join('\n');
       } else if (result.contents.value) {
         contents = result.contents.value;
       }
@@ -654,14 +651,14 @@ export class LspManager extends EventEmitter {
     await this.openFile(client, filePath);
 
     try {
-      const result = await this.sendRequest<any>(client, 'textDocument/documentSymbol', {
+      const result = await this.sendRequest<LspPayload>(client, 'textDocument/documentSymbol', {
         textDocument: { uri: `file://${path.resolve(filePath)}` },
       });
 
       if (!result) return [];
 
       // Can be DocumentSymbol[] or SymbolInformation[]
-      return result.map((s: any) => {
+      return result.map((s: LspPayload) => {
         if ('selectionRange' in s) {
           // DocumentSymbol
           return {
@@ -669,7 +666,7 @@ export class LspManager extends EventEmitter {
             kind: SYMBOL_KIND_MAP[s.kind] || 'variable',
             range: s.range,
             selectionRange: s.selectionRange,
-            children: s.children?.map((c: any) => this.mapDocumentSymbol(c)),
+            children: s.children?.map((c: LspPayload) => this.mapDocumentSymbol(c)),
           };
         } else {
           // SymbolInformation
@@ -687,17 +684,17 @@ export class LspManager extends EventEmitter {
     }
   }
 
-  private mapDocumentSymbol(s: any): DocumentSymbol {
+  private mapDocumentSymbol(s: LspPayload): DocumentSymbol {
     return {
       name: s.name,
       kind: SYMBOL_KIND_MAP[s.kind] || 'variable',
       range: s.range,
       selectionRange: s.selectionRange,
-      children: s.children?.map((c: any) => this.mapDocumentSymbol(c)),
+      children: s.children?.map((c: LspPayload) => this.mapDocumentSymbol(c)),
     };
   }
 
-  private mapCallHierarchyItem(item: any): CallHierarchyItem {
+  private mapCallHierarchyItem(item: LspPayload): CallHierarchyItem {
     return {
       name: item.name,
       kind: SYMBOL_KIND_MAP[item.kind] || 'variable',
@@ -715,11 +712,11 @@ export class LspManager extends EventEmitter {
     filePath: string,
     line: number,
     character: number,
-  ): Promise<any | null> {
+  ): Promise<LspPayload | null> {
     await this.openFile(client, filePath);
 
     try {
-      const items = await this.sendRequest<any[]>(client, 'textDocument/prepareCallHierarchy', {
+      const items = await this.sendRequest<LspPayload[]>(client, 'textDocument/prepareCallHierarchy', {
         textDocument: { uri: `file://${path.resolve(filePath)}` },
         position: { line, character },
       });
@@ -741,7 +738,7 @@ export class LspManager extends EventEmitter {
     }
 
     try {
-      const result = await this.sendRequest<any[]>(client, 'callHierarchy/incomingCalls', {
+      const result = await this.sendRequest<LspPayload[]>(client, 'callHierarchy/incomingCalls', {
         item,
       });
 
@@ -765,7 +762,7 @@ export class LspManager extends EventEmitter {
     }
 
     try {
-      const result = await this.sendRequest<any[]>(client, 'callHierarchy/outgoingCalls', {
+      const result = await this.sendRequest<LspPayload[]>(client, 'callHierarchy/outgoingCalls', {
         item,
       });
 
@@ -803,9 +800,9 @@ export class LspManager extends EventEmitter {
     if (!client) return null;
 
     try {
-      const result = await this.sendRequest<any>(client, 'workspace/symbol', { query });
+      const result = await this.sendRequest<LspPayload>(client, 'workspace/symbol', { query });
 
-      return (result || []).map((s: any) => ({
+      return (result || []).map((s: LspPayload) => ({
         name: s.name,
         kind: SYMBOL_KIND_MAP[s.kind] || 'variable',
         location: s.location,

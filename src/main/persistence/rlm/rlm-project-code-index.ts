@@ -73,7 +73,7 @@ export function upsertProjectCodeIndexStatus(
   const now = params.updatedAt ?? Date.now();
   const metadata = {
     ...(existing ? parseRecord(existing.metadata_json) : {}),
-    ...(params.metadata ?? {}),
+    ...params.metadata,
     snapshotVersion: PROJECT_CODE_INDEX_SNAPSHOT_VERSION,
   };
 
@@ -174,7 +174,7 @@ export function replaceProjectCodeSymbols(
       createdAt,
       updatedAt,
       JSON.stringify({
-        ...(symbol.metadata ?? {}),
+        ...symbol.metadata,
         snapshotVersion: PROJECT_CODE_INDEX_SNAPSHOT_VERSION,
       }),
     );

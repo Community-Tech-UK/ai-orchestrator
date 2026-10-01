@@ -33,9 +33,9 @@ export async function getKnownModelsForCli(
   const catalogIds = getKnownCatalogModelIdsForProvider(cliType);
   if (cliType === 'copilot') {
     try {
-      const models = await new CopilotCliAdapter({
-        ...(copilotAccountProfileId ? { accountProfileId: copilotAccountProfileId } : {}),
-      }).listAvailableModels();
+      const models = await new CopilotCliAdapter(
+        copilotAccountProfileId ? { accountProfileId: copilotAccountProfileId } : {},
+      ).listAvailableModels();
       return mergeModelIds(models.map(model => model.id), catalogIds);
     } catch (error) {
       logger.warn('Falling back to static Copilot model list during validation', {

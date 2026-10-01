@@ -109,13 +109,13 @@ export class DebugCommandsManager {
         errors: errors.length > 0 ? errors : undefined,
         warnings: warnings.length > 0 ? warnings : undefined,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       return {
         target: 'agent',
         timestamp: Date.now(),
         success: false,
         data: {},
-        errors: [error.message],
+        errors: [(error as Error).message],
       };
     }
   }
@@ -153,8 +153,8 @@ export class DebugCommandsManager {
         if (data['projectConfigExists']) {
           try {
             data['projectConfig'] = JSON.parse(fs.readFileSync(actualProjectConfigPath, 'utf-8'));
-          } catch (e: any) {
-            errors.push(`Failed to parse project config: ${e.message}`);
+          } catch (e: unknown) {
+            errors.push(`Failed to parse project config: ${(e as Error).message}`);
           }
         }
       }
@@ -165,8 +165,8 @@ export class DebugCommandsManager {
       if (data['userConfigExists']) {
         try {
           data['userConfig'] = JSON.parse(fs.readFileSync(userConfigPath, 'utf-8'));
-        } catch (e: any) {
-          errors.push(`Failed to parse user config: ${e.message}`);
+        } catch (e: unknown) {
+          errors.push(`Failed to parse user config: ${(e as Error).message}`);
         }
       }
 
@@ -178,13 +178,13 @@ export class DebugCommandsManager {
         errors: errors.length > 0 ? errors : undefined,
         warnings: warnings.length > 0 ? warnings : undefined,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       return {
         target: 'config',
         timestamp: Date.now(),
         success: false,
         data: {},
-        errors: [error.message],
+        errors: [(error as Error).message],
       };
     }
   }
@@ -241,8 +241,8 @@ export class DebugCommandsManager {
             const buffer = fs.readFileSync(filePath);
             data['encoding'] = this.detectEncoding(buffer);
             data['lineCount'] = buffer.toString('utf-8').split('\n').length;
-          } catch (e: any) {
-            warnings.push(`Could not read file contents: ${e.message}`);
+          } catch (e: unknown) {
+            warnings.push(`Could not read file contents: ${(e as Error).message}`);
           }
         }
       } else {
@@ -262,13 +262,13 @@ export class DebugCommandsManager {
         errors: errors.length > 0 ? errors : undefined,
         warnings: warnings.length > 0 ? warnings : undefined,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       return {
         target: 'file',
         timestamp: Date.now(),
         success: false,
         data: { path: filePath },
-        errors: [error.message],
+        errors: [(error as Error).message],
       };
     }
   }

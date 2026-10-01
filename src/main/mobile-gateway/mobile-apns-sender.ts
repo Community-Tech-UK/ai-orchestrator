@@ -125,7 +125,7 @@ export function buildApnsPayload(alert: ApnsAlert): string {
       ...(alert.category ? { category: alert.category } : {}),
       ...(alert.threadId ? { 'thread-id': alert.threadId } : {}),
     },
-    ...(alert.data ?? {}),
+    ...alert.data,
   };
   return JSON.stringify(body);
 }
@@ -134,7 +134,6 @@ class Http2ApnsTransport implements ApnsTransport {
   post(args: ApnsPostArgs): Promise<{ status: number; reason?: string }> {
     return new Promise((resolve, reject) => {
       const client = http2.connect(`https://${args.host}`);
-      let req: http2.ClientHttp2Stream | undefined;
       let settled = false;
       const done = (fn: () => void) => {
         if (settled) return;
@@ -155,7 +154,7 @@ class Http2ApnsTransport implements ApnsTransport {
       args.signal.addEventListener('abort', abort, { once: true });
       client.on('error', (err) => done(() => reject(err)));
 
-      req = client.request({
+      const req = client.request({
         ':method': 'POST',
         ':path': `/3/device/${args.deviceToken}`,
         authorization: `bearer ${args.jwt}`,

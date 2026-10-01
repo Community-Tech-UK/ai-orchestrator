@@ -107,8 +107,6 @@ const THREE_ROUND_CONFIG = {
 
 const INITIAL_RESPONSE_AGENT_0 =
   'Agent 0 thinks the answer is correct. Confidence: 80%\n## Reasoning Summary\nDetailed reasoning from agent 0.';
-const INITIAL_RESPONSE_AGENT_1 =
-  'Agent 1 considers a different approach. Confidence: 70%\n## Reasoning Summary\nDetailed reasoning from agent 1.';
 
 const CRITIQUE_RESPONSE =
   '### Critique of agent-0\n**Issue**: Needs more evidence\n**Severity**: medium\n**Counterpoint**: Alternative view\n---';

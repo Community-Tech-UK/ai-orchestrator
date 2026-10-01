@@ -62,9 +62,14 @@ export class ProjectRailBuilderService {
   buildProjectGroups(input: ProjectRailBuildInput): ProjectGroup[] {
     const filter = input.filter.trim().toLowerCase();
     const activityCutoff = getHistoryTimeWindowCutoff(input.historyTimeWindow);
+    // The open session is exempt from the implicit visibility rules (hidden
+    // automations here, the activity window in buildVisibleItems): a session
+    // must never vanish from the rail while the operator is looking at it.
+    // Explicit text/status/location filters still apply.
     const visibleInstances = input.instances.filter((instance) =>
       !this.isProjectRailHiddenInstance(instance)
-      && !isHiddenAutomationInstance(instance, input.showHiddenAutomations)
+      && (instance.id === input.selectedId
+        || !isHiddenAutomationInstance(instance, input.showHiddenAutomations))
     );
     const visibleHistoryEntries = input.historyEntries.filter((entry) =>
       !entry.hideFromProjectRail
@@ -141,6 +146,7 @@ export class ProjectRailBuilderService {
           historyEntriesByParent: visibleHistoryEntriesByParent,
           instanceMap,
           activityCutoff,
+          selectedId: input.selectedId,
         },
       );
       const liveItems = liveRoot
@@ -246,6 +252,7 @@ export class ProjectRailBuilderService {
             historyEntriesByParent: visibleHistoryEntriesByParent,
             instanceMap,
             activityCutoff,
+            selectedId: input.selectedId,
           },
         )
       )

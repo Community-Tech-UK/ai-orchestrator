@@ -21,6 +21,7 @@ import {
   getIdempotencyStore,
   IdempotencyStore,
 } from "../transport/idempotency-store";
+import { revealHiddenAutomationSession } from "../automations/automation-hidden-outcome";
 import { getUnifiedModelCatalog } from "../providers/unified-model-catalog-service";
 import type { EmitterLike } from "./mobile-gateway-events";
 import { handleMobileInstanceMessages } from "./mobile-gateway-history-handlers";
@@ -65,6 +66,8 @@ export interface GatewayOrchestrationSource extends EmitterLike {
 export interface GatewayInstanceSource extends EmitterLike {
   getAllInstances(): Instance[];
   getInstance(id: string): Instance | undefined;
+  /** Re-broadcasts current state; used to push the hidden-automation reveal stamp. */
+  queueInstanceUpdate?(instanceId: string, update: Record<string, never>): void;
   sendInput(
     instanceId: string,
     message: string,
@@ -356,6 +359,7 @@ export class MobileGatewayInstanceRoutes {
       return;
     }
     this.deps.markCompletionViewed(instanceId);
+    revealHiddenAutomationSession(this.source(), instanceId); // operator took it over
     // The manager owns status races and compaction; do not queue or interrupt here.
     await this.source().steerInput(instanceId, body.message, body.attachments);
     const response: MobileSteerResponse = { ok: true };
@@ -369,6 +373,7 @@ export class MobileGatewayInstanceRoutes {
   ): Promise<void> {
     this.sendInFlight.add(instanceId);
     try {
+      revealHiddenAutomationSession(this.source(), instanceId); // operator took it over
       await this.source().sendInput(instanceId, message, attachments);
     } finally {
       this.sendInFlight.delete(instanceId);

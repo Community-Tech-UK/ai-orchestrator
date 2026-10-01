@@ -45,7 +45,7 @@ export function createBwRunner(options: BwRunnerOptions = {}): BwRunner {
       args: string[],
       opts?: { input?: string; session?: string; env?: Record<string, string> },
     ): Promise<BwCommandResult> {
-      const env: NodeJS.ProcessEnv = { ...baseEnv, ...(opts?.env ?? {}) };
+      const env: NodeJS.ProcessEnv = { ...baseEnv, ...opts?.env };
       if (opts?.session) {
         // Session key travels in the child env only — not argv, not logs.
         env['BW_SESSION'] = opts.session;

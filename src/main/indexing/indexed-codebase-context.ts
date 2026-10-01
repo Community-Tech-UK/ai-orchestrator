@@ -214,7 +214,7 @@ export class IndexedCodebaseContextService {
 
   private normalizeResult(
     result: CodeRetrievalResult,
-    workspacePath: string,
+    _workspacePath: string,
   ): IndexedCodebaseContextResult {
     return {
       sectionId: `${result.relativePath}:${result.startLine}:${result.endLine}`,

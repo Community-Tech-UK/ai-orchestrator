@@ -44,15 +44,20 @@ export function detectExcludeDynamicSectionsSupport(
 ): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     let settled = false;
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     const finish = (supported: boolean): void => {
       if (settled) return;
       settled = true;
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-      }
+      clearTimeout(timeoutHandle);
       resolve(supported);
     };
+
+    // Armed before the spawn so finish() can always clear it, including when
+    // spawnHelpProcess() throws. It only touches `proc` after the deadline, by
+    // which point finish() has either cleared it or `proc` has been assigned.
+    const timeoutHandle = setTimeout(() => {
+      try { proc.kill(); } catch { /* already gone */ }
+      finish(false);
+    }, timeoutMs);
 
     let proc: ChildProcess;
     try {
@@ -61,11 +66,6 @@ export function detectExcludeDynamicSectionsSupport(
       finish(false);
       return;
     }
-
-    timeoutHandle = setTimeout(() => {
-      try { proc.kill(); } catch { /* already gone */ }
-      finish(false);
-    }, timeoutMs);
 
     let output = '';
     proc.stdout?.on('data', (data) => { output += data.toString(); });

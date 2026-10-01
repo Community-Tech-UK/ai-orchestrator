@@ -120,7 +120,7 @@ function keepSecretRefsVisible(
   if (!raw && !redacted) {
     return undefined;
   }
-  const merged = { ...(redacted ?? {}) };
+  const merged = { ...redacted };
   for (const [key, value] of Object.entries(raw ?? {})) {
     if (isWorkspaceSecretRef(value)) {
       merged[key] = value.trim();

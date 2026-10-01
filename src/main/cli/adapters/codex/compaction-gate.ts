@@ -61,12 +61,13 @@ export class CompactionGate {
 
   /** Releases every pending {@link wait}. Call when compaction is observed complete. */
   settle(): void {
-    for (const waiter of [...this.waiters]) waiter.finish('observed');
+    // Snapshot: finish() removes the waiter from the set while we iterate.
+    for (const waiter of Array.from(this.waiters)) waiter.finish('observed');
   }
 
   /** Moves pending waits onto their running window. Idempotent per wait. */
   markRunning(): void {
-    for (const waiter of [...this.waiters]) waiter.markRunning();
+    for (const waiter of this.waiters) waiter.markRunning();
   }
 
   hasPendingWaiters(): boolean {
@@ -75,11 +76,13 @@ export class CompactionGate {
 
   /** Releases pending waits when the provider ended the compaction without completing it. */
   fail(): void {
-    for (const waiter of [...this.waiters]) waiter.finish('failed');
+    // Snapshot: finish() removes the waiter from the set while we iterate.
+    for (const waiter of Array.from(this.waiters)) waiter.finish('failed');
   }
 
   /** Releases pending waits when the compaction RPC could not be started or the app-server exited. */
   cancel(): void {
-    for (const waiter of [...this.waiters]) waiter.finish('cancelled');
+    // Snapshot: finish() removes the waiter from the set while we iterate.
+    for (const waiter of Array.from(this.waiters)) waiter.finish('cancelled');
   }
 }

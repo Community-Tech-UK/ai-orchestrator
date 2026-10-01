@@ -22,10 +22,6 @@ import type {
   RestartEvent,
   HealthStatus,
   BackoffState,
-  createDefaultSupervisorConfig,
-  createDefaultBackoffState,
-  isWorkerNode,
-  isSupervisorNode,
 } from '../../shared/types/supervision.types';
 
 export interface SupervisorNodeConfig extends SupervisorConfig {

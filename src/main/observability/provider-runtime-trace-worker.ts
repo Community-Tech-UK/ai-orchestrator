@@ -47,7 +47,7 @@ const BATCH_INTERVAL_MS = 250;
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-let traceFilePath = DEFAULT_TRACE_PATH;
+const traceFilePath = DEFAULT_TRACE_PATH;
 let currentFileSizeBytes = 0;
 let written = 0;
 let rotations = 0;

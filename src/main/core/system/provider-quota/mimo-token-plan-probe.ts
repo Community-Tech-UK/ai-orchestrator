@@ -79,27 +79,6 @@ interface MimoTokenPlanBucket {
   percent?: unknown;
 }
 
-interface MimoTokenPlanGroup {
-  items?: unknown;
-  percent?: unknown;
-}
-
-interface MimoTokenPlanUsageBody {
-  data?: {
-    usage?: MimoTokenPlanGroup | null;
-    monthUsage?: MimoTokenPlanGroup | null;
-  } | null;
-}
-
-interface MimoTokenPlanDetailBody {
-  data?: {
-    planName?: unknown;
-    planCode?: unknown;
-    currentPeriodEnd?: unknown;
-    expired?: unknown;
-  } | null;
-}
-
 const BUCKETS: ReadonlyArray<{ name: string; id: string; label: string }> = [
   { name: 'plan_total_token', id: 'opencode.plan', label: 'Plan' },
   { name: 'month_total_token', id: 'opencode.monthly', label: 'Monthly' },

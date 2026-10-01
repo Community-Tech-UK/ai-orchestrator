@@ -28,7 +28,7 @@ function normalizeLoopCaps(
   base: LoopConfig['caps'],
   patch: Partial<LoopConfig['caps']> | undefined,
 ): LoopConfig['caps'] {
-  const merged = { ...base, ...(patch ?? {}) };
+  const merged = { ...base, ...patch };
   const maxTokens = merged.maxTokens == null
     ? null
     : Math.max(1, Math.floor(merged.maxTokens));
@@ -52,12 +52,12 @@ export function materializeLoopConfig(
     caps: normalizeLoopCaps(base.caps, p.caps),
     progressThresholds: {
       ...base.progressThresholds,
-      ...(p.progressThresholds ?? {}),
-      stageWarnIterations: { ...base.progressThresholds.stageWarnIterations, ...(p.progressThresholds?.stageWarnIterations ?? {}) },
-      stageCriticalIterations: { ...base.progressThresholds.stageCriticalIterations, ...(p.progressThresholds?.stageCriticalIterations ?? {}) },
+      ...p.progressThresholds,
+      stageWarnIterations: { ...base.progressThresholds.stageWarnIterations, ...p.progressThresholds?.stageWarnIterations },
+      stageCriticalIterations: { ...base.progressThresholds.stageCriticalIterations, ...p.progressThresholds?.stageCriticalIterations },
     },
-    completion: { ...base.completion, ...(p.completion ?? {}) },
-    audit: { ...base.audit, ...(p.audit ?? {}) },
+    completion: { ...base.completion, ...p.completion },
+    audit: { ...base.audit, ...p.audit },
   };
 }
 

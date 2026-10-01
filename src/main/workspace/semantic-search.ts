@@ -47,6 +47,16 @@ export interface ExaConfig {
 }
 
 /**
+ * Subset of an Exa search API result item that we consume
+ */
+interface ExaSearchResultItem {
+  url?: string;
+  score?: number;
+  text?: string;
+  title?: string;
+}
+
+/**
  * Code symbol for indexing
  */
 export interface CodeSymbol {
@@ -150,9 +160,9 @@ export class SemanticSearchManager {
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           try {
-            const response = JSON.parse(data);
+            const response = JSON.parse(data) as { results?: ExaSearchResultItem[] };
             // Transform Exa response to our format
-            const results: SemanticSearchResult[] = (response.results || []).map((r: any) => ({
+            const results: SemanticSearchResult[] = (response.results || []).map((r) => ({
               file: r.url || '',
               relativePath: r.url || '',
               score: r.score || 0.5,
@@ -327,7 +337,7 @@ export class SemanticSearchManager {
       const ext = path.extname(filePath).toLowerCase();
       const symbols = this.extractSymbols(content, filePath, ext);
       this.index.symbols.push(...symbols);
-    } catch (error) {
+    } catch {
       // Skip files that can't be read
     }
   }
@@ -420,7 +430,7 @@ export class SemanticSearchManager {
     for (let i = lineIndex - 1; i >= 0; i--) {
       const line = lines[i].trim();
       if (line.startsWith('*') || line.startsWith('//') || line.startsWith('#')) {
-        comments.unshift(line.replace(/^[\/*#\s]+/, ''));
+        comments.unshift(line.replace(/^[/*#\s]+/, ''));
       } else if (line === '/**' || line === '/*') {
         break;
       } else if (line !== '') {

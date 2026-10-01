@@ -1,4 +1,3 @@
-import type { OutputMessage } from '../../shared/types/instance.types';
 import type {
   PluginHookPayloads,
   PluginNotification,
@@ -12,25 +11,6 @@ import type { ReactionEvent } from '../reactions/reaction.types';
 
 export function isRecord(value: unknown): value is PluginRecord {
   return typeof value === 'object' && value !== null;
-}
-
-function isOutputMessage(value: unknown): value is OutputMessage {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  const type = value['type'];
-  return (
-    typeof value['id'] === 'string' &&
-    typeof value['timestamp'] === 'number' &&
-    typeof value['content'] === 'string' &&
-    (type === 'assistant' ||
-      type === 'user' ||
-      type === 'system' ||
-      type === 'tool_use' ||
-      type === 'tool_result' ||
-      type === 'error')
-  );
 }
 
 export function isStringRecord(value: unknown): value is Record<string, unknown> {

@@ -27,6 +27,10 @@ import {
   TestAcpCliAdapter,
 } from './acp-cli-adapter.test-helpers';
 import { normalizeAcpModelId } from './acp-cli-adapter';
+import { setAcpAttachmentStoreDirForTesting } from './acp-attachment-store';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 describe('normalizeAcpModelId', () => {
   it('strips the [...] attribute block from the ACP model id', () => {
@@ -1604,6 +1608,82 @@ describe('AcpCliAdapter', () => {
     ]);
 
     proc.exit();
+  });
+
+  it('references a durable copy of each image by file:// when persistImageAttachments is on', async () => {
+    // A space, like the real macOS userData dir ("Application Support").
+    const storeDir = join(mkdtempSync(join(tmpdir(), 'aio-acp-adapter-attachments-')), 'Application Support');
+    setAcpAttachmentStoreDirForTesting(storeDir);
+    try {
+      const proc = createInitializedAgentHarness();
+
+      let promptBlocks: { type: string; uri?: string; data?: string }[] | undefined;
+      proc.onRequest('session/prompt', (message) => {
+        promptBlocks = (message.params as { prompt: typeof promptBlocks }).prompt;
+        proc.respond(message.id, { stopReason: 'end_turn' });
+      });
+
+      const adapter = new TestAcpCliAdapter(proc, {
+        command: process.execPath,
+        workingDirectory: '/tmp',
+        persistImageAttachments: true,
+      });
+      await adapter.spawn();
+
+      await adapter.sendInput('Inspect this screenshot', [
+        { name: 'screenshot.png', type: 'image/png', size: 3, data: 'data:image/png;base64,QUJD' },
+      ]);
+
+      const imageBlock = promptBlocks?.find((block) => block.type === 'image');
+      expect(imageBlock?.data).toBe('QUJD');
+      // Unencoded: Copilot does not decode %20, so an encoded uri would miss the file.
+      expect(imageBlock?.uri).toMatch(/^file:\/\//);
+      const storedPath = imageBlock!.uri!.slice('file://'.length);
+      expect(storedPath.startsWith(join(storeDir, 'sess-acp-1'))).toBe(true);
+      expect(readFileSync(storedPath, 'utf8')).toBe('ABC');
+
+      proc.exit();
+    } finally {
+      setAcpAttachmentStoreDirForTesting(null);
+    }
+  });
+
+  it('keeps the inline-only image block when the durable copy cannot be written', async () => {
+    const parent = mkdtempSync(join(tmpdir(), 'aio-acp-adapter-blocked-'));
+    const blocker = join(parent, 'not-a-directory');
+    writeFileSync(blocker, 'x');
+    setAcpAttachmentStoreDirForTesting(blocker);
+    try {
+      const proc = createInitializedAgentHarness();
+
+      let promptBlocks: unknown[] | undefined;
+      proc.onRequest('session/prompt', (message) => {
+        promptBlocks = (message.params as { prompt: unknown[] }).prompt;
+        proc.respond(message.id, { stopReason: 'end_turn' });
+      });
+
+      const adapter = new TestAcpCliAdapter(proc, {
+        command: process.execPath,
+        workingDirectory: '/tmp',
+        persistImageAttachments: true,
+      });
+      await adapter.spawn();
+
+      await adapter.sendInput('Inspect this screenshot', [
+        { name: 'screenshot.png', type: 'image/png', size: 3, data: 'data:image/png;base64,QUJD' },
+      ]);
+
+      expect(promptBlocks).toContainEqual({
+        type: 'image',
+        data: 'QUJD',
+        mimeType: 'image/png',
+        uri: 'attachment://screenshot.png',
+      });
+
+      proc.exit();
+    } finally {
+      setAcpAttachmentStoreDirForTesting(null);
+    }
   });
 
   it('serializes binary data URL attachments as ACP blob resources', async () => {

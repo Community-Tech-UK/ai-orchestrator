@@ -174,7 +174,7 @@ export class BM25Search {
         documentCount: countResult?.count || 0,
         uniqueTerms: 0,
       };
-    } catch (error) {
+    } catch {
       return { documentCount: 0, uniqueTerms: 0 };
     }
   }

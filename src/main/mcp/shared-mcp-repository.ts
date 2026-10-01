@@ -66,10 +66,10 @@ export class SharedMcpRepository {
       args: transport === 'stdio' ? input.args ?? existing?.args : undefined,
       url: transport !== 'stdio' ? input.url ?? existing?.url : undefined,
       headers: input.headers
-        ? { ...(existing?.headers ?? {}), ...input.headers }
+        ? { ...existing?.headers, ...input.headers }
         : existing?.headers,
       env: input.env
-        ? { ...(existing?.env ?? {}), ...input.env }
+        ? { ...existing?.env, ...input.env }
         : existing?.env,
       targets: input.targets,
       createdAt: existing?.createdAt ?? input.createdAt ?? now,

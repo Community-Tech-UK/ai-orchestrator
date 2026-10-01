@@ -8,10 +8,7 @@ import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import type {
   CodebaseAutoIndexStatus,
   IndexingProgress,
-  IndexingStats,
-  IndexStats,
-  HybridSearchResult,
-  WatcherStatus
+  HybridSearchResult
 } from '../../../shared/types/codebase.types';
 import { StoreIdSchema } from '@contracts/schemas/common';
 import {
@@ -29,9 +26,6 @@ import { getCodebaseFileWatcher } from '../../indexing/file-watcher';
 import { getCodebaseIndexingAutoCoordinator } from '../../indexing/codebase-indexing-auto-coordinator';
 import { getCodebaseIndexingLaneGateway } from '../../indexing/codebase-indexing-lane-gateway';
 import { getCodemem, getCodeRetrievalService } from '../../codemem';
-import type {
-  CodeIndexStatusSnapshot,
-} from '../../codemem/index-worker-protocol';
 import type { CodeRetrievalResult } from '../../codemem/code-retrieval-service';
 import type { WindowManager } from '../../window-manager';
 

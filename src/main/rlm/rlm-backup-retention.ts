@@ -5,7 +5,6 @@ import { getLogger } from '../logging/logger';
 const logger = getLogger('RlmBackupRetention');
 const BACKUP_NAME = /^rlm-maintenance-.*\.db$/;
 const TIMESTAMPED_BACKUP_NAME = /^rlm-maintenance-(\d{8}T\d{9}Z)-.*\.db$/;
-const STAGING_PREFIX = '.rlm-backup-prune-';
 const STAGING_NAME = /^\.rlm-backup-prune-(rlm-maintenance-.*\.db)-\d+-\d+$/;
 
 export interface RlmBackupPruneSummary {

@@ -32,6 +32,9 @@ vi.mock('./indexing-service', () => ({
 
 import { watch, type FSWatcher } from 'chokidar';
 
+// chokidar's `watch` is auto-mocked above; expose it as a loose mock so tests can stub partial watchers.
+const watchMock = watch as unknown as ReturnType<typeof vi.fn>;
+
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
   const promise = new Promise<void>((resolvePromise) => {
@@ -75,7 +78,7 @@ describe('CodebaseFileWatcher', () => {
     });
 
     it('should emit watcher:started event', async () => {
-      const startedEvents: any[] = [];
+      const startedEvents: Array<{ storeId: string }> = [];
       watcher.on('watcher:started', (data) => {
         startedEvents.push(data);
       });
@@ -193,13 +196,13 @@ describe('CodebaseFileWatcher', () => {
         close: vi.fn().mockResolvedValue(undefined),
         getWatched: vi.fn().mockReturnValue({}),
       };
-      (watch as any)
+      watchMock
         .mockReturnValueOnce(nativeWatcher)
         .mockReturnValueOnce(pollingWatcher);
 
       await watcher.startWatching('test-store', '/fake/path');
 
-      const errorHandler = nativeWatcher.on.mock.calls.find((call: any[]) => call[0] === 'error')?.[1];
+      const errorHandler = nativeWatcher.on.mock.calls.find((call: unknown[]) => call[0] === 'error')?.[1];
       expect(errorHandler).toBeTypeOf('function');
 
       expect(() => errorHandler(Object.assign(new Error('too many files'), { code: 'EMFILE' }))).not.toThrow();
@@ -219,7 +222,7 @@ describe('CodebaseFileWatcher', () => {
     });
 
     it('should emit change events', async () => {
-      const changeEvents: any[] = [];
+      const changeEvents: unknown[] = [];
       watcher.on('change:detected', (data) => {
         changeEvents.push(data);
       });
@@ -230,13 +233,13 @@ describe('CodebaseFileWatcher', () => {
         close: vi.fn().mockResolvedValue(undefined),
         getWatched: vi.fn().mockReturnValue({}),
       };
-      (watch as any).mockReturnValue(mockWatcher);
+      watchMock.mockReturnValue(mockWatcher);
 
       await watcher.startWatching('test-store', '/fake/path');
 
       // Simulate a file change by calling the 'change' handler
       const onCalls = mockWatcher.on.mock.calls;
-      const changeHandler = onCalls.find((call: any[]) => call[0] === 'change');
+      const changeHandler = onCalls.find((call: unknown[]) => call[0] === 'change');
 
       if (changeHandler) {
         // Call the change handler with a file path
@@ -253,7 +256,7 @@ describe('CodebaseFileWatcher', () => {
         close: mockClose,
         getWatched: vi.fn().mockReturnValue({}),
       };
-      (watch as any).mockReturnValue(mockWatcher);
+      watchMock.mockReturnValue(mockWatcher);
 
       await watcher.startWatching('test-store', '/fake/path');
       await watcher.stopWatching('test-store');
@@ -267,7 +270,7 @@ describe('CodebaseFileWatcher', () => {
     });
 
     it('should emit watcher:stopped event', async () => {
-      const stoppedEvents: any[] = [];
+      const stoppedEvents: Array<{ storeId: string }> = [];
       watcher.on('watcher:stopped', (data) => {
         stoppedEvents.push(data);
       });
@@ -277,7 +280,7 @@ describe('CodebaseFileWatcher', () => {
         close: vi.fn().mockResolvedValue(undefined),
         getWatched: vi.fn().mockReturnValue({}),
       };
-      (watch as any).mockReturnValue(mockWatcher);
+      watchMock.mockReturnValue(mockWatcher);
 
       await watcher.startWatching('test-store', '/fake/path');
       await watcher.stopWatching('test-store');
@@ -295,7 +298,7 @@ describe('CodebaseFileWatcher', () => {
         close: mockClose,
         getWatched: vi.fn().mockReturnValue({}),
       };
-      (watch as any).mockReturnValue(mockWatcher);
+      watchMock.mockReturnValue(mockWatcher);
 
       await watcher.startWatching('store-1', '/path1');
       await watcher.startWatching('store-2', '/path2');
@@ -312,7 +315,7 @@ describe('CodebaseFileWatcher', () => {
         close: vi.fn().mockResolvedValue(undefined),
         getWatched: vi.fn().mockReturnValue({}),
       };
-      (watch as any).mockReturnValue(mockWatcher);
+      watchMock.mockReturnValue(mockWatcher);
 
       await watcher.startWatching('test-store', '/fake/path');
       const status = watcher.getStatus('test-store');
@@ -338,7 +341,7 @@ describe('CodebaseFileWatcher', () => {
         close: vi.fn().mockResolvedValue(undefined),
         getWatched: vi.fn().mockReturnValue({}),
       };
-      (watch as any).mockReturnValue(mockWatcher);
+      watchMock.mockReturnValue(mockWatcher);
 
       await watcher.startWatching('store-1', '/path1');
       await watcher.startWatching('store-2', '/path2');
@@ -354,7 +357,7 @@ describe('CodebaseFileWatcher', () => {
     it('should debounce rapid changes', async () => {
       vi.useFakeTimers();
 
-      const processingEvents: any[] = [];
+      const processingEvents: unknown[] = [];
       watcher.on('changes:processing', (data) => {
         processingEvents.push(data);
       });
@@ -364,13 +367,13 @@ describe('CodebaseFileWatcher', () => {
         close: vi.fn().mockResolvedValue(undefined),
         getWatched: vi.fn().mockReturnValue({}),
       };
-      (watch as any).mockReturnValue(mockWatcher);
+      watchMock.mockReturnValue(mockWatcher);
 
       await watcher.startWatching('test-store', '/fake/path');
 
       // Simulate multiple rapid changes via the 'change' handler
       const onCalls = mockWatcher.on.mock.calls;
-      const changeHandler = onCalls.find((call: any[]) => call[0] === 'change');
+      const changeHandler = onCalls.find((call: unknown[]) => call[0] === 'change');
 
       if (changeHandler) {
         // Simulate rapid file changes
@@ -405,7 +408,7 @@ describe('CodebaseFileWatcher', () => {
         close: vi.fn().mockResolvedValue(undefined),
         getWatched: vi.fn().mockReturnValue({}),
       };
-      (watch as any).mockReturnValue(mockWatcher);
+      watchMock.mockReturnValue(mockWatcher);
 
       await watcher.startWatching('test-store', '/fake/path');
 

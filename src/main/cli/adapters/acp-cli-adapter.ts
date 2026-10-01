@@ -38,7 +38,6 @@ import {
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import type {
   AcpAgentCapabilities,
-  AcpAvailableCommandsUpdate,
   AcpClientCapabilities,
   AcpContentBlock,
   AcpElicitationCompleteParams,
@@ -82,6 +81,7 @@ import { buildCliSpawnOptions } from '../cli-environment';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import type { ProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
 import { toAcpPromptBlockFromAttachment } from './acp-attachment-blocks';
+import { withPersistedAcpImageAttachments } from './acp-attachment-store';
 import {
   appendAcpAssistantDelta,
   collectAcpAssistantFlushes,
@@ -309,6 +309,10 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
   reportedCostOnly?: boolean;
   /** Materialize provider-specific private launch files and return that spawn's cleanup. */
   prepareSpawn?: () => () => void;
+  /** Keep a durable copy of each inline image and send its file:// URI. For
+   *  agents (Copilot) that otherwise delete their temp copy when the session
+   *  closes, which strands the transcript's image paths after hibernation. */
+  persistImageAttachments?: boolean;
 }
 
 type InputRequiredResolvedReason = 'timeout' | 'auto_approved' | 'decided' | 'cancelled' | 'exited';
@@ -341,7 +345,7 @@ function isAcpActiveTurnCollision(error: Error): boolean {
 /** True for the exit handler's pending-request rejection (`ACP agent exited (…)`).
  *  Excludes terminate()'s "ACP adapter terminated…" — caller-driven teardown. */
 function isAcpAgentExitRejection(error: Error): boolean {
-  return /^ACP agent exited \(/.test(error.message);
+  return error.message.startsWith('ACP agent exited (');
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -676,6 +680,15 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     if (!this.sessionId) {
       throw new Error('ACP session has not been initialized.');
+    }
+
+    // Awaited before the busy guard so the guard and the turn setup below stay
+    // synchronous with each other.
+    if (this.acpConfig.persistImageAttachments && message.attachments?.length) {
+      message = {
+        ...message,
+        attachments: await withPersistedAcpImageAttachments(this.sessionId, message.attachments),
+      };
     }
 
     if (this.currentPromptRequestId) {

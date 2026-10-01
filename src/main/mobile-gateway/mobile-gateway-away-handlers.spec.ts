@@ -14,7 +14,7 @@ import { tokenFromWsUpgrade } from './mobile-gateway-ws-handlers';
 import { allowedCorsOrigin, redactUrlToken } from './mobile-gateway-http-utils';
 import type { MobilePromptDto } from '../../shared/types/mobile-gateway.types';
 
-function jsonRequest(body: unknown): IncomingMessage {
+function jsonRequest(_body: unknown): IncomingMessage {
   return new EventEmitter() as IncomingMessage;
 }
 

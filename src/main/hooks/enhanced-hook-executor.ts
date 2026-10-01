@@ -272,7 +272,7 @@ export class EnhancedHookExecutor extends EventEmitter {
 
       // Handle modification
       if (result.action === 'modify' && result.modifiedData) {
-        modifiedData = { ...(modifiedData || {}), ...result.modifiedData };
+        modifiedData = { ...modifiedData, ...result.modifiedData };
         finalAction = 'modify';
       }
     }

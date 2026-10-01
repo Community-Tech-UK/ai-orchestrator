@@ -5,6 +5,8 @@
  * wake context builder, codebase miner, and RLM subsystems.
  */
 
+/* eslint-disable @typescript-eslint/no-require-imports -- init() bodies lazy-require singletons so bootstrap ordering controls when each module's import-time side effects run */
+
 import { registerBootstrapModule } from './index';
 import {
   ensureProjectStoryDir,

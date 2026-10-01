@@ -130,8 +130,6 @@ export const SettingsToolUpdateNodeConfigPayloadSchema = z.object({
 
 // ============ Config ============
 
-const ConfigPathSchema = z.string().min(1).max(2000);
-
 export const InstructionTrustApprovePayloadSchema = z.object({
   files: z.array(z.object({
     path: z.string().min(1).max(4000),

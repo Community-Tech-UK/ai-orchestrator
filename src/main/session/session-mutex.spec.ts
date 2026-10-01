@@ -55,7 +55,7 @@ describe('SessionMutex', () => {
   });
 
   it('forceRelease unblocks waiting acquires', async () => {
-    const release1 = await mutex.acquire('inst-1', 'holder');
+    await mutex.acquire('inst-1', 'holder');
 
     let resolved = false;
     const promise2 = mutex.acquire('inst-1', 'waiter').then(release => {

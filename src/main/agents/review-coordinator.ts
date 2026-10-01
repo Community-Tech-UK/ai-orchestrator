@@ -9,6 +9,7 @@ import * as fs from 'fs/promises';
 import type { ReviewAgentConfig, ReviewIssue } from '../../shared/types/review-agent.types';
 import { filterIssuesByThreshold } from '../../shared/types/review-agent.types';
 import { createVcsManager, isGitAvailable } from '../workspace/git/vcs-manager';
+import type { DiffResult } from '../workspace/git/vcs-manager';
 import { extractReviewJson } from './review-json-extract';
 import { getLogger } from '../logging/logger';
 import { REVIEW_SEVERITY_PROMPT, ReviewFindingPayloadSchema } from '../../shared/types/review-severity';
@@ -669,7 +670,7 @@ export class ReviewCoordinator extends EventEmitter {
     return path.join(workingDirectory, filePath);
   }
 
-  private diffResultToText(diff: any): string {
+  private diffResultToText(diff: DiffResult | null | undefined): string {
     if (!diff || !Array.isArray(diff.files) || diff.files.length === 0) return '';
     const lines: string[] = [];
     for (const f of diff.files) {
@@ -687,7 +688,7 @@ export class ReviewCoordinator extends EventEmitter {
       const buf = await fs.readFile(absPath);
       if (buf.byteLength <= maxBytes) return buf.toString('utf-8');
       return buf.subarray(0, maxBytes).toString('utf-8') + '\n\n[File truncated]\n';
-    } catch (e) {
+    } catch {
       return `[Unable to read file: ${absPath}]`;
     }
   }

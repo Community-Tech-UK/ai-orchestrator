@@ -76,10 +76,10 @@ export class OrchestratorMcpRepository {
       args: transport === 'stdio' ? input.args ?? existing?.record.args : undefined,
       url: transport !== 'stdio' ? input.url ?? existing?.record.url : undefined,
       headers: input.headers
-        ? { ...(existing?.record.headers ?? {}), ...input.headers }
+        ? { ...existing?.record.headers, ...input.headers }
         : existing?.record.headers,
       env: input.env
-        ? { ...(existing?.record.env ?? {}), ...input.env }
+        ? { ...existing?.record.env, ...input.env }
         : existing?.record.env,
       autoConnect: input.autoConnect ?? existing?.record.autoConnect ?? true,
       createdAt: existing?.record.createdAt ?? input.createdAt ?? now,

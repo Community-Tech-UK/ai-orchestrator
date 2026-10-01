@@ -408,8 +408,8 @@ export class ExternalEditorManager {
           resolve({ success: false, error: err.message });
         });
       });
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error: unknown) {
+      return { success: false, error: (error as Error).message };
     }
   }
 
@@ -452,8 +452,8 @@ export class ExternalEditorManager {
       });
       proc.unref();
       return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error: unknown) {
+      return { success: false, error: (error as Error).message };
     }
   }
 

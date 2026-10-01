@@ -21,7 +21,10 @@ import {
   normalizeModelForProvider,
   type KnownProviderModelId,
 } from '../../../../shared/types/provider.types';
-import type { InstanceLaunchMode } from '../../../../shared/types/instance.types';
+import {
+  toAvailableLaunchMode,
+  type InstanceLaunchMode,
+} from '../../../../shared/types/instance.types';
 import { SettingsStore } from '../state/settings.store';
 import { SettingsIpcService } from './ipc/settings-ipc.service';
 
@@ -290,7 +293,7 @@ export class ProviderStateService {
     if (provider !== 'claude') {
       return 'orchestrated';
     }
-    return this._launchModeByProvider()[provider] ?? 'orchestrated';
+    return toAvailableLaunchMode(this._launchModeByProvider()[provider] ?? 'orchestrated');
   }
 
   rememberLaunchModeForProvider(provider: ProviderType, launchMode: InstanceLaunchMode): void {

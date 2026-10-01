@@ -4,9 +4,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AnthropicApiProvider, AnthropicApiProviderConfig } from './anthropic-api-provider';
-import { PromptCacheManager } from '../memory/prompt-cache';
-import { ContextEditingFallback } from '../memory/context-editing-fallback';
-import type { ProviderConfig } from '../../shared/types/provider.types';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 const anthropicSdkMocks = vi.hoisted(() => ({

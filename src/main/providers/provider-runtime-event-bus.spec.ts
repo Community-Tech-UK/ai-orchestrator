@@ -293,7 +293,7 @@ describe('ProviderRuntimeEventBus', () => {
 
     // Persistence stream only sees the non-ephemeral event.
     expect(captured).toHaveLength(1);
-    expect((captured[0]?.event as { content: string }).content).toBe('persist-me');
+    expect((captured[0]?.event as { content: string } | undefined)?.content).toBe('persist-me');
 
     // Renderer-facing stream is unaffected by the ephemeral marker — both are emitted.
     expect(emitted).toHaveLength(2);

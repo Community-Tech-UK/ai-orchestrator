@@ -13,7 +13,6 @@ import {
   SettingsUpdatePayloadSchema,
 } from '@contracts/schemas/settings';
 import { getSettingsManager } from '../../core/config/settings-manager';
-import { getRemoteConfigManager } from '../../core/config/remote-config';
 import {
   coerceRendererSettingValue,
   coerceRendererSettingsUpdate,

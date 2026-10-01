@@ -75,7 +75,8 @@ export class WorkerNodeHealth {
   }
 
   stopAll(): void {
-    for (const nodeId of [...this.intervals.keys()]) {
+    // Snapshot: stopMonitoring() deletes from this.intervals while we iterate.
+    for (const nodeId of Array.from(this.intervals.keys())) {
       this.stopMonitoring(nodeId);
     }
   }

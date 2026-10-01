@@ -16,7 +16,6 @@ import {
   Experience,
   StrategyRecommendation,
   AlternativeStrategy,
-  PatternType,
 } from '../../shared/types/self-improvement.types';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { OutcomeTracker } from './outcome-tracker';
@@ -89,7 +88,7 @@ export class StrategyLearner extends EventEmitter {
   getRecommendation(
     taskType: string,
     taskDescription?: string,
-    context?: string
+    _context?: string
   ): StrategyRecommendation {
     const cacheKey = `${taskType}:${taskDescription?.slice(0, 50) || ''}`;
 
@@ -199,7 +198,7 @@ export class StrategyLearner extends EventEmitter {
     agent: string,
     model: string,
     taskType: string,
-    experience?: Experience
+    _experience?: Experience
   ): StrategyScore | null {
     const reasoning: string[] = [];
     let totalScore = 0;
@@ -330,7 +329,7 @@ export class StrategyLearner extends EventEmitter {
 
   // ============ Tool Sequence Recommendations ============
 
-  getRecommendedToolSequence(taskType: string): string[] | null {
+  getRecommendedToolSequence(_taskType: string): string[] | null {
     const toolPatterns = this.outcomeTracker.getPatternsByType('tool_sequence');
 
     // Filter by sample size and effectiveness

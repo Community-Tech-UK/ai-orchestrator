@@ -7,7 +7,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   ProactiveSurfacer,
   getProactiveSurfacer,
-  ProactiveSuggestion,
   MemoryController,
 } from './proactive-surfacer';
 import type {

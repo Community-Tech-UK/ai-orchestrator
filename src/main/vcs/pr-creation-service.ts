@@ -177,7 +177,7 @@ function errorMessage(err: unknown): string {
 /** Extract the PR URL `gh pr create` prints to stdout on success. */
 export function extractPrUrl(stdout: string): string | undefined {
   const lastLine = stdout.trim().split('\n').filter(Boolean).pop();
-  return lastLine && /^https:\/\//.test(lastLine) ? lastLine : undefined;
+  return lastLine?.startsWith('https://') ? lastLine : undefined;
 }
 
 function isGhAuthError(stderr: string): boolean {

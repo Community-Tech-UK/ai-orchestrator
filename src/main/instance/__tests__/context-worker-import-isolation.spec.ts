@@ -82,7 +82,13 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // helpers moved out of `logger.ts`, carrying the lazy guarded `require('electron')`
 // try/catch this guardrail explicitly sanctions. Sole addition, no removals,
 // zero Electron value-importers.
-const CLOSURE_SIZE_CEILING = 149;
+// 2026-09-30: 149 after `context-worker-main.ts` began installing
+// `app/fatal-trap-signal-guard.ts` (strips when-exit's SIGTRAP listener so a
+// Chromium fatal error in this utility process crashes instead of spinning at
+// 100% CPU forever). The guard is a leaf with no imports at all, so it is the
+// sole addition: the full suite passed at 148 immediately before, no removals,
+// zero Electron value-importers.
+const CLOSURE_SIZE_CEILING = 150;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

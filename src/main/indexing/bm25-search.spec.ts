@@ -6,6 +6,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BM25Search, resetBM25Search } from './bm25-search';
+import type { SqliteDriver } from '../db/sqlite-driver';
 
 // Mock better-sqlite3
 const mockPrepare = vi.fn();
@@ -16,7 +17,7 @@ const mockRun = vi.fn();
 const mockDb = {
   prepare: mockPrepare,
   prepareCached: mockPrepare,
-} as any;
+} as unknown as SqliteDriver;
 
 describe('BM25Search', () => {
   let bm25: BM25Search;

@@ -373,7 +373,7 @@ export class GovernedProposalService {
    * Guarded by whether a `'backfilled'` audit row has ever been written, so
    * repeated app starts are no-ops once the one-time pass has run.
    */
-  backfillOnce(now: number = Date.now()): number {
+  backfillOnce(_now: number = Date.now()): number {
     const store = getGovernedProposalStore();
     if (store.hasEverRun('backfilled')) return 0;
 

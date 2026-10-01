@@ -62,7 +62,6 @@ import {
   buildLoopControlEnv,
   cleanupLoopControl,
   cloneIntentWithStatus,
-  listArchivedImportedIntents,
   prepareLoopControl,
   publicLoopControlMetadata,
   summarizeLoopControlPrompt,
@@ -82,7 +81,6 @@ import {
   jaccard,
   selectedVerifyFailureKind,
   sleep,
-  type VerifyOutcomeLike,
   verifyFailureIntervention,
 } from './loop-coordinator-utils';
 import { runLoopVerify } from './loop-verify-runner';
@@ -133,7 +131,6 @@ import {
 } from './loop-memory';
 import { applyLoopContextSurvivalDecision, defaultLoopContextSurvivalManager, type LoopContextSurvivalManager } from './loop-context-survival';
 import {
-  buildAttemptReviewEndEvidence,
   decideDegradedRetry,
   resolveAttemptEvidence,
   unreplayableAttemptResult,
@@ -202,7 +199,6 @@ import { isVerifiedNoChangeCompletionClaim } from './loop-verified-completion-cl
 import type { PingPongReviewer } from './agentic-pingpong-reviewer';
 import type { PingPongSubject } from '../../shared/types/loop-pingpong.types';
 import {
-  applyLoopPlanRegenerationOnStall,
   captureLoopOutstanding,
   canRegenerateLoopPlanOnStall,
   checkLoopHardCaps,
@@ -3177,7 +3173,7 @@ export class LoopCoordinator extends EventEmitter {
       // bookkeeping or defer the open items.
       if (ledgerStalled && state.ledgerConvergence && activeCapIntent) {
         state.endEvidence = {
-          ...(state.endEvidence ?? {}),
+          ...state.endEvidence,
           secondaryLedgerStallIterations:
             state.ledgerConvergence.noMeaningfulTransitionIterations,
           secondaryLedgerStallLimit:
@@ -3270,7 +3266,6 @@ export class LoopCoordinator extends EventEmitter {
           && !madeProductionChange
           && !advancingConvergence
         ) {
-          const limit = Math.max(1, state.config.completion.maxStalledReviewIterations ?? 3);
           const primary = evaluation.primary ?? evaluation.signals[0];
           const reason =
             `Review-driven loop stalled: ${state.reviewDrivenStallIterations} consecutive ` +

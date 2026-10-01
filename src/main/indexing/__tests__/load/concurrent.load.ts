@@ -12,7 +12,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createSyntheticCodebase,
   generateTypeScriptFile,
-  measureAsync,
 } from '../../benchmarks/benchmark-utils';
 
 // ============================================================================
@@ -21,7 +20,6 @@ import {
 
 vi.mock('better-sqlite3', () => ({
   default: vi.fn().mockImplementation(() => {
-    const data = new Map<string, unknown[]>();
     let isLocked = false;
     const lockQueue: Array<() => void> = [];
 
@@ -47,7 +45,7 @@ vi.mock('better-sqlite3', () => ({
 
     return {
       prepare: vi.fn().mockImplementation(() => ({
-        run: vi.fn().mockImplementation(async (...args: unknown[]) => {
+        run: vi.fn().mockImplementation(async () => {
           await acquireLock();
           try {
             // Simulate write delay
@@ -209,7 +207,7 @@ describe('Concurrent Operations Load Tests', () => {
           const chunks = chunker.chunk(content, 'typescript', `file_${i}.ts`);
           // Each operation should produce consistent results
           results.push({ id: i, success: chunks.length > 0 });
-        } catch (error) {
+        } catch {
           results.push({ id: i, success: false });
         }
       });
@@ -272,8 +270,6 @@ describe('Concurrent Operations Load Tests', () => {
     });
 
     it('should maintain result quality under concurrent load', async () => {
-      const query = 'function handler';
-
       // Run same query 10 times concurrently
       const promises = Array.from({ length: 10 }, async (_, i) => {
         // Simulate search with mocked results

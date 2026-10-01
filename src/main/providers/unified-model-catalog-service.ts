@@ -414,13 +414,6 @@ export class UnifiedModelCatalogService extends EventEmitter {
         // Already exists from static — skip; it was enriched in the loop above.
         continue;
       }
-      // Also check whether this id lives under a DIFFERENT provider key in the
-      // static catalog (e.g. models.dev calls it `anthropic` but static uses
-      // `claude`). If so, skip — the static entry took precedence.
-      const alreadyPresent = Array.from(next.values()).some((e) => e.id === devEntry.id);
-      if (alreadyPresent) {
-        continue;
-      }
       // A registry listing is not proof the provider's CLI still accepts the
       // model. models.dev keeps publishing `xai/grok-4.5` after `grok models`
       // dropped it, and `grok agent -m grok-4.5` exits 1 with "unknown model

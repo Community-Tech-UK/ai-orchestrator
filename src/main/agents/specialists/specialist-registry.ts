@@ -13,7 +13,6 @@ import type {
   SpecialistFinding,
   SpecialistMetrics,
   SpecialistStatus,
-  BUILT_IN_SPECIALISTS,
 } from '../../../shared/types/specialist.types';
 import { securitySpecialist } from './profiles/security-specialist';
 import { testingSpecialist } from './profiles/testing-specialist';

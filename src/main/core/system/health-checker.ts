@@ -11,6 +11,9 @@
  */
 
 import { EventEmitter } from 'events';
+import { promises as fs } from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import Anthropic from '@anthropic-ai/sdk';
 
 export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
@@ -346,11 +349,6 @@ export class HealthChecker extends EventEmitter {
     const name = 'disk';
 
     try {
-      // Use Node's built-in fs for disk check
-      const { promises: fs } = require('fs');
-      const os = require('os');
-      const path = require('path');
-
       const dataDir = path.join(os.homedir(), '.claude-orchestrator');
 
       // Create directory if it doesn't exist

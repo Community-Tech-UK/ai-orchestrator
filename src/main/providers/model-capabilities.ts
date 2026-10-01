@@ -233,7 +233,7 @@ export class ModelCapabilitiesRegistry {
 
     return {
       ...(known ?? FALLBACK),
-      ...(enrichment ?? {}),
+      ...enrichment,
     };
   }
 

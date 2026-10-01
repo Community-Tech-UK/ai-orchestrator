@@ -177,7 +177,7 @@ export class ProviderPluginsManager extends EventEmitter {
         filePath,
         loaded: false,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       return {
         id: path.basename(filePath, path.extname(filePath)),
         name: path.basename(filePath),
@@ -185,7 +185,7 @@ export class ProviderPluginsManager extends EventEmitter {
         version: 'unknown',
         filePath,
         loaded: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       };
     }
   }
@@ -247,10 +247,10 @@ export class ProviderPluginsManager extends EventEmitter {
 
       this.emit('plugin-loaded', plugin.id);
       return plugin;
-    } catch (error: any) {
+    } catch (error: unknown) {
       const meta = this.pluginMeta.get(idOrPath);
       if (meta) {
-        meta.error = error.message;
+        meta.error = error instanceof Error ? error.message : String(error);
       }
       this.emit('plugin-error', idOrPath, error);
       throw error;
@@ -374,8 +374,8 @@ export class ProviderPluginsManager extends EventEmitter {
       }
 
       return meta;
-    } catch (error: any) {
-      throw new Error(`Failed to install plugin: ${error.message}`);
+    } catch (error: unknown) {
+      throw new Error(`Failed to install plugin: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

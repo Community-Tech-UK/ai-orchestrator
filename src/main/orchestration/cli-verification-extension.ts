@@ -10,7 +10,10 @@ import {
   VerificationConfig,
   VerificationRequest,
   VerificationResult,
+  VerificationAnalysis,
+  ResponseRanking,
   AgentResponse,
+  ExtractedKeyPoint,
   PersonalityType,
   SynthesisStrategy,
   createDefaultVerificationConfig,
@@ -59,16 +62,6 @@ export interface AgentConfig {
   /** Model the checking policy assigned, when it chose one. Provenance only. */
   model?: string;
 }
-
-/**
- * CLI to Provider type mapping
- */
-const CLI_TO_PROVIDER: Record<string, ProviderType> = {
-  'claude': 'claude-cli',
-  'codex': 'openai',
-  'gemini': 'google',
-  'ollama': 'ollama',
-};
 
 /**
  * API fallback mapping for CLIs
@@ -664,8 +657,8 @@ State your overall confidence in your response (0-100%): X%`;
   /**
    * Extract key points from response
    */
-  private extractKeyPoints(response: string): any[] {
-    const keyPoints: any[] = [];
+  private extractKeyPoints(response: string): ExtractedKeyPoint[] {
+    const keyPoints: ExtractedKeyPoint[] = [];
     const match = response.match(
       /(?:^|\n)(?:#{1,6}\s*)?(?:\*\*)?Key Points(?:\*\*)?\s*:?\s*\n([\s\S]*?)(?=\n(?:#{1,6}\s+|\*\*Overall Confidence)|$)/i,
     );
@@ -684,7 +677,7 @@ State your overall confidence in your response (0-100%): X%`;
         keyPoints.push({
           id: generateId(),
           content,
-          category: categoryMatch?.[1]?.toLowerCase() || 'fact',
+          category: (categoryMatch?.[1]?.toLowerCase() || 'fact') as ExtractedKeyPoint['category'],
           confidence: confidenceMatch ? parseInt(confidenceMatch[1]) / 100 : 0,
         });
       }
@@ -704,7 +697,7 @@ State your overall confidence in your response (0-100%): X%`;
   /**
    * Analyze responses from all agents
    */
-  private analyzeResponses(responses: AgentResponse[], config: VerificationConfig): any {
+  private analyzeResponses(responses: AgentResponse[], _config: VerificationConfig): VerificationAnalysis {
     const validResponses = responses.filter(r => !r.error);
 
     // Find agreements
@@ -728,7 +721,8 @@ State your overall confidence in your response (0-100%): X%`;
       agreements,
       disagreements,
       uniqueInsights: [],
-      responseRankings: rankings,
+      // rankResponses scores only completeness/accuracy; clarity/reasoning were never populated.
+      responseRankings: rankings as ResponseRanking[],
       overallConfidence: consensusStrength,
       outlierAgents: outliers,
       consensusStrength,
@@ -740,7 +734,7 @@ State your overall confidence in your response (0-100%): X%`;
    */
   private synthesize(
     responses: AgentResponse[],
-    analysis: any,
+    analysis: VerificationAnalysis,
     strategy: SynthesisStrategy | string
   ): { synthesizedResponse: string; confidence: number } {
     const validResponses = responses.filter(r => !r.error);

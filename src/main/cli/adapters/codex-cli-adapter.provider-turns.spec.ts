@@ -73,7 +73,10 @@ function createHarness(rpc: RpcHandler): Harness {
   adapter.on('complete', (response: { content: string }) => completions.push(response.content));
   return {
     adapter,
-    emit: (method, params) => { for (const subscriber of [...subscribers]) subscriber({ method, params }); },
+    emit: (method, params) => {
+      // Snapshot: a subscriber may unsubscribe while we emit.
+      for (const subscriber of Array.from(subscribers)) subscriber({ method, params });
+    },
     requests,
     outputs,
     statuses,

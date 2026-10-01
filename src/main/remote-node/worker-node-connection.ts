@@ -218,7 +218,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
         nodeId,
         method,
         requestId: id,
-        ...(summary ?? {}),
+        ...summary,
       });
     } else {
       logger.debug('Remote node: sending RPC', { node: nodeName, nodeId, method, requestId: id });

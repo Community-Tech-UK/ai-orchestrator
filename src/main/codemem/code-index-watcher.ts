@@ -80,7 +80,8 @@ export class CodeIndexWatcher {
       return;
     }
 
-    for (const hash of [...this.watchers.keys()]) {
+    // Snapshot: stopWorkspace() removes entries from the map while we iterate.
+    for (const hash of Array.from(this.watchers.keys())) {
       await this.stopWorkspace(hash);
     }
   }

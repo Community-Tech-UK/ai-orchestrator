@@ -279,7 +279,7 @@ export class SelfPermissionGranter extends EventEmitter {
     const nextSettings: SettingsShape = {
       ...settings,
       permissions: {
-        ...(settings.permissions ?? {}),
+        ...settings.permissions,
         allow: nextAllow,
       },
     };

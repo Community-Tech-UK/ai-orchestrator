@@ -6,7 +6,7 @@
  * Some tests may be skipped due to native module requirements.
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 // Mock better-sqlite3 before any imports that might use it
 vi.mock('better-sqlite3', () => ({

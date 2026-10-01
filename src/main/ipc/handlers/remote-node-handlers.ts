@@ -2,7 +2,6 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import {
-  getWorkerNodeRegistry,
   getWorkerNodeConnectionServer,
   getRemoteNodeRosterService,
 } from '../../remote-node';

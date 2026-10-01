@@ -261,7 +261,7 @@ Generate a hypothetical document that would perfectly match this query. Write on
     }
 
     const dimensions = embeddings[0].length;
-    const averaged: number[] = new Array(dimensions).fill(0);
+    const averaged = Array.from({ length: dimensions }, () => 0);
 
     for (const embedding of embeddings) {
       for (let i = 0; i < dimensions; i++) {

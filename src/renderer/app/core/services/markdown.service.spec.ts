@@ -1,9 +1,10 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { marked } from 'marked';
+import { marked, Marked, Tokenizer } from 'marked';
 
 import { MarkdownService } from './markdown.service';
+import { codexFollowupExtension, transformTextWithFollowups } from './codex-followup-markdown';
 import {
   CLIPBOARD_SERVICE,
   type ClipboardCopyResult,
@@ -31,6 +32,201 @@ describe('MarkdownService.renderSync command stripping', () => {
   it('renders normal markdown in surrounding paragraphs', () => {
     const html = service.renderSync('hello **world**');
     expect(html).toContain('<strong>world</strong>');
+  });
+
+  it('renders the reported follow-up list as labelled copy buttons', () => {
+    const content = [
+      'Both requests are achievable.',
+      '',
+      '- :codex-followup[Draft a reply]{prompt="Draft a reply. Do not send it."}',
+      '- :codex-followup[Implement the additions]{prompt="Implement and verify the additions."}',
+      '- :codex-followup[Prepare the HR data request]{prompt="Prepare the HR checklist."}',
+    ].join('\n');
+    const container = document.createElement('div');
+    container.innerHTML = service.renderSync(content);
+    const buttons = Array.from(container.querySelectorAll('button'));
+
+    expect(container.textContent).toContain('Both requests are achievable.');
+    expect(container.textContent).not.toContain('codex-followup');
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      'Draft a reply', 'Implement the additions', 'Prepare the HR data request',
+    ]);
+    expect(buttons.map((button) => JSON.parse(button.dataset['followupPrompt']!))).toEqual([
+      'Draft a reply. Do not send it.', 'Implement and verify the additions.', 'Prepare the HR checklist.',
+    ]);
+    expect(buttons.every((button) => button.type === 'button')).toBe(true);
+    expect(buttons[0].getAttribute('aria-label')).toBe('Copy follow-up prompt: Draft a reply');
+  });
+
+  it('preserves escaped and narration-like prompt text exactly', () => {
+    const prompt = 'Check types:Now fix it. Next validate "quotes", {braces}, C:\\drafts, &amp; and\na new line.';
+    const container = document.createElement('div');
+    container.innerHTML = service.renderSync(`::codex-followup[Check \\] details]{prompt=${JSON.stringify(prompt)}}`);
+
+    expect(JSON.parse(container.querySelector('button')!.dataset['followupPrompt']!)).toBe(prompt);
+    expect(container.querySelector('button')?.textContent).toBe('Check ] details');
+  });
+
+  it('escapes HTML in follow-up labels and prompt attributes', () => {
+    const prompt = '"><img src=x onerror="alert(1)">';
+    const container = document.createElement('div');
+    container.innerHTML = service.renderSync(`:codex-followup[<img src=x onerror=alert(1)>]{prompt=${JSON.stringify(prompt)}}`);
+
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelector('button')?.textContent).toBe('<img src=x onerror=alert(1)>');
+    expect(JSON.parse(container.querySelector('button')!.dataset['followupPrompt']!)).toBe(prompt);
+    expect(container.querySelector('button')?.getAttribute('onerror')).toBeNull();
+  });
+
+  it('keeps directives literal in inline and fenced code examples', () => {
+    const directive = ':codex-followup[Example]{prompt="An example"}';
+    const html = service.renderSync(`\`${directive}\`\n\n\`\`\`text\n${directive}\n\`\`\``);
+
+    expect(html).not.toContain('data-followup-prompt');
+    expect(html).toContain('codex-followup');
+  });
+
+  it('leaves malformed or empty directives visible and completes a streaming tail', () => {
+    for (const content of [
+      ':codex-followup[Draft]{prompt="unfinished',
+      ':codex-followup[Draft]{prompt="invalid\\q"}',
+      ':codex-followup[outer [inner]{prompt="text"}',
+      ':codex-followup[Draft]{prompt=""}',
+      ':codex-followup[ ]{prompt="text"}',
+    ]) {
+      const html = service.renderSync(content);
+      expect(html).not.toContain('data-followup-prompt');
+      expect(html).toContain('codex-followup');
+    }
+    const container = document.createElement('div');
+    container.innerHTML = service.renderSync(':codex-followup[Draft]{prompt="finished"}');
+    expect(JSON.parse(container.querySelector('button')!.dataset['followupPrompt']!)).toBe('finished');
+  });
+
+  it('copies the prompt through ClipboardService and records success or failure on the control', async () => {
+    const container = document.createElement('div');
+    container.innerHTML = service.renderSync(':codex-followup[Draft]{prompt="Write the reply."}');
+    const button = container.querySelector('button')!;
+
+    await service.handleFollowupClick(button);
+    expect(clipboard.copyText).toHaveBeenCalledWith('Write the reply.', { label: 'follow-up prompt' });
+    expect(button.classList.contains('copied')).toBe(true);
+
+    vi.mocked(clipboard.copyText).mockResolvedValueOnce({ ok: false, reason: 'permission-denied' });
+    await service.handleFollowupClick(button);
+    expect(button.classList.contains('copied')).toBe(false);
+    expect(button.title).toContain('retry');
+  });
+
+  it.each([
+    'Keep [Orchestrator Response]this[/Orchestrator Response] exactly',
+    'Keep :::ORCHESTRATOR_COMMAND::: this :::END_COMMAND::: exactly',
+    'x\r\ny',
+    'literal\u0000null',
+    'unpaired\ud800character',
+  ])('copies the complete original payload %j', async (prompt) => {
+    const container = document.createElement('div');
+    container.innerHTML = service.renderSync(`:codex-followup[Copy]{prompt=${JSON.stringify(prompt)}}`);
+    const button = container.querySelector('button')!;
+    await service.handleFollowupClick(button);
+    expect(clipboard.copyText).toHaveBeenCalledExactlyOnceWith(prompt, { label: 'follow-up prompt' });
+  });
+
+  it('renders follow-ups and other inline markdown in table headers and cells', () => {
+    const container = document.createElement('div');
+    container.innerHTML = service.renderSync([
+      '| **Options** :codex-followup[Header]{prompt="Header choice"} |',
+      '| --- |',
+      '| :codex-followup[Draft]{prompt="Body choice"} [docs](https://example.com) |',
+    ].join('\n'));
+    expect(container.querySelector('th strong')?.textContent).toBe('Options');
+    expect(container.querySelector('th button')?.textContent).toBe('Header');
+    expect(container.querySelector('td button')?.textContent).toBe('Draft');
+    expect(container.querySelector('td a')?.getAttribute('href')).toBe('https://example.com');
+    expect(container.textContent).not.toContain('codex-followup');
+  });
+
+  it.each(['not JSON', '42', 'null', '[]', '""'])('rejects invalid copied-prompt data %j', async (encoded) => {
+    const button = document.createElement('button');
+    button.setAttribute('data-followup-prompt', encoded);
+    await service.handleFollowupClick(button);
+    expect(clipboard.copyText).not.toHaveBeenCalled();
+    expect(button.title).toBe('Invalid follow-up prompt');
+  });
+
+  it('strips enclosing command blocks while preserving spaces and authored placeholder-like text', () => {
+    const literal = '\uE000codex-followup-0:0\uE001';
+    const html = service.renderSync([
+      ':::ORCHESTRATOR_COMMAND:::',
+      ':codex-followup[Hidden]{prompt="Hidden choice"}',
+      ':::END_COMMAND:::',
+      `Pick ${literal} :codex-followup[Visible]{prompt="Visible choice"} now.`,
+    ].join('\n'));
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    expect(container.textContent).toBe(`Pick ${literal} Visible now.\n`);
+    expect(container.querySelectorAll('button')).toHaveLength(1);
+  });
+
+  it('does not amplify long authored placeholder-like text during document cleanup', () => {
+    const literal = '\uE000codex-followup-' + '_'.repeat(10000);
+    const content = `${literal} :codex-followup[Copy]{prompt="Original prompt"}`;
+    let intermediate = '';
+    const restored = transformTextWithFollowups(content, (text) => {
+      intermediate = text;
+      return text;
+    });
+
+    expect(restored).toBe(content);
+    expect(intermediate.length).toBeLessThan(content.length);
+  });
+
+  it.each(['**x** ', ':'])('bounds directive look-ahead across repeated %j segments', (segment) => {
+    const content = segment.repeat(2000);
+    const searches = vi.spyOn(String.prototype, 'search');
+    const indexes = vi.spyOn(String.prototype, 'indexOf');
+    const matches = vi.spyOn(String.prototype, 'matchAll');
+    const text = vi.spyOn(Tokenizer.prototype, 'inlineText');
+    let scanned = 0;
+    try {
+      new Marked({ extensions: [codexFollowupExtension] }).parse(content);
+      searches.mock.calls.forEach(([pattern], index) => {
+        if (String(pattern).includes('codex-followup')) scanned += String(searches.mock.contexts[index]).length;
+      });
+      indexes.mock.calls.forEach(([pattern], index) => {
+        if (pattern === ':' || pattern.includes('codex-followup')) scanned += String(indexes.mock.contexts[index]).length;
+      });
+      matches.mock.calls.forEach(([pattern], index) => {
+        if (String(pattern).includes('codex-followup')) scanned += String(matches.mock.contexts[index]).length;
+      });
+      text.mock.results.forEach((result) => {
+        if (result.type === 'return') scanned += result.value?.raw.length ?? 0;
+      });
+    } finally {
+      searches.mockRestore();
+      indexes.mockRestore();
+      matches.mockRestore();
+      text.mockRestore();
+    }
+    expect(scanned).toBeLessThan(content.length * 4);
+  });
+
+  it('keeps directive positions independent across nested inline contexts and paragraphs', () => {
+    const container = document.createElement('div');
+    container.innerHTML = service.renderSync([
+      '**Choose :codex-followup[Inner]{prompt="Nested prompt"}** then :codex-followup[Outer]{prompt="Outer prompt"}.',
+      '',
+      '> Next :codex-followup[Quoted]{prompt="Quoted prompt"}.',
+      '',
+      'See https://example.com and :codex-followup[Last]{prompt="Last prompt"}.',
+    ].join('\n'));
+    const buttons = Array.from(container.querySelectorAll('button'));
+    expect(buttons.map((button) => button.textContent)).toEqual(['Inner', 'Outer', 'Quoted', 'Last']);
+    expect(buttons.map((button) => JSON.parse(button.dataset['followupPrompt']!))).toEqual([
+      'Nested prompt', 'Outer prompt', 'Quoted prompt', 'Last prompt',
+    ]);
+    expect(container.querySelector('strong button')?.textContent).toBe('Inner');
+    expect(container.querySelector('a')?.getAttribute('href')).toBe('https://example.com');
   });
 
   it('preserves literal tildes used for approximate values', () => {

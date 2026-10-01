@@ -202,7 +202,7 @@ export async function runLoopPreflight(
   }
   const status = commands.some((command) => command.status === 'failed')
     ? 'failed'
-    : commands.length > 0 && commands.some((command) => command.status === 'passed')
+    : commands.some((command) => command.status === 'passed')
       ? 'passed'
       : 'skipped';
   return { status, ranAt, commands };

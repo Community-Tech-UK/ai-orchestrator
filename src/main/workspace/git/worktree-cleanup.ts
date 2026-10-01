@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { isInsideOrEqual, pathCompareKey, sleep } from '../../util/path-helpers';
-import { gitExec, gitExecSafe } from './git-exec';
+import { gitExec } from './git-exec';
 import { getGitWriteQueue } from './git-write-queue';
 
 export { pathCompareKey } from '../../util/path-helpers';
@@ -73,7 +73,7 @@ export async function removeManagedWorktreeDirectory(params: {
   baseDir: string;
   expectedBranch: string;
 }): Promise<void> {
-  const { repoRoot, worktreePath, baseDir, expectedBranch } = params;
+  const { repoRoot, worktreePath, baseDir } = params;
   if (!(await verifyManagedWorktreeOwnership(params))) {
     throw new Error('Managed worktree ownership could not be verified');
   }

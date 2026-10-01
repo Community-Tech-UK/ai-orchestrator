@@ -33,7 +33,7 @@ describe('Sibling abort pattern', () => {
 
   it('selective abort: only abort parent on non-retryable errors', () => {
     const parent = createAbortController();
-    const child1 = createChildAbortController(parent);
+    createChildAbortController(parent);
     const child2 = createChildAbortController(parent);
 
     // Simulate retryable error — do NOT abort parent

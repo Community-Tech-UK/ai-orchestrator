@@ -180,13 +180,12 @@ export function calculateReviewSummary(session: ReviewSession): ReviewSummary {
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
 
-  // Calculate overall score (100 - weighted penalty)
+  // Calculate overall score (100 - weighted penalty; info severity carries no penalty)
   const penalty =
     bySeverity.critical * 20 +
     bySeverity.high * 10 +
     bySeverity.medium * 5 +
-    bySeverity.low * 2 +
-    bySeverity.info * 0;
+    bySeverity.low * 2;
   const overallScore = Math.max(0, 100 - penalty);
 
   return {

@@ -15,7 +15,6 @@ import type {
   CacheableTextBlock,
   CacheableSystemPrompt,
   CacheUsageMetrics,
-  CachePerformanceMetrics,
 } from '../../shared/types/api-features.types';
 import {
   calculateCachePerformance,

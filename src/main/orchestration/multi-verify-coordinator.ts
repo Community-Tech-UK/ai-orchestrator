@@ -1027,8 +1027,13 @@ Provide your synthesized response:`;
       cliType,
       options: await attachProviderRoutes(cliType, spawnOptions, 'verification'),
     });
+    // Not every adapter implements one-shot sendMessage/terminate; probe them structurally.
+    const oneShotAdapter = adapter as unknown as {
+      sendMessage?: (m: CliMessage) => Promise<CliResponse>;
+      terminate?: () => void;
+    };
     try {
-      const sendMessage = (adapter as any).sendMessage?.bind(adapter) as ((m: CliMessage) => Promise<CliResponse>) | undefined;
+      const sendMessage = oneShotAdapter.sendMessage?.bind(adapter);
       if (!sendMessage) {
         throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
       }
@@ -1047,8 +1052,8 @@ Provide your synthesized response:`;
         confidence: analysis.consensusStrength,
       };
     } finally {
-      if (typeof (adapter as any).terminate === 'function') {
-        try { (adapter as any).terminate(); } catch { /* cleanup */ }
+      if (typeof oneShotAdapter.terminate === 'function') {
+        try { oneShotAdapter.terminate(); } catch { /* cleanup */ }
       }
     }
   }

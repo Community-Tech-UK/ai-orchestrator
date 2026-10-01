@@ -866,10 +866,7 @@ import { InstanceManager } from '../instance-manager';
 import { getInstanceProviderLimitHandler } from '../instance-provider-limit-handler';
 import { buildReplayContinuityMessage } from '../../session/replay-continuity';
 import { buildFallbackHistoryMessage } from '../../session/fallback-history';
-import { generateChildPrompt } from '../../orchestration/orchestration-protocol';
-import { getWorkerNodeRegistry, WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
-import type { RoutingDecision } from '../../routing';
-import type { SpawnChildCommand } from '../../orchestration/orchestration-protocol';
+import { WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -879,30 +876,6 @@ const TEST_WORKING_DIR = '/tmp/test-project';
 
 function createManager(): InstanceManager {
   return new InstanceManager();
-}
-
-function registerWindowsWorkerNode(): void {
-  getWorkerNodeRegistry().registerNode({
-    id: 'node-win', name: 'windows-pc', address: '127.0.0.1', status: 'connected', activeInstances: 0,
-    capabilities: {
-      platform: 'win32', arch: 'x64', cpuCores: 16, totalMemoryMB: 32768, availableMemoryMB: 24000, supportedClis: ['claude'],
-      hasBrowserRuntime: false, hasBrowserMcp: false, hasAndroidMcp: false, hasDocker: false, maxConcurrentInstances: 4,
-      workingDirectories: [TEST_WORKING_DIR], browsableRoots: [TEST_WORKING_DIR], discoveredProjects: [],
-    },
-  });
-}
-
-function seedThisDeviceLocalModel(modelId = 'qwen'): void {
-  mockLocalModelInventory.length = 0;
-  mockLocalModelInventory.push({
-    selectorId: `lm://this-device/ollama/ollama/${modelId}`,
-    source: 'this-device',
-    endpointProvider: 'ollama',
-    endpointId: 'ollama',
-    modelId,
-    healthy: true,
-  });
-  mockLocalModelRefresh.mockResolvedValue(mockLocalModelInventory);
 }
 
 // ---------------------------------------------------------------------------

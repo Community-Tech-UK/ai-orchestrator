@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 const electronHarness = vi.hoisted(() => {
   // require(+.ts) avoids ESM TDZ: vi.hoisted runs before import bindings initialize
   const { createElectronHarness } =
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- vi.hoisted runs before imports initialize; a static import would hit the TDZ
     require('../../testing/electron-mock.ts') as typeof import('../../testing/electron-mock');
   return createElectronHarness({ userDataPath: '/tmp' });
 });

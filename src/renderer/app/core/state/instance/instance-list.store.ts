@@ -19,6 +19,7 @@ import type {
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
+import { toAvailableLaunchMode } from '../../../../../shared/types/instance.types';
 import { buildCreateWithMessagePayload } from './instance-create-payload';
 import {
   fileToAttachments,
@@ -235,9 +236,6 @@ export class InstanceListStore {
     }
   }
 
-  /**
-   * Create instance and immediately send a message
-   */
   /**
    * Create instance and immediately send a message, returning the new instance ID.
    */
@@ -559,7 +557,7 @@ export class InstanceListStore {
       displayName,
       parentId: parentId || undefined,
       yoloMode,
-      launchMode,
+      launchMode: toAvailableLaunchMode(launchMode),
     });
   }
 
@@ -579,7 +577,7 @@ export class InstanceListStore {
       displayName,
       parentId: parentId || undefined,
       yoloMode,
-      launchMode,
+      launchMode: toAvailableLaunchMode(launchMode),
     });
   }
 
@@ -712,6 +710,7 @@ export class InstanceListStore {
     return {
       id: d['id'] as string,
       displayName: d['displayName'] as string,
+      isRenamed: typeof d['isRenamed'] === 'boolean' ? d['isRenamed'] : undefined,
       createdAt: d['createdAt'] as number,
       historyThreadId: (typeof d['historyThreadId'] === 'string' && d['historyThreadId']) || sessionId,
       parentId: d['parentId'] as string | null,
@@ -812,6 +811,7 @@ export class InstanceListStore {
         ? (d['runtimeSummary'] as unknown as Instance['runtimeSummary'])
         : undefined,
       outputBuffer: (d['outputBuffer'] as OutputMessage[]) || [],
+      retainedPrompts: Array.isArray(d['retainedPrompts']) ? d['retainedPrompts'] as OutputMessage[] : undefined,
       restoreMode: d['restoreMode'] as HistoryRestoreMode | undefined,
       diffStats: d['diffStats'] as Instance['diffStats'] | undefined,
       hasUnreadCompletion: false,

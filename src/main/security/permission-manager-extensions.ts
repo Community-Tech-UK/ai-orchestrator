@@ -75,7 +75,7 @@ const batchTimers = new Map<string, NodeJS.Timeout>();
 const learnedPatterns = new Map<string, LearnedPermissionPattern>();
 const decisionHistory: Array<{ decision: PermissionDecision; timestamp: number }> = [];
 const MAX_HISTORY_SIZE = 1000;
-let suggestionsStats = { made: 0, accepted: 0 };
+const suggestionsStats = { made: 0, accepted: 0 };
 
 export function installPermissionManagerExtensions(
   PermissionManagerCtor: typeof import('./permission-manager').PermissionManager,
@@ -331,7 +331,7 @@ export function installPermissionManagerExtensions(
     this: PermissionManager,
     patternId: string,
   ): boolean {
-    for (const [key, pattern] of learnedPatterns) {
+    for (const pattern of learnedPatterns.values()) {
       if (pattern.id === patternId) {
         pattern.approved = true;
         pattern.lastUpdated = Date.now();

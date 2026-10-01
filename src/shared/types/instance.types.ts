@@ -29,6 +29,20 @@ export type { InstanceStatus, InterruptOrigin } from '@contracts/types/instance-
 
 export type InstanceLaunchMode = 'orchestrated' | 'interactive';
 
+/**
+ * Interactive Claude sessions need the terminal runtime, which this build does
+ * not ship (the adapter factory rejects them). While false, the renderer must
+ * not offer the interactive mode or restore a remembered interactive choice.
+ */
+export const INTERACTIVE_LAUNCH_MODE_AVAILABLE = false;
+
+/** Maps 'interactive' to 'orchestrated' while the terminal runtime is unavailable. */
+export function toAvailableLaunchMode(launchMode: InstanceLaunchMode): InstanceLaunchMode {
+  return launchMode === 'interactive' && !INTERACTIVE_LAUNCH_MODE_AVAILABLE
+    ? 'orchestrated'
+    : launchMode;
+}
+
 export interface InstanceContextEvidenceState {
   mode: import('./settings.types').ContextEvidenceMode;
   conversationId?: string;
