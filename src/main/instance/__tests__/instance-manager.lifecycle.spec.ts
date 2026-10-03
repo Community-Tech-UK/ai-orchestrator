@@ -308,7 +308,6 @@ vi.mock('../../cli/hooks/hook-path-resolver', () => ({
 vi.mock('../auto-title-service', () => ({
   getAutoTitleService: vi.fn(() => ({
     maybeGenerateTitle: mockAutoTitleMaybeGenerate,
-    retryTitleUpgradeIfPending: vi.fn().mockResolvedValue(undefined),
     clearInstance: mockAutoTitleClearInstance,
   })),
 }));
@@ -1175,6 +1174,23 @@ describe('InstanceManager', () => {
     });
   });
 
+  describe('renameInstance', () => {
+    it('persists the new name and rename flag to session continuity', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Auto Generated Title',
+      });
+      mockSessionContinuity.updateState.mockClear();
+
+      manager.renameInstance(instance.id, 'My Chosen Name');
+
+      expect(mockSessionContinuity.updateState).toHaveBeenCalledWith(instance.id, {
+        displayName: 'My Chosen Name',
+        isRenamed: true,
+      });
+    });
+  });
+
   describe('reviveFromContinuity', () => {
     it('creates a restored continuation seeded with the durable review feedback', async () => {
       mockSessionContinuity.resumeSession.mockResolvedValueOnce({
@@ -1932,6 +1948,28 @@ describe('InstanceManager', () => {
         .toEqual(['Review the branch.', 'Here is my review.']);
       expect(instance.outputBuffer.slice(2).every((m) => m.type === 'tool_use' || m.type === 'tool_result'))
         .toBe(true);
+    });
+
+    it('keeps a name the user set while hibernated instead of the stale saved name', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Auto Generated Title',
+      });
+      await instance.readyPromise;
+      await manager.hibernateInstance(instance.id);
+      manager.renameInstance(instance.id, 'My Chosen Name');
+      // The archived continuity file still carries the name it had at hibernate.
+      mockSessionContinuity.resumeSession.mockResolvedValueOnce({
+        instanceId: instance.id,
+        displayName: 'Auto Generated Title',
+        workingDirectory: TEST_WORKING_DIR,
+        conversationHistory: [],
+      });
+
+      await manager.wakeInstance(instance.id);
+
+      expect(instance.displayName).toBe('My Chosen Name');
+      expect(instance.isRenamed).toBe(true);
     });
 
     it('is a no-op for an instance that is already awake', async () => {

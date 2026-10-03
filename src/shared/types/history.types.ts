@@ -328,9 +328,11 @@ function inferHistoryProviderFromText(
  *
  * Priority:
  *   1. A user-set title (explicit rename) — always wins.
- *   2. The cheap-AI title (`aiTitle`, e.g. Claude Haiku) — a real summary that
- *      reads well in the narrow rail.
- *   3. The first user message, front-loaded so the distinctive part of the task
+ *   2. The stored `displayName` — the name the session actually showed while
+ *      it was live. Once a session has a name, it keeps it.
+ *   3. The cheap-AI title (`aiTitle`, e.g. Claude Haiku) — used when there is
+ *      no usable stored name.
+ *   4. The first user message, front-loaded so the distinctive part of the task
  *      lands in the first ~30 chars instead of generic lead-ins ("Please …",
  *      "review this PR", a bare URL). Stays anchored to the original task
  *      rather than drifting to short follow-ups like "hi".
@@ -386,13 +388,22 @@ export function getConversationHistoryTitle(
   // reach it. Letting re-derivation win when the stored title identifies nothing
   // keeps that escape hatch open, while a stored title with real content still
   // wins and the session keeps its name.
+  //
+  // `stored` also outranks `aiTitle`. The two disagree far more often than
+  // expected — 471 of 1,568 non-renamed entries carrying both in the live
+  // history index (2026-10) — because `aiTitle` can be written after the user last saw the
+  // session: by the history backfill for threads whose live AI upgrade never
+  // landed, or carried over from an earlier archive. Ranking it first renamed
+  // those sessions the moment they were archived, and the restore path then
+  // made the new name permanent.
+  //
   // Prefer the first useful candidate in the existing priority order. If all
   // remaining candidates are filler words, preserve that order: swapping
   // "work" for "hi" would create churn with no gain. Bare numbers and opaque
   // identifiers were excluded during normalization and cannot be a fallback.
   const candidates = [
-    normalizeGeneratedHistoryTitlePart(entry.aiTitle),
     stored,
+    normalizeGeneratedHistoryTitlePart(entry.aiTitle),
     derivedFirst,
     derivedLast,
   ].filter(Boolean);

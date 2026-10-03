@@ -42,6 +42,7 @@ export async function buildLedgerRebuildPreamble(
   recentPriorTurns: ConversationMessageRecord[],
   currentSequence: number,
   reason: string,
+  parentContextBlock?: string | null,
 ): Promise<string | null> {
   const checkpoint = await ledger.getLatestCheckpoint(threadId);
   let verbatim = recentPriorTurns;
@@ -61,8 +62,9 @@ export async function buildLedgerRebuildPreamble(
     .filter(isBranchSummaryRecord)
     .map((message) => message.content)
     .join('\n\n');
+  const parentBlock = parentContextBlock?.trim() || null;
   if (!checkpoint) {
-    return joinContextBlocks(branchSummaryContext, replay);
+    return joinContextBlocks(parentBlock, branchSummaryContext, replay);
   }
   const summaryBlock = [
     '<conversation_summary>',
@@ -70,7 +72,7 @@ export async function buildLedgerRebuildPreamble(
     checkpoint.summary,
     '</conversation_summary>',
   ].join('\n');
-  return joinContextBlocks(summaryBlock, branchSummaryContext, replay);
+  return joinContextBlocks(parentBlock, summaryBlock, branchSummaryContext, replay);
 }
 
 export function isRebuildContextTurn(message: ConversationMessageRecord): boolean {

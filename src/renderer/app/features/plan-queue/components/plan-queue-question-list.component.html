@@ -1,0 +1,21 @@
+<div class="pq-question-list">
+  @for (group of groups(); track group.runId) {
+    <details class="pq-question-group" [open]="isInitiallyOpen(group.runId)">
+      <summary class="pq-question-group-head">
+        <span class="pq-question-group-kind">{{ group.kind }}</span>
+        <span class="pq-question-group-cwd" [title]="group.workspaceCwd">{{ group.workspaceCwd }}</span>
+        <span class="pq-question-group-count">{{ group.items.length }} question(s)</span>
+      </summary>
+      <div class="pq-question-group-items">
+        @for (item of group.items; track item.id) {
+          @if (item.question) {
+            <div class="pq-question-item">
+              <div class="pq-question-doc" [title]="item.documentPath">{{ documentBasename(item.documentPath) }}</div>
+              <app-plan-queue-question-card [question]="item.question" (submitAnswer)="onAnswer(item.id, $event)" />
+            </div>
+          }
+        }
+      </div>
+    </details>
+  }
+</div>

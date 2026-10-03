@@ -224,9 +224,12 @@ export function serializeInstanceHistorySession(
   entry: GatewayInstanceHistoryEntry,
 ): MobileHistorySessionDto {
   const workingDirectory = entry.workingDirectory || '';
+  // The stored name is what the session showed while live (and holds any
+  // user rename), so it outranks a possibly later `aiTitle` — the same order
+  // the desktop history rail uses (`getConversationHistoryTitle`).
   const name =
-    entry.aiTitle?.trim() ||
     entry.displayName?.trim() ||
+    entry.aiTitle?.trim() ||
     entry.firstUserMessage?.trim() ||
     'Session';
   return {

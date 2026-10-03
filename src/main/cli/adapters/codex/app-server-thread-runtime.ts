@@ -82,6 +82,8 @@ export interface CodexTurnCaptureCallbacks {
 export interface CaptureCodexTurnOptions extends CodexTurnCaptureCallbacks {
   beforeInputDispatch?(): void;
   assertInputCurrent?(): void;
+  /** A native request acknowledged the content, independently of turn completion. */
+  onInputAccepted?(): void;
   autoContinuation?: boolean;
   onNativeTurnAcquired?(turnId: string): void;
   input: UserInput[];
@@ -236,6 +238,7 @@ export class CodexAppServerThreadRuntime {
     input: UserInput[],
     developerInput?: string,
     dispatch?: AdapterInputDispatch,
+    onInputAccepted?: () => void,
   ): Promise<{ delivered: boolean; developerInjected: boolean }> {
     const client = this.client;
     const threadId = this.binding?.threadId;
@@ -250,11 +253,13 @@ export class CodexAppServerThreadRuntime {
       dispatch?.beforeProviderDispatch?.();
       if (developerInput) {
         await client.request('thread/inject_items', { threadId, items: [developerMessageItem(developerInput)] });
+        onInputAccepted?.();
         developerInjected = true;
       }
       if (input.length > 0) {
         assertAdapterInputCurrent(dispatch);
         await client.request('turn/steer', { threadId, expectedTurnId: turnId, input });
+        onInputAccepted?.();
       }
     } catch (error) {
       if (this.activeTurn !== active || active.state.completed) return { delivered: false, developerInjected };
@@ -310,6 +315,7 @@ export class CodexAppServerThreadRuntime {
       options.assertInputCurrent?.();
       if (options.developerInput) {
         await client.request('thread/inject_items', { threadId, items: [developerMessageItem(options.developerInput)] });
+        options.onInputAccepted?.();
       }
       options.assertInputCurrent?.();
       // A native turn may start while developer injection is acknowledged.
@@ -326,7 +332,11 @@ export class CodexAppServerThreadRuntime {
             ...options.turnParams,
             threadId,
             input: options.input,
-          } as AppServerRequestParams<'turn/start'>),
+          } as AppServerRequestParams<'turn/start'>).then((result) => {
+            // The RPC may acknowledge content after completion/exit wins the race.
+            if (options.input.length > 0) options.onInputAccepted?.();
+            return result;
+          }),
           new Promise<never>((_, reject) => { void active.state.completion.catch(reject); }),
           client.exitPromise.then(() => {
             throw this.transportClosedError(client, 'during turn/start');

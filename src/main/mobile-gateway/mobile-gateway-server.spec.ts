@@ -295,13 +295,25 @@ describe('history serializers', () => {
       createdAt: 100,
       endedAt: 200,
     });
-    expect(titled.name).toBe('Fix the floor logic');
+    // The stored name is what the session showed; a different AI title must
+    // not rename it on the phone.
+    expect(titled.name).toBe('Agent 3');
     expect(titled.projectName).toBe('one-more-floor');
     expect(titled.archived).toBe(true);
     expect(titled.live).toBe(false);
     expect(titled.lastActiveAt).toBe(200);
 
-    // Falls back displayName → firstUserMessage when no aiTitle.
+    // Falls back to the AI title when there is no stored name.
+    expect(serializeInstanceHistorySession({
+      id: 'e3',
+      displayName: '',
+      aiTitle: 'Fix the floor logic',
+      workingDirectory: '',
+      createdAt: 1,
+      endedAt: 2,
+    }).name).toBe('Fix the floor logic');
+
+    // Falls back to firstUserMessage when there is neither.
     const fallback = serializeInstanceHistorySession({
       id: 'e2',
       displayName: '',

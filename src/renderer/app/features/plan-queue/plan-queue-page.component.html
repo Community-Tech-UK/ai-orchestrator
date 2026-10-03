@@ -1,41 +1,29 @@
 <div class="pq-page">
-  <header class="pq-header">
-    <h1>Plan Queue</h1>
-    <span class="pq-subtitle">Work through plan and livetest documents with verified workers.</span>
-  </header>
-
-  <app-plan-queue-start-form [parentSessions]="parentSessions()" (start)="onStart($event)" />
-
   @if (store.lastError(); as err) {
     <div class="pq-error" role="alert">{{ err }}</div>
   }
 
   @if (store.needsAnswerItems().length > 0) {
-    <div class="pq-attention-banner" role="status">
-      {{ store.needsAnswerItems().length }} item(s) need your answer below.
-    </div>
+    <section class="pq-section pq-section-questions" aria-labelledby="pq-questions-heading">
+      <h2 id="pq-questions-heading">Needs your answer</h2>
+      <div class="pq-attention-banner" role="status">
+        {{ store.needsAnswerItems().length }} item(s) need your answer.
+      </div>
+      <p class="pq-purpose">
+        These documents are waiting for your decision. The queue does not start or continue any of them until you choose.
+        When many are waiting, each run's questions start folded: open a run to answer them.
+      </p>
+      <app-plan-queue-question-list [groups]="store.questionGroups()" (answer)="onAnswer($event)" />
+    </section>
   }
 
-  <app-plan-queue-alerts-list [alerts]="store.reconcilerAlerts()" (refresh)="onRefreshAlerts()" />
-
-  @if (store.needJamesReal().length > 0 || store.policyGatedCount() > 0) {
-    <app-plan-queue-need-james-list
-      [records]="store.needJamesReal()"
-      [policyGatedCount]="store.policyGatedCount()"
-    />
-  }
-
-  @if (store.parkedItems().length > 0) {
-    <app-plan-queue-parked-list
-      [items]="store.parkedItems()"
-      (resumeItem)="onResumeItem($event)"
-      (landAnyway)="onLandAnyway($event)"
-      (discardItem)="onDiscardItem($event)"
-    />
-  }
-
-  <section class="pq-runs">
-    <h2>Runs</h2>
+  <section class="pq-section pq-section-runs" aria-labelledby="pq-runs-heading">
+    <h2 id="pq-runs-heading">Runs</h2>
+    <p class="pq-purpose">
+      Each run works through a set of documents. Pause stops new work from starting. Cancel ends the run: documents that
+      have not started are skipped, and work in progress moves to Parked work with its branch kept. Open a run's
+      document list to see each document.
+    </p>
     @if (store.isLoading()) {
       <div class="pq-loading">Loading plan queue runs...</div>
     } @else if (store.allRuns().length === 0) {
@@ -46,9 +34,55 @@
         (pauseRun)="onPauseRun($event)"
         (resumeRun)="onResumeRun($event)"
         (cancelRun)="onCancelRun($event)"
-        (answer)="onAnswer($event)"
         (skipItem)="onSkipItem($event)"
       />
     }
+  </section>
+
+  <section class="pq-section pq-section-start" aria-labelledby="pq-start-heading">
+    <h2 id="pq-start-heading">Start a run</h2>
+    <p class="pq-purpose">
+      Pick the session whose folder holds the documents. That session becomes the run's parent: it receives the
+      questions and the end-of-run summary.
+    </p>
+    <app-plan-queue-start-form [parentSessions]="parentSessions()" (start)="onStart($event)" />
+  </section>
+
+  @if (store.needJamesReal().length > 0 || store.policyGatedCount() > 0) {
+    <section class="pq-section pq-section-need-james" aria-labelledby="pq-need-james-heading">
+      <h2 id="pq-need-james-heading">Needs James (livetests)</h2>
+      <p class="pq-purpose">
+        Live checks that only you can do, such as an identity, billing or physical step. The queue cannot do them for you.
+      </p>
+      <app-plan-queue-need-james-list
+        [records]="store.needJamesReal()"
+        [policyGatedCount]="store.policyGatedCount()"
+      />
+    </section>
+  }
+
+  @if (store.parkedItems().length > 0) {
+    <section class="pq-section pq-section-parked" aria-labelledby="pq-parked-heading">
+      <h2 id="pq-parked-heading">Parked work</h2>
+      <p class="pq-purpose">
+        Leftovers of a stopped or cancelled run. Discard is the safe clean-up: it deletes the leftover branch and touches
+        nothing else. Land anyway merges the code without a verifier pass. Resume puts the document back in the queue.
+      </p>
+      <app-plan-queue-parked-list
+        [items]="store.parkedItems()"
+        (resumeItem)="onResumeItem($event)"
+        (landAnyway)="onLandAnyway($event)"
+        (discardItem)="onDiscardItem($event)"
+      />
+    </section>
+  }
+
+  <section class="pq-section pq-section-alerts" aria-labelledby="pq-alerts-heading">
+    <h2 id="pq-alerts-heading">Reconciler alerts</h2>
+    <p class="pq-purpose">
+      Worktrees or branches on disk that no run owns, or a worktree a run expects but cannot find, usually left behind by
+      a crash. Check each one before cleaning it up by hand.
+    </p>
+    <app-plan-queue-alerts-list [alerts]="store.reconcilerAlerts()" (refresh)="onRefreshAlerts()" />
   </section>
 </div>

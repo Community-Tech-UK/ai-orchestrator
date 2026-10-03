@@ -65,11 +65,12 @@ describe('PlanQueueParkedListComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('No parked work');
   });
 
-  it('renders the branch name and park reason', () => {
+  it('renders the document name, branch name and park reason', () => {
     fixture.componentRef.setInput('items', [makeItem()]);
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent as string;
+    expect(fixture.nativeElement.querySelector('.pq-parked-doc')?.textContent).toBe('foo_plan.md');
     expect(text).toContain('plan-queue/foo-plan');
     expect(text).toContain('Hit the round limit');
   });

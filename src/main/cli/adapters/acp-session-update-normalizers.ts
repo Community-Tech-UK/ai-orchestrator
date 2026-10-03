@@ -32,7 +32,7 @@ export function normalizeAcpAvailableCommands(
     // (cursor's payload uses `availableCommands` so the lookup against
     // `commands` always missed). Log for diagnostics and move on.
     logger.debug('ACP available_commands_update missing commands array', {
-      keys: Object.keys(update),
+      keyCount: Object.keys(update).length,
     });
     return [];
   }

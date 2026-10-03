@@ -20,9 +20,15 @@
   gap: 12px;
 }
 
-.pq-parked-branch {
-  font-family: monospace;
+.pq-parked-doc {
   font-weight: 600;
+}
+
+.pq-parked-branch {
+  margin-top: 2px;
+  font-family: monospace;
+  font-size: 0.9em;
+  opacity: 0.8;
 }
 
 .pq-parked-diffstat {

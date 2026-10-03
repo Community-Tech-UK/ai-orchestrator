@@ -3,7 +3,7 @@ import { CHAT_CHANNELS } from '../chat.channels';
 import { IPC_CHANNELS } from '../index';
 
 describe('chat channels', () => {
-  it('defines the full durable chat IPC surface', () => {
+  it('defines the full durable chat IPC surface including sidechats', () => {
     expect(CHAT_CHANNELS).toEqual({
       CHAT_LIST: 'chat:list',
       CHAT_GET: 'chat:get',
@@ -21,6 +21,11 @@ describe('chat channels', () => {
       CHAT_UI_STATE_GET: 'chat:ui-state-get',
       CHAT_UI_STATE_SET: 'chat:ui-state-set',
       CHAT_EVENT: 'chat:event',
+      SIDE_CHAT_CREATE: 'side-chat:create',
+      SIDE_CHAT_LIST: 'side-chat:list',
+      SIDE_CHAT_SEND: 'side-chat:send',
+      SIDE_CHAT_MARK_READ: 'side-chat:mark-read',
+      SIDE_CHAT_ATTENTION: 'side-chat:attention',
     });
   });
 

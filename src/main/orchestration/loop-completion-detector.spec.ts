@@ -1,4 +1,6 @@
+import type { ChildProcess } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { captureFixtureSpawns, ProcessFixtureRegistry } from '../../tests/fixtures/process-fixture';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -18,9 +20,19 @@ import { failingVerifyCommand, passingVerifyCommand } from './loop-test-commands
 import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 import type { LoopTerminalIntentEvidence } from '../../shared/types/loop-state.types';
 
+const fixtures = new ProcessFixtureRegistry();
+const roots: ChildProcess[] = [];
+let capturesBeforePid = 0;
+let restoreSpawnCapture: () => void;
+
 let tmpDir: string;
 
 beforeEach(() => {
+  capturesBeforePid = 0;
+  restoreSpawnCapture = captureFixtureSpawns(fixtures, child => {
+    if (child.pid === undefined) capturesBeforePid += 1;
+    roots.push(child);
+  });
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'loop-completion-test-'));
 });
 
@@ -43,7 +55,8 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<voi
   expect(predicate()).toBe(true);
 }
 
-afterEach(() => {
+afterEach(async () => {
+  try { await fixtures.cleanup(); } finally { restoreSpawnCapture(); roots.length = 0; }
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
 });
 
@@ -818,11 +831,17 @@ describe('LT-350: LoopCompletionDetector.abortVerify', () => {
     const cfg = defaultLoopConfig(tmpDir, 'x');
     const node = process.execPath.replace(/"/g, '\\"');
     // Long enough that the timeout branch cannot possibly fire first.
-    cfg.completion.verifyCommand = `"${node}" -e "setTimeout(() => {}, 60000)"`;
+    const pidFile = path.join(tmpDir, 'long-verify.pid');
+    fixtures.trackPidFile(pidFile);
+    const pidLiteral = JSON.stringify(pidFile).replace(/"/g, '\\"');
+    const execPrefix = process.platform === 'win32' ? '' : 'exec ';
+    cfg.completion.verifyCommand = `${execPrefix}"${node}" -e "require('node:fs').writeFileSync(${pidLiteral}, String(process.pid)); setTimeout(() => {}, 60000)"`;
     cfg.completion.verifyTimeoutMs = 60_000;
     const verifyPromise = det.runVerify(cfg, 'loop-1');
     // Give the child a moment to actually spawn before killing it.
     await new Promise((r) => setTimeout(r, 100));
+    expect(capturesBeforePid).toBe(roots.length);
+    expect(roots.some(child => child.pid !== undefined && child.exitCode === null)).toBe(true);
     await det.abortVerify('loop-1');
     const outcome = await verifyPromise;
     expect(outcome.status).toBe('failed');

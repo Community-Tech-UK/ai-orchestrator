@@ -222,7 +222,7 @@ export function execFileCaptureWithBoundedTermination(
     const cleanupFailures: string[] = [];
     let descendantTracker: PosixDescendantTracker | undefined;
     let posixIdentityProven = false;
-    let windowsRootExited = false;
+    let rootExited = false;
     const finish = (result: BoundedExecFileResult | ExecFileError): void => {
       if (settled) {
         return;
@@ -275,6 +275,7 @@ export function execFileCaptureWithBoundedTermination(
       if (settled || terminationStarted) return;
       terminationStarted = true;
       if (timeoutTimer) clearTimeout(timeoutTimer);
+      timeoutTimer = undefined;
       void (async () => {
         let capturedTree: CapturedPosixProcessTree | undefined;
         try {
@@ -302,7 +303,7 @@ export function execFileCaptureWithBoundedTermination(
             capturedTree,
             ownershipMarker,
             false,
-            () => windowsRootExited,
+            () => rootExited,
           );
           posixIdentityProven ||= termResult.identityProven;
           cleanupFailures.push(...termResult.failures);
@@ -317,7 +318,7 @@ export function execFileCaptureWithBoundedTermination(
             capturedTree,
             ownershipMarker,
             posixIdentityProven,
-            () => windowsRootExited,
+            () => rootExited,
           );
           cleanupFailures.push(...killResult.failures);
         } catch {
@@ -331,7 +332,7 @@ export function execFileCaptureWithBoundedTermination(
               capturedTree,
               ownershipMarker,
               posixIdentityProven,
-              () => windowsRootExited,
+              () => rootExited,
             );
             cleanupFailures.push(...emergencyResult.failures);
           } catch {
@@ -378,7 +379,7 @@ export function execFileCaptureWithBoundedTermination(
       void descendantTracker?.sample();
     });
     child.once('exit', () => {
-      windowsRootExited = true;
+      rootExited = true;
       descendantTracker?.pause(true);
       void descendantTracker?.sample();
     });
@@ -518,13 +519,34 @@ async function terminateProcessTree(
       identityProven: fallback === 'sent',
     };
   }
-  if (!capturedTree || !ownershipMarker) {
-    return {
+  const treeResult: PosixTerminationResult = capturedTree && ownershipMarker
+    ? await terminatePosixProcessTree({
+      ...capturedTree,
+      // Inspection is asynchronous. Consult the current lifetime when its
+      // result is consumed, so an exited root cannot be treated as still ours.
+      get rootExited() {
+        return capturedTree.rootExited || hasRootExited()
+          || child.exitCode !== null || child.signalCode !== null;
+      },
+    }, ownershipMarker, signal, runtime, emptyIsComplete)
+    : {
       failures: ['[node.exec cleanupIncomplete: POSIX ownership identity could not be proven]'],
       identityProven: false,
     };
+
+  // A live ChildProcess is ownership proof for this positive PID only. Even a
+  // successful scan may omit a child which removed its inherited marker. Never
+  // extend this fallback to a process group or previously observed descendants.
+  if (!treeResult.rootSignalled && !hasRootExited()
+    && child.exitCode === null && child.signalCode === null) {
+    const fallback = signalProcess(pid, signal, runtime);
+    if (!treeResult.identityProven || fallback === 'failed') {
+      treeResult.failures.push(
+        `[node.exec cleanupIncomplete: POSIX ${signal} direct-child fallback ${fallback}]`,
+      );
+    }
   }
-  return terminatePosixProcessTree(capturedTree, ownershipMarker, signal, runtime, emptyIsComplete);
+  return treeResult;
 }
 
 function windowsExitedRootFailure(signal: NodeJS.Signals): string {

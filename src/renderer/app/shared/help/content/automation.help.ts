@@ -145,13 +145,21 @@ export const PLAN_QUEUE_HELP: HelpEntry = {
     },
     {
       kind: 'list',
-      heading: 'Key panels',
+      heading: 'Key panels, top to bottom',
       items: [
-        'Runs: every document\'s state, round count, errored rounds, and verdict summary.',
-        'Reconciler alerts: worktrees or branches the coordinator no longer recognises as owned.',
+        'Needs your answer: every open question across all runs, grouped by run and labelled with its document.',
+        'Runs: Pause, Resume and Cancel for each run, with its document list (state, rounds, verdict) folded behind a count summary.',
+        'Start a run: pick the parent session and the document kind.',
         'Needs James (livetests): open checks a livetest verdict genuinely could not resolve itself.',
-        'Parked work: branch name and diffstat for items stuck on a round limit, an unreliable verifier, or an error.',
+        'Parked work: document, branch and diffstat for items stuck on a round limit, an unreliable verifier, an error or a cancelled run.',
+        'Reconciler alerts: worktrees or branches the coordinator no longer recognises as owned.',
       ],
+    },
+    {
+      kind: 'callout',
+      variant: 'info',
+      heading: 'A run whose parent session is gone',
+      body: 'Normally only the session that started a run may control it from chat. If that session no longer exists, cancel the run here, or ask any other session to do it: once the parent is gone, another session may cancel the run or discard a parked item, and the item records who did it.',
     },
     {
       kind: 'callout',

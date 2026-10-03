@@ -2,9 +2,13 @@ import { tmpdir } from 'node:os';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChildProcess } from 'node:child_process';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import { ProcessFixtureRegistry } from '../../../tests/fixtures/process-fixture';
 import { CodexCliAdapter } from './codex-cli-adapter';
 import { getLogManager } from '../../logging/logger';
+const fixtures = new ProcessFixtureRegistry();
+afterEach(() => fixtures.cleanup());
+
 function nativeFixture(mode: 'answer' | 'provider-error' | 'silent', code = 0) {
   const dir = mkdtempSync(join(tmpdir(), 'codex-exec-control-'));
   const path = join(dir, 'fixture.cjs');
@@ -30,7 +34,7 @@ function nativeFixture(mode: 'answer' | 'provider-error' | 'silent', code = 0) {
   const spawn = access.spawnProcess.bind(adapter);
   const children: ChildProcess[] = [];
   let stderr = '';
-  access.spawnProcess = args => { const child = spawn(args); children.push(child); child.stderr!.on('data', chunk => { stderr += chunk.toString(); }); return child; };
+  access.spawnProcess = args => { const child = fixtures.track(spawn(args)); children.push(child); child.stderr!.on('data', chunk => { stderr += chunk.toString(); }); return child; };
   adapter.on('error', () => { /* Keep native EventEmitter errors observed during fixture cleanup. */ });
   return { adapter, access, children, stderr: () => stderr, cleanup: async () => { await adapter.terminate(false); rmSync(dir, { recursive: true, force: true }); } };
 }
@@ -111,7 +115,7 @@ it.each(['partial-timeout', 'meaningful-stop'] as const)('accepted actual child 
   const spawn = access.spawnProcess.bind(adapter);
   const children: ChildProcess[] = [];
   let stderr = '';
-  access.spawnProcess = args => { const child = spawn(args); children.push(child); child.stderr!.on('data', chunk => stderr += chunk.toString()); return child; };
+  access.spawnProcess = args => { const child = fixtures.track(spawn(args)); children.push(child); child.stderr!.on('data', chunk => stderr += chunk.toString()); return child; };
   adapter.on('error', () => { /* Keep native EventEmitter errors observed during fixture cleanup. */ });
   try {
     const pending = adapter.sendMessage({ role: 'user', content: 'LOCAL_PROMPT', metadata: { allowPartialOnTimeout: true } });
@@ -156,7 +160,7 @@ it('native old child close cannot disable or clear a live manual successor', asy
   const children: ChildProcess[] = [];
   let stderr = '';
   let failures = 0;
-  access.spawnProcess = args => { const child = spawn(args); children.push(child); child.stderr!.on('data', chunk => stderr += chunk.toString()); child.stdin!.on('error', () => failures++); return child; };
+  access.spawnProcess = args => { const child = fixtures.track(spawn(args)); children.push(child); child.stderr!.on('data', chunk => stderr += chunk.toString()); child.stdin!.on('error', () => failures++); return child; };
   const statuses: string[] = [];
   const complete = vi.fn();
   const errors = vi.fn();

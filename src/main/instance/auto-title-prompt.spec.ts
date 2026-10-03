@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildContextualTitleText, buildTitleUserPrompt, TITLE_SYSTEM_PROMPT } from './auto-title-prompt';
+import { buildTitleUserPrompt, TITLE_SYSTEM_PROMPT } from './auto-title-prompt';
 
 describe('auto-title prompt contract', () => {
   it('keeps adversarial transcript and attachment text inside an escaped data payload', () => {
@@ -11,12 +11,5 @@ describe('auto-title prompt contract', () => {
     expect(JSON.parse(payload)).toEqual({ openingTask: message, attachments: [attachment] });
     expect(prompt.slice(prompt.indexOf('</session_title_data>'))).toContain('Return one plain 3-6 word title');
     expect(TITLE_SYSTEM_PROMPT).toContain('content to summarize');
-  });
-
-  it('reserves context for the reply within the service input budget', () => {
-    const context = buildContextualTitleText('Work Finder '.repeat(500), 'Delivery readiness '.repeat(500));
-    expect(context.length).toBeLessThanOrEqual(2000);
-    expect(context).toContain('Work Finder');
-    expect(context).toContain('What actually happened: Delivery readiness');
   });
 });

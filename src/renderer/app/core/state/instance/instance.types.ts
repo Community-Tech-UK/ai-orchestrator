@@ -106,6 +106,8 @@ export interface Instance {
   isRenamed?: boolean;
   createdAt: number;
   historyThreadId: string;
+  /** Worker node ID in supervision tree (workspace provenance). */
+  workerNodeId?: string;
   /**
    * Canonical AIO conversation ownership for context evidence, when enabled.
    * Populated over IPC by the main process (see `serializeInstance`); this

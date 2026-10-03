@@ -2,8 +2,12 @@ import type { ConversationLedgerConversation, ConversationMessageRecord } from '
 import type { FileAttachment, Instance } from './instance.types';
 import type { SupportedProvider } from './mcp-scopes.types';
 import type { ReasoningEffort } from './provider.types';
+import type { SideChatParentRef, SideChatProviderSelection } from './side-chat.types';
 
-export type ChatProvider = SupportedProvider;
+export type ChatProvider = SupportedProvider | 'cursor' | 'local-model';
+
+/** Provider types accepted by the runtime builder (excludes `local-model`). */
+export type ChatRuntimeProvider = SupportedProvider | 'cursor';
 
 export interface ChatRecord {
   id: string;
@@ -41,6 +45,18 @@ export interface ChatCreateInput {
   currentCwd: string;
   parentChatId?: string;
   yolo?: boolean;
+}
+
+/**
+ * Creation input for a session-linked sidechat. `parent` is mandatory: a
+ * sidechat is never an unlinked chat dressed up as one. `selection` carries the
+ * unified picker's provider, model, reasoning and local runtime target.
+ */
+export interface ChatSideChatCreateInput {
+  parent: SideChatParentRef;
+  name?: string;
+  selection: SideChatProviderSelection;
+  currentCwd: string;
 }
 
 export interface ChatSendMessageInput {

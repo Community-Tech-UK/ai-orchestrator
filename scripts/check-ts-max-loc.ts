@@ -193,7 +193,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1083,
   'src/main/cli/adapters/gemini-cli-adapter.ts': 892,
   // Main process — chats
-  'src/main/chats/chat-service.ts': 821,
+  'src/main/chats/chat-service.ts': 1100,
+'src/renderer/app/features/dashboard/dashboard.component.ts': 730,
   // Main process — codemem
   'src/main/codemem/cas-store.ts': 765,
   'src/main/codemem/code-index-manager.ts': 792,

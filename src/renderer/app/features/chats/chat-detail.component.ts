@@ -3,7 +3,6 @@ import { FormsModule } from '@angular/forms';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { Router } from '@angular/router';
 import type { ContextEvidenceScope } from '@contracts/types/context-evidence';
-import type { ChatProvider } from '../../../../shared/types/chat.types';
 import type { ConversationMessageRecord } from '../../../../shared/types/conversation-ledger.types';
 import type { FileAttachment, InstanceStatus, OutputMessage } from '../../../../shared/types/instance.types';
 import { ChatOutputMessageMapper } from './chat-output-message.mapper';
@@ -138,9 +137,12 @@ export class ChatDetailComponent {
   ));
   readonly loadOlderMessagesForOutput = () => this.loadOlderMessages();
   readonly probeOlderMessagesForOutput = () => this.probeOlderMessages();
-  readonly providerForUi = computed<ChatProvider>(() =>
-    this.chat()?.provider ?? 'claude'
-  );
+  readonly providerForUi = computed(() => {
+    const provider = this.chat()?.provider ?? 'claude';
+    // `local-model` routes through `modelRuntimeTarget`, not the CLI provider
+    // field. Map to a concrete display provider for the input panel.
+    return provider === 'local-model' ? 'claude' : provider;
+  });
   readonly modelForUi = computed(() =>
     this.chat()?.model ?? undefined
   );

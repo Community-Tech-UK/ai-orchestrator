@@ -112,9 +112,9 @@ describe('LastStopSnapshotManager — round-trip', () => {
   it('saves multiple sessions and retrieves all of them', () => {
     const mgr = new LastStopSnapshotManager(TEST_DIR);
     const sessions = [
-      makeSession({ instanceId: 'a', sessionId: 'sa' }),
-      makeSession({ instanceId: 'b', sessionId: 'sb' }),
-      makeSession({ instanceId: 'c', sessionId: 'sc' }),
+      makeSession({ instanceId: 'a', sessionId: 'sa', capturedAt: 1 }),
+      makeSession({ instanceId: 'b', sessionId: 'sb', capturedAt: 1 }),
+      makeSession({ instanceId: 'c', sessionId: 'sc', capturedAt: 1 }),
     ];
     mgr.saveSnapshot(sessions);
 

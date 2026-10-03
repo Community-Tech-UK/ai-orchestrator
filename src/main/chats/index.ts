@@ -1,5 +1,8 @@
 export { ChatStore, type ChatInsertInput, type ChatUpdateInput } from './chat-store';
 export {
+  SideChatLinkStore,
+} from './side-chat-link-store';
+export {
   ChatTranscriptBridge,
   createUserLedgerMessage,
   type ChatTranscriptBridgeConfig,

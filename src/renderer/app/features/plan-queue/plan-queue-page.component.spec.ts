@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import type { PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { InstanceStore } from '../../core/state/instance.store';
 import { PlanQueueStore } from '../../core/state/plan-queue.store';
 import { PlanQueuePageComponent } from './plan-queue-page.component';
@@ -55,6 +55,40 @@ function makeRun(overrides: Partial<PlanQueueRunDto> = {}): PlanQueueRunDto {
   };
 }
 
+const NEEDS_ANSWER_ITEM: PlanQueueItemDto = {
+  id: 'item-1',
+  runId: 'run-x',
+  documentPath: 'docs/plans/a_plan.md',
+  state: 'needs-answer',
+  round: 1,
+  erroredRounds: 0,
+  branchName: null,
+  worktreePath: null,
+  baseCommit: null,
+  checkpointCommit: null,
+  landedCommit: null,
+  workerInstanceId: null,
+  verifierInstanceId: null,
+  question: { question: 'Pick one', options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] },
+  answer: null,
+  parkReason: null,
+  detail: null,
+  verdict: null,
+  createdAt: 1,
+  updatedAt: 1,
+};
+
+const PARKED_ITEM: PlanQueueItemDto = {
+  ...NEEDS_ANSWER_ITEM,
+  id: 'item-parked',
+  state: 'parked',
+  round: 3,
+  erroredRounds: 1,
+  branchName: 'plan-queue/a-plan',
+  question: null,
+  parkReason: 'round-limit',
+};
+
 describe('PlanQueuePageComponent', () => {
   let fixture: ComponentFixture<PlanQueuePageComponent>;
   let store: {
@@ -63,6 +97,7 @@ describe('PlanQueuePageComponent', () => {
     isLoading: ReturnType<typeof signal<boolean>>;
     lastError: ReturnType<typeof signal<string | null>>;
     needsAnswerItems: ReturnType<typeof signal<unknown[]>>;
+    questionGroups: ReturnType<typeof signal<unknown[]>>;
     parkedItems: ReturnType<typeof signal<unknown[]>>;
     needJamesReal: ReturnType<typeof signal<unknown[]>>;
     policyGatedCount: ReturnType<typeof signal<number>>;
@@ -82,6 +117,7 @@ describe('PlanQueuePageComponent', () => {
       isLoading: signal(false),
       lastError: signal(null),
       needsAnswerItems: signal([]),
+      questionGroups: signal([]),
       parkedItems: signal([]),
       needJamesReal: signal([]),
       policyGatedCount: signal(0),
@@ -145,6 +181,34 @@ describe('PlanQueuePageComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('1 item(s) need your answer');
   });
 
+  it('owns its scrolling, because the Control Center content cell clips overflow', () => {
+    const host = getComputedStyle(fixture.nativeElement as HTMLElement);
+    expect(host.overflowY).toBe('auto');
+    expect(host.height).toBe('100%');
+  });
+
+  it('leads with the questions, then runs, start, livetest checks, parked work and alerts, each with a purpose line', async () => {
+    store.needsAnswerItems.set([NEEDS_ANSWER_ITEM]);
+    store.questionGroups.set([{ runId: 'run-x', kind: 'plans', workspaceCwd: '/repo', items: [NEEDS_ANSWER_ITEM] }]);
+    store.needJamesReal.set([{ runId: 'run-1', itemId: 'item-1', documentPath: 'docs/x.md', check: 'c', reason: 'r' }]);
+    store.parkedItems.set([PARKED_ITEM]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const sections = Array.from(fixture.nativeElement.querySelectorAll('section.pq-section') as NodeListOf<HTMLElement>);
+    expect(sections.map((section) => section.querySelector('h2')?.textContent?.trim())).toEqual([
+      'Needs your answer',
+      'Runs',
+      'Start a run',
+      'Needs James (livetests)',
+      'Parked work',
+      'Reconciler alerts',
+    ]);
+    for (const section of sections) {
+      expect(section.querySelector('.pq-purpose')?.textContent?.trim()).toBeTruthy();
+    }
+  });
+
   it('shows the surfaced error from the store', async () => {
     store.lastError.set('Failed to start plan queue run');
     fixture.detectChanges();
@@ -173,40 +237,13 @@ describe('PlanQueuePageComponent', () => {
     expect(store.control).toHaveBeenCalledWith({ action: 'pause', runId: 'run-x' });
   });
 
-  it('forwards an answer event to store.answer with the item and option ids', async () => {
-    store.allRuns.set([
-      makeRun({
-        id: 'run-x',
-        items: [
-          {
-            id: 'item-1',
-            runId: 'run-x',
-            documentPath: 'docs/plans/a_plan.md',
-            state: 'needs-answer',
-            round: 1,
-            erroredRounds: 0,
-            branchName: null,
-            worktreePath: null,
-            baseCommit: null,
-            checkpointCommit: null,
-            landedCommit: null,
-            workerInstanceId: null,
-            verifierInstanceId: null,
-            question: { question: 'Pick one', options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] },
-            answer: null,
-            parkReason: null,
-            detail: null,
-            verdict: null,
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        ],
-      }),
-    ]);
+  it('forwards an answer from the questions section to store.answer with the item and option ids', async () => {
+    store.needsAnswerItems.set([NEEDS_ANSWER_ITEM]);
+    store.questionGroups.set([{ runId: 'run-x', kind: 'plans', workspaceCwd: '/repo', items: [NEEDS_ANSWER_ITEM] }]);
     fixture.detectChanges();
     await fixture.whenStable();
 
-    const radio = fixture.nativeElement.querySelector('.pq-question-options input[type="radio"]') as HTMLInputElement;
+    const radio = fixture.nativeElement.querySelector('.pq-section-questions .pq-question-options input[type="radio"]') as HTMLInputElement;
     radio.dispatchEvent(new Event('change'));
     fixture.detectChanges();
     (fixture.nativeElement.querySelector('.pq-question-submit') as HTMLButtonElement).click();
@@ -215,30 +252,7 @@ describe('PlanQueuePageComponent', () => {
   });
 
   it('shows parked work and forwards a discard confirmation to store.control', async () => {
-    store.parkedItems.set([
-      {
-        id: 'item-parked',
-        runId: 'run-x',
-        documentPath: 'docs/plans/a_plan.md',
-        state: 'parked',
-        round: 3,
-        erroredRounds: 1,
-        branchName: 'plan-queue/a-plan',
-        worktreePath: null,
-        baseCommit: null,
-        checkpointCommit: null,
-        landedCommit: null,
-        workerInstanceId: null,
-        verifierInstanceId: null,
-        question: null,
-        answer: null,
-        parkReason: 'round-limit',
-        detail: null,
-        verdict: null,
-        createdAt: 1,
-        updatedAt: 1,
-      },
-    ]);
+    store.parkedItems.set([PARKED_ITEM]);
     fixture.detectChanges();
     await fixture.whenStable();
 

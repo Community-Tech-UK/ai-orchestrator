@@ -1,23 +1,17 @@
 /**
- * Side Chat Panel — a Codex-style secondary chat docked on the right rail.
+ * Side Chat Panel — session-linked secondary chat docked on the right rail.
  *
- * Hosts a real chat (full ChatService/ledger backing) that lives ALONGSIDE the
- * main workspace selection: asking questions here never steers the primary
- * instance or changes what the main view shows. The panel's chat id is
- * persisted locally so the same side conversation survives reloads; the chat
- * itself is created lazily on the first send so merely toggling the panel
- * never spawns chats.
- *
- * Visibility is controlled by the dashboard (`showSideChat()`), mirroring the
- * source-control/file-explorer right-rail panels. Width persists via
- * `ViewLayoutService.sideChatWidth`.
+ * Sidechats are linked to a parent session (chat or logical session). Drafts,
+ * selection and pending provider choice live in `SideChatStore` keyed by parent
+ * identity, so panel close/reopen never loses or cross-wires state between two
+ * sessions in the same directory. The panel itself is created lazily on the
+ * first send so merely toggling it never spawns chats.
  */
 
 import {
   ChangeDetectionStrategy,
   Component,
   HostListener,
-  OnInit,
   computed,
   effect,
   inject,
@@ -25,28 +19,18 @@ import {
   output,
   signal,
 } from '@angular/core';
-import type { ChatProvider } from '../../../../shared/types/chat.types';
 import type { InstanceStatus, OutputMessage } from '../../../../shared/types/instance.types';
+import type { SideChatParentRef, SideChatProviderSelection } from '../../../../shared/types/side-chat.types';
 import { ChatStore } from '../../core/state/chat.store';
+import { SideChatStore } from '../../core/state/side-chat.store';
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
-import { readStorage, writeStorage, type StorageField } from '../../shared/utils/typed-storage';
 import { OutputStreamComponent } from '../instance-detail/output-stream.component';
 import { chatAsyncAnswerTarget } from '../instance-detail/async-question';
 import { ActivityStatusComponent } from '../instance-detail/activity-status.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { ChatOutputMessageMapper } from '../chats/chat-output-message.mapper';
-
-interface SideChatState {
-  chatId: string | null;
-}
-
-const SIDE_CHAT_FIELD: StorageField<SideChatState> = {
-  key: 'side-chat-state',
-  version: 1,
-  defaultValue: { chatId: null },
-};
 
 @Component({
   selector: 'app-side-chat-panel',
@@ -56,38 +40,50 @@ const SIDE_CHAT_FIELD: StorageField<SideChatState> = {
   styleUrl: './side-chat-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class SideChatPanelComponent implements OnInit {
+export class SideChatPanelComponent {
   readonly chatStore = inject(ChatStore);
+  readonly sideChatStore = inject(SideChatStore);
   private readonly instanceStore = inject(InstanceStore);
   private readonly settingsStore = inject(SettingsStore);
   private readonly viewLayoutService = inject(ViewLayoutService);
 
   /** Working directory for lazily-created side chats (from the dashboard). */
   workingDirectory = input<string | null>(null);
+  /** Parent session identity for session-linked sidechats. */
+  parent = input<SideChatParentRef | null>(null);
+  /** Display name of the parent session for the header. */
+  parentTitle = input<string>('');
 
   closeRequested = output<void>();
-  /** Ask the dashboard to open this chat in the main workspace view. */
   openInMainRequested = output<string>();
 
   private readonly outputMessageMapper = new ChatOutputMessageMapper();
 
-  readonly sideChatId = signal<string | null>(null);
-  readonly draft = signal('');
-  readonly sending = signal(false);
   readonly error = signal<string | null>(null);
 
-  // Panel-local resize state (mirrors the source-control panel).
   readonly panelWidth = signal(this.viewLayoutService.sideChatWidth);
   readonly isResizing = signal(false);
   private resizeStartX = 0;
   private resizeStartWidth = 0;
 
+  readonly sideChatId = computed(() => {
+    const parent = this.parent();
+    return parent ? this.sideChatStore.selectedChatId(parent) : null;
+  });
+
   readonly detail = computed(() => {
     const id = this.sideChatId();
-    return id ? this.chatStore.details().get(id) ?? null : null;
+    return id ? this.sideChatStore.detailFor(id) ?? this.chatStore.details().get(id) ?? null : null;
   });
   readonly chat = computed(() => this.detail()?.chat ?? null);
   readonly hasMessages = computed(() => !!this.detail()?.conversation.messages.length);
+
+  readonly draft = computed(() => {
+    const parent = this.parent();
+    return parent ? this.sideChatStore.draftFor(parent, this.sideChatId()) : '';
+  });
+
+  readonly sending = computed(() => this.sideChatStore.sending());
 
   readonly currentInstance = computed(() => {
     const detail = this.detail();
@@ -114,7 +110,7 @@ export class SideChatPanelComponent implements OnInit {
     return [...ledgerMessages, ...runtimeOnly];
   });
 
-  readonly providerForUi = computed<ChatProvider>(() => this.chat()?.provider ?? 'claude');
+  readonly providerForUi = computed(() => this.chat()?.provider ?? 'claude');
   readonly statusForUi = computed<InstanceStatus>(() => this.currentInstance()?.status ?? 'idle');
   readonly isBusy = computed(() => {
     const status = this.statusForUi();
@@ -146,7 +142,6 @@ export class SideChatPanelComponent implements OnInit {
   readonly showToolMessages = this.settingsStore.showToolMessages;
 
   readonly streamId = computed(() => this.chat()?.id ?? 'side-chat');
-  /** Async-question answers: see ChatDetailComponent.asyncAnswerTarget. */
   readonly asyncAnswerTarget = computed(() => chatAsyncAnswerTarget(
     this.chat()?.id,
     this.currentInstance()?.id,
@@ -154,15 +149,11 @@ export class SideChatPanelComponent implements OnInit {
     (error) => this.error.set(error),
   ));
 
-  /**
-   * If the bound chat disappears from the (non-archived) chat list — e.g. it
-   * was archived from the main chat sidebar — detach so the panel returns to
-   * its fresh-start state instead of sending into a dead chat.
-   */
-  private readonly detachWhenChatRemoved = effect(() => {
-    const id = this.sideChatId();
-    if (id && !this.chatStore.chats().some((chat) => chat.id === id)) {
-      this.startNewSideChat();
+  /** Load sidechats when the parent changes. */
+  private readonly loadOnParentChange = effect(() => {
+    const parent = this.parent();
+    if (parent) {
+      void this.sideChatStore.loadForParent(parent);
     }
   });
 
@@ -176,28 +167,6 @@ export class SideChatPanelComponent implements OnInit {
     return window ? { hasMore: window.hasOlder, totalStored: window.totalMessages } : null;
   };
 
-  ngOnInit(): void {
-    void this.restorePersistedChat();
-  }
-
-  /**
-   * Re-attach to the persisted side chat if it still exists (it may have been
-   * archived from the main chat list since the last session).
-   */
-  private async restorePersistedChat(): Promise<void> {
-    await this.chatStore.initialize();
-    const storedId = readStorage(SIDE_CHAT_FIELD).chatId;
-    if (!storedId) {
-      return;
-    }
-    if (!this.chatStore.chats().some((chat) => chat.id === storedId)) {
-      writeStorage(SIDE_CHAT_FIELD, { chatId: null });
-      return;
-    }
-    this.sideChatId.set(storedId);
-    await this.chatStore.ensureDetailLoaded(storedId);
-  }
-
   onComposerKeydown(event: KeyboardEvent): void {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -206,59 +175,47 @@ export class SideChatPanelComponent implements OnInit {
   }
 
   onDraftInput(event: Event): void {
-    this.draft.set((event.target as HTMLTextAreaElement).value);
+    const parent = this.parent();
+    if (parent) {
+      this.sideChatStore.setDraft(parent, this.sideChatId(), (event.target as HTMLTextAreaElement).value);
+    }
+  }
+
+  onSelectionChange(selection: SideChatProviderSelection | null): void {
+    const parent = this.parent();
+    if (parent) {
+      this.sideChatStore.setPendingSelection(parent, selection);
+    }
   }
 
   async send(): Promise<void> {
+    const parent = this.parent();
     const text = this.draft().trim();
-    if (!text || this.sending()) {
+    if (!parent || !text || this.sending()) {
       return;
     }
-    this.sending.set(true);
     this.error.set(null);
-    try {
-      const chatId = this.sideChatId() ?? await this.createSideChat();
-      if (!chatId) {
-        return;
-      }
-      const result = await this.chatStore.sendMessageTo(chatId, text);
-      if (!result.ok) {
-        this.error.set(result.error);
-        return;
-      }
-      this.draft.set('');
-    } finally {
-      this.sending.set(false);
+    const ok = await this.sideChatStore.send(
+      parent,
+      this.sideChatId(),
+      text,
+      this.workingDirectory() ?? '',
+    );
+    if (!ok) {
+      this.error.set(this.sideChatStore.error() ?? 'Failed to send');
     }
   }
 
-  private async createSideChat(): Promise<string | null> {
-    const cwd = this.workingDirectory();
-    if (!cwd) {
-      this.error.set('Select a project or workspace first.');
-      return null;
+  selectSideChat(chatId: string | null): void {
+    const parent = this.parent();
+    if (parent) {
+      this.sideChatStore.selectChat(parent, chatId);
     }
-    const created = await this.chatStore.createDetached({
-      name: 'Side chat',
-      provider: 'claude',
-      currentCwd: cwd,
-      yolo: this.settingsStore.defaultYoloMode(),
-    });
-    if (!created.ok) {
-      this.error.set(created.error);
-      return null;
-    }
-    const chatId = created.detail.chat.id;
-    this.sideChatId.set(chatId);
-    writeStorage(SIDE_CHAT_FIELD, { chatId });
-    return chatId;
   }
 
-  /** Detach from the current side chat; the next send starts a fresh one. */
   startNewSideChat(): void {
-    this.sideChatId.set(null);
+    this.selectSideChat(null);
     this.error.set(null);
-    writeStorage(SIDE_CHAT_FIELD, { chatId: null });
   }
 
   openInMain(): void {
@@ -274,8 +231,6 @@ export class SideChatPanelComponent implements OnInit {
       await this.instanceStore.interruptInstance(instance.id);
     }
   }
-
-  // ===== Resize handlers (left-edge handle; grows leftward) =====
 
   onResizeStart(event: MouseEvent): void {
     event.preventDefault();

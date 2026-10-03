@@ -15,7 +15,7 @@
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .pq-run-kind {
@@ -32,8 +32,26 @@
   font-family: monospace;
 }
 
-.pq-run-started,
-.pq-run-item-count {
+.pq-run-started {
   opacity: 0.7;
   font-size: 0.9em;
+}
+
+.pq-run-documents > summary {
+  /* Stays display:list-item so the browser keeps the disclosure triangle. */
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.pq-run-documents[open] > summary {
+  margin-bottom: 8px;
+}
+
+.pq-run-item-count {
+  font-weight: 600;
+  margin-right: 10px;
+}
+
+.pq-run-state-counts {
+  opacity: 0.75;
 }

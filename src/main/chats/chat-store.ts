@@ -147,6 +147,7 @@ export class ChatStore {
   delete(id: string): boolean {
     return this.db.transaction(() => {
       this.db.prepare('DELETE FROM chat_session_bindings WHERE chat_id = ?').run(id);
+      this.db.prepare('DELETE FROM side_chat_links WHERE chat_id = ?').run(id);
       return this.db.prepare('DELETE FROM chats WHERE id = ?').run(id).changes === 1;
     })();
   }
@@ -171,7 +172,9 @@ function rowToChatRecord(row: ChatRow): ChatRecord {
 }
 
 function isChatProvider(value: string | null): value is ChatProvider {
-  return value === 'claude' || value === 'codex' || value === 'gemini' || value === 'antigravity' || value === 'copilot';
+  return value === 'claude' || value === 'codex' || value === 'gemini'
+    || value === 'antigravity' || value === 'copilot' || value === 'grok'
+    || value === 'opencode' || value === 'cursor' || value === 'local-model';
 }
 
 function isReasoningEffort(value: string | null): value is ReasoningEffort {

@@ -414,6 +414,19 @@ describe('LocalReviewToolRunner', () => {
       const controller = new AbortController();
       let signalEnumeration: (() => void) | undefined;
       const enumerationStarted = new Promise<void>((resolve) => { signalEnumeration = resolve; });
+      // Keep native Git startup outside the cancellation budget; replay its exact
+      // metadata bytes while the runner still performs both layout validations.
+      const metadataResponses = new Map<string, string>();
+      for (const args of [
+        ['--show-toplevel'], ['--absolute-git-dir'],
+        ['--path-format=absolute', '--git-common-dir'],
+        ['--path-format=absolute', '--git-path', 'index'],
+      ]) {
+        const { stdout } = await execFileAsync('git', ['rev-parse', ...args], {
+          cwd: workspacePath, env: hermeticGitEnv(), encoding: 'utf8',
+        });
+        metadataResponses.set(JSON.stringify(args), stdout);
+      }
       const stuckRunner = new LocalReviewToolRunner(workspacePath, {
         operationTimeoutMs: mode === 'expiry' ? 250 : 2_000,
         killGraceMs: 5,
@@ -421,6 +434,21 @@ describe('LocalReviewToolRunner', () => {
           if (args.includes('ls-files')) {
             signalEnumeration?.();
             return child as unknown as ChildProcess;
+          }
+          if (args.includes('rev-parse')) {
+            const response = metadataResponses.get(JSON.stringify(args.slice(args.indexOf('rev-parse') + 1)));
+            if (response === undefined) throw new Error('Unexpected Git metadata probe.');
+            const metadata = new EventEmitter() as typeof child;
+            metadata.stdout = new PassThrough();
+            metadata.stderr = new PassThrough();
+            metadata.stdin = new PassThrough();
+            metadata.kill = () => true;
+            metadata.stdin.once('finish', () => {
+              metadata.stdout.end(response);
+              metadata.stderr.end();
+              queueMicrotask(() => metadata.emit('close', 0, null));
+            });
+            return metadata as unknown as ChildProcess;
           }
           return spawn(executable, args, options);
         },
@@ -430,7 +458,11 @@ describe('LocalReviewToolRunner', () => {
         { name: 'workspace_list', arguments: {} },
         controller.signal,
       );
-      await enumerationStarted;
+      const reachedEnumeration = await Promise.race([
+        enumerationStarted.then(() => true),
+        pending.then(() => false),
+      ]);
+      if (!reachedEnumeration) throw new Error('Operation ended before stuck Git enumeration started.');
       if (mode === 'abort') controller.abort();
 
       await expect(pending).resolves.toMatchObject({ ok: false, code: 'process-error' });

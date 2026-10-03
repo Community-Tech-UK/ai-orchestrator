@@ -3,7 +3,10 @@
  *
  * `plan_queue_start`, `plan_queue_answer` and `plan_queue_control` are for
  * the session that runs a queue (the "parent"): answer and control are refused
- * from anyone else, and start is hidden from queue-spawned sessions.
+ * from anyone else, and start is hidden from queue-spawned sessions. The one
+ * exception is the stranded-run rescue in plan-queue-control-authority.ts:
+ * once the parent no longer exists, another non-queue session may cancel the
+ * run or discard a parked item.
  * `plan_queue_status` is read-only and open to every session, including the
  * queue's own. `plan_queue_report_triage` and `plan_queue_report_verdict` are
  * for the instances the queue spawns, and are accepted only from the instance
@@ -98,7 +101,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
     },
   },
   plan_queue_control: {
-    description: 'Control a Plan Queue run or item: pause, resume or cancel a run (run_id); skip an item that has not started, resume a parked item, land a parked item without a verifier PASS, or discard a parked item\'s branch (item_id). Land anyway and discard change git state, so do them only when James asked.',
+    description: 'Control a Plan Queue run or item: pause, resume or cancel a run (run_id); skip an item that has not started, resume a parked item, land a parked item without a verifier PASS, or discard a parked item\'s branch (item_id). Land anyway and discard change git state, so do them only when James asked. Only the session that started the run may use this, except for one rescue: if that session no longer exists, any session the queue did not spawn may cancel the stranded run or discard one of its parked items.',
     inputSchema: {
       type: 'object',
       properties: {

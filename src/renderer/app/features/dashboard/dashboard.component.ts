@@ -207,6 +207,30 @@ export class DashboardComponent implements OnInit, OnDestroy {
     ?? null
   );
 
+  /** Parent session identity for session-linked sidechats. */
+  sideChatParent = computed(() => {
+    const chat = this.chatStore.selectedChat();
+    if (chat) {
+      return { kind: 'chat' as const, chatId: chat.id };
+    }
+    const instance = this.store.selectedInstance();
+    if (instance?.historyThreadId) {
+      return {
+        kind: 'session' as const,
+        historyThreadId: instance.historyThreadId,
+        originNodeId: instance.workerNodeId ?? null,
+      };
+    }
+    return null;
+  });
+
+  sideChatParentTitle = computed(() => {
+    const chat = this.chatStore.selectedChat();
+    if (chat) return chat.name;
+    const instance = this.store.selectedInstance();
+    return instance?.displayName ?? '';
+  });
+
   hasWorkspaceSelection = computed(() =>
     !!this.chatStore.selectedChatId()
     || !!this.store.selectedInstance()

@@ -17,12 +17,12 @@ import {
 
 class FakeClient {
   readonly subscribers = new Set<(notification: AppServerNotification) => void>();
-  readonly exitPromise = new Promise<void>(() => {});
+  readonly exitPromise = new Promise<void>(() => { /* The fake connection stays open. */ });
   readonly request = vi.fn(async <M extends AppServerMethod>(
     _method: M,
     _params: AppServerRequestParams<M>,
   ): Promise<AppServerResponseResult<M>> => ({} as AppServerResponseResult<M>));
-  readonly close = vi.fn(async () => {});
+  readonly close = vi.fn(async () => { /* There is no native process to close. */ });
 
   subscribeNotifications(handler: (notification: AppServerNotification) => void): () => void {
     this.subscribers.add(handler);
@@ -482,5 +482,114 @@ describe('CodexAppServerThreadRuntime', () => {
         .resolves.toEqual({ delivered: false, developerInjected: true });
       await capture;
     });
+  });
+});
+
+
+describe('Codex native content acknowledgment', () => {
+  function attached() {
+    const runtime = new CodexAppServerThreadRuntime();
+    const client = new FakeClient();
+    runtime.attach(client, { threadId: 'thread-1', resumeCursor: null, resumeProof: null });
+    return { runtime, client };
+  }
+
+  it.each(['immediate', 'deferred'] as const)('accepts %s start acknowledgment once without serializing the callback', async mode => {
+    const { runtime, client } = attached();
+    const accepted = vi.fn();
+    let acknowledge!: () => void;
+    const gate = new Promise<void>(resolve => { acknowledge = resolve; });
+    client.request.mockImplementation(async () => {
+      if (mode === 'deferred') await gate;
+      return { turn: { id: 'turn-1', status: 'completed' } };
+    });
+    const capture = runtime.captureTurn({ ...captureOptions(), onInputAccepted: accepted });
+    if (mode === 'deferred') {
+      expect(accepted).not.toHaveBeenCalled();
+      acknowledge();
+    }
+    await capture;
+    expect(accepted).toHaveBeenCalledOnce();
+    expect(client.request).toHaveBeenCalledWith('turn/start', {
+      threadId: 'thread-1', input: [{ type: 'text', text: 'hello', text_elements: [] }],
+    });
+    await runtime.close();
+  });
+
+  it('does not accept rejected native start content', async () => {
+    const { runtime, client } = attached();
+    const accepted = vi.fn();
+    client.request.mockRejectedValue(new Error('native rejected'));
+    await expect(runtime.captureTurn({ ...captureOptions(), onInputAccepted: accepted })).rejects.toThrow('native rejected');
+    expect(accepted).not.toHaveBeenCalled();
+    await runtime.close();
+  });
+
+  it('observes late start acknowledgment after closing wins the capture race', async () => {
+    const { runtime, client } = attached();
+    const accepted = vi.fn();
+    let acknowledge!: () => void;
+    const gate = new Promise<void>(resolve => { acknowledge = resolve; });
+    client.request.mockImplementation(async () => {
+      await gate;
+      return { turn: { id: 'turn-1', status: 'completed' } };
+    });
+    const capture = runtime.captureTurn({ ...captureOptions(), onInputAccepted: accepted });
+    const rejected = expect(capture).rejects.toThrow('runtime closed');
+    await runtime.close();
+    await rejected;
+    expect(accepted).not.toHaveBeenCalled();
+    acknowledge();
+    await vi.waitFor(() => expect(accepted).toHaveBeenCalledOnce());
+  });
+
+  it.each(['assertion-abort', 'start-rejection'] as const)('retains acknowledged developer history after %s', async mode => {
+    const { runtime, client } = attached();
+    const accepted = vi.fn();
+    const assertInputCurrent = vi.fn(() => {
+      if (mode === 'assertion-abort' && accepted.mock.calls.length > 0) throw new Error('input aborted');
+    });
+    client.request.mockImplementation(async method => {
+      if (method === 'turn/start') throw new Error('start rejected');
+      return {};
+    });
+    await expect(runtime.captureTurn({ ...captureOptions(), input: [], developerInput: 'instructions',
+      onInputAccepted: accepted, assertInputCurrent,
+    })).rejects.toThrow(mode === 'assertion-abort' ? 'input aborted' : 'start rejected');
+    expect(accepted).toHaveBeenCalledOnce();
+    expect(client.request.mock.calls.map(([method]) => method)).toEqual(
+      mode === 'assertion-abort' ? ['thread/inject_items'] : ['thread/inject_items', 'turn/start']);
+    await runtime.close();
+  });
+
+  it('retains acknowledged developer history when user steering is rejected', async () => {
+    const { runtime, client } = attached();
+    const accepted = vi.fn();
+    const capture = runtime.captureProviderTurn('native-turn', captureOptions())!;
+    client.request.mockImplementation(async method => {
+      if (method === 'turn/steer') throw new Error('steer rejected');
+      return {};
+    });
+    await expect(runtime.steerProviderTurn(captureOptions().input, 'instructions', undefined, accepted)).rejects.toThrow('steer rejected');
+    expect(accepted).toHaveBeenCalledOnce();
+    expect(client.request.mock.calls.map(([method]) => method)).toEqual(['thread/inject_items', 'turn/steer']);
+    client.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'native-turn', status: 'completed' } });
+    await capture;
+    await runtime.close();
+  });
+
+  it('accepts successful user steering into a native turn', async () => {
+    const { runtime, client } = attached();
+    const accepted = vi.fn();
+    const capture = runtime.captureProviderTurn('native-turn', captureOptions())!;
+    await expect(runtime.steerProviderTurn(captureOptions().input, undefined, undefined, accepted))
+      .resolves.toEqual({ delivered: true, developerInjected: false });
+    expect(accepted).toHaveBeenCalledOnce();
+    expect(client.request).toHaveBeenCalledWith('turn/steer', {
+      threadId: 'thread-1', expectedTurnId: 'native-turn', input: captureOptions().input,
+    });
+    client.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'native-turn', status: 'completed' } });
+    await capture;
+    await runtime.close();
   });
 });

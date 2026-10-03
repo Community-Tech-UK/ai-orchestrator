@@ -29,10 +29,7 @@
         }
 
         @if (item.question && hasOpenQuestion(item.state)) {
-          <app-plan-queue-question-card
-            [question]="item.question"
-            (submitAnswer)="onAnswer(item.id, $event)"
-          />
+          <div class="pq-item-awaiting-answer">Waiting for your answer under "Needs your answer" at the top of the page.</div>
         }
       </div>
     }

@@ -142,6 +142,39 @@ export function createOperatorTables(db: SqliteDriver): void {
       last_validated_at INTEGER,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS side_chat_links (
+      chat_id TEXT PRIMARY KEY,
+      parent_kind TEXT NOT NULL,
+      parent_key TEXT NOT NULL,
+      parent_chat_id TEXT,
+      parent_history_thread_id TEXT,
+      parent_origin_node_id TEXT,
+      authority TEXT NOT NULL,
+      last_read_assistant_sequence INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_side_chat_links_parent_key
+      ON side_chat_links(parent_key);
+
+    CREATE TABLE IF NOT EXISTS side_chat_context_snapshots (
+      chat_id TEXT PRIMARY KEY,
+      parent_key TEXT NOT NULL,
+      revision TEXT NOT NULL,
+      captured_at INTEGER NOT NULL,
+      quoted_context TEXT NOT NULL,
+      estimated_tokens INTEGER NOT NULL,
+      omissions_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS side_chat_policies (
+      parent_key TEXT PRIMARY KEY,
+      policy_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
 
   ensureChatsReasoningEffortColumn(db);

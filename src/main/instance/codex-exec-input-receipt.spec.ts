@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import Database from 'better-sqlite3';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import { ProcessFixtureRegistry } from '../../tests/fixtures/process-fixture';
 import { CodexCliAdapter } from '../cli/adapters/codex-cli-adapter';
 import { InstanceCommunicationManager } from './instance-communication';
 import { InterruptRespawnHandler, type InterruptRespawnDeps } from './lifecycle/interrupt-respawn-handler';
@@ -12,6 +13,9 @@ import { SessionAdmissionStore } from '../session/session-admission-store';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type { Instance, InstanceStatus } from '../../shared/types/instance.types';
 import { getLogManager } from '../logging/logger';
+const fixtures = new ProcessFixtureRegistry();
+afterEach(() => fixtures.cleanup());
+
 const database = vi.hoisted(() => ({ db: null as unknown as SqliteDriver }));
 vi.mock('../persistence/rlm-database', () => ({ getRLMDatabase: () => ({ getRawDb: () => database.db }) }));
 vi.mock('../hooks/hook-manager', () => ({ getHookManager: () => ({ triggerHooks: vi.fn(), triggerLifecycleHooks: vi.fn().mockResolvedValue({ blocked: false }) }) }));
@@ -43,7 +47,7 @@ it.each(['failed-zero', 'accepted-zero', 'accepted-stop', 'accepted-stop-respons
   const children: ChildProcess[] = [];
   const nativeErrors: Error[] = [];
   let stderr = '';
-  access.spawnProcess = args => { const child = spawn(args); children.push(child); child.stdin!.on('error', error => nativeErrors.push(error)); child.stderr!.on('data', chunk => stderr += chunk.toString()); return child; };
+  access.spawnProcess = args => { const child = fixtures.track(spawn(args)); children.push(child); child.stdin!.on('error', error => nativeErrors.push(error)); child.stderr!.on('data', chunk => stderr += chunk.toString()); return child; };
   const instance = { id: 'exec-main-' + scenario, provider: 'codex', status: 'idle', sessionId: adapter.getSessionId(), parentId: null, adapterGeneration: 1, restartEpoch: 0, requestCount: 3, lastActivity: 0, errorCount: 0, outputBuffer: [], contextUsage: { used: 0, total: 100000 } } as unknown as Instance;
   let recoveries = 0;
   const providerErrors: unknown[] = [];

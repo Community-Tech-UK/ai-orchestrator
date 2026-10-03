@@ -541,8 +541,11 @@ export class PlanQueueItemFlow {
     this.host.requestPump();
   }
 
-  /** Delete a parked item's branch. Only on James's explicit Discard. */
-  discard(itemId: string): Promise<void> {
+  /**
+   * Delete a parked item's branch. Only on James's explicit Discard, or a
+   * stranded-run rescue; `actor` names who asked, for the item's detail.
+   */
+  discard(itemId: string, actor = 'James'): Promise<void> {
     return this.withItemLock(itemId, async () => {
       const item = this.host.getItem(itemId);
       if (item.state !== 'parked') throw new Error('Only a parked item can be discarded');
@@ -554,7 +557,7 @@ export class PlanQueueItemFlow {
         await this.host.worktrees.deleteBranchWithProof(cleared, this.host.getRun(item.runId).workspaceCwd, { discardRequested: true });
       }
       const current = this.host.getItem(itemId);
-      this.host.save({ ...current, detail: `${current.detail ?? ''} Discarded by James.`.trim() });
+      this.host.save({ ...current, detail: `${current.detail ?? ''} Discarded by ${actor}.`.trim() });
     });
   }
 

@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { NodeExecParams } from '../main/remote-node/node-control-rpc-schemas';
 import { RPC_ERROR_CODES } from '../main/remote-node/worker-node-rpc';
 import { WorkerNodeExecutor } from './worker-node-executor';
@@ -16,6 +16,14 @@ import {
 } from './worker-node-process-tree';
 import { WorkerRpcDispatcher } from './worker-rpc-dispatcher';
 import type { RpcMessage } from './worker-rpc-types';
+import {
+  ProcessFixtureRegistry,
+  isFixtureProcessAlive,
+  waitForFixtureProcessExit,
+} from '../tests/fixtures/process-fixture';
+
+const fixtures = new ProcessFixtureRegistry();
+afterEach(() => fixtures.cleanup());
 
 function canInspectProcesses(): boolean {
   try {
@@ -48,7 +56,12 @@ function makeDispatcher(
     workingDirectories,
     undefined,
     Date.now,
-    undefined,
+    {
+      platform: process.platform,
+      spawnProcess: fixtures.spawn,
+      execFileProcess: execFile,
+      killProcess: (pid, signal) => process.kill(pid, signal),
+    },
     prepareUncheckedForLifecycleTest,
   );
   const resolvedExecuteNodeCommand = executeNodeCommand
@@ -74,15 +87,6 @@ function request(method: string, params: unknown, scope?: 'instance' | 'service'
   return { jsonrpc: '2.0', id: 73, method, params, scope };
 }
 
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function execFileReturning(stdout: string): typeof execFile {
   return ((...values: unknown[]) => {
     const callback = values[3] as (error: Error | null, stdout: string, stderr: string) => void;
@@ -97,6 +101,8 @@ function makeFakeChild(pid: number): ChildProcess {
     stdin: new PassThrough(),
     stdout: new PassThrough(),
     stderr: new PassThrough(),
+    exitCode: null,
+    signalCode: null,
     kill: vi.fn(() => true),
     unref: vi.fn(),
   }) as unknown as ChildProcess;
@@ -172,6 +178,53 @@ describe('WorkerRpcDispatcher node.exec', () => {
     }));
   });
 
+  it.skipIf(process.platform === 'win32')('kills its live child when ps is unavailable', async () => {
+    const fixtureTag = `aio-node-exec-no-ps-${process.pid}-${Date.now()}`;
+    let child: ChildProcess | undefined;
+    const killProcess = vi.fn((pid: number, signal?: string | number) => process.kill(pid, signal));
+    const executor = new WorkerNodeExecutor([process.cwd()], undefined, Date.now, {
+      platform: process.platform,
+      spawnProcess: ((...args: Parameters<typeof spawn>) => {
+        child = fixtures.spawn(...args);
+        return child;
+      }) as typeof spawn,
+      execFileProcess: (() => {
+        throw Object.assign(new Error('fixture ps unavailable'), { code: 'EPERM' });
+      }) as unknown as typeof execFile,
+      killProcess,
+    }, prepareUncheckedForLifecycleTest);
+    const { dispatcher, sendResult, sendError } = makeDispatcher(
+      undefined, [process.cwd()], (params) => executor.execute(params),
+    );
+
+    await dispatcher.handleRpcRequest(request('node.exec', {
+      executable: process.execPath,
+      args: ['-e', 'process.on("SIGTERM",()=>{});process.stdout.write("ready");setInterval(()=>{},1000)', fixtureTag],
+      timeoutMs: 2_000,
+    }, 'service'));
+
+    expect(sendError).not.toHaveBeenCalled();
+    expect(sendResult).toHaveBeenCalledWith(73, expect.objectContaining({
+      exitCode: null,
+      stdout: 'ready',
+      stderr: expect.stringContaining('cleanupIncomplete'),
+    }));
+    const pid = child?.pid;
+    expect(pid).toBeDefined();
+    // pgrep is independent evidence that result settlement is not process death.
+    const matches = await new Promise<string>((resolve, reject) => {
+      execFile('pgrep', ['-f', fixtureTag], (error, stdout) => {
+        if (error && Number(error.code) !== 1) { reject(error); return; }
+        resolve(stdout.trim());
+      });
+    });
+    console.warn(`no-ps fixture PID ${pid}; pgrep surviving fixture: ${matches || 'none'}`);
+    await waitForFixtureProcessExit(pid!);
+    expect(killProcess).toHaveBeenCalledWith(pid, 'SIGTERM');
+    expect(killProcess).toHaveBeenCalledWith(pid, 'SIGKILL');
+    expect(killProcess.mock.calls.every(([target]) => target === pid)).toBe(true);
+  }, 10_000);
+
   it('force-kills a child that handles SIGTERM and preserves timeout failure status', async () => {
     const { dispatcher, sendResult, sendError } = makeDispatcher();
     const startedAt = Date.now();
@@ -185,6 +238,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
       timeoutMs: 150,
     }, 'service'));
 
+    await fixtures.waitForExit();
     expect(sendError).not.toHaveBeenCalled();
     expect(sendResult).toHaveBeenCalledWith(73, expect.objectContaining({
       exitCode: null,
@@ -197,30 +251,40 @@ describe('WorkerRpcDispatcher node.exec', () => {
 
   it('settles after timeout grace when a descendant holds inherited output pipes open', async () => {
     const { dispatcher, sendResult, sendError } = makeDispatcher();
+    const fixtureDir = await mkdtemp(join(tmpdir(), 'aio-node-exec-pipes-'));
+    const descendantPidPath = join(fixtureDir, 'descendant.pid');
+    fixtures.trackPidFile(descendantPidPath);
     const startedAt = Date.now();
+    try {
+      await dispatcher.handleRpcRequest(request('node.exec', {
+        executable: process.execPath,
+        args: [
+          '-e',
+          'const child=require("node:child_process").spawn(process.execPath,["-e","setTimeout(()=>process.exit(0),1000)"],{stdio:["ignore","inherit","inherit"]});require("node:fs").writeFileSync(process.argv[1],String(child.pid));setInterval(()=>{},1000)',
+          descendantPidPath,
+        ],
+        timeoutMs: 300,
+      }, 'service'));
 
-    await dispatcher.handleRpcRequest(request('node.exec', {
-      executable: process.execPath,
-      args: [
-        '-e',
-        'require("node:child_process").spawn(process.execPath,["-e","setTimeout(()=>process.exit(0),1000)"],{stdio:["ignore","inherit","inherit"]});setInterval(()=>{},1000)',
-      ],
-      timeoutMs: 150,
-    }, 'service'));
-
-    expect(sendError).not.toHaveBeenCalled();
-    expect(sendResult).toHaveBeenCalledWith(73, expect.objectContaining({
-      exitCode: null,
-    }));
-    const result = sendResult.mock.calls[0]?.[1] as { durationMs: number };
-    expect(result.durationMs).toBeLessThan(2_000);
-    expect(Date.now() - startedAt).toBeLessThan(2_000);
+      await fixtures.waitForExit();
+      expect(sendError).not.toHaveBeenCalled();
+      expect(sendResult).toHaveBeenCalledWith(73, expect.objectContaining({
+        exitCode: null,
+      }));
+      const result = sendResult.mock.calls[0]?.[1] as { durationMs: number };
+      expect(result.durationMs).toBeLessThan(2_000);
+      expect(Date.now() - startedAt).toBeLessThan(2_000);
+    } finally {
+      await fixtures.cleanup();
+      await rm(fixtureDir, { recursive: true, force: true });
+    }
   });
 
   it.skipIf(!canInspectProcesses())('terminates a detached descendant instead of leaving it alive after timeout', async () => {
     const fixtureDir = await mkdtemp(join(tmpdir(), 'aio-node-exec-tree-'));
     const descendantPidPath = join(fixtureDir, 'descendant.pid');
     const heartbeatPath = join(fixtureDir, 'descendant.heartbeat');
+    fixtures.trackPidFile(descendantPidPath);
     const { dispatcher, sendError } = makeDispatcher();
     let descendantPid: number | undefined;
 
@@ -243,18 +307,20 @@ describe('WorkerRpcDispatcher node.exec', () => {
       descendantPid = Number.parseInt(await readFile(descendantPidPath, 'utf8'), 10);
       expect(sendError).not.toHaveBeenCalled();
       expect(Number.isSafeInteger(descendantPid)).toBe(true);
+      await fixtures.waitForExit();
       await new Promise((resolve) => setTimeout(resolve, 250));
       const heartbeatAfterTermination = await readFile(heartbeatPath, 'utf8');
       await new Promise((resolve) => setTimeout(resolve, 200));
       expect(await readFile(heartbeatPath, 'utf8')).toBe(heartbeatAfterTermination);
     } finally {
-      if (descendantPid !== undefined && isProcessAlive(descendantPid)) {
+      if (descendantPid !== undefined && isFixtureProcessAlive(descendantPid)) {
         try {
           process.kill(descendantPid, 'SIGKILL');
         } catch {
           // The process exited between the liveness check and cleanup.
         }
       }
+      await fixtures.cleanup();
       await rm(fixtureDir, { recursive: true, force: true });
     }
   }, 10_000);
@@ -267,6 +333,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
       for (let trial = 0; trial < 3; trial += 1) {
         const descendantPidPath = join(fixtureDir, `descendant-${trial}.pid`);
         const heartbeatPath = join(fixtureDir, `descendant-${trial}.heartbeat`);
+        fixtures.trackPidFile(descendantPidPath);
         let descendantPid: number | undefined;
         try {
           await dispatcher.handleRpcRequest(request('node.exec', {
@@ -285,6 +352,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
           }, 'service'));
 
           descendantPid = Number.parseInt(await readFile(descendantPidPath, 'utf8'), 10);
+          await waitForFixtureProcessExit(descendantPid);
           expect(sendError).not.toHaveBeenCalled();
           expect(sendResult).toHaveBeenLastCalledWith(73, expect.objectContaining({ exitCode: null }));
           await new Promise((resolve) => setTimeout(resolve, 250));
@@ -292,7 +360,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
           await new Promise((resolve) => setTimeout(resolve, 200));
           expect(await readFile(heartbeatPath, 'utf8')).toBe(heartbeatAfterTermination);
         } finally {
-          if (descendantPid !== undefined && isProcessAlive(descendantPid)) {
+          if (descendantPid !== undefined && isFixtureProcessAlive(descendantPid)) {
             try {
               process.kill(descendantPid, 'SIGKILL');
             } catch {
@@ -302,6 +370,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
         }
       }
     } finally {
+      await fixtures.cleanup();
       await rm(fixtureDir, { recursive: true, force: true });
     }
   }, 20_000);
@@ -339,7 +408,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
     }) as unknown as typeof execFile;
     const executor = new WorkerNodeExecutor([process.cwd()], undefined, Date.now, {
       platform: process.platform,
-      spawnProcess: spawn,
+      spawnProcess: fixtures.spawn,
       execFileProcess,
       killProcess: (pid, signal) => process.kill(pid, signal),
     }, prepareUncheckedForLifecycleTest);
@@ -453,6 +522,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
   it('falls back when Windows taskkill is unavailable and reports both cleanup failures', async () => {
     const fixtureDir = await mkdtemp(join(tmpdir(), 'aio-node-exec-windows-cleanup-'));
     const childPidPath = join(fixtureDir, 'child.pid');
+    fixtures.trackPidFile(childPidPath);
     const originalKill = process.kill.bind(process);
     const killProcess = vi.fn((pid: number, signal?: string | number) => originalKill(pid, signal));
     const taskkillCalls: { file: unknown; args: unknown }[] = [];
@@ -471,7 +541,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
     try {
       const executor = new WorkerNodeExecutor([process.cwd()], undefined, Date.now, {
         platform: 'win32',
-        spawnProcess: spawn,
+        spawnProcess: fixtures.spawn,
         execFileProcess: execFileStub,
         killProcess,
         resolveTrustedExecutable: resolveTrustedTaskkill,
@@ -507,6 +577,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
       ]);
       expect(killProcess).toHaveBeenCalledWith(childPid, 'SIGTERM');
       expect(killProcess).toHaveBeenCalledWith(childPid, 'SIGKILL');
+      await fixtures.waitForExit();
       const result = sendResult.mock.calls[0]?.[1] as {
         exitCode: number | null;
         stdout: string;
@@ -521,13 +592,14 @@ describe('WorkerRpcDispatcher node.exec', () => {
       expect(result.stderrTruncated).toBe(true);
       expect(result.stderr).toMatch(/^\[node\.exec cleanup: taskkill SIGTERM failed \(ENOENT\); direct-child fallback sent\]\n\[node\.exec cleanup: taskkill SIGKILL failed \(ENOENT\); direct-child fallback sent\]\n/u);
     } finally {
-      if (childPid !== undefined && isProcessAlive(childPid)) {
+      if (childPid !== undefined && isFixtureProcessAlive(childPid)) {
         try {
           originalKill(childPid, 'SIGKILL');
         } catch {
           // The process exited between the liveness check and cleanup.
         }
       }
+      await fixtures.cleanup();
       await rm(fixtureDir, { recursive: true, force: true });
     }
   }, 10_000);
@@ -639,6 +711,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
       timeoutMs: 150,
     }, 'service'));
 
+    await fixtures.waitForExit();
     expect(sendError).not.toHaveBeenCalled();
     const result = sendResult.mock.calls[0]?.[1] as {
       exitCode: number | null;

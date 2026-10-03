@@ -5,7 +5,6 @@ import type {
   PlanQueueParkReason,
   PlanQueueVerdict,
 } from '@contracts/schemas/plan-queue';
-import { PlanQueueQuestionCardComponent } from './plan-queue-question-card.component';
 
 const STATE_LABELS: Record<PlanQueueItemState, string> = {
   discovered: 'Discovered',
@@ -72,13 +71,13 @@ export function planQueueVerdictSummary(verdict: PlanQueueVerdict | null): strin
 /**
  * One run's items: document, current state, round/error counts, a verdict
  * summary once the verifier has judged it, and the park reason and free-text
- * detail when present. Renders the triage/verifier question inline for any
- * item in `needs-answer`.
+ * detail when present. An item with an open question only points to it: the
+ * question cards themselves live in the page's "Needs your answer" section.
  */
 @Component({
   selector: 'app-plan-queue-item-list',
   standalone: true,
-  imports: [PlanQueueQuestionCardComponent],
+  imports: [],
   templateUrl: './plan-queue-item-list.component.html',
   styleUrl: './plan-queue-item-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -86,7 +85,6 @@ export function planQueueVerdictSummary(verdict: PlanQueueVerdict | null): strin
 export class PlanQueueItemListComponent {
   items = input<PlanQueueItemDto[]>([]);
 
-  answer = output<{ itemId: string; optionId: string }>();
   skipItem = output<string>();
 
   protected readonly documentBasename = planQueueDocumentBasename;
@@ -101,10 +99,6 @@ export class PlanQueueItemListComponent {
 
   isSkippable(state: PlanQueueItemState): boolean {
     return SKIPPABLE_STATES.has(state);
-  }
-
-  onAnswer(itemId: string, optionId: string): void {
-    this.answer.emit({ itemId, optionId });
   }
 
   onSkip(itemId: string): void {

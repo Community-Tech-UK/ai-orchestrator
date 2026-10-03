@@ -34,6 +34,9 @@ import {
   resolveTrustedNodeExecExecutable,
 } from './worker-node-command-resolver';
 
+import { ProcessFixtureRegistry } from '../tests/fixtures/process-fixture';
+
+const processes = new ProcessFixtureRegistry();
 const SCRIPT_LIMIT_BYTES = 256 * 1024;
 
 function canInspectProcesses(): boolean {
@@ -52,6 +55,7 @@ const TRUSTED_INSTALLER_SID =
 const fixtureRoots: string[] = [];
 
 afterEach(async () => {
+  await processes.cleanup();
   await Promise.all(fixtureRoots.splice(0).map((root) => rm(root, {
     recursive: true,
     force: true,
@@ -653,6 +657,7 @@ describe('WorkerNodeExecutor PowerShell file policy', () => {
       const { allowed } = await fixture();
       const childPidPath = join(allowed, 'stdin-descendant.pid');
       const heartbeatPath = join(allowed, 'stdin-descendant.heartbeat');
+      processes.trackPidFile(childPidPath);
       const wrapperPath = join(allowed, 'powershell.exe');
       await writeFile(wrapperPath, [
         '#!/usr/bin/env node',
@@ -673,6 +678,12 @@ describe('WorkerNodeExecutor PowerShell file policy', () => {
           wrapperPath,
           [],
           { input: 'x'.repeat(8 * 1024 * 1024), timeoutMs: 2_000 },
+          {
+            platform: process.platform,
+            spawnProcess: processes.spawn,
+            execFileProcess: execFile,
+            killProcess: (pid, signal) => process.kill(pid, signal),
+          },
         );
         let failure: ExecFileError | undefined;
         try {
@@ -680,6 +691,7 @@ describe('WorkerNodeExecutor PowerShell file policy', () => {
         } catch (error) {
           failure = error as ExecFileError;
         }
+        await processes.waitForExit();
         expect(failure?.stderr).toMatch(/verified script input/i);
         expect(failure?.stderr).not.toMatch(/cleanupIncomplete/i);
         descendantPid = Number.parseInt(await readFile(childPidPath, 'utf8'), 10);

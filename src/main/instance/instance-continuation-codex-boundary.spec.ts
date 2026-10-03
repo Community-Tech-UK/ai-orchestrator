@@ -4,7 +4,7 @@ import type { Instance, FileAttachment } from '../../shared/types/instance.types
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import { CodexCliAdapter } from '../cli/adapters/codex-cli-adapter';
 import type { AppServerClient } from '../cli/adapters/codex/app-server-client';
-import type { AppServerNotification } from '../cli/adapters/codex/app-server-types';
+import type { AppServerNotification, UserInput } from '../cli/adapters/codex/app-server-types';
 import type { SerializedCodexRequestQueue } from '../cli/adapters/codex-app-server-request';
 import { InstanceContinuationRuntime } from './instance-continuation-runtime';
 import { InstanceCommunicationManager } from './instance-communication';
@@ -17,8 +17,10 @@ vi.mock('../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: v
 vi.mock('../hooks/hook-manager', () => ({ getHookManager: () => ({
   triggerHooks: vi.fn(), triggerLifecycleHooks: vi.fn().mockResolvedValue({ blocked: false }),
 }) }));
+const receipts = vi.hoisted(() => ({ records: 0, delivered: 0, failed: 0 }));
 vi.mock('../session/session-admission-service', () => ({ getSessionAdmissionService: () => ({
-  recordUserSend: () => null, markDelivered: vi.fn(), markFailed: vi.fn(),
+  recordUserSend: () => { receipts.records++; return { id: 'fixture-receipt' }; },
+  markDelivered: () => { receipts.delivered++; }, markFailed: () => { receipts.failed++; },
 }) }));
 vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ getAll: () => ({ outputBufferSize: 100, enableDiskStorage: false }) }) }));
 vi.mock('../memory/output-storage', () => ({ getOutputStorageManager: () => ({ storeMessages: vi.fn(), deleteInstance: vi.fn() }) }));
@@ -30,38 +32,51 @@ function deferred() {
 }
 
 class FixtureCodexAdapter extends CodexCliAdapter {
+  protected override spawnProcess(): never {
+    throw new Error('Fixture only supports fake app-server RPCs; OS child spawning is forbidden');
+  }
   attachmentPreparation: ReturnType<typeof deferred> | undefined;
   attachmentEntered = false;
-  bind(client: AppServerClient): void {
+  preparedInput: UserInput[] = [];
+  bind(client: AppServerClient, threadId = 'thread-1'): void {
     this.appServerClient = client;
-    this.appServerThreadId = 'thread-1';
+    this.appServerThreadId = threadId;
     this.useAppServer = true;
     this.isSpawned = true;
-    this.appServerRuntime.attach(client, { threadId: 'thread-1', resumeCursor: null, resumeProof: null },
+    this.appServerRuntime.attach(client, { threadId, resumeCursor: null, resumeProof: null },
       (notification) => this.handleIdleAppServerNotification(notification));
   }
   override async prepareAttachmentsForAppServer(message: string, attachments: FileAttachment[]) {
     if (!this.attachmentPreparation) return super.prepareAttachmentsForAppServer(message, attachments);
     this.attachmentEntered = true;
     await this.attachmentPreparation.promise;
-    return { input: [], text: message };
+    return { input: this.preparedInput, text: message };
+  }
+  sendNative(message: string): Promise<void> { return this.appServerSendMessageInner(message); }
+  async reconnect(client: AppServerClient, threadId: string): Promise<void> {
+    await this.appServerRuntime.close();
+    this.systemPromptSent = false;
+    this.rtkAwarenessSent = false;
+    this.bind(client, threadId);
   }
   beginCompaction(): void { this.contextCostController.markCompactionRunningFromRejection(null); }
   finishCompaction(): void { this.contextCostController.recordCompactionObserved(0); }
   compactionHasWaiter(): boolean { return this.contextCostController.hasPendingCompactionHandoff(); }
 }
 
-function harness() {
-  const adapter = new FixtureCodexAdapter();
+function harness(config: ConstructorParameters<typeof CodexCliAdapter>[0] = {}) {
+  const adapter = new FixtureCodexAdapter(config);
   const subscribers = new Set<(notification: AppServerNotification) => void>();
   const requests: [string, Record<string, unknown>][] = [];
+  const responses: [string, Promise<unknown>][] = [];
   let onRequest: ((method: string) => Promise<void> | void) | undefined;
   const emit = (method: AppServerNotification['method'], params: Record<string, unknown>) => {
     for (const listener of [...subscribers]) listener({ method, params });
   };
   const client = {
     exitPromise: new Promise<void>(() => { /* stays connected */ }),
-    request: async (method: string, params: Record<string, unknown>) => {
+    request: (method: string, params: Record<string, unknown>) => {
+      const response = (async () => {
       requests.push([method, params]);
       await onRequest?.(method);
       if (method === 'thread/goal/get') return { goal: null };
@@ -69,6 +84,9 @@ function harness() {
         { id: 'answer', type: 'agentMessage', text: 'Finished.' },
       ] } };
       return {};
+      })();
+      responses.push([method, response]);
+      return response;
     },
     subscribeNotifications: (listener: (notification: AppServerNotification) => void) => {
       subscribers.add(listener); return () => subscribers.delete(listener);
@@ -132,7 +150,7 @@ function harness() {
   }, () => managed, () => paused);
   runtime.start();
   return {
-    adapter, instance, events, communication, requests, emit, outputs, turnErrors, notices, registry,
+    adapter, client, responses, instance, events, communication, requests, emit, outputs, turnErrors, notices, registry,
     pause: () => { paused = true; }, manage: () => { managed = true; },
     inputRequests: () => requests.filter(([method]) => ['thread/inject_items', 'turn/start', 'turn/steer'].includes(method)),
     committed: () => committed,
@@ -318,4 +336,257 @@ describe('continuation admission through real communication and Codex queues', (
       expect(h.notices.filter((notice) => notice['attempt'] !== undefined).map((notice) => notice['attempt'])).toEqual([1, 2]);
     } finally { await h.close(); }
   });
+});
+
+describe('Codex first-turn instruction acceptance', () => {
+  it('successful first native RPC contains system and RTK instructions with one admitted delivered receipt', async () => {
+    receipts.records = receipts.delivered = receipts.failed = 0;
+    const h = harness({ systemPrompt: 'LOCAL_FIRST_SYSTEM_MARKER', rtkEnabled: true });
+    const commit = vi.fn();
+    try {
+      await h.communication.sendInput('root', 'LOCAL_USER_INPUT', undefined, undefined,
+        { signal: new AbortController().signal, beforeProviderDispatch: commit });
+      const starts = h.requests.filter(([method]) => method === 'turn/start');
+      const text = JSON.stringify(starts);
+      expect(starts).toHaveLength(1);
+      expect(text).toContain('LOCAL_FIRST_SYSTEM_MARKER');
+      expect(text).toMatch(/RTK|rtk/);
+      expect(commit).toHaveBeenCalledOnce();
+      expect(receipts).toEqual({ records: 1, delivered: 1, failed: 0 });
+      expect(h.turnErrors).toEqual([]);
+    } finally { await h.close(); }
+  });
+  it('cancelled attachment preparation must retain first-turn native instructions for subsequent successful send', async () => {
+    receipts.records = receipts.delivered = receipts.failed = 0;
+    const h = harness({ systemPrompt: 'LOCAL_FIRST_SYSTEM_MARKER', rtkEnabled: true });
+    const gate = deferred();
+    const abort = new AbortController();
+    const cancelledCommit = vi.fn();
+    h.adapter.attachmentPreparation = gate;
+    try {
+      const cancelled = h.communication.sendInput('root', 'LOCAL_CANCELLED_INPUT',
+        [{ name: 'fixture.txt', type: 'text/plain', size: 0, data: '' }], undefined,
+        { signal: abort.signal, autoContinuation: true, internalSource: 'reasoning-collapse-continuation', beforeProviderDispatch: cancelledCommit });
+      await vi.waitFor(() => expect(h.adapter.attachmentEntered).toBe(true));
+      abort.abort(); gate.resolve(); await cancelled;
+      expect(h.inputRequests()).toEqual([]);
+      expect(cancelledCommit).not.toHaveBeenCalled();
+      expect(receipts).toEqual({ records: 0, delivered: 0, failed: 0 });
+      const commit = vi.fn();
+      await h.communication.sendInput('root', 'LOCAL_NEXT_INPUT', undefined, undefined,
+        { signal: new AbortController().signal, beforeProviderDispatch: commit });
+      const starts = h.requests.filter(([method]) => method === 'turn/start');
+      expect(starts).toHaveLength(1);
+      expect(commit).toHaveBeenCalledOnce();
+      expect(receipts).toEqual({ records: 1, delivered: 1, failed: 0 });
+      expect(h.turnErrors).toEqual([]);
+      const written = JSON.stringify(starts);
+      expect({ system: written.includes('LOCAL_FIRST_SYSTEM_MARKER'), rtk: /RTK|rtk/.test(written) })
+        .toEqual({ system: true, rtk: true });
+    } finally { gate.resolve(); await h.close(); }
+  });
+});
+
+describe('Codex rejected first-turn instruction acceptance', () => {
+  it.each(['turn-start-rejection', 'developer-injection-rejection', 'provider-steer-rejection'] as const)('preserves unsent first-turn instructions after %s', async mode => {
+    receipts.records = receipts.delivered = receipts.failed = 0;
+    const h = harness({ systemPrompt: 'LOCAL_FIRST_SYSTEM_MARKER', rtkEnabled: true });
+    const commit = vi.fn();
+    const method = mode === 'turn-start-rejection' ? 'turn/start' : mode === 'developer-injection-rejection' ? 'thread/inject_items' : 'turn/steer';
+    if (mode === 'provider-steer-rejection') h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'native-turn', status: 'inProgress' } });
+    h.requestHook(request => { if (request === method) throw new Error('failed to submit turn input: LOCAL_RPC_REJECTED_BEFORE_NATIVE_ACCEPTANCE'); });
+    try {
+      await expect(h.communication.sendInput('root', 'LOCAL_FAILED_INPUT', undefined, undefined,
+        { signal: new AbortController().signal, beforeProviderDispatch: commit,
+          ...(mode === 'developer-injection-rejection' ? { internalSource: 'context-policy' } : {}) }))
+        .rejects.toThrow('LOCAL_RPC_REJECTED_BEFORE_NATIVE_ACCEPTANCE');
+      expect(h.inputRequests().map(([request]) => request)).toEqual([method]);
+      expect(commit).toHaveBeenCalledOnce();
+      expect(receipts).toEqual({ records: 1, delivered: 0, failed: 1 });
+      if (mode === 'provider-steer-rejection') {
+        h.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'native-turn', status: 'completed' } });
+        await vi.waitFor(() => expect(h.adapter.hasPendingProviderAutoContinuation()).toBe(false));
+      }
+      h.requestHook(() => undefined);
+      const nextCommit = vi.fn();
+      await h.communication.sendInput('root', 'LOCAL_NEXT_INPUT', undefined, undefined,
+        { signal: new AbortController().signal, beforeProviderDispatch: nextCommit });
+      expect(nextCommit).toHaveBeenCalledOnce();
+      expect(receipts).toEqual({ records: 2, delivered: 1, failed: 1 });
+      const lastStart = h.requests.filter(([request]) => request === 'turn/start').at(-1);
+      expect(lastStart).toBeDefined();
+      const written = JSON.stringify(lastStart);
+      expect({ system: written.includes('LOCAL_FIRST_SYSTEM_MARKER'), rtk: /RTK|rtk/.test(written) })
+        .toEqual({ system: true, rtk: true });
+    } finally { await h.close(); }
+  });
+  it('accepted developer injection survives provider join completion and is consumed once', async () => {
+    receipts.records = receipts.delivered = receipts.failed = 0;
+    const h = harness({ systemPrompt: 'LOCAL_FIRST_SYSTEM_MARKER', rtkEnabled: true });
+    const commit = vi.fn();
+    h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'native-turn', status: 'inProgress' } });
+    h.requestHook(request => { if (request === 'thread/inject_items') h.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'native-turn', status: 'completed' } }); });
+    try {
+      await h.communication.sendInput('root', 'LOCAL_JOIN_INPUT', undefined, undefined,
+        { signal: new AbortController().signal, internalSource: 'context-policy', beforeProviderDispatch: commit });
+      expect(commit).toHaveBeenCalledOnce();
+      expect(h.inputRequests().map(([request]) => request)).toEqual(['thread/inject_items']);
+      expect(JSON.stringify(h.inputRequests())).toContain('LOCAL_FIRST_SYSTEM_MARKER');
+      expect(JSON.stringify(h.inputRequests())).toMatch(/RTK|rtk/);
+      expect(receipts).toEqual({ records: 1, delivered: 1, failed: 0 });
+      h.requestHook(() => undefined);
+      await h.communication.sendInput('root', 'LOCAL_NEXT_INPUT');
+      expect(receipts).toEqual({ records: 2, delivered: 2, failed: 0 });
+      const starts = h.requests.filter(([request]) => request === 'turn/start');
+      expect(starts).toHaveLength(1);
+      expect(JSON.stringify(starts)).not.toContain('LOCAL_FIRST_SYSTEM_MARKER');
+      expect(JSON.stringify(starts)).not.toMatch(/RTK|rtk/);
+    } finally { await h.close(); }
+  });
+});
+
+
+describe('Codex accepted first-turn instruction ownership', () => {
+  const firstTurnConfig = { systemPrompt: 'LOCAL_FIRST_SYSTEM_MARKER', rtkEnabled: true };
+  function blocks(request: unknown) {
+    const written = JSON.stringify(request);
+    return { system: written.includes('LOCAL_FIRST_SYSTEM_MARKER'), rtk: /RTK|rtk/.test(written) };
+  }
+
+  it('retains consumption after an acknowledged start later reports a failed native turn', async () => {
+    const h = harness(firstTurnConfig);
+    h.requestHook(method => {
+      if (method === 'turn/start') h.emit('turn/completed', { threadId: 'thread-1',
+        turn: { id: 'harness-turn', status: 'failed', error: { message: 'LOCAL_NATIVE_FAILURE' } },
+      });
+    });
+    try {
+      await expect(h.adapter.sendNative('first')).rejects.toThrow('LOCAL_NATIVE_FAILURE');
+      expect(blocks(h.inputRequests()[0])).toEqual({ system: true, rtk: true });
+      h.requestHook(() => undefined);
+      await h.adapter.sendNative('next');
+      expect(blocks(h.inputRequests().at(-1))).toEqual({ system: false, rtk: false });
+    } finally { await h.close(); }
+  });
+
+  it('retains consumption after acknowledged developer injection and subsequent input cancellation', async () => {
+    const h = harness(firstTurnConfig);
+    const abort = new AbortController();
+    h.requestHook(method => { if (method === 'thread/inject_items') abort.abort(); });
+    try {
+      await expect(h.communication.sendInput('root', 'instructions', undefined, undefined,
+        { internalSource: 'context-policy', signal: abort.signal })).rejects.toMatchObject({ name: 'AbortError' });
+      expect(h.inputRequests().map(([method]) => method)).toEqual(['thread/inject_items']);
+      expect(blocks(h.inputRequests()[0])).toEqual({ system: true, rtk: true });
+      h.requestHook(() => undefined);
+      await h.communication.sendInput('root', 'next');
+      expect(blocks(h.inputRequests().at(-1))).toEqual({ system: false, rtk: false });
+    } finally { await h.close(); }
+  });
+
+  it('serializes queued sends and includes first-turn blocks only on the acknowledged predecessor', async () => {
+    const h = harness(firstTurnConfig);
+    const gate = deferred();
+    let submitted = false;
+    h.requestHook(async method => { if (method === 'turn/start' && !submitted) { submitted = true; await gate.promise; } });
+    try {
+      const first = h.adapter.sendInput('first');
+      const next = h.adapter.sendInput('next');
+      await vi.waitFor(() => expect(h.inputRequests()).toHaveLength(1));
+      gate.resolve();
+      await Promise.all([first, next]);
+      expect(h.inputRequests()).toHaveLength(2);
+      expect(h.inputRequests().map(blocks)).toEqual([{ system: true, rtk: true }, { system: false, rtk: false }]);
+    } finally { gate.resolve(); await h.close(); }
+  });
+
+  it.each([
+    { systemPrompt: '   ', rtkEnabled: false },
+    { systemPrompt: 'LOCAL_FIRST_SYSTEM_MARKER', rtkEnabled: false },
+    { systemPrompt: '   ', rtkEnabled: true },
+  ])('only consumes configured blocks for %j', async config => {
+    const h = harness(config);
+    try {
+      await h.adapter.sendInput('first');
+      await h.adapter.sendInput('next');
+      expect(h.inputRequests().map(blocks)).toEqual([
+        { system: !!config.systemPrompt.trim(), rtk: config.rtkEnabled }, { system: false, rtk: false },
+      ]);
+    } finally { await h.close(); }
+  });
+
+  it.each(['client', 'thread'] as const)('ignores old acknowledgment after native %s binding changes', async mode => {
+    const h = harness(firstTurnConfig);
+    const gate = deferred();
+    h.requestHook(async method => { if (method === 'turn/start') await gate.promise; });
+    try {
+      const first = h.adapter.sendNative('old');
+      const rejected = expect(first).rejects.toThrow('runtime closed');
+      await vi.waitFor(() => expect(h.inputRequests()).toHaveLength(1));
+      await h.adapter.reconnect((mode === 'client' ? { ...h.client } : h.client) as unknown as AppServerClient,
+        mode === 'thread' ? 'thread-2' : 'thread-1');
+      await rejected;
+      gate.resolve();
+      // Its acknowledgment callback was registered before this await.
+      await h.responses.find(([method]) => method === 'turn/start')![1];
+      h.requestHook(() => undefined);
+      await h.adapter.sendNative('new');
+      expect(blocks(h.inputRequests().at(-1))).toEqual({ system: true, rtk: true });
+    } finally { gate.resolve(); await h.close(); }
+  });
+});
+
+
+describe('Codex fake-native fixture and accepted steering', () => {
+  it('rejects an accidental exec route before any OS child can spawn', async () => {
+    const h = harness();
+    try {
+      await expect(h.adapter.sendMessage({ content: 'fixture', role: 'user' }))
+        .rejects.toThrow('OS child spawning is forbidden');
+      expect(h.inputRequests()).toEqual([]);
+    } finally { await h.close(); }
+  });
+
+  it.each(['user-steer', 'developer-injection-then-rejected-steer'] as const)(
+    'consumes first-turn instructions accepted by %s exactly once', async mode => {
+      const h = harness({ systemPrompt: 'LOCAL_FIRST_SYSTEM_MARKER', rtkEnabled: true });
+      const gate = deferred();
+      if (mode === 'developer-injection-then-rejected-steer') {
+        h.adapter.attachmentPreparation = gate;
+        h.adapter.preparedInput = [{ type: 'localImage', path: '/tmp/fixture-image.png' }];
+        gate.resolve();
+      }
+      h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'native-turn', status: 'inProgress' } });
+      h.requestHook(method => {
+        if (method !== 'turn/steer') return;
+        if (mode === 'developer-injection-then-rejected-steer') throw new Error('failed to submit turn input: LOCAL_STEER_REJECTED');
+        h.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'native-turn', status: 'completed' } });
+      });
+      try {
+        const sending = h.communication.sendInput('root', 'first', mode === 'user-steer' ? undefined :
+          [{ name: 'fixture-image.png', type: 'image/png', size: 0, data: '' }], undefined,
+          mode === 'user-steer' ? undefined : { internalSource: 'context-policy' });
+        if (mode === 'user-steer') await sending;
+        else {
+          await expect(sending).rejects.toThrow('LOCAL_STEER_REJECTED');
+          h.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'native-turn', status: 'completed' } });
+          await vi.waitFor(() => expect(h.adapter.hasPendingProviderAutoContinuation()).toBe(false));
+        }
+        const first = JSON.stringify(h.inputRequests()[0]);
+        expect(first).toContain('LOCAL_FIRST_SYSTEM_MARKER');
+        expect(first).toMatch(/RTK|rtk/);
+        if (mode !== 'user-steer') {
+          expect(h.inputRequests().map(([method]) => method)).toEqual(['thread/inject_items', 'turn/steer']);
+          expect(h.inputRequests()[0][1]['items']).toEqual([{
+            type: 'message', role: 'developer', content: [{ type: 'input_text', text: expect.any(String) }],
+          }]);
+          expect(h.inputRequests()[1][1]['input']).toEqual([{ type: 'localImage', path: '/tmp/fixture-image.png' }]);
+        }
+        h.requestHook(() => undefined);
+        await h.communication.sendInput('root', 'next');
+        const next = JSON.stringify(h.inputRequests().at(-1));
+        expect(next).not.toContain('LOCAL_FIRST_SYSTEM_MARKER');
+        expect(next).not.toMatch(/RTK|rtk/);
+      } finally { gate.resolve(); await h.close(); }
+    });
 });

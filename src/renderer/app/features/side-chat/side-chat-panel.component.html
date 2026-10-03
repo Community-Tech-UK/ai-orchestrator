@@ -8,7 +8,13 @@
   <div class="side-chat" [style.width.px]="panelWidth()">
     <div class="panel-header">
       <span class="collapse-icon" aria-hidden="true">⁂</span>
-      <span class="header-title">Side chat</span>
+      <span class="header-title">
+        @if (parentTitle()) {
+          Sidechats · {{ parentTitle() }}
+        } @else {
+          Side chat
+        }
+      </span>
       @if (chat(); as chat) {
         <button
           type="button"
@@ -42,6 +48,11 @@
           [hasMessages]="hasMessages()"
         />
         <span class="status-pill">{{ currentInstance()?.status ?? 'dormant' }}</span>
+        <span
+          class="permission-pill"
+          title="Edit permissions are inherited from the parent session's effective tool restrictions and approval posture"
+          aria-label="Edit permissions inherited from parent session"
+        >Inherited permissions</span>
       </div>
     }
 
@@ -69,12 +80,15 @@
         <div class="empty-state">
           <p class="empty-title">Ask on the side</p>
           <p class="empty-copy">
-            A separate chat next to your workspace — ask questions or explore
+            A separate chat linked to this session — ask questions or explore
             ideas without steering the main session. Your first message starts
             the chat.
           </p>
           @if (!workingDirectory()) {
             <p class="empty-hint">Select a project or workspace to enable it.</p>
+          }
+          @if (!parent()) {
+            <p class="empty-hint">Select a session to link this sidechat.</p>
           }
         </div>
       }

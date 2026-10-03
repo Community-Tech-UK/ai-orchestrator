@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process';
 /**
  * LT-350 — cancelling a loop must kill an in-flight preflight/quick-verify
  * subprocess, not just the (nonexistent, at that point) CLI adapter/instance.
@@ -15,17 +16,29 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 import { LoopCoordinator } from './loop-coordinator';
 import { cleanupLoopCoordinatorSpec } from './loop-coordinator-test-cleanup';
+import { captureFixtureSpawns, ProcessFixtureRegistry } from '../../tests/fixtures/process-fixture';
+
+const fixtures = new ProcessFixtureRegistry();
+const roots: ChildProcess[] = [];
+let capturesBeforePid = 0;
+let restoreSpawnCapture: () => void;
 
 let workspace: string;
 let coordinator: LoopCoordinator;
 
 beforeEach(() => {
+  capturesBeforePid = 0;
+  restoreSpawnCapture = captureFixtureSpawns(fixtures, child => {
+    if (child.pid === undefined) capturesBeforePid += 1;
+    roots.push(child);
+  });
   workspace = mkdtempSync(join(tmpdir(), 'loop-cancel-preflight-'));
   LoopCoordinator._resetForTesting();
   coordinator = new LoopCoordinator();
 });
 
 afterEach(async () => {
+  try { await fixtures.cleanup(); } finally { restoreSpawnCapture(); roots.length = 0; }
   await cleanupLoopCoordinatorSpec({ coordinator, workspace });
 }, 20_000);
 
@@ -35,9 +48,12 @@ describe('LT-350: cancelLoop kills an in-flight preflight verify subprocess', ()
     // A real script file, not an inline `-e` one-liner, so no shell/JS
     // nested-quoting hazards around the marker path.
     const scriptPath = join(workspace, 'slow-verify.js');
+    const pidFile = join(workspace, 'slow-verify.pid');
+    fixtures.trackPidFile(pidFile);
     writeFileSync(
       scriptPath,
-      `setTimeout(() => { require('fs').writeFileSync(${JSON.stringify(markerPath)}, '1'); }, 4000);\n`,
+      `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\n`
+        + `setTimeout(() => { require('fs').writeFileSync(${JSON.stringify(markerPath)}, '1'); }, 4000);\n`,
     );
     const node = process.execPath;
     const base = defaultLoopConfig(workspace, 'cancel me during preflight');
@@ -49,7 +65,7 @@ describe('LT-350: cancelLoop kills an in-flight preflight verify subprocess', ()
       audit: { ...base.audit, preflightMode: 'block' },
       completion: {
         ...base.completion,
-        verifyCommand: `"${node}" "${scriptPath}"`,
+        verifyCommand: `${process.platform === 'win32' ? '' : 'exec '}"${node}" "${scriptPath}"`,
         verifyTimeoutMs: 30_000,
       },
     });
@@ -59,6 +75,8 @@ describe('LT-350: cancelLoop kills an in-flight preflight verify subprocess', ()
     // for the wrong reason.
     await new Promise((resolve) => setTimeout(resolve, 300));
 
+    expect(capturesBeforePid).toBe(roots.length);
+    expect(roots.some(child => child.pid !== undefined && child.exitCode === null)).toBe(true);
     const cancelled = await coordinator.cancelLoop(state.id);
     expect(cancelled).toBe(true);
 

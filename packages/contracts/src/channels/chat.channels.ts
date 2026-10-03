@@ -1,5 +1,5 @@
 /**
- * IPC channels for durable top-level Chats.
+ * IPC channels for durable top-level Chats and session-linked sidechats.
  */
 export const CHAT_CHANNELS = {
   CHAT_LIST: 'chat:list',
@@ -18,4 +18,10 @@ export const CHAT_CHANNELS = {
   CHAT_UI_STATE_GET: 'chat:ui-state-get',
   CHAT_UI_STATE_SET: 'chat:ui-state-set',
   CHAT_EVENT: 'chat:event',
+  // Session-linked sidechats
+  SIDE_CHAT_CREATE: 'side-chat:create',
+  SIDE_CHAT_LIST: 'side-chat:list',
+  SIDE_CHAT_SEND: 'side-chat:send',
+  SIDE_CHAT_MARK_READ: 'side-chat:mark-read',
+  SIDE_CHAT_ATTENTION: 'side-chat:attention',
 } as const;

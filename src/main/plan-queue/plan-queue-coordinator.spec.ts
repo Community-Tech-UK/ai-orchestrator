@@ -867,6 +867,55 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     await expect(coordinator.control({ action: 'skip-item', itemId })).rejects.toThrow(/has not started/);
   });
 
+  it('lets another session cancel a run whose parent session is gone, and records who did it', async () => {
+    writeDoc('docs/plans/2026-01-01-orphan_plan.md', '# Plan\n\n**Spec:** [spec](./2026-01-01-orphan_spec_planned.md)\n');
+    const parent = fake.addParent();
+    const rescuer = fake.addParent();
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    expect(run.items[0].state).toBe('needs-answer');
+
+    // While the parent lives, the run is still the parent's alone.
+    await expect(coordinator.control({ action: 'cancel', runId: run.id }, rescuer.id)).rejects.toThrow(/Only the session that started/);
+
+    fake.live.delete(parent.id);
+    // A session the queue spawned can never rescue, and the rescue covers only cancel and discard.
+    fake.live.set('worker-other-run', { ...rescuer, id: 'worker-other-run', metadata: { planQueueRole: 'worker' } });
+    await expect(coordinator.control({ action: 'cancel', runId: run.id }, 'worker-other-run')).rejects.toThrow(/Only the session that started/);
+    await expect(coordinator.control({ action: 'pause', runId: run.id }, rescuer.id)).rejects.toThrow(/may only cancel the run or discard a parked item/);
+    await expect(coordinator.answer(run.items[0].id, 'proceed', rescuer.id)).rejects.toThrow(/Only the session that started/);
+    expect(coordinator.getRunDto(run.id)!.status).toBe('running');
+
+    await coordinator.control({ action: 'cancel', runId: run.id }, rescuer.id);
+
+    const cancelled = coordinator.getRunDto(run.id)!;
+    expect(cancelled.status).toBe('cancelled');
+    expect(cancelled.items[0].state).toBe('skipped');
+    expect(cancelled.items[0].detail).toBe(
+      `Run cancelled by session ${rescuer.id}, because the session that started the run (${parent.id}) no longer exists.`,
+    );
+    // Its documents are free again: a new run claims them.
+    const next = await coordinator.startRun({ parentInstanceId: rescuer.id, kind: 'plans' });
+    expect(next.excluded).toEqual([]);
+    expect(next.run.items).toHaveLength(1);
+  });
+
+  it('lets another session discard a stranded run\'s parked item, and nothing else', async () => {
+    const { runId, itemId, branch, parentId } = await parkedAtRoundLimit();
+    const rescuer = fake.addParent();
+    fake.live.delete(parentId);
+
+    await expect(coordinator.control({ action: 'resume-item', itemId }, rescuer.id)).rejects.toThrow(/may only cancel the run or discard a parked item/);
+    await expect(coordinator.control({ action: 'land-anyway', itemId }, rescuer.id)).rejects.toThrow(/may only cancel the run or discard a parked item/);
+    expect(git(['branch', '--list', branch])).not.toBe('');
+
+    await coordinator.control({ action: 'discard-item', itemId }, rescuer.id);
+
+    expect(git(['branch', '--list', branch])).toBe('');
+    expect(coordinator.getRunDto(runId)!.items[0].detail).toContain(
+      `Discarded by session ${rescuer.id}, because the session that started the run (${parentId}) no longer exists.`,
+    );
+  });
+
   it('surfaces a worker waiting for input as a question and resumes it on "continue"', async () => {
     planDoc('2026-01-01-alpha');
     const parent = fake.addParent();

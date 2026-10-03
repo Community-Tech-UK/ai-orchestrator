@@ -1,6 +1,4 @@
 <form class="pq-start-form" (submit)="$event.preventDefault(); onSubmit()">
-  <h2>Start run</h2>
-
   <label class="pq-start-field">
     Parent session
     <select [ngModel]="selectedParentId()" name="parentSession" (ngModelChange)="selectedParentId.set($event)">

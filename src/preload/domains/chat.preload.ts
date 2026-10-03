@@ -57,5 +57,22 @@ export function createChatDomain(
       ipcRenderer.on(ch.CHAT_EVENT, listener);
       return () => ipcRenderer.removeListener(ch.CHAT_EVENT, listener);
     },
+
+    // ── Session-linked sidechats ──────────────────────────────────────────
+
+    sideChatCreate: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.SIDE_CHAT_CREATE, payload),
+
+    sideChatList: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.SIDE_CHAT_LIST, payload),
+
+    sideChatSend: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.SIDE_CHAT_SEND, payload),
+
+    sideChatMarkRead: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.SIDE_CHAT_MARK_READ, payload),
+
+    sideChatAttention: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.SIDE_CHAT_ATTENTION, payload),
   };
 }

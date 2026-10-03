@@ -1,8 +1,26 @@
+import type { ChildProcess } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { diagnoseProviderRuntime, type ProviderDiagnosticExec } from './provider-runtime-diagnostics';
+import { captureFixtureSpawns, ProcessFixtureRegistry } from '../tests/fixtures/process-fixture';
+
+const fixtures = new ProcessFixtureRegistry();
+const roots: ChildProcess[] = [];
+let capturesBeforePid = 0;
+let restoreSpawnCapture: () => void;
+beforeEach(() => {
+  capturesBeforePid = 0;
+  restoreSpawnCapture = captureFixtureSpawns(fixtures, child => {
+    if (child.pid === undefined) capturesBeforePid += 1;
+    roots.push(child);
+  });
+});
+
+afterEach(async () => {
+  try { await fixtures.cleanup(); } finally { restoreSpawnCapture(); roots.length = 0; }
+});
 
 function makeExec(results: Record<string, { stdout?: string; stderr?: string; error?: Error }>): ProviderDiagnosticExec {
   return async (file, args) => {
@@ -38,9 +56,12 @@ describe('diagnoseProviderRuntime', () => {
           ? 'agy'
           : provider;
       const executablePath = join(fixtureDir, executable);
+      const pidFile = join(fixtureDir, 'auth-probe.pid');
+      fixtures.trackPidFile(pidFile);
       const fixture = `#!${process.execPath}\n`
         + "const { basename } = require('node:path');\n"
         + "if (process.argv.includes('--version')) { console.log('fixture 1.2.3'); process.exit(0); }\n"
+        + `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\n`
         + "const name = basename(process.argv[1]);\n"
         + "if (name === 'cursor-agent') console.log(JSON.stringify({ status: 'authenticated', isAuthenticated: true }));\n"
         + "else if (name === 'claude') console.log(JSON.stringify({ loggedIn: true }));\n"
@@ -61,10 +82,14 @@ describe('diagnoseProviderRuntime', () => {
           authProbeTimeoutMs: 75,
         });
 
+        expect(capturesBeforePid).toBe(roots.length);
+        expect(roots.length).toBeGreaterThanOrEqual(3);
+        expect(roots.every(child => child.pid !== undefined)).toBe(true);
         expect(result.ok).toBe(false);
         expect(result.provider.authenticated).toBe(false);
         expect(Date.now() - startedAt).toBeLessThan(1_500);
       } finally {
+        await fixtures.cleanup();
         await rm(fixtureDir, { recursive: true, force: true });
       }
     },

@@ -31,6 +31,7 @@ import {
 import type { InstanceProvider } from '../../shared/types/instance.types';
 import { AUTOMATION_FAILURE_STATUSES } from '../../shared/types/instance-status-policy';
 import { getLogger } from '../logging/logger';
+import { assertPlanQueueParent, authorizePlanQueueControl } from './plan-queue-control-authority';
 import { discoverPlanQueueDocuments } from './plan-queue-discovery';
 import { currentBranch, diffStat, repositoryRoot } from './plan-queue-git';
 import {
@@ -346,7 +347,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   async answer(itemId: string, optionId: string, callerInstanceId?: string): Promise<void> {
     const item = this.getItem(itemId);
     const run = this.getRun(item.runId);
-    this.assertParent(run, callerInstanceId);
+    assertPlanQueueParent(run, callerInstanceId);
     const option = item.question?.options.find((candidate) => candidate.id === optionId);
     if (!item.question || !option) throw new Error(`Item ${itemId} has no open question with option "${optionId}"`);
 
@@ -371,17 +372,17 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     const flow = this.requireFlow();
     if ('runId' in payload) {
       const run = this.getRun(payload.runId);
-      this.assertParent(run, callerInstanceId);
+      const actor = this.authorizeControl(run, payload.action, callerInstanceId);
       if (payload.action === 'pause' && run.status === 'running') this.saveRun({ ...run, status: 'paused' });
       else if (payload.action === 'resume' && run.status === 'paused') this.saveRun({ ...run, status: 'running' });
-      else if (payload.action === 'cancel') await this.cancelRun(run);
+      else if (payload.action === 'cancel') await this.cancelRun(run, actor);
       this.requestPump();
       return;
     }
 
     const item = this.getItem(payload.itemId);
     const run = this.getRun(item.runId);
-    this.assertParent(run, callerInstanceId);
+    const actor = this.authorizeControl(run, payload.action, callerInstanceId);
     switch (payload.action) {
       case 'skip-item':
         if (!PRE_START_STATES.has(item.state)) throw new Error(`Item is ${item.state}; only an item that has not started can be skipped`);
@@ -398,7 +399,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         await flow.landAnyway(item.id);
         break;
       case 'discard-item':
-        await flow.discard(item.id);
+        await flow.discard(item.id, actor);
         break;
     }
     this.requestPump();
@@ -559,17 +560,18 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   // Runs
   // ---------------------------------------------------------------------------
 
-  private async cancelRun(run: PlanQueueRun): Promise<void> {
+  private async cancelRun(run: PlanQueueRun, actor: string): Promise<void> {
     const flow = this.requireFlow();
+    const detail = `Run cancelled by ${actor}.`;
     // Stop the scheduler first: parking below awaits, and a pump in between
     // must not start the next queued item.
     if (run.status === 'running') this.saveRun({ ...run, status: 'paused' });
     for (const { id } of this.requireDeps().store.listItems(run.id)) {
       const item = this.getItem(id);
       if (PRE_START_STATES.has(item.state)) {
-        this.transition(item, 'skipped', { question: null, detail: 'Run cancelled by James.' });
+        this.transition(item, 'skipped', { question: null, detail });
       } else if (!isTerminalItemState(item.state)) {
-        await flow.park(item.id, 'cancelled', 'Run cancelled by James.');
+        await flow.park(item.id, 'cancelled', detail);
       }
     }
     this.finishRun(this.getRun(run.id), 'cancelled');
@@ -662,10 +664,11 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     );
   }
 
-  private assertParent(run: PlanQueueRun, callerInstanceId: string | undefined): void {
-    if (callerInstanceId !== undefined && callerInstanceId !== run.parentInstanceId) {
-      throw new Error('Only the session that started this Plan Queue run may do that');
-    }
+  private authorizeControl(run: PlanQueueRun, action: PlanQueueControlPayload['action'], caller: string | undefined): string {
+    return authorizePlanQueueControl(run, action, caller, {
+      instanceExists: (id) => this.instances.getInstance(id) !== undefined,
+      isQueueInstance: (id) => this.isQueueInstance(id),
+    });
   }
 
   private logItemError(item: PlanQueueItem, error: unknown): void {

@@ -253,10 +253,11 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     input: UserInput[],
     developerInput?: string,
     dispatch?: AdapterInputDispatch,
+    onInputAccepted?: () => void,
   ): Promise<{ joined: boolean; developerInjected: boolean }> {
     const done = this.providerTurnDone;
     if (!done) return { joined: false, developerInjected: false };
-    const { delivered, developerInjected } = await this.appServerRuntime.steerProviderTurn(input, developerInput, dispatch);
+    const { delivered, developerInjected } = await this.appServerRuntime.steerProviderTurn(input, developerInput, dispatch, onInputAccepted);
     if (delivered) await done;
     return { joined: delivered, developerInjected };
   }
@@ -285,6 +286,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     if (this.appServerRuntime.hasActiveTurn() && !this.hasProviderTurn()) throw new CodexAppServerRuntimeError({
       kind: 'request-rejected', message: 'Codex app-server runtime already has an active turn', recoverability: 'retry-thread',
     });
+    const client = this.getAppServerClient()!;
     const rootThreadId = this.getAppServerThreadId()!;
     const resumed = this.lastResumeAttemptResult?.confirmed === true
       && ['native', 'jsonl-scan', 'running-adopted'].includes(this.lastResumeAttemptResult.source);
@@ -298,19 +300,25 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     let content = preparedAttachments.text;
 
     // Include system prompt on the very first turn only.
-    if (!this.systemPromptSent && this.cliConfig.systemPrompt?.trim()) {
-      const prompt = this.cliConfig.systemPrompt;
+    const prompt = this.cliConfig.systemPrompt;
+    const includeSystemPrompt = !this.systemPromptSent && !!prompt?.trim();
+    if (includeSystemPrompt && prompt) {
       content = wrapCodexSystemInstructions(prompt, content);
-      this.systemPromptSent = true;
     }
 
     // Inject RTK awareness on the first turn when the feature is enabled.
     // Codex has no programmatic PreToolUse hook, so awareness-via-prompt is
     // the integration surface — keeps shell commands prefixed with `rtk`.
-    if (!this.rtkAwarenessSent && this.cliConfig.rtkEnabled) {
+    const includeRtkAwareness = !this.rtkAwarenessSent && this.cliConfig.rtkEnabled;
+    if (includeRtkAwareness) {
       content = `${wrapRtkAwareness()}\n\n${content}`;
-      this.rtkAwarenessSent = true;
     }
+    const onInputAccepted = () => {
+      // A late acknowledgment belongs to the connection/thread that received it.
+      if (this.getAppServerClient() !== client || this.getAppServerThreadId() !== rootThreadId) return;
+      if (includeSystemPrompt) this.systemPromptSent = true;
+      if (includeRtkAwareness) this.rtkAwarenessSent = true;
+    };
 
     // Start the turn and capture notifications. Harness-authored text
     // (`metadata.internalSource`, LT-657) goes in as a developer-role item so
@@ -330,7 +338,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     let pendingDeveloperInput = developerInput;
     assertAdapterInputCurrent(dispatch, this.hasPendingProviderAutoContinuation());
     if (this.hasProviderTurn()) {
-      const join = await this.joinProviderTurn(input, developerInput, dispatch);
+      const join = await this.joinProviderTurn(input, developerInput, dispatch, onInputAccepted);
       if (join.joined) return;
       // The turn ended mid-join; its developer item is already in history.
       if (join.developerInjected) pendingDeveloperInput = undefined;
@@ -345,7 +353,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     this.usageAccounting.beginTurn(rootThreadId, resumed);
     const startedAtMs = Date.now();
     try {
-      turnState = await this.captureTurn(input, metadata, pendingDeveloperInput, dispatch);
+      turnState = await this.captureTurn(input, metadata, pendingDeveloperInput, dispatch, onInputAccepted);
     } catch (error) {
       this.flushPartialUsage();
       throw error;
@@ -554,6 +562,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     metadata?: CliMessage['metadata'],
     developerInput?: string,
     dispatch?: AdapterInputDispatch,
+    onInputAccepted?: () => void,
   ): Promise<TurnCaptureState> {
     this.ensureAppServerRuntimeAttached();
     return this.appServerRuntime.captureTurn({
@@ -561,6 +570,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       ...buildCodexTurnInputDispatch(this.cliConfig, dispatch,
         () => this.hasPendingProviderAutoContinuation(), () => this.hasProviderTurn() || this.knownGoalStatus() === 'active'),
       input,
+      onInputAccepted,
       ...(developerInput ? { developerInput } : {}),
       completeTurn: (state, turn) => this.completeTurn(state, turn),
       ...this.turnCaptureCallbacks(metadata),

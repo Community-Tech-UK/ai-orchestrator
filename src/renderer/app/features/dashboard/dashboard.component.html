@@ -164,6 +164,8 @@
     @if (showSideChat()) {
       <app-side-chat-panel
         [workingDirectory]="sideChatWorkingDirectory()"
+        [parent]="sideChatParent()"
+        [parentTitle]="sideChatParentTitle()"
         (closeRequested)="showSideChat.set(false)"
         (openInMainRequested)="openSideChatInMain($event)"
       />

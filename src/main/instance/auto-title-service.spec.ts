@@ -237,223 +237,6 @@ describe('AutoTitleService', () => {
     expect(mockCreateAdapter).not.toHaveBeenCalled();
   });
 
-  describe('retryTitleUpgradeIfPending', () => {
-    it('is a no-op when nothing is pending (Phase 2 never ran for this instance)', async () => {
-      const applyTitle = vi.fn();
-      await AutoTitleService.getInstance().retryTitleUpgradeIfPending('instance-never-titled', applyTitle);
-      expect(applyTitle).not.toHaveBeenCalled();
-      expect(mockCreateAdapter).not.toHaveBeenCalled();
-    });
-
-    it('is a no-op once Phase 2 already produced an AI title — never replaces one AI title with another', async () => {
-      mockIsCliAvailable.mockResolvedValue({ installed: true });
-      mockResolveCliType.mockResolvedValue('claude');
-
-      await AutoTitleService.getInstance().maybeGenerateTitle(
-        'instance-1',
-        'Investigate the broken deployment and summarize the fix.',
-        vi.fn(),
-        false,
-      );
-      expect(mockSendMessage).toHaveBeenCalledTimes(1);
-
-      const retryApplyTitle = vi.fn();
-      await AutoTitleService.getInstance().retryTitleUpgradeIfPending('instance-1', retryApplyTitle);
-
-      // No pending entry was queued because Phase 2 already succeeded — no
-      // second CLI call, no second title.
-      expect(mockSendMessage).toHaveBeenCalledTimes(1);
-      expect(retryApplyTitle).not.toHaveBeenCalled();
-    });
-
-    it('gives one more chance, titled from the ORIGINAL first message, when a fast CLI becomes available later', async () => {
-      // First attempt: no CLI available — Phase 2 is abandoned and queues a retry.
-      mockIsCliAvailable.mockResolvedValue({ installed: false });
-      const firstApplyTitle = vi.fn();
-      await AutoTitleService.getInstance().maybeGenerateTitle(
-        'instance-1',
-        'Investigate the broken deployment and summarize the fix.',
-        firstApplyTitle,
-        false,
-      );
-      expect(firstApplyTitle).toHaveBeenCalledWith(
-        'instance-1',
-        'Investigate the broken deployment and summarize the fix.',
-        'instant',
-      );
-      expect(mockCreateAdapter).not.toHaveBeenCalled();
-
-      // A fast CLI is now available (e.g. the user finished installing it, or
-      // the earlier probe was a transient blip). The user sends a genuinely
-      // new second message — this is the retry trigger point.
-      mockIsCliAvailable.mockResolvedValue({ installed: true });
-      mockResolveCliType.mockResolvedValue('claude');
-      mockSendMessage.mockResolvedValue({ content: 'Broken deployment fix' });
-
-      const retryApplyTitle = vi.fn();
-      await AutoTitleService.getInstance().retryTitleUpgradeIfPending('instance-1', retryApplyTitle);
-
-      expect(retryApplyTitle).toHaveBeenCalledWith('instance-1', 'Broken deployment fix', 'ai');
-      // The retry summarized the ORIGINAL first message, not anything from the
-      // second (current) message — retryTitleUpgradeIfPending takes no message
-      // argument, so this is enforced by the API shape itself.
-      expect(mockSendMessage).toHaveBeenCalledWith(expect.objectContaining({
-        content: expect.stringContaining('Investigate the broken deployment and summarize the fix.'),
-      }));
-    });
-
-    it('only retries once — a second failure does not requeue itself', async () => {
-      mockIsCliAvailable.mockResolvedValue({ installed: false });
-      await AutoTitleService.getInstance().maybeGenerateTitle(
-        'instance-1',
-        'Investigate the broken deployment and summarize the fix.',
-        vi.fn(),
-        false,
-      );
-
-      // Retry attempt also fails (still no CLI).
-      const firstRetryApplyTitle = vi.fn();
-      await AutoTitleService.getInstance().retryTitleUpgradeIfPending('instance-1', firstRetryApplyTitle);
-      expect(firstRetryApplyTitle).not.toHaveBeenCalled();
-
-      // CLI becomes available afterwards, but the single retry was already
-      // consumed — a third opportunity must not appear from nowhere.
-      mockIsCliAvailable.mockResolvedValue({ installed: true });
-      mockResolveCliType.mockResolvedValue('claude');
-      const secondRetryApplyTitle = vi.fn();
-      await AutoTitleService.getInstance().retryTitleUpgradeIfPending('instance-1', secondRetryApplyTitle);
-      expect(secondRetryApplyTitle).not.toHaveBeenCalled();
-      expect(mockCreateAdapter).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('maybeUpgradeTitleWithFirstReply', () => {
-    it('keeps a document-path title grounded after the first reply', async () => {
-      mockAuxGenerate.mockResolvedValue({
-        text: 'Superpowers',
-        decision: {
-          slot: 'titleGeneration',
-          provider: 'ollama',
-          source: 'local',
-          reason: 'test local',
-          allowFrontierFallback: false,
-        },
-      });
-      const path = '/Users/suas/work/Dingley/dingley-kpi/dingley-kpi-fe/docs/superpowers/plans/2026-09-23-kpi-workbook-alignment-and-data-load_plan.md';
-      const applyTitle = vi.fn();
-      const service = AutoTitleService.getInstance();
-
-      await service.maybeGenerateTitle('instance-1', path, applyTitle);
-      await service.maybeUpgradeTitleWithFirstReply(
-        'instance-1',
-        'I will align the KPI workbook fields and load the source data.',
-        applyTitle,
-      );
-
-      expect(applyTitle).toHaveBeenLastCalledWith('instance-1', 'KPI workbook alignment and data load', 'ai');
-      expect(applyTitle).not.toHaveBeenCalledWith('instance-1', 'Superpowers', 'ai');
-      expect(mockAuxGenerate).toHaveBeenCalledTimes(2);
-      expect(mockAuxGenerate.mock.calls[1][2]).toContain('KPI workbook alignment and data load');
-      expect(mockAuxGenerate.mock.calls[1][2]).toContain('align the KPI workbook fields');
-      expect(mockAuxGenerate.mock.calls[1][2]).not.toContain('superpowers');
-    });
-
-    it('is a no-op when the instance never had a Phase 1/2 title generated', async () => {
-      const applyTitle = vi.fn();
-      await AutoTitleService.getInstance().maybeUpgradeTitleWithFirstReply(
-        'instance-never-titled',
-        'Turns out the deploy script had a hardcoded staging URL.',
-        applyTitle,
-      );
-      expect(applyTitle).not.toHaveBeenCalled();
-      expect(mockCreateAdapter).not.toHaveBeenCalled();
-    });
-
-    it('retitles using the opening message plus the assistant reply once the first turn settles', async () => {
-      mockIsCliAvailable.mockResolvedValue({ installed: true });
-      mockResolveCliType.mockResolvedValue('claude');
-
-      await AutoTitleService.getInstance().maybeGenerateTitle(
-        'instance-1',
-        'fix this issue',
-        vi.fn(),
-        false,
-      );
-      // Phase 2 used the vague opener as the only signal available at the time.
-      expect(mockSendMessage).toHaveBeenCalledWith(expect.objectContaining({
-        content: expect.stringContaining('fix this issue'),
-      }));
-      mockSendMessage.mockClear();
-
-      mockSendMessage.mockResolvedValue({ content: 'Deploy script hardcoded staging URL' });
-      const applyTitle = vi.fn();
-      await AutoTitleService.getInstance().maybeUpgradeTitleWithFirstReply(
-        'instance-1',
-        'Turns out the deploy script had a hardcoded staging URL.',
-        applyTitle,
-      );
-
-      expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Deploy script hardcoded staging URL', 'ai');
-      expect(mockSendMessage).toHaveBeenCalledWith(expect.objectContaining({
-        content: expect.stringContaining('fix this issue'),
-      }));
-      expect(mockSendMessage).toHaveBeenCalledWith(expect.objectContaining({
-        content: expect.stringContaining('Turns out the deploy script had a hardcoded staging URL.'),
-      }));
-    });
-
-    it('is single-shot — a second settle on the same instance is a no-op', async () => {
-      mockIsCliAvailable.mockResolvedValue({ installed: true });
-      mockResolveCliType.mockResolvedValue('claude');
-      await AutoTitleService.getInstance().maybeGenerateTitle('instance-1', 'fix this issue', vi.fn(), false);
-
-      const firstApplyTitle = vi.fn();
-      await AutoTitleService.getInstance().maybeUpgradeTitleWithFirstReply(
-        'instance-1',
-        'Found the bug in the header component.',
-        firstApplyTitle,
-      );
-      expect(firstApplyTitle).toHaveBeenCalledTimes(1);
-
-      const secondApplyTitle = vi.fn();
-      await AutoTitleService.getInstance().maybeUpgradeTitleWithFirstReply(
-        'instance-1',
-        'A completely different second-turn reply.',
-        secondApplyTitle,
-      );
-      expect(secondApplyTitle).not.toHaveBeenCalled();
-    });
-
-    it('skips when the user already renamed the instance', async () => {
-      mockIsCliAvailable.mockResolvedValue({ installed: true });
-      mockResolveCliType.mockResolvedValue('claude');
-      await AutoTitleService.getInstance().maybeGenerateTitle('instance-1', 'fix this issue', vi.fn(), false);
-      mockSendMessage.mockClear();
-
-      const applyTitle = vi.fn();
-      await AutoTitleService.getInstance().maybeUpgradeTitleWithFirstReply(
-        'instance-1',
-        'Found the bug in the header component.',
-        applyTitle,
-        true,
-      );
-      expect(applyTitle).not.toHaveBeenCalled();
-      expect(mockSendMessage).not.toHaveBeenCalled();
-    });
-
-    it('skips when the assistant reply is too short to add any signal', async () => {
-      mockIsCliAvailable.mockResolvedValue({ installed: true });
-      mockResolveCliType.mockResolvedValue('claude');
-      await AutoTitleService.getInstance().maybeGenerateTitle('instance-1', 'fix this issue', vi.fn(), false);
-      mockSendMessage.mockClear();
-
-      const applyTitle = vi.fn();
-      await AutoTitleService.getInstance().maybeUpgradeTitleWithFirstReply('instance-1', 'ok', applyTitle);
-      expect(applyTitle).not.toHaveBeenCalled();
-      expect(mockSendMessage).not.toHaveBeenCalled();
-    });
-  });
-
   it('fails locally without probing a paid CLI when auxiliary acquisition or authorization throws', async () => {
     mockAuxGenerate.mockRejectedValue(new Error('authorization unavailable'));
 
@@ -1209,12 +992,11 @@ describe('AutoTitleService', () => {
       'No action required', 'Waiting for input', 'Not yet completed', 'Currently in progress', 'Cancelled',
       'cz3mwn04e', 'Cz3mwn04e', 'x8f3k2m1p', 's7j4x1q9w',
       'All tests passed', 'Finished without errors', 'Ready for testing', 'Needs clarification'])(
-      'keeps the task subject when opening and contextual naming return %s', async (text) => {
+      'keeps the task subject when opening naming returns %s', async (text) => {
         mockAuxGenerate.mockResolvedValue({ text, decision: { source: 'local', allowFrontierFallback: false } });
         const applyTitle = vi.fn();
         const service = AutoTitleService.getInstance();
         await service.maybeGenerateTitle('status', 'Work Finder watchdog faults', applyTitle);
-        await service.maybeUpgradeTitleWithFirstReply('status', 'Work Finder watchdog faults were investigated.', applyTitle);
         expect(applyTitle).toHaveBeenCalledTimes(1);
         expect(applyTitle).toHaveBeenCalledWith('status', 'Work Finder watchdog faults', 'instant');
       },
@@ -1362,15 +1144,13 @@ describe('AutoTitleService', () => {
     ];
 
     it.each(invalidBoundaryAnswers)(
-      'keeps the opening subject across local, opening, retry and settled naming for %s', async (text) => {
+      'keeps the opening subject across local and opening naming for %s', async (text) => {
         mockAuxGenerate.mockResolvedValue({ text, decision: localDecision });
         const service = AutoTitleService.getInstance();
         expect(await service.generateLocalTitle('Work Finder watchdog faults')).toBeNull();
         const applyTitle = vi.fn();
         await service.maybeGenerateTitle('boundary', 'Work Finder watchdog faults', applyTitle);
-        await service.retryTitleUpgradeIfPending('boundary', applyTitle);
-        await service.maybeUpgradeTitleWithFirstReply('boundary', 'Work Finder faults need investigation.', applyTitle);
-        expect(mockAuxGenerate).toHaveBeenCalledTimes(4);
+        expect(mockAuxGenerate).toHaveBeenCalledTimes(2);
         expect(applyTitle.mock.calls).toEqual([['boundary', 'Work Finder watchdog faults', 'instant']]);
         expect(mockIsCliAvailable).not.toHaveBeenCalled();
       },
@@ -1413,24 +1193,6 @@ describe('AutoTitleService', () => {
       expect(await AutoTitleService.getInstance().generateLocalTitle('Work Finder watchdog faults')).toBe(expected);
     });
 
-    it('keeps the Work Finder title when the contextual model answers with numbered prose', async () => {
-      mockAuxGenerate.mockResolvedValue({ text: 'Work Finder health watchdog', decision: localDecision });
-      const applyTitle = vi.fn();
-      const service = AutoTitleService.getInstance();
-      await service.maybeGenerateTitle('watchdog', 'The Work Finder health watchdog found 4 faults.', applyTitle);
-      mockAuxGenerate.mockResolvedValue({
-        text: '1. Work Finder job search filters and contextual summary of the session',
-        decision: localDecision,
-      });
-
-      await service.maybeUpgradeTitleWithFirstReply(
-        'watchdog', 'Work Finder delivery readiness and research case faults were investigated.', applyTitle,
-      );
-
-      expect(applyTitle).toHaveBeenLastCalledWith('watchdog', 'Work Finder health watchdog', 'ai');
-      expect(applyTitle.mock.calls.some(([, title]) => /^1\.?$/.test(title))).toBe(false);
-    });
-
     it.each(['1.', '12345', '1. Work Finder filters', 'Done', 'Please implement this', '**Question 5**', 'Completed', 'Finished', 'Task complete', 'In progress', 'Success'])(
       'rejects unusable local-only history title %s', async (text) => {
         mockAuxGenerate.mockResolvedValue({ text, decision: localDecision });
@@ -1455,16 +1217,6 @@ describe('AutoTitleService', () => {
       },
     );
 
-    it('uses the first reply to name a short opener without calling a model for the opener alone', async () => {
-      mockAuxGenerate.mockResolvedValue({ text: 'Work Finder watchdog faults', decision: localDecision });
-      const applyTitle = vi.fn();
-      const service = AutoTitleService.getInstance();
-      await service.maybeGenerateTitle('short', 'fix it', applyTitle);
-      expect(mockAuxGenerate).not.toHaveBeenCalled();
-      await service.maybeUpgradeTitleWithFirstReply('short', 'Work Finder watchdog faults need repairing.', applyTitle);
-      expect(applyTitle).toHaveBeenCalledWith('short', 'Work Finder watchdog faults', 'ai');
-    });
-
     it('does not replace a known subject with an incidental attachment after a generic model answer', async () => {
       mockAuxGenerate.mockResolvedValue({ text: '1.', decision: localDecision });
       const service = AutoTitleService.getInstance();
@@ -1474,28 +1226,6 @@ describe('AutoTitleService', () => {
       expect(await service.generateLocalTitle('Please implement this', ['1'])).toBeNull();
       expect(await service.generateLocalTitle('Please implement this', ['work-finder-plan.md']))
         .toBe('Work finder implementation');
-    });
-
-    it('includes the reply even when the opening message exceeds the input budget', async () => {
-      mockAuxGenerate.mockResolvedValue({ text: 'Work Finder watchdog faults', decision: localDecision });
-      const service = AutoTitleService.getInstance();
-      await service.maybeGenerateTitle('long', 'Work Finder watchdog fault details '.repeat(100), vi.fn());
-      await service.maybeUpgradeTitleWithFirstReply('long', 'Delivery readiness research case is unclaimed.', vi.fn());
-      expect(mockAuxGenerate.mock.calls[1][2]).toContain('Delivery readiness research case is unclaimed.');
-    });
-
-    it('keeps the contextual title when the opening-message request resolves later', async () => {
-      let finishOpening!: (result: unknown) => void;
-      mockAuxGenerate.mockImplementationOnce(() => new Promise((resolve) => { finishOpening = resolve; }))
-        .mockResolvedValueOnce({ text: 'Work Finder watchdog faults', decision: localDecision });
-      const applyTitle = vi.fn();
-      const service = AutoTitleService.getInstance();
-      const opening = service.maybeGenerateTitle('race', 'Work Finder watchdog found faults', applyTitle);
-      await service.maybeUpgradeTitleWithFirstReply('race', 'Delivery readiness research case is unclaimed.', applyTitle);
-      finishOpening({ text: 'Older Work Finder title', decision: localDecision });
-      await opening;
-      expect(applyTitle).toHaveBeenLastCalledWith('race', 'Work Finder watchdog faults', 'ai');
-      expect(applyTitle).not.toHaveBeenCalledWith('race', 'Older Work Finder title', 'ai');
     });
 
     it('does not apply an in-flight title after the instance is cleared', async () => {
@@ -1510,34 +1240,6 @@ describe('AutoTitleService', () => {
       expect(applyTitle.mock.calls.filter(([, , source]) => source === 'ai')).toEqual([]);
     });
 
-    it('logs instance-cleared when contextual naming finishes after termination', async () => {
-      let finishNaming!: (result: unknown) => void;
-      mockAuxGenerate.mockResolvedValueOnce({ text: 'Work Finder watchdog faults', decision: localDecision })
-        .mockImplementationOnce(() => new Promise((resolve) => { finishNaming = resolve; }));
-      const applyTitle = vi.fn();
-      const service = AutoTitleService.getInstance();
-      await service.maybeGenerateTitle('cleared-race', 'Work Finder watchdog found faults', applyTitle);
-      const naming = service.maybeUpgradeTitleWithFirstReply('cleared-race', 'Delivery readiness research case is unclaimed.', applyTitle);
-      service.clearInstance('cleared-race');
-      finishNaming({ text: 'Work Finder watchdog faults', decision: localDecision });
-      await naming;
-      expect(mockLog.debug).toHaveBeenCalledWith(
-        expect.stringContaining('Instance cleared during contextual naming'),
-        { instanceId: 'cleared-race' },
-      );
-    });
-
-    it('logs unusable-title when contextual naming returns filler', async () => {
-      mockAuxGenerate.mockResolvedValue({ text: '1.', decision: localDecision });
-      const applyTitle = vi.fn();
-      const service = AutoTitleService.getInstance();
-      await service.maybeGenerateTitle('filler', 'Work Finder watchdog found faults', applyTitle);
-      await service.maybeUpgradeTitleWithFirstReply('filler', 'Delivery readiness research case is unclaimed.', applyTitle);
-      expect(mockLog.debug).toHaveBeenCalledWith(
-        expect.stringContaining('produced no usable title'),
-        { instanceId: 'filler' },
-      );
-    });
   });
 
   it('repairs a low-signal AI title using the attached plan subject', async () => {

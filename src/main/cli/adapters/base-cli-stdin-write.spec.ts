@@ -1,7 +1,11 @@
 import type { ChildProcess } from 'child_process';
 import { Writable } from 'stream';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ProcessFixtureRegistry } from '../../../tests/fixtures/process-fixture';
 import { AcpCliAdapter } from './acp-cli-adapter';
+
+const fixtures = new ProcessFixtureRegistry();
+afterEach(() => fixtures.cleanup());
 
 vi.mock('../../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }) }));
 
@@ -19,6 +23,9 @@ readline.createInterface({input: process.stdin}).on('line', line => {
 class NativeAdapter extends AcpCliAdapter {
   override async checkStatus() { return { available: true }; }
   getChild(): ChildProcess { return this.process!; }
+  protected override spawnProcess(args: string[]): ChildProcess {
+    return fixtures.track(super.spawnProcess(args));
+  }
 }
 
 describe('Base native stdin error ownership through ACP', () => {

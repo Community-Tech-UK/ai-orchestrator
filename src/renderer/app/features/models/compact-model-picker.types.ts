@@ -3,10 +3,11 @@ import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-ru
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 
 /**
- * Provider type accepted by the picker. Covers the four chat providers
- * plus `cursor` (which the new-session/instance-draft surface supports
- * even though chats currently don't). Excludes the `auto` sentinel —
- * the picker always pins a concrete provider.
+ * Provider type accepted by the picker. `ChatProvider` now covers the wider
+ * sidechat provider set (including cursor, grok, opencode and local-model);
+ * the explicit union members are retained for structural compatibility with
+ * existing call sites. Excludes the `auto` sentinel — the picker always pins a
+ * concrete provider.
  */
 export type PickerProvider = ChatProvider | 'cursor' | 'grok' | 'opencode' | 'local-model';
 

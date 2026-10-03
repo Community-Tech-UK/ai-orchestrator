@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ProcessFixtureRegistry, isFixtureProcessAlive } from '../../tests/fixtures/process-fixture';
+
+const fixtures = new ProcessFixtureRegistry();
 
 // All spawn() calls in this file use stdio: ['ignore', 'pipe', 'pipe'], so
 // the process has no stdin stream (null) and piped stdout/stderr.
@@ -39,8 +42,8 @@ interface Started {
   stdout: () => string;
 }
 
-function startServer(artifactPath: string, args: string[] = []): Promise<Started> {
-  const child = spawn('node', [SERVER, artifactPath, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+function startServer(artifactPath: string, args: string[] = [], nodeArgs: string[] = []): Promise<Started> {
+  const child = fixtures.track(spawn(process.execPath, [...nodeArgs, SERVER, artifactPath, ...args], { stdio: ['ignore', 'pipe', 'pipe'] }));
   let out = '';
   child.stdout.on('data', (c) => (out += c.toString()));
   child.stderr.on('data', () => { /* diagnostics only */ });
@@ -69,11 +72,9 @@ async function waitForFiles(paths: string[], timeoutMs = 8_000): Promise<void> {
 
 describe('serve-review.mjs capture server', () => {
   let tempRoot = '';
-  let running: ServerChild | null = null;
 
-  afterEach(() => {
-    running?.kill('SIGTERM');
-    running = null;
+  afterEach(async () => {
+    await fixtures.cleanup();
     if (tempRoot) rmSync(tempRoot, { recursive: true, force: true });
   });
 
@@ -90,7 +91,6 @@ describe('serve-review.mjs capture server', () => {
     writeFileSync(artifactPath, ARTIFACT_HTML);
 
     const started = await startServer(artifactPath);
-    running = started.child;
     const exited = new Promise<number | null>((resolve) => started.child.once('exit', resolve));
 
     // The served page carries the injected capture meta.
@@ -142,7 +142,6 @@ describe('serve-review.mjs capture server', () => {
     expect(out).toContain('1. [Phase 1] reject — choice: b — redo this');
     expect(out).toContain('AIO_REVIEW_CAPTURED');
     expect(await exited).toBe(0);
-    running = null;
   });
 
   it('keeps serving after capture when --stay-alive is requested', async () => {
@@ -150,7 +149,6 @@ describe('serve-review.mjs capture server', () => {
     const artifactPath = join(tempRoot, 'plan.html');
     writeFileSync(artifactPath, ARTIFACT_HTML);
     const started = await startServer(artifactPath, ['--stay-alive']);
-    running = started.child;
     const pageHtml = await (await fetch(started.url)).text();
     const token = /name="aio-doc-review-capture" content="([^"]+)"/.exec(pageHtml)?.[1];
 
@@ -185,7 +183,6 @@ describe('serve-review.mjs capture server', () => {
       { mode: 0o755 },
     );
     const started = await startServer(artifactPath, ['--on-capture', hookPath]);
-    running = started.child;
     const pageHtml = await (await fetch(started.url)).text();
     const token = /name="aio-doc-review-capture" content="([^"]+)"/.exec(pageHtml)?.[1];
 
@@ -205,10 +202,9 @@ describe('serve-review.mjs capture server', () => {
     tempRoot = mkdtempSync(join(tmpdir(), 'serve-review-'));
     const artifactPath = join(tempRoot, 'plan.html');
     writeFileSync(artifactPath, ARTIFACT_HTML);
-    const child = spawn('node', [SERVER, artifactPath, '--on-capture', 'relative-hook'], {
+    const child = fixtures.track(spawn('node', [SERVER, artifactPath, '--on-capture', 'relative-hook'], {
       stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    running = child;
+    }));
     let stderr = '';
     child.stderr.on('data', (chunk) => (stderr += chunk.toString()));
 
@@ -226,7 +222,6 @@ describe('serve-review.mjs capture server', () => {
 
     expect(exitCode).toBe(2);
     expect(stderr).toContain('--on-capture requires an absolute executable path');
-    running = null;
   });
 
   it('does not let a long-running capture hook delay the response or wake exit', async () => {
@@ -234,9 +229,24 @@ describe('serve-review.mjs capture server', () => {
     const artifactPath = join(tempRoot, 'plan.html');
     const hookPath = join(tempRoot, 'slow-capture-hook');
     writeFileSync(artifactPath, ARTIFACT_HTML);
-    writeFileSync(hookPath, '#!/bin/sh\n/bin/sleep 2\n', { mode: 0o755 });
-    const started = await startServer(artifactPath, ['--on-capture', hookPath]);
-    running = started.child;
+    const hookPidFile = join(tempRoot, 'slow-hook.pid');
+    const preloadPath = join(tempRoot, 'capture-hook-process.cjs');
+    fixtures.trackPidFile(hookPidFile);
+    // Record the real OS handle in its creator, before the hook can start up.
+    // The preload changes only bookkeeping, preserving the server's execFile call.
+    writeFileSync(preloadPath,
+      "const { ChildProcess } = require('node:child_process');"
+        + "const original = ChildProcess.prototype.spawn;"
+        + "ChildProcess.prototype.spawn = function(options) {"
+        + "const result = original.call(this, options);"
+        + `if (this.pid) require('node:fs').writeFileSync(${JSON.stringify(hookPidFile)}, String(this.pid));`
+        + "return result; };",
+    );
+    writeFileSync(hookPath,
+      `#!${process.execPath}\nsetTimeout(() => {}, 2000);\n`,
+      { mode: 0o755 },
+    );
+    const started = await startServer(artifactPath, ['--on-capture', hookPath], ['--require', preloadPath]);
     const pageHtml = await (await fetch(started.url)).text();
     const token = /name="aio-doc-review-capture" content="([^"]+)"/.exec(pageHtml)?.[1];
     const exited = new Promise<number | null>((resolve) => started.child.once('exit', resolve));
@@ -251,7 +261,10 @@ describe('serve-review.mjs capture server', () => {
     expect(response.status).toBe(200);
     expect(await exited).toBe(0);
     expect(Date.now() - captureStartedAt).toBeLessThan(1_500);
-    running = null;
+    const hookPid = Number(readFileSync(hookPidFile, 'utf8'));
+    expect(isFixtureProcessAlive(hookPid)).toBe(true);
+    await fixtures.cleanup();
+    expect(isFixtureProcessAlive(hookPid)).toBe(false);
   });
 
   it('rejects a non-JSON body', async () => {
@@ -259,7 +272,6 @@ describe('serve-review.mjs capture server', () => {
     const artifactPath = join(tempRoot, 'plan.html');
     writeFileSync(artifactPath, ARTIFACT_HTML);
     const started = await startServer(artifactPath);
-    running = started.child;
     const pageHtml = await (await fetch(started.url)).text();
     const token = /name="aio-doc-review-capture" content="([^"]+)"/.exec(pageHtml)?.[1];
 

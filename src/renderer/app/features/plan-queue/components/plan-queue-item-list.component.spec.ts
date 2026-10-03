@@ -10,15 +10,10 @@ import { PlanQueueItemListComponent, planQueueDocumentBasename, planQueueVerdict
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const template = readFileSync(resolve(specDirectory, './plan-queue-item-list.component.html'), 'utf8');
 const styles = readFileSync(resolve(specDirectory, './plan-queue-item-list.component.scss'), 'utf8');
-const questionCardTemplate = readFileSync(
-  resolve(specDirectory, './plan-queue-question-card.component.html'),
-  'utf8',
-);
 
 await resolveComponentResources((url) => {
   if (url.endsWith('plan-queue-item-list.component.html')) return Promise.resolve(template);
   if (url.endsWith('plan-queue-item-list.component.scss')) return Promise.resolve(styles);
-  if (url.endsWith('plan-queue-question-card.component.html')) return Promise.resolve(questionCardTemplate);
   if (url.endsWith('.html') || url.endsWith('.scss')) return Promise.resolve('');
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
 });
@@ -125,7 +120,7 @@ describe('PlanQueueItemListComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Merge conflict in src/foo.ts');
   });
 
-  it('renders a question card inline for a needs-answer item and forwards the answer with its item id', () => {
+  it('points a needs-answer item to the questions section instead of repeating its card', () => {
     fixture.componentRef.setInput('items', [
       makeItem({
         id: 'item-needs',
@@ -135,16 +130,8 @@ describe('PlanQueueItemListComponent', () => {
     ]);
     fixture.detectChanges();
 
-    const emitted: { itemId: string; optionId: string }[] = [];
-    fixture.componentInstance.answer.subscribe((e) => emitted.push(e));
-
-    const radios = fixture.nativeElement.querySelectorAll('input[type="radio"]') as NodeListOf<HTMLInputElement>;
-    expect(radios).toHaveLength(2);
-    radios[0].dispatchEvent(new Event('change'));
-    fixture.detectChanges();
-    (fixture.nativeElement.querySelector('.pq-question-submit') as HTMLButtonElement).click();
-
-    expect(emitted).toEqual([{ itemId: 'item-needs', optionId: 'a' }]);
+    expect(fixture.nativeElement.querySelectorAll('input[type="radio"]')).toHaveLength(0);
+    expect(fixture.nativeElement.querySelector('.pq-item-awaiting-answer')?.textContent).toContain('Needs your answer');
   });
 
   it('offers Skip only for items that have not started, as the coordinator requires', () => {
@@ -160,7 +147,7 @@ describe('PlanQueueItemListComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.pq-item-skip')).toHaveLength(2);
   });
 
-  it('renders a waiting worker\'s question card, but none for a terminal item', () => {
+  it('flags a waiting worker\'s open question, but not a terminal item\'s stale one', () => {
     const question = { question: 'Continue?', options: [{ id: 'continue', label: 'Carry on' }, { id: 'park', label: 'Park' }] };
     fixture.componentRef.setInput('items', [
       makeItem({ id: 'asks', state: 'fixing', question }),
@@ -168,7 +155,7 @@ describe('PlanQueueItemListComponent', () => {
     ]);
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.querySelectorAll('app-plan-queue-question-card')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelectorAll('.pq-item-awaiting-answer')).toHaveLength(1);
   });
 
   it('emits skipItem with the item id', () => {

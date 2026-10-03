@@ -1,19 +1,17 @@
 /**
- * Auto Title Service - Generates short session titles from the first user
- * message, then refines them once the assistant's actual reply is known.
+ * Auto Title Service - Generates a short session title from the first user
+ * message.
  *
  * Phase 1 (instant): applies a truncated first-message title immediately.
  * Phase 2 (async): upgrades to an AI-generated summary using the existing
  * CLI adapter infrastructure (no separate API key required).
- * Phase 2 retry (opportunistic, once): if Phase 2 never lands (no fast CLI,
- * timeout, local model unreachable), one more attempt is queued and consumed
- * the next time the instance sees genuine new user activity — never on
- * hibernate/wake or session restore. See `retryTitleUpgradeIfPending`.
- * Phase 3 (contextual, once): once the first turn settles, retitles using the
- * opening message PLUS the assistant's own reply. Vague openers ("fix this
- * issue", a raw paste) carry no identifiable subject on their own — no prompt
- * can invent one — but the assistant's reply usually names the real thing.
- * See `maybeUpgradeTitleWithFirstReply`.
+ *
+ * That is the only automatic naming a session ever gets. Once Phase 2 has
+ * landed or given up, the name belongs to the user: nothing later (a settled
+ * turn, a follow-up message, hibernate/wake, restore) retitles it. Sessions
+ * used to be retitled again when their first turn settled — sometimes hours
+ * in — and again on a later message after a failed Phase 2, so a name the
+ * user had been looking at all day would change under them.
  */
 
 import { resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory';
@@ -45,7 +43,7 @@ import {
   runCorrelatedPaidFrontierCall,
 } from '../local-ai-guard/local-ai-cost-correlation';
 import { recordCorrelatedFrontierAttribution } from '../rlm/frontier-cost-attribution';
-import { buildContextualTitleText, buildTitleUserPrompt, TITLE_SYSTEM_PROMPT } from './auto-title-prompt';
+import { buildTitleUserPrompt, TITLE_SYSTEM_PROMPT } from './auto-title-prompt';
 
 const logger = getLogger('AutoTitle');
 
@@ -184,37 +182,13 @@ function hasSendMessage(adapter: CliAdapter): adapter is CliAdapter & {
  *   (uses whichever CLI provider the user has configured — no separate key needed).
  *
  * Fire-and-forget: callers should not await or depend on the result.
- * On failure, the instant title remains.
+ * On failure, the instant title remains — permanently; there is no later retry.
  */
 export class AutoTitleService {
   private static instance: AutoTitleService | null = null;
 
   /** Instance IDs that have already been auto-titled (or are in-flight) */
   private processed = new Set<string>();
-
-  /**
-   * Instances whose Phase 2 (AI) upgrade never produced a title — no fast CLI
-   * available, timeout, local model unreachable, etc. — keyed by the exact
-   * first-message text/attachments Phase 1 already titled from. Consumed by
-   * {@link retryTitleUpgradeIfPending}, which callers should invoke on the
-   * instance's *next genuine user-driven activity* (e.g. its second sent
-   * message), never from a hibernate/wake or session-restore path: a session
-   * that never got its one AI upgrade should get exactly one more real chance,
-   * not a new attempt every time it is reloaded from disk.
-   */
-  private pendingRetries = new Map<string, { message: string; attachmentNames: readonly string[] }>();
-
-  /**
-   * Instances whose first message has been titled (Phase 1/2) and are waiting
-   * for their first turn to settle so Phase 3 can retitle using the assistant's
-   * actual reply — see {@link maybeUpgradeTitleWithFirstReply}. Keyed by
-   * instance ID; one-shot, consumed (deleted) on the first attempt regardless
-   * of outcome, mirroring `pendingRetries`.
-   */
-  private awaitingFirstReplyContext = new Map<string, { message: string; attachmentNames: readonly string[] }>();
-
-  /** A slower opening-message request must not overwrite a successful contextual title. */
-  private completedContextualTitles = new Set<string>();
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   private constructor() {}
@@ -229,9 +203,6 @@ export class AutoTitleService {
   static _resetForTesting(): void {
     if (this.instance) {
       this.instance.processed.clear();
-      this.instance.pendingRetries.clear();
-      this.instance.awaitingFirstReplyContext.clear();
-      this.instance.completedContextualTitles.clear();
     }
     (this.instance as AutoTitleService | undefined) = undefined;
   }
@@ -264,16 +235,6 @@ export class AutoTitleService {
     // Guard: user already renamed
     if (isRenamed) return;
 
-    // Register for the Phase 3 contextual upgrade (see
-    // `maybeUpgradeTitleWithFirstReply`): the opening message is often vague
-    // ("fix this issue", a raw paste) with no real subject in the text yet.
-    // Once the first turn settles, the assistant's own reply usually names the
-    // actual subject, so the caller gets one more chance to retitle using that
-    // richer context.
-    this.awaitingFirstReplyContext.set(instanceId, { message, attachmentNames });
-
-
-    // Short openers still get contextual naming once the assistant supplies a subject.
     const hasAttachment = attachmentLabels(attachmentNames).length > 0;
     if (message.trim().length < MIN_MESSAGE_LENGTH && !hasAttachment) return;
 
@@ -285,131 +246,17 @@ export class AutoTitleService {
     }
 
     // Phase 2: Upgrade with an AI-generated title via the fastest available CLI
-    // (Haiku tier). Non-critical — on any failure the instant title remains,
-    // and a single opportunistic retry is queued (see `pendingRetries`).
+    // (Haiku tier). Non-critical — on any failure the instant title remains.
     try {
       const title = await this.generateTitle(message, attachmentNames);
-      if (!this.processed.has(instanceId) || this.completedContextualTitles.has(instanceId)) return;
+      if (!this.processed.has(instanceId)) return;
       if (title) {
         applyTitle(instanceId, title, 'ai');
         logger.info('Auto-titled instance (AI)', { instanceId, title });
-      } else {
-        this.pendingRetries.set(instanceId, { message, attachmentNames });
       }
     } catch (error) {
-      if (!this.processed.has(instanceId) || this.completedContextualTitles.has(instanceId)) return;
+      if (!this.processed.has(instanceId)) return;
       logger.warn('AI title upgrade failed, keeping instant title', {
-        instanceId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      this.pendingRetries.set(instanceId, { message, attachmentNames });
-    }
-  }
-
-  /**
-   * Give an instance whose Phase 2 (AI) upgrade never landed exactly one more
-   * chance, using the ORIGINAL first message/attachments — not whatever the
-   * caller is currently sending — so the title still describes what the
-   * session was opened to do. A no-op when there is nothing pending, so it is
-   * safe to call unconditionally on every follow-up message.
-   *
-   * Callers MUST only invoke this from genuine new user-driven activity (a
-   * message the user actually sent), never from hibernate/wake or
-   * session-restore paths — those are not new activity, and re-running the AI
-   * title there would silently change a title the user has already seen and
-   * accepted, independent of whether they wrote it or the AI did.
-   *
-   * Deliberately single-shot regardless of outcome: the pending entry is
-   * removed before the attempt runs, so a second failure does not requeue
-   * itself and spam a fast-tier CLI on every subsequent message.
-   */
-  async retryTitleUpgradeIfPending(
-    instanceId: string,
-    applyTitle: (instanceId: string, title: string, source: 'ai') => void,
-  ): Promise<void> {
-    const pending = this.pendingRetries.get(instanceId);
-    if (!pending) return;
-    this.pendingRetries.delete(instanceId);
-
-    try {
-      const title = await this.generateTitle(pending.message, pending.attachmentNames);
-      if (!this.processed.has(instanceId) || this.completedContextualTitles.has(instanceId)) return;
-      if (title) {
-        applyTitle(instanceId, title, 'ai');
-        logger.info('Auto-titled instance (AI retry)', { instanceId, title });
-      } else {
-        logger.info('AI title retry produced no usable title, keeping existing title', { instanceId });
-      }
-    } catch (error) {
-      logger.warn('AI title retry failed, keeping existing title', {
-        instanceId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  /**
-   * Phase 3 — retitle once the instance's first turn has settled, using the
-   * assistant's own reply as extra context.
-   *
-   * Phases 1 and 2 can only summarize the opening message, and a lot of real
-   * opening messages carry no identifiable subject on their own — "fix this
-   * issue", a raw error/log paste, "there's a bug in the header". No amount of
-   * prompt tuning recovers a subject that was never in the text. But by the
-   * time the first turn settles, the assistant has usually named the real
-   * thing (the actual file, error, or feature) in its reply, so one more
-   * attempt — now with that reply folded in — regularly turns "Fix Issue"
-   * into something the user can actually recognize in the sidebar.
-   *
-   * One-shot regardless of outcome (mirrors `retryTitleUpgradeIfPending`): the
-   * pending entry is removed before the attempt runs, so later turns settling
-   * on the same instance never retrigger this. Callers should invoke this from
-   * the instance's first `instance:settled` event after its opening message —
-   * later settles are no-ops because nothing remains queued.
-   *
-   * @param instanceId - Instance whose first turn just settled
-   * @param assistantReply - Concatenated text of the assistant's reply so far
-   *   in that first turn (e.g. from the output buffer). Too-short replies are
-   *   skipped — nothing meaningful to add over the Phase 1/2 title yet.
-   * @param applyTitle - Callback to set the title, mirroring the other phases
-   * @param isRenamed - Whether the user has already explicitly renamed the
-   *   instance since Phase 1/2 ran
-   */
-  async maybeUpgradeTitleWithFirstReply(
-    instanceId: string,
-    assistantReply: string,
-    applyTitle: (instanceId: string, title: string, source: 'ai') => void,
-    isRenamed = false,
-  ): Promise<void> {
-    const pending = this.awaitingFirstReplyContext.get(instanceId);
-    if (!pending) return;
-    this.awaitingFirstReplyContext.delete(instanceId);
-
-    if (isRenamed) return;
-
-    const trimmedReply = assistantReply.trim();
-    if (trimmedReply.length < MIN_MESSAGE_LENGTH) return;
-
-    const documentSubject = standaloneDocumentPathTitle(pending.message);
-    const openingContext = documentSubject
-      ? `Document filename subject: ${documentSubject}. Ignore directory names.`
-      : pending.message;
-    const combinedText = buildContextualTitleText(openingContext, trimmedReply);
-
-    try {
-      const title = await this.generateTitle(combinedText, pending.attachmentNames, documentSubject);
-      if (title && this.processed.has(instanceId)) {
-        this.completedContextualTitles.add(instanceId);
-        this.pendingRetries.delete(instanceId);
-        applyTitle(instanceId, title, 'ai');
-        logger.info('Auto-titled instance (AI, contextual upgrade)', { instanceId, title });
-      } else if (!this.processed.has(instanceId)) {
-        logger.debug('Instance cleared during contextual naming, discarding title', { instanceId });
-      } else {
-        logger.debug('Contextual title upgrade produced no usable title, keeping existing title', { instanceId });
-      }
-    } catch (error) {
-      logger.warn('Contextual title upgrade failed, keeping existing title', {
         instanceId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -482,7 +329,6 @@ export class AutoTitleService {
   async generateTitle(
     text: string,
     attachmentNames: readonly string[] = [],
-    documentSubjectOverride?: string | null,
   ): Promise<string | null> {
     // A loop started with attachments prepends an injected "Attached files …"
     // block. Strip it so the model summarizes the real prompt, and fold the
@@ -502,10 +348,9 @@ export class AutoTitleService {
     const truncatedMessage = trimmed.length > MAX_INPUT_LENGTH
       ? trimmed.slice(0, MAX_INPUT_LENGTH) + '...'
       : trimmed;
-    const standaloneSubject = standaloneDocumentPathTitle(trimmed);
-    const documentSubject = documentSubjectOverride ?? standaloneSubject;
-    const modelMessage = standaloneSubject
-      ? `Document filename subject: ${standaloneSubject}. Ignore directory names.`
+    const documentSubject = standaloneDocumentPathTitle(trimmed);
+    const modelMessage = documentSubject
+      ? `Document filename subject: ${documentSubject}. Ignore directory names.`
       : truncatedMessage;
 
     // Try auxiliary LLM (local/cheap model) first — much cheaper than a full CLI spawn
@@ -638,9 +483,6 @@ export class AutoTitleService {
    */
   clearInstance(instanceId: string): void {
     this.processed.delete(instanceId);
-    this.pendingRetries.delete(instanceId);
-    this.awaitingFirstReplyContext.delete(instanceId);
-    this.completedContextualTitles.delete(instanceId);
   }
 }
 

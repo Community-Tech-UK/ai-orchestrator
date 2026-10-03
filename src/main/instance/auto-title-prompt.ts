@@ -15,8 +15,3 @@ export function buildTitleUserPrompt(message: string, attachments: readonly stri
     + 'Name this session from the data above. Return one plain 3-6 word title, '
     + 'with the identifying subject first. Example: Work Finder watchdog faults';
 }
-
-/** Reserve space for both parts before the service's overall 2,000-character cap. */
-export function buildContextualTitleText(opening: string, reply: string): string {
-  return `${opening.slice(0, 950)}\n\nWhat actually happened: ${reply.slice(0, 950)}`;
-}

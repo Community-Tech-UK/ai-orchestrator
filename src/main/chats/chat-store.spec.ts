@@ -176,4 +176,24 @@ describe('ChatStore reasoning_effort column', () => {
       .get('chat-delete')).toBeUndefined();
     expect(store.delete('chat-delete')).toBe(false);
   });
+
+  it('deletes the sidechat relation with the child chat', () => {
+    const db = freshDb();
+    createOperatorTables(db);
+    const store = new ChatStore(db);
+    store.insert({
+      id: 'chat-side-delete', name: 'Side chat', provider: 'claude', currentCwd: '/work',
+      ledgerThreadId: 'thread-side-delete',
+    });
+    db.prepare(`
+      INSERT INTO side_chat_links (
+        chat_id, parent_kind, parent_key, parent_chat_id, parent_history_thread_id,
+        parent_origin_node_id, authority, last_read_assistant_sequence, created_at, updated_at
+      ) VALUES (?, 'chat', 'chat:parent', 'parent', NULL, NULL, 'inherit-parent', 0, ?, ?)
+    `).run('chat-side-delete', 1, 1);
+
+    expect(store.delete('chat-side-delete')).toBe(true);
+    expect(db.prepare('SELECT 1 AS present FROM side_chat_links WHERE chat_id = ?')
+      .get('chat-side-delete')).toBeUndefined();
+  });
 });

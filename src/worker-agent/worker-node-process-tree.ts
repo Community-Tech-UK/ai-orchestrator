@@ -38,6 +38,7 @@ export interface PosixDescendantTracker {
 export interface PosixTerminationResult {
   failures: string[];
   identityProven: boolean;
+  rootSignalled?: boolean;
 }
 
 export function createPosixOwnershipMarker(): string {
@@ -145,14 +146,14 @@ export async function terminatePosixProcessTree(
       identityProven: identity.identityComplete && (emptyIsComplete || captured.rootExited),
     };
   }
-  const complete = signalValidatedProcessTree(
+  const signalled = signalValidatedProcessTree(
     identity.targets,
     identity.unsafeGroups,
     signal,
     runtime,
   );
-  if (!complete) failures.push(`[node.exec cleanupIncomplete: POSIX ${signal} was incomplete]`);
-  return { failures, identityProven: true };
+  if (!signalled.complete) failures.push(`[node.exec cleanupIncomplete: POSIX ${signal} was incomplete]`);
+  return { failures, identityProven: true, rootSignalled: signalled.pids.has(captured.rootPid) };
 }
 
 interface ProcessCaptureResult {
@@ -335,7 +336,7 @@ function signalValidatedProcessTree(
   unsafeGroups: Set<number>,
   signal: NodeJS.Signals,
   runtime: PosixProcessRuntime,
-): boolean {
+): { complete: boolean; pids: Set<number> } {
   const targetPids = new Set(targets.map(({ pid }) => pid));
   const depthByPid = new Map(targets.map(({ pid, depth }) => [pid, depth]));
   const groups = [...new Set(targets
@@ -345,6 +346,7 @@ function signalValidatedProcessTree(
     )))]
     .sort((left, right) => (depthByPid.get(right) ?? 0) - (depthByPid.get(left) ?? 0));
   const signalledGroups = new Set<number>();
+  const signalledPids = new Set<number>();
   let complete = true;
   for (const pgid of groups) {
     const outcome = signalProcess(-pgid, signal, runtime);
@@ -352,10 +354,15 @@ function signalValidatedProcessTree(
     if (outcome === 'failed') complete = false;
   }
   for (const target of [...targets].sort((left, right) => right.depth - left.depth)) {
-    if (signalledGroups.has(target.pgid)) continue;
-    if (signalProcess(target.pid, signal, runtime) === 'failed') complete = false;
+    if (signalledGroups.has(target.pgid)) {
+      signalledPids.add(target.pid);
+      continue;
+    }
+    const outcome = signalProcess(target.pid, signal, runtime);
+    if (outcome === 'sent') signalledPids.add(target.pid);
+    if (outcome === 'failed') complete = false;
   }
-  return complete;
+  return { complete, pids: signalledPids };
 }
 
 function signalProcess(

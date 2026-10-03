@@ -4,14 +4,16 @@ import { PlanQueueStore } from '../../core/state/plan-queue.store';
 import { PlanQueueAlertsListComponent } from './components/plan-queue-alerts-list.component';
 import { PlanQueueNeedJamesListComponent } from './components/plan-queue-need-james-list.component';
 import { PlanQueueParkedListComponent } from './components/plan-queue-parked-list.component';
+import { PlanQueueQuestionListComponent } from './components/plan-queue-question-list.component';
 import { PlanQueueRunListComponent } from './components/plan-queue-run-list.component';
 import type { PlanQueueParentSessionOption, PlanQueueStartRequest } from './components/plan-queue-start-form.component';
 import { PlanQueueStartFormComponent } from './components/plan-queue-start-form.component';
 
 /**
- * The Plan Queue control surface: start a run against a chosen session,
- * answer triage/verifier questions, resolve parked work, watch reconciler
- * alerts, and see what a livetest run still genuinely needs James for.
+ * The Plan Queue control surface, in operator order: the questions waiting on
+ * James, then the runs and their Pause/Resume/Cancel controls, then starting a
+ * run, then history (livetest checks only James can do, parked work and
+ * reconciler alerts). Each section opens with one plain-English purpose line.
  */
 @Component({
   selector: 'app-plan-queue-page',
@@ -20,6 +22,7 @@ import { PlanQueueStartFormComponent } from './components/plan-queue-start-form.
     PlanQueueAlertsListComponent,
     PlanQueueNeedJamesListComponent,
     PlanQueueParkedListComponent,
+    PlanQueueQuestionListComponent,
     PlanQueueRunListComponent,
     PlanQueueStartFormComponent,
   ],

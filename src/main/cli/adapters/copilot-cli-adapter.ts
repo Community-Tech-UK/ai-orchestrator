@@ -91,6 +91,19 @@ import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter
 
 const logger = getLogger('CopilotCliAdapter');
 
+/** Native JSON counters are unchecked; project diagnostics without changing the event. */
+function copilotUsageDiagnostic(value: unknown): number | Record<string, unknown> | undefined {
+  if (value === undefined || (typeof value === 'number' && Number.isFinite(value))) return value;
+  if (typeof value === 'string') return { valueKind: 'string', ...textDiagnostic(value) };
+  return { valueKind: value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value };
+}
+
+/** Preserve useful native IDs; malformed JSON kinds must not retain source in logs. */
+function copilotSessionIdDiagnostic(value: unknown): string | { valueKind: string } | undefined {
+  if (value === undefined || typeof value === 'string') return value;
+  return { valueKind: value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value };
+}
+
 /**
  * Model-discovery cache, keyed by GitHub Copilot ACCOUNT PROFILE.
  *
@@ -319,7 +332,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     return new Promise<CliResponse>((resolve, reject) => {
       const args = this.buildArgs(message);
       logger.debug('Spawning copilot', {
-        args: redactArgvForLog(args, { flag: '--prompt' }),
+        args: redactArgvForLog(args, { flag: '--prompt' }).map(copilotSessionIdDiagnostic),
         hasResumeId: !!this.copilotSessionId,
       });
       assertAdapterInputCurrent(dispatch);
@@ -589,10 +602,10 @@ export class CopilotCliAdapter extends BaseCliAdapter {
 
               // Also log cost signal for diagnostics.
               logger.debug('Copilot turn complete', {
-                sessionId: event.sessionId,
-                premiumRequests: usage.premiumRequests,
-                totalApiDurationMs: usage.totalApiDurationMs,
-                sessionDurationMs: usage.sessionDurationMs,
+                sessionId: copilotSessionIdDiagnostic(event.sessionId),
+                premiumRequests: copilotUsageDiagnostic(usage.premiumRequests),
+                totalApiDurationMs: copilotUsageDiagnostic(usage.totalApiDurationMs),
+                sessionDurationMs: copilotUsageDiagnostic(usage.sessionDurationMs),
               });
             }
             break;

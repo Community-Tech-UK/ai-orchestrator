@@ -22,6 +22,23 @@ export interface PlanQueueNeedJamesRecord {
   readonly reason: string;
 }
 
+/** One run's open questions, for the panel's "Needs your answer" section. */
+export interface PlanQueueQuestionGroup {
+  readonly runId: string;
+  readonly kind: PlanQueueKind;
+  readonly workspaceCwd: string;
+  readonly items: readonly PlanQueueItemDto[];
+}
+
+/**
+ * Waiting on James: a readiness question (needs-answer) or a worker that
+ * stopped for input (working / fixing with a question).
+ */
+function hasOpenQuestion(item: PlanQueueItemDto): boolean {
+  return item.question !== null
+    && (item.state === 'needs-answer' || item.state === 'working' || item.state === 'fixing');
+}
+
 /**
  * Signal store for the Plan Queue panel. Loads recent runs (with their items)
  * and reconciler alerts on demand, and keeps them current from the
@@ -44,15 +61,21 @@ export class PlanQueueStore {
   readonly isLoading = computed(() => this.loading());
   readonly lastError = computed(() => this.error());
 
-  /**
-   * Items across every run waiting on James: a readiness question (needs-answer)
-   * or a worker that stopped for input (working / fixing with a question).
-   */
+  /** Runs with at least one open question, each with just those items, in run order. */
+  readonly questionGroups = computed<PlanQueueQuestionGroup[]>(() =>
+    this.runsSignal()
+      .map((run) => ({
+        runId: run.id,
+        kind: run.kind,
+        workspaceCwd: run.workspaceCwd,
+        items: run.items.filter(hasOpenQuestion),
+      }))
+      .filter((group) => group.items.length > 0),
+  );
+
+  /** Items across every run waiting on James (see `hasOpenQuestion`). */
   readonly needsAnswerItems = computed<PlanQueueItemDto[]>(() =>
-    this.runsSignal().flatMap((run) =>
-      run.items.filter((item) => item.question !== null
-        && (item.state === 'needs-answer' || item.state === 'working' || item.state === 'fixing')),
-    ),
+    this.questionGroups().flatMap((group) => group.items),
   );
 
   /**

@@ -161,6 +161,33 @@ describe('PlanQueueStore', () => {
     expect(store.needsAnswerItems().map((i) => i.id)).toEqual(['item-needs', 'item-worker-asks']);
   });
 
+  it('groups open questions by run and leaves out runs with none', async () => {
+    const question = { question: 'Which?', options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] };
+    ipc.list.mockResolvedValue({
+      success: true,
+      data: {
+        runs: [
+          makeRun({ id: 'run-a', kind: 'plans', workspaceCwd: '/repo-a', items: [
+            makeItem({ id: 'a-1', runId: 'run-a', state: 'needs-answer', question }),
+            makeItem({ id: 'a-2', runId: 'run-a', state: 'queued' }),
+          ] }),
+          makeRun({ id: 'run-quiet', items: [makeItem({ id: 'q-1', runId: 'run-quiet', state: 'landed' })] }),
+          makeRun({ id: 'run-b', kind: 'livetests', workspaceCwd: '/repo-b', items: [
+            makeItem({ id: 'b-1', runId: 'run-b', state: 'needs-answer', question }),
+          ] }),
+        ],
+        alerts: [],
+      },
+    });
+    const store = TestBed.inject(PlanQueueStore);
+    await store.load();
+
+    expect(store.questionGroups().map((group) => ({ ...group, items: group.items.map((i) => i.id) }))).toEqual([
+      { runId: 'run-a', kind: 'plans', workspaceCwd: '/repo-a', items: ['a-1'] },
+      { runId: 'run-b', kind: 'livetests', workspaceCwd: '/repo-b', items: ['b-1'] },
+    ]);
+  });
+
   it('exposes parked items that still have a branch (a discarded one has none)', async () => {
     ipc.list.mockResolvedValue({
       success: true,

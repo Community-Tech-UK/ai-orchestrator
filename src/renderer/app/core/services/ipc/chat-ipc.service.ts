@@ -143,4 +143,41 @@ export class ChatIpcService {
       this.base.getNgZone().run(() => callback(payload as ChatEvent));
     });
   }
+
+  // ── Session-linked sidechats ──────────────────────────────────────────────
+
+  async sideChatCreate(payload: unknown): Promise<IpcResponse<unknown>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.sideChatCreate(payload) as Promise<IpcResponse<unknown>>;
+  }
+
+  async sideChatList(payload: unknown): Promise<IpcResponse<unknown>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.sideChatList(payload) as Promise<IpcResponse<unknown>>;
+  }
+
+  async sideChatSend(payload: unknown): Promise<IpcResponse<unknown>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.sideChatSend(payload) as Promise<IpcResponse<unknown>>;
+  }
+
+  async sideChatMarkRead(payload: unknown): Promise<IpcResponse<unknown>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.sideChatMarkRead(payload) as Promise<IpcResponse<unknown>>;
+  }
+
+  async sideChatAttention(payload: unknown): Promise<IpcResponse<unknown>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.sideChatAttention(payload) as Promise<IpcResponse<unknown>>;
+  }
 }

@@ -2082,7 +2082,11 @@ export class InstanceLifecycleManager extends EventEmitter {
         const savedThreadId =
           sessionState?.historyThreadId?.trim() || instance.historyThreadId;
         instance.historyThreadId = savedThreadId;
-        if (sessionState?.displayName) {
+        // The hibernated instance never left memory, so its name is current.
+        // The saved state can lag it (it is written asynchronously and was
+        // historically never told about renames), so the saved name only
+        // fills a blank.
+        if (sessionState?.displayName && !instance.displayName.trim()) {
           instance.displayName = sessionState.displayName;
         }
         if (sessionState?.isRenamed) {
@@ -3488,6 +3492,13 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     instance.displayName = displayName;
     instance.isRenamed = true;
     this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage, undefined, displayName);
+    // Persist the rename and its flag now. Without this the saved session state
+    // keeps the old name (and `isRenamed: false`) until the next output event
+    // happens to sync `displayName`, so a hibernate or app restart in between
+    // brought the old name back.
+    getSessionContinuityManager()
+      .updateState(instanceId, { displayName, isRenamed: true })
+      .catch(() => { /* non-critical: the in-memory rename still stands */ });
   }
 
   /**

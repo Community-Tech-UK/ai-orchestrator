@@ -79,7 +79,6 @@ import { shouldProbeAdapterProcess, StaleRuntimeReconciler } from './stale-runti
 import { getClampedLoadWatchdogMultiplier } from '../runtime/system-load-monitor';
 import { computeInitWaitBudgetMs as resolveInitWaitBudgetMs } from './init-wait-budget';
 import { getAutoTitleService } from './auto-title-service';
-import { handleInstanceSettledForAutoTitle } from './auto-title-settle-hook';
 import { productionCoreDeps } from './instance-deps';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import type { ResolvedRecoveryCandidate } from '../session/session-recovery-candidate-service';
@@ -281,7 +280,6 @@ export class InstanceManager extends EventEmitter {
     this.settledTracker = new InstanceSettledTracker({
       getInstance: (id) => this.state.getInstance(id),
       emitter: this,
-      onSettled: (event) => handleInstanceSettledForAutoTitle(event.instanceId, event.instance, { queueUpdate: (...args) => this.state.queueUpdate(...args) }),
     });
     this.context = contextPort ?? getContextWorkerClient();
     this.orchestrationMgr = new InstanceOrchestrationManager({
@@ -1816,22 +1814,6 @@ export class InstanceManager extends EventEmitter {
         const prefix = contextBlock ? `${contextBlock}\n\n` : '';
         contextBlock = `${prefix}${orchestrationPrompt}\n\n---`;
       }
-    } else if (!instance.isRenamed && !instance.aiTitle) {
-      // This instance's first message never got its AI title upgrade (no fast
-      // CLI, timeout, local model unreachable, …) and is still showing the
-      // deterministic instant title. This is genuine new user activity — a
-      // message the user is actively sending now — so it is exactly the kind
-      // of moment `retryTitleUpgradeIfPending` is meant for: one more real
-      // chance, titled from the ORIGINAL first message, not this one. A no-op
-      // when nothing is pending, and never fires on hibernate/wake or session
-      // restore because neither of those calls `sendInput`.
-      getAutoTitleService().retryTitleUpgradeIfPending(instanceId, (id, title) => {
-        if (instance.isRenamed) return;
-        instance.displayName = title;
-        instance.aiTitle = title;
-        this.state.queueUpdate(id, instance.status, instance.contextUsage, undefined, title);
-        getSessionContinuityManager().updateState(id, { displayName: title });
-      }).catch(() => { /* non-critical */ });
     }
 
     // Re-surface relevant orchestration guidance after the full first-turn prompt
@@ -2024,9 +2006,11 @@ export class InstanceManager extends EventEmitter {
    * transcript without triggering a duplicate CLI invocation (the loop owns
    * the CLI lifecycle separately).
    *
-   * When `autoTitle: true` is passed and the instance hasn't been manually
-   * renamed, kicks off the same fire-and-forget auto-title flow that a normal
-   * `sendInput()` call would.
+   * When `autoTitle: true` is passed, kicks off the same fire-and-forget
+   * auto-title flow that a normal first `sendInput()` call would — but only for
+   * a session that has no name yet: not renamed, never sent a message, and no
+   * prior conversation. A loop started in an existing session must not retitle
+   * it from the loop prompt.
    */
   appendSyntheticUserMessage(
     instanceId: string,
@@ -2038,6 +2022,9 @@ export class InstanceManager extends EventEmitter {
   ): void {
     const instance = this.state.getInstance(instanceId);
     if (!instance) return;
+    const isUnnamedSession = !instance.isRenamed
+      && !this.hasReceivedFirstMessage.has(instanceId)
+      && !instance.outputBuffer.some((output) => output.type === 'user' || output.type === 'assistant');
     const msg: OutputMessage = {
       id: generateId(),
       timestamp: Date.now(),
@@ -2047,7 +2034,7 @@ export class InstanceManager extends EventEmitter {
     };
     this.emitOutputMessage(instanceId, msg);
 
-    if (options.autoTitle && !instance.isRenamed) {
+    if (options.autoTitle && isUnnamedSession) {
       getAutoTitleService().maybeGenerateTitle(
         instanceId,
         content,

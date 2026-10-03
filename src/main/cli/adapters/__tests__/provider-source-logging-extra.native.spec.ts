@@ -1,5 +1,7 @@
 // @vitest-environment node
+import type { ChildProcess } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { captureFixtureSpawns, ProcessFixtureRegistry } from '../../../../tests/fixtures/process-fixture';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -14,6 +16,12 @@ import type { AppServerClient } from '../codex/app-server-client';
 import type { BaseCliAdapter, CliAdapterConfig } from '../base-cli-adapter';
 import type { OutputMessage } from '../../../../shared/types/instance.types';
 
+const fixtures = new ProcessFixtureRegistry();
+const roots: ChildProcess[] = [];
+let capturesBeforePid = 0;
+const fixturePidFiles: string[] = [];
+let restoreSpawnCapture: () => void;
+
 const marker = 'SYNTHETIC_EXTRA_SOURCE_MARKER';
 const prompt = `Native input ${marker}`;
 const manager = getLogManager();
@@ -21,16 +29,35 @@ const cleanup: (() => void | Promise<void>)[] = [];
 let log: ReturnType<typeof vi.spyOn>;
 let logError: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
+  capturesBeforePid = 0;
+  restoreSpawnCapture = captureFixtureSpawns(fixtures, child => {
+    if (child.pid === undefined) capturesBeforePid += 1;
+    roots.push(child);
+  });
   manager.updateConfig({ globalLevel: 'debug', enableConsole: false, enableFile: false });
   manager.clearBuffer();
   log = vi.spyOn(manager, 'log'); logError = vi.spyOn(manager, 'logError');
   resetCopilotModelDiscoveryCache(); _resetCursorModelCacheForTesting();
 });
 afterEach(async () => {
-  for (const close of cleanup.splice(0).reverse()) await close();
-  vi.restoreAllMocks(); manager.clearBuffer();
+  try {
+    for (const close of cleanup.splice(0).reverse()) await close();
+  } finally {
+    try { await fixtures.cleanup(); } finally {
+      restoreSpawnCapture();
+      roots.length = 0;
+      fixturePidFiles.length = 0;
+      vi.restoreAllMocks();
+      manager.clearBuffer();
+    }
+  }
 });
 function verify(label: string, messages: string[]) {
+  expect(capturesBeforePid).toBe(roots.length);
+  for (const pidFile of fixturePidFiles) {
+    const fixturePid = Number(readFileSync(pidFile, 'utf8'));
+    expect(roots.some(child => child.pid === fixturePid), `${label}: fixture root captured`).toBe(true);
+  }
   const entries = manager.getRecentLogs();
   const raw = inspect({ log: log.mock.calls, logError: logError.mock.calls }, { depth: null });
   expect(JSON.stringify(entries), label).not.toContain(marker);
@@ -47,10 +74,13 @@ function verify(label: string, messages: string[]) {
 }
 function fixture(code: string) {
   const dir = mkdtempSync(join(tmpdir(), 'aio-native-extra-'));
-  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  cleanup.push(async () => { await fixtures.cleanup(); rmSync(dir, { recursive: true, force: true }); });
   const receipt = join(dir, 'receipt.json');
   const path = join(dir, 'fixture.cjs');
-  writeFileSync(path, `const fs = require('node:fs'); const receipt = ${JSON.stringify(receipt)}; const marker = ${JSON.stringify(marker)}; ${code}`);
+  const pidFile = join(dir, 'fixture.pid');
+  fixtures.trackPidFile(pidFile);
+  fixturePidFiles.push(pidFile);
+  writeFileSync(path, `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); const fs = require('node:fs'); const receipt = ${JSON.stringify(receipt)}; const marker = ${JSON.stringify(marker)}; ${code}`);
   return { dir, path, receipt };
 }
 function redirect<T extends BaseCliAdapter>(adapter: T, path: string) {

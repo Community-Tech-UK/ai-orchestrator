@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { PlanQueueRunDto } from '@contracts/schemas/plan-queue';
-import { PlanQueueRunListComponent } from './plan-queue-run-list.component';
+import type { PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import { PlanQueueRunListComponent, planQueueStateCounts } from './plan-queue-run-list.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const resources: Record<string, string> = {
@@ -15,8 +15,6 @@ const resources: Record<string, string> = {
   'plan-queue-item-list.component.scss': readFileSync(resolve(specDirectory, './plan-queue-item-list.component.scss'), 'utf8'),
   'plan-queue-run-controls.component.html': readFileSync(resolve(specDirectory, './plan-queue-run-controls.component.html'), 'utf8'),
   'plan-queue-run-controls.component.scss': readFileSync(resolve(specDirectory, './plan-queue-run-controls.component.scss'), 'utf8'),
-  'plan-queue-question-card.component.html': readFileSync(resolve(specDirectory, './plan-queue-question-card.component.html'), 'utf8'),
-  'plan-queue-question-card.component.scss': readFileSync(resolve(specDirectory, './plan-queue-question-card.component.scss'), 'utf8'),
 };
 
 await resolveComponentResources((url) => {
@@ -47,6 +45,32 @@ function makeRun(overrides: Partial<PlanQueueRunDto> = {}): PlanQueueRunDto {
     startedAt: 1_700_000_000_000,
     endedAt: null,
     items: [],
+    ...overrides,
+  };
+}
+
+function makeItem(overrides: Partial<PlanQueueItemDto> = {}): PlanQueueItemDto {
+  return {
+    id: 'item-1',
+    runId: 'run-1',
+    documentPath: 'docs/plans/a_plan.md',
+    state: 'queued',
+    round: 0,
+    erroredRounds: 0,
+    branchName: null,
+    worktreePath: null,
+    baseCommit: null,
+    checkpointCommit: null,
+    landedCommit: null,
+    workerInstanceId: null,
+    verifierInstanceId: null,
+    question: null,
+    answer: null,
+    parkReason: null,
+    detail: null,
+    verdict: null,
+    createdAt: 1,
+    updatedAt: 1,
     ...overrides,
   };
 }
@@ -82,46 +106,54 @@ describe('PlanQueueRunListComponent', () => {
     expect(emitted).toEqual(['run-x']);
   });
 
-  it('forwards an item answer event unchanged', () => {
+  it('keeps each run\'s documents collapsed behind a state-count summary, with no answer controls', () => {
+    const question = { question: 'Pick one', options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] };
     fixture.componentRef.setInput('runs', [
       makeRun({
         id: 'run-x',
         items: [
-          {
-            id: 'item-1',
-            runId: 'run-x',
-            documentPath: 'docs/plans/a_plan.md',
-            state: 'needs-answer',
-            round: 1,
-            erroredRounds: 0,
-            branchName: null,
-            worktreePath: null,
-            baseCommit: null,
-            checkpointCommit: null,
-            landedCommit: null,
-            workerInstanceId: null,
-            verifierInstanceId: null,
-            question: { question: 'Pick one', options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] },
-            answer: null,
-            parkReason: null,
-            detail: null,
-            verdict: null,
-            createdAt: 1,
-            updatedAt: 1,
-          },
+          makeItem({ id: 'i-1', state: 'landed' }),
+          makeItem({ id: 'i-2', state: 'needs-answer', question }),
+          makeItem({ id: 'i-3', state: 'needs-answer', question }),
+          makeItem({ id: 'i-4', state: 'parked' }),
         ],
       }),
     ]);
     fixture.detectChanges();
 
-    const emitted: { itemId: string; optionId: string }[] = [];
-    fixture.componentInstance.answer.subscribe((e) => emitted.push(e));
+    const details = fixture.nativeElement.querySelector('details.pq-run-documents') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.querySelector('summary')?.textContent).toContain('4 document(s)');
+    expect(details.querySelector('summary')?.textContent).toContain('2 Needs your answer, 1 Landed, 1 Parked');
+    expect(fixture.nativeElement.querySelectorAll('input[type="radio"]')).toHaveLength(0);
+    // The run controls stay outside the collapsed list.
+    expect(details.querySelector('.pq-run-controls')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.pq-run-head .pq-run-controls')).not.toBeNull();
+  });
 
-    const radio = fixture.nativeElement.querySelector('input[type="radio"]') as HTMLInputElement;
-    radio.dispatchEvent(new Event('change'));
+  it('forwards a skip from the document list with the item id', () => {
+    fixture.componentRef.setInput('runs', [makeRun({ items: [makeItem({ id: 'item-q', state: 'queued' })] })]);
     fixture.detectChanges();
-    (fixture.nativeElement.querySelector('.pq-question-submit') as HTMLButtonElement).click();
 
-    expect(emitted).toEqual([{ itemId: 'item-1', optionId: radio.value }]);
+    const emitted: string[] = [];
+    fixture.componentInstance.skipItem.subscribe((id) => emitted.push(id));
+    (fixture.nativeElement.querySelector('.pq-item-skip') as HTMLButtonElement).click();
+
+    expect(emitted).toEqual(['item-q']);
+  });
+});
+
+describe('planQueueStateCounts', () => {
+  it('counts documents by state, what needs James first', () => {
+    expect(planQueueStateCounts([
+      makeItem({ state: 'skipped' }),
+      makeItem({ state: 'working' }),
+      makeItem({ state: 'needs-answer' }),
+      makeItem({ state: 'working' }),
+    ])).toBe('1 Needs your answer, 2 Working, 1 Skipped');
+  });
+
+  it('is empty for a run with no documents', () => {
+    expect(planQueueStateCounts([])).toBe('');
   });
 });

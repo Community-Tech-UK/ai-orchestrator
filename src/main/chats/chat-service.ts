@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { homedir } from 'node:os';
 import { basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import type {
   ChatCreateInput,
   ChatDetail,
@@ -22,7 +23,7 @@ import {
   INTERNAL_ORCHESTRATOR_NATIVE_THREAD_ID,
 } from '../conversation-ledger';
 import type { InstanceManager } from '../instance/instance-manager';
-import type { Instance } from '../../shared/types/instance.types';
+import type { Instance, InstanceProvider } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
 import { getOperatorDatabase } from '../operator/operator-database';
 import { addAllowedRoot } from '../security/path-validator';
@@ -45,10 +46,29 @@ import { ChatBranchSummaryScheduler } from './chat-branch-summary';
 import { getContextEvidenceRuntime } from '../context-evidence/evidence-maintenance-service';
 import { getContextEvidenceCoordinator } from '../context-evidence/context-evidence-coordinator';
 import type { ChatEvidenceDeletion } from './chat-service.types';
+import { SideChatLinkStore } from './side-chat-link-store';
+import { SideChatContextStore } from './side-chat-context-store';
+import { SideChatParentResolver } from './side-chat-parent-resolver';
+import { SideChatSendCoordinator, type SideChatSendResult } from './side-chat-send-coordinator';
+import { SideChatAuthorityResolver, providerCanEnforcePolicy } from './side-chat-authority';
+import { SideChatPolicyStore } from './side-chat-policy-store';
+import { SideChatAttentionTracker } from './side-chat-attention';
+import type { ChatSideChatCreateInput } from '../../shared/types/chat.types';
+import type { SideChatAttention, SideChatLink, SideChatParentRef, SideChatProviderSelection } from '../../shared/types/side-chat.types';
 
 const logger = getLogger('ChatService');
 const CHAT_DETAIL_MESSAGE_LIMIT = 200;
 const CHAT_LOAD_OLDER_LIMIT = 200;
+
+/**
+ * Map a `ChatProvider` to the `InstanceProvider` the runtime builder accepts.
+ * `local-model` routes through `modelRuntimeTarget`, not the CLI provider
+ * field, so it falls back to `auto` (the provider is chosen by the target).
+ */
+function toInstanceProvider(provider: ChatProvider): InstanceProvider {
+  if (provider === 'local-model') return 'auto';
+  return provider as InstanceProvider;
+}
 
 export class ChatService {
   private static instance: ChatService | null = null;
@@ -62,6 +82,14 @@ export class ChatService {
   private readonly branchSummaryScheduler: ChatBranchSummaryScheduler;
   private readonly evidenceDeletion: ChatEvidenceDeletion;
   private readonly drainEvidenceCapture: (queueId: string) => Promise<void>;
+  private readonly sideChatLinkStore: SideChatLinkStore;
+  private readonly sideChatContextStore: SideChatContextStore;
+  private readonly sideChatParentResolver: SideChatParentResolver;
+  private readonly sideChatSendCoordinator: SideChatSendCoordinator;
+  private readonly sideChatAuthorityResolver: SideChatAuthorityResolver;
+  private readonly sideChatPolicyStore: SideChatPolicyStore;
+  private readonly sideChatAttention: SideChatAttentionTracker;
+  private readonly db: SqliteDriver;
   private initialized = false;
   private migrationDone: Promise<void> = Promise.resolve();
 
@@ -103,9 +131,45 @@ export class ChatService {
     this.instanceManager = config.instanceManager;
     this.events = config.eventBus ?? new EventEmitter();
     const db = config.db ?? getOperatorDatabase().db;
+    this.db = db;
     this.store = new ChatStore(db);
     this.uiStateStore = new ChatUiStateStore(db);
     this.sessionBindingStore = new ChatSessionBindingStore(db);
+    this.sideChatLinkStore = new SideChatLinkStore(db);
+    this.sideChatContextStore = new SideChatContextStore(db);
+    this.sideChatPolicyStore = new SideChatPolicyStore(db);
+    this.sideChatAuthorityResolver = new SideChatAuthorityResolver({
+      chatStore: this.store,
+      instanceManager: this.instanceManager,
+      loadPersistedPolicy: (parent) => this.sideChatPolicyStore.get(parent),
+      persistPolicy: (parent, policy) => this.sideChatPolicyStore.put(parent, policy),
+    });
+    this.sideChatAttention = new SideChatAttentionTracker({
+      linkStore: this.sideChatLinkStore,
+      chatStore: this.store,
+      instanceManager: this.instanceManager,
+      getLatestAssistantSequence: (chatId) => {
+        const chat = this.store.get(chatId);
+        return chat ? this.latestAssistantSequence(chat.ledgerThreadId) : 0;
+      },
+    });
+    this.sideChatParentResolver = new SideChatParentResolver({
+      ledger: this.ledger,
+      chatStore: this.store,
+      instanceManager: this.instanceManager,
+    });
+    this.sideChatSendCoordinator = new SideChatSendCoordinator({
+      resolver: this.sideChatParentResolver,
+      contextStore: this.sideChatContextStore,
+      linkStore: this.sideChatLinkStore,
+      queuePreamble: (instanceId, preamble) => {
+        this.instanceManager.queueContinuityPreamble(instanceId, preamble);
+      },
+      dispatchSend: async (chatId, text) => {
+        await this.sendMessage({ chatId, text });
+      },
+      getRuntimeInstanceId: (chatId) => this.store.get(chatId)?.currentInstanceId ?? null,
+    });
     this.evidenceDeletion = config.evidenceDeletion ?? {
       revokeConversation: (conversationId) =>
         getContextEvidenceRuntime().deletionService.revokeConversation(conversationId),
@@ -287,6 +351,7 @@ export class ChatService {
       await this.drainEvidenceCapture(chat.currentInstanceId);
     }
     await this.evidenceDeletion.revokeConversation(chat.ledgerThreadId);
+    this.sideChatContextStore.delete(chat.id);
     if (!this.store.delete(chat.id)) throw new Error(`Chat ${chat.id} not found`);
     this.filterUiState(this.uiStateStore.get());
     this.emit({ type: 'chat-deleted', chatId: chat.id });
@@ -295,6 +360,7 @@ export class ChatService {
   async setProvider(chatId: string, provider: ChatProvider): Promise<ChatDetail> {
     this.initialize();
     const chat = this.requireChat(chatId);
+    this.assertNoActiveTurn(chat);
     if (chat.provider && await this.ledger.hasMessages(chat.ledgerThreadId)) {
       throw new Error('Chat provider can only be changed before the first message');
     }
@@ -312,6 +378,7 @@ export class ChatService {
   async setModel(chatId: string, model: string | null): Promise<ChatDetail> {
     this.initialize();
     const chat = this.requireChat(chatId);
+    this.assertNoActiveTurn(chat);
     if (!chat.provider) {
       throw new Error('Set a provider before setting a model');
     }
@@ -329,6 +396,7 @@ export class ChatService {
   async setReasoning(chatId: string, reasoningEffort: ReasoningEffort | null): Promise<ChatDetail> {
     this.initialize();
     const chat = this.requireChat(chatId);
+    this.assertNoActiveTurn(chat);
     if (!chat.provider) {
       throw new Error('Set a provider before setting a reasoning level');
     }
@@ -345,7 +413,13 @@ export class ChatService {
 
   async setYolo(chatId: string, yolo: boolean): Promise<ChatDetail> {
     this.initialize();
-    const chat = this.store.update(chatId, {
+    const chat = this.requireChat(chatId);
+    // Sidechat authority is inherited from the parent. There is no independent
+    // enable-editing toggle — a YOLO flip would be an authority escalation.
+    if (this.sideChatLinkStore.get(chatId)) {
+      throw new Error('Sidechat permissions are inherited from the parent session and cannot be changed independently');
+    }
+    const updated = this.store.update(chatId, {
       yolo,
       lastActiveAt: Date.now(),
     });
@@ -374,8 +448,8 @@ export class ChatService {
         }
       }
     }
-    this.emit({ type: 'chat-updated', chatId: chat.id, chat });
-    return this.detailFor(chat);
+    this.emit({ type: 'chat-updated', chatId: updated.id, chat: updated });
+    return this.detailFor(updated);
   }
 
   async setCwd(chatId: string, cwd: string): Promise<ChatDetail> {
@@ -515,6 +589,147 @@ export class ChatService {
     return this.store.get(chatId);
   }
 
+  // ── Session-linked sidechats ──────────────────────────────────────────────
+
+  /**
+   * Create a sidechat linked to a parent session. The backing chat row and the
+   * ownership relation are persisted atomically so an interrupted creation
+   * cannot leave an orphan link or an unlinked sidechat row.
+   */
+  async createSideChat(input: ChatSideChatCreateInput): Promise<ChatDetail> {
+    this.initialize();
+    // Resolve the parent's effective permission policy BEFORE creation. A
+    // sidechat is never created without an authority source.
+    const authority = this.sideChatAuthorityResolver.resolve(input.parent);
+    if (!authority.ok) {
+      throw new Error(authority.error);
+    }
+    // Reject providers that cannot enforce the parent's policy.
+    const enforcement = providerCanEnforcePolicy(input.selection.provider, authority.policy);
+    if (!enforcement.ok) {
+      throw new Error(`Provider unavailable: ${enforcement.capability}`);
+    }
+    const id = randomUUID();
+    const name = normalizeChatName(input.name);
+    const thread = await this.ledger.startConversation({
+      provider: 'orchestrator',
+      workspacePath: input.currentCwd,
+      title: name,
+      metadata: {
+        chatId: id,
+        scope: 'side-chat',
+        operatorThreadKind: 'side-chat',
+      },
+    });
+    const settings = getSettingsManager().getAll();
+    const effortModel = resolveInitialModel({
+      configModelOverride: input.selection.model,
+      provider: input.selection.provider ?? '',
+      defaultModelByProvider: settings.defaultModelByProvider,
+      defaultModel: settings.defaultModel,
+    });
+    const link: SideChatLink = {
+      chatId: id,
+      parent: input.parent,
+      authority: 'inherit-parent',
+      lastReadAssistantSequence: 0,
+    };
+    const chatProvider = input.selection.provider as ChatProvider;
+    const chat = this.sideChatLinkStore.insertWithBacker(link, () =>
+      this.store.insert({
+        id,
+        name,
+        provider: chatProvider,
+        model: input.selection.model ?? null,
+        reasoningEffort:
+          input.selection.reasoning === undefined
+            ? getDefaultReasoningEffort(chatProvider, effortModel)
+            : input.selection.reasoning,
+        currentCwd: input.currentCwd,
+        yolo: false,
+        ledgerThreadId: thread.id,
+      }),
+    );
+    addAllowedRoot(input.currentCwd);
+    const detail = await this.detailFor(chat);
+    this.emit({ type: 'chat-created', chatId: chat.id, chat });
+    return detail;
+  }
+
+  getSideChatLink(chatId: string): SideChatLink | null {
+    this.initialize();
+    return this.sideChatLinkStore.get(chatId);
+  }
+
+  listSideChats(parent: SideChatParentRef): SideChatLink[] {
+    this.initialize();
+    return this.sideChatLinkStore.listForParent(parent);
+  }
+
+  markSideChatRead(chatId: string, throughSequence: number): SideChatLink | null {
+    this.initialize();
+    // Reject a read sequence beyond the latest available assistant output.
+    const chat = this.store.get(chatId);
+    if (chat) {
+      const latest = this.latestAssistantSequence(chat.ledgerThreadId);
+      if (throughSequence > latest) {
+        throw new Error(
+          `Read sequence ${throughSequence} exceeds latest assistant output ${latest}`,
+        );
+      }
+    }
+    return this.sideChatLinkStore.markRead(chatId, throughSequence);
+  }
+
+  getSideChatAttention(parent: SideChatParentRef): SideChatAttention {
+    this.initialize();
+    return this.sideChatAttention.forParent(parent);
+  }
+
+  /** Latest assistant message sequence in a ledger thread (for unread tracking). */
+  private latestAssistantSequence(ledgerThreadId: string): number {
+    try {
+      const row = this.db
+        .prepareCached(
+          'SELECT MAX(sequence) as max_seq FROM conversation_messages WHERE thread_id = ? AND role = ?',
+        )
+        .get<{ max_seq: number | null }>(ledgerThreadId, 'assistant');
+      return row?.max_seq ?? 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Send a sidechat question with refreshed parent context delivered first.
+   * Resolves inherited authority policy before each dispatch. Serializes sends
+   * per sidechat and never creates a user turn when the parent snapshot cannot
+   * be acquired (unless the caller explicitly accepts the last captured
+   * snapshot).
+   */
+  async sendSideChatMessage(
+    chatId: string,
+    text: string,
+    options: { allowStaleContext?: boolean } = {},
+  ): Promise<SideChatSendResult> {
+    this.initialize();
+    const link = this.sideChatLinkStore.get(chatId);
+    if (link) {
+      // Re-resolve authority before each dispatch: parent permission changes
+      // must take effect on the next sidechat turn.
+      const authority = this.sideChatAuthorityResolver.resolve(link.parent);
+      if (!authority.ok) {
+        return {
+          ok: false,
+          code: 'parent-unavailable',
+          error: authority.error,
+          lastSnapshotAvailable: this.sideChatContextStore.get(chatId) !== null,
+        };
+      }
+    }
+    return this.sideChatSendCoordinator.send(chatId, text, options);
+  }
+
   private async terminateRuntimeIfRunning(
     chat: ChatRecord,
     reason: 'provider' | 'model' | 'reasoning' | 'archive',
@@ -558,23 +773,43 @@ export class ChatService {
         this.bridge.link(chat.id, existing.id);
         return { instance: existing, isFresh: false };
       }
-      // A failed runtime (including one that never started, which now stays
-      // listed in `error`) refuses input; replace it and replay the ledger.
       await this.terminateRuntime(chat, existing.id, 'failed');
     }
 
     this.assertBootstrapComplete(chat);
+
+    // For sidechats, resolve the parent's effective authority policy and apply
+    // it to the runtime. A sidechat never runs with broader permissions than
+    // its parent. The policy is re-resolved before each dispatch.
+    const sideChatLink = this.sideChatLinkStore.get(chat.id);
+    let agentId = 'build';
+    let yoloMode = chat.yolo;
+    let hardened: boolean | undefined;
+    let containedExecution: boolean | undefined;
+    if (sideChatLink) {
+      const authority = this.sideChatAuthorityResolver.resolve(sideChatLink.parent);
+      if (!authority.ok) {
+        throw new Error(authority.error);
+      }
+      const policy = authority.policy;
+      // Map the parent's effective tool permissions to the closest agent
+      // profile. Restricted parents get a restricted agent, never broader.
+      agentId = policy.agentToolPermissions.write === 'deny' ? 'plan' : 'build';
+      yoloMode = policy.yoloMode;
+      hardened = policy.hardened || undefined;
+      containedExecution = policy.containedExecution || undefined;
+    }
+
     const instance = await this.instanceManager.createInstance({
       workingDirectory: chat.currentCwd!,
       displayName: chat.name || basename(chat.currentCwd!) || 'Chat',
-      yoloMode: chat.yolo,
-      provider: chat.provider!,
+      yoloMode,
+      provider: toInstanceProvider(chat.provider!),
       modelOverride: chat.model ?? undefined,
-      // Forwarded verbatim: `chat-service` already resolves the app default on
-      // create, so a stored `null` here is the user's explicit
-      // "let the provider decide" and must not collapse to the default.
       reasoningEffort: chat.reasoningEffort,
-      agentId: 'build',
+      agentId,
+      ...(hardened ? { hardened: true } : {}),
+      ...(containedExecution ? { containedExecution: true } : {}),
       historyThreadId: chat.ledgerThreadId,
       evidenceConversationOwner: {
         kind: 'chat',
@@ -686,14 +921,22 @@ export class ChatService {
     const currentSequence = messages[messages.length - 1]?.sequence ?? Number.MAX_SAFE_INTEGER;
     const priorTurns = messages.slice(0, -1);
     if (!priorTurns.some(isRebuildContextTurn)) {
-      return; // brand-new chat (or only system events) — nothing to replay.
+      // Even a brand-new sidechat needs its latest effective parent context on
+      // rebuild after a provider switch or restart.
+      const sideChatContext = this.sideChatContextStore.get(chat.id);
+      if (sideChatContext) {
+        this.instanceManager.queueContinuityPreamble(instance.id, sideChatContext.quotedContext);
+      }
+      return;
     }
+    const sideChatParentContext = this.sideChatContextStore.get(chat.id)?.quotedContext ?? null;
     const preamble = await buildLedgerRebuildPreamble(
       this.ledger,
       chat.ledgerThreadId,
       priorTurns,
       currentSequence,
       verdict.reason,
+      sideChatParentContext,
     );
     if (preamble) {
       this.instanceManager.queueContinuityPreamble(instance.id, preamble);
@@ -764,6 +1007,30 @@ export class ChatService {
   private assertBootstrapComplete(chat: ChatRecord): void {
     if (!chat.provider || !chat.currentCwd) {
       throw new Error('Pick a provider and working directory before sending a chat message');
+    }
+  }
+
+  /**
+   * Block provider/model/reasoning changes while a turn is in flight. Only
+   * enforced for sidechats: a regular chat's existing terminate-and-respawn
+   * contract is preserved. Changing one sidechat never stops its parent or
+   * siblings — each conversation has its own runtime.
+   */
+  private assertNoActiveTurn(chat: ChatRecord): void {
+    if (!this.sideChatLinkStore.get(chat.id)) {
+      return; // not a sidechat — existing terminate-and-respawn semantics apply
+    }
+    const instance = chat.currentInstanceId
+      ? this.instanceManager.getInstance(chat.currentInstanceId)
+      : null;
+    if (
+      instance
+      && instance.status !== 'terminated'
+      && instance.status !== 'idle'
+      && instance.status !== 'error'
+      && instance.status !== 'failed'
+    ) {
+      throw new Error('Stop the current turn before changing provider, model or reasoning');
     }
   }
 

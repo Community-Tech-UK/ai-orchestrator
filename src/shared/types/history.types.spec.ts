@@ -320,15 +320,26 @@ describe('history title helpers', () => {
     ).toBe('Investigate prod error');
   });
 
-  it('prefers the cheap-AI title over the raw first message when present', () => {
+  it('prefers the cheap-AI title over the raw first message when no stored name exists', () => {
     expect(
       getConversationHistoryTitle(
         makeEntry({
+          displayName: '',
           aiTitle: 'UnstablePvP coin audit',
           firstUserMessage: 'Please review this PR [UnstablePvP/unstable-core#42]',
         })
       )
     ).toBe('UnstablePvP coin audit');
+  });
+
+  it('keeps the name the session showed while live over a different AI title', () => {
+    // Real divergence from the live history index: the rail showed the stored
+    // name, and archiving must not swap in a later AI title.
+    expect(
+      getConversationHistoryTitle(
+        makeEntry({ displayName: 'MON-56321 ETI scoring columns', aiTitle: 'Branch Ticket' })
+      )
+    ).toBe('MON-56321 ETI scoring columns');
   });
 
   it('still honours a user rename over the AI title', () => {
@@ -535,6 +546,7 @@ describe('history title helpers', () => {
     expect(
       getConversationHistoryTitle(
         makeEntry({
+          displayName: '',
           aiTitle: '<think>Need a concise title.</think>\nTab rename sanitizer',
           firstUserMessage: 'Fix tab renaming titles',
         })

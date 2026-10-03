@@ -1,12 +1,12 @@
 import { ChangeDetectionStrategy, Component, effect, inject, input, output, signal } from '@angular/core';
 import type { PlanQueueItemDto } from '@contracts/schemas/plan-queue';
 import { PlanQueueStore } from '../../../core/state/plan-queue.store';
-import { planQueueParkReasonLabel } from './plan-queue-item-list.component';
+import { planQueueDocumentBasename, planQueueParkReasonLabel } from './plan-queue-item-list.component';
 
 type ParkedAction = 'land-anyway' | 'discard-item';
 
 /**
- * Parked items across every run, with their branch and a lazily-fetched
+ * Parked items across every run, with their document, branch and a lazily-fetched
  * `git diff --shortstat`. Resume is reversible so it fires immediately; Land
  * anyway and Discard are one-way, so both require an explicit confirm click.
  */
@@ -28,6 +28,7 @@ export class PlanQueueParkedListComponent {
   landAnyway = output<string>();
   discardItem = output<string>();
 
+  protected readonly documentBasename = planQueueDocumentBasename;
   protected readonly parkReasonLabel = planQueueParkReasonLabel;
   protected readonly diffstats = signal<Record<string, string>>({});
   protected readonly confirming = signal<{ itemId: string; action: ParkedAction } | null>(null);
