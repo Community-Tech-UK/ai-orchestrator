@@ -1,8 +1,10 @@
 import type { HookExecutionContext } from '../hooks/hook-executor';
 import { getHookManager, type HookManager } from '../hooks/hook-manager';
 import type { SubsystemLogger } from '../logging/logger';
+import { errorDiagnostic } from '../logging/source-diagnostics';
 import type { HookEvent } from '../../shared/types/hook.types';
 import type { Instance } from '../../shared/types/instance.types';
+import { getInstanceTurnEnding } from './instance-turn-ending-state';
 import {
   getRecoverySensitiveValues,
   isCrashRecoveryInstance,
@@ -40,12 +42,16 @@ export function dispatchInstanceLifecycleHook(
   logger: SubsystemLogger,
   hookManager: HookManager = getHookManager(),
 ): void {
+  // A rejected prompt cannot accept text added by completion hooks either.
+  if ((event === 'PostSampling' || event === 'Stop') && instance
+    && getInstanceTurnEnding(instance.id) === 'context_overflow') return;
   const context = buildInstanceHookContext(instance, extra);
   void hookManager.triggerLifecycleHooks(event, context).catch((error: unknown) => {
     const isCrashRecovery = instance?.metadata?.['reason'] === 'crash-recovery';
     logger.error(`${event} hook error`,
-      !isCrashRecovery && error instanceof Error ? error : undefined, {
+      undefined, {
       instanceId: context.instanceId,
+      ...errorDiagnostic(error),
       ...(isCrashRecovery ? { recoverySession: true } : {}),
     });
   });

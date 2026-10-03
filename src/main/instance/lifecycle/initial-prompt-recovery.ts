@@ -3,6 +3,7 @@ import { generateId } from '../../../shared/utils/id-generator';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import { isSurfacedToUserError } from '../../cli/adapters/surfaced-error';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic } from '../../logging/source-diagnostics';
 
 const logger = getLogger('InitialPromptRecovery');
 
@@ -51,8 +52,8 @@ export async function deliverInitialPromptAfterSpawn(
     const errorMessage = error instanceof Error ? error.message : String(error);
     logger.error(
       'Initial prompt failed after successful spawn; preserving session',
-      error instanceof Error ? error : undefined,
-      { instanceId: instance.id, errorMessage },
+      undefined,
+      { instanceId: instance.id, ...errorDiagnostic(error) },
     );
     preserveSession(instance, errorMessage, deps, !isSurfacedToUserError(error));
   }

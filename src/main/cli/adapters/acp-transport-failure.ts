@@ -34,6 +34,8 @@
  */
 
 import { generateId } from '../../../shared/utils/id-generator';
+import { createHash } from 'node:crypto';
+import { safeDiagnosticIdentifier, safeDiagnosticNativeEnding, safeDiagnosticNumber } from '../turn-ending-diagnostic-fields';
 import type { OutputMessage } from '../../../shared/types/instance.types';
 import { findTrailingProviderRefusal, findTrailingTransportFailure } from '../transport-failure';
 
@@ -154,13 +156,13 @@ export function describeTruncatedAcpTurn(input: TruncatedAcpTurnInput): Truncate
   return {
     logMessage: LOG_MESSAGE[input.kind],
     logFields: {
-      adapter: input.adapter,
+      adapter: safeDiagnosticIdentifier(input.adapter),
       kind: input.kind,
-      failure: input.failure,
-      stopReason: input.stopReason,
+      failureHash: createHash('sha256').update(input.failure).digest('hex').slice(0, 16),
+      stopReason: safeDiagnosticNativeEnding(input.stopReason),
       providerUsageReported: input.providerUsageReported,
-      durationMs: input.durationMs,
-      contentLength: input.contentLength,
+      durationMs: safeDiagnosticNumber(input.durationMs),
+      contentLength: safeDiagnosticNumber(input.contentLength),
     },
     notice: {
       id: generateId(),

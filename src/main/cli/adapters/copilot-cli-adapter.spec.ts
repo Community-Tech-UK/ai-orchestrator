@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 
 const loggerMock = vi.hoisted(() => ({
@@ -47,7 +48,7 @@ describe('CopilotCliAdapter stream JSON parsing', () => {
     expect(response.content).toBe('recovered');
     expect(loggerMock.warn).toHaveBeenCalledWith(
       'Failed to parse Copilot stream-json line',
-      expect.objectContaining({ linePreview: '{"type":"assistant.message","data":' }),
+      { textChars: 35, textHash: createHash('sha256').update('{"type":"assistant.message","data":').digest('hex').slice(0, 16) },
     );
   });
 });

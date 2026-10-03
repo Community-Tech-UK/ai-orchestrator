@@ -1,3 +1,6 @@
+import type { AdapterInputDispatch } from './base-cli-adapter';
+import { assertAdapterInputCurrent } from './adapter-input-dispatch';
+
 export async function withLocalModelFetchResponse<T>(
   url: string,
   init: RequestInit,
@@ -5,6 +8,7 @@ export async function withLocalModelFetchResponse<T>(
   timeoutMs: number,
   timeoutMessage: string,
   consume: (response: Response, signal: AbortSignal) => Promise<T>,
+  dispatch?: AdapterInputDispatch,
 ): Promise<T> {
   const controller = new AbortController();
   let timedOut = false;
@@ -19,10 +23,13 @@ export async function withLocalModelFetchResponse<T>(
   try {
     let response: Response;
     try {
+      assertAdapterInputCurrent(dispatch);
+      dispatch?.beforeProviderDispatch?.();
+      assertAdapterInputCurrent(dispatch);
       response = await fetch(url, { ...init, signal: controller.signal });
     } catch (error) {
       if (!isAbortSignalRealmError(error)) throw error;
-      response = await fetchWithoutSignal(url, init, controller.signal);
+      response = await fetchWithoutSignal(url, init, controller.signal, dispatch);
     }
     return await consume(response, controller.signal);
   } catch (error) {
@@ -38,6 +45,7 @@ function fetchWithoutSignal(
   url: string,
   init: RequestInit,
   cancellationSignal: AbortSignal,
+  dispatch?: AdapterInputDispatch,
 ): Promise<Response> {
   const fallbackInit: RequestInit = { ...init };
   delete fallbackInit.signal;
@@ -59,6 +67,14 @@ function fetchWithoutSignal(
     };
     const onAbort = (): void => settle({ error: cancellationSignal.reason });
     cancellationSignal.addEventListener('abort', onAbort, { once: true });
+    try {
+      assertAdapterInputCurrent(dispatch);
+      dispatch?.beforeProviderDispatch?.();
+      assertAdapterInputCurrent(dispatch);
+    } catch (error) {
+      settle({ error });
+      return;
+    }
     void fetch(url, fallbackInit).then(
       (response) => settle({ response }),
       (error: unknown) => settle({ error }),

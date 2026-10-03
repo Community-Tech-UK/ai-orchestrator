@@ -1,8 +1,10 @@
-import type { CliAttachment, CliMessage, CliResponse } from './base-cli-adapter';
+import type { AdapterInputDispatch, CliAttachment, CliMessage, CliResponse, InterruptResult } from './base-cli-adapter';
+import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 import { CodexBaseAdapter } from './codex-base-adapter';
 import type { CodexCliConfig } from './codex-adapter-config';
 import type { CodexConversationEntry } from './codex/exec-helpers';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic } from '../../logging/source-diagnostics';
 import {
   isCodexModelUnavailableError,
   isRecoverableThreadResumeError,
@@ -39,6 +41,8 @@ import {
   runCodexExecProcess,
   type CodexExecProcessResult,
 } from './codex/exec-process-runner';
+import type { TurnInterruptCompletion } from './base-cli-adapter.types';
+import { isCodexExecInputFailure, isUnacceptedCodexExecInputFailure, noteUnacceptedCodexExecInput, type CodexExecInputWritePhase } from './codex/exec-input-write';
 
 const logger = getLogger('CodexCliAdapter');
 
@@ -52,6 +56,17 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
   protected execModelArgSuppressed = false;
   protected systemPromptSent = false;
   protected rtkAwarenessSent = false;
+  private execInputWrite: (CodexExecInputWritePhase & { completion: Promise<TurnInterruptCompletion> }) | null = null;
+
+  override interrupt(): InterruptResult {
+    const owner = this.execInputWrite;
+    const result = super.interrupt();
+    if (owner && result.status === 'accepted') {
+      owner.cancelled = true;
+      return { ...result, completion: owner.completion };
+    }
+    return result;
+  }
 
   protected constructor(config: CodexCliConfig = {}) {
     super(config);
@@ -91,10 +106,14 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
     return args;
   }
 
-  async sendMessage(message: CliMessage): Promise<CliResponse> {
+  async sendMessage(message: CliMessage, dispatch?: AdapterInputDispatch): Promise<CliResponse> {
+    const admission = createAdapterInputDispatch(dispatch);
     try {
-      return await this.sendMessageExec(message);
+      return await this.sendMessageExec(message, admission);
     } catch (error) {
+      assertAdapterInputCurrent(admission);
+      if (error instanceof Error && error.name === 'AbortError') throw error;
+      if (isCodexExecInputFailure(error)) throw error;
       if (
         this.cliConfig.model &&
         !this.execModelArgSuppressed &&
@@ -102,17 +121,17 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
       ) {
         logger.warn('Codex rejected the requested model; retrying with codex default model', {
           requestedModel: this.cliConfig.model,
-          cause: error instanceof Error ? error.message : String(error),
+          ...errorDiagnostic(error),
         });
         this.execModelArgSuppressed = true;
-        return this.sendMessageExec(message);
+        return this.sendMessageExec(message, admission);
       }
 
       if (!isRecoverableThreadResumeError(error) || !this.shouldUseResumeCommand()) {
         throw error;
       }
       this.clearStaleExecResumeState(error);
-      return this.sendMessageExec(message);
+      return this.sendMessageExec(message, admission);
     }
   }
 
@@ -130,11 +149,13 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
     return this.prepareMessageForExecution(normalizedMessage);
   }
 
-  protected async normalizeMessage(message: CliMessage): Promise<CliMessage> {
+  protected async normalizeMessage(message: CliMessage, dispatch?: AdapterInputDispatch): Promise<CliMessage> {
+    assertAdapterInputCurrent(dispatch);
     let content = message.content;
     let preparedAttachments: CliAttachment[] | undefined;
     if (message.attachments && message.attachments.length > 0) {
       const processed = await this.prepareAttachments(message.attachments);
+      assertAdapterInputCurrent(dispatch);
       const images = processed.filter(
         (attachment) => attachment.isImage && supportsCodexInlineImage(attachment.mimeType),
       );
@@ -191,8 +212,11 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
     return processAttachments(files, this.sessionId || generateId(), workingDirectory);
   }
 
-  protected async sendMessageExec(message: CliMessage): Promise<CliResponse> {
-    const normalizedMessage = await this.normalizeMessage(message);
+  protected async sendMessageExec(message: CliMessage, dispatch?: AdapterInputDispatch): Promise<CliResponse> {
+    assertAdapterInputCurrent(dispatch);
+    const normalizedMessage = await this.normalizeMessage(message, dispatch);
+    assertAdapterInputCurrent(dispatch);
+    const previousPromptFlags = { system: this.systemPromptSent, rtk: this.rtkAwarenessSent };
     const preparedMessage = this.prepareMessageForExecution(normalizedMessage);
     const phase: CodexExecPhase = this.hasCompletedExecTurn ? 'turn' : 'startup';
     const timeoutMs = phase === 'startup'
@@ -204,7 +228,10 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const execution = await this.executePreparedMessage(preparedMessage, { timeoutMs, phase });
+        assertAdapterInputCurrent(dispatch);
+        const execution = await this.executePreparedMessage(preparedMessage, { timeoutMs, phase }, dispatch);
+        // Abort can race process close; it must not publish a successful completion.
+        if (dispatch?.signal?.aborted) assertAdapterInputCurrent(dispatch);
         const response = execution.response;
         if (response.usage && typeof response.usage.cost !== 'number') {
           response.usage.cost = computeTokenCost(this.cliConfig.model, response.usage);
@@ -230,22 +257,30 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
           maxAttempts,
           diagnosticsCount: execution.diagnostics.length,
         });
-        await delay(250 * attempt);
+        await delay(250 * attempt, dispatch);
       } catch (error) {
+        if (isUnacceptedCodexExecInputFailure(error)) {
+          this.systemPromptSent = previousPromptFlags.system;
+          this.rtkAwarenessSent = previousPromptFlags.rtk;
+        }
+        assertAdapterInputCurrent(dispatch);
         lastError = error instanceof Error ? error : new Error(String(error));
+        if (lastError.name === 'AbortError') throw lastError;
+        if (isCodexExecInputFailure(lastError)) throw lastError;
         if (lastError instanceof CodexTimeoutError) {
           logger.warn('Codex exec timed out — not retrying', {
             phase: lastError.phase,
             kind: lastError.kind,
             timeoutMs: lastError.timeoutMs,
             networkErrorCount: lastError.networkErrorCount,
-            lastNetworkError: lastError.lastNetworkError,
+            ...errorDiagnostic(lastError),
             attempt,
           });
           throw lastError;
         }
         if (isFatalSpawnError(lastError)) {
-          logger.error('Codex spawn failed — not retrying', lastError, {
+          logger.error('Codex spawn failed — not retrying', undefined, {
+            ...errorDiagnostic(lastError),
             attempt,
             cwd: this.config.cwd,
           });
@@ -255,7 +290,7 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
           if (resumeCommandAtStart) {
             logger.info(
               'Codex exec resume failed with a stale thread/session id - skipping same-command retry',
-              { attempt, maxAttempts, errorMessage: lastError.message },
+              { attempt, maxAttempts, ...errorDiagnostic(lastError) },
             );
           }
           throw lastError;
@@ -266,9 +301,9 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
         logger.info('Codex exec threw transient error, retrying', {
           attempt,
           maxAttempts,
-          errorMessage: lastError.message,
+          ...errorDiagnostic(lastError),
         });
-        await delay(250 * attempt);
+        await delay(250 * attempt, dispatch);
       }
     }
     throw lastError || new Error('Codex execution failed without a diagnostic error.');
@@ -277,13 +312,15 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
   protected async execSendMessage(
     message: string,
     attachments?: FileAttachment[],
+    dispatch?: AdapterInputDispatch,
   ): Promise<void> {
-    await this.execSendMessageInner(message, attachments);
+    await this.execSendMessageInner(message, attachments, dispatch);
   }
 
   private async execSendMessageInner(
     message: string,
     attachments?: FileAttachment[],
+    dispatch?: AdapterInputDispatch,
   ): Promise<void> {
     const cliMessage: CliMessage = {
       role: 'user',
@@ -295,7 +332,7 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
         name: attachment.name,
       })),
     };
-    const response = await this.sendMessage(cliMessage) as CliResponse & {
+    const response = await this.sendMessage(cliMessage, dispatch) as CliResponse & {
       metadata?: { diagnostics?: CodexDiagnostic[] };
       thinking?: ThinkingBlock[];
     };
@@ -370,9 +407,15 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
   protected async executePreparedMessage(
     message: CliMessage,
     options: { timeoutMs: number; phase: CodexExecPhase },
+    dispatch?: AdapterInputDispatch,
   ): Promise<CodexExecProcessResult> {
     const args = this.buildArgs(message);
+    let settleInterrupt!: (result: TurnInterruptCompletion) => void;
+    const writePhase = { accepted: false, cancelled: false, completion: new Promise<TurnInterruptCompletion>(resolve => { settleInterrupt = resolve; }) };
+    this.execInputWrite = writePhase;
     return runCodexExecProcess({
+      writePhase,
+      dispatch,
       message,
       timeoutMs: options.timeoutMs,
       phase: options.phase,
@@ -395,7 +438,14 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
         this.sessionId = threadId;
         this.shouldResumeNextTurn = true;
       },
-    });
+    }).then(result => {
+      settleInterrupt({ status: 'completed' });
+      return result;
+    }).catch(error => {
+      settleInterrupt({ status: writePhase.cancelled ? 'interrupted' : 'rejected' });
+      if (!writePhase.accepted && error instanceof Error) noteUnacceptedCodexExecInput(error);
+      throw error;
+    }).finally(() => { if (this.execInputWrite === writePhase) this.execInputWrite = null; });
   }
 
   private emitDiagnostics(diagnostics?: CodexDiagnostic[]): void {
@@ -428,7 +478,7 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
   private clearStaleExecResumeState(error: unknown): void {
     logger.warn('Codex exec resume failed, retrying with a fresh session', {
       previousSessionId: this.sessionId,
-      cause: error instanceof Error ? error.message : String(error),
+      ...errorDiagnostic(error),
     });
     this.sessionId = `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.shouldResumeNextTurn = false;

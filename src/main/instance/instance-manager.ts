@@ -9,11 +9,11 @@
  * - InstanceOrchestrationManager: Child spawning, fast-path retrieval
  * - InstancePersistenceManager: Session export, import, storage
  */
-
 import { EventEmitter } from 'events';
 import { createHash } from 'node:crypto';
 import { ProviderRuntimeEventBus } from '../providers/provider-runtime-event-bus';
 import { getLogger } from '../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../logging/source-diagnostics';
 import { generateChildPrompt, stripOrchestrationMarkers } from '../orchestration/orchestration-protocol';
 import { getCommandManager } from '../commands/command-manager';
 import { appendActiveGoalContext } from '../commands/goal-command';
@@ -155,8 +155,8 @@ import {
   throwIfInstanceInputAborted,
   type InstanceSendInputOptions,
 } from './instance-input-cancellation';
+import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-logging';
 import { automatedResendInput, formatInternalInputForProvider, internalInputMetadata } from './internal-input-provenance';
-
 const logger = getLogger('InstanceManager');
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
 const INPUT_PREFLIGHT_DEADLINE_MS = 5_000;
@@ -238,9 +238,9 @@ export class InstanceManager extends EventEmitter {
     super();
     this.toolLoopWiringDeps = resolveToolLoopWiringDeps({
       getAutoInterruptSetting: () => this.settings.get('toolLoopAutoInterrupt'),
+      getProvider: (instanceId) => this.state.getInstance(instanceId)?.provider,
       interruptInstance: (instanceId) => this.interruptInstance(instanceId, 'tool-loop-auto'),
     }, injectedToolLoopDeps);
-
     // Session usage-overage stop: live CLI telemetry that says the subscription
     // window is refused (e.g. the Claude 5-hour limit) or paid overage is being
     // consumed stops the session instead of quietly billing API-priced overage.
@@ -387,7 +387,7 @@ export class InstanceManager extends EventEmitter {
             } catch (err) {
               logger.warn('Native adapter compaction failed, continuing with local compaction', {
                 instanceId: id,
-                error: err instanceof Error ? err.message : String(err),
+                ...errorDiagnostic(err),
               });
             }
           }
@@ -458,7 +458,7 @@ export class InstanceManager extends EventEmitter {
         void this.sendInput(id, resend.message, undefined, resend.options).catch((err) =>
           logger.warn('Provider-limit resume re-send failed', {
             instanceId: id,
-            error: err instanceof Error ? err.message : String(err),
+            ...errorDiagnostic(err),
           }),
         );
       },
@@ -473,7 +473,7 @@ export class InstanceManager extends EventEmitter {
         void getProviderQuotaService().refresh(provider).catch((err) => {
           logger.debug('Provider-limit park-miss snapshot refresh failed', {
             provider,
-            error: err instanceof Error ? err.message : String(err),
+            ...errorDiagnostic(err),
           });
         });
       },
@@ -491,7 +491,7 @@ export class InstanceManager extends EventEmitter {
         resendInput: (id, prompt) => {
           const resend = automatedResendInput(prompt);
           void this.sendInput(id, resend.message, undefined, resend.options).catch((err) =>
-            logger.warn('Account failover re-send failed', { instanceId: id, error: err instanceof Error ? err.message : String(err) }));
+            logger.warn('Account failover re-send failed', { instanceId: id, ...errorDiagnostic(err) }));
         },
       }),
       emitSystemMessage: (id, content, metadata) => this.emitSystemMessage(id, content, metadata),
@@ -529,7 +529,7 @@ export class InstanceManager extends EventEmitter {
         if (!result.success) {
           logger.warn('Auth-repair restart failed', {
             instanceId: id,
-            error: result.error,
+            ...errorDiagnostic(result.error),
           });
           return null;
         }
@@ -612,7 +612,7 @@ export class InstanceManager extends EventEmitter {
       initialPromptProviderLimitGate: this.communication.providerLimitGateForDirectTurn,
       coreDeps: (() => {
         try { return productionCoreDeps(); }
-        catch (error) { logger.warn('productionCoreDeps() failed; using default wiring', { error: error instanceof Error ? error.message : String(error) }); return undefined; }
+        catch (error) { logger.warn('productionCoreDeps() failed; using default wiring', { ...errorDiagnostic(error) }); return undefined; }
       })(),
     });
     this.continuityRecovery = new InstanceContinuityRecovery({
@@ -654,7 +654,7 @@ export class InstanceManager extends EventEmitter {
     });
     this.stuckDetector.on('process:stuck', ({ instanceId }) => {
       this.lifecycle.respawnAfterInterrupt(instanceId).catch(err => {
-        logger.error('Failed to respawn stuck process', err instanceof Error ? err : undefined, { instanceId });
+        logger.error('Failed to respawn stuck process', undefined, { ...errorDiagnostic(err), instanceId });
       });
     });
 
@@ -685,7 +685,7 @@ export class InstanceManager extends EventEmitter {
             `Child task "${task.task}" timed out after ${Math.round((task.timeout || 0) / 1000)}s`
           );
         } catch (err) {
-          logger.error('Failed to notify parent about timed out task', err instanceof Error ? err : undefined, { parentId: task.parentId, taskId: task.taskId });
+          logger.error('Failed to notify parent about timed out task', undefined, { ...errorDiagnostic(err), parentId: task.parentId, taskId: task.taskId });
         }
       }
     });
@@ -922,7 +922,7 @@ export class InstanceManager extends EventEmitter {
         logger.warn('Failed to interrupt active instance after pause', {
           instanceId: instance.id,
           status: instance.status,
-          error: error instanceof Error ? error.message : String(error),
+          ...errorDiagnostic(error),
         });
       }
     }
@@ -1078,7 +1078,7 @@ export class InstanceManager extends EventEmitter {
     if (creationBlockReason) {
       logger.warn('Refusing to create instance while resource governor blocks creation', {
         reason: creationBlockReason,
-        config: sanitizeCreateConfig(config),
+        config: summarizeCreateInstanceConfig(config),
       });
       throw new Error(`Instance creation is paused by the resource governor (${creationBlockReason}).`);
     }
@@ -1431,7 +1431,7 @@ export class InstanceManager extends EventEmitter {
     throwIfInstanceInputAborted(options?.signal);
     this.emit('instance:input-started', {
       instanceId,
-      autoContinuation: options?.autoContinuation === true || options?.automatedInput === true,
+      autoContinuation: options?.autoContinuation === true || options?.automatedInput === true || options?.internalSource !== undefined,
     });
     throwIfInstanceInputAborted(options?.signal);
 
@@ -1613,7 +1613,7 @@ export class InstanceManager extends EventEmitter {
         resolvedMessage = `${refResolution.contextBlock}\n\n${refResolution.annotatedText}`;
       }
     } catch (error) {
-      logger.debug('Session reference resolution failed', { instanceId, error: String(error) });
+      logger.debug('Session reference resolution failed', { instanceId, ...errorDiagnostic(error) });
     }
     if (internalSource) resolvedMessage = formatInternalInputForProvider(internalSource, resolvedMessage);
     throwIfInstanceInputAborted(options?.signal);
@@ -1634,7 +1634,7 @@ export class InstanceManager extends EventEmitter {
       } catch (error) {
         logger.warn('Failed to record prompt history in main process', {
           instanceId,
-          error: error instanceof Error ? error.message : String(error),
+          ...errorDiagnostic(error),
         });
       }
     };
@@ -1793,7 +1793,7 @@ export class InstanceManager extends EventEmitter {
           instanceId,
           message,
           (id, title, source) => {
-            logger.debug('Auto-title callback (sendInput)', { id, title, source, isRenamed: instance.isRenamed });
+            logger.debug('Auto-title callback (sendInput)', { id, title: textDiagnostic(title), source, isRenamed: instance.isRenamed });
             if (!instance.isRenamed) {
               instance.displayName = title;
               if (source === 'ai') {
@@ -1847,8 +1847,7 @@ export class InstanceManager extends EventEmitter {
     }
 
     // Add user message to output buffer BEFORE sending to CLI.
-    // This ensures the user message appears before the AI response in the chat,
-    // since sendInput may trigger streaming output that arrives during the await.
+    // Streaming output can arrive during sendInput, so publish user input first.
     // Skip on retries to avoid duplicate user bubbles in the chat.
     if (!options?.isRetry && !deferInputCommitUntilDispatch) {
       throwIfInstanceInputAborted(options?.signal);
@@ -1873,10 +1872,11 @@ export class InstanceManager extends EventEmitter {
         }
       : undefined;
     await this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock, {
-      autoContinuation: options?.autoContinuation === true,
+      autoContinuation: options?.autoContinuation === true, automatedInput: options?.automatedInput === true,
       internalSource,
       signal: options?.signal,
       beforeProviderDispatch,
+      assertProviderDispatchCurrent: options?.assertProviderDispatchCurrent,
     });
     } catch (error) {
       hookError = error instanceof Error ? error.message : String(error);
@@ -2137,7 +2137,7 @@ export class InstanceManager extends EventEmitter {
         logger.warn('Failed to terminate superseded source adapter after edit fork', {
           instanceId: source.id,
           forkedInstanceId,
-          error: error instanceof Error ? error.message : String(error),
+          ...errorDiagnostic(error),
         });
       }
       source.processId = null;
@@ -2409,7 +2409,7 @@ export class InstanceManager extends EventEmitter {
       logger.warn('Failed to mark child startup timeout as failed', {
         childId,
         parentId,
-        error: error instanceof Error ? error.message : String(error),
+        ...errorDiagnostic(error),
       });
     }
 

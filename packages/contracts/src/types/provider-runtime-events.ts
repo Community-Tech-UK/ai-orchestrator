@@ -202,6 +202,22 @@ export interface ProviderContextEvent {
 }
 
 /** Provider-level error. */
+export type ProviderTurnEndingReason =
+  | 'completed' | 'max_output' | 'content_filter' | 'truncated_transport'
+  | 'quota' | 'auth' | 'billing' | 'context_overflow' | 'retryable'
+  | 'doom_loop' | 'parent_silent' | 'crash' | 'dangling_tool_result' | 'unknown_error';
+
+/** Diagnostic evidence identifiers contain no prompt, answer, or thinking text. */
+export interface TurnEndingClassification {
+  reason: ProviderTurnEndingReason;
+  evidence: string;
+  reasoningCollapsed?: boolean;
+  visibleAnswerComplete?: boolean;
+  autoContinueSuppressed?: boolean;
+  contentFilterFromTool?: boolean;
+  providerRetrying?: boolean;
+}
+
 export interface ProviderErrorEvent {
   kind: 'error';
   /** Error message. */
@@ -218,6 +234,8 @@ export interface ProviderErrorEvent {
   rateLimit?: ProviderRateLimitDiagnostics;
   /** Provider quota summary. */
   quota?: ProviderQuotaDiagnostics;
+  finish?: string;
+  turnEnding?: TurnEndingClassification;
 }
 
 /** Process/session exited. */
@@ -227,6 +245,7 @@ export interface ProviderExitEvent {
   code: number | null;
   /** Signal that killed the process (null if exited normally). */
   signal: string | null;
+  turnEnding?: TurnEndingClassification;
 }
 
 /** Process spawned. */
@@ -287,6 +306,8 @@ export interface ProviderCompleteEvent {
   requestId?: string;
   /** Provider-native stop reason. */
   stopReason?: string;
+  finish?: string;
+  turnEnding?: TurnEndingClassification;
   /** Provider rate-limit summary, without raw headers. */
   rateLimit?: ProviderRateLimitDiagnostics;
   /** Provider quota summary. */

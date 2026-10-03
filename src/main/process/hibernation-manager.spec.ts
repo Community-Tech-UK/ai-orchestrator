@@ -10,6 +10,7 @@ const electronHarness = vi.hoisted(() => {
 vi.mock('electron', () => electronHarness.module);
 
 import { HibernationManager } from './hibernation-manager';
+import { recordInstanceTurnEnding, clearInstanceTurnEnding } from '../instance/instance-turn-ending-state';
 import { JitterScheduler } from '../tasks/jitter-scheduler';
 
 describe('HibernationManager', () => {
@@ -63,6 +64,15 @@ describe('HibernationManager', () => {
     const eligible = manager.getHibernationCandidates(instances, now);
     expect(eligible.length).toBe(1); // Only 'a' exceeds 30min threshold
     expect(eligible[0].id).toBe('a');
+  });
+
+  it('keeps abnormal endings visible until a new user turn or normal completion', () => {
+    const now = Date.now();
+    const instances = [{ id: 'cut-off', status: 'idle', lastActivity: now - 40 * 60_000 }];
+    recordInstanceTurnEnding('cut-off', 'max_output');
+    expect(manager.getHibernationCandidates(instances, now)).toEqual([]);
+    clearInstanceTurnEnding('cut-off');
+    expect(manager.getHibernationCandidates(instances, now).map((value) => value.id)).toEqual(['cut-off']);
   });
 
   describe('hysteresis cooldown', () => {

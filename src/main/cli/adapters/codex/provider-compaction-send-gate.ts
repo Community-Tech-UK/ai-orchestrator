@@ -3,9 +3,11 @@ import { generateId } from '../../../../shared/utils/id-generator';
 import { CodexContextCostController, CodexContextRecoveryPausedError } from './context-cost-controller';
 import type { CompactionGateOutcome } from './compaction-gate';
 import { isCompactTurnRejection } from './app-server-runtime-errors';
+import { assertAdapterInputCurrent } from '../adapter-input-dispatch';
 
 interface ProviderCompactionSendGateDeps {
   controller: CodexContextCostController;
+  signal?: AbortSignal;
   emitPaused(message: OutputMessage): void;
 }
 
@@ -14,7 +16,8 @@ export async function awaitProviderCompactionSettled(
   retainBusy = true,
 ): Promise<void> {
   if (!deps.controller.isCompactionRunning()) return;
-  const outcome = await deps.controller.awaitCompactionSettled(retainBusy);
+  const outcome = await deps.controller.awaitCompactionSettled(retainBusy, deps.signal);
+  assertAdapterInputCurrent({ signal: deps.signal });
   if (outcome === 'observed') return;
   const message = pausedMessage(outcome);
   deps.emitPaused({
@@ -35,6 +38,7 @@ export function createProviderCompactionSendGate(
 
   return async <T>(send: () => Promise<T>): Promise<T> => {
     await awaitProviderCompactionSettled(deps);
+    assertAdapterInputCurrent({ signal: deps.signal });
     try {
       return await send();
     } catch (error) {
@@ -42,6 +46,7 @@ export function createProviderCompactionSendGate(
       compactRetryUsed = true;
       deps.controller.markCompactionRunningFromRejection(null);
       await awaitProviderCompactionSettled(deps);
+      assertAdapterInputCurrent({ signal: deps.signal });
       return send();
     }
   };

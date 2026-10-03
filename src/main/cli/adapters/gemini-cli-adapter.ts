@@ -8,6 +8,7 @@
 
 import {
   BaseCliAdapter,
+  type AdapterInputDispatch,
   AdapterRuntimeCapabilities,
   CliAdapterConfig,
   CliCapabilities,
@@ -21,6 +22,7 @@ import {
 import { rmSync } from 'fs';
 import { dirname } from 'path';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../../logging/source-diagnostics';
 import type {
   OutputMessage,
   ContextUsage,
@@ -49,6 +51,8 @@ import {
 import { probeVersionStatus } from './cli-status-probe';
 import { killProcessGroup } from './base-cli-process-utils';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
+
+import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 
 const logger = getLogger('GeminiCliAdapter');
 
@@ -98,6 +102,7 @@ export interface GeminiCliAdapterEvents {
  * Gemini CLI Adapter - Implementation for Google Gemini CLI
  */
 export class GeminiCliAdapter extends BaseCliAdapter {
+  protected override readonly defersInputDispatch = true;
   private cliConfig: GeminiCliConfig;
   private readonly browserGatewaySettingsPath?: string;
   /** Running total of tokens used across all turns */
@@ -188,7 +193,8 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     });
   }
 
-  async sendMessage(message: CliMessage): Promise<CliResponse> {
+  async sendMessage(message: CliMessage, dispatch?: AdapterInputDispatch): Promise<CliResponse> {
+    assertAdapterInputCurrent(dispatch);
     if (message.attachments && message.attachments.length > 0) {
       throw new Error('Gemini adapter does not currently support attachments in orchestrator mode.');
     }
@@ -198,6 +204,9 @@ export class GeminiCliAdapter extends BaseCliAdapter {
 
     return new Promise((resolve, reject) => {
       const args = this.buildArgs(message);
+      assertAdapterInputCurrent(dispatch);
+      dispatch?.beforeProviderDispatch?.();
+      assertAdapterInputCurrent(dispatch);
       this.process = this.spawnProcess(args);
 
       // Handle spawn errors (e.g., ENOENT when binary doesn't exist)
@@ -292,12 +301,14 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       };
 
       this.process.stdout?.on('data', (data) => {
+        if (dispatch?.signal?.aborted) return;
         const chunk = data.toString();
         this.outputBuffer += chunk;
         for (const line of ndjson.push(chunk)) handleLine(line);
       });
 
       this.process.stderr?.on('data', (data) => {
+        if (dispatch?.signal?.aborted) return;
         const errorStr = data.toString();
         const trimmed = errorStr.trim();
         if (!trimmed) return;
@@ -316,11 +327,16 @@ export class GeminiCliAdapter extends BaseCliAdapter {
           // Non-error stderr (debug banners, version notices). Still surface
           // in case it contains useful diagnostic info, but as a system note
           // rather than an error.
-          logger.debug('gemini stderr', { text: trimmed.slice(0, 500) });
+          logger.debug('gemini stderr', textDiagnostic(trimmed));
         }
       });
 
       this.process.on('close', (code) => {
+        if (dispatch?.signal?.aborted) {
+          try { assertAdapterInputCurrent({ signal: dispatch.signal }); } catch (error) { reject(error); }
+          this.process = null;
+          return;
+        }
         for (const line of ndjson.push('\n')) handleLine(line);
         const duration = Date.now() - startTime;
 
@@ -358,7 +374,19 @@ export class GeminiCliAdapter extends BaseCliAdapter {
         }
       }, this.config.timeout);
 
-      this.process.on('close', () => clearTimeout(timeout));
+      const nativeProcess = this.process;
+      const onAbort = (): void => {
+        try { assertAdapterInputCurrent({ signal: dispatch?.signal }); } catch (error) { reject(error); }
+        clearTimeout(timeout);
+        killProcessGroup(nativeProcess.pid, 'SIGTERM');
+        if (this.process === nativeProcess) this.process = null;
+      };
+      const detachAbort = (): void => dispatch?.signal?.removeEventListener('abort', onAbort);
+      dispatch?.signal?.addEventListener('abort', onAbort, { once: true });
+      nativeProcess.once('close', detachAbort);
+      nativeProcess.once('error', detachAbort);
+      nativeProcess.on('close', () => clearTimeout(timeout));
+      if (dispatch?.signal?.aborted) onAbort();
     });
   }
 
@@ -520,7 +548,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       return;
     }
 
-    logger.warn('Gemini CLI error without listener', { error: error.message });
+    logger.warn('Gemini CLI error without listener', errorDiagnostic(error));
   }
 
   /**
@@ -664,7 +692,9 @@ export class GeminiCliAdapter extends BaseCliAdapter {
    * Send a message to Gemini via exec command.
    * Each call spawns a new process.
    */
-  protected override async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {
+  protected override async sendInputImpl(message: string, attachments?: FileAttachment[], _metadata?: CliMessage['metadata'], dispatch?: AdapterInputDispatch): Promise<void> {
+    const admission = createAdapterInputDispatch(dispatch);
+    assertAdapterInputCurrent(admission);
     if (!this.isSpawned) {
       throw new Error('Adapter not spawned - call spawn() first');
     }
@@ -684,7 +714,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       // Execute the command
       // Note: sendMessage() already emits OutputMessages during streaming,
       // so we don't need to emit the final content again
-      const response = await this.sendMessage(cliMessage);
+      const response = await this.sendMessage(cliMessage, admission);
 
       // Emit tool uses if any
       if (response.toolCalls) {
@@ -726,12 +756,15 @@ export class GeminiCliAdapter extends BaseCliAdapter {
 
       this.emit('status', 'idle' as InstanceStatus);
     } catch (error) {
+      assertAdapterInputCurrent(admission);
+      if (error instanceof Error && error.name === 'AbortError') throw error;
       this.emit('output', createOutputMessage(
         'error',
         error instanceof Error ? error.message : String(error),
       ));
       this.emit('status', 'error' as InstanceStatus);
       this.emitErrorIfObserved(error instanceof Error ? error : new Error(String(error)));
+      throw error;
     }
   }
 

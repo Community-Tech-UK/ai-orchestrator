@@ -1,5 +1,6 @@
 import type { InstanceStatus } from '../../shared/types/instance.types';
 import { isCompactTurnRejection } from '../cli/adapters/codex/app-server-runtime-errors';
+import { textDiagnostic } from '../logging/source-diagnostics';
 
 export function buildRepeatedErrorDiagnosticFields(input: {
   instanceId: string;
@@ -11,7 +12,7 @@ export function buildRepeatedErrorDiagnosticFields(input: {
   const adapter = input.adapter as { isProviderCompacting?: () => boolean } | undefined;
   return {
     instanceId: input.instanceId,
-    content: input.content,
+    ...textDiagnostic(input.content),
     count: input.count,
     status: input.status,
     ...(isCompactTurnRejection(input.content) ? {

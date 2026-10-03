@@ -755,7 +755,7 @@ describe('CodexCliAdapter', () => {
         params: { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'completed' } },
       });
       await pending;
-      expect(send).toHaveBeenCalledExactlyOnceWith('held message', undefined, 0, undefined);
+      expect(send).toHaveBeenCalledExactlyOnceWith('held message', undefined, 0, undefined, undefined);
     });
 
     it('returns to idle after a compaction-delayed steer finds no active turn and accepts later input', async () => {
@@ -794,7 +794,7 @@ describe('CodexCliAdapter', () => {
       const send = vi.spyOn(internals, 'appServerSendMessage').mockResolvedValue(undefined);
       await internals.sendInputImpl('after compaction');
 
-      expect(send).toHaveBeenCalledExactlyOnceWith('after compaction', undefined, undefined);
+      expect(send).toHaveBeenCalledExactlyOnceWith('after compaction', undefined, undefined, undefined);
       expect(statuses).toEqual(['busy', 'idle', 'busy', 'idle']);
     });
 
@@ -1004,13 +1004,13 @@ describe('CodexCliAdapter', () => {
       const first = internals.sendInputImpl('first');
       const second = internals.sendInputImpl('second');
       await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
-      expect(send).toHaveBeenLastCalledWith('first', undefined, undefined);
+      expect(send).toHaveBeenLastCalledWith('first', undefined, undefined, undefined);
 
       releaseFirst();
       await first;
       await second;
       expect(send).toHaveBeenCalledTimes(2);
-      expect(send).toHaveBeenLastCalledWith('second', undefined, undefined);
+      expect(send).toHaveBeenLastCalledWith('second', undefined, undefined, undefined);
     });
 
     it('returns to idle when a compaction wait pauses the send for user action', async () => {
@@ -2160,7 +2160,8 @@ describe('CodexCliAdapter', () => {
 
       expect(executeSpy).toHaveBeenCalledWith(
         expect.objectContaining({ content: 'Investigate this deeply', role: 'user' }),
-        { timeoutMs: 900_000, phase: 'turn' }
+        { timeoutMs: 900_000, phase: 'turn' },
+        undefined
       );
     });
 

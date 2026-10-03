@@ -70,10 +70,11 @@ describe('describeTruncatedAcpTurn', () => {
     });
     expect(report.logFields).toMatchObject({
       adapter: 'cursor-acp',
-      failure: FAILURE,
       durationMs: 2_213_113,
       contentLength: 2876,
     });
+    expect(report.logFields['failureHash']).toMatch(/^[a-f0-9]{16}$/);
+    expect(JSON.stringify(report.logFields)).not.toContain(FAILURE);
   });
 });
 
@@ -153,7 +154,9 @@ describe('describeTruncatedAcpTurn for a refusal', () => {
       recoverable: true,
     });
     expect(report.logMessage).toContain('refusal');
-    expect(report.logFields).toMatchObject({ kind: 'refusal', failure: REFUSAL });
+    expect(report.logFields).toMatchObject({ kind: 'refusal' });
+    expect(report.logFields['failureHash']).toMatch(/^[a-f0-9]{16}$/);
+    expect(JSON.stringify(report.logFields)).not.toContain(REFUSAL);
   });
 
   it('keeps the transport wording on the transport kind', () => {
@@ -167,5 +170,16 @@ describe('describeTruncatedAcpTurn for a refusal', () => {
     });
     expect(report.notice.content).toContain('transport error');
     expect(report.notice.metadata).toMatchObject({ source: 'acp-transport-failure' });
+  });
+
+  it('never logs source-shaped provider error details or stop metadata', () => {
+    const report = describeTruncatedAcpTurn({
+      adapter: 'cursor-acp', kind: 'transport',
+      failure: 'Error: ECONNRESET LOCAL_TEST_SOURCE_PLACEHOLDER',
+      stopReason: 'LOCAL_TEST_SOURCE_PLACEHOLDER', providerUsageReported: false,
+      durationMs: 100, contentLength: 40,
+    });
+    expect(JSON.stringify(report.logFields)).not.toContain('LOCAL_TEST_SOURCE_PLACEHOLDER');
+    expect(report.logFields).toMatchObject({ kind: 'transport', stopReason: 'other', failureHash: expect.stringMatching(/^[a-f0-9]{16}$/) });
   });
 });

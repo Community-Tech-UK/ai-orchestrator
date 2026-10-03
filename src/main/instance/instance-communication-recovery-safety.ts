@@ -5,9 +5,11 @@ import type {
 import type { Instance, InstanceStatus } from '../../shared/types/instance.types';
 import type { ErrorInfo } from '../../shared/types/ipc.types';
 import { getLogger } from '../logging/logger';
+import { errorDiagnostic } from '../logging/source-diagnostics';
 import { toJsonSafeProviderEventPayload } from '../providers/provider-event-raw-payload';
 import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
 import type { CommunicationDependencies } from './instance-communication.types';
+import { classifyTurnEnding } from '../cli/turn-ending-classifier';
 import {
   getRecoverySensitiveValues,
   isCrashRecoveryInstance,
@@ -47,6 +49,7 @@ export function emitRecoverySafeAdapterError(
     kind: 'error' as const,
     message: safeError.message,
     recoverable,
+    turnEnding: classifyTurnEnding({ kind: 'error', error, metadata: error }),
     ...extractProviderErrorDiagnostics(error),
   };
   emit(
@@ -62,10 +65,11 @@ export function emitRecoverySafeAdapterError(
   );
   logger.error(
     'Instance error',
-    isCrashRecoveryInstance(instance) ? undefined : safeError,
+    undefined,
     {
       instanceId,
       status: instance?.status,
+      ...errorDiagnostic(safeError),
       ...(isCrashRecoveryInstance(instance) ? { recoverySession: true } : {}),
     },
   );
@@ -88,7 +92,7 @@ export function settleExitRecoveryFailure(
   crashMessagePrefix: string,
 ): void {
   const safeError = redactRecoveryError(instance, error);
-  logger.error(logMessage, safeError, { instanceId });
+  logger.error(logMessage, undefined, { instanceId, ...errorDiagnostic(safeError) });
   deps.transitionInstanceStatus(instance, 'error');
   instance.processId = null;
   deps.queueUpdate(

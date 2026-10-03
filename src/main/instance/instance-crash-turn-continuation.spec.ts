@@ -102,6 +102,7 @@ describe('InstanceCrashTurnContinuation', () => {
       internalSource: 'crash-turn-continuation',
       signal: expect.any(AbortSignal),
       beforeProviderDispatch: expect.any(Function),
+      assertProviderDispatchCurrent: expect.any(Function),
     });
     expect(emitSystemMessage).toHaveBeenCalledWith(
       ID,

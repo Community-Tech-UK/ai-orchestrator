@@ -1,7 +1,6 @@
 import { EventEmitter } from 'events';
 import type { ChildProcess } from 'child_process';
 import { PassThrough, Writable } from 'stream';
-import { vi } from 'vitest';
 import { AcpCliAdapter } from './acp-cli-adapter';
 import type {
   AcpJsonRpcMessage,
@@ -26,16 +25,16 @@ export class FakeAcpProcess extends EventEmitter {
   constructor() {
     super();
 
-    this.stdin = {
-      writable: true,
-      destroyed: false,
-      on: vi.fn(),
-      once: vi.fn(),
-      write: (chunk: Buffer | string) => {
-        this.handleIncomingChunk(chunk.toString());
-        return true;
+    this.stdin = new Writable({
+      write: (chunk: Buffer, _encoding, callback) => {
+        try {
+          this.handleIncomingChunk(chunk.toString());
+          callback();
+        } catch (error) {
+          callback(error instanceof Error ? error : new Error(String(error)));
+        }
       },
-    } as unknown as Writable;
+    });
   }
 
   onRequest(method: string, handler: (message: AcpJsonRpcRequest) => void | Promise<void>): void {

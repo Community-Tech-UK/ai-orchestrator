@@ -2,6 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { InstanceCommunicationOverflowTracker } from './instance-communication-overflow-tracker';
 
 describe('InstanceCommunicationOverflowTracker', () => {
+  it('resets compaction only for a new actual user turn, preserving partial output and internal dispatches', () => {
+    const tracker = new InstanceCommunicationOverflowTracker();
+    tracker.rememberLastSent('inst-1', { message: 'original' }, 1);
+    expect(tracker.claimCompaction('inst-1')).toBe(true);
+    tracker.clearRetry('inst-1');
+    tracker.rememberLastSent('inst-1', { message: 'attachment fallback' }, 1);
+    expect(tracker.claimCompaction('inst-1')).toBe(false);
+    tracker.rememberLastSent('inst-1', { message: 'internal continuation' });
+    expect(tracker.claimCompaction('inst-1')).toBe(false);
+    tracker.rememberLastSent('inst-1', { message: 'new human request' }, 2);
+    expect(tracker.claimCompaction('inst-1')).toBe(true);
+    tracker.cleanup('inst-1');
+    expect(tracker.claimCompaction('inst-1')).toBe(true);
+  });
   it('remembers the last sent turn and resume prompt', () => {
     const tracker = new InstanceCommunicationOverflowTracker();
     tracker.rememberLastSent('inst-1', {

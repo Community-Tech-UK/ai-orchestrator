@@ -2,6 +2,7 @@ import type { ResumeAttemptResult } from '../base-cli-adapter';
 import type { CodexCliConfig } from '../codex-adapter-config';
 import type { ResumeCursor } from '../../../session/session-continuity';
 import { getLogger } from '../../../logging/logger';
+import { errorDiagnostic } from '../../../logging/source-diagnostics';
 import type { AppServerClient } from './app-server-client';
 import { repairPrivateCodexRolloutPath } from './codex-private-rollout-reconcile';
 import { isRecoverableThreadResumeError } from './exec-error-classifier';
@@ -132,7 +133,7 @@ export async function initializeCodexAppServer(
       } catch (error) {
         if (!isRecoverableThreadResumeError(error)) throw error;
         logger.warn('Persisted cursor resume failed (recoverable), falling back to fresh thread', {
-          error: String(error),
+          ...errorDiagnostic(error),
         });
         resumeAttempt = {
           source: 'native',
@@ -178,13 +179,13 @@ export async function initializeCodexAppServer(
             if (!isRecoverableThreadResumeError(error)) throw error;
             logger.warn('thread/list candidate resume failed (recoverable), falling through to JSONL scan', {
               candidateId: candidate.id,
-              error: String(error),
+              ...errorDiagnostic(error),
             });
           }
         }
       } catch (error) {
         logger.debug('thread/list unavailable or failed, falling through to JSONL scan', {
-          error: String(error),
+          ...errorDiagnostic(error),
         });
       }
     }
@@ -216,7 +217,7 @@ export async function initializeCodexAppServer(
         } catch (error) {
           if (!isRecoverableThreadResumeError(error)) throw error;
           logger.warn('JSONL scan resume failed (recoverable), falling back to fresh start', {
-            error: String(error),
+            ...errorDiagnostic(error),
           });
           resumeAttempt = {
             source: 'jsonl-scan',

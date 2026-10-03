@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 import net from 'net';
 import readline from 'readline';
 import { getLogger } from '../../../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../../../logging/source-diagnostics';
 import { getSafeEnvForTrustedProcess } from '../../../security/env-filter';
 import { getClampedLoadWatchdogMultiplier } from '../../../runtime/system-load-monitor';
 import { CODEX_TIMEOUTS } from '../../../../shared/constants/limits';
@@ -123,8 +124,8 @@ export abstract class AppServerClientBase {
   private readonly lineParser = new CliStreamLineParser();
   private readonly notificationHub = new AppServerNotificationHub((notification, error) => {
     logger.warn('App-server notification observer failed', {
-      method: notification.method,
-      error: error instanceof Error ? error.message : String(error),
+      method: textDiagnostic(notification.method),
+      ...errorDiagnostic(error),
     });
   });
   private serverRequestHandler: AppServerServerRequestHandler | null = null;
@@ -256,7 +257,7 @@ export abstract class AppServerClientBase {
 
     const parsedLine = parseNdjsonLine<Record<string, unknown>>(trimmed);
     if (!parsedLine.ok || !isJsonRpcRecord(parsedLine.value)) {
-      logger.warn('Failed to parse JSONL line from app-server', { line: trimmed.slice(0, 200) });
+      logger.warn('Failed to parse JSONL line from app-server', textDiagnostic(trimmed));
       return;
     }
     const message = parsedLine.value;
@@ -332,8 +333,8 @@ export abstract class AppServerClientBase {
       .catch((error) => {
         if (!this.activeServerRequests.delete(key) || this.closed) return;
         logger.warn('App-server request handler failed', {
-          method: request.method,
-          error: error instanceof Error ? error.message : String(error),
+          method: textDiagnostic(request.method),
+          ...errorDiagnostic(error),
         });
         this.sendMessage({
           id: request.id,
@@ -613,7 +614,7 @@ export async function connectToAppServer(
         return client;
       } catch (err) {
         logger.debug('Broker connection failed, falling back to direct spawn', {
-          error: err instanceof Error ? err.message : String(err),
+          ...errorDiagnostic(err),
         });
       }
     }
@@ -637,7 +638,7 @@ async function connectIsolatedAppServer(
       throw error;
     }
     logger.warn('Isolated Codex app-server rejected tool_output_token_limit; retrying without override', {
-      error: error instanceof Error ? error.message : String(error),
+      ...errorDiagnostic(error),
     });
     const fallback = new SpawnedAppServerClient(cwd);
     await fallback.connect(options, false);

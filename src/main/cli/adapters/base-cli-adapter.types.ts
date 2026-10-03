@@ -130,6 +130,20 @@ export interface AdapterRuntimeCapabilities {
  */
 export interface AdapterInputOptions {
   internalSource?: InternalInputSource;
+  /** In-process admission controls; never include these in message metadata or RPC params. */
+  dispatch?: AdapterInputDispatch;
+}
+
+export type AdapterInputRetryReason = 'context-overflow' | 'unsupported-attachments';
+
+export interface AdapterInputDispatch {
+  signal?: AbortSignal;
+  autoContinuation?: boolean;
+  beforeProviderDispatch?: () => void;
+  /** Revalidate the committed request before subsequent input RPCs. */
+  assertCurrent?: () => void;
+  /** Narrow original-request recovery scope; remains in-process and preserves cancellation. */
+  runInputRetry?: (reason: AdapterInputRetryReason, work: () => Promise<void>) => Promise<void>;
 }
 
 /**

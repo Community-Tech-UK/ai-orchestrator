@@ -1,4 +1,5 @@
 import { getLogger } from '../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../logging/source-diagnostics';
 import { isAdapterOnLoan } from '../instance/lifecycle/adapter-loan-registry';
 import type { InstanceStatus } from '../../shared/types/instance.types';
 import type { HibernationManager } from './hibernation-manager';
@@ -96,14 +97,14 @@ export function runIdleHibernationSweep(deps: IdleHibernationSweepDeps): void {
 
     logger.info('Auto-hibernating idle root session', {
       instanceId: instance.id,
-      displayName: instance.displayName,
+      displayName: typeof instance.displayName === 'string' ? textDiagnostic(instance.displayName) : undefined,
       idleMs: now - instance.lastActivity,
       idleMinutes,
     });
     deps.hibernateInstance(instance.id).catch((err) => {
       logger.warn('Failed to hibernate idle root session', {
         instanceId: instance.id,
-        error: err instanceof Error ? err.message : String(err),
+        ...errorDiagnostic(err),
       });
     });
   }

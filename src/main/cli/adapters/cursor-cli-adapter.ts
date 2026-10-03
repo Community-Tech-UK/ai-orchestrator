@@ -1,6 +1,7 @@
 import { BaseCliAdapter, CliAdapterConfig, CliCapabilities, CliMessage, CliResponse, CliStatus, AdapterRuntimeCapabilities } from './base-cli-adapter';
-import type { ResumeAttemptResult } from './base-cli-adapter';
+import type { AdapterInputDispatch, ResumeAttemptResult } from './base-cli-adapter';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../../logging/source-diagnostics';
 import type { ContextUsage, FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import type { ModelDisplayInfo } from '../../../shared/types/provider.types';
 import { generateId } from '../../../shared/utils/id-generator';
@@ -21,10 +22,13 @@ import type {
   StreamContext,
 } from './cursor-cli-adapter.types';
 
+import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
+
 const logger = getLogger('CursorCliAdapter');
 export type { CursorCliConfig };
 
 export class CursorCliAdapter extends BaseCliAdapter {
+  protected override readonly defersInputDispatch = true;
   private cliConfig: CursorCliConfig;
 
   /** Cursor's own session_id, captured from terminal `result` events for --resume. */
@@ -128,13 +132,15 @@ export class CursorCliAdapter extends BaseCliAdapter {
         throw error;
       }
       logger.warn('Falling back to default Cursor model list', {
-        error: error instanceof Error ? error.message : String(error),
+        ...errorDiagnostic(error),
       });
       return [...CURSOR_DEFAULT_MODELS];
     }
   }
 
-  override async sendMessage(message: CliMessage): Promise<CliResponse> {
+  override async sendMessage(message: CliMessage, dispatch?: AdapterInputDispatch): Promise<CliResponse> {
+    const admission = createAdapterInputDispatch(dispatch);
+    assertAdapterInputCurrent(admission);
     if (message.attachments?.length) {
       throw new Error('Cursor adapter does not support attachments in orchestrator mode.');
     }
@@ -142,8 +148,10 @@ export class CursorCliAdapter extends BaseCliAdapter {
       throw new Error('Cursor adapter not spawned; call spawn() before sendMessage.');
     }
 
+    let detachAbort: (() => void) | undefined;
     return new Promise<CliResponse>((resolve, reject) => {
       const resultState: ResultState = {
+        dispatch: admission,
         message,
         resolver: resolve,
         rejecter: reject,
@@ -151,8 +159,21 @@ export class CursorCliAdapter extends BaseCliAdapter {
         retriedWithoutResume: false,
         retriedWithoutPartial: false,
       };
+      const onAbort = (): void => {
+        resultState.completed = true;
+        if (this.activeResultState === resultState) {
+          if (this.activeTimeout) clearTimeout(this.activeTimeout);
+          this.activeTimeout = null;
+          killProcessGroup(this.process?.pid, 'SIGTERM');
+          this.process = null;
+          this.activeResultState = null;
+        }
+        try { assertAdapterInputCurrent({ signal: admission?.signal }); } catch (error) { reject(error); }
+      };
+      admission?.signal?.addEventListener('abort', onAbort, { once: true });
+      detachAbort = () => admission?.signal?.removeEventListener('abort', onAbort);
       this.dispatchTurn(message, resultState);
-    });
+    }).finally(() => detachAbort?.());
   }
 
   /**
@@ -168,6 +189,11 @@ export class CursorCliAdapter extends BaseCliAdapter {
    * true before asking us to retry.
    */
   private dispatchTurn(message: CliMessage, resultState: ResultState): void {
+    try { assertAdapterInputCurrent(resultState.dispatch); } catch (error) {
+      resultState.completed = true;
+      resultState.rejecter(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
     // Detach any previous turn's listeners so its eventual 'close' / 'error'
     // / stdout / stderr cannot mutate activeResultState / this.process after
     // the retry spawn. We also clear stdout/stderr listeners because their
@@ -197,7 +223,17 @@ export class CursorCliAdapter extends BaseCliAdapter {
       args: redactArgvForLog(args, { lastPositional: true }),
       hasResumeId: !!this.cursorSessionId,
     });
-    this.process = this.spawnProcess(args);
+    try {
+      assertAdapterInputCurrent(resultState.dispatch);
+      resultState.dispatch?.beforeProviderDispatch?.();
+      assertAdapterInputCurrent(resultState.dispatch);
+      this.process = this.spawnProcess(args);
+    } catch (error) {
+      resultState.completed = true;
+      this.activeResultState = null;
+      resultState.rejecter(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
     const turnProcess = this.process;
 
     // Handle spawn errors (e.g., ENOENT when binary doesn't exist)
@@ -250,6 +286,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
     let stderrBuffer = '';
 
     this.process.stdout?.on('data', (data) => {
+      if (resultState.dispatch?.signal?.aborted) return;
       const chunk = (data as Buffer).toString();
       this.outputBuffer += chunk;
       lineBuffer += chunk;
@@ -292,7 +329,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
             'or set `CURSOR_API_KEY` in your environment.',
           { metadata: { recoverable: false, kind: 'keychain' } },
         ));
-        logger.warn('cursor-agent keychain issue', { text: chunk.trim() });
+        logger.warn('cursor-agent keychain issue', textDiagnostic(chunk.trim()));
         return;
       }
 
@@ -303,11 +340,19 @@ export class CursorCliAdapter extends BaseCliAdapter {
         this.emit('output', createOutputMessage('error', chunk.trim(), {
           metadata: { recoverable: false, kind: 'stderr' },
         }));
-        logger.warn('cursor-agent stderr', { text: chunk.trim() });
+        logger.warn('cursor-agent stderr', textDiagnostic(chunk.trim()));
       }
     });
 
     this.process.on('close', (code) => {
+      if (resultState.dispatch?.signal?.aborted) {
+        try { assertAdapterInputCurrent({ signal: resultState.dispatch.signal }); } catch (error) {
+          resultState.completed = true; resultState.rejecter(error as Error);
+        }
+        if (this.activeTimeout) clearTimeout(this.activeTimeout);
+        this.activeTimeout = null; this.activeResultState = null; this.process = null;
+        return;
+      }
       // Flush any final partial line (shouldn't have JSON mid-object under
       // --stream because each event is newline-terminated, but be safe).
       if (lineBuffer.trim()) {
@@ -838,6 +883,10 @@ export class CursorCliAdapter extends BaseCliAdapter {
       isEstimated: true,
     };
     this.emit('context', contextUsage);
+    if (resultState.dispatch?.signal?.aborted) {
+      try { assertAdapterInputCurrent({ signal: resultState.dispatch.signal }); } catch (error) { resultState.rejecter(error instanceof Error ? error : new Error(String(error))); }
+      return;
+    }
 
     // 3. Branch on is_error.
     if (event.is_error) {
@@ -954,7 +1003,9 @@ export class CursorCliAdapter extends BaseCliAdapter {
     return this.lastResumeAttemptResult;
   }
 
-  protected override async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {
+  protected override async sendInputImpl(message: string, attachments?: FileAttachment[], _metadata?: CliMessage['metadata'], dispatch?: AdapterInputDispatch): Promise<void> {
+    const admission = createAdapterInputDispatch(dispatch);
+    assertAdapterInputCurrent(admission);
     if (!this.isSpawned) {
       throw new Error('Adapter not spawned - call spawn() first');
     }
@@ -990,9 +1041,10 @@ export class CursorCliAdapter extends BaseCliAdapter {
       await this.sendMessage({
         role: 'user',
         content: message,
-      });
+      }, admission);
       this.emit('status', 'idle');
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') throw error;
       this.emit('output', createOutputMessage(
         'error',
         error instanceof Error ? error.message : String(error),

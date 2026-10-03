@@ -3,6 +3,55 @@ import type { AcpToolCallStatus } from '../../../shared/types/cli.types';
 /** Long but bounded inactivity lease for provider-reported external work. */
 export const DEFAULT_ACTIVE_TOOL_TIMEOUT_MS = 60 * 60_000;
 
+/**
+ * Lease for an OpenCode `task` tool (a subagent). The parent ACP session emits
+ * no `session/update` while the child works, so the 60-minute tool lease kills
+ * a live gate. Captured on instance ipbrmlyp0: both "C5a gate round 3" and
+ * "W7 gate round 14" were still active when the parent was cancelled at 60
+ * minutes, and the same thing happened again after "continue".
+ */
+export const DEFAULT_DELEGATED_TASK_TIMEOUT_MS = 4 * 60 * 60_000;
+
+export function isBackgroundAcpTask(rawInput?: Record<string, unknown>): boolean {
+  return rawInput?.['background'] === true || rawInput?.['run_in_background'] === true;
+}
+
+/**
+ * OpenCode reports its `task` tool as ACP kind `think` with title `task`, then
+ * renames the title to the task description. A later update may instead carry
+ * the task's `prompt` and `description` and never repeat the title `task`.
+ */
+export function isDelegatedAcpTask(call: {
+  kind?: string;
+  title?: string;
+  rawInput?: Record<string, unknown>;
+}): boolean {
+  if (isBackgroundAcpTask(call.rawInput)) return false;
+  if (['task', 'agent'].includes((call.title ?? '').trim().toLowerCase())) return true;
+  if (call.kind !== 'think' || !call.rawInput) return false;
+  const prompt = call.rawInput['prompt'];
+  return typeof prompt === 'string' && prompt.trim().length > 0;
+}
+
+/** Which inactivity lease the live `session/prompt` should use. */
+export function resolveAcpPromptLeaseMs(
+  tools: Iterable<{ status: AcpToolCallStatus; delegatedTask?: boolean }>,
+  promptTimeoutMs: number,
+  activeToolTimeoutMs: number,
+  delegatedTaskTimeoutMs: number,
+): number {
+  let active = false;
+  let delegated = false;
+  for (const tool of tools) {
+    if (!isActiveAcpToolCallStatus(tool.status)) continue;
+    active = true;
+    if (tool.delegatedTask) delegated = true;
+  }
+  if (delegated) return delegatedTaskTimeoutMs;
+  if (active) return activeToolTimeoutMs;
+  return promptTimeoutMs;
+}
+
 /** Single source of truth: the 60-minute active-tool lease and the turn-wait
  *  diagnosis must never disagree about what "still running" means. */
 export function isActiveAcpToolCallStatus(status: AcpToolCallStatus): boolean {
@@ -60,6 +109,9 @@ export interface AcpTurnWait {
   subject?: string;
   /** Tool status when `kind` is `tool`. */
   status?: AcpToolCallStatus;
+  childActivity?: 'observed' | 'none';
+  lastChildActivityAgeMs?: number;
+  leaseRemainingMs?: number;
 }
 
 /** Minimal view of an outstanding permission request the classifier needs. */
@@ -157,6 +209,8 @@ export function describeAcpStallWarning(wait: AcpTurnWait, inactiveMs: number): 
     case 'permission':
       return `Waiting ${seconds}s for a response to the permission request (${wait.subject}).`;
     case 'tool':
+      if (wait.childActivity) return `Tool call ${wait.subject}: ${wait.childActivity === 'observed' ? `child activity observed ${Math.round((wait.lastChildActivityAgeMs ?? 0) / 1000)}s ago` : 'no child activity observed'}. `
+        + `Lease remaining: ${Math.ceil((wait.leaseRemainingMs ?? 0) / 60_000)} minutes.`;
       return `Tool call ${wait.subject} has been ${wait.status} for ${seconds}s with no update.`;
     default:
       return `This turn hasn't produced any output for ${seconds}s — it may be stuck. `

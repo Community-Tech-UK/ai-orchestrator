@@ -145,12 +145,12 @@ describe('CopilotCliProvider inline translation', () => {
 
   it('error with Error object becomes an error envelope', () => {
     adapter.emit('error', new Error('boom'));
-    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'boom', recoverable: false });
+    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'boom', recoverable: false, turnEnding: { reason: 'unknown_error', evidence: 'provider_error' } });
   });
 
   it('error with string becomes an error envelope', () => {
     adapter.emit('error', 'str err');
-    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'str err', recoverable: false });
+    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'str err', recoverable: false, turnEnding: { reason: 'unknown_error', evidence: 'provider_error' } });
   });
 
   it('complete becomes a complete envelope', () => {
@@ -160,6 +160,7 @@ describe('CopilotCliProvider inline translation', () => {
       tokensUsed: 42,
       costUsd: 0.25,
       durationMs: 500,
+      turnEnding: { reason: 'completed', evidence: 'provider_completed' },
     });
   });
 

@@ -1,5 +1,6 @@
 import type {
   InterruptResult,
+  AdapterInputDispatch,
   ResumeAttemptResult,
   TurnInterruptCompletion,
 } from '../base-cli-adapter';
@@ -16,6 +17,7 @@ import type {
 } from './app-server-types';
 import type { CodexOutputLimitState } from './codex-app-server-spawn-policy';
 import { CodexAppServerRuntimeError, isEmptyInputSteerRejection } from './app-server-runtime-errors';
+import { assertAdapterInputCurrent } from '../adapter-input-dispatch';
 
 export type CodexAppServerConnectionPhase =
   | 'detached'
@@ -78,6 +80,10 @@ export interface CodexTurnCaptureCallbacks {
 }
 
 export interface CaptureCodexTurnOptions extends CodexTurnCaptureCallbacks {
+  beforeInputDispatch?(): void;
+  assertInputCurrent?(): void;
+  autoContinuation?: boolean;
+  onNativeTurnAcquired?(turnId: string): void;
   input: UserInput[];
   /**
    * Harness-authored turn text (LT-657). Appended as a developer-role item
@@ -229,6 +235,7 @@ export class CodexAppServerThreadRuntime {
   async steerProviderTurn(
     input: UserInput[],
     developerInput?: string,
+    dispatch?: AdapterInputDispatch,
   ): Promise<{ delivered: boolean; developerInjected: boolean }> {
     const client = this.client;
     const threadId = this.binding?.threadId;
@@ -239,11 +246,14 @@ export class CodexAppServerThreadRuntime {
       return { delivered: false, developerInjected };
     }
     try {
+      assertAdapterInputCurrent(dispatch);
+      dispatch?.beforeProviderDispatch?.();
       if (developerInput) {
         await client.request('thread/inject_items', { threadId, items: [developerMessageItem(developerInput)] });
         developerInjected = true;
       }
       if (input.length > 0) {
+        assertAdapterInputCurrent(dispatch);
         await client.request('turn/steer', { threadId, expectedTurnId: turnId, input });
       }
     } catch (error) {
@@ -293,13 +303,24 @@ export class CodexAppServerThreadRuntime {
 
   async captureTurn(options: CaptureCodexTurnOptions): Promise<TurnCaptureState> {
     const { client, threadId } = this.requireIdleConnection();
+    options.beforeInputDispatch?.();
     const active = this.beginActiveTurn(options, 'harness');
-    return this.runCapture(active, client, threadId, options, async (capture) => {
+    let turnStartRequested = false;
+    try { return await this.runCapture(active, client, threadId, options, async (capture) => {
+      options.assertInputCurrent?.();
       if (options.developerInput) {
         await client.request('thread/inject_items', { threadId, items: [developerMessageItem(options.developerInput)] });
       }
+      options.assertInputCurrent?.();
+      // A native turn may start while developer injection is acknowledged.
+      if (options.autoContinuation && active.turnId !== null) {
+        const error = new Error('Codex acquired native turn ownership before turn/start');
+        error.name = 'AbortError';
+        throw error;
+      }
       let turnResult: AppServerResponseResult<'turn/start'>;
       try {
+        turnStartRequested = true;
         turnResult = await Promise.race<AppServerResponseResult<'turn/start'>>([
           client.request('turn/start', {
             ...options.turnParams,
@@ -315,7 +336,7 @@ export class CodexAppServerThreadRuntime {
         // `turn/start` steers into a turn Codex started on its own (a goal
         // continuation), and Codex rejects an empty steer. The developer item
         // injected above already reached that turn, so follow it instead.
-        if (!options.developerInput || !isEmptyInputSteerRejection(error)) throw error;
+        if (options.autoContinuation || !options.developerInput || !isEmptyInputSteerRejection(error)) throw error;
         const runningTurnId = active.turnId ?? await this.findInProgressTurnId(client, threadId);
         if (!runningTurnId) throw error;
         turnResult = { turn: { id: runningTurnId, status: 'inProgress' } };
@@ -328,7 +349,12 @@ export class CodexAppServerThreadRuntime {
       if (turnResult.turn?.status && turnResult.turn.status !== 'inProgress') {
         options.completeTurn(active.state, turnResult.turn);
       }
-    });
+    }); } finally {
+      // An unsolicited turn seen before our start belongs to Codex; keep following it after aborting this input.
+      if (options.autoContinuation && !turnStartRequested && active.turnId && !active.state.completed) {
+        options.onNativeTurnAcquired?.(active.turnId);
+      }
+    }
   }
 
   /**

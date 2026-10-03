@@ -3,20 +3,7 @@ import type {
   OutputMessage,
 } from '../../../shared/types/instance.types';
 
-const LOG_PREVIEW_LENGTH = 160;
-
-function summarizeLogText(value: string | undefined, maxLength = LOG_PREVIEW_LENGTH): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, maxLength)}... (${normalized.length} chars)`;
-}
+import { textDiagnostic } from '../../logging/source-diagnostics';
 
 function summarizeAttachments(
   attachments: InstanceCreateConfig['attachments']
@@ -26,8 +13,8 @@ function summarizeAttachments(
   }
 
   return attachments.map((attachment) => ({
-    name: summarizeLogText(attachment.name, 80) ?? attachment.name,
-    type: attachment.type,
+    name: textDiagnostic(attachment.name),
+    type: textDiagnostic(attachment.type),
     size: attachment.size,
     dataLength: attachment.data.length,
   }));
@@ -54,7 +41,7 @@ function summarizeInitialOutputBuffer(
       type: message.type,
       contentLength: message.content.length,
       attachmentCount: message.attachments?.length ?? 0,
-      metadataKeys: message.metadata ? Object.keys(message.metadata).slice(0, 8) : undefined,
+      metadataKeyCount: message.metadata ? Object.keys(message.metadata).length : 0,
     })),
   };
 }
@@ -62,7 +49,7 @@ function summarizeInitialOutputBuffer(
 export function summarizeCreateInstanceConfig(config: InstanceCreateConfig): Record<string, unknown> {
   const isCrashRecovery = config.metadata?.['reason'] === 'crash-recovery';
   return {
-    displayName: config.displayName,
+    displayName: config.displayName ? textDiagnostic(config.displayName) : undefined,
     parentId: config.parentId,
     historyThreadId: isCrashRecovery && config.historyThreadId
       ? '[recovery history identity omitted]'
@@ -73,7 +60,7 @@ export function summarizeCreateInstanceConfig(config: InstanceCreateConfig): Rec
     resume: config.resume ?? false,
     workingDirectory: config.workingDirectory,
     initialPromptLength: config.initialPrompt?.length ?? 0,
-    initialPromptPreview: summarizeLogText(config.initialPrompt),
+    initialPrompt: config.initialPrompt ? textDiagnostic(config.initialPrompt) : undefined,
     initialContextBlockLength: config.initialContextBlock?.length ?? 0,
     attachments: summarizeAttachments(config.attachments),
     yoloMode: config.yoloMode,

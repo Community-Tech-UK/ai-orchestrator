@@ -9,6 +9,7 @@ import type {
 } from '@contracts/types/provider-runtime-events';
 import type { PendingEnvelope } from '../providers/provider-runtime-event-bus';
 import { resolveProviderName, resolveRuntimeEventTurnId } from './provider-runtime-helpers';
+import { enrichProviderTurnEndingIngress } from './provider-turn-ending-ingress';
 
 export interface ProviderRuntimeEventIngressOptions {
   provider?: ProviderName;
@@ -43,7 +44,7 @@ export function buildProviderRuntimeEventIngress(
     turnId: resolveRuntimeEventTurnId(input.event, instance),
     raw: input.options?.raw,
     ...(input.options?.ephemeral !== undefined ? { ephemeral: input.options.ephemeral } : {}),
-    event: input.event,
+    event: enrichProviderTurnEndingIngress(instance, input.event, input.options?.raw?.payload),
   };
 }
 

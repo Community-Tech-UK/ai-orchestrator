@@ -26,7 +26,7 @@ interface OpenCodeAcpConfig {
     command?: string;
     type?: 'http' | 'sse';
     url?: string;
-    headers?: Array<{ name: string; value: string }>;
+    headers?: { name: string; value: string }[];
   }[];
 }
 
@@ -64,10 +64,10 @@ describe('adapter factory — opencode', () => {
     expect(acpConfig(adapter)).toMatchObject({ resume: true, sessionId: 'ses_placeholder' });
   });
 
-  it('injects an allow-everything permission block with YOLO on (the default)', () => {
+  it('allows ordinary tools in YOLO while retaining the native doom-loop brake', () => {
     const permission = injectedConfig(createCliAdapter('opencode', { workingDirectory: '/tmp' })).permission;
     expect(Object.keys(permission)[0]).toBe('*');
-    expect(new Set(Object.values(permission))).toEqual(new Set(['allow']));
+    expect(permission['doom_loop']).toBe('ask');
     expect(permission).toMatchObject({ '*': 'allow', edit: 'allow', bash: 'allow', read: 'allow' });
   });
 
@@ -107,8 +107,9 @@ describe('adapter factory — opencode', () => {
   });
 
   it('replaces an unparseable existing OPENCODE_CONFIG_CONTENT', () => {
-    expect(JSON.parse(buildOpenCodeConfigContent('{not json', true))).toEqual({
-      permission: buildOpenCodePermissionBlock(true),
+    expect(JSON.parse(buildOpenCodeConfigContent('{not json', true))).toMatchObject({
+      permission: { ...buildOpenCodePermissionBlock(true), 'doom_loop*': 'ask' },
+      agent: { build: { permission: { doom_loop: 'ask', 'doom_loop*': 'ask' } } },
     });
   });
 
@@ -124,6 +125,11 @@ describe('adapter factory — opencode', () => {
     });
     expect(acpConfig(adapter).args).not.toContain('--model');
     expect(acpConfig(adapter).promptTimeoutMs).toBe(45 * 60_000);
+    expect(injectedConfig(adapter)['provider']).toMatchObject({
+      'xiaomi-token-plan-ams': { models: { 'mimo-v2.6-pro': {
+        options: { max_completion_tokens: 16384 }, limit: { context: 1_000_000, output: 16384 },
+      } } },
+    });
   });
 
   it('keeps the standard ACP prompt timeout for non-MiMo OpenCode models', () => {

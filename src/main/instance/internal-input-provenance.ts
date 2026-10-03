@@ -31,6 +31,8 @@ const INTERNAL_INPUT_SOURCES: ReadonlySet<InternalInputSource> = new Set<Interna
   'async-work-continuation',
   'announce-then-halt-continuation',
   'crash-turn-continuation',
+  'reasoning-collapse-continuation',
+  'content-filter-continuation',
   'orchestrator-status-request',
   'child-announcement',
   'lsp-feedback',

@@ -1,3 +1,4 @@
+import { textDiagnostic } from '../../logging/source-diagnostics';
 import { parseNdjsonLine, parseStreamingJson } from '../json-parse';
 
 /**
@@ -39,7 +40,7 @@ export function parseGeminiStreamingEvent(line: string): GeminiStreamEvent | nul
 
 export function logGeminiParseFailure(logger: GeminiJsonLogger, line: string): void {
   if (line.trim().startsWith('{')) {
-    logger.warn('Failed to parse Gemini stream-json line', { linePreview: line.slice(0, 200) });
+    logger.warn('Failed to parse Gemini stream-json line', textDiagnostic(line));
   }
 }
 

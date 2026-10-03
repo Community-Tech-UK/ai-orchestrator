@@ -185,3 +185,37 @@ describe('resolveToolLoopWiringDeps', () => {
     expect(interruptInstance).toHaveBeenCalledWith('inst-loop');
   });
 });
+
+describe('provider mutating-tool backstop', () => {
+  afterEach(() => DoomLoopDetector._resetForTesting());
+
+  it.each(['claude', 'opencode'])('interrupts critical repeat-no-progress for %s writes with global setting off', (provider) => {
+    const interrupt = vi.fn(() => true);
+    const deps: ToolLoopWiringDeps = { getAutoInterruptSetting: () => false, getProvider: () => provider, interruptInstance: interrupt };
+    for (let i = 0; i < 7; i++) {
+      observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_use', toolName: 'write', toolUseId: `w${i}`, input: { path: 'x', content: 'same' } });
+      observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_result', toolName: 'write', toolUseId: `w${i}`, success: true, output: 'unchanged' });
+    }
+    expect(interrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['claude', 'opencode', 'copilot'])('never interrupts %s read-only loops even with the global setting on', (provider) => {
+    const interrupt = vi.fn(() => true);
+    const deps: ToolLoopWiringDeps = { getAutoInterruptSetting: () => true, getProvider: () => provider, interruptInstance: interrupt };
+    for (let i = 0; i < 7; i++) {
+      observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_use', toolName: 'grep', toolUseId: `r${i}`, input: { pattern: 'same' } });
+      observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_result', toolName: 'grep', toolUseId: `r${i}`, success: true, output: 'same' });
+    }
+    expect(interrupt).not.toHaveBeenCalled();
+  });
+
+  it('uses the ACP execute kind when a command title does not identify the mutating tool', () => {
+    const interrupt = vi.fn(() => true);
+    const deps: ToolLoopWiringDeps = { getAutoInterruptSetting: () => false, getProvider: () => 'opencode', interruptInstance: interrupt };
+    for (let i = 0; i < 6; i++) {
+      observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_use', toolName: 'Run deploy command', toolUseId: `e${i}`, input: { kind: 'execute', rawInput: { command: 'echo unchanged' } } });
+      observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_result', toolName: 'Run deploy command', toolUseId: `e${i}`, success: true, output: 'same' });
+    }
+    expect(interrupt).toHaveBeenCalledTimes(1);
+  });
+});

@@ -28,6 +28,7 @@ import type { Instance, InstanceStatus } from '../../shared/types/instance.types
 import type { ErrorInfo } from '../../shared/types/ipc.types';
 import type { CommunicationDependencies } from './instance-communication.types';
 import { getLogger } from '../logging/logger';
+import { errorDiagnostic } from '../logging/source-diagnostics';
 import { getSessionMutex } from '../session/session-mutex';
 import { redactRecoveryError } from './instance-recovery-redaction';
 
@@ -86,7 +87,7 @@ export function deferExitToRecoveryOwner(
       }
       replay();
     } catch (error) {
-      logger.error('Deferred adapter exit handling failed', redactRecoveryError(instance, error), { instanceId });
+      logger.error('Deferred adapter exit handling failed', undefined, { instanceId, ...errorDiagnostic(redactRecoveryError(instance, error)) });
     }
   };
   // Acquire only to wait for the owner, then release at once. A timeout means
@@ -145,7 +146,7 @@ export function scheduleSuppressedAutoRespawnRetry(
     logger.info('Retrying auto-respawn after recent-respawn suppression window elapsed', { instanceId });
     deps.onUnexpectedExit(instanceId).catch((err) => {
       const safeError = redactRecoveryError(current, err);
-      logger.error('Deferred auto-respawn failed', safeError, { instanceId });
+      logger.error('Deferred auto-respawn failed', undefined, { instanceId, ...errorDiagnostic(safeError) });
       deps.transitionInstanceStatus(current, 'error');
       current.processId = null;
       deps.queueUpdate(

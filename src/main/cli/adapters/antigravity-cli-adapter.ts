@@ -32,6 +32,7 @@
 
 import {
   BaseCliAdapter,
+  type AdapterInputDispatch,
   AdapterRuntimeCapabilities,
   CliAdapterConfig,
   CliCapabilities,
@@ -42,6 +43,7 @@ import {
   type ResumeAttemptResult,
 } from './base-cli-adapter';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../../logging/source-diagnostics';
 import type {
   OutputMessage,
   ContextUsage,
@@ -55,6 +57,8 @@ import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thi
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { probeVersionStatus } from './cli-status-probe';
 import { killProcessGroup } from './base-cli-process-utils';
+
+import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 
 const logger = getLogger('AntigravityCliAdapter');
 
@@ -90,6 +94,7 @@ export interface AntigravityCliConfig {
  * Antigravity CLI Adapter
  */
 export class AntigravityCliAdapter extends BaseCliAdapter {
+  protected override readonly defersInputDispatch = true;
   private cliConfig: AntigravityCliConfig;
   /** Running total of tokens used across all turns. */
   private cumulativeTokensUsed = 0;
@@ -166,7 +171,8 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
     });
   }
 
-  async sendMessage(message: CliMessage): Promise<CliResponse> {
+  async sendMessage(message: CliMessage, dispatch?: AdapterInputDispatch): Promise<CliResponse> {
+    assertAdapterInputCurrent(dispatch);
     if (message.attachments && message.attachments.length > 0) {
       throw new Error('Antigravity adapter does not currently support attachments in orchestrator mode.');
     }
@@ -176,6 +182,9 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
 
     return new Promise((resolve, reject) => {
       const args = this.buildArgs(message);
+      assertAdapterInputCurrent(dispatch);
+      dispatch?.beforeProviderDispatch?.();
+      assertAdapterInputCurrent(dispatch);
       this.process = this.spawnProcess(args);
 
       this.process.on('error', (err) => {
@@ -192,6 +201,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
       let accumulatedContent = '';
 
       this.process.stdout?.on('data', (data) => {
+        if (dispatch?.signal?.aborted) return;
         const chunk = data.toString();
         this.outputBuffer += chunk;
         accumulatedContent += chunk;
@@ -206,6 +216,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
       });
 
       this.process.stderr?.on('data', (data) => {
+        if (dispatch?.signal?.aborted) return;
         const trimmed = data.toString().trim();
         if (!trimmed) return;
         const looksLikeError =
@@ -219,11 +230,16 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
           } as OutputMessage);
           this.emitErrorIfObserved(new Error(trimmed));
         } else {
-          logger.debug('agy stderr', { text: trimmed.slice(0, 500) });
+          logger.debug('agy stderr', textDiagnostic(trimmed));
         }
       });
 
       this.process.on('close', (code) => {
+        if (dispatch?.signal?.aborted) {
+          try { assertAdapterInputCurrent({ signal: dispatch.signal }); } catch (error) { reject(error); }
+          this.process = null;
+          return;
+        }
         const duration = Date.now() - startTime;
         if (code === 0 || this.outputBuffer.trim()) {
           const response = this.parseOutput(this.outputBuffer);
@@ -243,7 +259,19 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
         }
       }, this.config.timeout);
 
-      this.process.on('close', () => clearTimeout(timeout));
+      const nativeProcess = this.process;
+      const onAbort = (): void => {
+        try { assertAdapterInputCurrent({ signal: dispatch?.signal }); } catch (error) { reject(error); }
+        clearTimeout(timeout);
+        killProcessGroup(nativeProcess.pid, 'SIGTERM');
+        if (this.process === nativeProcess) this.process = null;
+      };
+      const detachAbort = (): void => dispatch?.signal?.removeEventListener('abort', onAbort);
+      dispatch?.signal?.addEventListener('abort', onAbort, { once: true });
+      nativeProcess.once('close', detachAbort);
+      nativeProcess.once('error', detachAbort);
+      nativeProcess.on('close', () => clearTimeout(timeout));
+      if (dispatch?.signal?.aborted) onAbort();
     });
   }
 
@@ -348,7 +376,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
       this.emit('error', error);
       return;
     }
-    logger.warn('Antigravity CLI error without listener', { error: error.message });
+    logger.warn('Antigravity CLI error without listener', errorDiagnostic(error));
   }
 
   /** agy reports no token usage; estimate from the response content. */
@@ -380,7 +408,9 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
     return fakePid;
   }
 
-  protected override async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {
+  protected override async sendInputImpl(message: string, attachments?: FileAttachment[], _metadata?: CliMessage['metadata'], dispatch?: AdapterInputDispatch): Promise<void> {
+    const admission = createAdapterInputDispatch(dispatch);
+    assertAdapterInputCurrent(admission);
     if (!this.isSpawned) {
       throw new Error('Adapter not spawned - call spawn() first');
     }
@@ -391,7 +421,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
     this.emit('status', 'busy' as InstanceStatus);
 
     try {
-      const response = await this.sendMessage({ role: 'user', content: message });
+      const response = await this.sendMessage({ role: 'user', content: message }, admission);
 
       if (response.usage) {
         const inputTokens = response.usage.inputTokens || 0;
@@ -415,6 +445,8 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
 
       this.emit('status', 'idle' as InstanceStatus);
     } catch (error) {
+      assertAdapterInputCurrent(admission);
+      if (error instanceof Error && error.name === 'AbortError') throw error;
       this.emit('output', {
         id: generateId(),
         timestamp: Date.now(),
@@ -423,6 +455,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
       } as OutputMessage);
       this.emit('status', 'error' as InstanceStatus);
       this.emitErrorIfObserved(error instanceof Error ? error : new Error(String(error)));
+      throw error;
     }
   }
 

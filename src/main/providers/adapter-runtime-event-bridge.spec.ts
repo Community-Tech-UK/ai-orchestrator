@@ -121,6 +121,7 @@ describe('observeAdapterRuntimeEvents', () => {
     });
     expect(events[7]?.event).toEqual({
       kind: 'complete',
+      turnEnding: { reason: 'completed', evidence: 'provider_completed' },
       tokensUsed: 42,
       costUsd: 0.25,
       durationMs: 500,
@@ -219,6 +220,7 @@ describe('observeAdapterRuntimeEvents', () => {
     });
     expect(events[1]?.event).toEqual({
       kind: 'complete',
+      turnEnding: { reason: 'completed', evidence: 'provider_completed' },
       tokensUsed: 80,
       durationMs: 900,
       requestId: 'req_123',
@@ -261,7 +263,7 @@ describe('observeAdapterRuntimeEvents', () => {
       },
     });
 
-    expect(events[0]?.event).toEqual({ kind: 'complete' });
+    expect(events[0]?.event).toEqual({ kind: 'complete', turnEnding: { reason: 'completed', evidence: 'provider_completed' } });
   });
 
   it('propagates the A3 degradedReason tag from the CliResponse onto the complete event', () => {
@@ -276,7 +278,7 @@ describe('observeAdapterRuntimeEvents', () => {
       degradedReason: 'delayed',
     });
 
-    expect(events[0]?.event).toEqual({ kind: 'complete', degradedReason: 'delayed' });
+    expect(events[0]?.event).toEqual({ kind: 'complete', degradedReason: 'delayed', turnEnding: { reason: 'completed', evidence: 'provider_completed' } });
   });
 
   it('omits degradedReason on healthy (untagged) completions', () => {
@@ -286,7 +288,7 @@ describe('observeAdapterRuntimeEvents', () => {
 
     adapter.emit('complete', { id: 'x', content: 'ok', role: 'assistant' });
 
-    expect(events[0]?.event).toEqual({ kind: 'complete' });
+    expect(events[0]?.event).toEqual({ kind: 'complete', turnEnding: { reason: 'completed', evidence: 'provider_completed' } });
   });
 
   it('removes listeners when cleanup is called', () => {

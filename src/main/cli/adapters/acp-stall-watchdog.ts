@@ -116,6 +116,11 @@ export function buildAcpStallContext(
     durationMs: report.durationMs,
     inactiveMs: report.inactiveMs,
     waitKind: report.wait.kind,
+    ...(report.wait.childActivity ? {
+      childActivity: report.wait.childActivity,
+      lastChildActivityAgeMs: report.wait.lastChildActivityAgeMs,
+      leaseRemainingMs: report.wait.leaseRemainingMs,
+    } : {}),
   };
 }
 
@@ -152,6 +157,11 @@ export function buildAcpStallOutputMessage(
       timeoutMs: report.timeoutMs,
       durationMs: report.durationMs,
       inactiveMs: report.inactiveMs,
+      ...(report.wait.childActivity ? {
+        childActivity: report.wait.childActivity,
+        lastChildActivityAgeMs: report.wait.lastChildActivityAgeMs,
+        leaseRemainingMs: report.wait.leaseRemainingMs,
+      } : {}),
     },
   };
 }

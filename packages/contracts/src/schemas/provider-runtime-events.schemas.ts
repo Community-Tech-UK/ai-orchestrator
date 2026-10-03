@@ -67,9 +67,23 @@ const ProviderPromptWeightBreakdownSchema = z.object({
   other: z.number().nonnegative().optional(),
 });
 
+export const TurnEndingClassificationSchema = z.object({
+  reason: z.enum(['completed', 'max_output', 'content_filter', 'truncated_transport',
+    'quota', 'auth', 'billing', 'context_overflow', 'retryable', 'doom_loop',
+    'parent_silent', 'crash', 'dangling_tool_result', 'unknown_error']),
+  evidence: z.string().min(1).max(100),
+  reasoningCollapsed: z.boolean().optional(),
+  visibleAnswerComplete: z.boolean().optional(),
+  autoContinueSuppressed: z.boolean().optional(),
+  contentFilterFromTool: z.boolean().optional(),
+  providerRetrying: z.boolean().optional(),
+});
+
 const ProviderApiDiagnosticsSchema = {
   requestId: z.string().min(1).max(300).optional(),
   stopReason: z.string().min(1).max(300).optional(),
+  finish: z.string().min(1).max(300).optional(),
+  turnEnding: TurnEndingClassificationSchema.optional(),
   rateLimit: ProviderRateLimitSchema.optional(),
   quota: ProviderQuotaDiagnosticsSchema.optional(),
 };
@@ -140,6 +154,7 @@ const ProviderExitEventSchema = z.object({
   kind: z.literal('exit'),
   code: z.number().int().nullable(),
   signal: z.string().nullable(),
+  turnEnding: TurnEndingClassificationSchema.optional(),
 });
 
 const ProviderSpawnedEventSchema = z.object({

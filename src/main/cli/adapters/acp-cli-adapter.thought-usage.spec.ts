@@ -59,6 +59,43 @@ describe('AcpCliAdapter agent_thought_chunk', () => {
     expect(final?.thinking).toEqual([
       { id: expect.stringMatching(/-thought-0$/), content: 'The user wants the word.', format: 'sdk' },
     ]);
+    expect(response.metadata).not.toHaveProperty('reasoningCollapsed');
+    proc.exit();
+  });
+
+  it('marks a turn whose reasoning collapsed into a repeated phrase', async () => {
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', (message) => {
+      const collapsed = Array.from({ length: 30 }, () => 'Hmm.').join('\n\n');
+      update(proc, {
+        sessionUpdate: 'agent_thought_chunk',
+        messageId: 'msg-t1',
+        content: { type: 'text', text: `Checking the schema.\n\n${collapsed}` },
+      });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+    const { response } = await runTurn(proc);
+
+    expect(response.metadata).toMatchObject({ stopReason: 'end_turn', reasoningCollapsed: true });
+    proc.exit();
+  });
+
+  it('marks a turn that ends on a provider content-filter rejection', async () => {
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', (message) => {
+      update(proc, {
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'msg-a1',
+        content: {
+          type: 'text',
+          text: 'Let me understand the auth flow.The request was rejected because it was considered high risk',
+        },
+      });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+    const { response } = await runTurn(proc);
+
+    expect(response.metadata).toMatchObject({ stopReason: 'end_turn', contentFilterBlocked: true });
     proc.exit();
   });
 

@@ -6,8 +6,24 @@ import {
   assertInstanceLifecycleHookAllowed,
   dispatchInstanceLifecycleHook,
 } from './instance-lifecycle-hooks';
+import { clearInstanceTurnEnding, recordInstanceTurnEnding } from './instance-turn-ending-state';
 
 describe('recovery lifecycle hook redaction', () => {
+  it('suppresses Stop and PostSampling injection after prompt-too-long while keeping failure diagnostics', () => {
+    const instance = { id: 'overflow-hooks-fixture' } as Instance;
+    const triggerLifecycleHooks = vi.fn().mockResolvedValue({ blocked: false });
+    const hookManager = { triggerLifecycleHooks } as unknown as HookManager;
+    const logger = { error: vi.fn() } as unknown as SubsystemLogger;
+    recordInstanceTurnEnding(instance.id, 'context_overflow');
+    dispatchInstanceLifecycleHook('PostSampling', instance, {}, logger, hookManager);
+    dispatchInstanceLifecycleHook('Stop', instance, {}, logger, hookManager);
+    expect(triggerLifecycleHooks).not.toHaveBeenCalled();
+    dispatchInstanceLifecycleHook('StopFailure', instance, {}, logger, hookManager);
+    expect(triggerLifecycleHooks).toHaveBeenCalledOnce();
+    clearInstanceTurnEnding(instance.id);
+    dispatchInstanceLifecycleHook('Stop', instance, {}, logger, hookManager);
+    expect(triggerLifecycleHooks).toHaveBeenCalledTimes(2);
+  });
   it('omits recovery session identity from hook context and hook failure logs', async () => {
     const cursor = 'native-cursor-fixture-placeholder';
     const triggerLifecycleHooks = vi.fn(async () => {

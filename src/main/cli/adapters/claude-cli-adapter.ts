@@ -10,6 +10,7 @@ import { join } from 'path';
 import {
   BaseCliAdapter,
   type AdapterCapabilities,
+  type AdapterInputDispatch,
   AdapterRuntimeCapabilities,
   CliAdapterConfig,
   CliCapabilities,
@@ -32,6 +33,8 @@ import { createOutputMessage, isCliStderrFailureText } from './base-cli-adapter-
 import { InputFormatter } from '../input-formatter';
 import { processAttachments, buildMessageWithFiles } from '../file-handler';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../../logging/source-diagnostics';
+import { safeDiagnosticNumber } from '../turn-ending-diagnostic-fields';
 import { buildAskUserQuestionPrompt, parseAskUserQuestions } from './ask-user-question-prompt';
 import { buildClaudeCliArgs, DEFER_MIN_VERSION } from './claude-cli-argv-builder';
 import type { CliStreamMessage, CliRateLimitInfo } from '../../../shared/types/cli.types';
@@ -65,7 +68,6 @@ import {
   createPermissionKey,
   extractPermissionDetails,
   isPermissionDenialContent,
-  summarizeClaudeLogText,
   type ClaudeToolUseContext,
 } from './claude-cli-permission-details';
 import { probeVersionStatus } from './cli-status-probe';
@@ -85,6 +87,7 @@ import {
   parseClaudeToolProgress,
 } from './claude-cli-async-work';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
+import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 
 export type { DeferredToolUse } from './claude-cli-adapter.types';
 export type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
@@ -101,6 +104,7 @@ const logger = getLogger('ClaudeCliAdapter');
  * Claude CLI Adapter - Implementation for Claude Code CLI
  */
 export class ClaudeCliAdapter extends BaseCliAdapter {
+  protected override readonly defersInputDispatch = true;
   private parser: NdjsonParser;
   private formatter: InputFormatter | null = null;
   private spawnOptions: ClaudeCliSpawnOptions;
@@ -370,7 +374,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         // The 15s interrupt-completion deadline + force-abort net handle stuck processes.
         logger.warn('Failed to send control_request interrupt; deferring recovery to exit handler', {
           sessionId: this.sessionId,
-          error: err instanceof Error ? err.message : String(err),
+          ...errorDiagnostic(err),
         });
         if (this.pendingInterruptResolve === resolve) {
           this.pendingInterruptResolve = null;
@@ -406,7 +410,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     } catch (err) {
       logger.debug('sendEndSession failed (process already closed)', {
         sessionId: this.sessionId,
-        error: err instanceof Error ? err.message : String(err),
+        ...errorDiagnostic(err),
       });
     }
   }
@@ -609,7 +613,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         this.terminate(false).catch((error: unknown) => {
           logger.warn('Failed to terminate timed-out Claude CLI process', {
             sessionId: this.sessionId,
-            error: error instanceof Error ? error.message : String(error),
+            ...errorDiagnostic(error),
           });
         });
       };
@@ -701,7 +705,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             });
             return; // Swallow EPIPE — expected when process closes pipe during interrupt/exit
           }
-          logger.error('stdin stream error', error);
+          logger.error('stdin stream error', undefined, errorDiagnostic(error));
           this.emitClassifiedError(error);
         });
       }
@@ -776,7 +780,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           this.emitClassifiedError(new Error(text));
           return;
         }
-        logger.debug('claude stderr', { text: text.slice(0, 500) });
+        logger.debug('claude stderr', textDiagnostic(text));
       });
 
       // Handle exit
@@ -1009,7 +1013,6 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   /**
    * Builds the Claude CLI process argv from `spawnOptions`. The actual
    * translation lives in `claude-cli-argv-builder.ts` (extracted so it is
@@ -1071,7 +1074,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           });
           return; // Swallow EPIPE — expected when process closes pipe during interrupt/exit
         }
-        logger.error('stdin stream error', error);
+        logger.error('stdin stream error', undefined, errorDiagnostic(error));
         this.emitClassifiedError(error);
       });
     }
@@ -1102,7 +1105,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   /**
    * Send a message to the CLI (legacy API)
    */
-  protected override async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {
+  protected override async sendInputImpl(message: string, attachments?: FileAttachment[], _metadata?: CliMessage['metadata'], dispatch?: AdapterInputDispatch): Promise<void> {
+    const admission = createAdapterInputDispatch(dispatch);
+    assertAdapterInputCurrent(admission);
     if (!this.formatter || !this.formatter.isWritable()) {
       throw new Error('CLI not ready for input');
     }
@@ -1122,13 +1127,15 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         this.sessionId || generateId(),
         this.config.cwd
       );
+      assertAdapterInputCurrent(admission);
       finalMessage = buildMessageWithFiles(message, processed);
     }
 
     this.resetResidentTurn(); // LT-047: new turn, drop stale prior output
     await this.formatter.sendMessage(
       finalMessage,
-      imageAttachments.length > 0 ? imageAttachments : undefined
+      imageAttachments.length > 0 ? imageAttachments : undefined,
+      admission,
     );
     this.emit('status', 'busy' as InstanceStatus);
   }
@@ -1151,7 +1158,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     // Clear the pending permission if one was specified
     if (permissionKey && this.pendingPermissions.has(permissionKey)) {
       this.pendingPermissions.delete(permissionKey);
-      logger.debug('Cleared pending permission', { permissionKey });
+      logger.debug('Cleared pending permission', { permissionKey: textDiagnostic(permissionKey) });
     }
 
     // Check if this is a permission approval response
@@ -1168,10 +1175,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       // Track permission response for future reference
       if (isPermissionApproval) {
         this.approvedPermissions.add(permissionKey);
-        logger.debug('Marked permission as approved', { permissionKey });
+        logger.debug('Marked permission as approved', { permissionKey: textDiagnostic(permissionKey) });
         logger.info('Note - CLI is not waiting for input. User should enable YOLO mode to allow this tool.');
       } else {
-        logger.debug('Permission denied by user', { permissionKey });
+        logger.debug('Permission denied by user', { permissionKey: textDiagnostic(permissionKey) });
       }
 
       // Don't send permission responses to stdin - the CLI isn't waiting for them
@@ -1192,7 +1199,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     logger.debug('Sending as user message', {
       contentLength: text.length,
       jsonMessageLength: jsonMessage.length,
-      contentPreview: summarizeClaudeLogText(text),
+      ...textDiagnostic(text),
     });
     this.resetResidentTurn(); // LT-047: see sendInputImpl
     await this.formatter.sendRaw(jsonMessage);
@@ -1206,7 +1213,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   clearPendingPermission(permissionKey: string): void {
     if (this.pendingPermissions.has(permissionKey)) {
       this.pendingPermissions.delete(permissionKey);
-      logger.debug('Cleared pending permission', { permissionKey });
+      logger.debug('Cleared pending permission', { permissionKey: textDiagnostic(permissionKey) });
     }
   }
 
@@ -1237,7 +1244,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     // Log ALL message types coming through for debugging
     const typeMatch = raw.match(/"type"\s*:\s*"([^"]+)"/g);
     if (typeMatch) {
-      logger.debug('Message types in chunk', { typeMatch });
+      logger.debug('Message types in chunk', { typeMatchCount: typeMatch.length });
     }
 
     // Log raw output for debugging permission and elicitation issues
@@ -1245,14 +1252,14 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         raw.includes('denied') || raw.includes('not allowed') || raw.includes('is_error')) {
       logger.debug('RAW STDOUT (permission-related)', {
         rawLength: raw.length,
-        preview: summarizeClaudeLogText(raw, 400),
+        ...textDiagnostic(raw),
       });
     }
 
     const messages = this.parser.parse(raw);
     logger.debug('Parsed messages from stdout', {
       count: messages.length,
-      types: messages.map(m => m.type)
+      types: messages.map(m => typeof m.type === 'string' ? textDiagnostic(m.type) : { typeKind: 'non-string' })
     });
 
     for (const message of messages) {
@@ -1271,7 +1278,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     if (errorText.includes('permission') || errorText.includes('approve') || errorText.includes('allow') || errorText.includes('y/n')) {
       logger.debug('STDERR contains permission-like content', {
         errorLength: errorText.length,
-        preview: summarizeClaudeLogText(errorText, 220),
+        ...textDiagnostic(errorText),
       });
     }
 
@@ -1279,7 +1286,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       this.emit('output', createOutputMessage('error', errorText));
       return;
     }
-    logger.debug('handleStderr received', { errorText: errorText.substring(0, 500) });
+    logger.debug('handleStderr received', textDiagnostic(errorText));
   }
 
   private handleExit(code: number | null, signal: string | null): void {
@@ -1311,7 +1318,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     // the hook returned `defer`. Don't trigger respawn — the resume flow handles it.
     if (this.deferredToolUse) {
       logger.info('Process exited with deferred tool use pending', {
-        toolName: this.deferredToolUse.toolName,
+        toolName: typeof this.deferredToolUse.toolName === 'string' ? textDiagnostic(this.deferredToolUse.toolName) : undefined,
         toolUseId: this.deferredToolUse.toolUseId,
         sessionId: this.deferredToolUse.sessionId,
         exitCode: code,
@@ -1388,7 +1395,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               logger.info('[APPROVAL_TRACE] tool_result_error_received', {
                 toolUseId: block.tool_use_id,
                 contentLength: block.content.length,
-                contentPreview: summarizeClaudeLogText(block.content, 300),
+                ...textDiagnostic(block.content),
                 isPermissionDenial: isPermissionDenialContent(block.content)
               });
             }
@@ -1408,7 +1415,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               logger.debug('Permission denial detected in tool_result', {
                 toolUseId: block.tool_use_id,
                 contentLength: block.content.length,
-                contentPreview: summarizeClaudeLogText(block.content, 220)
+                ...textDiagnostic(block.content)
               });
 
               const { action, path, displayPath } = extractPermissionDetails(
@@ -1431,9 +1438,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               // Skip if we already have a pending request for this exact permission
               if (this.pendingPermissions.has(permissionKey)) {
                 logger.debug('Skipping duplicate permission prompt', {
-                  permissionKey,
-                  action,
-                  path: displayPath
+                  permissionKey: textDiagnostic(permissionKey),
+                  action: textDiagnostic(action),
+                  path: textDiagnostic(displayPath)
                 });
                 this.forgetToolUse(block.tool_use_id);
                 continue;
@@ -1442,9 +1449,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               // Skip if user already approved this permission (retry still failed but don't re-prompt)
               if (this.approvedPermissions.has(permissionKey)) {
                 logger.debug('User already approved this permission, not re-prompting', {
-                  permissionKey,
-                  action,
-                  path: displayPath
+                  permissionKey: textDiagnostic(permissionKey),
+                  action: textDiagnostic(action),
+                  path: textDiagnostic(displayPath)
                 });
                 // Emit a system message to inform user - only once per permission
                 const hintKey = `hint:${permissionKey}`;
@@ -1465,9 +1472,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               // Track this permission request
               this.pendingPermissions.add(permissionKey);
               logger.debug('Added to pending permissions', {
-                permissionKey,
-                action,
-                path: displayPath
+                permissionKey: textDiagnostic(permissionKey),
+                action: textDiagnostic(action),
+                path: textDiagnostic(displayPath)
               });
 
               const inputRequestId = generateId();
@@ -1477,16 +1484,16 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
               logger.debug('Emitting input_required for permission denial', {
                 inputRequestId,
-                action,
-                path: displayPath
+                action: textDiagnostic(action),
+                path: textDiagnostic(displayPath)
               });
               logger.info('[APPROVAL_TRACE] adapter_emit_permission_denial', {
                 approvalTraceId,
                 instanceSessionId: this.sessionId,
                 requestId: inputRequestId,
-                permissionKey,
-                action,
-                path: displayPath,
+                permissionKey: textDiagnostic(permissionKey),
+                action: textDiagnostic(action),
+                path: textDiagnostic(displayPath),
                 toolUseId: block.tool_use_id
               });
 
@@ -1692,7 +1699,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           };
 
           logger.info('Tool use deferred by hook', {
-            toolName: deferred.name,
+            toolName: typeof deferred.name === 'string' ? textDiagnostic(deferred.name) : undefined,
             toolUseId: deferred.id,
             sessionId: this.deferredToolUse.sessionId,
           });
@@ -1765,7 +1772,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           : [];
         logger.debug('Input_required message received', {
           promptLength: typeof message.prompt === 'string' ? message.prompt.length : 0,
-          metadataKeys: inputRequiredMetadataKeys
+          metadataKeyCount: inputRequiredMetadataKeys.length
         });
 
         this.emit('status', 'waiting_for_input' as InstanceStatus);
@@ -1777,7 +1784,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         logger.debug('Processing input_required', {
           inputRequestId,
           promptLength: prompt.length,
-          promptPreview: summarizeClaudeLogText(prompt)
+          ...textDiagnostic(prompt)
         });
         logger.info('[APPROVAL_TRACE] adapter_emit_input_required', {
           approvalTraceId,
@@ -1829,8 +1836,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         const elicitationId = generateId();
 
         logger.info('MCP elicitation received', {
-          serverName,
-          messagePreview: summarizeClaudeLogText(elicitationMsg),
+          serverName: typeof serverName === 'string' ? textDiagnostic(serverName) : undefined,
+          ...textDiagnostic(elicitationMsg),
           hasSchema: Boolean(elicitationRaw.schema),
           requestId: elicitationRaw.request_id
         });
@@ -1892,10 +1899,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           this.lastEmittedRateLimitResetsAt = resetsAtMs;
           const resetText = resetsAtMs ? new Date(resetsAtMs).toLocaleTimeString() : 'unknown';
           logger.warn('Provider rate limit active', {
-            status,
-            rateLimitType: info?.rateLimitType,
-            overageStatus: info?.overageStatus,
-            resetsAt: resetsAtMs,
+            status: typeof status === 'string' ? textDiagnostic(status) : undefined,
+            rateLimitType: typeof info?.rateLimitType === 'string' ? textDiagnostic(info.rateLimitType) : undefined,
+            overageStatus: typeof info?.overageStatus === 'string' ? textDiagnostic(info.overageStatus) : undefined,
+            resetsAt: safeDiagnosticNumber(resetsAtMs),
           });
           this.emit('output', {
             id: generateId(),
@@ -1911,9 +1918,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           });
         } else {
           logger.debug('Rate limit telemetry', {
-            status,
-            rateLimitType: info?.rateLimitType,
-            resetsAt: info?.resetsAt,
+            status: typeof status === 'string' ? textDiagnostic(status) : undefined,
+            rateLimitType: typeof info?.rateLimitType === 'string' ? textDiagnostic(info.rateLimitType) : undefined,
+            resetsAt: safeDiagnosticNumber(info?.resetsAt),
           });
         }
         break;
@@ -1957,9 +1964,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           } else {
             const reason = resp.error ?? ctrl.error ?? `control_response subtype=${subtype ?? ctrl.status}`;
             logger.warn('control_response interrupt non-success', {
-              subtype,
-              status: ctrl.status,
-              error: reason,
+              subtype: typeof subtype === 'string' ? textDiagnostic(subtype) : undefined,
+              status: typeof ctrl.status === 'string' ? textDiagnostic(ctrl.status) : undefined,
+              ...errorDiagnostic(reason),
               sessionId: this.sessionId,
             });
             resolve({ status: 'rejected', reason });
@@ -1968,7 +1975,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           logger.debug('control_response received with no matching pending interrupt', {
             respId,
             pendingRequestId: this.pendingInterruptRequestId,
-            subtype: resp.subtype ?? ctrl.subtype,
+            subtype: errorDiagnostic(resp.subtype ?? ctrl.subtype),
           });
         }
         break;
@@ -1977,9 +1984,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       default: {
         const unhandled = message as { type: string };
         logger.warn('Unrecognized CLI message type', {
-          type: unhandled.type,
-          keys: Object.keys(message),
-          preview: summarizeClaudeLogText(JSON.stringify(message), 300)
+          type: typeof unhandled.type === 'string' ? textDiagnostic(unhandled.type) : { typeKind: typeof unhandled.type },
+          keyCount: Object.keys(message).length,
+          ...textDiagnostic(JSON.stringify(message))
         });
         break;
       }
@@ -2086,7 +2093,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     const status = await this.checkStatus();
     if (!status.available) {
       logger.warn('Unable to verify Claude CLI version before enabling defer permissions', {
-        error: status.error,
+        ...errorDiagnostic(status.error),
         sessionId: this.sessionId,
       });
     }

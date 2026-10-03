@@ -1,4 +1,5 @@
 import type { InternalInputSource } from '../../shared/types/input-provenance.types';
+import type { AdapterInputRetryReason } from '../cli/adapters/base-cli-adapter.types';
 
 export interface InstanceSendInputOptions {
   isRetry?: boolean;
@@ -7,6 +8,8 @@ export interface InstanceSendInputOptions {
   signal?: AbortSignal;
   /** Final synchronous eligibility check run at the provider-dispatch boundary. */
   beforeProviderDispatch?: () => void;
+  /** Repeatable owner check across later native writes, after the admission callback has committed. */
+  assertProviderDispatchCurrent?: (retryReason?: AdapterInputRetryReason) => void;
   /**
    * Set by `CrossSessionMessagingService` when this send is a delivered
    * cross-session message rather than user- or automation-originated input.

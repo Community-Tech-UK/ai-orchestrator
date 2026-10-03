@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { clearInstanceTurnEnding, recordInstanceTurnEnding } from '../../instance-turn-ending-state';
 import { IdleMonitor } from '../idle-monitor';
 import type { ActivityStateDetector } from '../../../providers/activity-state-detector';
 import type { RecoveryRecipeEngine } from '../../../session/recovery-recipe-engine';
@@ -290,6 +291,26 @@ describe('IdleMonitor', () => {
     expect(hibernateInstance).toHaveBeenCalledWith('harness-driven');
     expect(terminateInstance).toHaveBeenCalledTimes(1);
     expect(terminateInstance).toHaveBeenCalledWith('empty', true);
+  });
+
+  it('does not hide an abnormal child ending through idle hibernation', () => {
+    const child = { id: 'failed-child', parentId: 'root', status: 'idle',
+      lastActivity: Date.now() - 40 * 60_000, outputBuffer: [{ type: 'user' }] } as Instance;
+    const hibernateInstance = vi.fn(async () => undefined);
+    const monitor = new IdleMonitor({
+      getSettings: () => ({ autoTerminateIdleMinutes: 30 }),
+      getRecoveryEngine: () => null, getActivityDetectors: () => new Map(),
+      getInstance: () => child, forEachInstance: (cb) => cb(child, child.id),
+      getAdapter: () => undefined, queueUpdate: vi.fn(), deleteAdapter: vi.fn(),
+      transitionState: vi.fn(), terminateInstance: vi.fn(async () => undefined),
+      hibernateInstance, dispatchRecovery: vi.fn(async () => undefined),
+    });
+    recordInstanceTurnEnding(child.id, 'content_filter');
+    monitor.check();
+    expect(hibernateInstance).not.toHaveBeenCalled();
+    clearInstanceTurnEnding(child.id);
+    monitor.check();
+    expect(hibernateInstance).toHaveBeenCalledWith(child.id);
   });
 
   it('terminateIdleHalf spares children that were active more recently than the guard', () => {

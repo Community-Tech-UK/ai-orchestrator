@@ -1,5 +1,6 @@
 import { redactForSink } from '../../diagnostics/redaction';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic } from '../../logging/source-diagnostics';
 
 const logger = getLogger('SpawnTransaction');
 
@@ -67,20 +68,14 @@ export function createSpawnTransaction(
           warn('Spawn transaction rollback action failed', {
             transactionId: id,
             label: rollbackAction.label,
-            cause: formatRollbackError(cause),
-            error: formatRollbackError(error),
+            cause: errorDiagnostic(cause),
+            error: errorDiagnostic(error),
           });
         }
       }
       rollbacks.length = 0;
     },
   };
-}
-
-function formatRollbackError(error: unknown): string {
-  return redactSpawnFailureText(error instanceof Error
-    ? `${error.name}: ${error.message}`
-    : String(error));
 }
 
 /** Scrub secret-shaped values from spawn-failure text bound for logs or the transcript. */

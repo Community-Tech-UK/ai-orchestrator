@@ -1,5 +1,6 @@
 import type { FileAttachment } from '../../shared/types/instance.types';
 import type { InternalInputSource } from '../../shared/types/input-provenance.types';
+import type { AdapterInputDispatch } from '../cli/adapters/base-cli-adapter.types';
 
 export interface LastSentTurn {
   message: string;
@@ -15,16 +16,44 @@ export interface LastSentTurn {
  */
 export class InstanceCommunicationOverflowTracker {
   private readonly lastSent = new Map<string, LastSentTurn>();
+  private readonly finalMessages = new Map<string, string>();
+  private readonly dispatches = new Map<string, AdapterInputDispatch>();
   private readonly warningIssued = new Set<string>();
   private readonly retried = new Set<string>();
   private readonly seen = new Set<string>();
+  private readonly compactionAttempted = new Set<string>();
+  private readonly logicalUserTurns = new Map<string, number>();
 
-  rememberLastSent(instanceId: string, turn: LastSentTurn): void {
+  rememberLastSent(instanceId: string, turn: LastSentTurn, logicalUserTurn?: number): void {
+    if (logicalUserTurn !== undefined && this.logicalUserTurns.get(instanceId) !== logicalUserTurn) {
+      this.logicalUserTurns.set(instanceId, logicalUserTurn);
+      this.compactionAttempted.delete(instanceId);
+      this.retried.delete(instanceId);
+    }
     this.lastSent.set(instanceId, turn);
+  }
+
+  /** Claim before awaiting compaction, including failed attempts and concurrent errors. */
+  claimCompaction(instanceId: string): boolean {
+    if (this.compactionAttempted.has(instanceId) || this.retried.has(instanceId)) return false;
+    this.compactionAttempted.add(instanceId);
+    return true;
   }
 
   getLastSent(instanceId: string): LastSentTurn | undefined {
     return this.lastSent.get(instanceId);
+  }
+
+  rememberDispatch(instanceId: string, dispatch: AdapterInputDispatch, finalMessage?: string): void {
+    this.dispatches.set(instanceId, dispatch);
+    if (finalMessage === undefined) this.finalMessages.delete(instanceId);
+    else this.finalMessages.set(instanceId, finalMessage);
+  }
+
+  getFinalMessage(instanceId: string): string | undefined { return this.finalMessages.get(instanceId); }
+
+  getDispatch(instanceId: string): AdapterInputDispatch | undefined {
+    return this.dispatches.get(instanceId);
   }
 
   getResumePrompt(instanceId: string): string | null {
@@ -65,8 +94,12 @@ export class InstanceCommunicationOverflowTracker {
 
   cleanup(instanceId: string): void {
     this.lastSent.delete(instanceId);
+    this.dispatches.delete(instanceId);
+    this.finalMessages.delete(instanceId);
     this.warningIssued.delete(instanceId);
     this.retried.delete(instanceId);
     this.seen.delete(instanceId);
+    this.compactionAttempted.delete(instanceId);
+    this.logicalUserTurns.delete(instanceId);
   }
 }

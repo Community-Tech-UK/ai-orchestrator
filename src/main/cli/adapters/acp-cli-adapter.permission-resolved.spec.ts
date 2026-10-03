@@ -48,7 +48,7 @@ describe('AcpCliAdapter input_required_resolved', () => {
     await adapter.sendMessage({ role: 'user', content: 'delete it' });
 
     expect(shown).toHaveBeenCalledWith(expect.objectContaining({ id: 'acp_permission:71' }));
-    expect(resolved).toHaveBeenCalledWith({ id: 'acp_permission:71', reason: 'timeout' });
+    await vi.waitFor(() => expect(resolved).toHaveBeenCalledWith({ id: 'acp_permission:71', reason: 'timeout' }));
     proc.exit();
   });
 

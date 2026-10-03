@@ -41,6 +41,7 @@ import type {
 } from '../../shared/types/instance.types';
 import { createPromptHistoryEntryId } from '../../shared/types/prompt-history.types';
 import { getLogger } from '../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../logging/source-diagnostics';
 import { capResolvedInstructionStack } from '../core/config/instruction-cap';
 import { omitNativeOwnedInstructionStack } from '../core/config/native-instruction-ownership';
 import { resolveInstructionStack } from '../core/config/instruction-resolver';
@@ -919,7 +920,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       instance.id,
       message,
       (id, title, source) => {
-        logger.debug('Auto-title callback (lifecycle)', { id, title, source, isRenamed: instance.isRenamed });
+        logger.debug('Auto-title callback (lifecycle)', { id, title: textDiagnostic(title), source, isRenamed: instance.isRenamed });
         if (!instance.isRenamed) {
           instance.displayName = title;
           if (source === 'ai') {
@@ -1429,7 +1430,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       } catch (error) {
         logger.warn('Failed to record initial prompt history in main process', {
           instanceId: instance.id,
-          error: error instanceof Error ? error.message : String(error),
+          ...errorDiagnostic(error),
         });
       }
     }
@@ -1823,12 +1824,9 @@ export class InstanceLifecycleManager extends EventEmitter {
             }
           } catch (error) {
             const isCrashRecovery = config.metadata?.['reason'] === 'crash-recovery';
-            const errorMessage = isCrashRecovery
-              ? 'Recovery runtime startup failed'
-              : error instanceof Error ? error.message : String(error);
             logger.error('Failed to spawn/initialize CLI',
-              !isCrashRecovery && error instanceof Error ? error : undefined,
-              { errorMessage, ...(isCrashRecovery ? { recoverySession: true } : {}) });
+              undefined,
+              { ...(isCrashRecovery ? { recoverySession: true } : errorDiagnostic(error)) });
             throw error;
           }
         }
@@ -1865,8 +1863,8 @@ export class InstanceLifecycleManager extends EventEmitter {
             ? new Error('Recovery runtime startup rollback')
             : error, retain ? { retain: SESSION_RECORD_ROLLBACK_LABELS } : undefined);
           logger.error('Instance background init failed',
-            !isCrashRecoveryCreation && error instanceof Error ? error : undefined,
-            { instanceId: instance.id, retained: retain, ...(isCrashRecoveryCreation ? { recoverySession: true } : {}) });
+            undefined,
+            { instanceId: instance.id, retained: retain, ...(isCrashRecoveryCreation ? { recoverySession: true } : errorDiagnostic(error)) });
           if (retain) retainFailedCreation(instance, error, this.initialPromptRecoveryDeps);
         }
         throw error;
@@ -2010,11 +2008,11 @@ export class InstanceLifecycleManager extends EventEmitter {
 
       this.transitionState(instance, 'hibernated');
       this.deps.queueUpdate(instanceId, 'hibernated', instance.contextUsage);
-      logger.info('Instance hibernated', { instanceId, displayName: instance.displayName });
+      logger.info('Instance hibernated', { instanceId, displayName: textDiagnostic(instance.displayName ?? '') });
     } catch (error) {
       this.transitionState(instance, 'failed');
       this.deps.queueUpdate(instanceId, 'failed', instance.contextUsage);
-      logger.error('Failed to hibernate instance', error instanceof Error ? error : undefined, { instanceId });
+      logger.error('Failed to hibernate instance', undefined, { ...errorDiagnostic(error), instanceId });
       throw error;
     }
   }
@@ -2333,8 +2331,8 @@ export class InstanceLifecycleManager extends EventEmitter {
         this.parkOnCopilotRoutingFailure(instanceId, error);
         this.deps.queueUpdate(instanceId, 'failed', instance.contextUsage);
         logger.error('Failed to wake instance',
-          !isCrashRecovery && error instanceof Error ? error : undefined,
-          { instanceId, ...(isCrashRecovery ? { recoverySession: true } : {}) });
+          undefined,
+          { instanceId, ...(isCrashRecovery ? { recoverySession: true } : errorDiagnostic(error)) });
         throw safeError;
       } finally {
         instance.readyPromise = undefined;
@@ -2385,7 +2383,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     } catch (error) {
       logger.warn('Could not disarm a provider-limit park during restart', {
         instanceId,
-        error: error instanceof Error ? error.message : String(error),
+        ...errorDiagnostic(error),
       });
     }
     try {
@@ -2393,7 +2391,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     } catch (error) {
       logger.warn('Could not disarm an auth-repair watch during restart', {
         instanceId,
-        error: error instanceof Error ? error.message : String(error),
+        ...errorDiagnostic(error),
       });
     }
   }
@@ -2646,7 +2644,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             instanceId,
             ...(isCrashRecovery
               ? { recoverySession: true }
-              : { error: error instanceof Error ? error.message : String(error) }),
+              : { ...errorDiagnostic(error) }),
           });
         }
       }
@@ -2702,7 +2700,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           instanceId,
           ...(isCrashRecovery
             ? { recoverySession: true }
-            : { providerSessionId, error: result.error }),
+            : { providerSessionId, ...errorDiagnostic(result.error) }),
         });
         this.deps.queueUpdate(
           instanceId,
@@ -2814,7 +2812,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         } catch (error) {
           logger.warn('Adapter terminate failed during fresh restart, proceeding', {
             instanceId,
-            error: error instanceof Error ? error.message : String(error),
+            ...errorDiagnostic(error),
           });
         }
       }
@@ -2912,7 +2910,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         await spawnTransaction.rollback(error);
         instance.recoveryMethod = 'failed';
         this.transitionState(instance, 'error');
-        logger.error('Failed to restart CLI with fresh context', error instanceof Error ? error : undefined, {
+        logger.error('Failed to restart CLI with fresh context', undefined, { ...errorDiagnostic(error),
           instanceId,
         });
       }
@@ -3061,7 +3059,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           await this.waitForInputReadinessBoundary(instanceId, adapter);
         } catch (spawnError) {
           if (shouldResume) {
-            logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
+            logger.warn('Failed to spawn with resume, falling back to fresh session', { ...errorDiagnostic(spawnError), instanceId });
             // Strip listeners before terminate so the doomed adapter's exit is
             // not handled as a real instance exit → `error` (LT-008).
             adapter.removeAllListeners();
@@ -3079,7 +3077,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             } catch (err) {
               logger.warn('writeThroughIdentity failed after fresh fallback (agent-mode-change)', {
                 instanceId,
-                error: err instanceof Error ? err.message : String(err),
+                ...errorDiagnostic(err),
               });
             }
             await this.waitForInputReadinessBoundary(instanceId, adapter);
@@ -3118,7 +3116,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         await adapter.sendInput(modeChangeMessage);
       } catch (error) {
         this.transitionState(instance, 'error');
-        logger.error('Failed to change agent mode', error instanceof Error ? error : undefined, { instanceId, newAgentId });
+        logger.error('Failed to change agent mode', undefined, { ...errorDiagnostic(error), instanceId, newAgentId });
         throw error;
       }
 
@@ -3569,7 +3567,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
             const freshAdapter = this.deps.getAdapter(instanceId);
             if (freshAdapter) {
               await freshAdapter.sendInput(message);
-              logger.info('Recovery action: interrupted and injected message after respawn', { instanceId, message });
+              logger.info('Recovery action: interrupted and injected message after respawn', { instanceId, ...textDiagnostic(message) });
             } else {
               logger.warn('Recovery action: no adapter after interrupt/respawn, skipping nudge', { instanceId });
             }

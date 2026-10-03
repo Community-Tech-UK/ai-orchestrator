@@ -509,6 +509,7 @@ describe('InstanceAnnounceThenHaltContinuation', () => {
         internalSource: 'announce-then-halt-continuation',
         signal: expect.any(AbortSignal),
         beforeProviderDispatch: expect.any(Function),
+        assertProviderDispatchCurrent: expect.any(Function),
       },
     );
     expect(sendInput.mock.calls[0][1]).toContain('run the full suite');
@@ -937,4 +938,12 @@ describe('InstanceAnnounceThenHaltContinuation', () => {
 
     expect(sendInput).toHaveBeenCalledTimes(1);
   });
+  it('does not turn an abnormal ending into an announce-then-halt continuation', async () => {
+    const envelope = completionEnvelope();
+    if (envelope.event.kind === 'complete') envelope.event.turnEnding = { reason: 'content_filter', evidence: 'native_content_filter' };
+    events.emit('provider:normalized-event', envelope);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(sendInput).not.toHaveBeenCalled();
+  });
+
 });

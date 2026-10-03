@@ -1321,6 +1321,7 @@ describe('CodexCliAdapter', () => {
             ): Promise<{ response: { content: string } }>;
           }).executePreparedMessage({ role: 'user', content: 'go' }, { timeoutMs: 60_000, phase: 'turn' });
 
+          await new Promise<void>((resolve) => proc.stdin.once('finish', resolve));
           proc.stdout.write('{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"done"}}\n');
           proc.stdout.end();
           proc.stderr.end();
@@ -1379,6 +1380,7 @@ describe('CodexCliAdapter', () => {
           ): Promise<unknown>;
         }).executePreparedMessage({ role: 'user', content: 'go' }, { timeoutMs: 5_000, phase: 'startup' });
 
+        await new Promise<void>((resolve) => proc.stdin.once('finish', resolve));
         // Banner + real error in one chunk, with NO trailing newline — the
         // error line lands in the unterminated remainder processed at close.
         proc.stderr.write('Reading prompt from stdin...\nError: thread/resume failed: no rollout found for thread id abc');

@@ -6,19 +6,21 @@ import type { Writable } from 'stream';
 import type { FileAttachment } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
 import { ndjsonSafeStringify } from './adapters/base-cli-adapter';
+import type { AdapterInputDispatch } from './adapters/base-cli-adapter.types';
+import { assertAdapterInputCurrent } from './adapters/adapter-input-dispatch';
 
 const logger = getLogger('InputFormatter');
 
 // Anthropic API content block types
-type TextBlock = { type: 'text'; text: string };
-type ImageBlock = {
+interface TextBlock { type: 'text'; text: string }
+interface ImageBlock {
   type: 'image';
   source: {
     type: 'base64';
     media_type: string;
     data: string;
   };
-};
+}
 type ContentBlock = TextBlock | ImageBlock;
 
 export class InputFormatter {
@@ -32,9 +34,10 @@ export class InputFormatter {
    * Send a user message to the CLI
    * Uses Anthropic API format with content blocks for multimodal support
    */
-  async sendMessage(message: string, attachments?: FileAttachment[]): Promise<void> {
+  async sendMessage(message: string, attachments?: FileAttachment[], dispatch?: AdapterInputDispatch): Promise<void> {
+    assertAdapterInputCurrent(dispatch);
     logger.debug('sendMessage called', {
-      messagePreview: message.substring(0, 50),
+      messageLength: message.length,
       attachmentsCount: attachments?.length ?? 0,
     });
 
@@ -77,37 +80,47 @@ export class InputFormatter {
       },
     };
 
-    await this.writeToStdin(inputMessage);
+    await this.writeToStdin(inputMessage, dispatch);
   }
 
   /**
    * Send a raw string to stdin (for non-JSON mode)
    */
-  async sendRaw(content: string): Promise<void> {
+  async sendRaw(content: string, dispatch?: AdapterInputDispatch): Promise<void> {
     logger.debug('sendRaw called', { contentLength: content.length });
     return new Promise((resolve, reject) => {
-      const success = this.stdin.write(content + '\n', 'utf-8', (error) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve();
-        }
-      });
-
-      if (!success) {
-        // Handle backpressure
-        this.stdin.once('drain', () => resolve());
-      }
+      let settled = false;
+      const settle = (error?: unknown): void => {
+        if (settled) return;
+        settled = true;
+        dispatch?.signal?.removeEventListener('abort', onAbort);
+        if (error !== undefined) reject(error); else resolve();
+      };
+      const onAbort = (): void => {
+        try { assertAdapterInputCurrent(dispatch); } catch (error) { settle(error); }
+      };
+      dispatch?.signal?.addEventListener('abort', onAbort, { once: true });
+      try {
+        assertAdapterInputCurrent(dispatch);
+        dispatch?.beforeProviderDispatch?.();
+        assertAdapterInputCurrent(dispatch);
+        this.stdin.write(content + '\n', 'utf-8', (error) => {
+          if (error) { settle(error); return; }
+          try { assertAdapterInputCurrent(dispatch); } catch (error) { settle(error); return; }
+          settle();
+        });
+      } catch (error) { settle(error); }
+      // The write callback is authoritative. Drain only reports buffer capacity.
     });
   }
 
   /**
    * Write JSON message to stdin
    */
-  private async writeToStdin(message: Record<string, unknown>): Promise<void> {
+  private async writeToStdin(message: Record<string, unknown>, dispatch?: AdapterInputDispatch): Promise<void> {
     const json = ndjsonSafeStringify(message);
     logger.debug('Sending JSON to stdin', { jsonLength: json.length });
-    return this.sendRaw(json);
+    return this.sendRaw(json, dispatch);
   }
 
   /**

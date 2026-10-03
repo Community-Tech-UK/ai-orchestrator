@@ -109,12 +109,12 @@ describe('CursorCliProvider inline translation', () => {
 
   it('error Error → error envelope', () => {
     adapter.emit('error', new Error('boom'));
-    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'boom', recoverable: false });
+    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'boom', recoverable: false, turnEnding: { reason: 'unknown_error', evidence: 'provider_error' } });
   });
 
   it('error string → error envelope', () => {
     adapter.emit('error', 'str');
-    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'str', recoverable: false });
+    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'str', recoverable: false, turnEnding: { reason: 'unknown_error', evidence: 'provider_error' } });
   });
 
   it('complete becomes a complete envelope', () => {
@@ -124,6 +124,7 @@ describe('CursorCliProvider inline translation', () => {
       tokensUsed: 42,
       costUsd: 0.25,
       durationMs: 500,
+      turnEnding: { reason: 'completed', evidence: 'provider_completed' },
     });
   });
 

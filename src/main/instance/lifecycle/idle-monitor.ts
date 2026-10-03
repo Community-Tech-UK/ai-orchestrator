@@ -29,7 +29,9 @@ import type { ErrorInfo } from '../../../shared/types/ipc.types';
 import { createDetectedFailure, type DetectedFailure } from '../../../shared/types/error-recovery.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../../logging/source-diagnostics';
 import { getSessionMutex } from '../../session/session-mutex';
+import { getInstanceTurnEnding } from '../instance-turn-ending-state';
 import { getInstanceAsyncWorkRegistry } from '../instance-async-work-registry';
 
 const logger = getLogger('IdleMonitor');
@@ -173,12 +175,12 @@ export class IdleMonitor {
       try {
         this.check();
       } catch (err) {
-        logger.warn('Idle check tick failed', { error: (err as Error)?.message ?? String(err) });
+        logger.warn('Idle check tick failed', errorDiagnostic(err));
       }
       try {
         this.cleanupZombieProcesses();
       } catch (err) {
-        logger.warn('Zombie cleanup tick failed', { error: (err as Error)?.message ?? String(err) });
+        logger.warn('Zombie cleanup tick failed', errorDiagnostic(err));
       }
     }, intervalMs);
   }
@@ -292,16 +294,16 @@ export class IdleMonitor {
                   outcome: outcome.status,
                 });
                 this.deps.dispatchRecovery(instanceId, detectedFailure).catch((err) => {
-                  logger.warn('Recovery action dispatch failed', { instanceId, error: String(err) });
+                  logger.warn('Recovery action dispatch failed', { instanceId, ...errorDiagnostic(err) });
                 });
               })
               .catch((err) => {
-                logger.warn('Recovery failed', { instanceId, error: String(err) });
+                logger.warn('Recovery failed', { instanceId, ...errorDiagnostic(err) });
               });
           }
         })
         .catch((err) => {
-          logger.warn('Activity detection failed', { instanceId, error: String(err) });
+          logger.warn('Activity detection failed', { instanceId, ...errorDiagnostic(err) });
         });
     }
 
@@ -315,6 +317,7 @@ export class IdleMonitor {
 
     this.deps.forEachInstance((instance) => {
       if (!instance.parentId) return;
+      if (getInstanceTurnEnding(instance.id) !== undefined) return;
       if (getInstanceAsyncWorkRegistry().hasInhibitor(instance.id)) return;
 
       if (instance.status === 'idle' && now - instance.lastActivity > idleThreshold) {
@@ -327,22 +330,22 @@ export class IdleMonitor {
         if (hasUserMessages) {
           logger.info('Auto-hibernating idle instance (has conversation)', {
             instanceId: instance.id,
-            displayName: instance.displayName,
+            ...textDiagnostic(instance.displayName ?? ''),
             idleMinutes,
           });
           this.deps.hibernateInstance(instance.id).catch((err) => {
-            logger.error('Auto-hibernate failed', err instanceof Error ? err : undefined, {
+            logger.error('Auto-hibernate failed', undefined, { ...errorDiagnostic(err),
               instanceId: instance.id,
             });
           });
         } else {
           logger.info('Auto-terminating idle instance (no conversation)', {
             instanceId: instance.id,
-            displayName: instance.displayName,
+            ...textDiagnostic(instance.displayName ?? ''),
             idleMinutes,
           });
           void this.deps.terminateInstance(instance.id, true).catch((err) =>
-            logger.error('Auto-terminate failed', err instanceof Error ? err : undefined, {
+            logger.error('Auto-terminate failed', undefined, { ...errorDiagnostic(err),
               instanceId: instance.id,
             }),
           );
@@ -388,7 +391,7 @@ export class IdleMonitor {
     for (let i = 0; i < toTerminate && i < idleInstances.length; i++) {
       logger.warn('Terminating idle instance due to memory pressure', {
         instanceId: idleInstances[i].id,
-        displayName: idleInstances[i].displayName,
+        ...textDiagnostic(idleInstances[i].displayName ?? ''),
       });
       void this.deps.terminateInstance(idleInstances[i].id, true);
     }
@@ -454,7 +457,7 @@ export class IdleMonitor {
 
     for (const instanceId of adapterEntriesToCleanup) {
       this.forceCleanupAdapter(instanceId).catch((err) => {
-        logger.error('Failed to cleanup zombie process', err instanceof Error ? err : undefined, { instanceId });
+        logger.error('Failed to cleanup zombie process', undefined, { ...errorDiagnostic(err), instanceId });
       });
     }
   }
@@ -469,7 +472,7 @@ export class IdleMonitor {
     try {
       await adapter.terminate(false);
     } catch (error) {
-      logger.error('Error during force cleanup', error instanceof Error ? error : undefined, { instanceId });
+      logger.error('Error during force cleanup', undefined, { instanceId, ...errorDiagnostic(error) });
     } finally {
       this.deps.deleteAdapter(instanceId);
     }

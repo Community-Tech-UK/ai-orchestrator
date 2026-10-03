@@ -592,7 +592,7 @@ describe('OpenAICompatibleChatAdapter', () => {
     const events = captureTurnEvents(adapter);
 
     await adapter.spawn();
-    await adapter.sendInput('hello');
+    await expect(adapter.sendInput('hello')).rejects.toThrow('timed out after 25ms');
 
     expect(events.output.join('')).toContain('timed out after 25ms');
     expect(events.complete).toBe(false);

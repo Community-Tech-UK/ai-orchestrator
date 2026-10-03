@@ -3,6 +3,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { CompactionGate } from './compaction-gate';
 
 describe('CompactionGate', () => {
+  it('cancels one input waiter without settling another compaction waiter', async () => {
+    const gate = new CompactionGate();
+    const abort = new AbortController();
+    const cancelled = gate.wait(60_000, 60_000, abort.signal);
+    const preserved = gate.wait(60_000);
+    abort.abort();
+    await expect(cancelled).resolves.toBe('cancelled');
+    expect(gate.hasPendingWaiters()).toBe(true);
+    gate.settle();
+    await expect(preserved).resolves.toBe('observed');
+    expect(gate.hasPendingWaiters()).toBe(false);
+  });
   it('resolves a pending wait when settle() is called', async () => {
     const gate = new CompactionGate();
     const pending = gate.wait(60_000);

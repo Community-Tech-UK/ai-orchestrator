@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'events';
+import { clearInstanceTurnEnding, recordInstanceTurnEnding } from './instance-turn-ending-state';
 import { InstanceAsyncWorkRegistry } from './instance-async-work-registry';
 import {
   ASYNC_WORK_CONTINUATION_PROMPT,
@@ -8,11 +10,11 @@ import {
   type InstanceAsyncWorkContinuationHost,
 } from './instance-async-work-continuation';
 
-type TestInstance = {
+interface TestInstance {
   status: 'idle' | 'busy' | 'hibernated' | 'ready';
   requestCount: number;
   lastActivity: number;
-};
+}
 
 describe('InstanceAsyncWorkContinuation', () => {
   let registry: InstanceAsyncWorkRegistry;
@@ -31,7 +33,10 @@ describe('InstanceAsyncWorkContinuation', () => {
   beforeEach(() => {
     registry = new InstanceAsyncWorkRegistry();
     instance = { status: 'idle', requestCount: 3, lastActivity: 0 };
-    sendInput = vi.fn(async () => undefined);
+    sendInput = vi.fn(async (_id, _message, _attachments, options) => {
+      options?.beforeProviderDispatch?.();
+      instance.requestCount += 1;
+    });
     host = {
       getInstance: vi.fn(() => instance),
       waitForInstanceSettled: vi.fn(async () => instance),
@@ -54,7 +59,8 @@ describe('InstanceAsyncWorkContinuation', () => {
       'instance-1',
       ASYNC_WORK_CONTINUATION_PROMPT,
       undefined,
-      { autoContinuation: true, internalSource: 'async-work-continuation' },
+      { autoContinuation: true, internalSource: 'async-work-continuation',
+          signal: expect.any(AbortSignal), beforeProviderDispatch: expect.any(Function), assertProviderDispatchCurrent: expect.any(Function) },
     );
     expect(registry.hasInhibitor('instance-1')).toBe(false);
   });
@@ -166,6 +172,36 @@ describe('InstanceAsyncWorkContinuation', () => {
     expect(sendInput).toHaveBeenCalledTimes(1);
   });
 
+  it('cancels background delivery when manual input starts during provider preflight', async () => {
+    continuation.stop();
+    const events = new EventEmitter();
+    Object.assign(host, { on: events.on.bind(events), off: events.off.bind(events) });
+    let release!: () => void;
+    const providerInputs: string[] = [];
+    sendInput.mockImplementation(async (_id, message, _attachments, options) => {
+      await new Promise<void>((resolve) => { release = resolve; });
+      if (options?.signal?.aborted) return;
+      options?.beforeProviderDispatch?.();
+      providerInputs.push(message);
+    });
+    continuation = new InstanceAsyncWorkContinuation(registry, host, { providerResumeGraceMs: 0 });
+    continuation.start();
+    registry.observe('instance-1', terminal());
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    events.emit('instance:input-started', { instanceId: 'instance-1', autoContinuation: false });
+    release();
+    await vi.waitFor(() => expect(registry.hasInhibitor('instance-1')).toBe(false));
+    expect(providerInputs).toEqual([]);
+  });
+
+  it('does not revive a quota-ended turn on a background task notification', async () => {
+    recordInstanceTurnEnding('instance-1', 'quota');
+    registry.observe('instance-1', terminal());
+    await vi.waitFor(() => expect(registry.hasInhibitor('instance-1')).toBe(false));
+    clearInstanceTurnEnding('instance-1');
+    expect(sendInput).not.toHaveBeenCalled();
+  });
+
   describe('stalled background work check-in', () => {
     const start = 1_000_000;
     const stalledAt = start + STALLED_WORK_CHECK_IN_AFTER_MS;
@@ -191,7 +227,8 @@ describe('InstanceAsyncWorkContinuation', () => {
         'instance-1',
         buildStalledWorkCheckInPrompt(STALLED_WORK_CHECK_IN_AFTER_MS),
         undefined,
-        { autoContinuation: true, internalSource: 'async-work-continuation' },
+        { autoContinuation: true, internalSource: 'async-work-continuation',
+          signal: expect.any(AbortSignal), beforeProviderDispatch: expect.any(Function), assertProviderDispatchCurrent: expect.any(Function) },
       );
     });
 

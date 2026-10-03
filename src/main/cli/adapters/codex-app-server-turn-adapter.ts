@@ -1,5 +1,6 @@
 import type {
   CliMessage,
+  AdapterInputDispatch,
   CliResponse,
   CliToolCall,
   TurnInterruptCompletion,
@@ -24,7 +25,6 @@ import {
 import {
   extractCodexAppServerError,
   formatCodexAppServerError,
-  isCodexUsageLimitErrorInfo,
 } from './codex/app-server-errors';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { hasPendingBrowserApproval } from './codex/browser-approval-watchdog';
@@ -33,11 +33,16 @@ import {
   createCodexTurnCaptureState,
   type CodexTurnCaptureCallbacks,
 } from './codex/app-server-thread-runtime';
-import { CodexAppServerRuntimeError, createCodexUsageLimitError } from './codex/app-server-runtime-errors';
+import { CodexAppServerRuntimeError } from './codex/app-server-runtime-errors';
+import { createCodexTurnFailure } from './codex/turn-failure';
 import { codexLimitResetAt, parseCodexAccountRateLimitsRead } from './codex/account-rate-limits';
 import { readChildRolloutUsage } from './codex/child-rollout-usage';
 import { sendCodexOrchestrationResponse } from './codex/orchestration-response-send';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic } from '../../logging/source-diagnostics';
+import { readCodexActiveGoal, readCodexContinuationOwnership } from './codex/native-continuation-ownership';
+import { assertAdapterInputCurrent } from './adapter-input-dispatch';
+import { buildCodexTurnInputDispatch } from './codex/turn-input-dispatch';
 import type { InstanceStatus } from '../../../shared/types/instance.types';
 
 const logger = getLogger('CodexCliAdapter');
@@ -82,10 +87,11 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     message: string,
     attachments?: FileAttachment[],
     metadata?: CliMessage['metadata'],
+    dispatch?: AdapterInputDispatch,
   ): Promise<void> {
     this.pendingHarnessSends += 1;
     try {
-      await super.sendInputImpl(message, attachments, metadata);
+      await super.sendInputImpl(message, attachments, metadata, dispatch);
     } finally {
       this.pendingHarnessSends -= 1;
     }
@@ -136,7 +142,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     } catch (error) {
       logger.warn('Could not pause the Codex thread goal after a stop', {
         threadId,
-        error: error instanceof Error ? error.message : String(error),
+        ...errorDiagnostic(error),
       });
       return false;
     }
@@ -151,21 +157,20 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     return true;
   }
 
-  /** True when the thread has an active goal, so Codex resumes idle work by itself. */
-  protected async isThreadGoalActive(): Promise<boolean> {
-    const known = this.knownGoalStatus();
-    if (known !== undefined) return known === 'active';
-    const client = this.getAppServerClient();
-    const threadId = this.getAppServerThreadId();
-    if (!client || !threadId) return false;
-    try {
-      const { goal } = await client.request('thread/goal/get', { threadId }, THREAD_GOAL_RPC_TIMEOUT_MS);
-      return goal?.status === 'active';
-    } catch {
-      return false;
-    }
+  /** Native turns and unreadable goals exclude a competing Harness prompt. */
+  async hasProviderAutoContinuation(): Promise<boolean> {
+    if (!this.useAppServer) return false;
+    if (this.hasProviderTurn() || this.appServerRuntime.hasActiveTurn()) return true;
+    return readCodexContinuationOwnership(this.knownGoalStatus(), this.getAppServerClient(), this.getAppServerThreadId());
   }
-
+  /** Recheck notification-backed ownership at the synchronous dispatch boundary. */
+  hasPendingProviderAutoContinuation(): boolean {
+    return this.useAppServer && (this.hasProviderTurn() || this.appServerRuntime.hasActiveTurn() || this.knownGoalStatus() === 'active');
+  }
+  /** Native context recovery's goal check; outer recovery uses the fail-closed owner check above. */
+  protected async isThreadGoalActive(): Promise<boolean> {
+    return readCodexActiveGoal(this.knownGoalStatus(), this.getAppServerClient(), this.getAppServerThreadId());
+  }
   /** Whether a Codex-started turn is being followed right now. */
   protected hasProviderTurn(): boolean {
     return this.providerTurnDone !== null;
@@ -214,7 +219,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     const status = state.finalTurn?.status;
     if (status === 'failed' || state.error) {
       this.flushPartialUsage();
-      this.emitProviderTurnError(this.describeFailedTurn(state));
+      this.emitProviderTurnError(createCodexTurnFailure(state));
       return;
     }
     if (status === 'interrupted') {
@@ -227,27 +232,17 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
   private failProviderTurn(turnId: string, error: unknown): void {
     this.flushPartialUsage();
     const message = error instanceof Error ? error.message : String(error);
-    logger.warn('A turn Codex started by itself ended without completing', { turnId, error: message });
+    logger.warn('A turn Codex started by itself ended without completing', { turnId, ...errorDiagnostic(error) });
     // A closed transport is reported by the adapter exit path.
     if (error instanceof CodexAppServerRuntimeError && error.kind === 'transport-closed') return;
-    this.emitProviderTurnError(message);
+    this.emitProviderTurnError(error instanceof Error ? error : new Error(message));
   }
 
-  private emitProviderTurnError(message: string): void {
+  private emitProviderTurnError(error: Error): void {
     this.emit('output', {
-      id: generateId(), timestamp: Date.now(), type: 'error', content: `Codex error: ${message}`,
+      id: generateId(), timestamp: Date.now(), type: 'error', content: `Codex error: ${error.message}`,
     });
-  }
-
-  private describeFailedTurn(state: TurnCaptureState): string {
-    const details = state.finalTurn?.error !== undefined && state.finalTurn.error !== null
-      ? extractCodexAppServerError({ error: state.finalTurn.error })
-      : undefined;
-    const fromTurn = details ? formatCodexAppServerError(details) : undefined;
-    const captured = state.error instanceof Error
-      ? state.error.message
-      : (typeof state.error === 'string' ? state.error : undefined);
-    return fromTurn ?? captured ?? 'Codex turn failed';
+    this.emit('turn_error', Object.assign(error, { willRetry: false }));
   }
 
   /**
@@ -257,10 +252,11 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
   private async joinProviderTurn(
     input: UserInput[],
     developerInput?: string,
+    dispatch?: AdapterInputDispatch,
   ): Promise<{ joined: boolean; developerInjected: boolean }> {
     const done = this.providerTurnDone;
     if (!done) return { joined: false, developerInjected: false };
-    const { delivered, developerInjected } = await this.appServerRuntime.steerProviderTurn(input, developerInput);
+    const { delivered, developerInjected } = await this.appServerRuntime.steerProviderTurn(input, developerInput, dispatch);
     if (delivered) await done;
     return { joined: delivered, developerInjected };
   }
@@ -269,9 +265,10 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     message: string,
     attachments?: FileAttachment[],
     metadata?: CliMessage['metadata'],
+    dispatch?: AdapterInputDispatch,
   ): Promise<void> {
     this.contextOuterSendId = generateId();
-    await super.appServerSendMessage(message, attachments, metadata);
+    await super.appServerSendMessage(message, attachments, metadata, dispatch);
   }
 
   protected override async appServerSendMessageInner(
@@ -279,10 +276,12 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     attachments?: FileAttachment[],
     costRecoveryCount = 0,
     metadata?: CliMessage['metadata'],
+    dispatch?: AdapterInputDispatch,
   ): Promise<void> {
     if (!this.getAppServerClient() || !this.getAppServerThreadId()) {
       throw new Error('App-server not initialized');
     }
+    assertAdapterInputCurrent(dispatch, this.hasPendingProviderAutoContinuation());
     if (this.appServerRuntime.hasActiveTurn() && !this.hasProviderTurn()) throw new CodexAppServerRuntimeError({
       kind: 'request-rejected', message: 'Codex app-server runtime already has an active turn', recoverability: 'retry-thread',
     });
@@ -329,8 +328,9 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     }
 
     let pendingDeveloperInput = developerInput;
+    assertAdapterInputCurrent(dispatch, this.hasPendingProviderAutoContinuation());
     if (this.hasProviderTurn()) {
-      const join = await this.joinProviderTurn(input, developerInput);
+      const join = await this.joinProviderTurn(input, developerInput, dispatch);
       if (join.joined) return;
       // The turn ended mid-join; its developer item is already in history.
       if (join.developerInjected) pendingDeveloperInput = undefined;
@@ -345,7 +345,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     this.usageAccounting.beginTurn(rootThreadId, resumed);
     const startedAtMs = Date.now();
     try {
-      turnState = await this.captureTurn(input, metadata, pendingDeveloperInput);
+      turnState = await this.captureTurn(input, metadata, pendingDeveloperInput, dispatch);
     } catch (error) {
       this.flushPartialUsage();
       throw error;
@@ -367,6 +367,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       // The same-thread continuation is Harness's text, not the user's (LT-657).
       continueTurn: (continuation, nextCount) => this.appServerSendMessageInner(
         continuation, undefined, nextCount, { ...metadata, internalSource: 'context-policy' },
+        dispatch,
       ),
       providerWillContinue: async () => this.hasProviderTurn() || await this.isThreadGoalActive(),
     })) {
@@ -379,18 +380,11 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     const turnStatus = turnState.finalTurn?.status;
     if (turnStatus === 'failed' || turnState.error) {
       if (turnState.turnId) this.scheduleChildRolloutRetry(rootThreadId, turnState.turnId, startedAtMs, endedAtMs);
-      const finalTurnDetails = turnState.finalTurn?.error !== undefined && turnState.finalTurn.error !== null
-        ? extractCodexAppServerError({ error: turnState.finalTurn.error })
-        : undefined;
-      const finalTurnError = finalTurnDetails ? formatCodexAppServerError(finalTurnDetails) : undefined;
-      const capturedError = turnState.error instanceof Error
-        ? turnState.error.message
-        : (typeof turnState.error === 'string' ? turnState.error : undefined);
-      const errorMsg = finalTurnError ?? capturedError ?? 'Codex turn failed';
-      const usageLimit = isCodexUsageLimitErrorInfo(finalTurnDetails?.codexErrorInfo)
-        || (turnState.error instanceof CodexAppServerRuntimeError && turnState.error.quota !== undefined);
-      if (usageLimit) throw createCodexUsageLimitError(errorMsg, await this.readUsageLimitResetAt());
-      throw new Error(errorMsg);
+      const error = createCodexTurnFailure(turnState);
+      if (error instanceof CodexAppServerRuntimeError && error.quota) {
+        throw createCodexTurnFailure(turnState, await this.readUsageLimitResetAt());
+      }
+      throw error;
     }
 
     if (turnStatus === 'interrupted') {
@@ -555,29 +549,19 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     return trackedTurnId === null || messageTurnId === null || messageTurnId === trackedTurnId;
   }
 
-  /**
-   * Captures a complete turn from the app-server, routing notifications
-   * to adapter events in real-time.
-   *
-   * This is the core streaming mechanism, modeled after the codex-plugin-cc
-   * `captureTurn()` pattern. Includes multi-turn notification routing:
-   * notifications from other turns are forwarded to the previous handler.
-   */
   private async captureTurn(
     input: UserInput[],
     metadata?: CliMessage['metadata'],
     developerInput?: string,
+    dispatch?: AdapterInputDispatch,
   ): Promise<TurnCaptureState> {
     this.ensureAppServerRuntimeAttached();
-    const turnParams: Record<string, unknown> = {};
-    if (this.cliConfig.outputSchema) turnParams['outputSchema'] = this.cliConfig.outputSchema;
-    if (this.cliConfig.reasoningEffort) turnParams['effort'] = this.cliConfig.reasoningEffort;
-    if (this.cliConfig.fastMode) turnParams['serviceTier'] = 'priority';
-
     return this.appServerRuntime.captureTurn({
+      onNativeTurnAcquired: (id) => this.followProviderTurn({ method: 'turn/started', params: { threadId: this.getAppServerThreadId(), turn: { id } } }),
+      ...buildCodexTurnInputDispatch(this.cliConfig, dispatch,
+        () => this.hasPendingProviderAutoContinuation(), () => this.hasProviderTurn() || this.knownGoalStatus() === 'active'),
       input,
       ...(developerInput ? { developerInput } : {}),
-      turnParams,
       completeTurn: (state, turn) => this.completeTurn(state, turn),
       ...this.turnCaptureCallbacks(metadata),
     });

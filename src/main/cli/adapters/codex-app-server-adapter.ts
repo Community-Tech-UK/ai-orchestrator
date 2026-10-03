@@ -1,5 +1,6 @@
 import type {
   AdapterCapabilities,
+  AdapterInputDispatch,
   AdapterRuntimeCapabilities,
   CliMessage,
   CliResponse,
@@ -20,6 +21,7 @@ import { CODEX_TIMEOUTS } from '../../../shared/constants/limits';
 import { getClampedLoadWatchdogMultiplier } from '../../runtime/system-load-monitor';
 import type { FileAttachment, InstanceStatus } from '../../../shared/types/instance.types';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic } from '../../logging/source-diagnostics';
 import { generateId } from '../../../shared/utils/id-generator';
 import {
   isCodexInputTooLargeError,
@@ -55,6 +57,7 @@ import {
 } from './codex/provider-compaction-send-gate';
 import { sendCodexAppServerMessage } from './codex/app-server-message-send';
 import { runCodexInputSend } from './codex/input-send-lifecycle';
+import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 import { CodexProviderCompactionPresentation } from './codex/provider-compaction-presentation';
 import { tokenCount } from './codex/token-usage-breakdown';
 import { buildObservedCompactionEvents } from './codex/compaction-presentation';
@@ -71,13 +74,13 @@ import {
 
 const logger = getLogger('CodexCliAdapter');
 const contextDiagnosticsLogger = getLogger('CodexContextDiagnostics');
-
 export function isCodexContextDiagnosticsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env['AIO_CODEX_CONTEXT_DIAGNOSTICS'] === '1';
 }
 
 /** App-server connection/thread state layered over the exec fallback adapter. */
 export abstract class CodexAppServerAdapter extends CodexExecAdapter {
+  protected override readonly defersInputDispatch = true;
   protected useAppServer = false;
   protected override spawnMode: CliSpawnMode = 'unknown';
   protected appServerClient: AppServerClient | null = null;
@@ -212,22 +215,13 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
         logger.warn('App-server process exited, forwarding to adapter exit event', {
           threadId: this.getAppServerThreadId(),
           hasError: !!exitError,
-          error: exitError?.message,
+          ...errorDiagnostic(exitError),
         });
         // LT-004: emit 'exit' BEFORE resetting useAppServer/spawnMode.
-        // instance-communication.ts classifies this exit synchronously inside
-        // its 'exit' listener via isStatelessExecAdapter(), which reads
-        // getAdapterCapabilities().residentSession / getRuntimeCapabilities()
-        // — both derived from `useAppServer`. If that flag were already reset
-        // to false here, a genuine resident app-server death would report
-        // itself as a non-resident adapter and get misread as a stateless
-        // exec-mode adapter's normal per-turn exit, so the exit handler would
-        // silently return instead of routing into unexpected-exit/interrupt
-        // recovery. getPid()/isRunning() already reflect "not running" via
-        // appServerRuntime's connectionPhase (set to 'closed'/'failed' before
-        // this callback fires), so deferring the useAppServer/spawnMode reset
-        // until after the listeners have run does not hide the process death
-        // from anything else that queries the adapter.
+        // Communication classifies exits synchronously using capabilities derived
+        // from useAppServer. Resetting it early misclassifies this resident death
+        // as a normal stateless-exec exit and skips recovery. The runtime already
+        // reports closed/failed through isRunning()/getPid() during this callback.
         this.emit('exit', code, null);
         this.handleAppServerRuntimeExit(exitError);
       },
@@ -401,7 +395,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
         this.appServerInitEpoch++;
         const reason = error instanceof Error ? error.message : String(error);
         logger.warn('App-server initialization failed, falling back to exec mode', {
-          reason,
+          ...errorDiagnostic(error),
           isTimeout: reason.includes('timed out'),
         });
         this.useAppServer = false;
@@ -568,11 +562,13 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     message: string,
     attachments?: FileAttachment[],
     metadata?: CliMessage['metadata'],
+    dispatch?: AdapterInputDispatch,
   ): Promise<void> {
     return sendCodexAppServerMessage({
       controller: this.contextCostController,
+      signal: dispatch?.signal,
       threadId: () => this.appServerThreadId,
-      sendInner: () => this.appServerSendMessageInner(message, attachments, 0, metadata),
+      sendInner: () => this.appServerSendMessageInner(message, attachments, 0, metadata, dispatch),
       compact: () => this.compactContext(),
       reopenThread: () => this.reopenAppServerThread(),
       clearPending: () => this.clearPendingContextCost(),
@@ -584,21 +580,24 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     message: string,
     attachments?: FileAttachment[],
     metadata?: CliMessage['metadata'],
+    dispatch?: AdapterInputDispatch,
   ): Promise<void> {
+    const admission = createAdapterInputDispatch(dispatch);
     return this.inputQueue.run(() => runCodexInputSend({
+      assertCurrent: () => assertAdapterInputCurrent(admission),
       isSpawned: () => this.isSpawned,
       isAppServerMode: () => this.useAppServer,
       hasAppServerClient: () => !!this.getAppServerClient(),
       hasActiveTurn: () => this.appServerRuntime.hasActiveTurn(),
       isProviderCompacting: () => this.contextCostController.isCompactionRunning(),
       isRecoverableTurnError: (error) => this.isRecoverableTurnError(error),
-      sendAppServer: () => this.appServerSendMessage(message, attachments, metadata),
-      sendExec: () => this.execSendMessage(message, attachments),
+      sendAppServer: () => this.appServerSendMessage(message, attachments, metadata, admission),
+      sendExec: () => this.execSendMessage(message, attachments, admission),
       emitStatus: (status) => this.emit('status', status),
       emitOutput: (output) => this.emit('output', output),
+      emitTurnError: (error) => this.emit('turn_error', error),
     }));
   }
-
   override isRunning(): boolean {
     if (!this.useAppServer) return super.isRunning();
     const runtimeClient = this.appServerRuntime.getClient();
@@ -750,5 +749,6 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     attachments?: FileAttachment[],
     costRecoveryCount?: number,
     metadata?: CliMessage['metadata'],
+    dispatch?: AdapterInputDispatch,
   ): Promise<void>;
 }

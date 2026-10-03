@@ -1,6 +1,7 @@
 import { CodexAppServerAdapter } from './codex-app-server-adapter';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../../logging/source-diagnostics';
 import type {
   AppServerNotification,
   CodexMessagePhase,
@@ -12,10 +13,8 @@ import type {
 import { isAsyncDeliveryAgentMessage, toCodexMessagePhase } from './codex/app-server-types';
 import {
   extractCodexAppServerError,
-  formatCodexAppServerError,
-  isCodexUsageLimitErrorInfo,
 } from './codex/app-server-errors';
-import { createCodexUsageLimitError } from './codex/app-server-runtime-errors';
+import { createCodexTerminalError } from './codex/turn-failure';
 import { tokenCount } from './codex/token-usage-breakdown';
 import {
   handleItemCompleted,
@@ -72,7 +71,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
           provider: 'openai',
         }).catch((error: unknown) => {
           logger.debug('Failed to record Codex native activity', {
-            error: error instanceof Error ? error.message : String(error),
+            ...errorDiagnostic(error),
           });
         });
       }
@@ -226,25 +225,28 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
 
       case 'error': {
         const errorDetails = extractCodexAppServerError(params);
-        // Include codex_error_info in the error message so upstream overflow detection
-        // can match it (e.g., "ContextWindowExceeded" matches /context.?window.?exceeded/i).
-        const fullMessage = formatCodexAppServerError(errorDetails);
         if (errorDetails.willRetry === true) {
+          this.emit('output', {
+            type: 'system', content: 'Codex is retrying a temporary provider failure. Work is preserved.',
+            metadata: { willRetry: true, source: 'codex-native-retry' },
+          });
           logger.warn('Retrying error notification from app-server', {
-            additionalDetails: errorDetails.additionalDetails,
-            codexErrorInfo: errorDetails.codexErrorInfo,
-            error: errorDetails.message,
+            additionalDetails: textDiagnostic(errorDetails.additionalDetails ?? ''),
+            codexErrorInfo: textDiagnostic(errorDetails.codexErrorInfo ?? ''),
+            ...textDiagnostic(errorDetails.message),
             willRetry: true,
           });
           break;
         }
-        state.error = isCodexUsageLimitErrorInfo(errorDetails.codexErrorInfo)
-          ? createCodexUsageLimitError(fullMessage)
-          : new Error(fullMessage);
+        this.emit('output', {
+          type: 'system', content: 'Codex stopped retrying the provider failure. Work is preserved.',
+          metadata: { willRetry: false, source: 'codex-native-retry' },
+        });
+        state.error = createCodexTerminalError(errorDetails);
         logger.warn('Error notification from app-server', {
-          additionalDetails: errorDetails.additionalDetails,
-          codexErrorInfo: errorDetails.codexErrorInfo,
-          error: errorDetails.message,
+          additionalDetails: textDiagnostic(errorDetails.additionalDetails ?? ''),
+          codexErrorInfo: textDiagnostic(errorDetails.codexErrorInfo ?? ''),
+          ...textDiagnostic(errorDetails.message),
           willRetry: errorDetails.willRetry,
         });
         break;
@@ -455,8 +457,8 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
       itemId,
       streamedLength: stream.content.length,
       finalLength: text.length,
-      streamedTail: stream.content.slice(-120),
-      finalTail: text.slice(-120),
+      streamed: textDiagnostic(stream.content),
+      final: textDiagnostic(text),
     });
     stream.content = text;
     state.finalAgentOutputId = stream.outputId;

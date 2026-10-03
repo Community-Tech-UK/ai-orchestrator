@@ -10,4 +10,4 @@
 {"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785546017171,"metadata":{"sessionUpdate":"[omitted-session-body]","transport":"[omitted-session-body]","streaming":true,"accumulatedContent":"[omitted-session-body]"}}
 {"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785546017353,"metadata":{"transport":"[omitted-session-body]","streaming":false,"accumulatedContent":"[omitted-session-body]"}}
 {"kind":"status","status":"idle"}
-{"kind":"complete","durationMs":2429,"stopReason":"[omitted-session-body]"}
+{"kind":"complete","durationMs":2429,"stopReason":"[omitted-session-body]","turnEnding":{"reason":"completed","evidence":"provider_completed"}}

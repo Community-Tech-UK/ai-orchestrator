@@ -12,7 +12,9 @@ import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import {
   createAnnounceThenHaltContinuationInitializationStep,
+  createContinuationRuntimeInitializationStep,
   createCrashTurnContinuationInitializationStep,
+  createReasoningCollapseContinuationInitializationStep,
   createGovernedProposalInitializationStep,
   createInitializationSteps,
   createLocalAiGuardInitializationStep,
@@ -70,7 +72,40 @@ describe('Crash-turn continuation initialization', () => {
       getNodeLatencyForInstance: () => undefined,
       syncRemoteNodeMetricsToLoadBalancer: () => undefined,
     }).map((candidate) => candidate.name);
-    expect(names).toContain('Crash-turn continuation');
+    expect(names).not.toContain('Crash-turn continuation');
+    expect(names.filter((name) => name === 'Provider turn-ending continuation')).toHaveLength(1);
+  });
+});
+
+describe('Reasoning-collapse continuation initialization', () => {
+  it('is registered and supplies an active managed-loop ownership predicate', () => {
+    const instanceManager = {} as InstanceManager;
+    const initialize = vi.fn();
+    const step = createReasoningCollapseContinuationInitializationStep(
+      instanceManager,
+      initialize,
+      () => [
+        { chatId: 'active-root', status: 'running', endedAt: null },
+        { chatId: 'finished-root', status: 'completed', endedAt: 1 },
+      ],
+    );
+
+    step.fn();
+
+    expect(initialize).toHaveBeenCalledOnce();
+    expect(initialize.mock.calls[0]?.[0]).toBe(instanceManager);
+    const isManagedLoopInstance = initialize.mock.calls[0]?.[1] as (instanceId: string) => boolean;
+    expect(isManagedLoopInstance('active-root')).toBe(true);
+    expect(isManagedLoopInstance('finished-root')).toBe(false);
+
+    const names = createInitializationSteps({
+      instanceManager: {} as InstanceManager,
+      windowManager: {} as WindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+      syncRemoteNodeMetricsToLoadBalancer: () => undefined,
+    }).map((candidate) => candidate.name);
+    expect(names).toContain('Provider turn-ending continuation');
   });
 });
 
@@ -137,10 +172,30 @@ describe('late-runtime initialization steps', () => {
     });
     const names = steps.map((step) => step.name);
 
-    expect(names).toContain('Announce-then-halt continuation');
+    expect(names).not.toContain('Announce-then-halt continuation');
+    expect(names.filter((name) => name === 'Provider turn-ending continuation')).toHaveLength(1);
+    expect(names).toContain('Background task publisher');
+    expect(names).not.toContain('Background task continuation');
     expect(names.indexOf('Workflow invokers')).toBeLessThan(names.indexOf('Loop store'));
     expect(names.indexOf('Loop store')).toBeLessThan(names.indexOf('Channel manager'));
     expect(names.indexOf('Channel manager')).toBeLessThan(names.indexOf('Cross-project patterns'));
     expect(names.indexOf('Cross-project patterns')).toBeLessThan(names.indexOf('Governed proposal review inbox'));
+  });
+});
+
+
+describe('Shared continuation runtime initialization', () => {
+  it('starts one composed runtime with the active loop predicate', () => {
+    const instanceManager = {} as InstanceManager;
+    const initialize = vi.fn();
+    createContinuationRuntimeInitializationStep(instanceManager, initialize, () => [
+      { chatId: 'active', status: 'running', endedAt: null },
+      { chatId: 'closed', status: 'completed', endedAt: 1 },
+    ]).fn();
+    expect(initialize).toHaveBeenCalledOnce();
+    expect(initialize.mock.calls[0]?.[0]).toBe(instanceManager);
+    const isManaged = initialize.mock.calls[0]?.[1] as (instanceId: string) => boolean;
+    expect(isManaged('active')).toBe(true);
+    expect(isManaged('closed')).toBe(false);
   });
 });

@@ -4,6 +4,7 @@ import type { OutputMessage } from '../../../../shared/types/instance.types';
 import { generateId } from '../../../../shared/utils/id-generator';
 import { CODEX_TIMEOUTS } from '../../../../shared/constants/limits';
 import { getLogger } from '../../../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../../../logging/source-diagnostics';
 import { parseNdjsonLine } from '../../json-parse';
 import { terminateProcessTree } from './app-server-client';
 import { classifyCodexDiagnostic, type CodexDiagnostic } from './exec-diagnostics';
@@ -12,6 +13,10 @@ import { isBenignCodexStdinNotice } from './exec-error-classifier';
 import { parseCodexExecTranscript } from './exec-transcript-parser';
 import { CodexTimeoutError, type CodexExecPhase, type CodexTimeoutKind } from './exec-timeout';
 import type { ThinkingBlock } from '../../../../shared/utils/thinking-extractor';
+import type { AdapterInputDispatch } from '../base-cli-adapter.types';
+import { assertAdapterInputCurrent } from '../adapter-input-dispatch';
+import { writeChildStdin } from '../child-stdin-write';
+import { cancelCodexExecInputFailure, markCodexExecInputFailure, type CodexExecInputWritePhase } from './exec-input-write';
 
 const logger = getLogger('CodexCliAdapter');
 
@@ -33,6 +38,8 @@ interface CodexExecProcessState {
 }
 
 export interface CodexExecProcessOptions {
+  writePhase?: CodexExecInputWritePhase;
+  dispatch?: AdapterInputDispatch;
   deadlineMs: number;
   emitExit: (code: number | null, signal: NodeJS.Signals | null) => void;
   emitHeartbeat: () => void;
@@ -54,6 +61,7 @@ export function runCodexExecProcess(
   options: CodexExecProcessOptions,
 ): Promise<CodexExecProcessResult> {
   return new Promise((resolve, reject) => {
+    assertAdapterInputCurrent(options.dispatch);
     const childProcess = options.spawn();
     const state: CodexExecProcessState = {
       diagnostics: [],
@@ -73,6 +81,18 @@ export function runCodexExecProcess(
     let livenessTimer: NodeJS.Timeout | null = null;
     let currentBudgetMs = options.timeoutMs;
     let effectivePhase = options.phase;
+    let finished = false;
+    const writePhase = options.writePhase ?? { accepted: false, cancelled: false };
+    let inputFailure: Error | undefined;
+    let inputSettled: Promise<void> = Promise.resolve();
+    const stdin = childProcess.stdin;
+    const recordInputFailure = (error: unknown): void => {
+      if (finished || inputFailure) return;
+      inputFailure = markCodexExecInputFailure(error instanceof Error ? error : new Error(String(error)), writePhase.accepted);
+    };
+    const onInputError = (error: Error): void => { if (!writePhase.accepted) recordInputFailure(error); };
+    const inputError = (): Error => writePhase.cancelled && !writePhase.accepted
+      ? cancelCodexExecInputFailure(inputFailure!) : inputFailure!;
 
     const clearIdleTimer = () => {
       if (!idleTimer) return;
@@ -93,10 +113,28 @@ export function runCodexExecProcess(
       clearIdleTimer();
       clearDeadlineTimer();
       clearLivenessTimer();
+      options.dispatch?.signal?.removeEventListener('abort', onAbort);
+      stdin?.off('error', onInputError);
+    };
+    const cancel = (error: unknown) => {
+      if (finished) return;
+      finished = true;
+      clearTimers();
+      terminateProcessTree(childProcess.pid);
+      if (!writePhase.accepted) stdin?.destroy();
+      if (options.isActiveProcess(childProcess)) options.setProcess(null);
+      reject(error);
+    };
+    const onAbort = () => {
+      try { assertAdapterInputCurrent(options.dispatch); } catch (error) { cancel(error); }
     };
 
     const fireWatchdogTimeout = (kind: CodexTimeoutKind) => {
-      if (!options.isActiveProcess(childProcess)) return;
+      if (finished) return;
+      try { assertAdapterInputCurrent(options.dispatch); }
+      catch (error) { cancel(error); return; }
+      if (inputFailure) { cancel(inputError()); return; }
+      finished = true;
       const budgetMs = kind === 'deadline' ? options.deadlineMs : currentBudgetMs;
       const elapsedMs = Date.now() - startedAt;
       const silentMs = Date.now() - lastActivityAt;
@@ -114,17 +152,18 @@ export function runCodexExecProcess(
         receivedAnyData,
         stdoutBytes: state.rawStdout.length,
         stderrBytes: state.rawStderr.length,
-        stdoutTail: state.rawStdout.slice(-500),
-        stderrTail: state.rawStderr.slice(-500),
-        diagnosticsTail: state.diagnostics.slice(-5).map((diagnostic) => diagnostic.line),
+        stdout: textDiagnostic(state.rawStdout),
+        stderr: textDiagnostic(state.rawStderr),
+        diagnosticsCount: state.diagnostics.length,
         networkErrorCount: networkErrors.length,
-        lastNetworkError,
+        networkError: textDiagnostic(lastNetworkError ?? ''),
       });
       terminateProcessTree(childProcess.pid);
-      options.setProcess(null);
+      if (options.isActiveProcess(childProcess)) options.setProcess(null);
       clearTimers();
+      if (!writePhase.accepted) stdin?.destroy();
 
-      if (options.message.metadata?.['allowPartialOnTimeout'] === true) {
+      if (writePhase.accepted && options.message.metadata?.['allowPartialOnTimeout'] === true) {
         const partial = parseCodexExecTranscript(
           state.rawStdout,
           state.diagnostics,
@@ -161,12 +200,13 @@ export function runCodexExecProcess(
         }
       }
 
-      reject(new CodexTimeoutError(effectivePhase, budgetMs, {
+      const error = new CodexTimeoutError(effectivePhase, budgetMs, {
         kind,
         networkErrorCount: networkErrors.length,
         lastNetworkError,
         stdoutBytes: state.rawStdout.length,
-      }));
+      });
+      reject(writePhase.cancelled ? cancelCodexExecInputFailure(error, writePhase.accepted) : error);
     };
 
     const resetIdleTimer = () => {
@@ -187,25 +227,22 @@ export function runCodexExecProcess(
     resetIdleTimer();
     deadlineTimer = setTimeout(() => fireWatchdogTimeout('deadline'), options.deadlineMs);
     livenessTimer = setInterval(() => {
-      if (childProcess.killed || childProcess.exitCode !== null) return;
+      if (inputFailure || !options.isActiveProcess(childProcess) || childProcess.killed || childProcess.exitCode !== null) return;
       options.emitHeartbeat();
     }, CODEX_TIMEOUTS.EXEC_LIVENESS_HEARTBEAT_MS);
     livenessTimer.unref?.();
 
-    if (childProcess.stdin) {
-      if (options.message.content) childProcess.stdin.write(options.message.content);
-      childProcess.stdin.end();
-    }
-
     childProcess.stdout?.on('data', (data) => {
+      if (finished || inputFailure) return;
       receivedAnyData = true;
       escalateIdleBudgetToTurn();
       resetIdleTimer();
       const chunk = data.toString();
       state.rawStdout += chunk;
+      if (!writePhase.accepted) { state.partialStdout += chunk; return; }
       options.recordActivity?.(chunk).catch((error: unknown) => {
         logger.debug('Failed to record Codex terminal activity', {
-          error: error instanceof Error ? error.message : String(error),
+          ...errorDiagnostic(error),
         });
       });
       state.partialStdout = consumeLines(chunk, state.partialStdout, (line) => {
@@ -214,45 +251,42 @@ export function runCodexExecProcess(
     });
 
     childProcess.stderr?.on('data', (data) => {
+      if (finished || inputFailure) return;
       receivedAnyData = true;
       resetIdleTimer();
       options.emitHeartbeat();
       const chunk = data.toString();
       state.rawStderr += chunk;
+      if (!writePhase.accepted) { state.partialStderr += chunk; return; }
       state.partialStderr = consumeLines(chunk, state.partialStderr, (line) => {
-        const diagnostic = classifyCodexDiagnostic(line);
-        state.diagnostics.push(diagnostic);
-        if (diagnostic.level === 'info') return;
-        const key = `${diagnostic.category}:${diagnostic.line}`;
-        if (state.emittedDiagnosticKeys.has(key)) {
-          diagnostic.streamed = true;
-          return;
-        }
-        state.emittedDiagnosticKeys.add(key);
-        diagnostic.streamed = true;
-        options.emitOutput({
-          id: generateId(),
-          timestamp: Date.now(),
-          type: diagnostic.fatal ? 'error' : 'system',
-          content: `[codex] ${diagnostic.line}`,
-          metadata: {
-            diagnostic: true,
-            category: diagnostic.category,
-            fatal: diagnostic.fatal,
-            level: diagnostic.level,
-          },
-        });
+        processStderrLine(line, state, options);
       });
     });
 
     childProcess.on('error', (error) => {
+      if (finished) return;
+      finished = true;
       clearTimers();
-      options.setProcess(null);
-      reject(error);
+      if (!writePhase.accepted) stdin?.destroy();
+      if (options.isActiveProcess(childProcess)) options.setProcess(null);
+      reject(inputFailure ? inputError() : error);
     });
 
-    childProcess.on('close', (code, signal) => {
+    const finishClose = async (code: number | null, signal: NodeJS.Signals | null): Promise<void> => {
+      // A failed write callback may settle after Node publishes close.
+      await Promise.resolve();
+      await inputSettled;
+      if (finished) return;
+      finished = true;
       clearTimers();
+      if (options.isActiveProcess(childProcess)) options.setProcess(null);
+      options.emitExit(code, signal);
+      if (inputFailure) {
+        try { assertAdapterInputCurrent(options.dispatch); }
+        catch (error) { reject(error); return; }
+        reject(inputError());
+        return;
+      }
       if (state.partialStdout.trim()) processStdoutLine(state.partialStdout, state, options);
       if (state.partialStderr.trim()) {
         for (const line of state.partialStderr.split('\n')) {
@@ -266,9 +300,10 @@ export function runCodexExecProcess(
         options.generateResponseId(),
       );
       const raw = [state.rawStdout.trim(), state.rawStderr.trim()].filter(Boolean).join('\n');
-      options.setProcess(null);
-      options.emitExit(code, signal);
-
+      if (writePhase.cancelled && !parsed.hasMeaningfulOutput) {
+        reject(cancelCodexExecInputFailure(new Error(parsed.errorMessage || `Codex exited with code ${code}`), writePhase.accepted));
+        return;
+      }
       if (code !== 0 && !parsed.hasMeaningfulOutput) {
         const diagnosticSummary = state.diagnostics
           .map((diagnostic) => diagnostic.line)
@@ -292,7 +327,34 @@ export function runCodexExecProcess(
           raw,
         },
       });
+    };
+    childProcess.on('close', (code, signal) => {
+      void finishClose(code, signal).catch(error => { finished = true; clearTimers(); reject(error); });
     });
+    options.dispatch?.signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      // Spawn and observers may synchronously revoke eligibility. Charge only
+      // immediately before the first native input write, then recheck admission.
+      assertAdapterInputCurrent(options.dispatch);
+      if (!childProcess.stdin) throw new Error('Codex exec stdin is unavailable');
+      options.dispatch?.beforeProviderDispatch?.();
+      assertAdapterInputCurrent(options.dispatch);
+      stdin!.on('error', onInputError);
+      const accept = (): void => {
+        writePhase.accepted = true;
+        if (finished) return;
+        try { assertAdapterInputCurrent(options.dispatch); }
+        catch (error) { cancel(error); return; }
+      };
+      const write = options.message.content ? writeChildStdin(childProcess, options.message.content, accept)
+        : Promise.resolve().then(accept);
+      inputSettled = write.then(() => {
+        if (finished) return;
+        state.partialStdout = consumeLines('', state.partialStdout, line => processStdoutLine(line, state, options));
+        state.partialStderr = consumeLines('', state.partialStderr, line => processStderrLine(line, state, options));
+        stdin!.end();
+      }).catch(recordInputFailure);
+    } catch (error) { cancel(error); }
   });
 }
 
@@ -306,7 +368,7 @@ function processStdoutLine(
   const parsedLine = parseNdjsonLine<Record<string, unknown>>(trimmed);
   if (!parsedLine.ok) {
     if (trimmed.startsWith('{')) {
-      logger.warn('Failed to parse Codex exec JSONL line', { linePreview: trimmed.slice(0, 200) });
+      logger.warn('Failed to parse Codex exec JSONL line', textDiagnostic(trimmed));
     }
     return;
   }
@@ -336,4 +398,33 @@ function processStdoutLine(
       });
     }
   }
+}
+
+function processStderrLine(
+  line: string,
+  state: CodexExecProcessState,
+  options: CodexExecProcessOptions,
+): void {
+  const diagnostic = classifyCodexDiagnostic(line);
+  state.diagnostics.push(diagnostic);
+  if (diagnostic.level === 'info') return;
+  const key = `${diagnostic.category}:${diagnostic.line}`;
+  if (state.emittedDiagnosticKeys.has(key)) {
+    diagnostic.streamed = true;
+    return;
+  }
+  state.emittedDiagnosticKeys.add(key);
+  diagnostic.streamed = true;
+  options.emitOutput({
+    id: generateId(),
+    timestamp: Date.now(),
+    type: diagnostic.fatal ? 'error' : 'system',
+    content: `[codex] ${diagnostic.line}`,
+    metadata: {
+      diagnostic: true,
+      category: diagnostic.category,
+      fatal: diagnostic.fatal,
+      level: diagnostic.level,
+    },
+  });
 }

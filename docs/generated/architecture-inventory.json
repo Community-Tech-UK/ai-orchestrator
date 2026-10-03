@@ -6014,7 +6014,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 3754
+      "lines": 3757
     },
     {
       "path": "src/main/instance/rlm-process-ownership.spec.ts",
@@ -6022,11 +6022,11 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3616
+      "lines": 3614
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 3594
+      "lines": 3595
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
@@ -6037,12 +6037,12 @@
       "lines": 3523
     },
     {
-      "path": "docs/superpowers/plans/2026-04-05-bash-validation-pipeline_completed.md",
-      "lines": 3440
+      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
+      "lines": 3488
     },
     {
-      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 3435
+      "path": "docs/superpowers/plans/2026-04-05-bash-validation-pipeline_completed.md",
+      "lines": 3440
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
@@ -6089,10 +6089,6 @@
       "lines": 2659
     },
     {
-      "path": "src/main/instance/instance-communication.ts",
-      "lines": 2547
-    },
-    {
       "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
       "lines": 2545
     },
@@ -6102,7 +6098,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2470
+      "lines": 2483
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
@@ -6111,6 +6107,10 @@
     {
       "path": "src/main/instance/instance-manager.ts",
       "lines": 2468
+    },
+    {
+      "path": "src/main/instance/instance-communication.ts",
+      "lines": 2407
     },
     {
       "path": "src/main/app/orchestrator-tools-step.spec.ts",
@@ -6146,7 +6146,7 @@
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2103
+      "lines": 2110
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-codemem-phase1-index-and-lsp-facade_completed.md",
@@ -6230,7 +6230,7 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
-      "lines": 1739
+      "lines": 1768
     },
     {
       "path": "src/main/session/session-continuity.ts",
@@ -6334,7 +6334,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.thread-recovery.spec.ts",
-      "lines": 1426
+      "lines": 1428
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency_completed.md",
@@ -6565,6 +6565,10 @@
       "lines": 1181
     },
     {
+      "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
+      "lines": 1180
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-streaming-tool-executor.COMPLETED.md",
       "lines": 1177
     },
@@ -6587,10 +6591,6 @@
     {
       "path": "src/main/instance/instance-orchestration.ts",
       "lines": 1152
-    },
-    {
-      "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
-      "lines": 1146
     },
     {
       "path": "src/main/providers/__tests__/unified-model-catalog-service.spec.ts",
@@ -6701,6 +6701,10 @@
       "lines": 1061
     },
     {
+      "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
+      "lines": 1058
+    },
+    {
       "path": "docs/plans/2026-09-03-enhancements-backlog_livetest_completed.md",
       "lines": 1046
     },
@@ -6711,10 +6715,6 @@
     {
       "path": "src/main/indexing/codebase-indexing-auto-coordinator.spec.ts",
       "lines": 1043
-    },
-    {
-      "path": "src/main/cli/adapters/base-cli-adapter.ts",
-      "lines": 1039
     },
     {
       "path": "src/main/ipc/handlers/vcs-handlers.ts",
@@ -6749,8 +6749,8 @@
       "lines": 1015
     },
     {
-      "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
-      "lines": 1006
+      "path": "src/main/cli/adapters/base-cli-adapter.ts",
+      "lines": 1013
     },
     {
       "path": "src/renderer/app/features/logs/logs-page.component.ts",
@@ -6857,6 +6857,10 @@
       "lines": 951
     },
     {
+      "path": "src/main/instance/instance-announce-then-halt-continuation.spec.ts",
+      "lines": 950
+    },
+    {
       "path": "src/worker-agent/worker-local-ai-health.spec.ts",
       "lines": 944
     },
@@ -6865,8 +6869,8 @@
       "lines": 942
     },
     {
-      "path": "src/main/instance/instance-announce-then-halt-continuation.spec.ts",
-      "lines": 941
+      "path": "src/main/instance/instance-provider-limit-handler.ts",
+      "lines": 937
     },
     {
       "path": "src/renderer/app/features/editor/editor-page.component.ts",
@@ -6874,10 +6878,6 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager-context-deadline.spec.ts",
-      "lines": 936
-    },
-    {
-      "path": "src/main/instance/instance-provider-limit-handler.ts",
       "lines": 936
     },
     {

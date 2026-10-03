@@ -29,10 +29,11 @@ import { initializeUnifiedModelCatalogRuntime } from './unified-model-catalog-in
 import { maybeStartWorkerModeOnLaunch } from '../remote-node/worker-mode-autostart';
 import { initializeContextEvidenceRuntime } from '../context-evidence/evidence-maintenance-service';
 import { initializeLocalAiGuardRuntime } from '../local-ai-guard';
-import { initializeInstanceAsyncWorkContinuation } from '../instance/instance-async-work-continuation';
+import { initializeInstanceContinuationRuntime } from '../instance/instance-continuation-runtime';
 import { initializeInstanceAsyncWorkPublisher } from '../instance/instance-async-work-publisher';
 import { initializeInstanceAnnounceThenHaltContinuation } from '../instance/instance-announce-then-halt-continuation';
 import { initializeInstanceCrashTurnContinuation } from '../instance/instance-crash-turn-continuation';
+import { initializeInstanceReasoningCollapseContinuation } from '../instance/instance-reasoning-collapse-continuation';
 import { getCrossSessionMessagingService } from '../instance/cross-session-messaging';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import { isActiveLoopRuntimeState } from '../orchestration/loop-runtime-status';
@@ -93,11 +94,32 @@ export function createAnnounceThenHaltContinuationInitializationStep(
   instanceManager: InstanceManager,
   initialize: typeof initializeInstanceAnnounceThenHaltContinuation =
     initializeInstanceAnnounceThenHaltContinuation,
-  getActiveLoops: () => Array<Pick<LoopState, 'chatId' | 'status' | 'endedAt'>> =
+  getActiveLoops: () => Pick<LoopState, 'chatId' | 'status' | 'endedAt'>[] =
     () => getLoopCoordinator().getActiveLoops(),
 ): AppInitializationStep {
   return {
     name: 'Announce-then-halt continuation',
+    fn: () => {
+      initialize(
+        instanceManager,
+        (instanceId) => getActiveLoops().some(
+          (loop) => loop.chatId === instanceId && isActiveLoopRuntimeState(loop),
+        ),
+      );
+    },
+  };
+}
+
+/** Resumes a turn whose reasoning collapsed into a repeated phrase. */
+export function createReasoningCollapseContinuationInitializationStep(
+  instanceManager: InstanceManager,
+  initialize: typeof initializeInstanceReasoningCollapseContinuation =
+    initializeInstanceReasoningCollapseContinuation,
+  getActiveLoops: () => Pick<LoopState, 'chatId' | 'status' | 'endedAt'>[] =
+    () => getLoopCoordinator().getActiveLoops(),
+): AppInitializationStep {
+  return {
+    name: 'Provider turn-ending continuation',
     fn: () => {
       initialize(
         instanceManager,
@@ -126,6 +148,22 @@ export function createCrashTurnContinuationInitializationStep(
           (loop) => loop.chatId === instanceId && isActiveLoopRuntimeState(loop),
         ),
       );
+    },
+  };
+}
+
+export function createContinuationRuntimeInitializationStep(
+  instanceManager: InstanceManager,
+  initialize: typeof initializeInstanceContinuationRuntime = initializeInstanceContinuationRuntime,
+  getActiveLoops: () => Pick<LoopState, 'chatId' | 'status' | 'endedAt'>[] =
+    () => getLoopCoordinator().getActiveLoops(),
+): AppInitializationStep {
+  return {
+    name: 'Provider turn-ending continuation',
+    fn: () => {
+      initialize(instanceManager, (instanceId) => getActiveLoops().some(
+        (loop) => loop.chatId === instanceId && isActiveLoopRuntimeState(loop),
+      ));
     },
   };
 }
@@ -382,19 +420,10 @@ export function createInitializationSteps(
       }),
     },
     {
-      name: 'Background task continuation',
-      fn: () => {
-        initializeInstanceAsyncWorkPublisher(instanceManager);
-        initializeInstanceAsyncWorkContinuation(
-          instanceManager,
-          (instanceId) => getLoopCoordinator().getActiveLoops().some(
-            (loop) => loop.chatId === instanceId && isActiveLoopRuntimeState(loop),
-          ),
-        );
-      },
+      name: 'Background task publisher',
+      fn: () => initializeInstanceAsyncWorkPublisher(instanceManager),
     },
-    createAnnounceThenHaltContinuationInitializationStep(instanceManager),
-    createCrashTurnContinuationInitializationStep(instanceManager),
+    createContinuationRuntimeInitializationStep(instanceManager),
     { name: 'Verification invokers', fn: () => registerDefaultMultiVerifyInvoker(instanceManager) },
     { name: 'Automations', fn: () => initializeAutomations(instanceManager) },
     { name: 'Review invokers', fn: () => registerDefaultReviewInvoker(instanceManager) },

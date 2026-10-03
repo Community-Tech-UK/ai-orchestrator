@@ -7,6 +7,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic } from '../../logging/source-diagnostics';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { resolveHardenedSpawn } from '../../sandbox/seatbelt';
 import { getOutputPersistenceManager } from '../../context/output-persistence';
@@ -20,6 +21,7 @@ import type { DegradedOutputSignals } from './degraded-output-classifier';
 import { CONSERVATIVE_PROVIDER_CONTEXT_CAPABILITIES } from '@contracts/types/context-evidence';
 import type {
   AdapterCapabilities,
+  AdapterInputDispatch,
   AdapterInputOptions,
   AdapterRuntimeCapabilities,
   CliAdapterConfig,
@@ -46,6 +48,7 @@ import {
   tagResponseIfDegraded,
 } from './base-cli-adapter-degraded-output';
 import { killProcessGroup } from './base-cli-process-utils';
+import { hasActiveStdinWrite, writeChildStdin } from './child-stdin-write';
 import {
   resolveWindowsCliLauncher,
   buildWindowsShellFreeTarget,
@@ -64,6 +67,7 @@ export interface SpawnTarget {
 }
 export type {
   AdapterCapabilities,
+  AdapterInputDispatch,
   AdapterInputOptions,
   AdapterRuntimeCapabilities,
   CliAdapterConfig,
@@ -96,8 +100,6 @@ export type {
  * env var. Inspired by Claude Code 2.1.84 CLAUDE_STREAM_IDLE_TIMEOUT_MS.
  */
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000;
-/** D9: Maximum time to wait for a kernel-buffer drain before treating the write as failed. */
-const DRAIN_TIMEOUT_MS = 5_000;
 /** D10: Maximum time after process spawn before the first byte must arrive. */
 const POST_SPAWN_WATCHDOG_MS = 30_000;
 
@@ -246,39 +248,25 @@ export abstract class BaseCliAdapter extends EventEmitter {
 
   // ============ Abstract Methods - Must be implemented by each CLI adapter ============
 
-  /**
-   * Get the name of this CLI adapter
-   */
+  /** Get the name of this CLI adapter */
   abstract getName(): string;
 
-  /**
-   * Get the capabilities of this CLI tool
-   */
+  /** Get the capabilities of this CLI tool */
   abstract getCapabilities(): CliCapabilities;
 
-  /**
-   * Check if the CLI is available and properly configured
-   */
+  /** Check if the CLI is available and properly configured */
   abstract checkStatus(): Promise<CliStatus>;
 
-  /**
-   * Send a message and get a response (non-streaming)
-   */
+  /** Send a message and get a response (non-streaming) */
   abstract sendMessage(message: CliMessage): Promise<CliResponse>;
 
-  /**
-   * Send a message and stream the response
-   */
+  /** Send a message and stream the response */
   abstract sendMessageStream(message: CliMessage): AsyncIterable<string>;
 
-  /**
-   * Parse raw CLI output into a standardized response
-   */
+  /** Parse raw CLI output into a standardized response */
   abstract parseOutput(raw: string): CliResponse;
 
-  /**
-   * Build CLI arguments for a given message
-   */
+  /** Build CLI arguments for a given message */
   protected abstract buildArgs(message: CliMessage): string[];
 
   /**
@@ -288,7 +276,10 @@ export abstract class BaseCliAdapter extends EventEmitter {
     message: string,
     attachments?: FileAttachment[],
     metadata?: CliMessage['metadata'],
+    dispatch?: AdapterInputDispatch,
   ): Promise<void>;
+
+  protected readonly defersInputDispatch: boolean = false;
 
   // ============ Common Methods with Default Implementations ============
 
@@ -348,7 +339,11 @@ export abstract class BaseCliAdapter extends EventEmitter {
     }
 
     const internalSource = options?.internalSource;
-    await this.sendInputImpl(message, attachments, internalSource ? { internalSource } : undefined);
+    if (!this.defersInputDispatch) {
+      options?.dispatch?.signal?.throwIfAborted();
+      options?.dispatch?.beforeProviderDispatch?.();
+    }
+    await this.sendInputImpl(message, attachments, internalSource ? { internalSource } : undefined, options?.dispatch);
   }
 
   /**
@@ -406,7 +401,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
       }
       return { status: 'accepted' };
     } catch (error) {
-      logger.error('Failed to interrupt process', error instanceof Error ? error : new Error(String(error)));
+      logger.error('Failed to interrupt process', undefined, errorDiagnostic(error));
       return {
         status: 'rejected',
         reason: error instanceof Error ? error.message : String(error),
@@ -545,8 +540,12 @@ export abstract class BaseCliAdapter extends EventEmitter {
   }
 
   /** Whether this adapter will jail its spawns (subclasses gate mode choices on it). */
-  protected isHardenedModeConfigured(): boolean {
+  isHardenedModeConfigured(): boolean {
     return this.hardenedMode !== null;
+  }
+  /** Copy the configured jail roots for auxiliary spawns using the same policy. */
+  getHardenedWritableRoots(): readonly string[] | undefined {
+    return this.hardenedMode ? [...this.hardenedMode.writableRoots] : undefined;
   }
   private readonly posixSpawnCommandResolver = new PosixSpawnCommandResolver();
   /**
@@ -701,7 +700,9 @@ export abstract class BaseCliAdapter extends EventEmitter {
 
     // Guard against EPIPE errors on stdin/stdout — these occur when the CLI
     // process closes its pipe end before we finish writing (common on early exit).
-    proc.stdin?.on('error', (err: NodeJS.ErrnoException) => {
+    const stdin = proc.stdin;
+    stdin?.on('error', (err: NodeJS.ErrnoException) => {
+      if (stdin && hasActiveStdinWrite(stdin)) return;
       if (err.code === 'EPIPE') {
         logger.debug('EPIPE on stdin — CLI process closed pipe', {
           adapter: this.getName(),
@@ -854,37 +855,10 @@ export abstract class BaseCliAdapter extends EventEmitter {
   }
 
   /**
-   * Write to child stdin with backpressure handling.
-   * Waits for drain if the kernel buffer is full.
-   * D9: bounded by DRAIN_TIMEOUT_MS; EPIPE during drain resolves immediately
-   * so the upstream process-exit path handles the dead process.
+   * Accept input only after the native write callback succeeds, with a bounded wait.
    */
-  protected async safeStdinWrite(data: string): Promise<void> {
-    if (!this.process?.stdin?.writable) return;
-
-    const canContinue = this.process.stdin.write(data);
-    if (!canContinue) {
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          cleanup();
-          reject(new Error(`stdin drain timeout after ${DRAIN_TIMEOUT_MS}ms — process may be stuck`));
-        }, DRAIN_TIMEOUT_MS);
-        const onDrain = () => { cleanup(); resolve(); };
-        const onError = (err: NodeJS.ErrnoException) => {
-          cleanup();
-          // EPIPE means the pipe is dead; let the process-exit handler take over.
-          if (err.code === 'EPIPE') resolve();
-          else reject(err);
-        };
-        const cleanup = () => {
-          clearTimeout(timer);
-          this.process?.stdin?.off('drain', onDrain);
-          this.process?.stdin?.off('error', onError);
-        };
-        this.process!.stdin!.once('drain', onDrain);
-        this.process!.stdin!.once('error', onError);
-      });
-    }
+  protected async safeStdinWrite(data: string, onAccepted?: () => void): Promise<void> {
+    await writeChildStdin(this.process, data, onAccepted);
   }
 
   /**

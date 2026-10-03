@@ -2,6 +2,7 @@ import type { InstanceProvider, InstanceWaitReason } from '../../shared/types/in
 import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import type { ProviderLimitLedger } from '../core/system/provider-limit-ledger';
 import { getLogger } from '../logging/logger';
+import { textDiagnostic } from '../logging/source-diagnostics';
 import type {
   AccountFailoverCoordinator,
   AccountFailoverParams,
@@ -617,7 +618,7 @@ export class InstanceProviderLimitHandler {
       instanceId: params.instanceId,
       provider: providerId,
       resumeAt,
-      reason: params.reason,
+      reason: typeof params.reason === 'string' ? textDiagnostic(params.reason) : undefined,
     });
     // WS7 Phase B: let the wiring offer a provider switch for long parks.
     try {

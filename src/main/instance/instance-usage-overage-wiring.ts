@@ -32,6 +32,7 @@ import type { CliRateLimitInfo } from '../../shared/types/cli.types';
 import type { ProviderLimitTurnSignal } from './instance-provider-limit-detection';
 import { detectUsageOverageStop } from './instance-provider-limit-detection';
 import { getLogger } from '../logging/logger';
+import { textDiagnostic } from '../logging/source-diagnostics';
 
 const logger = getLogger('InstanceUsageOverageWiring');
 
@@ -105,7 +106,7 @@ export function attachUsageOverageStopGuard(
       deps.holdOnUsageLimit(instanceId, signal);
       logger.info('Stopped session on usage-overage telemetry', {
         instanceId,
-        reason: signal.reason,
+        reason: typeof signal.reason === 'string' ? textDiagnostic(signal.reason) : undefined,
         resetAtHint: signal.resetAtHint,
       });
     } catch (err) {

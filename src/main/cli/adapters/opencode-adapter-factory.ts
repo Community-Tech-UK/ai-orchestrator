@@ -6,13 +6,20 @@
  * (`sessionConfig`). Approvals are pinned by an injected permission block in
  * `OPENCODE_CONFIG_CONTENT`, which OpenCode merges over the user's global and
  * project config files (probe: docs/plans/2026-09-22-opencode-provider_plan_completed.md,
- * Task 0.1). OpenCode's own credential store holds the backend keys; AIO never
- * reads or passes them.
+ * Task 0.1). OpenCode owns backend credentials; the private configuration
+ * probe retains only numeric limits and safe native scope/permission metadata,
+ * never native credential values.
  */
 
 import { AcpCliAdapter } from './acp-cli-adapter';
 import { resolveAcpStallWarningMs } from './acp-prompt-timeout-policy';
 import { openCodeProcessGate } from './opencode-process-gate';
+import { createOpenCodeChildProgressSource } from './opencode-child-progress-source';
+import { sanitizeOpenCodeContentFilterSource } from './opencode-content-filter-recovery';
+import { applyOpenCodeGenerationBudget, assertOpenCodeGenerationBudget } from './opencode-generation-budget';
+import { readOpenCodeEffectiveBudgetConfig } from './opencode-effective-budget-config';
+import { applyOpenCodePermissionPolicy, assertOpenCodePermissionPolicy } from './opencode-permission-policy';
+export { buildOpenCodePermissionBlock } from './opencode-permission-policy';
 import { mapAcpEffort } from './acp-session-config-options';
 import { normalizeModelForProvider } from '../../../shared/types/provider.types';
 import { getPermissionRegistry } from '../../orchestration/permission-registry';
@@ -37,41 +44,6 @@ const logger = getLogger('OpenCodeAdapterFactory');
 export const OPENCODE_CONFIG_CONTENT_ENV = 'OPENCODE_CONFIG_CONTENT';
 const OPENCODE_MIMO_PROMPT_TIMEOUT_MS = 45 * 60_000;
 
-type OpenCodePermissionAction = 'allow' | 'ask';
-
-/**
- * OpenCode's known permission keys (`ConfigPermissionV1`, OpenCode 1.18).
- * Reads stay `allow` with YOLO off; everything that writes, runs, fetches or
- * leaves the workspace asks.
- */
-const OPENCODE_READ_PERMISSIONS = ['read', 'list', 'glob', 'grep', 'lsp', 'todowrite', 'skill'] as const;
-const OPENCODE_ASK_PERMISSIONS = [
-  'edit',
-  'bash',
-  'task',
-  'external_directory',
-  'webfetch',
-  'websearch',
-  'question',
-  'doom_loop',
-] as const;
-
-/**
- * The permission block AIO injects. `"*"` comes first and carries the same
- * action as the write-side keys: OpenCode evaluates rules last-match-wins in
- * merged key order and keeps the user's key order on merge, so a user's `"*"`
- * that lands after a specific key can only turn a read into `ask`, never a
- * write into `allow`. Every known key is set explicitly because keys AIO does
- * not set survive from the user's own config.
- */
-export function buildOpenCodePermissionBlock(yoloMode: boolean): Record<string, OpenCodePermissionAction> {
-  const writeAction: OpenCodePermissionAction = yoloMode ? 'allow' : 'ask';
-  const block: Record<string, OpenCodePermissionAction> = { '*': writeAction };
-  for (const key of OPENCODE_READ_PERMISSIONS) block[key] = 'allow';
-  for (const key of OPENCODE_ASK_PERMISSIONS) block[key] = writeAction;
-  return block;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -95,11 +67,8 @@ export function buildOpenCodeConfigContent(existing: string | undefined, yoloMod
       logger.warn('Ignoring unparseable OPENCODE_CONFIG_CONTENT from the environment');
     }
   }
-  const existingPermission = isRecord(base['permission']) ? base['permission'] : {};
-  return JSON.stringify({
-    ...base,
-    permission: { ...existingPermission, ...buildOpenCodePermissionBlock(yoloMode) },
-  });
+  applyOpenCodePermissionPolicy(base, yoloMode);
+  return JSON.stringify(base);
 }
 
 /** Explicit `provider/model` id to apply, or undefined to keep OpenCode's default. */
@@ -143,12 +112,36 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
   env[OPENCODE_CONFIG_CONTENT_ENV] = buildOpenCodeConfigContent(env[OPENCODE_CONFIG_CONTENT_ENV], yoloMode);
   extendEnvWithRtk(env, options.rtk);
   const model = resolveOpenCodeSessionModel(options.model);
+  const originalConfigContent = env[OPENCODE_CONFIG_CONTENT_ENV]!;
+  const budgetConfig = JSON.parse(env[OPENCODE_CONFIG_CONTENT_ENV]!) as Record<string, unknown>;
+  const generationBudget = applyOpenCodeGenerationBudget(budgetConfig, model);
+  if (generationBudget) env[OPENCODE_CONFIG_CONTENT_ENV] = JSON.stringify(budgetConfig);
   const promptTimeoutMs = resolveOpenCodePromptTimeoutMs(model);
   const effort = mapAcpEffort(options.reasoningEffort);
-  return new AcpCliAdapter({
+  const args = ['acp', '--cwd', workingDirectory];
+  const childProgress = createOpenCodeChildProgressSource(workingDirectory);
+  const adapter = new AcpCliAdapter({
     adapterName: 'opencode-acp',
     command: 'opencode',
-    args: ['acp', '--cwd', workingDirectory],
+    args,
+    prepareSpawn: async () => {
+      const probe = (content: string) => readOpenCodeEffectiveBudgetConfig({ workingDirectory,
+        ...(generationBudget && model ? { model } : {}),
+        env: { ...env, [OPENCODE_CONFIG_CONTENT_ENV]: content }, writableRoots: adapter.getHardenedWritableRoots(),
+      });
+      const effectiveConfig = await probe(originalConfigContent);
+      const currentConfig = JSON.parse(originalConfigContent) as Record<string, unknown>;
+      applyOpenCodePermissionPolicy(currentConfig, yoloMode, effectiveConfig);
+      if (generationBudget && model) Object.assign(generationBudget, applyOpenCodeGenerationBudget(currentConfig, model, effectiveConfig));
+      const preparedContent = JSON.stringify(currentConfig);
+      const verified = await probe(preparedContent);
+      assertOpenCodePermissionPolicy(verified);
+      if (generationBudget) assertOpenCodeGenerationBudget(verified, generationBudget);
+      env[OPENCODE_CONFIG_CONTENT_ENV] = preparedContent;
+      return childProgress.prepareSpawn(args, env);
+    },
+    childProgressSource: childProgress.source,
+    prepareContentFilterRecovery: (sessionId, toolCallId, signal) => sanitizeOpenCodeContentFilterSource(childProgress.request, sessionId, signal, toolCallId),
     workingDirectory,
     sessionId: options.sessionId,
     resume: options.resume,
@@ -165,6 +158,7 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
     ...(model || effort ? { sessionConfig: { ...(model ? { model } : {}), ...(effort ? { effort } : {}) } } : {}),
     startupGate: openCodeProcessGate,
     reportedCostOnly: true,
+    generationBudget,
     systemPrompt: options.systemPrompt,
     rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
     timeout: options.timeout,
@@ -177,4 +171,5 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
     concurrencyAcquireTimeoutMs: 60_000,
     ...(options.concurrencyPriority === 'overflow' ? { concurrencyPriority: 'overflow' as const } : {}),
   });
+  return adapter;
 }

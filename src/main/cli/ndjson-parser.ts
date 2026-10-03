@@ -4,6 +4,7 @@
 
 import type { CliStreamMessage } from '../../shared/types/cli.types';
 import { getLogger } from '../logging/logger';
+import { textDiagnostic } from '../logging/source-diagnostics';
 import { parseNdjsonLine, parseStreamingJson } from './json-parse';
 
 const logger = getLogger('NdjsonParser');
@@ -76,7 +77,7 @@ export class NdjsonParser {
       logger.warn('NDJSON buffer exceeded max size, attempting recovery', {
         bufferSize,
         maxBufferBytes: this.maxBufferBytes,
-        bufferPreview: this.buffer.substring(0, 200)
+        ...textDiagnostic(this.buffer)
       });
 
       // Try to salvage complete lines from the oversized buffer
@@ -96,8 +97,8 @@ export class NdjsonParser {
           messages.push(parsed);
         } else {
           logger.warn('Failed to parse NDJSON line during buffer overflow recovery', {
-            linePreview: trimmed.substring(0, 100),
-            error: parseIssue(result)
+            ...textDiagnostic(trimmed),
+            parseError: textDiagnostic(parseIssue(result))
           });
         }
       }
@@ -122,13 +123,13 @@ export class NdjsonParser {
 
         // Log input_required and elicitation messages specifically for debugging
         if (parsed.type === 'input_required' || parsed.type === 'elicitation') {
-          logger.debug(`Detected ${parsed.type} message`, { rawLine: trimmed, parsed });
+          logger.debug(`Detected ${parsed.type} message`, textDiagnostic(trimmed));
         }
 
         messages.push(parsed);
       } else {
         // Log parse errors but continue processing
-        logger.warn('Failed to parse NDJSON line', { linePreview: trimmed.substring(0, 100), error: parseIssue(result) });
+        logger.warn('Failed to parse NDJSON line', { ...textDiagnostic(trimmed), parseError: textDiagnostic(parseIssue(result)) });
       }
     }
 
@@ -154,8 +155,8 @@ export class NdjsonParser {
 
     // Final content wasn't valid enough to recover.
     logger.warn('Discarding incomplete NDJSON buffer', {
-      buffer: this.buffer,
-      ...(!result.ok ? { error: result.error } : {}),
+      ...textDiagnostic(this.buffer),
+      ...(!result.ok ? { parseError: textDiagnostic(result.error) } : {}),
     });
     this.buffer = '';
     return [];

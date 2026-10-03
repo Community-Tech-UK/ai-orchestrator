@@ -725,7 +725,7 @@ describe('InstanceCommunicationManager', () => {
     expect(errorOutput?.metadata).toEqual({ errorCode: 'ENOENT' });
   });
 
-  it('keeps ordinary adapter Error name, code, cause, and metadata raw', async () => {
+  it('keeps ordinary adapter Error identity and payload for consumers while projecting diagnostic logs', async () => {
     const rawAlias = 'ordinary-adapter-error-alias-placeholder';
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     const error = createDiagnosticError(
@@ -735,6 +735,8 @@ describe('InstanceCommunicationManager', () => {
     );
     adapters.set(instance.id, adapter);
     for (const logger of Object.values(communicationLoggerMocks)) logger.mockClear();
+    const received = vi.fn();
+    (adapter as unknown as EventEmitter).on('error', received);
 
     manager.setupAdapterEvents(instance.id, adapter);
     (adapter as unknown as EventEmitter).emit('error', error);
@@ -743,11 +745,17 @@ describe('InstanceCommunicationManager', () => {
     const loggedError = communicationLoggerMocks.error.mock.calls
       .flat()
       .find((value): value is DiagnosticError => value instanceof Error);
-    expect(loggedError).toBe(error);
-    expect(loggedError?.name).toBe(`Provider_${rawAlias}`);
-    expect(loggedError?.code).toBe(`PROVIDER_${rawAlias}`);
-    expect(loggedError?.cause).toBe(error.cause);
-    expect(loggedError?.metadata).toBe(error.metadata);
+    expect(loggedError).toBeUndefined();
+    expect(received).toHaveBeenCalledExactlyOnceWith(error);
+    expect(error.name).toBe(`Provider_${rawAlias}`);
+    expect(error.code).toBe(`PROVIDER_${rawAlias}`);
+    expect(error.cause).toBeDefined();
+    expect(error.metadata).toEqual({ recoveryRef: rawAlias });
+    expect(instance.outputBuffer.some((message) => message.content === error.message)).toBe(true);
+    expect(JSON.stringify(emitProviderRuntimeEvent.mock.calls)).toContain(rawAlias);
+    expect(JSON.stringify(communicationLoggerMocks.error.mock.calls)).not.toContain(rawAlias);
+    expect(communicationLoggerMocks.error).toHaveBeenCalledWith('Instance error', undefined,
+      expect.objectContaining({ errorKind: 'Error', textChars: error.message.length, textHash: expect.stringMatching(/^[a-f0-9]{16}$/) }));
   });
 
   it.each(['interrupted', 'automatic'] as const)(
@@ -808,12 +816,9 @@ describe('InstanceCommunicationManager', () => {
       const loggedErrors = communicationLoggerMocks.error.mock.calls
         .flat()
         .filter((value): value is DiagnosticError => value instanceof Error);
-      expect(loggedErrors.length).toBeGreaterThan(0);
-      for (const loggedError of loggedErrors) {
-        expect(loggedError.name).not.toContain(sourceAlias);
-        expect(loggedError.code).not.toContain(replacementAlias);
-        expect(JSON.stringify(loggedError.cause)).not.toContain(sourceAlias);
-      }
+      expect(loggedErrors).toEqual([]);
+      expect(communicationLoggerMocks.error).toHaveBeenCalledWith(expect.any(String), undefined,
+        expect.objectContaining({ errorKind: 'Error', textHash: expect.stringMatching(/^[a-f0-9]{16}$/) }));
     },
   );
 
@@ -1524,6 +1529,7 @@ describe('InstanceCommunicationManager', () => {
       kind: 'error',
       message: 'Rate limited',
       recoverable: false,
+      turnEnding: { reason: 'quota', evidence: 'provider_quota_error' },
       requestId: 'req_error_123',
       stopReason: 'rate_limit',
       rateLimit: { remaining: 0, resetAt: 1_717_000_060_000 },
@@ -2057,7 +2063,7 @@ describe('InstanceCommunicationManager', () => {
 
     expect(compactContext).toHaveBeenCalledWith(instance.id);
     expect(adapter.sendInput).toHaveBeenCalledTimes(2);
-    expect(adapter.sendInput.mock.calls[1][0]).toContain('[SYSTEM: Context Overflow Recovery]');
+    expect(adapter.sendInput.mock.calls[1][0]).toBe('summarize the workspace');
     expect(instance.outputBuffer.some(message => message.metadata?.['contextOverflow'] === true)).toBe(true);
   });
 
@@ -2573,12 +2579,9 @@ describe('LT-023: a suppressed respawn defers and retries instead of dying silen
     const loggedErrors = communicationLoggerMocks.error.mock.calls
       .flat()
       .filter((value): value is DiagnosticError => value instanceof Error);
-    expect(loggedErrors.length).toBeGreaterThan(0);
-    for (const loggedError of loggedErrors) {
-      expect(loggedError.name).not.toContain(sourceAlias);
-      expect(loggedError.code).not.toContain(replacementAlias);
-      expect(JSON.stringify(loggedError.cause)).not.toContain(sourceAlias);
-    }
+    expect(loggedErrors).toEqual([]);
+    expect(communicationLoggerMocks.error).toHaveBeenCalledWith('Deferred auto-respawn failed', undefined,
+      expect.objectContaining({ errorKind: 'Error', textHash: expect.stringMatching(/^[a-f0-9]{16}$/) }));
   });
 
   it('still terminates immediately when the restart cap is already exhausted, even inside the suppression window', () => {

@@ -11,6 +11,7 @@ import type { UserActionRequest } from '../orchestration/orchestration-handler';
 import { getOrchestrationActivityBridge } from '../orchestration/orchestration-activity-bridge';
 import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
 import { getLogger } from '../logging/logger';
+import { textDiagnostic } from '../logging/source-diagnostics';
 import { getMemoryMonitor } from '../memory/memory-monitor';
 import { getRemoteObserverServer } from '../remote/observer-server';
 import { getRepoJobService } from '../repo-jobs';
@@ -564,7 +565,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       instanceId: event.instanceId,
       detector: event.detector,
       severity: event.severity,
-      toolName: event.toolName,
+      toolName: typeof event.toolName === 'string' ? textDiagnostic(event.toolName) : undefined,
       count: event.count,
     });
     windowManager.sendToRenderer('instance:doom-loop', event);

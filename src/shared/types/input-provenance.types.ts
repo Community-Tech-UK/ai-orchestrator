@@ -15,6 +15,8 @@ export type InternalInputSource =
   | 'async-work-continuation'
   | 'announce-then-halt-continuation'
   | 'crash-turn-continuation'
+  | 'reasoning-collapse-continuation'
+  | 'content-filter-continuation'
   | 'orchestrator-status-request'
   | 'child-announcement'
   | 'lsp-feedback'

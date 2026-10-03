@@ -1,6 +1,7 @@
 import type { OutputMessage } from '../../../../shared/types/instance.types';
 import { generateId } from '../../../../shared/utils/id-generator';
 import { getLogger } from '../../../logging/logger';
+import { errorDiagnostic } from '../../../logging/source-diagnostics';
 import { isCodexInputTooLargeError, isRecoverableThreadResumeError } from './exec-error-classifier';
 import type { CodexContextCostController } from './context-cost-controller';
 import { recoverFromInputCap } from './input-cap-recovery';
@@ -10,6 +11,7 @@ const logger = getLogger('CodexCliAdapter');
 
 interface CodexAppServerMessageSendDeps {
   controller: CodexContextCostController;
+  signal?: AbortSignal;
   threadId(): string | null;
   sendInner(): Promise<void>;
   compact(): Promise<boolean>;
@@ -22,6 +24,7 @@ interface CodexAppServerMessageSendDeps {
 export async function sendCodexAppServerMessage(deps: CodexAppServerMessageSendDeps): Promise<void> {
   const gatedSend = createProviderCompactionSendGate({
     controller: deps.controller,
+    signal: deps.signal,
     emitPaused: deps.emitOutput,
   });
   const send = () => gatedSend(deps.sendInner);
@@ -31,7 +34,7 @@ export async function sendCodexAppServerMessage(deps: CodexAppServerMessageSendD
     if (isCodexInputTooLargeError(error)) {
       logger.warn('Codex app-server turn exceeded per-turn input char cap; recovering', {
         threadId: deps.threadId(),
-        cause: error instanceof Error ? error.message : String(error),
+        ...errorDiagnostic(error),
       });
       await recoverFromInputCap({
         send,
@@ -51,7 +54,7 @@ export async function sendCodexAppServerMessage(deps: CodexAppServerMessageSendD
     if (!isRecoverableThreadResumeError(error)) throw error;
     logger.warn('Codex app-server thread became unavailable; refusing context-empty retry', {
       threadId: deps.threadId(),
-      cause: error instanceof Error ? error.message : String(error),
+      ...errorDiagnostic(error),
     });
     throw error;
   } finally {

@@ -5,6 +5,7 @@ import {
   CliMessage,
   CliResponse,
   CliUsage,
+  type AdapterInputDispatch,
 } from './base-cli-adapter';
 import {
   BaseLocalModelChatAdapter,
@@ -18,6 +19,7 @@ import {
 } from './local-model-chat-adapter';
 import type { LocalReviewToolDefinition } from '../../review/local-review.types';
 import { getLogger } from '../../logging/logger';
+import { textDiagnostic } from '../../logging/source-diagnostics';
 import type { CliSpawnMode, CliStatus } from './base-cli-adapter';
 import {
   MAX_LOCAL_MODEL_JSON_RESPONSE_BYTES,
@@ -221,13 +223,13 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter imple
     }
   }
 
-  async sendMessage(message: CliMessage): Promise<CliResponse> {
+  async sendMessage(message: CliMessage, dispatch?: AdapterInputDispatch): Promise<CliResponse> {
     const userMsg: LocalModelChatMessage = { role: 'user', content: message.content };
     const messages = this.buildMessages(userMsg);
-    const signal = this.beginLocalModelTurn();
+    const signal = this.beginLocalModelTurn(dispatch);
 
     try {
-      const response = await this.postStreamingChat(messages, signal);
+      const response = await this.postStreamingChat(messages, signal, dispatch);
       this.appendAssistantTurn(userMsg, response.content);
       return response;
     } finally {
@@ -305,6 +307,7 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter imple
   private async postStreamingChat(
     messages: LocalModelChatMessage[],
     signal: AbortSignal,
+    dispatch?: AdapterInputDispatch,
   ): Promise<CliResponse> {
     const body = this.chatRequestBody(messages, true);
     const streamed = await this.withResponse(this.url('/v1/chat/completions'), {
@@ -318,13 +321,14 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter imple
         throw new Error(`OpenAI-compatible chat error ${response.status}: ${errorBody}`);
       }
       return this.readSseResponse(response, responseSignal);
-    });
-    return streamed ?? this.postNonStreamingChat(messages, signal);
+    }, dispatch);
+    return streamed ?? this.postNonStreamingChat(messages, signal, dispatch);
   }
 
   private async postNonStreamingChat(
     messages: LocalModelChatMessage[],
     signal: AbortSignal,
+    dispatch?: AdapterInputDispatch,
   ): Promise<CliResponse> {
     const body = this.chatRequestBody(messages, false);
     return await this.withResponse(this.url('/v1/chat/completions'), {
@@ -348,7 +352,7 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter imple
         id: this.generateResponseId(), content, role: 'assistant',
         ...(parsed.usage ? { usage: mapOpenAIUsage(parsed.usage) } : {}), raw: parsed,
       };
-    });
+    }, dispatch);
   }
 
   private async readSseResponse(response: Response, signal: AbortSignal): Promise<CliResponse> {
@@ -428,7 +432,7 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter imple
         ? { done: false, usage: mapOpenAIUsage(parsed.usage) }
         : { done: false };
     } catch {
-      logger.debug('OpenAI-compatible local model: unparseable SSE data', { data });
+      logger.debug('OpenAI-compatible local model: unparseable SSE data', textDiagnostic(data));
       return { done: false };
     }
   }
@@ -468,9 +472,10 @@ export class OpenAICompatibleChatAdapter extends BaseLocalModelChatAdapter imple
     init: RequestInit,
     externalSignal: AbortSignal | undefined,
     consume: (response: Response, signal: AbortSignal) => Promise<T>,
+    dispatch?: AdapterInputDispatch,
   ): Promise<T> {
     return withLocalModelFetchResponse(
-      url, init, externalSignal, this.timeoutMs, this.timeoutMessage(), consume,
+      url, init, externalSignal, this.timeoutMs, this.timeoutMessage(), consume, dispatch,
     );
   }
 

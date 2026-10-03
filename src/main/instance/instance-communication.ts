@@ -12,13 +12,12 @@ import { BaseCliAdapter, type CliResponse } from '../cli/adapters/base-cli-adapt
 // History archiving moved exclusively to instance-lifecycle.ts terminateInstance()
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../logging/source-diagnostics';
 import { getOutputStorageManager } from '../memory/output-storage';
 import { recordCompletionCost as recordCompletionCostImpl, recordEstimationTelemetry as recordEstimationTelemetryImpl } from './communication-completion-cost';
 import { getHandoffStateService } from '../session/handoff-state-service';
 import { noteSandboxDenialOnExit } from './lifecycle/sandbox-exit-advice';
 import { getHookManager } from '../hooks/hook-manager';
-import { getErrorRecoveryManager } from '../core/error-recovery';
-import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import type {
   FileAttachment,
   Instance,
@@ -59,7 +58,7 @@ import {
   tryParkOnProviderLimit as tryParkOnProviderLimitImpl,
 } from './instance-communication-provider-limit';
 import { deferExitToRecoveryOwner, scheduleSuppressedAutoRespawnRetry } from './instance-communication-recent-respawn-retry';
-import { emitRecoverySafeAdapterError, notePendingRecoveryExit, settleExitRecoveryFailure } from './instance-communication-recovery-safety';
+import { notePendingRecoveryExit, settleExitRecoveryFailure } from './instance-communication-recovery-safety';
 import {
   assertInstanceLifecycleHookAllowed,
   dispatchInstanceLifecycleHook,
@@ -69,8 +68,6 @@ import {
   isAggregateOnlyOccupancy,
   isContextOverflowMessage,
   isCorruptedSessionMessage,
-  isRecoverableAcpPromptTurnError,
-  isRecoverableStatelessExecTurnError,
   isRecoveringStatus,
   isStatelessExecAdapter,
 } from './instance-communication-adapter-helpers';
@@ -82,14 +79,12 @@ import {
   getRecoverySensitiveValues,
   isCrashRecoveryInstance,
   recoverySessionDiagnostic,
-  redactRecoveryError,
   redactRecoveryIdentityValue,
   redactRecoveryOutputMessage,
   redactRecoveryText,
 } from './instance-recovery-redaction';
 import { getSessionContinuityManagerIfInitialized } from '../session/session-continuity';
 import { getOrCreateTurnSupervisor } from '../session/session-turn-supervisor';
-import { getSessionAdmissionService } from '../session/session-admission-service';
 import { stabilizeThinkingBlocks } from '../../shared/utils/thinking-extractor';
 import { nextMonotonicStreamingContent } from '../../shared/utils/streaming-content';
 import {
@@ -109,7 +104,9 @@ import { InstanceContinuityInputQueue } from './instance-continuity-input-queue'
 import { InstanceToolResultProcessor } from './instance-tool-result-processor';
 import { getInstanceAsyncWorkRegistry } from './instance-async-work-registry';
 import { throwIfInstanceInputAborted, type InstanceSendInputOptions } from './instance-input-cancellation';
-import { errorIdentityOf } from '../util/error-utils';
+import { InstanceInputFailureScopes } from './instance-input-failure-scope';
+import { handleInstanceAdapterError } from './instance-adapter-error-handler';
+import { createInstanceAdapterInputDispatch, createInstanceInputReceipt } from './instance-adapter-input-dispatch';
 export type { CommunicationDependencies } from './instance-communication.types';
 
 const logger = getLogger('InstanceCommunication');
@@ -125,6 +122,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
   private circuitBreakers = new InstanceCommunicationCircuitBreakers();
   private overflow = new InstanceCommunicationOverflowTracker();
+  private inputFailureScopes: InstanceInputFailureScopes;
   private overflowPolicy = new InstanceCommunicationOverflowPolicy(this.overflow, {
     getCompactContext: () => this.deps.compactContext,
     addToOutputBuffer: (inst, msg) => this.addToOutputBuffer(inst, msg),
@@ -149,6 +147,7 @@ export class InstanceCommunicationManager extends EventEmitter {
   constructor(deps: CommunicationDependencies) {
     super();
     this.deps = deps;
+    this.inputFailureScopes = new InstanceInputFailureScopes(deps.getInstance, deps.getAdapter);
     this.toolResultProcessor = new InstanceToolResultProcessor({
       captureContextEvidenceToolResult: deps.captureContextEvidenceToolResult,
       getContextEvidenceMode: deps.getContextEvidenceMode,
@@ -334,6 +333,7 @@ export class InstanceCommunicationManager extends EventEmitter {
   cleanupCircuitBreaker(instanceId: string): void {
     this.circuitBreakers.delete(instanceId);
     this.overflow.cleanup(instanceId);
+    this.inputFailureScopes.cleanup(instanceId);
     this.continuityInputQueue.cleanup(instanceId);
     this.lastErrorContent.delete(instanceId);
     this.toolResultProcessor.cleanup(instanceId);
@@ -420,13 +420,15 @@ export class InstanceCommunicationManager extends EventEmitter {
     try {
       const result = this.deps.onChildExit?.(instanceId, instance, 0);
       Promise.resolve(result).catch((error: unknown) => {
-        logger.error('Failed to notify parent about completed child turn', error instanceof Error ? error : undefined, {
+        logger.error('Failed to notify parent about completed child turn', undefined, {
+          ...errorDiagnostic(error),
           instanceId,
           parentId: instance.parentId,
         });
       });
     } catch (error) {
-      logger.error('Failed to notify parent about completed child turn', error instanceof Error ? error : undefined, {
+      logger.error('Failed to notify parent about completed child turn', undefined, {
+        ...errorDiagnostic(error),
         instanceId,
         parentId: instance.parentId,
       });
@@ -506,7 +508,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         // send-error funnel still catches a real limit.
         logger.warn('Known provider-limit preflight failed; sending the turn', {
           instanceId: instance.id,
-          error: error instanceof Error ? error.message : String(error),
+          ...errorDiagnostic(error),
         });
         return false;
       }
@@ -564,13 +566,14 @@ export class InstanceCommunicationManager extends EventEmitter {
     message: string,
     attachments?: FileAttachment[],
     contextBlock?: string | null,
-    options?: Pick<InstanceSendInputOptions, 'autoContinuation' | 'signal' | 'beforeProviderDispatch' | 'internalSource'>,
+    options?: Pick<InstanceSendInputOptions, 'autoContinuation' | 'automatedInput' | 'signal' | 'beforeProviderDispatch' | 'assertProviderDispatchCurrent' | 'internalSource'>,
   ): Promise<void> {
     throwIfInstanceInputAborted(options?.signal);
-    // LT-657: only Harness-authored turns carry provenance to the adapter.
-    const dispatch = () => (options?.internalSource
-      ? adapter!.sendInput(finalMessage, attachments, { internalSource: options.internalSource })
-      : adapter!.sendInput(finalMessage, attachments));
+    const dispatch = () => deferredDispatch
+      ? adapter!.sendInput(finalMessage, attachments, { internalSource: options?.internalSource, dispatch: inputDispatch })
+      : options?.internalSource
+        ? adapter!.sendInput(finalMessage, attachments, { internalSource: options.internalSource })
+        : adapter!.sendInput(finalMessage, attachments);
     logger.info('sendInput called', { instanceId, autoContinuation: options?.autoContinuation === true });
     const instance = this.deps.getInstance(instanceId);
     let adapter = this.deps.getAdapter(instanceId);
@@ -812,62 +815,56 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
 
     logger.info('Sending message to adapter');
-    // Arm the stuck-process watchdog BEFORE awaiting sendInput(). Some
-    // adapters (e.g. Codex app-server) block inside sendInput() for the
-    // entire turn duration. If we armed after the await, the watchdog
-    // would only start AFTER the turn is already complete — too late to
-    // detect genuinely stuck turns, and it leaves the detector in
-    // 'generating' state with no work happening.
-    //
-    // Arming here starts the 2m soft / 4m hard clock immediately. Real
-    // adapter events still override this (recordOutput resets the clock;
-    // tool_executing extends timeouts for long tool runs). Adapters that
-    // return from sendInput() quickly (Claude, Gemini) are unaffected.
-    let admissionRecord: ReturnType<ReturnType<typeof getSessionAdmissionService>['recordUserSend']> = null;
-    try {
+    // Commit watchdog, receipt and context only when the local adapter actually dispatches.
+    const receipt = createInstanceInputReceipt(instanceId, () => ({ message: finalMessage, attachments, contextBlock: finalContextBlock }));
+    let committed = false;
+    const deferredDispatch = adapter instanceof BaseCliAdapter && Boolean(options?.signal || options?.beforeProviderDispatch);
+    const commitDispatch = (): void => {
       throwIfInstanceInputAborted(options?.signal);
+      if (committed) return;
       options?.beforeProviderDispatch?.();
+      committed = true;
       preparedContext.commit();
-      this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource });
-      // These mutations belong to a real provider-dispatch attempt. Keeping
-      // them behind the cancellation and budget gates prevents an abandoned
-      // auto-continuation from creating phantom send state.
+      this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource }, !options?.autoContinuation && !options?.automatedInput && options?.internalSource === undefined ? instance.requestCount : undefined);
+      this.overflow.rememberDispatch(instanceId, inputDispatch, finalMessage);
+      // Only admitted sends create context, checkpoint, watchdog and receipt state.
       if (this.deps.createSnapshot) {
         const name = `Before: ${message.slice(0, 50)}`;
         try {
           this.deps.createSnapshot(instanceId, name, undefined, 'checkpoint');
         } catch (err) {
-          logger.debug('Failed to create checkpoint snapshot', { instanceId, error: String(err) });
+          logger.debug('Failed to create checkpoint snapshot', { instanceId, ...errorDiagnostic(err) });
         }
       }
       this.toolResultProcessor.resetAutonomousCount(instanceId);
       this.deps.onToolStateChange?.(instanceId, 'generating');
-      // Observe-only receipt (Phase A of SessionAdmissionService). Never adds
-      // latency or a new failure mode: recordUserSend() swallows its own
-      // errors and returns null on failure, and the mark* calls below are
-      // fail-soft no-ops when admissionRecord is null.
-      admissionRecord = getSessionAdmissionService().recordUserSend(
-        instanceId,
-        finalMessage,
-        attachments,
-        finalContextBlock,
-      );
+      receipt.record();
+    };
+    const failureScope = this.inputFailureScopes.open(instance, adapter, options?.signal);
+    const inputDispatch = createInstanceAdapterInputDispatch(instance, adapter, options, () => {
+      commitDispatch();
+      failureScope.activate();
+    }, this.deps.getInstance, this.deps.getAdapter);
+    try {
+      if (!deferredDispatch) {
+        commitDispatch();
+        failureScope.activate();
+      }
       await dispatch();
       logger.info('Message sent to adapter');
-      if (admissionRecord) getSessionAdmissionService().markDelivered(admissionRecord.admissionId);
+      receipt.delivered();
     } catch (initialError) {
-      if (admissionRecord) {
-        getSessionAdmissionService().markFailed(
-          admissionRecord.admissionId,
-          initialError instanceof Error ? initialError.message : String(initialError),
-        );
-      }
+      receipt.failed(initialError);
+      if (options?.autoContinuation && initialError instanceof Error && initialError.name === 'AbortError') return;
+      const eventRecovery = await failureScope.joinRejected(receipt.delivered);
+      if (eventRecovery === 'handled') return;
+      if (eventRecovery === 'failed') throw initialError;
       let sendError = initialError;
 
       if (attachments?.length && isUnsupportedOrchestratorAttachmentError(sendError)) {
         this.emitAttachmentDropWarnings(instanceId, instance, adapter.getName(), attachments);
         attachments = undefined;
-        this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource });
+        this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource }, !options?.autoContinuation && !options?.automatedInput && options?.internalSource === undefined ? instance.requestCount : undefined);
 
         if (!message.trim()) {
           logger.info('Dropped unsupported attachments from empty user input; skipping adapter retry', {
@@ -881,13 +878,16 @@ export class InstanceCommunicationManager extends EventEmitter {
 
         try {
           throwIfInstanceInputAborted(options?.signal);
-          await dispatch();
+          if (inputDispatch.runInputRetry) await inputDispatch.runInputRetry('unsupported-attachments', dispatch);
+          else await dispatch();
+          receipt.delivered();
           logger.info('Message sent to adapter after dropping unsupported attachments', {
             instanceId,
             adapter: adapter.getName(),
           });
           return;
         } catch (retryError) {
+          if (options?.autoContinuation && retryError instanceof Error && retryError.name === 'AbortError') return;
           sendError = retryError;
         }
       }
@@ -909,10 +909,12 @@ export class InstanceCommunicationManager extends EventEmitter {
           errorText: errorMsg,
           message,
           attachments,
-          contextBlock,
+          contextBlock: finalContextBlock,
           internalSource: options?.internalSource,
           adapter,
-          beforeRetry: () => throwIfInstanceInputAborted(options?.signal),
+          finalMessage,
+          dispatch: inputDispatch,
+          onRetryDelivered: receipt.delivered,
           extraFields: { reason: overflowEvidence.reason, detail: overflowEvidence.detail },
         });
         if (handled) return;
@@ -924,14 +926,8 @@ export class InstanceCommunicationManager extends EventEmitter {
       // fires for it. Catch that here too so the park still runs instead of
       // the instance falling into 'error'.
       //
-      // Invariant this relies on: a given adapter's turn signals a failure
-      // through exactly ONE of {'error' event, thrown/rejected sendInput()},
-      // never both — so this call site and the on('error') handler's call
-      // below never both see the same turn. If a future adapter change ever
-      // violates that (emits 'error' *and* rejects), the second call here
-      // hits `maybePark`'s already-parked branch, which is quiet (no status
-      // change) but still adds its own system-buffer message alongside the
-      // first — a harmless but confusing double notice, not a double park.
+      // Captured adapter events join their existing recovery above. Only a
+      // rejection with no event-owned recovery reaches this fallback owner.
       if (this.tryParkOnProviderLimit(instanceId, instance, adapter, sendError, errorMsg)) {
         this.deps.onToolStateChange?.(instanceId, 'idle');
         this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
@@ -941,7 +937,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       this.reportAuthFailureTurn(instanceId, sendError);
 
       throw sendError;
-    }
+    } finally { failureScope.close(); }
   }
 
   /**
@@ -1059,6 +1055,8 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('output')) {
         return;
       }
+      const failureScope = message.type === 'error' ? this.inputFailureScopes.find(instanceId, adapter) : undefined;
+      if (failureScope?.hasRecovery && !failureScope.isCurrent()) return;
       // LT-196: never enters the visible transcript. Held in a side store and
       // merged in only at archive assembly, keeping it out of `outputBuffer`,
       // disk storage, every buffer consumer and the event bus. See
@@ -1125,7 +1123,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           } catch (err: unknown) {
             logger.warn('writeThroughIdentity failed after blacklist set (output)', {
               instanceId,
-              error: err instanceof Error ? err.message : String(err),
+              ...errorDiagnostic(err),
             });
           }
         }
@@ -1153,7 +1151,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           } catch (err: unknown) {
             logger.warn('writeThroughIdentity failed after session ID update', {
               instanceId,
-              error: err instanceof Error ? err.message : String(err),
+              ...errorDiagnostic(err),
             });
           }
           this.deps.queueUpdate(
@@ -1248,7 +1246,7 @@ export class InstanceCommunicationManager extends EventEmitter {
                 this.addToOutputBuffer(instance, recoveryMessage);
                 this.emit('output', { instanceId, message: recoveryMessage });
               } catch (compactErr) {
-                logger.error('Compaction failed during circuit breaker recovery', compactErr instanceof Error ? compactErr : undefined, { instanceId });
+                logger.error('Compaction failed during circuit breaker recovery', undefined, { instanceId, ...errorDiagnostic(compactErr) });
               }
             }
 
@@ -1272,7 +1270,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         // These surface as API 400 "user messages must have non-empty content" on --resume.
         // Show a clear recovery message instead of a cryptic API error.
         if (message.type === 'error' && isCorruptedSessionMessage(message.content)) {
-          logger.warn('Corrupted session detected via output path', { instanceId, content: message.content });
+          logger.warn('Corrupted session detected via output path', { instanceId, ...textDiagnostic(message.content) });
 
           const recoveryMessage: OutputMessage = {
             id: generateId(),
@@ -1290,7 +1288,7 @@ export class InstanceCommunicationManager extends EventEmitter {
             this.transitionInstanceStatus(instance, 'error');
             this.deps.queueUpdate(instanceId, 'error');
             this.forceCleanupAdapter(instanceId).catch((err) => {
-              logger.error('Failed to cleanup adapter after corrupted session', err instanceof Error ? err : undefined, { instanceId });
+              logger.error('Failed to cleanup adapter after corrupted session', undefined, { instanceId, ...errorDiagnostic(err) });
             });
           }
           return;
@@ -1298,11 +1296,11 @@ export class InstanceCommunicationManager extends EventEmitter {
 
         // Detect context-overflow errors arriving via NDJSON stdout path
         // (these bypass the adapter 'error' event and need explicit handling)
-        if (message.type === 'error' && isContextOverflowMessage(message.content)) {
+        if (message.type === 'error' && isContextOverflowMessage(message.content) && !failureScope?.hasRecovery) {
           const tokenInfo = extractOverflowTokenCount(message.content);
           logger.warn('Context overflow detected via output path', {
             instanceId,
-            content: message.content,
+            ...textDiagnostic(message.content),
             observedTokens: tokenInfo.observed,
             maximumTokens: tokenInfo.maximum,
           });
@@ -1330,7 +1328,7 @@ export class InstanceCommunicationManager extends EventEmitter {
             this.transitionInstanceStatus(instance, 'error');
             this.deps.queueUpdate(instanceId, 'error');
             this.forceCleanupAdapter(instanceId).catch((err) => {
-              logger.error('Failed to cleanup adapter after context overflow', err instanceof Error ? err : undefined, { instanceId });
+              logger.error('Failed to cleanup adapter after context overflow', undefined, { instanceId, ...errorDiagnostic(err) });
             });
           }
           return; // Don't add duplicate errors to buffer
@@ -1483,7 +1481,7 @@ export class InstanceCommunicationManager extends EventEmitter {
                 this.notifyChildTurnCompleted(instanceId, instance);
               }
             } catch (err) {
-              logger.debug('computeDiff failed', { instanceId, error: String(err) });
+              logger.debug('computeDiff failed', { instanceId, ...errorDiagnostic(err) });
               this.deps.queueUpdate(instanceId, normalizedStatus, instance.contextUsage);
               if (notifyChildTurnCompleted) {
                 this.notifyChildTurnCompleted(instanceId, instance);
@@ -1792,7 +1790,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         approvalTraceId,
         instanceId,
         requestId: payload.id,
-        metadataType: metadata['type']
+        metadataType: typeof metadata['type'] === 'string' ? textDiagnostic(metadata['type']) : undefined
       });
 
       this.emit('input-required', {
@@ -1816,157 +1814,21 @@ export class InstanceCommunicationManager extends EventEmitter {
       this.emit('input-required-resolved', { instanceId, requestId: payload.id, reason: payload.reason });
     });
 
-    adapter.on('error', async (error: Error) => {
-      if (isStaleAdapterEvent('error')) {
-        return;
-      }
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const recoverableStatelessExecError = isRecoverableStatelessExecTurnError(adapter, error);
-      const recoverableAcpPromptTurnError = isRecoverableAcpPromptTurnError(errorMessage);
-      const recoverableTurnError = recoverableStatelessExecError || recoverableAcpPromptTurnError;
-      const instance = this.deps.getInstance(instanceId);
-      const safeError = emitRecoverySafeAdapterError(instanceId, instance, error, recoverableTurnError, emitProviderRuntimeEvent);
-      const safeErrorMessage = safeError.message;
-
-      if (!instance) return;
-
-      // Guard: EPIPE errors are expected when a CLI process dies while we have
-      // buffered writes. Swallow them — the exit handler will take care of
-      // respawning. Emitting EPIPE as an instance error would race with the
-      // exit handler and could mark the instance as 'error' before auto-respawn
-      // gets a chance to run, which kills the session.
-      if ((error as NodeJS.ErrnoException).code === 'EPIPE') {
-        logger.debug('Ignoring EPIPE error from adapter — exit handler will manage recovery', { instanceId });
-        return;
-      }
-
-      // Poison the session id on the telltale Claude CLI resume failure so
-      // the next respawn (including auto-respawn from this adapter's exit)
-      // cannot loop on it.
-      const errText = errorMessage;
-      if (isSessionNotFoundText(errText)) {
-        const firstBlacklist = !instance.sessionResumeBlacklisted;
-        instance.sessionResumeBlacklisted = true;
-        logger.warn('Session id blacklisted due to resume failure', {
-          instanceId,
-          ...recoverySessionDiagnostic(instance, 'sessionId', instance.sessionId),
-        });
-        if (firstBlacklist) this.emitInvalidSessionNotice(instanceId, instance);
-        // B4/C1: Persist blacklist immediately so a crash cannot replay the
-        // doomed session ID. Awaited so the save completes before this handler
-        // returns — eliminates the crash window between in-memory update and disk.
-        try {
-          await getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
-            nativeResumeFailedAt: Date.now(),
-          });
-        } catch (err: unknown) {
-          logger.warn('writeThroughIdentity failed after blacklist set (error)', {
-            instanceId,
-            error: redactRecoveryError(instance, err).message,
-          });
-        }
-      }
-
-      // Check if this is a context overflow error
-      const overflowEvidence = classifyContextOverflow({
-        errorText: errorMessage,
-        promptTokens: instance.contextUsage?.inputTokens ?? instance.contextUsage?.used,
-        contextWindowTokens: instance.contextUsage?.total,
-      });
-      const classified = getErrorRecoveryManager().classifyError(error);
-      if (
-        overflowEvidence.matched
-        || (classified.category === ErrorCategory.RESOURCE && classified.technicalDetails?.includes('context'))
-      ) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        const handled = await this.overflowPolicy.recoverAdapterErrorOverflow({
-          instanceId,
-          instance,
-          errorText: errorMsg,
-          extraFields: overflowEvidence.matched
-            ? { reason: overflowEvidence.reason, detail: overflowEvidence.detail }
-            : undefined,
-        });
-        if (handled) return;
-      }
-
-      // Regular-session provider-limit auto-resume (opt-in). If this turn
-      // stopped on a rate/session limit, park the instance and schedule a
-      // resume after the quota window resets instead of marking it errored.
-      // See the sendInput() catch's tryParkOnProviderLimit call for the
-      // mutual-exclusivity invariant this relies on (a turn signals failure
-      // via 'error' XOR a thrown sendInput(), never both).
-      if (this.deps.onProviderLimitTurn && !recoverableTurnError) {
-        if (this.tryParkOnProviderLimit(
-          instanceId, instance, adapter, safeError, safeErrorMessage,
-        )) {
-          return;
-        }
-      }
-
-      // Provider sign-out mid-session: attach the repair affordance. The error
-      // below is still surfaced and the instance still errors — this only adds
-      // the auth-required waitReason and the sign-in watcher.
-      this.reportAuthFailureTurn(instanceId, safeError);
-
-      // Add error message to output buffer so user sees it in the UI
-      const errorContent = safeErrorMessage;
-      if (this.hasRecentMatchingErrorOutput(instance, errorContent)) {
-        logger.debug('Skipping duplicate UI error message after adapter error event', {
-          instanceId,
-          content: errorContent,
-        });
-      } else {
-        const errorMessage: OutputMessage = {
-          id: generateId(),
-          timestamp: Date.now(),
-          type: 'error',
-          content: errorContent,
-          metadata: errorIdentityOf(error),
-        };
-        this.addToOutputBuffer(instance, errorMessage);
-        this.emit('output', { instanceId, message: errorMessage });
-      }
-
-      if (recoverableTurnError) {
-        instance.errorCount++;
-        logger.info('Keeping instance recoverable after turn failure', {
-          instanceId,
-          adapter: adapter.getName(),
-          message: safeErrorMessage,
-          recoverableKind: recoverableAcpPromptTurnError ? 'acp-prompt-timeout' : 'stateless-exec',
-        });
-        if (!isRecoveringStatus(instance.status)) {
-          this.transitionInstanceStatus(instance, 'idle');
-          this.deps.onToolStateChange?.(instanceId, 'idle');
-          this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
-        }
-        return;
-      }
-
-      instance.errorCount++;
-      dispatchInstanceLifecycleHook('StopFailure', instance, {
-        errorMessage: errorContent,
-        errorProvider: instance.provider,
-        stopReason: 'adapter-error',
-      }, logger, this.hookManager);
-
-      // Don't mark as error if we're in the middle of interrupt recovery - let lifecycle handle it.
-      if (!isRecoveringStatus(instance.status)) {
-        this.transitionInstanceStatus(instance, 'error');
-        this.deps.queueUpdate(instanceId, 'error');
-
-        // Only force cleanup if not recovering - during recovery the lifecycle manager handles cleanup.
-        this.forceCleanupAdapter(instanceId).catch((cleanupErr) => {
-          logger.error(
-            'Failed to cleanup adapter after error',
-            redactRecoveryError(instance, cleanupErr),
-            { instanceId },
-          );
-        });
-      } else {
-        logger.info('Instance error during interrupt recovery - skipping force cleanup, letting lifecycle handle it', { instanceId });
-      }
+    adapter.on('error', (error: Error) => {
+      if (isStaleAdapterEvent('error')) return;
+      const scope = this.inputFailureScopes.find(instanceId, adapter);
+      const recover = () => handleInstanceAdapterError({
+        deps: this.deps, hookManager: this.hookManager, overflowPolicy: this.overflowPolicy,
+        emitInvalidSessionNotice: (id, instance) => this.emitInvalidSessionNotice(id, instance),
+        tryParkOnProviderLimit: (id, instance, currentAdapter, failure, message) => this.tryParkOnProviderLimit(id, instance, currentAdapter, failure, message),
+        reportAuthFailureTurn: (id, failure) => this.reportAuthFailureTurn(id, failure),
+        hasRecentMatchingErrorOutput: (instance, content) => this.hasRecentMatchingErrorOutput(instance, content),
+        addToOutputBuffer: (instance, message) => this.addToOutputBuffer(instance, message),
+        emitOutput: (id, message) => this.emit('output', { instanceId: id, message }),
+        transitionInstanceStatus: (instance, status) => this.transitionInstanceStatus(instance, status),
+        forceCleanupAdapter: (id) => this.forceCleanupAdapter(id),
+      }, instanceId, adapter, error, emitProviderRuntimeEvent, scope);
+      return scope ? scope.capture(recover) : recover();
     });
 
     // Heartbeat events from adapters that block inside sendInput() (e.g.
@@ -2094,7 +1956,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           logger.info('Adapter exit with deferred tool use pending — skipping respawn', {
             instanceId,
             code,
-            toolName: deferred.toolName,
+            toolName: typeof deferred.toolName === 'string' ? textDiagnostic(deferred.toolName) : undefined,
           });
           return;
         }
@@ -2340,8 +2202,6 @@ export class InstanceCommunicationManager extends EventEmitter {
             previousLength: previousContent.length,
             newLength: accumulatedContent.length,
             hasAccumulatedContentMeta: !!(message.metadata && 'accumulatedContent' in message.metadata),
-            previousTail: previousContent.slice(-120),
-            newTail: accumulatedContent.slice(-120),
           });
         }
         // Guard: a streaming update must never rewind already-committed text.
@@ -2394,7 +2254,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       // but make failures observable instead of disappearing entirely.
       logger.debug('Token stats recording failed (best-effort)', {
         instanceId: instance.id,
-        error: error instanceof Error ? error.message : String(error),
+        ...errorDiagnostic(error),
       });
     }
 
@@ -2408,7 +2268,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       );
       if (settings.enableDiskStorage) {
         this.outputStorage.storeMessages(instance.id, overflow).catch((err) => {
-          logger.error('Failed to store output to disk', err instanceof Error ? err : undefined, { instanceId: instance.id });
+          logger.error('Failed to store output to disk', undefined, { instanceId: instance.id, ...errorDiagnostic(err) });
         });
       }
 
@@ -2515,7 +2375,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     try {
       await adapter.terminate(false);
     } catch (error) {
-      logger.error('Error during force cleanup', error instanceof Error ? error : undefined, { instanceId });
+      logger.error('Error during force cleanup', undefined, { instanceId, ...errorDiagnostic(error) });
     } finally {
       this.deps.deleteAdapter(instanceId);
     }

@@ -30,11 +30,12 @@ export class CompactionGate {
    * Resolves when {@link settle} is next called, or when the active window
    * elapses — `timeoutMs` until {@link markRunning}, then `runningTimeoutMs`.
    */
-  wait(timeoutMs: number, runningTimeoutMs = timeoutMs): Promise<CompactionGateOutcome> {
+  wait(timeoutMs: number, runningTimeoutMs = timeoutMs, signal?: AbortSignal): Promise<CompactionGateOutcome> {
     return new Promise<CompactionGateOutcome>((resolve) => {
       let settled = false;
       let running = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const onAbort = () => waiter.finish('cancelled');
       const arm = (ms: number, outcome: CompactionGateOutcome): void => {
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => waiter.finish(outcome), ms);
@@ -45,6 +46,7 @@ export class CompactionGate {
           if (settled) return;
           settled = true;
           if (timer) clearTimeout(timer);
+          signal?.removeEventListener('abort', onAbort);
           this.waiters.delete(waiter);
           resolve(outcome);
         },
@@ -55,6 +57,8 @@ export class CompactionGate {
         },
       };
       this.waiters.add(waiter);
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) { onAbort(); return; }
       arm(timeoutMs, 'timed-out');
     });
   }

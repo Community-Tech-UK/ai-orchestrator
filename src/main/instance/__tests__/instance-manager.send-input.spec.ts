@@ -1085,6 +1085,35 @@ describe('InstanceManager', () => {
   });
 
   describe('sendInput', () => {
+    it('forwards the repeatable native owner fence through the real manager preparation path', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+      const communication = (manager as unknown as { communication: import('../instance-communication').InstanceCommunicationManager }).communication;
+      const sending = vi.spyOn(communication, 'sendInput');
+      let paused = false;
+      const ownerFence = (): void => { if (paused) throw new Error('Owner paused after input admission'); };
+      try {
+        await manager.sendInput(instance.id, 'Harness continuation', undefined, {
+          autoContinuation: true, internalSource: 'reasoning-collapse-continuation',
+          beforeProviderDispatch: vi.fn(), assertProviderDispatchCurrent: ownerFence,
+        });
+        const forwarded = sending.mock.calls.at(-1)?.[4]?.assertProviderDispatchCurrent;
+        expect(forwarded).toBe(ownerFence);
+        expect(() => forwarded?.()).not.toThrow();
+        paused = true;
+        expect(() => forwarded?.()).toThrow('Owner paused after input admission');
+        expect(mockAdapterSendInput.mock.calls.at(-1)?.[2]).toEqual({ internalSource: 'reasoning-collapse-continuation' });
+      } finally { sending.mockRestore(); }
+    });
+    it('keeps internal input inside the current logical user-turn budget', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      const started = vi.fn();
+      manager.on('instance:input-started', started);
+      await manager.sendInput(instance.id, 'child result arrived', undefined, { internalSource: 'child-announcement' });
+      expect(started).toHaveBeenCalledWith({ instanceId: instance.id, autoContinuation: true });
+      await manager.sendInput(instance.id, 'next real request');
+      expect(started).toHaveBeenLastCalledWith({ instanceId: instance.id, autoContinuation: false });
+    });
     it('throws for non-existent instance', async () => {
       await expect(
         manager.sendInput('non-existent-id', 'hello')

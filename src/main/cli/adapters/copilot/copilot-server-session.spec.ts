@@ -19,7 +19,7 @@ function makeFakeSdk(overrides: {
   session?: Partial<CopilotSdkSessionLike>;
 } = {}): {
   sdk: LoadedCopilotSdk;
-  clientOptions: Array<Record<string, unknown>>;
+  clientOptions: Record<string, unknown>[];
   session: CopilotSdkSessionLike & { emit: (e: Record<string, unknown>) => void };
   stopMock: ReturnType<typeof vi.fn>;
   unsubscribed: { value: boolean };
@@ -40,7 +40,7 @@ function makeFakeSdk(overrides: {
   } as unknown as CopilotSdkSessionLike & { emit: (e: Record<string, unknown>) => void };
 
   const stopMock = vi.fn(overrides.stop ?? (async () => []));
-  const clientOptions: Array<Record<string, unknown>> = [];
+  const clientOptions: Record<string, unknown>[] = [];
   class FakeClient implements CopilotSdkClientLike {
     constructor(options?: Record<string, unknown>) {
       clientOptions.push(options ?? {});
@@ -142,4 +142,22 @@ describe('CopilotServerSession', () => {
     session.emit({ type: 'assistant.turn_end' });
     expect(seen).toEqual(['turn-start', 'turn-end']);
   });
+  it('blocks final admission cancellation before the SDK receives a prompt', async () => {
+    const { sdk, session } = makeFakeSdk();
+    const server = await CopilotServerSession.start({ sdk, onPermissionRequest: approveAll, onEffect: () => undefined });
+    const controller = new AbortController();
+    await expect(server.send('synthetic continuation', { signal: controller.signal, beforeProviderDispatch: () => controller.abort() })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(session.send).not.toHaveBeenCalled();
+  });
+
+  it('rejects cancellation during SDK acknowledgement and aborts the submitted turn', async () => {
+    let acknowledge!: (messageId: string) => void;
+    const { sdk, session } = makeFakeSdk({ session: { send: vi.fn(() => new Promise<string>(resolve => { acknowledge = resolve; })) } });
+    const server = await CopilotServerSession.start({ sdk, onPermissionRequest: approveAll, onEffect: () => undefined });
+    const controller = new AbortController(); const pending = server.send('synthetic continuation', { signal: controller.signal });
+    controller.abort(); acknowledge('synthetic-message');
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(session.send).toHaveBeenCalledOnce(); expect(session.abort).toHaveBeenCalledOnce();
+  });
+
 });

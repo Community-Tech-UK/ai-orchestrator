@@ -57,7 +57,7 @@ describe('ClaudeCliProvider inline translation', () => {
 
   it('error becomes an error envelope', () => {
     adapter.emit('error', new Error('boom'));
-    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'boom', recoverable: false });
+    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'boom', recoverable: false, turnEnding: { reason: 'unknown_error', evidence: 'provider_error' } });
   });
 
   it('complete becomes a complete envelope', () => {
@@ -67,6 +67,7 @@ describe('ClaudeCliProvider inline translation', () => {
       tokensUsed: 42,
       costUsd: 0.25,
       durationMs: 500,
+      turnEnding: { reason: 'completed', evidence: 'provider_completed' },
     });
   });
 

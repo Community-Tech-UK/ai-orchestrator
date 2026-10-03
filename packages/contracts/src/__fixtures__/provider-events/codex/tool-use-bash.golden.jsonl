@@ -19,4 +19,4 @@
 {"kind":"context","used":23281,"total":258400,"percentage":9.009674922600619}
 {"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785031869388,"metadata":{"turnId":"[omitted-session-body]","streaming":false,"accumulatedContent":"[omitted-session-body]","thinkingExtracted":true},"thinkingExtracted":true}
 {"kind":"status","status":"idle"}
-{"kind":"complete"}
+{"kind":"complete","turnEnding":{"reason":"completed","evidence":"provider_completed"}}

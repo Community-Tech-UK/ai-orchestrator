@@ -33,6 +33,8 @@ export type { CodexCliConfig } from './codex-adapter-config';
 export interface CodexCliAdapterEvents {
   'context': (usage: ContextUsage) => void;
   'error': (error: Error) => void;
+  /** Failed turn evidence; does not imply a broken app-server connection. */
+  'turn_error': (error: Error) => void;
   'exit': (code: number | null, signal: string | null) => void;
   'output': (message: OutputMessage) => void;
   'spawned': (pid: number) => void;

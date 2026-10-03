@@ -117,12 +117,12 @@ describe('CodexCliProvider inline translation', () => {
 
   it('error with Error object becomes an error envelope', () => {
     adapter.emit('error', new Error('boom'));
-    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'boom', recoverable: false });
+    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'boom', recoverable: false, turnEnding: { reason: 'unknown_error', evidence: 'provider_error' } });
   });
 
   it('error with string becomes an error envelope', () => {
     adapter.emit('error', 'str err');
-    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'str err', recoverable: false });
+    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'str err', recoverable: false, turnEnding: { reason: 'unknown_error', evidence: 'provider_error' } });
   });
 
   it('preserves complete provenance before transitioning to idle', () => {

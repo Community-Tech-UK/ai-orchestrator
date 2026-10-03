@@ -12,6 +12,7 @@ import { existsSync } from 'fs';
 import { spawnSync } from 'child_process';
 import {
   BaseCliAdapter,
+  type AdapterInputDispatch,
   type AdapterRuntimeCapabilities,
   type CliAdapterConfig,
   type CliAttachment as AdapterCliAttachment,
@@ -27,8 +28,18 @@ import {
   ndjsonSafeStringify,
 } from './base-cli-adapter';
 import { StderrTailBuffer } from './acp-stderr-tail';
+import { AcpNdjsonFramer } from './acp-ndjson-framer';
+import { acpTextDiagnostic, safeAcpProtocolDetails } from './acp-protocol-diagnostics';
+import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
+import { isStdinWriteProcessError } from './child-stdin-write';
+import { assertAcpGenerationBudgetSelection } from './acp-generation-budget-selection';
+import { ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE, isAcpPromptRequestTimeout, isAcpPromptCancelledByClient,
+  isAcpActiveTurnCollision, isAcpAgentExitRejection, isAcpInputWriteFailure, markAcpInputWriteFailure, normalizeAcpInputWriteError } from './acp-prompt-errors';
+import { AcpDelegatedTaskLiveness, type AcpChildProgressSource } from './acp-delegated-task-liveness';
+import { DOOM_LOOP_BLOCKED_NOTICE, resolveAcpAutomaticPermission } from './acp-doom-loop-permission';
 import { filterSessionMcpServers } from './acp-session-mcp-servers';
 import { getLogger } from '../../logging/logger';
+import { safeDiagnosticNumber } from '../turn-ending-diagnostic-fields';
 import { generateId } from '../../../shared/utils/id-generator';
 import {
   buildAcpContextUsageEvent,
@@ -98,19 +109,26 @@ import {
 } from './acp-stall-watchdog';
 import {
   DEFAULT_ACTIVE_TOOL_TIMEOUT_MS,
+  DEFAULT_DELEGATED_TASK_TIMEOUT_MS,
   classifyAcpTurnWait,
   describeAcpPromptTimeoutCause,
   hasActiveAcpToolCall,
+  isDelegatedAcpTask,
+  isBackgroundAcpTask,
+  resolveAcpPromptLeaseMs,
   selectCurrentTurnPermissions,
   type AcpTurnWaitKind,
   type AcpTurnWait,
 } from './acp-prompt-timeout-policy';
-import { classifyMissingUsage, classifyTurnEndingFailure, describeTruncatedAcpTurn, turnEndingFailureMetadata } from './acp-transport-failure';
+import { classifyMissingUsage } from './acp-transport-failure';
 import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
 import { buildAcpElicitationResponse } from './acp-elicitation-response';
 import { applyAcpSessionConfig, type AcpSessionConfigRequest } from './acp-session-config-options';
 import { AcpSessionCostLedger, buildAcpMeasuredContextEvent, parseAcpUsageUpdate } from './acp-usage-update';
 import { appendAcpThoughtDelta, buildAcpTurnThinking } from './acp-thought-stream';
+import { buildAcpTurnCompletion } from './acp-turn-completion';
+import { classifyTurnEnding } from '../turn-ending-classifier';
+import { settleAcpErrorResponse } from './acp-jsonrpc-errors';
 import type { AcpStartupGate } from './acp-startup-gate';
 import { tagAcpProviderLimit } from './acp-provider-limit';
 import { normalizeAcpAvailableCommands, renderAcpPlan } from './acp-session-update-normalizers';
@@ -185,7 +203,6 @@ const DEFAULT_CLIENT_INFO: AcpImplementationInfo = {
 };
 
 const DEFAULT_CLIENT_CAPABILITIES: AcpClientCapabilities = {};
-const ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE = 'ACP prompt turn was cancelled by the client.';
 
 const ACP_CAPABILITIES: CliCapabilities = {
   streaming: true,
@@ -214,6 +231,7 @@ interface AcpObservedToolCall {
   title: string;
   kind: AcpToolKind;
   status: AcpToolCallStatus;
+  delegatedTask?: boolean;
   rawInput?: Record<string, unknown>;
   /** Latest output snapshot of an unsettled call, emitted once it settles. */
   pendingOutput?: string;
@@ -221,7 +239,7 @@ interface AcpObservedToolCall {
   outputChunkIndex?: number;
 }
 
-type AcpPendingPromptTurn = AcpAssistantTurnState;
+type AcpPendingPromptTurn = AcpAssistantTurnState & { writePhase?: { accepted: boolean; cancelledByClient?: boolean } };
 interface AcpPendingPermissionRequest {
   key: string;
   rpcId: AcpJsonRpcId;
@@ -283,6 +301,8 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
   promptTimeoutMs?: number;
   /** Inactivity timeout while an ACP tool call is pending or in progress. */
   activeToolTimeoutMs?: number;
+  delegatedTaskTimeoutMs?: number;
+  childProgressSource?: AcpChildProgressSource;
   /** Provider concurrency gate. When set, `spawn()` will block until a
    *  slot keyed on `concurrencyKey` is available. Prevents unbounded
    *  ACP fan-out (observed: 5+ Copilot children spawned simultaneously,
@@ -308,7 +328,9 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
    *  flat-fee and free backends that no price row describes). */
   reportedCostOnly?: boolean;
   /** Materialize provider-specific private launch files and return that spawn's cleanup. */
-  prepareSpawn?: () => () => void;
+  prepareSpawn?: () => (() => void) | Promise<() => void>;
+  prepareContentFilterRecovery?: (sessionId: string, toolCallId: string, signal?: AbortSignal) => Promise<boolean>;
+  generationBudget?: { model: string; combinedOutputTokens: number; reasoningBudgetSupported: false };
   /** Keep a durable copy of each inline image and send its file:// URI. For
    *  agents (Copilot) that otherwise delete their temp copy when the session
    *  closes, which strands the transcript's image paths after hibernation. */
@@ -328,26 +350,6 @@ function slug(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-function isAcpPromptRequestTimeout(error: Error): boolean {
-  return /^ACP session\/prompt request timed out after \d+ms(?: without a session\/update)? \(id=.+\)\./.test(error.message);
-}
-
-function isAcpPromptCancelledByClient(error: Error): boolean {
-  return error.message === ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE;
-}
-
-function isAcpActiveTurnCollision(error: Error): boolean {
-  return error.message.startsWith(
-    'Cannot send message: the previous turn is still running.',
-  );
-}
-
-/** True for the exit handler's pending-request rejection (`ACP agent exited (…)`).
- *  Excludes terminate()'s "ACP adapter terminated…" — caller-driven teardown. */
-function isAcpAgentExitRejection(error: Error): boolean {
-  return error.message.startsWith('ACP agent exited (');
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -361,13 +363,15 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   /** B9: ACP speaks JSON-RPC over stdio (Agent Client Protocol). */
   protected override spawnMode: CliSpawnMode = 'acp';
+  protected override readonly defersInputDispatch = true;
 
   private readonly acpConfig: AcpCliAdapterConfig;
   private readonly pendingRequests = new Map<string, AcpPendingRequest>();
   private readonly toolCalls = new Map<string, AcpObservedToolCall>();
   private readonly pendingPermissionRequests = new Map<string, AcpPendingPermissionRequest>();
   private readonly pendingElicitationRequests = new Map<string, AcpPendingElicitationRequest>();
-  private stdoutBuffer = '';
+  private readonly stdoutFramer = new AcpNdjsonFramer();
+  private get stdoutBuffer(): string { return this.stdoutFramer.pendingText; }
   private requestCounter = 0;
   private initialized = false;
   private agentCapabilities: AcpAgentCapabilities | null = null;
@@ -400,6 +404,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
   /** True once the agent reported measured occupancy via `usage_update`. */
   private measuredOccupancy = false;
   private spawnCleanup: (() => void) | null = null;
+  private readonly delegatedLiveness: AcpDelegatedTaskLiveness;
+  private outputBlockedNoticed = false;
+  private recentReadToolCallId: string | null = null;
 
   constructor(config: AcpCliAdapterConfig) {
     super({
@@ -421,13 +428,23 @@ export class AcpCliAdapter extends BaseCliAdapter {
       requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
       promptTimeoutMs: DEFAULT_PROMPT_TIMEOUT_MS,
       activeToolTimeoutMs: DEFAULT_ACTIVE_TOOL_TIMEOUT_MS,
+      delegatedTaskTimeoutMs: DEFAULT_DELEGATED_TASK_TIMEOUT_MS,
       stallWarningMs: DEFAULT_STALL_WARNING_MS,
       ...config,
     };
+    this.delegatedLiveness = new AcpDelegatedTaskLiveness(config.childProgressSource, () => {
+      this.refreshCurrentPromptTimeout();
+      this.emit('heartbeat');
+    });
   }
 
   getName(): string {
     return this.acpConfig.adapterName?.trim() || 'ACP';
+  }
+
+  async prepareContentFilterRecovery(signal?: AbortSignal): Promise<boolean> {
+    return !signal?.aborted && this.sessionId !== null && this.currentPrompt === null && this.recentReadToolCallId !== null
+      && await this.acpConfig.prepareContentFilterRecovery?.(this.sessionId, this.recentReadToolCallId, signal) === true;
   }
 
   /** Bounded stderr tail — for tests and exit-context diagnostics. */
@@ -531,7 +548,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
         logger.warn('ACP concurrency acquire failed; refusing ungated spawn', {
           adapter: this.getName(),
           key,
-          error: error instanceof Error ? error.message : String(error),
+          ...safeAcpProtocolDetails({ error }),
         });
         throw error;
       }
@@ -539,7 +556,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     const releaseStartupGate = this.acpConfig.startupGate ? await this.acpConfig.startupGate() : undefined;
     try {
-      this.spawnCleanup = this.acpConfig.prepareSpawn?.() ?? null;
+      this.spawnCleanup = await this.acpConfig.prepareSpawn?.() ?? null;
       this.process = this.spawnProcess([]);
     } catch (error) {
       this.spawnCleanup?.();
@@ -606,7 +623,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
     await this.sendRequest<unknown>('authenticate', { methodId });
   }
 
-  protected override async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {
+  protected override async sendInputImpl(message: string, attachments?: FileAttachment[], _metadata?: CliMessage['metadata'], dispatch?: AdapterInputDispatch): Promise<void> {
+    const writePhase = { accepted: false, cancelledByClient: false };
     const cliAttachments: AdapterCliAttachment[] | undefined = attachments?.map((attachment) => ({
       type: attachment.type.startsWith('image/') ? 'image' : 'file',
       content: attachment.data,
@@ -619,14 +637,25 @@ export class AcpCliAdapter extends BaseCliAdapter {
         role: 'user',
         content: message,
         attachments: cliAttachments,
-      });
+      }, dispatch, writePhase);
     } catch (error) {
       // Surface provider/runtime failures as an `error` OutputMessage plus
       // `status: error` (matching the CopilotCliAdapter contract). Scheduling
       // collisions are handled separately below so the live turn stays owned
       // by the adapter and the renderer can park the follow-up message.
       const err = error instanceof Error ? error : new Error(String(error));
-      if (isAcpPromptCancelledByClient(err)) {
+      if (!writePhase.accepted && writePhase.cancelledByClient && isAcpInputWriteFailure(err)) {
+        this.clearStreamIdleWatchdog();
+        throw Object.assign(new Error(ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE, { cause: err }), { name: 'AbortError' });
+      }
+      if (!writePhase.accepted) {
+        try { assertAdapterInputCurrent(dispatch); }
+        catch (cancelled) { this.clearStreamIdleWatchdog(); throw cancelled; }
+      }
+      if (err.name === 'AbortError' || isStdinWriteProcessError(err) || (isAcpInputWriteFailure(err) && (err as NodeJS.ErrnoException).code === 'EPIPE')) {
+        this.clearStreamIdleWatchdog(); throw err;
+      }
+      if (!isAcpInputWriteFailure(err) && isAcpPromptCancelledByClient(err)) {
         this.clearStreamIdleWatchdog();
         this.emit('status', 'idle');
         return;
@@ -636,9 +665,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
       // `status: 'error'`/`error` here races that handling exactly like the
       // EPIPE case guarded in instance-communication.ts, marking the instance
       // unrecoverable before auto-respawn's abort check runs (plan 2026-09-26).
-      if (isAcpAgentExitRejection(err)) {
+      if (!isAcpInputWriteFailure(err) && isAcpAgentExitRejection(err)) {
         this.clearStreamIdleWatchdog();
-        logger.info('ACP prompt rejected by agent exit — deferring to exit recovery', { adapter: this.getName(), message: err.message });
+        logger.info('ACP prompt rejected by agent exit — deferring to exit recovery', { adapter: this.getName(), ...safeAcpProtocolDetails({ error: err }) });
+        if (!writePhase.accepted) throw err;
         return;
       }
       // This is a scheduling collision, not a provider/runtime failure. Let
@@ -666,10 +696,15 @@ export class AcpCliAdapter extends BaseCliAdapter {
       this.emit('output', errorMessage);
       this.emit('status', isRecoverablePromptTimeout ? 'idle' : 'error');
       this.emit('error', err);
+      // A post-write provider failure still owns its turn through events. A
+      // rejected native write never delivered input and must fail its receipt.
+      if (!writePhase.accepted || isAcpInputWriteFailure(err)) throw err;
     }
   }
 
-  async sendMessage(message: CliMessage): Promise<CliResponse> {
+  async sendMessage(message: CliMessage, dispatch?: AdapterInputDispatch, writePhase = { accepted: false, cancelledByClient: false }): Promise<CliResponse> {
+    const admission = createAdapterInputDispatch(dispatch);
+    assertAdapterInputCurrent(admission);
     if (message.role !== 'user') {
       throw new Error('ACP adapter only supports user-initiated prompt turns.');
     }
@@ -677,6 +712,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     if (!this.initialized || !this.process) {
       await this.spawn();
     }
+    assertAdapterInputCurrent(admission);
 
     if (!this.sessionId) {
       throw new Error('ACP session has not been initialized.');
@@ -691,13 +727,15 @@ export class AcpCliAdapter extends BaseCliAdapter {
       };
     }
 
-    if (this.currentPromptRequestId) {
+    assertAdapterInputCurrent(admission);
+    if (this.currentPrompt || this.currentPromptRequestId) {
       throw new Error(
         'Cannot send message: the previous turn is still running. ' +
         'Wait for it to finish, or cancel/interrupt the current turn first.',
       );
     }
 
+    const previousPromptFlags = { system: this.systemPromptSent, rtk: this.rtkAwarenessSent };
     const promptParams: AcpSessionPromptParams = {
       sessionId: this.sessionId,
       prompt: this.toPromptBlocks(message),
@@ -705,19 +743,23 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     const responseId = this.generateResponseId();
     this.toolCalls.clear();
+    this.delegatedLiveness.clear();
+    this.outputBlockedNoticed = false;
     this.stallKindsNoticed.clear();
     // Hold the turn in a local. The process `'exit'` handler nulls
     // `this.currentPrompt` synchronously *before* it rejects the pending
     // request, and that rejection only resumes this await a microtask later —
     // so re-reading the field after the await loses a crashed turn's buffered
     // output and its partial-usage estimate entirely.
-    const turn = createAcpAssistantTurn(responseId);
+    const turn: AcpPendingPromptTurn = createAcpAssistantTurn(responseId);
+    turn.writePhase = writePhase;
     this.currentPrompt = turn;
-    this.emit('status', 'busy');
-    this.armStallWatchdog();
 
     try {
-      const result = await this.sendRequest<AcpSessionPromptResult>('session/prompt', promptParams);
+      this.emit('status', 'busy');
+      assertAdapterInputCurrent(admission);
+      this.armStallWatchdog();
+      const result = await this.sendRequest<AcpSessionPromptResult>('session/prompt', promptParams, admission, writePhase);
       const duration = Date.now() - turn.startedAt;
       const responseText = turn.chunks.join('');
       const usage = toAcpCliUsage(
@@ -734,34 +776,17 @@ export class AcpCliAdapter extends BaseCliAdapter {
       // above) so occupancy stays honest ("no usage ⇒ no event") even when
       // cost falls back to an estimate.
       const providerUsageReported = this.publishContextUsageFromTurn(result.usage, duration);
-      // A severed stream and a refused request are both reported by the agent
-      // as assistant text on an otherwise-normal turn, so the truncation has to
-      // be recovered from the text — `stopReason` says 'end_turn' either way.
-      const endingFailure = classifyTurnEndingFailure(responseText);
-      const response: CliResponse = {
-        id: turn.responseId,
-        role: 'assistant',
-        content: responseText,
-        usage,
-        metadata: {
-          stopReason: result.stopReason,
-          ...(endingFailure ? turnEndingFailureMetadata(endingFailure) : {}),
-        },
-      };
+      const { response, truncated, logFields } = buildAcpTurnCompletion({
+        result, turn, usage, toolCalls: this.toolCalls.values(), adapter: this.getName(),
+        model: this.acpConfig.model, providerUsageReported, generationBudget: this.acpConfig.generationBudget,
+        leaseMs: turn.leaseMs ?? this.acpConfig.promptTimeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS,
+      });
+      logger.info('ACP turn completed', logFields);
 
       this.resolveRetryNotice(turn);
       this.emitFinalAssistantFlushes(turn);
       this.flushUnsettledToolResults();
-      if (endingFailure) {
-        const truncated = describeTruncatedAcpTurn({
-          adapter: this.getName(),
-          kind: endingFailure.kind,
-          failure: endingFailure.failure,
-          stopReason: result.stopReason,
-          providerUsageReported,
-          durationMs: duration,
-          contentLength: responseText.length,
-        });
+      if (truncated) {
         logger.warn(truncated.logMessage, truncated.logFields);
         this.emit('output', truncated.notice);
       }
@@ -769,7 +794,16 @@ export class AcpCliAdapter extends BaseCliAdapter {
       this.completeResponse(response);
       return response;
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        this.systemPromptSent = previousPromptFlags.system; this.rtkAwarenessSent = previousPromptFlags.rtk;
+        this.emit('status', 'idle'); throw error;
+      }
       const failure = tagAcpProviderLimit(toError(error, 'ACP prompt turn failed.'));
+      if (!writePhase.accepted || isAcpInputWriteFailure(failure)) {
+        this.systemPromptSent = previousPromptFlags.system;
+        this.rtkAwarenessSent = previousPromptFlags.rtk;
+      }
+      Object.assign(failure, { turnEnding: classifyTurnEnding({ kind: 'error', error: failure, metadata: failure }) });
       this.emitFinalAssistantFlushes(turn);
       this.flushUnsettledToolResults();
       const partialText = turn.chunks.join('');
@@ -804,9 +838,12 @@ export class AcpCliAdapter extends BaseCliAdapter {
       throw failure;
     } finally {
       this.recentAssistantTurn = this.currentPrompt ?? this.recentAssistantTurn;
+      const lastTool = [...this.toolCalls.values()].at(-1);
+      this.recentReadToolCallId = lastTool?.kind === 'read' && lastTool.status === 'completed' ? lastTool.id : null;
       this.currentPrompt = null;
       this.currentPromptRequestId = null;
       this.toolCalls.clear();
+      this.delegatedLiveness.clear();
       this.clearStallWatchdog();
     }
   }
@@ -859,7 +896,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
     this.cumulativeTokens = 0;
     this.measuredOccupancy = false;
     this.toolCalls.clear();
-    this.stdoutBuffer = '';
+    this.delegatedLiveness.clear();
+    this.stdoutFramer.clear();
     try {
       await super.terminate(graceful);
     } finally {
@@ -883,7 +921,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     } catch (error) {
       logger.warn('ACP concurrency release threw; ignoring', {
         adapter: this.getName(),
-        error: error instanceof Error ? error.message : String(error),
+        ...safeAcpProtocolDetails({ error }),
       });
     }
     this.concurrencyRelease = null;
@@ -934,20 +972,13 @@ export class AcpCliAdapter extends BaseCliAdapter {
     this.emit('output', buildAcpStallOutputMessage(report, this.getName(), generateId()));
   }
 
-  /**
-   * Reset the stall watchdog — called when we receive a `session/update`.
-   * Re-arms from scratch, so repeated activity keeps the watchdog silent. The
-   * per-turn notice latch is deliberately NOT reset here: it is scoped to the
-   * turn, so a burst of updates cannot re-open the transcript to repeats.
-   */
+  /** Provider updates re-arm silence; the notice latch remains scoped to the turn. */
   private resetStallWatchdog(): void {
     if (!this.currentPromptRequestId) return;
     this.armStallWatchdog();
   }
 
-  /**
-   * Clear the stall watchdog. Called at turn completion and on terminate.
-   */
+  /** Turn completion and termination clear the silence timer. */
   private clearStallWatchdog(): void {
     this.stallWatchdog?.clear();
     this.stallWatchdog = null;
@@ -1018,25 +1049,32 @@ export class AcpCliAdapter extends BaseCliAdapter {
     this.process.stderr?.setEncoding('utf8');
 
     this.process.stdout?.on('data', (chunk: string) => {
+      if (chunk.length > 0) this.refreshCurrentPromptTimeout();
       this.handleStdoutChunk(chunk);
     });
 
     this.process.stderr?.on('data', (chunk: string) => {
       this.stderrTail.push(chunk);
-      logger.debug('ACP stderr', { chunk: chunk.trim() });
+      if (!this.outputBlockedNoticed && /(?:ACP.*(?:write|flush).*?(?:EAGAIN|temporarily unavailable)|stdout.*(?:EAGAIN|backpressure))/i.test(chunk)) {
+        this.outputBlockedNoticed = true;
+        this.emitStructuredOutput('system', 'Provider output is blocked. The transport is waiting for its output pipe to drain.', { source: 'acp-output-blocked', watchdogWarning: true });
+      }
+      logger.debug('ACP stderr', acpTextDiagnostic(chunk));
     });
 
     this.process.on('error', (error) => {
-      logger.info('ACP process error — stderr tail', { adapter: this.getName(), error: error instanceof Error ? error.message : String(error), stderrTail: this.stderrTail.dump() });
+      logger.info('ACP process error', { adapter: this.getName(), ...safeAcpProtocolDetails({ error }), ...acpTextDiagnostic(this.stderrTail.dump() ?? '') });
       this.rejectPendingRequests(toError(error, 'ACP transport error'));
       this.emit('error', toError(error, 'ACP transport error'));
     });
 
     this.process.on('exit', (code, signal) => {
-      logger.info('ACP process exited — stderr tail', { adapter: this.getName(), code, signal, stderrTail: this.stderrTail.dump() });
+      logger.info('ACP process exited', { adapter: this.getName(), code, signal, ...acpTextDiagnostic(this.stderrTail.dump() ?? '') });
+      this.stdoutFramer.clear();
       this.initialized = false;
       this.currentPromptRequestId = null;
       this.currentPrompt = null;
+      this.delegatedLiveness.clear();
       this.recentAssistantTurn = null;
       this.rejectPendingRequests(new Error(`ACP agent exited (${code ?? 'null'}${signal ? `/${signal}` : ''}).`));
       for (const key of this.pendingPermissionRequests.keys()) this.withdrawInputRequired(key, 'exited');
@@ -1131,14 +1169,17 @@ export class AcpCliAdapter extends BaseCliAdapter {
   /** Apply `acpConfig.sessionConfig`; skips and rejections become one warning line. */
   private async applySessionConfig(sessionId: string): Promise<void> {
     const requested = this.acpConfig.sessionConfig;
-    if (!requested?.model && !requested?.effort) return;
+    if (!requested?.model && !requested?.effort) {
+      assertAcpGenerationBudgetSelection(this.acpConfig.generationBudget, requested, this.sessionConfigOptions); return;
+    }
     const outcome = await applyAcpSessionConfig(
       (configId, value) => this.sendRequest('session/set_config_option', { sessionId, configId, value }),
       this.sessionConfigOptions,
       requested,
     );
+    assertAcpGenerationBudgetSelection(this.acpConfig.generationBudget, requested, this.sessionConfigOptions, outcome);
     if (outcome.warnings.length === 0) return;
-    logger.warn('ACP session config not fully applied', { adapter: this.getName(), warnings: outcome.warnings });
+    logger.warn('ACP session config not fully applied', { adapter: this.getName(), warningCount: outcome.warnings.length });
     this.emitStructuredOutput('system', `${outcome.warnings.join(' ')} The agent's own default is used instead.`, {
       source: 'acp-session-config',
     });
@@ -1172,6 +1213,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
 
     const cancelledRequestId = this.currentPromptRequestId;
+    // Retain client intent on this write's owner before the cancel packet queues behind it.
+    if (this.currentPrompt?.writePhase) this.currentPrompt.writePhase.cancelledByClient = true;
 
     // Notify the agent so it can tear down cleanly if it's still alive.
     // Best-effort: if stdin is already closed, we still want to reject the
@@ -1181,7 +1224,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     } catch (error) {
       logger.debug('ACP session/cancel notification failed; continuing with local cleanup', {
         adapter: this.getName(),
-        error: error instanceof Error ? error.message : String(error),
+        ...safeAcpProtocolDetails({ error }),
       });
     }
 
@@ -1209,10 +1252,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
         try {
           await this.sendResponse(request.rpcId, { outcome: { outcome: 'cancelled' } });
         } catch (error) {
-          logger.debug('Failed to cancel ACP permission request during cleanup', {
-            key: request.key,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          logger.debug('Failed to cancel ACP permission request during cleanup', safeAcpProtocolDetails({ key: request.key, error }));
         }
       }),
     );
@@ -1229,10 +1269,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
         try {
           await this.sendResponse(request.rpcId, { action: 'cancel' });
         } catch (error) {
-          logger.debug('Failed to cancel ACP elicitation request during cleanup', {
-            key: request.key,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          logger.debug('Failed to cancel ACP elicitation request during cleanup', safeAcpProtocolDetails({ key: request.key, error }));
         }
       }),
     );
@@ -1250,30 +1287,13 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   private handleStdoutChunk(chunk: string): void {
-    this.stdoutBuffer += chunk;
-
-    while (true) {
-      const newlineIndex = this.stdoutBuffer.indexOf('\n');
-      if (newlineIndex === -1) {
-        break;
-      }
-
-      const rawLine = this.stdoutBuffer.slice(0, newlineIndex).replace(/\r$/, '');
-      this.stdoutBuffer = this.stdoutBuffer.slice(newlineIndex + 1);
-
-      if (!rawLine.trim()) {
-        continue;
-      }
-
+    this.stdoutFramer.push(chunk, (rawLine) => {
       try {
         this.handleMessageLine(rawLine);
       } catch (error) {
-        this.emitRecoverableProtocolError('ACP message handler failed', {
-          error: error instanceof Error ? error.message : String(error),
-          linePreview: rawLine.slice(0, 500),
-        });
+        this.emitRecoverableProtocolError('ACP message handler failed', { error, line: rawLine });
       }
-    }
+    }, (limitChars) => this.emitRecoverableProtocolError('Oversized ACP JSON-RPC record discarded', { limitChars }));
   }
 
   private handleMessageLine(rawLine: string): void {
@@ -1283,8 +1303,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
       parsed = JSON.parse(rawLine) as AcpJsonRpcMessage;
     } catch (error) {
       this.emitRecoverableProtocolError('Failed to parse ACP JSON-RPC line', {
-        error: error instanceof Error ? error.message : String(error),
-        linePreview: rawLine.slice(0, 500),
+        error,
+        line: rawLine,
       });
       return;
     }
@@ -1304,9 +1324,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
         this.emitRecoverableProtocolError('ACP request handler failed', {
           id: parsed.id,
           method: parsed.method,
-          error: error instanceof Error ? error.message : String(error),
+          error,
         });
-        void this.sendErrorResponse(parsed.id, JSON_RPC_INVALID_REQUEST, 'Failed to handle ACP request.');
+        void this.sendErrorResponse(parsed.id, JSON_RPC_INVALID_REQUEST, 'Failed to handle ACP request.')
+          .catch((error) => this.emitRecoverableProtocolError('ACP error response write failed', { error }));
       });
       return;
     }
@@ -1316,14 +1337,15 @@ export class AcpCliAdapter extends BaseCliAdapter {
       return;
     }
 
-    void this.sendErrorResponse(null, JSON_RPC_INVALID_REQUEST, 'Invalid ACP JSON-RPC message.');
+    void this.sendErrorResponse(null, JSON_RPC_INVALID_REQUEST, 'Invalid ACP JSON-RPC message.')
+      .catch((error) => this.emitRecoverableProtocolError('ACP error response write failed', { error }));
   }
 
   private handleSuccessResponse(response: AcpJsonRpcSuccessResponse): void {
     const key = String(response.id);
     const pending = this.pendingRequests.get(key);
     if (!pending) {
-      logger.debug('Ignoring ACP success response for unknown id', { id: key });
+      logger.debug('Ignoring ACP success response for unknown id', safeAcpProtocolDetails({ id: key }));
       return;
     }
 
@@ -1333,20 +1355,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   private handleErrorResponse(response: AcpJsonRpcErrorResponse): void {
-    const key = response.id == null ? '' : String(response.id);
-    const pending = key ? this.pendingRequests.get(key) : undefined;
-    const error = new Error(
-      `ACP ${pending?.method ?? 'request'} failed: ${response.error.message} (${response.error.code})`,
-    );
-
-    if (pending && key) {
-      clearTimeout(pending.timer);
-      this.pendingRequests.delete(key);
-      pending.reject(error);
-      return;
-    }
-
-    this.emit('error', error);
+    settleAcpErrorResponse(response, this.pendingRequests, (error) => this.emit('error', error));
   }
 
   private async handleInboundRequest(request: AcpJsonRpcRequest): Promise<void> {
@@ -1376,7 +1385,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
         this.handleElicitationComplete(notification.params as AcpElicitationCompleteParams);
         return;
       default:
-        logger.debug('Ignoring ACP notification', { method: notification.method });
+        logger.debug('Ignoring ACP notification', safeAcpProtocolDetails({ method: notification.method }));
     }
   }
 
@@ -1449,10 +1458,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
           // pure noise. Parse it for diagnostics; if the agent ever exposes
           // a command palette in the UI, this is the hook to wire up.
           const commands = normalizeAcpAvailableCommands(rawUpdate);
-          logger.debug('ACP available_commands_update', {
-            sessionId,
-            commandCount: commands.length,
-          });
+          logger.debug('ACP available_commands_update', { ...safeAcpProtocolDetails({ sessionId }), commandCount: commands.length });
         }
         break;
       case 'retry_state':
@@ -1477,16 +1483,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
         // trying to follow a real conversation. Suppress; future work can
         // route `title`/`summary` to a dedicated event so the UI can
         // rename the instance tab.
-        logger.debug('ACP session metadata update', {
-          sessionId,
-          sessionUpdate,
-          rawUpdate,
-        });
+        logger.debug('ACP session metadata update', safeAcpProtocolDetails({ sessionId, sessionUpdate }));
         break;
       default:
-        logger.debug('Ignoring ACP session update variant', {
-          sessionUpdate,
-        });
+        logger.debug('Ignoring ACP session update variant', safeAcpProtocolDetails({ sessionUpdate }));
     }
     this.refreshCurrentPromptTimeout();
   }
@@ -1595,8 +1595,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
       kind,
       status,
       rawInput: update.rawInput,
+      delegatedTask: isDelegatedAcpTask({ kind, title, rawInput: update.rawInput }),
     };
     this.toolCalls.set(toolCallId, observed);
+    this.delegatedLiveness.observe(toolCallId, observed, this.sessionId);
     // LT-100 estimate material only (see estimateAcpCliUsage()); never sent anywhere.
     this.currentPrompt?.toolActivityChunks.push(
       `${title} ${update.rawInput ? JSON.stringify(update.rawInput) : ''}`,
@@ -1661,15 +1663,18 @@ export class AcpCliAdapter extends BaseCliAdapter {
     // content keeps the last snapshot seen.
     const output = renderedOutput || observed?.pendingOutput || '';
     const terminal = isAcpTerminalToolStatus(status);
+    const rawInput = update.rawInput ?? observed?.rawInput;
     this.toolCalls.set(toolCallId, {
       id: toolCallId,
       title,
       kind,
       status,
-      rawInput: update.rawInput ?? observed?.rawInput,
+      rawInput,
+      delegatedTask: !isBackgroundAcpTask(rawInput) && (observed?.delegatedTask === true || isDelegatedAcpTask({ kind, title, rawInput })),
       ...(!terminal && output ? { pendingOutput: output } : {}),
       ...(outputChunkIndex !== undefined ? { outputChunkIndex } : {}),
     });
+    this.delegatedLiveness.observe(toolCallId, { status, kind, title, rawInput }, this.sessionId);
     if (!terminal) return;
 
     if (output) {
@@ -1746,10 +1751,12 @@ export class AcpCliAdapter extends BaseCliAdapter {
     };
     this.pendingPermissionRequests.set(key, pending);
 
-    if (this.acpConfig.permissionContext?.yoloMode === true) {
+    const automatic = resolveAcpAutomaticPermission(this.getName(), this.acpConfig.permissionContext?.yoloMode, toolCall);
+    if (automatic !== undefined) {
+      if (!automatic) this.emitStructuredOutput('system', DOOM_LOOP_BLOCKED_NOTICE, { doomLoopBlocked: true, transport: 'acp' });
       await this.resolvePermissionDecision(key, {
         requestId: key,
-        granted: true,
+        granted: automatic,
         decidedBy: 'auto_approve',
         decidedAt: Date.now(),
       }, { cardShown: false });
@@ -1794,10 +1801,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
           await this.resolvePermissionDecision(pending.key, decision);
         })
         .catch((error) => {
-          logger.warn('ACP permission registry resolution failed', {
-            key: pending.key,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          logger.warn('ACP permission registry resolution failed', safeAcpProtocolDetails({ key: pending.key, error }));
         });
     }
   }
@@ -1903,7 +1907,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   private emitRecoverableProtocolError(reason: string, details: Record<string, unknown> = {}): void {
-    logger.warn(reason, details);
+    const safeDetails = safeAcpProtocolDetails(details);
+    logger.warn(reason, safeDetails);
 
     this.protocolErrorOutputCount += 1;
     if (this.protocolErrorOutputCount > 3) {
@@ -1919,7 +1924,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
 
     this.emitStructuredOutput('error', `${reason}. The malformed ACP message was ignored and the session remains active.`, {
-      ...details,
+      ...safeDetails,
       transport: 'acp',
       source: 'acp-protocol-error',
       recoverable: true,
@@ -2236,8 +2241,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
           reason: missingUsageReason,
           durationMs,
           profile: this.acpConfig.contextCapabilityProfile ?? 'none',
-          usageKeys,
-          cumulativeTokens: this.cumulativeTokens,
+          usageKeyCount: usageKeys?.length ?? 0,
+          cumulativeTokens: safeDiagnosticNumber(this.cumulativeTokens),
         });
         return false;
       }
@@ -2245,7 +2250,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       this.loggedMissingUsage = true;
       logger.info('ACP turn reported no token usage; context bar stays empty for this session', {
         profile: this.acpConfig.contextCapabilityProfile ?? 'none',
-        usageKeys,
+        usageKeyCount: usageKeys?.length ?? 0,
       });
       return false;
     }
@@ -2258,7 +2263,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     return true;
   }
 
-  private async sendRequest<TResult>(method: string, params?: unknown): Promise<TResult> {
+  private async sendRequest<TResult>(method: string, params?: unknown, dispatch?: AdapterInputDispatch, writePhase?: { accepted: boolean }): Promise<TResult> {
     if (!this.process) {
       throw new Error(`Cannot send ACP request '${method}' before the process is spawned.`);
     }
@@ -2270,6 +2275,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
       method,
       ...(params !== undefined ? { params } : {}),
     };
+    const line = `${ndjsonSafeStringify(request)}\n`;
+    assertAdapterInputCurrent(dispatch);
+    dispatch?.beforeProviderDispatch?.();
+    assertAdapterInputCurrent(dispatch);
 
     // Per-method timeout: prompt turns get a loose ceiling; all other RPCs
     // use the default. Without a timeout, a silently dead agent would leave
@@ -2288,14 +2297,18 @@ export class AcpCliAdapter extends BaseCliAdapter {
       });
     });
 
+    // The response can reject while the native write callback is still pending.
+    void responsePromise.catch(() => undefined);
     if (method === 'session/prompt') {
       this.currentPromptRequestId = id;
+      if (this.currentPrompt) this.currentPrompt.leaseMs = timeoutMs;
     }
 
     try {
-      await this.writeAcpLine(`${ndjsonSafeStringify(request)}\n`, method);
+      await this.writeAcpLine(line, method, dispatch, writePhase);
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
+      const err = normalizeAcpInputWriteError(error);
+      if (method === 'session/prompt' && err.name !== 'AbortError') markAcpInputWriteFailure(err);
       const pending = this.pendingRequests.get(id);
       if (pending) {
         clearTimeout(pending.timer);
@@ -2337,12 +2350,16 @@ export class AcpCliAdapter extends BaseCliAdapter {
       const error = new Error(
         `ACP ${method} request timed out after ${timeoutMs}ms${promptInactivityText} (id=${id}). ${cause}`,
       );
+      if (method === 'session/prompt' && this.delegatedLiveness.describe(
+        this.acpConfig.activeToolTimeoutMs ?? DEFAULT_ACTIVE_TOOL_TIMEOUT_MS,
+        this.acpConfig.delegatedTaskTimeoutMs ?? DEFAULT_DELEGATED_TASK_TIMEOUT_MS,
+      )) Object.assign(error, { parentSilent: true });
       logger.warn('ACP request timeout', {
         adapter: this.getName(),
         method,
         id,
         timeoutMs,
-        cause,
+        cause: acpTextDiagnostic(cause),
       });
       if (method === 'session/prompt') {
         this.cancelTimedOutPrompt(id, timeoutMs);
@@ -2357,38 +2374,28 @@ export class AcpCliAdapter extends BaseCliAdapter {
     return timer;
   }
 
-  /**
-   * What the current turn is waiting on, from observed state only. Permission
-   * requests are filtered to the live turn: `pendingPermissionRequests` has no
-   * turn-boundary clear, so an entry leaked by a failed response write would
-   * otherwise be reported as this turn's cause.
-   */
+  /** Attribute the wait to current-turn permissions and observed work only. */
   private classifyCurrentTurnWait(): AcpTurnWait {
     const turnStartedAt = this.currentPrompt?.startedAt ?? null;
-    return classifyAcpTurnWait({
+    const wait = classifyAcpTurnWait({
       toolCalls: this.toolCalls.values(),
       permissions: selectCurrentTurnPermissions(
         this.pendingPermissionRequests.values(),
         turnStartedAt,
       ),
     });
+    return wait.kind === 'tool' ? { ...wait, ...this.delegatedLiveness.describe(
+      this.acpConfig.activeToolTimeoutMs ?? DEFAULT_ACTIVE_TOOL_TIMEOUT_MS,
+      this.acpConfig.delegatedTaskTimeoutMs ?? DEFAULT_DELEGATED_TASK_TIMEOUT_MS,
+    ) } : wait;
   }
 
-  /**
-   * True while the live turn has a tool call the agent reported as `pending`
-   * or `in_progress`. Parallel calls settle one at a time, so the last
-   * `tool_result` message is not proof the agent has stopped running tools.
-   * The generic stuck detector reads this (instance-manager.ts).
-   */
+  /** Parallel tools settle independently; the generic stuck detector reads this. */
   hasActiveToolCalls(): boolean {
     return this.currentPromptRequestId !== null && hasActiveAcpToolCall(this.toolCalls.values());
   }
 
-  /**
-   * True while `session/prompt` is in flight. The generic stuck-process
-   * detector uses this to defer to ACP's activity-aware prompt timeout rather
-   * than imposing its shorter message-silence ceiling on provider inference.
-   */
+  /** ACP owns liveness while its prompt RPC is in flight. */
   hasActiveTurn(): boolean {
     return this.currentPromptRequestId !== null;
   }
@@ -2400,10 +2407,15 @@ export class AcpCliAdapter extends BaseCliAdapter {
     const pending = this.pendingRequests.get(id);
     if (!pending || pending.method !== 'session/prompt') return;
 
-    const timeoutMs = hasActiveAcpToolCall(this.toolCalls.values())
-      ? this.acpConfig.activeToolTimeoutMs ?? DEFAULT_ACTIVE_TOOL_TIMEOUT_MS
-      : pending.timeoutMs;
+    const timeoutMs = this.delegatedLiveness.leaseMs(resolveAcpPromptLeaseMs(
+      this.toolCalls.values(),
+      pending.timeoutMs,
+      this.acpConfig.activeToolTimeoutMs ?? DEFAULT_ACTIVE_TOOL_TIMEOUT_MS,
+      this.acpConfig.delegatedTaskTimeoutMs ?? DEFAULT_DELEGATED_TASK_TIMEOUT_MS,
+    ), this.acpConfig.activeToolTimeoutMs ?? DEFAULT_ACTIVE_TOOL_TIMEOUT_MS,
+      this.acpConfig.delegatedTaskTimeoutMs ?? DEFAULT_DELEGATED_TASK_TIMEOUT_MS);
     clearTimeout(pending.timer);
+    if (this.currentPrompt) this.currentPrompt.leaseMs = timeoutMs;
     pending.timer = this.createRequestTimeout(id, pending.method, timeoutMs);
   }
 
@@ -2418,7 +2430,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
           adapter: this.getName(),
           promptRequestId: id,
           timeoutMs,
-          error: error instanceof Error ? error.message : String(error),
+          ...safeAcpProtocolDetails({ error }),
         });
       });
 
@@ -2428,7 +2440,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
           adapter: this.getName(),
           promptRequestId: id,
           timeoutMs,
-          error: error instanceof Error ? error.message : String(error),
+          ...safeAcpProtocolDetails({ error }),
         });
       });
   }
@@ -2460,10 +2472,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
     await this.writeAcpLine(`${ndjsonSafeStringify(response)}\n`, `error-response:${String(id)}`);
   }
 
-  private async writeAcpLine(line: string, label: string): Promise<void> {
+  private async writeAcpLine(line: string, label: string, dispatch?: AdapterInputDispatch, writePhase?: { accepted: boolean }): Promise<void> {
     if (!this.isRealPipe()) {
       throw new Error(`ACP agent stdin closed before '${label}' could be sent.`);
     }
-    await this.safeStdinWrite(line);
+    assertAdapterInputCurrent(dispatch);
+    await this.safeStdinWrite(line, () => { if (writePhase) writePhase.accepted = true; });
   }
 }

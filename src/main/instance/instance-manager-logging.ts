@@ -1,5 +1,6 @@
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../logging/source-diagnostics';
 import { getResourceGovernor } from '../process/resource-governor';
 
 const logger = getLogger('InstanceManager');
@@ -98,7 +99,7 @@ export function getResourceGovernorCreationBlockReason(): string | null {
     return getResourceGovernor().getCreationBlockReason();
   } catch (error) {
     logger.debug('Resource governor unavailable while checking instance creation gate', {
-      error: error instanceof Error ? error.message : String(error),
+      ...errorDiagnostic(error),
     });
     return null;
   }
@@ -117,17 +118,16 @@ export function summarizeInputRequiredPayload(payload: {
     requestId: payload.requestId,
     timestamp: payload.timestamp,
     promptLength: payload.prompt.length,
-    promptPreview: summarizeLogText(payload.prompt),
-    metadataType: typeof metadata['type'] === 'string' ? metadata['type'] : undefined,
+    metadataType: typeof metadata['type'] === 'string' ? textDiagnostic(metadata['type']) : undefined,
     approvalTraceId: typeof metadata['approvalTraceId'] === 'string'
       ? metadata['approvalTraceId']
       : undefined,
-    action: typeof metadata['action'] === 'string' ? metadata['action'] : undefined,
+    action: typeof metadata['action'] === 'string' ? textDiagnostic(metadata['action']) : undefined,
     path: typeof metadata['path'] === 'string'
-      ? summarizeLogText(metadata['path'])
+      ? textDiagnostic(metadata['path'])
       : undefined,
     permissionKey: typeof metadata['permissionKey'] === 'string'
-      ? metadata['permissionKey']
+      ? textDiagnostic(metadata['permissionKey'])
       : undefined,
   };
 }

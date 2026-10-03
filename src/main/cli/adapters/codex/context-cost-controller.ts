@@ -1,6 +1,8 @@
 import type { InterruptResult, TurnInterruptCompletion } from '../base-cli-adapter';
 import type { ProviderContextActionHandlerResult } from '../../../context-evidence/provider-context-action-executor';
 import { getLogger } from '../../../logging/logger';
+import { errorDiagnostic } from '../../../logging/source-diagnostics';
+import { assertAdapterInputCurrent } from '../adapter-input-dispatch';
 import type { SurfacedToUserError } from '../surfaced-error';
 import type { AppServerNotification } from './app-server-types';
 import { CompactionGate, type CompactionGateOutcome } from './compaction-gate';
@@ -272,14 +274,16 @@ export class CodexContextCostController {
   }
 
   /** Waits on the existing bounded running-compaction window. */
-  async awaitCompactionSettled(retainBusy = true): Promise<CompactionGateOutcome> {
+  async awaitCompactionSettled(retainBusy = true, signal?: AbortSignal): Promise<CompactionGateOutcome> {
+    assertAdapterInputCurrent({ signal });
     if (!this.compactionRunning) return 'observed';
     if (retainBusy) this.compactionHandoffWaiters += 1;
     try {
       const runningTimeoutMs = this.deps.compactionRunningTimeoutMs ?? this.deps.compactionTimeoutMs;
-      const outcome = this.gate.wait(runningTimeoutMs, runningTimeoutMs);
+      const outcome = this.gate.wait(runningTimeoutMs, runningTimeoutMs, signal);
       this.gate.markRunning();
       const settled = await outcome;
+      assertAdapterInputCurrent({ signal });
       if (settled !== 'observed') this.finishRunningCompaction(settled);
       return settled;
     } finally {
@@ -327,7 +331,7 @@ export class CodexContextCostController {
       // compaction keeps running; nothing more to do here.
       logger.warn('Could not interrupt the Codex compaction turn', {
         turnId,
-        error: error instanceof Error ? error.message : String(error),
+        ...errorDiagnostic(error),
       });
     });
     const completion = wait.then((outcome): TurnInterruptCompletion => ({
@@ -471,7 +475,7 @@ export class CodexContextCostController {
         if (error instanceof CodexContextRecoveryPausedError) throw error;
         if (failure.kind === 'provider-limit' || failure.recoverability === 'terminal') throw error;
         const reason = error instanceof Error ? error.message : String(error);
-        logger.warn('Same-thread continuation after compaction failed', { error: reason });
+        logger.warn('Same-thread continuation after compaction failed', errorDiagnostic(error));
         throw this.pause(
           'continuation-failed',
           `Harness compacted the context but could not continue the task (${reason}). The conversation was preserved; send a message to continue.`,
@@ -502,7 +506,7 @@ export class CodexContextCostController {
       if (!isCompactTurnRejection(error)) throw error;
       this.markCompactionRunningFromRejection(null);
       logger.warn('Same-thread continuation found a provider compaction turn; waiting to retry once', {
-        error: error instanceof Error ? error.message : String(error),
+        ...errorDiagnostic(error),
       });
       const outcome = await this.awaitCompactionSettled();
       if (outcome !== 'observed') throw error;
@@ -528,7 +532,7 @@ export class CodexContextCostController {
       this.deps.recordCompactionRpc?.('failed');
       logger.warn('Context compaction failed', {
         threadId: target.threadId,
-        error: error instanceof Error ? error.message : String(error),
+        ...errorDiagnostic(error),
       });
       return false;
     }

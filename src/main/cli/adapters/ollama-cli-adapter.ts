@@ -19,6 +19,7 @@ import {
   CliCapabilities,
   CliMessage,
   CliResponse,
+  type AdapterInputDispatch,
 } from './base-cli-adapter';
 import {
   BaseLocalModelChatAdapter,
@@ -32,7 +33,10 @@ import {
 } from './local-model-chat-adapter';
 import type { LocalReviewToolDefinition } from '../../review/local-review.types';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../../logging/source-diagnostics';
 import type { CliSpawnMode, CliStatus } from './base-cli-adapter';
+
+import { assertAdapterInputCurrent } from './adapter-input-dispatch';
 
 const logger = getLogger('OllamaCliAdapter');
 
@@ -200,7 +204,7 @@ export class OllamaCliAdapter extends BaseLocalModelChatAdapter implements Local
     }
   }
 
-  async sendMessage(message: CliMessage): Promise<CliResponse> {
+  async sendMessage(message: CliMessage, dispatch?: AdapterInputDispatch): Promise<CliResponse> {
     const userMsg: OllamaChatMessage = { role: 'user', content: message.content };
     const messages = this.buildMessages(userMsg);
 
@@ -208,7 +212,7 @@ export class OllamaCliAdapter extends BaseLocalModelChatAdapter implements Local
     let promptEvalCount = 0;
     let evalCount = 0;
 
-    const signal = this.beginLocalModelTurn();
+    const signal = this.beginLocalModelTurn(dispatch);
     try {
       await this.postChatStream(messages, signal, (chunk) => {
         contentChunks.push(chunk.message.content);
@@ -218,7 +222,7 @@ export class OllamaCliAdapter extends BaseLocalModelChatAdapter implements Local
         }
 
         this.emitAssistantChunk(chunk.message.content, true);
-      });
+      }, dispatch);
     } finally {
       this.endLocalModelTurn(signal);
     }
@@ -281,7 +285,7 @@ export class OllamaCliAdapter extends BaseLocalModelChatAdapter implements Local
     })
       .catch((err) => {
         queue.push(null);
-        logger.error('Ollama stream error', err instanceof Error ? err : new Error(String(err)));
+        logger.error('Ollama stream error', undefined, errorDiagnostic(err));
         resolve?.();
       })
       .finally(() => {
@@ -357,6 +361,7 @@ export class OllamaCliAdapter extends BaseLocalModelChatAdapter implements Local
     messages: OllamaChatMessage[],
     signal: AbortSignal,
     onChunk: (chunk: OllamaChatResponseChunk) => void,
+    dispatch?: AdapterInputDispatch,
   ): Promise<void> {
     const body = JSON.stringify({
       model: this.model,
@@ -365,6 +370,7 @@ export class OllamaCliAdapter extends BaseLocalModelChatAdapter implements Local
     } satisfies OllamaChatRequest);
 
     return new Promise((resolve, reject) => {
+      assertAdapterInputCurrent(dispatch);
       const req = http.request(
         {
           hostname: this.host,
@@ -397,7 +403,7 @@ export class OllamaCliAdapter extends BaseLocalModelChatAdapter implements Local
                 const parsed = JSON.parse(trimmed) as OllamaChatResponseChunk;
                 onChunk(parsed);
               } catch {
-                logger.debug('Ollama: unparseable NDJSON line', { line: trimmed });
+                logger.debug('Ollama: unparseable NDJSON line', textDiagnostic(trimmed));
               }
             }
           });
@@ -425,8 +431,17 @@ export class OllamaCliAdapter extends BaseLocalModelChatAdapter implements Local
       });
 
       req.on('error', reject);
-      req.write(body);
-      req.end();
+      try {
+        assertAdapterInputCurrent(dispatch);
+        dispatch?.beforeProviderDispatch?.();
+        assertAdapterInputCurrent(dispatch);
+        req.write(body);
+        assertAdapterInputCurrent(dispatch);
+        req.end();
+      } catch (error) {
+        req.destroy();
+        reject(error);
+      }
     });
   }
 

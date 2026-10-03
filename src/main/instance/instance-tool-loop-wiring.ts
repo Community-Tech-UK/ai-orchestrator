@@ -36,6 +36,7 @@
  */
 
 import { getLogger } from '../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../logging/source-diagnostics';
 import {
   getDoomLoopDetector,
   type DoomLoopDetector,
@@ -47,6 +48,8 @@ import {
 } from '../providers/adapter-runtime-event-bridge';
 import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
 import type { ProviderRuntimeEvent } from '@contracts/types/provider-runtime-events';
+import { isMutatingProviderTool, isReadOnlyProviderTool } from '../cli/adapters/acp-doom-loop-permission';
+import { recordInstanceTurnEnding } from './instance-turn-ending-state';
 
 const logger = getLogger('InstanceToolLoopWiring');
 
@@ -57,6 +60,7 @@ const logger = getLogger('InstanceToolLoopWiring');
  * constructor instead of relying on that spy.
  */
 export interface ToolLoopWiringDeps {
+  getProvider?(instanceId: string): string | undefined;
   /** Current value of the `toolLoopAutoInterrupt` setting. */
   getAutoInterruptSetting(): unknown;
   /** Delegates to `InstanceManager.interruptInstance()`. */
@@ -70,6 +74,7 @@ export function resolveToolLoopWiringDeps(
   return {
     getAutoInterruptSetting: injected?.getAutoInterruptSetting ?? defaults.getAutoInterruptSetting,
     interruptInstance: injected?.interruptInstance ?? defaults.interruptInstance,
+    getProvider: injected?.getProvider ?? defaults.getProvider,
   };
 }
 
@@ -77,11 +82,14 @@ export function resolveToolLoopWiringDeps(
 function toToolUseObservation(
   event: Extract<ProviderRuntimeEvent, { kind: 'tool_use' }>,
 ): { toolName: string; callId?: string; argsHash?: string } {
-  const shape: Record<string, unknown> = { name: event.toolName };
+  const kind = event.input?.['kind'];
+  const toolName = kind === 'execute' ? 'bash' : kind === 'edit' ? 'edit'
+    : kind === 'read' || kind === 'search' ? 'read' : event.toolName;
+  const shape: Record<string, unknown> = { name: toolName };
   if (event.toolUseId !== undefined) shape['id'] = event.toolUseId;
   if (event.input !== undefined) shape['arguments'] = event.input;
   const observed = toProviderToolUseObservedEvent(shape as unknown as CliToolCall);
-  return { toolName: event.toolName, callId: observed.callId, argsHash: observed.argsHash };
+  return { toolName, callId: observed.callId, argsHash: observed.argsHash };
 }
 
 /** WS-B10 normalizer, fed with only the fields available on a `ProviderToolResultEvent`. */
@@ -163,14 +171,19 @@ function maybeAutoInterruptOnToolLoop(
   detection: ToolLoopDetectionEvent,
 ): void {
   if (detection.severity !== 'critical') return;
-  if (deps.getAutoInterruptSetting() !== true) return;
+  if (isReadOnlyProviderTool(detection.toolName)) return;
+  const provider = deps.getProvider?.(instanceId);
+  const nativeBackstop = (provider === 'opencode' || provider === 'claude')
+    && detection.detector === 'repeat-no-progress' && isMutatingProviderTool(detection.toolName);
+  if (!nativeBackstop && deps.getAutoInterruptSetting() !== true) return;
   if (detector.hasAutoInterruptedThisTurn(instanceId)) return;
 
   detector.markAutoInterrupted(instanceId);
+  recordInstanceTurnEnding(instanceId, 'doom_loop');
   logger.warn('Auto-interrupting instance after critical tool loop', {
     instanceId,
     detector: detection.detector,
-    toolName: detection.toolName,
+    toolName: typeof detection.toolName === 'string' ? textDiagnostic(detection.toolName) : undefined,
     count: detection.count,
     windowDescription: detection.windowDescription,
   });
@@ -180,7 +193,7 @@ function maybeAutoInterruptOnToolLoop(
   } catch (err) {
     logger.warn('Auto-interrupt after critical tool loop failed', {
       instanceId,
-      error: err instanceof Error ? err.message : String(err),
+      ...errorDiagnostic(err),
     });
   }
 }
@@ -239,7 +252,7 @@ export function observeToolLoopEvent(
     logger.warn('Tool loop observation failed', {
       instanceId,
       eventKind: event.kind,
-      error: err instanceof Error ? err.message : String(err),
+      ...errorDiagnostic(err),
     });
   }
 }

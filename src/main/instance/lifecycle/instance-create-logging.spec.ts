@@ -19,9 +19,10 @@ describe('summarizeCreateInstanceConfig', () => {
 
     const summary = summarizeCreateInstanceConfig(config);
 
-    expect(summary['initialPromptPreview']).toContain('... (300 chars)');
+    expect(summary['initialPromptPreview']).toBeUndefined();
+    expect(summary['initialPrompt']).toEqual({ textChars: 300, textHash: expect.any(String) });
     expect(summary['attachments']).toEqual([
-      { name: 'secret.png', type: 'image/png', size: 12, dataLength: 13 },
+      { name: { textChars: 10, textHash: expect.any(String) }, type: { textChars: 9, textHash: expect.any(String) }, size: 12, dataLength: 13 },
     ]);
     expect(summary['initialOutputBuffer']).toEqual(expect.objectContaining({
       count: 1,

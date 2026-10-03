@@ -9,6 +9,8 @@ import {
   describeAcpPromptTimeoutCause,
   describeAcpStallWarning,
   hasActiveAcpToolCall,
+  isDelegatedAcpTask,
+  resolveAcpPromptLeaseMs,
   resolveAcpStallWarningMs,
 } from './acp-prompt-timeout-policy';
 
@@ -24,6 +26,42 @@ describe('hasActiveAcpToolCall', () => {
       { status: 'failed' as const },
     ])).toBe(false);
     expect(hasActiveAcpToolCall([])).toBe(false);
+  });
+});
+
+describe('delegated ACP task lease', () => {
+  it('does not let a background task hold a foreground prompt lease', () => {
+    expect(isDelegatedAcpTask({ kind: 'think', title: 'task', rawInput: { background: true } })).toBe(false);
+  });
+  it('recognises an OpenCode task tool, including after the title is renamed', () => {
+    expect(isDelegatedAcpTask({ kind: 'think', title: 'task' })).toBe(true);
+    expect(isDelegatedAcpTask({
+      kind: 'think',
+      title: 'C5a gate round 3 fresh',
+      rawInput: { description: 'C5a gate round 3 fresh', prompt: 'Verify the commit.' },
+    })).toBe(true);
+    expect(isDelegatedAcpTask({ kind: 'think', title: 'Thinking' })).toBe(false);
+    expect(isDelegatedAcpTask({ kind: 'execute', title: 'bash' })).toBe(false);
+  });
+
+  it('uses the delegated lease only while that task is still running', () => {
+    const tools = [
+      { status: 'in_progress' as const, delegatedTask: true },
+      { status: 'in_progress' as const, delegatedTask: false },
+    ];
+    expect(resolveAcpPromptLeaseMs(tools, 40, 50, 200)).toBe(200);
+    expect(resolveAcpPromptLeaseMs(
+      [{ status: 'in_progress' as const, delegatedTask: false }],
+      40,
+      50,
+      200,
+    )).toBe(50);
+    expect(resolveAcpPromptLeaseMs(
+      [{ status: 'completed' as const, delegatedTask: true }],
+      40,
+      50,
+      200,
+    )).toBe(40);
   });
 });
 

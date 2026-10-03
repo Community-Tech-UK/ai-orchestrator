@@ -31,6 +31,7 @@
 
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
+import { textDiagnostic } from '../logging/source-diagnostics';
 
 const logger = getLogger('DoomLoopDetector');
 
@@ -410,12 +411,12 @@ export class DoomLoopDetector extends EventEmitter {
       if (!state.criticalSignatures.has(key)) {
         state.criticalSignatures.add(key);
         events.push({ instanceId, detector, severity: 'critical', toolName, count, windowDescription });
-        logger.warn('Tool loop critical', { instanceId, detector, toolName, count });
+        logger.warn('Tool loop critical', { instanceId, detector, toolName: typeof toolName === 'string' ? textDiagnostic(toolName) : undefined, count });
       }
     } else if (!state.warnedSignatures.has(key)) {
       state.warnedSignatures.add(key);
       events.push({ instanceId, detector, severity: 'warn', toolName, count, windowDescription });
-      logger.warn('Tool loop warning', { instanceId, detector, toolName, count });
+      logger.warn('Tool loop warning', { instanceId, detector, toolName: typeof toolName === 'string' ? textDiagnostic(toolName) : undefined, count });
     }
 
     return events;

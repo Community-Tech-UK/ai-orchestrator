@@ -1978,6 +1978,59 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('expires a renamed OpenCode task on the ordinary lease without child progress evidence', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'gate',
+          title: 'task',
+          kind: 'think',
+          status: 'in_progress',
+        },
+      });
+      setTimeout(() => {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'gate',
+            title: 'C5a gate round 3 fresh',
+            status: 'in_progress',
+            rawInput: { description: 'C5a gate round 3 fresh', prompt: 'Verify the commit.' },
+          },
+        });
+      }, 20);
+      setTimeout(() => {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: 'gate finished' },
+          },
+        });
+        proc.respond(message.id, { stopReason: 'end_turn' });
+      }, 90);
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 30,
+      activeToolTimeoutMs: 40,
+      delegatedTaskTimeoutMs: 500,
+      stallWarningMs: 0,
+    });
+    await adapter.spawn();
+
+    await expect(adapter.sendMessage({ role: 'user', content: 'run the gate' })).rejects.toMatchObject({ parentSilent: true });
+    expect(proc.receivedMessages).toContainEqual(expect.objectContaining({ method: 'session/cancel' }));
+    proc.exit();
+  });
+
   it.each(['completed', 'failed', 'cancelled'] as const)(
     'restores promptTimeoutMs after the last active ACP tool becomes %s',
     async (terminalStatus) => {

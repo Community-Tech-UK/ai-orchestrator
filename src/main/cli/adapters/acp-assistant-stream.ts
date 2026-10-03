@@ -21,6 +21,8 @@ export interface AcpAssistantTurnState {
   toolActivityChunks: string[];
   /** `agent_thought_chunk` text keyed by the agent's messageId (see acp-thought-stream.ts). */
   thoughtChunksById: Map<string, string[]>;
+  /** The last inactivity/absolute-capped prompt timer actually armed. */
+  leaseMs?: number;
 }
 
 export function createAcpAssistantTurn(responseId: string): AcpAssistantTurnState {
@@ -80,13 +82,13 @@ export function appendAcpAssistantDelta(
 
 export function collectAcpAssistantFlushes(
   turn: AcpAssistantTurnState,
-): Array<{ id: string; content: string }> {
+): { id: string; content: string }[] {
   const canonicalContent = turn.chunks.join('');
   if (canonicalContent.trim()) {
     return [{ id: turn.responseId, content: canonicalContent }];
   }
 
-  const flushes: Array<{ id: string; content: string }> = [];
+  const flushes: { id: string; content: string }[] = [];
   for (const messageId of turn.agentMessageIds) {
     const accumulatedContent = (turn.messageChunksById.get(messageId) ?? []).join('');
     if (!accumulatedContent.trim()) {

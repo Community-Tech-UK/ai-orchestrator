@@ -12,6 +12,9 @@
  */
 
 import { getLogger } from '../../../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../../../logging/source-diagnostics';
+import type { AdapterInputDispatch } from '../base-cli-adapter.types';
+import { assertAdapterInputCurrent } from '../adapter-input-dispatch';
 import type {
   CopilotSdkClientLike,
   CopilotSdkSessionLike,
@@ -85,8 +88,8 @@ export class CopilotServerSession {
         params.onEffect(mapCopilotServerEvent(event as CopilotServerEvent));
       } catch (error) {
         logger.warn('Copilot server event handler failed', {
-          eventType: (event as { type?: string }).type,
-          error: error instanceof Error ? error.message : String(error),
+          eventType: textDiagnostic(typeof event.type === 'string' ? event.type : ''),
+          ...errorDiagnostic(error),
         });
       }
     });
@@ -95,8 +98,23 @@ export class CopilotServerSession {
   }
 
   /** Send a prompt; resolves when the SDK acknowledges the turn submission. */
-  async send(prompt: string): Promise<void> {
-    await this.session.send({ prompt });
+  async send(prompt: string, dispatch?: AdapterInputDispatch): Promise<void> {
+    assertAdapterInputCurrent(dispatch);
+    dispatch?.beforeProviderDispatch?.();
+    assertAdapterInputCurrent(dispatch);
+    let rejectAbort!: (error: unknown) => void;
+    const cancelled = new Promise<never>((_resolve, reject) => { rejectAbort = reject; });
+    const onAbort = (): void => {
+      try { assertAdapterInputCurrent({ signal: dispatch?.signal }); } catch (error) { rejectAbort(error); }
+      void this.session.abort().catch(() => undefined);
+    };
+    dispatch?.signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      await Promise.race([this.session.send({ prompt }), cancelled]);
+      assertAdapterInputCurrent(dispatch);
+    } finally {
+      dispatch?.signal?.removeEventListener('abort', onAbort);
+    }
   }
 
   /** Cancel the in-flight turn; the session remains valid for the next send. */
@@ -115,14 +133,14 @@ export class CopilotServerSession {
       await this.session.disconnect();
     } catch (error) {
       logger.debug('Copilot session disconnect failed during dispose', {
-        error: error instanceof Error ? error.message : String(error),
+        ...errorDiagnostic(error),
       });
     }
     try {
       await this.client.stop();
     } catch (error) {
       logger.debug('Copilot client stop failed during dispose', {
-        error: error instanceof Error ? error.message : String(error),
+        ...errorDiagnostic(error),
       });
     }
   }

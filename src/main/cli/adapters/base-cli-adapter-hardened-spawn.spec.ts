@@ -74,6 +74,20 @@ class TestAdapter extends BaseCliAdapter {
 }
 
 describe('BaseCliAdapter hardened spawn wrap', () => {
+  it('returns a defensive configured jail-root copy and distinguishes an empty configured jail', () => {
+    const adapter = new TestAdapter({ command: 'fake-cli' });
+    expect(adapter.isHardenedModeConfigured()).toBe(false);
+    expect(adapter.getHardenedWritableRoots()).toBeUndefined();
+    const configured = [tmpdir()];
+    adapter.configureHardenedMode({ writableRoots: configured });
+    configured.push('/not-granted');
+    const copy = adapter.getHardenedWritableRoots() as string[];
+    copy.push('/also-not-granted');
+    expect(adapter.getHardenedWritableRoots()).toEqual([tmpdir()]);
+    adapter.configureHardenedMode({ writableRoots: [] });
+    expect(adapter.isHardenedModeConfigured()).toBe(true);
+    expect(adapter.getHardenedWritableRoots()).toEqual([]);
+  });
   afterEach(() => {
     spawnMock.mockReset();
   });

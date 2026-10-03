@@ -1,7 +1,9 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
+import { textDiagnostic } from '../logging/source-diagnostics';
 import { registerCleanup } from '../util/cleanup-registry';
 import { getJitterScheduler } from '../tasks/jitter-scheduler';
+import { getInstanceTurnEnding } from '../instance/instance-turn-ending-state';
 import { getInstanceAsyncWorkRegistry } from '../instance/instance-async-work-registry';
 
 const logger = getLogger('HibernationManager');
@@ -128,7 +130,7 @@ export class HibernationManager extends EventEmitter {
   markHibernated(instanceId: string, state: HibernatedInstance): void {
     this.hibernated.set(instanceId, state);
     this.emit('instance:hibernated', state);
-    logger.info('Instance hibernated', { instanceId, displayName: state.displayName });
+    logger.info('Instance hibernated', { instanceId, displayName: typeof state.displayName === 'string' ? textDiagnostic(state.displayName) : undefined });
 
     // Evict oldest if over limit
     if (this.hibernated.size > this.config.maxHibernated) {
@@ -210,6 +212,7 @@ export class HibernationManager extends EventEmitter {
       inst.status === 'idle' &&
       (now - inst.lastActivity) > this.config.idleThresholdMs &&
       !this.hibernated.has(inst.id) &&
+      getInstanceTurnEnding(inst.id) === undefined &&
       !getInstanceAsyncWorkRegistry().hasInhibitor(inst.id) &&
       !this.isInCooldown(inst.id, now)
     ).sort((a, b) => a.lastActivity - b.lastActivity);

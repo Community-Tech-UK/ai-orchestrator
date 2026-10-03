@@ -16,6 +16,8 @@ import { getLogger } from '../logging/logger';
 import { normalizeUsage, type UsageLike } from '../../shared/util/usage-normalization';
 import { toJsonSafeProviderEventPayload } from './provider-event-raw-payload';
 import { readCapturedToolArguments } from './tool-call-argument-material';
+import { classifyTurnEnding, readTurnEndingMetadata } from '../cli/turn-ending-classifier';
+import { AdapterTurnEndingObservation } from './adapter-turn-ending-observation';
 
 const bridgeLogger = getLogger('AdapterRuntimeEventBridge');
 
@@ -79,7 +81,7 @@ function stripAnnotationFieldsForHash(value: unknown): unknown {
   return Object.fromEntries(entries);
 }
 
-export type AdapterRuntimeEventSource = Pick<EventEmitter, 'on' | 'off'>;
+export type AdapterRuntimeEventSource = Pick<EventEmitter, 'on' | 'off'> & { getName?(): string; getConfig?(): unknown };
 
 type ProviderRuntimeEventKind = ProviderRuntimeEvent['kind'];
 type ProviderRuntimeEventOfKind<K extends ProviderRuntimeEventKind> = Extract<ProviderRuntimeEvent, { kind: K }>;
@@ -111,6 +113,7 @@ export type AdapterRuntimeEventName =
   | 'status'
   | 'context'
   | 'error'
+  | 'turn_error'
   | 'complete'
   | 'exit'
   | 'spawned';
@@ -140,6 +143,7 @@ export function getAdapterToolResultCapturePayload(
 interface ProviderApiDiagnostics {
   requestId?: string;
   stopReason?: string;
+  finish?: string;
   rateLimit?: ProviderRateLimitDiagnostics;
   quota?: ProviderQuotaDiagnostics;
 }
@@ -148,6 +152,10 @@ export function observeAdapterRuntimeEvents(
   adapter: AdapterRuntimeEventSource,
   onEvent: (event: NormalizedAdapterRuntimeEvent) => void,
 ): () => void {
+  const turnObservation = new AdapterTurnEndingObservation(() => {
+    const config = adapter.getConfig?.() as { model?: unknown } | undefined;
+    return { adapter: adapter.getName?.(), model: typeof config?.model === 'string' ? config.model : undefined };
+  });
   const emit = (
     event: ProviderRuntimeEvent,
     rawPayload: unknown,
@@ -166,7 +174,7 @@ export function observeAdapterRuntimeEvents(
 
   const emitMapped = (name: AdapterRuntimeEventName, args: unknown[]): void => {
     const mapped = mapAdapterRuntimeEvent(name, args);
-    if (mapped) emit(mapped.event, mapped.rawPayload, mapped.timestamp);
+    if (mapped) emit(turnObservation.enrich(mapped.event, mapped.rawPayload), mapped.rawPayload, mapped.timestamp);
   };
 
   const onOutput = (message: OutputMessage | string): void => emitMapped('output', [message]);
@@ -185,6 +193,7 @@ export function observeAdapterRuntimeEvents(
   adapter.on('status', onStatus);
   adapter.on('context', onContext);
   adapter.on('error', onError);
+  adapter.on('turn_error', onError);
   adapter.on('complete', onComplete);
   adapter.on('exit', onExit);
   adapter.on('spawned', onSpawned);
@@ -196,6 +205,7 @@ export function observeAdapterRuntimeEvents(
     adapter.off('status', onStatus);
     adapter.off('context', onContext);
     adapter.off('error', onError);
+    adapter.off('turn_error', onError);
     adapter.off('complete', onComplete);
     adapter.off('exit', onExit);
     adapter.off('spawned', onSpawned);
@@ -278,9 +288,10 @@ export function mapAdapterRuntimeEvent(
         }, rawPayload,
       };
     }
+    case 'turn_error':
     case 'error': {
       const rawPayload = args[0] as Error | string;
-      return { event: { kind: 'error', message: rawPayload instanceof Error ? rawPayload.message : String(rawPayload), recoverable: false, ...extractProviderApiDiagnostics(rawPayload) }, rawPayload };
+      return { event: { kind: 'error', message: rawPayload instanceof Error ? rawPayload.message : String(rawPayload), recoverable: false, ...extractProviderApiDiagnostics(rawPayload), turnEnding: classifyTurnEnding({ kind: 'error', error: rawPayload, metadata: rawPayload }) }, rawPayload };
     }
     case 'complete': {
       const rawPayload = args[0] as CliResponse;
@@ -296,7 +307,12 @@ export function mapAdapterRuntimeEvent(
           ...definedNumberField('costUsd', rawPayload.usage?.cost),
           ...definedNumberField('durationMs', rawPayload.usage?.duration),
           ...(rawPayload.degradedReason ? { degradedReason: rawPayload.degradedReason } : {}),
-          ...extractProviderApiDiagnostics(rawPayload.metadata),
+          ...extractProviderApiDiagnostics(readTurnEndingMetadata(rawPayload.metadata, rawPayload.raw)),
+          turnEnding: classifyTurnEnding({ kind: 'complete', text: rawPayload.content,
+            metadata: rawPayload.metadata, raw: rawPayload.raw,
+            thinking: (rawPayload as CliResponse & { thinking?: { content: string }[] }).thinking,
+            outputTokens: rawPayload.usage?.isEstimated ? undefined : rawPayload.usage?.outputTokens,
+            reasoningTokens: rawPayload.usage?.reasoningTokens, cancelled: rawPayload.degradedReason === 'cancelled' }),
         }, rawPayload,
       };
     }
@@ -352,6 +368,8 @@ function normalizeOutputMessage(message: OutputMessage | string): OutputMessage 
 
   if (Array.isArray(message.thinking)) {
     normalized.thinking = message.thinking.map((block) => ({ ...block }));
+  } else if (typeof message.thinking === 'string') {
+    normalized.thinking = [{ id: randomUUID(), content: message.thinking, format: 'sdk' }];
   }
 
   if (typeof message.thinkingExtracted === 'boolean') {
@@ -464,12 +482,14 @@ function extractProviderApiDiagnostics(value: unknown): ProviderApiDiagnostics {
 
   const requestId = readString(record, ['requestId', 'request_id', 'x-request-id', 'anthropic-request-id']);
   const stopReason = readString(record, ['stopReason', 'stop_reason']);
+  const finish = readString(record, ['finish', 'finishReason', 'finish_reason']);
   const rateLimit = normalizeRateLimit(record['rateLimit'] ?? record['rate_limit']);
   const quota = normalizeQuota(record['quota']);
 
   return {
     ...(requestId !== undefined ? { requestId } : {}),
     ...(stopReason !== undefined ? { stopReason } : {}),
+    ...(finish !== undefined ? { finish } : {}),
     ...(rateLimit !== undefined ? { rateLimit } : {}),
     ...(quota !== undefined ? { quota } : {}),
   };
@@ -545,6 +565,7 @@ function normalizeOutputMessageType(type: unknown): OutputMessage['type'] {
     // and a `default: 'assistant'` relabels the miner-only outcome record as
     // an assistant message, carrying raw tool-failure text onto every live
     // consumer (mobile broadcast, continuity persistence) past their filters.
+    // falls through
     case 'tool_outcome':
     case 'error':
       return type;

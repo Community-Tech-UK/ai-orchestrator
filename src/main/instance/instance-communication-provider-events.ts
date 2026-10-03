@@ -1,6 +1,7 @@
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
 import type { CliAsyncWorkEvent } from '../cli/adapters/claude-cli-async-work';
+import { mapAdapterRuntimeEvent } from '../providers/adapter-runtime-event-bridge';
 import { toJsonSafeProviderEventPayload } from '../providers/provider-event-raw-payload';
 import type {
   ProviderName,
@@ -21,6 +22,22 @@ interface BindRawAdapterProviderEventsInput {
 
 /** Bind canonical capture for adapter events not otherwise handled by the UI. */
 export function bindRawAdapterProviderEvents(input: BindRawAdapterProviderEventsInput): void {
+  // Terminal provider turn failure is distinct from a broken adapter. The
+  // send rejection still owns overflow/limit/auth recovery; this records the
+  // canonical ending synchronously without teardown, hooks or a second notice.
+  input.adapter.on('turn_error', (error: Error) => {
+    if (input.isStale('turn_error')) return;
+    const mapped = mapAdapterRuntimeEvent('turn_error', [error]);
+    const evidence = error as Error & { errorCode?: string; statusCode?: number };
+    if (mapped) input.emit(mapped.event, {
+      raw: { source: 'adapter-event:turn_error', payload: {
+        message: error.message, willRetry: false,
+        ...(evidence.errorCode ? { errorCode: evidence.errorCode } : {}),
+        ...(evidence.statusCode !== undefined ? { statusCode: evidence.statusCode } : {}),
+        ...(mapped.event.kind === 'error' && mapped.event.quota ? { quota: mapped.event.quota } : {}),
+      } },
+    });
+  });
   input.adapter.on('spawned', (pid: number) => {
     if (input.isStale('spawned')) return;
     input.emit(

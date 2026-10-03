@@ -9,6 +9,8 @@
  */
 import { buildCodexReplayPrompt } from './codex-prompt-blocks';
 import type { CliMessage, CliResponse, CliToolCall } from '../base-cli-adapter';
+import type { AdapterInputDispatch } from '../base-cli-adapter.types';
+import { assertAdapterInputCurrent } from '../adapter-input-dispatch';
 
 export interface CodexConversationEntry {
   content: string;
@@ -44,8 +46,20 @@ export function consumeLines(
   return remainder;
 }
 
-export async function delay(ms: number): Promise<void> {
-  await new Promise<void>((resolve) => setTimeout(resolve, ms));
+export async function delay(ms: number, dispatch?: AdapterInputDispatch): Promise<void> {
+  assertAdapterInputCurrent(dispatch);
+  await new Promise<void>((resolve, reject) => {
+    const finish = () => { dispatch?.signal?.removeEventListener('abort', abort); resolve(); };
+    const timer = setTimeout(finish, ms);
+    const abort = () => {
+      clearTimeout(timer);
+      dispatch?.signal?.removeEventListener('abort', abort);
+      try { assertAdapterInputCurrent(dispatch); } catch (error) { reject(error); }
+    };
+    dispatch?.signal?.addEventListener('abort', abort, { once: true });
+    if (dispatch?.signal?.aborted) abort();
+  });
+  assertAdapterInputCurrent(dispatch);
 }
 
 /**

@@ -7,6 +7,7 @@
  */
 
 import { getLogger } from '../../../logging/logger';
+import { textDiagnostic } from '../../../logging/source-diagnostics';
 import { parseNdjsonLine, parseStreamingJson } from '../../json-parse';
 
 const logger = getLogger('CopilotCliAdapter');
@@ -116,7 +117,7 @@ export function isCopilotEvent(value: unknown): value is CopilotEvent {
 
 export function logCopilotParseFailure(line: string): void {
   if (line.trim().startsWith('{')) {
-    logger.warn('Failed to parse Copilot stream-json line', { linePreview: line.slice(0, 200) });
+    logger.warn('Failed to parse Copilot stream-json line', textDiagnostic(line));
   }
 }
 

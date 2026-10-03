@@ -4,14 +4,13 @@ import type {
   InstanceAsyncWorkRegistry,
   InstanceAsyncWorkTerminalEvent,
 } from './instance-async-work-registry';
+import { InstanceContinuationDispatch, type ContinuationReservation, type InstanceContinuationDispatchHost } from './instance-continuation-dispatch';
 import { getLogger } from '../logging/logger';
 import { registerCleanup } from '../util/cleanup-registry';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { getInstanceAsyncWorkRegistry } from './instance-async-work-registry';
-import type { InternalInputSource } from '../../shared/types/input-provenance.types';
 
 const logger = getLogger('InstanceAsyncWorkContinuation');
-const SETTLEMENT_TIMEOUT_MS = 60_000;
 /**
  * Claude CLI starts its own turn within about a second of a task notification
  * that arrives between turns. Waiting this long before the fallback continuation
@@ -36,25 +35,19 @@ export function buildStalledWorkCheckInPrompt(silentForMs: number): string {
   ].join(' ');
 }
 
-export interface InstanceAsyncWorkContinuationHost {
+export interface InstanceAsyncWorkContinuationHost extends InstanceContinuationDispatchHost {
   getInstance(instanceId: string): Pick<Instance, 'status' | 'requestCount' | 'lastActivity'> | undefined;
-  waitForInstanceSettled(instanceId: string, options?: { timeoutMs?: number }): Promise<unknown>;
-  sendInput(
-    instanceId: string,
-    message: string,
-    attachments?: undefined,
-    options?: { autoContinuation?: boolean; internalSource?: InternalInputSource },
-  ): Promise<void>;
 }
 
 export interface InstanceAsyncWorkContinuationOptions {
   providerResumeGraceMs?: number;
+  dispatch?: InstanceContinuationDispatch;
   isPaused?: () => boolean;
   isManagedLoopInstance?: (instanceId: string) => boolean;
 }
 
 interface PendingDelivery {
-  requestCount: number;
+  reservation?: ContinuationReservation;
   providerResumed: boolean;
   wakeGrace?: () => void;
 }
@@ -82,13 +75,21 @@ export class InstanceAsyncWorkContinuation {
       return;
     }
 
-    this.pending.set(instanceId, { requestCount: instance.requestCount, providerResumed: false });
+    const delivery: PendingDelivery = { providerResumed: false };
+    this.pending.set(instanceId, delivery);
+    delivery.reservation = this.dispatch.reserve({
+      instanceId, trigger: 'async-result', requestCount: instance.requestCount,
+      prompt: ASYNC_WORK_CONTINUATION_PROMPT, internalSource: 'async-work-continuation',
+      isCurrent: () => this.started && this.pending.get(instanceId) === delivery && !delivery.providerResumed,
+    });
+    if (!delivery.reservation) {
+      this.pending.delete(instanceId);
+      this.registry.finishCompletionDelivery(instanceId);
+      return;
+    }
     queueMicrotask(() => {
-      void this.deliver(instanceId, instance.status === 'hibernated').catch((error: unknown) => {
-        logger.warn('Background-result continuation failed', {
-          instanceId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+      void this.deliver(instanceId, instance.status === 'hibernated').catch(() => {
+        logger.warn('Background-result continuation failed', { instanceId });
       });
     });
   };
@@ -97,12 +98,13 @@ export class InstanceAsyncWorkContinuation {
     const delivery = this.pending.get(instanceId);
     if (!delivery) return;
     delivery.providerResumed = true;
+    this.dispatch.cancel(delivery.reservation);
     delivery.wakeGrace?.();
   };
 
   private readonly providerResumeGraceMs: number;
-  private readonly isPaused: () => boolean;
-  private readonly isManagedLoopInstance: (instanceId: string) => boolean;
+  private readonly dispatch: InstanceContinuationDispatch;
+  private readonly ownsDispatch: boolean;
 
   constructor(
     private readonly registry: InstanceAsyncWorkRegistry,
@@ -110,13 +112,15 @@ export class InstanceAsyncWorkContinuation {
     options: InstanceAsyncWorkContinuationOptions = {},
   ) {
     this.providerResumeGraceMs = options.providerResumeGraceMs ?? PROVIDER_RESUME_GRACE_MS;
-    this.isPaused = options.isPaused ?? (() => false);
-    this.isManagedLoopInstance = options.isManagedLoopInstance ?? (() => false);
+    this.ownsDispatch = options.dispatch === undefined;
+    this.dispatch = options.dispatch ?? new InstanceContinuationDispatch(registry, host,
+      options.isManagedLoopInstance, options.isPaused);
   }
 
   start(): void {
     if (this.started) return;
     this.started = true;
+    if (this.ownsDispatch) this.dispatch.start();
     this.registry.on('work:terminal', this.onTerminal);
     this.registry.on('work:provider-resumed', this.onProviderResumed);
     this.sweepTimer = setInterval(() => {
@@ -128,6 +132,7 @@ export class InstanceAsyncWorkContinuation {
   stop(): void {
     if (!this.started) return;
     this.started = false;
+    if (this.ownsDispatch) this.dispatch.stop();
     this.registry.off('work:terminal', this.onTerminal);
     this.registry.off('work:provider-resumed', this.onProviderResumed);
     if (this.sweepTimer) {
@@ -135,6 +140,7 @@ export class InstanceAsyncWorkContinuation {
       this.sweepTimer = null;
     }
     for (const [instanceId, delivery] of this.pending) {
+      this.dispatch.cancel(delivery.reservation);
       delivery.wakeGrace?.();
       this.registry.finishCompletionDelivery(instanceId);
     }
@@ -160,30 +166,22 @@ export class InstanceAsyncWorkContinuation {
         || this.checkedInWork.get(instanceId) === signature
         || now - summary.since < STALLED_WORK_CHECK_IN_AFTER_MS
         || now - instance.lastActivity < STALLED_WORK_CHECK_IN_AFTER_MS
-        || this.automaticInputBlocked(instanceId)
       ) {
         continue;
       }
 
-      this.checkedInWork.set(instanceId, signature);
-      const silentForMs = now - instance.lastActivity;
-      logger.info('Checking in on stalled background work', {
-        instanceId,
-        backgroundTasks: summary.count,
-        silentForMs,
+      const reservation = this.dispatch.reserve({
+        instanceId, trigger: 'async-check-in', requestCount: instance.requestCount,
+        prompt: buildStalledWorkCheckInPrompt(now - instance.lastActivity), internalSource: 'async-work-continuation',
+        isCurrent: () => this.started && this.registry.activeWorkIds(instanceId).join(',') === signature,
       });
+      if (!reservation) continue;
+      this.checkedInWork.set(instanceId, signature);
+      logger.info('Checking in on stalled background work', { instanceId, backgroundTasks: summary.count });
       try {
-        await this.host.sendInput(
-          instanceId,
-          buildStalledWorkCheckInPrompt(silentForMs),
-          undefined,
-          { autoContinuation: true, internalSource: 'async-work-continuation' },
-        );
-      } catch (error: unknown) {
-        logger.warn('Stalled background work check-in failed', {
-          instanceId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        await this.dispatch.dispatch(reservation, { settle: false });
+      } catch {
+        logger.warn('Stalled background work check-in failed', { instanceId });
       }
     }
   }
@@ -204,48 +202,11 @@ export class InstanceAsyncWorkContinuation {
         return;
       }
 
-      const instanceAtCompletion = this.host.getInstance(instanceId);
-      if (!instanceAtCompletion || !READY_FOR_AUTOMATIC_INPUT.has(instanceAtCompletion.status)) {
-        try {
-          await this.host.waitForInstanceSettled(instanceId, { timeoutMs: SETTLEMENT_TIMEOUT_MS });
-        } catch (error: unknown) {
-          logger.warn('Background-result continuation timed out waiting for settlement', {
-            instanceId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          return;
-        }
-      }
-
       const instance = this.host.getInstance(instanceId);
-      if (!instance || instance.requestCount !== delivery.requestCount || delivery.providerResumed) {
-        logger.info('Background-result continuation suppressed by a newer turn', {
-          instanceId,
-          requestCountAtCompletion: delivery.requestCount,
-          currentRequestCount: instance?.requestCount,
-        });
-        return;
-      }
-
-      if (!READY_FOR_AUTOMATIC_INPUT.has(instance.status)) {
-        logger.info('Background-result continuation suppressed because the instance is unavailable', {
-          instanceId,
-          status: instance.status,
-        });
-        return;
-      }
-
-      if (this.automaticInputBlocked(instanceId)) {
-        logger.info('Background-result continuation held: app paused or session owned by a loop', { instanceId });
-        return;
-      }
-
-      await this.host.sendInput(
-        instanceId,
-        ASYNC_WORK_CONTINUATION_PROMPT,
-        undefined,
-        { autoContinuation: true, internalSource: 'async-work-continuation' },
-      );
+      if (!delivery.reservation) return;
+      await this.dispatch.dispatch(delivery.reservation, {
+        settle: !instance || !READY_FOR_AUTOMATIC_INPUT.has(instance.status),
+      });
     } finally {
       if (this.pending.get(instanceId) === delivery) {
         this.pending.delete(instanceId);
@@ -263,22 +224,14 @@ export class InstanceAsyncWorkContinuation {
       function done(): void {
         clearTimeout(timer);
         delivery.wakeGrace = undefined;
+        delivery.reservation?.abortController.signal.removeEventListener('abort', done);
         resolve();
       }
       delivery.wakeGrace = done;
+      const signal = delivery.reservation?.abortController.signal;
+      signal?.addEventListener('abort', done, { once: true });
+      if (signal?.aborted) done();
     });
-  }
-
-  private automaticInputBlocked(instanceId: string): boolean {
-    try {
-      return this.isPaused() || this.isManagedLoopInstance(instanceId);
-    } catch (error: unknown) {
-      logger.warn('Could not establish pause or loop ownership; holding automatic check-in', {
-        instanceId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return true;
-    }
   }
 }
 

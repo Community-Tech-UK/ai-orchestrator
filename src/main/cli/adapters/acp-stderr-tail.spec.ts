@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { StderrTailBuffer } from './acp-stderr-tail';
 
 describe('StderrTailBuffer', () => {
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 1.5])('rejects invalid limits %s', (limit) => {
+    expect(() => new StderrTailBuffer(10, limit)).toThrow(RangeError);
+    expect(() => new StderrTailBuffer(limit, 8192)).toThrow(RangeError);
+  });
+
   it('dumps joined chunks and reports undefined when empty', () => {
     const buffer = new StderrTailBuffer();
     expect(buffer.dump()).toBeUndefined();
@@ -23,7 +28,7 @@ describe('StderrTailBuffer', () => {
     expect(buffer.dump()).toBe('b\nc\nd');
   });
 
-  it('drops the oldest chunks beyond the byte cap', () => {
+  it('drops the oldest chunks beyond the character cap', () => {
     const buffer = new StderrTailBuffer(10, 8);
     buffer.push('aaaa');
     buffer.push('bbbb');
@@ -31,10 +36,11 @@ describe('StderrTailBuffer', () => {
     expect(buffer.dump()).toBe('bbbb\ncccc');
   });
 
-  it('keeps at least one chunk even when it exceeds the byte cap', () => {
+  it('keeps only the latest bounded tail of a single oversized chunk', () => {
     const buffer = new StderrTailBuffer(10, 4);
     buffer.push('way-too-long-for-the-cap');
-    expect(buffer.dump()).toBe('way-too-long-for-the-cap');
+    expect(buffer.dump()).toBe('-cap');
+    expect(buffer.dump()?.length).toBeLessThanOrEqual(4);
   });
 
   it('clear() empties the buffer', () => {

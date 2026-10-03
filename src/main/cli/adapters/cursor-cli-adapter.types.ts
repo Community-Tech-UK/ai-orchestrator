@@ -1,4 +1,4 @@
-import type { CliMessage, CliResponse } from './base-cli-adapter';
+import type { AdapterInputDispatch, CliMessage, CliResponse } from './base-cli-adapter';
 
 export interface CursorSystemInitEvent {
   type: 'system';
@@ -52,6 +52,7 @@ export type CursorEvent =
   | CursorResultEvent;
 
 export interface ResultState {
+  dispatch?: AdapterInputDispatch;
   message: CliMessage;
   resolver: (r: CliResponse) => void;
   rejecter: (e: Error) => void;

@@ -10,6 +10,7 @@ import type {
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic } from '../../logging/source-diagnostics';
 import {
   BaseCliAdapter,
   type AdapterRuntimeCapabilities,
@@ -18,7 +19,10 @@ import {
   type CliResponse,
   type CliUsage,
   type InterruptResult,
+  type AdapterInputDispatch,
 } from './base-cli-adapter';
+
+import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 
 const logger = getLogger('LocalModelChatAdapter');
 
@@ -112,12 +116,15 @@ export abstract class BaseLocalModelChatAdapter
 
   private readonly errorLabel: string;
   private isSpawned = false;
+  protected override readonly defersInputDispatch = true;
+  private detachDispatchAbort: (() => void) | undefined;
   private activeAbortController: AbortController | null = null;
   private activeOutputMessageId: string | null = null;
   private activeAccumulatedContent = '';
   private cumulativeTokensUsed = 0;
 
   abstract spawn(): Promise<number>;
+  abstract override sendMessage(message: CliMessage, dispatch?: AdapterInputDispatch): Promise<CliResponse>;
 
   constructor(
     config: CliAdapterConfig,
@@ -154,7 +161,11 @@ export abstract class BaseLocalModelChatAdapter
   protected override async sendInputImpl(
     message: string,
     attachments?: FileAttachment[],
+    _metadata?: Record<string, unknown>,
+    dispatch?: AdapterInputDispatch,
   ): Promise<void> {
+    const admission = createAdapterInputDispatch(dispatch);
+    assertAdapterInputCurrent(admission);
     if (!this.isSpawned) {
       throw new Error(`${this.getName()}: call spawn() before sendInput()`);
     }
@@ -166,13 +177,19 @@ export abstract class BaseLocalModelChatAdapter
 
     try {
       const cliMessage: CliMessage = { role: 'user', content: message };
-      const response = await this.sendMessage(cliMessage);
+      const response = await this.sendMessage(cliMessage, admission);
+      assertAdapterInputCurrent(admission);
       this.emitContextUsage(response);
+      assertAdapterInputCurrent(admission);
       this.emit('status', 'idle' as InstanceStatus);
+      assertAdapterInputCurrent(admission);
       this.completeResponse(response);
     } catch (error) {
+      assertAdapterInputCurrent(admission);
+      if (error instanceof Error && error.name === 'AbortError') throw error;
       const err = error instanceof Error ? error : new Error(String(error));
-      logger.error('Local model sendInput error', err, {
+      logger.error('Local model sendInput error', undefined, {
+        ...errorDiagnostic(err),
         adapter: this.getName(),
         endpointProvider: this.endpointProvider,
         model: this.model,
@@ -187,6 +204,7 @@ export abstract class BaseLocalModelChatAdapter
       this.emit('output', errorMessage);
       this.emit('status', 'error' as InstanceStatus);
       this.emit('error', err);
+      throw error;
     }
   }
 
@@ -200,6 +218,8 @@ export abstract class BaseLocalModelChatAdapter
 
   override async terminate(): Promise<void> {
     this.activeAbortController?.abort();
+    this.detachDispatchAbort?.();
+    this.detachDispatchAbort = undefined;
     this.activeAbortController = null;
     this.activeOutputMessageId = null;
     this.activeAccumulatedContent = '';
@@ -237,11 +257,16 @@ export abstract class BaseLocalModelChatAdapter
     this.history.push(userMessage, { role: 'assistant', content: assistantContent });
   }
 
-  protected beginLocalModelTurn(): AbortSignal {
+  protected beginLocalModelTurn(dispatch?: AdapterInputDispatch): AbortSignal {
+    assertAdapterInputCurrent(dispatch);
     if (this.activeAbortController && !this.activeAbortController.signal.aborted) {
       throw new Error('A local model request is already active');
     }
     this.activeAbortController = new AbortController();
+    const controller = this.activeAbortController;
+    const onAbort = (): void => controller.abort(dispatch?.signal?.reason);
+    dispatch?.signal?.addEventListener('abort', onAbort, { once: true });
+    this.detachDispatchAbort = () => dispatch?.signal?.removeEventListener('abort', onAbort);
     this.activeOutputMessageId = generateId();
     this.activeAccumulatedContent = '';
     return this.activeAbortController.signal;
@@ -249,6 +274,8 @@ export abstract class BaseLocalModelChatAdapter
 
   protected endLocalModelTurn(signal: AbortSignal): void {
     if (this.activeAbortController?.signal === signal) {
+      this.detachDispatchAbort?.();
+      this.detachDispatchAbort = undefined;
       this.activeAbortController = null;
       this.activeOutputMessageId = null;
       this.activeAccumulatedContent = '';

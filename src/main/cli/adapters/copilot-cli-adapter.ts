@@ -20,6 +20,7 @@
 import type { ChildProcess } from 'child_process';
 import {
   BaseCliAdapter,
+  type AdapterInputDispatch,
   AdapterRuntimeCapabilities,
   CliAdapterConfig,
   CliCapabilities,
@@ -31,6 +32,7 @@ import {
 import type { AdapterCapabilities, InterruptResult, ResumeAttemptResult } from './base-cli-adapter';
 import { isSessionNotFoundText } from './resume-error-classifier';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic, textDiagnostic } from '../../logging/source-diagnostics';
 import type {
   ContextUsage,
   InstanceStatus,
@@ -85,6 +87,8 @@ import {
 } from './copilot-cli-adapter.models';
 import { listCopilotLiveModelIds } from './copilot/copilot-live-model-list';
 
+import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
+
 const logger = getLogger('CopilotCliAdapter');
 
 /**
@@ -130,6 +134,7 @@ export function resetCopilotModelDiscoveryCache(profileId?: string): void {
  * Copilot CLI Adapter - Spawns the `copilot` binary per message.
  */
 export class CopilotCliAdapter extends BaseCliAdapter {
+  protected override readonly defersInputDispatch = true;
   private cliConfig: CopilotCliConfig;
   /** Running total of tokens used across all turns (cumulative spend). */
   private cumulativeTokensUsed = 0;
@@ -297,7 +302,8 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     });
   }
 
-  async sendMessage(message: CliMessage): Promise<CliResponse> {
+  async sendMessage(message: CliMessage, dispatch?: AdapterInputDispatch): Promise<CliResponse> {
+    assertAdapterInputCurrent(dispatch);
     if (message.attachments && message.attachments.length > 0) {
       // The `copilot` CLI has no non-interactive attachment flag today; the
       // SDK wrapper supported this via the JSON-RPC session interface. If we
@@ -316,6 +322,9 @@ export class CopilotCliAdapter extends BaseCliAdapter {
         args: redactArgvForLog(args, { flag: '--prompt' }),
         hasResumeId: !!this.copilotSessionId,
       });
+      assertAdapterInputCurrent(dispatch);
+      dispatch?.beforeProviderDispatch?.();
+      assertAdapterInputCurrent(dispatch);
       this.process = this.spawnProcess(args);
 
       // Handle spawn errors (e.g., ENOENT when binary doesn't exist)
@@ -603,11 +612,12 @@ export class CopilotCliAdapter extends BaseCliAdapter {
             break;
 
           default:
-            logger.debug('Unhandled copilot event type', { type: (event as { type?: string }).type });
+            logger.debug('Unhandled copilot event type', textDiagnostic((event as { type?: string }).type ?? ''));
         }
       };
 
       this.process.stdout?.on('data', (data) => {
+        if (dispatch?.signal?.aborted) return;
         const chunk = data.toString();
         this.outputBuffer += chunk;
         for (const trimmed of ndjson.push(chunk)) {
@@ -624,19 +634,25 @@ export class CopilotCliAdapter extends BaseCliAdapter {
       });
 
       this.process.stderr?.on('data', (data) => {
+        if (dispatch?.signal?.aborted) return;
         const errorStr = data.toString();
         // Heuristic: the CLI writes banners/info to stderr too. Only escalate
         // if it looks like a real error.
         if (isCliStderrFailureText(errorStr)) {
           const trimmed = errorStr.trim();
           this.emit('output', createOutputMessage('error', trimmed.slice(0, 2000)));
-          logger.warn('copilot stderr', { text: trimmed });
+          logger.warn('copilot stderr', textDiagnostic(trimmed));
         } else {
-          logger.debug('copilot stderr', { text: errorStr.trim().slice(0, 500) });
+          logger.debug('copilot stderr', textDiagnostic(errorStr.trim()));
         }
       });
 
       this.process.on('close', (code) => {
+        if (dispatch?.signal?.aborted) {
+          try { assertAdapterInputCurrent({ signal: dispatch.signal }); } catch (error) { reject(error); }
+          this.process = null;
+          return;
+        }
         // Flush any final partial line (shouldn't have JSON mid-object under
         // --stream on because each event is newline-terminated, but be safe).
         const trailing = ndjson.flush();
@@ -674,7 +690,19 @@ export class CopilotCliAdapter extends BaseCliAdapter {
         }
       }, timeoutMs);
 
-      this.process.on('close', () => clearTimeout(timeout));
+      const nativeProcess = this.process;
+      const onAbort = (): void => {
+        try { assertAdapterInputCurrent({ signal: dispatch?.signal }); } catch (error) { reject(error); }
+        clearTimeout(timeout);
+        killProcessGroup(nativeProcess.pid, 'SIGTERM');
+        if (this.process === nativeProcess) this.process = null;
+      };
+      const detachAbort = (): void => dispatch?.signal?.removeEventListener('abort', onAbort);
+      dispatch?.signal?.addEventListener('abort', onAbort, { once: true });
+      nativeProcess.once('close', detachAbort);
+      nativeProcess.once('error', detachAbort);
+      nativeProcess.on('close', () => clearTimeout(timeout));
+      if (dispatch?.signal?.aborted) onAbort();
     });
   }
 
@@ -912,7 +940,9 @@ export class CopilotCliAdapter extends BaseCliAdapter {
    * Send a message to Copilot via exec command. Each call spawns a new
    * `copilot -p` child. Multi-turn is handled via --resume.
    */
-  protected override async sendInputImpl(message: string, attachments?: unknown[]): Promise<void> {
+  protected override async sendInputImpl(message: string, attachments?: unknown[], _metadata?: CliMessage['metadata'], dispatch?: AdapterInputDispatch): Promise<void> {
+    const admission = createAdapterInputDispatch(dispatch);
+    assertAdapterInputCurrent(admission);
     if (!this.isSpawned) {
       throw new Error('Adapter not spawned - call spawn() first');
     }
@@ -957,6 +987,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
         this.serverBridge?.resetTurn();
         await this.serverSession.send(
           this.cliConfig.systemPrompt ? `${this.cliConfig.systemPrompt}\n\n${message}` : message,
+          admission,
         );
         return;
       }
@@ -968,15 +999,18 @@ export class CopilotCliAdapter extends BaseCliAdapter {
 
       // sendMessage() emits streaming OutputMessages and context events
       // during the turn; we only need to flip to idle on success here.
-      await this.sendMessage(cliMessage);
+      await this.sendMessage(cliMessage, admission);
       this.emit('status', 'idle' as InstanceStatus);
     } catch (error) {
+      assertAdapterInputCurrent(admission);
+      if (error instanceof Error && error.name === 'AbortError') throw error;
       this.emit('output', createOutputMessage(
         'error',
         error instanceof Error ? error.message : String(error),
       ));
       this.emit('status', 'error' as InstanceStatus);
       this.emit('error', error instanceof Error ? error : new Error(String(error)));
+      throw error;
     }
   }
 
@@ -1068,7 +1102,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
           .catch((error: unknown) => {
             logger.debug('Live Copilot model roster unavailable; using help config only', {
               profileId: this.cliConfig.accountProfileId,
-              error: error instanceof Error ? error.message : String(error),
+              ...errorDiagnostic(error),
             });
             return [];
           })
@@ -1089,7 +1123,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
 
     return withCopilotModelListFallback(cache.inFlight, fallbackToStatic, (error) => {
       logger.warn('Falling back to default Copilot model list', {
-        error: error instanceof Error ? error.message : String(error),
+        ...errorDiagnostic(error),
       });
     });
   }

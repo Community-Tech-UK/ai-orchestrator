@@ -69,8 +69,8 @@ describe('SpawnTransaction', () => {
     await transaction.rollback(new Error('spawn failed'));
 
     const metadata = warn.mock.calls[0]?.[1] as Record<string, unknown>;
-    expect(metadata['error']).not.toContain('sk-test-1234567890abcdef');
-    expect(metadata['error']).not.toContain('hunter2');
-    expect(metadata['error']).toContain('<redacted-secret>');
+    expect(metadata['error']).toEqual({ errorKind: 'Error', textChars: expect.any(Number), textHash: expect.any(String) });
+    expect(JSON.stringify(metadata)).not.toContain('sk-test-1234567890abcdef');
+    expect(JSON.stringify(metadata)).not.toContain('hunter2');
   });
 });
