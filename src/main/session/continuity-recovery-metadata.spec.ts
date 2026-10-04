@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ContinuityRecoveryMetadata } from './session-recovery-candidate-service';
 import type { SessionState } from './session-continuity.types';
 import {
+  buildContinuityRecoveryMetadata,
   enumerateContinuityRecoveryMetadata,
   readContinuityPayloadReadOnly,
 } from './continuity-recovery-metadata';
@@ -80,6 +81,36 @@ describe('continuity recovery metadata index', () => {
     expect(result.records).toHaveLength(count);
     expect(normalizeState).not.toHaveBeenCalled();
     expect(readFile.mock.calls.some(([file]) => String(file).startsWith(stateDir))).toBe(false);
+  });
+
+  it('carries parent identity from state through a persisted sidecar', async () => {
+    expect(buildContinuityRecoveryMetadata({ ...state('root', 100), parentId: null }, 100).parentId).toBeNull();
+    expect(buildContinuityRecoveryMetadata({ ...state('child', 100), parentId: 'root' }, 100).parentId).toBe('root');
+    expect('parentId' in buildContinuityRecoveryMetadata(state('legacy', 100), 100)).toBe(false);
+
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'recovery-parent-'));
+    tempDirs.push(root);
+    const stateDir = path.join(root, 'states');
+    const metadataDir = path.join(root, 'metadata');
+    await fs.promises.mkdir(stateDir);
+    await fs.promises.mkdir(metadataDir);
+    for (const [index, parentId] of [[0, null], [1, 'parent-instance']] as const) {
+      const stateFile = path.join(stateDir, `instance-${index}.json`);
+      await fs.promises.writeFile(stateFile, '{}');
+      const stat = await fs.promises.stat(stateFile);
+      await fs.promises.writeFile(path.join(metadataDir, `instance-${index}.json`), envelope({
+        ...metadata(index), parentId, stateFileGeneration: stateFileGeneration(stat),
+      }));
+    }
+
+    const result = await enumerateContinuityRecoveryMetadata({
+      stateDir, metadataDir, modifiedSince: 0, preferredInstanceIds: [], normalizeState: (value) => value,
+    });
+
+    expect(result.records.map((record) => [record.sourceInstanceId, record.parentId])).toEqual([
+      ['instance-0', null],
+      ['instance-1', 'parent-instance'],
+    ]);
   });
 
   it('falls back to the newer state when an older valid sidecar survived an interrupted write', async () => {

@@ -318,6 +318,13 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     args.push('--chrome');
   }
 
+  // Claude Code's own debug log, written to <config dir>/debug/<session-id>.txt.
+  // Plain `--debug` keeps stdout clean (verified against 2.1.288 in stream-json
+  // mode); never `--debug-to-stderr`, which would mix into the stderr we parse.
+  if (spawnOptions.debugLogging === true) {
+    args.push('--debug');
+  }
+
   logger.debug('buildArgs complete', {
     yoloMode: spawnOptions.yoloMode,
     argCount: args.length,
@@ -332,6 +339,7 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     mcpConfigCount: spawnOptions.mcpConfig?.length ?? 0,
     betasCount: spawnOptions.betas?.length ?? 0,
     chrome: spawnOptions.chrome ?? 'unset',
+    debugLogging: spawnOptions.debugLogging ?? false,
     bare: spawnOptions.bare ?? false,
     name: spawnOptions.name ?? null,
     excludeDynamicSystemPromptSections: spawnOptions.excludeDynamicSystemPromptSections ?? false,

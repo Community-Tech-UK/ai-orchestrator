@@ -10,6 +10,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AutomationStore } from '../../core/state/automation.store';
+import { SideChatStore } from '../../core/state/side-chat.store';
 import { ContextMenuComponent, type ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 
 @Component({
@@ -99,13 +100,21 @@ import { ContextMenuComponent, type ContextMenuItem } from '../../shared/compone
           [class.active]="sideChatOpen()"
           [attr.aria-expanded]="sideChatOpen()"
           (click)="toggleSideChat.emit()"
+          (contextmenu)="onSideChatContextMenu($event)"
           title="Side chat (⌥⌘S)"
           aria-label="Side chat"
+          aria-haspopup="menu"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             <path d="M13 3v18" />
           </svg>
+          @if (sideChatAttentionBadge() > 0) {
+            <span
+              class="rail-badge"
+              [attr.aria-label]="sideChatAttentionBadge() + ' sidechat conversations need attention'"
+            >{{ sideChatAttentionBadge() > 99 ? '99+' : sideChatAttentionBadge() }}</span>
+          }
         </button>
 
         <button
@@ -141,11 +150,19 @@ import { ContextMenuComponent, type ContextMenuItem } from '../../shared/compone
       [visible]="automationsMenuVisible()"
       (closed)="closeAutomationsMenu()"
     />
+    <app-context-menu
+      [items]="sideChatAttentionItems()"
+      [x]="sideChatMenuX()"
+      [y]="sideChatMenuY()"
+      [visible]="sideChatMenuVisible()"
+      (closed)="closeSideChatMenu()"
+    />
   `,
   styleUrl: './workspace-rail.component.scss',
 })
 export class WorkspaceRailComponent {
   private readonly automationStore = inject(AutomationStore);
+  private readonly sideChatStore = inject(SideChatStore);
 
   /** Whether the control plane is currently open (drives the active state). */
   readonly controlPlaneOpen = input(false);
@@ -159,6 +176,16 @@ export class WorkspaceRailComponent {
 
   readonly unreadAutomations = this.automationStore.unreadCount;
 
+  /** Aggregate sidechat attention badge (unread + needs-attention across all parents). */
+  readonly sideChatAttentionBadge = computed(() => {
+    const attention = this.sideChatStore.attention();
+    let count = 0;
+    for (const a of attention.values()) {
+      count += a.unread + a.needsAttention;
+    }
+    return count;
+  });
+
   protected readonly automationsMenuVisible = signal(false);
   protected readonly automationsMenuX = signal(0);
   protected readonly automationsMenuY = signal(0);
@@ -171,6 +198,35 @@ export class WorkspaceRailComponent {
     },
   ]);
 
+  protected readonly sideChatMenuVisible = signal(false);
+  protected readonly sideChatMenuX = signal(0);
+  protected readonly sideChatMenuY = signal(0);
+
+  /** Global attention list: names parent sessions with sidechat activity. */
+  protected readonly sideChatAttentionItems = computed<ContextMenuItem[]>(() => {
+    const attention = this.sideChatStore.attention();
+    const items: ContextMenuItem[] = [];
+    for (const a of attention.values()) {
+      if (a.unread + a.needsAttention + a.running === 0) continue;
+      const parts: string[] = [];
+      if (a.needsAttention > 0) parts.push(`${a.needsAttention} needs attention`);
+      if (a.unread > 0) parts.push(`${a.unread} unread`);
+      if (a.running > 0) parts.push(`${a.running} running`);
+      const label = a.parent.kind === 'chat'
+        ? `Chat ${a.parent.chatId.slice(0, 8)} — ${parts.join(', ')}`
+        : `Session ${a.parent.historyThreadId.slice(0, 8)} — ${parts.join(', ')}`;
+      items.push({
+        id: `attention-${a.parent.kind}-${a.parent.kind === 'chat' ? a.parent.chatId : a.parent.historyThreadId}`,
+        label,
+        action: () => this.toggleSideChat.emit(),
+      });
+    }
+    if (items.length === 0) {
+      items.push({ id: 'no-attention', label: 'No sidechat activity', disabled: true, action: () => undefined });
+    }
+    return items;
+  });
+
   protected onAutomationsContextMenu(event: MouseEvent): void {
     event.preventDefault();
     event.stopPropagation();
@@ -181,5 +237,17 @@ export class WorkspaceRailComponent {
 
   protected closeAutomationsMenu(): void {
     this.automationsMenuVisible.set(false);
+  }
+
+  protected onSideChatContextMenu(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.sideChatMenuX.set(event.clientX);
+    this.sideChatMenuY.set(event.clientY);
+    this.sideChatMenuVisible.set(true);
+  }
+
+  protected closeSideChatMenu(): void {
+    this.sideChatMenuVisible.set(false);
   }
 }

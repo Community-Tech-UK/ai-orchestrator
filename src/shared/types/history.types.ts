@@ -550,6 +550,17 @@ export interface HistoryIndex {
    * `~/.claude/projects/<cwd>/<sessionId>.jsonl`.
    */
   deletedSessionIds?: string[];
+
+  /**
+   * historyThreadId → when the user deleted that thread's entry. Startup
+   * autosave recovery skips autosaves last active before the deletion, so a
+   * deleted conversation is not copied back into History. Pruned once older
+   * than the recovery window.
+   */
+  deletedHistoryThreads?: Record<string, number>;
+
+  /** Set by "clear all": autosaves last active before this are not recovered. */
+  recoverySuppressedThrough?: number;
 }
 
 /**

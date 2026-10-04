@@ -18,7 +18,10 @@ import {
   wireSessionRecoveryCandidateInvalidation,
   type ContinuityRecoveryMetadata,
   type HistoryRecoveryCoverage,
+  type HistoryRecoverySuppressionQuery,
   type SessionRecoveryCandidateDependencies,
+  setSessionRecoveryStartupArchive,
+  waitForSessionRecoveryStartupArchive,
 } from './session-recovery-candidate-service';
 
 const NOW = 2_000_000_000_000;
@@ -73,6 +76,7 @@ function harness(options: {
   records?: ContinuityRecoveryMetadata[];
   coverage?: HistoryRecoveryCoverage[];
   liveKeys?: string[];
+  suppressedThreads?: string[];
 } = {}) {
   const records = options.records ?? [];
   const coverage = new Map(
@@ -91,6 +95,8 @@ function harness(options: {
     waitForHistoryReady: vi.fn(async () => undefined),
     getHistoryCoverage: vi.fn(async () => coverage),
     loadHistoryConversation,
+    isSuppressedByHistory: vi.fn((record: HistoryRecoverySuppressionQuery) =>
+      options.suppressedThreads?.includes(record.historyThreadId ?? '') ?? false),
     getLiveRecoveryKeys: () => new Set(options.liveKeys ?? []),
     now: () => NOW,
   };
@@ -396,6 +402,105 @@ describe('SessionRecoveryCandidateService', () => {
     expect(deps.getLiveRecoveryKeys).toHaveBeenCalledTimes(2);
     await expect(service.listCandidates()).resolves.toEqual([]);
     expect(deps.listContinuityMetadata).toHaveBeenCalledTimes(2);
+  });
+
+  it('excludes known child sessions, which History never holds', async () => {
+    const { service } = harness({
+      records: [
+        metadata('root', { parentId: null }),
+        metadata('child', { parentId: 'root' }),
+        metadata('legacy'),
+      ],
+    });
+
+    const candidates = await service.listCandidates();
+    expect(candidates.map((item) => item.sourceInstanceId).sort()).toEqual(['legacy', 'root']);
+  });
+
+  it('lists only positively top-level candidates for automatic archiving', async () => {
+    const { service } = harness({
+      records: [metadata('root', { parentId: null }), metadata('legacy')],
+    });
+
+    const topLevel = await service.listTopLevelCandidates();
+    expect(topLevel.map((item) => item.sourceInstanceId)).toEqual(['root']);
+  });
+
+  it('keeps autosave parent identity when a newer snapshot record replaces it', async () => {
+    const record = metadata('snap', { parentId: null, lastActivityAt: NOW - 5_000 });
+    const snapshot: LastStopSnapshot = {
+      version: 2,
+      writtenAt: NOW - 100,
+      sessions: [{
+        instanceId: record.sourceInstanceId,
+        historyThreadId: record.historyThreadId,
+        provider: record.provider,
+        modelId: record.modelId,
+        displayName: record.displayName ?? '',
+        workingDirectory: record.workingDirectory ?? '',
+        capturedAt: NOW - 100,
+        recoveryKey: record.recoveryKey,
+        lastActivityAt: NOW - 1_000,
+        isLive: false,
+        messageCount: record.messageCount,
+        hasAssistantOutput: record.hasAssistantOutput,
+      }],
+    };
+    const { service } = harness({ snapshot, records: [record] });
+
+    const topLevel = await service.listTopLevelCandidates();
+    expect(topLevel.map((item) => item.lastActivityAt)).toEqual([NOW - 1_000]);
+  });
+
+  it('excludes autosaves History says the user deleted or cleared', async () => {
+    const { service, deps } = harness({
+      records: [metadata('kept'), metadata('deleted')],
+      suppressedThreads: ['thread-deleted'],
+    });
+
+    const candidates = await service.listCandidates();
+    expect(candidates.map((item) => item.sourceInstanceId)).toEqual(['kept']);
+    expect(deps.isSuppressedByHistory).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'claude',
+      historyThreadId: 'thread-deleted',
+      lastActivityAt: NOW - 1_000,
+    }));
+  });
+
+  it('holds listing callers behind a registered startup archive, even one that fails', async () => {
+    _resetSessionRecoveryCandidateServiceForTesting();
+    let finish!: () => void;
+    setSessionRecoveryStartupArchive(new Promise<void>((resolve) => { finish = resolve; }));
+    let settled = false;
+    const waiting = waitForSessionRecoveryStartupArchive().then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    finish();
+    await waiting;
+    expect(settled).toBe(true);
+
+    setSessionRecoveryStartupArchive(Promise.reject(new Error('archive failed')));
+    await expect(waitForSessionRecoveryStartupArchive()).resolves.toBeUndefined();
+    _resetSessionRecoveryCandidateServiceForTesting();
+  });
+
+  it('stops holding listing callers once a stuck startup archive exceeds the wait bound', async () => {
+    vi.useFakeTimers();
+    try {
+      _resetSessionRecoveryCandidateServiceForTesting();
+      setSessionRecoveryStartupArchive(new Promise<void>(() => undefined));
+      let settled = false;
+      const waiting = waitForSessionRecoveryStartupArchive(1_000).then(() => { settled = true; });
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await waiting;
+      expect(settled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      _resetSessionRecoveryCandidateServiceForTesting();
+    }
   });
 
   it('exposes an explicit composition-root singleton and reset boundary', () => {

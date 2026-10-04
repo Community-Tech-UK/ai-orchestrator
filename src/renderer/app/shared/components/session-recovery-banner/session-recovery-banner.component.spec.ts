@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionRecoveryCandidate } from '../../../../../shared/types/session-recovery.types';
+import { HistoryStore } from '../../../core/state/history.store';
 import { SessionRecoveryStore } from '../../../core/state/session-recovery.store';
 import { SessionRecoveryBannerComponent } from './session-recovery-banner.component';
 
@@ -55,9 +56,10 @@ describe('SessionRecoveryBannerComponent', () => {
     candidates: candidates.asReadonly(),
     loading: loading.asReadonly(),
     error: error.asReadonly(),
-    refresh: vi.fn(),
+    refresh: vi.fn(async () => undefined),
     recover: vi.fn(),
   };
+  const historyStore = { loadHistory: vi.fn(async () => undefined) };
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -66,7 +68,10 @@ describe('SessionRecoveryBannerComponent', () => {
     error.set(null);
     await TestBed.configureTestingModule({
       imports: [SessionRecoveryBannerComponent],
-      providers: [{ provide: SessionRecoveryStore, useValue: store }],
+      providers: [
+        { provide: SessionRecoveryStore, useValue: store },
+        { provide: HistoryStore, useValue: historyStore },
+      ],
     }).compileComponents();
     fixture = TestBed.createComponent(SessionRecoveryBannerComponent);
     fixture.detectChanges();
@@ -75,6 +80,32 @@ describe('SessionRecoveryBannerComponent', () => {
   it('loads candidates on init but does not recover automatically', () => {
     expect(store.refresh).toHaveBeenCalledOnce();
     expect(store.recover).not.toHaveBeenCalled();
+  });
+
+  it('reloads History once the startup recovery list has resolved', async () => {
+    let finishRefresh!: () => void;
+    store.refresh.mockImplementationOnce(() => new Promise<undefined>((resolve) => {
+      finishRefresh = () => resolve(undefined);
+    }));
+    historyStore.loadHistory.mockClear();
+    const second = TestBed.createComponent(SessionRecoveryBannerComponent);
+    second.detectChanges();
+    expect(historyStore.loadHistory).not.toHaveBeenCalled();
+
+    finishRefresh();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(historyStore.loadHistory).toHaveBeenCalledOnce();
+    second.destroy();
+  });
+
+  it('says what is at stake rather than that autosaves exist', () => {
+    candidates.set([candidate(), candidate({ recoveryKey: 'recovery:claude:two', sourceInstanceId: 'source-2' })]);
+    fixture.detectChanges();
+
+    const heading = fixture.nativeElement.querySelector('h2') as HTMLElement;
+    expect(heading.textContent?.trim()).toBe('2 sessions have work missing from History');
   });
 
   it('renders a non-modal polite startup notice when candidates exist', () => {

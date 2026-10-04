@@ -213,6 +213,13 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'advanced',
   },
   {
+    key: 'claudeCliDebugLogging',
+    label: 'Claude Code debug logs',
+    description: 'Start Claude sessions with --debug so Claude Code writes its own debug log for each session into that account\'s debug folder (~/.claude/debug for the default account). Use it to diagnose sign-in and token-refresh failures, then turn it off: the logs are verbose. Applies at the next session spawn.',
+    type: 'boolean',
+    category: 'advanced',
+  },
+  {
     key: 'claudeSubprocessEnvScrub',
     label: 'Scrub environment from Claude subprocesses',
     description: 'Sets CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 so commands the Claude CLI runs do not inherit sensitive environment variables. Off by default: the scrub may also strip the orchestrator variables that power the approval hook and RTK — enable only after verifying those still work.',

@@ -132,6 +132,7 @@ describe('ResumePickerHostComponent recovery accessibility', () => {
   let opener: HTMLButtonElement;
   const query = signal('');
   const lastError = signal<string | null>(null);
+  const recoveryOnly = signal(false);
   const actionLoading = signal(false);
   const groups = signal([
     {
@@ -166,6 +167,8 @@ describe('ResumePickerHostComponent recovery accessibility', () => {
     query: query.asReadonly(),
     groups: groups.asReadonly(),
     lastError: lastError.asReadonly(),
+    recoveryOnly: recoveryOnly.asReadonly(),
+    showAllResumable: vi.fn(() => recoveryOnly.set(false)),
     setQuery: vi.fn((value: string) => query.set(value)),
     actionLabel: vi.fn(actionLabel),
     actionAriaLabel: vi.fn((item: ResumePickerItem, action: ResumePickerAction) =>
@@ -189,6 +192,7 @@ describe('ResumePickerHostComponent recovery accessibility', () => {
     vi.clearAllMocks();
     query.set('');
     lastError.set(null);
+    recoveryOnly.set(false);
     actionLoading.set(false);
     controller.actionLabel.mockImplementation(actionLabel);
     controller.actionAriaLabel.mockImplementation((item: ResumePickerItem, action: ResumePickerAction) =>
@@ -241,6 +245,22 @@ describe('ResumePickerHostComponent recovery accessibility', () => {
       const buttonLikeAncestor = action.parentElement?.closest('[role="button"][tabindex="0"]');
       expect(buttonLikeAncestor).toBeNull();
     }
+  });
+
+  it('explains the autosave-only scope and offers every session', () => {
+    expect(fixture.nativeElement.querySelector('[data-testid="resume-recovery-scope"]')).toBeNull();
+
+    recoveryOnly.set(true);
+    fixture.detectChanges();
+    const scope = fixture.nativeElement.querySelector('[data-testid="resume-recovery-scope"]') as HTMLElement | null;
+    expect(scope?.textContent).toContain('not in History');
+    const showAll = scope?.querySelector('button') as HTMLButtonElement;
+    expect(showAll.type).toBe('button');
+    showAll.click();
+    fixture.detectChanges();
+
+    expect(controller.showAllResumable).toHaveBeenCalledOnce();
+    expect(fixture.nativeElement.querySelector('[data-testid="resume-recovery-scope"]')).toBeNull();
   });
 
   it('shows an announced retryable error from the controller', () => {

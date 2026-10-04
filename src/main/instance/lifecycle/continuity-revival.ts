@@ -215,6 +215,22 @@ function buildRecoveryBuffer(resolved: ResolvedRecoveryCandidate): {
   };
 }
 
+/**
+ * The transcript manual recovery would restore — the archived History prefix
+ * plus the reconciled autosave suffix — after the same validation. Startup
+ * autosave archiving uses it so both paths agree on what was recovered.
+ */
+export function buildVerifiedRecoveryBuffer(
+  resolved: ResolvedRecoveryCandidate,
+): ReturnType<typeof buildRecoveryBuffer> {
+  validateResolvedCandidate(resolved.candidate.sourceInstanceId, resolved);
+  try {
+    return buildRecoveryBuffer(resolved);
+  } catch {
+    throw recoveryValidationError();
+  }
+}
+
 function isValidNativeCursor(
   resolved: ResolvedRecoveryCandidate,
   cursor: ResumeCursor | null | undefined,

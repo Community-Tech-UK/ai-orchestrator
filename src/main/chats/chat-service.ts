@@ -50,9 +50,10 @@ import { SideChatLinkStore } from './side-chat-link-store';
 import { SideChatContextStore } from './side-chat-context-store';
 import { SideChatParentResolver } from './side-chat-parent-resolver';
 import { SideChatSendCoordinator, type SideChatSendResult } from './side-chat-send-coordinator';
-import { SideChatAuthorityResolver, providerCanEnforcePolicy } from './side-chat-authority';
+import { SideChatAuthorityResolver, providerCanEnforcePolicy, policyToAgentPermissions } from './side-chat-authority';
 import { SideChatPolicyStore } from './side-chat-policy-store';
 import { SideChatAttentionTracker } from './side-chat-attention';
+import type { AgentToolPermissions } from '../../shared/types/agent.types';
 import type { ChatSideChatCreateInput } from '../../shared/types/chat.types';
 import type { SideChatAttention, SideChatLink, SideChatParentRef, SideChatProviderSelection } from '../../shared/types/side-chat.types';
 
@@ -66,6 +67,9 @@ const CHAT_LOAD_OLDER_LIMIT = 200;
  * field, so it falls back to `auto` (the provider is chosen by the target).
  */
 function toInstanceProvider(provider: ChatProvider): InstanceProvider {
+  // `local-model` routes through `modelRuntimeTarget`, not the CLI provider
+  // field. Map to `auto` so the runtime builder can resolve the correct
+  // adapter from the target. Everything else passes through unchanged.
   if (provider === 'local-model') return 'auto';
   return provider as InstanceProvider;
 }
@@ -90,6 +94,7 @@ export class ChatService {
   private readonly sideChatPolicyStore: SideChatPolicyStore;
   private readonly sideChatAttention: SideChatAttentionTracker;
   private readonly db: SqliteDriver;
+  private readonly cachedLatestSequence = new Map<string, number>();
   private initialized = false;
   private migrationDone: Promise<void> = Promise.resolve();
 
@@ -150,7 +155,10 @@ export class ChatService {
       instanceManager: this.instanceManager,
       getLatestAssistantSequence: (chatId) => {
         const chat = this.store.get(chatId);
-        return chat ? this.latestAssistantSequence(chat.ledgerThreadId) : 0;
+        // Synchronous best-effort: the attention tracker is called from IPC
+        // handlers. The ledger query is async so we cache the last known value
+        // or return 0; the authoritative check is in markSideChatRead.
+        return chat ? this.cachedLatestSequence.get(chat.ledgerThreadId) ?? 0 : 0;
       },
     });
     this.sideChatParentResolver = new SideChatParentResolver({
@@ -205,6 +213,21 @@ export class ChatService {
       chatStore: this.store,
       instanceManager: this.instanceManager,
       eventBus: this.events,
+    });
+    // Feed the latest-assistant-sequence cache from the bridge's flush path so
+    // the attention tracker sees correct unread counts without a prior markRead.
+    this.events.on('chat:event', (event: ChatEvent) => {
+      if (event.type === 'transcript-appended') {
+        for (const message of event.messages) {
+          if (message.role === 'assistant') {
+            const threadId = event.chat.ledgerThreadId;
+            const current = this.cachedLatestSequence.get(threadId) ?? 0;
+            if (message.sequence > current) {
+              this.cachedLatestSequence.set(threadId, message.sequence);
+            }
+          }
+        }
+      }
     });
   }
 
@@ -645,6 +668,7 @@ export class ChatService {
           input.selection.reasoning === undefined
             ? getDefaultReasoningEffort(chatProvider, effortModel)
             : input.selection.reasoning,
+        modelRuntimeTarget: input.selection.modelRuntimeTarget ?? null,
         currentCwd: input.currentCwd,
         yolo: false,
         ledgerThreadId: thread.id,
@@ -663,15 +687,15 @@ export class ChatService {
 
   listSideChats(parent: SideChatParentRef): SideChatLink[] {
     this.initialize();
-    return this.sideChatLinkStore.listForParent(parent);
+    return this.sideChatLinkStore.listActiveForParent(parent);
   }
 
-  markSideChatRead(chatId: string, throughSequence: number): SideChatLink | null {
+  async markSideChatRead(chatId: string, throughSequence: number): Promise<SideChatLink | null> {
     this.initialize();
     // Reject a read sequence beyond the latest available assistant output.
     const chat = this.store.get(chatId);
     if (chat) {
-      const latest = this.latestAssistantSequence(chat.ledgerThreadId);
+      const latest = await this.latestAssistantSequence(chat.ledgerThreadId);
       if (throughSequence > latest) {
         throw new Error(
           `Read sequence ${throughSequence} exceeds latest assistant output ${latest}`,
@@ -687,17 +711,13 @@ export class ChatService {
   }
 
   /** Latest assistant message sequence in a ledger thread (for unread tracking). */
-  private latestAssistantSequence(ledgerThreadId: string): number {
-    try {
-      const row = this.db
-        .prepareCached(
-          'SELECT MAX(sequence) as max_seq FROM conversation_messages WHERE thread_id = ? AND role = ?',
-        )
-        .get<{ max_seq: number | null }>(ledgerThreadId, 'assistant');
-      return row?.max_seq ?? 0;
-    } catch {
-      return 0;
-    }
+  private async latestAssistantSequence(ledgerThreadId: string): Promise<number> {
+    const conversation = await this.ledger.getRecentConversation(ledgerThreadId, 500);
+    const latest = conversation.messages
+      .filter((m) => m.role === 'assistant')
+      .reduce((max, m) => Math.max(max, m.sequence), 0);
+    this.cachedLatestSequence.set(ledgerThreadId, latest);
+    return latest;
   }
 
   /**
@@ -716,7 +736,8 @@ export class ChatService {
     const link = this.sideChatLinkStore.get(chatId);
     if (link) {
       // Re-resolve authority before each dispatch: parent permission changes
-      // must take effect on the next sidechat turn.
+      // must take effect on the next sidechat turn. Apply the refreshed policy
+      // to the live runtime if one exists.
       const authority = this.sideChatAuthorityResolver.resolve(link.parent);
       if (!authority.ok) {
         return {
@@ -725,6 +746,16 @@ export class ChatService {
           error: authority.error,
           lastSnapshotAvailable: this.sideChatContextStore.get(chatId) !== null,
         };
+      }
+      const chat = this.store.get(chatId);
+      const instance = chat?.currentInstanceId
+        ? this.instanceManager.getInstance(chat.currentInstanceId)
+        : null;
+      if (instance && instance.status !== 'terminated') {
+        // Push the refreshed policy onto the live runtime so a parent
+        // permission change takes effect without a respawn.
+        instance.toolPermissionsOverride = policyToAgentPermissions(authority.policy);
+        instance.yoloMode = authority.policy.yoloMode;
       }
     }
     return this.sideChatSendCoordinator.send(chatId, text, options);
@@ -786,18 +817,19 @@ export class ChatService {
     let yoloMode = chat.yolo;
     let hardened: boolean | undefined;
     let containedExecution: boolean | undefined;
+    let toolPermissionsOverride: AgentToolPermissions | undefined;
+    let workspaceNode: string | null = null;
     if (sideChatLink) {
       const authority = this.sideChatAuthorityResolver.resolve(sideChatLink.parent);
       if (!authority.ok) {
         throw new Error(authority.error);
       }
       const policy = authority.policy;
-      // Map the parent's effective tool permissions to the closest agent
-      // profile. Restricted parents get a restricted agent, never broader.
-      agentId = policy.agentToolPermissions.write === 'deny' ? 'plan' : 'build';
+      toolPermissionsOverride = policyToAgentPermissions(policy);
       yoloMode = policy.yoloMode;
       hardened = policy.hardened || undefined;
       containedExecution = policy.containedExecution || undefined;
+      workspaceNode = policy.workspaceNode;
     }
 
     const instance = await this.instanceManager.createInstance({
@@ -806,10 +838,13 @@ export class ChatService {
       yoloMode,
       provider: toInstanceProvider(chat.provider!),
       modelOverride: chat.model ?? undefined,
+      modelRuntimeTarget: chat.modelRuntimeTarget ?? undefined,
       reasoningEffort: chat.reasoningEffort,
       agentId,
+      ...(toolPermissionsOverride ? { toolPermissionsOverride } : {}),
       ...(hardened ? { hardened: true } : {}),
       ...(containedExecution ? { containedExecution: true } : {}),
+      ...(workspaceNode ? { forceNodeId: workspaceNode } : {}),
       historyThreadId: chat.ledgerThreadId,
       evidenceConversationOwner: {
         kind: 'chat',
@@ -1083,6 +1118,16 @@ export class ChatService {
    * transcript on every append.
    */
   private emitAppended(chat: ChatRecord, messages: ConversationMessageRecord[]): void {
+    // Feed the latest-assistant-sequence cache so the attention tracker sees
+    // unread counts without a prior markRead.
+    for (const message of messages) {
+      if (message.role === 'assistant') {
+        const current = this.cachedLatestSequence.get(chat.ledgerThreadId) ?? 0;
+        if (message.sequence > current) {
+          this.cachedLatestSequence.set(chat.ledgerThreadId, message.sequence);
+        }
+      }
+    }
     const currentInstance = chat.currentInstanceId
       ? this.instanceManager.getInstance(chat.currentInstanceId) ?? null
       : null;

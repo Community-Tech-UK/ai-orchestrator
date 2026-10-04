@@ -123,8 +123,10 @@ vi.mock('../../../session/session-continuity', () => ({
   }),
 }));
 
+let mockRecoveryStartupArchive: Promise<void> = Promise.resolve();
 vi.mock('../../../session/session-recovery-candidate-service', () => ({
   getSessionRecoveryCandidateServiceIfInitialized: () => mockRecoveryCandidateService,
+  waitForSessionRecoveryStartupArchive: () => mockRecoveryStartupArchive,
 }));
 
 const mockIsRemoteNodeReachable = vi.fn().mockReturnValue(true);
@@ -540,6 +542,22 @@ describe('session-handlers', () => {
   });
 
   describe('session recovery IPC', () => {
+    it('lists candidates only after the startup autosave archive has settled', async () => {
+      let finishArchive!: () => void;
+      mockRecoveryStartupArchive = new Promise<void>((resolve) => { finishArchive = resolve; });
+      try {
+        const listing = invoke(recoveryChannel('SESSION_RECOVERY_LIST'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(mockListRecoveryCandidates).not.toHaveBeenCalled();
+
+        finishArchive();
+        await expect(listing).resolves.toEqual({ success: true, data: [] });
+        expect(mockListRecoveryCandidates).toHaveBeenCalledOnce();
+      } finally {
+        mockRecoveryStartupArchive = Promise.resolve();
+      }
+    });
+
     it('wraps an empty recovery candidate list without starting recovery work', async () => {
       const result = await invoke(recoveryChannel('SESSION_RECOVERY_LIST'));
 

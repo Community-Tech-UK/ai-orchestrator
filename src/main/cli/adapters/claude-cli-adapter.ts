@@ -26,7 +26,7 @@ import {
   type TurnInterruptCompletion,
 } from './base-cli-adapter';
 import { NdjsonParser } from '../ndjson-parser';
-import { applyClaudeHygieneEnv, resolveClaudeFallbackModel } from './claude-env-pack';
+import { applyClaudeHygieneEnv, resolveClaudeDebugLogging, resolveClaudeFallbackModel } from './claude-env-pack';
 import { nativeTranscriptExists } from './claude-transcript-registry';
 import { parseNdjsonLine } from '../json-parse';
 import { createOutputMessage, isCliStderrFailureText } from './base-cli-adapter-utils';
@@ -200,7 +200,12 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
     // WS14: settings-backed fallback model unless the caller pinned one.
     const fallbackModel = resolveClaudeFallbackModel(options.fallbackModel);
-    this.spawnOptions = fallbackModel ? { ...options, fallbackModel } : options;
+    const debugLogging = resolveClaudeDebugLogging(options.debugLogging);
+    this.spawnOptions = {
+      ...options,
+      ...(fallbackModel ? { fallbackModel } : {}),
+      ...(debugLogging ? { debugLogging } : {}),
+    };
     this.sessionId = options.sessionId || generateId();
     const knownWindow = getProviderModelContextWindow('claude-cli', options.model);
     this.lastKnownContextWindow = knownWindow;

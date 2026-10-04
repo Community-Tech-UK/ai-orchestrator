@@ -1,11 +1,12 @@
 /**
- * Worker-local OpenAI-compatible (LM Studio) generation.
+ * Worker-local auxiliary generation: Ollama and OpenAI-compatible (LM Studio).
  *
  * Kept in its own module with NO electron-tainted imports so it can be unit
  * tested in isolation (see worker electron-import-isolation rule) and reused by
  * the worker RPC dispatcher.
  */
 
+import { DEFAULT_OLLAMA_KEEP_ALIVE } from '../shared/types/auxiliary-llm.types';
 import { extractChatCompletionText, suppressReasoning } from '../shared/utils/openai-response';
 
 export interface WorkerOpenAiGenerateParams {
@@ -16,6 +17,49 @@ export interface WorkerOpenAiGenerateParams {
   maxOutputTokens: number;
   timeoutMs: number;
   requireJson: boolean;
+}
+
+export interface WorkerOllamaGenerateParams extends WorkerOpenAiGenerateParams {
+  numCtx?: number;
+}
+
+/**
+ * Run Ollama `/api/generate` against the worker-local server. Thinking is off,
+ * as on the coordinator client: hidden reasoning would otherwise spend
+ * num_predict and return empty output. Ollama ignores `false` for models
+ * without thinking support.
+ */
+export async function generateOllamaOnWorker(
+  baseUrl: string,
+  params: WorkerOllamaGenerateParams,
+): Promise<string> {
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), params.timeoutMs);
+  try {
+    const resp = await fetch(`${baseUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: params.model,
+        prompt: `${params.systemPrompt}\n\nUser: ${params.userPrompt}`,
+        stream: false,
+        keep_alive: DEFAULT_OLLAMA_KEEP_ALIVE,
+        think: false,
+        format: params.requireJson ? 'json' : undefined,
+        options: {
+          temperature: params.temperature,
+          num_predict: params.maxOutputTokens,
+          ...(params.numCtx ? { num_ctx: params.numCtx } : {}),
+        },
+      }),
+      signal: controller.signal,
+    });
+    if (!resp.ok) throw new Error(`Ollama generate failed: ${resp.status}`);
+    const data = await resp.json() as { response: string };
+    return data.response ?? '';
+  } finally {
+    clearTimeout(tid);
+  }
 }
 
 /**

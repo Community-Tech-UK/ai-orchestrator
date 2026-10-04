@@ -265,14 +265,35 @@ describe('ResumePickerController', () => {
 
   it('focuses recovery content when opened from the startup banner', () => {
     recoveryCandidates.set([recoveryCandidate()]);
-    historyEntries.set([entry({ id: 'history-1', displayName: 'Archived auth fix' })]);
+    instances.set([liveInstance()]);
+    historyEntries.set([
+      entry({ id: 'history-1', displayName: 'Archived auth fix' }),
+      // Contains a-u-t-o-s-a-v-e in order: a fuzzy "autosave" query lets it in.
+      entry({ id: 'history-2', displayName: 'Auth tokens saved everywhere' }),
+    ]);
     const controller = TestBed.inject(ResumePickerController);
 
     controller.focusRecoveryContent();
 
-    expect(controller.query()).toBe('autosave');
-    expect(controller.groups().find(group => group.id === 'recovery')?.items).toHaveLength(1);
+    expect(controller.recoveryOnly()).toBe(true);
+    expect(controller.query()).toBe('');
+    const visible = controller.groups().flatMap(group => group.items.map(item => item.value.kind));
+    expect(visible).toEqual(['recovery']);
+  });
+
+  it('keeps search scoped to autosaves until the user asks for every session', () => {
+    recoveryCandidates.set([recoveryCandidate()]);
+    historyEntries.set([entry({ id: 'history-1', displayName: 'Archived auth fix' })]);
+    const controller = TestBed.inject(ResumePickerController);
+
+    controller.focusRecoveryContent();
+    controller.setQuery('auth');
     expect(controller.groups().find(group => group.id === 'history')?.items).toHaveLength(0);
+
+    controller.showAllResumable();
+
+    expect(controller.recoveryOnly()).toBe(false);
+    expect(controller.groups().find(group => group.id === 'history')?.items).toHaveLength(1);
   });
 
   it('clears the recovery filter so a later normal open shows default live and history rows', () => {
@@ -282,13 +303,13 @@ describe('ResumePickerController', () => {
     const controller = TestBed.inject(ResumePickerController);
 
     controller.focusRecoveryContent();
-    expect(controller.query()).toBe('autosave');
     expect(controller.groups().find(group => group.id === 'recovery')?.items).toHaveLength(1);
     expect(controller.groups().find(group => group.id === 'live')?.items).toHaveLength(0);
     expect(controller.groups().find(group => group.id === 'history')?.items).toHaveLength(0);
 
     controller.resetTransientFocus();
 
+    expect(controller.recoveryOnly()).toBe(false);
     expect(controller.query()).toBe('');
     expect(controller.groups().find(group => group.id === 'recovery')?.items).toHaveLength(1);
     expect(controller.groups().find(group => group.id === 'live')?.items).toHaveLength(1);

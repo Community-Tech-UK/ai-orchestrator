@@ -193,5 +193,15 @@ describe('ClaudeCredentialsReader', () => {
       const { reason } = await reader.read();
       expect(reason).toBe('malformed');
     });
+
+    it('returns not-found when Claude Code blanked the tokens after a rejected refresh', async () => {
+      const reader = new ClaudeCredentialsReader(readerOpts({
+        platform: 'darwin',
+        securityExec: keychainExec({ stdout: payload({ accessToken: '', refreshToken: '' }) }),
+      }));
+      const { credential, reason } = await reader.read();
+      expect(credential).toBeNull();
+      expect(reason).toBe('not-found');
+    });
   });
 });

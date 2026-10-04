@@ -32,7 +32,7 @@ describe('ProviderStateService model memory startup', () => {
     TestBed.configureTestingModule({
       providers: [
         ProviderStateService,
-        { provide: SettingsStore, useValue: { settings } },
+        { provide: SettingsStore, useValue: { settings, isInitialized: signal(true) } },
         { provide: SettingsIpcService, useValue: settingsIpc },
       ],
     });
@@ -48,6 +48,76 @@ describe('ProviderStateService model memory startup', () => {
       expect.objectContaining({ claude: 'opus[1m]' }),
     );
   });
+
+  it('waits for disk settings so a later pick does not erase other providers\' remembered models', () => {
+    // The store starts on DEFAULT_SETTINGS (`defaultModelByProvider: {}`)
+    // until its async initialize() resolves.
+    const settings = signal<AppSettings>({ ...DEFAULT_SETTINGS });
+    const isInitialized = signal(false);
+    const settingsIpc = {
+      setSetting: vi.fn(),
+      onSettingsChanged: vi.fn(() => () => undefined),
+    };
+
+    TestBed.configureTestingModule({
+      providers: [
+        ProviderStateService,
+        { provide: SettingsStore, useValue: { settings, isInitialized } },
+        { provide: SettingsIpcService, useValue: settingsIpc },
+      ],
+    });
+
+    const service = TestBed.inject(ProviderStateService);
+    TestBed.tick();
+
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      defaultCli: 'claude',
+      defaultModel: 'opus',
+      defaultModelByProvider: {
+        claude: 'opus',
+        opencode: 'xiaomi-token-plan-ams/mimo-v2.6-pro',
+      },
+    });
+    isInitialized.set(true);
+    TestBed.tick();
+
+    expect(service.getLastModelForProvider('opencode')).toBe('xiaomi-token-plan-ams/mimo-v2.6-pro');
+
+    service.rememberModelForProvider('cursor', 'grok-4.7-high');
+
+    expect(settingsIpc.setSetting).toHaveBeenLastCalledWith('defaultModelByProvider', {
+      claude: 'opus',
+      opencode: 'xiaomi-token-plan-ams/mimo-v2.6-pro',
+      cursor: 'grok-4.7-high',
+    });
+    expect(settingsIpc.setSetting).not.toHaveBeenCalledWith(
+      'defaultModelByProvider',
+      expect.not.objectContaining({ opencode: expect.any(String) }),
+    );
+  });
+
+  it('does not persist provider or model choices before disk settings have loaded', () => {
+    const settings = signal<AppSettings>({ ...DEFAULT_SETTINGS });
+    const isInitialized = signal(false);
+    const settingsIpc = {
+      setSetting: vi.fn(),
+      onSettingsChanged: vi.fn(() => () => undefined),
+    };
+
+    TestBed.configureTestingModule({
+      providers: [
+        ProviderStateService,
+        { provide: SettingsStore, useValue: { settings, isInitialized } },
+        { provide: SettingsIpcService, useValue: settingsIpc },
+      ],
+    });
+
+    TestBed.inject(ProviderStateService);
+    TestBed.tick();
+
+    expect(settingsIpc.setSetting).not.toHaveBeenCalled();
+  });
 });
 
 describe('ProviderStateService launch mode memory', () => {
@@ -61,7 +131,10 @@ describe('ProviderStateService launch mode memory', () => {
     TestBed.configureTestingModule({
       providers: [
         ProviderStateService,
-        { provide: SettingsStore, useValue: { settings: signal<AppSettings>({ ...DEFAULT_SETTINGS }) } },
+        {
+          provide: SettingsStore,
+          useValue: { settings: signal<AppSettings>({ ...DEFAULT_SETTINGS }), isInitialized: signal(true) },
+        },
         {
           provide: SettingsIpcService,
           useValue: { setSetting: vi.fn(), onSettingsChanged: vi.fn(() => () => undefined) },

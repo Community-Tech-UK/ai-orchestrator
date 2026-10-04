@@ -59,11 +59,12 @@ import type { WindowManager } from '../window-manager';
 import { getLogger } from '../logging/logger';
 import { broadcastSettingsChanged } from '../ipc/handlers/settings-broadcast';
 import type { AppInitializationStep } from './initialization-steps';
-import { getContextEvidenceCoordinator } from '../context-evidence/context-evidence-coordinator';
+import { resolveOrchestratorToolsEvidenceContext } from './orchestrator-tools-evidence-context';
 import { createDefaultLocalAiPublicOperations } from '../local-ai-guard/default-local-ai-public-operations';
 import { createDefaultLoopCliOperations } from '../orchestration/default-loop-cli-operations';
 import { createDefaultCopilotAccountCliOperations } from '../mcp/copilot-account-cli-operations';
 import { getCrossSessionMessagingService } from '../instance/cross-session-messaging';
+import { flushChatTranscriptSource } from '../chats/chat-transcript-bridge';
 
 const logger = getLogger('AppInitialization');
 const nodeControl = () => ({ server: getWorkerNodeConnectionServer(), registry: getWorkerNodeRegistry() });
@@ -220,20 +221,9 @@ export function createOrchestratorToolsStep(
         localAiGuardOperations: createDefaultLocalAiPublicOperations(),
         copilotAccountOperations: createDefaultCopilotAccountCliOperations(),
         loopOperations: createDefaultLoopCliOperations(),
-        resolveContextEvidence: (instanceId) => {
-          const instance = instanceManager.getInstance(instanceId);
-          const state = instance?.contextEvidence;
-          if (!instance || !state?.conversationId || state.mode === 'off') return null;
-          const providerWindowTokens = instance.contextUsage.total;
-          return {
-            coordinator: getContextEvidenceCoordinator(),
-            conversationId: state.conversationId,
-            mode: state.mode,
-            ...(Number.isSafeInteger(providerWindowTokens) && providerWindowTokens > 0
-              ? { providerWindowTokens }
-              : {}),
-          };
-        },
+        prepareEvidenceSource: flushChatTranscriptSource,
+        resolveContextEvidence: (instanceId) =>
+          resolveOrchestratorToolsEvidenceContext(instanceManager.getInstance(instanceId)),
         authorizeReleaseMutation: async ({ instanceId, method, payload }) => {
           const isAndroid = method === 'orchestrator_tools.execute_android_play_release';
           const appIdentity = isAndroid ? payload['packageName'] : payload['bundleId'];

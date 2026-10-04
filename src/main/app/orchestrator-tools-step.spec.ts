@@ -23,6 +23,7 @@ const captured = vi.hoisted(() => ({
       timeoutMs?: number;
     }) => Promise<unknown>;
     resolveContextEvidence?: (instanceId: string) => unknown;
+    prepareEvidenceSource?: (instanceId: string) => Promise<void>;
     calendarTools?: {
       authManager?: unknown;
       graphClient?: unknown;
@@ -74,6 +75,7 @@ const captured = vi.hoisted(() => ({
     },
   },
   discoverLocalAiCandidates: vi.fn(),
+  flushChatTranscriptSource: vi.fn(),
 }));
 
 vi.mock('../core/config/settings-manager', () => ({
@@ -177,6 +179,10 @@ vi.mock('../logging/logger', () => ({
 
 vi.mock('../context-evidence/context-evidence-coordinator', () => ({
   getContextEvidenceCoordinator: () => ({ id: 'coordinator' }),
+}));
+
+vi.mock('../chats/chat-transcript-bridge', () => ({
+  flushChatTranscriptSource: captured.flushChatTranscriptSource,
 }));
 
 vi.mock('../local-ai-guard/local-ai-runtime', () => ({
@@ -1342,6 +1348,30 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
     expect(captured.initializeOptions?.resolveContextEvidence?.('missing')).toBeNull();
   });
 
+  it.each(['shadow', 'enforce'])('retains %s enforcement context when canonical ownership is missing', async (mode) => {
+    await startStep({
+      getInstance: vi.fn(() => ({
+        contextEvidence: { mode },
+        contextUsage: { used: 0, total: 200_000, percentage: 0 },
+      })),
+    });
+
+    expect(captured.initializeOptions?.resolveContextEvidence?.('unresolved')).toEqual({
+      coordinator: { id: 'coordinator' },
+      conversationId: null,
+      mode,
+      providerWindowTokens: 200_000,
+    });
+  });
+
+  it('prepares RPC evidence by draining the runtime transcript source', async () => {
+    await startStep();
+
+    await captured.initializeOptions?.prepareEvidenceSource?.('instance-1');
+
+    expect(captured.flushChatTranscriptSource).toHaveBeenCalledWith('instance-1');
+  });
+
   it('infers Android placement from an Android run_on_node prompt', async () => {
     const node = makeNode({ hasAndroidMcp: true });
     const createInstance = vi.fn(async (config: Record<string, unknown>) => ({
@@ -1833,6 +1863,42 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
       node: 'windows-pc', prompt, provider: 'claude',
     } as never);
     expect(createInstance).toHaveBeenCalledOnce();
+  });
+
+  // "Windows" the operating system is not a browser window. These were refused
+  // as shared-browser work because they pair it with "existing", "real" or
+  // "logged on".
+  it.each([
+    'Configure LM Studio on this Windows PC and verify with real command output.',
+    'Stop the existing Ollama processes on the windows-pc worker.',
+    'Remove the value under HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run; run the task only when the user is logged on.',
+    'Check the existing Windows 11 startup entries and Windows Update state.',
+  ])('allows Windows operating-system work that names no browser surface: %s', async (prompt) => {
+    const node = makeNode({ hasBrowserMcp: true });
+    const createInstance = vi.fn().mockResolvedValue({ id: 'remote-1' });
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep({ createInstance });
+
+    await captured.initializeOptions!.spawnRemoteInstance!({
+      node: 'windows-pc', prompt, provider: 'claude',
+    } as never);
+    expect(createInstance).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    'Use the existing Chrome windows on windows-pc.',
+    'Read the windows that are already open on this Windows PC.',
+    'Use the logged in windows of the operator on the windows-pc worker.',
+  ])('still rejects browser windows on a Windows worker: %s', async (prompt) => {
+    const node = makeNode({ hasBrowserMcp: true });
+    const createInstance = vi.fn();
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep({ createInstance });
+
+    await expect(captured.initializeOptions!.spawnRemoteInstance!({
+      node: 'windows-pc', prompt, requiresBrowser: true,
+    })).rejects.toThrow(/stay on the coordinator/i);
+    expect(createInstance).not.toHaveBeenCalled();
   });
 
   it.each([

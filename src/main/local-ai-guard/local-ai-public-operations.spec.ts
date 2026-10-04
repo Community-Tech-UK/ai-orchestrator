@@ -39,6 +39,7 @@ function harness() {
     list: vi.fn(() => [target]),
     findByEndpoint: vi.fn(() => undefined),
     create: vi.fn(() => target),
+    setLifecycle: vi.fn((_id: string, lifecycle: string) => ({ ...target, lifecycle })),
   };
   const probes = {
     check: vi.fn(async (validationTarget: typeof target) => [{
@@ -54,7 +55,7 @@ function harness() {
       evidence: { workerConnected: true },
     }]),
   };
-  const runtime = { targets, probes };
+  const runtime = { targets, probes, notifyChanged: vi.fn() };
   const discoverCandidates = vi.fn(async () => [{
     endpoint: {
       id: 'openai-compatible',
@@ -138,5 +139,17 @@ describe('createLocalAiPublicOperations', () => {
     await expect(h.operations.create(config)).resolves.toEqual(target);
     expect(h.runtime.targets.create).toHaveBeenCalledWith(config);
   });
-});
 
+  it('changes lifecycle through the repository and publishes the change', async () => {
+    const h = harness();
+
+    await expect(h.operations.setLifecycle(target.id, 'paused', 1_800_000_000_000))
+      .resolves.toMatchObject({ id: target.id, lifecycle: 'paused' });
+    expect(h.runtime.targets.setLifecycle)
+      .toHaveBeenCalledWith(target.id, 'paused', { pausedUntil: 1_800_000_000_000 });
+    expect(h.runtime.notifyChanged).toHaveBeenCalledOnce();
+
+    await h.operations.setLifecycle(target.id, 'retired');
+    expect(h.runtime.targets.setLifecycle).toHaveBeenLastCalledWith(target.id, 'retired');
+  });
+});

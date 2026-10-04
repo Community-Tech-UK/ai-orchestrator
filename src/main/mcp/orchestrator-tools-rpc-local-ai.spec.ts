@@ -115,6 +115,7 @@ function makeHarness(overrides: Record<string, unknown> = {}) {
     discover: vi.fn(async () => discovery),
     validate: vi.fn(async () => [probe(true)]),
     create: vi.fn(async () => target),
+    setLifecycle: vi.fn(async () => ({ ...target, lifecycle: 'retired', retiredAt: target.updatedAt })),
     ...overrides,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ot-local-ai-rpc-'));
@@ -277,5 +278,28 @@ describe('OrchestratorToolsRpcServer Local AI CLI methods', () => {
     });
     expect(order).toEqual(['list', 'validate', 'list', 'create']);
     expect(h.operations.create).toHaveBeenCalledWith(config);
+  });
+
+  it('retires a target through the injected lifecycle operation', async () => {
+    const h = makeHarness();
+    tempDirs.push(h.tmpDir);
+
+    await expect(h.server.handleRequest(request('orchestrator_tools.local_ai.set_lifecycle', {
+      targetId: target.id,
+      lifecycle: 'retired',
+    }))).resolves.toMatchObject({ id: target.id, lifecycle: 'retired' });
+    expect(h.operations.setLifecycle).toHaveBeenCalledWith(target.id, 'retired', undefined);
+  });
+
+  it('rejects a pause deadline on a non-paused lifecycle before runtime work', async () => {
+    const h = makeHarness();
+    tempDirs.push(h.tmpDir);
+
+    await expect(h.server.handleRequest(request('orchestrator_tools.local_ai.set_lifecycle', {
+      targetId: target.id,
+      lifecycle: 'retired',
+      pausedUntil: 1_800_000_000_000,
+    }))).rejects.toThrow();
+    expect(h.operations.setLifecycle).not.toHaveBeenCalled();
   });
 });

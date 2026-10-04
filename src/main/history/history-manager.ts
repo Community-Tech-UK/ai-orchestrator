@@ -36,12 +36,14 @@ import { projectMemoryKeysEqual } from '../memory/project-memory-key';
 import { getOutputStorageManager } from '../memory/output-storage';
 import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
-import { getSessionRecoveryCandidateServiceIfInitialized, type RecoveryHistoryIdentity } from '../session/session-recovery-candidate-service';
+import { getSessionRecoveryCandidateServiceIfInitialized, type HistoryRecoverySuppressionQuery,
+  type RecoveryHistoryIdentity } from '../session/session-recovery-candidate-service';
 import { resolveHistoryRecoveryCoverage } from './history-recovery-coverage';
 import { createArchiveInstanceSummary, getArchiveHistoryIdentity,
   redactArchiveIdentifier, shouldArchiveInstance, type ArchiveHistoryCoverage } from './should-archive-instance';
 import { getArchiveSerializationKey, KeyedSerialTaskQueue } from './history-archive-serialization';
 import { isSameHistoryEntryForIdentityBackfill } from './history-identity-backfill';
+import { isRecoverySuppressedByHistory, tombstoneDeletedHistoryEntry } from './history-recovery-suppression';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -394,6 +396,10 @@ export class HistoryManager {
     return this.filterEntries(options).length;
   }
 
+  isRecoverySuppressed(query: HistoryRecoverySuppressionQuery): boolean {
+    return isRecoverySuppressedByHistory(this.index, query);
+  }
+
   async getRecoveryCoverage(identities: readonly RecoveryHistoryIdentity[]) {
     await this.startupTasks; return resolveHistoryRecoveryCoverage(this.index.entries, identities, (entryId) => this.loadPersistedConversationForCoverage(entryId));
   }
@@ -501,14 +507,8 @@ export class HistoryManager {
       return false;
     }
 
-    // Tombstone the sessionId so the native-transcript importer doesn't
-    // resurrect it from `~/.claude/projects/` on next startup.
-    const sessionId = this.index.entries[index].sessionId?.trim();
-    if (sessionId) {
-      const tombstones = new Set(this.index.deletedSessionIds ?? []);
-      tombstones.add(sessionId);
-      this.index.deletedSessionIds = Array.from(tombstones);
-    }
+    // Keep the native importer and autosave recovery from resurrecting it.
+    tombstoneDeletedHistoryEntry(this.index, this.index.entries[index], Date.now());
 
     // Remove from index
     this.index.entries.splice(index, 1);
@@ -713,12 +713,9 @@ export class HistoryManager {
       }
     }
 
-    // Reset index
-    this.index = {
-      version: HISTORY_INDEX_VERSION,
-      lastUpdated: Date.now(),
-      entries: [],
-    };
+    // Reset index; autosaves from before the clear must not refill it.
+    const clearedAt = Date.now();
+    this.index = { version: HISTORY_INDEX_VERSION, lastUpdated: clearedAt, entries: [], recoverySuppressedThrough: clearedAt };
     await this.saveIndex();
 
     logger.info('Cleared all history entries');

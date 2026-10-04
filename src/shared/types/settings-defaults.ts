@@ -224,6 +224,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   claudeFallbackModel: '',
   // WS14: OFF until the livetest proves hooks/RTK survive the scrub.
   claudeSubprocessEnvScrub: false,
+  // Diagnostic: Claude Code's own debug log per session. Verbose, so opt-in.
+  claudeCliDebugLogging: false,
   // WS7 Phase B: empty = failover off (explicit opt-in consent).
   sessionFailoverProviders: [],
   sessionFailoverMaxSwitches: 1,

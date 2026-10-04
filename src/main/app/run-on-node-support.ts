@@ -63,9 +63,17 @@ function normalizeBrowserPolicyPrompt(prompt: string): string {
   return prompt.replace(/[-‐-―−]+/gu, ' ');
 }
 
+/**
+ * "Windows" naming the operating system, not a browser window: "this Windows
+ * PC", the worker name "windows-pc", or a registry/filesystem path segment.
+ * Without this, any windows-pc prompt that also said "existing" or "logged on"
+ * was refused as shared-browser work.
+ */
+const WINDOWS_OS_REFERENCE = /\b(?:microsoft\s*[\\/]\s*)?windows(?=\s*[\\/]|\s+(?:pcs?|machines?|box|host|workers?|nodes?|servers?|os|10|11|registry|startup|update|defender|terminal|powershell|services?|firewall|subsystem|task\s+scheduler)\b)/g;
+
 function namesProtectedBrowserSurface(prompt: string): boolean {
   return /\b(?:browsers?|chrome|tabs?|sessions?|windows?|profiles?|pages?|webpages?|edge)\b/.test(
-    normalizeBrowserPolicyPrompt(prompt),
+    normalizeBrowserPolicyPrompt(prompt).replace(WINDOWS_OS_REFERENCE, ' '),
   );
 }
 

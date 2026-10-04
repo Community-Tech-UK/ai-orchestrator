@@ -95,6 +95,7 @@ describe('createInstanceWithMessage', () => {
       .createInstance.mock.calls[0][0];
     expect(args.workingDirectory).toBe('/Users/suas/work/communitytech');
     expect(args.initialPrompt).toBe('the long prompt');
+    expect(args.initialUserMessageSource).toBe('current-submission');
     expect(args.attachments).toBe(attachments);
     expect(args.provider).toBe('claude');
     expect(args.yoloMode).toBe(true);

@@ -6,6 +6,8 @@ import {
   LocalAiCliDiscoveryResultSchema,
   LocalAiCliEnrolPayloadSchema,
   LocalAiCliEnrolResultSchema,
+  LocalAiCliSetLifecyclePayloadSchema,
+  LocalAiCliSetLifecycleResultSchema,
   LocalAiCliTargetListResultSchema,
   LocalAiCliValidationResultSchema,
 } from './local-ai-cli-contracts';
@@ -89,6 +91,19 @@ export async function runLocalAiCli(
         : `Enrolled ${result.target.label} (${result.target.id}).\n${formatValidation(result.validation)}`);
       return;
     }
+    case 'set-lifecycle': {
+      const parsed = parseLifecycleArgs(argv.slice(1));
+      const client = clientFor(deps, LOCAL_AI_CLI_READ_TIMEOUT_MS);
+      const result = parseResult(
+        LocalAiCliSetLifecycleResultSchema,
+        await client.call(LOCAL_AI_CLI_METHODS.setLifecycle, parsed.payload),
+        'lifecycle',
+      );
+      stdout(parsed.json
+        ? formatJson(result)
+        : `${result.label} (${result.id}) is now ${result.lifecycle}.\n`);
+      return;
+    }
     default:
       throw new Error(`Unknown local-ai command: ${command}`);
   }
@@ -110,7 +125,8 @@ function functionalProbeRpcTimeoutMs(config: LocalAiTargetConfig): number {
   )
     ? 1
     : 0;
-  const inferenceRequests = 1;
+  // An Ollama canary first reads /api/ps so it can reuse the resident num_ctx.
+  const inferenceRequests = config.provider === 'ollama' ? 2 : 1;
   return (
     (metadataRequests + contextRequests + inferenceRequests) * config.canary.timeoutMs
     + LOCAL_AI_HEALTH_RPC_TRANSPORT_MARGIN_MS
@@ -163,6 +179,44 @@ function parseArgs(
     }
     throw error;
   }
+}
+
+function parseLifecycleArgs(argv: readonly string[]): {
+  json: boolean;
+  payload: ReturnType<typeof LocalAiCliSetLifecyclePayloadSchema.parse>;
+} {
+  let json = false;
+  let pausedUntil: number | undefined;
+  const positional: string[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]!;
+    if (arg === '--json') {
+      json = true;
+    } else if (arg === '--paused-until') {
+      const raw = argv[index + 1];
+      index += 1;
+      pausedUntil = raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+      if (!Number.isSafeInteger(pausedUntil)) {
+        throw new Error('--paused-until requires an epoch-milliseconds timestamp');
+      }
+    } else if (arg.startsWith('--')) {
+      throw new Error(`Unknown local-ai option: ${arg}`);
+    } else {
+      positional.push(arg);
+    }
+  }
+  if (positional.length !== 2) {
+    throw new Error('local-ai set-lifecycle requires <target-id> <enrolled|paused|retired>');
+  }
+  const parsed = LocalAiCliSetLifecyclePayloadSchema.safeParse({
+    targetId: positional[0],
+    lifecycle: positional[1],
+    ...(pausedUntil === undefined ? {} : { pausedUntil }),
+  });
+  if (!parsed.success) {
+    throw new Error(`Invalid Local AI lifecycle request: ${parsed.error.issues[0]?.message ?? 'schema mismatch'}`);
+  }
+  return { json, payload: parsed.data };
 }
 
 function parseResult<T>(
@@ -229,6 +283,7 @@ function formatLocalAiHelp(): string {
     '  aio-mcp local-ai list [--json]',
     '  aio-mcp local-ai validate <config-json> [--json]',
     '  aio-mcp local-ai enrol <config-json> [--json]',
+    '  aio-mcp local-ai set-lifecycle <target-id> <enrolled|paused|retired> [--paused-until <epoch-ms>] [--json]',
     '',
   ].join('\n');
 }

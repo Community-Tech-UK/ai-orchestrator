@@ -139,7 +139,7 @@ export const PLAN_QUEUE_HELP: HelpEntry = {
         'Pick a parent session — its working directory becomes the run\'s workspace.',
         'Choose the document kind: plans or livetests, and optionally narrow with a glob.',
         'Click Start run. Triage assigns each document ready, needs-answer, or skip.',
-        'Answer any question with the radio options offered: documents triage could not clear, and workers that stopped to ask something.',
+        'Answer any question with the radio options offered: documents triage could not clear, and workers that stopped to ask something. While a question is open, a banner at the top of the sessions page counts them; click it to come here.',
         'Resolve parked items: Resume, Land anyway, or Discard once you know why work stalled.',
       ],
     },

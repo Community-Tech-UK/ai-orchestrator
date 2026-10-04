@@ -1195,6 +1195,7 @@ export class SessionContinuityManager extends EventEmitter {
       instanceId: instance.id,
       sessionId: instance.sessionId,
       historyThreadId: instance.historyThreadId,
+      parentId: instance.parentId ?? null,
       nativeResumeFailedAt: null,
       displayName: instance.displayName,
       isRenamed: instance.isRenamed,

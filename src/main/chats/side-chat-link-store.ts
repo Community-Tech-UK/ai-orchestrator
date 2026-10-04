@@ -67,6 +67,19 @@ export class SideChatLinkStore {
     return rows.map(rowToLink);
   }
 
+  /** List non-archived links for a parent (joins against the backing chat). */
+  listActiveForParent(parent: SideChatParentRef): SideChatLink[] {
+    const rows = this.db
+      .prepareCached(
+        `SELECT scl.* FROM side_chat_links scl
+         JOIN chats c ON c.id = scl.chat_id
+         WHERE scl.parent_key = ? AND c.archived_at IS NULL
+         ORDER BY scl.created_at ASC`,
+      )
+      .all<SideChatLinkRow>(sideChatParentKey(parent));
+    return rows.map(rowToLink);
+  }
+
   listAll(): SideChatLink[] {
     const rows = this.db
       .prepareCached('SELECT * FROM side_chat_links ORDER BY created_at ASC')

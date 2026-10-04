@@ -50,7 +50,81 @@ describe('InstanceOutputStore', () => {
   });
 
   afterEach(() => {
+    store.cleanupAll();
+    vi.useRealTimers();
     TestBed.resetTestingModule();
+  });
+
+  describe('user message publication', () => {
+    const seed: OutputMessage = {
+      id: 'initial-user', timestamp: 2, type: 'user', content: 'Use the Windows worker',
+      attachments: [{ name: 'request.txt', type: 'text/plain', size: 7, data: 'request' }],
+      failedImages: [{ src: '/tmp/missing.png', kind: 'local', reason: 'not_found', message: 'Missing' }],
+    };
+    const userMessages = (): OutputMessage[] =>
+      stateService.getInstance('inst-1')!.outputBuffer.filter((message) => message.type === 'user');
+
+    it('keeps one seeded user record when its canonical event flushes after the throttle delay', () => {
+      vi.useFakeTimers();
+      stateService.updateInstance('inst-1', { outputBuffer: [seed] });
+
+      store.queueOutput('inst-1', {
+        id: 'initial-user', timestamp: 2, type: 'user', content: 'Use the Windows worker',
+        metadata: { adapterGeneration: 0 },
+      });
+      vi.advanceTimersByTime(LIMITS.TEXT_THROTTLE_MS);
+
+      expect(userMessages()).toHaveLength(1);
+      expect(userMessages()[0].attachments).toEqual([
+        { name: 'request.txt', type: 'text/plain', size: 7, data: 'request' },
+      ]);
+      expect(userMessages()[0].failedImages).toEqual([
+        { src: '/tmp/missing.png', kind: 'local', reason: 'not_found', message: 'Missing' },
+      ]);
+    });
+
+    it('keeps one user record when the same ID is repeated within and across batches', () => {
+      store.queueOutput('inst-1', seed);
+      store.queueOutput('inst-1', { ...seed });
+      store.flushInstanceOutput('inst-1');
+      store.queueOutput('inst-1', { ...seed });
+      store.flushInstanceOutput('inst-1');
+
+      expect(userMessages().map((message) => message.id)).toEqual(['initial-user']);
+    });
+
+    it('deduplicates against a snapshot installed while the user event is pending', () => {
+      store.queueOutput('inst-1', seed);
+      stateService.updateInstance('inst-1', { outputBuffer: [seed] });
+      store.flushInstanceOutput('inst-1');
+
+      expect(userMessages().map((message) => message.id)).toEqual(['initial-user']);
+    });
+
+    it('preserves new user messages with distinct IDs even when their content matches', () => {
+      stateService.updateInstance('inst-1', { outputBuffer: [seed] });
+      store.queueOutput('inst-1', { ...seed, id: 'follow-up', timestamp: 3 });
+      store.queueOutput('inst-1', { id: 'new-user', timestamp: 4, type: 'user', content: 'Next request' });
+      store.flushInstanceOutput('inst-1');
+
+      expect(userMessages().map((message) => [message.id, message.content])).toEqual([
+        ['initial-user', 'Use the Windows worker'],
+        ['follow-up', 'Use the Windows worker'],
+        ['new-user', 'Next request'],
+      ]);
+    });
+
+    it('preserves non-streaming assistant parts and error messages alongside user publication', () => {
+      store.queueOutput('inst-1', seed);
+      store.queueOutput('inst-1', { id: 'part', timestamp: 3, type: 'assistant', content: 'First part' });
+      store.queueOutput('inst-1', { id: 'part', timestamp: 4, type: 'assistant', content: 'Second part' });
+      store.queueOutput('inst-1', { id: 'initial-user', timestamp: 5, type: 'error', content: 'Send failed' });
+      store.flushInstanceOutput('inst-1');
+
+      expect(stateService.getInstance('inst-1')!.outputBuffer.slice(1).map((message) => message.content)).toEqual([
+        'Use the Windows worker', 'First part', 'Second part', 'Send failed',
+      ]);
+    });
   });
 
   it('finalizes unresolved streaming assistant messages when the instance flushes on completion', () => {
@@ -158,6 +232,8 @@ describe('InstanceOutputStore', () => {
     store.flushInstanceOutput('inst-1');
 
     const buffer = stateService.getInstance('inst-1')?.outputBuffer ?? [];
+    expect(buffer.filter((message) => message.id === 'turn-1')).toHaveLength(1);
+    expect(buffer.filter((message) => message.id === 'turn-2')).toHaveLength(1);
     expect(buffer.find((message) => message.id === 'turn-1')?.content).toBe('hi there');
     expect(buffer.find((message) => message.id === 'turn-2')?.content).toBe('ALPHA-742');
   });

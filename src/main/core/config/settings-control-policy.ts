@@ -394,6 +394,8 @@ export const SETTINGS_TOOL_POLICY = {
   claudeFallbackModel: open(z.string().max(100)),
   // WS14: env scrub can break hook/RTK env passthrough — operator-only.
   claudeSubprocessEnvScrub: readOnly(),
+  // Diagnostic only: Claude Code's per-session debug log (no behaviour change).
+  claudeCliDebugLogging: open(z.boolean()),
   // WS7 Phase B: the operator's fallback-provider list is the failover consent
   // surface. Open so it is configurable, bounded to the known loop providers.
   sessionFailoverProviders: open(

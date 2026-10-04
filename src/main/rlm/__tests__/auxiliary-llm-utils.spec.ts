@@ -11,6 +11,8 @@ import {
   backfillSlotTiers,
   mergeMissingDefaultSlots,
   raiseSlotOutputBudget,
+  OllamaNumCtxHighWater,
+  truncatePromptToBudget,
   DEFAULT_SLOT_TIERS,
 } from '../auxiliary-llm-utils';
 import { DEFAULT_SETTINGS } from '../../../shared/types/settings.types';
@@ -375,5 +377,83 @@ describe('AuxiliaryModelFailureCache', () => {
     cache.clear();
 
     expect(cache.usable('ep1', OLLAMA_MODELS, now)).toContain('gpt-oss:120b');
+  });
+});
+
+describe('OllamaNumCtxHighWater', () => {
+  function sizeAndSucceed(highWater: OllamaNumCtxHighWater, endpointId: string, model: string, needed: number) {
+    const sized = highWater.sizeFor(endpointId, model, needed);
+    highWater.recordSuccess(endpointId, model, sized);
+    return sized;
+  }
+
+  it('never shrinks a model window, so a smaller call cannot force a reload', () => {
+    const highWater = new OllamaNumCtxHighWater();
+    expect(sizeAndSucceed(highWater, 'ep', 'gemma4:31b', 32_768)).toBe(32_768);
+    // The windows-pc pattern: a small call used to resize the resident model to 8192.
+    expect(sizeAndSucceed(highWater, 'ep', 'gemma4:31b', 8_192)).toBe(32_768);
+    expect(sizeAndSucceed(highWater, 'ep', 'gemma4:31b', 106_496)).toBe(106_496);
+    expect(sizeAndSucceed(highWater, 'ep', 'gemma4:31b', 8_192)).toBe(106_496);
+  });
+
+  it('starts every model at its own first need instead of a configured maximum', () => {
+    expect(new OllamaNumCtxHighWater().sizeFor('ep', 'llama3.2:3b', 8_192)).toBe(8_192);
+  });
+
+  it('does not keep a window that was only requested by a call that failed', () => {
+    const highWater = new OllamaNumCtxHighWater();
+    sizeAndSucceed(highWater, 'ep', 'model', 8_192);
+    // A 106k request that ran out of memory is never recorded.
+    expect(highWater.sizeFor('ep', 'model', 106_496)).toBe(106_496);
+    expect(highWater.sizeFor('ep', 'model', 8_192)).toBe(8_192);
+  });
+
+  it('tracks endpoints and models independently', () => {
+    const highWater = new OllamaNumCtxHighWater();
+    sizeAndSucceed(highWater, 'ep-a', 'model', 106_496);
+    expect(highWater.sizeFor('ep-b', 'model', 8_192)).toBe(8_192);
+    expect(highWater.sizeFor('ep-a', 'other-model', 8_192)).toBe(8_192);
+  });
+
+  it('cannot alias two endpoint/model pairs through a separator in an id', () => {
+    const highWater = new OllamaNumCtxHighWater();
+    sizeAndSucceed(highWater, 'a:b', 'c', 106_496);
+    expect(highWater.sizeFor('a', 'b:c', 8_192)).toBe(8_192);
+  });
+
+  it('stays bounded by forgetting old entries once the cap is reached', () => {
+    const highWater = new OllamaNumCtxHighWater();
+    sizeAndSucceed(highWater, 'ep', 'first', 106_496);
+    for (let index = 0; index < 256; index += 1) sizeAndSucceed(highWater, 'ep', `model-${index}`, 8_192);
+    expect(highWater.sizeFor('ep', 'first', 8_192)).toBe(8_192);
+  });
+});
+
+describe('truncatePromptToBudget', () => {
+  const countTokens = (text: string) => Math.ceil(text.length / 4);
+
+  it('leaves a prompt inside its budget untouched', () => {
+    expect(truncatePromptToBudget('sys', 'short', 100, countTokens)).toEqual({ system: 'sys', user: 'short' });
+  });
+
+  it('keeps the historical 20% head and 40% tail when slightly over budget', () => {
+    const user = 'h'.repeat(200) + 'm'.repeat(600) + 't'.repeat(200);
+    const result = truncatePromptToBudget('', user, 240, countTokens);
+    expect(result.user).toBe(`${'h'.repeat(200)}\n[...truncated...]\n${'m'.repeat(200)}${'t'.repeat(200)}`);
+    expect(result.truncation).toEqual({ originalTokens: 250, targetTokens: 240 });
+  });
+
+  it('cuts deeper when keeping 60% would still overflow the budget', () => {
+    const user = 'x'.repeat(40_000); // 10,000 tokens against a 1,000 token budget
+    const result = truncatePromptToBudget('', user, 1_000, countTokens);
+    const kept = result.user.replace('\n[...truncated...]\n', '');
+    expect(countTokens(kept)).toBeLessThanOrEqual(1_000);
+    expect(kept.length).toBe(Math.floor(40_000 * 0.1 / 3) + Math.floor(40_000 * 0.2 / 3));
+  });
+
+  it('budgets the user prompt after the system prompt', () => {
+    const result = truncatePromptToBudget('s'.repeat(400), 'u'.repeat(4_000), 300, countTokens);
+    expect(result.truncation).toEqual({ originalTokens: 1_100, targetTokens: 200 });
+    expect(countTokens(result.user.replace('\n[...truncated...]\n', ''))).toBeLessThanOrEqual(200);
   });
 });

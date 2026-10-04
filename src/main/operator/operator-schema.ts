@@ -115,7 +115,8 @@ export function createOperatorTables(db: SqliteDriver): void {
       current_instance_id TEXT,
       created_at INTEGER NOT NULL,
       last_active_at INTEGER NOT NULL,
-      archived_at INTEGER
+      archived_at INTEGER,
+      model_runtime_target_json TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_chats_last_active
@@ -179,6 +180,7 @@ export function createOperatorTables(db: SqliteDriver): void {
 
   ensureChatsReasoningEffortColumn(db);
   ensureChatSessionBindingLineageColumns(db);
+  ensureChatsModelRuntimeTargetColumn(db);
 }
 
 interface TableInfoRow {
@@ -193,6 +195,17 @@ function ensureChatsReasoningEffortColumn(db: SqliteDriver): void {
 
   if (!columnNames.has('reasoning_effort')) {
     db.exec('ALTER TABLE chats ADD COLUMN reasoning_effort TEXT');
+  }
+}
+
+function ensureChatsModelRuntimeTargetColumn(db: SqliteDriver): void {
+  const columns = db
+    .prepare('PRAGMA table_info(chats)')
+    .all() as TableInfoRow[];
+  const columnNames = new Set(columns.map((column) => column.name));
+
+  if (!columnNames.has('model_runtime_target_json')) {
+    db.exec('ALTER TABLE chats ADD COLUMN model_runtime_target_json TEXT');
   }
 }
 

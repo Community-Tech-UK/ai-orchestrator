@@ -195,10 +195,13 @@ export class RuntimeReconciler {
 
       // Resolve agent and permissions
       const agent = getAgentById(instance.agentId) || getDefaultAgent();
-      const toolPermissions = buildToolPermissionConfig(agent.permissions, {
-        allowedToolsPolicy: 'standard-unless-yolo',
-        yoloMode: nextYoloMode,
-      });
+      const toolPermissions = buildToolPermissionConfig(
+        instance.toolPermissionsOverride ?? agent.permissions,
+        {
+          allowedToolsPolicy: 'standard-unless-yolo',
+          yoloMode: nextYoloMode,
+        },
+      );
       attachToolFilterMetadata(instance, toolPermissions.toolFilter);
 
       if (isProviderSwap) {

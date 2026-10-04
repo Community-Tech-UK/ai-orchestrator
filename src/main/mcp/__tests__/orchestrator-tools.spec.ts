@@ -286,9 +286,17 @@ describe('orchestrator MCP tools', () => {
       rawJson: { metadata: { kind: 'tool_call' } }, createdAt: 1,
     })).messages[0]!;
     const boundedResult = { evidenceId: 'evidence-1', truncated: true };
-    const captureAioMcpResult = vi.fn(async () => ({
+    const captureAioMcpResult = vi.fn(async (input: { conversationId: string }) => ({
       providerResult: boundedResult,
-      capture: { status: 'captured' },
+      capture: {
+        status: 'captured',
+        record: {
+          id: 'evidence-1', conversationId: input.conversationId, status: 'complete',
+          provider: 'orchestrator', toolName: 'list_remote_nodes', sourceKind: 'mcp', byteCount: 1,
+          mimeType: 'application/json', sensitivity: 'normal', provenanceTrust: 'runtime-authenticated',
+          createdAt: 1, captureMode: 'pre-retention', captureCompleteness: 'complete',
+        },
+      },
     }));
     const tools = createOrchestratorToolDefinitions({
       db,
@@ -308,13 +316,15 @@ describe('orchestrator MCP tools', () => {
     expect(captureAioMcpResult).toHaveBeenCalledWith({
       queueId: 'instance-1',
       conversationId: conversation.id,
-      captureKey: `mcp:${toolCall.id}:list_remote_nodes`,
+      captureKey: expect.stringMatching(/^mcp-invocation:/),
       turnRef: toolCall.id,
-      toolCallRef: toolCall.id,
+      toolCallRef: expect.stringMatching(/^mcp-invocation:/),
       toolName: 'list_remote_nodes',
       result: { connectedCount: 0, totalCount: 0, nodes: [] },
       providerWindowTokens: 200_000,
     });
+    const captureInput = captureAioMcpResult.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    expect(captureInput['captureKey']).toBe(captureInput['toolCallRef']);
     expect(result).toEqual(boundedResult);
   });
 

@@ -59,6 +59,7 @@ import { runCancelOperationCascade } from './dashboard-cancel-operation';
 import { TerminateConfirmStore } from '../../shared/terminate-confirm/terminate-confirm.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { SessionRecoveryBannerComponent } from '../../shared/components/session-recovery-banner/session-recovery-banner.component';
+import { PlanQueueQuestionsBannerComponent } from '../plan-queue/components/plan-queue-questions-banner.component';
 @Component({
   selector: 'app-dashboard',
   standalone: true,
@@ -81,7 +82,7 @@ import { SessionRecoveryBannerComponent } from '../../shared/components/session-
     WorkspaceRailComponent,
     SidebarNavComponent,
     SidebarFooterComponent,
-    BrowserPreviewNoticeComponent, SessionRecoveryBannerComponent,
+    BrowserPreviewNoticeComponent, SessionRecoveryBannerComponent, PlanQueueQuestionsBannerComponent,
     SessionProgressPanelComponent, AioTooltipDirective,
   ],
   templateUrl: './dashboard.component.html',

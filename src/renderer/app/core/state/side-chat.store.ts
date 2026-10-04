@@ -252,6 +252,20 @@ export class SideChatStore {
     return this._details().get(chatId) ?? null;
   }
 
+  /** Remove a sidechat from the active list (Archive). History is retained. */
+  removeSideChat(chatId: string): void {
+    this._links.update((map) => {
+      const next = new Map(map);
+      next.delete(chatId);
+      return next;
+    });
+    this._details.update((map) => {
+      const next = new Map(map);
+      next.delete(chatId);
+      return next;
+    });
+  }
+
   private async loadDetail(chatId: string): Promise<void> {
     try {
       const response = await this.ipc.get(chatId);
@@ -268,11 +282,12 @@ export class SideChatStore {
   }
 
   /**
-   * Explicitly attach an existing unlinked chat to a parent. Never guesses
-   * ownership from a directory or the previously selected session.
+   * Explicitly attach an existing unlinked chat to a parent. Recorded as a
+   * follow-up feature: the IPC channel for relinking an existing chat is not
+   * yet implemented. Existing unlinked chats remain ordinary chats.
    */
   async attachToParent(_chatId: string, _parent: SideChatParentRef): Promise<boolean> {
-    this._error.set('Attach to session is not yet available for existing chats.');
+    this._error.set('Attach to session requires the relink IPC channel (follow-up).');
     return false;
   }
 }

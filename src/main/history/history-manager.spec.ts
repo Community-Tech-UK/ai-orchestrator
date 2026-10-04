@@ -139,6 +139,40 @@ describe('HistoryManager', () => {
     }
   });
 
+  it('persists autosave-recovery suppression for deleted threads and cleared history', async () => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+    await manager.startupTasks;
+    await manager.archiveInstance(makeInstance({
+      id: 'deleted-instance',
+      historyThreadId: 'thread-deleted',
+      sessionId: 'session-deleted',
+      outputBuffer: [message('m1', 'user', 'hello', 1)],
+    }));
+    const [entry] = manager.getEntries();
+    const beforeDelete = Date.now() - 1;
+    await manager.deleteEntry(entry!.id);
+
+    const reloaded = track(new HistoryManager());
+    await reloaded.startupTasks;
+    expect(reloaded.isRecoverySuppressed({
+      provider: 'claude', historyThreadId: 'thread-deleted', lastActivityAt: beforeDelete,
+    })).toBe(true);
+    expect(reloaded.isRecoverySuppressed({
+      provider: 'claude', historyThreadId: 'thread-other', lastActivityAt: beforeDelete,
+    })).toBe(false);
+
+    await reloaded.clearAll();
+    const afterClear = track(new HistoryManager());
+    await afterClear.startupTasks;
+    expect(afterClear.isRecoverySuppressed({
+      provider: 'claude', historyThreadId: 'thread-other', lastActivityAt: beforeDelete,
+    })).toBe(true);
+    expect(afterClear.isRecoverySuppressed({
+      provider: 'claude', historyThreadId: 'thread-other', lastActivityAt: Date.now() + 60_000,
+    })).toBe(false);
+  });
+
   it('creates a safety backup before clearing conversation history', async () => {
     const storageDir = path.join(userDataDir, 'conversation-history');
     fs.mkdirSync(storageDir, { recursive: true });

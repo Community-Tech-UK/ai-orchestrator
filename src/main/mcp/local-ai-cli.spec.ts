@@ -171,7 +171,9 @@ describe('runLocalAiCli', () => {
       },
     );
 
-    expect(createClient).toHaveBeenCalledWith(491_000);
+    // Five requests (Ollama version, tags, context, resident-context read, canary) at
+    // 120 s each, plus the transport and completion margins.
+    expect(createClient).toHaveBeenCalledWith(611_000);
     expect(call).toHaveBeenCalledWith(
       'orchestrator_tools.local_ai.validate',
       { config: maximumProbeConfig },
@@ -210,5 +212,42 @@ describe('runLocalAiCli', () => {
     );
 
     expect(h.output).toEqual([]);
+  });
+
+  it('retires a target and reports its new lifecycle', async () => {
+    const h = harness({ ...target, lifecycle: 'retired', retiredAt: target.updatedAt });
+
+    await runLocalAiCli(['set-lifecycle', 'target-1', 'retired'], h);
+
+    expect(h.call).toHaveBeenCalledWith('orchestrator_tools.local_ai.set_lifecycle', {
+      targetId: 'target-1',
+      lifecycle: 'retired',
+    });
+    expect(h.output.join('')).toBe('node-1: openai-compatible (target-1) is now retired.\n');
+  });
+
+  it('passes a pause deadline only for the paused lifecycle', async () => {
+    const h = harness({ ...target, lifecycle: 'paused', pausedUntil: 1_800_000_000_000 });
+
+    await runLocalAiCli(['set-lifecycle', 'target-1', 'paused', '--paused-until', '1800000000000', '--json'], h);
+
+    expect(h.call).toHaveBeenCalledWith('orchestrator_tools.local_ai.set_lifecycle', {
+      targetId: 'target-1',
+      lifecycle: 'paused',
+      pausedUntil: 1_800_000_000_000,
+    });
+    expect(JSON.parse(h.output.join(''))).toMatchObject({ lifecycle: 'paused' });
+  });
+
+  it.each([
+    [['set-lifecycle', 'target-1'], /requires <target-id>/],
+    [['set-lifecycle', 'target-1', 'deleted'], /Invalid Local AI lifecycle request/],
+    [['set-lifecycle', 'target-1', 'retired', '--paused-until', '1800000000000'], /Invalid Local AI lifecycle request/],
+    [['set-lifecycle', 'target-1', 'paused', '--paused-until', 'soon'], /epoch-milliseconds/],
+  ])('rejects a malformed lifecycle request before any RPC: %j', async (argv, message) => {
+    const h = harness(null);
+
+    await expect(runLocalAiCli(argv, h)).rejects.toThrow(message);
+    expect(h.call).not.toHaveBeenCalled();
   });
 });

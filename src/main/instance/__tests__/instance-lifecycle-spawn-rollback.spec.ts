@@ -319,6 +319,7 @@ vi.mock('../lifecycle/memory-pressure-monitor', () => ({
 
 import { InstanceLifecycleManager } from '../instance-lifecycle';
 import { getDefaultAgent } from '../../../shared/types/agent.types';
+import { createInstanceWithMessage } from '../../ipc/handlers/instance-create-with-message';
 
 interface FakeAdapter {
   spawn: ReturnType<typeof vi.fn>;
@@ -747,6 +748,73 @@ describe('createInstance spawn transaction rollback', () => {
     expect(harness.removedEvents).toEqual([]);
     // The initial prompt actually reached the adapter.
     expect(adapter.sendInput).toHaveBeenCalledWith('hello world', undefined);
+  });
+
+  it.each(['fresh', 'warm'] as const)('publishes the actual seeded UI submission before %s provider startup without duplicating its buffer', async (route) => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    const outputs: Instance['outputBuffer'] = [];
+    const order: string[] = [];
+    harness.manager.on('output', ({ message }: { message: Instance['outputBuffer'][number] }) => {
+      outputs.push(message);
+      order.push(`user:${message.id}`);
+    });
+    adapter.spawn.mockImplementation(async () => { order.push('spawn'); return 4242; });
+    adapter.sendInput.mockImplementation(async () => { order.push('send'); });
+    if (route === 'warm') harness.deps.warmStartManager = {
+      consume: vi.fn(() => adapter), preWarm: vi.fn().mockResolvedValue(undefined),
+    } as unknown as LifecycleDependencies['warmStartManager'];
+
+    await createInstanceWithMessage(harness.manager as never, { message: 'synthetic first request', provider: 'claude' }, '/tmp/project', undefined);
+    const instance = [...harness.instances.values()][0];
+    await instance.readyPromise;
+
+    expect(instance.outputBuffer).toHaveLength(1);
+    expect(outputs).toEqual([instance.outputBuffer[0]]);
+    expect(outputs[0]).toBe(instance.outputBuffer[0]);
+    expect(order).toEqual(route === 'fresh'
+      ? [`user:${outputs[0].id}`, 'spawn', 'send'] : [`user:${outputs[0].id}`, 'send']);
+    harness.manager.destroy();
+  });
+
+  it.each([
+    { label: 'unmarked historical seed', options: {} },
+    { label: 'restored session', options: { initialUserMessageSource: 'current-submission' as const, isRestoredSession: true } },
+    { label: 'native resume', options: { initialUserMessageSource: 'current-submission' as const, resume: true } },
+    { label: 'crash recovery', options: { initialUserMessageSource: 'current-submission' as const, metadata: { reason: 'crash-recovery' } } },
+  ])('does not publish a $label as a current user source', async ({ options }) => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    const output = vi.fn();
+    harness.manager.on('output', output);
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project', provider: 'claude', initialPrompt: 'synthetic old request',
+      initialOutputBuffer: [{ id: 'old-user', type: 'user', content: 'synthetic old request', timestamp: 1 }],
+      ...options,
+    });
+    await instance.readyPromise;
+    expect(output).not.toHaveBeenCalled();
+    expect(instance.outputBuffer).toHaveLength(1);
+    harness.manager.destroy();
+  });
+
+  it('does not publish a private recovery seed when its instance is later published', async () => {
+    const harness = makeHarness();
+    mocks.createAdapter.mockReturnValue(makeFakeAdapter());
+    const output = vi.fn();
+    harness.manager.on('output', output);
+    const creation = await harness.manager.createUnpublishedInstance({
+      workingDirectory: '/tmp/project', provider: 'claude', initialPrompt: 'synthetic old request',
+      initialUserMessageSource: 'current-submission',
+      initialOutputBuffer: [{ id: 'old-user', type: 'user', content: 'synthetic old request', timestamp: 1 }],
+    });
+    await creation.instance.readyPromise;
+    await creation.publish();
+    expect(output).not.toHaveBeenCalled();
+    expect(creation.instance.outputBuffer).toHaveLength(1);
+    harness.manager.destroy();
   });
 
   it('does not forward coordinator model defaults through the remote create path', async () => {

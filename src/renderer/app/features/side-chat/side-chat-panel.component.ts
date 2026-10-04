@@ -11,7 +11,9 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   HostListener,
+  ViewChild,
   computed,
   effect,
   inject,
@@ -46,6 +48,9 @@ export class SideChatPanelComponent {
   private readonly instanceStore = inject(InstanceStore);
   private readonly settingsStore = inject(SettingsStore);
   private readonly viewLayoutService = inject(ViewLayoutService);
+  private readonly elRef = inject(ElementRef);
+
+  @ViewChild('panelBody') panelBody?: ElementRef<HTMLElement>;
 
   /** Working directory for lazily-created side chats (from the dashboard). */
   workingDirectory = input<string | null>(null);
@@ -210,6 +215,68 @@ export class SideChatPanelComponent {
     const parent = this.parent();
     if (parent) {
       this.sideChatStore.selectChat(parent, chatId);
+    }
+  }
+
+  sideChatLinks() {
+    const parent = this.parent();
+    if (!parent) return [];
+    const links = this.sideChatStore.links();
+    const key = this.sideChatStore.sessionKey(parent);
+    // Filter links belonging to this parent.
+    return [...links.values()].filter((link) => {
+      const linkKey = link.parent.kind === 'chat'
+        ? `chat:${link.parent.chatId}`
+        : `session:${link.parent.historyThreadId}`;
+      return linkKey === key;
+    });
+  }
+
+  linkTitle(chatId: string): string {
+    return this.sideChatStore.detailFor(chatId)?.chat.name
+      ?? this.chatStore.details().get(chatId)?.chat.name
+      ?? chatId;
+  }
+
+  linkUnread(chatId: string): boolean {
+    const link = this.sideChatStore.links().get(chatId);
+    if (!link) return false;
+    const detail = this.sideChatStore.detailFor(chatId) ?? this.chatStore.details().get(chatId);
+    const latest = detail?.conversation.messages
+      .filter((m) => m.role === 'assistant')
+      .reduce((max, m) => Math.max(max, m.sequence), 0) ?? 0;
+    return latest > link.lastReadAssistantSequence;
+  }
+
+  async archiveSideChat(): Promise<void> {
+    const chatId = this.sideChatId();
+    if (!chatId) return;
+    await this.chatStore.archive(chatId);
+    this.sideChatStore.removeSideChat(chatId);
+    this.startNewSideChat();
+  }
+
+  /**
+   * Mark the current answer as read only when the panel is visible and the
+   * user has scrolled to show the latest output (i.e. the answer is viewed).
+   * A scrolled-up reader keeps the answer unread.
+   */
+  markReadIfVisible(): void {
+    const chatId = this.sideChatId();
+    if (!chatId || this.isBusy()) return;
+    // Scope the scroll check to this panel's own body element (not a global
+    // query that could match another panel in combined layouts).
+    const body = this.panelBody?.nativeElement
+      ?? this.elRef.nativeElement.querySelector('.panel-body');
+    if (!body) return;
+    const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 60;
+    if (!atBottom) return;
+    const detail = this.sideChatStore.detailFor(chatId) ?? this.chatStore.details().get(chatId);
+    const latest = detail?.conversation.messages
+      .filter((m) => m.role === 'assistant')
+      .reduce((max, m) => Math.max(max, m.sequence), 0) ?? 0;
+    if (latest > 0) {
+      void this.sideChatStore.markRead(chatId, latest);
     }
   }
 

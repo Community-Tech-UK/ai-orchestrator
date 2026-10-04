@@ -7,6 +7,8 @@ import {
   LocalAiCliEnrolPayloadSchema,
   LocalAiCliEnrolResultSchema,
   type LocalAiCliOperations,
+  LocalAiCliSetLifecyclePayloadSchema,
+  LocalAiCliSetLifecycleResultSchema,
   LocalAiCliTargetListResultSchema,
   LocalAiCliValidationResultSchema,
 } from './local-ai-cli-contracts';
@@ -41,6 +43,12 @@ export async function dispatchLocalAiCliRpc(
     }
     case LOCAL_AI_CLI_METHODS.enrol:
       return enrolTarget(payload, operations);
+    case LOCAL_AI_CLI_METHODS.setLifecycle: {
+      const { targetId, lifecycle, pausedUntil } = LocalAiCliSetLifecyclePayloadSchema.parse(payload);
+      return LocalAiCliSetLifecycleResultSchema.parse(
+        await operations.setLifecycle(targetId, lifecycle, pausedUntil),
+      );
+    }
   }
 }
 

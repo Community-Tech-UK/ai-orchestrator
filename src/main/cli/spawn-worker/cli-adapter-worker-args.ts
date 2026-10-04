@@ -1,5 +1,6 @@
 import type { UnifiedSpawnOptions } from '../adapters/adapter-factory';
 import type { CliMessage } from '../adapters/base-cli-adapter';
+import { resolveClaudeDebugLogging } from '../adapters/claude-env-pack';
 import { HOST_CLI_CLOUD_SCHEDULER_TOOLS } from '../adapters/host-cli-tool-policy';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 
@@ -60,6 +61,7 @@ function buildClaudeArgs(options: UnifiedSpawnOptions, sessionId: string | null)
   if (settingsOverlay) args.push('--settings', settingsOverlay);
   if (options.mcpConfig?.length) args.push('--mcp-config', ...options.mcpConfig);
   if (options.chrome === true) args.push('--chrome');
+  if (resolveClaudeDebugLogging()) args.push('--debug');
   return args;
 }
 

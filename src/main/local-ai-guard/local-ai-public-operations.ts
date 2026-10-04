@@ -10,6 +10,7 @@ import type {
   LocalAiProbeResult,
   LocalAiTarget,
   LocalAiTargetConfig,
+  LocalAiTargetLifecycle,
 } from '../../shared/types/local-ai-guard.types';
 import {
   LocalAiDiscoveredEndpointSchema,
@@ -20,7 +21,8 @@ import {
 } from '../../shared/validation/local-ai-guard.schemas';
 import type { LocalAiGuardRuntime } from './local-ai-runtime';
 
-type PublicRuntime = Pick<LocalAiGuardRuntime, 'targets' | 'probes'>;
+type PublicRuntime = Pick<LocalAiGuardRuntime, 'targets' | 'probes'>
+  & Partial<Pick<LocalAiGuardRuntime, 'notifyChanged'>>;
 
 export interface LocalAiPublicOperationsDependencies {
   getRuntime: () => PublicRuntime;
@@ -34,6 +36,11 @@ export interface LocalAiPublicOperations {
   discover(): Promise<LocalAiDiscoveredEndpoint[]>;
   validate(config: LocalAiTargetConfig): Promise<LocalAiProbeResult[]>;
   create(config: LocalAiTargetConfig): Promise<LocalAiTarget>;
+  setLifecycle(
+    targetId: string,
+    lifecycle: Exclude<LocalAiTargetLifecycle, 'unmanaged'>,
+    pausedUntil?: number,
+  ): Promise<LocalAiTarget>;
 }
 
 export function createLocalAiPublicOperations(
@@ -71,6 +78,18 @@ export function createLocalAiPublicOperations(
     create: async (input) => {
       const config = LocalAiTargetConfigSchema.parse(input);
       return LocalAiTargetSchema.parse(dependencies.getRuntime().targets.create(config));
+    },
+    // Same repository call as the Settings UI. The repository notifies the
+    // health scheduler, so a paused or retired target stops being probed.
+    setLifecycle: async (targetId, lifecycle, pausedUntil) => {
+      const runtime = dependencies.getRuntime();
+      const target = LocalAiTargetSchema.parse(runtime.targets.setLifecycle(
+        targetId,
+        lifecycle,
+        ...(pausedUntil === undefined ? [] : [{ pausedUntil }]),
+      ));
+      runtime.notifyChanged?.();
+      return target;
     },
   };
 }

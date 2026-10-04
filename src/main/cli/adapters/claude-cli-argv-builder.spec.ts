@@ -78,6 +78,11 @@ describe('buildClaudeCliArgs', () => {
     ]);
   });
 
+  it('adds --debug only when debug logging is on', () => {
+    expect(buildClaudeCliArgs(baseInput())).not.toContain('--debug');
+    expect(buildClaudeCliArgs(baseInput({ spawnOptions: { debugLogging: true } }))).toContain('--debug');
+  });
+
   it('passes --dangerously-skip-permissions in YOLO mode and skips acceptEdits', () => {
     const args = buildClaudeCliArgs(baseInput({ spawnOptions: { yoloMode: true } }));
     expect(args).toContain('--dangerously-skip-permissions');

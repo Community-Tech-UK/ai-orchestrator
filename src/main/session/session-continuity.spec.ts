@@ -681,6 +681,7 @@ describe('SessionContinuityManager logging', () => {
         waitForHistoryReady: async () => undefined,
         getHistoryCoverage: async () => new Map(),
         loadHistoryConversation: async () => null,
+        isSuppressedByHistory: () => false,
         getLiveRecoveryKeys: () => new Set(),
         now: () => Date.now(),
       });
@@ -726,6 +727,29 @@ describe('SessionContinuityManager logging', () => {
 
     expect(records.find((record) => record.sourceInstanceId === 'copied-state')?.lastActivityAt)
       .toBe(200);
+  });
+
+  it('records whether a tracked session is top-level or a child', async () => {
+    const manager = createManager();
+    await manager.readyPromise;
+    const base = {
+      displayName: 'Parent identity', agentId: 'build', currentModel: 'opus', provider: 'claude',
+      workingDirectory: '/workspace', outputBuffer: [], retainedPrompts: [],
+      contextUsage: { used: 0, total: 1_000, percentage: 0 }, lastActivity: 100,
+    };
+    await manager.startTracking({ ...base, id: 'top-level', parentId: null } as unknown as Instance);
+    await manager.startTracking({ ...base, id: 'child', parentId: 'top-level' } as unknown as Instance);
+
+    expect(manager.getSessionState('top-level')?.parentId).toBeNull();
+    expect(manager.getSessionState('child')?.parentId).toBe('top-level');
+
+    // A child detached from its parent is persisted as top-level.
+    await manager.updateState('child', { parentId: null });
+    await manager.stopTracking('child', true);
+    const raw = JSON.parse(await fs.promises.readFile(path.join(
+      mockState.userDataDir, 'session-continuity', 'recovery-metadata', 'child.json',
+    ), 'utf8')) as { data: string };
+    expect(JSON.parse(raw.data)).toMatchObject({ sourceInstanceId: 'child', parentId: null });
   });
 
   it('persists a lightweight recovery sidecar without conversation content', async () => {

@@ -1585,6 +1585,7 @@ describe('InstanceManager', () => {
         waitForHistoryReady: async () => undefined,
         getHistoryCoverage: async () => new Map(),
         loadHistoryConversation: async () => null,
+        isSuppressedByHistory: () => false,
         getLiveRecoveryKeys: () => manager.getLiveRecoveryKeys(),
         now: () => Date.now(),
       });

@@ -242,4 +242,35 @@ describe('SideChatSendCoordinator', () => {
       expect(result.lastSnapshotAvailable).toBe(true);
     }
   });
+
+  it('skips preamble delivery when no runtime exists yet (first send)', async () => {
+    const db = defaultDriverFactory(':memory:');
+    dbs.push(db);
+    createOperatorTables(db);
+    const linkStore = new SideChatLinkStore(db);
+    const contextStore = new SideChatContextStore(db);
+    linkStore.insert({
+      chatId: 'side-1',
+      parent: { kind: 'chat', chatId: 'parent' },
+      authority: 'inherit-parent',
+      lastReadAssistantSequence: 0,
+    });
+    const preambles: string[] = [];
+    const coordinator = new SideChatSendCoordinator({
+      resolver: { resolve: async () => makeSource('progress') } as unknown as SideChatParentResolver,
+      contextStore,
+      linkStore,
+      queuePreamble: (_id, preamble) => preambles.push(preamble),
+      dispatchSend: async () => undefined,
+      getRuntimeInstanceId: () => null, // no runtime yet on first send
+    });
+
+    const result = await coordinator.send('side-1', 'First question');
+    expect(result.ok).toBe(true);
+    // Preamble is not queued when there is no runtime; the context is delivered
+    // via prepareTurnContext's brand-new path after the runtime spawns.
+    expect(preambles).toHaveLength(0);
+    // But the snapshot IS persisted for later rebuild.
+    expect(contextStore.get('side-1')).not.toBeNull();
+  });
 });

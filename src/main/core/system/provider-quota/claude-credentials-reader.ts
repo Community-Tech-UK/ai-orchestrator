@@ -57,7 +57,7 @@ export interface ClaudeOAuthCredential {
 
 /** Why a token could not be produced — surfaced so the probe can explain itself. */
 export type CredentialFailureReason =
-  | 'not-found'      // no keychain entry / no credentials file
+  | 'not-found'      // no keychain entry / no credentials file / blanked by a rejected refresh
   | 'denied'         // keychain access prompt rejected / permission error
   | 'expired'        // token present but past expiry after Claude Code refresh
   | 'malformed'      // payload present but not parseable / missing accessToken
@@ -206,7 +206,12 @@ export class ClaudeCredentialsReader {
 
     const oauth = parsed.claudeAiOauth;
     const accessToken = oauth?.accessToken;
-    if (!oauth || typeof accessToken !== 'string' || accessToken.length === 0) {
+    // When the server rejects a refresh, Claude Code keeps the item but blanks
+    // its token fields. That is a signed-out profile, not a corrupt credential.
+    if (accessToken === '') {
+      return { credential: null, reason: 'not-found' };
+    }
+    if (!oauth || typeof accessToken !== 'string') {
       return { credential: null, reason: 'malformed' };
     }
 

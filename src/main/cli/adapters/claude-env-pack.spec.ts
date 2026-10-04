@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _setSettingsReaderForTesting,
   applyClaudeHygieneEnv,
+  resolveClaudeDebugLogging,
   resolveClaudeFallbackModel,
 } from './claude-env-pack';
 
@@ -81,5 +82,26 @@ describe('resolveClaudeFallbackModel', () => {
     getSettingMock.mockReturnValue('   ');
     expect(resolveClaudeFallbackModel('')).toBeUndefined();
     expect(resolveClaudeFallbackModel(undefined)).toBeUndefined();
+  });
+});
+
+describe('resolveClaudeDebugLogging', () => {
+  beforeEach(() => {
+    getSettingMock.mockReset();
+    getSettingMock.mockReturnValue(undefined);
+  });
+
+  it('is off when the setting is unset', () => {
+    expect(resolveClaudeDebugLogging()).toBe(false);
+  });
+
+  it('follows the claudeCliDebugLogging setting', () => {
+    getSettingMock.mockImplementation((key: string) => key === 'claudeCliDebugLogging');
+    expect(resolveClaudeDebugLogging()).toBe(true);
+  });
+
+  it('prefers an explicit spawn option over the setting', () => {
+    getSettingMock.mockReturnValue(true);
+    expect(resolveClaudeDebugLogging(false)).toBe(false);
   });
 });

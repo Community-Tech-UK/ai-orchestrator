@@ -82,3 +82,12 @@ export function resolveClaudeFallbackModel(explicit?: string): string | undefine
   const trimmed = typeof fromSetting === 'string' ? fromSetting.trim() : '';
   return trimmed || undefined;
 }
+
+/**
+ * Resolve whether a Claude spawn gets `--debug`: an explicit spawn option
+ * wins; otherwise the global `claudeCliDebugLogging` setting applies.
+ */
+export function resolveClaudeDebugLogging(explicit?: boolean): boolean {
+  if (explicit !== undefined) return explicit;
+  return readSetting('claudeCliDebugLogging') === true;
+}

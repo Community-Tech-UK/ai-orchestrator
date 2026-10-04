@@ -19,6 +19,7 @@ import { getLogger } from '../../logging/logger';
 import { isOrchestratorPausedError } from '../../pause/orchestrator-paused-error';
 import {
   getSessionRecoveryCandidateServiceIfInitialized,
+  waitForSessionRecoveryStartupArchive,
   type ResolvedRecoveryCandidate,
   type SessionRecoveryCandidateService,
 } from '../../session/session-recovery-candidate-service';
@@ -131,6 +132,7 @@ async function listRecoveryCandidates(): Promise<IpcResponse<SessionRecoveryCand
   if (!service) return recoveryServiceUnavailable() as IpcResponse<SessionRecoveryCandidate[]>;
 
   try {
+    await waitForSessionRecoveryStartupArchive();
     const discovered = await service.listCandidates();
     const candidates = discovered.flatMap((candidate) => {
       const parsed = publicCandidate(candidate);

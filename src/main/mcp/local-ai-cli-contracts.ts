@@ -3,15 +3,17 @@ import {
   LocalAiDiscoveredEndpointsSchema,
   LocalAiProbeResultsSchema,
   LocalAiTargetCreateRequestSchema,
+  LocalAiTargetLifecycleRequestSchema,
   LocalAiTargetSchema,
 } from '../../shared/validation/local-ai-guard.schemas';
-import type { LocalAiTargetConfig } from '../../shared/types/local-ai-guard.types';
+import type { LocalAiTargetConfig, LocalAiTargetLifecycle } from '../../shared/types/local-ai-guard.types';
 
 export const LOCAL_AI_CLI_METHODS = {
   list: 'orchestrator_tools.local_ai.list',
   discover: 'orchestrator_tools.local_ai.discover',
   validate: 'orchestrator_tools.local_ai.validate',
   enrol: 'orchestrator_tools.local_ai.enrol',
+  setLifecycle: 'orchestrator_tools.local_ai.set_lifecycle',
 } as const;
 
 export const LocalAiCliEmptyPayloadSchema = z.object({}).strict();
@@ -26,6 +28,8 @@ export const LocalAiCliEnrolPayloadSchema =
       });
     }
   });
+export const LocalAiCliSetLifecyclePayloadSchema = LocalAiTargetLifecycleRequestSchema;
+export const LocalAiCliSetLifecycleResultSchema = LocalAiTargetSchema;
 export const LocalAiCliTargetListResultSchema = z.array(LocalAiTargetSchema).max(1_000);
 export const LocalAiCliDiscoveryResultSchema = LocalAiDiscoveredEndpointsSchema;
 export const LocalAiCliValidationResultSchema = LocalAiProbeResultsSchema;
@@ -39,4 +43,9 @@ export interface LocalAiCliOperations {
   discover(): unknown | Promise<unknown>;
   validate(config: LocalAiTargetConfig): unknown | Promise<unknown>;
   create(config: LocalAiTargetConfig): unknown | Promise<unknown>;
+  setLifecycle(
+    targetId: string,
+    lifecycle: Exclude<LocalAiTargetLifecycle, 'unmanaged'>,
+    pausedUntil?: number,
+  ): unknown | Promise<unknown>;
 }

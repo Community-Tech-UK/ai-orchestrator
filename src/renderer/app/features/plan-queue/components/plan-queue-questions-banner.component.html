@@ -1,0 +1,12 @@
+<div class="pq-banner-live" role="status" aria-live="polite">
+  @if (count() > 0) {
+    <button type="button" class="pq-banner" data-testid="plan-queue-questions-banner" (click)="open()">
+      <span class="pq-banner__icon" aria-hidden="true">?</span>
+      <span class="pq-banner__copy">
+        <span class="pq-banner__title">{{ title() }}</span>
+        <span class="pq-banner__summary">{{ summary() }}</span>
+      </span>
+      <span class="pq-banner__action">Answer</span>
+    </button>
+  }
+</div>

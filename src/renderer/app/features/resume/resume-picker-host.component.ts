@@ -11,6 +11,14 @@ import type { ResumePickerAction, ResumePickerItem } from './resume-picker.types
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ng-template #resumeHeader>
+      @if (controller.recoveryOnly()) {
+        <div class="resume-scope" data-testid="resume-recovery-scope">
+          <span>Showing autosaved sessions that are not in History.</span>
+          <button type="button" class="resume-scope__all" (click)="controller.showAllResumable()">
+            Show all sessions
+          </button>
+        </div>
+      }
       @if (controller.lastError(); as error) {
         <div class="resume-error" role="alert" aria-live="assertive">
           {{ error }}
@@ -75,6 +83,32 @@ import type { ResumePickerAction, ResumePickerItem } from './resume-picker.types
     .resume-action:disabled {
       cursor: wait;
       opacity: 0.65;
+    }
+
+    .resume-scope {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 8px 0 0;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .resume-scope__all {
+      border: none;
+      background: none;
+      padding: 0;
+      color: var(--primary-color);
+      font: inherit;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    .resume-scope__all:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 2px;
     }
 
     .resume-error {

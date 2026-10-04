@@ -34,8 +34,10 @@ import {
 } from './continuity-revival';
 
 const logger = getLogger('ContinuityRecoveryCoordinator');
+// A hibernated instance is still in the rail and wakes on its next message, so
+// it stays live here: offering it for recovery would start a duplicate session.
 const RECOVERY_NON_LIVE_STATUSES = new Set<InstanceStatus>([
-  'terminated', 'failed', 'error', 'cancelled', 'superseded', 'hibernated',
+  'terminated', 'failed', 'error', 'cancelled', 'superseded',
 ]);
 
 export interface ContinuityRecoveryCoordinatorDependencies {

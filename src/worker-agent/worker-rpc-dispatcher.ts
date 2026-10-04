@@ -1,6 +1,5 @@
 import type { FileAttachment } from '../shared/types/instance.types';
-import { DEFAULT_OLLAMA_KEEP_ALIVE } from '../shared/types/auxiliary-llm.types';
-import { generateOpenAiCompatibleOnWorker } from './worker-auxiliary-generate';
+import { generateOllamaOnWorker, generateOpenAiCompatibleOnWorker } from './worker-auxiliary-generate';
 import { OLLAMA_LOCAL_BASE_URL, LMSTUDIO_LOCAL_BASE_URL } from './local-model-config';
 import { z, ZodError } from 'zod/v4';
 import type {
@@ -582,32 +581,7 @@ export class WorkerRpcDispatcher {
     numCtx?: number;
   }): Promise<string> {
     if (params.provider === 'ollama') {
-      const controller = new AbortController();
-      const tid = setTimeout(() => controller.abort(), params.timeoutMs);
-      try {
-        const resp = await fetch(`${OLLAMA_LOCAL_BASE_URL}/api/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: params.model,
-            prompt: `${params.systemPrompt}\n\nUser: ${params.userPrompt}`,
-            stream: false,
-            keep_alive: DEFAULT_OLLAMA_KEEP_ALIVE,
-            format: params.requireJson ? 'json' : undefined,
-            options: {
-              temperature: params.temperature,
-              num_predict: params.maxOutputTokens,
-              ...(params.numCtx ? { num_ctx: params.numCtx } : {}),
-            },
-          }),
-          signal: controller.signal,
-        });
-        if (!resp.ok) throw new Error(`Ollama generate failed: ${resp.status}`);
-        const data = await resp.json() as { response: string };
-        return data.response ?? '';
-      } finally {
-        clearTimeout(tid);
-      }
+      return generateOllamaOnWorker(OLLAMA_LOCAL_BASE_URL, params);
     }
     if (params.provider === 'openai-compatible') {
       return generateOpenAiCompatibleOnWorker(LMSTUDIO_LOCAL_BASE_URL, params);

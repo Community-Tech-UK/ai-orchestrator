@@ -184,6 +184,8 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
   resolveContextEvidence?: (
     instanceId: string,
   ) => Omit<OrchestratorEvidenceToolContext, 'instanceId'> | null;
+  /** Drains real provider source messages before enforced tool execution. */
+  prepareEvidenceSource?: (instanceId: string) => Promise<void>;
   authorizeReleaseMutation?: (
     request: ReleaseMutationAuthorizationRequest,
   ) => Promise<boolean>;
@@ -227,6 +229,7 @@ export class OrchestratorToolsRpcServer {
   private readonly resolveContextEvidence: NonNullable<
     OrchestratorToolsRpcServerOptions['resolveContextEvidence']
   >;
+  private readonly prepareEvidenceSource: OrchestratorToolsRpcServerOptions['prepareEvidenceSource'];
   private readonly authorizeReleaseMutation: NonNullable<
     OrchestratorToolsRpcServerOptions['authorizeReleaseMutation']
   >;
@@ -284,6 +287,7 @@ export class OrchestratorToolsRpcServer {
     this.sessionMessagingService = options.sessionMessagingService ?? null;
     this.resolveSpawnEligibility = options.resolveSpawnEligibility ?? null;
     this.resolveContextEvidence = options.resolveContextEvidence ?? (() => null);
+    this.prepareEvidenceSource = options.prepareEvidenceSource;
     this.authorizeReleaseMutation = options.authorizeReleaseMutation ?? (async () => false);
     this.calendarTools = options.calendarTools ?? {};
     this.localAiGuardOperations = options.localAiGuardOperations ?? null;
@@ -732,6 +736,8 @@ export class OrchestratorToolsRpcServer {
         planQueueTools: this.planQueueTools,
         calendarTools: this.calendarTools,
         contextEvidence: this.resolveContextEvidence(instanceId),
+        resolveEvidenceConversation: () => this.resolveContextEvidence(instanceId)?.conversationId ?? null,
+        prepareEvidenceSource: this.prepareEvidenceSource,
         sessionMessagingService: this.sessionMessagingService,
       }));
     }
@@ -764,6 +770,8 @@ export class OrchestratorToolsRpcServer {
       planQueueTools: this.planQueueTools,
       calendarTools: this.calendarTools,
       contextEvidence: this.resolveContextEvidence(instanceId),
+      resolveEvidenceConversation: () => this.resolveContextEvidence(instanceId)?.conversationId ?? null,
+      prepareEvidenceSource: this.prepareEvidenceSource,
       sessionMessagingService: this.sessionMessagingService,
     }));
   }

@@ -169,6 +169,7 @@ function candidateService(
     waitForHistoryReady: () => history.startupTasks,
     getHistoryCoverage: (identities) => history.getRecoveryCoverage(identities),
     loadHistoryConversation: (entryId) => history.loadConversation(entryId),
+    isSuppressedByHistory: (record) => history.isRecoverySuppressed(record),
     getLiveRecoveryKeys: liveKeys,
     now: () => BASE_TIME,
   });
@@ -435,6 +436,7 @@ describe('abrupt restart recovery integration', () => {
       waitForHistoryReady: () => restartedHistory.startupTasks,
       getHistoryCoverage: (identities) => restartedHistory.getRecoveryCoverage(identities),
       loadHistoryConversation: (entryId) => restartedHistory.loadConversation(entryId),
+      isSuppressedByHistory: (record) => restartedHistory.isRecoverySuppressed(record),
       getLiveRecoveryKeys: () => coordinator.getLiveRecoveryKeys(),
       now: () => BASE_TIME,
     });

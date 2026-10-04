@@ -7,6 +7,11 @@ import {
   getInstanceProviderLimitHandler,
 } from '../../instance-provider-limit-handler';
 import { InstanceTerminationCoordinator, type InstanceTerminationDeps } from '../instance-termination';
+
+const continuityUpdateState = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock('../../../session/session-continuity', () => ({
+  getSessionContinuityManagerIfInitialized: () => ({ updateState: continuityUpdateState }),
+}));
 import {
   _resetToolOutcomeStoreForTesting,
   getToolOutcomes,
@@ -218,6 +223,25 @@ describe('InstanceTerminationCoordinator', () => {
 
     expect(deps.terminateChild).not.toHaveBeenCalled();
     expect(child.parentId).toBeNull();
+    // The autosave must stop calling it a child, or crash recovery hides it.
+    expect(continuityUpdateState).toHaveBeenCalledWith('child-1', { parentId: null });
+  });
+
+  it('records reparented children as top-level in session continuity', async () => {
+    const parent = makeInstance({
+      id: 'parent-2',
+      childrenIds: ['child-3'],
+      terminationPolicy: 'reparent-to-root',
+    });
+    const child = makeInstance({ id: 'child-3', parentId: 'parent-2', depth: 1 });
+    instances.set(parent.id, parent);
+    instances.set(child.id, child);
+    continuityUpdateState.mockClear();
+
+    await new InstanceTerminationCoordinator(deps).terminateInstance(parent.id);
+
+    expect(child.parentId).toBeNull();
+    expect(continuityUpdateState).toHaveBeenCalledWith('child-3', { parentId: null });
   });
 
   it('mines root transcripts with enough conversational content', () => {

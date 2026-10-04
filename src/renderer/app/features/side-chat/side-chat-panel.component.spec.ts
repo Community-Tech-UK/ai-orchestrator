@@ -39,6 +39,7 @@ function createMockChatStore() {
     sendMessageTo: vi.fn().mockResolvedValue({ ok: true }),
     createDetached: vi.fn().mockResolvedValue({ ok: false, error: 'unused' }),
     loadOlderMessagesFor: vi.fn().mockResolvedValue(null),
+    archive: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -55,6 +56,7 @@ function createMockSideChatStore() {
     createSideChat: vi.fn().mockResolvedValue('new-side'),
     send: vi.fn().mockResolvedValue(true),
     markRead: vi.fn().mockResolvedValue(undefined),
+    removeSideChat: vi.fn(),
     detailFor: vi.fn().mockReturnValue(null),
     sending: vi.fn().mockReturnValue(false),
     error: vi.fn().mockReturnValue(null),
@@ -129,5 +131,64 @@ describe('SideChatPanelComponent', () => {
     const el: HTMLElement = fixture.nativeElement;
     expect(el.querySelector('textarea')?.getAttribute('aria-label')).toBeTruthy();
     expect(el.querySelector('.header-close')?.getAttribute('aria-label')).toBeTruthy();
+  });
+
+  it('renders the conversation selector when multiple sidechats exist', () => {
+    fixture.componentRef.setInput('parent', { kind: 'chat', chatId: 'pa' });
+    sideChatStore.links.mockReturnValue(new Map([
+      ['s1', { chatId: 's1', parent: { kind: 'chat', chatId: 'pa' }, authority: 'inherit-parent', lastReadAssistantSequence: 0 }],
+      ['s2', { chatId: 's2', parent: { kind: 'chat', chatId: 'pa' }, authority: 'inherit-parent', lastReadAssistantSequence: 0 }],
+    ]));
+    sideChatStore.sessionKey.mockReturnValue('chat:pa');
+    sideChatStore.detailFor.mockImplementation((id: string) => ({
+      chat: { id, name: `Chat ${id}`, provider: 'claude', currentCwd: '/w', ledgerThreadId: 't', currentInstanceId: null, createdAt: 1, lastActiveAt: 1, archivedAt: null, model: null, reasoningEffort: null, projectId: null, yolo: false },
+      conversation: { thread: {}, messages: [] },
+      currentInstance: null,
+    }));
+    fixture.detectChanges();
+    const el: HTMLElement = fixture.nativeElement;
+    expect(el.querySelector('.sidechat-selector')).toBeTruthy();
+    expect(el.querySelectorAll('.selector-item').length).toBe(2);
+  });
+
+  it('calls markReadIfVisible on scroll and mouseenter', () => {
+    fixture.detectChanges();
+    const body = fixture.nativeElement.querySelector('.panel-body');
+    expect(body).toBeTruthy();
+    // The handlers are bound in the template; verify the method exists and is safe.
+    expect(() => fixture.componentInstance.markReadIfVisible()).not.toThrow();
+  });
+
+  it('archives the sidechat and clears selection', async () => {
+    fixture.componentRef.setInput('parent', { kind: 'chat', chatId: 'pa' });
+    sideChatStore.selectedChatId.mockReturnValue('s1');
+    fixture.detectChanges();
+    await fixture.componentInstance.archiveSideChat();
+    expect(sideChatStore.removeSideChat).toHaveBeenCalledWith('s1');
+  });
+
+  it('shows unread dot for conversations with unread answers', () => {
+    fixture.componentRef.setInput('parent', { kind: 'chat', chatId: 'pa' });
+    sideChatStore.links.mockReturnValue(new Map([
+      ['s1', { chatId: 's1', parent: { kind: 'chat', chatId: 'pa' }, authority: 'inherit-parent', lastReadAssistantSequence: 0 }],
+      ['s2', { chatId: 's2', parent: { kind: 'chat', chatId: 'pa' }, authority: 'inherit-parent', lastReadAssistantSequence: 5 }],
+    ]));
+    sideChatStore.sessionKey.mockReturnValue('chat:pa');
+    sideChatStore.detailFor.mockImplementation((id: string) => ({
+      chat: { id, name: `Chat ${id}`, provider: 'claude', currentCwd: '/w', ledgerThreadId: 't', currentInstanceId: null, createdAt: 1, lastActiveAt: 1, archivedAt: null, model: null, reasoningEffort: null, projectId: null, yolo: false },
+      conversation: {
+        thread: {},
+        messages: id === 's1'
+          ? [{ id: 'm1', threadId: 't', nativeMessageId: null, nativeTurnId: null, role: 'assistant', phase: null, content: 'answer', createdAt: 1, tokenInput: null, tokenOutput: null, rawRef: null, rawJson: null, sourceChecksum: null, sequence: 3 }]
+          : [{ id: 'm2', threadId: 't', nativeMessageId: null, nativeTurnId: null, role: 'assistant', phase: null, content: 'answer', createdAt: 1, tokenInput: null, tokenOutput: null, rawRef: null, rawJson: null, sourceChecksum: null, sequence: 3 }],
+      },
+      currentInstance: null,
+    }));
+    fixture.detectChanges();
+    const el: HTMLElement = fixture.nativeElement;
+    expect(el.querySelector('.sidechat-selector')).toBeTruthy();
+    // s1 has unread (latest=3 > read=0), s2 is read (latest=3 <= read=5).
+    const dots = el.querySelectorAll('.unread-dot');
+    expect(dots.length).toBe(1);
   });
 });

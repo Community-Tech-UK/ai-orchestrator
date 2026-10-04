@@ -152,6 +152,9 @@ export async function generateWithOllama(
     prompt: `${safeRequest.systemPrompt}\n\n${safeRequest.userPrompt}`,
     stream: false,
     keep_alive: safeRequest.keepAlive ?? DEFAULT_OLLAMA_KEEP_ALIVE,
+    // Thinking models otherwise spend num_predict on hidden reasoning and return
+    // empty output. Ollama ignores `false` for models without thinking support.
+    think: false,
     ...(safeRequest.requireJson ? { format: 'json' } : {}),
     options: {
       temperature: safeRequest.temperature,

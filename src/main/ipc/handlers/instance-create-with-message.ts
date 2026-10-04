@@ -62,6 +62,7 @@ export async function createInstanceWithMessage(
   const instance = await manager.createInstance({
     workingDirectory,
     initialPrompt: validated.message,
+    initialUserMessageSource: 'current-submission',
     attachments,
     initialOutputBuffer: [createInitialUserMessage(validated.message, attachments)],
     launchMode: validated.launchMode,

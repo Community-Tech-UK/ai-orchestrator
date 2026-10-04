@@ -3,6 +3,7 @@ import type {
   SessionRecoveryCandidate,
   SessionRecoveryReason,
 } from '../../../../../shared/types/session-recovery.types';
+import { HistoryStore } from '../../../core/state/history.store';
 import { SessionRecoveryDismissalStore } from '../../../core/state/session-recovery-dismissal.store';
 import { SessionRecoveryStore } from '../../../core/state/session-recovery.store';
 
@@ -46,6 +47,7 @@ function messageCountLabel(count: number): string {
 export class SessionRecoveryBannerComponent implements OnInit {
   protected readonly store = inject(SessionRecoveryStore);
   private readonly dismissalStore = inject(SessionRecoveryDismissalStore);
+  private readonly historyStore = inject(HistoryStore);
   readonly openRecoveryRequested = output<void>();
 
   protected readonly candidates = this.store.candidates;
@@ -63,7 +65,9 @@ export class SessionRecoveryBannerComponent implements OnInit {
   });
   protected readonly title = computed(() => {
     const count = this.candidateCount();
-    return count === 1 ? 'Autosaved session available' : `${count} autosaved sessions available`;
+    return count === 1
+      ? 'A session has work missing from History'
+      : `${count} sessions have work missing from History`;
   });
   protected readonly summary = computed(() => {
     const candidate = this.primaryCandidate();
@@ -77,7 +81,9 @@ export class SessionRecoveryBannerComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    void this.store.refresh();
+    // The main process answers this only after it has copied recoverable
+    // autosaves into History at startup, so reload History to show them.
+    void this.store.refresh().then(() => this.historyStore.loadHistory());
   }
 
   protected openRecoveryPicker(): void {

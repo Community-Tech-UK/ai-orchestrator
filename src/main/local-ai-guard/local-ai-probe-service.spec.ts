@@ -63,6 +63,7 @@ describe('LocalAiProbeService', () => {
     const fetchMock = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ version: '0.12.1' }))
       .mockResolvedValueOnce(jsonResponse({ models: [{ name: 'qwen3:8b' }] }))
+      .mockResolvedValueOnce(jsonResponse({ models: [] }))
       .mockResolvedValueOnce(jsonResponse({ response: 'AIO_HEALTH_OK' }));
     const service = new LocalAiProbeService({ fetch: fetchMock });
 
@@ -212,11 +213,26 @@ describe('LocalAiProbeService', () => {
     expect(report.recommendedActions).toEqual(['deep-check']);
   });
 
+  it.each([
+    // version, tags, resident-context read, canary — then the transport margin.
+    ['ollama', 4 * 1_000 + 1_000],
+    // models, canary — then the transport margin.
+    ['openai-compatible', 2 * 1_000 + 1_000],
+  ] as const)('budgets every request of a functional %s worker probe', async (provider, budget) => {
+    const sendServiceRpc = vi.fn(async (..._args: unknown[]) => [workerSample()]);
+    const service = new LocalAiProbeService({ sendServiceRpc });
+
+    await service.check(target({ type: 'worker', nodeId: 'worker-7' }, { provider }), 'functional');
+
+    expect(sendServiceRpc.mock.calls[0]?.[3]).toBe(budget);
+  });
+
   it('preserves a worker inference-timeout result by budgeting the full functional RPC sequence', async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ version: '0.12.1' }))
       .mockResolvedValueOnce(jsonResponse({ models: [{ name: 'qwen3:8b' }] }))
+      .mockResolvedValueOnce(jsonResponse({ models: [] }))
       .mockImplementationOnce((_input, init) => new Promise((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => {
           reject(new DOMException('The operation was aborted', 'AbortError'));

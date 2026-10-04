@@ -3,6 +3,7 @@ import type { FileAttachment, Instance } from './instance.types';
 import type { SupportedProvider } from './mcp-scopes.types';
 import type { ReasoningEffort } from './provider.types';
 import type { SideChatParentRef, SideChatProviderSelection } from './side-chat.types';
+import type { ModelRuntimeTarget } from './local-model-runtime.types';
 
 export type ChatProvider = SupportedProvider | 'cursor' | 'local-model';
 
@@ -15,6 +16,7 @@ export interface ChatRecord {
   provider: ChatProvider | null;
   model: string | null;
   reasoningEffort: ReasoningEffort | null;
+  modelRuntimeTarget?: ModelRuntimeTarget | null;
   currentCwd: string | null;
   projectId: string | null;
   yolo: boolean;

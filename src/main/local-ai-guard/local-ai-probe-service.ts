@@ -394,9 +394,11 @@ function healthRpcBudget(
   checksContextCapacity: boolean,
 ): number {
   const metadataRequests = provider === 'ollama' ? 2 : 1;
+  // An Ollama canary first reads /api/ps so it can reuse the resident num_ctx.
+  const canaryRequests = provider === 'ollama' ? 2 : 1;
   const requestCount = metadataRequests
     + (checksContextCapacity ? 1 : 0)
-    + (kind === 'functional' ? 1 : 0);
+    + (kind === 'functional' ? canaryRequests : 0);
   return requestCount * perRequestTimeoutMs + LOCAL_AI_HEALTH_RPC_TRANSPORT_MARGIN_MS;
 }
 

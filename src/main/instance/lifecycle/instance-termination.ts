@@ -13,6 +13,7 @@ import type { Instance, InstanceStatus, InstanceWaitReason } from '../../../shar
 import { emitPluginHook } from '../../plugins/hook-emitter';
 import { normalizeProjectMemoryKey } from '../../memory/project-memory-key';
 import { clearToolOutcomes } from '../../learning/tool-outcome-store';
+import { getSessionContinuityManagerIfInitialized } from '../../session/session-continuity';
 import { deleteTurnSupervisor } from '../../session/session-turn-supervisor';
 import { getInstanceProviderLimitHandler } from '../instance-provider-limit-handler';
 import { getInstanceAuthRepairHandler } from '../instance-auth-repair-handler';
@@ -241,6 +242,21 @@ export class InstanceTerminationCoordinator {
     }
   }
 
+  /**
+   * A detached child is now a top-level session that History will archive on
+   * close. Its autosave captured the old parent at tracking start, so update it
+   * too, or crash recovery would keep treating it as a sub-agent.
+   */
+  private recordDetachedChild(childId: string): void {
+    getSessionContinuityManagerIfInitialized()?.updateState(childId, { parentId: null })
+      .catch((error: unknown) => {
+        logger.warn('Failed to record detached child in session continuity', {
+          childId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }
+
   private async archiveRootConversation(instanceId: string, instance: Instance): Promise<void> {
     if (instance.parentId) {
       return;
@@ -332,6 +348,7 @@ export class InstanceTerminationCoordinator {
           const child = this.deps.getInstance(childId);
           if (child) {
             child.parentId = null;
+            this.recordDetachedChild(childId);
             logger.info('Orphaned child instance', { childId, parentId: instance.id });
           }
         }
@@ -342,6 +359,7 @@ export class InstanceTerminationCoordinator {
           if (child) {
             child.parentId = null;
             child.depth = 0;
+            this.recordDetachedChild(childId);
             logger.info('Reparented child instance to root', {
               childId,
               formerParentId: instance.id,

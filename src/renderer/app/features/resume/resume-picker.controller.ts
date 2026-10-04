@@ -80,6 +80,12 @@ export class ResumePickerController implements OverlayController<ResumePickerIte
   readonly placeholder = 'Search resumable sessions...';
   readonly emptyLabel = 'No resumable sessions found';
   readonly query = signal('');
+  /**
+   * Opened from the autosave banner: show only autosave recovery rows. A kind
+   * filter, not a text query — the fuzzy matcher let unrelated History rows
+   * whose text merely contained the letters of "autosave" through.
+   */
+  readonly recoveryOnly = signal(false);
   readonly lastError = signal<string | null>(null);
   readonly actionLabel = actionLabel;
 
@@ -168,7 +174,9 @@ export class ResumePickerController implements OverlayController<ResumePickerIte
 
   readonly groups = computed<OverlayGroup<ResumePickerItem>[]>(() => {
     const query = this.query().trim().toLowerCase();
+    const recoveryOnly = this.recoveryOnly();
     const items = this.items()
+      .filter((item) => !recoveryOnly || item.kind === 'recovery')
       .filter((item) => this.matches(item, query))
       .sort((left, right) => this.score(right) - this.score(left) || left.title.localeCompare(right.title))
       .map((item) => this.toOverlayItem(item));
@@ -187,11 +195,17 @@ export class ResumePickerController implements OverlayController<ResumePickerIte
   }
 
   focusRecoveryContent(): void {
-    this.query.set('autosave');
+    this.query.set('');
+    this.recoveryOnly.set(true);
+  }
+
+  showAllResumable(): void {
+    this.recoveryOnly.set(false);
   }
 
   resetTransientFocus(): void {
     this.query.set('');
+    this.recoveryOnly.set(false);
   }
 
   ensureCandidatesLoaded(): void {

@@ -26,7 +26,7 @@ export class SideChatAttentionTracker {
   constructor(private readonly deps: SideChatAttentionDeps) {}
 
   forParent(parent: SideChatParentRef): SideChatAttention {
-    const links = this.deps.linkStore.listForParent(parent);
+    const links = this.deps.linkStore.listActiveForParent(parent);
     let running = 0;
     let unread = 0;
     let needsAttention = 0;

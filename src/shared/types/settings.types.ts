@@ -266,6 +266,13 @@ export interface AppSettings extends DesktopComputerUseSettings {
    */
   claudeSubprocessEnvScrub: boolean;
   /**
+   * Pass `--debug` to Claude CLI spawns so each session writes Claude Code's
+   * own debug log to `<config dir>/debug/<session-id>.txt` (stdout is
+   * unaffected). Diagnostic only, e.g. for OAuth refresh failures. Default OFF:
+   * the logs are verbose.
+   */
+  claudeCliDebugLogging: boolean;
+  /**
    * WS16 — block agent-derived memories from system-prompt-tier assembly
    * (they may only appear in labelled advisory blocks). Default ON.
    */

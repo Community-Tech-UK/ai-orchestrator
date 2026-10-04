@@ -13,6 +13,7 @@ import {
   LocalAiHealthRepairParamsSchema,
   validateRpcParams,
 } from '../main/remote-node/rpc-schemas';
+import { DEFAULT_OLLAMA_KEEP_ALIVE } from '../shared/types/auxiliary-llm.types';
 import { LMSTUDIO_LOCAL_BASE_URL, OLLAMA_LOCAL_BASE_URL } from './local-model-config';
 import {
   affectedRolesForExpectedModels,
@@ -354,6 +355,24 @@ export class WorkerLocalAiHealth {
     return { models, httpStatus: response.status };
   }
 
+  /**
+   * Context the canary model is already resident with, if any. Ollama reloads a
+   * model whenever `num_ctx` differs, so a canary at the default context evicted
+   * the auxiliary model every interval and the next auxiliary call reloaded it.
+   */
+  private async residentOllamaContext(
+    baseUrl: string,
+    timeoutMs: number,
+    model: string,
+  ): Promise<number | undefined> {
+    try {
+      const capacity = await this.readModelCapacity('ollama', baseUrl, timeoutMs, new Set([model]));
+      return capacity.contextLengths.get(model);
+    } catch {
+      return undefined;
+    }
+  }
+
   private async readModelCapacity(
     provider: LocalAiHealthCheckParams['provider'],
     baseUrl: string,
@@ -384,6 +403,9 @@ export class WorkerLocalAiHealth {
     baseUrl: string,
     checkedAt: number,
   ): Promise<LocalAiProbeResult> {
+    const numCtx = params.provider === 'ollama'
+      ? await this.residentOllamaContext(baseUrl, params.timeoutMs, params.canary.model)
+      : undefined;
     const startedAt = this.now();
     try {
       const response = params.provider === 'ollama'
@@ -396,9 +418,14 @@ export class WorkerLocalAiHealth {
                 model: params.canary.model,
                 prompt: suppressReasoning(EXACT_TOKEN_CANARY_PROMPT),
                 stream: false,
+                // Explicit, so the worker's OLLAMA_KEEP_ALIVE (24h on windows-pc)
+                // cannot pin a model the canary loaded for the whole day.
+                keep_alive: DEFAULT_OLLAMA_KEEP_ALIVE,
+                think: false,
                 options: {
                   temperature: 0,
                   num_predict: MAX_CANARY_OUTPUT_TOKENS,
+                  ...(numCtx === undefined ? {} : { num_ctx: numCtx }),
                 },
               }),
             },

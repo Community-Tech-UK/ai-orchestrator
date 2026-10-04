@@ -107,6 +107,7 @@ export const SETTING_SURFACING = {
   sessionHandoffStateEnabled: 'tab',
   claudeFallbackModel: 'tab',
   claudeSubprocessEnvScrub: 'tab',
+  claudeCliDebugLogging: 'tab',
   memoryInstructionGate: 'tab',
   sessionFailoverProviders: 'tab',
   sessionFailoverMaxSwitches: 'tab',

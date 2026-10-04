@@ -44,6 +44,7 @@ export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] 
       // existing installs; only the control is gone.
       'parserBufferMaxKB',
       'commandDiagnosticsAvailable',
+      'claudeCliDebugLogging',
       'broadRootFileThreshold',
     ],
   },

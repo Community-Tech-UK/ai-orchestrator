@@ -86,6 +86,9 @@ export class InstanceOutputStore implements ImageAttachmentSink {
       if (instance) {
         // Start with existing messages
         const outputBuffer: OutputMessage[] = [...instance.outputBuffer];
+        const userMessageIds = new Set(
+          outputBuffer.filter((message) => message.type === 'user').map((message) => message.id),
+        );
 
         // Process each pending message
         for (const msg of pending) {
@@ -120,6 +123,14 @@ export class InstanceOutputStore implements ImageAttachmentSink {
               });
             }
           } else {
+            // The creation snapshot can already contain the user message
+            // published by its canonical output event. Reconcile by ID at
+            // flush time, including repeats in this batch and snapshot races.
+            // Assistant/tool parts retain their existing append semantics.
+            if (msg.type === 'user') {
+              if (userMessageIds.has(msg.id)) continue;
+              userMessageIds.add(msg.id);
+            }
             // Regular message - just append
             outputBuffer.push(msg);
           }

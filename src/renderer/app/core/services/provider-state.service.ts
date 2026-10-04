@@ -97,14 +97,17 @@ export class ProviderStateService {
   readonly isCopilot = computed(() => this.selectedProvider() === 'copilot');
 
   constructor() {
-    // Hydrate from persisted settings once (settings are async-loaded; the
-    // store starts on DEFAULT_SETTINGS, so the first non-default emit is our
-    // signal that disk values are available).
+    // Hydrate from persisted settings once. Settings are async-loaded and the
+    // store starts on DEFAULT_SETTINGS, so wait for `isInitialized()`:
+    // hydrating from the defaults left the per-provider memory empty, and the
+    // next pick then persisted that near-empty map over the disk one — erasing
+    // every other provider's remembered model (e.g. the OpenCode Token Plan
+    // model the quota chip's gate reads) — and reset defaultCli/defaultModel.
     effect(() => {
       const settings = this.settingsStore.settings();
       this.seedCustomModelsIntoKnownCatalog(settings.customModelsByProvider);
       this.seedRememberedModelsIntoKnownCatalog(settings.defaultModelByProvider);
-      if (this.initialized) return;
+      if (this.initialized || !this.settingsStore.isInitialized()) return;
 
       const providerByProvider = isStringRecord(settings.defaultModelByProvider)
         ? { ...settings.defaultModelByProvider }

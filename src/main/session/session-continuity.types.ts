@@ -45,6 +45,13 @@ export interface SessionState {
   instanceId: string;
   sessionId?: string;
   historyThreadId?: string;
+  /**
+   * The owning parent instance. `null` marks a top-level session, a string marks
+   * a child (sub-agent, Plan Queue worker), and absent means the record predates
+   * this field. Children are never archived to History, so recovery uses this to
+   * tell "not in history" apart from "never belonged in history".
+   */
+  parentId?: string | null;
   nativeResumeFailedAt?: number | null;
   displayName: string;
   isRenamed?: boolean;

@@ -36,7 +36,7 @@ import { getLogger } from '../logging/logger';
 import { retryAuxiliaryGeneration } from './auxiliary-generation-retry';
 import { AuxiliaryDailySpendCap } from './auxiliary-daily-spend-cap';
 import { resolveAuxiliaryEndpointApiKey } from './auxiliary-api-key-resolver';
-import { AuxiliaryModelFailureCache, computeNumCtx, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerLoadedContexts, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
+import { AuxiliaryModelFailureCache, computeNumCtx, localhostOllamaEndpoint, OllamaNumCtxHighWater, resolveSlotModel, pickModelForTier, truncatePromptToBudget, workerLoadedContexts, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
 import { sanitizeProviderText } from '../security/surrogate-sanitizer';
 import {
   buildAuthorizedAuxiliaryFallback,
@@ -117,6 +117,9 @@ export class AuxiliaryLlmService extends EventEmitter {
 
   // Auto-picked models that recently failed, so the next pick steps down.
   private readonly modelFailures = new AuxiliaryModelFailureCache();
+
+  // Never shrink a model's num_ctx in-session: Ollama reloads it on any change.
+  private readonly numCtxHighWater = new OllamaNumCtxHighWater();
 
   // Keeps routing failures visible in the log without flooding it.
   private readonly resolutionWarnings = new AuxiliaryResolutionWarningThrottle();
@@ -401,12 +404,7 @@ export class AuxiliaryLlmService extends EventEmitter {
       ...(localOllama ? [localOllama] : []),
       ...enabled.filter((ep) => ep.source !== 'worker-node'),
     ];
-
-    for (const ep of ordered) {
-      const result = await this.tryEndpointForSlot(ep, slot, slotConfig, localAiContext);
-      if (result) return result;
-    }
-    return null;
+    return this.resolveFirstEligible(ordered, slot, slotConfig, localAiContext);
   }
 
   private async resolveCheapFirst(
@@ -432,11 +430,30 @@ export class AuxiliaryLlmService extends EventEmitter {
       ...this.autoWorkerEndpoints(),
       ...(localOllama ? [localOllama] : []),
     ];
+    return this.resolveFirstEligible(ordered, slot, slotConfig, localAiContext);
+  }
+
+  /**
+   * First endpoint advertising the slot's pinned/tier model wins. An auto-pick
+   * is the fallback only when no endpoint in the list has that model: otherwise
+   * an earlier endpoint (a worker reports Ollama before LM Studio) auto-picks its
+   * own largest model and the configured one on a later endpoint is never used.
+   */
+  private async resolveFirstEligible(
+    ordered: AuxiliaryLlmEndpointConfig[],
+    slot: AuxiliaryLlmSlot,
+    slotConfig: AuxiliaryLlmSlotConfig,
+    localAiContext: LocalAiResolutionContext,
+  ): Promise<ResolvedAuxiliaryEndpoint | null> {
+    const tier = slotConfig.tier ?? DEFAULT_SLOT_TIERS[slot];
+    const wantsModel = resolveSlotModel(slotConfig, tier, this.quickModel, this.qualityModel) !== undefined;
+    let autoPick: ResolvedAuxiliaryEndpoint | null = null;
     for (const ep of ordered) {
       const result = await this.tryEndpointForSlot(ep, slot, slotConfig, localAiContext);
-      if (result) return result;
+      if (result && (!result.autoPicked || !wantsModel)) return result;
+      autoPick ??= result;
     }
-    return null;
+    return autoPick;
   }
 
   private async tryEndpointForSlot(
@@ -508,8 +525,6 @@ export class AuxiliaryLlmService extends EventEmitter {
       : null;
   }
 
-  // ─── Private: health cache ──────────────────────────────────────────────────
-
   // ─── Private: model listing ─────────────────────────────────────────────────
 
   private async listModels(
@@ -562,7 +577,13 @@ export class AuxiliaryLlmService extends EventEmitter {
     // OpenAI-compatible servers ignore numCtx; Ollama uses it to avoid clipping long prompts.
     const tokenCounter = getTokenCounter();
     const promptTokens = tokenCounter.countTokens(systemPrompt) + tokenCounter.countTokens(userPrompt);
-    const numCtx = computeNumCtx(promptTokens, slotConfig.maxOutputTokens, slotConfig.maxInputTokens);
+    const numCtx = this.numCtxHighWater.sizeFor(
+      ep.id, model, computeNumCtx(promptTokens, slotConfig.maxOutputTokens, slotConfig.maxInputTokens),
+    );
+    const succeeded = (text: string): string => {
+      this.numCtxHighWater.recordSuccess(ep.id, model, numCtx);
+      return text;
+    };
     const safePrompts = sanitizeProviderText({ systemPrompt, userPrompt });
 
     // Proxy worker-node endpoints; the coordinator must not dial worker localhost directly.
@@ -585,7 +606,7 @@ export class AuxiliaryLlmService extends EventEmitter {
         },
         slotConfig.timeoutMs + 1000,
       );
-      return result.text;
+      return succeeded(result.text);
     }
 
     const req = {
@@ -599,11 +620,11 @@ export class AuxiliaryLlmService extends EventEmitter {
     };
 
     if (ep.provider === 'ollama') {
-      return generateWithOllama(ep.baseUrl, req);
+      return succeeded(await generateWithOllama(ep.baseUrl, req));
     }
 
     const apiKey = await resolveAuxiliaryEndpointApiKey(ep);
-    return generateWithOpenAiCompatible(ep.baseUrl, apiKey, req);
+    return succeeded(await generateWithOpenAiCompatible(ep.baseUrl, apiKey, req));
   }
 
   // ─── Private: prompt truncation ─────────────────────────────────────────────
@@ -615,38 +636,14 @@ export class AuxiliaryLlmService extends EventEmitter {
     userPrompt: string
   ): { system: string; user: string } {
     const tokenCounter = getTokenCounter();
-    const systemTokens = tokenCounter.countTokens(systemPrompt);
-    const userTokens = tokenCounter.countTokens(userPrompt);
-    const totalTokens = systemTokens + userTokens;
-
-    if (totalTokens <= slotConfig.maxInputTokens) {
-      return { system: systemPrompt, user: userPrompt };
+    const result = truncatePromptToBudget(
+      systemPrompt, userPrompt, slotConfig.maxInputTokens, (text) => tokenCounter.countTokens(text),
+    );
+    if (result.truncation) {
+      this.emit('auxiliary:input-truncated', { slot, ...result.truncation });
+      logger.warn(`Auxiliary prompt truncated for slot "${slot}"`, result.truncation);
     }
-
-    // Budget remaining tokens for userPrompt after system prompt
-    const targetTokens = Math.max(0, slotConfig.maxInputTokens - systemTokens);
-
-    // Preserve first 20% and last 40% of userPrompt chars
-    const userChars = userPrompt.length;
-    const keepFirst = Math.floor(userChars * 0.2);
-    const keepLast = Math.floor(userChars * 0.4);
-    const truncatedUser =
-      userPrompt.slice(0, keepFirst) +
-      '\n[...truncated...]\n' +
-      userPrompt.slice(userChars - keepLast);
-
-    this.emit('auxiliary:input-truncated', {
-      slot,
-      originalTokens: totalTokens,
-      targetTokens,
-    });
-
-    logger.warn(`Auxiliary prompt truncated for slot "${slot}"`, {
-      originalTokens: totalTokens,
-      targetTokens,
-    });
-
-    return { system: systemPrompt, user: truncatedUser };
+    return { system: result.system, user: result.user };
   }
 
   // ─── Private: utility ───────────────────────────────────────────────────────

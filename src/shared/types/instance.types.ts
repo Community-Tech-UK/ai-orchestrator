@@ -532,6 +532,8 @@ export interface Instance {
   autoRespawnSuppressedUntil?: number;
   workingDirectory: string;
   yoloMode: boolean; // Auto-approve all permissions
+  /** Effective tool-permission override inherited from a parent sidechat policy. */
+  toolPermissionsOverride?: import('./agent.types').AgentToolPermissions;
   /** Process-local Computer Use policy override for this live session. */
   computerUseMode?: ComputerUseAutonomyLevel;
   browserToolsMode?: BrowserToolsMode; // WS9 per-instance browser tool surface; undefined = global setting decides
@@ -676,6 +678,8 @@ export interface InstanceCreateConfig {
   resume?: boolean; // Resume a previous session (requires sessionId)
   workingDirectory: string;
   initialPrompt?: string;
+  /** Trusted create-time ingress only; never restored or inferred from transcript buffers. */
+  initialUserMessageSource?: 'current-submission';
   /**
    * Hidden runtime-only context prepended to the initial prompt sent to the
    * provider. The visible transcript still records only `initialPrompt`.
@@ -719,6 +723,15 @@ export interface InstanceCreateConfig {
   provider?: InstanceProvider; // CLI provider to use (defaults to settings.defaultCli)
   modelRuntimeTarget?: ModelRuntimeTarget;
   runtimeSummary?: InstanceRuntimeSummary;
+  /**
+   * Explicit tool-permission override for this instance. When set, these
+   * permissions replace the agent profile's permissions at the tool-filter
+   * boundary. Used by session-linked sidechats to enforce the parent's
+   * effective policy without mapping to a named agent profile (which would
+   * broaden restrictions). Never broadens: the caller faithfully translates
+   * the parent's policy.
+   */
+  toolPermissionsOverride?: import('./agent.types').AgentToolPermissions;
   browserToolsMode?: BrowserToolsMode; // WS9 per-instance browser tool surface; undefined = global setting decides
   hardened?: boolean; // WS13 — spawn the CLI inside the macOS Seatbelt jail (fail-closed when unavailable)
   containedExecution?: boolean; // WS-C7 — filtered spawn env via getSafeEnv(); see contained-execution-scoping.ts

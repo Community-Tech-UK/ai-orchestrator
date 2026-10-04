@@ -1493,6 +1493,8 @@ describe('WorkerAgent', () => {
       const body = JSON.parse((init as { body: string }).body);
       expect(body.options.num_ctx).toBe(32768);
       expect(body.options.num_predict).toBe(4096);
+      // Hidden reasoning would otherwise consume num_predict and return nothing.
+      expect(body.think).toBe(false);
 
       const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
       expect(payload.result).toEqual({ text: 'compressed' });

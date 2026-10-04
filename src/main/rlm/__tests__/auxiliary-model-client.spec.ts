@@ -182,6 +182,16 @@ describe('generateWithOllama', () => {
     expect(body.keep_alive).toBe(DEFAULT_OLLAMA_KEEP_ALIVE);
   });
 
+  it('disables thinking so hidden reasoning cannot consume the output budget', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(mockResponse({ response: 'ok' }, true));
+    vi.stubGlobal('fetch', mockFetch);
+    const { generateWithOllama } = await import('../auxiliary-model-client');
+    await generateWithOllama('http://127.0.0.1:11434', BASE_GENERATE_REQUEST);
+
+    const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(options.body as string).think).toBe(false);
+  });
+
   it('passes num_ctx into options so long prompts are not truncated to the default', async () => {
     const mockFetch = vi.fn().mockResolvedValue(mockResponse({ response: 'ok' }, true));
     vi.stubGlobal('fetch', mockFetch);

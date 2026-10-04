@@ -20,6 +20,8 @@ export interface ContinuityRecoveryMetadata {
   sourceInstanceId: string;
   historyThreadId?: string;
   sessionId?: string;
+  /** See `SessionState.parentId`: null = top-level, string = child, absent = unknown. */
+  parentId?: string | null;
   provider: InstanceProvider;
   modelId?: string;
   displayName?: string;
@@ -69,14 +71,25 @@ export interface SessionRecoveryCandidateDependencies {
     identities: readonly RecoveryHistoryIdentity[],
   ): Promise<ReadonlyMap<string, HistoryRecoveryCoverage>>;
   loadHistoryConversation(entryId: string): Promise<ConversationData | null>;
+  /** True when the user deleted this thread from History or cleared History after it. */
+  isSuppressedByHistory(record: HistoryRecoverySuppressionQuery): boolean;
   getLiveRecoveryKeys(): ReadonlySet<string>;
   now(): number;
+}
+
+export interface HistoryRecoverySuppressionQuery {
+  provider: InstanceProvider;
+  historyThreadId?: string;
+  sessionId?: string;
+  lastActivityAt: number;
 }
 
 interface CandidateRecord {
   candidate: SessionRecoveryCandidate;
   historyEntryId?: string;
   shutdownLive: boolean;
+  /** The autosave positively records a top-level session (not a legacy record). */
+  topLevel: boolean;
 }
 
 export function getRecoveryIdentityKeys(identity: {
@@ -140,6 +153,12 @@ export class SessionRecoveryCandidateService {
   async listCandidates(): Promise<SessionRecoveryCandidate[]> {
     const records = await this.getCandidateRecords();
     return records.map((record) => record.candidate);
+  }
+
+  /** Candidates known to be top-level sessions, which is what History holds. */
+  async listTopLevelCandidates(): Promise<SessionRecoveryCandidate[]> {
+    const records = await this.getCandidateRecords();
+    return records.filter((record) => record.topLevel).map((record) => record.candidate);
   }
 
   async resolveCandidate(recoveryKey: string): Promise<ResolvedRecoveryCandidate> {
@@ -208,16 +227,23 @@ export class SessionRecoveryCandidateService {
       };
       const existing = byKey.get(session.recoveryKey);
       if (!existing || compareMetadata(fromSnapshot, existing) < 0) {
-        byKey.set(session.recoveryKey, fromSnapshot);
+        // The snapshot does not carry parent identity; keep what the autosave knew.
+        byKey.set(session.recoveryKey, existing?.parentId === undefined
+          ? fromSnapshot
+          : { ...fromSnapshot, parentId: existing.parentId });
       }
     }
 
     const liveKeys = this.deps.getLiveRecoveryKeys();
     const eligible = Array.from(byKey.values()).filter((record) =>
       record.provider !== 'gemini'
+      // Children are never archived to History by design, so their absence
+      // from it is not a loss.
+      && typeof record.parentId !== 'string'
       && !getRecoveryIdentityKeys(record).some((key) => liveKeys.has(key))
       && record.messageCount > 0
-      && (record.hasUserPrompt || record.hasAssistantOutput))
+      && (record.hasUserPrompt || record.hasAssistantOutput)
+      && !this.deps.isSuppressedByHistory(record))
       .sort(compareMetadata);
     const coverageRecords = [
       ...eligible.filter((record) => shutdownLiveKeys.has(record.recoveryKey)),
@@ -266,6 +292,7 @@ export class SessionRecoveryCandidateService {
         },
         historyEntryId: history?.historyEntryId,
         shutdownLive: shutdownLiveKeys.has(record.recoveryKey),
+        topLevel: record.parentId === null,
       });
     }
 
@@ -292,8 +319,37 @@ export function getSessionRecoveryCandidateServiceIfInitialized(): SessionRecove
   return candidateServiceInstance;
 }
 
+let startupArchive: Promise<void> = Promise.resolve();
+
+/**
+ * Register the startup pass that copies autosaves into History. Listing waits
+ * for it so the renderer never shows candidates that are about to be saved.
+ */
+export function setSessionRecoveryStartupArchive(task: Promise<unknown>): void {
+  startupArchive = task.then(() => undefined, () => undefined);
+}
+
+/**
+ * Bounded so a stuck archive degrades to the old behaviour (the banner lists
+ * candidates) instead of hanging the recovery list forever.
+ */
+export const SESSION_RECOVERY_STARTUP_ARCHIVE_WAIT_MS = 30_000;
+
+export function waitForSessionRecoveryStartupArchive(
+  timeoutMs = SESSION_RECOVERY_STARTUP_ARCHIVE_WAIT_MS,
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    void startupArchive.then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 export function _resetSessionRecoveryCandidateServiceForTesting(): void {
   candidateServiceInstance = null;
+  startupArchive = Promise.resolve();
 }
 
 interface InstanceLifecycleEvents {

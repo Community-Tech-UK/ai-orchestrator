@@ -1,5 +1,6 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type { ChatProvider, ChatRecord } from '../../shared/types/chat.types';
+import type { ModelRuntimeTarget } from '../../shared/types/local-model-runtime.types';
 import { REASONING_EFFORTS, type ReasoningEffort } from '../../shared/types/provider.types';
 
 interface ChatRow {
@@ -8,6 +9,7 @@ interface ChatRow {
   provider: string | null;
   model: string | null;
   reasoning_effort: string | null;
+  model_runtime_target_json: string | null;
   current_cwd: string | null;
   project_id: string | null;
   yolo: number;
@@ -24,6 +26,7 @@ export interface ChatInsertInput {
   provider: ChatProvider | null;
   model?: string | null;
   reasoningEffort?: ReasoningEffort | null;
+  modelRuntimeTarget?: ModelRuntimeTarget | null;
   currentCwd: string | null;
   projectId?: string | null;
   yolo?: boolean;
@@ -39,6 +42,7 @@ export interface ChatUpdateInput {
   provider?: ChatProvider | null;
   model?: string | null;
   reasoningEffort?: ReasoningEffort | null;
+  modelRuntimeTarget?: ModelRuntimeTarget | null;
   currentCwd?: string | null;
   projectId?: string | null;
   yolo?: boolean;
@@ -81,16 +85,18 @@ export class ChatStore {
     const now = Date.now();
     this.db.prepare(`
       INSERT INTO chats (
-        id, name, provider, model, reasoning_effort, current_cwd, project_id, yolo,
+        id, name, provider, model, reasoning_effort, model_runtime_target_json,
+        current_cwd, project_id, yolo,
         ledger_thread_id, current_instance_id, created_at, last_active_at,
         archived_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.name,
       input.provider,
       input.model ?? null,
       input.reasoningEffort ?? null,
+      input.modelRuntimeTarget ? JSON.stringify(input.modelRuntimeTarget) : null,
       input.currentCwd,
       input.projectId ?? null,
       input.yolo ? 1 : 0,
@@ -115,6 +121,7 @@ export class ChatStore {
         provider = ?,
         model = ?,
         reasoning_effort = ?,
+        model_runtime_target_json = ?,
         current_cwd = ?,
         project_id = ?,
         yolo = ?,
@@ -128,6 +135,9 @@ export class ChatStore {
       input.provider !== undefined ? input.provider : existing.provider,
       input.model !== undefined ? input.model : existing.model,
       input.reasoningEffort !== undefined ? input.reasoningEffort : existing.reasoningEffort,
+      input.modelRuntimeTarget !== undefined
+        ? (input.modelRuntimeTarget ? JSON.stringify(input.modelRuntimeTarget) : null)
+        : (existing.modelRuntimeTarget ? JSON.stringify(existing.modelRuntimeTarget) : null),
       input.currentCwd !== undefined ? input.currentCwd : existing.currentCwd,
       input.projectId !== undefined ? input.projectId : existing.projectId,
       input.yolo !== undefined ? (input.yolo ? 1 : 0) : (existing.yolo ? 1 : 0),
@@ -154,12 +164,21 @@ export class ChatStore {
 }
 
 function rowToChatRecord(row: ChatRow): ChatRecord {
+  let modelRuntimeTarget: ModelRuntimeTarget | null = null;
+  if (row.model_runtime_target_json) {
+    try {
+      modelRuntimeTarget = JSON.parse(row.model_runtime_target_json) as ModelRuntimeTarget;
+    } catch {
+      modelRuntimeTarget = null;
+    }
+  }
   return {
     id: row.id,
     name: row.name,
     provider: isChatProvider(row.provider) ? row.provider : null,
     model: row.model,
     reasoningEffort: isReasoningEffort(row.reasoning_effort) ? row.reasoning_effort : null,
+    modelRuntimeTarget,
     currentCwd: row.current_cwd,
     projectId: row.project_id,
     yolo: row.yolo === 1,

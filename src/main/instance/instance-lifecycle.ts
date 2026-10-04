@@ -1489,9 +1489,13 @@ export class InstanceLifecycleManager extends EventEmitter {
           this.deps.ingestInitialOutputToRlm(instance, config.initialOutputBuffer);
         }
 
-        const toolPermissions = buildToolPermissionConfig(resolvedAgent.permissions, {
-          allowedToolsPolicy: 'allow-all',
-        });
+        const toolPermissions = buildToolPermissionConfig(
+          config.toolPermissionsOverride ?? resolvedAgent.permissions,
+          {
+            allowedToolsPolicy: 'allow-all',
+            yoloMode: instance.yoloMode,
+          },
+        );
         attachToolFilterMetadata(instance, toolPermissions.toolFilter);
 
         // Load instruction hierarchy (skip for child instances to reduce token overhead)
@@ -1545,6 +1549,13 @@ export class InstanceLifecycleManager extends EventEmitter {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CliType (cli-detection) vs CliType (settings) mismatch
         instance.provider = resolvedCliType as any;
         await initializeInstanceEvidenceOwnership(instance, settingsAll);
+        // IPC seeds the current submission for immediate display. Publish that
+        // same record before provider startup without adding it to the buffer
+        // again; restored/replayed records never acquire current provenance.
+        if (seededInitialUserMessage && config.initialUserMessageSource === 'current-submission'
+          && !config.resume && !config.isRestoredSession && !isCrashRecoveryCreation && !deferPublication) {
+          this.emit('output', { instanceId: instance.id, message: seededInitialUserMessage });
+        }
         logger.info('Resolved CLI provider', {
           cliType: resolvedCliType,
           displayName: getCliDisplayName(resolvedCliType)
@@ -3001,10 +3012,13 @@ export class InstanceLifecycleManager extends EventEmitter {
         logger.info('Auto-exited plan mode due to agent mode change', { instanceId, newAgentId });
       }
 
-      const toolPermissions = buildToolPermissionConfig(newAgent.permissions, {
-        allowedToolsPolicy: 'standard-unless-yolo',
-        yoloMode: instance.yoloMode,
-      });
+      const toolPermissions = buildToolPermissionConfig(
+        instance.toolPermissionsOverride ?? newAgent.permissions,
+        {
+          allowedToolsPolicy: 'standard-unless-yolo',
+          yoloMode: instance.yoloMode,
+        },
+      );
       attachToolFilterMetadata(instance, toolPermissions.toolFilter);
 
       const cliType = await this.resolveCliTypeForInstance(instance);

@@ -147,6 +147,74 @@ export function computeNumCtx(
   return Math.min(Math.max(bucketed, NUM_CTX_MIN), ceiling);
 }
 
+const NUM_CTX_HIGH_WATER_MAX_ENTRIES = 256;
+
+/**
+ * Per endpoint+model high-water mark for Ollama `num_ctx`. Ollama reloads a
+ * resident model whenever `num_ctx` changes, so sizing every call to its own
+ * prompt made a small call evict and reload the model a large call had just
+ * loaded (observed on windows-pc: 32768 and 8192 alternating). Never shrinking
+ * within a session means a model reloads only when a call needs more context
+ * than any before it, and a host that never sees a large prompt never pays for
+ * a large window.
+ */
+export class OllamaNumCtxHighWater {
+  private readonly highest = new Map<string, number>();
+
+  // JSON rather than a joined string so ids containing a separator cannot alias.
+  private static key(endpointId: string, model: string): string {
+    return JSON.stringify([endpointId, model]);
+  }
+
+  /** Window to request: this call's need, never below one that already worked. */
+  sizeFor(endpointId: string, model: string, needed: number): number {
+    return Math.max(needed, this.highest.get(OllamaNumCtxHighWater.key(endpointId, model)) ?? 0);
+  }
+
+  /**
+   * Remember a window only after a call at that size succeeded, so one oversized
+   * load that failed (out of memory, prefill timeout) cannot push every later
+   * call for the model onto the same failing size.
+   */
+  recordSuccess(endpointId: string, model: string, used: number): void {
+    const key = OllamaNumCtxHighWater.key(endpointId, model);
+    if (!this.highest.has(key) && this.highest.size >= NUM_CTX_HIGH_WATER_MAX_ENTRIES) {
+      this.highest.clear();
+    }
+    this.highest.set(key, Math.max(used, this.highest.get(key) ?? 0));
+  }
+}
+
+/**
+ * Fit a prompt into a slot's input budget by cutting the middle of the user
+ * prompt, keeping head and tail at 1:2. At most 60% of the user prompt is kept
+ * (the historical 20% head + 40% tail), and less when 60% would still be over
+ * budget: a fixed 60% left anything above ~1.7x the budget too long for a model
+ * served at a fixed loaded context (LM Studio rejects it outright).
+ */
+export function truncatePromptToBudget(
+  systemPrompt: string,
+  userPrompt: string,
+  maxInputTokens: number,
+  countTokens: (text: string) => number,
+): { system: string; user: string; truncation?: { originalTokens: number; targetTokens: number } } {
+  const systemTokens = countTokens(systemPrompt);
+  const userTokens = countTokens(userPrompt);
+  const originalTokens = systemTokens + userTokens;
+  if (originalTokens <= maxInputTokens) return { system: systemPrompt, user: userPrompt };
+
+  const targetTokens = Math.max(0, maxInputTokens - systemTokens);
+  const keepFraction = targetTokens / Math.max(1, userTokens);
+  const userChars = userPrompt.length;
+  const keepFirst = Math.floor(userChars * Math.min(0.2, keepFraction / 3));
+  const keepLast = Math.floor(userChars * Math.min(0.4, (keepFraction * 2) / 3));
+  return {
+    system: systemPrompt,
+    user: `${userPrompt.slice(0, keepFirst)}\n[...truncated...]\n${userPrompt.slice(userChars - keepLast)}`,
+    truncation: { originalTokens, targetTokens },
+  };
+}
+
 /** Compact, stable `host:port` key for an endpoint URL (falls back to the raw value). */
 export function hostKeyFromUrl(baseUrl: string): string {
   try {

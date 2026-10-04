@@ -1458,6 +1458,117 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
     expect((remoteState.rpc.mock.calls[0]![2] as { model: string }).model).toBe('gemma4:12b');
   });
 
+  // windows-pc reports Ollama before LM Studio. With the quality model set to an
+  // LM Studio id, the earlier Ollama endpoint used to auto-pick its own largest
+  // model (gpt-oss:120b) and the configured model was never reached.
+  function seedOllamaThenLmStudio() {
+    remoteState.nodes = [{
+      id: 'node-1',
+      name: 'Windows 5090',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: [
+          { provider: 'ollama', baseUrl: 'http://127.0.0.1:11434', models: ['gpt-oss:120b', 'gemma4:31b'], healthy: true },
+          { provider: 'openai-compatible', baseUrl: 'http://127.0.0.1:1234', models: ['qwen/qwen3.6-35b-a3b', 'qwen/qwen3.5-9b'], healthy: true },
+        ],
+      },
+    }];
+    remoteState.connected = new Set(['node-1']);
+  }
+
+  it('routes a tier model to the later endpoint that advertises it instead of auto-picking on an earlier one', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'done' });
+    seedOllamaThenLmStudio();
+    service.configure(baseSettings({
+      auxiliaryLlmQualityModel: 'qwen/qwen3.6-35b-a3b',
+      auxiliaryLlmQuickModel: 'qwen/qwen3.5-9b',
+    }));
+
+    const quality = await service.generate('compression', 'sys', 'user');
+    const quick = await service.generate('loopScoring', 'sys', 'user');
+
+    expect(quality.decision).toMatchObject({
+      endpointId: 'worker:node-1:openai-compatible:127.0.0.1:1234',
+      model: 'qwen/qwen3.6-35b-a3b',
+    });
+    expect(quick.decision).toMatchObject({
+      endpointId: 'worker:node-1:openai-compatible:127.0.0.1:1234',
+      model: 'qwen/qwen3.5-9b',
+    });
+    expect(remoteState.rpc.mock.calls.map(([, , params]) => (params as { provider: string }).provider))
+      .toEqual(['openai-compatible', 'openai-compatible']);
+  });
+
+  it('still auto-picks on the first endpoint when no endpoint advertises the tier model', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'done' });
+    seedOllamaThenLmStudio();
+    service.configure(baseSettings({ auxiliaryLlmQualityModel: 'nowhere-model' }));
+
+    const { decision } = await service.generate('compression', 'sys', 'user');
+
+    expect(decision).toMatchObject({
+      endpointId: 'worker:node-1:ollama:127.0.0.1:11434',
+      model: 'gpt-oss:120b',
+    });
+  });
+
+  it('does not shrink num_ctx for a model after a larger call, even across tiers', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'done' });
+    // Single-model worker with no tier models set: quick and quality slots both
+    // auto-pick gemma4:26b, so their windows must not alternate.
+    remoteState.nodes = [{
+      id: 'node-1',
+      name: 'Windows 5090',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: [{
+          provider: 'ollama', baseUrl: 'http://127.0.0.1:11434', models: ['gemma4:26b'], healthy: true,
+        }],
+      },
+    }];
+    remoteState.connected = new Set(['node-1']);
+    service.configure(baseSettings());
+
+    await service.generate('titleGeneration', 'sys', 'short');
+    await service.generate('compression', 'sys', 'x'.repeat(40_000));
+    await service.generate('loopScoring', 'sys', 'short');
+
+    const numCtx = remoteState.rpc.mock.calls.map(([, , params]) => (params as { numCtx: number }).numCtx);
+    // First call sized to its own small need; the compression call grows the
+    // window once (10,000 + 4,096 + 512 -> 16,384); later small calls keep it.
+    expect(numCtx).toEqual([8_192, 16_384, 16_384]);
+  });
+
+  it('keeps sending the smaller num_ctx after a larger call for the model fails', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    // The oversized load fails (e.g. out of memory); the small calls succeed.
+    remoteState.rpc = vi.fn(async (_node: string, _method: string, params: { numCtx: number }) => {
+      if (params.numCtx > 16_384) throw new Error('model requires more system memory');
+      return { text: 'done' };
+    });
+    seedConnectedWorker();
+    service.configure(baseSettings({ auxiliaryLlmQualityModel: 'gemma4:26b' }));
+
+    await service.generate('webExtract', 'sys', 'short');
+    await service.generate('compression', 'sys', 'x'.repeat(200_000));
+    await service.generate('webExtract', 'sys', 'short');
+
+    const numCtx = remoteState.rpc.mock.calls.map(([, , params]) => (params as { numCtx: number }).numCtx);
+    expect(numCtx[0]).toBe(8_192);
+    expect(numCtx.at(-1)).toBe(8_192);
+  });
+
   it('lets an explicit per-slot model override the tier model', async () => {
     const service = await getService();
     const mocks = await getMocks();

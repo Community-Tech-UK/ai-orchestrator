@@ -94,6 +94,7 @@
     <!-- Main content area -->
     <main class="main-content">
       <app-session-recovery-banner (openRecoveryRequested)="openRecoveryPicker()" />
+      <app-plan-queue-questions-banner />
       <div
         class="workspace-shell"
         [class.empty]="!hasWorkspaceSelection()"

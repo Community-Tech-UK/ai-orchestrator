@@ -37,6 +37,7 @@ describe('WorkerLocalAiHealth', () => {
           { name: 'nomic-embed-text' },
         ],
       }))
+      .mockResolvedValueOnce(jsonResponse({ models: [] }))
       .mockResolvedValueOnce(jsonResponse({ response: '  AIO_HEALTH_OK\n' }));
     const health = new WorkerLocalAiHealth({ fetch: fetchMock });
 
@@ -61,12 +62,15 @@ describe('WorkerLocalAiHealth', () => {
       canaryOutputValid: true,
     });
 
-    const [url, init] = fetchMock.mock.calls[2]!;
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('http://127.0.0.1:11434/api/ps');
+    const [url, init] = fetchMock.mock.calls[3]!;
     expect(url).toBe('http://127.0.0.1:11434/api/generate');
     expect(JSON.parse(String(init?.body))).toEqual({
       model: 'qwen3:8b',
       prompt: `/no_think\n\n${EXACT_TOKEN_CANARY_PROMPT}`,
       stream: false,
+      keep_alive: '30m',
+      think: false,
       options: {
         temperature: 0,
         num_predict: 32,
@@ -110,6 +114,37 @@ describe('WorkerLocalAiHealth', () => {
       stream: false,
     });
   });
+
+  it.each([
+    ['resident', jsonResponse({ models: [{ name: 'qwen3:8b', context_length: 106_496 }] }), 106_496],
+    ['not resident', jsonResponse({ models: [] }), undefined],
+    ['unreadable', jsonResponse({ error: 'boom' }, 500), undefined],
+  ] as const)(
+    'reuses the resident Ollama context for the canary when the model is %s',
+    async (_state, psResponse, expectedNumCtx) => {
+      const fetchMock = vi.fn<typeof fetch>(async (input) => {
+        const url = String(input);
+        if (url.endsWith('/api/version')) return jsonResponse({ version: '0.12.1' });
+        if (url.endsWith('/api/tags')) return jsonResponse({ models: [{ name: 'qwen3:8b' }] });
+        if (url.endsWith('/api/ps')) return psResponse.clone();
+        if (url.endsWith('/api/generate')) return jsonResponse({ response: 'AIO_HEALTH_OK' });
+        throw new Error(`Unexpected URL: ${url}`);
+      });
+      const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+      const samples = await health.check({
+        ...baseParams,
+        expectedModels: [{ modelId: 'qwen3:8b', required: true }],
+      });
+
+      expect(samples.at(-1)).toMatchObject({ layer: 'inference', ok: true });
+      const generate = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/api/generate'));
+      const body = JSON.parse(String(generate?.[1]?.body)) as { options: Record<string, unknown> };
+      // Ollama reloads a model whose num_ctx changes, so the canary must not
+      // replace the auxiliary model's resident window with the default one.
+      expect(body.options['num_ctx']).toBe(expectedNumCtx);
+    },
+  );
 
   it('reports a missing required model and does not run the canary', async () => {
     const fetchMock = vi.fn<typeof fetch>()
@@ -269,6 +304,7 @@ describe('WorkerLocalAiHealth', () => {
       expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
         'http://127.0.0.1:11434/api/version',
         'http://127.0.0.1:11434/api/tags',
+        'http://127.0.0.1:11434/api/ps',
         'http://127.0.0.1:11434/api/generate',
         'http://127.0.0.1:11434/api/ps',
       ]);
@@ -285,6 +321,7 @@ describe('WorkerLocalAiHealth', () => {
     const fetchMock = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ version: '0.12.1' }))
       .mockResolvedValueOnce(jsonResponse({ models: [{ name: 'qwen3:8b' }] }))
+      .mockResolvedValueOnce(jsonResponse({ models: [] }))
       .mockResolvedValueOnce(jsonResponse({ response: 'AIO_HEALTH_OK' }))
       .mockResolvedValueOnce(jsonResponse({ models: [] }));
     const health = new WorkerLocalAiHealth({ fetch: fetchMock });
@@ -310,6 +347,7 @@ describe('WorkerLocalAiHealth', () => {
     const fetchMock = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ version: '0.12.1' }))
       .mockResolvedValueOnce(jsonResponse({ models: [{ name: 'qwen3:8b' }] }))
+      .mockResolvedValueOnce(jsonResponse({ models: [] }))
       .mockResolvedValueOnce(jsonResponse({ response: 'AIO_HEALTH_OK' }))
       .mockResolvedValueOnce(jsonResponse({ models: 'not-an-array' }));
     const health = new WorkerLocalAiHealth({ fetch: fetchMock });
@@ -737,6 +775,7 @@ describe('WorkerLocalAiHealth', () => {
           { name: 'nomic-embed-text' },
         ],
       }))
+      .mockResolvedValueOnce(jsonResponse({ models: [] }))
       .mockResolvedValueOnce(jsonResponse({
         response: 'AIO_HEALTH_OK plus untrusted model text',
       }));

@@ -1331,10 +1331,10 @@ describe('ChatService', () => {
       });
 
       // With no assistant output, only sequence 0 is valid.
-      service.markSideChatRead(side.chat.id, 0);
+      await service.markSideChatRead(side.chat.id, 0);
       expect(service.getSideChatLink(side.chat.id)?.lastReadAssistantSequence).toBe(0);
       // A sequence beyond the latest assistant output is rejected.
-      expect(() => service.markSideChatRead(side.chat.id, 5)).toThrow(
+      await expect(service.markSideChatRead(side.chat.id, 5)).rejects.toThrow(
         'exceeds latest assistant output',
       );
     });

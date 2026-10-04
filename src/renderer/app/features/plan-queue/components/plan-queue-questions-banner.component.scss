@@ -1,0 +1,75 @@
+:host {
+  display: contents;
+}
+
+.pq-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 32px);
+  margin: 12px 16px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-md);
+  background: var(--info-bg);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pq-banner:hover {
+  border-color: var(--info-color);
+}
+
+.pq-banner:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+.pq-banner__icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--info-color);
+  color: var(--button-on-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pq-banner__copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pq-banner__title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.pq-banner__summary {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pq-banner__action {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-color);
+  color: var(--button-on-primary);
+  font-size: 12px;
+}

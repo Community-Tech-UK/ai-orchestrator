@@ -104,6 +104,7 @@ describe('DashboardComponent resume picker routing', () => {
           useValue: {
             previewConversation: previewConversation.asReadonly(),
             clearSelection: vi.fn(),
+            loadHistory: vi.fn(async () => undefined),
           },
         },
         {
@@ -178,7 +179,7 @@ describe('DashboardComponent resume picker routing', () => {
         { provide: ResumePickerController, useValue: resumePickerController },
         { provide: SessionRecoveryStore, useValue: {
           candidates: recoveryCandidates.asReadonly(), loading: signal(false), error: signal(null),
-          refresh: vi.fn(),
+          refresh: vi.fn(async () => undefined),
         } },
         {
           provide: SourceControlStore,

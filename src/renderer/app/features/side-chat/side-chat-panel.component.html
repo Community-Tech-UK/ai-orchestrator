@@ -53,10 +53,37 @@
           title="Edit permissions are inherited from the parent session's effective tool restrictions and approval posture"
           aria-label="Edit permissions inherited from parent session"
         >Inherited permissions</span>
+        <button
+          type="button"
+          class="header-action archive-action"
+          (click)="archiveSideChat()"
+          title="Archive this sidechat (keeps history, removes from active list)"
+          aria-label="Archive sidechat"
+        >◻</button>
       </div>
     }
 
-    <div class="panel-body">
+    @if (sideChatLinks().length > 1) {
+      <div class="sidechat-selector" role="listbox" aria-label="Sidechat conversations">
+        @for (link of sideChatLinks(); track link.chatId) {
+          <button
+            type="button"
+            class="selector-item"
+            [class.active]="link.chatId === sideChatId()"
+            (click)="selectSideChat(link.chatId)"
+            role="option"
+            [attr.aria-selected]="link.chatId === sideChatId()"
+          >
+            <span class="selector-title">{{ linkTitle(link.chatId) }}</span>
+            @if (linkUnread(link.chatId)) {
+              <span class="unread-dot" [attr.aria-label]="'Unread answer'"></span>
+            }
+          </button>
+        }
+      </div>
+    }
+
+    <div class="panel-body" #panelBody (scroll)="markReadIfVisible()" (mouseenter)="markReadIfVisible()">
       @if (chat()) {
         <app-output-stream
           [messages]="messages()"

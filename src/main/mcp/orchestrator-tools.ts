@@ -23,10 +23,7 @@ import {
   createOrchestratorEvidenceToolDefinitions,
   type OrchestratorEvidenceToolContext,
 } from './orchestrator-evidence-tools';
-import {
-  hasFailedEvidenceCapture,
-  providerResultAfterCapture,
-} from './orchestrator-evidence-capture-result';
+import { wrapOrchestratorToolsWithEvidence } from './orchestrator-tool-evidence-wrapper';
 import { resolveOrchestratorToolSourceContext } from './orchestrator-tool-source-context';
 import {
   LIST_REMOTE_NODES_DESCRIPTION,
@@ -397,6 +394,10 @@ export interface OrchestratorToolRuntimeContext
   calendarTools?: CalendarToolDependencies;
   releaseTools?: ReleaseToolDependencies;
   contextEvidence?: Omit<OrchestratorEvidenceToolContext, 'instanceId'> | null;
+  /** Flush real runtime source messages before provenance lookup/execution. */
+  prepareEvidenceSource?: (instanceId: string) => Promise<void>;
+  /** Authoritative current owner, rechecked after asynchronous boundaries. */
+  resolveEvidenceConversation?: () => string | null;
   sessionMessagingService?: SessionMessagingToolService | null;
 }
 
@@ -765,47 +766,5 @@ export function createOrchestratorToolDefinitions(
         })
       : []),
   ];
-  const evidence = context.contextEvidence;
-  if (!evidence?.coordinator.captureAioMcpResult || !context.instanceId) return tools;
-  return tools.map((tool) => tool.name.startsWith('evidence_') ? tool : {
-    ...tool,
-    handler: async (args) => {
-      const result = await tool.handler(args);
-      const source = await resolveOrchestratorToolSourceContext({
-        chatStore,
-        ledger: context.ledger ?? null,
-        instanceId: context.instanceId ?? null,
-        preferredConversationId: evidence.conversationId,
-      });
-      if (
-        source.threadId !== evidence.conversationId
-        || source.sourceMessageId.startsWith('mcp-tool:')
-      ) {
-        if (evidence.mode === 'enforce') throw new Error('EVIDENCE_CAPTURE_REQUIRED');
-        return result;
-      }
-      try {
-        const captureResult = await evidence.coordinator.captureAioMcpResult?.({
-          queueId: context.instanceId!,
-          conversationId: evidence.conversationId!,
-          captureKey: `mcp:${source.sourceMessageId}:${tool.name}`,
-          turnRef: source.sourceMessageId,
-          toolCallRef: source.sourceMessageId,
-          toolName: tool.name,
-          result,
-          ...(evidence.providerWindowTokens === undefined
-            ? {}
-            : { providerWindowTokens: evidence.providerWindowTokens }),
-        });
-        if (hasFailedEvidenceCapture(captureResult)) {
-          if (evidence.mode === 'enforce') throw new Error('EVIDENCE_CAPTURE_REQUIRED');
-          return result;
-        }
-        return providerResultAfterCapture(captureResult, result);
-      } catch {
-        if (evidence.mode === 'enforce') throw new Error('EVIDENCE_CAPTURE_REQUIRED');
-      }
-      return result;
-    },
-  });
+  return wrapOrchestratorToolsWithEvidence(tools, context, chatStore);
 }

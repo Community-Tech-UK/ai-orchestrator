@@ -241,7 +241,8 @@ export function registerChatHandlers(deps: { instanceManager: InstanceManager })
   ipcMain.handle(IPC_CHANNELS.SIDE_CHAT_MARK_READ, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(SideChatMarkReadPayloadSchema, payload, 'SIDE_CHAT_MARK_READ');
-      return { success: true, data: service.markSideChatRead(validated.chatId, validated.throughSequence) };
+      const data = await service.markSideChatRead(validated.chatId, validated.throughSequence);
+      return { success: true, data };
     } catch (error) {
       return chatError(error, 'SIDE_CHAT_MARK_READ_FAILED');
     }

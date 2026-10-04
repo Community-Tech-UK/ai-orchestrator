@@ -661,6 +661,7 @@ describe('Local AI Guard end-to-end composition', () => {
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
       'http://127.0.0.1:11434/api/version',
       'http://127.0.0.1:11434/api/tags',
+      'http://127.0.0.1:11434/api/ps',
       'http://127.0.0.1:11434/api/generate',
       'http://127.0.0.1:11434/api/ps',
     ]);
