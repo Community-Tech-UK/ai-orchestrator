@@ -1,6 +1,7 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
+import { MESSAGE_SOURCE_OWNER_SQL } from './conversation-message-source-query';
 
-export const CONVERSATION_LEDGER_SCHEMA_VERSION = 5;
+export const CONVERSATION_LEDGER_SCHEMA_VERSION = 6;
 
 interface LedgerMigration {
   version: number;
@@ -329,6 +330,13 @@ const MIGRATIONS: LedgerMigration[] = [
 
       DROP TABLE evidence_access_log_004;
     `,
+  },
+  {
+    version: 6,
+    name: '006_latest_user_source_owner',
+    up: `CREATE INDEX idx_conversation_messages_user_source_owner
+      ON conversation_messages(thread_id, (${MESSAGE_SOURCE_OWNER_SQL}), sequence DESC)
+      WHERE role = 'user';`,
   },
 ];
 

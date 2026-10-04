@@ -8,7 +8,7 @@ export interface OrchestratorToolSourceContext {
   chatId: string | null;
   threadId: string;
   sourceMessageId: string;
-  failureReason?: 'SOURCE_LOOKUP_FAILED';
+  failureReason?: 'SOURCE_LOOKUP_FAILED' | 'SOURCE_MESSAGE_INVALID';
 }
 
 export async function resolveOrchestratorToolSourceContext(input: {
@@ -54,15 +54,29 @@ async function latestSourceMessage(
   toolName?: string,
 ): Promise<Pick<OrchestratorToolSourceContext, 'sourceMessageId' | 'failureReason'>> {
   try {
+    if (toolName) {
+      // A long turn can have hundreds of tool events after its genuine user.
+      // Resolve that durable anchor independently of the bounded native-call
+      // window, without loading or scanning the transcript in the main process.
+      const user = await ledger.getLatestUserMessage(threadId, instanceId);
+      if (user) {
+        const metadata = asRecord(user.rawJson?.['metadata']);
+        const hasOwner = metadata !== null && Object.hasOwn(metadata, 'instanceId');
+        if (user.role !== 'user' || user.threadId !== threadId || typeof user.id !== 'string' || !user.id
+          || (hasOwner && metadata['instanceId'] !== instanceId)) {
+          return { sourceMessageId: fallback, failureReason: 'SOURCE_MESSAGE_INVALID' };
+        }
+        return { sourceMessageId: user.id };
+      }
+    }
     const conversation = await ledger.getRecentConversation(threadId, SOURCE_CONTEXT_MESSAGE_LIMIT);
     const messages = conversation.messages.filter((message) => {
       const owner = asRecord(message.rawJson?.['metadata'])?.['instanceId'];
       return owner === undefined || owner === instanceId;
     });
-    const user = findLatestMessage(messages, (message) => message.role === 'user');
-    // MCP carries no provider-native call ID. A genuine user is the reliable
-    // turn anchor even if an earlier same-tool call still awaits its event.
-    if (toolName && user) return { sourceMessageId: user.id };
+    // For named MCP calls the indexed lookup is authoritative for users;
+    // never re-admit an ineligible/corrupt row through the legacy window.
+    const user = toolName ? null : findLatestMessage(messages, (message) => message.role === 'user');
     const currentTurn = user ? messages.slice(messages.indexOf(user) + 1) : messages;
     const pendingCalls = currentTurn.filter((message, index) => {
       const metadata = asRecord(message.rawJson?.['metadata']);

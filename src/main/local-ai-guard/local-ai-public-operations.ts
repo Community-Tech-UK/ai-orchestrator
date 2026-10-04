@@ -20,6 +20,7 @@ import {
   LocalAiTargetSchema,
 } from '../../shared/validation/local-ai-guard.schemas';
 import type { LocalAiGuardRuntime } from './local-ai-runtime';
+import { friendlyLocalAiTargetLabel } from './local-ai-target-label';
 
 type PublicRuntime = Pick<LocalAiGuardRuntime, 'targets' | 'probes'>
   & Partial<Pick<LocalAiGuardRuntime, 'notifyChanged'>>;
@@ -27,6 +28,8 @@ type PublicRuntime = Pick<LocalAiGuardRuntime, 'targets' | 'probes'>
 export interface LocalAiPublicOperationsDependencies {
   getRuntime: () => PublicRuntime;
   discoverCandidates: () => Promise<AuxiliaryLlmCandidate[]>;
+  /** Display name of a worker node, for readable default target labels. */
+  workerName?: (nodeId: string) => string | undefined;
   now?: () => number;
   createId?: () => string;
 }
@@ -77,7 +80,12 @@ export function createLocalAiPublicOperations(
     },
     create: async (input) => {
       const config = LocalAiTargetConfigSchema.parse(input);
-      return LocalAiTargetSchema.parse(dependencies.getRuntime().targets.create(config));
+      const workerName = config.location.type === 'worker'
+        ? dependencies.workerName?.(config.location.nodeId)
+        : undefined;
+      return LocalAiTargetSchema.parse(dependencies.getRuntime().targets.create(config, {
+        label: friendlyLocalAiTargetLabel(config, workerName),
+      }));
     },
     // Same repository call as the Settings UI. The repository notifies the
     // health scheduler, so a paused or retired target stops being probed.

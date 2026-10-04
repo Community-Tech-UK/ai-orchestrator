@@ -59,11 +59,37 @@ const FINDING_ITEMS = {
   additionalProperties: false,
 };
 
+const DECISION_SCHEMA = {
+  description: 'Classify readiness: technical recommendations are answered automatically; human-authority and human-input remain questions. Absent metadata preserves a legacy manual question. This metadata never grants new authority.',
+  oneOf: [
+    {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['technical'] },
+        recommendedOptionId: { type: 'string', minLength: 1, maxLength: 50, description: 'An existing non-skip option ID. The coordinator selects it automatically.' },
+        reason: { type: 'string', minLength: 1, maxLength: 4000 },
+        evidence: { type: 'string', minLength: 1, maxLength: 8000, description: 'Concrete evidence supporting this routine technical choice, normally source locations.' },
+      },
+      required: ['kind', 'recommendedOptionId', 'reason', 'evidence'],
+      additionalProperties: false,
+    },
+    ...(['human-authority', 'human-input'] as const).map((kind) => ({
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: [kind] },
+        reason: { type: 'string', minLength: 1, maxLength: 4000, description: 'The specific authority still required or human fact that available evidence cannot resolve.' },
+      },
+      required: ['kind', 'reason'],
+      additionalProperties: false,
+    })),
+  ],
+};
+
 /** Name, description and input schema per tool; shared with the stdio forwarder. */
 export const PLAN_QUEUE_TOOL_SPECS = {
   plan_queue_start: {
     description:
-      'Work through plan or livetest documents in this workspace, one visibly nested worker session per document, each in its own git worktree, judged by an independent verifier on a different provider, and landed on the current branch as one local squash commit per verified document (never pushed). Use it when James asks to "work through the plans" or "run the livetests". This session becomes the parent: documents that need James\'s decision come back to you as questions to ask him, and you receive a summary when the run ends. Returns the discovered documents before any worker starts.',
+      'Work through plan or livetest documents in this workspace, one visibly nested worker session per document, each in its own git worktree, judged by an independent verifier on a different provider, and landed on the current branch as one local squash commit per verified document (never pushed). Use it when James asks to "work through the plans" or "run the livetests". This session becomes the parent: evidence-backed technical readiness decisions are selected automatically; questions requiring human authority or facts come back to you, and you receive a summary when the run ends. Returns the discovered documents before any worker starts.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -89,7 +115,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
     },
   },
   plan_queue_answer: {
-    description: 'Record James\'s answer to a Plan Queue question. Ask James first (with your structured-question tool if you have one), then pass the item_id and the option_id he chose. Only the session that started the run may answer.',
+    description: 'Record an answer to a pending Plan Queue question. Evidence-backed technical recommendations are handled automatically by the coordinator. For human-authority, human-input or legacy unclassified questions, obtain James\'s answer and pass the chosen item_id and option_id. Apply existing standing authorization when investigating readiness; an automatic technical answer never grants new authority. Only the session that started the run may answer.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -114,7 +140,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
     },
   },
   plan_queue_report_triage: {
-    description: 'Plan Queue triage agents only: report one disposition per document (ready, needs-answer with a question for James, or skip with a reason). Rejected from any other session.',
+    description: 'Plan Queue triage agents only: report one disposition per document (ready, needs-answer with classified decision metadata, or skip with a reason). Resolve routine choices and evidence gathering autonomously; the coordinator selects valid technical recommendations automatically. Reserve human-authority for missing approval and human-input for facts unavailable from investigation. Rejected from any other session.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -136,6 +162,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
                     type: 'array',
                     minItems: 2,
                     maxItems: 4,
+                    description: 'Two to four options with unique IDs. Include skip. A technical recommendation must reference an existing non-skip ID.',
                     items: {
                       type: 'object',
                       properties: { id: { type: 'string' }, label: { type: 'string' } },
@@ -143,6 +170,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
                       additionalProperties: false,
                     },
                   },
+                  decision: DECISION_SCHEMA,
                 },
                 required: ['question', 'options'],
                 additionalProperties: false,

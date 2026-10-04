@@ -15,7 +15,6 @@ import { randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
 import { existsSync } from 'fs';
 import * as os from 'os';
-import * as path from 'path';
 import {
   DEFAULT_PLAN_QUEUE_CONFIG,
   type PlanQueueAlert,
@@ -42,16 +41,13 @@ import {
 import type { PlanQueueFlowHost, PlanQueueInstancePort, PlanQueueRoleRecord } from './plan-queue-host';
 import { PlanQueueItemFlow } from './plan-queue-item-flow';
 import {
-  buildQuestionsMessage,
   buildRunSummaryMessage,
-  notReadyQuestion,
   runToDto,
-  untriagedQuestion,
-  withSkipOption,
 } from './plan-queue-messages';
 import { buildTriagePrompt } from './plan-queue-prompts';
 import { reconcilePlanQueueWorktrees } from './plan-queue-reconciler';
 import { recoverPlanQueue } from './plan-queue-recovery';
+import { applyTriageRecords, PRE_START_STATES, reconcileWaitingDocuments } from './plan-queue-readiness';
 import type { PlanQueueRelaxation } from './plan-queue-relaxation';
 import { assertItemTransition, isTerminalItemState, itemHoldsWorktree, newPlanQueueItem } from './plan-queue-state';
 import type { PlanQueueStore } from './plan-queue-store';
@@ -62,9 +58,8 @@ import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 const logger = getLogger('PlanQueueCoordinator');
 
 const DEFAULT_PUMP_INTERVAL_MS = 30_000;
-/** Triage attempts before undecided documents are handed to James. */
+/** Failed technical classification is parked after these attempts. */
 const MAX_TRIAGE_ATTEMPTS = 2;
-const PRE_START_STATES = new Set<PlanQueueItemState>(['discovered', 'needs-answer', 'queued']);
 
 export type PlanQueueInstanceManagerPort = PlanQueueInstancePort & Pick<PlanQueueInstanceEventSource, 'on'>;
 
@@ -296,13 +291,15 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
 
     documents.filter((doc) => !owned.has(doc.path)).forEach((doc, index) => {
       // createdAt carries discovery order: items list in the order they were found.
-      deps.store.upsertItem(newPlanQueueItem(deps.newId(), run.id, doc.path, now + index, doc.readiness === 'candidate'
-        ? { state: 'discovered' }
-        : { state: 'needs-answer', question: notReadyQuestion(doc.path, doc.reason ?? 'not ready') }));
+      // An unplanned spec must stay open: its required planning rename would
+      // invalidate this item's path. Implementation belongs to its linked plan.
+      const needsPlan = doc.readiness === 'not-ready' && doc.path.toLowerCase().endsWith('_spec.md');
+      deps.store.upsertItem(newPlanQueueItem(deps.newId(), run.id, doc.path, now + index, {
+        state: needsPlan ? 'skipped' : 'discovered',
+        detail: needsPlan ? 'No implementation plan exists. The spec remains open; create and link a plan in a planning task, then queue that plan.' : doc.reason ?? null,
+      }));
     });
     const items = deps.store.listItems(run.id);
-    const questions = items.filter((item) => item.state === 'needs-answer');
-    if (questions.length) this.notifyParent(run, buildQuestionsMessage(questions));
     logger.info('Plan queue run started', { runId: run.id, kind: run.kind, items: items.length, excluded: excluded.length });
     this.announce({ runId: run.id });
     this.requestPump();
@@ -425,26 +422,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (this.triageByRun.get(run.id) !== callerInstanceId) {
       throw new Error('Only the triage agent for this run may report triage');
     }
-    const byPath = new Map(this.requireDeps().store.listItems(run.id).map((item) => [path.resolve(item.documentPath), item]));
-    const unmatched: string[] = [];
-    let applied = 0;
-    for (const record of args.records) {
-      const item = byPath.get(path.resolve(run.workspaceCwd, record.documentPath));
-      if (!item || item.state !== 'discovered') {
-        unmatched.push(record.documentPath);
-        continue;
-      }
-      if (record.disposition === 'ready') this.transition(item, 'queued');
-      else if (record.disposition === 'skip') this.transition(item, 'skipped', { detail: record.reason });
-      else this.transition(item, 'needs-answer', { question: withSkipOption(record.question) });
-      applied += 1;
-    }
-    const questions = this.requireDeps().store.listItems(run.id).filter((item) => item.state === 'needs-answer' && item.question);
-    if (args.records.some((record) => record.disposition === 'needs-answer') && questions.length) {
-      this.notifyParent(run, buildQuestionsMessage(questions));
-    }
+    const result = applyTriageRecords(this, run, args);
     this.requestPump();
-    return { applied, unmatched };
+    return result;
   }
 
   // ---------------------------------------------------------------------------
@@ -453,6 +433,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
 
   /** Boot recovery; see plan-queue-recovery.ts. */
   async recover(): Promise<void> {
+    for (const run of this.store.listActiveRuns()) await reconcileWaitingDocuments(this, run);
     await recoverPlanQueue(this, this.requireFlow());
     this.requestPump();
   }
@@ -473,7 +454,10 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     const sharedCap = Math.max(0, ...runs.map((run) => run.config.verificationSlots));
     let verifying = runs.flatMap((run) => deps.store.listItems(run.id)).filter((item) => item.state === 'verifying').length;
 
-    for (const run of runs) {
+    for (const snapshot of runs) {
+      await reconcileWaitingDocuments(this, snapshot);
+      const run = this.getRun(snapshot.id);
+      if (run.status !== 'running' && run.status !== 'paused') continue;
       const items = deps.store.listItems(run.id);
       if (run.status === 'running') {
         this.maybeStartTriage(run, items);
@@ -506,8 +490,10 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (undecided.length === 0 || this.triageByRun.has(run.id)) return;
     const attempts = this.triageAttempts.get(run.id) ?? 0;
     if (attempts >= MAX_TRIAGE_ATTEMPTS) {
-      for (const item of undecided) this.transition(item, 'needs-answer', { question: untriagedQuestion(item.documentPath) });
-      this.notifyParent(run, buildQuestionsMessage(this.requireDeps().store.listItems(run.id).filter((i) => i.state === 'needs-answer')));
+      for (const item of undecided) this.transition(item, 'parked', {
+        parkReason: 'worker-error', question: null,
+        detail: 'Triage could not classify this document after two attempts. No human decision or authority was inferred; resume to retry technical investigation.',
+      });
       return;
     }
     this.triageAttempts.set(run.id, attempts + 1);

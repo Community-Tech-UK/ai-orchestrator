@@ -374,6 +374,10 @@ export class AppComponent implements OnInit, OnDestroy {
     void this.router.navigate(['/setup']);
   }
 
+  openProviderAccounts(): void {
+    void this.router.navigate([getControlSurface('settings').path], { fragment: 'provider-accounts' });
+  }
+
   dismissStartupBanner(): void {
     const report = this.startupCapabilities();
     if (!report) {

@@ -249,6 +249,7 @@ describe('HyDEService fallback behavior', () => {
         policy: 'allow-silently',
         routingEventId: 'routing-hyde-ollama',
       }),
+      recordLocalCompletion: () => undefined,
       markFallbackDispatched: mark,
     });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({

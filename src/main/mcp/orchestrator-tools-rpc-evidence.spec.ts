@@ -187,7 +187,7 @@ describe('orchestrator-tools evidence RPC', () => {
 
   it.each(
     (['injected', 'production'] as const).flatMap((factoryMode) =>
-      (['prepare', 'lookup', 'handler'] as const).flatMap((stage) =>
+      (['prepare', 'lookup', 'nativeLookup', 'handler'] as const).flatMap((stage) =>
         (['changed', 'off', 'missing'] as const).map((ownership) => ({ factoryMode, stage, ownership })))),
   )('rejects $ownership ownership after $stage awaits through $factoryMode RPC dispatch', async ({
     factoryMode, stage, ownership,
@@ -201,7 +201,10 @@ describe('orchestrator-tools evidence RPC', () => {
     runtime.ledger = ledger;
     const originalOwner = await ledger.startConversation({ provider: 'orchestrator' });
     const nextOwner = await ledger.startConversation({ provider: 'orchestrator' });
-    await ledger.appendMessage(originalOwner.id, {
+    await ledger.appendMessage(originalOwner.id, stage === 'nativeLookup' ? {
+      role: 'tool', phase: 'tool_call', content: 'Synthetic recorded native call', createdAt: 1,
+      rawJson: { metadata: { instanceId: 'instance-known', toolName: 'exec_on_node' } },
+    } : {
       role: 'user', content: 'Synthetic worker command', createdAt: 1,
       rawJson: { metadata: { instanceId: 'instance-known' } },
     });
@@ -234,6 +237,14 @@ describe('orchestrator-tools evidence RPC', () => {
       if (stage === 'prepare') invalidateOwnership();
     };
     if (stage === 'lookup') {
+      const read = ledger.getLatestUserMessage.bind(ledger);
+      vi.spyOn(ledger, 'getLatestUserMessage').mockImplementationOnce(async (...args) => {
+        const source = await read(...args);
+        invalidateOwnership();
+        return source;
+      });
+    }
+    if (stage === 'nativeLookup') {
       const read = ledger.getRecentConversation.bind(ledger);
       vi.spyOn(ledger, 'getRecentConversation').mockImplementationOnce(async (...args) => {
         const source = await read(...args);

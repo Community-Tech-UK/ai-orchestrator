@@ -15,7 +15,7 @@ export interface DiscoveredDocument {
   /** Absolute path in the root checkout. */
   path: string;
   readiness: 'candidate' | 'not-ready';
-  /** Why a `not-ready` document cannot start without James. */
+  /** Structural prerequisite triage must investigate before a worker starts. */
   reason?: string;
 }
 

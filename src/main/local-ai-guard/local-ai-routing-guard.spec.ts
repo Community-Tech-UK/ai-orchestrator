@@ -18,6 +18,7 @@ import {
   LocalAiFallbackApprovalService,
   type LocalAiFallbackApprovalCreation,
 } from './local-ai-fallback-approval-service';
+import { getLocalAiFallbackSpend } from './local-ai-fallback-spend';
 import { LocalAiHealthRepository } from './local-ai-health-repository';
 import { LocalAiRoutingGuard } from './local-ai-routing-guard';
 import { LocalAiTargetRepository } from './local-ai-target-repository';
@@ -744,8 +745,84 @@ describe('LocalAiRoutingGuard', () => {
 
     expect(setup.recorded).toEqual([allowed.routingEventId]);
   });
-});
 
+  describe('recordLocalCompletion', () => {
+    const completion = {
+      slot: 'compression' as const,
+      provider: 'openai-compatible',
+      model: 'qwen/qwen3.6-35b-a3b',
+      inputTokens: 1_000,
+      outputTokens: 200,
+    };
+
+    it('counts a local completion in effectiveness with the frontier cost it avoided', () => {
+      registerProviderModelRates([
+        { provider: 'openai', id: 'priced-frontier', rate: { input: 1_000, output: 1_000 } },
+      ]);
+      const setup = createGuard({
+        db: openDb(),
+        targetConfig: config(),
+        fallbackModel: { provider: 'openai', model: 'priced-frontier' },
+      });
+
+      setup.guard.recordLocalCompletion({ ...completion, targetId: setup.target!.id });
+      const summary = setup.health.summarize('24h', 1_000);
+
+      expect(summary).toMatchObject({
+        localTasks: 1,
+        localTokens: 1_200,
+        proposedFallbacks: 0,
+        byTarget: { [setup.target!.id]: 1 },
+        byModel: { 'qwen/qwen3.6-35b-a3b': 1 },
+      });
+      expect(summary.avoidedEstimatedCostUsd).toBeGreaterThan(0);
+      expect(setup.health.getRoutingEvent('routing-1')).toMatchObject({
+        actualRoute: 'local',
+        disposition: 'not-needed',
+        decisionReason: 'health',
+        completedAt: 1_000,
+      });
+    });
+
+    it('never counts avoided cost as fallback spend against a budget', () => {
+      registerProviderModelRates([
+        { provider: 'openai', id: 'priced-frontier', rate: { input: 1_000, output: 1_000 } },
+      ]);
+      const db = openDb();
+      const setup = createGuard({
+        db,
+        targetConfig: config(),
+        fallbackModel: { provider: 'openai', model: 'priced-frontier' },
+      });
+
+      setup.guard.recordLocalCompletion({ ...completion, targetId: setup.target!.id });
+
+      expect(getLocalAiFallbackSpend(db, { since: 0, until: 2_000 })).toEqual({
+        knownCostUsd: 0,
+        estimatedCostUsd: 0,
+        unknownReservations: 0,
+      });
+    });
+
+    it('records an unmanaged or retired target as untargeted local work', () => {
+      const setup = createGuard({ db: openDb(), targetConfig: config({ lifecycle: 'retired' }) });
+
+      setup.guard.recordLocalCompletion({ ...completion, targetId: setup.target!.id });
+      setup.guard.recordLocalCompletion(completion);
+
+      const summary = setup.health.summarize('24h', 1_000);
+      expect(summary.localTasks).toBe(2);
+      expect(summary.byTarget).toEqual({});
+    });
+
+    it('rejects invalid token counts without writing', () => {
+      const setup = createGuard({ db: openDb() });
+
+      expect(() => setup.guard.recordLocalCompletion({ ...completion, inputTokens: -1 })).toThrow(RangeError);
+      expect(setup.health.summarize('24h', 1_000).localTasks).toBe(0);
+    });
+  });
+});
 function eventForSpend(
   id: string,
   createdAt: number,

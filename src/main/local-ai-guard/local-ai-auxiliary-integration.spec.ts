@@ -195,6 +195,7 @@ function harness(
     acquireTarget: (targetId) => activity.acquire(targetId),
     invalidateTarget,
     authorizeFallback: (input) => guard.authorizeFallback(input),
+    recordLocalCompletion: () => undefined,
     markFallbackDispatched: (eventId) => guard.markFallbackDispatched(eventId),
   });
   disposers.push(subscribeCostAttribution((record) => {
@@ -588,6 +589,7 @@ describe('Local AI Guard auxiliary integration', () => {
         policy: 'allow-silently',
         routingEventId: 'routing-order',
       }),
+      recordLocalCompletion: () => undefined,
       markFallbackDispatched: mark,
     });
     const run = vi.fn(async () => {
@@ -623,6 +625,7 @@ describe('Local AI Guard auxiliary integration', () => {
         policy: 'allow-silently',
         routingEventId: 'routing-fail',
       }),
+      recordLocalCompletion: () => undefined,
       markFallbackDispatched: async () => {
         throw new Error('durable mark failed');
       },
@@ -653,6 +656,7 @@ describe('Local AI Guard auxiliary integration', () => {
         policy: 'allow-silently',
         routingEventId: 'routing-reject',
       }),
+      recordLocalCompletion: () => undefined,
       markFallbackDispatched: mark,
     });
 
@@ -683,6 +687,7 @@ describe('Local AI Guard auxiliary integration', () => {
         policy: 'allow-silently',
         routingEventId: 'routing-local',
       }),
+      recordLocalCompletion: () => undefined,
       markFallbackDispatched: mark,
     });
 

@@ -307,7 +307,7 @@ export class AuxiliaryLlmService extends EventEmitter {
         ...(intendedTargetId ? { intendedTargetId } : {}),
       };
       recordSuccessfulAuxiliary({
-        slot, endpoint, model, source, text, reason: decision.reason,
+        slot, endpoint, model, source, text, reason: decision.reason, intendedTargetId,
         systemPrompt: truncated.system, userPrompt: truncated.user,
       });
       return { text, decision };

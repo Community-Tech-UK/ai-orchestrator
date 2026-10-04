@@ -7,8 +7,18 @@ import {
   LocalAiCliEnrolPayloadSchema,
   LocalAiCliEnrolResultSchema,
   type LocalAiCliOperations,
+  LocalAiCliAcknowledgePayloadSchema,
+  LocalAiCliAcknowledgeResultSchema,
+  LocalAiCliRecheckPayloadSchema,
+  LocalAiCliRecheckResultSchema,
+  LocalAiCliRenamePayloadSchema,
   LocalAiCliSetLifecyclePayloadSchema,
   LocalAiCliSetLifecycleResultSchema,
+  LocalAiCliStatusResultSchema,
+  LocalAiCliSummaryPayloadSchema,
+  LocalAiCliSummaryResultSchema,
+  LocalAiCliTargetResultSchema,
+  LocalAiCliUpdatePayloadSchema,
   LocalAiCliTargetListResultSchema,
   LocalAiCliValidationResultSchema,
 } from './local-ai-cli-contracts';
@@ -48,6 +58,29 @@ export async function dispatchLocalAiCliRpc(
       return LocalAiCliSetLifecycleResultSchema.parse(
         await operations.setLifecycle(targetId, lifecycle, pausedUntil),
       );
+    }
+    case LOCAL_AI_CLI_METHODS.status:
+      LocalAiCliEmptyPayloadSchema.parse(payload);
+      return LocalAiCliStatusResultSchema.parse(await operations.status());
+    case LOCAL_AI_CLI_METHODS.recheck: {
+      const { targetId, kind } = LocalAiCliRecheckPayloadSchema.parse(payload);
+      return LocalAiCliRecheckResultSchema.parse(await operations.recheck(targetId, kind));
+    }
+    case LOCAL_AI_CLI_METHODS.rename: {
+      const { targetId, label } = LocalAiCliRenamePayloadSchema.parse(payload);
+      return LocalAiCliTargetResultSchema.parse(await operations.rename(targetId, label));
+    }
+    case LOCAL_AI_CLI_METHODS.update: {
+      const { targetId, patch } = LocalAiCliUpdatePayloadSchema.parse(payload);
+      return LocalAiCliTargetResultSchema.parse(await operations.update(targetId, patch));
+    }
+    case LOCAL_AI_CLI_METHODS.summary: {
+      const { window } = LocalAiCliSummaryPayloadSchema.parse(payload);
+      return LocalAiCliSummaryResultSchema.parse(await operations.summary(window));
+    }
+    case LOCAL_AI_CLI_METHODS.acknowledge: {
+      const { incidentId } = LocalAiCliAcknowledgePayloadSchema.parse(payload);
+      return LocalAiCliAcknowledgeResultSchema.parse(await operations.acknowledgeIncident(incidentId));
     }
   }
 }

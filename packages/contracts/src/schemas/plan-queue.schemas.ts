@@ -90,12 +90,39 @@ export const PlanQueueVerdictSchema = z.object({
   needJames: z.array(PlanQueueNeedJamesEntrySchema).max(200).default([]),
 });
 
+/** A recommendation records reasoning, never new permission to take an action. */
+export const PlanQueueDecisionSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('technical'),
+    recommendedOptionId: z.string().min(1).max(50),
+    reason: z.string().trim().min(1).max(4000),
+    evidence: z.string().trim().min(1).max(8000),
+  }).strict(),
+  z.object({ kind: z.literal('human-authority'), reason: z.string().trim().min(1).max(4000) }).strict(),
+  z.object({ kind: z.literal('human-input'), reason: z.string().trim().min(1).max(4000) }).strict(),
+]);
+
 export const PlanQueueQuestionSchema = z.object({
   question: z.string().min(1).max(2000),
   options: z
     .array(z.object({ id: z.string().min(1).max(50), label: z.string().min(1).max(500) }))
     .min(2)
     .max(4),
+  /** Absent on legacy questions, which remain manual until investigated. */
+  decision: PlanQueueDecisionSchema.optional(),
+}).superRefine((question, ctx) => {
+  if (new Set(question.options.map((option) => option.id)).size !== question.options.length) {
+    ctx.addIssue({ code: 'custom', path: ['options'], message: 'Question option identifiers must be unique' });
+  }
+  const decision = question.decision;
+  if (decision?.kind === 'technical'
+    && (decision.recommendedOptionId === 'skip'
+      || !question.options.some((option) => option.id === decision.recommendedOptionId))) {
+    ctx.addIssue({
+      code: 'custom', path: ['decision', 'recommendedOptionId'],
+      message: 'A technical recommendation must select an existing non-skip option',
+    });
+  }
 });
 
 export const PlanQueueTriageRecordSchema = z.discriminatedUnion('disposition', [
@@ -266,6 +293,7 @@ export type PlanQueueRole = z.infer<typeof PlanQueueRoleSchema>;
 export type PlanQueueFinding = z.infer<typeof PlanQueueFindingSchema>;
 export type PlanQueueVerdict = z.infer<typeof PlanQueueVerdictSchema>;
 export type PlanQueueQuestion = z.infer<typeof PlanQueueQuestionSchema>;
+export type PlanQueueDecision = z.infer<typeof PlanQueueDecisionSchema>;
 export type PlanQueueTriageRecord = z.infer<typeof PlanQueueTriageRecordSchema>;
 export type PlanQueueRunConfig = z.infer<typeof PlanQueueRunConfigSchema>;
 export type PlanQueueItemDto = z.infer<typeof PlanQueueItemDtoSchema>;

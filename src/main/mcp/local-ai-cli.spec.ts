@@ -250,4 +250,185 @@ describe('runLocalAiCli', () => {
     await expect(runLocalAiCli(argv, h)).rejects.toThrow(message);
     expect(h.call).not.toHaveBeenCalled();
   });
+  it('lists targets with their ids so agents can act on them', async () => {
+    const h = harness([target]);
+
+    await runLocalAiCli(['list'], h);
+
+    expect(h.output.join('')).toContain('node-1: openai-compatible | target-1 | enrolled');
+  });
+
+  const cliStatus = {
+    aggregate: { state: 'healthy', enrolled: 1, healthy: 1, degraded: 0, unavailable: 0, paused: 0 },
+    targets: [{
+      id: 'target-1',
+      label: 'windows-pc · LM Studio',
+      lifecycle: 'enrolled',
+      provider: 'openai-compatible',
+      state: 'healthy',
+      routableRoles: ['compression'],
+      consecutiveFailures: 0,
+      checkedAt: 1_700_000_000_000,
+      layers: {
+        endpoint: { ok: true, required: true, checkedAt: 1_700_000_000_000, durationMs: 2 },
+        inference: { ok: false, required: true, checkedAt: 1_700_000_000_000, durationMs: 9, failureCode: 'malformed-inference-output' },
+      },
+    }],
+    incidents: [{
+      id: 'incident-1',
+      targetId: 'old-target',
+      targetLabel: 'windows-pc · Ollama',
+      state: 'open',
+      severity: 'warning',
+      failureCode: 'connection-refused',
+      affectedLayers: ['endpoint'],
+      affectedRoles: ['compression'],
+      openedAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+      fallbackCount: 0,
+      knownCostUsd: 0,
+      estimatedCostUsd: 0,
+      unpricedDispatchCount: 0,
+    }],
+  };
+
+  it('prints target health, failed layers and labelled incidents for status', async () => {
+    const h = harness(cliStatus);
+
+    await runLocalAiCli(['status'], h);
+
+    expect(h.call).toHaveBeenCalledWith('orchestrator_tools.local_ai.status', {});
+    const text = h.output.join('');
+    expect(text).toContain('Overall: healthy (enrolled 1, healthy 1');
+    expect(text).toContain('windows-pc · LM Studio (target-1)');
+    expect(text).toContain('routes: compression');
+    expect(text).toContain('canary: FAILED (malformed-inference-output)');
+    expect(text).toContain('model: not checked');
+    expect(text).toContain('incident-1 | open | warning | connection-refused | windows-pc · Ollama');
+  });
+
+  function recheckClients(recheck: (...args: unknown[]) => Promise<unknown>) {
+    const created: { timeoutMs: number; call: ReturnType<typeof vi.fn> }[] = [];
+    const createClient = vi.fn((timeoutMs: number) => {
+      const call = vi.fn(async (method: string, ...rest: unknown[]) =>
+        method === 'orchestrator_tools.local_ai.list' ? [target] : recheck(method, ...rest));
+      created.push({ timeoutMs, call });
+      return { call };
+    });
+    return { createClient, created };
+  }
+
+  it('sizes each recheck wait from the target probe settings, defaulting to a lightweight check', async () => {
+    const clients = recheckClients(async () => cliStatus.targets[0]);
+    const output: string[] = [];
+
+    await runLocalAiCli(['recheck', 'target-1', '--kind', 'functional'], { createClient: clients.createClient, stdout: (t) => output.push(t) });
+    await runLocalAiCli(['recheck', 'target-1'], { createClient: clients.createClient, stdout: (t) => output.push(t) });
+
+    // LM Studio, no context minimum, 30 s canary timeout: functional = models + canary,
+    // lightweight = models only; each plus the 1 s transport and 10 s completion margins.
+    expect(clients.created.map((client) => client.timeoutMs)).toEqual([120_000, 71_000, 120_000, 41_000]);
+    expect(clients.created.flatMap((client) => client.call.mock.calls)).toEqual([
+      ['orchestrator_tools.local_ai.list', {}],
+      ['orchestrator_tools.local_ai.recheck', { targetId: 'target-1', kind: 'functional' }],
+      ['orchestrator_tools.local_ai.list', {}],
+      ['orchestrator_tools.local_ai.recheck', { targetId: 'target-1', kind: 'lightweight' }],
+    ]);
+    expect(output.join('')).toContain('windows-pc · LM Studio (target-1)');
+  });
+
+  it('refuses to recheck an unknown target without starting a check', async () => {
+    const recheck = vi.fn(async () => cliStatus.targets[0]);
+    const clients = recheckClients(recheck);
+
+    await expect(runLocalAiCli(['recheck', 'missing'], { createClient: clients.createClient, stdout: () => undefined }))
+      .rejects.toThrow('Local AI target not found: missing');
+    expect(recheck).not.toHaveBeenCalled();
+  });
+
+  it('explains that a timed-out check may still be running', async () => {
+    const clients = recheckClients(async () => {
+      throw new Error('orchestrator-tools RPC request timed out');
+    });
+
+    await expect(runLocalAiCli(['recheck', 'target-1', '--kind', 'functional'], { createClient: clients.createClient, stdout: () => undefined }))
+      .rejects.toThrow(/may still be running in Harness.*local-ai status/);
+  });
+
+  it('renames a target with a trimmed label', async () => {
+    const h = harness({ ...target, label: 'windows-pc · LM Studio' });
+
+    await runLocalAiCli(['rename', 'target-1', '  windows-pc · LM Studio  '], h);
+
+    expect(h.call).toHaveBeenCalledWith('orchestrator_tools.local_ai.rename', {
+      targetId: 'target-1',
+      label: 'windows-pc · LM Studio',
+    });
+    expect(h.output.join('')).toBe('target-1 is now labelled "windows-pc · LM Studio".\n');
+  });
+
+  it('updates a target with a strict patch', async () => {
+    const h = harness({ ...target, warningLatencyMs: 15_000 });
+
+    await runLocalAiCli(['update', 'target-1', '{"warningLatencyMs":15000}'], h);
+
+    expect(h.call).toHaveBeenCalledWith('orchestrator_tools.local_ai.update', {
+      targetId: 'target-1',
+      patch: { warningLatencyMs: 15_000 },
+    });
+  });
+
+  it('prints the effectiveness summary as a percentage of eligible tasks', async () => {
+    const h = harness({
+      window: '7d', localTasks: 95, localTokens: 1_000, proposedFallbacks: 5, allowedFallbacks: 5,
+      deferredFallbacks: 0, blockedFallbacks: 0, knownCostUsd: 0.01, estimatedCostUsd: 0,
+      unpricedDispatchCount: 2, avoidedEstimatedTokens: 1_000, avoidedEstimatedCostUsd: 0.2,
+      byTarget: {}, byModel: {}, bySlot: {}, byIncident: {},
+    });
+
+    await runLocalAiCli(['summary', '--window', '7d'], h);
+
+    expect(h.call).toHaveBeenCalledWith('orchestrator_tools.local_ai.summary', { window: '7d' });
+    expect(h.output.join('')).toContain('Local AI effectiveness (7d): 95% local (95 of 100 tasks)');
+  });
+
+  it('acknowledges an incident', async () => {
+    const h = harness({
+      id: 'incident-1', targetId: 'old-target', state: 'acknowledged', severity: 'warning',
+      failureCode: 'connection-refused', affectedLayers: ['endpoint'], affectedRoles: ['compression'],
+      openedAt: 1, updatedAt: 2, acknowledgedAt: 2, fallbackCount: 0, knownCostUsd: 0,
+      estimatedCostUsd: 0, unpricedDispatchCount: 0,
+    });
+
+    await runLocalAiCli(['acknowledge', 'incident-1'], h);
+
+    expect(h.call).toHaveBeenCalledWith('orchestrator_tools.local_ai.acknowledge', { incidentId: 'incident-1' });
+    expect(h.output.join('')).toBe('Incident incident-1 is now acknowledged.\n');
+  });
+
+  it.each([
+    [['recheck'], /requires <target-id>/],
+    [['recheck', 'target-1', '--kind', 'deep'], /lightweight or functional/],
+    [['recheck', 'target-1', '--kind'], /--kind requires a value/],
+    [['rename', 'target-1'], /requires <target-id> <label>/],
+    [['rename', 'target-1', '   '], /requires <target-id> <label>/],
+    [['update', 'target-1', 'not json'], /valid JSON/],
+    [['update', 'target-1', '{"endpointId":"other"}'], /Invalid Local AI target patch/],
+    [['summary', '--window', '1y'], /24h, 7d or 30d/],
+    [['summary', 'extra'], /no positional arguments/],
+    [['acknowledge'], /requires <incident-id>/],
+    [['status', '--verbose'], /Unknown local-ai option/],
+  ])('rejects malformed management commands before any RPC: %j', async (argv, message) => {
+    const h = harness(null);
+
+    await expect(runLocalAiCli(argv, h)).rejects.toThrow(message);
+    expect(h.call).not.toHaveBeenCalled();
+  });
+
+  it('refuses an untrusted status result from the parent', async () => {
+    const h = harness({ aggregate: {}, targets: 'nope', incidents: [] });
+
+    await expect(runLocalAiCli(['status'], h)).rejects.toThrow(/invalid Local AI status result/);
+    expect(h.output).toEqual([]);
+  });
 });

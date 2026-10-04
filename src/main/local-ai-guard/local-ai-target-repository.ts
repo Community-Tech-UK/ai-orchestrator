@@ -30,13 +30,13 @@ export class LocalAiTargetRepository {
     private readonly clock: () => number = () => Date.now(),
   ) {}
 
-  create(config: LocalAiTargetConfig): LocalAiTarget {
+  create(config: LocalAiTargetConfig, options: { label?: string } = {}): LocalAiTarget {
     const parsedConfig = LocalAiTargetConfigSchema.parse(config);
     const now = this.currentTimestamp();
     const target = LocalAiTargetSchema.parse({
       ...parsedConfig,
       id: randomUUID(),
-      label: this.labelFor(parsedConfig),
+      label: options.label ?? this.labelFor(parsedConfig),
       createdAt: now,
       updatedAt: now,
       ...(parsedConfig.lifecycle === 'retired' ? { retiredAt: now } : {}),
@@ -64,6 +64,19 @@ export class LocalAiTargetRepository {
     });
     this.write(target);
     this.notify(target);
+    return target;
+  }
+
+  /**
+   * Change only the display label. Subscribers are deliberately not notified and
+   * `updatedAt` is kept: both drive the health scheduler's target reset (cancel
+   * timers, drop in-flight results, re-probe), which a label change must not
+   * cause. Callers refresh views through the runtime's change signal instead.
+   */
+  rename(targetId: string, label: string): LocalAiTarget {
+    const current = this.require(targetId);
+    const target = LocalAiTargetSchema.parse({ ...current, label });
+    this.write(target);
     return target;
   }
 

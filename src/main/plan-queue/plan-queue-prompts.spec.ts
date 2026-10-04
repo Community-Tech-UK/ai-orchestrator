@@ -82,6 +82,40 @@ describe('plan queue prompts', () => {
     expect(asked && 'question' in asked && asked.question.options.some((o) => o.id === 'skip')).toBe(true);
   });
 
+  it('classifies routine choices for automatic answering and reserves human authority', () => {
+    const prompt = buildTriagePrompt('run-1', ['/repo/docs/plans/a_plan.md']);
+    const example = PlanQueueReportTriageArgsSchema.parse(lastJsonBlock(prompt));
+    const questions = example.records.filter((r) => r.disposition === 'needs-answer');
+    expect(questions.some((r) => r.question.decision?.kind === 'technical')).toBe(true);
+    expect(questions.some((r) => r.question.decision?.kind === 'human-authority')).toBe(true);
+    expect(prompt).toContain('automatically selects');
+    expect(prompt).toContain('standing authorization');
+    expect(prompt).toContain('missing linked spec');
+    expect(prompt).toContain('dependency');
+  });
+
+  it('keeps an unplanned spec out of implementation without inventing approval or completion', () => {
+    const prompt = buildTriagePrompt('run-1', ['/repo/docs/plans/a_spec.md']);
+    expect(prompt).toContain('unplanned `*_spec.md`');
+    expect(prompt).toContain('must be `skip`');
+    expect(prompt).toContain('create and link its implementation plan');
+    expect(prompt).toContain('Do not invent an approval requirement or claim the spec is complete');
+    const example = PlanQueueReportTriageArgsSchema.parse(lastJsonBlock(prompt));
+    expect(example.records.some((record) => record.disposition === 'skip' && record.documentPath.endsWith('_spec.md'))).toBe(true);
+    expect(example.records.some((record) => record.disposition !== 'skip' && record.documentPath.endsWith('_spec.md'))).toBe(false);
+  });
+
+  it.each(['plans', 'livetests'] as const)('gives %s workers autonomy without implying a recorded answer grants authority', (kind) => {
+    const prompt = buildWorkerPrompt({ item, kind, repoRoot: '/repo', worktreePath: '/w', answer: 'Use the existing quiet runner.' });
+    expect(prompt).toContain('Recorded readiness decision');
+    expect(prompt).not.toContain('James answered');
+    expect(prompt).toContain('standing authorization');
+    expect(prompt).toContain('credential CLI');
+    expect(prompt).toContain('safe partial checks');
+    expect(prompt).toContain('untested requirements');
+    expect(prompt).toContain('does not grant');
+  });
+
   it('derives a stable, distinct dev-app environment per livetest item', () => {
     const a = livetestEnvironmentFor({ id: 'item-aaaa1111' });
     expect(livetestEnvironmentFor({ id: 'item-aaaa1111' })).toEqual(a);

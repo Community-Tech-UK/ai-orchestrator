@@ -1110,6 +1110,111 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
     expect(mocks.generateOllama).not.toHaveBeenCalled();
   });
 
+  // The Local AI effectiveness panel only counts what reaches the routing-event
+  // table; local completions were never written there, so it showed 0% local.
+  async function installRecordingHooks(recordLocalCompletion: (input: unknown) => void, managed = true) {
+    const { __setLocalAiAuxiliaryHooksForTesting } = await import(
+      '../../local-ai-guard/local-ai-auxiliary-bridge'
+    );
+    __setLocalAiAuxiliaryHooksForTesting({
+      findTarget: () => (managed ? {
+        id: 'lm-studio-target',
+        expectedModels: [{ modelId: 'qwen/qwen3.6-35b-a3b', required: true }],
+      } : undefined) as never,
+      evaluateLocalTarget: async () => ({ eligible: true, reason: 'fresh health passed' }),
+      acquireTarget: () => () => undefined,
+      invalidateTarget: vi.fn(),
+      authorizeFallback: async () => ({
+        allowed: false, disposition: 'blocked', policy: 'block-paid-fallback', routingEventId: 'unused',
+      }),
+      markFallbackDispatched: vi.fn(),
+      recordLocalCompletion,
+    });
+  }
+
+  function seedLmStudioWorker() {
+    remoteState.nodes = [{
+      id: 'node-1',
+      name: 'Windows 5090',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: [{
+          provider: 'openai-compatible', baseUrl: 'http://127.0.0.1:1234',
+          models: ['qwen/qwen3.6-35b-a3b'], healthy: true,
+        }],
+      },
+    }];
+    remoteState.connected = new Set(['node-1']);
+  }
+
+  it('records a successful local call for Local AI effectiveness, with its managed target', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    remoteState.rpc = vi.fn(async (_nodeId: string, method: string) => (
+      method === 'auxiliaryModel.list' ? { models: ['qwen/qwen3.6-35b-a3b'] } : { text: 'summary' }
+    ));
+    seedLmStudioWorker();
+    const recordLocalCompletion = vi.fn();
+    await installRecordingHooks(recordLocalCompletion);
+    service.configure(baseSettings({
+      auxiliaryLlmUseLocalhostOllama: false,
+      auxiliaryLlmQualityModel: 'qwen/qwen3.6-35b-a3b',
+    }));
+
+    const result = await service.generate('compression', 'sys', 'x'.repeat(400));
+
+    expect(result.decision.source).toBe('local');
+    expect(recordLocalCompletion).toHaveBeenCalledOnce();
+    expect(recordLocalCompletion).toHaveBeenCalledWith({
+      slot: 'compression',
+      targetId: 'lm-studio-target',
+      provider: 'openai-compatible',
+      model: 'qwen/qwen3.6-35b-a3b',
+      inputTokens: 1 + 100,
+      outputTokens: 2,
+    });
+  });
+
+  it('does not record cheap-cloud calls as local work', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    mocks.probeOpenAi.mockResolvedValue(true);
+    mocks.listOpenAi.mockResolvedValue([{ id: 'gpt-mini', name: 'gpt-mini', provider: 'openai-compatible', endpointId: 'cloud' }]);
+    mocks.generateOpenAi.mockResolvedValue('summary');
+    const recordLocalCompletion = vi.fn();
+    await installRecordingHooks(recordLocalCompletion, false);
+    service.configure(baseSettings({
+      auxiliaryLlmUseLocalhostOllama: false,
+      auxiliaryLlmEndpointsJson: JSON.stringify([{
+        id: 'cloud', label: 'Cloud', provider: 'openai-compatible',
+        baseUrl: 'https://api.example.invalid/v1', source: 'manual', enabled: true,
+      }]),
+    }));
+
+    const result = await service.generate('compression', 'sys', 'user');
+
+    expect(result.decision.source).toBe('cheap-cloud');
+    expect(recordLocalCompletion).not.toHaveBeenCalled();
+  });
+
+  it('still returns the local result when recording it fails', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    remoteState.rpc = vi.fn(async (_nodeId: string, method: string) => (
+      method === 'auxiliaryModel.list' ? { models: ['qwen/qwen3.6-35b-a3b'] } : { text: 'summary' }
+    ));
+    seedLmStudioWorker();
+    await installRecordingHooks(() => { throw new Error('database is locked'); });
+    service.configure(baseSettings({ auxiliaryLlmUseLocalhostOllama: false }));
+
+    const result = await service.generate('compression', 'sys', 'user');
+
+    expect(result).toMatchObject({ text: 'summary', decision: { source: 'local' } });
+  });
+
   it('routes through a freshly healthy managed worker when its heartbeat health is stale', async () => {
     const service = await getService();
     const mocks = await getMocks();
@@ -1150,6 +1255,7 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
         policy: 'block-paid-fallback',
         routingEventId: 'unused',
       }),
+      recordLocalCompletion: () => undefined,
       markFallbackDispatched: vi.fn(),
     });
     service.configure(baseSettings({ auxiliaryLlmUseLocalhostOllama: false }));

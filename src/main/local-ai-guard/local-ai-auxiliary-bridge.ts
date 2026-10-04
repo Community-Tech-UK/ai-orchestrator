@@ -5,7 +5,10 @@ import type {
   LocalAiLocalRouteVerdict,
   LocalAiTarget,
 } from '../../shared/types/local-ai-guard.types';
-import type { LocalAiFallbackAuthorizationInput } from './local-ai-routing-guard';
+import type {
+  LocalAiFallbackAuthorizationInput,
+  LocalAiLocalCompletionInput,
+} from './local-ai-routing-guard';
 
 export interface LocalAiAuxiliaryHooks {
   findTarget(identity: LocalAiEndpointIdentity): LocalAiTarget | undefined;
@@ -17,6 +20,7 @@ export interface LocalAiAuxiliaryHooks {
   invalidateTarget(targetId: string): void;
   authorizeFallback(input: LocalAiFallbackAuthorizationInput): Promise<LocalAiFallbackVerdict>;
   markFallbackDispatched(eventId: string): void | Promise<void>;
+  recordLocalCompletion(input: LocalAiLocalCompletionInput): void;
 }
 
 const compatibilityHooks: LocalAiAuxiliaryHooks = {
@@ -34,6 +38,7 @@ const compatibilityHooks: LocalAiAuxiliaryHooks = {
     routingEventId: 'unmanaged-compatibility',
   }),
   markFallbackDispatched: () => undefined,
+  recordLocalCompletion: () => undefined,
 };
 
 let hooks = compatibilityHooks;
@@ -54,7 +59,7 @@ export function __resetLocalAiAuxiliaryHooksForTesting(): void {
 
 export function installLocalAiAuxiliaryRuntimeHooks(runtime: {
   targets: Pick<import('./local-ai-target-repository').LocalAiTargetRepository, 'findByEndpoint'>;
-  routing: Pick<import('./local-ai-routing-guard').LocalAiRoutingGuard, 'evaluateLocalTarget' | 'authorizeFallback' | 'markFallbackDispatched'>;
+  routing: Pick<import('./local-ai-routing-guard').LocalAiRoutingGuard, 'evaluateLocalTarget' | 'authorizeFallback' | 'markFallbackDispatched' | 'recordLocalCompletion'>;
   activity: Pick<import('./local-ai-activity-registry').LocalAiActivityRegistry, 'acquire'>;
   scheduler: Pick<import('./local-ai-health-scheduler').LocalAiHealthScheduler, 'targetChanged'>;
 }): () => void {
@@ -65,6 +70,7 @@ export function installLocalAiAuxiliaryRuntimeHooks(runtime: {
     invalidateTarget: (targetId) => runtime.scheduler.targetChanged(targetId),
     authorizeFallback: (input) => runtime.routing.authorizeFallback(input),
     markFallbackDispatched: (eventId) => runtime.routing.markFallbackDispatched(eventId),
+    recordLocalCompletion: (input) => runtime.routing.recordLocalCompletion(input),
   };
   hooks = installed;
   return () => {

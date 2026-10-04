@@ -88,4 +88,31 @@ describe('plan queue MCP tools', () => {
     await call(s, PARENT, 'plan_queue_start', { kind: 'livetests', glob: 'docs/plans/*', relax_settings: true });
     expect(ops.calls[0]).toEqual(['start', PARENT, { kind: 'livetests', glob: 'docs/plans/*', relax_settings: true }]);
   });
+
+  it('advertises decision metadata and forwards validated technical evidence to the coordinator', async () => {
+    const ops = fakeOps();
+    const definitions = createPlanQueueToolDefinitions({ instanceId: WORKER, planQueueTools: ops });
+    const triage = definitions.find((tool) => tool.name === 'plan_queue_report_triage')!;
+    const decision = { kind: 'technical', recommendedOptionId: 'quiet', reason: 'Use project conventions.', evidence: 'AGENTS.md specifies the quiet runner.' };
+    await triage.handler({
+      run_id: 'run-1', records: [{ documentPath: '/repo/a_plan.md', disposition: 'needs-answer', question: {
+        question: 'Which runner?', options: [{ id: 'quiet', label: 'Use the quiet runner' }, { id: 'skip', label: 'Leave it alone' }], decision,
+      } }],
+    });
+    expect(ops.calls[0]).toMatchObject(['reportTriage', WORKER, { records: [{ question: { decision } }] }]);
+    expect(JSON.stringify(triage.inputSchema)).toContain('recommendedOptionId');
+    expect(JSON.stringify(triage.inputSchema)).toContain('human-authority');
+    expect(JSON.stringify(triage.inputSchema)).toContain('human-input');
+    expect(definitions.find((tool) => tool.name === 'plan_queue_answer')!.description).not.toContain('Ask James first');
+  });
+
+  it('rejects invalid automatic recommendations before invoking triage operations', async () => {
+    const ops = fakeOps();
+    const triage = createPlanQueueToolDefinitions({ instanceId: WORKER, planQueueTools: ops }).find((tool) => tool.name === 'plan_queue_report_triage')!;
+    await expect(triage.handler({ run_id: 'run-1', records: [{ documentPath: '/repo/a_plan.md', disposition: 'needs-answer', question: {
+      question: 'Which runner?', options: [{ id: 'quiet', label: 'Use quiet' }, { id: 'skip', label: 'Leave it alone' }],
+      decision: { kind: 'technical', recommendedOptionId: 'skip', reason: 'Routine choice.', evidence: 'Some evidence.' },
+    } }] })).rejects.toThrow();
+    expect(ops.calls).toEqual([]);
+  });
 });

@@ -19,8 +19,10 @@ describe('MCP evidence execution boundary', () => {
   async function setup() {
     const db = defaultDriverFactory(':memory:');
     createOperatorTables(db);
+    const ledgerDb = defaultDriverFactory(':memory:');
     const ledger = new ConversationLedgerService({
       dbPath: ':memory:', enableWAL: false, registry: new NativeConversationRegistry(),
+      driverFactory: () => ledgerDb,
     });
     resources.push({ ledger, db });
     const conversation = await ledger.startConversation({
@@ -57,7 +59,7 @@ describe('MCP evidence execution boundary', () => {
       role: 'user', content, createdAt: Date.now(),
       rawJson: { metadata: { instanceId: 'instance-1' } },
     });
-    return { context, conversation, ledger, db, captures, capture, user };
+    return { context, conversation, ledger, ledgerDb, db, captures, capture, user };
   }
 
   it('rejects missing recorded source BEFORE a remote spawn can execute', async () => {
@@ -174,6 +176,145 @@ describe('MCP evidence execution boundary', () => {
     expect(new Set(captures.map((input) => input['captureKey'])).size).toBe(3);
     expect(captures.every((input) => input['turnRef'] === source.id)).toBe(true);
     expect(new Set(captures.map((input) => input['toolCallRef'])).size).toBe(3);
+  });
+
+  it('retains the genuine user anchor after a long tool-only transcript tail', async () => {
+    const { context, ledger, conversation, captures, user } = await setup();
+    const source = await user();
+    await ledger.appendMessagesReturningRecords(conversation.id, Array.from({ length: 229 }, (_, index) => ({
+      role: 'tool' as const, phase: 'tool_result', content: `Synthetic result ${index}`, createdAt: index + 1,
+      rawJson: { metadata: { instanceId: 'instance-1', kind: 'tool_result', toolName: 'another_tool' } },
+    })));
+    expect((await ledger.getRecentConversation(conversation.id, 200)).messages.every((message) => message.role !== 'user'))
+      .toBe(true);
+    const list = vi.fn(async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }));
+    const tool = createOrchestratorToolDefinitions({ ...context, listRemoteNodes: list })
+      .find((entry) => entry.name === 'list_remote_nodes')!;
+    await expect(tool.handler({})).resolves.toMatchObject({ totalCount: 0 });
+    await expect(tool.handler({})).resolves.toMatchObject({ totalCount: 0 });
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(captures.map((capture) => capture['turnRef'])).toEqual([source.id, source.id]);
+    expect(new Set(captures.map((capture) => capture['captureKey'])).size).toBe(2);
+  });
+
+  it('selects the latest eligible user outside the window without borrowing another owner', async () => {
+    const { context, ledger, conversation, captures, user } = await setup();
+    await user('Earlier genuine request');
+    const source = await user('Latest genuine request');
+    await ledger.appendMessageReturningRecord(conversation.id, {
+      role: 'user', content: 'Other instance request', createdAt: 1,
+      rawJson: { metadata: { instanceId: 'other-instance' } },
+    });
+    await ledger.appendMessagesReturningRecords(conversation.id, Array.from({ length: 220 }, () => ({
+      role: 'system' as const, content: 'Synthetic housekeeping', createdAt: 1,
+    })));
+    const tool = createOrchestratorToolDefinitions({
+      ...context, listRemoteNodes: async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }),
+    }).find((entry) => entry.name === 'list_remote_nodes')!;
+    await expect(tool.handler({})).resolves.toMatchObject({ totalCount: 0 });
+    expect(captures[0]?.['turnRef']).toBe(source.id);
+  });
+
+  it('keeps a long transcript with only another owner\'s user fail closed', async () => {
+    const { context, ledger, conversation, capture } = await setup();
+    await ledger.appendMessageReturningRecord(conversation.id, {
+      role: 'user', content: 'Other instance request', createdAt: 1,
+      rawJson: { metadata: { instanceId: 'other-instance' } },
+    });
+    await ledger.appendMessagesReturningRecords(conversation.id, Array.from({ length: 220 }, () => ({
+      role: 'system' as const, content: 'Synthetic housekeeping', createdAt: 1,
+    })));
+    const list = vi.fn(async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }));
+    const tool = createOrchestratorToolDefinitions({ ...context, listRemoteNodes: list })
+      .find((entry) => entry.name === 'list_remote_nodes')!;
+    await expect(tool.handler({})).rejects.toThrow(/execution=not_started.*SOURCE_MESSAGE_MISSING/);
+    expect(list).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it('sanitizes durable user lookup failures before dispatch even with a recorded anchor', async () => {
+    const { context, ledger, user, capture } = await setup();
+    await user();
+    vi.spyOn(ledger, 'getLatestUserMessage').mockRejectedValueOnce(new Error('synthetic-private-ledger-detail'));
+    const list = vi.fn(async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }));
+    const tool = createOrchestratorToolDefinitions({ ...context, listRemoteNodes: list })
+      .find((entry) => entry.name === 'list_remote_nodes')!;
+    const error = await tool.handler({}).then(() => null, (failure: Error) => failure);
+    expect(error?.message).toMatch(/execution=not_started.*SOURCE_LOOKUP_FAILED/);
+    expect(error?.message).not.toContain('synthetic-private-ledger-detail');
+    expect(list).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it('does not re-admit a corrupt user row through the bounded native-call fallback', async () => {
+    const { context, ledgerDb, user, capture } = await setup();
+    const source = await user();
+    ledgerDb.prepare('UPDATE conversation_messages SET raw_json = ? WHERE id = ?')
+      .run('{broken-synthetic-json', source.id);
+    const list = vi.fn(async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }));
+    const tool = createOrchestratorToolDefinitions({ ...context, listRemoteNodes: list })
+      .find((entry) => entry.name === 'list_remote_nodes')!;
+    await expect(tool.handler({})).rejects.toThrow(/execution=not_started.*SOURCE_MESSAGE_MISSING/);
+    expect(list).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '{"metadata":{"instanceId":"instance-1","instanceId":"other-instance"}}',
+    '{"metadata":{"instanceId":"instance-1"},"metadata":{"instanceId":"other-instance"}}',
+    '{"metadata":null,"metadata":{"instanceId":"other-instance"}}',
+    '{"metadata":{"instanceId":"instance-1","instance\\u0049d":"other-instance"}}',
+    '{"metadata":{"instanceId":"instance-1"},"metad\\u0061ta":{"instanceId":"other-instance"}}',
+  ])('excludes ambiguous ownership and retains the older genuine long-turn source: %s', async (rawJson) => {
+    const { context, ledger, ledgerDb, conversation, user, captures } = await setup();
+    const source = await user();
+    const foreign = await ledger.appendMessageReturningRecord(conversation.id, {
+      role: 'user', content: 'Synthetic foreign request', createdAt: 1,
+      rawJson: { metadata: { instanceId: 'other-instance' } },
+    });
+    ledgerDb.prepare('UPDATE conversation_messages SET raw_json = ? WHERE id = ?').run(rawJson, foreign.id);
+    await ledger.appendMessagesReturningRecords(conversation.id, Array.from({ length: 220 }, () => ({
+      role: 'system' as const, content: 'Synthetic housekeeping', createdAt: 1,
+    })));
+    const list = vi.fn(async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }));
+    const tool = createOrchestratorToolDefinitions({ ...context, listRemoteNodes: list })
+      .find((entry) => entry.name === 'list_remote_nodes')!;
+    await expect(tool.handler({})).resolves.toMatchObject({ totalCount: 0 });
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(captures[0]?.['turnRef']).toBe(source.id);
+  });
+
+  it('blocks ambiguous ownership with no eligible source before handler execution', async () => {
+    const { context, ledgerDb, user, capture } = await setup();
+    const source = await user();
+    ledgerDb.prepare('UPDATE conversation_messages SET raw_json = ? WHERE id = ?')
+      .run('{"metadata":{"instanceId":"instance-1","instanceId":"other-instance"}}', source.id);
+    const list = vi.fn(async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }));
+    const tool = createOrchestratorToolDefinitions({ ...context, listRemoteNodes: list })
+      .find((entry) => entry.name === 'list_remote_nodes')!;
+    await expect(tool.handler({})).rejects.toThrow(/execution=not_started.*SOURCE_MESSAGE_MISSING/);
+    expect(list).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { rawJson: { metadata: { instanceId: 'other-instance' } } },
+    { rawJson: { metadata: { instanceId: null } } },
+    { rawJson: { metadata: { instanceId: 42 } } },
+    { rawJson: { metadata: { instanceId: undefined } } },
+    { threadId: 'other-conversation' },
+    { role: 'tool' as const },
+    { id: '' },
+  ])('rejects an invalid decoded durable source before dispatch: %j', async (override) => {
+    const { context, ledger, user, capture } = await setup();
+    const source = await user();
+    vi.spyOn(ledger, 'getLatestUserMessage').mockResolvedValueOnce({ ...source, ...override });
+    const list = vi.fn(async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }));
+    const tool = createOrchestratorToolDefinitions({ ...context, listRemoteNodes: list })
+      .find((entry) => entry.name === 'list_remote_nodes')!;
+    await expect(tool.handler({})).rejects.toThrow(/execution=not_started.*SOURCE_MESSAGE_INVALID/);
+    expect(list).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
   });
 
   it.each([

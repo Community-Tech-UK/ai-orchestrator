@@ -905,6 +905,71 @@ describe('LocalAiHealthScheduler', () => {
     expect(transitions).toHaveLength(2);
   });
 
+  // After an app restart the persisted canary is trusted for interval + freshness
+  // (12 min here). Waiting a full interval from the restart for the next canary
+  // let it go stale, leaving the target "checking" with no routable roles.
+  it.each([
+    ['overdue', 11 * 60_000, 0],
+    ['due later', 4 * 60_000, 6 * 60_000],
+  ] as const)(
+    'runs the first canary after a restart on the persisted cadence when it is %s',
+    async (_label, canaryAgeMs, expectedDelayMs) => {
+      const value = target('target-a');
+      const persistedCanary = {
+        ...probe(value, 'functional', true, START - canaryAgeMs)[0],
+        id: 'persisted-canary',
+        origin: 'scheduler' as const,
+      };
+      const { scheduler, checks } = harness([value], undefined, {
+        latestSamples: () => [persistedCanary],
+      });
+      const functionalCalls = () => checks.mock.calls.filter(([, kind]) => kind === 'functional').length;
+
+      scheduler.start();
+      await flush();
+      if (expectedDelayMs > 0) {
+        expect(functionalCalls()).toBe(0);
+        await vi.advanceTimersByTimeAsync(expectedDelayMs - 1);
+        expect(functionalCalls()).toBe(0);
+        await vi.advanceTimersByTimeAsync(1);
+      }
+      expect(functionalCalls()).toBe(1);
+      expect(scheduler.getStatus(value.id)?.routableRoles).toEqual(['compression']);
+      scheduler.stop();
+    },
+  );
+
+  // The 2026-10-04 incident took this path: a worker target whose node reconnects
+  // around the restart, in either order relative to start().
+  it.each([
+    ['after start', false],
+    ['before start', true],
+  ] as const)('runs an overdue canary as soon as the worker connects %s', async (_label, connectFirst) => {
+    const value = target('worker-target', { location: { type: 'worker', nodeId: 'node-a' } });
+    const persistedCanary = {
+      ...probe(value, 'functional', true, START - 11 * 60_000)[0],
+      id: 'persisted-canary',
+      origin: 'scheduler' as const,
+    };
+    const { scheduler, checks } = harness([value], undefined, {
+      latestSamples: () => [persistedCanary],
+    });
+    const functionalCalls = () => checks.mock.calls.filter(([, kind]) => kind === 'functional').length;
+
+    if (connectFirst) scheduler.workerConnected('node-a');
+    scheduler.start();
+    await flush();
+    if (!connectFirst) {
+      expect(functionalCalls()).toBe(0);
+      scheduler.workerConnected('node-a');
+      await flush();
+    }
+
+    expect(functionalCalls()).toBe(1);
+    expect(scheduler.getStatus(value.id)?.routableRoles).toEqual(['compression']);
+    scheduler.stop();
+  });
+
   it('starts reconstructed targets in a non-routable state until a current probe completes', async () => {
     const value = target('target-a');
     let resolveCheck!: (samples: LocalAiProbeResult[]) => void;

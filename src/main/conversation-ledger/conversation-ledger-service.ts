@@ -188,6 +188,10 @@ export class ConversationLedgerService {
     return this.buildConversation(thread, messages, totalMessages);
   }
 
+  async getLatestUserMessage(threadId: string, instanceId: string | null): Promise<ConversationMessageRecord | null> {
+    return this.port.getLatestUserMessage(threadId, instanceId);
+  }
+
   async getRecentConversation(
     threadId: string,
     limit: number = DEFAULT_CONVERSATION_WINDOW_LIMIT,

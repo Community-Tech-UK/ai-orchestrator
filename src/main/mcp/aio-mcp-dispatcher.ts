@@ -90,7 +90,7 @@ function formatHelp(): string {
     '  remote-nodes        Print the safe remote worker roster (--json for JSON)',
     '  release-readiness   Build release readiness report from evidence JSON',
     '  settings            Inspect and repair app settings through the parent app',
-    '  local-ai            Discover, validate, and enrol Local AI targets',
+    '  local-ai            Discover, enrol, inspect, check, rename and retire Local AI targets',
     '  browser-credentials Bind a vault login to an origin and manage fill grants',
     '  copilot-account     Inspect Copilot profiles and workspace routing',
     '  loop                List parked loops and resume one',

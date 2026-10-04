@@ -52,7 +52,7 @@ describe('conversation ledger schema', () => {
     expect(tables).toContain('evidence_deletion_queue');
     expect(tables).toContain('context_evidence_events');
     expect(tables).toContain('conversation_ledger_migrations');
-    expect(CONVERSATION_LEDGER_SCHEMA_VERSION).toBe(5);
+    expect(CONVERSATION_LEDGER_SCHEMA_VERSION).toBe(6);
   });
 
   it('LT-221: allows a get-card evidence_access_log row and preserves existing rows across the rebuild', () => {

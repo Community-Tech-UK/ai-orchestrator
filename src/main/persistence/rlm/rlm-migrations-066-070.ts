@@ -65,4 +65,29 @@ export const RLM_MIGRATIONS_066_070: Migration[] = [
       DROP TABLE IF EXISTS skill_budget_skips;
     `,
   },
+  {
+    // Local AI fallback spend (budget ceilings) sums only allowed or
+    // pending-confirmation routing events. Since successful local auxiliary
+    // calls are recorded too (disposition 'not-needed', ~2.7k rows/day), those
+    // sums would otherwise read every local row on each fallback. Partial
+    // indexes keep them to the small set of paid-fallback rows. The WHERE
+    // clause must match getLocalAiFallbackSpend's literal so SQLite can use it.
+    name: '068_local_ai_routing_spend_indexes',
+    up: `
+      CREATE INDEX IF NOT EXISTS idx_local_ai_routing_events_spend
+        ON local_ai_routing_events(completed_at, created_at)
+        WHERE disposition IN ('allowed', 'pending-confirmation');
+      CREATE INDEX IF NOT EXISTS idx_local_ai_routing_events_spend_target
+        ON local_ai_routing_events(target_id, completed_at, created_at)
+        WHERE disposition IN ('allowed', 'pending-confirmation');
+      CREATE INDEX IF NOT EXISTS idx_local_ai_routing_events_spend_incident
+        ON local_ai_routing_events(incident_id, completed_at, created_at)
+        WHERE disposition IN ('allowed', 'pending-confirmation');
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_local_ai_routing_events_spend_incident;
+      DROP INDEX IF EXISTS idx_local_ai_routing_events_spend_target;
+      DROP INDEX IF EXISTS idx_local_ai_routing_events_spend;
+    `,
+  },
 ];

@@ -6,7 +6,7 @@ import type {
   LocalAiTargetStatus,
 } from '../../shared/types/local-ai-guard.types';
 import { LocalAiHealthTransitionSchema } from '../../shared/validation/local-ai-guard.schemas';
-import { LocalAiHealthEngine } from './local-ai-health-engine';
+import { initialFunctionalDelayMs, LocalAiHealthEngine } from './local-ai-health-engine';
 
 const BASE_TIME = 1_700_000_000_000;
 
@@ -1168,5 +1168,23 @@ describe('LocalAiHealthEngine', () => {
       incidentOpen: true,
     });
     expect(unavailableReplay.incidentAction).toBe('none');
+  });
+});
+
+describe('initialFunctionalDelayMs', () => {
+  const interval = 600_000;
+  const now = 10_000_000;
+
+  it.each([
+    ['overdue canary runs now', now - 11 * 60_000, 0],
+    ['exactly due runs now', now - interval, 0],
+    ['partly elapsed waits the remainder', now - 4 * 60_000, 6 * 60_000],
+    ['just ran waits a full interval', now, interval],
+    ['future timestamp (clock skew) is capped at one interval', now + 5 * 60_000, interval],
+    ['no canary evidence keeps the normal interval', undefined, interval],
+    ['non-finite timestamp keeps the normal interval', Number.NaN, interval],
+    ['infinite timestamp keeps the normal interval', Number.POSITIVE_INFINITY, interval],
+  ] as const)('%s', (_label, lastCanaryAt, expected) => {
+    expect(initialFunctionalDelayMs(lastCanaryAt, interval, now)).toBe(expected);
   });
 });

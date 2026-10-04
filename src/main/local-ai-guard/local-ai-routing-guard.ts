@@ -43,6 +43,7 @@ export interface LocalAiRoutingGuardDependencies {
   scheduler: Pick<LocalAiHealthScheduler, 'ensureFresh' | 'getStatus'>;
   health: Pick<
     LocalAiHealthRepository,
+    | 'appendRoutingEvent'
     | 'reserveFallbackRoutingEvent'
     | 'getRoutingEvent'
     | 'markFallbackDispatched'
@@ -66,6 +67,16 @@ export interface LocalAiFallbackAuthorizationInput {
   estimatedInputTokens: number;
   estimatedOutputTokens: number;
   slotAllowsFrontier: boolean;
+}
+
+export interface LocalAiLocalCompletionInput {
+  slot: AuxiliaryLlmSlot;
+  /** Managed target the call ran on, when its endpoint is enrolled. */
+  targetId?: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 interface PolicyDecision {
@@ -193,6 +204,49 @@ export class LocalAiRoutingGuard {
       case 'require-confirmation':
         throw new Error('Local AI confirmation event bypassed the atomic approval boundary');
     }
+  }
+
+  /**
+   * Record an auxiliary call that completed on a local model. Fallbacks have
+   * always been written here, but local completions never were, so the
+   * effectiveness summary reported 0% local while ~95% of calls ran locally.
+   * Disposition `not-needed` keeps these rows out of fallback spend, which sums
+   * `allowed` rows; `estimatedCostUsd` is the frontier cost avoided.
+   */
+  recordLocalCompletion(input: LocalAiLocalCompletionInput): void {
+    validateTokenEstimate(input.inputTokens, 'inputTokens');
+    validateTokenEstimate(input.outputTokens, 'outputTokens');
+    const at = this.currentTimestamp();
+    const rawTarget = input.targetId ? this.dependencies.targets.get(input.targetId) : undefined;
+    const target = rawTarget && rawTarget.lifecycle !== 'unmanaged' && rawTarget.lifecycle !== 'retired'
+      ? rawTarget
+      : undefined;
+    const fallbackModel = this.dependencies.resolveFallbackModel?.(input.slot);
+    const avoided = fallbackModel
+      ? computeProviderTokenCost(fallbackModel.provider, fallbackModel.model, {
+          inputTokens: input.inputTokens,
+          outputTokens: input.outputTokens,
+        })
+      : undefined;
+    this.dependencies.health.appendRoutingEvent({
+      id: this.createId(),
+      ...(target ? { targetId: target.id } : {}),
+      slot: input.slot,
+      intendedRoute: 'local',
+      actualRoute: 'local',
+      policy: target?.slotFallbackPolicies[input.slot]
+        ?? target?.fallbackPolicy
+        ?? this.dependencies.settings().localAiGuardDefaultFallbackPolicy,
+      disposition: 'not-needed',
+      decisionReason: 'health',
+      provider: input.provider,
+      model: input.model,
+      inputTokens: input.inputTokens,
+      outputTokens: input.outputTokens,
+      ...(avoided === undefined ? {} : { estimatedCostUsd: avoided }),
+      createdAt: at,
+      completedAt: at,
+    });
   }
 
   markFallbackDispatched(eventId: string): void {

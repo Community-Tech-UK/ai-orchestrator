@@ -89,6 +89,34 @@ describe('LocalAiTargetRepository', () => {
     expect(repository.get(target.id)).toEqual(target);
   });
 
+  it('stores a caller-supplied label and renames a target without touching its configuration', () => {
+    let now = 1_000;
+    const repository = new LocalAiTargetRepository(openDb(), undefined, () => now);
+    const created = repository.create(config(), { label: 'windows-pc · Ollama' });
+    const notified: string[] = [];
+    repository.subscribe((target) => notified.push(target.label));
+    now = 5_000;
+
+    const renamed = repository.rename(created.id, 'Gaming PC · Ollama');
+
+    expect(created.label).toBe('windows-pc · Ollama');
+    expect(renamed).toEqual({ ...created, label: 'Gaming PC · Ollama' });
+    expect(repository.get(created.id)).toEqual(renamed);
+    // Subscribers (the health scheduler) and updatedAt drive a full target reset
+    // that would drop in-flight checks; a label change must trigger neither.
+    expect(notified).toEqual([]);
+  });
+
+  it('rejects an empty or oversized label and an unknown target without writing', () => {
+    const repository = new LocalAiTargetRepository(openDb());
+    const created = repository.create(config());
+
+    expect(() => repository.rename(created.id, '   ')).toThrow();
+    expect(() => repository.rename(created.id, 'x'.repeat(257))).toThrow();
+    expect(() => repository.rename('missing-target', 'Label')).toThrow(/not found/);
+    expect(repository.get(created.id)?.label).toBe(created.label);
+  });
+
   it('records pause, resume, and retirement lifecycle timestamps', () => {
     let now = 1_000;
     const repository = new LocalAiTargetRepository(openDb(), undefined, () => now);

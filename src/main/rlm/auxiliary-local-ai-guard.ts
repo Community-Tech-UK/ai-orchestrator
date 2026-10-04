@@ -212,8 +212,14 @@ export function recordSuccessfulAuxiliary(input: {
   userPrompt: string;
   text: string;
   reason: string;
+  intendedTargetId?: string;
 }): void {
   const tokenCounter = getTokenCounter();
+  const usage = {
+    inputTokens:
+      tokenCounter.countTokens(input.systemPrompt) + tokenCounter.countTokens(input.userPrompt),
+    outputTokens: tokenCounter.countTokens(input.text),
+  };
   recordAuxiliaryAttribution({
     slot: input.slot,
     provider: input.endpoint.provider,
@@ -221,11 +227,20 @@ export function recordSuccessfulAuxiliary(input: {
     model: input.model,
     routedTo: input.source,
     escalatedToFrontier: false,
-    usage: {
-      inputTokens:
-        tokenCounter.countTokens(input.systemPrompt) + tokenCounter.countTokens(input.userPrompt),
-      outputTokens: tokenCounter.countTokens(input.text),
-    },
+    usage,
     reason: input.reason,
   });
+  if (input.source !== 'local') return;
+  // Local AI effectiveness counts these; a bookkeeping failure must never fail the call.
+  try {
+    getLocalAiAuxiliaryHooks().recordLocalCompletion({
+      slot: input.slot,
+      ...(input.intendedTargetId ? { targetId: input.intendedTargetId } : {}),
+      provider: input.endpoint.provider,
+      model: input.model,
+      ...usage,
+    });
+  } catch {
+    // Attribution above already recorded the call; the summary just misses one row.
+  }
 }

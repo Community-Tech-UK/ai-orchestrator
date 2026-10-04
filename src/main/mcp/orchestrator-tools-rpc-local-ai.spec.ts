@@ -116,6 +116,29 @@ function makeHarness(overrides: Record<string, unknown> = {}) {
     validate: vi.fn(async () => [probe(true)]),
     create: vi.fn(async () => target),
     setLifecycle: vi.fn(async () => ({ ...target, lifecycle: 'retired', retiredAt: target.updatedAt })),
+    status: vi.fn(async () => ({
+      aggregate: { state: 'healthy', enrolled: 1, healthy: 1, degraded: 0, unavailable: 0, paused: 0 },
+      targets: [],
+      incidents: [],
+    })),
+    recheck: vi.fn(async () => ({
+      id: target.id, label: target.label, lifecycle: 'enrolled', provider: 'openai-compatible',
+      state: 'healthy', routableRoles: ['compression'], consecutiveFailures: 0, checkedAt: 1, layers: {},
+    })),
+    rename: vi.fn(async () => ({ ...target, label: 'windows-pc · LM Studio' })),
+    update: vi.fn(async () => ({ ...target, warningLatencyMs: 15_000 })),
+    summary: vi.fn(async () => ({
+      window: '24h', localTasks: 1, localTokens: 2, proposedFallbacks: 0, allowedFallbacks: 0,
+      deferredFallbacks: 0, blockedFallbacks: 0, knownCostUsd: 0, estimatedCostUsd: 0,
+      unpricedDispatchCount: 0, avoidedEstimatedTokens: 2, avoidedEstimatedCostUsd: 0,
+      byTarget: {}, byModel: {}, bySlot: {}, byIncident: {},
+    })),
+    acknowledgeIncident: vi.fn(async () => ({
+      id: 'incident-1', targetId: target.id, state: 'acknowledged', severity: 'warning',
+      failureCode: 'connection-refused', affectedLayers: ['endpoint'], affectedRoles: ['compression'],
+      openedAt: 1, updatedAt: 2, acknowledgedAt: 2, fallbackCount: 0, knownCostUsd: 0,
+      estimatedCostUsd: 0, unpricedDispatchCount: 0,
+    })),
     ...overrides,
   };
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ot-local-ai-rpc-'));
@@ -301,5 +324,56 @@ describe('OrchestratorToolsRpcServer Local AI CLI methods', () => {
       pausedUntil: 1_800_000_000_000,
     }))).rejects.toThrow();
     expect(h.operations.setLifecycle).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['status', {}, 'status', []],
+    ['recheck', { targetId: 'target-1', kind: 'functional' }, 'recheck', ['target-1', 'functional']],
+    ['rename', { targetId: 'target-1', label: 'windows-pc · LM Studio' }, 'rename', ['target-1', 'windows-pc · LM Studio']],
+    ['update', { targetId: 'target-1', patch: { warningLatencyMs: 15_000 } }, 'update', ['target-1', { warningLatencyMs: 15_000 }]],
+    ['summary', { window: '24h' }, 'summary', ['24h']],
+    ['acknowledge', { incidentId: 'incident-1' }, 'acknowledgeIncident', ['incident-1']],
+  ] as const)('dispatches %s to the matching runtime operation', async (method, payload, operation, args) => {
+    const h = makeHarness();
+    tempDirs.push(h.tmpDir);
+
+    await expect(h.server.handleRequest(request(`orchestrator_tools.local_ai.${method}`, payload)))
+      .resolves.toBeDefined();
+    expect(h.operations[operation]).toHaveBeenCalledWith(...args);
+  });
+
+  it.each([
+    ['status', { extra: true }],
+    ['recheck', { targetId: 'target-1', kind: 'deep' }],
+    ['rename', { targetId: 'target-1', label: '   ' }],
+    ['update', { targetId: 'target-1', patch: { endpointId: 'other' } }],
+    ['summary', { window: '1y' }],
+    ['acknowledge', {}],
+  ] as const)('rejects a malformed %s payload before runtime work', async (method, payload) => {
+    const h = makeHarness();
+    tempDirs.push(h.tmpDir);
+
+    await expect(h.server.handleRequest(request(`orchestrator_tools.local_ai.${method}`, payload)))
+      .rejects.toThrow();
+    for (const operation of ['status', 'recheck', 'rename', 'update', 'summary', 'acknowledgeIncident'] as const) {
+      expect(h.operations[operation]).not.toHaveBeenCalled();
+    }
+  });
+
+  it('refuses a status result that would leak probe evidence', async () => {
+    const h = makeHarness({
+      status: vi.fn(async () => ({
+        aggregate: { state: 'healthy', enrolled: 1, healthy: 1, degraded: 0, unavailable: 0, paused: 0 },
+        targets: [{
+          id: 'target-1', label: 'x', lifecycle: 'enrolled', provider: 'ollama', state: 'healthy',
+          routableRoles: [], consecutiveFailures: 0, checkedAt: 1,
+          layers: { endpoint: { ok: true, required: true, checkedAt: 1, durationMs: 1, evidence: { raw: 'provider text' } } },
+        }],
+        incidents: [],
+      })),
+    });
+    tempDirs.push(h.tmpDir);
+
+    await expect(h.server.handleRequest(request('orchestrator_tools.local_ai.status', {}))).rejects.toThrow();
   });
 });

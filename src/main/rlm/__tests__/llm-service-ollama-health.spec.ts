@@ -207,6 +207,7 @@ describe('LLMService.summarize() — auxiliary routing', () => {
         policy: 'allow-silently',
         routingEventId: 'routing-ollama',
       }),
+      recordLocalCompletion: () => undefined,
       markFallbackDispatched: mark,
     });
     vi.stubGlobal('fetch', vi.fn(async (url: string) => (
@@ -268,6 +269,7 @@ describe('LLMService.summarize() — auxiliary routing', () => {
         policy: 'allow-silently',
         routingEventId: 'routing-anthropic',
       }),
+      recordLocalCompletion: () => undefined,
       markFallbackDispatched: mark,
     });
     const fetchMock = vi.fn(async (url: string) => {
@@ -326,6 +328,7 @@ describe('LLMService.summarize() — auxiliary routing', () => {
         policy: 'allow-silently',
         routingEventId: 'routing-mark-failure',
       }),
+      recordLocalCompletion: () => undefined,
       markFallbackDispatched: async () => {
         throw new Error('durable mark failed');
       },

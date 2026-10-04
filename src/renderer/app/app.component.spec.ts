@@ -231,6 +231,20 @@ describe('AppComponent startup banner', () => {
     expect(dismiss?.getAttribute('aria-label')).toBe('Dismiss startup checks banner');
   });
 
+  it.each(['claude', 'codex'])('opens account sign-in settings from the %s startup warning', (provider) => {
+    const report = makeDegradedReport(`${provider} CLI is not logged in`);
+    report.checks[0].id = `provider.${provider}`;
+    component.startupCapabilities.set(report);
+    fixture.detectChanges();
+    router.navigate.mockClear();
+
+    const action = fixture.nativeElement.querySelector('.startup-banner-cta') as HTMLButtonElement;
+    expect(action.textContent).toBe('Open accounts');
+    action.click();
+
+    expect(router.navigate).toHaveBeenCalledExactlyOnceWith(['/settings'], { fragment: 'provider-accounts' });
+  });
+
   it('hides the current degraded startup report after dismissal', () => {
     const dismiss = fixture.nativeElement.querySelector('.startup-banner-dismiss') as HTMLButtonElement;
 

@@ -78,6 +78,7 @@ function harness() {
   const operations = createLocalAiPublicOperations({
     getRuntime: () => runtime as never,
     discoverCandidates: discoverCandidates as never,
+    workerName: (nodeId: string) => (nodeId === 'node-1' ? 'windows-pc' : undefined),
     now: () => 1_700_000_000_000,
     createId: () => 'validation-target',
   });
@@ -137,7 +138,8 @@ describe('createLocalAiPublicOperations', () => {
     const h = harness();
 
     await expect(h.operations.create(config)).resolves.toEqual(target);
-    expect(h.runtime.targets.create).toHaveBeenCalledWith(config);
+    // New targets get a readable label from the worker's name, not its node id.
+    expect(h.runtime.targets.create).toHaveBeenCalledWith(config, { label: 'windows-pc · LM Studio' });
   });
 
   it('changes lifecycle through the repository and publishes the change', async () => {

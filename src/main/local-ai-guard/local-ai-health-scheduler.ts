@@ -10,7 +10,7 @@ import type {
 import { LocalAiProbeResultSchema } from '../../shared/validation/local-ai-guard.schemas';
 import { getLogger } from '../logging/logger';
 import { LocalAiActivityRegistry } from './local-ai-activity-registry';
-import { LocalAiHealthEngine } from './local-ai-health-engine';
+import { initialFunctionalDelayMs, LocalAiHealthEngine } from './local-ai-health-engine';
 import type { LocalAiHealthRepository } from './local-ai-health-repository';
 import type { LocalAiIncidentService } from './local-ai-incident-service';
 import { LocalAiPauseExpiryController } from './local-ai-pause-expiry-controller';
@@ -247,13 +247,12 @@ export class LocalAiHealthScheduler {
 
   private scheduleTarget(target: LocalAiTarget, immediateLightweight: boolean): void {
     if (!this.shouldPoll(target)) return;
-    this.scheduleCheck(
-      target,
-      'lightweight',
-      immediateLightweight ? 0 : this.intervalFor(target, 'lightweight'),
-    );
+    this.scheduleCheck(target, 'lightweight', immediateLightweight ? 0 : this.intervalFor(target, 'lightweight'));
     if (!this.scheduled.has(checkKey(target.id, 'functional'))) {
-      this.scheduleCheck(target, 'functional', this.intervalFor(target, 'functional'));
+      // Keep the canary's own cadence across app restarts and worker reconnects.
+      const lastCanaryAt = this.statuses.get(target.id)?.layers.inference?.checkedAt;
+      this.scheduleCheck(target, 'functional', initialFunctionalDelayMs(
+        lastCanaryAt, this.intervalFor(target, 'functional'), this.currentTimestamp()));
     }
   }
 

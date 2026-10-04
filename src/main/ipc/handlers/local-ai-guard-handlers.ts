@@ -33,6 +33,7 @@ import {
 import { getLogger } from '../../logging/logger';
 import { getAuxiliaryLlmService } from '../../rlm/auxiliary-llm-service';
 import { createLocalAiPublicOperations } from '../../local-ai-guard/local-ai-public-operations';
+import { defaultLocalAiWorkerName } from '../../local-ai-guard/default-local-ai-public-operations';
 import { registerCleanup } from '../../util/cleanup-registry';
 import type { WindowManager } from '../../window-manager';
 import { validatedHandler, type IpcResponse } from '../validated-handler';
@@ -56,6 +57,7 @@ export interface LocalAiGuardHandlerDependencies {
   ensureTrustedSender: EnsureTrustedSender;
   getRuntime?: () => LocalAiGuardRuntime;
   discoverCandidates?: () => Promise<AuxiliaryLlmCandidate[]>;
+  workerName?: (nodeId: string) => string | undefined;
   now?: () => number;
   createId?: () => string;
 }
@@ -84,6 +86,7 @@ export function registerLocalAiGuardHandlers(
   const publicOperations = createLocalAiPublicOperations({
     getRuntime: () => runtime,
     discoverCandidates,
+    workerName: dependencies.workerName ?? defaultLocalAiWorkerName,
     now,
     ...(dependencies.createId ? { createId: dependencies.createId } : {}),
   });
@@ -102,7 +105,7 @@ export function registerLocalAiGuardHandlers(
     LocalAiTargetCreateRequestSchema,
     async ({ config }) => mutate(
       runtime,
-      () => runtime.targets.create(config),
+      () => publicOperations.create(config),
       LocalAiTargetSchema,
     ),
     dependencies.ensureTrustedSender,

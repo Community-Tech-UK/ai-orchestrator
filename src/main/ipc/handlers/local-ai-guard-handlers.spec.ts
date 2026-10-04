@@ -251,6 +251,10 @@ describe('registerLocalAiGuardHandlers', () => {
       requestId: 'request-1', resolution: 'defer',
     });
 
+    // The Health Centre's Add flow now names new targets readably, like the CLI.
+    expect(h.runtime.targets.create).toHaveBeenCalledWith(targetConfig(), {
+      label: 'This computer · Ollama',
+    });
     expect(h.runtime.targets.update).toHaveBeenCalledWith(
       'target-1', { warningLatencyMs: 2_000 },
     );

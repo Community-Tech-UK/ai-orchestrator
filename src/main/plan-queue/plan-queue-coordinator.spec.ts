@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
@@ -314,6 +314,158 @@ function queueWorktrees(): string[] {
   return existsSync(dir) ? readdirSync(dir) : [];
 }
 
+describe('PlanQueueCoordinator — autonomous readiness and current documents', { timeout: 30_000 }, () => {
+  const question = {
+    question: 'Which existing service should implement this check?',
+    options: [{ id: 'existing', label: 'Use the existing service' }, { id: 'skip', label: 'Leave this document' }],
+  };
+
+  it('answers an evidenced technical choice and passes the agent decision to the worker', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.triage = (instance) => {
+      const runId = instance.config.metadata!['planQueueRunId'] as string;
+      const doc = coordinator.getRunDto(runId)!.items[0].documentPath;
+      coordinator.reportTriage(instance.id, { run_id: runId, records: [{
+        documentPath: doc, disposition: 'needs-answer', question: { ...question, decision: {
+          kind: 'technical', recommendedOptionId: 'existing', reason: 'The existing service owns the runtime path.',
+          evidence: 'src/service.ts:10 exposes the required operation.',
+        } },
+      }] });
+    };
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await vi.waitFor(() => expect(fake.created.some((i) => i.role === 'worker')).toBe(true), { timeout: 5_000 });
+    await waitForRun(run.id);
+    const final = coordinator.getRunDto(run.id)!.items[0];
+    expect(final.state).toBe('landed');
+    expect(final.question).toBeNull();
+    expect(final.answer).toContain('Automatic technical decision');
+    expect(final.answer).toContain('Use the existing service');
+    expect(final.answer).toContain('src/service.ts:10');
+    expect(fake.created.find((i) => i.role === 'worker')!.config.initialPrompt).toContain(final.answer!);
+    expect(final.answer).toContain(question.question);
+    expect(fake.created.find((i) => i.role === 'worker')!.config.initialPrompt).toContain(question.question);
+    expect(fake.inputs.filter((i) => i.instanceId === parent.id).some((i) => i.message.includes('needs James to decide'))).toBe(false);
+  });
+
+  it.each(['human-authority', 'human-input', undefined] as const)('keeps %s questions pending', async (kind) => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.triage = (instance) => {
+      const runId = instance.config.metadata!['planQueueRunId'] as string;
+      coordinator.reportTriage(instance.id, { run_id: runId, records: [{
+        documentPath: coordinator.getRunDto(runId)!.items[0].documentPath,
+        disposition: 'needs-answer', question: { ...question, ...(kind ? { decision: { kind, reason: 'A real human boundary remains.' } } : {}) },
+      }] });
+    };
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'needs-answer');
+    expect(fake.created.some((i) => i.role === 'worker')).toBe(false);
+    expect(coordinator.getRunDto(run.id)!.items[0].answer).toBeNull();
+  });
+
+  it('recovers a persisted technical question automatically after a restart', async () => {
+    planDoc('2026-01-01-alpha');
+    fake.scripts.triage = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await coordinator._whenSettledForTesting();
+    store.upsertItem({ ...store.getItem(run.items[0].id)!, state: 'needs-answer', question: {
+      ...question, decision: { kind: 'technical', recommendedOptionId: 'existing',
+        reason: 'Use the existing runtime owner.', evidence: 'src/service.ts:10' },
+    } });
+    const next = await restart();
+    await waitForRun(run.id);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed', question: null });
+    expect(next.created.find((i) => i.role === 'worker')!.config.initialPrompt).toContain('Automatic technical decision');
+    expect(next.created.some((i) => i.role === 'triage')).toBe(false);
+  });
+
+  it('reconciles a completed replacement before a recovered queued item starts', async () => {
+    const doc = planDoc('2026-01-01-alpha');
+    fake.scripts.triage = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await coordinator._whenSettledForTesting();
+    store.upsertItem({ ...store.getItem(run.items[0].id)!, state: 'queued' });
+    renameSync(doc, doc.replace('_plan.md', '_plan_completed.md'));
+    const next = await restart();
+    await waitForRun(run.id);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'skipped', question: null, verdict: null });
+    expect(next.created.some((i) => i.role === 'worker')).toBe(false);
+  });
+
+  it('parks repeated triage failure without inventing an answer for James', async () => {
+    planDoc('2026-01-01-alpha');
+    fake.scripts.triage = () => undefined;
+    const parent = fake.addParent();
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: 'worker-error', question: null });
+    expect(fake.created.filter((i) => i.role === 'triage')).toHaveLength(2);
+    expect(fake.created.some((i) => i.role === 'worker')).toBe(false);
+    expect(fake.inputs.some((i) => i.instanceId === parent.id && i.message.includes('needs James to decide'))).toBe(false);
+  });
+
+  it('sends missing-spec investigation to triage rather than inventing a human question', async () => {
+    writeDoc('docs/plans/2026-01-01-orphan_plan.md', '**Spec:** [spec](./missing_spec_planned.md)\n');
+    fake.scripts.triage = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    expect(run.items[0].state).toBe('discovered');
+    expect(run.items[0].question).toBeNull();
+    expect(run.items[0].detail).toContain('missing_spec_planned.md');
+  });
+
+  it('leaves an unplanned spec open without queueing a worker against an obsolete planning path', async () => {
+    const doc = writeDoc('docs/plans/2026-01-01-new_spec.md', '# Open scope needing an implementation plan\n');
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await waitForRun(run.id);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'skipped', question: null, answer: null, verdict: null });
+    expect(coordinator.getRunDto(run.id)!.items[0].detail).toContain('spec remains open');
+    expect(readFileSync(doc, 'utf8')).toBe('# Open scope needing an implementation plan\n');
+    expect(existsSync(doc.replace('_spec.md', '_spec_completed.md'))).toBe(false);
+    expect(fake.created.some((i) => i.role === 'worker' || i.role === 'triage')).toBe(false);
+  });
+
+  it('retires a stale readiness question when its document has an exact completed replacement', async () => {
+    const doc = planDoc('2026-01-01-alpha');
+    fake.scripts.triage = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await coordinator._whenSettledForTesting();
+    const item = store.getItem(run.items[0].id)!;
+    store.upsertItem({ ...item, state: 'needs-answer', question });
+    renameSync(doc, doc.replace('_plan.md', '_plan_completed.md'));
+    coordinator.requestPump();
+    await vi.waitFor(() => expect(store.getItem(item.id)?.state).toBe('skipped'), { timeout: 5_000 });
+    const final = store.getItem(item.id)!;
+    expect(final.question).toBeNull();
+    expect(final.verdict).toBeNull();
+    expect(final.detail).toContain('completed replacement');
+    expect(fake.created.some((i) => i.role === 'worker')).toBe(false);
+    expect(readFileSync(doc.replace('_plan.md', '_plan_completed.md'), 'utf8')).not.toContain('As built');
+  });
+
+  it('parks a disappeared document without a replacement as an error, not a question', async () => {
+    const doc = planDoc('2026-01-01-alpha');
+    fake.scripts.triage = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await coordinator._whenSettledForTesting();
+    rmSync(doc);
+    coordinator.requestPump();
+    await vi.waitFor(() => expect(store.getItem(run.items[0].id)?.state).toBe('parked'), { timeout: 5_000 });
+    expect(store.getItem(run.items[0].id)).toMatchObject({ parkReason: 'worker-error', question: null, verdict: null });
+    expect(store.getItem(run.items[0].id)!.detail).toContain('missing');
+    expect(fake.created.some((i) => i.role === 'worker')).toBe(false);
+  });
+
+  it('keeps an active source when a completed filename also exists', async () => {
+    const doc = planDoc('2026-01-01-alpha');
+    writeFileSync(doc.replace('_plan.md', '_plan_completed.md'), '# Earlier campaign\n');
+    fake.scripts.triage = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await coordinator._whenSettledForTesting();
+    expect(store.getItem(run.items[0].id)!.state).toBe('discovered');
+  });
+});
+
 describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30_000 }, () => {
   it('lands one verified plan as a squash commit, closes its documents and leaves no worktree', async () => {
     planDoc('2026-01-01-alpha');
@@ -505,12 +657,24 @@ describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30
     expect(git(['show', 'main:a.txt'])).toBe('base');
   });
 
-  it('asks James about a not-ready document and starts it after his answer', async () => {
+  it('asks James about a genuine authority boundary and starts it after his answer', async () => {
     writeDoc('docs/plans/2026-01-01-orphan_plan.md', '# Plan\n\n**Spec:** [spec](./2026-01-01-orphan_spec_planned.md)\n');
+    fake.scripts.triage = (instance) => {
+      const runId = instance.config.metadata!['planQueueRunId'] as string;
+      coordinator.reportTriage(instance.id, { run_id: runId, records: [{
+        documentPath: coordinator.getRunDto(runId)!.items[0].documentPath,
+        disposition: 'needs-answer', question: {
+          question: 'May this work expand the approved scope?',
+          options: [{ id: 'proceed', label: 'Approve the scope' }, { id: 'skip', label: 'Leave it' }],
+          decision: { kind: 'human-authority', reason: 'This changes the approved scope.' },
+        },
+      }] });
+    };
     const parent = fake.addParent();
 
     const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
-    const item = run.items[0];
+    await waitForState(0, run.id, 'needs-answer');
+    const item = coordinator.getRunDto(run.id)!.items[0];
     expect(item.state).toBe('needs-answer');
     expect(fake.inputs.find((m) => m.instanceId === parent.id)?.message).toContain(`item_id "${item.id}"`);
 
@@ -617,6 +781,13 @@ describe('PlanQueueCoordinator — boot recovery', { timeout: 30_000 }, () => {
     // Simulate a crash straight after alpha's row moved to preparing.
     store.upsertItem({ ...store.getItem(alpha.id)!, state: 'queued' });
     store.upsertItem({ ...store.getItem(alpha.id)!, state: 'preparing' });
+
+    const pending = store.getItem(run.items[2].id)!;
+    store.upsertItem({ ...pending, state: 'needs-answer', question: {
+      question: 'Which human-owned account should this campaign use?',
+      options: [{ id: 'proceed', label: 'Account A' }, { id: 'skip', label: 'Leave it' }],
+      decision: { kind: 'human-input', reason: 'The account is not specified in available sources.' },
+    } });
 
     const next = await restart();
     await waitForState(0, run.id, 'landed');
@@ -871,8 +1042,15 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     writeDoc('docs/plans/2026-01-01-orphan_plan.md', '# Plan\n\n**Spec:** [spec](./2026-01-01-orphan_spec_planned.md)\n');
     const parent = fake.addParent();
     const rescuer = fake.addParent();
+    fake.scripts.triage = never;
     const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
-    expect(run.items[0].state).toBe('needs-answer');
+    await coordinator._whenSettledForTesting();
+    store.upsertItem({ ...store.getItem(run.items[0].id)!, state: 'needs-answer', question: {
+      question: 'May this campaign expand its scope?',
+      options: [{ id: 'proceed', label: 'Approve' }, { id: 'skip', label: 'Leave it' }],
+      decision: { kind: 'human-authority', reason: 'New scope requires approval.' },
+    } });
+    expect(coordinator.getRunDto(run.id)!.items[0].state).toBe('needs-answer');
 
     // While the parent lives, the run is still the parent's alone.
     await expect(coordinator.control({ action: 'cancel', runId: run.id }, rescuer.id)).rejects.toThrow(/Only the session that started/);

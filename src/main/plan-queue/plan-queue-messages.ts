@@ -64,26 +64,6 @@ export function withSkipOption(question: PlanQueueQuestion): PlanQueueQuestion {
   return { ...question, options: [...question.options, { id: 'skip', label: 'Leave this document for now' }] };
 }
 
-export function notReadyQuestion(documentPath: string, reason: string): PlanQueueQuestion {
-  return {
-    question: `${documentStem(documentPath)}: ${reason}. What should the queue do?`,
-    options: [
-      { id: 'proceed', label: 'Work on it anyway' },
-      { id: 'skip', label: 'Leave it for now' },
-    ],
-  };
-}
-
-export function untriagedQuestion(documentPath: string): PlanQueueQuestion {
-  return {
-    question: `${documentStem(documentPath)}: the triage agent could not classify this document. Should a worker start on it?`,
-    options: [
-      { id: 'proceed', label: 'Start a worker on it' },
-      { id: 'skip', label: 'Leave it for now' },
-    ],
-  };
-}
-
 export function buildQuestionsMessage(items: readonly PlanQueueItem[]): string {
   const asked = items.filter((item) => item.question);
   const lines = asked.map((item, index) => {
@@ -94,7 +74,7 @@ export function buildQuestionsMessage(items: readonly PlanQueueItem[]): string {
   return [
     `Plan Queue needs James to decide on ${asked.length} document(s) before they can start. The other documents are running.`,
     '',
-    'Ask James each question below, using your structured-question tool if you have one, then record each answer with the plan_queue_answer tool (item_id, option_id). James can also answer in the Plan Queue panel.',
+    'These questions remain manual because they require human authority, missing human input, or have no validated technical recommendation. Investigate legacy questions before escalating routine choices. Ask James only for the remaining human decision, then record his answer with plan_queue_answer (item_id, option_id). An automatic technical recommendation never grants new authority. James can also answer in the Plan Queue panel.',
     '',
     ...lines,
   ].join('\n');
@@ -123,7 +103,7 @@ export function buildRunSummaryMessage(run: PlanQueueRun, items: readonly PlanQu
     `Plan Queue run ${run.id} (${run.kind}) ended: ${run.status}. Landed ${count('landed')}, parked ${parked.length}, skipped ${count('skipped')}.`,
   ];
   if (parked.length) {
-    lines.push('', 'Parked (work is on the named branch; Resume, Land anyway or Discard in the Plan Queue panel):');
+    lines.push('', 'Parked (retained branches are named below; Resume, Land anyway or Discard in the Plan Queue panel):');
     for (const item of parked) {
       lines.push(`- ${documentStem(item.documentPath)}: ${item.parkReason ?? 'unknown'}${item.branchName ? ` on \`${item.branchName}\`` : ''}${item.detail ? ` — ${item.detail.slice(0, 300)}` : ''}`);
     }

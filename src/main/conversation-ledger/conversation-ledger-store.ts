@@ -20,6 +20,7 @@ import type {
 } from '../../shared/types/conversation-ledger.types';
 import { ProviderEventCaptureStore } from './provider-event-capture-store';
 import { ContextEvidenceLedgerStore } from './context-evidence-ledger-store';
+import { getLatestUserMessage, messageRowToRecord, type MessageRow } from './conversation-message-source-query';
 import type {
   ProviderEventCaptureInput,
   ProviderEventCaptureQuery,
@@ -55,23 +56,6 @@ interface ThreadRow {
   parent_conversation_id: string | null;
   metadata_json: string;
   deleted_at: string | null;
-}
-
-interface MessageRow {
-  id: string;
-  thread_id: string;
-  native_message_id: string | null;
-  native_turn_id: string | null;
-  role: ConversationMessageRecord['role'];
-  phase: string | null;
-  content: string;
-  created_at: number;
-  token_input: number | null;
-  token_output: number | null;
-  raw_ref: string | null;
-  raw_json: string | null;
-  source_checksum: string | null;
-  sequence: number;
 }
 
 interface CursorRow {
@@ -454,6 +438,10 @@ export class ConversationLedgerStore {
     return rows.map(messageRowToRecord);
   }
 
+  getLatestUserMessage(threadId: string, instanceId: string | null): ConversationMessageRecord | null {
+    return getLatestUserMessage(this.db, threadId, instanceId);
+  }
+
   getMessagesBefore(
     threadId: string,
     beforeSequence: number,
@@ -663,25 +651,6 @@ function checkpointRowToRecord(row: CheckpointRow): ConversationCheckpointRecord
     summarizedMessageCount: row.summarized_message_count,
     summaryTokens: row.summary_tokens,
     createdAt: row.created_at,
-  };
-}
-
-function messageRowToRecord(row: MessageRow): ConversationMessageRecord {
-  return {
-    id: row.id,
-    threadId: row.thread_id,
-    nativeMessageId: row.native_message_id,
-    nativeTurnId: row.native_turn_id,
-    role: row.role,
-    phase: row.phase,
-    content: row.content,
-    createdAt: row.created_at,
-    tokenInput: row.token_input,
-    tokenOutput: row.token_output,
-    rawRef: row.raw_ref,
-    rawJson: row.raw_json ? parseJsonObject(row.raw_json, {}) : null,
-    sourceChecksum: row.source_checksum,
-    sequence: row.sequence,
   };
 }
 

@@ -490,6 +490,24 @@ function isFresh(checkedAt: number, now: number, freshnessLimitMs: number): bool
   return checkedAt <= now && now - checkedAt <= freshnessLimitMs;
 }
 
+/**
+ * Delay before a target's first scheduled canary when its schedule (re)starts.
+ * With persisted canary evidence, the next canary is due one interval after the
+ * last one, or now if that is already past. Waiting a full interval from an app
+ * restart or worker reconnect instead let that evidence (trusted for interval +
+ * freshness) go stale, so the target sat in "checking" and every auxiliary call
+ * fell back for up to an interval. Without canary evidence nothing can go stale,
+ * so the normal interval applies.
+ */
+export function initialFunctionalDelayMs(
+  lastCanaryAt: number | undefined,
+  intervalMs: number,
+  now: number,
+): number {
+  if (lastCanaryAt === undefined || !Number.isFinite(lastCanaryAt)) return intervalMs;
+  return Math.min(intervalMs, Math.max(0, lastCanaryAt + intervalMs - now));
+}
+
 function layerFreshnessLimitMs(
   target: LocalAiTarget,
   layer: LocalAiProbeResult['layer'],
