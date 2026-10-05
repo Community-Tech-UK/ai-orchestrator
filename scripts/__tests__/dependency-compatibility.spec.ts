@@ -1,6 +1,15 @@
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -28,8 +37,41 @@ const DEPENDENCY_FIELDS = [
   "optionalDependencies",
 ] as const;
 
-function toLockPath(absolutePath: string): string {
-  return path.relative(process.cwd(), absolutePath).split(path.sep).join("/");
+function toLockPath(absolutePath: string, treeRoot: string): string {
+  return path.relative(treeRoot, absolutePath).split(path.sep).join("/");
+}
+
+/**
+ * The checkout whose install `node_modules` really is.
+ *
+ * A `.worktrees/*` checkout gets a `node_modules` of per-entry symlinks into the
+ * root checkout's install (see `src/main/workspace/git/worktree-include.ts`).
+ * `npm ls` run there resolves every package outside the project and reports the
+ * whole tree as extraneous, which says nothing about whether the shipped tree is
+ * valid. Following npm's own install marker finds the checkout that owns the
+ * install, so the check validates the tree that is actually on disk. A marker
+ * that is a real file (a normal install, or a copied tree) resolves to `cwd`.
+ */
+function installedTreeRoot(cwd: string): string {
+  try {
+    const marker = realpathSync(path.join(cwd, "node_modules", ".package-lock.json"));
+    return path.dirname(path.dirname(marker));
+  } catch {
+    return cwd;
+  }
+}
+
+/**
+ * Manifest files that differ between this checkout and the one that owns its
+ * linked install. Any difference means the linked tree was not installed from
+ * this checkout's manifests, so it cannot stand in for them.
+ */
+function manifestDrift(cwd: string, treeRoot: string): string[] {
+  return ["package.json", "package-lock.json"].filter(
+    (file) =>
+      readFileSync(path.join(cwd, file), "utf8") !==
+      readFileSync(path.join(treeRoot, file), "utf8"),
+  );
 }
 
 /**
@@ -70,12 +112,16 @@ function resolutionPathFor(
  * break a runtime. Unparseable or unclassifiable problems fail CLOSED, so this
  * cannot quietly become a filter that swallows real breakage.
  */
-function isBenignTreeProblem(problem: string, lock: PackageLock): boolean {
+function isBenignTreeProblem(
+  problem: string,
+  lock: PackageLock,
+  treeRoot: string,
+): boolean {
   const match = TREE_PROBLEM.exec(problem.trim());
   if (!match) return false;
 
   const [, kind, name, version, absolutePath] = match;
-  const lockPath = toLockPath(absolutePath ?? "");
+  const lockPath = toLockPath(absolutePath ?? "", treeRoot);
   const entry = lock.packages[lockPath];
   if (!entry) return false;
 
@@ -127,7 +173,17 @@ const require = createRequire(import.meta.url);
 
 describe("dependency compatibility", () => {
   it("keeps the installed production tree valid", () => {
+    const cwd = process.cwd();
+    const treeRoot = installedTreeRoot(cwd);
+    // Fail closed: a linked install only vouches for this checkout when it was
+    // installed from byte-identical manifests.
+    expect(
+      treeRoot === cwd ? [] : manifestDrift(cwd, treeRoot),
+      `node_modules is linked from ${treeRoot}, whose manifests differ; run a real install here`,
+    ).toEqual([]);
+
     const result = spawnSync("npm", ["ls", "--omit=dev", "--all", "--json"], {
+      cwd: treeRoot,
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
     });
@@ -136,11 +192,11 @@ describe("dependency compatibility", () => {
     expect(result.stdout, result.stderr).toBeTruthy();
     const report = JSON.parse(result.stdout) as { problems?: string[] };
     const lock = JSON.parse(
-      readFileSync("package-lock.json", "utf8"),
+      readFileSync(path.join(treeRoot, "package-lock.json"), "utf8"),
     ) as PackageLock;
 
     const unexplained = (report.problems ?? []).filter(
-      (problem) => !isBenignTreeProblem(problem, lock),
+      (problem) => !isBenignTreeProblem(problem, lock, treeRoot),
     );
 
     expect(unexplained, unexplained.join("\n")).toEqual([]);
@@ -169,7 +225,38 @@ describe("dependency compatibility", () => {
     ];
 
     for (const problem of mustFail) {
-      expect(isBenignTreeProblem(problem, lock), problem).toBe(false);
+      expect(isBenignTreeProblem(problem, lock, root), problem).toBe(false);
+    }
+  });
+
+  it("validates a linked worktree install against the checkout that owns it", () => {
+    const scratch = realpathSync(mkdtempSync(path.join(tmpdir(), "dep-compat-")));
+    try {
+      const owner = path.join(scratch, "owner");
+      const linked = path.join(scratch, "linked");
+      for (const checkout of [owner, linked]) {
+        mkdirSync(path.join(checkout, "node_modules"), { recursive: true });
+        writeFileSync(path.join(checkout, "package.json"), "{}");
+        writeFileSync(path.join(checkout, "package-lock.json"), "{}");
+      }
+      writeFileSync(path.join(owner, "node_modules", ".package-lock.json"), "{}");
+      symlinkSync(
+        path.join(owner, "node_modules", ".package-lock.json"),
+        path.join(linked, "node_modules", ".package-lock.json"),
+      );
+
+      // A real install validates itself; a linked one validates its owner.
+      expect(installedTreeRoot(owner)).toBe(owner);
+      expect(installedTreeRoot(linked)).toBe(owner);
+      expect(installedTreeRoot(path.join(scratch, "no-install"))).toBe(
+        path.join(scratch, "no-install"),
+      );
+
+      expect(manifestDrift(linked, owner)).toEqual([]);
+      writeFileSync(path.join(linked, "package-lock.json"), '{"changed":true}');
+      expect(manifestDrift(linked, owner)).toEqual(["package-lock.json"]);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
     }
   });
 
