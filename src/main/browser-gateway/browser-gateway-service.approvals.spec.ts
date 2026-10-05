@@ -1124,67 +1124,27 @@ describe('BrowserGatewayService approvals', () => {
     });
   });
 
-  it('auto-approves manual handoff requests for YOLO instances without surfacing a prompt', async () => {
-    const { service, approvalStore, grants, profileStore } = makeService({
-      autoApproveRequests: ({ instanceId }) => instanceId === 'instance-1',
+  it('keeps manual handoffs visibly pending even for YOLO sessions', async () => {
+    const { service, approvalStore, grants, profileStore, approvalRequests } = makeService({
+      autoApproveRequests: () => true,
     });
-
-    const login = await service.requestUserLogin({
-      profileId: 'profile-1',
-      targetId: 'target-1',
-      instanceId: 'instance-1',
-      provider: 'claude',
-      reason: 'Sign in required.',
-    });
-    expect(login).toMatchObject({
-      decision: 'allowed',
-      outcome: 'succeeded',
-      reason: 'auto_approved_by_yolo_mode',
-    });
-    expect('requestId' in login).toBe(false);
-    expect(grants[0]).toMatchObject({
-      mode: 'per_action',
-      instanceId: 'instance-1',
-      provider: 'claude',
-      allowedActionClasses: ['read'],
-      autonomous: false,
-    });
-    expect(approvalStore.resolveRequest).toHaveBeenCalledWith('request-1', {
-      status: 'approved',
-      grantId: 'grant-1',
-    });
-    expect(profileStore.setRuntimeState).toHaveBeenCalledWith('profile-1', {
-      lastLoginCheckAt: expect.any(Number),
-    });
-
-    const manualStep = await service.pauseForManualStep({
-      profileId: 'profile-1',
-      targetId: 'target-1',
-      kind: 'two_factor',
-      instanceId: 'instance-1',
-      provider: 'claude',
-      reason: 'Enter the authenticator code.',
-    });
-    expect(manualStep).toMatchObject({
-      decision: 'allowed',
-      outcome: 'succeeded',
-      reason: 'auto_approved_by_yolo_mode',
-    });
-    expect('requestId' in manualStep).toBe(false);
-    expect(grants[1]).toMatchObject({
-      mode: 'per_action',
-      instanceId: 'instance-1',
-      provider: 'claude',
-      allowedActionClasses: ['read'],
-      autonomous: false,
-    });
-    expect(approvalStore.resolveRequest).toHaveBeenCalledWith('request-2', {
-      status: 'approved',
-      grantId: 'grant-2',
-    });
+    const request = {
+      profileId: 'profile-1', targetId: 'target-1', instanceId: 'instance-1',
+      provider: 'claude' as const, reason: 'Sign in required.',
+    };
+    const login = await service.requestUserLogin(request);
+    const repeated = await service.requestUserLogin(request);
+    expect(login).toMatchObject({ decision: 'requires_user', outcome: 'not_run', requestId: 'request-1' });
+    expect(repeated).toMatchObject({ requestId: 'request-1' });
+    expect(approvalRequests).toHaveLength(1);
+    const manualStep = await service.pauseForManualStep({ ...request, kind: 'two_factor' });
+    expect(manualStep).toMatchObject({ decision: 'requires_user', outcome: 'not_run', requestId: 'request-2' });
+    expect(grants).toHaveLength(0);
+    expect(approvalStore.resolveRequest).not.toHaveBeenCalled();
+    expect(profileStore.setRuntimeState).not.toHaveBeenCalled();
   });
 
-  it('auto-resolves stale pending browser approvals when YOLO is enabled before listing', async () => {
+  it('keeps pending manual handoffs visible when YOLO is enabled before listing', async () => {
     BrowserGatewayService._resetForTesting();
     const { service, approvalStore, grants } = makeService({
       useSingleton: true,
@@ -1207,37 +1167,15 @@ describe('BrowserGatewayService approvals', () => {
       autoApproveRequests: ({ instanceId }) => instanceId === 'instance-1',
     });
 
-    const listed = await service.listApprovalRequests({
-      instanceId: 'instance-1',
-      status: 'pending',
-    });
+    const listed = await service.listApprovalRequests({ instanceId: 'instance-1', status: 'pending' });
     expect(listed).toMatchObject({
-      decision: 'allowed',
-      outcome: 'succeeded',
-      data: [],
+      decision: 'allowed', outcome: 'succeeded',
+      data: [{ requestId: 'request-1', status: 'pending' }],
     });
-    expect(grants[0]).toMatchObject({
-      id: 'grant-1',
-      instanceId: 'instance-1',
-      provider: 'codex',
-    });
-    expect(approvalStore.resolveRequest).toHaveBeenCalledWith('request-1', {
-      status: 'approved',
-      grantId: 'grant-1',
-    });
-
-    await expect(service.getApprovalStatus({
-      requestId: 'request-1',
-      instanceId: 'instance-1',
-      provider: 'codex',
-    })).resolves.toMatchObject({
-      decision: 'allowed',
-      data: {
-        requestId: 'request-1',
-        status: 'approved',
-        grantId: 'grant-1',
-      },
-    });
+    expect(grants).toHaveLength(0);
+    expect(approvalStore.resolveRequest).not.toHaveBeenCalled();
+    await expect(service.getApprovalStatus({ requestId: 'request-1', instanceId: 'instance-1' }))
+      .resolves.toMatchObject({ decision: 'allowed', data: { requestId: 'request-1', status: 'pending' } });
   });
 
   it('creates manual-step approval requests for captcha and two-factor pauses', async () => {

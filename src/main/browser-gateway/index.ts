@@ -43,6 +43,7 @@ import { deriveManagedDebugPort } from './chrome-devtools-attach';
 import { getLogger } from '../logging/logger';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { resolveAioMcpCliPath } from '../util/aio-mcp-cli-path';
+import { withLocalBrowserAutoApproval } from './browser-auto-approve';
 
 const logger = getLogger('BrowserGatewayRuntime');
 
@@ -205,7 +206,7 @@ export async function initializeBrowserGatewayRuntime(
     });
   }
   const service = initializeBrowserGatewayService({
-    autoApproveRequests: options.autoApproveRequests,
+    autoApproveRequests: withLocalBrowserAutoApproval(options.autoApproveRequests),
     ...credentials,
     // Operator opt-in for autonomous credential fills on the user's shared
     // existing tabs. Global flag today (the standing authorization supplies the

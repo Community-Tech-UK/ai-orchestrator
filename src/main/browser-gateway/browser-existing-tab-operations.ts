@@ -234,10 +234,11 @@ export class BrowserExistingTabOperations {
     payload?: Record<string, unknown>,
     timeoutMs = 30_000,
     onJournaled?: (seq: number) => void,
+    beforeDispatch?: () => void,
   ): Promise<unknown> {
     const sentinel = this.deps.persistenceSentinel;
     if (!sentinel || !isAppStateMutatingCommand(command)) {
-      return this.dispatchCommand(attachment, command, payload, timeoutMs);
+      return this.dispatchCommand(attachment, command, payload, timeoutMs, beforeDispatch);
     }
     // Channel first: an unreachable node fails fast with the channel error —
     // scanning a dead channel would only add a slow, misleading timeout.
@@ -258,7 +259,7 @@ export class BrowserExistingTabOperations {
       attachment,
       command,
       payload,
-      () => this.dispatchCommand(attachment, command, payload, timeoutMs),
+      () => this.dispatchCommand(attachment, command, payload, timeoutMs, beforeDispatch),
     );
   }
 
@@ -294,6 +295,7 @@ export class BrowserExistingTabOperations {
     command: BrowserExtensionCommandName,
     payload?: Record<string, unknown>,
     timeoutMs = 30_000,
+    beforeDispatch?: () => void,
   ): Promise<unknown> {
     try {
       this.ensureChannelReachable(attachment);
@@ -309,6 +311,7 @@ export class BrowserExistingTabOperations {
     const undeliveredWaitMs = timeoutMs >= 5_000
       ? Math.max(callerTimeoutMs, BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS)
       : callerTimeoutMs;
+    beforeDispatch?.();
     return this.deps.extensionCommandStore.sendCommand({
       ...(attachment.nodeId ? { queueKey: browserExtensionQueueKeyForNode(attachment.nodeId) } : {}),
       command,
@@ -322,6 +325,7 @@ export class BrowserExistingTabOperations {
       timeoutMs: callerTimeoutMs,
       executionTimeoutMs: timeoutMs,
       undeliveredWaitMs,
+      ...(beforeDispatch ? { beforeDelivery: beforeDispatch } : {}),
       describeChannelState: () => ({
         active: attachment.nodeId ? this.deps.isRemoteExtensionContactFresh(attachment.nodeId) : true,
         summary: this.describeChannel(attachment.nodeId),

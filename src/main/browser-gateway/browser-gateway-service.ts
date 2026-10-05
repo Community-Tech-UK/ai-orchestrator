@@ -1720,7 +1720,7 @@ export class BrowserGatewayService {
       // through the extension command channel instead (same channel browser.type
       // uses); the driver path stays for managed profiles.
       readControl: (profileId, targetId, selector) => this.readControlForTarget(profileId, targetId, selector),
-      driverType: (profileId, targetId, selector, value, authorizedOrigin, protection) =>
+      driverType: (profileId, targetId, selector, value, authorizedOrigin, protection, beforeDispatch) =>
         this.driverTypeForTarget(
           profileId,
           targetId,
@@ -1728,6 +1728,7 @@ export class BrowserGatewayService {
           value,
           authorizedOrigin,
           protection,
+          beforeDispatch,
         ),
       refreshTargetOrigin: (profileId, targetId) => this.refreshTargetOrigin(profileId, targetId),
       ...(this.credentialVault ? { credentialVault: this.credentialVault } : {}),
@@ -1769,6 +1770,7 @@ export class BrowserGatewayService {
     value: string,
     authorizedOrigin: string,
     protection: 'public' | 'password' | 'secret',
+    beforeDispatch?: () => void,
   ): Promise<{ valueApplied?: boolean } | void> {
     const existingTab = this.extensionTabStore.getTab(profileId, targetId);
     if (existingTab) {
@@ -1783,13 +1785,13 @@ export class BrowserGatewayService {
         value,
         credentialOrigin: authorizedOrigin,
         credentialProtection: protection,
-      });
+      }, undefined, undefined, beforeDispatch);
       // Password/secret writes accept ONLY the extension's fixed two-field
       // taint sentinel. A legacy page-derived `{ valueApplied: true, ... }`
       // response is an unsafe protocol mismatch and fails closed.
       return { valueApplied: confirmBrowserExtensionCredentialWrite(raw, protection) };
     }
-    await this.driver.type(profileId, targetId, selector, value);
+    await this.driver.type(profileId, targetId, selector, value, authorizedOrigin, beforeDispatch);
   }
 
   /**

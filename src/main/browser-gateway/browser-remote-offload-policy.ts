@@ -39,6 +39,7 @@ const TARGET_SCOPED_METHODS = new Set([
   'browser.select',
   'browser.execute_fill_plan',
   'browser.fill_credential',
+  'browser.request_credential_access',
   'browser.fill_secret',
   'browser.create_agent_credential',
   'browser.upload_file',

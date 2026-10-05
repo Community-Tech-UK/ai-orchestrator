@@ -37,6 +37,15 @@ describe('BrowserGatewayRpcClient', () => {
     });
   });
 
+  it('fails closed before connecting when the session capability is missing', async () => {
+    const client = new BrowserGatewayRpcClient({ env: {
+      AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: socketPath('unused'),
+      AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'PLACEHOLDER_INSTANCE',
+    } });
+    await expect(client.call('browser.cancel_credential_access', { requestId: 'PLACEHOLDER_REQUEST' }))
+      .resolves.toMatchObject({ decision: 'denied', outcome: 'not_run', reason: 'browser_gateway_unavailable' });
+  });
+
   it('sends JSON-RPC requests with the injected instance id', async () => {
     const address = socketPath('browser-gateway');
     const server = net.createServer((socket) => {
@@ -61,6 +70,7 @@ describe('BrowserGatewayRpcClient', () => {
       env: {
         AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: address,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+        AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: 'PLACEHOLDER_BROWSER_CAPABILITY',
         AI_ORCHESTRATOR_BROWSER_PROVIDER: 'copilot',
       },
     });
@@ -69,6 +79,7 @@ describe('BrowserGatewayRpcClient', () => {
       method: 'browser.navigate',
       params: {
         instanceId: 'instance-1',
+        capabilityToken: 'PLACEHOLDER_BROWSER_CAPABILITY',
         provider: 'copilot',
         payload: {
           profileId: 'profile-1',
@@ -104,6 +115,7 @@ describe('BrowserGatewayRpcClient', () => {
       env: {
         AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: address,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+        AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: 'PLACEHOLDER_BROWSER_CAPABILITY',
       },
       timeoutMs: 50,
     });
@@ -142,6 +154,7 @@ describe('BrowserGatewayRpcClient', () => {
       env: {
         AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: address,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+        AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: 'PLACEHOLDER_BROWSER_CAPABILITY',
       },
       timeoutMs: 50,
     });
@@ -162,6 +175,7 @@ describe('BrowserGatewayRpcClient', () => {
           `browser-gateway-missing-${process.pid}.sock`,
         ),
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+        AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: 'PLACEHOLDER_BROWSER_CAPABILITY',
       },
     });
 
@@ -196,6 +210,7 @@ describe('BrowserGatewayRpcClient', () => {
       env: {
         AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: address,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+        AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: 'PLACEHOLDER_BROWSER_CAPABILITY',
       },
       timeoutMs: 50,
     });
@@ -229,6 +244,7 @@ describe('BrowserGatewayRpcClient', () => {
       env: {
         AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: address,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+        AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: 'PLACEHOLDER_BROWSER_CAPABILITY',
       },
     });
 

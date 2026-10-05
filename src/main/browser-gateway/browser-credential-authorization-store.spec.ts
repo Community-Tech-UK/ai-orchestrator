@@ -26,6 +26,37 @@ function baseAuth(): Omit<CredentialAuthorization, 'id' | 'createdAt'> {
 }
 
 describe('CredentialAuthorizationService.check', () => {
+  it('does not carry a managed-profile login permission to a different computer', () => {
+    const { service } = makeService();
+    service.create({ ...baseAuth(), computerId: 'computer-1' }, 'computer-scoped');
+    const input = { profileId: 'profile-1', origin: 'https://portal.example.gov.uk', purpose: 'login' as const };
+    expect(service.check({ ...input, computerId: 'computer-2' })).toMatchObject({ authorized: false, reason: 'computer_not_authorized' });
+    expect(service.check(input).authorized).toBe(false);
+    expect(service.check({ ...input, computerId: 'computer-1' }).authorized).toBe(true);
+  });
+
+  it('requires the granted task and exact vault item while retaining unscoped compatibility', () => {
+    const { service } = makeService();
+    service.create({ ...baseAuth(), taskScope: 'task-1', vaultItemRef: 'item-1' }, 'scoped');
+    const input = { profileId: 'profile-1', origin: 'https://portal.example.gov.uk', purpose: 'login' as const };
+    expect(service.check(input).authorized).toBe(false);
+    expect(service.check({ ...input, taskScope: 'task-2', vaultItemRef: 'item-1' })).toMatchObject({ authorized: false, reason: 'task_scope_not_authorized' });
+    expect(service.check({ ...input, taskScope: 'task-1', vaultItemRef: 'item-2' })).toMatchObject({ authorized: false, reason: 'vault_item_not_authorized' });
+    expect(service.check({ ...input, taskScope: 'task-1', vaultItemRef: 'item-1' }).authorized).toBe(true);
+    service.create(baseAuth(), 'legacy');
+    expect(service.check(input).authorized).toBe(true);
+  });
+
+  it('retains expiry, revocation, and computer restrictions for scoped grants', () => {
+    const { service } = makeService();
+    service.create({ ...baseAuth(), taskScope: 'task-1', vaultItemRef: 'item-1' }, 'scoped');
+    const input = { profileId: 'profile-1', origin: 'https://portal.example.gov.uk', purpose: 'login' as const, taskScope: 'task-1', vaultItemRef: 'item-1' };
+    expect(service.check({ ...input, profileId: 'other-computer' })).toMatchObject({ authorized: false, reason: 'no_authorization_for_profile' });
+    expect(service.check({ ...input, now: 1_000_000 })).toMatchObject({ authorized: false, reason: 'authorization_expired' });
+    service.revoke('scoped');
+    expect(service.check(input)).toMatchObject({ authorized: false, reason: 'authorization_revoked' });
+  });
+
   it('authorizes a live, unrevoked, matching profile+origin+purpose', () => {
     const { service } = makeService();
     const auth = service.create(baseAuth(), 'auth-1');

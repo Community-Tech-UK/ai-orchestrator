@@ -95,6 +95,9 @@ describe('unattended SQLite stores (migration 040)', () => {
       expiresAt: 5_000,
       note: 'renewed',
       allowedSenderDomains: ['notifications.service.gov.uk'],
+      taskScope: 'logical-task-1',
+      vaultItemRef: 'exact-item-1',
+      computerId: 'computer-1',
     });
 
     const loaded = store.get('auth-r');
@@ -106,6 +109,9 @@ describe('unattended SQLite stores (migration 040)', () => {
       expiresAt: 5_000,
       note: 'renewed',
       allowedSenderDomains: ['notifications.service.gov.uk'],
+      taskScope: 'logical-task-1',
+      vaultItemRef: 'exact-item-1',
+      computerId: 'computer-1',
     });
     expect(loaded?.allowedOrigins[0]).toMatchObject({
       scheme: 'http', hostPattern: 'b.example', includeSubdomains: true,
@@ -152,6 +158,9 @@ describe('unattended SQLite stores (migration 040)', () => {
       allowedSelectors: ['#password'],
       allowedSecretTypes: ['iban'],
       allowedSenderDomains: ['notifications.service.gov.uk'],
+      taskScope: 'logical-task-2',
+      vaultItemRef: 'exact-item-2',
+      computerId: 'computer-2',
     });
 
     const loaded = store.get('auth-scoped');
@@ -159,6 +168,9 @@ describe('unattended SQLite stores (migration 040)', () => {
     expect(loaded?.allowedSelectors).toEqual(['#password']);
     expect(loaded?.allowedSecretTypes).toEqual(['iban']);
     expect(loaded?.allowedSenderDomains).toEqual(['notifications.service.gov.uk']);
+    expect(loaded?.taskScope).toBe('logical-task-2');
+    expect(loaded?.vaultItemRef).toBe('exact-item-2');
+    expect(loaded?.computerId).toBe('computer-2');
   });
 
   it('omits scope fields that are absent or malformed rather than guessing', () => {

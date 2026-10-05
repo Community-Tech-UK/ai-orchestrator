@@ -9,6 +9,7 @@ import {
   bannerGrantRequiresConfirmation,
   bannerModeLabel,
   buildBannerGrant,
+  credentialAccessChoice,
 } from './browser-approvals-banner.rules';
 
 function makeApproval(overrides: Partial<BrowserApprovalRequest> = {}): BrowserApprovalRequest {
@@ -40,6 +41,22 @@ function makeApproval(overrides: Partial<BrowserApprovalRequest> = {}): BrowserA
 }
 
 describe('browser-approvals-banner.rules', () => {
+  it('withholds all generic grant modes for a saved-login access request', () => {
+    const approval = makeApproval({ credentialAccess: {
+      taskScope: 'conversation:placeholder-task', sessionName: 'Example session', reason: 'Sign in',
+      origin: 'https://example.com', computerName: 'windows-pc', computerId: 'placeholder-computer', scope: 'placeholder-scope',
+      vaultItemRef: 'placeholder-item', itemTitle: 'Example login', vaultFolder: 'AgentVault',
+      moveIntoFolder: false, purposes: ['login'], permission: 'task',
+    } });
+    expect(bannerCanQuickApprove(approval)).toBe(true);
+    expect(bannerGrantModes(approval)).toEqual([]);
+    for (const mode of ['per_action', 'session', 'autonomous', 'persistent'] as const) {
+      expect(buildBannerGrant(approval, mode)).toBeNull();
+      expect(buildBrowserGrantProposal(approval, mode, true, true)).toBeNull();
+    }
+    expect(credentialAccessChoice('task')).toEqual({ permission: 'task' });
+    expect(credentialAccessChoice('7d')).toEqual({ permission: 'remember', rememberForMs: 604_800_000 });
+  });
   it('offers all durations for a request_grant that includes submit', () => {
     const approval = makeApproval();
     expect(bannerCanQuickApprove(approval)).toBe(true);

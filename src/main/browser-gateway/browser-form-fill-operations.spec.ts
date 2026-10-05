@@ -214,8 +214,8 @@ describe('fillCredentialOperation authorization denial', () => {
     expect(result.reason).toContain(liveOrigin);
     expect(result.reason).toContain('https://uktrade.app.jaggaer.com');
     expect(result.reason).toContain('browser.request_grant does not cover credential fill');
-    expect(result.reason).toContain(`$AIO_MCP browser-credentials authorize --node ${NODE_ID}`);
-    expect(result.reason).toContain(`--origin ${liveOrigin}`);
+    expect(result.reason).toContain('browser.request_credential_access');
+    expect(result.reason).toContain('Wait for its approved status');
     expect(deps.credentialVault?.getSecretForFill).not.toHaveBeenCalled();
     expect(deps.driverType).not.toHaveBeenCalled();
   });

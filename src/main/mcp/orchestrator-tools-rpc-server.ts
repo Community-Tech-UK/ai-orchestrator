@@ -362,7 +362,7 @@ export class OrchestratorToolsRpcServer {
     if (calendarReadSpec) {
       return this.dispatchValidatedTool(calendarReadSpec.toolName, calendarReadSpec.schema, params, abortSignal);
     }
-    if (isBrowserCredentialsCliRpcMethod(request.method)) return dispatchBrowserCredentialsCliRpc(request.method, params.payload);
+    if (isBrowserCredentialsCliRpcMethod(request.method)) return dispatchBrowserCredentialsCliRpc(request.method, params.payload, undefined, { instanceId: params.instanceId });
     if (isCopilotAccountCliRpcMethod(request.method)) {
       return dispatchCopilotAccountCliRpc(request.method, params.payload, this.copilotAccountOperations);
     }

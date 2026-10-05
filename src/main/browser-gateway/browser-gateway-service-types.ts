@@ -308,7 +308,7 @@ export interface BrowserGatewayServiceOptions {
   credentialVault?: Pick<
     CredentialVault,
     'getSecretForFill' | 'createAgentCredential' | 'getGenericSecretForFill'
-  >;
+  > & Partial<Pick<CredentialVault, 'captureFillGuard'>>;
   /** Standing James-granted authorizations gating browser.fill_credential. */
   credentialAuthorizations?: Pick<CredentialAuthorizationService, 'check'>;
   /**

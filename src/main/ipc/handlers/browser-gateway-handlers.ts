@@ -38,6 +38,11 @@ import { getBrowserGatewayService } from '../../browser-gateway/browser-gateway-
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getLogger } from '../../logging/logger';
 import { getSessionAdmissionService } from '../../session/session-admission-service';
+import {
+  findCredentialAccessSession,
+  setCredentialAccessDecisionNotifier,
+  setCredentialAccessSessionResolver,
+} from '../../browser-gateway/browser-credential-access-session';
 
 const logger = getLogger('BrowserGatewayHandlers');
 
@@ -63,6 +68,32 @@ interface RegisterBrowserGatewayHandlersDeps {
 export function registerBrowserGatewayHandlers(
   deps: RegisterBrowserGatewayHandlersDeps = {},
 ): void {
+  if (deps.instanceManager) {
+    const manager = deps.instanceManager;
+    const describeSession = (instanceId: string) => {
+      const instance = manager.getInstance(instanceId);
+      if (!instance || !instance.historyThreadId || instance.status === 'terminated' || instance.status === 'failed') return undefined;
+      return {
+        instanceId: instance.id,
+        taskScope: `conversation:${instance.historyThreadId}`,
+        sessionName: instance.displayName?.trim() || instance.aiTitle?.trim() || 'Session',
+      };
+    };
+    setCredentialAccessSessionResolver(describeSession, () => manager.getAllInstances().flatMap((instance) => {
+      const session = describeSession(instance.id);
+      return session ? [session] : [];
+    }));
+    setCredentialAccessDecisionNotifier((approval) => {
+      if (!approval.credentialAccess || (
+        approval.status !== 'approved' && approval.status !== 'denied' && approval.status !== 'expired'
+      )) return;
+      const owner = findCredentialAccessSession(approval.credentialAccess.taskScope);
+      if (!owner) return;
+      resumeInstanceAfterBrowserDecision(manager, approval.status, approval.requestId, {
+        decision: 'allowed', outcome: 'succeeded', data: { instanceId: owner.instanceId },
+      });
+    });
+  }
   register(
     IPC_CHANNELS.BROWSER_LIST_PROFILES,
     EmptyPayloadSchema,
@@ -194,7 +225,9 @@ export function registerBrowserGatewayHandlers(
     BrowserApproveRequestPayloadSchema,
     async (service, payload) => {
       const result = await service.approveRequest(payload);
-      resumeInstanceAfterBrowserDecision(deps.instanceManager, 'approved', payload.requestId, result);
+      if (result.data?.reason !== 'saved_login_access_approved') {
+        resumeInstanceAfterBrowserDecision(deps.instanceManager, 'approved', payload.requestId, result);
+      }
       return result;
     },
     deps,
@@ -204,7 +237,9 @@ export function registerBrowserGatewayHandlers(
     BrowserDenyRequestPayloadSchema,
     async (service, payload) => {
       const result = await service.denyRequest(payload);
-      resumeInstanceAfterBrowserDecision(deps.instanceManager, 'denied', payload.requestId, result);
+      if (!result.data?.credentialAccess) {
+        resumeInstanceAfterBrowserDecision(deps.instanceManager, 'denied', payload.requestId, result);
+      }
       return result;
     },
     deps,
@@ -364,7 +399,7 @@ function register<TPayload extends BrowserGatewayIpcPayload>(
  */
 export function resumeInstanceAfterBrowserDecision(
   instanceManager: InstanceManager | undefined,
-  decision: 'approved' | 'denied',
+  decision: 'approved' | 'denied' | 'expired',
   requestId: string,
   result: unknown,
 ): void {
@@ -385,8 +420,10 @@ export function resumeInstanceAfterBrowserDecision(
   }
 
   const message = decision === 'approved'
-    ? `Browser Gateway approval request ${requestId} was approved by the user. Retry this approved browser action now and continue.`
-    : `Browser Gateway approval request ${requestId} was denied by the user. Do not retry this denied browser action; continue without it.`;
+    ? `Browser Gateway approval request ${requestId} was approved by the user. Retry the action this request authorises and continue. Re-check the page before treating sign-in as complete. A manual handoff does not grant access to a saved login.`
+    : decision === 'denied'
+      ? `Browser Gateway approval request ${requestId} was denied by the user or cancelled. Do not retry this denied browser action; continue without it.`
+      : `Browser Gateway approval request ${requestId} expired or its permission was revoked. It no longer grants permission. Request saved-login access again if it is still needed.`;
 
   // A5: re-check live instance state — the agent's turn may have moved on
   // (interrupted, respawning, quota-parked) between the approval dialog
@@ -398,9 +435,9 @@ export function resumeInstanceAfterBrowserDecision(
     instanceId,
     origin: 'browser-gateway',
     message,
-    sourceMetadata: { decision },
+    sourceMetadata: { decision, requestId },
     requireReadyForInput: true,
-    coalesceKey: 'browser-approval-resume',
+    coalesceKey: `browser-approval-resume:${requestId}`,
   });
   if (outcome.kind === 'suppressed') {
     logger.info('Browser gateway resume nudge suppressed pending instance readiness', {

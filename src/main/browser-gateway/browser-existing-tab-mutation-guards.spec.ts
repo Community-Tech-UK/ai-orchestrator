@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { BrowserExistingTabOperations } from './browser-existing-tab-operations';
 import type { BrowserExistingTabAttachment } from './browser-extension-tab-store';
 import type { BrowserTargetPersistenceScan } from './browser-target-persistence-sentinel';
+import { CredentialVaultError } from './browser-credential-vault';
 
 function makeAttachment(
   overrides: Partial<BrowserExistingTabAttachment> = {},
@@ -204,5 +205,27 @@ describe('BrowserExistingTabOperations mutation guards', () => {
     expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({ command: 'click' }));
     // pre-write + post-write scans
     expect(sentinel.scan).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs the final credential guard after awaiting journal intent and prevents dispatch', async () => {
+    let locked = false;
+    let started!: () => void;
+    let finish!: (seq: number) => void;
+    const begun = new Promise<void>((resolve) => { started = resolve; });
+    const journal = {
+      recordIntent: vi.fn(() => { started(); return new Promise<number>((resolve) => { finish = resolve; }); }),
+      recordOutcome: vi.fn().mockResolvedValue(undefined),
+    };
+    const sentinel = { scan: vi.fn().mockResolvedValue(okScan), needsPreWriteCheck: vi.fn(() => false) };
+    const { ops, sendCommand } = makeOps({ sentinel, writeJournal: journal });
+    const beforeDispatch = vi.fn(() => { if (locked) throw new CredentialVaultError('Vault is locked', 'vault_locked'); });
+    const filling = ops.sendCommand(makeAttachment(), 'type', { selector: '#password', value: 'TEST_ONLY_PASSWORD_PLACEHOLDER', credentialOrigin: 'https://ads.google.com' }, undefined, undefined, beforeDispatch);
+    await begun;
+    expect(beforeDispatch).not.toHaveBeenCalled();
+    locked = true; finish(1);
+    await expect(filling).rejects.toMatchObject({ code: 'vault_locked' });
+    expect(beforeDispatch).toHaveBeenCalledOnce();
+    expect(sendCommand).not.toHaveBeenCalled();
+    expect(journal.recordOutcome).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed', reason: 'Vault is locked' }));
   });
 });

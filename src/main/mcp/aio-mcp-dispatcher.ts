@@ -91,7 +91,7 @@ function formatHelp(): string {
     '  release-readiness   Build release readiness report from evidence JSON',
     '  settings            Inspect and repair app settings through the parent app',
     '  local-ai            Discover, enrol, inspect, check, rename and retire Local AI targets',
-    '  browser-credentials Bind a vault login to an origin and manage fill grants',
+    '  browser-credentials Request approval to use a saved login; manage fill grants',
     '  copilot-account     Inspect Copilot profiles and workspace routing',
     '  loop                List parked loops and resume one',
     '',

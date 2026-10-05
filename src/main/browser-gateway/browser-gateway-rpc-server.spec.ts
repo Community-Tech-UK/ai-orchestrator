@@ -765,7 +765,8 @@ describe('BrowserGatewayRpcServer', () => {
 
   it('marks local commands received and records local extension disconnects', async () => {
     const extensionCommandStore = {
-      pollCommand: vi.fn(),
+      pollCommand: vi.fn(async () => null),
+      validateCommandHandoff: vi.fn(() => true),
       resolveCommand: vi.fn(),
       markReceived: vi.fn(),
     };
@@ -777,8 +778,6 @@ describe('BrowserGatewayRpcServer', () => {
       extensionCommandStore,
       onExtensionDisconnected,
       registerCleanup: vi.fn(),
-    } as ConstructorParameters<typeof BrowserGatewayRpcServer>[0] & {
-      extensionCommandStore: typeof extensionCommandStore;
     });
 
     await expect(
@@ -1091,6 +1090,34 @@ describe('BrowserGatewayRpcServer', () => {
     expect(Buffer.byteLength(socketPath!, 'utf-8')).toBeLessThanOrEqual(100);
 
     await server.stop();
+  });
+
+  it('withdraws a credential response after handleRequest settles and before the local socket write', async () => {
+    const store = new BrowserExtensionCommandStore();
+    let authorized = true;
+    const filling = store.sendCommand({
+      command: 'type', timeoutMs: 1_000,
+      payload: { selector: '#password', value: 'TEST_ONLY_PASSWORD_PLACEHOLDER', credentialOrigin: 'https://login.example.test', credentialProtection: 'password' },
+      beforeDelivery: () => { if (!authorized) throw new Error('TEST_ONLY_SENSITIVE_ERROR_PLACEHOLDER'); },
+    }).catch((error: unknown) => error as Error);
+    const server = new BrowserGatewayRpcServer({ service: {}, userDataPath: os.tmpdir(), extensionToken: 'TEST_ONLY_NATIVE_TOKEN_PLACEHOLDER', extensionCommandStore: store, registerCleanup: vi.fn() });
+    const original = server.handleRequest.bind(server);
+    vi.spyOn(server, 'handleRequest').mockImplementation(async (request) => {
+      const result = await original(request);
+      authorized = false;
+      return result;
+    });
+    await server.start();
+    try {
+      const response = await sendRaw(server.getSocketPath()!, `${JSON.stringify({ jsonrpc: '2.0', id: 'credential-poll', method: 'browser.extension_poll_command', params: { extensionToken: 'TEST_ONLY_NATIVE_TOKEN_PLACEHOLDER', payload: { timeoutMs: 1, extensionVersion: '0.2.18', extensionStartedAt: Date.now() } } })}\n`);
+      expect(response).toMatchObject({ id: 'credential-poll', result: null });
+      expect(await filling).toMatchObject({ message: 'credential_delivery_rejected' });
+      expect(store.describeQueue('local')).toMatchObject({ queuedCount: 0, inFlightCount: 0 });
+      expect(JSON.stringify(response)).not.toContain('TEST_ONLY_PASSWORD_PLACEHOLDER');
+      expect(JSON.stringify(response)).not.toContain('TEST_ONLY_SENSITIVE_ERROR_PLACEHOLDER');
+    } finally {
+      await server.stop();
+    }
   });
 
   it('returns a JSON-RPC error for malformed socket input', async () => {

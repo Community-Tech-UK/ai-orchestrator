@@ -69,6 +69,12 @@ export interface CredentialAuthorization {
   allowedSenderDomains?: string[];
   /** Bitwarden folder this authorization is scoped to (e.g. 'AIO-Agent'). */
   vaultFolder: string;
+  /** Trusted logical session identity. Omitted only for standing consent. */
+  taskScope?: string;
+  /** Exact approved Bitwarden item. Absence retains legacy folder-wide consent. */
+  vaultItemRef?: string;
+  /** Stable computer identity, including managed profiles that can be moved. */
+  computerId?: string;
   createdAt: number;
   /** Weeks/months out — long-lived standing consent, not a 30-min grant. */
   expiresAt: number;
@@ -129,6 +135,9 @@ export interface AuthorizationCheck {
   profileId: string;
   origin: string;
   purpose: CredentialPurpose;
+  taskScope?: string;
+  vaultItemRef?: string;
+  computerId?: string;
   /** Required for a `secret_fill` check: the semantic secret type being filled. */
   secretType?: SecretFieldKind;
   /** The target selector, checked against an authorization's selector allowlist. */
@@ -147,6 +156,9 @@ export interface AuthorizationDecision {
     | 'purpose_not_authorized'
     | 'secret_type_not_authorized'
     | 'selector_not_authorized'
+    | 'task_scope_not_authorized'
+    | 'vault_item_not_authorized'
+    | 'computer_not_authorized'
     | 'authorization_expired'
     | 'authorization_revoked';
 }
@@ -209,11 +221,17 @@ export class CredentialAuthorizationService {
     let sawSecretType = false;
     let sawSelector = false;
     let sawRevokedMatch = false;
+    let sawTaskScope = false;
+    let sawVaultItem = false;
+    let sawComputer = false;
     for (const auth of candidates) {
+      const taskScopeOk = auth.taskScope === undefined || (auth.taskScope !== '' && auth.taskScope === input.taskScope);
+      const vaultItemOk = auth.vaultItemRef === undefined || (auth.vaultItemRef !== '' && auth.vaultItemRef === input.vaultItemRef);
+      const computerOk = auth.computerId === undefined || (auth.computerId !== '' && auth.computerId === input.computerId);
       if (auth.revokedAt) {
         // Remember whether a REVOKED grant would otherwise have covered this, so
         // the refusal can say "revoked" instead of "origin not authorized".
-        if (auth.allowedOrigins.some((o) => originMatches(o, input.origin))) {
+        if (taskScopeOk && vaultItemOk && computerOk && auth.purposes.includes(input.purpose) && auth.allowedOrigins.some((o) => originMatches(o, input.origin))) {
           sawRevokedMatch = true;
         }
         continue;
@@ -247,7 +265,16 @@ export class CredentialAuthorizationService {
       if (originOk && purposeOk && secretTypeOk && selectorOk) {
         sawSelector = true;
       }
-      if (!originOk || !purposeOk || !secretTypeOk || !selectorOk) {
+      if (originOk && purposeOk && secretTypeOk && selectorOk && taskScopeOk) {
+        sawTaskScope = true;
+      }
+      if (originOk && purposeOk && secretTypeOk && selectorOk && taskScopeOk && vaultItemOk) {
+        sawVaultItem = true;
+      }
+      if (originOk && purposeOk && secretTypeOk && selectorOk && taskScopeOk && vaultItemOk && computerOk) {
+        sawComputer = true;
+      }
+      if (!originOk || !purposeOk || !secretTypeOk || !selectorOk || !taskScopeOk || !vaultItemOk || !computerOk) {
         continue;
       }
       if (auth.expiresAt <= now) {
@@ -281,6 +308,15 @@ export class CredentialAuthorizationService {
     }
     if (!sawSelector) {
       return { authorized: false, reason: 'selector_not_authorized' };
+    }
+    if (!sawTaskScope) {
+      return { authorized: false, reason: 'task_scope_not_authorized' };
+    }
+    if (!sawVaultItem) {
+      return { authorized: false, reason: 'vault_item_not_authorized' };
+    }
+    if (!sawComputer) {
+      return { authorized: false, reason: 'computer_not_authorized' };
     }
     return { authorized: false, reason: 'authorization_expired' };
   }

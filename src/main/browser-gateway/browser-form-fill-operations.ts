@@ -15,6 +15,8 @@ import {
 } from './browser-credential-vault';
 import type { CredentialAuthorizationService } from './browser-credential-authorization-store';
 import { buildCredentialAuthorizationDenial } from './browser-credential-authorization-denial';
+import { resolveCredentialTaskScope } from './browser-credential-access-session';
+import { resolveCredentialComputerId } from './browser-credential-access-runtime';
 import type { BrowserEmailCodeReader } from './browser-email-code-reader';
 import {
   executeFillPlan as runFillPlan,
@@ -63,6 +65,7 @@ export interface FillOperationDeps {
    * the tab's own profileId is ephemeral. Default absent = identity.
    */
   resolveCredentialProfileScope?: (profileId: string) => string;
+  resolveCredentialComputerId?: (profileId: string, targetId: string) => string | undefined;
   /** Guarded per-action service methods (they classify + grant-check + audit). */
   type: GuardedMutation;
   select: GuardedMutation;
@@ -86,12 +89,13 @@ export interface FillOperationDeps {
     value: string,
     authorizedOrigin: string,
     protection: 'public' | 'password' | 'secret',
+    beforeDispatch?: () => void,
   ) => Promise<{ valueApplied?: boolean } | void>;
   refreshTargetOrigin: (profileId: string, targetId: string) => Promise<string>;
   credentialVault?: Pick<
     CredentialVault,
     'getSecretForFill' | 'createAgentCredential' | 'getGenericSecretForFill'
-  >;
+  > & Partial<Pick<CredentialVault, 'captureFillGuard'>>;
   credentialAuthorizations?: Pick<CredentialAuthorizationService, 'check'> & {
     list?: CredentialAuthorizationService['list'];
   };
@@ -283,6 +287,12 @@ export async function fillCredentialOperation(
   // by its stable node scope (its own profileId is per-tab/ephemeral).
   const authProfileId = deps.resolveCredentialProfileScope?.(request.profileId) ?? request.profileId;
 
+  const checkField = (purpose: CredentialPurpose, selector?: string) => authorizations.check({
+    profileId: authProfileId, origin, purpose, selector,
+    taskScope: resolveCredentialTaskScope(request.instanceId), vaultItemRef: request.vaultItemRef,
+    computerId: deps.resolveCredentialComputerId?.(request.profileId, request.targetId) ?? resolveCredentialComputerId(request.profileId, request.targetId),
+  });
+
   const purposes = new Set<CredentialPurpose>();
   for (const field of request.fields) {
     purposes.add(
@@ -291,7 +301,7 @@ export async function fillCredentialOperation(
   }
   let authorizedSenderDomains: string[] | undefined;
   for (const purpose of purposes) {
-    const decision = authorizations.check({ profileId: authProfileId, origin, purpose });
+    const decision = checkField(purpose, request.fields.find((field) => (field.kind === 'totp' ? 'totp' : field.kind === 'email_code' ? 'email_code' : 'login') === purpose)?.selector);
     if (!decision.authorized) {
       const denial = buildCredentialAuthorizationDenial(authorizations.list?.bind(authorizations), {
         toolName,
@@ -325,7 +335,12 @@ export async function fillCredentialOperation(
   let filled = 0;
   let secretObservationBlocked = false;
   try {
+    const assertFillUnlocked = request.fields.some((field) => field.kind !== 'email_code')
+      ? vault.captureFillGuard?.() : undefined;
     for (const field of request.fields) {
+      assertFillUnlocked?.();
+      const purpose = field.kind === 'totp' ? 'totp' : field.kind === 'email_code' ? 'email_code' : 'login';
+      if (!checkField(purpose, field.selector).authorized) return deny('credential_authorization_changed', `${toolName} permission is no longer valid`);
       // Authorization and live-origin refreshes above are synchronous/secret-free
       // trust boundaries. Recheck the exact extension runtime immediately before
       // asking the vault or mailbox to resolve anything, so a disconnect/reload
@@ -374,11 +389,13 @@ export async function fillCredentialOperation(
           `${toolName} aborted because the secure Browser Gateway extension changed before filling`,
         );
       }
+      if (!checkField(purpose, field.selector).authorized) return deny('credential_authorization_changed', `${toolName} permission changed before filling`);
       const protection = field.kind === 'username'
         ? 'public'
         : field.kind === 'password'
           ? 'password'
           : 'secret';
+      assertFillUnlocked?.();
       await deps.driverType(
         request.profileId,
         request.targetId,
@@ -386,6 +403,11 @@ export async function fillCredentialOperation(
         secret,
         origin,
         protection,
+        () => {
+          assertFillUnlocked?.();
+          if (!checkField(purpose, field.selector).authorized) throw new Error('credential_authorization_changed');
+          if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) throw new Error('shared_tab_secure_credential_fill_unavailable');
+        },
       );
       if (protection !== 'public') secretObservationBlocked = true;
       filled += 1;

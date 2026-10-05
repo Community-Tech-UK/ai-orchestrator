@@ -146,6 +146,45 @@ describe('BrowserApprovalRequestComponent', () => {
     await fixture.componentInstance.approveRequest(approval);
     expect(fakeBrowserGateway.approveRequest).toHaveBeenCalledTimes(1);
   });
+
+  it('shows saved-login scope and movement with a current-task default', async () => {
+    const approval = makeBrowserApprovalRequest({ credentialAccess: {
+      taskScope: 'conversation:placeholder-task', sessionName: '12steps', reason: 'Finish the requested sign-in',
+      origin: 'https://login.example.com', computerName: 'windows-pc', computerId: 'placeholder-computer', scope: 'placeholder-scope',
+      vaultItemRef: 'placeholder-item', itemTitle: 'Example login', vaultFolder: 'AgentVault',
+      moveIntoFolder: true, purposes: ['login', 'totp'], permission: 'task',
+    } });
+    fakeBrowserGateway.listApprovalRequests.mockResolvedValue({
+      success: true, data: { decision: 'allowed', outcome: 'succeeded', data: [approval], auditId: 'placeholder-audit' },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.textContent).toContain('12steps');
+    expect(element.textContent).toContain('Example login');
+    expect(element.textContent).toContain('windows-pc');
+    expect(element.textContent).toContain('Finish the requested sign-in');
+    expect(element.textContent).toContain('use a one-time sign-in code');
+    expect(element.textContent).toContain('Approval will move this login into the AgentVault agent vault folder.');
+    const duration = element.querySelector<HTMLSelectElement>('.credential-access-duration');
+    expect(duration?.value).toBe('task');
+    expect(Array.from(duration?.options ?? []).map((option) => option.value)).toEqual(['task', '1h', '24h', '7d']);
+    await fixture.componentInstance.approveRequest(approval);
+    expect(fakeBrowserGateway.approveRequest).toHaveBeenCalledWith(expect.objectContaining({
+      credentialAccess: { permission: 'task' },
+    }));
+  });
+
+  it('retains the request when approval delivered over IPC did not complete', async () => {
+    fixture.detectChanges();
+    await settle(fixture);
+    fakeBrowserGateway.approveRequest.mockResolvedValueOnce({
+      success: true, data: { decision: 'allowed', outcome: 'failed', reason: 'vault_locked', auditId: 'placeholder-audit' },
+    });
+    await fixture.componentInstance.approveRequest(makeBrowserApprovalRequest());
+    expect(fixture.componentInstance.pendingRequests()).toHaveLength(1);
+    expect(fixture.componentInstance.errorMessage()).toBe('vault locked');
+  });
 });
 
 function overrideInputs(

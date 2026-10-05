@@ -66,7 +66,12 @@ export abstract class CodexBaseAdapter extends BaseCliAdapter {
     };
     super(adapterConfig);
     this.cliConfig = config;
-    this.codexHome = new CodexHomeManager(config.authSourceDir ? { authSourceDir: config.authSourceDir } : {});
+    this.codexHome = new CodexHomeManager({
+      ...(config.authSourceDir ? { authSourceDir: config.authSourceDir } : {}),
+      ...(config.env ? { harnessCliEnv: Object.fromEntries(
+        Object.entries(config.env).filter(([key]) => !config.envRemove?.includes(key)),
+      ) } : {}),
+    });
     this.sessionId = config.sessionId || `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
 

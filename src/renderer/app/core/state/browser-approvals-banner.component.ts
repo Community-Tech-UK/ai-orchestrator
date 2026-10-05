@@ -30,6 +30,11 @@ import { BrowserGatewayIpcService } from '../services/ipc/browser-gateway-ipc.se
 import { BrowserApprovalsStore } from './browser-approvals.store';
 import {
   type BannerGrantMode,
+  type CredentialAccessDuration,
+  CREDENTIAL_ACCESS_DURATIONS,
+  credentialAccessChoice,
+  credentialAccessMovement,
+  credentialAccessPurpose,
   bannerCanQuickApprove,
   bannerConfirmationPhrase,
   bannerGrantModes,
@@ -64,6 +69,17 @@ import {
                   : pendingRequests().length + ' browser permissions requested' }}
               </strong>
               <span>{{ describe(approval) }}</span>
+              @if (approval.credentialAccess; as access) {
+                <span class="credential-access-detail">{{ access.sessionName }} asks to {{ credentialPurpose(approval) }} on {{ access.origin }} using {{ access.computerName }}.</span>
+                <span class="credential-access-detail">Saved login: {{ access.itemTitle }} · Reason: {{ access.reason }}</span>
+                <span class="credential-access-detail">{{ credentialMovement(approval) }}</span>
+                @if (credentialDuration() === 'task' && access.permissionExpiresAt; as expiresAt) {
+                  <span class="credential-access-detail">Access expires by {{ formatExpiry(expiresAt) }}.</span>
+                }
+                @if (access.operationError) {
+                  <span class="banner-error">{{ access.operationError }}</span>
+                }
+              }
               <span class="request-identity">New request · Request 1 of {{ pendingRequests().length }} · #{{ shortRequestId(approval) }} · received {{ receivedAt(approval) }}</span>
               @if (errorMessage(); as err) {
                 <span class="banner-error">{{ err }}</span>
@@ -72,6 +88,20 @@ import {
           </button>
           <div class="banner-actions">
             @if (canQuickApprove(approval)) {
+              @if (approval.credentialAccess) {
+                <select
+                  class="banner-scope credential-access-duration"
+                  [value]="credentialDuration()"
+                  [disabled]="working() !== null"
+                  aria-label="How long to allow this saved login"
+                  (change)="onCredentialDurationChange($event)"
+                >
+                  @for (duration of credentialDurations; track duration.value) {
+                    <option [value]="duration.value">{{ duration.label }}</option>
+                  }
+                </select>
+                <span class="banner-duration">Only this website, computer, saved login and sign-in purpose. {{ credentialDuration() === 'task' ? 'Access ends with this task.' : 'Permission expires after the selected period.' }}</span>
+              }
               @if (needsConfirmation(approval)) {
                 <label class="banner-confirm">
                   <span>Type <strong>{{ confirmationPhrase(approval) }}</strong> to allow publishing or deleting</span>
@@ -116,6 +146,7 @@ import {
               aria-label="Deny the oldest pending browser request"
               (click)="deny(approval)"
             >Deny</button>
+            @if (!approval.credentialAccess) {
             <button
               type="button"
               class="banner-btn"
@@ -123,6 +154,7 @@ import {
               aria-label="Review pending browser requests"
               (click)="review(approval)"
             >More options</button>
+            }
             <button
               type="button"
               class="banner-close"
@@ -193,6 +225,11 @@ import {
       flex-basis: 100%;
       color: var(--text-muted, #94a3b8);
       font-size: 0.72rem;
+    }
+
+    .credential-access-detail {
+      flex-basis: 100%;
+      overflow-wrap: anywhere;
     }
 
     .banner-actions {
@@ -337,6 +374,8 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
   readonly oldestPending = this.approvals.oldestPending;
   readonly isMinimized = this.approvals.isMinimized;
   readonly selectedMode = signal<BannerGrantMode>('per_action');
+  readonly credentialDuration = signal<CredentialAccessDuration>('task');
+  readonly credentialDurations = CREDENTIAL_ACCESS_DURATIONS;
   readonly confirmation = signal('');
   readonly working = signal<string | null>(null);
   readonly errorMessage = signal<string | null>(null);
@@ -351,6 +390,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
       }
       this.boundRequestId.set(requestId);
       this.selectedMode.set(approval ? (this.modesFor(approval)[0] ?? 'per_action') : 'per_action');
+      this.credentialDuration.set('task');
       this.confirmation.set('');
     });
   }
@@ -368,6 +408,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
   }
 
   describe(approval: BrowserApprovalRequest): string {
+    if (approval.credentialAccess) return 'Saved-login permission requested';
     const action = approval.toolName.replace(/^browser\./, '').replaceAll('_', ' ');
     const where = this.displayHost(approval.origin ?? approval.url ?? approval.profileId);
     const file = approval.filePath ? ` · ${approval.filePath}` : '';
@@ -387,6 +428,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
   }
 
   approveLabel(approval: BrowserApprovalRequest): string {
+    if (approval.credentialAccess) return 'Approve';
     return this.modesFor(approval).length > 1 ? 'Approve' : this.modeLabel(this.selectedMode());
   }
 
@@ -394,11 +436,23 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
     this.selectedMode.set((event.target as HTMLSelectElement).value as BannerGrantMode);
   }
 
+  onCredentialDurationChange(event: Event): void {
+    this.credentialDuration.set((event.target as HTMLSelectElement).value as CredentialAccessDuration);
+  }
+
+  credentialPurpose = credentialAccessPurpose;
+  credentialMovement = credentialAccessMovement;
+
+  formatExpiry(expiresAt: number): string {
+    return new Date(expiresAt).toLocaleString();
+  }
+
   confirmationPhrase(approval: BrowserApprovalRequest): string {
     return bannerConfirmationPhrase(approval);
   }
 
   needsConfirmation(approval: BrowserApprovalRequest): boolean {
+    if (approval.credentialAccess) return false;
     const grant = this.quickGrant(approval, this.selectedMode());
     return grant !== null && bannerGrantRequiresConfirmation(grant);
   }
@@ -412,14 +466,14 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
       return;
     }
     const mode = this.selectedMode();
-    const grant = this.quickGrant(approval, mode);
+    const grant = approval.credentialAccess ? approval.proposedGrant : this.quickGrant(approval, mode);
     if (!grant) {
       this.errorMessage.set('This request needs review before it can be allowed.');
       return;
     }
     const phrase = this.confirmationPhrase(approval);
     if (
-      bannerGrantRequiresConfirmation(grant) &&
+      !approval.credentialAccess && bannerGrantRequiresConfirmation(grant) &&
       this.confirmation().trim() !== phrase
     ) {
       this.errorMessage.set(
@@ -433,14 +487,19 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
       const response = await this.browserGateway.approveRequest({
         requestId: approval.requestId,
         grant,
-        reason: this.approveReason(mode),
+        ...(approval.credentialAccess ? {
+          credentialAccess: credentialAccessChoice(this.credentialDuration()),
+          reason: 'Saved-login access approved from permission banner',
+        } : { reason: this.approveReason(mode) }),
       });
-      if (!response.success) {
-        this.errorMessage.set(response.error?.message ?? 'Failed to approve browser request.');
+      if (!response.success || response.data?.decision !== 'allowed' || response.data.outcome !== 'succeeded') {
+        this.errorMessage.set(response.error?.message ?? response.data?.reason?.replaceAll('_', ' ') ?? 'Approval could not be completed. The request is still waiting.');
         return;
       }
       this.approvals.removeRequest(approval.requestId);
       await this.refresh();
+    } catch {
+      this.errorMessage.set('Approval could not be completed. Try again after checking the connection.');
     } finally {
       this.working.set(null);
     }
@@ -457,18 +516,24 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
         requestId: approval.requestId,
         reason: 'Denied from approvals banner',
       });
-      if (!response.success) {
-        this.errorMessage.set(response.error?.message ?? 'Failed to deny browser request.');
+      if (!response.success || response.data?.decision !== 'allowed' || response.data.outcome !== 'succeeded') {
+        this.errorMessage.set(response.error?.message ?? response.data?.reason?.replaceAll('_', ' ') ?? 'The request could not be denied.');
         return;
       }
       this.approvals.removeRequest(approval.requestId);
       await this.refresh();
+    } catch {
+      this.errorMessage.set('The request could not be denied. Try again after checking the connection.');
     } finally {
       this.working.set(null);
     }
   }
 
   review(approval: BrowserApprovalRequest): void {
+    if (approval.credentialAccess) {
+      this.approvals.restore();
+      return;
+    }
     void this.router.navigate(['/browser'], {
       queryParams: { view: 'permissions', requestId: approval.requestId },
     });

@@ -20,7 +20,7 @@ type ExecFileFn = (
     stdout: string,
     stderr: string,
   ) => void,
-) => { stdin: { end: () => void } | null };
+) => { stdin: { end: (input?: string) => void } | null };
 
 export interface BwRunnerOptions {
   /** Path to the bw binary. Default 'bw' (resolved from PATH). */
@@ -69,7 +69,11 @@ export function createBwRunner(options: BwRunnerOptions = {}): BwRunner {
         );
         // Never leave Bitwarden able to prompt for a master password. The
         // credential gateway supplies unlock material through child env only.
-        child.stdin?.end();
+        if (opts?.input !== undefined) {
+          child.stdin?.end(opts.input);
+        } else {
+          child.stdin?.end();
+        }
       });
     },
   };

@@ -153,6 +153,15 @@ describe('dispatchBrowserCredentialsCliRpc', () => {
     expect(ops.list).toHaveBeenCalledWith(undefined);
   });
 
+  it('reads new task, exact item and computer scope without broadening legacy authorization input', async () => {
+    const ops = operations();
+    const scoped = { ...AUTHORIZATION, taskScope: 'task-1', vaultItemRef: 'item-1', computerId: 'node-1' };
+    ops.list.mockResolvedValue([scoped]);
+    await expect(dispatchBrowserCredentialsCliRpc(BROWSER_CREDENTIALS_CLI_METHODS.list, {}, ops)).resolves.toEqual([scoped]);
+    await expect(dispatchBrowserCredentialsCliRpc(BROWSER_CREDENTIALS_CLI_METHODS.authorize, scoped, ops)).rejects.toThrow();
+    expect(ops.authorize).not.toHaveBeenCalled();
+  });
+
   it('revokes by id', async () => {
     const ops = operations();
     await dispatchBrowserCredentialsCliRpc(

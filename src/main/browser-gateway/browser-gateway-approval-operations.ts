@@ -26,12 +26,22 @@ import type { BrowserGatewayContext } from './browser-gateway-service-types';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import { requiresAutonomousGrant } from './browser-grant-policy';
 import { grantScopeForApproval } from './browser-grant-scope';
+import { getBrowserCredentialAccessService } from './browser-credential-access-service';
 
 interface BrowserGatewayApprovalOperationsDeps {
   approvalStore: Pick<BrowserApprovalStore, 'getRequest' | 'listRequests' | 'resolveRequest'>;
-  grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant' | 'revokeGrant'>;
+  grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant' | 'revokeGrant'> & Partial<Pick<BrowserGrantStore, 'getGrant'>>;
   profileStore: Pick<BrowserProfileStore, 'getProfile' | 'setRuntimeState'>;
   autoApproveApproval?: (approval: BrowserApprovalRequest) => BrowserPermissionGrant | null;
+  approveCredentialAccess?: (
+    approval: BrowserApprovalRequest,
+    choice?: BrowserApproveRequestPayload['credentialAccess'],
+  ) => Promise<BrowserGatewayResult<BrowserPermissionGrant | null>>;
+  denyCredentialAccess?: (
+    approval: BrowserApprovalRequest,
+  ) => Promise<BrowserGatewayResult<BrowserApprovalRequest | null>>;
+  refreshCredentialAccess?: (approval: BrowserApprovalRequest) => BrowserApprovalRequest;
+  revokeCredentialAccess?: (grantId: string) => void;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
 }
 
@@ -139,7 +149,7 @@ export class BrowserGatewayApprovalOperations {
   async approveRequest(
     request: BrowserGatewayContext & BrowserApproveRequestPayload,
   ): Promise<BrowserGatewayResult<BrowserPermissionGrant | null>> {
-    BrowserApproveRequestPayloadSchema.parse({ requestId: request.requestId, grant: request.grant, reason: request.reason });
+    BrowserApproveRequestPayloadSchema.parse({ requestId: request.requestId, grant: request.grant, reason: request.reason, credentialAccess: request.credentialAccess });
     const approval = this.getScopedApprovalRequest(request.requestId, request.instanceId);
     if (!approval) {
       return this.deps.result({
@@ -153,6 +163,11 @@ export class BrowserGatewayApprovalOperations {
         summary: 'Browser approval request could not be approved because it was not found',
         data: null,
       });
+    }
+    if (approval.credentialAccess) {
+      return this.deps.approveCredentialAccess
+        ? this.deps.approveCredentialAccess(approval, request.credentialAccess)
+        : getBrowserCredentialAccessService().approve(approval, request.credentialAccess);
     }
     if (approval.status !== 'pending' || approval.expiresAt <= Date.now()) {
       const current = this.expireApprovalIfNeeded(approval);
@@ -230,7 +245,9 @@ export class BrowserGatewayApprovalOperations {
       actionClass: approval.actionClass,
       decision: 'allowed',
       outcome: 'succeeded',
-      summary: 'Approved Browser Gateway request and created grant',
+      summary: isManualHandoff(approval)
+        ? 'Acknowledged the manual browser handoff; saved-login access has not been authorised'
+        : 'Approved Browser Gateway request and created grant',
       origin: approval.origin,
       url: approval.url,
       requestId: undefined,
@@ -256,6 +273,11 @@ export class BrowserGatewayApprovalOperations {
         summary: 'Browser approval request could not be denied because it was not found',
         data: null,
       });
+    }
+    if (approval.credentialAccess) {
+      return this.deps.denyCredentialAccess
+        ? this.deps.denyCredentialAccess(approval)
+        : getBrowserCredentialAccessService().deny(approval);
     }
     const denied = this.deps.approvalStore.resolveRequest(approval.requestId, {
       status: 'denied',
@@ -345,6 +367,9 @@ export class BrowserGatewayApprovalOperations {
   async revokeGrant(
     request: BrowserGatewayContext & BrowserRevokeGrantRequest,
   ): Promise<BrowserGatewayResult<BrowserPermissionGrant | null>> {
+    // Capture the original provenance before a user-supplied revoke reason
+    // replaces it. Only this workflow's grants also carry vault authority.
+    let originalGrant = this.deps.grantStore.getGrant?.(request.grantId);
     if (request.instanceId) {
       const ownGrant = this.deps.grantStore.listGrants({
         instanceId: request.instanceId,
@@ -363,8 +388,13 @@ export class BrowserGatewayApprovalOperations {
           data: null,
         });
       }
+      originalGrant ??= ownGrant;
     }
     const revoked = this.deps.grantStore.revokeGrant(request.grantId, request.reason);
+    if (revoked && (originalGrant?.reason === 'saved_login_access_approved' || revoked.reason === 'saved_login_access_approved')) {
+      if (this.deps.revokeCredentialAccess) this.deps.revokeCredentialAccess(revoked.id);
+      else getBrowserCredentialAccessService().revokeForGrant(revoked.id);
+    }
     return this.deps.result({
       context: request,
       profileId: revoked?.profileId,
@@ -390,6 +420,11 @@ export class BrowserGatewayApprovalOperations {
   }
 
   private expireApprovalIfNeeded(approval: BrowserApprovalRequest): BrowserApprovalRequest {
+    if (approval.credentialAccess) {
+      return this.deps.refreshCredentialAccess
+        ? this.deps.refreshCredentialAccess(approval)
+        : getBrowserCredentialAccessService().refreshRequest(approval);
+    }
     if (approval.status !== 'pending' || approval.expiresAt > Date.now()) {
       return approval;
     }
@@ -399,7 +434,7 @@ export class BrowserGatewayApprovalOperations {
   }
 
   private resolvePendingApprovalIfNeeded(approval: BrowserApprovalRequest): BrowserApprovalRequest {
-    if (approval.status !== 'pending') {
+    if (approval.status !== 'pending' || approval.credentialAccess) {
       return approval;
     }
     const grant = this.deps.autoApproveApproval?.(approval);
@@ -420,6 +455,15 @@ function normalizeApprovalGrant(
   approval: BrowserApprovalRequest,
   requested: BrowserGrantProposal,
 ): BrowserGrantProposal {
+  if (isManualHandoff(approval)) {
+    return {
+      ...approval.proposedGrant,
+      mode: 'per_action',
+      allowedActionClasses: ['read'],
+      allowExternalNavigation: false,
+      autonomous: false,
+    };
+  }
   if (approval.actionClass !== 'unknown' && (
     approval.actionClass !== 'credential' || requested.mode !== 'per_action'
   )) {
@@ -437,4 +481,8 @@ function normalizeApprovalGrant(
     allowExternalNavigation: false,
     autonomous: false,
   };
+}
+
+function isManualHandoff(approval: BrowserApprovalRequest): boolean {
+  return approval.toolName === 'browser.request_user_login' || approval.toolName === 'browser.pause_for_manual_step';
 }

@@ -7,24 +7,40 @@
     @for (approval of pendingRequests(); track approval.requestId) {
       <article class="browser-approval-card">
         <div class="browser-approval-header">
-          <span class="browser-approval-kicker">Browser Request</span>
+          <span class="browser-approval-kicker">{{ approval.credentialAccess ? 'Saved-login permission' : 'Browser Request' }}</span>
           <span class="browser-approval-status">{{ approval.status }}</span>
         </div>
 
         <div class="browser-approval-main">
-          <div class="browser-approval-title">{{ approval.toolName }}</div>
+          <div class="browser-approval-title">{{ approval.credentialAccess?.itemTitle || approval.toolName }}</div>
           <div class="browser-approval-meta">
             {{ approval.actionClass }} · {{ approval.origin || approval.url || approval.profileId }}
           </div>
         </div>
 
         <dl class="browser-approval-details">
+          @if (approval.credentialAccess; as access) {
+            <div><dt>Session</dt><dd>{{ access.sessionName }}</dd></div>
+            <div><dt>Reason</dt><dd>{{ access.reason }}</dd></div>
+            <div><dt>Website</dt><dd>{{ access.origin }}</dd></div>
+            <div><dt>Computer</dt><dd>{{ access.computerName }}</dd></div>
+            <div><dt>Access</dt><dd>{{ credentialPurpose(approval) }}. Only this website, computer and saved login.</dd></div>
+            <div><dt>Vault folder</dt><dd>{{ credentialMovement(approval) }}</dd></div>
+            <div><dt>Duration</dt><dd>{{ credentialDuration(approval) === 'task' ? 'Access ends with this task.' : 'Permission expires after the selected period.' }}</dd></div>
+            @if (credentialDuration(approval) === 'task' && access.permissionExpiresAt; as expiresAt) {
+              <div><dt>Latest expiry</dt><dd>{{ formatExpiry(expiresAt) }}</dd></div>
+            }
+            @if (access.operationError) {
+              <div class="browser-approval-error"><dt>Needs attention</dt><dd>{{ access.operationError }}</dd></div>
+            }
+          } @else {
           <div>
             <dt>Scope</dt>
             <dd>{{ formatApprovalScope(approval) }}</dd>
           </div>
+          }
           <div>
-            <dt>Expires</dt>
+            <dt>{{ approval.credentialAccess ? 'Reply before' : 'Expires' }}</dt>
             <dd>{{ formatExpiry(approval.expiresAt) }}</dd>
           </div>
           @if (approval.selector) {
@@ -75,6 +91,19 @@
         }
 
         <div class="browser-approval-actions">
+          @if (approval.credentialAccess) {
+            <select
+              class="browser-approval-mode credential-access-duration"
+              aria-label="How long to allow this saved login"
+              [value]="credentialDuration(approval)"
+              [disabled]="workingRequestId() !== null"
+              (change)="onCredentialDurationChange(approval, $event)"
+            >
+              @for (duration of credentialDurations; track duration.value) {
+                <option [value]="duration.value">{{ duration.label }}</option>
+              }
+            </select>
+          } @else {
           <select
             class="browser-approval-mode"
             [value]="selectedMode(approval)"
@@ -85,6 +114,7 @@
             <option value="session">Session</option>
             <option value="autonomous">Autonomous</option>
           </select>
+          }
           <button
             class="browser-approval-button secondary"
             type="button"

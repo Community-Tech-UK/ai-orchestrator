@@ -15,6 +15,13 @@ import type {
   BrowserGrantProposal,
 } from '@contracts/types/browser';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
+import {
+  CREDENTIAL_ACCESS_DURATIONS,
+  type CredentialAccessDuration,
+  credentialAccessChoice,
+  credentialAccessMovement,
+  credentialAccessPurpose,
+} from '../../core/state/browser-approvals-banner.rules';
 
 @Component({
   selector: 'app-browser-approval-request',
@@ -36,6 +43,10 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
   readonly errorMessage = signal<string | null>(null);
   private readonly grantModes = signal<Record<string, BrowserGrantMode>>({});
   private readonly autonomousConfirmations = signal<Record<string, string>>({});
+  private readonly credentialChoices = signal<Record<string, CredentialAccessDuration>>({});
+  readonly credentialDurations = CREDENTIAL_ACCESS_DURATIONS;
+  credentialPurpose = credentialAccessPurpose;
+  credentialMovement = credentialAccessMovement;
 
   constructor() {
     effect(() => {
@@ -43,6 +54,7 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
       this.errorMessage.set(null);
       this.grantModes.set({});
       this.autonomousConfirmations.set({});
+      this.credentialChoices.set({});
       if (!instanceId) {
         this.pendingRequests.set([]);
         return;
@@ -106,6 +118,15 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
     }));
   }
 
+  credentialDuration(approval: BrowserApprovalRequest): CredentialAccessDuration {
+    return this.credentialChoices()[approval.requestId] ?? 'task';
+  }
+
+  onCredentialDurationChange(approval: BrowserApprovalRequest, event: Event): void {
+    const value = (event.target as HTMLSelectElement).value as CredentialAccessDuration;
+    this.credentialChoices.update((current) => ({ ...current, [approval.requestId]: value }));
+  }
+
   onAutonomousConfirmationInput(approval: BrowserApprovalRequest, event: Event): void {
     const value = (event.target as HTMLInputElement).value;
     this.autonomousConfirmations.update((current) => ({
@@ -134,15 +155,20 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
     try {
       const response = await this.browserGateway.approveRequest({
         requestId: approval.requestId,
-        grant: this.grantProposalForApproval(approval, this.selectedMode(approval)),
+        grant: approval.credentialAccess ? approval.proposedGrant : this.grantProposalForApproval(approval, this.selectedMode(approval)),
+        ...(approval.credentialAccess ? {
+          credentialAccess: credentialAccessChoice(this.credentialDuration(approval)),
+        } : {}),
         reason: 'Approved from session page',
       });
-      if (!response.success) {
-        this.errorMessage.set(response.error?.message ?? 'Failed to approve browser request.');
+      if (!response.success || response.data?.decision !== 'allowed' || response.data.outcome !== 'succeeded') {
+        this.errorMessage.set(response.error?.message ?? response.data?.reason?.replaceAll('_', ' ') ?? 'Approval could not be completed. The request is still waiting.');
         return;
       }
       this.removeRequest(approval.requestId);
       await this.refreshPendingRequests();
+    } catch {
+      this.errorMessage.set('Approval could not be completed. Try again after checking the connection.');
     } finally {
       this.workingRequestId.set(null);
     }
@@ -160,12 +186,14 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
         requestId: approval.requestId,
         reason: 'Denied from session page',
       });
-      if (!response.success) {
-        this.errorMessage.set(response.error?.message ?? 'Failed to deny browser request.');
+      if (!response.success || response.data?.decision !== 'allowed' || response.data.outcome !== 'succeeded') {
+        this.errorMessage.set(response.error?.message ?? response.data?.reason?.replaceAll('_', ' ') ?? 'The request could not be denied.');
         return;
       }
       this.removeRequest(approval.requestId);
       await this.refreshPendingRequests();
+    } catch {
+      this.errorMessage.set('The request could not be denied. Try again after checking the connection.');
     } finally {
       this.workingRequestId.set(null);
     }
@@ -205,6 +233,7 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
   }
 
   requiresAutonomousConfirmation(approval: BrowserApprovalRequest): boolean {
+    if (approval.credentialAccess) return false;
     return approval.proposedGrant.allowedActionClasses.some(
       (actionClass) => actionClass === 'submit' || actionClass === 'destructive',
     );

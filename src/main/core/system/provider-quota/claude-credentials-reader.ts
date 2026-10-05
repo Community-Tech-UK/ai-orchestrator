@@ -38,12 +38,15 @@ import { claudeKeychainServiceName } from '../../../cli/adapters/account-pool/pr
 import { buildCliEnv } from '../../../cli/cli-environment';
 import { CLI_REGISTRY, getCliCandidatePaths } from '../../../cli/cli-registry';
 import { getLogger } from '../../../logging/logger';
+import { createClaudeAuthRefreshReadiness } from './claude-auth-refresh-readiness';
 
 const logger = getLogger('ClaudeCredentialsReader');
 
 const KEYCHAIN_SERVICE = 'Claude Code-credentials';
 const DEFAULT_TIMEOUT_MS = 5_000;
-const DEFAULT_REFRESH_TIMEOUT_MS = 15_000;
+// Native OAuth HTTP alone allows 30s, followed by profile/settings and lock
+// handling. Do not kill a legitimate refresh before its own request deadline.
+const DEFAULT_REFRESH_TIMEOUT_MS = 120_000;
 const EXPIRY_SKEW_MS = 90_000;
 
 /** A read-only view of the stored Claude OAuth credential. */
@@ -283,8 +286,14 @@ const defaultSecurityExec: SecurityExec = (args, { timeoutMs }) => {
 export function createClaudeCliAuthRefresh(
   configDir?: string,
   timeoutMs = DEFAULT_REFRESH_TIMEOUT_MS,
+  isReady = createClaudeAuthRefreshReadiness(),
 ): () => Promise<boolean> {
-  return async () => {
+  let inFlight: Promise<boolean> | null = null;
+  const refresh = async (): Promise<boolean> => {
+    if (!await isReady()) {
+      logger.debug('Deferring Claude credential renewal until the host and network are ready');
+      return false;
+    }
     return new Promise<boolean>((resolve) => {
       const env: NodeJS.ProcessEnv = { ...buildCliEnv() };
       for (const key of CLAUDE_STRIPPED_AUTH_ENV_VARS) {
@@ -301,6 +310,10 @@ export function createClaudeCliAuthRefresh(
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
       });
+      // doctor output is not needed and must never be logged, but leaving its
+      // pipes unread can block exit (or the credential save) on a full buffer.
+      proc.stdout?.resume();
+      proc.stderr?.resume();
       let settled = false;
       let timer: NodeJS.Timeout | null = null;
 
@@ -325,6 +338,9 @@ export function createClaudeCliAuthRefresh(
       proc.on('close', (code) => finish(code === 0));
     });
   };
+  // Repeated quota triggers share one renewal for this profile while native
+  // Claude owns cross-process locking and token rotation.
+  return () => inFlight ??= refresh().finally(() => { inFlight = null; });
 }
 
 function resolveClaudeCliCommand(

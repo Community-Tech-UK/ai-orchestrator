@@ -85,4 +85,25 @@ describe('BrowserApprovalStore', () => {
     expect(approved?.decidedAt).toBe(2_000);
     expect(store.listRequests({ status: 'approved' })).toEqual([approved]);
   });
+
+  it('persists saved-login metadata and cannot overwrite a terminal credential decision', () => {
+    const credentialAccess = {
+      taskScope: 'conversation:placeholder', sessionName: 'Test session', reason: 'Sign in',
+      origin: 'https://login.example.test', computerName: 'Test computer', computerId: 'test-node', scope: 'test-node',
+      vaultItemRef: 'vault-placeholder', itemTitle: 'Saved test login', vaultFolder: 'AIO-Agent',
+      moveIntoFolder: true, purposes: ['login'] as const, permission: 'task' as const,
+    };
+    const approval = store.createRequest({
+      instanceId: 'instance-1', provider: 'codex', profileId: 'test-profile', targetId: 'test-target',
+      toolName: 'browser.request_credential_access', action: 'request_credential_access', actionClass: 'credential',
+      credentialAccess: { ...credentialAccess, purposes: [...credentialAccess.purposes] },
+      proposedGrant: { mode: 'session', allowedOrigins: [{ scheme: 'https', hostPattern: 'login.example.test', includeSubdomains: false }],
+        allowedActionClasses: ['credential'], allowExternalNavigation: false, autonomous: false }, expiresAt: 61_000,
+    });
+    expect(store.getRequest(approval.requestId)?.credentialAccess).toEqual(credentialAccess);
+    store.resolveCredentialAccessRequest(approval.requestId, 'pending', { status: 'denied' });
+    store.resolveCredentialAccessRequest(approval.requestId, 'pending', { status: 'approved', grantId: 'late-grant' });
+    expect(store.getRequest(approval.requestId)).toMatchObject({ status: 'denied', grantId: undefined });
+    expect(store.updateCredentialAccess(approval.requestId, { ...approval.credentialAccess!, operationError: 'late-error' })).toBeNull();
+  });
 });

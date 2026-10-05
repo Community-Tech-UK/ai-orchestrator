@@ -8,9 +8,13 @@ import {
   BrowserCredentialsCliListPayloadSchema,
   BrowserCredentialsCliRevokePayloadSchema,
   BrowserCredentialsCliRevokeResultSchema,
+  BrowserCredentialsCliAccessResultSchema,
+  BrowserCredentialsCliLookupPayloadSchema,
+  BrowserCredentialsCliRequestPayloadSchema,
   type BrowserCredentialsCliMethod,
   type BrowserCredentialsCliOperations,
 } from './browser-credentials-cli-contracts';
+import type { BrowserGatewayContext } from '../browser-gateway/browser-gateway-service-types';
 
 export type { BrowserCredentialsCliOperations } from './browser-credentials-cli-contracts';
 
@@ -32,7 +36,27 @@ export async function dispatchBrowserCredentialsCliRpc(
   method: BrowserCredentialsCliMethod,
   payload: Record<string, unknown>,
   injected?: BrowserCredentialsCliOperations | null,
+  context?: BrowserGatewayContext,
 ): Promise<unknown> {
+  // A valid transport capability identifies the session, never operator consent.
+  // Runtime RPC always supplies trusted context; operator IPC/bootstrap retain
+  // their own service routes and are not exposed through these agent commands.
+  if (context?.instanceId && (method === BROWSER_CREDENTIALS_CLI_METHODS.enrol
+    || method === BROWSER_CREDENTIALS_CLI_METHODS.authorize)) {
+    throw new Error('operator_credential_approval_required: use browser.request_credential_access or aio-mcp browser-credentials request and wait for James to approve in Harness');
+  }
+  if (method === BROWSER_CREDENTIALS_CLI_METHODS.request
+    || method === BROWSER_CREDENTIALS_CLI_METHODS.status
+    || method === BROWSER_CREDENTIALS_CLI_METHODS.cancel) {
+    if (!context?.instanceId) throw new Error('Credential access requires an authenticated requesting session');
+    const access = (await import('../browser-gateway/browser-credential-access-service')).getBrowserCredentialAccessService();
+    const result = method === BROWSER_CREDENTIALS_CLI_METHODS.request
+      ? await access.request(BrowserCredentialsCliRequestPayloadSchema.parse(payload), context)
+      : method === BROWSER_CREDENTIALS_CLI_METHODS.status
+        ? await access.status(BrowserCredentialsCliLookupPayloadSchema.parse(payload).requestId, context)
+        : await access.cancel(BrowserCredentialsCliLookupPayloadSchema.parse(payload).requestId, context);
+    return BrowserCredentialsCliAccessResultSchema.parse(result);
+  }
   // Imported lazily and only when this method is actually dispatched. A static
   // import would pull the vault, the SQLite stores and the node roster into the
   // RPC server's module graph, which is the very thing the sibling Local AI

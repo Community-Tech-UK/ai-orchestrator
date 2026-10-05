@@ -1,11 +1,13 @@
+import { isIP } from 'node:net';
 import type {
   BrowserApprovalRequest,
   BrowserPermissionGrant,
 } from '@contracts/types/browser';
 import type { BrowserApprovalStore } from './browser-approval-store';
 import type { BrowserGrantStore } from './browser-grant-store';
-import { requiresAutonomousGrant } from './browser-grant-policy';
+import { actionClassNeverGrantable, requiresAutonomousGrant } from './browser-grant-policy';
 import { grantScopeForApproval } from './browser-grant-scope';
+import { isOriginAllowed, normalizeOrigin } from './browser-origin-policy';
 
 export interface BrowserAutoApproveRequest {
   approval: BrowserApprovalRequest;
@@ -18,6 +20,33 @@ export interface BrowserAutoApproveRequest {
 
 export type BrowserAutoApprovePredicate = (request: BrowserAutoApproveRequest) => boolean;
 
+/** Runtime policy: local development pages carry standing operator consent. */
+export function withLocalBrowserAutoApproval(
+  fallback?: BrowserAutoApprovePredicate,
+): BrowserAutoApprovePredicate {
+  return (request) => isLocalBrowserApproval(request.approval) || Boolean(fallback?.(request));
+}
+
+function isLoopbackHost(host: string): boolean {
+  return host === 'localhost' || host === '[::1]' || (isIP(host) === 4 && host.startsWith('127.'));
+}
+
+function isLocalBrowserApproval(approval: BrowserApprovalRequest): boolean {
+  const proposal = approval.proposedGrant;
+  const origin = approval.origin ? normalizeOrigin(approval.origin) : null;
+  const page = approval.url ? normalizeOrigin(approval.url) : null;
+  if (!origin || !page || origin.origin !== page.origin || !isLoopbackHost(page.host)) return false;
+  if (approval.status !== 'pending' || approval.expiresAt <= Date.now() || proposal.mode === 'persistent' || proposal.allowExternalNavigation) return false;
+  // Manual handoffs still represent an action the operator needs to perform.
+  if (approval.toolName === 'browser.request_user_login' || approval.toolName === 'browser.pause_for_manual_step') return false;
+  if (proposal.allowedActionClasses.length === 0 || proposal.allowedActionClasses.some(
+    (actionClass) => actionClass === 'credential' || actionClassNeverGrantable(actionClass),
+  )) return false;
+  return proposal.allowedOrigins.length > 0 && proposal.allowedOrigins.every((allowed) =>
+    !allowed.includeSubdomains && isLoopbackHost(allowed.hostPattern.toLowerCase()),
+  ) && isOriginAllowed(page.origin, proposal.allowedOrigins).allowed;
+}
+
 /**
  * Action classes that a grant may NEVER receive via auto-approval,
  * regardless of the predicate (e.g. YOLO mode). The classifier's hardStop
@@ -27,17 +56,11 @@ export type BrowserAutoApprovePredicate = (request: BrowserAutoApproveRequest) =
  * would let an autonomous agent type credentials with no human in the
  * loop.
  *
- * Note the check is on the PROPOSED GRANT's allowedActionClasses, not the
- * approval's own actionClass: manual-handoff approvals (request_user_login
- * / pause_for_manual_step) are also credential-class but propose read-only
- * grants — auto-approving those merely surfaces the handoff to the human,
- * who still performs the login themselves. Enforced inside
- * autoApproveBrowserApproval (not at call sites) so every current and
+ * Manual handoffs and saved-login access remain explicit human decisions,
+ * even when their proposal is read-only. Enforced here so every current and
  * future caller inherits it.
  */
-const AUTO_APPROVE_UNGRANTABLE_CLASSES: ReadonlyArray<
-  BrowserApprovalRequest['actionClass']
-> = ['credential', 'payment'];
+const AUTO_APPROVE_UNGRANTABLE_CLASSES: readonly BrowserApprovalRequest['actionClass'][] = ['credential', 'payment'];
 
 export interface BrowserAutoApproveDeps {
   approval: BrowserApprovalRequest;
@@ -51,6 +74,11 @@ export interface BrowserAutoApproveDeps {
 export function autoApproveBrowserApproval(
   deps: BrowserAutoApproveDeps,
 ): BrowserPermissionGrant | null {
+  if (deps.approval.credentialAccess || [
+    'browser.request_credential_access',
+    'browser.request_user_login',
+    'browser.pause_for_manual_step',
+  ].includes(deps.approval.toolName)) return null;
   // Forever is a durable operator decision, never a predicate/policy upgrade.
   if (deps.approval.proposedGrant.mode === 'persistent') return null;
   const proposedClasses = deps.approval.proposedGrant.allowedActionClasses;
@@ -84,7 +112,7 @@ export function autoApproveBrowserApproval(
   });
   const grant = deps.grantStore.createGrant({
     ...proposedGrant,
-    // YOLO auto-approval is the user's standing consent to proceed without
+    // Auto-approval is the user's standing consent to proceed without
     // per-action confirmation. Grants covering submit/destructive classes must
     // carry `autonomous: true` — grantMatches() rejects non-autonomous grants
     // for those classes, so without this the auto-approved grant is instantly
@@ -99,7 +127,8 @@ export function autoApproveBrowserApproval(
     requestedBy: deps.approval.instanceId,
     decidedBy: 'user',
     decision: 'allow',
-    reason: deps.reason ?? 'auto_approved_by_yolo_mode',
+    reason: deps.reason ?? (isLocalBrowserApproval(deps.approval)
+      ? 'auto_approved_localhost' : 'auto_approved_by_yolo_mode'),
     expiresAt: defaultAutoApprovedGrantExpiresAt(
       deps.approval.proposedGrant.mode,
       now,

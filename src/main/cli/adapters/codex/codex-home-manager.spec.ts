@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, utimesSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, utimesSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -143,6 +143,38 @@ describe('CodexHomeManager', () => {
     process.env['HOME'] = home;
     return home;
   }
+
+  it.each([
+    ['MCP-free', (manager: CodexHomeManager) => manager.prepareMcpFreeHome()],
+    ['session-isolated', (manager: CodexHomeManager) => manager.prepareSessionIsolatedHome()],
+    ['injected MCP', (manager: CodexHomeManager) => manager.prepareHomeWithMcpConfig(
+      '[mcp_servers.browser]\ncommand = "PLACEHOLDER"',
+    )],
+  ])('%s homes preserve this session’s shell bridge without widening inherited variables', (_name, prepare) => {
+    const config = '[shell_environment_policy]\ninherit = "core"\ninclude_only = ["PATH"]\n';
+    const home = makeSandboxCodexHome(config);
+    const manager = new CodexHomeManager({ harnessCliEnv: {
+      AIO_MCP: 'PLACEHOLDER_BINARY',
+      AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: 'PLACEHOLDER_SOCKET',
+      AI_ORCHESTRATOR_INSTANCE_ID: 'PLACEHOLDER_INSTANCE',
+      AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY: 'PLACEHOLDER_CAPABILITY',
+      UNRELATED_VALUE: 'PLACEHOLDER_UNRELATED',
+    } });
+    try {
+      const generated = prepare(manager);
+      expect(generated).toBeTruthy();
+      const prepared = readFileSync(join(generated!, 'config.toml'), 'utf-8');
+      expect(prepared).toContain('inherit = "core"');
+      expect(prepared).toContain('AIO_MCP = "PLACEHOLDER_BINARY"');
+      expect(prepared).toContain('AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY = "PLACEHOLDER_CAPABILITY"');
+      expect(prepared).not.toContain('UNRELATED_VALUE');
+      expect(prepared).toContain('include_only = ["PATH", "AIO_MCP", "AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET", "AI_ORCHESTRATOR_INSTANCE_ID", "AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY"]');
+      expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf-8')).toBe(config);
+      if (process.platform !== 'win32') expect(statSync(join(generated!, 'config.toml')).mode & 0o777).toBe(0o600);
+    } finally {
+      manager.cleanup();
+    }
+  });
 
   it('creates an isolated home when the user has no existing Codex directory', () => {
     const home = join(tmpdir(), `codex-home-manager-empty-${Date.now()}-${Math.random().toString(36).slice(2)}`);

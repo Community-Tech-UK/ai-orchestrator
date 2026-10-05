@@ -1,4 +1,5 @@
-import { createHash, randomInt } from 'node:crypto';
+import { generateStrongPassword, hostOf, originsMatch, safeJson } from './browser-credential-secret-utils';
+export { generateStrongPassword, secretVerificationDigest, verifyFilledSecret } from './browser-credential-secret-utils';
 
 /**
  * Agent Credential Vault (ACV) — main-process-only Bitwarden bridge for
@@ -95,6 +96,11 @@ export type CredentialVaultErrorCode =
   | 'vault_locked'
   | 'folder_unavailable'
   | 'item_not_found'
+  | 'item_ambiguous'
+  | 'item_changed'
+  | 'target_unavailable'
+  | 'shared_tab_credential_fill_not_allowed'
+  | 'shared_tab_secure_credential_fill_unavailable'
   | 'item_outside_agent_folder'
   | 'origin_binding_missing'
   | 'origin_mismatch'
@@ -168,6 +174,17 @@ export interface EnrolExistingCredentialInput {
    * can reach, so it is a human decision, never a default.
    */
   moveIntoFolder?: boolean;
+  /** Pin enrolment to the exact item shown in the human approval. */
+  expectedVaultItemRef?: string;
+}
+
+export interface ExistingCredentialInspection {
+  vaultItemRef: string;
+  title: string;
+  /** Destination folder for the credential jail, never a secret. */
+  folderName: string;
+  requiresMoveIntoFolder: boolean;
+  existingBinding?: { origin: string; createdAt: number };
 }
 
 export interface EnrolExistingCredentialResult {
@@ -204,13 +221,14 @@ export class CredentialVaultError extends Error {
 
 interface BwItem {
   id: string;
+  name?: string;
   folderId: string | null;
   login?: {
     username?: string | null;
     password?: string | null;
   };
   /** Bitwarden custom fields — where generic (non-login) secrets live. */
-  fields?: Array<{ name?: string | null; value?: string | null; type?: number }>;
+  fields?: { name?: string | null; value?: string | null; type?: number }[];
 }
 
 const DEFAULT_FOLDER = 'AIO-Agent';
@@ -241,6 +259,16 @@ export class CredentialVault {
     this.now = options.now ?? (() => Date.now());
   }
 
+  /** Main-process guard: an explicit lock cancels even already-resolved fills. */
+  captureFillGuard(): () => void {
+    const generation = this.getSessionGeneration?.();
+    return () => {
+      if (!this.getSession() || (this.getSessionGeneration && this.getSessionGeneration() !== generation)) {
+        throw new CredentialVaultError('Credential vault was locked before filling', 'vault_locked');
+      }
+    };
+  }
+
   /**
    * Create a new agent-owned login: generate a strong password, store it to the
    * jailed folder bound to `origin`, and return only a reference + username.
@@ -262,7 +290,7 @@ export class CredentialVault {
       },
     };
     const encoded = Buffer.from(JSON.stringify(item), 'utf-8').toString('base64');
-    const created = await this.bw(['create', 'item', encoded]);
+    const created = await this.bw(['create', 'item'], encoded);
     const parsed = this.parseItem(created);
     await this.bw(['sync']);
 
@@ -294,8 +322,13 @@ export class CredentialVault {
   async enrolExistingCredential(
     input: EnrolExistingCredentialInput,
   ): Promise<EnrolExistingCredentialResult> {
-    const folderId = await this.resolveFolderId();
-    const item = this.parseItem(await this.bw(['get', 'item', input.item]));
+    const existingFolderId = await this.findFolderId();
+    const item = await this.resolveExistingItem(input.item);
+    if (input.expectedVaultItemRef !== undefined && item.id !== input.expectedVaultItemRef) {
+      throw new CredentialVaultError('The saved login changed since approval was requested', 'item_changed');
+    }
+    this.assertExistingBinding(item.id, input.origin);
+    const folderId = existingFolderId ?? await this.resolveFolderId();
     const username = typeof item.login?.username === 'string' ? item.login.username : '';
     if (username === '') {
       throw new CredentialVaultError(
@@ -322,6 +355,7 @@ export class CredentialVault {
       movedIntoFolder = true;
     }
 
+    this.assertExistingBinding(item.id, input.origin);
     this.bindings.put({
       vaultItemRef: item.id,
       origin: input.origin,
@@ -330,6 +364,46 @@ export class CredentialVault {
     });
 
     return { vaultItemRef: item.id, username, movedIntoFolder };
+  }
+
+  /** Read only the non-secret facts needed by a human approval. No vault mutation. */
+  async inspectExistingCredential(input: { item: string; origin: string }): Promise<ExistingCredentialInspection> {
+    const item = await this.resolveExistingItem(input.item);
+    const binding = this.assertExistingBinding(item.id, input.origin);
+    const folderId = await this.findFolderId();
+    return {
+      vaultItemRef: item.id,
+      title: typeof item.name === 'string' ? item.name : item.id,
+      folderName: this.folderName,
+      requiresMoveIntoFolder: folderId === undefined || item.folderId !== folderId,
+      ...(binding ? { existingBinding: { origin: binding.origin, createdAt: binding.createdAt } } : {}),
+    };
+  }
+
+  private assertExistingBinding(itemId: string, origin: string): VaultOriginBinding | undefined {
+    const binding = this.bindings.get(itemId);
+    if (binding && !originsMatch(binding.origin, origin)) {
+      throw new CredentialVaultError('The saved login is already bound to a different website', 'origin_mismatch');
+    }
+    return binding;
+  }
+
+  private async resolveExistingItem(reference: string): Promise<BwItem> {
+    const item = this.parseItem(await this.bw(['get', 'item', reference]));
+    if (item.id === reference) return item;
+    // bw may accept a partial title. Names must be exact and unique for consent.
+    const listed = safeJson(await this.bw(['list', 'items', '--search', reference]));
+    if (!Array.isArray(listed)) {
+      throw new CredentialVaultError('Could not resolve the saved login', 'item_not_found');
+    }
+    const matches = listed.filter((candidate: unknown): candidate is BwItem => (
+      typeof candidate === 'object' && candidate !== null && 'id' in candidate && 'name' in candidate
+      && typeof candidate.id === 'string' && candidate.name === reference
+    ));
+    if (matches.length !== 1) {
+      throw new CredentialVaultError('The saved login name must identify exactly one item', matches.length > 1 ? 'item_ambiguous' : 'item_not_found');
+    }
+    return this.parseItem(await this.bw(['get', 'item', matches[0]!.id]));
   }
 
   /**
@@ -429,7 +503,7 @@ export class CredentialVault {
     return secret;
   }
 
-  private async resolveFolderId(): Promise<string> {
+  private async findFolderId(): Promise<string | undefined> {
     if (this.cachedFolderId) {
       return this.cachedFolderId;
     }
@@ -447,13 +521,19 @@ export class CredentialVault {
       this.cachedFolderId = existing.id;
       return existing.id;
     }
+    return undefined;
+  }
+
+  private async resolveFolderId(): Promise<string> {
+    const existingId = await this.findFolderId();
+    if (existingId !== undefined) return existingId;
     const encoded = Buffer.from(
       JSON.stringify({ name: this.folderName }),
       'utf-8',
     ).toString('base64');
     const created = await this.bw(['create', 'folder', encoded]);
     const parsed = safeJson(created) as { id?: string } | null;
-    if (!parsed?.id) {
+    if (!parsed || typeof parsed.id !== 'string' || parsed.id === '') {
       throw new CredentialVaultError(
         `Could not resolve or create the ${this.folderName} folder`,
         'folder_unavailable',
@@ -474,12 +554,12 @@ export class CredentialVault {
       throw new CredentialVaultError('Could not parse bw item output', 'item_not_found');
     }
     const encoded = Buffer.from(JSON.stringify({ ...raw, folderId }), 'utf-8').toString('base64');
-    await this.bw(['edit', 'item', itemId, encoded]);
+    await this.bw(['edit', 'item', itemId], encoded);
     await this.bw(['sync']);
   }
 
-  private async bw(args: string[]): Promise<string> {
-    let attempt = await this.runOnce(args);
+  private async bw(args: string[], input?: string): Promise<string> {
+    let attempt = await this.runOnce(args, input);
     let result = attempt.result;
 
     // A held token that the CLI rejects is the common failure in unattended use,
@@ -499,7 +579,7 @@ export class CredentialVault {
         throw recoveryFailure(reauthentication.reason ?? 'bw_unlock_failed');
       }
       try {
-        attempt = await this.runOnce(args);
+        attempt = await this.runOnce(args, input);
       } catch (error) {
         if (error instanceof CredentialVaultError && error.code === 'vault_locked') {
           throw recoveryFailure('empty_session');
@@ -523,7 +603,7 @@ export class CredentialVault {
     return result.stdout;
   }
 
-  private async runOnce(args: string[]): Promise<{
+  private async runOnce(args: string[], input?: string): Promise<{
     result: BwCommandResult;
     session: string;
     sessionGeneration: number | undefined;
@@ -533,8 +613,13 @@ export class CredentialVault {
       throw new CredentialVaultError('Credential vault is locked (no BW_SESSION)', 'vault_locked');
     }
     const sessionGeneration = this.getSessionGeneration?.();
+    const result = await this.runner.run(args, { session, ...(input !== undefined ? { input } : {}) });
+    if (result.code === 0 && !isStaleSessionFailure(result)
+      && (!this.getSession() || (this.getSessionGeneration && this.getSessionGeneration() !== sessionGeneration))) {
+      throw new CredentialVaultError('Credential vault was locked while the operation was pending', 'vault_locked');
+    }
     return {
-      result: await this.runner.run(args, { session }),
+      result,
       session,
       sessionGeneration,
     };
@@ -549,14 +634,6 @@ export class CredentialVault {
   }
 }
 
-const PASSWORD_CHARSETS = {
-  upper: 'ABCDEFGHJKLMNPQRSTUVWXYZ',
-  lower: 'abcdefghijkmnpqrstuvwxyz',
-  digit: '23456789',
-  symbol: '!@#$%^&*()-_=+[]',
-};
-
-/** Crypto-strong, policy-compliant password (>=1 of each class), length 20. */
 /**
  * Does this failure look like the session we hold is no longer valid?
  *
@@ -609,7 +686,7 @@ function isJsonText(value: string): boolean {
   }
 }
 
-function isFolderSummaryArray(value: unknown): value is Array<{ id: string; name: string }> {
+function isFolderSummaryArray(value: unknown): value is { id: string; name: string }[] {
   return Array.isArray(value) && value.every((entry) => (
     typeof entry === 'object'
     && entry !== null
@@ -617,83 +694,4 @@ function isFolderSummaryArray(value: unknown): value is Array<{ id: string; name
     && entry.id !== ''
     && typeof entry.name === 'string'
   ));
-}
-
-export function generateStrongPassword(length = 20): string {
-  const all =
-    PASSWORD_CHARSETS.upper +
-    PASSWORD_CHARSETS.lower +
-    PASSWORD_CHARSETS.digit +
-    PASSWORD_CHARSETS.symbol;
-  const required = [
-    pick(PASSWORD_CHARSETS.upper),
-    pick(PASSWORD_CHARSETS.lower),
-    pick(PASSWORD_CHARSETS.digit),
-    pick(PASSWORD_CHARSETS.symbol),
-  ];
-  const chars = [...required];
-  while (chars.length < length) {
-    chars.push(pick(all));
-  }
-  // Fisher–Yates with a CSPRNG so the required chars are not positionally fixed.
-  for (let i = chars.length - 1; i > 0; i--) {
-    const j = randomInt(i + 1);
-    [chars[i], chars[j]] = [chars[j] as string, chars[i] as string];
-  }
-  return chars.join('');
-}
-
-function pick(charset: string): string {
-  return charset[randomInt(charset.length)] as string;
-}
-
-/**
- * Non-reversible digest of a secret, for worker-side fill verification. The
- * broker compares the digest of the vault value with the digest of the value it
- * read back from the page IN-PROCESS; neither plaintext nor this digest is ever
- * returned to the model, logged, or written to audit.
- */
-export function secretVerificationDigest(value: string): string {
-  return createHash('sha256').update(value, 'utf-8').digest('hex');
-}
-
-/**
- * True iff the value read back from the page matches the vaulted secret, by
- * constant-shape digest comparison. Both plaintexts stay in the worker; only the
- * boolean escapes. An empty/absent read-back is treated as unverified.
- */
-export function verifyFilledSecret(expected: string, readback: string | undefined): boolean {
-  if (typeof readback !== 'string' || readback.length === 0) {
-    return false;
-  }
-  return secretVerificationDigest(expected) === secretVerificationDigest(readback);
-}
-
-function hostOf(origin: string): string {
-  try {
-    return new URL(origin).host || origin;
-  } catch {
-    return origin;
-  }
-}
-
-function originsMatch(a: string, b: string): boolean {
-  return normalizeOrigin(a) === normalizeOrigin(b);
-}
-
-function normalizeOrigin(value: string): string {
-  try {
-    const url = new URL(value);
-    return `${url.protocol}//${url.host}`.toLowerCase();
-  } catch {
-    return value.trim().toLowerCase().replace(/\/+$/, '');
-  }
-}
-
-function safeJson(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
 }

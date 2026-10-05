@@ -91,6 +91,9 @@ interface CredentialAuthorizationRow {
   allowed_secret_types_json: string | null;
   allowed_selectors_json: string | null;
   allowed_sender_domains_json: string | null;
+  task_scope: string | null;
+  vault_item_ref: string | null;
+  computer_id: string | null;
 }
 
 export class SqliteCredentialAuthorizationStore
@@ -105,8 +108,8 @@ export class SqliteCredentialAuthorizationStore
            (id, profile_id, allowed_origins_json, purposes_json, vault_folder,
             created_at, expires_at, revoked_at, note,
             allowed_secret_types_json, allowed_selectors_json,
-            allowed_sender_domains_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            allowed_sender_domains_json, task_scope, vault_item_ref, computer_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         auth.id,
@@ -121,6 +124,9 @@ export class SqliteCredentialAuthorizationStore
         auth.allowedSecretTypes ? JSON.stringify(auth.allowedSecretTypes) : null,
         auth.allowedSelectors ? JSON.stringify(auth.allowedSelectors) : null,
         auth.allowedSenderDomains ? JSON.stringify(auth.allowedSenderDomains) : null,
+        auth.taskScope ?? null,
+        auth.vaultItemRef ?? null,
+        auth.computerId ?? null,
       );
   }
 
@@ -134,8 +140,8 @@ export class SqliteCredentialAuthorizationStore
            (id, profile_id, allowed_origins_json, purposes_json, vault_folder,
             created_at, expires_at, revoked_at, note,
             allowed_secret_types_json, allowed_selectors_json,
-            allowed_sender_domains_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            allowed_sender_domains_json, task_scope, vault_item_ref, computer_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            profile_id = excluded.profile_id,
            allowed_origins_json = excluded.allowed_origins_json,
@@ -147,7 +153,10 @@ export class SqliteCredentialAuthorizationStore
            note = excluded.note,
            allowed_secret_types_json = excluded.allowed_secret_types_json,
            allowed_selectors_json = excluded.allowed_selectors_json,
-           allowed_sender_domains_json = excluded.allowed_sender_domains_json`,
+           allowed_sender_domains_json = excluded.allowed_sender_domains_json,
+           task_scope = excluded.task_scope,
+           vault_item_ref = excluded.vault_item_ref,
+           computer_id = excluded.computer_id`,
       )
       .run(
         auth.id,
@@ -162,6 +171,9 @@ export class SqliteCredentialAuthorizationStore
         auth.allowedSecretTypes ? JSON.stringify(auth.allowedSecretTypes) : null,
         auth.allowedSelectors ? JSON.stringify(auth.allowedSelectors) : null,
         auth.allowedSenderDomains ? JSON.stringify(auth.allowedSenderDomains) : null,
+        auth.taskScope ?? null,
+        auth.vaultItemRef ?? null,
+        auth.computerId ?? null,
       );
   }
 
@@ -203,6 +215,9 @@ function mapAuthorization(row: CredentialAuthorizationRow): CredentialAuthorizat
     allowedOrigins: JSON.parse(row.allowed_origins_json),
     purposes: JSON.parse(row.purposes_json),
     vaultFolder: row.vault_folder,
+    ...(row.task_scope !== null ? { taskScope: row.task_scope } : {}),
+    ...(row.vault_item_ref !== null ? { vaultItemRef: row.vault_item_ref } : {}),
+    ...(row.computer_id !== null ? { computerId: row.computer_id } : {}),
     createdAt: row.created_at,
     expiresAt: row.expires_at,
     ...(row.revoked_at !== null ? { revokedAt: row.revoked_at } : {}),

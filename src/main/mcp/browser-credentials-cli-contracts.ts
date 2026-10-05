@@ -6,22 +6,24 @@ import {
   BrowserListCredentialAuthorizationsRequestSchema,
   BrowserRevokeCredentialAuthorizationRequestSchema,
 } from '@contracts/schemas/browser-unattended';
+import {
+  BrowserApprovalRequestSchema,
+  BrowserCredentialAccessLookupSchema,
+  BrowserGatewayResultSchema,
+  BrowserRequestCredentialAccessSchema,
+} from '@contracts/schemas/browser';
 
 /**
- * Contract for `aio-mcp browser-credentials`: bind an existing vault login to
- * an origin, and mint/list/revoke the standing authorizations that let an
- * unattended fill use it.
+ * Contract for `aio-mcp browser-credentials`: request operator approval for
+ * saved-login access, and inspect/cancel requests or inspect/revoke permissions.
  *
  * 2026-08-29 DELIBERATE WIDENING, authorised by the operator (James).
  *
- * These two operations were renderer-only by explicit decision. The schema file
- * this imports from still carries the original wording, and
- * `BrowserEnrolCredentialRequestSchema` said in terms that "an agent must never
- * enrol its own credential". That rule was documented, not enforced, and the
- * operator has now overruled it: requiring a human at a GUI for every portal
- * login was the single thing preventing unattended operation, and every stalled
- * task in that class had been an authentication step rather than an approval
- * step.
+ * Legacy enrol/authorize payloads remain for internal operator compatibility.
+ * Since the saved-login approval flow, authenticated session RPC rejects those
+ * mutations: session identity is not operator consent. New access is requested
+ * through the shared approval service, including in YOLO mode. Operator IPC and
+ * explicitly configured bootstrap services retain their separate routes.
  *
  * What was kept, deliberately:
  *   - The payload schemas are the SAME objects the renderer IPC uses, not
@@ -34,6 +36,9 @@ import {
  *     username; the password is never read here.
  */
 export const BROWSER_CREDENTIALS_CLI_METHODS = {
+  request: 'orchestrator_tools.browser_credentials.request',
+  status: 'orchestrator_tools.browser_credentials.status',
+  cancel: 'orchestrator_tools.browser_credentials.cancel',
   enrol: 'orchestrator_tools.browser_credentials.enrol',
   authorize: 'orchestrator_tools.browser_credentials.authorize',
   list: 'orchestrator_tools.browser_credentials.list',
@@ -42,6 +47,21 @@ export const BROWSER_CREDENTIALS_CLI_METHODS = {
 
 export type BrowserCredentialsCliMethod =
   typeof BROWSER_CREDENTIALS_CLI_METHODS[keyof typeof BROWSER_CREDENTIALS_CLI_METHODS];
+
+export const BrowserCredentialsCliRequestPayloadSchema = BrowserRequestCredentialAccessSchema;
+export const BrowserCredentialsCliLookupPayloadSchema = BrowserCredentialAccessLookupSchema;
+export const BrowserCredentialsCliAccessResultSchema = BrowserGatewayResultSchema.safeExtend({
+  data: BrowserApprovalRequestSchema.refine(
+    (request) => Boolean(request.credentialAccess)
+      && (request.status !== 'approved' || Boolean(request.credentialAccess?.authorizationId)),
+    'Credential access decisions require actual credential authorization metadata',
+  ).nullable().optional(),
+}).superRefine((result, context) => {
+  if (result.data && result.requestId && result.data.requestId !== result.requestId) {
+    context.addIssue({ code: 'custom', message: 'Credential access request references must match' });
+  }
+});
+export type BrowserCredentialsCliAccessResult = z.infer<typeof BrowserCredentialsCliAccessResultSchema>;
 
 export const BrowserCredentialsCliEnrolPayloadSchema = BrowserEnrolCredentialRequestSchema;
 export const BrowserCredentialsCliAuthorizePayloadSchema =
@@ -90,6 +110,9 @@ export const BrowserCredentialsCliAuthorizationSchema = z
     expiresAt: z.number(),
     revokedAt: z.number().optional(),
     note: z.string().optional(),
+    taskScope: z.string().min(1).optional(),
+    vaultItemRef: z.string().min(1).optional(),
+    computerId: z.string().min(1).optional(),
   })
   .strict();
 export type BrowserCredentialsCliAuthorization = z.infer<

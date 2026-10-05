@@ -5,6 +5,9 @@ import {
   BrowserCredentialsCliAuthorizationSchema,
   BrowserCredentialsCliEnrolResultSchema,
   BrowserCredentialsCliRevokeResultSchema,
+  BrowserCredentialsCliAccessResultSchema,
+  BrowserCredentialsCliRequestPayloadSchema,
+  BrowserCredentialsCliLookupPayloadSchema,
   type BrowserCredentialsCliAuthorization,
 } from './browser-credentials-cli-contracts';
 import { parseCredentialOrigin } from '../browser-gateway/browser-credential-origin';
@@ -46,6 +49,23 @@ export async function runBrowserCredentialsCli(
   const flags = parseFlags(argv.slice(1));
 
   switch (command) {
+    case 'request': {
+      assertAccessFlags(flags, ['profile', 'target', 'item', 'reason', 'purpose']);
+      const payload = BrowserCredentialsCliRequestPayloadSchema.parse({
+        profileId: requireOne(flags, 'profile'), targetId: requireOne(flags, 'target'),
+        item: requireOne(flags, 'item'), reason: requireOne(flags, 'reason'),
+        ...(flags.values.has('purpose') ? { purposes: [...new Set(flags.values.get('purpose'))] } : {}),
+      });
+      await reportAccessResult(deps, BROWSER_CREDENTIALS_CLI_METHODS.request, payload, flags.json, stdout);
+      return;
+    }
+    case 'status':
+    case 'cancel': {
+      assertAccessFlags(flags, ['id']);
+      const payload = BrowserCredentialsCliLookupPayloadSchema.parse({ requestId: requireOne(flags, 'id') });
+      await reportAccessResult(deps, BROWSER_CREDENTIALS_CLI_METHODS[command], payload, flags.json, stdout);
+      return;
+    }
     case 'enrol':
     case 'enroll': {
       const payload = {
@@ -125,6 +145,25 @@ export async function runBrowserCredentialsCli(
     default:
       throw new Error(`Unknown browser-credentials command: ${command}`);
   }
+}
+
+function assertAccessFlags(flags: Flags, allowed: string[]): void {
+  for (const name of [...flags.values.keys(), ...flags.bools]) {
+    if (!allowed.includes(name)) throw new Error(`Unknown credential access flag --${name}`);
+  }
+}
+
+async function reportAccessResult(
+  deps: BrowserCredentialsCliDeps, method: string, payload: Record<string, unknown>,
+  json: boolean, stdout: (text: string) => void,
+): Promise<void> {
+  const result = parseResult(BrowserCredentialsCliAccessResultSchema, await call(deps, method, payload), 'credential access');
+  if (!result.data) throw new Error(result.reason ?? 'Credential access request unavailable');
+  if (json) { stdout(formatJson(result)); return; }
+  stdout(`Credential access request ${result.data.id}: ${result.data.status}\n`);
+  if (result.data.status === 'pending') stdout('Waiting for James\'s approval in Harness. Retry secure fill only when approved.\n');
+  else if (result.data.status === 'approved') stdout('Credential access approved. Retry secure fill for the same website and computer.\n');
+  else stdout('Credential access is not approved.\n');
 }
 
 async function call(
@@ -367,6 +406,14 @@ function formatHelp(): string {
     'authorizations that let an unattended browser fill use it.',
     '',
     'Commands:',
+    '  request    --profile <id> --target <id> --item <saved login name|id>',
+    '             --reason <task reason> [--purpose login|totp]',
+    '  status     --id <requestId>',
+    '  cancel     --id <requestId>',
+    '             Access stays pending until James approves in Harness, including',
+    '             in YOLO mode. Access defaults to this task; only James can',
+    '             choose to remember it for a limited period.',
+    '             Session CLI cannot enrol or authorize directly; use request.',
     '  enrol      --item <name|id> --origin <url> [--move-into-folder]',
     '  authorize  (--local | --node <nodeId> | --profile <id>)',
     '             --origin <url> [--origin <url> ...]',

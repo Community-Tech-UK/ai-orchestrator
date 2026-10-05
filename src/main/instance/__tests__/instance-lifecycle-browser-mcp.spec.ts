@@ -23,6 +23,7 @@ vi.mock('electron', () => ({
 const browserGatewayMocks = vi.hoisted(() => ({
   buildBrowserGatewayMcpConfigJson: vi.fn(() => '{"mcpServers":{"browser-gateway":{}}}'),
   getBrowserGatewayRpcSocketPath: vi.fn(() => '/tmp/browser-gateway.sock'),
+  getBrowserGatewayRpcInstanceCapability: vi.fn<(instanceId: string) => string | null>(() => 'PLACEHOLDER_BROWSER_CAPABILITY'),
   buildChromeDevtoolsMcpConfigJson: vi.fn(() => '{"mcpServers":{"chrome-devtools":{}}}'),
   resolveChromeDevtoolsBrowserUrl: vi.fn(() => 'http://127.0.0.1:31234'),
   createBrowserMcpTools: vi.fn(() => [{ name: 'browser.full', inputSchema: {} }]),
@@ -84,6 +85,7 @@ const loggerMocks = vi.hoisted(() => ({
 vi.mock('../../browser-gateway', () => ({
   buildBrowserGatewayMcpConfigJson: browserGatewayMocks.buildBrowserGatewayMcpConfigJson,
   getBrowserGatewayRpcSocketPath: browserGatewayMocks.getBrowserGatewayRpcSocketPath,
+  getBrowserGatewayRpcInstanceCapability: browserGatewayMocks.getBrowserGatewayRpcInstanceCapability,
   buildChromeDevtoolsMcpConfigJson: browserGatewayMocks.buildChromeDevtoolsMcpConfigJson,
   resolveChromeDevtoolsBrowserUrl: browserGatewayMocks.resolveChromeDevtoolsBrowserUrl,
   createBrowserMcpTools: browserGatewayMocks.createBrowserMcpTools,
@@ -232,6 +234,21 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
 
     expect(configsForRemote(builder)).toEqual([]);
     expect(browserGatewayMocks.buildBrowserGatewayMcpConfigJson).not.toHaveBeenCalled();
+  });
+
+  it.each(['claude', 'codex', 'copilot', 'gemini', 'cursor', 'grok', 'opencode'])('injects the current browser capability for %s launch and resumed session IDs', (provider) => {
+    const builder = makeBuilder();
+    for (const instanceId of ['PLACEHOLDER_LAUNCH', 'PLACEHOLDER_RESUME']) {
+      expect(builder.getBrowserGatewayMcpOptions({ type: 'local' }, instanceId, provider))
+        .toMatchObject({ instanceId, provider, capabilityToken: 'PLACEHOLDER_BROWSER_CAPABILITY' });
+      expect(browserGatewayMocks.getBrowserGatewayRpcInstanceCapability).toHaveBeenCalledWith(instanceId);
+    }
+    expect(JSON.stringify(loggerMocks.info.mock.calls)).not.toContain('PLACEHOLDER_BROWSER_CAPABILITY');
+  });
+
+  it('omits the browser bridge when the current session cannot receive a capability', () => {
+    browserGatewayMocks.getBrowserGatewayRpcInstanceCapability.mockReturnValueOnce(null);
+    expect(makeBuilder().getBrowserGatewayMcpOptions({ type: 'local' }, 'PLACEHOLDER_UNKNOWN', 'codex')).toBeNull();
   });
 
   it('adds Computer Use MCP config for local instances when enabled and socket is available', () => {
@@ -392,6 +409,7 @@ describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC
       aioMcpCliPath: FAKE_AIO_MCP_PATH,
       socketPath: FAKE_BROWSER_GATEWAY_SOCKET,
       instanceId: 'instance-browser',
+      capabilityToken: 'PLACEHOLDER_BROWSER_CAPABILITY',
       logDirectory: '/tmp/harness/browser-forwarders/instance-browser',
     });
     expect(forwarderLogMocks.maybePruneBrowserForwarderLogs)

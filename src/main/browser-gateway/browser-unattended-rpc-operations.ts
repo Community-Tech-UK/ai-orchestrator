@@ -17,6 +17,8 @@ import {
 } from './browser-unattended-services';
 import { getBrowserCampaignRuntime } from './browser-campaign-runtime';
 import { checkSessionOperation } from './browser-session-relogin';
+import { BrowserRequestCredentialAccessSchema, BrowserCredentialAccessLookupSchema } from '@contracts/schemas/browser';
+import { getBrowserCredentialAccessService } from './browser-credential-access-service';
 
 /**
  * Agent-facing (MCP) runtime surfaces for the unattended layer, dispatched by
@@ -36,6 +38,9 @@ import { checkSessionOperation } from './browser-session-relogin';
  */
 
 export const UNATTENDED_RPC_METHODS = [
+  'browser.request_credential_access',
+  'browser.get_credential_access_status',
+  'browser.cancel_credential_access',
   'browser.raise_escalation',
   'browser.get_campaign',
   'browser.list_campaigns',
@@ -65,6 +70,12 @@ export async function handleUnattendedRpcMethod(
   context: UnattendedRpcContext,
 ): Promise<unknown> {
   switch (method) {
+    case 'browser.request_credential_access':
+      return getBrowserCredentialAccessService().request(parse(BrowserRequestCredentialAccessSchema, payload), { instanceId: context.instanceId, provider: context.provider });
+    case 'browser.get_credential_access_status':
+      return getBrowserCredentialAccessService().status(parse(BrowserCredentialAccessLookupSchema, payload).requestId, { instanceId: context.instanceId, provider: context.provider });
+    case 'browser.cancel_credential_access':
+      return getBrowserCredentialAccessService().cancel(parse(BrowserCredentialAccessLookupSchema, payload).requestId, { instanceId: context.instanceId, provider: context.provider });
     case 'browser.raise_escalation': {
       const request = parse(BrowserRaiseEscalationRequestSchema, payload);
       // Always recordable — the caller parks this site and moves on.

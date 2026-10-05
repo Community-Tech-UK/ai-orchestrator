@@ -628,10 +628,11 @@ export class RpcEventRouter {
 
   private async handleBrowserExtPollCommand(nodeId: string, request: RpcRequest, respond: RpcRequestResponder): Promise<void> {
     const bridge = this.getBrowserExtensionBridge();
-    const result = await bridge.pollCommand(
+    let result = await bridge.pollCommand(
       nodeId,
       request.params as never,
     );
+    if (result && !bridge.validateCommandHandoff(nodeId, result.id)) result = null;
     const sent = respond(createRpcResponse(request.id, result));
     if (result) {
       if (sent) {

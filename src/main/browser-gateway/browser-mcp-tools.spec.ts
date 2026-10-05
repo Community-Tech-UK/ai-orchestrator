@@ -18,6 +18,9 @@ const ALLOWED_TOOLS = [
   'browser.select',
   'browser.execute_fill_plan',
   'browser.fill_credential',
+  'browser.request_credential_access',
+  'browser.get_credential_access_status',
+  'browser.cancel_credential_access',
   'browser.fill_secret',
   'browser.create_agent_credential',
   'browser.upload_file',
@@ -258,7 +261,7 @@ describe('browser-mcp-tools', () => {
     expect(fillCredentialProperties?.['vaultItemRef']?.description)
       .toContain('stable node-scoped');
     expect(fillCredentialProperties?.['vaultItemRef']?.description)
-      .toContain('browser-credentials authorize');
+      .toContain('browser.request_credential_access');
     expect(fillCredentialProperties?.['vaultItemRef']?.description)
       .toContain('browser.request_grant');
     expect(fillCredentialProperties?.['vaultItemRef']?.description)

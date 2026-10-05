@@ -21,6 +21,7 @@ import { RLM_MIGRATIONS_051_055 } from './rlm-migrations-051-055';
 import { RLM_MIGRATIONS_056_060 } from './rlm-migrations-056-060';
 import { RLM_MIGRATIONS_061_065 } from './rlm-migrations-061-065';
 import { RLM_MIGRATIONS_066_070 } from './rlm-migrations-066-070';
+import { RLM_MIGRATIONS_071_075 } from './rlm-migrations-071-075';
 
 /**
  * Migrations to be applied in order
@@ -36,6 +37,7 @@ export const MIGRATIONS: Migration[] = [
   ...RLM_MIGRATIONS_056_060,
   ...RLM_MIGRATIONS_061_065,
   ...RLM_MIGRATIONS_066_070,
+  ...RLM_MIGRATIONS_071_075,
 ];
 
 /**

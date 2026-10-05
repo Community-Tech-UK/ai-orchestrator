@@ -94,6 +94,7 @@ interface PageBridgeDocument extends PageBridgeRoot {
 
 interface PageBridgeGlobal {
   document: PageBridgeDocument;
+  location?: { origin: string };
   CSS?: {
     escape?: (value: string) => string;
   };
@@ -207,7 +208,7 @@ function pageBridgeScript(input: PageBridgeInput): unknown {
     return true;
   }
 
-  function typeIntoElement(selector: string, value: string): Record<string, string | undefined> {
+  function typeIntoElement(selector: string, value: string, describe = true): Record<string, string | undefined> {
     const element = requireElement(selector);
     element.scrollIntoView?.({ block: 'center', inline: 'center' });
     element.focus?.();
@@ -232,7 +233,7 @@ function pageBridgeScript(input: PageBridgeInput): unknown {
       data: value,
     }));
     element.dispatchEvent?.(new pageGlobal.Event('change', { bubbles: true }));
-    return describeElement(element);
+    return describe ? describeElement(element) : {};
   }
 
   function describeField(selector: string): PageBridgeFieldDescriptor {
@@ -504,6 +505,15 @@ function pageBridgeScript(input: PageBridgeInput): unknown {
   if (action === 'type') {
     const [selector, value] = args as [string, string];
     return typeIntoElement(selector, value);
+  }
+
+  if (action === 'type_credential') {
+    const [selector, value, expectedOrigin] = args as [string, string, string];
+    if (!expectedOrigin || pageGlobal.location?.origin !== expectedOrigin) {
+      throw new Error('browser_credential_origin_mismatch');
+    }
+    typeIntoElement(selector, value, false);
+    return undefined;
   }
 
   if (action === 'describe_field') {

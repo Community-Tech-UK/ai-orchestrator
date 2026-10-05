@@ -109,6 +109,9 @@ function normalizeRpcErrorReason(message: string): string {
   if (normalized.includes('unknown browser gateway instance')) {
     return 'unknown_browser_gateway_instance';
   }
+  if (normalized.includes('invalid or missing browser gateway capability token')) {
+    return 'invalid_browser_gateway_capability';
+  }
   if (normalized.includes('invalid browser gateway rpc payload')) {
     return 'invalid_browser_gateway_rpc_payload';
   }
@@ -136,8 +139,9 @@ export class BrowserGatewayRpcClient implements BrowserGatewayRpcClientLike {
   async call(method: string, payload: Record<string, unknown>): Promise<unknown> {
     const socketPath = this.env['AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET'];
     const instanceId = this.env['AI_ORCHESTRATOR_BROWSER_INSTANCE_ID'];
+    const capabilityToken = this.env['AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN'];
     const provider = this.env['AI_ORCHESTRATOR_BROWSER_PROVIDER'];
-    if (!socketPath || !instanceId) {
+    if (!socketPath || !instanceId || !capabilityToken) {
       return unavailable();
     }
 
@@ -148,6 +152,7 @@ export class BrowserGatewayRpcClient implements BrowserGatewayRpcClientLike {
         method,
         params: {
           instanceId,
+          capabilityToken,
           ...(provider ? { provider } : {}),
           // Advisory contract version. Servers that predate it ignore unknown
           // params fields; newer servers use it for skew telemetry.

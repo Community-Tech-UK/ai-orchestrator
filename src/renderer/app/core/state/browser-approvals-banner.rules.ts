@@ -2,6 +2,7 @@ import type {
   BrowserActionClass,
   BrowserAllowedOrigin,
   BrowserApprovalRequest,
+  BrowserApproveRequestPayload,
   BrowserGrantMode,
   BrowserGrantProposal,
 } from '@contracts/types/browser';
@@ -19,12 +20,47 @@ const EXACT_APPROVAL_CLASSES = new Set<BrowserActionClass>([
 ]);
 
 export type BannerGrantMode = BrowserGrantMode;
+export type CredentialAccessDuration = 'task' | '1h' | '24h' | '7d';
+
+export const CREDENTIAL_ACCESS_DURATIONS: readonly {
+  value: CredentialAccessDuration;
+  label: string;
+}[] = [
+  { value: 'task', label: 'Current task only' },
+  { value: '1h', label: 'Remember for 1 hour' },
+  { value: '24h', label: 'Remember for 24 hours' },
+  { value: '7d', label: 'Remember for 7 days' },
+];
+
+export function credentialAccessChoice(
+  duration: CredentialAccessDuration,
+): NonNullable<BrowserApproveRequestPayload['credentialAccess']> {
+  const rememberForMs = { '1h': 3_600_000, '24h': 86_400_000, '7d': 604_800_000 };
+  return duration === 'task'
+    ? { permission: 'task' }
+    : { permission: 'remember', rememberForMs: rememberForMs[duration] };
+}
+
+export function credentialAccessPurpose(approval: BrowserApprovalRequest): string {
+  return approval.credentialAccess?.purposes.map((purpose) =>
+    purpose === 'totp' ? 'use a one-time sign-in code' : 'sign in with this saved login',
+  ).join(' and ') ?? '';
+}
+
+export function credentialAccessMovement(approval: BrowserApprovalRequest): string {
+  const access = approval.credentialAccess;
+  if (!access) return '';
+  return access.moveIntoFolder
+    ? `Approval will move this login into the ${access.vaultFolder} agent vault folder.`
+    : `This login will stay in its current vault folder (${access.vaultFolder}).`;
+}
 
 export function bannerCanQuickApprove(approval: BrowserApprovalRequest): boolean {
-  return bannerGrantModes(approval).length > 0;
+  return Boolean(approval.credentialAccess) || bannerGrantModes(approval).length > 0;
 }
 
 export function bannerGrantModes(approval: BrowserApprovalRequest): BannerGrantMode[] {
+  if (approval.credentialAccess) return [];
   if (NEVER_QUICK_APPROVE_CLASSES.has(approval.actionClass)) {
     return [];
   }

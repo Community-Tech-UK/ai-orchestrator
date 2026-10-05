@@ -7,6 +7,7 @@ import {
 } from './browser-health-service';
 import { workerAgentTooOldReason } from './browser-worker-agent-skew';
 import { makeRelayNode } from './browser-gateway-service.test-helpers';
+import { BROWSER_GATEWAY_RPC_PROTOCOL_VERSION } from './browser-rpc-contract';
 
 describe('BrowserHealthService', () => {
   it('does not treat raw Chrome DevTools MCP readiness as managed Browser Gateway readiness', async () => {
@@ -783,7 +784,7 @@ describe('BrowserHealthService', () => {
             surface: {
               names: ['browser.click', 'browser.evaluate'],
               revealedNames: ['browser.evaluate'],
-              protocolVersion: 1,
+              protocolVersion: BROWSER_GATEWAY_RPC_PROTOCOL_VERSION,
               surfaceHash: 'expected-hash',
               reportedAt: 5,
             },
@@ -793,7 +794,7 @@ describe('BrowserHealthService', () => {
             surface: {
               names: ['browser.click'],
               revealedNames: [],
-              protocolVersion: 1,
+              protocolVersion: BROWSER_GATEWAY_RPC_PROTOCOL_VERSION,
               surfaceHash: 'stale-hash',
               reportedAt: 6,
             },

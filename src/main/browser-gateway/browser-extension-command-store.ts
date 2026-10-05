@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { formatDeliveredCommandTimeout, isOriginBoundCredentialCommand, type PendingCommand, type CommandPoller } from './browser-extension-command-delivery';
 import {
   BROWSER_EXTENSION_RUNTIME_INCOMPATIBLE,
   PRE_DELIVERY_INCAPABLE_MIN,
@@ -96,6 +97,8 @@ export interface BrowserExtensionSendCommandRequest {
    */
   undeliveredWaitMs?: number;
   describeChannelState?: () => BrowserExtensionCommandChannelState;
+  /** Main-process only; retained through queue waits and safe redelivery, never serialized. */
+  beforeDelivery?: () => void;
 }
 
 export interface BrowserExtensionCommandChannelState {
@@ -128,31 +131,6 @@ export interface BrowserExtensionCommandResult {
   ok: boolean;
   result?: unknown;
   error?: string;
-}
-
-interface PendingCommand {
-  queueKey: BrowserExtensionCommandQueueKey;
-  command: BrowserExtensionQueuedCommand;
-  resolve: (value: unknown) => void;
-  reject: (error: Error) => void;
-  timeout: NodeJS.Timeout;
-  /** Full execution window granted once a poller picks the command up. */
-  executionWindowMs: number;
-  /** Absolute limit for safe delivery/re-delivery before extension execution. */
-  undeliveredDeadlineAt: number;
-  /** Set when a poller takes the command; undefined while still queued. */
-  dequeuedAt?: number;
-  /** Set when the extension acknowledges receiving the command. */
-  receivedAt?: number;
-  describeChannelState?: () => BrowserExtensionCommandChannelState;
-}
-
-interface CommandPoller {
-  deferHandoffConfirmation: boolean;
-  allowBrowserCommands: boolean;
-  denyBrowserCommandsReason?: string;
-  allowSecureCredentialCommands: boolean;
-  resolve: (command: BrowserExtensionQueuedCommand | null) => void;
 }
 
 interface PreDeliveryOutcome {
@@ -235,6 +213,7 @@ export class BrowserExtensionCommandStore {
         executionWindowMs: timeoutMs,
         undeliveredDeadlineAt: command.createdAt + undeliveredWaitMs,
         describeChannelState: request.describeChannelState,
+        beforeDelivery: request.beforeDelivery,
       });
       this.enqueue(queueKey, command);
     });
@@ -276,6 +255,36 @@ export class BrowserExtensionCommandStore {
       this.pollersFor(queueKey).push(poller);
       this.dispatchQueuedCommands(queueKey);
     });
+  }
+
+  /** Recheck after the poll promise settles, immediately before the socket write. */
+  validateCommandHandoff(queueKey: BrowserExtensionCommandQueueKey, commandId: string): boolean {
+    const valid = this.validateDelivery(queueKey, commandId);
+    if (!valid) {
+      if (this.handoffPending.get(queueKey) === commandId) this.handoffPending.delete(queueKey);
+      this.dispatchQueuedCommands(queueKey);
+    }
+    return valid;
+  }
+
+  private validateDelivery(queueKey: BrowserExtensionCommandQueueKey, commandId: string): boolean {
+    const pending = this.pending.get(commandId);
+    if (!pending || pending.queueKey !== queueKey) {
+      this.removeQueuedCommand(queueKey, commandId);
+      return false;
+    }
+    try {
+      pending.beforeDelivery?.();
+      return true;
+    } catch {
+      // The callback may carry sensitive context. Only this fixed code escapes.
+      this.pending.delete(commandId);
+      clearTimeout(pending.timeout);
+      this.removeQueuedCommand(queueKey, commandId);
+      if (this.handoffPending.get(queueKey) === commandId) this.handoffPending.delete(queueKey);
+      pending.reject(Object.assign(new Error('credential_delivery_rejected'), { code: 'credential_delivery_rejected' }));
+      return false;
+    }
   }
 
   confirmCommandHandoff(
@@ -472,6 +481,9 @@ export class BrowserExtensionCommandStore {
       const command = queue[0]!;
       const capableIndex = pollers.findIndex((poller) => this.pollerCanDeliver(poller, command));
       if (capableIndex >= 0) {
+        if (!this.validateDelivery(queueKey, command.id)) {
+          continue;
+        }
         const poller = pollers.splice(capableIndex, 1)[0]!;
         queue.shift();
         this.markDelivered(command.id);
@@ -669,26 +681,6 @@ export class BrowserExtensionCommandStore {
     }
     return pollers;
   }
-}
-
-function isOriginBoundCredentialCommand(command: BrowserExtensionQueuedCommand): boolean {
-  if (command.command !== 'type') {
-    return false;
-  }
-  const credentialOrigin = command.payload?.['credentialOrigin'];
-  return typeof credentialOrigin === 'string';
-}
-
-function formatDeliveredCommandTimeout(
-  channelState: BrowserExtensionCommandChannelState | undefined,
-): string {
-  if (!channelState) {
-    return 'browser_extension_command_timeout';
-  }
-  if (!channelState.active) {
-    return `browser_extension_channel_down (${channelState.summary})`;
-  }
-  return `browser_extension_command_timeout (channel active - command not answered; ${channelState.summary})`;
 }
 
 export function getBrowserExtensionCommandStore(): BrowserExtensionCommandStore {

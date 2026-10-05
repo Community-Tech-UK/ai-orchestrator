@@ -483,7 +483,7 @@ export function writeGeminiBrowserGatewaySettings(
   }
   const dir = mkdtempSync(join(tmpdir(), 'ai-orchestrator-gemini-browser-mcp-'));
   const settingsPath = join(dir, 'settings.json');
-  writeFileSync(settingsPath, JSON.stringify({ mcpServers }), 'utf-8');
+  writeFileSync(settingsPath, JSON.stringify({ mcpServers }), { encoding: 'utf-8', mode: 0o600 });
   return settingsPath;
 }
 

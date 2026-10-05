@@ -101,6 +101,10 @@ export function buildCredentialAuthorizationDenial(
 }
 
 function nextStep(scope: string, origin: string, purpose: string): string {
+  if (purpose === 'login' || purpose === 'totp') {
+    return 'Call browser.request_credential_access with this profileId, targetId, exact saved login name and reason. '
+      + 'Wait for its approved status, then retry secure fill. It works without the shell CLI connection.';
+  }
   if (!CLI_PURPOSES.has(purpose)) {
     return (
       'Create a secret_fill authorization for this origin in Browser → Credential authorizations; '

@@ -18,7 +18,9 @@ import { createHash } from 'node:crypto';
  * optional fields do NOT bump this — the server strips unknown optional fields
  * from newer clients and records a `schema_skew_stripped` event instead.
  */
-export const BROWSER_GATEWAY_RPC_PROTOCOL_VERSION = 1;
+// v2 requires an instance-bound capability on agent RPC envelopes. Native-host
+// extension authentication and the remote extension wire protocol are separate.
+export const BROWSER_GATEWAY_RPC_PROTOCOL_VERSION = 2;
 
 export interface BrowserToolSurfaceEntry {
   name: string;

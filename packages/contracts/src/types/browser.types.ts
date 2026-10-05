@@ -1,3 +1,5 @@
+import type { BrowserCredentialAccessMetadata, BrowserCredentialAccessChoice } from './browser-credential-access.types';
+
 export type BrowserActionClass =
   | 'read'
   | 'navigate'
@@ -194,6 +196,7 @@ export interface BrowserApprovalRequest {
   elementContext?: BrowserElementContext;
   filePath?: string;
   detectedFileType?: string;
+  credentialAccess?: BrowserCredentialAccessMetadata;
   proposedGrant: BrowserGrantProposal;
   status: BrowserApprovalRequestStatus;
   grantId?: string;
@@ -636,7 +639,10 @@ export interface BrowserApproveRequestPayload {
   requestId: string;
   grant: BrowserGrantProposal;
   reason?: string;
+  credentialAccess?: BrowserCredentialAccessChoice;
 }
+
+export type { BrowserCredentialAccessMetadata, BrowserCredentialAccessChoice, BrowserRequestCredentialAccess } from './browser-credential-access.types';
 
 export interface BrowserDenyRequestPayload {
   requestId: string;

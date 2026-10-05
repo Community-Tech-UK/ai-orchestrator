@@ -37,6 +37,7 @@ describe('Browser Gateway RPC integration', () => {
       env: {
         AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: server.getSocketPath()!,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+        AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: server.getInstanceCapability('instance-1')!,
         AI_ORCHESTRATOR_BROWSER_PROVIDER: 'copilot',
       },
       timeoutMs: 1_000,
@@ -67,6 +68,7 @@ describe('Browser Gateway RPC integration', () => {
       env: {
         AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: server.getSocketPath()!,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'unknown-instance',
+        AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: 'PLACEHOLDER_BROWSER_CAPABILITY',
       },
       timeoutMs: 1_000,
     });

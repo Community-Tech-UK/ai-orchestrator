@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { PERSISTENT_BROWSER_GRANT_EXPIRES_AT } from '../types/browser.types';
+import { BrowserCredentialAccessChoiceSchema, BrowserCredentialAccessMetadataSchema } from './browser-credential-access.schemas';
+export { BrowserRequestCredentialAccessSchema, BrowserCredentialAccessLookupSchema, BrowserCredentialAccessChoiceSchema, BrowserCredentialAccessMetadataSchema, MAX_REMEMBER_CREDENTIAL_ACCESS_MS, TASK_CREDENTIAL_ACCESS_MS } from './browser-credential-access.schemas';
 import {
   BrowserAccessibilityNodeSchema,
   BrowserElementCandidateSchema,
@@ -286,6 +288,7 @@ export const BrowserApprovalRequestSchema = z
     elementContext: BrowserElementContextSchema.optional(),
     filePath: z.string().min(1).max(2000).optional(),
     detectedFileType: z.string().min(1).max(120).optional(),
+    credentialAccess: BrowserCredentialAccessMetadataSchema.optional(),
     proposedGrant: BrowserGrantProposalSchema,
     status: BrowserApprovalRequestStatusSchema,
     grantId: idSchema.optional(),
@@ -729,43 +732,18 @@ export const BrowserManualStepRequestSchema = BrowserProfileRequestSchema.extend
 }).strict();
 export type BrowserManualStepRequest = z.infer<typeof BrowserManualStepRequestSchema>;
 
-export const BrowserApprovalStatusRequestSchema = z
-  .object({
-    requestId: idSchema,
-  })
-  .strict();
-export type BrowserApprovalStatusRequest = z.infer<
-  typeof BrowserApprovalStatusRequestSchema
->;
-
-export const BrowserApprovalRequestLookupSchema = z
-  .object({
-    requestId: idSchema,
-  })
-  .strict();
-export type BrowserApprovalRequestLookup = z.infer<
-  typeof BrowserApprovalRequestLookupSchema
->;
+export { BrowserApprovalStatusRequestSchema, BrowserApprovalRequestLookupSchema, BrowserDenyRequestPayloadSchema, type BrowserApprovalStatusRequest, type BrowserApprovalRequestLookup, type BrowserDenyRequestPayload } from './browser-approval-lookup.schemas';
 
 export const BrowserApproveRequestPayloadSchema = z
   .object({
     requestId: idSchema,
     grant: BrowserGrantProposalSchema.superRefine(validatePersistentScope),
+    credentialAccess: BrowserCredentialAccessChoiceSchema.optional(),
     reason: z.string().min(1).max(1000).optional(),
   })
   .strict();
 export type BrowserApproveRequestPayload = z.infer<
   typeof BrowserApproveRequestPayloadSchema
->;
-
-export const BrowserDenyRequestPayloadSchema = z
-  .object({
-    requestId: idSchema,
-    reason: z.string().min(1).max(1000).optional(),
-  })
-  .strict();
-export type BrowserDenyRequestPayload = z.infer<
-  typeof BrowserDenyRequestPayloadSchema
 >;
 
 export const BrowserCreateGrantRequestSchema = BrowserGrantProposalSchema.extend({

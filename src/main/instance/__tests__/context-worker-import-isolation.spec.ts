@@ -88,7 +88,14 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // 100% CPU forever). The guard is a leaf with no imports at all, so it is the
 // sole addition: the full suite passed at 148 immediately before, no removals,
 // zero Electron value-importers.
-const CLOSURE_SIZE_CEILING = 150;
+// 2026-10-05: 150 after `rlm-migrations-071-075.ts` (saved-login permission
+// scopes) joined the existing numbered RLM migration graph. A HEAD-to-working-
+// tree walk with this test's parser verified HEAD 149, working tree 150: that
+// SQL-only migration batch is the sole addition, no removals, and the only new
+// edge is `rlm-schema.ts` -> `./rlm-migrations-071-075`. Its only import is
+// `import type { Migration }`, erased at runtime. Both closures contain zero
+// Electron value-importers; the no-Electron assertion below is unchanged.
+const CLOSURE_SIZE_CEILING = 151;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

@@ -78,6 +78,65 @@ describe('BrowserApprovalsBannerComponent', () => {
     vi.clearAllMocks();
   });
 
+  it('shows the complete saved-login request with task-only permission selected', async () => {
+    const pending = makeApproval({ credentialAccess: savedLoginAccess() });
+    const fixture = setup([pending]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.textContent).toContain('12steps');
+    expect(element.textContent).toContain('Complete the requested sign-in');
+    expect(element.textContent).toContain('https://login.example.com');
+    expect(element.textContent).toContain('windows-pc');
+    expect(element.textContent).toContain('Example saved login');
+    expect(element.textContent).toContain('Approval will move this login into the AgentVault agent vault folder.');
+    const duration = element.querySelector<HTMLSelectElement>('.credential-access-duration');
+    expect(duration?.value).toBe('task');
+    expect(Array.from(duration?.options ?? []).map((option) => option.value)).toEqual(['task', '1h', '24h', '7d']);
+    expect(element.textContent).not.toContain('Allow forever');
+    element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
+    await fixture.whenStable();
+    expect(gateway.approveRequest).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: pending.requestId, credentialAccess: { permission: 'task' },
+    }));
+  });
+
+  it.each([['1h', 3_600_000], ['24h', 86_400_000], ['7d', 604_800_000]] as const)(
+    'remembers saved-login permission for %s only when selected', async (duration, rememberForMs) => {
+      const fixture = setup([makeApproval({ credentialAccess: savedLoginAccess() })]);
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const element: HTMLElement = fixture.nativeElement;
+      const select = element.querySelector<HTMLSelectElement>('.credential-access-duration')!;
+      select.value = duration;
+      select.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+      element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
+      await fixture.whenStable();
+      expect(gateway.approveRequest).toHaveBeenCalledWith(expect.objectContaining({
+        credentialAccess: { permission: 'remember', rememberForMs },
+      }));
+    },
+  );
+
+  it.each([
+    { decision: 'denied', outcome: 'not_run', reason: 'vault_locked' },
+    { decision: 'allowed', outcome: 'failed', reason: 'worker_disconnected' },
+  ])('retains a failed credential request without treating IPC delivery as approval', async (failure) => {
+    const fixture = setup([makeApproval({ credentialAccess: savedLoginAccess() })]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    gateway.approveRequest.mockResolvedValueOnce({ success: true, data: { ...failure, auditId: 'placeholder-audit' } } as never);
+    const store = TestBed.inject(BrowserApprovalsStore);
+    const removeRequest = vi.spyOn(store, 'removeRequest');
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(removeRequest).not.toHaveBeenCalled();
+    expect(store.pendingRequests()).toHaveLength(1);
+    expect(fixture.componentInstance.errorMessage()).toBe(failure.reason.replaceAll('_', ' '));
+  });
+
   it('stays hidden when no approvals are pending', async () => {
     const fixture = setup([]);
     await fixture.whenStable();
@@ -504,3 +563,13 @@ describe('BrowserApprovalsBannerComponent', () => {
     },
   );
 });
+
+function savedLoginAccess(): NonNullable<BrowserApprovalRequest['credentialAccess']> {
+  return {
+    taskScope: 'conversation:placeholder-task', sessionName: '12steps',
+    reason: 'Complete the requested sign-in', origin: 'https://login.example.com',
+    computerName: 'windows-pc', computerId: 'placeholder-computer', scope: 'placeholder-scope',
+    vaultItemRef: 'placeholder-item', itemTitle: 'Example saved login',
+    vaultFolder: 'AgentVault', moveIntoFolder: true, purposes: ['login'], permission: 'task',
+  };
+}

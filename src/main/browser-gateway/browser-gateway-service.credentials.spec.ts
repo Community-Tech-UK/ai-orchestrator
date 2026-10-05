@@ -425,7 +425,7 @@ describe('BrowserGatewayService credentials', () => {
 
     expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded', data: { filled: 2 } });
     // The secret was typed into the page...
-    expect(driver.type).toHaveBeenCalledWith('profile-1', 'target-1', '#pass', 'S3cr3t-From-Vault!');
+    expect(driver.type).toHaveBeenCalledWith('profile-1', 'target-1', '#pass', 'S3cr3t-From-Vault!', 'http://localhost:4567', expect.any(Function));
     // ...but never appears anywhere in the returned result (no leakage to the model).
     expect(JSON.stringify(result)).not.toContain('S3cr3t-From-Vault!');
     // Authorization was checked for the live origin.
@@ -459,7 +459,7 @@ describe('BrowserGatewayService credentials', () => {
 
     expect(result).toMatchObject({ decision: 'denied', outcome: 'not_run' });
     expect(result.reason).toContain('credential_not_authorized');
-    expect(result.reason).toContain('$AIO_MCP browser-credentials authorize --profile profile-1');
+    expect(result.reason).toContain('browser.request_credential_access');
     // Never resolved the secret or typed anything.
     expect(vault.getSecretForFill).not.toHaveBeenCalled();
     expect(driver.type).not.toHaveBeenCalled();
@@ -491,7 +491,7 @@ describe('BrowserGatewayService credentials', () => {
     });
 
     expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded', data: { filled: 1 } });
-    expect(driver.type).toHaveBeenCalledWith('profile-1', 'target-1', '#otp', '482913');
+    expect(driver.type).toHaveBeenCalledWith('profile-1', 'target-1', '#otp', '482913', 'http://localhost:4567', expect.any(Function));
     expect(JSON.stringify(result)).not.toContain('482913');
     // The email_code purpose was authorization-checked for the live origin.
     expect(authorizations.check).toHaveBeenCalledWith(
@@ -563,7 +563,7 @@ describe('BrowserGatewayService credentials', () => {
     expect(emailCodeReader.fetchCode).toHaveBeenCalledWith(
       expect.objectContaining({ expectedSenderDomains: ['notifications.service.gov.uk'] }),
     );
-    expect(driver.type).toHaveBeenCalledWith('profile-1', 'target-1', '#otp', '482913');
+    expect(driver.type).toHaveBeenCalledWith('profile-1', 'target-1', '#otp', '482913', 'http://localhost:4567', expect.any(Function));
     expect(JSON.stringify(result)).not.toContain('482913');
   });
 
@@ -833,6 +833,8 @@ describe('BrowserGatewayService credentials', () => {
       'target-1',
       '#otp',
       'TEST_ONLY_OTP_PLACEHOLDER',
+      'http://localhost:4567',
+      expect.any(Function),
     );
     expect(JSON.stringify(result)).not.toContain('TEST_ONLY_OTP_PLACEHOLDER');
   });
@@ -1631,7 +1633,7 @@ describe('BrowserGatewayService credentials', () => {
     expect(result).toMatchObject({ decision: 'denied', outcome: 'not_run' });
     expect(result.reason).toContain('credential_not_authorized');
     expect(result.reason).toContain('browser.request_grant does not cover credential fill');
-    expect(result.reason).toContain('$AIO_MCP browser-credentials authorize --local');
+    expect(result.reason).toContain('browser.request_credential_access');
     expect(authorizations.check).toHaveBeenCalledWith(
       expect.objectContaining({ profileId: 'local', origin: 'https://portal.example.gov.uk' }),
     );

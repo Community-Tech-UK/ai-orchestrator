@@ -1,4 +1,5 @@
 import type { IpcRenderer } from 'electron';
+import type { BrowserApproveRequestPayload } from '@contracts/types/browser';
 import type { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
 
@@ -151,11 +152,7 @@ export function createBrowserDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
     browserGetApprovalRequest: (payload: { requestId: string }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BROWSER_GET_APPROVAL_REQUEST, payload);
     },
-    browserApproveRequest: (payload: {
-      requestId: string;
-      grant: BrowserGrantProposalPayload;
-      reason?: string;
-    }): Promise<IpcResponse> => {
+    browserApproveRequest: (payload: BrowserApproveRequestPayload): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BROWSER_APPROVE_REQUEST, payload);
     },
     browserDenyRequest: (payload: {

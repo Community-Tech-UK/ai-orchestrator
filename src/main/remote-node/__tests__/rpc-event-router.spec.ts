@@ -129,6 +129,7 @@ describe('RpcEventRouter', () => {
   let mockBrowserBridge: {
     attachTab: ReturnType<typeof vi.fn>;
     pollCommand: ReturnType<typeof vi.fn>;
+    validateCommandHandoff: ReturnType<typeof vi.fn>;
     confirmCommandHandoff: ReturnType<typeof vi.fn>;
     requeueUndeliveredCommand: ReturnType<typeof vi.fn>;
     commandResult: ReturnType<typeof vi.fn>;
@@ -151,6 +152,7 @@ describe('RpcEventRouter', () => {
     mockBrowserBridge = {
       attachTab: vi.fn(),
       pollCommand: vi.fn(),
+      validateCommandHandoff: vi.fn(() => true),
       confirmCommandHandoff: vi.fn(),
       requeueUndeliveredCommand: vi.fn(),
       commandResult: vi.fn(),
@@ -359,6 +361,34 @@ describe('RpcEventRouter', () => {
     });
   });
 
+  it('withdraws a credential poll response if permission changes before the socket handoff', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const queueKey = 'node:node-ext';
+    let authorized = true;
+    const filling = store.sendCommand({
+      queueKey, command: 'type', timeoutMs: 1_000,
+      payload: { selector: '#password', value: 'TEST_ONLY_PASSWORD_PLACEHOLDER', credentialOrigin: 'https://login.example.test', credentialProtection: 'password' },
+      beforeDelivery: () => { if (!authorized) throw new Error('TEST_ONLY_SENSITIVE_ERROR_PLACEHOLDER'); },
+    }).catch((error: unknown) => error as Error);
+    mockBrowserBridge.pollCommand.mockImplementation(async () => {
+      const command = await store.pollCommand(queueKey, { timeoutMs: 1, deferHandoffConfirmation: true, allowSecureCredentialCommands: true });
+      authorized = false;
+      return command;
+    });
+    mockBrowserBridge.validateCommandHandoff.mockImplementation((_node: string, id: string) => store.validateCommandHandoff(queueKey, id));
+    const respond = vi.fn(() => true);
+    mockConnection.emit('rpc:request', 'node-ext', makeRpcRequest('browser.ext.pollCommand', { token: 'TEST_ONLY_SESSION_PLACEHOLDER' }, 'credential-poll'), respond);
+
+    await vi.waitFor(() => expect(respond).toHaveBeenCalledOnce());
+    expect(respond).toHaveBeenCalledWith(expect.objectContaining({ result: null }));
+    expect(await filling).toMatchObject({ message: 'credential_delivery_rejected' });
+    expect(mockBrowserBridge.confirmCommandHandoff).not.toHaveBeenCalled();
+    expect(mockBrowserBridge.requeueUndeliveredCommand).not.toHaveBeenCalled();
+    expect(store.describeQueue(queueKey)).toMatchObject({ queuedCount: 0, inFlightCount: 0 });
+    expect(JSON.stringify({ responses: respond.mock.calls, logs: mockLogger })).not.toContain('TEST_ONLY_PASSWORD_PLACEHOLDER');
+    expect(JSON.stringify({ responses: respond.mock.calls, logs: mockLogger })).not.toContain('TEST_ONLY_SENSITIVE_ERROR_PLACEHOLDER');
+  });
+
   it('LT-371: requeues a browser poll command when its response has no open node socket', async () => {
     const queued = {
       id: 'cmd-unsent',
@@ -414,6 +444,8 @@ describe('RpcEventRouter', () => {
       attachTab: vi.fn(),
       pollCommand: (_nodeId: string, params: { timeoutMs?: number }) =>
         store.pollCommand(queueKey, { ...params, deferHandoffConfirmation: true }),
+      validateCommandHandoff: (_nodeId: string, commandId: string) =>
+        store.validateCommandHandoff(queueKey, commandId),
       confirmCommandHandoff: (_nodeId: string, commandId: string) =>
         store.confirmCommandHandoff(queueKey, commandId),
       requeueUndeliveredCommand: (_nodeId: string, commandId: string) =>

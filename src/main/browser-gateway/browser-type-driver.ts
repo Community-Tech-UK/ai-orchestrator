@@ -1,4 +1,6 @@
 import type { Page } from 'puppeteer-core';
+import { normaliseBindableOrigin } from './browser-credential-origin';
+import { CredentialVaultError } from './browser-credential-vault';
 import {
   evaluatePageBridge,
   type PageBridgeFieldDescriptor,
@@ -44,4 +46,22 @@ export async function applyBrowserTypedValue(
       args: [selector, value],
     });
   }
+}
+
+/** Secure broker writes have no unguarded keystroke or selector fallback. */
+export async function applyBrowserCredentialValue(
+  page: Page, selector: string, value: string, authorizedOrigin: string,
+  beforeDispatch?: () => void,
+): Promise<void> {
+  let expectedOrigin: string;
+  try { expectedOrigin = normaliseBindableOrigin(authorizedOrigin); }
+  catch { throw new CredentialVaultError('Credential website is invalid', 'origin_mismatch'); }
+  let liveOrigin: string;
+  try { liveOrigin = new URL(page.url()).origin; }
+  catch { throw new CredentialVaultError('Credential website could not be confirmed', 'origin_mismatch'); }
+  if (liveOrigin !== expectedOrigin) throw new CredentialVaultError('Credential website changed before dispatch', 'origin_mismatch');
+  beforeDispatch?.();
+  // The bridge repeats the origin check inside the same synchronous page task
+  // that writes the value, covering navigation after this process-side check.
+  await evaluatePageBridge(page, { action: 'type_credential', args: [selector, value, expectedOrigin] });
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { redactForSink } from '../diagnostics/redaction';
 import {
   buildBrowserGatewayAcpMcpServers,
   buildBrowserGatewayCodexConfigToml,
@@ -13,6 +14,7 @@ const options = {
   aioMcpCliPath: AIO_MCP,
   socketPath: SOCKET,
   instanceId: 'instance-1',
+  capabilityToken: 'PLACEHOLDER_BROWSER_CAPABILITY',
   exists: () => true,
 };
 
@@ -26,8 +28,16 @@ describe('browser-mcp-config', () => {
       env: {
         AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: SOCKET,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+      AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: 'PLACEHOLDER_BROWSER_CAPABILITY',
       },
     });
+  });
+
+  it('keeps the capability out of bridge argv and redacts its structured configuration key', () => {
+    const bridge = resolveBrowserGatewayBridgeSpec(options)!;
+    expect(bridge.args).not.toContain(options.capabilityToken);
+    expect(JSON.stringify(redactForSink(bridge.env))).not.toContain(options.capabilityToken);
+    expect(redactForSink({ capabilityToken: options.capabilityToken })).toEqual({ capabilityToken: '<redacted-secret>' });
   });
 
   it('returns null when the aio-mcp SEA is missing', () => {
@@ -43,6 +53,7 @@ describe('browser-mcp-config', () => {
     expect(server.env).toEqual({
       AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: SOCKET,
       AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+      AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: 'PLACEHOLDER_BROWSER_CAPABILITY',
     });
     expect(server.env).not.toHaveProperty('ELECTRON_RUN_AS_NODE');
   });
@@ -54,6 +65,7 @@ describe('browser-mcp-config', () => {
     expect(server.env).toEqual([
       { name: 'AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET', value: SOCKET },
       { name: 'AI_ORCHESTRATOR_BROWSER_INSTANCE_ID', value: 'instance-1' },
+      { name: 'AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN', value: 'PLACEHOLDER_BROWSER_CAPABILITY' },
     ]);
   });
 
@@ -130,6 +142,7 @@ describe('browser-mcp-config', () => {
     expect(config).toContain('args = ["browser-gateway"]');
     expect(config).toContain(`AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET = "${SOCKET}"`);
     expect(config).toContain('AI_ORCHESTRATOR_BROWSER_PROVIDER = "codex"');
+    expect(config).toContain('AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN = "PLACEHOLDER_BROWSER_CAPABILITY"');
   });
 
   it('builds Gemini settings JSON pointing at the aio-mcp SEA', () => {
@@ -144,6 +157,7 @@ describe('browser-mcp-config', () => {
       env: expect.objectContaining({
         AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: SOCKET,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+      AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: 'PLACEHOLDER_BROWSER_CAPABILITY',
         AI_ORCHESTRATOR_BROWSER_PROVIDER: 'gemini',
       }),
     });

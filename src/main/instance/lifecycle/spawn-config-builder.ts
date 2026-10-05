@@ -26,6 +26,7 @@ import {
   createBrowserMcpTools,
   createDeferredBrowserMcpTools,
   getBrowserGatewayRpcSocketPath,
+  getBrowserGatewayRpcInstanceCapability,
   measureToolSchemaBytes,
   type BrowserGatewayMcpConfigOptions,
   buildChromeDevtoolsMcpConfigJson,
@@ -418,6 +419,8 @@ export class SpawnConfigBuilder {
       logger.info('Browser gateway MCP disabled for instance (browserToolsMode=off)', { instanceId });
       return null;
     }
+    const capabilityToken = getBrowserGatewayRpcInstanceCapability(instanceId);
+    if (!capabilityToken) return null;
     // Some clients do not install callable wrappers after tools/list_changed.
     // Log and return the effective mode, not the requested UI mode.
     const toolMode = resolveBrowserGatewayToolMode(provider, mode === 'deferred');
@@ -436,6 +439,7 @@ export class SpawnConfigBuilder {
       aioMcpCliPath,
       socketPath,
       instanceId,
+      capabilityToken,
       // Instance IDs are generated from a path-safe alphabet, but persisted
       // state can be malformed; encode the component before joining it.
       logDirectory: path.join(

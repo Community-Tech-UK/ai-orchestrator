@@ -29,6 +29,7 @@ describe('stable browser MCP discovery and authenticated RPC execution', () => {
     server.registerTools(createStableBrowserMcpTools(new BrowserGatewayRpcClient({ env: {
       AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: rpc.getSocketPath()!,
       AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-placeholder',
+      AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: rpc.getInstanceCapability('instance-placeholder')!,
       AI_ORCHESTRATOR_BROWSER_PROVIDER: 'codex',
     } })));
   });
@@ -99,6 +100,7 @@ describe('stable browser MCP discovery and authenticated RPC execution', () => {
     const tools = createStableBrowserMcpTools(new BrowserGatewayRpcClient({ env: {
       AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: rpc.getSocketPath()!,
       AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'unknown-placeholder',
+      AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: 'PLACEHOLDER_INVALID_CAPABILITY',
     } }));
     server.registerTools(tools);
     expect(textResult(await invoke(() => server, BROWSER_TOOL_EXECUTE_NAME, {

@@ -10,6 +10,7 @@ import {
 } from '@contracts/schemas/browser';
 import { app } from 'electron';
 import { registerCleanup as registerGlobalCleanup } from '../util/cleanup-registry';
+import { OrchestratorToolsRpcInstanceCapability } from '../mcp/orchestrator-tools-rpc-capability';
 import {
   BrowserGatewayService,
   getBrowserGatewayService,
@@ -60,6 +61,7 @@ interface BrowserGatewayRpcRequest {
 
 interface BrowserGatewayRpcParams {
   instanceId: string;
+  capabilityToken?: string;
   provider?: string;
   payload: Record<string, unknown>;
 }
@@ -74,7 +76,7 @@ export interface BrowserGatewayRpcServerOptions {
   service?: Partial<BrowserGatewayService>;
   extensionCommandStore?: Pick<
     BrowserExtensionCommandStore,
-    'pollCommand' | 'resolveCommand' | 'markReceived'
+    'pollCommand' | 'resolveCommand' | 'markReceived' | 'validateCommandHandoff'
   >;
   checkpointStore?: Pick<BrowserWorkflowCheckpointStore, 'saveStep' | 'get'>;
   toolRevealStore?: BrowserToolRevealStore;
@@ -106,6 +108,13 @@ export interface BrowserGatewayRpcServerOptions {
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024;
 const MAX_RPC_ENVELOPE_BYTES = 16 * 1024;
 const MAX_UNIX_SOCKET_PATH_BYTES = 100;
+const EXTENSION_RPC_METHODS = new Set([
+  'browser.extension_attach_tab',
+  'browser.extension_poll_command',
+  'browser.extension_command_result',
+  'browser.extension_command_received',
+  'browser.extension_disconnected',
+]);
 
 interface BrowserGatewayRateBucketEntry {
   timestamp: number;
@@ -116,7 +125,7 @@ export class BrowserGatewayRpcServer {
   private readonly service: Partial<BrowserGatewayService>;
   private readonly extensionCommandStore: Pick<
     BrowserExtensionCommandStore,
-    'pollCommand' | 'resolveCommand' | 'markReceived'
+    'pollCommand' | 'resolveCommand' | 'markReceived' | 'validateCommandHandoff'
   >;
   private readonly checkpointStore?: Pick<BrowserWorkflowCheckpointStore, 'saveStep' | 'get'>;
   private readonly toolRevealStore?: BrowserToolRevealStore;
@@ -134,6 +143,9 @@ export class BrowserGatewayRpcServer {
     payload: Record<string, unknown>,
   ) => Record<string, unknown>;
   private readonly buckets = new Map<string, BrowserGatewayRateBucketEntry[]>();
+  // Separate from orchestrator-tools: browser startup and injection need not
+  // depend on that server's lifecycle. Reuse its instance-bound crypto policy.
+  private readonly instanceCapabilities = new OrchestratorToolsRpcInstanceCapability();
   private server: net.Server | null = null;
   private socketPath: string | null = null;
   private socketDirToCleanup: string | null = null;
@@ -203,6 +215,10 @@ export class BrowserGatewayRpcServer {
 
   getExtensionToken(): string {
     return this.extensionToken;
+  }
+
+  getInstanceCapability(instanceId: string): string | null {
+    return this.instanceCapabilities.mint(instanceId, this.isKnownLocalInstance);
   }
 
   async handleRequest(request: BrowserGatewayRpcRequest): Promise<unknown> {
@@ -495,7 +511,12 @@ export class BrowserGatewayRpcServer {
     let request: BrowserGatewayRpcRequest | null = null;
     try {
       request = JSON.parse(line) as BrowserGatewayRpcRequest;
-      const result = await this.handleRequest(request);
+      this.assertSocketRequestCapability(request);
+      let result = await this.handleRequest(request);
+      if (request.method === 'browser.extension_poll_command' && result) {
+        const command = result as BrowserExtensionQueuedCommand;
+        if (!this.extensionCommandStore.validateCommandHandoff?.('local', command.id)) result = null;
+      }
       socket.end(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result })}\n`);
     } catch (error) {
       this.writeError(
@@ -507,6 +528,22 @@ export class BrowserGatewayRpcServer {
             ? error.message
             : String(error),
       );
+    }
+  }
+
+  /**
+   * Authenticate every agent socket request before routing or dispatch. Direct
+   * in-process handleRequest calls remain the trusted unit-test seam, matching
+   * orchestrator-tools. Native-host extension routes verify their own token.
+   */
+  private assertSocketRequestCapability(request: BrowserGatewayRpcRequest): void {
+    if (EXTENSION_RPC_METHODS.has(request.method)) return;
+    const params = this.parseParams(request.params);
+    if (!this.isKnownLocalInstance(params.instanceId)) {
+      throw new Error('unknown browser gateway instance');
+    }
+    if (!this.instanceCapabilities.verify(params.instanceId, params.capabilityToken)) {
+      throw new Error('invalid or missing browser gateway capability token');
     }
   }
 
@@ -540,6 +577,7 @@ export class BrowserGatewayRpcServer {
     }
     const parsed = {
       instanceId: value.instanceId,
+      ...(typeof value.capabilityToken === 'string' ? { capabilityToken: value.capabilityToken } : {}),
       payload: value.payload,
     };
     return typeof value.provider === 'string' && value.provider
@@ -705,4 +743,8 @@ export async function initializeBrowserGatewayRpcServer(
 
 export function getBrowserGatewayRpcSocketPath(): string | null {
   return browserGatewayRpcServer?.getSocketPath() ?? null;
+}
+
+export function getBrowserGatewayRpcInstanceCapability(instanceId: string): string | null {
+  return browserGatewayRpcServer?.getInstanceCapability(instanceId) ?? null;
 }

@@ -21,6 +21,7 @@ function makeBridge() {
   };
   const commandStore = {
     pollCommand: vi.fn(async () => null),
+    validateCommandHandoff: vi.fn(() => true),
     confirmCommandHandoff: vi.fn(() => true),
     requeueUndeliveredCommand: vi.fn(() => true),
     resolveCommand: vi.fn(),

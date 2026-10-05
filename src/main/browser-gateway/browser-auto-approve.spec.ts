@@ -97,16 +97,14 @@ describe('autoApproveBrowserApproval', () => {
     expect(approvalStore.resolveRequest).not.toHaveBeenCalled();
   });
 
-  it('still auto-approves credential-class manual-handoff approvals whose proposed grant is read-only', () => {
-    const { grant, approvalStore, grantStore } = makeStores();
-
-    // request_user_login / pause_for_manual_step approvals are classified
-    // `credential` but propose a read-only grant: auto-approving them only
-    // surfaces the handoff — the human still performs the login themselves.
+  it.each(['browser.request_user_login', 'browser.pause_for_manual_step', 'browser.request_credential_access'])(
+    'keeps %s pending even when its proposal is read-only and YOLO is enabled', (toolName) => {
+    const { approvalStore, grantStore } = makeStores();
+    const predicate = vi.fn(() => true);
     const result = autoApproveBrowserApproval({
       approval: makeApproval({
         actionClass: 'credential',
-        toolName: 'browser.request_user_login',
+        toolName,
         proposedGrant: {
           mode: 'per_action',
           allowedOrigins: [
@@ -119,11 +117,13 @@ describe('autoApproveBrowserApproval', () => {
       }),
       approvalStore,
       grantStore,
-      autoApproveRequests: () => true,
+      autoApproveRequests: predicate,
     });
 
-    expect(result).toBe(grant);
-    expect(grantStore.createGrant).toHaveBeenCalledTimes(1);
+    expect(result).toBeNull();
+    expect(predicate).not.toHaveBeenCalled();
+    expect(grantStore.createGrant).not.toHaveBeenCalled();
+    expect(approvalStore.resolveRequest).not.toHaveBeenCalled();
   });
 
   it('returns null when the predicate declines', () => {

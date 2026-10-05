@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createBwRunner } from './browser-bw-runner';
 
-type Captured = {
+interface Captured {
   file: string;
   args: string[];
   env: NodeJS.ProcessEnv;
-};
+}
 
-type FakeChild = {
+interface FakeChild {
   stdin: { end: ReturnType<typeof vi.fn> };
-};
+}
 
 type FakeExecArgs = [
   file: string,
@@ -92,6 +92,19 @@ describe('createBwRunner', () => {
     });
     await runner.run(['sync']);
     expect(captured?.env['BW_SESSION']).toBeUndefined();
+  });
+
+  it('sends encoded login details through stdin without putting them in argv', async () => {
+    let captured: Captured | undefined;
+    const end = vi.fn();
+    const input = 'TEST_ONLY_ENCODED_BODY';
+    const runner = createBwRunner({
+      execFileFn: fakeExecFile((call) => (captured = call), { stdout: 'ok' }, { stdin: { end } }),
+    });
+    await runner.run(['create', 'item'], { input });
+    expect(end).toHaveBeenCalledWith(input);
+    expect(captured?.args).toEqual(['create', 'item', '--nointeraction']);
+    expect(captured?.args).not.toContain(input);
   });
 
   it('expands a stripped packaged-app PATH so Homebrew bw can be resolved', async () => {

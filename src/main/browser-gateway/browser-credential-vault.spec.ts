@@ -20,8 +20,9 @@ const AGENT_FOLDER_ID = 'folder-agent';
  */
 class FakeBw implements BwRunner {
   readonly commands: string[][] = [];
+  readonly inputs: (string | undefined)[] = [];
   private readonly items = new Map<string, { folderId: string | null; username: string; password: string }>();
-  private readonly fieldsById = new Map<string, Array<{ name: string; value: string }>>();
+  private readonly fieldsById = new Map<string, { name: string; value: string }[]>();
   private folderExists = true;
   private nextId = 1;
 
@@ -35,12 +36,13 @@ class FakeBw implements BwRunner {
   }
 
   /** Seed named Bitwarden custom fields on an item (generic-secret tests). */
-  seedFields(id: string, fields: Array<{ name: string; value: string }>): void {
+  seedFields(id: string, fields: { name: string; value: string }[]): void {
     this.fieldsById.set(id, fields);
   }
 
-  async run(args: string[]): Promise<BwCommandResult> {
+  async run(args: string[], opts?: { input?: string }): Promise<BwCommandResult> {
     this.commands.push(args);
+    this.inputs.push(opts?.input);
     const ok = (stdout: string): BwCommandResult => ({ stdout, stderr: '', code: 0 });
 
     if (args[0] === 'list' && args[1] === 'folders') {
@@ -50,7 +52,7 @@ class FakeBw implements BwRunner {
       return ok(JSON.stringify({ id: AGENT_FOLDER_ID, name: 'AIO-Agent' }));
     }
     if (args[0] === 'create' && args[1] === 'item') {
-      const decoded = JSON.parse(Buffer.from(args[2] as string, 'base64').toString('utf-8'));
+      const decoded = JSON.parse(Buffer.from(opts?.input ?? '', 'base64').toString('utf-8'));
       const id = `item-${this.nextId++}`;
       this.items.set(id, {
         folderId: decoded.folderId,
@@ -64,7 +66,7 @@ class FakeBw implements BwRunner {
       if (!existing) {
         return { stdout: '', stderr: 'Not found.', code: 1 };
       }
-      const decoded = JSON.parse(Buffer.from(args[3] as string, 'base64').toString('utf-8'));
+      const decoded = JSON.parse(Buffer.from(opts?.input ?? '', 'base64').toString('utf-8'));
       // `bw edit item <id> <json>` REPLACES the item, it does not patch it.
       // This fake previously rebuilt the item from its own prior state
       // (`{ ...existing, folderId }`), so any assertion that the password
@@ -86,7 +88,7 @@ class FakeBw implements BwRunner {
       this.fieldsById.set(
         args[2] as string,
         Array.isArray(decoded.fields)
-          ? (decoded.fields as Array<{ name?: string; value?: string }>).map((field) => ({
+          ? (decoded.fields as { name?: string; value?: string }[]).map((field) => ({
             name: field.name ?? '',
             value: field.value ?? '',
           }))
@@ -175,7 +177,8 @@ describe('CredentialVault.createAgentCredential', () => {
     });
 
     const createCommand = bw.commands.find((args) => args[0] === 'create' && args[1] === 'item');
-    const item = JSON.parse(Buffer.from(createCommand?.[2] ?? '', 'base64').toString('utf-8'));
+    const item = JSON.parse(Buffer.from(bw.inputs[bw.commands.indexOf(createCommand!)] ?? '', 'base64').toString('utf-8'));
+    expect(createCommand).toEqual(['create', 'item']);
     expect(item).toMatchObject({
       name: 'Instagram — 12 Steps',
       login: {
@@ -190,12 +193,13 @@ describe('CredentialVault.createAgentCredential', () => {
   it('never includes a secret-bearing Bitwarden payload in a command failure', async () => {
     const bw = new FakeBw();
     const originalRun = bw.run.bind(bw);
-    bw.run = async (args: string[]) => {
+    bw.run = async (args: string[], opts?: { input?: string }) => {
       if (args[0] === 'create' && args[1] === 'item') {
         bw.commands.push(args);
-        return { stdout: '', stderr: `request rejected: ${args[2]}`, code: 1 };
+        bw.inputs.push(opts?.input);
+        return { stdout: '', stderr: `request rejected: ${opts?.input}`, code: 1 };
       }
-      return originalRun(args);
+      return originalRun(args, opts);
     };
     const { vault } = makeVault(bw);
 
@@ -206,9 +210,11 @@ describe('CredentialVault.createAgentCredential', () => {
     const createCommand = bw.commands.find((args) => args[0] === 'create' && args[1] === 'item');
 
     expect(error).toBeInstanceOf(CredentialVaultError);
-    expect(createCommand?.[2]).toBeTypeOf('string');
+    const encoded = bw.inputs[bw.commands.indexOf(createCommand!)];
+    expect(encoded).toBeTypeOf('string');
+    expect(createCommand).toEqual(['create', 'item']);
     expect((error as Error).message).not.toContain('Test-Password-123!');
-    expect((error as Error).message).not.toContain(createCommand![2] as string);
+    expect((error as Error).message).not.toContain(encoded!);
   });
 
   it('reuses the existing agent folder rather than recreating it', async () => {
@@ -227,6 +233,17 @@ describe('CredentialVault.createAgentCredential', () => {
 });
 
 describe('CredentialVault.enrolExistingCredential', () => {
+  it('refuses re-enrolment onto another origin before moving the item', async () => {
+    const bw = new FakeBw();
+    bw.seedItem('item-bound', 'folder-personal', 'TEST_ONLY_USERNAME', 'TEST_ONLY_PASSWORD');
+    const { vault, bindings } = makeVault(bw);
+    bindings.put({ vaultItemRef: 'item-bound', origin: 'https://first.example', username: 'TEST_ONLY_USERNAME', createdAt: 1 });
+    await expect(vault.enrolExistingCredential({ item: 'item-bound', origin: 'https://other.example', moveIntoFolder: true }))
+      .rejects.toMatchObject({ code: 'origin_mismatch' });
+    expect(bw.commands.some((args) => args[0] === 'edit')).toBe(false);
+    expect(bindings.get('item-bound')?.origin).toBe('https://first.example');
+  });
+
   it('binds an item already inside the agent folder and never returns the password', async () => {
     const bw = new FakeBw();
     bw.seedItem('item-existing', AGENT_FOLDER_ID, 'james@communitytech.co.uk', 'Real-Password-1!');
@@ -288,7 +305,7 @@ describe('CredentialVault.enrolExistingCredential', () => {
     const editCommand = bw.commands.find((c) => c[0] === 'edit' && c[1] === 'item');
     expect(editCommand).toBeDefined();
     const sentBody = JSON.parse(
-      Buffer.from(editCommand![3] as string, 'base64').toString('utf-8'),
+      Buffer.from(bw.inputs[bw.commands.indexOf(editCommand!)]!, 'base64').toString('utf-8'),
     );
     expect(sentBody.fields).toEqual(
       expect.arrayContaining([
@@ -333,7 +350,7 @@ describe('CredentialVault.enrolExistingCredential', () => {
     // must carry the login through unchanged and differ from the original
     // only by `folderId`.
     const sentBody = JSON.parse(
-      Buffer.from(editCommand![3] as string, 'base64').toString('utf-8'),
+      Buffer.from(bw.inputs[bw.commands.indexOf(editCommand!)]!, 'base64').toString('utf-8'),
     );
     expect(sentBody.login).toMatchObject({
       username: 'james@communitytech.co.uk',
@@ -513,7 +530,7 @@ describe('CredentialVault.getGenericSecretForFill (bank / generic secrets)', () 
   function seedBoundItemWithFields(
     bw: FakeBw,
     bindings: MemoryBindings,
-    fields: Array<{ name: string; value: string }>,
+    fields: { name: string; value: string }[],
   ): string {
     const ref = 'supplier-1';
     bw.seedItem(ref, AGENT_FOLDER_ID, 'supplier', 'unused-pw');

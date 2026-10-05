@@ -30,6 +30,9 @@ const TOOL_NAMES = [
   'browser.select',
   'browser.execute_fill_plan',
   'browser.fill_credential',
+  'browser.request_credential_access',
+  'browser.get_credential_access_status',
+  'browser.cancel_credential_access',
   'browser.fill_secret',
   'browser.create_agent_credential',
   'browser.upload_file',
@@ -165,6 +168,14 @@ const grantProposalSchema = objectSchema({
 ]);
 
 const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
+  'browser.request_credential_access': objectSchema({
+    profileId: profileIdProp, targetId: targetIdProp,
+    item: { ...stringProp, description: 'Exact saved login title or opaque vault item reference. Never a password.' },
+    reason: { ...stringProp, description: 'Why this session needs to sign in. Do not include credentials.' },
+    purposes: { type: 'array', items: { type: 'string', enum: ['login', 'totp'] } },
+  }, ['profileId', 'targetId', 'item', 'reason']),
+  'browser.get_credential_access_status': objectSchema({ requestId: requestIdProp }, ['requestId']),
+  'browser.cancel_credential_access': objectSchema({ requestId: requestIdProp }, ['requestId']),
   'browser.list_targets': objectSchema({
     profileId: profileIdProp,
     nodeId: nodeIdProp,
@@ -377,8 +388,8 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
         + 'never sent to or returned from the model. Requires a standing credential '
         + 'authorization for the live origin. A session grant from browser.request_grant '
         + 'does not create that authorization; if fill is denied with credential_not_authorized, '
-        + 'run `$AIO_MCP browser-credentials authorize` for the live origin and the node or '
-        + 'profile scope, then retry. Managed profiles use their profile scope. '
+        + 'call browser.request_credential_access with the exact saved login name and reason, '
+        + 'wait for its approved status, then retry. Managed profiles use their profile scope. '
         + 'For shared extension tabs, filling additionally requires operator opt-in, a stable node-scoped '
         + 'login authorization, a compatible secure extension runtime, and the exact '
         + 'vault-bound live origin.',
@@ -776,6 +787,13 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
 };
 
 function toolDescription(name: BrowserMcpToolName): string {
+  if (name === 'browser.request_credential_access') {
+    return 'Request visible operator approval to enrol and use one saved login on this exact website and computer. '
+      + 'Always pending until the operator approves, including YOLO. Default permission is this task; the operator may explicitly remember a limited period. '
+      + 'Returns a real requestId, status and non-secret vaultItemRef. Retry browser.fill_credential only after approved. Does not require shell CLI connection.';
+  }
+  if (name === 'browser.get_credential_access_status') return 'Read this task’s saved-login request status: pending, approved, denied or expired. Only approved means credential authorisation; a manual handoff never does.';
+  if (name === 'browser.cancel_credential_access') return 'Cancel this task’s pending saved-login request. No credential enrolment or access is granted.';
   if (name === 'browser.reload') {
     return `${UNTRUSTED_WARNING} Reload the selected shared existing Chrome tab in place. Requires a navigate-class grant and accepts no URL.`;
   }

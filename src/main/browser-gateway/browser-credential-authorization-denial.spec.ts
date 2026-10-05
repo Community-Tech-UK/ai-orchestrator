@@ -65,8 +65,8 @@ describe('formatCredentialAuthorizationDenial', () => {
     expect(denial.reason.startsWith('credential_not_authorized:origin_not_authorized:')).toBe(true);
     expect(denial.reason).toContain('browser.request_grant does not cover credential fill');
     expect(denial.reason).toContain('This scope already covers: https://uktrade.app.jaggaer.com');
-    expect(denial.reason).toContain(`$AIO_MCP browser-credentials authorize --node ${NODE_ID}`);
-    expect(denial.reason).toContain(`--origin ${ORIGIN}`);
+    expect(denial.reason).toContain('browser.request_credential_access');
+    expect(denial.reason).toContain('without the shell CLI connection');
     expect(denial.summary).not.toContain('credential_not_authorized');
     expect(denial.reason.length).toBeLessThanOrEqual(1000);
   });

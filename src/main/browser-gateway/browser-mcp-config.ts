@@ -14,6 +14,7 @@ import { tomlArray, tomlBareKey, tomlString } from './mcp-config-toml-helpers';
  *   env:     {
  *     AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET:     <parent RPC socket path>,
  *     AI_ORCHESTRATOR_BROWSER_INSTANCE_ID:        <auth handle for the parent>,
+ *     AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN:   <instance-bound capability>,
  *     AI_ORCHESTRATOR_BROWSER_PROVIDER:           <optional provider override>,
  *     AI_ORCHESTRATOR_BROWSER_FORWARDER_LOG_DIR:  <optional persistent log directory>,
  *   }
@@ -26,6 +27,8 @@ export interface BrowserGatewayMcpConfigOptions {
   aioMcpCliPath: string;
   socketPath: string;
   instanceId: string;
+  /** Minted by the parent browser RPC server; absent bridges fail closed. */
+  capabilityToken?: string;
   provider?: string;
   /**
    * Request a compact surface: Codex uses fixed search/describe/execute wrappers;
@@ -84,6 +87,9 @@ export function resolveBrowserGatewayBridgeSpec(
   const env = {
     AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: options.socketPath,
     AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: options.instanceId,
+    ...(options.capabilityToken
+      ? { AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: options.capabilityToken }
+      : {}),
     ...(options.provider ? { AI_ORCHESTRATOR_BROWSER_PROVIDER: options.provider } : {}),
     ...(options.logDirectory
       ? { AI_ORCHESTRATOR_BROWSER_FORWARDER_LOG_DIR: options.logDirectory }

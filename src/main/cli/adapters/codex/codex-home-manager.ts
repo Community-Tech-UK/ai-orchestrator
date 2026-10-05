@@ -14,6 +14,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { getLogger } from '../../../logging/logger';
 import { CodexTomlEditor } from '../../../mcp/adapters/codex-toml-editor';
+import { preserveHarnessCliShellPolicy } from './codex-harness-shell-policy';
 
 const logger = getLogger('CodexHomeManager');
 
@@ -49,6 +50,8 @@ export function getAioCodexSessionsDir(): string {
  * config removed (exec-mode startup should not load user MCP tools).
  */
 export interface CodexHomeManagerOptions {
+  /** Current spawn only: never read or borrow another session's bridge environment. */
+  harnessCliEnv?: Record<string, string>;
   /**
    * Account-pool profile home. When set, the prepared home links
    * `<authSourceDir>/auth.json` instead of `~/.codex/auth.json`, so the Codex
@@ -89,14 +92,19 @@ export class CodexHomeManager {
       const configPath = join(codexDir, 'config.toml');
       const configContent = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : null;
       const stripConfig = opts.stripUserMcp && configContent !== null && configContent.includes('[mcp_servers');
+      const nextConfig = preserveHarnessCliShellPolicy(
+        stripConfig ? stripMcpServers(configContent) : configContent ?? '',
+        this.options.harnessCliEnv,
+      );
+      const writePrivateConfig = stripConfig || nextConfig !== (configContent ?? '');
 
       tempDir = mkdtempSync(join(tmpdir(), opts.stripUserMcp ? 'codex-nomcp-' : 'codex-aio-'));
       if (existsSync(codexDir)) {
-        this.symlinkCodexHomeEntries(codexDir, tempDir, { includeConfig: !stripConfig });
+        this.symlinkCodexHomeEntries(codexDir, tempDir, { includeConfig: !writePrivateConfig });
       }
       this.linkProfileAuth(tempDir);
-      if (stripConfig) {
-        writeFileSync(join(tempDir, 'config.toml'), stripMcpServers(configContent), 'utf-8');
+      if (writePrivateConfig) {
+        writeFileSync(join(tempDir, 'config.toml'), nextConfig, { encoding: 'utf-8', mode: 0o600 });
       }
       this.linkSessionStore(tempDir);
       this.linkThreadStateStore(tempDir);
@@ -130,10 +138,10 @@ export class CodexHomeManager {
       const baseConfig = existsSync(configPath)
         ? stripMcpServers(readFileSync(configPath, 'utf-8')).trim()
         : '';
-      const nextConfig = [baseConfig, mcpConfigToml.trim()]
+      const nextConfig = preserveHarnessCliShellPolicy([baseConfig, mcpConfigToml.trim()]
         .filter(Boolean)
-        .join('\n\n');
-      writeFileSync(join(tempDir, 'config.toml'), nextConfig, 'utf-8');
+        .join('\n\n'), this.options.harnessCliEnv);
+      writeFileSync(join(tempDir, 'config.toml'), nextConfig, { encoding: 'utf-8', mode: 0o600 });
       this.linkSessionStore(tempDir);
       this.linkThreadStateStore(tempDir);
 

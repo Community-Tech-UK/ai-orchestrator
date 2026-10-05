@@ -13,7 +13,7 @@ import { redactBrowserText, redactBrowserUrl, redactElementContext,
 import { waitForCdpDownload, type BrowserCdpSession } from './browser-download-watcher';
 import { evaluatePageBridge, isPageBridgeSnapshot } from './browser-page-bridge';
 import { applyBrowserSelect } from './browser-select-driver';
-import { applyBrowserTypedValue } from './browser-type-driver';
+import { applyBrowserCredentialValue, applyBrowserTypedValue } from './browser-type-driver';
 import { readControlState, applySetChecked } from './browser-control-driver';
 import type { FillControlReadback } from './browser-fill-plan-executor';
 import { BrowserAntiThrottle, type AntiThrottlePage } from './browser-anti-throttle';
@@ -439,9 +439,15 @@ export class PuppeteerBrowserDriver {
     targetId: string,
     selector: string,
     value: string,
+    authorizedOrigin?: string,
+    beforeDispatch?: () => void,
   ): Promise<void> {
     const page = this.getPage(profileId, targetId);
-    await applyBrowserTypedValue(page, selector, value);
+    if (authorizedOrigin !== undefined) {
+      await applyBrowserCredentialValue(page, selector, value, authorizedOrigin, beforeDispatch);
+    } else {
+      await applyBrowserTypedValue(page, selector, value);
+    }
     await this.refreshPageTarget(profileId, targetId, page);
   }
 
