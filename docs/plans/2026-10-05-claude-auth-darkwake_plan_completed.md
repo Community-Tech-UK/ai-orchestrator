@@ -1,6 +1,6 @@
 # Claude renewal during background sleep wakes
 
-> Implementation complete and landed in base (commit `4ca6ef366`, "provider hardening"). Queue worker re-verified on 2026-10-06: focused tests, both typechecks, lint, size check and both builds pass. Ready for the queue's independent verifier, which owns the full quiet suite and the fresh completion-gate review. No commit or push by the worker. Live sleep/expiry and installed-app checks stay deferred to the live-test document.
+> Completed 2026-10-06. Implementation landed in base (commit `4ca6ef366`, "provider hardening"); the queue's regression-test addition landed as `be058805a` after an independent Plan Queue verifier PASS (round 1). Live sleep/expiry and installed-app checks are deferred to the live-test document. Not pushed.
 
 **Goal:** Prevent the two usage pollers from launching Claude's credential renewal during macOS maintenance wakes or an unavailable network.
 
@@ -28,10 +28,10 @@
   - Bounded unauthenticated HTTPS HEAD checks and the same graphical-wake requirement; no secret input.
 - [x] Verify actual readiness and transient reader/probe behavior through runtime calls without renewing live credentials; only then add regression tests.
   - Fake darkwake with CPU/Network only must not spawn doctor; unknown state defers; fully awake and working DNS passes; either host failure/hang defers; power transition during probe defers; successful expired-token refresh rereads; no pre-expiry work.
-- [ ] Run focused tests then canonical typechecks, lint, size check, both builds, full quiet suite; record actual exit results and local log paths.
+- [x] Run focused tests then canonical typechecks, lint, size check, both builds, full quiet suite; record actual exit results and local log paths.
   - [x] Focused tests, both typechecks, lint, size check, both builds: all exit 0 on 2026-10-06 in the queue worktree (see "Queue worker verification").
-  - [ ] Full quiet suite: owned by the queue's independent verifier (queue workers are told not to run it). Earlier red runs were confined to unrelated Browser Gateway specs.
-- [ ] Independent fresh completion-gate review (owned by the queue verifier) against task-specific working-tree diff, criteria, security, async handling and verification evidence. Fix and repeat until PASS.
+  - [x] Full quiet suite: run by the queue's independent verifier on 2026-10-06, exit 0 (queue workers are told not to run it). Earlier red runs were confined to unrelated Browser Gateway specs.
+- [x] Independent fresh completion-gate review (Plan Queue verifier, 2026-10-06: PASS, no findings) against task-specific working-tree diff, criteria, security, async handling and verification evidence. Fix and repeat until PASS.
 - [x] Update as-built evidence and retain explicit live sleep/expiry and installed-app deferrals. Rename completed only after all agent-runnable gates pass and fresh review PASS. (As-built notes below; live-test document retained unchanged. Rename is the queue coordinator's step after verifier PASS.)
 
 ## Live verification remaining
@@ -69,3 +69,9 @@ Run in the queue worktree with project-pinned Node v24.15.0. Logs are under the 
 - `npx tsc --noEmit`, `npm run typecheck:spec`, `npm run lint`, `npm run check:ts-max-loc` → all exit 0 (`_scratch/claude-auth-queue-*.log`).
 - `npm run build:main`, `npm run build:renderer` → both exit 0; compiled `dist/main/core/system/provider-quota/` contains `claude-auth-refresh-readiness.js` and the reader references the readiness factory and 120 s deadline.
 - Not run by the worker: full quiet suite and fresh completion-gate review (verifier-owned). No generated files changed.
+
+## Closure — 2026-10-06
+
+- Independent Plan Queue verifier (different provider): PASS after round 1, no findings. Gates run in the item worktree, each exit 0: `npx tsc --noEmit`, `npm run typecheck:spec`, `npm run lint`, `npm run check:ts-max-loc`, `npm run build:main`, `npm run build:renderer`, `npm run test:quiet`.
+- Landed on `main` as `be058805a` (one local squash commit made with the repository hooks; not pushed).
+- After all five Plan Queue items landed, the same seven gates were rerun on the combined `main` (`1b06fffee`): every one exited 0; the quiet suite ran 2,370 files / 29,885 tests.

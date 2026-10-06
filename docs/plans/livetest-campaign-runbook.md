@@ -24,7 +24,7 @@ lifecycle. Keep it current; delete anything that stops being true.
 > `docs/plans/livetest-remediation-register.md` as a new `LT-NNN` item
 > (index row + a section with observed behaviour, root cause, required behaviour, acceptance), and
 > a matching implementation-status section in
-> `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. Per-check evidence still goes in
+> `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md`. Per-check evidence still goes in
 > the owning `*_livetest.md`.
 >
 > Finish by updating `docs/plans/livetest-backlog.md`. Do **not** create a new dated
@@ -260,7 +260,7 @@ a technical/external prerequisite, not a James action.
   section. Preserve prior dated sections; never rewrite history.
 - **Reproduced defects** → `docs/plans/livetest-remediation-register.md`
   (index row + full section) and a status section in
-  `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. This is the spec's own rule 6.
+  `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md`. This is the spec's own rule 6.
 - **Cross-cutting rollup** → `docs/plans/livetest-backlog.md` (update in place). **Not
   `_scratch/`** — that is disposable and the user will not find it there. `_scratch/` is fine for
   the working matrix and scratch scripts.

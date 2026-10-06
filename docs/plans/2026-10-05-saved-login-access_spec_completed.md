@@ -1,6 +1,6 @@
 # Saved login access approvals
 
-Status: implementation and independent code verification passed. The code is on the base branch, and agent-runnable checks were rerun there on 2026-10-06 (see the plan's as-built section). Requirement 6's windows-pc approval → sign-in proof and requirement 7's installed-update activation are deferred live checks in the [live-test document](2026-10-05-saved-login-access_livetest.md), pending safe installation and James's actual decision. They are not claimed as verified. James requested implementation in the existing checkout.
+Status: completed 2026-10-06. Implementation and independent verification passed (Plan Queue verifier PASS; plan landed as `028e824ba`). Requirement 6's windows-pc approval → sign-in proof and requirement 7's installed-update activation are deferred live checks in the [live-test document](2026-10-05-saved-login-access_livetest.md), pending a safe app restart.
 
 Implementation plan: [Saved login access plan](2026-10-05-saved-login-access_plan_completed.md).
 

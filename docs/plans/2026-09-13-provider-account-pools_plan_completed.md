@@ -1,6 +1,6 @@
 # Provider Account Pools: Implementation Plan
 
-**Status:** IMPLEMENTED (2026-09-15). All phases built and verified in-loop; live checks deferred to [2026-09-13-provider-account-pools_livetest.md](2026-09-13-provider-account-pools_livetest.md). See **As-built notes** below.
+**Status:** IMPLEMENTED (2026-09-15). All phases built and verified in-loop; live checks deferred to [2026-09-13-provider-account-pools_livetest_completed.md](2026-09-13-provider-account-pools_livetest_completed.md). See **As-built notes** below.
 **Spec:** [2026-09-13-provider-account-pools_spec_completed.md](../superpowers/specs/2026-09-13-provider-account-pools_spec_completed.md)
 **Mechanics reference:** [2026-09-13-multi-account-mechanics-research.md](../research/2026-09-13-multi-account-mechanics-research.md)
 **Precedent to mirror:** [2026-08-25-copilot-account-routing_plan_completed.md](../superpowers/plans/2026-08-25-copilot-account-routing_plan_completed.md)
@@ -618,7 +618,7 @@ otherwise.
   pre-existing uncovered channel, see as-built note 24) and `build:worker-agent`.
 - [x] Live checks (Keychain name, fresh-home onboarding, cross-profile native resume, Claude
   and Codex limit failover, pool exhaustion, ambient API key, remote worker binding) moved to
-  [2026-09-13-provider-account-pools_livetest.md](2026-09-13-provider-account-pools_livetest.md).
+  [2026-09-13-provider-account-pools_livetest_completed.md](2026-09-13-provider-account-pools_livetest_completed.md).
 - [x] Spec and plan renamed to `_completed` after every agent-runnable check passed and the
   livetest doc existed.
 
@@ -627,7 +627,7 @@ otherwise.
 ## As-built notes (2026-09-15)
 
 Every Phase 0–8 task is implemented and covered by tests; the live checks are deferred to
-[2026-09-13-provider-account-pools_livetest.md](2026-09-13-provider-account-pools_livetest.md).
+[2026-09-13-provider-account-pools_livetest_completed.md](2026-09-13-provider-account-pools_livetest_completed.md).
 Where the build differs from the task text above, this section is authoritative.
 
 1. **No `isLegacy` on `ResolvedAccountRoute`.** A route is legacy exactly when

@@ -1,6 +1,6 @@
 # Codex follow-up local package
 
-Status: agent-runnable work done; ready for independent verification. Two live checks are deferred to [the live-test doc](2026-09-30-codex-followup-local-package_livetest.md). Follow-up to [verified renderer fix](2026-09-30-codex-followup-rendering_plan_completed.md), session `x215k2118`.
+Status: completed 2026-10-06. Plan Queue verifier PASS (round 2) and landed on `main` as `d4d0cbb02`. Do not install this plan's 30 September package: the installed app was replaced on 4 October by a newer build that already contains the fix. Remaining live checks are in [the live-test doc](2026-09-30-codex-followup-local-package_livetest.md). Follow-up to [verified renderer fix](2026-09-30-codex-followup-rendering_plan_completed.md), session `x215k2118`.
 
 The running process is `/Applications/Harness.app/Contents/MacOS/Harness`; no renderer development server is listening on port 4567. The installed package needs an updated build to pick up the verified renderer change.
 
@@ -54,3 +54,8 @@ Evidence the setting takes effect: with `--testTimeout=100 --hookTimeout=100` on
 
 Checks run in the worktree: `npm run test:quiet -- src/main/plan-queue/plan-queue-landing.spec.ts` (18 passed), `npx tsc --noEmit`, `npm run typecheck:spec` and `npm run lint`, all exit 0. The full suite is left to the verifier, as instructed.
 
+## Closure — 2026-10-06
+
+- Independent Plan Queue verifier (different provider): PASS after round 2 (round 1 failed only on a load-related timeout in `src/main/plan-queue/plan-queue-landing.spec.ts`, fixed by giving that real-git spec file the same 30 s budget as the other real-git plan-queue specs), no findings. Gates run in the item worktree, each exit 0: `npx tsc --noEmit`, `npm run typecheck:spec`, `npm run lint`, `npm run check:ts-max-loc`, `npm run build:main`, `npm run build:renderer`, `npm run test:quiet`.
+- Landed on `main` as `d4d0cbb02` (one local squash commit made with the repository hooks; not pushed).
+- After all five Plan Queue items landed, the same seven gates were rerun on the combined `main` (`1b06fffee`): every one exited 0; the quiet suite ran 2,370 files / 29,885 tests.

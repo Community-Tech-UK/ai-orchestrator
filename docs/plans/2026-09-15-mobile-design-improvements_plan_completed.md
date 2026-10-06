@@ -30,7 +30,7 @@ Keep the existing dark, project-first design. Improve approval reliability and e
 
 **Existing work:** Mobile changes adding hibernated sessions to Active were already present and have been preserved. Concurrent provider-account work is outside this task. The original review created documentation and ignored evidence; James then approved implementation. This task creates no branch/worktree and does not stage, commit or push changes.
 
-**Reading the evidence below:** Findings and source line numbers under “Original audit evidence” describe the pre-implementation app. Current implementation and verification are recorded in section 13. Device checks are tracked in [the live-test checklist](2026-09-15-mobile-design-improvements_livetest.md).
+**Reading the evidence below:** Findings and source line numbers under “Original audit evidence” describe the pre-implementation app. Current implementation and verification are recorded in section 13. Device checks are tracked in [the live-test checklist](2026-09-15-mobile-design-improvements_livetest_completed.md).
 
 ### What is working
 
@@ -91,7 +91,7 @@ Two alternatives were considered: an activity-first home with permanent navigati
 
 **Files:** `shared/mobile-sheet.component.ts`, `shared/mobile-header.component.ts`, `shared/mobile-session-row.component.ts`, `shared/model-sheet.component.ts`, `shared/copy-button.component.ts`, both composer templates/styles and `apps/mobile/src/styles.scss`.
 
-**Acceptance:** Keyboard can enter, operate and close every sheet without reaching background controls, then returns to the opener. Measured hit regions meet the app target at 375px. At 200% browser text size, decisions and Send remain reachable, with no overlap or horizontal page scrolling. VoiceOver and native text-size checks are recorded in [the live-test checklist](2026-09-15-mobile-design-improvements_livetest.md).
+**Acceptance:** Keyboard can enter, operate and close every sheet without reaching background controls, then returns to the opener. Measured hit regions meet the app target at 375px. At 200% browser text size, decisions and Send remain reachable, with no overlap or horizontal page scrolling. VoiceOver and native text-size checks are recorded in [the live-test checklist](2026-09-15-mobile-design-improvements_livetest_completed.md).
 
 **Reference targets:** Apple's [Buttons guidance](https://developer.apple.com/design/human-interface-guidelines/buttons) recommends a 44 × 44pt hit region. Web [WCAG 2.2](https://www.w3.org/TR/WCAG22/) uses a different minimum target criterion with exceptions. For text, validate the applicable [contrast minimum](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum), generally 4.5:1 for ordinary text. These are implementation checks, not a completed accessibility certification.
 
@@ -168,7 +168,7 @@ Two alternatives were considered: an activity-first home with permanent navigati
 
 **Files:** `features/new-session/new-session.component.{ts,scss}`, `features/new-session/new-session.presentation.ts`, `shared/model-sheet.component.ts`, `core/draft-store.ts` if configuration persistence is selected.
 
-**Acceptance:** Project A → New → choose recent B preserves the draft and starts with B. A directory API failure leaves A usable with Retry. Model and reasoning can change before one Done action. Native attachment/dictation and keyboard reachability checks are recorded in [the live-test checklist](2026-09-15-mobile-design-improvements_livetest.md).
+**Acceptance:** Project A → New → choose recent B preserves the draft and starts with B. A directory API failure leaves A usable with Retry. Model and reasoning can change before one Done action. Native attachment/dictation and keyboard reachability checks are recorded in [the live-test checklist](2026-09-15-mobile-design-improvements_livetest_completed.md).
 
 ## 10. Make setup and connection recovery clearer
 
@@ -250,7 +250,7 @@ The self-contained [as-built screen review](../../.aio-review/2026-09-15-mobile-
 - [x] Browser appearance/accessibility: 375×812 and 390×844, 430px phone and 844px landscape, 200% root text, reduced motion, touch-target measurements, visible focus, modal containment/return and mocked App Lock overlay.
 - [x] Error states: delayed/failed transcript, history, directories, model change, creation and Pause/Resume; preserve cached content and drafts where present.
 
-Remaining native/human/external checks, with exact steps and expected results, are in [the pending live-test checklist](2026-09-15-mobile-design-improvements_livetest.md); no phone deployment or native success is claimed here.
+Remaining native/human/external checks, with exact steps and expected results, are in [the completed source live-test checklist](2026-09-15-mobile-design-improvements_livetest_completed.md) and consolidated RES-013; no phone deployment or native success is claimed here.
 
 Add behavioral tests for state transitions, request identity, routing and recovery. Existing source-string assertions are insufficient proof of rendered focus, keyboard behavior or preserved answers. Reproduce and verify fixes in the app before adjusting assertions to the intended behavior. Small styling-only changes need visual verification rather than tests that merely repeat CSS values.
 

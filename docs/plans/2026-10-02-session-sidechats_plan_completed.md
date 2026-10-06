@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Use superpowers:executing-plans to implement task by task. Use independent agents only for genuinely independent work, and a fresh task-completion-gate verifier for final completion. Read the spec and this plan together.
 
-**Status:** Implemented on branch `queue/2026-10-02-session-sidechats-cb01a5` (2026-10-06); awaiting the Plan Queue's independent verifier. James confirmed product decisions 1–3 on 2026-10-02: several sidechats per session, context refreshed on each question, and the parent's edit permissions. Checks that need real provider turns or the `windows-pc` worker are deferred to [2026-10-02-session-sidechats_livetest.md](2026-10-02-session-sidechats_livetest.md).
+**Status:** Completed 2026-10-06. Built by the Plan Queue, passed its independent verifier in round 2, and landed on `main` as `1b06fffee`. James confirmed product decisions 1–3 on 2026-10-02: several sidechats per session, context refreshed on each question, and the parent's edit permissions. Checks that need real provider turns or the `windows-pc` worker are deferred to [2026-10-02-session-sidechats_livetest.md](2026-10-02-session-sidechats_livetest.md).
 **Goal:** Let James ask any available provider about a linked session, retain that relationship across lifecycle changes, and discover sidechat activity and unread answers while the panel is closed.
 **Architecture:** Retain ChatService, ledger and provider runtime infrastructure. Add durable sidechat relationships and read state, a parent resolver/context builder, and session-scoped UI state above the panel lifetime. Keep parent and sidechat execution separate.
 **Tech stack:** Electron 40, Angular 22 signals and OnPush, TypeScript, better-sqlite3, Zod 4, Vitest.
@@ -149,7 +149,7 @@ The concrete provider selection DTO must carry the unified picker's model, reaso
 
 - [x] Run an integration scenario mirroring the attached screenshots with seeded distinct parent/child runtimes and inspect the actual delivered request. No external paid model is needed to prove context delivery.
 - [x] Exercise same-directory session isolation, hide/complete/reopen, provider round-trips, parent resume/rewind, app restart/read persistence, and remote workspace routing.
-- [ ] Run all canonical gates with retained logs and actual exit statuses (worker ran every gate except the full `test:quiet` suite, which the queue instructions reserve for the verifier; see as-built notes):
+- [x] Run all canonical gates with retained logs and actual exit statuses (worker ran every gate except the full `test:quiet` suite; the queue verifier ran all seven, each exit 0, on 2026-10-06):
 
 ```bash
 rtk npx tsc --noEmit
@@ -161,10 +161,10 @@ rtk npm run build:renderer
 rtk npm run test:quiet
 ```
 
-- [ ] Start a genuinely fresh agent using `task-completion-gate`. Supply acceptance criteria, baseline and complete task diff, including uncommitted/untracked implementation files because this task forbids unsolicited commits. Require review of architecture, tests, security/authority, async state, performance, UI/a11y, migrations and node routing.
-- [ ] Fix every actionable finding, rerun affected verification and obtain a new fresh PASS. Do not close documentation on an implementer's own review.
+- [x] Start a genuinely fresh agent using `task-completion-gate`. (Done by the Plan Queue's independent verifier on a different provider.) Supply acceptance criteria, baseline and complete task diff, including uncommitted/untracked implementation files because this task forbids unsolicited commits. Require review of architecture, tests, security/authority, async state, performance, UI/a11y, migrations and node routing.
+- [x] Fix every actionable finding, rerun affected verification and obtain a new fresh PASS. (Round 1 found two; both fixed; round 2 PASS.) Do not close documentation on an implementer's own review.
 - [x] Record only genuinely external/rebuilt-app checks in a separate `_livetest.md` if needed. All in-loop tests and dev UI checks must pass first.
-- [ ] Update as-built notes, point the spec at the completed plan filename, rename spec to `_spec_completed.md`, and rename the plan `_plan_completed.md` last. Keep all files uncommitted unless James explicitly requests a commit.
+- [x] Update as-built notes, point the spec at the completed plan filename, rename spec to `_spec_completed.md`, and rename the plan `_plan_completed.md` last. Keep all files uncommitted unless James explicitly requests a commit.
 
 ## Draft readiness checklist
 
@@ -209,3 +209,11 @@ Checks after the fixes: `src/main/chats/` plus the sidechat IPC handler spec (16
 Known limit of fix 1: the failed-turn memory lives in the main process, so a retry made after an app restart appends a new turn (the failed one stays in the transcript as sent).
 
 Known limits: sidechats also appear in the ordinary chat list (as before this work); a sidechat of an archived chat parent is reachable from the chat list and its own badge rather than from the parent row.
+
+## Closure — 2026-10-06
+
+- Independent Plan Queue verifier (different provider): PASS after round 2, no findings. Gates run in the item worktree, each exit 0: `npx tsc --noEmit`, `npm run typecheck:spec`, `npm run lint`, `npm run check:ts-max-loc`, `npm run build:main`, `npm run build:renderer`, `npm run test:quiet`.
+- Landed on `main` as `1b06fffee` (one local squash commit made with the repository hooks; not pushed).
+- After all five Plan Queue items landed, the same seven gates were rerun on the combined `main` (`1b06fffee`): every one exited 0; the quiet suite ran 2,370 files / 29,885 tests.
+- Round 1 findings and fixes: (1) a sidechat retry after a failed dispatch appended the user's question to the ledger twice — fixed by reusing the failed turn's id for an identical retry (`side-chat-send-coordinator.ts`, ledger upsert by message id), covered end to end in `side-chat-service.spec.ts`; (2) `side-chat-service.ts` exceeded the 700-line limit — split into `side-chat-selection.ts`.
+- Known limitation: the failed-turn id is held in memory, so a retry made after a Harness restart can still record the question twice.

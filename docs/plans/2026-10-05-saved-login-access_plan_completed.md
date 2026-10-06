@@ -1,6 +1,6 @@
 # Saved login access implementation plan
 
-Status: implementation complete and ready for independent plan-queue verification (2026-10-06). Every agent-runnable item is done and rerun on the base-branch code; the remaining checks need the installed app, James's actual decision and windows-pc, and are deferred to the [live-test document](2026-10-05-saved-login-access_livetest.md). No pushes, installation or running-session restarts.
+Status: completed 2026-10-06. Implementation is on `main` (commit `4ca6ef366`, "provider hardening"); the plan closed after an independent Plan Queue verifier PASS (round 1), landing as `028e824ba`. The remaining checks need the installed app, James's actual decision and windows-pc, and are deferred to the [live-test document](2026-10-05-saved-login-access_livetest.md). No pushes, installation or running-session restarts.
 
 Latest operator direction: James explicitly chose **keep other sessions running; continue checks only**. Do not install or relaunch the real app under this direction, and do not ask the same relaunch question again unless James changes it. The code and signed package stay ready for a future safe activation.
 
@@ -180,3 +180,9 @@ Remaining acceptance is unchanged: actual packaged startup, future safe installa
 - Rerun in the queue worktree, every check exited zero: the 44 reviewed test files (628 tests), `npx tsc --noEmit`, `npm run typecheck:spec`, `npm run lint`, `npm run check:ts-max-loc`, and `generate:ipc`, `generate:aliases`, `generate:architecture` plus `check:contracts` with no generated-file drift. Logs are copied to the root checkout as `_scratch/saved-login-queue-{focused,focused-raw,tsc,spec,lint,loc,gen}.log`. The full suite and builds were left to the verifier, as the queue rules require; earlier full-suite and build passes on the same fingerprints are recorded above.
 - Deferred live checks: Task 1's live refusal baseline and Task 6's approval → secure fill → authenticated-page proof are in the [live-test document](2026-10-05-saved-login-access_livetest.md), sections 1–3. Each needs the installed update, a resumed requesting session, James's actual banner decision and windows-pc. James's current direction ("keep other sessions running; continue checks only") rules out installation now. None of them is claimed as verified.
 - No vault item, permission record, installed app or running session was touched during this pass.
+
+## Closure — 2026-10-06
+
+- Independent Plan Queue verifier (different provider): PASS after round 1, no findings. Gates run in the item worktree, each exit 0: `npx tsc --noEmit`, `npm run typecheck:spec`, `npm run lint`, `npm run check:ts-max-loc`, `npm run build:main`, `npm run build:renderer`, `npm run test:quiet`.
+- Landed on `main` as `028e824ba` (one local squash commit made with the repository hooks; not pushed).
+- After all five Plan Queue items landed, the same seven gates were rerun on the combined `main` (`1b06fffee`): every one exited 0; the quiet suite ran 2,370 files / 29,885 tests.

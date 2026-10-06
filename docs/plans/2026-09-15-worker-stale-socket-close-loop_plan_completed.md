@@ -1,7 +1,7 @@
 # Worker stale-socket close loop breaks Browser Gateway delivery — plan
 
 Status: **implemented and verified in-loop 2026-09-15**; live checks deferred to
-[2026-09-15-worker-stale-socket-close-loop_livetest.md](2026-09-15-worker-stale-socket-close-loop_livetest.md). See §6 for as-built notes.
+[2026-09-15-worker-stale-socket-close-loop_livetest_completed.md](2026-09-15-worker-stale-socket-close-loop_livetest_completed.md). See §6 for as-built notes.
 Owner incident: windows-pc (`bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be`), 2026-09-15 19:08:58Z onward.
 
 ## 1. What happened (evidence)
@@ -158,7 +158,7 @@ Targeted specs, then the canonical checklist in `AGENTS.md` (`tsc` ×2, `lint`,
 gateway changes.
 
 Live checks (require rebuilt Harness and a redeployed windows-pc worker) are in
-`2026-09-15-worker-stale-socket-close-loop_livetest.md`: worker restart produces no
+`2026-09-15-worker-stale-socket-close-loop_livetest_completed.md`: worker restart produces no
 `Replacing existing socket` after 60 s; coordinator reset ends a storm from an old worker build;
 `browser_health` / `recover_extension` on `relay_not_forwarding`; `list_targets refresh` returns
 non-stale; CAPTCHA parking on a real challenge page.

@@ -1,8 +1,8 @@
 # Session-linked sidechats rebuild
 
-**Status:** Implemented 2026-10-06 on branch `queue/2026-10-02-session-sidechats-cb01a5`, awaiting independent verification. Product decisions 1–3 confirmed by James on 2026-10-02. See the plan's as-built notes; live checks needing real provider turns are in [2026-10-02-session-sidechats_livetest.md](2026-10-02-session-sidechats_livetest.md).
+**Status:** Completed 2026-10-06. Implemented and independently verified (Plan Queue verifier PASS, round 2); landed on `main` as `1b06fffee`. Product decisions 1–3 confirmed by James on 2026-10-02. Live checks needing real provider turns are in [2026-10-02-session-sidechats_livetest.md](2026-10-02-session-sidechats_livetest.md).
 **Date:** 2026-10-02
-**Implementation plan:** [Implementation plan](2026-10-02-session-sidechats_plan_completed.md). The `_planned` filename records the link, not implementation completion or product-decision approval.
+**Implementation plan:** [Implementation plan](2026-10-02-session-sidechats_plan_completed.md).
 
 ## 1. Intent and success
 
