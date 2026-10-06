@@ -109,6 +109,24 @@ describe('ClaudeCredentialsReader', () => {
   });
 
   describe('Claude Code-owned refresh', () => {
+    it('never asks Claude Code to refresh a credential that is still valid', async () => {
+      let refreshCalls = 0;
+      const reader = new ClaudeCredentialsReader({
+        platform: 'darwin',
+        securityExec: keychainExec({ stdout: payload() }),
+        refreshCliAuth: async () => {
+          refreshCalls += 1;
+          return true;
+        },
+      });
+
+      const { credential, reason } = await reader.read();
+
+      expect(reason).toBeUndefined();
+      expect(credential?.expiresAt).toBe(FUTURE);
+      expect(refreshCalls).toBe(0);
+    });
+
     it('reports expired when Claude Code cannot refresh the access token', async () => {
       const reader = new ClaudeCredentialsReader(readerOpts({
         platform: 'darwin',
