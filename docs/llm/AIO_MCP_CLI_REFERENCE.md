@@ -18,13 +18,16 @@ checks, and remote-node release-readiness capture:
 AIO_MCP
 AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET
 AI_ORCHESTRATOR_INSTANCE_ID
+AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY
 ```
 
 For settings repair, if any are missing, do not attempt privileged writes.
 Report that the local Harness repair CLI environment is unavailable.
 
 Do not print the values of these environment variables. Socket paths and instance
-ids are local auth material.
+ids and capabilities are local auth material. Never borrow another session's
+environment or pass these values in command arguments. For saved-login access,
+the browser credential request tools work independently of the shell bridge.
 
 ## Main Commands
 
@@ -79,7 +82,11 @@ commands or `[]` for any other repository), `plan_queue_status` (`run_id?`),
 `plan_queue_answer` (`item_id`, `option_id`) and `plan_queue_control`
 (`action`, `run_id?`, `item_id?`). Use them when James asks to work through the
 plan or livetest documents; ask James any question the queue sends back and
-record his choice with `plan_queue_answer`. `plan_queue_report_triage` and
+record his choice with `plan_queue_answer`. Answer and control are refused
+from anyone but the session that started the run, except one rescue: once that
+session no longer exists, another session may `cancel` the stranded run or
+`discard-item` one of its parked items (do it only when James asked; the item
+detail records who did it). `plan_queue_report_triage` and
 `plan_queue_report_verdict` belong to the queue's own triage and verifier
 sessions and are refused from anyone else. These are MCP tools, not `$AIO_MCP`
 CLI subcommands.
@@ -251,7 +258,19 @@ $AIO_MCP local-ai discover --json
 $AIO_MCP local-ai list --json
 $AIO_MCP local-ai validate '<config-json>' --json
 $AIO_MCP local-ai enrol '<config-json>' --json
+$AIO_MCP local-ai set-lifecycle <target-id> <enrolled|paused|retired> --json
+$AIO_MCP local-ai status --json
+$AIO_MCP local-ai recheck <target-id> [--kind lightweight|functional] --json
+$AIO_MCP local-ai rename <target-id> <label> --json
+$AIO_MCP local-ai update <target-id> '<patch-json>' --json
+$AIO_MCP local-ai summary [--window 24h|7d|30d] --json
+$AIO_MCP local-ai acknowledge <incident-id> --json
 ```
+
+Use these instead of asking James to click through the Local AI Health Centre or
+reading `rlm.db`: `status` answers "is local AI healthy and taking work?",
+`recheck` is "Run check", `summary` gives the local-versus-fallback figures, and
+`rename`/`update`/`acknowledge`/`set-lifecycle` cover the card actions.
 
 Recommended agent workflow:
 
@@ -263,58 +282,71 @@ Recommended agent workflow:
    persistence if the result is empty or a required probe fails.
 6. Run `local-ai list --json` and verify the persisted target.
 
+To stop managing an endpoint (for example after moving auxiliary models off
+it), run `local-ai set-lifecycle <target-id> retired --json` with the id from
+`local-ai list --json`. Use `paused` (optionally `--paused-until <epoch-ms>`)
+for a temporary stop. Retired targets stop health checks and canaries
+immediately and no longer appear in `local-ai list`.
+
 The command uses the existing known-local-instance RPC authentication. Human
 output omits raw evidence; JSON contains only the existing bounded public Local
 AI schemas and never secret resolvers or model output.
 
 ## Browser Credentials
 
-Use when an unattended browser task needs to log in to a site.
+When a browser task needs an existing saved login, request James's approval:
 
+```bash
+$AIO_MCP browser-credentials request --profile <profileId> --target <targetId> \
+    --item <exact saved login name or id> --reason <task reason> --json
+$AIO_MCP browser-credentials status --id <requestId> --json
+$AIO_MCP browser-credentials cancel --id <requestId> --json
 ```
-aio-mcp browser-credentials enrol --item <vault item name or id> --origin <https://host>
-aio-mcp browser-credentials authorize (--local | --node <nodeId> | --profile <id>) \
-    --purpose login --vault-folder <folder> --expires-in 90d
-aio-mcp browser-credentials list [--profile <id>]
-aio-mcp browser-credentials revoke --id <authorizationId>
+
+Use the live `profileId` and `targetId` reported by Browser Gateway. Default
+purpose is `login`; `--purpose login` and `--purpose totp` may repeat. Agents
+cannot set the lifetime, request other purposes or approve their own request.
+James's visible approval defaults to the current task. A separate explicit
+choice can remember permission for a limited period, and the approval tells him
+whether the saved login will move into the agent vault folder.
+
+If the shell cannot connect, use `browser.request_credential_access` with
+`{profileId, targetId, item, reason, purposes?}`. Read the decision with
+`browser.get_credential_access_status({requestId})` or cancel with
+`browser.cancel_credential_access({requestId})`. Both routes use the same
+permission service. New requests remain pending in YOLO mode too; existing valid
+permission is reusable only within its scope. A duplicate request reuses its
+pending reference rather than generating another prompt.
+
+Keep the returned reference and use the real `data.status`: `pending`,
+`approved`, `denied` or `expired`. Only approved credential access permits retrying
+`browser.fill_credential` on the same website and computer, using the returned
+vault item reference. Approval performs enrolment and authorization in Harness
+and notifies the requesting session. A manual login handoff, parked escalation,
+read-only browser grant or auto-approved manual step never proves saved-login
+authorization. Navigation, disconnection, locked vault or revocation may still
+block access; report the actual result and never expose the password.
+
+Authenticated session CLI calls to legacy `enrol` and `authorize` are refused
+with `operator_credential_approval_required`. The per-session transport
+capability identifies the requester; it never proves James's consent. Use the
+request flow above, including when he has authorized the task in chat. Operator
+management through Browser Gateway settings and explicitly configured bootstrap
+services remains separate. Never edit permission records directly.
+
+Sessions may still inspect and revoke existing permissions:
+
+```bash
+$AIO_MCP browser-credentials list [--profile <stored scope>] --json
+$AIO_MCP browser-credentials revoke --id <authorizationId> --json
 ```
 
-Pick the scope correctly or the grant silently never matches:
-
-- `--node <nodeId>` for the user's own Chrome on a worker machine (the usual
-  case, e.g. `windows-pc`).
-- `--local` for the user's own Chrome on this machine.
-- `--profile <id>` ONLY for an agent-managed browser profile.
-
-A shared existing tab authorizes by node scope, not by profile id. `--node`
-accepts the friendly name or the roster UUID and stores the UUID. Exactly one
-scope flag is required, and an unknown scope is refused with the real ones named.
-
-Rules that will reject your command if you get them wrong:
-
-- The vault item must already exist. Enrolment binds an existing login; it
-  cannot create one.
-- Origin is `https://host` or `https://*.host`, for both `enrol` and
-  `authorize`. A non-default port is kept and works. A path is dropped. No
-  `user@host`. Never put a scheme or path in a panel host field.
-- A wildcard over a public suffix (`*.com`, `*.co.uk`) is refused.
-- Purposes: `login`, `register`, `totp`, `email_code`. `secret_fill` is refused.
-- An expiry is mandatory. `--expires-in 90d` / `12w`, or `--expires-at <epoch ms>`.
-  Maximum one year, enforced in the main process.
-- `--origin` and `--purpose` repeat; `--item`, `--node`, `--profile`, `--id` do not.
-- If the item sits outside the agent vault folder you must pass
-  `--move-into-folder` deliberately.
-
-Failures carry their own fix: a locked vault tells you how to unlock it, and an
-item outside the folder names `--move-into-folder`.
-
-Nothing here returns a secret. If you need the password itself, you are on the
-wrong path: the fill happens in the main process and the value never reaches a
-tool result.
-
-Added 2026-08-29 by operator decision, replacing a renderer-only rule. It shares
-its services and schemas with the Settings UI, so anything the panel refuses,
-this refuses too.
+`list` filters on the stored permission scope. A shared existing tab uses its
+computer scope (`local` or the worker node), while a managed profile uses its
+profile id. A list entry is evidence of an existing record, not proof that it
+matches this task's exact website, computer, vault item, purpose and lifetime.
+The request/secure-fill service performs those checks. No command returns the
+password: the secure fill resolves it in the main process.
 
 ## Release Readiness
 
@@ -369,13 +401,24 @@ surface the blockers and next actions.
 
 `orchestrator-tools RPC unavailable: parent socket/instance id missing`
 
-The required local Harness environment is absent. Stop and report that this
-command must run inside a local Harness-spawned agent.
+The shell lacks the local Harness bridge. Report presence only, never values.
+For saved-login access, call `browser.request_credential_access` through the
+available browser tools. Codex initial and supported native resume launches
+preserve only the current spawn's four injected bridge names through its shell
+filter; an already running child needs a reconnect to pick up the fix.
+
+After the rebuilt app is installed, use the affected Codex session's menu
+**Restart and resume**, then send: "Continue the saved-login request for the same
+website and computer. Check its status, wait for approval if pending, then retry
+secure fill and verify sign-in." Leave unrelated sessions running. Never copy
+connection values from another session, global configuration or a log.
 
 `connect ENOENT`, connection refused, or timeout
 
-The parent app is unavailable, the socket is stale, or the agent environment came
-from an old app session. Ask for or start a fresh local Harness-spawned agent.
+This shell cannot reach its parent connection. Check whether it predates the
+running app; the error alone does not prove the app is unavailable. Reconnect
+the affected session through Harness, or use the available browser tools for
+the saved-login request.
 
 Unknown command or option
 

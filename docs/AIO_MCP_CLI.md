@@ -27,9 +27,9 @@ dist/aio-mcp-cli-sea/aio-mcp --help
 | `settings` | Inspect and repair Harness app settings through the running parent app. |
 | `remote-nodes` | Print the safe remote worker roster. |
 | `release-readiness` | Build a mobile release readiness report from evidence JSON and live captures. |
-| `local-ai` | Discover, validate, list, and enrol Local AI Guard targets through the running parent app. |
+| `local-ai` | Discover, enrol, inspect, check, rename, edit, pause, and retire Local AI Guard targets, read effectiveness, and acknowledge incidents through the running parent app. |
 | `copilot-account` | Inspect GitHub Copilot account routing: profiles, rules, what a workspace resolves to, and routing health. Read-only. |
-| `browser-credentials` | Bind an existing vault login to an origin, and mint, list or revoke the standing authorizations an unattended browser fill needs. |
+| `browser-credentials` | Request James's approval to use a saved login, inspect or cancel that request, and manage existing credential authorizations. |
 | `loop` | List parked loops and resume one, including after an app restart. |
 
 It also has MCP and integration forwarders:
@@ -73,7 +73,7 @@ lands on the checked-out branch as one local squash commit (never pushed).
 | `plan_queue_start` | `kind` (`plans`\|`livetests`), `glob?`, `worker_slots?`, `verification_slots?`, `max_rounds?`, `relax_settings?`, `verifier_gates?`, `post_merge_gate?` | Discover documents and start a run with the caller as parent. The gate lists default to this app's checklist; pass the target repository's own commands (or `[]`) elsewhere. Not available to queue-spawned sessions. |
 | `plan_queue_status` | `run_id?` | One run's items (state, round, question, park reason, findings), or recent runs plus reconciler alerts. |
 | `plan_queue_answer` | `item_id`, `option_id` | Record James's answer to a readiness or worker question. Parent session only. |
-| `plan_queue_control` | `action`, `run_id?`, `item_id?` | Pause, resume or cancel a run; skip, resume, land-anyway or discard an item. Parent session only. |
+| `plan_queue_control` | `action`, `run_id?`, `item_id?` | Pause, resume or cancel a run; skip, resume, land-anyway or discard an item. Parent session only, except the stranded-run rescue: once the parent session no longer exists, any session that the queue did not spawn may `cancel` the run or `discard-item` a parked item. Each affected item's detail and the log record which session did it. |
 | `plan_queue_report_triage` | `run_id`, `records` | Triage agent only (caller-checked). |
 | `plan_queue_report_verdict` | `item_id`, `verdict`, `findings?`, `gates_run?`, `document_complete?`, `need_james?` | The item's current verifier only (caller-checked); a worker cannot report its own verdict. |
 
@@ -120,6 +120,7 @@ id. Harness injects these into local spawned agent shells:
 AIO_MCP
 AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET
 AI_ORCHESTRATOR_INSTANCE_ID
+AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY
 ```
 
 `$AIO_MCP` points at the packaged or locally built `aio-mcp` binary. Harness also
@@ -127,9 +128,17 @@ prepends the binary's directory to `PATH`, so `aio-mcp` may work directly in tha
 agent shell. Use `$AIO_MCP` in scripts because it is explicit and survives path
 differences between packaged and development builds.
 
-These commands will fail outside a local Harness-spawned process unless you
-provide the same socket and instance id environment. Remote agents do not receive
-the local repair environment.
+These commands fail outside a local Harness-spawned process. The capability is
+private to the current spawn: never copy connection values from another session
+or put them in command arguments. Remote agents do not receive the local repair
+environment. The browser credential request tools remain the available route
+when a session's shell does not have the CLI connection.
+
+For Codex, Harness preserves these four injected names in the private prepared
+configuration's shell environment policy. Existing inheritance, exclusions and
+other variables remain unchanged. Initial launches and supported native resumes
+use the current spawn's bridge; already running children keep their previous
+configuration until that session reconnects.
 
 Browser-gateway forwarders and `release-readiness --capture-browser-health` use
 separate browser gateway environment variables:
@@ -269,6 +278,13 @@ $AIO_MCP local-ai discover [--json]
 $AIO_MCP local-ai list [--json]
 $AIO_MCP local-ai validate '<config-json>' [--json]
 $AIO_MCP local-ai enrol '<config-json>' [--json]
+$AIO_MCP local-ai set-lifecycle <target-id> <enrolled|paused|retired> [--paused-until <epoch-ms>] [--json]
+$AIO_MCP local-ai status [--json]
+$AIO_MCP local-ai recheck <target-id> [--kind lightweight|functional] [--json]
+$AIO_MCP local-ai rename <target-id> <label> [--json]
+$AIO_MCP local-ai update <target-id> <patch-json> [--json]
+$AIO_MCP local-ai summary [--window 24h|7d|30d] [--json]
+$AIO_MCP local-ai acknowledge <incident-id> [--json]
 ```
 
 `discover` returns the same bounded, non-secret endpoint metadata used by the
@@ -288,6 +304,29 @@ Use `--json` for agent-driven work. The configuration must satisfy
 chosen from those models, and at least one routing role for an enrolled target.
 Endpoint URLs may not contain userinfo and must use a literal loopback, private,
 or Tailscale IPv4 host.
+
+`set-lifecycle` makes the same repository change as the Settings UI. A paused
+or retired target stops its health checks and canaries at once; `retired` is
+the way to stop managing an endpoint you no longer route to. `--paused-until`
+is accepted only with `paused` and must be a future epoch-milliseconds time.
+Take the target id from `local-ai list --json`.
+
+The remaining subcommands mirror the Health Centre and make the same runtime calls:
+
+- `status` is the Health Centre page: overall state, then per target its label, id, state,
+  the helper roles it may take, and the age and outcome of the worker, endpoint, model and
+  canary checks, followed by open and acknowledged incidents. Probe messages and evidence are
+  left out.
+- `recheck` is "Run check". `--kind functional` also runs the canary. The CLI waits as long as
+  the target's own probe settings allow; if it still times out, the check may be running (a
+  functional check waits for a busy target), so read the result with `status`.
+- `rename` changes only the display label: it does not reset health checks or routing. New
+  targets are named like `windows-pc · LM Studio`.
+- `update` is "Edit". The patch uses the same strict schema as the UI: it cannot change a
+  target's location, provider, or endpoint id, but it can change the base URL and lifecycle,
+  as the UI can. Prefer `set-lifecycle` for lifecycle changes.
+- `summary` is "Local AI effectiveness": local versus fallback tasks, tokens, and cost.
+- `acknowledge` is the incident "Acknowledge" button.
 
 The table output is easier for a person to read. Use `--json` when another tool
 will parse the result.
@@ -345,9 +384,59 @@ there can restart a loop that has already parked.
 
 ## Browser Credentials
 
-Binds an existing vault login to an origin, and manages the standing
-authorizations that let an unattended browser fill use it. This is what makes a
-portal login run without anyone at the keyboard.
+### Saved-login approval for sessions
+
+Request the exact saved login against the live browser target. Take `profileId`
+and `targetId` from Browser Gateway; for a shared tab these identify that tab,
+not a managed profile to create or a computer name to guess.
+
+```bash
+$AIO_MCP browser-credentials request --profile <profileId> --target <targetId> \
+    --item "Portal test login" --reason "Sign in to finish this task" --json
+$AIO_MCP browser-credentials status --id <requestId> --json
+$AIO_MCP browser-credentials cancel --id <requestId> --json
+```
+
+`request` defaults to the `login` purpose. Repeat `--purpose login` and
+`--purpose totp` if both are needed. The session cannot select a lifetime or
+approve its own request. James sees the session, reason, exact website and
+computer, saved-login title, requested purposes, duration, and any proposed move
+into the agent vault folder. Access defaults to the current task; remembering it
+for a limited period is a separate choice in that approval.
+
+The request stays `pending` until James decides, including in YOLO mode.
+Existing valid permission may be reused within its scope. Repeated requests for
+the same task and access reuse the pending reference. Read the actual
+`data.status`: `pending`, `approved`, `denied` or `expired`. Only `approved` with
+credential authorization metadata permits a retry of secure fill. A manual
+handoff, parked escalation or read-only browser grant does not grant saved-login
+access. Denial and expiry never perform enrolment or authorization.
+
+After approval, Harness enrols the item and authorizes the exact website,
+computer, vault item and purposes. The originating session receives the decision
+and can retry `browser.fill_credential`; no password appears in the result.
+The live website and computer are checked again before approval is applied and
+before secure fill. Navigation, disconnection, a locked vault or changed login
+can prevent completion; inspect status rather than treating a button click as
+successful authorization.
+
+When the shell connection is unavailable, call
+`browser.request_credential_access` with `{profileId, targetId, item, reason,
+purposes?}`. Poll with `browser.get_credential_access_status({requestId})` or
+cancel with `browser.cancel_credential_access({requestId})`. These tools and CLI
+commands use the same service and permission checks. Do not repair this by
+editing permission records or borrowing another session's connection.
+
+### Legacy operator management
+
+`list` and `revoke` remain available to authenticated sessions. Legacy enrol and
+authorize payload formats remain documented below, but the session CLI refuses
+both with `operator_credential_approval_required`; a session connection does not
+prove operator consent. Use `request` above for new session access. Operator
+management through the Browser Gateway settings and explicitly configured
+bootstrap services retains its own route.
+
+Historical enrol/authorize command forms, rejected from the session CLI:
 
 ```
 aio-mcp browser-credentials enrol --item "ProContract (AIO-Agent)" \
@@ -426,10 +515,11 @@ Until 2026-08-29 enrolment and authorization were renderer-only, and the enrol
 schema stated that an agent must never enrol its own credential. The operator
 overruled that: a required GUI step per portal was the one thing preventing
 unattended operation, and the work being blocked was always authentication
-rather than approval. The CLI calls the same main-process services as the
-Settings UI and reuses its exact request schemas, so the two doors cannot accept
-different things. Approval to send anything a person will see is a separate
-control and is unaffected.
+rather than approval. The legacy formats reuse the Settings UI's request
+schemas. The saved-login approval flow now supersedes direct session enrolment
+and authorization: agents request access, and the operator decides before the
+services perform either operation. Approval to send anything a person will see
+is a separate control and is unaffected.
 
 ## Release Readiness
 
@@ -495,20 +585,28 @@ Run `$AIO_MCP release-readiness --help` for the current concise usage text.
 
 `orchestrator-tools RPC unavailable: parent socket/instance id missing`
 
-The command is not running inside a local Harness-spawned agent, or the required
-environment was not forwarded. Check:
+The shell lacks one or more connection values, including its private capability.
+Check presence only:
 
 ```bash
-env | rg '^(AIO_MCP|AI_ORCHESTRATOR_)='
+node -e 'for (const key of ["AIO_MCP", "AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET", "AI_ORCHESTRATOR_INSTANCE_ID", "AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY"]) console.log(key + ": " + Boolean(process.env[key]))'
 ```
 
-Do not print these values in public logs.
+Never print the values. For saved-login access, use
+`browser.request_credential_access` immediately if that tool is available.
+After installing a rebuilt Harness, reconnect only the affected Codex session:
+open its session menu and choose **Restart and resume**. This refreshes its
+current-spawn bridge while preserving the conversation. Then send:
+"Continue the saved-login request for the same website and computer. Check its
+status, wait for approval if pending, then retry secure fill and verify sign-in."
+Do not restart unrelated sessions or copy connection values into the shell.
 
 `connect ENOENT` or a timeout
 
-The parent Harness app is not running, the socket path is stale, or the agent was
-resumed after the parent restarted. Start a fresh local agent from the running
-app and retry.
+These errors show that this shell cannot reach the parent connection. Check the
+running app and whether this session was launched before an app restart; they
+do not prove the app is down. Use available browser tools for saved-login access,
+or reconnect the affected session through Harness and retry.
 
 `Unknown settings option` or `Unexpected settings ... argument`
 

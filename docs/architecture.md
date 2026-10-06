@@ -16,6 +16,7 @@ src/main/
 ├── agents/           # Agent management system
 ├── api/              # API handlers and routes
 ├── browser-automation/ # Browser automation features
+├── chats/            # Durable top-level Chats and session-linked sidechats
 ├── cli/              # Multi-provider CLI adapters
 │   └── adapters/     #   Claude, Codex, Gemini, Copilot
 ├── commands/         # Command execution system
@@ -122,6 +123,17 @@ Located in `src/main/orchestration/` (27 files):
    - Persistence: `plan_queue_runs` / `plan_queue_items` (migration 17 in `loop-schema.ts`, same DB as loops and campaigns). Boot recovery restores relaxed settings, runs the reconciler, re-attaches or respawns workers, re-verifies interrupted verifications and resumes interrupted landings.
    - Optional per-run relaxation (`plan-queue-relaxation.ts`) of exactly `computerUseAutonomyLevel` and `providersExcludedFromAutomation`, snapshotted on the run row before it is applied and restored at run end and on boot (a value changed by hand during the run is left alone).
    - Surfaces: MCP tools in `src/main/mcp/plan-queue-tools.ts`; IPC in `src/main/ipc/handlers/plan-queue-handlers.ts` (`plan-queue:*` channels); renderer panel under `src/renderer/app/features/plan-queue/`; queue-spawned instances carry `metadata.planQueueRole` for the rail marker. Idle workers hold a reclaim hold (`src/main/process/reclaim-holds.ts`) so the resource governor reclaims other idle instances first.
+
+## Session-Linked Sidechats
+
+Located in `src/main/chats/side-chat-*.ts`; `SideChatService` (`side-chat-service.ts`) layers sidechats over ordinary durable Chats.
+
+- A sidechat is a normal `chats` row with its own ledger thread and runtime, plus a `side_chat_links` relation to its parent session or chat. Links, captured parent-context snapshots and policies live in the operator database (`side_chat_links`, `side_chat_context_snapshots`, `side_chat_policies` in `src/main/operator/operator-schema.ts`).
+- Every question captures the parent's current context (`side-chat-parent-resolver.ts`, `side-chat-context.ts`) before anything is written to the ledger, so any provider can answer about the parent's actual instructions and progress without interrupting it.
+- Every sidechat runtime spawns under the parent's effective permission policy, re-resolved before each dispatch (`side-chat-authority.ts`). Spawn-time restrictions cannot be edited in place, so after a parent permission change the sidechat's runtime is replaced before its next question is sent (refused as `busy` while an answer is still running).
+- `side-chat-send-coordinator.ts` serialises sends per sidechat. A retry of a failed dispatch reuses the failed user turn's id, so the ledger updates that turn instead of recording the question twice. The failed-turn id is held in memory only.
+- Unread and running state is persisted and surfaced while the panel is closed (`side-chat-attention.ts`): a badge on the session row and the workspace rail.
+- Surfaces: `side-chat:*` IPC channels (`packages/contracts/src/channels/chat.channels.ts`, handled in `src/main/ipc/handlers/chat-handlers.ts`); renderer state in `src/renderer/app/core/state/side-chat.store.ts`; panel under `src/renderer/app/features/side-chat/`, toggled with the customisable `toggle-side-chat` keybinding (default ⌥⌘S).
 
 ## Provider System
 
