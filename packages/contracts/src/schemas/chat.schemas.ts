@@ -47,19 +47,39 @@ export const ModelRuntimeTargetSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
+/**
+ * The unified picker's selection: provider, model, reasoning and (for local
+ * models) the runtime target, so a local-model choice survives every seam.
+ */
+export const SideChatProviderSelectionSchema = z.object({
+  provider: SideChatProviderSchema,
+  model: ModelIdSchema.nullable().optional(),
+  reasoning: ChatReasoningEffortSchema.nullable().optional(),
+  modelRuntimeTarget: ModelRuntimeTargetSchema.nullable().optional(),
+}).refine(
+  (selection) => selection.provider !== 'local-model' || selection.modelRuntimeTarget?.kind === 'local-model',
+  { message: 'A local-model selection must carry its local-model runtime target', path: ['modelRuntimeTarget'] },
+);
+
 export const SideChatCreatePayloadSchema = z.object({
   parent: SideChatParentRefSchema,
   name: z.string().max(160).optional(),
-  selection: z.object({
-    provider: SideChatProviderSchema,
-    model: ModelIdSchema.nullable().optional(),
-    reasoning: ChatReasoningEffortSchema.nullable().optional(),
-    modelRuntimeTarget: ModelRuntimeTargetSchema.nullable().optional(),
-  }),
+  selection: SideChatProviderSelectionSchema,
+  /** Fallback only: main uses the parent's own workspace when it resolves. */
   currentCwd: z.string().min(1).max(4096),
 });
 
 export const SideChatListPayloadSchema = z.object({
+  parent: SideChatParentRefSchema,
+});
+
+export const SideChatSetSelectionPayloadSchema = z.object({
+  chatId: ChatIdStringSchema,
+  selection: SideChatProviderSelectionSchema,
+});
+
+export const SideChatAttachPayloadSchema = z.object({
+  chatId: ChatIdStringSchema,
   parent: SideChatParentRefSchema,
 });
 
@@ -81,6 +101,9 @@ export type SideChatCreatePayload = z.infer<typeof SideChatCreatePayloadSchema>;
 export type SideChatListPayload = z.infer<typeof SideChatListPayloadSchema>;
 export type SideChatMarkReadPayload = z.infer<typeof SideChatMarkReadPayloadSchema>;
 export type SideChatSendPayload = z.infer<typeof SideChatSendPayloadSchema>;
+export type SideChatProviderSelectionPayload = z.infer<typeof SideChatProviderSelectionSchema>;
+export type SideChatSetSelectionPayload = z.infer<typeof SideChatSetSelectionPayloadSchema>;
+export type SideChatAttachPayload = z.infer<typeof SideChatAttachPayloadSchema>;
 
 export const ChatListPayloadSchema = z.object({
   includeArchived: z.boolean().optional(),

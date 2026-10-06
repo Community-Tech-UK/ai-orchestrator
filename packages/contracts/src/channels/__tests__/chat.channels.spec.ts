@@ -26,6 +26,10 @@ describe('chat channels', () => {
       SIDE_CHAT_SEND: 'side-chat:send',
       SIDE_CHAT_MARK_READ: 'side-chat:mark-read',
       SIDE_CHAT_ATTENTION: 'side-chat:attention',
+      SIDE_CHAT_ATTENTION_ALL: 'side-chat:attention-all',
+      SIDE_CHAT_SET_SELECTION: 'side-chat:set-selection',
+      SIDE_CHAT_ATTACH: 'side-chat:attach',
+      SIDE_CHAT_PERMISSIONS: 'side-chat:permissions',
     });
   });
 

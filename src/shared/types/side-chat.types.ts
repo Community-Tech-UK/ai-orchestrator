@@ -11,6 +11,9 @@
 import type { ReasoningEffort } from './provider.types';
 import type { ModelRuntimeTarget } from './local-model-runtime.types';
 import type { AgentToolPermissions } from './agent.types';
+import type { ChatRecord } from './chat.types';
+import type { ComputerUseAutonomyLevel } from './desktop-gateway-settings.types';
+import type { BrowserToolsMode, InstanceStatus } from './instance.types';
 
 /**
  * Stable identity of the session a sidechat is linked to.
@@ -90,10 +93,33 @@ export interface ParentContextSnapshot {
  */
 export interface SideChatAttention {
   parent: SideChatParentRef;
+  /** Parent display title resolved in main, so global lists can name it. */
+  parentTitle: string | null;
   total: number;
   running: number;
   unread: number;
   needsAttention: number;
+  /**
+   * The conversation an attention entrypoint should open: needs-attention
+   * first, then unread, then running. Null when nothing is pending.
+   */
+  targetChatId: string | null;
+}
+
+/** Display state of one sidechat conversation, in UI priority order. */
+export type SideChatConversationState = 'needs-attention' | 'unread' | 'running' | 'idle';
+
+/**
+ * One sidechat in a parent's list: the link, its backing chat record and the
+ * derived runtime/read state, so a selector renders without loading every
+ * transcript.
+ */
+export interface SideChatSummary {
+  link: SideChatLink;
+  chat: ChatRecord;
+  status: InstanceStatus | null;
+  latestAssistantSequence: number;
+  state: SideChatConversationState;
 }
 
 // ── Provider selection and authority (Task 3) ──────────────────────────────────
@@ -141,6 +167,10 @@ export interface SideChatAuthorityPolicy {
    * (e.g. Claude's print-mode tool denials). Never broadened on provider change.
    */
   mandatoryDenyTools: string[];
+  /** Parent's browser-tool surface (an MCP restriction); null = global setting. */
+  browserToolsMode: BrowserToolsMode | null;
+  /** Parent's Computer Use autonomy policy; null = global setting. */
+  computerUseMode: ComputerUseAutonomyLevel | null;
   /** Workspace/execution node provenance from the parent. */
   workspaceNode: string | null;
   /** When the policy was resolved. Stale policies are re-resolved on dispatch. */
@@ -155,3 +185,59 @@ export interface SideChatAuthorityPolicy {
 export type SideChatAuthorityResolution =
   | { ok: true; policy: SideChatAuthorityPolicy; source: 'live-parent' | 'persisted' }
   | { ok: false; code: 'unavailable-permissions'; error: string };
+
+/** Whether one provider can run a sidechat under the parent's policy. */
+export interface SideChatProviderCapability {
+  provider: SideChatProvider;
+  available: boolean;
+  /** Concrete reason shown when `available` is false. */
+  reason: string | null;
+}
+
+/**
+ * Inspectable inherited-permission posture for a parent, plus which providers
+ * can enforce it. Returned to the UI before the first message so unsupported
+ * capability is visible before submission.
+ */
+export type SideChatPermissionSummary =
+  | {
+      ok: true;
+      source: 'live-parent' | 'persisted';
+      policy: SideChatAuthorityPolicy;
+      providers: SideChatProviderCapability[];
+    }
+  | {
+      ok: false;
+      code: 'unavailable-permissions';
+      error: string;
+      providers: SideChatProviderCapability[];
+    };
+
+/** Every provider a sidechat may target, in picker order. */
+export const SIDE_CHAT_PROVIDERS: readonly SideChatProvider[] = [
+  'claude', 'codex', 'gemini', 'antigravity', 'copilot',
+  'cursor', 'grok', 'opencode', 'local-model',
+];
+
+const RUNNING_STATUSES: ReadonlySet<InstanceStatus> = new Set<InstanceStatus>([
+  'initializing', 'busy', 'processing', 'thinking_deeply', 'interrupting',
+  'cancelling', 'interrupt-escalating', 'respawning', 'waking',
+]);
+
+const ATTENTION_STATUSES: ReadonlySet<InstanceStatus> = new Set<InstanceStatus>([
+  'waiting_for_permission', 'error', 'failed', 'degraded',
+]);
+
+/**
+ * Classify one sidechat for badges and selectors. Needing action outranks an
+ * unread answer, which outranks running work (spec §8 table).
+ */
+export function sideChatConversationState(
+  status: InstanceStatus | null,
+  unread: boolean,
+): SideChatConversationState {
+  if (status && ATTENTION_STATUSES.has(status)) return 'needs-attention';
+  if (unread) return 'unread';
+  if (status && RUNNING_STATUSES.has(status)) return 'running';
+  return 'idle';
+}

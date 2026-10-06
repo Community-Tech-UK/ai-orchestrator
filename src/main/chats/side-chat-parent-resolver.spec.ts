@@ -60,10 +60,12 @@ describe('SideChatParentResolver', () => {
       ledger,
       chatStore,
       instanceManager: instanceManager as never,
-      findArchiveEntryId: (historyThreadId) =>
-        archiveMessages.has(historyThreadId) ? `entry-${historyThreadId}` : null,
-      loadArchiveMessages: async (entryId) =>
-        archiveMessages.get(entryId.replace(/^entry-/, '')) ?? null,
+      archive: {
+        find: (historyThreadId) => archiveMessages.has(historyThreadId)
+          ? { entryId: `entry-${historyThreadId}`, title: 'Archived title', workspacePath: '/archived', originNodeId: null }
+          : null,
+        loadMessages: async (entryId) => archiveMessages.get(entryId.replace(/^entry-/, '')) ?? null,
+      },
     };
     const resolver = new SideChatParentResolver(deps);
     return { db, ledger, chatStore, instanceManager, archiveMessages, resolver };
@@ -202,7 +204,25 @@ describe('SideChatParentResolver', () => {
       originNodeId: null,
     });
     expect(source.sourceKind).toBe('session-archive');
+    expect(source.title).toBe('Archived title');
     expect(source.turns.map((t) => t.content)).toEqual(['Old task', 'Old progress']);
+    expect(await resolver.resolveIdentity({ kind: 'session', historyThreadId: 'thread-archived', originNodeId: null }))
+      .toEqual({ title: 'Archived title', workspacePath: '/archived', originNodeId: null });
+  });
+
+  it('keeps a long-running session\'s original task after its buffer was trimmed', async () => {
+    const { instanceManager, resolver } = await harness();
+    const live = instanceManager.create({ workingDirectory: '/work', displayName: 'Long run', historyThreadId: 'thread-long' });
+    live.status = 'busy';
+    live.retainedPrompts = [{ id: 'p0', timestamp: 1, type: 'user', content: 'Original task: port the scheduler' }];
+    live.outputBuffer = [{ id: 'p9', timestamp: 9, type: 'assistant', content: 'Step 9 of 12 complete' }];
+
+    const source = await resolver.resolve({ kind: 'session', historyThreadId: 'thread-long', originNodeId: null });
+
+    expect(source.pendingRuntimeTurns.map((turn) => turn.content)).toEqual([
+      'Original task: port the scheduler',
+      'Step 9 of 12 complete',
+    ]);
   });
 
   it('returns an explicit unavailable error for a missing parent', async () => {

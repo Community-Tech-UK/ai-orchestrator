@@ -358,6 +358,9 @@ export class ChatStore {
   }
 
   private async handleChatEvent(event: ChatEvent): Promise<void> {
+    if (event.type === 'side-chat-attention') {
+      return; // owned by SideChatStore
+    }
     if (event.type === 'chat-created' || event.type === 'chat-updated' || event.type === 'runtime-linked' || event.type === 'runtime-cleared') {
       this.mergeChat(event.chat);
     }

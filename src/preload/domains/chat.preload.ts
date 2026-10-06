@@ -74,5 +74,17 @@ export function createChatDomain(
 
     sideChatAttention: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.SIDE_CHAT_ATTENTION, payload),
+
+    sideChatAttentionAll: (): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.SIDE_CHAT_ATTENTION_ALL),
+
+    sideChatSetSelection: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.SIDE_CHAT_SET_SELECTION, payload),
+
+    sideChatAttach: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.SIDE_CHAT_ATTACH, payload),
+
+    sideChatPermissions: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.SIDE_CHAT_PERMISSIONS, payload),
   };
 }

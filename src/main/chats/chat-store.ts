@@ -10,6 +10,8 @@ interface ChatRow {
   model: string | null;
   reasoning_effort: string | null;
   model_runtime_target_json: string | null;
+  /** Joined from side_chat_links; null for ordinary chats. */
+  side_chat_parent_key?: string | null;
   current_cwd: string | null;
   project_id: string | null;
   yolo: number;
@@ -52,32 +54,41 @@ export interface ChatUpdateInput {
   archivedAt?: number | null;
 }
 
+/**
+ * Chat rows joined with their sidechat ownership (if any), so every record says
+ * whether it already belongs to a parent session.
+ */
+const SELECT_CHATS = `
+  SELECT c.*, scl.parent_key AS side_chat_parent_key
+  FROM chats c
+  LEFT JOIN side_chat_links scl ON scl.chat_id = c.id`;
+
 export class ChatStore {
   constructor(private readonly db: SqliteDriver) {}
 
   list(options: { includeArchived?: boolean } = {}): ChatRecord[] {
     const rows = options.includeArchived
-      ? this.db.prepare('SELECT * FROM chats ORDER BY last_active_at DESC').all<ChatRow>()
+      ? this.db.prepare(`${SELECT_CHATS} ORDER BY c.last_active_at DESC`).all<ChatRow>()
       : this.db.prepare(`
-          SELECT * FROM chats
-          WHERE archived_at IS NULL
-          ORDER BY last_active_at DESC
+          ${SELECT_CHATS}
+          WHERE c.archived_at IS NULL
+          ORDER BY c.last_active_at DESC
         `).all<ChatRow>();
     return rows.map(rowToChatRecord);
   }
 
   get(id: string): ChatRecord | null {
-    const row = this.db.prepare('SELECT * FROM chats WHERE id = ?').get<ChatRow>(id);
+    const row = this.db.prepare(`${SELECT_CHATS} WHERE c.id = ?`).get<ChatRow>(id);
     return row ? rowToChatRecord(row) : null;
   }
 
   getByLedgerThreadId(ledgerThreadId: string): ChatRecord | null {
-    const row = this.db.prepare('SELECT * FROM chats WHERE ledger_thread_id = ?').get<ChatRow>(ledgerThreadId);
+    const row = this.db.prepare(`${SELECT_CHATS} WHERE c.ledger_thread_id = ?`).get<ChatRow>(ledgerThreadId);
     return row ? rowToChatRecord(row) : null;
   }
 
   getByInstanceId(instanceId: string): ChatRecord | null {
-    const row = this.db.prepare('SELECT * FROM chats WHERE current_instance_id = ?').get<ChatRow>(instanceId);
+    const row = this.db.prepare(`${SELECT_CHATS} WHERE c.current_instance_id = ?`).get<ChatRow>(instanceId);
     return row ? rowToChatRecord(row) : null;
   }
 
@@ -187,6 +198,7 @@ function rowToChatRecord(row: ChatRow): ChatRecord {
     createdAt: row.created_at,
     lastActiveAt: row.last_active_at,
     archivedAt: row.archived_at,
+    sideChatParentKey: row.side_chat_parent_key ?? null,
   };
 }
 

@@ -147,37 +147,47 @@ export class ChatIpcService {
   // ── Session-linked sidechats ──────────────────────────────────────────────
 
   async sideChatCreate(payload: unknown): Promise<IpcResponse<unknown>> {
-    if (!this.api) {
-      return { success: false, error: { message: 'Not in Electron' } };
-    }
-    return this.api.sideChatCreate(payload) as Promise<IpcResponse<unknown>>;
+    return this.invokeSideChat((api) => api.sideChatCreate(payload));
   }
 
   async sideChatList(payload: unknown): Promise<IpcResponse<unknown>> {
-    if (!this.api) {
-      return { success: false, error: { message: 'Not in Electron' } };
-    }
-    return this.api.sideChatList(payload) as Promise<IpcResponse<unknown>>;
+    return this.invokeSideChat((api) => api.sideChatList(payload));
   }
 
   async sideChatSend(payload: unknown): Promise<IpcResponse<unknown>> {
-    if (!this.api) {
-      return { success: false, error: { message: 'Not in Electron' } };
-    }
-    return this.api.sideChatSend(payload) as Promise<IpcResponse<unknown>>;
+    return this.invokeSideChat((api) => api.sideChatSend(payload));
   }
 
   async sideChatMarkRead(payload: unknown): Promise<IpcResponse<unknown>> {
-    if (!this.api) {
-      return { success: false, error: { message: 'Not in Electron' } };
-    }
-    return this.api.sideChatMarkRead(payload) as Promise<IpcResponse<unknown>>;
+    return this.invokeSideChat((api) => api.sideChatMarkRead(payload));
   }
 
   async sideChatAttention(payload: unknown): Promise<IpcResponse<unknown>> {
+    return this.invokeSideChat((api) => api.sideChatAttention(payload));
+  }
+
+  async sideChatAttentionAll(): Promise<IpcResponse<unknown>> {
+    return this.invokeSideChat((api) => api.sideChatAttentionAll());
+  }
+
+  async sideChatSetSelection(payload: unknown): Promise<IpcResponse<unknown>> {
+    return this.invokeSideChat((api) => api.sideChatSetSelection(payload));
+  }
+
+  async sideChatAttach(payload: unknown): Promise<IpcResponse<unknown>> {
+    return this.invokeSideChat((api) => api.sideChatAttach(payload));
+  }
+
+  async sideChatPermissions(payload: unknown): Promise<IpcResponse<unknown>> {
+    return this.invokeSideChat((api) => api.sideChatPermissions(payload));
+  }
+
+  private async invokeSideChat(
+    call: (api: NonNullable<ReturnType<ElectronIpcService['getApi']>>) => Promise<unknown>,
+  ): Promise<IpcResponse<unknown>> {
     if (!this.api) {
       return { success: false, error: { message: 'Not in Electron' } };
     }
-    return this.api.sideChatAttention(payload) as Promise<IpcResponse<unknown>>;
+    return call(this.api) as Promise<IpcResponse<unknown>>;
   }
 }

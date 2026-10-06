@@ -15,6 +15,15 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
 import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
+import { SideChatStore } from '../../core/state/side-chat.store';
+import type { SideChatParentRef } from '../../../../shared/types/side-chat.types';
+
+/** Badge treatment of a session's sidechats while their panel is closed. */
+interface SideChatRowBadge {
+  kind: 'needs-attention' | 'unread' | 'running' | 'quiet';
+  count: number;
+  label: string;
+}
 
 @Component({
   selector: 'app-instance-row',
@@ -27,6 +36,7 @@ import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 export class InstanceRowComponent {
   private readonly remoteNodeStore = inject(RemoteNodeStore);
   private readonly toolLoopAlerts = inject(ToolLoopAlertStore);
+  private readonly sideChatStore = inject(SideChatStore);
 
   // Required inputs
   instance = input.required<Instance>();
@@ -82,6 +92,37 @@ export class InstanceRowComponent {
   });
 
   readonly hasUnreadCompletion = computed(() => !!this.instance().hasUnreadCompletion);
+
+  private readonly sideChatParent = computed<SideChatParentRef>(() => ({
+    kind: 'session',
+    historyThreadId: this.instance().historyThreadId,
+    originNodeId: this.instance().workerNodeId ?? null,
+  }));
+
+  /**
+   * This session's sidechat activity, so answers stay discoverable with the
+   * panel closed. Needing action outranks unread, which outranks running.
+   */
+  readonly sideChatBadge = computed<SideChatRowBadge | null>(() => {
+    const attention = this.sideChatStore.attentionFor(this.sideChatParent());
+    if (!attention || attention.total === 0) return null;
+    if (attention.needsAttention > 0) {
+      return { kind: 'needs-attention', count: attention.needsAttention, label: `${attention.needsAttention} sidechat needs action` };
+    }
+    if (attention.unread > 0) {
+      return { kind: 'unread', count: attention.unread, label: `${attention.unread} unread sidechat answer` };
+    }
+    if (attention.running > 0) {
+      return { kind: 'running', count: attention.running, label: `${attention.running} sidechat running` };
+    }
+    return { kind: 'quiet', count: attention.total, label: `${attention.total} sidechat` };
+  });
+
+  openSideChats(event: Event): void {
+    event.stopPropagation();
+    const attention = this.sideChatStore.attentionFor(this.sideChatParent());
+    this.sideChatStore.requestOpen(this.sideChatParent(), attention?.targetChatId ?? null);
+  }
 
   /**
    * True when this session was spawned by a scheduled automation. Detected via

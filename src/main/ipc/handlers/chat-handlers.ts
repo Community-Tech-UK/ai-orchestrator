@@ -15,13 +15,18 @@ import {
   ChatSetReasoningPayloadSchema,
   ChatSetYoloPayloadSchema,
   ChatUiStatePayloadSchema,
+  SideChatAttachPayloadSchema,
   SideChatCreatePayloadSchema,
   SideChatListPayloadSchema,
   SideChatMarkReadPayloadSchema,
   SideChatSendPayloadSchema,
+  SideChatSetSelectionPayloadSchema,
+  type SideChatProviderSelectionPayload,
 } from '@contracts/schemas/chat';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import type { ModelRuntimeTarget } from '../../../shared/types/local-model-runtime.types';
+import type { SideChatProviderSelection } from '../../../shared/types/side-chat.types';
+import { SideChatError } from '../../chats/side-chat-service';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getChatService } from '../../chats';
 import { getMainEventBus } from '../../event-bus/main-event-bus';
@@ -188,74 +193,139 @@ export function registerChatHandlers(deps: { instanceManager: InstanceManager })
 
   // ── Session-linked sidechats ──────────────────────────────────────────────
 
+  const sideChats = service.sideChats;
+
   ipcMain.handle(IPC_CHANNELS.SIDE_CHAT_CREATE, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(SideChatCreatePayloadSchema, payload, 'SIDE_CHAT_CREATE');
       return {
         success: true,
-        data: await service.createSideChat({
+        data: await sideChats.create({
           parent: validated.parent,
           name: validated.name,
           currentCwd: validated.currentCwd,
-          selection: {
-            provider: validated.selection.provider,
-            model: validated.selection.model ?? null,
-            reasoning: validated.selection.reasoning ?? null,
-            modelRuntimeTarget: (validated.selection.modelRuntimeTarget ?? null) as ModelRuntimeTarget | null,
-          },
+          selection: toSelection(validated.selection),
         }),
       };
     } catch (error) {
-      return chatError(error, 'SIDE_CHAT_CREATE_FAILED');
+      return sideChatError(error, 'SIDE_CHAT_CREATE_FAILED');
     }
   });
 
   ipcMain.handle(IPC_CHANNELS.SIDE_CHAT_LIST, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(SideChatListPayloadSchema, payload, 'SIDE_CHAT_LIST');
-      return { success: true, data: service.listSideChats(validated.parent) };
+      return {
+        success: true,
+        data: {
+          active: await sideChats.list(validated.parent),
+          archived: sideChats.listArchived(validated.parent),
+        },
+      };
     } catch (error) {
-      return chatError(error, 'SIDE_CHAT_LIST_FAILED');
+      return sideChatError(error, 'SIDE_CHAT_LIST_FAILED');
     }
   });
 
   ipcMain.handle(IPC_CHANNELS.SIDE_CHAT_SEND, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(SideChatSendPayloadSchema, payload, 'SIDE_CHAT_SEND');
-      const result = await service.sendSideChatMessage(validated.chatId, validated.text, {
-        allowStaleContext: validated.allowStaleContext,
-      });
+      const result = await sideChats.send(
+        { chatId: validated.chatId, text: validated.text },
+        { allowStaleContext: validated.allowStaleContext },
+      );
       if (result.ok) {
         return { success: true, data: result };
       }
       return {
         success: false,
-        error: { code: result.code.toUpperCase().replace(/-/g, '_'), message: result.error, timestamp: Date.now() },
+        error: { code: toErrorCode(result.code), message: result.error, timestamp: Date.now() },
         data: result,
       };
     } catch (error) {
-      return chatError(error, 'SIDE_CHAT_SEND_FAILED');
+      return sideChatError(error, 'SIDE_CHAT_SEND_FAILED');
     }
   });
 
   ipcMain.handle(IPC_CHANNELS.SIDE_CHAT_MARK_READ, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(SideChatMarkReadPayloadSchema, payload, 'SIDE_CHAT_MARK_READ');
-      const data = await service.markSideChatRead(validated.chatId, validated.throughSequence);
-      return { success: true, data };
+      return { success: true, data: await sideChats.markRead(validated.chatId, validated.throughSequence) };
     } catch (error) {
-      return chatError(error, 'SIDE_CHAT_MARK_READ_FAILED');
+      return sideChatError(error, 'SIDE_CHAT_MARK_READ_FAILED');
     }
   });
 
   ipcMain.handle(IPC_CHANNELS.SIDE_CHAT_ATTENTION, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(SideChatListPayloadSchema, payload, 'SIDE_CHAT_ATTENTION');
-      return { success: true, data: service.getSideChatAttention(validated.parent) };
+      return { success: true, data: await sideChats.attention(validated.parent) };
     } catch (error) {
-      return chatError(error, 'SIDE_CHAT_ATTENTION_FAILED');
+      return sideChatError(error, 'SIDE_CHAT_ATTENTION_FAILED');
     }
   });
+
+  ipcMain.handle(IPC_CHANNELS.SIDE_CHAT_ATTENTION_ALL, async (): Promise<IpcResponse> => {
+    try {
+      return { success: true, data: await sideChats.attentionForAll() };
+    } catch (error) {
+      return sideChatError(error, 'SIDE_CHAT_ATTENTION_ALL_FAILED');
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SIDE_CHAT_SET_SELECTION, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(SideChatSetSelectionPayloadSchema, payload, 'SIDE_CHAT_SET_SELECTION');
+      return {
+        success: true,
+        data: await sideChats.setSelection(validated.chatId, toSelection(validated.selection)),
+      };
+    } catch (error) {
+      return sideChatError(error, 'SIDE_CHAT_SET_SELECTION_FAILED');
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SIDE_CHAT_ATTACH, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(SideChatAttachPayloadSchema, payload, 'SIDE_CHAT_ATTACH');
+      return { success: true, data: await sideChats.attach(validated.chatId, validated.parent) };
+    } catch (error) {
+      return sideChatError(error, 'SIDE_CHAT_ATTACH_FAILED');
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SIDE_CHAT_PERMISSIONS, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(SideChatListPayloadSchema, payload, 'SIDE_CHAT_PERMISSIONS');
+      return { success: true, data: await sideChats.permissions(validated.parent) };
+    } catch (error) {
+      return sideChatError(error, 'SIDE_CHAT_PERMISSIONS_FAILED');
+    }
+  });
+}
+
+function toSelection(selection: SideChatProviderSelectionPayload): SideChatProviderSelection {
+  return {
+    provider: selection.provider,
+    model: selection.model ?? null,
+    // `undefined` keeps "use the provider default"; `null` is "provider decides".
+    reasoning: selection.reasoning,
+    modelRuntimeTarget: (selection.modelRuntimeTarget ?? null) as ModelRuntimeTarget | null,
+  };
+}
+
+function toErrorCode(code: string): string {
+  return `SIDE_CHAT_${code.toUpperCase().replace(/-/g, '_')}`;
+}
+
+function sideChatError(error: unknown, fallbackCode: string): IpcResponse {
+  if (error instanceof SideChatError) {
+    return {
+      success: false,
+      error: { code: toErrorCode(error.code), message: error.message, timestamp: Date.now() },
+    };
+  }
+  return chatError(error, fallbackCode);
 }
 
 function registerChatEventForwarding(instanceManager: InstanceManager): void {

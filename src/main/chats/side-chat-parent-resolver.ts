@@ -49,14 +49,26 @@ export class ParentUnavailableError extends Error {
   }
 }
 
+/** Lightweight parent identity: enough to name it and locate its workspace. */
+export interface ParentIdentity {
+  title: string;
+  workspacePath: string | null;
+  /** Workspace provenance (origin worker node). Never part of ownership. */
+  originNodeId: string | null;
+}
+
+/** Access to terminated sessions kept in the history archive. */
+export interface SideChatArchiveLookup {
+  /** Newest archive entry carrying this stable history thread id. */
+  find(historyThreadId: string): (ParentIdentity & { entryId: string }) | null;
+  loadMessages(entryId: string): Promise<OutputMessage[] | null>;
+}
+
 export interface SideChatParentResolverDeps {
   ledger: ConversationLedgerService;
   chatStore: ChatStore;
-  instanceManager: InstanceManager;
-  /** Optional: load an archived conversation's messages by history entry id. */
-  loadArchiveMessages?: (entryId: string) => Promise<OutputMessage[] | null>;
-  /** Optional: resolve a history entry id from a historyThreadId. */
-  findArchiveEntryId?: (historyThreadId: string) => string | null;
+  instanceManager: Pick<InstanceManager, 'getInstance' | 'getAllInstances'>;
+  archive?: SideChatArchiveLookup;
 }
 
 /**
@@ -80,6 +92,49 @@ export class SideChatParentResolver {
     return this.resolveSessionParent(parent);
   }
 
+  /**
+   * Cheap identity lookup (no transcript read) used for titles, workspace and
+   * node resolution. Null when the parent no longer resolves anywhere.
+   */
+  async resolveIdentity(parent: SideChatParentRef): Promise<ParentIdentity | null> {
+    if (parent.kind === 'chat') {
+      const chat = this.deps.chatStore.get(parent.chatId);
+      if (!chat) return null;
+      const instance = chat.currentInstanceId
+        ? this.deps.instanceManager.getInstance(chat.currentInstanceId)
+        : undefined;
+      return {
+        title: chat.name,
+        workspacePath: chat.currentCwd,
+        originNodeId: instance?.workerNodeId ?? null,
+      };
+    }
+    const owningChat = this.deps.chatStore.getByLedgerThreadId(parent.historyThreadId);
+    if (owningChat) {
+      return { title: owningChat.name, workspacePath: owningChat.currentCwd, originNodeId: parent.originNodeId };
+    }
+    const live = this.findLiveInstance(parent.historyThreadId);
+    if (live) {
+      return {
+        title: live.displayName,
+        workspacePath: live.workingDirectory,
+        originNodeId: live.workerNodeId ?? parent.originNodeId,
+      };
+    }
+    const thread = await this.deps.ledger.getThread(parent.historyThreadId);
+    if (thread) {
+      return {
+        title: thread.title ?? 'Session',
+        workspacePath: thread.workspacePath,
+        originNodeId: parent.originNodeId,
+      };
+    }
+    const archived = this.deps.archive?.find(parent.historyThreadId) ?? null;
+    return archived
+      ? { title: archived.title, workspacePath: archived.workspacePath, originNodeId: archived.originNodeId ?? parent.originNodeId }
+      : null;
+  }
+
   private async resolveChatParent(chatId: string): Promise<ResolvedParentSource> {
     const chat = this.deps.chatStore.get(chatId);
     if (!chat) {
@@ -100,7 +155,7 @@ export class SideChatParentResolver {
       ? this.deps.instanceManager.getInstance(chat.currentInstanceId)
       : null;
     const pendingRuntimeTurns = instance
-      ? outputMessagesToTurns(instance.outputBuffer, conversation.messages.length)
+      ? outputMessagesToTurns(runtimeMessages(instance), conversation.messages.length)
       : [];
     const turns = conversation.messages.map(recordToTurn);
     return {
@@ -135,16 +190,21 @@ export class SideChatParentResolver {
       const conversation = await this.deps.ledger.getRecentConversation(historyThreadId, 1000);
       const checkpoint = await this.deps.ledger.getLatestCheckpoint(historyThreadId);
       const turns = conversation.messages.map(recordToTurn);
+      // A live runtime carrying the same identity may hold turns the ledger
+      // has not ingested yet; merge them by identity.
+      const liveForLedger = this.findLiveInstance(historyThreadId);
       return {
         parent,
-        title: thread.title ?? 'Session',
-        workspacePath: thread.workspacePath,
-        originNodeId: parent.originNodeId,
-        status: null,
+        title: thread.title ?? liveForLedger?.displayName ?? 'Session',
+        workspacePath: thread.workspacePath ?? liveForLedger?.workingDirectory ?? null,
+        originNodeId: liveForLedger?.workerNodeId ?? parent.originNodeId,
+        status: liveForLedger?.status ?? null,
         sourceKind: 'session-ledger',
         checkpoint,
         turns,
-        pendingRuntimeTurns: [],
+        pendingRuntimeTurns: liveForLedger
+          ? outputMessagesToTurns(runtimeMessages(liveForLedger), turns.length)
+          : [],
         newestSequence: turns[turns.length - 1]?.sequence ?? 0,
       };
     }
@@ -152,7 +212,7 @@ export class SideChatParentResolver {
     // 3. Live instance carrying this history thread identity.
     const live = this.findLiveInstance(historyThreadId);
     if (live) {
-      const turns = outputMessagesToTurns(live.outputBuffer, 0);
+      const turns = outputMessagesToTurns(runtimeMessages(live), 0);
       return {
         parent,
         title: live.displayName,
@@ -191,24 +251,30 @@ export class SideChatParentResolver {
     historyThreadId: string,
     parent: Extract<SideChatParentRef, { kind: 'session' }>,
   ): Promise<ResolvedParentSource | null> {
-    if (!this.deps.findArchiveEntryId || !this.deps.loadArchiveMessages) {
+    const entry = this.deps.archive?.find(historyThreadId) ?? null;
+    if (!entry || !this.deps.archive) {
       return null;
     }
-    const entryId = this.deps.findArchiveEntryId(historyThreadId);
-    if (!entryId) {
+    let messages: OutputMessage[] | null;
+    try {
+      messages = await this.deps.archive.loadMessages(entry.entryId);
+    } catch (error) {
+      logger.warn('Archived parent transcript could not be loaded', {
+        historyThreadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return null;
     }
-    const messages = await this.deps.loadArchiveMessages(entryId);
     if (!messages) {
       return null;
     }
     const turns = outputMessagesToTurns(messages, 0);
     return {
       parent,
-      title: 'Archived session',
-      workspacePath: null,
-      originNodeId: parent.originNodeId,
-      status: null,
+      title: entry.title || 'Archived session',
+      workspacePath: entry.workspacePath,
+      originNodeId: entry.originNodeId ?? parent.originNodeId,
+      status: 'archived',
       sourceKind: 'session-archive',
       checkpoint: null,
       turns,
@@ -216,6 +282,24 @@ export class SideChatParentResolver {
       newestSequence: turns[turns.length - 1]?.sequence ?? 0,
     };
   }
+}
+
+/**
+ * A live runtime's transcript, including user prompts already evicted from the
+ * bounded output buffer. Long-running sessions trim their buffer, and the
+ * evicted prompt is usually the original task statement the sidechat most
+ * needs; `retainedPrompts` keeps it (see prompt-retention.ts).
+ */
+function runtimeMessages(instance: Instance): OutputMessage[] {
+  const retained = instance.retainedPrompts ?? [];
+  if (retained.length === 0) {
+    return instance.outputBuffer;
+  }
+  const bufferIds = new Set(instance.outputBuffer.map((message) => message.id));
+  return [
+    ...retained.filter((message) => !bufferIds.has(message.id)),
+    ...instance.outputBuffer,
+  ];
 }
 
 function recordToTurn(record: {

@@ -12,6 +12,7 @@ import {
   computed,
   HostListener,
   effect,
+  untracked,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -19,6 +20,9 @@ import { HistoryStore } from '../../core/state/history.store';
 import { CliStore } from '../../core/state/cli.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { ChatStore } from '../../core/state/chat.store';
+import { SideChatStore } from '../../core/state/side-chat.store';
+import { sideChatParentFor, sideChatParentSelectionFor } from '../side-chat/side-chat-parent';
+import type { SideChatParentRef } from '../../../../shared/types/side-chat.types';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
@@ -97,6 +101,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   cliStore = inject(CliStore);
   settingsStore = inject(SettingsStore);
   chatStore = inject(ChatStore);
+  private sideChatStore = inject(SideChatStore);
   private remoteNodeStore = inject(RemoteNodeStore);
   private electronIpc = inject(ElectronIpcService);
   private actionDispatch = inject(ActionDispatchService);
@@ -209,28 +214,17 @@ export class DashboardComponent implements OnInit, OnDestroy {
   );
 
   /** Parent session identity for session-linked sidechats. */
-  sideChatParent = computed(() => {
-    const chat = this.chatStore.selectedChat();
-    if (chat) {
-      return { kind: 'chat' as const, chatId: chat.id };
-    }
-    const instance = this.store.selectedInstance();
-    if (instance?.historyThreadId) {
-      return {
-        kind: 'session' as const,
-        historyThreadId: instance.historyThreadId,
-        originNodeId: instance.workerNodeId ?? null,
-      };
-    }
-    return null;
-  });
+  sideChatParent = computed(() =>
+    sideChatParentFor(this.chatStore.selectedChat(), this.store.selectedInstance() ?? null));
 
-  sideChatParentTitle = computed(() => {
-    const chat = this.chatStore.selectedChat();
-    if (chat) return chat.name;
-    const instance = this.store.selectedInstance();
-    return instance?.displayName ?? '';
-  });
+  sideChatParentTitle = computed(() =>
+    this.chatStore.selectedChat()?.name ?? this.store.selectedInstance()?.displayName ?? '');
+
+  sideChatParentSelection = computed(() =>
+    sideChatParentSelectionFor(this.chatStore.selectedChat(), this.store.selectedInstance() ?? null));
+
+  /** Conversation a badge or attention list asked the panel to open. */
+  sideChatPreferredChatId = signal<string | null>(null);
 
   hasWorkspaceSelection = computed(() =>
     !!this.chatStore.selectedChatId()
@@ -257,6 +251,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private actionCleanup: (() => void)[] = [];
 
   constructor() {
+    void this.sideChatStore.initialize();
+    effect(() => {
+      const request = this.sideChatStore.openRequest();
+      if (request) {
+        untracked(() => this.openSideChatFor(request.parent, request.chatId));
+      }
+    });
+
     effect(() => {
       if (!this.canShowFileExplorer()) {
         this.showFileExplorer.set(false);
@@ -631,7 +633,15 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.showSideChat.set(preset.panels.sideChat ?? false);
   }
 
+  /** Close the panel and return keyboard focus to the rail button that opens it. */
+  closeSideChat(): void {
+    this.sideChatPreferredChatId.set(null);
+    this.showSideChat.set(false);
+    queueMicrotask(() => document.querySelector<HTMLElement>('app-workspace-rail button[title^="Sidechats"]')?.focus());
+  }
+
   toggleSideChat(): void {
+    this.sideChatPreferredChatId.set(null);
     this.showSideChat.update((open) => !open);
     this.viewLayoutService.setActivePreset(null);
   }
@@ -648,6 +658,29 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.showSourceControl.set(false);
     this.showSideChat.set(false);
     void this.chatStore.select(chatId);
+  }
+
+  /**
+   * Show a parent's sidechats from a badge or the rail's attention list:
+   * select that parent session, then open the panel on the exact
+   * conversation. A parent that is no longer live opens the sidechat itself.
+   */
+  private openSideChatFor(parent: SideChatParentRef, chatId: string | null): void {
+    if (parent.kind === 'chat') {
+      this.historyStore.clearSelection();
+      this.store.setSelectedInstance(null);
+      void this.chatStore.select(parent.chatId);
+    } else {
+      const live = this.store.instances().find((instance) =>
+        instance.historyThreadId === parent.historyThreadId && instance.status !== 'terminated');
+      if (!live) {
+        if (chatId) this.openSideChatInMain(chatId);
+        return;
+      }
+      this.store.setSelectedInstance(live.id);
+    }
+    this.sideChatPreferredChatId.set(chatId);
+    this.showSideChat.set(true);
   }
 
   toggleFileExplorer(): void {

@@ -4,12 +4,8 @@ import type { SqliteDriver } from '../db/sqlite-driver';
 import { createOperatorTables } from '../operator/operator-schema';
 import { SideChatContextStore } from './side-chat-context-store';
 import { SideChatLinkStore } from './side-chat-link-store';
-import {
-  ParentUnavailableError,
-  type ResolvedParentSource,
-  type SideChatParentResolver,
-} from './side-chat-parent-resolver';
-import { SideChatSendCoordinator } from './side-chat-send-coordinator';
+import { ParentUnavailableError, type ResolvedParentSource } from './side-chat-parent-resolver';
+import { SideChatSendCoordinator, type SideChatSendFailure } from './side-chat-send-coordinator';
 
 function makeSource(content: string): ResolvedParentSource {
   return {
@@ -37,9 +33,7 @@ describe('SideChatSendCoordinator', () => {
     dbs.length = 0;
   });
 
-  function harness(options: {
-    resolveImpl?: () => Promise<ResolvedParentSource>;
-  } = {}) {
+  function harness() {
     const db = defaultDriverFactory(':memory:');
     dbs.push(db);
     createOperatorTables(db);
@@ -51,226 +45,199 @@ describe('SideChatSendCoordinator', () => {
       authority: 'inherit-parent',
       lastReadAssistantSequence: 0,
     });
-
-    const preambles: { instanceId: string; preamble: string }[] = [];
-    const sends: string[] = [];
-    const parentMutations: string[] = [];
-    let resolveCalls = 0;
-    let currentSource = makeSource('Tasks 1-2 done. Remaining: 3-6.');
-    let failResolve = false;
-
-    const resolver: Pick<SideChatParentResolver, 'resolve'> = {
-      resolve: async () => {
-        resolveCalls += 1;
-        if (options.resolveImpl) {
-          return options.resolveImpl();
-        }
-        if (failResolve) {
-          throw new ParentUnavailableError('parent runtime is gone');
-        }
-        return currentSource;
-      },
+    const state = {
+      source: makeSource('Tasks 1-2 done. Remaining: 3-6.') as ResolvedParentSource | Error,
+      blocked: null as SideChatFailureForTest,
+      sends: [] as string[],
+      dispatchError: null as Error | null,
+      dispatchDelayMs: 0,
+      /** Runtime instance id the next dispatch "runs" on. */
+      runtime: 'runtime-1',
+      delivered: [] as (string | null)[],
+      /** Ledger turn id passed to every dispatch attempt, including failed ones. */
+      turnIds: [] as string[],
     };
-
-    const coordinator = new SideChatSendCoordinator({
-      resolver: resolver as SideChatParentResolver,
+    const coordinator: SideChatSendCoordinator = new SideChatSendCoordinator({
+      resolver: {
+        resolve: async () => {
+          if (state.source instanceof Error) throw state.source;
+          return state.source;
+        },
+      },
       contextStore,
       linkStore,
-      queuePreamble: (instanceId, preamble) => {
-        preambles.push({ instanceId, preamble });
-        parentMutations.push(`preamble:${instanceId}`);
+      preflight: async () => state.blocked,
+      dispatchSend: async (input, userTurnId) => {
+        state.turnIds.push(userTurnId);
+        if (state.dispatchDelayMs) await new Promise((resolve) => setTimeout(resolve, state.dispatchDelayMs));
+        if (state.dispatchError) throw state.dispatchError;
+        // ChatService.prepareTurnContext asks for context during dispatch.
+        state.delivered.push(coordinator.contextForTurn(input.chatId, state.runtime, 'resume'));
+        state.sends.push(input.text);
       },
-      dispatchSend: async (chatId, text) => {
-        sends.push(`${chatId}:${text}`);
-      },
-      getRuntimeInstanceId: () => 'side-runtime-1',
     });
-
-    return {
-      coordinator,
-      linkStore,
-      contextStore,
-      preambles,
-      sends,
-      parentMutations,
-      get resolveCalls() {
-        return resolveCalls;
-      },
-      setSource(content: string) {
-        currentSource = makeSource(content);
-      },
-      setFailResolve(value: boolean) {
-        failResolve = value;
-      },
-    };
+    return { coordinator, contextStore, state };
   }
 
-  it('delivers parent task and progress before the question without touching the parent runtime', async () => {
-    const h = harness();
-    const result = await h.coordinator.send('side-1', 'How far through are you?');
-    expect(result.ok).toBe(true);
-    expect(h.sends).toEqual(['side-1:How far through are you?']);
-    // The parent is never sent to or interrupted: the only mutation recorded
-    // is the sidechat's own preamble.
-    expect(h.parentMutations.every((m) => m.startsWith('preamble:side-runtime-1'))).toBe(true);
-    expect(h.preambles[0]?.preamble).toContain('Implement the plan');
-    expect(h.preambles[0]?.preamble).toContain('Tasks 1-2 done');
-    expect(h.preambles[0]?.preamble).toContain('parent_context');
+  type SideChatFailureForTest = SideChatSendFailure | null;
+
+  it('captures the parent task and progress and delivers it ahead of the first question', async () => {
+    const { coordinator, state } = harness();
+
+    const result = await coordinator.send({ chatId: 'side-1', text: 'How far through are you?' });
+
+    expect(result).toMatchObject({ ok: true, usedStaleContext: false });
+    expect(state.delivered[0]).toContain('Implement the plan');
+    expect(state.delivered[0]).toContain('Remaining: 3-6');
+    expect(state.sends).toEqual(['How far through are you?']);
   });
 
-  it('refreshes context on each question and the follow-up sees new parent progress', async () => {
-    const h = harness();
-    await h.coordinator.send('side-1', 'First question');
-    h.setSource('Tasks 1-3 done. Remaining: 4-6.');
-    await h.coordinator.send('side-1', 'Follow-up question');
+  it('does not resend an unchanged snapshot to the runtime that already has it', async () => {
+    const { coordinator, state } = harness();
 
-    expect(h.resolveCalls).toBe(2);
-    expect(h.sends).toHaveLength(2);
-    expect(h.preambles).toHaveLength(2);
-    expect(h.preambles[0]?.preamble).toContain('Tasks 1-2 done');
-    expect(h.preambles[1]?.preamble).toContain('Tasks 1-3 done');
-    expect(h.preambles[1]?.preamble).toContain('supersedes');
+    await coordinator.send({ chatId: 'side-1', text: 'First' });
+    await coordinator.send({ chatId: 'side-1', text: 'Second' });
+
+    expect(state.delivered[1]).toBeNull();
   });
 
-  it('does not resend unchanged context on an identical follow-up', async () => {
-    const h = harness();
-    await h.coordinator.send('side-1', 'First');
-    await h.coordinator.send('side-1', 'Second');
-    expect(h.resolveCalls).toBe(2);
-    expect(h.preambles).toHaveLength(1);
+  it('sends a superseding snapshot when the parent progresses', async () => {
+    const { coordinator, state } = harness();
+    await coordinator.send({ chatId: 'side-1', text: 'First' });
+
+    state.source = makeSource('Tasks 1-4 done. Remaining: 5-6.');
+    await coordinator.send({ chatId: 'side-1', text: 'Now?' });
+
+    expect(state.delivered[1]).toContain('supersedes the earlier snapshot');
+    expect(state.delivered[1]).toContain('Remaining: 5-6');
   });
 
-  it('persists exactly the latest effective context for rebuild', async () => {
-    const h = harness();
-    await h.coordinator.send('side-1', 'First');
-    h.setSource('Tasks 1-3 done.');
-    await h.coordinator.send('side-1', 'Second');
+  it('delivers the latest snapshot to a replacement runtime even when unchanged', async () => {
+    const { coordinator, state } = harness();
+    await coordinator.send({ chatId: 'side-1', text: 'First' });
 
-    const stored = h.coordinator.latestEffectiveContext('side-1');
-    expect(stored).not.toBeNull();
-    expect(stored?.quotedContext).toContain('Tasks 1-3 done');
-    // Only one row: rebuild sees the latest snapshot, not a stack of history.
-    const rows = h.contextStore.get('side-1');
-    expect(rows?.revision).toBe(stored?.revision);
+    state.runtime = 'runtime-2';
+    await coordinator.send({ chatId: 'side-1', text: 'After provider switch' });
+
+    expect(state.delivered[1]).toContain('Remaining: 3-6');
+    expect(state.delivered[1]).not.toContain('supersedes');
   });
 
-  it('returns an explicit error and offers the last snapshot when context is unavailable', async () => {
-    const h = harness();
-    await h.coordinator.send('side-1', 'First');
-    h.setFailResolve(true);
+  it('always includes the snapshot in a rebuild, once', async () => {
+    const { coordinator } = harness();
+    await coordinator.send({ chatId: 'side-1', text: 'First' });
 
-    const failed = await h.coordinator.send('side-1', 'Second');
-    expect(failed.ok).toBe(false);
-    if (!failed.ok) {
-      expect(failed.code).toBe('parent-unavailable');
-      expect(failed.lastSnapshotAvailable).toBe(true);
-    }
-    // No user turn is appended when snapshot acquisition fails.
-    expect(h.sends).toEqual(['side-1:First']);
+    const rebuild = coordinator.contextForTurn('side-1', 'runtime-1', 'rebuild');
+
+    expect(rebuild?.match(/<parent_context/g)).toHaveLength(1);
+  });
+
+  it('returns an explicit error and creates no user turn when context is unavailable', async () => {
+    const { coordinator, state } = harness();
+    await coordinator.send({ chatId: 'side-1', text: 'First' });
+
+    state.source = new Error('ledger read failed');
+    const result = await coordinator.send({ chatId: 'side-1', text: 'Second' });
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'context-unavailable',
+      error: 'Parent context unavailable: ledger read failed',
+      lastSnapshotAvailable: true,
+    });
+    expect(state.sends).toEqual(['First']);
+  });
+
+  it('distinguishes a missing parent from a read failure', async () => {
+    const { coordinator, state } = harness();
+    state.source = new ParentUnavailableError('Parent chat deleted');
+
+    const result = await coordinator.send({ chatId: 'side-1', text: 'Hello' });
+
+    expect(result).toMatchObject({ ok: false, code: 'parent-unavailable', lastSnapshotAvailable: false });
   });
 
   it('uses the last snapshot only when explicitly allowed and labels it stale', async () => {
-    const h = harness();
-    await h.coordinator.send('side-1', 'First');
-    h.setFailResolve(true);
+    const { coordinator, state } = harness();
+    await coordinator.send({ chatId: 'side-1', text: 'First' });
+    state.source = new Error('offline');
 
-    const refused = await h.coordinator.send('side-1', 'Second');
-    expect(refused.ok).toBe(false);
+    const result = await coordinator.send({ chatId: 'side-1', text: 'Second' }, { allowStaleContext: true });
 
-    const accepted = await h.coordinator.send('side-1', 'Second', { allowStaleContext: true });
-    expect(accepted.ok).toBe(true);
-    if (accepted.ok) {
-      expect(accepted.usedStaleContext).toBe(true);
-    }
-    expect(h.sends).toEqual(['side-1:First', 'side-1:Second']);
-    expect(h.preambles.at(-1)?.preamble).toContain('may be stale');
+    expect(result).toMatchObject({ ok: true, usedStaleContext: true });
+    expect(state.delivered[1]).toContain('may be stale');
   });
 
-  it('serializes concurrent sends so a retry cannot duplicate a user turn', async () => {
-    const h = harness();
-    const results = await Promise.all([
-      h.coordinator.send('side-1', 'Same question'),
-      h.coordinator.send('side-1', 'Same question'),
-      h.coordinator.send('side-1', 'Same question'),
+  it('serializes concurrent sends in order', async () => {
+    const { coordinator, state } = harness();
+    state.dispatchDelayMs = 5;
+
+    await Promise.all([
+      coordinator.send({ chatId: 'side-1', text: 'one' }),
+      coordinator.send({ chatId: 'side-1', text: 'two' }),
+      coordinator.send({ chatId: 'side-1', text: 'three' }),
     ]);
-    expect(results.every((r) => r.ok)).toBe(true);
-    expect(h.sends).toHaveLength(3);
-    // Serialized: each dispatch happened strictly after the previous one.
-    expect(h.resolveCalls).toBe(3);
+
+    expect(state.sends).toEqual(['one', 'two', 'three']);
   });
 
-  it('rejects sends for a chat with no parent link', async () => {
-    const h = harness();
-    const result = await h.coordinator.send('unlinked-chat', 'Hello');
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe('parent-unavailable');
-      expect(result.error).toContain('not linked');
-    }
+  it('stops before capturing context when preflight refuses', async () => {
+    const { coordinator, state, contextStore } = harness();
+    state.blocked = { ok: false, code: 'unavailable-permissions', error: 'no policy', lastSnapshotAvailable: false };
+
+    const result = await coordinator.send({ chatId: 'side-1', text: 'Edit it' });
+
+    expect(result).toMatchObject({ ok: false, code: 'unavailable-permissions' });
+    expect(contextStore.get('side-1')).toBeNull();
+    expect(state.sends).toEqual([]);
   });
 
-  it('returns an explicit error when dispatch fails after the snapshot is captured', async () => {
-    const db = defaultDriverFactory(':memory:');
-    dbs.push(db);
-    createOperatorTables(db);
-    const linkStore = new SideChatLinkStore(db);
-    const contextStore = new SideChatContextStore(db);
-    linkStore.insert({
-      chatId: 'side-1',
-      parent: { kind: 'chat', chatId: 'parent' },
-      authority: 'inherit-parent',
-      lastReadAssistantSequence: 0,
-    });
-    const coordinator = new SideChatSendCoordinator({
-      resolver: {
-        resolve: async () => makeSource('progress'),
-      } as unknown as SideChatParentResolver,
-      contextStore,
-      linkStore,
-      queuePreamble: () => undefined,
-      dispatchSend: async () => {
-        throw new Error('runtime spawn failed');
-      },
-      getRuntimeInstanceId: () => null,
-    });
+  it('rejects a chat with no parent link', async () => {
+    const { coordinator } = harness();
 
-    const result = await coordinator.send('side-1', 'Question');
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe('send-failed');
-      expect(result.error).toContain('runtime spawn failed');
-      expect(result.lastSnapshotAvailable).toBe(true);
-    }
+    expect(await coordinator.send({ chatId: 'unlinked', text: 'Hi' })).toMatchObject({ ok: false, code: 'not-linked' });
   });
 
-  it('skips preamble delivery when no runtime exists yet (first send)', async () => {
-    const db = defaultDriverFactory(':memory:');
-    dbs.push(db);
-    createOperatorTables(db);
-    const linkStore = new SideChatLinkStore(db);
-    const contextStore = new SideChatContextStore(db);
-    linkStore.insert({
-      chatId: 'side-1',
-      parent: { kind: 'chat', chatId: 'parent' },
-      authority: 'inherit-parent',
-      lastReadAssistantSequence: 0,
-    });
-    const preambles: string[] = [];
-    const coordinator = new SideChatSendCoordinator({
-      resolver: { resolve: async () => makeSource('progress') } as unknown as SideChatParentResolver,
-      contextStore,
-      linkStore,
-      queuePreamble: (_id, preamble) => preambles.push(preamble),
-      dispatchSend: async () => undefined,
-      getRuntimeInstanceId: () => null, // no runtime yet on first send
-    });
+  it('reports a dispatch failure after the snapshot is captured', async () => {
+    const { coordinator, state } = harness();
+    state.dispatchError = new Error('spawn failed');
 
-    const result = await coordinator.send('side-1', 'First question');
-    expect(result.ok).toBe(true);
-    // Preamble is not queued when there is no runtime; the context is delivered
-    // via prepareTurnContext's brand-new path after the runtime spawns.
-    expect(preambles).toHaveLength(0);
-    // But the snapshot IS persisted for later rebuild.
-    expect(contextStore.get('side-1')).not.toBeNull();
+    const result = await coordinator.send({ chatId: 'side-1', text: 'Hi' });
+
+    expect(result).toMatchObject({ ok: false, code: 'send-failed', error: 'spawn failed', lastSnapshotAvailable: true });
+  });
+
+  it('retries a failed dispatch under the same user turn, and starts a new turn otherwise', async () => {
+    const { coordinator, state } = harness();
+    state.dispatchError = new Error('spawn failed');
+    await coordinator.send({ chatId: 'side-1', text: 'Hi' });
+    state.dispatchError = null;
+
+    // Whitespace-only differences are the same question (the ledger stores it trimmed).
+    expect(await coordinator.send({ chatId: 'side-1', text: ' Hi ' }, { allowStaleContext: true })).toMatchObject({ ok: true });
+    await coordinator.send({ chatId: 'side-1', text: 'Hi' });
+
+    expect(state.turnIds[1]).toBe(state.turnIds[0]);
+    expect(state.turnIds[2]).not.toBe(state.turnIds[0]);
+  });
+
+  it('does not reuse a failed turn for a different question', async () => {
+    const { coordinator, state } = harness();
+    state.dispatchError = new Error('spawn failed');
+    await coordinator.send({ chatId: 'side-1', text: 'Hi' });
+    state.dispatchError = null;
+
+    await coordinator.send({ chatId: 'side-1', text: 'Something else' });
+
+    expect(state.turnIds[1]).not.toBe(state.turnIds[0]);
+  });
+
+  it('forgets delivery state for a removed runtime', async () => {
+    const { coordinator } = harness();
+    await coordinator.send({ chatId: 'side-1', text: 'First' });
+
+    coordinator.forgetRuntime('runtime-1');
+
+    expect(coordinator.contextForTurn('side-1', 'runtime-1', 'resume')).toContain('<parent_context');
   });
 });

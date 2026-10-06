@@ -153,6 +153,7 @@ export function createOperatorTables(db: SqliteDriver): void {
       parent_origin_node_id TEXT,
       authority TEXT NOT NULL,
       last_read_assistant_sequence INTEGER NOT NULL DEFAULT 0,
+      latest_assistant_sequence INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -181,6 +182,7 @@ export function createOperatorTables(db: SqliteDriver): void {
   ensureChatsReasoningEffortColumn(db);
   ensureChatSessionBindingLineageColumns(db);
   ensureChatsModelRuntimeTargetColumn(db);
+  ensureSideChatLatestAssistantSequenceColumn(db);
 }
 
 interface TableInfoRow {
@@ -206,6 +208,23 @@ function ensureChatsModelRuntimeTargetColumn(db: SqliteDriver): void {
 
   if (!columnNames.has('model_runtime_target_json')) {
     db.exec('ALTER TABLE chats ADD COLUMN model_runtime_target_json TEXT');
+  }
+}
+
+/**
+ * `latest_assistant_sequence` persists the newest assistant message sequence
+ * per sidechat so unread attention survives an app restart. NULL means "not
+ * yet observed" (rows from before this column) and is backfilled from the
+ * ledger on first read, never guessed as read or unread.
+ */
+function ensureSideChatLatestAssistantSequenceColumn(db: SqliteDriver): void {
+  const columns = db
+    .prepare('PRAGMA table_info(side_chat_links)')
+    .all() as TableInfoRow[];
+  const columnNames = new Set(columns.map((column) => column.name));
+
+  if (!columnNames.has('latest_assistant_sequence')) {
+    db.exec('ALTER TABLE side_chat_links ADD COLUMN latest_assistant_sequence INTEGER');
   }
 }
 

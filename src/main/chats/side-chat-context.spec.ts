@@ -119,6 +119,23 @@ describe('buildParentContextSnapshot', () => {
     expect(snapshot.omissions.some((o) => o.includes('omitted for budget'))).toBe(true);
   });
 
+  it('shrinks below the ceiling for a small model after history and answer reserves', () => {
+    const turns: ParentTranscriptTurn[] = [];
+    for (let i = 1; i <= 200; i += 1) {
+      turns.push(turn(i % 2 === 1 ? 'user' : 'assistant', `Message ${i} ${'x'.repeat(400)}`, i));
+    }
+    const roomy = buildParentContextSnapshot(source({ turns, newestSequence: 200 }), { modelInputBudget: 200_000 });
+    const small = buildParentContextSnapshot(source({ turns, newestSequence: 200 }), {
+      modelInputBudget: 8_000,
+      sidechatHistoryTokens: 2_000,
+    });
+
+    expect(small.estimatedTokens).toBeLessThan(roomy.estimatedTokens);
+    // 8,000 window − 2,000 sidechat history − 2,000 answer reserve ≈ 4,000 for parent context.
+    expect(small.estimatedTokens).toBeLessThanOrEqual(4_500);
+    expect(small.quotedContext).toContain('Message 1 ');
+  });
+
   it('keeps task and latest progress before older completed detail under budget pressure', () => {
     const turns: ParentTranscriptTurn[] = [
       turn('user', 'ORIGINAL TASK: implement the provider hardening plan', 1),

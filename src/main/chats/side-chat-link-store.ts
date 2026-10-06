@@ -15,6 +15,7 @@ interface SideChatLinkRow {
   parent_origin_node_id: string | null;
   authority: string;
   last_read_assistant_sequence: number;
+  latest_assistant_sequence: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -23,7 +24,9 @@ function rowToLink(row: SideChatLinkRow): SideChatLink {
   return {
     chatId: row.chat_id,
     parent: rowToParentRef(row),
-    authority: row.authority === 'inherit-parent' ? 'inherit-parent' : 'inherit-parent',
+    // `inherit-parent` is the only authority policy; any other stored value is
+    // read back as inheritance rather than as an independent grant.
+    authority: 'inherit-parent',
     lastReadAssistantSequence: row.last_read_assistant_sequence,
   };
 }
@@ -152,6 +155,52 @@ export class SideChatLinkStore {
       WHERE chat_id = ?
     `).run(sequence, Date.now(), chatId);
     return this.get(chatId);
+  }
+
+  /**
+   * Newest assistant message sequence observed for a sidechat, or null when it
+   * has never been observed (rows that predate the column). Persisted so the
+   * unread comparison survives an app restart.
+   */
+  getLatestAssistantSequence(chatId: string): number | null {
+    const row = this.db
+      .prepareCached('SELECT latest_assistant_sequence FROM side_chat_links WHERE chat_id = ?')
+      .get<{ latest_assistant_sequence: number | null }>(chatId);
+    return row?.latest_assistant_sequence ?? null;
+  }
+
+  /** Monotonically record a newer assistant sequence. Returns true when it advanced. */
+  recordAssistantSequence(chatId: string, sequence: number): boolean {
+    const value = Math.max(0, Math.floor(sequence));
+    return this.db.prepareCached(`
+      UPDATE side_chat_links
+      SET latest_assistant_sequence = ?, updated_at = ?
+      WHERE chat_id = ?
+        AND (latest_assistant_sequence IS NULL OR latest_assistant_sequence < ?)
+    `).run(value, Date.now(), chatId, value).changes === 1;
+  }
+
+  /**
+   * Distinct parents that own at least one non-archived sidechat. Lets the
+   * global attention entrypoint load without any panel being mounted.
+   */
+  listActiveParents(): SideChatParentRef[] {
+    const rows = this.db
+      .prepareCached(
+        `SELECT scl.* FROM side_chat_links scl
+         JOIN chats c ON c.id = scl.chat_id
+         WHERE c.archived_at IS NULL
+         ORDER BY scl.created_at ASC`,
+      )
+      .all<SideChatLinkRow>();
+    const seen = new Set<string>();
+    const parents: SideChatParentRef[] = [];
+    for (const row of rows) {
+      if (seen.has(row.parent_key)) continue;
+      seen.add(row.parent_key);
+      parents.push(rowToParentRef(row));
+    }
+    return parents;
   }
 
   /** Drop a deleted child's relation. Called from chat deletion cleanup. */

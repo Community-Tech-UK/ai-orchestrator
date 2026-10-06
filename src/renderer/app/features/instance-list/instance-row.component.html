@@ -125,6 +125,25 @@
             </span>
           }
           <span class="instance-name">{{ resolvedDisplayTitle() }}</span>
+          @if (sideChatBadge(); as badge) {
+            <button
+              type="button"
+              class="side-chat-badge"
+              [attr.data-kind]="badge.kind"
+              [appTooltip]="badge.label + ' — open sidechats'"
+              [attr.aria-label]="badge.label + ', open sidechats'"
+              (click)="openSideChats($event)"
+              (keydown.enter)="$event.stopPropagation()"
+              (keydown.space)="$event.stopPropagation()"
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+              @if (badge.kind !== 'running') {
+                <span>{{ badge.count }}</span>
+              }
+            </button>
+          }
           @if (hasPendingApproval()) {
             <span class="approval-chip" appTooltip="This instance has a pending permission request">Awaiting approval</span>
           }

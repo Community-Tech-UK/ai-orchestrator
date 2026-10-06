@@ -507,3 +507,51 @@
     transform: rotate(360deg);
   }
 }
+
+/* Sidechat activity for this session (visible while the panel is closed). */
+.side-chat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  padding: 0 5px;
+  height: 16px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--secondary-color);
+    outline-offset: 1px;
+  }
+
+  &[data-kind='unread'] {
+    color: var(--secondary-color);
+    border-color: var(--secondary-color);
+  }
+
+  &[data-kind='needs-attention'] {
+    color: var(--warning-color);
+    border-color: var(--warning-color);
+  }
+
+  &[data-kind='running'] svg {
+    animation: side-chat-badge-pulse 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes side-chat-badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .side-chat-badge[data-kind='running'] svg {
+    animation: none;
+  }
+}

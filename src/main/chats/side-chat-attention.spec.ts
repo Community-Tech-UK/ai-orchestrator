@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createOperatorTables } from '../operator/operator-schema';
@@ -54,7 +54,8 @@ describe('SideChatAttentionTracker', () => {
       linkStore,
       chatStore,
       instanceManager: instanceManager as never,
-      getLatestAssistantSequence: (chatId) => latestSequences.get(chatId) ?? 0,
+      getLatestAssistantSequence: async (link) => latestSequences.get(link.chatId) ?? 0,
+      resolveParentTitle: async (parent) => (parent.kind === 'chat' ? chatStore.get(parent.chatId)?.name ?? null : null),
     });
 
     function addSideChat(id: string, options: {
@@ -89,87 +90,76 @@ describe('SideChatAttentionTracker', () => {
     return { tracker, addSideChat, latestSequences, linkStore };
   }
 
-  it('reports zero attention for a parent with no sidechats', () => {
+  it('reports zero attention for a parent with no sidechats', async () => {
     const { tracker } = harness();
-    const attention = tracker.forParent(PARENT);
-    expect(attention).toEqual({
-      parent: PARENT, total: 0, running: 0, unread: 0, needsAttention: 0,
+
+    expect(await tracker.forParent(PARENT)).toEqual({
+      parent: PARENT,
+      parentTitle: 'Parent',
+      total: 0,
+      running: 0,
+      unread: 0,
+      needsAttention: 0,
+      targetChatId: null,
     });
   });
 
-  it('counts unread conversations, not streaming chunks', () => {
+  it('counts conversations with unread answers, not streamed chunks', async () => {
     const { tracker, addSideChat } = harness();
-    addSideChat('side-1', { latestSequence: 5, readSequence: 0 });
-    addSideChat('side-2', { latestSequence: 3, readSequence: 3 });
-    addSideChat('side-3', { latestSequence: 1, readSequence: 0 });
+    // One conversation whose answer arrived as many chunks (sequence 9).
+    addSideChat('a', { latestSequence: 9, readSequence: 2 });
+    addSideChat('b', { latestSequence: 4, readSequence: 4 });
 
-    const attention = tracker.forParent(PARENT);
-    expect(attention.total).toBe(3);
-    expect(attention.unread).toBe(2); // side-1 and side-3
+    expect(await tracker.forParent(PARENT)).toMatchObject({ total: 2, unread: 1, targetChatId: 'a' });
   });
 
-  it('tracks running state', () => {
+  it('tracks running conversations', async () => {
     const { tracker, addSideChat } = harness();
-    addSideChat('side-1', { status: 'busy' });
-    addSideChat('side-2', { status: 'idle' });
+    addSideChat('a', { status: 'busy' });
+    addSideChat('b', { status: 'idle' });
 
-    const attention = tracker.forParent(PARENT);
-    expect(attention.running).toBe(1);
+    expect(await tracker.forParent(PARENT)).toMatchObject({ running: 1, targetChatId: 'a' });
   });
 
-  it('tracks needs-attention with higher priority than running', () => {
+  it('targets the conversation needing action ahead of unread and running ones', async () => {
     const { tracker, addSideChat } = harness();
-    addSideChat('side-1', { status: 'waiting_for_permission' });
-    addSideChat('side-2', { status: 'error' });
-    addSideChat('side-3', { status: 'busy' });
+    addSideChat('running', { status: 'busy' });
+    addSideChat('unread', { latestSequence: 3 });
+    addSideChat('needs', { status: 'waiting_for_permission' });
 
-    const attention = tracker.forParent(PARENT);
-    expect(attention.needsAttention).toBe(2);
-    expect(attention.running).toBe(1);
+    const attention = await tracker.forParent(PARENT);
+
+    expect(attention).toMatchObject({ needsAttention: 1, running: 1, unread: 1, targetChatId: 'needs' });
+    const states = Object.fromEntries((await tracker.summariesForParent(PARENT)).map((item) => [item.chat.id, item.state]));
+    expect(states).toEqual({ running: 'running', unread: 'unread', needs: 'needs-attention' });
   });
 
-  it('excludes archived sidechats from active counts', () => {
+  it('excludes archived sidechats from active counts', async () => {
     const { tracker, addSideChat } = harness();
-    addSideChat('side-1', { latestSequence: 5 });
-    addSideChat('side-2', { archived: true, latestSequence: 5 });
+    addSideChat('active');
+    addSideChat('old', { archived: true, latestSequence: 5 });
 
-    const attention = tracker.forParent(PARENT);
-    expect(attention.total).toBe(1);
-    expect(attention.unread).toBe(1);
+    expect(await tracker.forParent(PARENT)).toMatchObject({ total: 1, unread: 0 });
   });
 
-  it('keeps attention state available without mounting the panel', () => {
+  it('clears unread once the read mark reaches the latest answer, and never rewinds', async () => {
+    const { tracker, addSideChat, linkStore } = harness();
+    addSideChat('a', { latestSequence: 6 });
+
+    linkStore.markRead('a', 6);
+    linkStore.markRead('a', 3);
+
+    expect(linkStore.get('a')?.lastReadAssistantSequence).toBe(6);
+    expect((await tracker.forParent(PARENT)).unread).toBe(0);
+  });
+
+  it('lists every parent with active sidechats', async () => {
     const { tracker, addSideChat } = harness();
-    addSideChat('side-1', { status: 'busy', latestSequence: 5 });
-    // The tracker computes from durable state — no panel or renderer required.
-    const attention = tracker.forParent(PARENT);
-    expect(attention.running).toBe(1);
-    expect(attention.unread).toBe(1);
-  });
+    addSideChat('a', { latestSequence: 1 });
 
-  it('handles simultaneous completion and read acknowledgement', () => {
-    const { tracker, addSideChat, linkStore, latestSequences } = harness();
-    addSideChat('side-1', { latestSequence: 0, readSequence: 0 });
+    const all = await tracker.forAllParents();
 
-    // Completion arrives and read acknowledgement lands concurrently.
-    latestSequences.set('side-1', 7);
-    linkStore.markRead('side-1', 7);
-
-    const attention = tracker.forParent(PARENT);
-    expect(attention.unread).toBe(0);
-  });
-
-  it('handles duplicates and out-of-order events without inflating counts', () => {
-    const { tracker, addSideChat, latestSequences } = harness();
-    addSideChat('side-1', { latestSequence: 0, readSequence: 0 });
-
-    // Out-of-order: a lower sequence arrives after a higher one.
-    latestSequences.set('side-1', 5);
-    latestSequences.set('side-1', 3); // stale/out-of-order
-    latestSequences.set('side-1', 5); // duplicate
-
-    const attention = tracker.forParent(PARENT);
-    expect(attention.unread).toBe(1);
-    expect(attention.total).toBe(1);
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ parent: PARENT, unread: 1 });
   });
 });

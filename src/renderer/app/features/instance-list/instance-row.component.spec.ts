@@ -21,6 +21,8 @@ import { basename, join } from 'node:path';
 import { InstanceRowComponent } from './instance-row.component';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
+import { SideChatStore } from '../../core/state/side-chat.store';
+import type { SideChatAttention } from '../../../../shared/types/side-chat.types';
 import type { Instance } from '../../../../shared/types/instance.types';
 
 // This component uses `templateUrl`, so the usual `() => Promise.resolve('')`
@@ -387,5 +389,90 @@ describe('InstanceRowComponent — waiting on background work', () => {
 
     expect(badge().classList).not.toContain('provider-background-waiting');
     expect(indicatorLabel()).toBe('Claude');
+  });
+});
+
+describe('InstanceRowComponent — sidechat badge', () => {
+  let fixture: ComponentFixture<HostComponent>;
+  const attentionByThread = new Map<string, SideChatAttention>();
+  const requestOpen = vi.fn();
+
+  beforeEach(async () => {
+    attentionByThread.clear();
+    requestOpen.mockClear();
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [HostComponent],
+      providers: [
+        { provide: RemoteNodeStore, useValue: { nodeById: () => null } },
+        { provide: ToolLoopAlertStore, useValue: { hasCriticalAlert: () => false } },
+        {
+          provide: SideChatStore,
+          useValue: {
+            attentionFor: (parent: { historyThreadId: string }) => attentionVersion() >= 0
+              ? attentionByThread.get(parent.historyThreadId) ?? null
+              : null,
+            requestOpen,
+          },
+        },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(HostComponent);
+  });
+
+  afterEach(() => fixture.destroy());
+
+  const attentionVersion = signal(0);
+
+  function show(attention: Partial<SideChatAttention>): void {
+    attentionByThread.set('thread-1', {
+      parent: { kind: 'session', historyThreadId: 'thread-1', originNodeId: null },
+      parentTitle: 'Session', total: 1, running: 0, unread: 0, needsAttention: 0, targetChatId: null, ...attention,
+    });
+    attentionVersion.update((value) => value + 1);
+    fixture.componentInstance.instance.set(makeInstance({ historyThreadId: 'thread-1' }));
+    fixture.detectChanges();
+  }
+
+  function sideChatBadge(): HTMLButtonElement | null {
+    return fixture.nativeElement.querySelector('.side-chat-badge');
+  }
+
+  it('shows nothing for a session without sidechats', () => {
+    fixture.componentInstance.instance.set(makeInstance({ historyThreadId: 'thread-1' }));
+    fixture.detectChanges();
+
+    expect(sideChatBadge()).toBeNull();
+  });
+
+  it('ranks needing action over unread and running, with readable labels', () => {
+    show({ total: 3, running: 1, unread: 1, needsAttention: 1, targetChatId: 'side-2' });
+    expect(sideChatBadge()?.dataset['kind']).toBe('needs-attention');
+    expect(sideChatBadge()?.getAttribute('aria-label')).toBe('1 sidechat needs action, open sidechats');
+
+    show({ total: 2, running: 1, unread: 2 });
+    expect(sideChatBadge()?.dataset['kind']).toBe('unread');
+    expect(sideChatBadge()?.textContent?.trim()).toBe('2');
+
+    show({ total: 1, running: 1 });
+    expect(sideChatBadge()?.dataset['kind']).toBe('running');
+
+    show({ total: 2 });
+    expect(sideChatBadge()?.dataset['kind']).toBe('quiet');
+  });
+
+  it('opens the session\'s sidechats on the conversation needing attention without selecting the row twice', () => {
+    show({ total: 1, unread: 1, targetChatId: 'side-5' });
+    const rowSelect = vi.fn();
+    fixture.debugElement.query((node) => node.componentInstance instanceof InstanceRowComponent)
+      .componentInstance.instanceSelect.subscribe(rowSelect);
+
+    sideChatBadge()!.click();
+
+    expect(requestOpen).toHaveBeenCalledWith(
+      { kind: 'session', historyThreadId: 'thread-1', originNodeId: null },
+      'side-5',
+    );
+    expect(rowSelect).not.toHaveBeenCalled();
   });
 });

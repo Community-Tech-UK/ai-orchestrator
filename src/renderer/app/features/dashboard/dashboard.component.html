@@ -167,7 +167,9 @@
         [workingDirectory]="sideChatWorkingDirectory()"
         [parent]="sideChatParent()"
         [parentTitle]="sideChatParentTitle()"
-        (closeRequested)="showSideChat.set(false)"
+        [parentSelection]="sideChatParentSelection()"
+        [preferredChatId]="sideChatPreferredChatId()"
+        (closeRequested)="closeSideChat()"
         (openInMainRequested)="openSideChatInMain($event)"
       />
     }

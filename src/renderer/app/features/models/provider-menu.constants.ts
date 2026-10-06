@@ -2,7 +2,7 @@ import type { PickerProvider } from './compact-model-picker.types';
 
 /**
  * Default chat-side provider order for the MAIN chat surface. Sidechats use
- * `SIDECAT_CHAT_PROVIDERS` which includes the wider set. Excludes `auto`.
+ * `SIDE_CHAT_MENU_PROVIDERS` which includes the wider set. Excludes `auto`.
  */
 export const DEFAULT_CHAT_PROVIDERS: PickerProvider[] = [
   'claude', 'codex', 'antigravity', 'copilot',
@@ -12,7 +12,7 @@ export const DEFAULT_CHAT_PROVIDERS: PickerProvider[] = [
  * Sidechat provider order: every session provider with a working conversation
  * runtime, including OpenCode, Grok, Cursor and local models.
  */
-export const SIDECAT_CHAT_PROVIDERS: PickerProvider[] = [
+export const SIDE_CHAT_MENU_PROVIDERS: PickerProvider[] = [
   'claude', 'codex', 'antigravity', 'copilot', 'grok', 'opencode', 'cursor', 'local-model',
 ];
 

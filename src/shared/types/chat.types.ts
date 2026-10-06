@@ -2,7 +2,7 @@ import type { ConversationLedgerConversation, ConversationMessageRecord } from '
 import type { FileAttachment, Instance } from './instance.types';
 import type { SupportedProvider } from './mcp-scopes.types';
 import type { ReasoningEffort } from './provider.types';
-import type { SideChatParentRef, SideChatProviderSelection } from './side-chat.types';
+import type { SideChatAttention, SideChatParentRef, SideChatProviderSelection } from './side-chat.types';
 import type { ModelRuntimeTarget } from './local-model-runtime.types';
 
 export type ChatProvider = SupportedProvider | 'cursor' | 'local-model';
@@ -17,6 +17,11 @@ export interface ChatRecord {
   model: string | null;
   reasoningEffort: ReasoningEffort | null;
   modelRuntimeTarget?: ModelRuntimeTarget | null;
+  /**
+   * Ownership key of the parent session when this chat is a sidechat
+   * (see `sideChatParentKey`), null for an ordinary chat.
+   */
+  sideChatParentKey?: string | null;
   currentCwd: string | null;
   projectId: string | null;
   yolo: boolean;
@@ -126,4 +131,9 @@ export type ChatEvent =
       currentInstance: Instance | null;
     }
   | { type: 'runtime-linked'; chatId: string; instanceId: string; chat: ChatRecord }
-  | { type: 'runtime-cleared'; chatId: string; previousInstanceId: string | null; chat: ChatRecord };
+  | { type: 'runtime-cleared'; chatId: string; previousInstanceId: string | null; chat: ChatRecord }
+  /**
+   * Coalesced sidechat attention for one parent (running / unread / needs
+   * action). Lets badges stay current while no sidechat panel is mounted.
+   */
+  | { type: 'side-chat-attention'; attention: SideChatAttention };

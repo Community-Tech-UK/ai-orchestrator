@@ -12,6 +12,14 @@ import {
   ChatSetReasoningPayloadSchema,
   ChatSetYoloPayloadSchema,
   ChatUiStatePayloadSchema,
+  SideChatAttachPayloadSchema,
+  SideChatCreatePayloadSchema,
+  SideChatMarkReadPayloadSchema,
+  SideChatParentRefSchema,
+  SideChatProviderSchema,
+  SideChatProviderSelectionSchema,
+  SideChatSendPayloadSchema,
+  SideChatSetSelectionPayloadSchema,
 } from '../chat.schemas';
 
 describe('chat schemas', () => {
@@ -164,5 +172,46 @@ describe('chat schemas', () => {
       selectedChatId: 'chat-1',
       openChatIds: Array.from({ length: 21 }, (_, index) => `chat-${index}`),
     }).success).toBe(false);
+  });
+});
+
+describe('sidechat schemas', () => {
+  const sessionParent = { kind: 'session', historyThreadId: 'thread-1', originNodeId: null };
+  const localTarget = {
+    kind: 'local-model', source: 'worker-node', endpointProvider: 'ollama',
+    endpointId: 'ollama-1', modelId: 'llama3', selectorId: 'sel-1', nodeId: 'node-7', nodeName: 'windows-pc',
+  };
+
+  it('accepts every session provider, not just the five-name chat set', () => {
+    expect(SideChatProviderSchema.options).toEqual([
+      'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode', 'local-model',
+    ]);
+  });
+
+  it('requires a local-model selection to carry its runtime target, and keeps node metadata', () => {
+    expect(SideChatProviderSelectionSchema.safeParse({ provider: 'local-model' }).success).toBe(false);
+    const parsed = SideChatProviderSelectionSchema.parse({ provider: 'local-model', modelRuntimeTarget: localTarget });
+    expect(parsed.modelRuntimeTarget).toEqual(localTarget);
+  });
+
+  it('validates parent references by kind', () => {
+    expect(SideChatParentRefSchema.safeParse(sessionParent).success).toBe(true);
+    expect(SideChatParentRefSchema.safeParse({ kind: 'chat', chatId: 'c1' }).success).toBe(true);
+    expect(SideChatParentRefSchema.safeParse({ kind: 'chat', historyThreadId: 'x' }).success).toBe(false);
+    expect(SideChatParentRefSchema.safeParse({ kind: 'instance', id: 'x' }).success).toBe(false);
+  });
+
+  it('validates create, set-selection, attach, read and send payloads', () => {
+    expect(SideChatCreatePayloadSchema.safeParse({
+      parent: sessionParent, selection: { provider: 'grok', model: 'grok-4' }, currentCwd: '/work',
+    }).success).toBe(true);
+    expect(SideChatSetSelectionPayloadSchema.safeParse({
+      chatId: 'side-1', selection: { provider: 'opencode', reasoning: null },
+    }).success).toBe(true);
+    expect(SideChatAttachPayloadSchema.safeParse({ chatId: 'chat-1', parent: sessionParent }).success).toBe(true);
+    expect(SideChatMarkReadPayloadSchema.safeParse({ chatId: 'side-1', throughSequence: -1 }).success).toBe(false);
+    expect(SideChatMarkReadPayloadSchema.safeParse({ chatId: 'side-1', throughSequence: 1.5 }).success).toBe(false);
+    expect(SideChatSendPayloadSchema.safeParse({ chatId: 'side-1', text: '' }).success).toBe(false);
+    expect(SideChatSendPayloadSchema.safeParse({ chatId: 'side-1', text: 'Hi', allowStaleContext: true }).success).toBe(true);
   });
 });

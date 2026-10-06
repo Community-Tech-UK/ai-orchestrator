@@ -93,3 +93,26 @@
   font-weight: 700;
   line-height: 1;
 }
+
+/* Sidechats are working in the background (no unread answer yet). */
+.rail-activity-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--secondary-color);
+  animation: rail-activity-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes rail-activity-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-activity-dot {
+    animation: none;
+  }
+}

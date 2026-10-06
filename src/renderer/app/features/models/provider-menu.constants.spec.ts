@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_CHAT_PROVIDERS,
-  SIDECAT_CHAT_PROVIDERS,
+  SIDE_CHAT_MENU_PROVIDERS,
   DEFAULT_INSTANCE_PROVIDERS,
   PROVIDER_MENU_COLORS,
   PROVIDER_MENU_LABELS,
@@ -14,10 +14,10 @@ describe('provider menu constants', () => {
   });
 
   it('includes every session provider with a working conversation runtime for sidechats', () => {
-    expect(SIDECAT_CHAT_PROVIDERS).toEqual([
+    expect(SIDE_CHAT_MENU_PROVIDERS).toEqual([
       'claude', 'codex', 'antigravity', 'copilot', 'grok', 'opencode', 'cursor', 'local-model',
     ]);
-    expect(SIDECAT_CHAT_PROVIDERS).not.toContain('auto');
+    expect(SIDE_CHAT_MENU_PROVIDERS).not.toContain('auto');
   });
 
   it('keeps the wider instance provider order including cursor and local models', () => {

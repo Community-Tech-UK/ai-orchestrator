@@ -16,6 +16,7 @@ import { ScratchDirectoryService } from '../../core/services/scratch-directory.s
 import { ViewLayoutService, type WorkspacePreset } from '../../core/services/view-layout.service';
 import { VisibleInstanceResolver } from '../../core/services/visible-instance-resolver.service';
 import { ChatStore } from '../../core/state/chat.store';
+import { SideChatStore } from '../../core/state/side-chat.store';
 import { CliStore } from '../../core/state/cli.store';
 import { HistoryStore } from '../../core/state/history.store';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -55,6 +56,8 @@ describe('DashboardComponent resume picker routing', () => {
   const recoveryCandidates = signal([{ recoveryKey: 'recovery-1', sourceInstanceId: 'source-1',
     displayName: 'Autosaved session', recoveredMessageCount: 2, reason: 'unarchived' as const,
     lastActivityAt: 1 }]);
+  const sideChatOpenRequest = signal<{ parent: unknown; chatId: string | null; id: number } | null>(null);
+  const sideChatStore = { initialize: vi.fn(), openRequest: sideChatOpenRequest.asReadonly() };
   const resumePickerController = {
     focusRecoveryContent: vi.fn(),
     resetTransientFocus: vi.fn(),
@@ -71,6 +74,7 @@ describe('DashboardComponent resume picker routing', () => {
     draftWorkingDirectory.set(null);
     draftNodeId.set(null);
     registeredActions.length = 0;
+    sideChatOpenRequest.set(null);
 
     TestBed.overrideComponent(DashboardComponent, {
       set: {
@@ -134,6 +138,7 @@ describe('DashboardComponent resume picker routing', () => {
           },
         },
         { provide: RemoteNodeStore, useValue: { initialize: vi.fn() } },
+        { provide: SideChatStore, useValue: sideChatStore },
         { provide: ElectronIpcService, useValue: { isElectron: true } },
         {
           provide: ActionDispatchService,
@@ -239,6 +244,24 @@ describe('DashboardComponent resume picker routing', () => {
     expect(banner?.textContent).toContain('Autosaved session');
     banner?.querySelector<HTMLButtonElement>('button')?.click();
     expect(fixture.componentInstance.showResumePicker()).toBe(true);
+    fixture.destroy();
+  });
+
+  it('opens a badge\'s exact sidechat on its live parent session', () => {
+    instances.set([{ id: 'live-1', historyThreadId: 'thread-1', status: 'busy' }]);
+    const fixture = TestBed.createComponent(DashboardComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    sideChatOpenRequest.set({
+      parent: { kind: 'session', historyThreadId: 'thread-1', originNodeId: null }, chatId: 'side-7', id: 1,
+    });
+    fixture.detectChanges();
+
+    expect(TestBed.inject(InstanceStore).setSelectedInstance).toHaveBeenCalledWith('live-1');
+    expect(component.showSideChat()).toBe(true);
+    expect(component.sideChatPreferredChatId()).toBe('side-7');
+    expect(sideChatStore.initialize).toHaveBeenCalled();
     fixture.destroy();
   });
 });

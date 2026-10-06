@@ -640,8 +640,10 @@ export function createUserLedgerMessage(input: {
   text: string;
   chatId: string;
   attachments?: OutputMessage['attachments'];
+  /** Reuse a turn id so re-appending the same turn updates it in place. */
+  turnId?: string;
 }): Omit<ConversationMessageRecord, 'id' | 'threadId' | 'sequence'> {
-  const turnId = `chat-user-turn:${randomUUID()}`;
+  const turnId = input.turnId ?? `chat-user-turn:${randomUUID()}`;
   return {
     nativeMessageId: `${turnId}:user`,
     nativeTurnId: turnId,

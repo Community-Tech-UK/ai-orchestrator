@@ -326,3 +326,58 @@ describe('side_chat_links migration', () => {
     expect(links.get('chat-legacy-side-2')).toBeNull();
   });
 });
+
+describe('latest assistant sequence persistence', () => {
+  const dbs: SqliteDriver[] = [];
+
+  afterEach(() => {
+    for (const db of dbs) db.close();
+    dbs.length = 0;
+  });
+
+  it('adds the column to a first-version side_chat_links table, keeping rows as "unobserved"', () => {
+    const db = defaultDriverFactory(':memory:');
+    dbs.push(db);
+    createOperatorTables(db);
+    // Recreate the table exactly as the first sidechat release shipped it.
+    db.exec('DROP TABLE side_chat_links');
+    db.exec(`
+      CREATE TABLE side_chat_links (
+        chat_id TEXT PRIMARY KEY, parent_kind TEXT NOT NULL, parent_key TEXT NOT NULL,
+        parent_chat_id TEXT, parent_history_thread_id TEXT, parent_origin_node_id TEXT,
+        authority TEXT NOT NULL, last_read_assistant_sequence INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      );
+      INSERT INTO side_chat_links VALUES ('side-old', 'chat', 'chat:p', 'p', NULL, NULL, 'inherit-parent', 4, 1, 1);
+    `);
+
+    createOperatorTables(db);
+    createOperatorTables(db);
+
+    const links = new SideChatLinkStore(db);
+    expect(links.get('side-old')?.lastReadAssistantSequence).toBe(4);
+    expect(links.getLatestAssistantSequence('side-old')).toBeNull();
+  });
+
+  it('records the newest assistant sequence monotonically and lists active parents once', () => {
+    const db = defaultDriverFactory(':memory:');
+    dbs.push(db);
+    createOperatorTables(db);
+    const chats = new ChatStore(db);
+    const links = new SideChatLinkStore(db);
+    for (const id of ['a', 'b', 'archived']) {
+      chats.insert({
+        id, name: id, provider: 'claude', currentCwd: '/work', ledgerThreadId: `thread-${id}`,
+        archivedAt: id === 'archived' ? 5 : null,
+      });
+    }
+    links.insert({ chatId: 'a', parent: { kind: 'chat', chatId: 'p1' }, authority: 'inherit-parent', lastReadAssistantSequence: 0 });
+    links.insert({ chatId: 'b', parent: { kind: 'chat', chatId: 'p1' }, authority: 'inherit-parent', lastReadAssistantSequence: 0 });
+    links.insert({ chatId: 'archived', parent: { kind: 'chat', chatId: 'p2' }, authority: 'inherit-parent', lastReadAssistantSequence: 0 });
+
+    expect(links.recordAssistantSequence('a', 7)).toBe(true);
+    expect(links.recordAssistantSequence('a', 3)).toBe(false);
+    expect(links.getLatestAssistantSequence('a')).toBe(7);
+    expect(links.listActiveParents()).toEqual([{ kind: 'chat', chatId: 'p1' }]);
+  });
+});

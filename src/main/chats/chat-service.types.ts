@@ -4,6 +4,8 @@ import type { SqliteDriver } from '../db/sqlite-driver';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { BranchSummarizerLike } from '../context/branch-summarizer';
 import type { ConversationEvidenceDeletionResult } from '../conversation-ledger/context-evidence-ledger.types';
+import type { AgentToolPermissions } from '../../shared/types/agent.types';
+import type { SideChatArchiveLookup } from './side-chat-parent-resolver';
 
 export interface ChatEvidenceDeletion {
   revokeConversation(conversationId: string): Promise<ConversationEvidenceDeletionResult>;
@@ -17,6 +19,10 @@ export interface ChatServiceConfig {
   branchSummarizer?: BranchSummarizerLike;
   evidenceDeletion?: ChatEvidenceDeletion;
   drainEvidenceCapture?: (queueId: string) => Promise<void>;
+  /** Sidechat parent permission lookup; defaults to the agent registry. */
+  resolveAgentPermissions?: (workingDirectory: string, agentId: string | null) => Promise<AgentToolPermissions>;
+  /** Sidechat archived-parent lookup; defaults to the history manager. */
+  sideChatArchive?: SideChatArchiveLookup;
 }
 
 export interface ChatSystemEventInput {

@@ -7,8 +7,8 @@ import { mergePendingRuntimeTurns } from './side-chat-parent-resolver';
 /** Spec §7 initial budget ceiling for parent context, in estimated tokens. */
 export const PARENT_CONTEXT_TOKEN_CEILING = 12_000;
 /** Reserve for the sidechat's own history and the expected answer. */
-export const SIDECAT_HISTORY_RESERVE = 2_000;
-export const SIDECAT_ANSWER_RESERVE = 2_000;
+export const SIDECHAT_HISTORY_RESERVE = 2_000;
+export const SIDECHAT_ANSWER_RESERVE = 2_000;
 
 const OPEN_TAG = 'parent_context';
 const CLOSE_TAG = `</${OPEN_TAG}>`;
@@ -88,10 +88,10 @@ export function buildParentContextSnapshot(
 ): ParentContextSnapshot {
   const ceiling = PARENT_CONTEXT_TOKEN_CEILING;
   const modelBudget = options.modelInputBudget ?? ceiling;
-  const historyReserve = options.sidechatHistoryTokens ?? SIDECAT_HISTORY_RESERVE;
+  const historyReserve = options.sidechatHistoryTokens ?? SIDECHAT_HISTORY_RESERVE;
   const budget = Math.max(
     500,
-    Math.min(ceiling, modelBudget - historyReserve - SIDECAT_ANSWER_RESERVE),
+    Math.min(ceiling, modelBudget - historyReserve - SIDECHAT_ANSWER_RESERVE),
   );
 
   const allTurns = mergePendingRuntimeTurns(source.turns, source.pendingRuntimeTurns);
