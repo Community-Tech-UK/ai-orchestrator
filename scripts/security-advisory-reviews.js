@@ -159,6 +159,77 @@ const ADVISORY_REVIEWS = new Map([
       retiredBy: 'Upgrading Electron to >= 41.10.3.',
     },
   ],
+  [
+    'https://github.com/advisories/GHSA-hq2x-r82h-9wj4',
+    {
+      package: 'electron',
+      scope: 'production',
+      reviewed: '2026-10-06',
+      rationale:
+        'Popups opened from a sandboxed iframe that has allow-popups do not inherit that '
+        + 'iframe\'s HTML sandbox. The only sandboxed iframe is doc-review-viewer.component.ts, '
+        + 'and its sandbox is "allow-scripts" with neither allow-popups nor allow-same-origin. '
+        + 'window-manager.ts setWindowOpenHandler still returns {action: \'deny\'} for every URL, '
+        + 'which is the workaround the advisory names. No Electron 40 release contains the fix.',
+      retiredBy: 'Upgrading Electron to >= 41.10.4.',
+    },
+  ],
+  [
+    'https://github.com/advisories/GHSA-gr2m-v5gq-v685',
+    {
+      package: 'electron',
+      scope: 'production',
+      reviewed: '2026-10-06',
+      rationale:
+        'Windows opened from a sandboxed top-level document do not inherit its HTML sandbox. '
+        + 'This app does not load untrusted content as a sandboxed top-level document, and the '
+        + 'only BrowserWindow denies every popup via setWindowOpenHandler. The advisory states '
+        + 'that workaround is sufficient. No Electron 40 release contains the fix.',
+      retiredBy: 'Upgrading Electron to >= 41.10.6.',
+    },
+  ],
+  [
+    'https://github.com/advisories/GHSA-j84w-jfhq-vhvj',
+    {
+      package: 'electron',
+      scope: 'production',
+      reviewed: '2026-10-06',
+      rationale:
+        'Custom file or HTTP protocol handlers registered with supportFetchAPI and without '
+        + 'corsEnabled can be read cross-origin. The app never calls protocol.registerFileProtocol, '
+        + 'protocol.registerHttpProtocol, or protocol.handle. No Electron 40 release contains the fix.',
+      retiredBy: 'Upgrading Electron to >= 41.10.6.',
+    },
+  ],
+  [
+    'https://github.com/advisories/GHSA-9qh4-3jw8-366w',
+    {
+      package: 'electron',
+      scope: 'production',
+      reviewed: '2026-10-06',
+      rationale:
+        'A <webview> can enable Node.js integration in its workers even when the embedder '
+        + 'disabled it. webviewTag is left at the default false, nothing in the repo enables '
+        + 'the tag or listens for will-attach-webview, and the main window is created with '
+        + 'sandbox: true. The advisory says apps that do not use <webview> are not affected. '
+        + 'No Electron 40 release contains the fix.',
+      retiredBy: 'Upgrading Electron to >= 41.10.6.',
+    },
+  ],
+  [
+    'https://github.com/advisories/GHSA-vfj7-8cjw-p6xm',
+    {
+      package: 'braces',
+      scope: 'build',
+      reviewed: '2026-10-06',
+      rationale:
+        'Stack exhaustion on deeply nested brace patterns, with no patched release (3.0.3 is '
+        + 'the latest and it is inside the vulnerable range). The only parent is micromatch in '
+        + 'the dev/build graph; the production audit does not report it. Those patterns come '
+        + 'from repository tooling, not from attacker-controlled input.',
+      retiredBy: 'A braces release after 3.0.3.',
+    },
+  ],
 ]);
 
 /** Advisory URLs a given gate may accept. */

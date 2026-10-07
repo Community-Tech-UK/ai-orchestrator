@@ -529,7 +529,7 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
         prompt: 'Check the repo status and summarize issues.',
         workingDirectory: '/repo/current',
         provider: 'claude',
-        model: CLAUDE_MODELS.OPUS_1M,
+        model: CLAUDE_MODELS.OPUS,
       },
       nextFireAt: 1_000,
       lastFiredAt: null,
@@ -565,7 +565,7 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
         prompt: 'Check the repo status and summarize issues.',
         workingDirectory: '/repo/current',
         provider: 'claude',
-        model: CLAUDE_MODELS.OPUS_1M,
+        model: CLAUDE_MODELS.OPUS,
       },
     });
 

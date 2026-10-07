@@ -355,16 +355,14 @@ describe('setupCompactionCoordinator', () => {
 
     expect(result.success).toBe(true);
     expect(instance.contextUsage).toMatchObject({
-      used: 0,
+      used: 188_000,
       total: 200_000,
-      percentage: 0,
-      source: 'post-compaction-reset',
+      percentage: 94,
+      source: 'awaiting-post-compaction-usage',
       isEstimated: true,
-      // LT-018: a post-compaction `used: 0` is a real measurement, so occupancy
-      // stays reported. Dropping it here would blank the context ring to
-      // "no data" after every compaction on providers that do report occupancy.
       occupancyReported: true,
     });
+    expect(instance.contextUsage.percentage).not.toBe(0);
     expect(updateInstanceStatus).toHaveBeenCalledWith('inst-1', 'busy', {
       reason: 'context-compacted',
       method: 'native',
@@ -375,14 +373,14 @@ describe('setupCompactionCoordinator', () => {
       projectKey: '/repo',
       method: 'native',
       utilizationBefore: 94,
-      utilizationAfter: 0,
+      utilizationAfter: 94,
     }));
     expect(emitOutputMessage).toHaveBeenCalledWith(
       'inst-1',
       expect.objectContaining({
         metadata: expect.objectContaining({
           previousUsage: expect.objectContaining({ percentage: 94 }),
-          newUsage: expect.objectContaining({ percentage: 0 }),
+          newUsage: expect.objectContaining({ percentage: 94 }),
           compactionMarkerId: 'marker-1',
         }),
       }),
@@ -432,7 +430,8 @@ describe('setupCompactionCoordinator', () => {
 
     expect(result.success).toBe(true);
     expect(instance.contextUsage).toMatchObject({
-      used: 0,
+      used: 103_222,
+      percentage: 51.6,
       occupancyReported: true,
       occupancyIsAggregate: true,
     });

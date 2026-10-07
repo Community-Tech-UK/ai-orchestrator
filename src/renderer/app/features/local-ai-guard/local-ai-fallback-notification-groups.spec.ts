@@ -26,7 +26,7 @@ function event(
 }
 
 describe('local AI fallback notification grouping', () => {
-  it('groups one same-slot burst within five seconds and keeps newest-first event ids', () => {
+  it('groups every undismissed event for a slot into one row, newest first', () => {
     const groups = groupLocalAiFallbackNotifications([
       event('oldest', 1_000),
       event('newest', 6_000),
@@ -55,17 +55,17 @@ describe('local AI fallback notification grouping', () => {
     ]);
   });
 
-  it('starts a new group when the slot changes or the full burst exceeds five seconds', () => {
+  it('keeps one row per slot even when the events are far apart', () => {
     const groups = groupLocalAiFallbackNotifications([
       event('older-title', 1_000),
-      event('compression', 4_000, { slot: 'compression' }),
-      event('newer-title', 6_100),
+      event('compression-old', 4_000, { slot: 'compression' }),
+      event('newer-title', 90_000),
+      event('compression-new', 120_000, { slot: 'compression' }),
     ]);
 
     expect(groups.map((group) => group.eventIds)).toEqual([
-      ['newer-title'],
-      ['compression'],
-      ['older-title'],
+      ['compression-new', 'compression-old'],
+      ['newer-title', 'older-title'],
     ]);
   });
 

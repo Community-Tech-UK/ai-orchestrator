@@ -61,6 +61,42 @@ describe('turn-ending corpus', () => {
     expect(classifyTurnEnding({ kind: 'complete', metadata: { danglingToolResult: true, toolResultAwaitingReply: true } }).reason).toBe('dangling_tool_result');
   });
 
+  it('classifies an end_turn that saturates the injected output cap as max_output', () => {
+    expect(classifyTurnEnding({
+      kind: 'complete',
+      text: 'two thousand seven hundred ninety',
+      metadata: { stopReason: 'end_turn' },
+      outputTokens: 16_229,
+      reasoningTokens: 155,
+      combinedOutputTokenCap: 16_384,
+    })).toMatchObject({ reason: 'max_output', evidence: 'budget_saturated' });
+  });
+
+  it('keeps an end_turn well under the cap as an ordinary completion', () => {
+    expect(classifyTurnEnding({
+      kind: 'complete',
+      text: 'The requested summary is done.',
+      metadata: { stopReason: 'end_turn' },
+      outputTokens: 40,
+      reasoningTokens: 0,
+      combinedOutputTokenCap: 16_384,
+    })).toMatchObject({ reason: 'completed', evidence: 'provider_completed' });
+  });
+
+  it('classifies a Claude user-interrupt result as a client cancellation', () => {
+    const raw = JSON.stringify({
+      type: 'result',
+      subtype: 'error_during_execution',
+      is_error: true,
+      result: 'Interrupted by user',
+    });
+    expect(classifyTurnEnding({ kind: 'complete', raw })).toEqual({
+      reason: 'completed',
+      evidence: 'client_cancelled',
+      autoContinueSuppressed: true,
+    });
+  });
+
   it('maps native context ceilings and error codes before falling back to clean completion', () => {
     expect(classifyTurnEnding({ kind: 'complete', metadata: { stopReason: 'model_context_window_exceeded' } }).reason).toBe('context_overflow');
     expect(classifyTurnEnding({ kind: 'error', error: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }) }).reason).toBe('truncated_transport');

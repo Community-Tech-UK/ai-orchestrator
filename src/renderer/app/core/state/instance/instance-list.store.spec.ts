@@ -20,6 +20,7 @@ describe('InstanceListStore', () => {
     createInstanceWithMessage: ReturnType<typeof vi.fn>;
     listInstances: ReturnType<typeof vi.fn>;
     stateResync: ReturnType<typeof vi.fn>;
+    appReady: ReturnType<typeof vi.fn>;
     restartInstance: ReturnType<typeof vi.fn>;
     restartFreshInstance: ReturnType<typeof vi.fn>;
     changeModel: ReturnType<typeof vi.fn>;
@@ -71,6 +72,7 @@ describe('InstanceListStore', () => {
         },
       }),
       listInstances: vi.fn().mockResolvedValue({ success: true, data: [] }),
+      appReady: vi.fn().mockResolvedValue({ success: true, data: { ipcAuthToken: 'token' } }),
       stateResync: vi.fn().mockResolvedValue({
         success: true,
         data: {
@@ -499,6 +501,49 @@ describe('InstanceListStore', () => {
       displayName: 'Snapshot instance',
     });
     expect(stateService.state().loading).toBe(false);
+  });
+
+  it('retries the initial load after appReady when the first resync is refused', async () => {
+    ipc.stateResync
+      .mockResolvedValueOnce({ success: false, error: 'IPC_AUTH_FAILED: Missing or invalid auth token' })
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          instances: [{
+            id: 'recovered-instance',
+            displayName: 'Recovered',
+            createdAt: 1,
+            historyThreadId: 'thread-recovered',
+            parentId: null,
+            childrenIds: [],
+            status: 'idle',
+            lastActivity: 2,
+            sessionId: 'session-recovered',
+            workingDirectory: '/tmp/project',
+            yoloMode: false,
+            provider: 'claude',
+            outputBuffer: [],
+          }],
+        },
+      });
+
+    await store.loadInitialInstances();
+
+    expect(ipc.appReady).toHaveBeenCalledOnce();
+    expect(ipc.stateResync).toHaveBeenCalledTimes(2);
+    expect(stateService.getInstance('recovered-instance')?.displayName).toBe('Recovered');
+    expect(stateService.state().loading).toBe(false);
+    expect(stateService.state().error).toBeNull();
+  });
+
+  it('clears loading and surfaces an error when the initial load keeps failing', async () => {
+    ipc.stateResync.mockResolvedValue({ success: false, error: 'IPC_AUTH_FAILED' });
+
+    await store.loadInitialInstances();
+
+    expect(stateService.state().loading).toBe(false);
+    expect(stateService.state().error).toBe('IPC_AUTH_FAILED');
+    expect(stateService.state().instances.size).toBe(0);
   });
 
   it('returns the created instance id when creating a blank instance', async () => {

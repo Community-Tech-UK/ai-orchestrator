@@ -375,11 +375,11 @@ describe('AutomationsPageComponent row actions', () => {
     component.startCreate();
 
     expect(component.form().provider).toBe('claude');
-    expect(component.form().model).toBe(CLAUDE_MODELS.OPUS_1M);
+    expect(component.form().model).toBe(CLAUDE_MODELS.OPUS);
   });
 
   it.each([undefined, 'auto', 'claude'] as const)(
-    'keeps the Opus 1M default when a generated draft requests provider %s',
+    'keeps the standard Opus default when a generated draft requests provider %s',
     (provider) => {
       const component = fixture.componentInstance;
       component.startChat();
@@ -395,7 +395,7 @@ describe('AutomationsPageComponent row actions', () => {
       component.useDraft();
 
       expect(component.form().provider).toBe('claude');
-      expect(component.form().model).toBe(CLAUDE_MODELS.OPUS_1M);
+      expect(component.form().model).toBe(CLAUDE_MODELS.OPUS);
     },
   );
 

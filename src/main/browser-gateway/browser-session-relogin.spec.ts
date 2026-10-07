@@ -332,6 +332,66 @@ describe('checkSessionOperation', () => {
     );
   });
 
+  it.each(['host_permission_denied', 'page_text_read_failed'] as const)(
+    'returns unknown and does not re-login when page text is %s',
+    async (textUnavailableReason) => {
+      harness.deps.snapshot = vi.fn(async () => allowed({
+        title: 'In-tend',
+        url: `${ORIGIN}/tenders/current`,
+        text: '',
+        textUnavailableReason,
+      }));
+
+      const outcome = await checkSessionOperation(harness.deps, REQUEST);
+
+      expect(outcome).toMatchObject({ state: 'unknown', reason: textUnavailableReason, attempts: 0 });
+      expect(harness.deps.navigate).not.toHaveBeenCalled();
+      expect(harness.deps.fillCredential).not.toHaveBeenCalled();
+    },
+  );
+
+  it('returns unknown when the element query fails instead of assuming no password field', async () => {
+    harness.deps.snapshot = vi.fn(async () => allowed({
+      title: 'In-tend',
+      url: `${ORIGIN}/tenders/current`,
+      text: '',
+    }));
+    harness.deps.queryElements = vi.fn(async () => ({
+      decision: 'denied',
+      outcome: 'failed',
+      reason: 'Cannot access contents of the page',
+      data: null,
+    }) as never);
+
+    const outcome = await checkSessionOperation(harness.deps, REQUEST);
+
+    expect(outcome).toMatchObject({
+      state: 'unknown',
+      reason: 'Cannot access contents of the page',
+      attempts: 0,
+    });
+    expect(harness.deps.navigate).not.toHaveBeenCalled();
+    expect(harness.deps.fillCredential).not.toHaveBeenCalled();
+  });
+
+  it('stops re-login without filling when the login URL has no password field', async () => {
+    harness.deps.snapshot = vi.fn(async () => allowed({
+      title: 'Home',
+      url: `${ORIGIN}/home`,
+      text: 'Hello, James',
+    }));
+    harness.deps.queryElements = vi.fn(async () => allowed([]));
+
+    const outcome = await checkSessionOperation(harness.deps, REQUEST);
+
+    expect(outcome).toMatchObject({
+      state: 'unknown',
+      reason: 'markers_not_matched_on_signed_in_page',
+    });
+    expect(harness.deps.navigate).toHaveBeenCalledTimes(1);
+    expect(harness.deps.fillCredential).not.toHaveBeenCalled();
+  });
+
   it('parks with no_relogin_recipe when only markers were remembered', async () => {
     const markersOnly = makeDeps({ url: `${ORIGIN}/login`, text: 'Sign in', hasPasswordField: true });
     markersOnly.fingerprints.remember({

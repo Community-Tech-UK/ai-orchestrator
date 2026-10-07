@@ -259,7 +259,7 @@ describe('createAutomationToolImplementations', () => {
       expect(input.schedule).toMatchObject({ type: 'cron', expression: '0 9 * * 1-5' });
       expect(input.action.workingDirectory).toBe('/repo');
       expect(input.action.provider).toBe('claude');
-      expect(input.action.model).toBe(CLAUDE_MODELS.OPUS_1M);
+      expect(input.action.model).toBe(CLAUDE_MODELS.OPUS);
       expect(result).toMatchObject({ name: 'PR sweep', workingDirectory: '/repo' });
     });
 

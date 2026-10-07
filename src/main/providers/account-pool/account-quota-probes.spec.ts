@@ -126,7 +126,6 @@ describe('ClaudeCredentialsReader for a profile config dir', () => {
       configDir: '/home/example/.claude-work',
       securityExec,
       readFile,
-      refreshCliAuth: async () => false,
     });
     expect(await reader.read()).toEqual({ credential: null, reason: 'not-found' });
     expect(securityExec.mock.calls[0]?.[0]).toEqual(['find-generic-password', '-s', 'Claude Code-credentials-af7cd477', '-w']);

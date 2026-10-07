@@ -42,7 +42,7 @@
           @if (instance().status === 'busy') {
             <button
               class="btn-action btn-interrupt"
-              title="Interrupt Claude (Esc)"
+              [title]="interruptTitle()"
               (click)="interrupt.emit()"
             >
               ⏸ Interrupt

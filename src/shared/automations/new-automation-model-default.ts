@@ -17,5 +17,5 @@ export function resolveNewAutomationModelSelection(
   ) {
     return selection;
   }
-  return { provider: 'claude', model: CLAUDE_MODELS.OPUS_1M };
+  return { provider: 'claude', model: CLAUDE_MODELS.OPUS };
 }

@@ -19,11 +19,12 @@ import {
   LocalAiTargetConfigSchema,
   LocalAiTargetSchema,
 } from '../../shared/validation/local-ai-guard.schemas';
+import { closeIncidentsForRetiredTarget } from './local-ai-incident-retirement';
 import type { LocalAiGuardRuntime } from './local-ai-runtime';
 import { friendlyLocalAiTargetLabel } from './local-ai-target-label';
 
 type PublicRuntime = Pick<LocalAiGuardRuntime, 'targets' | 'probes'>
-  & Partial<Pick<LocalAiGuardRuntime, 'notifyChanged'>>;
+  & Partial<Pick<LocalAiGuardRuntime, 'notifyChanged' | 'health'>>;
 
 export interface LocalAiPublicOperationsDependencies {
   getRuntime: () => PublicRuntime;
@@ -96,6 +97,13 @@ export function createLocalAiPublicOperations(
         lifecycle,
         ...(pausedUntil === undefined ? [] : [{ pausedUntil }]),
       ));
+      if (target.lifecycle === 'retired' && runtime.health) {
+        closeIncidentsForRetiredTarget(
+          runtime.health,
+          target.id,
+          dependencies.now?.() ?? Date.now(),
+        );
+      }
       runtime.notifyChanged?.();
       return target;
     },

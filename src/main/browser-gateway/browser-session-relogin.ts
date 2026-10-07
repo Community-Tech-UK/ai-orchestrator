@@ -103,6 +103,14 @@ const MAX_RELOGIN_ATTEMPTS = 2;
 const SETTLE_POLLS = 6;
 const SETTLE_INTERVAL_MS = 1_500;
 const OBSERVATION_BLOCKED = 'observation_blocked';
+const MARKERS_NOT_MATCHED = 'markers_not_matched_on_signed_in_page';
+
+class MarkersNotMatchedOnSignedInPage extends Error {
+  constructor() {
+    super(MARKERS_NOT_MATCHED);
+    this.name = 'MarkersNotMatchedOnSignedInPage';
+  }
+}
 
 export async function checkSessionOperation(
   deps: CheckSessionDeps,
@@ -196,6 +204,16 @@ export async function checkSessionOperation(
         };
       }
     } catch (error) {
+      if (error instanceof MarkersNotMatchedOnSignedInPage) {
+        record(deps, request, recipe.origin, 'unknown', MARKERS_NOT_MATCHED);
+        return {
+          state: 'unknown',
+          reason: MARKERS_NOT_MATCHED,
+          reloggedIn: false,
+          attempts: attempt,
+          ...base,
+        };
+      }
       lastReason = error instanceof Error ? error.message : String(error);
       logger.warn('Auto re-login attempt failed', {
         profileId: request.profileId,
@@ -264,6 +282,16 @@ async function evaluateLiveSession(
   if (isOpaqueBrowserTarget(inspection)) {
     return { state: 'unknown', reason: OBSERVATION_BLOCKED, url, title, origin, ...(recipe ? { recipe } : {}) };
   }
+  if (snap.data.textUnavailableReason) {
+    return {
+      state: 'unknown',
+      reason: snap.data.textUnavailableReason,
+      url,
+      title,
+      origin,
+      ...(recipe ? { recipe } : {}),
+    };
+  }
   if (!origin) {
     return { state: 'unknown', reason: 'origin_unknown', url, title, origin };
   }
@@ -273,7 +301,17 @@ async function evaluateLiveSession(
     targetId: request.targetId,
     limit: 100,
   });
-  const hasPasswordField = (elements.data ?? []).some(
+  if (elements.decision !== 'allowed' || elements.outcome !== 'succeeded' || elements.data == null) {
+    return {
+      state: 'unknown',
+      reason: elements.reason ?? 'elements_unreadable',
+      url,
+      title,
+      origin,
+      ...(recipe ? { recipe } : {}),
+    };
+  }
+  const hasPasswordField = elements.data.some(
     (candidate) => candidate.inputType === 'password',
   );
   const evaluation = evaluateSessionState(
@@ -338,6 +376,15 @@ async function attemptRelogin(
   const nav = await deps.navigate({ ...base, url: loginUrl });
   if (nav.decision !== 'allowed') {
     throw new Error(`relogin navigate refused: ${nav.reason ?? nav.decision}`);
+  }
+
+  const loginForm = await deps.queryElements({ ...base, limit: 100 });
+  if (loginForm.decision !== 'allowed' || loginForm.outcome !== 'succeeded' || loginForm.data == null) {
+    throw new Error(`relogin login form unreadable: ${loginForm.reason ?? 'elements_unreadable'}`);
+  }
+  const loginFormHasPassword = loginForm.data.some((candidate) => candidate.inputType === 'password');
+  if (!loginFormHasPassword) {
+    throw new MarkersNotMatchedOnSignedInPage();
   }
 
   const fields: BrowserGatewayFillCredentialRequest['fields'] = [

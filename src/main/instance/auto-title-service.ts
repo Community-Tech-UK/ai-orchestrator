@@ -18,6 +18,7 @@ import { resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory
 import type { CliMessage, CliUsage } from '../cli/adapters/base-cli-adapter';
 import { isCliAvailable } from '../cli/cli-detection';
 import { isProviderNotice } from '../cli/provider-notice';
+import { detectAuthFailureSignal } from './instance-auth-failure-detection';
 import { resolveModelForTier } from '../../shared/types/provider.types';
 import { deriveRailTitle, frontLoadTitle } from '../../shared/types/history.types';
 import {
@@ -136,6 +137,12 @@ function finalizeGeneratedTitle(
   // ("You've hit your session limit · resets 6:30pm") instead of a title.
   if (isProviderNotice(title)) {
     logger.warn('Discarded AI title that looked like a provider limit/status notice', { title });
+    return null;
+  }
+  // A signed-out CLI prints its login banner instead of a title. That is a
+  // failed provider response, not a session name (LT-675).
+  if (detectAuthFailureSignal(title)) {
+    logger.warn('Discarded AI title that looked like a CLI sign-in banner', { title });
     return null;
   }
 

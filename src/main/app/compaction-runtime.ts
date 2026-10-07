@@ -94,10 +94,12 @@ export function setCompactionMarkerRecorderForTesting(
 }
 
 function buildPostCompactionUsage(previousUsage: ContextUsage): ContextUsage {
+  // No fresh occupancy came back. Keep the last real reading as an estimate
+  // rather than presenting a fabricated 0% (LT-681).
   return {
-    used: 0,
+    used: previousUsage.used,
     total: previousUsage.total,
-    percentage: 0,
+    percentage: previousUsage.percentage,
     ...(previousUsage.cumulativeTokens !== undefined
       ? { cumulativeTokens: previousUsage.cumulativeTokens }
       : {}),
@@ -115,7 +117,7 @@ function buildPostCompactionUsage(previousUsage: ContextUsage): ContextUsage {
     // shape that silently dropped `occupancyReported` and would have regressed
     // LT-018 — so the flag has to be carried explicitly here too.
     ...(previousUsage.occupancyIsAggregate ? { occupancyIsAggregate: true } : {}),
-    source: 'post-compaction-reset',
+    source: 'awaiting-post-compaction-usage',
     isEstimated: true,
   };
 }

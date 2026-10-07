@@ -246,6 +246,8 @@ export type BrowserCheckSessionRequest = z.infer<typeof BrowserCheckSessionReque
 export const BrowserRememberLoginFingerprintRequestSchema = z
   .object({
     profileId: idSchema,
+    // The page the markers were read from. Checked before the recipe is stored.
+    targetId: idSchema.optional(),
     origin: z.string().url().max(2000),
     loginUrl: z.string().url().max(2000),
     loggedInMarkers: z.array(z.string().min(1).max(200)).min(1).max(10),

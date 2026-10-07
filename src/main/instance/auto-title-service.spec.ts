@@ -1201,7 +1201,12 @@ describe('AutoTitleService', () => {
       },
     );
 
-    it.each(['1. Work Finder filters', ...invalidBoundaryAnswers])(
+    it.each([
+      '1. Work Finder filters',
+      'Not logged in · Please run /login',
+      'Not logged in. Run `codex login`',
+      ...invalidBoundaryAnswers,
+    ])(
       'tries the next eligible CLI after invalid answer %s from the first', async (content) => {
         mockIsCliAvailable.mockResolvedValue({ installed: true });
         mockResolveCliType.mockImplementation(async (type: string) => type);

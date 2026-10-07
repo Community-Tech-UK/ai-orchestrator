@@ -83,6 +83,10 @@ export class InstanceHeaderComponent implements OnInit {
 
   // Skills and hooks counts
   /** Fast mode is only meaningful for Claude (Opus) and Codex (priority tier). */
+  readonly interruptTitle = computed(
+    () => `Interrupt ${this.getProviderDisplayName(this.instance().provider)} (Esc)`,
+  );
+
   readonly supportsFastMode = computed(() => {
     const provider = this.instance().provider;
     return provider === 'claude' || provider === 'codex';

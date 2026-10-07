@@ -29,10 +29,7 @@ function keychainExec(result: { stdout?: string; exitCode?: number; throws?: Err
 }
 
 function readerOpts(overrides: ConstructorParameters<typeof ClaudeCredentialsReader>[0] = {}) {
-  return {
-    refreshCliAuth: async () => false,
-    ...overrides,
-  };
+  return overrides;
 }
 
 describe('ClaudeCredentialsReader', () => {
@@ -108,78 +105,39 @@ describe('ClaudeCredentialsReader', () => {
     });
   });
 
-  describe('Claude Code-owned refresh', () => {
-    it('never asks Claude Code to refresh a credential that is still valid', async () => {
-      let refreshCalls = 0;
+  describe('expired credentials', () => {
+    it('does not launch a refresh for an expired access token', async () => {
+      let reads = 0;
       const reader = new ClaudeCredentialsReader({
         platform: 'darwin',
-        securityExec: keychainExec({ stdout: payload() }),
-        refreshCliAuth: async () => {
-          refreshCalls += 1;
-          return true;
+        securityExec: async () => {
+          reads += 1;
+          return { stdout: payload({ expiresAt: PAST }), stderr: '', exitCode: 0 };
         },
       });
 
       const { credential, reason } = await reader.read();
 
-      expect(reason).toBeUndefined();
-      expect(credential?.expiresAt).toBe(FUTURE);
-      expect(refreshCalls).toBe(0);
+      expect(credential).toBeNull();
+      expect(reason).toBe('expired');
+      expect(reads).toBe(1);
     });
 
-    it('reports expired when Claude Code cannot refresh the access token', async () => {
-      const reader = new ClaudeCredentialsReader(readerOpts({
+    it('does not launch a refresh inside the expiry-skew window', async () => {
+      const almostExpired = Date.now() + 30_000;
+      let reads = 0;
+      const reader = new ClaudeCredentialsReader({
         platform: 'darwin',
-        securityExec: keychainExec({ stdout: payload({ expiresAt: PAST }) }),
-      }));
+        securityExec: async () => {
+          reads += 1;
+          return { stdout: payload({ expiresAt: almostExpired }), stderr: '', exitCode: 0 };
+        },
+      });
+
       const { credential, reason } = await reader.read();
       expect(credential).toBeNull();
       expect(reason).toBe('expired');
-    });
-
-    it('asks Claude Code to refresh an expired access token, then rereads it', async () => {
-      let refreshed = false;
-      let refreshCalls = 0;
-      const reader = new ClaudeCredentialsReader({
-        platform: 'darwin',
-        securityExec: async () => ({
-          stdout: refreshed ? payload() : payload({ expiresAt: PAST }),
-          stderr: '',
-          exitCode: 0,
-        }),
-        refreshCliAuth: async () => {
-          refreshCalls += 1;
-          refreshed = true;
-          return true;
-        },
-      });
-
-      const { credential, reason } = await reader.read();
-
-      expect(reason).toBeUndefined();
-      expect(credential?.accessToken).toBe('sk-ant-oat01-test');
-      expect(credential?.expiresAt).toBe(FUTURE);
-      expect(refreshCalls).toBe(1);
-    });
-
-    it('refreshes a credential inside the expiry-skew window', async () => {
-      const almostExpired = Date.now() + 30_000;
-      let refreshed = false;
-      const reader = new ClaudeCredentialsReader({
-        platform: 'darwin',
-        securityExec: async () => ({
-          stdout: refreshed ? payload() : payload({ expiresAt: almostExpired }),
-          stderr: '',
-          exitCode: 0,
-        }),
-        refreshCliAuth: async () => {
-          refreshed = true;
-          return true;
-        },
-      });
-
-      const { credential } = await reader.read();
-      expect(credential?.expiresAt).toBe(FUTURE);
+      expect(reads).toBe(1);
     });
 
     it('accepts a token with no expiry field', async () => {

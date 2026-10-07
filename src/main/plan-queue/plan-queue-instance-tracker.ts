@@ -61,6 +61,7 @@ const WORKING_STATUSES = new Set<InstanceStatus>(['busy', 'processing', 'thinkin
 export class PlanQueueInstanceTracker {
   private readonly tracking = new Map<string, Tracking>();
   private attached = false;
+  private appShuttingDown = false;
 
   constructor(
     private readonly source: PlanQueueInstanceEventSource,
@@ -73,6 +74,11 @@ export class PlanQueueInstanceTracker {
     this.source.on('provider:normalized-event', (envelope) => this.handleProviderEvent(envelope));
     this.source.on('instance:event', (envelope) => this.handleInstanceEvent(envelope));
     this.source.on('instance:removed', (instanceId) => this.fail(instanceId, 'instance was removed'));
+  }
+
+  /** App quit terminates every instance. That is not a worker failure. */
+  noteAppShutdown(): void {
+    this.appShuttingDown = true;
   }
 
   isTracked(instanceId: string): boolean {
@@ -164,6 +170,7 @@ export class PlanQueueInstanceTracker {
     const tracking = this.tracking.get(instanceId);
     if (!tracking) return;
     if (AUTOMATION_FAILURE_STATUSES.has(status)) {
+      if (this.appShuttingDown) return;
       this.fail(instanceId, `instance entered ${status}`);
       return;
     }

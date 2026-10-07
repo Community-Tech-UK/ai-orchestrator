@@ -12,6 +12,7 @@ import { getLogger } from '../logging/logger';
 import { _resetReclaimHoldsForTesting } from '../process/reclaim-holds';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
 import { WorktreeManager } from '../workspace/git/worktree-manager';
+import { buildOrchestratorToolsMcpConfig } from '../mcp/orchestrator-tools-mcp-config';
 import { PlanQueueCoordinator } from './plan-queue-coordinator';
 import type { PlanQueueInstanceRecord } from './plan-queue-host';
 import { PlanQueueRelaxation } from './plan-queue-relaxation';
@@ -250,7 +251,11 @@ beforeEach(() => {
   coordinator = startCoordinator(fake);
 });
 
-function startCoordinator(instances: FakeInstances, relaxation: PlanQueueRelaxation | null = null): PlanQueueCoordinator {
+function startCoordinator(
+  instances: FakeInstances,
+  relaxation: PlanQueueRelaxation | null = null,
+  extras: { whenOrchestratorToolsListening?: () => Promise<void> } = {},
+): PlanQueueCoordinator {
   const created = PlanQueueCoordinator.getInstance();
   created.initialize({
     store,
@@ -261,6 +266,9 @@ function startCoordinator(instances: FakeInstances, relaxation: PlanQueueRelaxat
     loadAverage: () => [0, 0, 0],
     relaxation,
     pumpIntervalMs: null,
+    ...(extras.whenOrchestratorToolsListening
+      ? { whenOrchestratorToolsListening: extras.whenOrchestratorToolsListening }
+      : {}),
   });
   return created;
 }
@@ -751,6 +759,53 @@ describe('PlanQueueCoordinator — boot recovery', { timeout: 30_000 }, () => {
     expect(git(['show', 'main:a.txt'])).toBe('base');
     expect(git(['ls-tree', '--name-only', 'main'])).not.toContain('verifier-scratch.txt');
     expect(git(['ls-tree', '--name-only', 'main'])).toContain('2026-01-01-alpha_plan.feature.txt');
+  });
+
+  it('defers a recovered verifier until orchestrator tools are listening (LT-700)', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.verifier = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'verifying');
+
+    let release!: () => void;
+    const listening = new Promise<void>((resolve) => { release = resolve; });
+    await Promise.race([
+      coordinator._whenSettledForTesting(),
+      new Promise((resolve) => setTimeout(resolve, 1_000)),
+    ]);
+    fake.live.clear();
+    PlanQueueCoordinator._resetForTesting();
+    WorktreeManager._resetForTesting();
+    const next = new FakeInstances();
+    next.scripts.triage = triageAllReady;
+    next.scripts.worker = implement;
+    next.scripts.verifier = pass;
+    next.live.set(parent.id, { ...parent, outputBuffer: [] });
+    fake = next;
+    coordinator = startCoordinator(next, null, { whenOrchestratorToolsListening: () => listening });
+    const recovering = coordinator.recover();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(next.created.filter((instance) => instance.role === 'verifier')).toHaveLength(0);
+
+    release();
+    await recovering;
+    await vi.waitFor(() => {
+      expect(next.created.filter((instance) => instance.role === 'verifier')).toHaveLength(1);
+    });
+    const verifier = next.created.find((instance) => instance.role === 'verifier')!;
+    const mcp = buildOrchestratorToolsMcpConfig({
+      aioMcpCliPath: '/Applications/Harness.app/Contents/Resources/aio-mcp-cli/aio-mcp',
+      socketPath: '/tmp/harness/ot-test.sock',
+      instanceId: verifier.id,
+      capabilityToken: 'cap-test-token',
+      provider: verifier.provider,
+      exists: () => true,
+    });
+    expect(mcp).toContain('"orchestrator"');
+    expect(mcp).toContain('orchestrator-tools');
+    expect(mcp).toContain('/tmp/harness/ot-test.sock');
+    expect(mcp).toContain(verifier.id);
   });
 
   it('resumes an interrupted landing', async () => {

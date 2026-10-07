@@ -5,16 +5,16 @@
  * so the quota poller can call the undocumented `GET /api/oauth/usage`
  * endpoint with `Authorization: Bearer …`.
  *
- * CRITICAL — Claude Code owns the refresh
- * ───────────────────────────────────────
- * This module NEVER writes, refreshes, or rotates the token itself. The stored
- * `refresh_token` is single-use: posting it from Harness would invalidate the
- * copy Claude Code holds and break the user's login. We only ever READ the
- * credential. When the access token is expired (or inside the expiry-skew
- * window), we run the non-inference `claude doctor` command so Claude Code can
- * refresh its own Keychain item, then reread it. `claude auth status` and
- * `claude auth login` do not do this: status is local, and login no-ops when
- * Claude already considers the profile signed in.
+ * CRITICAL — read only
+ * ─────────────────────
+ * This module NEVER writes, refreshes, or rotates the token. The stored
+ * `refresh_token` is single-use. Claude Code deletes the whole Keychain item's
+ * token fields when a refresh is rejected (`invalid_grant` writes an empty
+ * access token and `expiresAt: 0`), which is a signed-out account, not a
+ * transient skip. A background `claude doctor` is enough to cause that, so
+ * the quota reader does not launch one. A real Claude Code session refreshes
+ * its own credential; until then an expired access token is reported as
+ * expired and left untouched.
  *
  * Storage locations (platform-dependent):
  *   • macOS  — Keychain generic password, service `Claude Code-credentials`.
@@ -28,25 +28,17 @@
  *                        "scopes", "subscriptionType" } }
  */
 
-import { execFile as execFileCb, spawn as spawnChild } from 'child_process';
-import { existsSync } from 'fs';
+import { execFile as execFileCb } from 'child_process';
 import { readFile as fsReadFile } from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { CLAUDE_STRIPPED_AUTH_ENV_VARS } from '../../../cli/adapters/adapter-spawn-helpers';
 import { claudeKeychainServiceName } from '../../../cli/adapters/account-pool/provider-account-home-resolver';
-import { buildCliEnv } from '../../../cli/cli-environment';
-import { CLI_REGISTRY, getCliCandidatePaths } from '../../../cli/cli-registry';
 import { getLogger } from '../../../logging/logger';
-import { createClaudeAuthRefreshReadiness } from './claude-auth-refresh-readiness';
 
 const logger = getLogger('ClaudeCredentialsReader');
 
 const KEYCHAIN_SERVICE = 'Claude Code-credentials';
 const DEFAULT_TIMEOUT_MS = 5_000;
-// Native OAuth HTTP alone allows 30s, followed by profile/settings and lock
-// handling. Do not kill a legitimate refresh before its own request deadline.
-const DEFAULT_REFRESH_TIMEOUT_MS = 120_000;
 const EXPIRY_SKEW_MS = 90_000;
 
 /** A read-only view of the stored Claude OAuth credential. */
@@ -93,12 +85,9 @@ export interface ClaudeCredentialsReaderOptions {
   /**
    * Account-pool profile config dir (`CLAUDE_CONFIG_DIR`). When set, the
    * Keychain item is the one Claude Code keys on this exact string and the
-   * file is `<configDir>/.credentials.json` (decision D6). The same string is
-   * exported when asking Claude Code to refresh its own credential.
+   * file is `<configDir>/.credentials.json` (decision D6).
    */
   configDir?: string;
-  /** Delegates an expired-token refresh to Claude Code itself (`claude doctor`). */
-  refreshCliAuth?: () => Promise<boolean>;
 }
 
 interface StoredCredentialsJson {
@@ -116,7 +105,6 @@ export class ClaudeCredentialsReader {
   private readonly readFile: CredentialsFileReader;
   private readonly now: () => number;
   private readonly configDir: string | undefined;
-  private readonly refreshCliAuth: () => Promise<boolean>;
 
   constructor(opts: ClaudeCredentialsReaderOptions = {}) {
     this.configDir = opts.configDir;
@@ -125,25 +113,16 @@ export class ClaudeCredentialsReader {
     this.securityExec = opts.securityExec ?? defaultSecurityExec;
     this.readFile = opts.readFile ?? ((p) => fsReadFile(p, 'utf8'));
     this.now = opts.now ?? Date.now;
-    this.refreshCliAuth = opts.refreshCliAuth ?? createClaudeCliAuthRefresh(opts.configDir);
   }
 
   /**
    * Read the stored credential. Never throws — failures map to a
    * {@link CredentialResult} with a `reason` so the caller can degrade.
+   * Expired tokens are returned as `expired` and are not sent through
+   * `claude doctor`.
    */
   async read(): Promise<CredentialResult> {
-    const first = await this.readOnce();
-    if (first.reason !== 'expired') return first;
-
-    try {
-      if (await this.refreshCliAuth()) {
-        return await this.readOnce();
-      }
-    } catch (err) {
-      logger.debug(`Claude Code credential refresh failed: ${(err as Error).message}`);
-    }
-    return first;
+    return this.readOnce();
   }
 
   private async readOnce(): Promise<CredentialResult> {
@@ -219,8 +198,9 @@ export class ClaudeCredentialsReader {
     }
 
     const expiresAt = typeof oauth.expiresAt === 'number' ? oauth.expiresAt : 0;
-    // Near-expiry is treated as expired so Claude Code refreshes before the
-    // usage probe spends a cycle on a token that is about to 401.
+    // Near-expiry is treated as expired so the usage probe does not spend a
+    // cycle on a token that is about to be rejected. The stored credential
+    // is left as Claude Code wrote it.
     if (expiresAt > 0 && expiresAt <= this.now() + EXPIRY_SKEW_MS) {
       return { credential: null, reason: 'expired' };
     }
@@ -273,81 +253,3 @@ const defaultSecurityExec: SecurityExec = (args, { timeoutMs }) => {
     });
   });
 };
-
-/**
- * Ask Claude Code to refresh its own Keychain / credentials-file item.
- *
- * `claude doctor` is a non-inference health check that still loads OAuth and
- * runs `checkAndRefreshOAuthTokenIfNeeded`. `claude auth status` does not
- * touch the network; `claude auth login` no-ops when the profile is already
- * marked signed in. Ambient API-key / OAuth env vars are stripped so a
- * profile-routed spawn cannot silently become a different account.
- */
-export function createClaudeCliAuthRefresh(
-  configDir?: string,
-  timeoutMs = DEFAULT_REFRESH_TIMEOUT_MS,
-  isReady = createClaudeAuthRefreshReadiness(),
-): () => Promise<boolean> {
-  let inFlight: Promise<boolean> | null = null;
-  const refresh = async (): Promise<boolean> => {
-    if (!await isReady()) {
-      logger.debug('Deferring Claude credential renewal until the host and network are ready');
-      return false;
-    }
-    return new Promise<boolean>((resolve) => {
-      const env: NodeJS.ProcessEnv = { ...buildCliEnv() };
-      for (const key of CLAUDE_STRIPPED_AUTH_ENV_VARS) {
-        delete env[key];
-      }
-      if (configDir !== undefined) {
-        env['CLAUDE_CONFIG_DIR'] = configDir;
-      }
-
-      const proc = spawnChild(resolveClaudeCliCommand(), ['doctor'], {
-        env,
-        cwd: os.tmpdir(),
-        shell: false,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-      });
-      // doctor output is not needed and must never be logged, but leaving its
-      // pipes unread can block exit (or the credential save) on a full buffer.
-      proc.stdout?.resume();
-      proc.stderr?.resume();
-      let settled = false;
-      let timer: NodeJS.Timeout | null = null;
-
-      const finish = (ok: boolean): void => {
-        if (settled) return;
-        settled = true;
-        if (timer) clearTimeout(timer);
-        resolve(ok);
-      };
-
-      timer = setTimeout(() => {
-        try {
-          proc.kill();
-        } catch {
-          // Process may already be closed.
-        }
-        finish(false);
-      }, timeoutMs);
-      if (typeof timer.unref === 'function') timer.unref();
-
-      proc.on('error', () => finish(false));
-      proc.on('close', (code) => finish(code === 0));
-    });
-  };
-  // Repeated quota triggers share one renewal for this profile while native
-  // Claude owns cross-process locking and token rotation.
-  return () => inFlight ??= refresh().finally(() => { inFlight = null; });
-}
-
-function resolveClaudeCliCommand(
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-): string {
-  const config = CLI_REGISTRY.claude;
-  const candidate = getCliCandidatePaths(config, env, platform).find((p) => existsSync(p));
-  return candidate ?? config.command;
-}

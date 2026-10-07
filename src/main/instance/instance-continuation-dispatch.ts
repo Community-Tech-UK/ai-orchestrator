@@ -49,6 +49,13 @@ interface LogicalTurnState {
   suppressed: boolean;
   lastDispatchedRequestCount?: number;
 }
+/** A recovery wait is stale once the restart has been announced; it must not block the continuation. */
+function rootSessionAdmitsContinuation(instance: ContinuationInstance): boolean {
+  if (instance.parentId !== null || instance.launchMode !== 'orchestrated') return false;
+  const wait = instance.waitReason;
+  return wait === undefined || wait.kind === 'respawning';
+}
+
 const READY = new Set<Instance['status']>(['idle', 'ready']);
 const UNAVAILABLE = new Set<Instance['status']>([
   'initializing', 'waiting_for_input', 'waiting_for_permission', 'interrupting', 'cancelling',
@@ -231,7 +238,7 @@ export class InstanceContinuationDispatch {
         && (this.endingMatches(request) || (retryReason === 'context-overflow'
           && getInstanceTurnEnding(request.instanceId) === 'context_overflow'))
         && (READY.has(current.status) || current.status === 'busy')
-        && (!policy.rootOnly || (current.parentId === null && current.launchMode === 'orchestrated' && current.waitReason === undefined))
+        && (!policy.rootOnly || rootSessionAdmitsContinuation(current))
         && !this.isPaused() && !this.isManagedLoopInstance(request.instanceId)
         && (policy.allowInhibitor || !this.registry.hasInhibitor(request.instanceId));
     } catch { /* Eligibility uncertainty fails closed. */ }
@@ -257,7 +264,7 @@ export class InstanceContinuationDispatch {
     try {
       return instance !== undefined && instance.requestCount === request.requestCount
         && !turn?.suppressed && turn?.lastDispatchedRequestCount !== request.requestCount
-        && (!policy.rootOnly || (instance.parentId === null && instance.launchMode === 'orchestrated' && instance.waitReason === undefined))
+        && (!policy.rootOnly || rootSessionAdmitsContinuation(instance))
         && (!dispatch ? !UNAVAILABLE.has(instance.status) : READY.has(instance.status)
           || (preparing && instance.status === 'busy') || (policy.allowWake && instance.status === 'hibernated'))
         && (policy.limit === undefined || this.attempts(request.instanceId, request.trigger) < policy.limit)

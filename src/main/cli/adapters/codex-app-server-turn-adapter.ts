@@ -60,6 +60,8 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
   private contextOuterSendId: string | null = null;
   /** Settles after a Codex-started turn's output has been published; null when none runs. */
   private providerTurnDone: Promise<void> | null = null;
+  /** A Codex-started turn that arrived before the previous capture finished tearing down. */
+  private pendingProviderFollow: AppServerNotification | null = null;
   /** Harness sends in flight; they own the busy/idle status while they run. */
   private pendingHarnessSends = 0;
   /** Last goal status Codex reported, keyed to the thread it was reported for. */
@@ -176,18 +178,19 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     return this.providerTurnDone !== null;
   }
 
-  /**
-   * Follows a root-thread turn Codex started without a Harness request (e.g. a
-   * goal continuation). The Compact turn of a Harness compaction request is
-   * excluded; the compaction lifecycle presents that one.
-   */
+  /** Follow a root-thread turn Codex started itself. Compact turns stay with compaction. */
   private followProviderTurn(notification: AppServerNotification): void {
     if (notification.method !== 'turn/started' || !this.useAppServer) return;
     const rootThreadId = this.getAppServerThreadId();
     if (!rootThreadId || notification.params['threadId'] !== rootThreadId) return;
     const turnId = (notification.params['turn'] as { id?: unknown } | undefined)?.id;
     if (typeof turnId !== 'string') return;
-    if (this.appServerRuntime.hasActiveTurn() || this.contextCostController.isCompactTurnExpected()) return;
+    if (this.appServerRuntime.hasActiveTurn() || this.contextCostController.isCompactTurnExpected()) {
+      if (this.appServerRuntime.hasActiveTurn() && !this.contextCostController.isCompactTurnExpected()) {
+        this.pendingProviderFollow = notification;
+      }
+      return;
+    }
     const capture = this.appServerRuntime.captureProviderTurn(turnId, this.turnCaptureCallbacks(), notification);
     if (!capture) return;
     logger.info('Following a turn Codex started by itself', { threadId: rootThreadId, turnId });
@@ -198,6 +201,12 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       .catch((error: unknown) => this.failProviderTurn(turnId, error))
       .finally(() => {
         if (this.providerTurnDone === done) this.providerTurnDone = null;
+        const pending = this.pendingProviderFollow;
+        this.pendingProviderFollow = null;
+        if (pending) {
+          this.followProviderTurn(pending);
+          return;
+        }
         // A terminated or exited adapter reports through its exit path, and a Harness send owns its own status.
         if (!this.isSpawned || !this.useAppServer || this.pendingHarnessSends > 0) return;
         const stillWorking = this.appServerRuntime.hasActiveTurn() || this.contextCostController.isCompactionRunning();

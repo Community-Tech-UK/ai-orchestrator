@@ -1,4 +1,4 @@
-import type { LocalAiRoutingEvent } from '../../shared/types/local-ai-guard.types';
+import type { LocalAiRoutingEvent, LocalAiTarget } from '../../shared/types/local-ai-guard.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { computeProviderTokenCost } from '../../shared/data/model-pricing';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -15,6 +15,7 @@ import { LocalAiFallbackApprovalService } from './local-ai-fallback-approval-ser
 import { LocalAiHealthEngine } from './local-ai-health-engine';
 import { LocalAiHealthRepository } from './local-ai-health-repository';
 import { LocalAiHealthScheduler } from './local-ai-health-scheduler';
+import { closeIncidentsForRetiredTarget, closeIncidentsForRetiredTargets } from './local-ai-incident-retirement';
 import { LocalAiIncidentService } from './local-ai-incident-service';
 import { LocalAiProbeService } from './local-ai-probe-service';
 import { LocalAiRecoveryService } from './local-ai-recovery-service';
@@ -162,6 +163,9 @@ export class LocalAiGuardRuntime {
   }
 
   start(): void {
+    // Targets retired before this process started are no longer probed, so
+    // their open incidents would otherwise stay listed forever (LT-664).
+    closeIncidentsForRetiredTargets(this.targets, this.health, Date.now());
     this.scheduler.start();
   }
 
@@ -313,7 +317,10 @@ export function initializeLocalAiGuardRuntime(
     });
     constructedIncidents = undefined;
 
-    const targetChanged = (target: { id: string }) => {
+    const targetChanged = (target: LocalAiTarget) => {
+      if (target.lifecycle === 'retired') {
+        closeIncidentsForRetiredTarget(runtime!.health, target.id, Date.now());
+      }
       runtime!.scheduler.targetChanged(target.id);
       runtime!.notifyChanged();
     };

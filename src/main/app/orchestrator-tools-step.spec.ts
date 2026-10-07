@@ -6,6 +6,7 @@ const captured = vi.hoisted(() => ({
     spawnRemoteInstance?: (args: {
       node?: string;
       prompt: string;
+      provider?: string;
       requiresBrowser?: boolean;
       requiresAndroid?: boolean;
       androidDeviceKind?: 'emulator' | 'physical' | 'any';
@@ -1883,6 +1884,51 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
       node: 'windows-pc', prompt, provider: 'claude',
     } as never);
     expect(createInstance).toHaveBeenCalledOnce();
+  });
+
+  // chrome.exe plus "existing startup entries" is logon configuration, not a
+  // shared Chrome session. requiresBrowser stays false and is not a bypass.
+  it.each([
+    'Inspect existing startup entries, avoid duplicates, and create a normal chrome.exe shortcut through PowerShell and WScript.Shell. Verify the shortcut without launching Chrome or rebooting.',
+    'Inspect existing enabled Run entries under HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run and existing Startup folder files for chrome.exe. Do not launch Chrome.',
+    'Inspect existing startup entries and the current user\'s Startup folder. Create one per-user Startup shortcut to chrome.exe with empty arguments if no equivalent exists. Leave running browsers and tabs untouched. Do not inspect tabs.',
+    'Check existing filesystem shortcuts in the Startup folder for chrome.exe. Leave all running browsers and tabs untouched.',
+  ])('allows Chrome startup configuration that does not open a session: %s', async (prompt) => {
+    const node = makeNode({ hasBrowserMcp: true });
+    const createInstance = vi.fn().mockResolvedValue({ id: 'remote-1' });
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep({ createInstance });
+
+    await captured.initializeOptions!.spawnRemoteInstance!({
+      node: 'windows-pc',
+      prompt,
+      provider: 'claude',
+      requiresBrowser: false,
+    });
+    expect(createInstance).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    'Use the existing logged-in Chrome tab on windows-pc.',
+    'Inspect existing startup entries and create a chrome.exe Startup shortcut. Then read the existing logged-in Chrome tab. Leave running browsers and tabs untouched.',
+    'Use PowerShell on this Windows PC to open the Startup folder and read the existing Chrome tab.',
+    'Inspect existing startup entries and create a chrome.exe shortcut. Do not leave the Chrome tabs untouched.',
+    'Inspect existing startup entries and create a chrome.exe shortcut. Leave running browsers and tabs untouched, then click the existing Chrome tab.',
+    'On this Windows PC, mention Startup and PowerShell, then use the shared Chrome tab.',
+    'Open the current user\'s Startup folder Chrome session.',
+    'Inspect existing startup entries Chrome tabs.',
+  ])('still rejects shared Chrome access, including when it is mixed with startup wording: %s', async (prompt) => {
+    const node = makeNode({ hasBrowserMcp: true });
+    const createInstance = vi.fn();
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep({ createInstance });
+
+    await expect(captured.initializeOptions!.spawnRemoteInstance!({
+      node: 'windows-pc',
+      prompt,
+      requiresBrowser: false,
+    })).rejects.toThrow(/stay on the coordinator/i);
+    expect(createInstance).not.toHaveBeenCalled();
   });
 
   it.each([

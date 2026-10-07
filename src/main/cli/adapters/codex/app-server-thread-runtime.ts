@@ -260,6 +260,11 @@ export class CodexAppServerThreadRuntime {
         assertAdapterInputCurrent(dispatch);
         await client.request('turn/steer', { threadId, expectedTurnId: turnId, input });
         onInputAccepted?.();
+        active.state.steeredInputAccepted = true;
+        if (active.state.completionTimer) {
+          clearTimeout(active.state.completionTimer);
+          active.state.completionTimer = null;
+        }
       }
     } catch (error) {
       if (this.activeTurn !== active || active.state.completed) return { delivered: false, developerInjected };
@@ -656,6 +661,7 @@ export function createCodexTurnCaptureState(threadId: string): TurnCaptureState 
     finalTurn: null,
     completed: false,
     finalAnswerSeen: false,
+    steeredInputAccepted: false,
     pendingCollaborations: new Set(),
     activeSubagentTurns: new Set(),
     completionTimer: null,

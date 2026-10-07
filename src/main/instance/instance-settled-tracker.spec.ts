@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { InstanceSettledTracker } from './instance-settled-tracker';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
@@ -30,6 +30,10 @@ function instance(overrides: Partial<Instance> = {}): Instance {
 }
 
 describe('InstanceSettledTracker', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('emits a settled event only when the state-machine predicate passes', () => {
     const current = instance();
     const emitter = new EventEmitter();
@@ -93,6 +97,36 @@ describe('InstanceSettledTracker', () => {
       timeoutMs: 1_000,
       debounceMs: 0,
     })).resolves.toBe(current);
+  });
+
+  it('resolves on the progress interval when the settled event arrived too early', async () => {
+    vi.useFakeTimers();
+    const current = instance({
+      outputBuffer: [output('assistant', 900)],
+    });
+    const emitter = new EventEmitter();
+    const tracker = new InstanceSettledTracker({
+      getInstance: (id) => (id === current.id ? current : undefined),
+      emitter,
+      debounceMs: 0,
+    });
+    const waiting = tracker.waitForSettled(current.id, {
+      afterTimestamp: 1_000,
+      timeoutMs: 10_000,
+      debounceMs: 0,
+      progressIntervalMs: 1_000,
+    });
+
+    emitter.emit('instance:settled', {
+      instanceId: current.id,
+      status: 'idle',
+      timestamp: 900,
+      instance: current,
+    });
+    current.outputBuffer.push(output('assistant', 1_100));
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(waiting).resolves.toBe(current);
   });
 
   it('settles an outputless error state through the default debounce path', async () => {

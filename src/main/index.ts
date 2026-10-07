@@ -39,6 +39,7 @@ import { shutdownTracer } from './observability/otel-setup';
 import { shutdownMetrics } from './observability/otel-metrics';
 import { flushLifecycleTraces } from './observability/lifecycle-trace';
 import { getChatServiceIfInitialized } from './chats';
+import { getPlanQueueCoordinator } from './plan-queue/plan-queue-coordinator';
 import { shutdownCliSpawnWorkerGateway } from './cli/spawn-worker/cli-spawn-worker-gateway';
 import {
   startGracefulQuitFlow,
@@ -150,7 +151,10 @@ class HarnessApp {
         try { getWorkerNodeConnectionServer().stop(); } catch { /* best effort */ }
         try { await getThinClientWsServer().stop(); } catch { /* best effort */ }
       },
-      terminateInstances: () => this.instanceManager.terminateAll(),
+      terminateInstances: () => {
+        try { getPlanQueueCoordinator().shutdown(); } catch { /* best effort */ }
+        return this.instanceManager.terminateAll();
+      },
       flushChatTranscripts: async () => {
         await getChatServiceIfInitialized()?.flushTranscript();
       },

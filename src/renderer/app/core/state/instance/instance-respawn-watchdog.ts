@@ -33,21 +33,36 @@ export class RespawnWatchdog {
     }
 
     if (isInterruptRecoveryStatus(newStatus)) {
-      const timer = setTimeout(() => {
-        this.respawnTimers.delete(instanceId);
-        const inst = this.stateService.getInstance(instanceId);
-        const stillRecovering = inst && isInterruptRecoveryStatus(inst.status);
-        if (stillRecovering) {
-          console.error('Interrupt recovery timeout: force-terminating stuck instance', { instanceId });
-          this.listStore.terminateInstance(instanceId).then(() =>
-            this.listStore.restartInstance(instanceId)
-          ).catch((err) => {
-            console.error('Interrupt recovery timeout recovery failed', err);
-          });
-        }
-      }, RespawnWatchdog.RESPAWN_TIMEOUT_MS);
-      this.respawnTimers.set(instanceId, timer);
+      this.arm(instanceId, RespawnWatchdog.RESPAWN_TIMEOUT_MS);
     }
+  }
+
+  /**
+   * A circuit-breaker backoff keeps status `respawning` for the whole wait.
+   * The 15s stuck-session limit is measured from the end of that wait, so a
+   * 30s-or-longer backoff is not treated as a hung interrupt.
+   */
+  private arm(instanceId: string, delayMs: number): void {
+    const timer = setTimeout(() => {
+      this.respawnTimers.delete(instanceId);
+      const inst = this.stateService.getInstance(instanceId);
+      if (!inst || !isInterruptRecoveryStatus(inst.status)) {
+        return;
+      }
+      const wait = inst.waitReason;
+      if (wait?.kind === 'backoff' && wait.retryAt > Date.now()) {
+        const remainingMs = wait.retryAt - Date.now();
+        this.arm(instanceId, remainingMs + RespawnWatchdog.RESPAWN_TIMEOUT_MS);
+        return;
+      }
+      console.error('Interrupt recovery timeout: force-terminating stuck instance', { instanceId });
+      this.listStore.terminateInstance(instanceId).then(() =>
+        this.listStore.restartInstance(instanceId)
+      ).catch((err) => {
+        console.error('Interrupt recovery timeout recovery failed', err);
+      });
+    }, delayMs);
+    this.respawnTimers.set(instanceId, timer);
   }
 
   /** Clear all pending timers (call on store destroy). */

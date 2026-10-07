@@ -54,6 +54,38 @@ export const UNATTENDED_RPC_METHODS = [
 
 export type UnattendedRpcMethod = typeof UNATTENDED_RPC_METHODS[number];
 
+const LOGIN_MARKER_GUIDANCE =
+  'Pick session-wide markers that appear on every signed-in page, such as the account name or "Log out". Page-specific headings make re-login impossible.';
+
+async function assertLoginMarkersOnLivePage(
+  service: Partial<BrowserGatewayService>,
+  request: { profileId: string; targetId: string; loggedInMarkers: readonly string[] },
+): Promise<void> {
+  if (typeof service.snapshot !== 'function') {
+    throw new Error(`Cannot record login markers until the live page can be read. ${LOGIN_MARKER_GUIDANCE}`);
+  }
+  const snap = await service.snapshot({
+    profileId: request.profileId,
+    targetId: request.targetId,
+    requireLive: true,
+  });
+  if (snap.decision !== 'allowed' || snap.outcome !== 'succeeded' || !snap.data) {
+    throw new Error(
+      `Cannot record login markers: the live page could not be read (${snap.reason ?? 'snapshot_unavailable'}). ${LOGIN_MARKER_GUIDANCE}`,
+    );
+  }
+  if (snap.data.textUnavailableReason) {
+    throw new Error(
+      `Cannot record login markers: the live page could not be read (${snap.data.textUnavailableReason}). ${LOGIN_MARKER_GUIDANCE}`,
+    );
+  }
+  const haystack = snap.data.text.toLowerCase();
+  const missing = request.loggedInMarkers.filter((marker) => !haystack.includes(marker.toLowerCase()));
+  if (missing.length > 0) {
+    throw new Error(`Login markers are not on the live page (${missing.join(', ')}). ${LOGIN_MARKER_GUIDANCE}`);
+  }
+}
+
 export function isUnattendedRpcMethod(method: string): method is UnattendedRpcMethod {
   return (UNATTENDED_RPC_METHODS as readonly string[]).includes(method);
 }
@@ -134,6 +166,16 @@ export async function handleUnattendedRpcMethod(
     }
     case 'browser.remember_login_fingerprint': {
       const request = parse(BrowserRememberLoginFingerprintRequestSchema, payload);
+      if (!request.targetId) {
+        throw new Error(
+          `browser.remember_login_fingerprint needs targetId for the page being viewed. ${LOGIN_MARKER_GUIDANCE}`,
+        );
+      }
+      await assertLoginMarkersOnLivePage(context.service, {
+        profileId: request.profileId,
+        targetId: request.targetId,
+        loggedInMarkers: request.loggedInMarkers,
+      });
       const recipe = getBrowserLoginRecipeStore().remember({
         profileId: request.profileId,
         origin: request.origin,

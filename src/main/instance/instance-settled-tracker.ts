@@ -218,6 +218,15 @@ export class InstanceSettledTracker {
           finish(this.deps.getInstance(instanceId));
           return;
         }
+        // The single instance:settled event can arrive before this waiter's
+        // predicate is true, and de-duplication means it is not emitted again.
+        // Re-read the instance on the interval so a settled reviewer is noticed
+        // without another event.
+        const settled = getSettledInstance();
+        if (settled) {
+          finish(settled);
+          return;
+        }
         options.onProgress?.(Date.now() - startedAt);
       }, options.progressIntervalMs ?? 1000);
       if (typeof progressTimer.unref === 'function') {

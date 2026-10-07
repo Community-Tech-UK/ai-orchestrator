@@ -149,9 +149,9 @@ export class ClaudeUsageEndpointProbe implements ProviderQuotaProbe {
 
     const { credential, reason } = await this.credentialsReader.read();
     if (!credential) {
-      // Expired after Claude Code was asked to refresh is a transient skip,
-      // not a sign-in problem. The standalone monitor keeps last-known bars
-      // and so should we.
+      // An expired access token is a transient skip, not a sign-in problem.
+      // The reader does not launch a refresh: a rejected one erases the login.
+      // Last-known bars stay until a Claude Code session renews the token.
       return failedSnapshot(takenAt, describeCredentialFailure(reason), {
         needsReauth: reason === 'denied' || reason === 'not-found' || reason === 'malformed',
       });
@@ -328,7 +328,7 @@ function failedSnapshot(
 function describeCredentialFailure(reason: CredentialFailureReason | undefined): string {
   switch (reason) {
     case 'expired':
-      return 'Claude OAuth token expired (skipped — Claude Code could not refresh)';
+      return 'Claude OAuth access token expired (left unchanged until Claude Code renews it)';
     case 'denied':
       return 'Keychain access denied reading the Claude OAuth token';
     case 'malformed':

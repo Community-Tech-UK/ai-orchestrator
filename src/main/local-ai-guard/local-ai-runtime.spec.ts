@@ -26,7 +26,10 @@ function services(
   return {
     scheduler,
     incidents,
-    targets,
+    targets: {
+      list: () => [],
+      ...targets,
+    },
     health: {},
     probes: {},
     engine: {},

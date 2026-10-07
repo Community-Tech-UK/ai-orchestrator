@@ -547,6 +547,54 @@ describe('InstanceCommunicationManager', () => {
     expect(clearProviderLimitAfterSuccessfulTurn).not.toHaveBeenCalled();
   });
 
+  it('records an errored resident completion before error cleanup drops the adapter (LT-674)', async () => {
+    const adapter = new FakeAdapter('claude-cli');
+    adapter.terminate.mockImplementation(async () => {
+      await Promise.resolve();
+      adapters.delete(instance.id);
+    });
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    getCostTracker().clearEntries();
+    lifecycleHookMocks.triggerLifecycleHooks.mockClear();
+    emitProviderRuntimeEvent.mockClear();
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, nextAdapter) => adapters.set(id, nextAdapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      emitProviderRuntimeEvent,
+      drainContextEvidence: async () => {
+        await Promise.resolve();
+      },
+    });
+
+    manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+    (adapter as unknown as EventEmitter).emit('error', new Error('legacy stream error'));
+    (adapter as unknown as EventEmitter).emit('complete', {
+      id: 'r1',
+      content: 'partial essay',
+      role: 'assistant',
+      usage: { inputTokens: 10, outputTokens: 12, totalTokens: 22, cost: 0.01 },
+      metadata: { turnErrored: true },
+    } satisfies CliResponse);
+    await flushOutputHandlers();
+
+    const completeCaptures = emitProviderRuntimeEvent.mock.calls.filter(
+      (call) => (call[2] as { raw?: { source?: string } } | undefined)?.raw?.source === 'adapter-event:complete',
+    );
+    expect(completeCaptures).toHaveLength(1);
+    expect(getCostTracker().getEntries()).toHaveLength(1);
+    expect(lifecycleHookMocks.triggerLifecycleHooks).toHaveBeenCalledWith(
+      'Stop',
+      expect.objectContaining({ stopReason: 'error' }),
+    );
+  });
+
   it('forwards tool and spawn adapter events through the raw-backed runtime stream', () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);

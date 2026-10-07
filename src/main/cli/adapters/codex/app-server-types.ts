@@ -604,6 +604,8 @@ export interface TurnCaptureState {
   completed: boolean;
   /** Whether we've seen a final-answer-phase agent message. */
   finalAnswerSeen: boolean;
+  /** A turn/steer was accepted, so inferred completion must not close the capture. */
+  steeredInputAccepted: boolean;
   /** Pending collaboration tool calls (subagent spawning). */
   pendingCollaborations: Set<string>;
   /** Active turns in subagent threads. */

@@ -31,6 +31,11 @@ export const SESSION_TOOL_SCHEMAS = {
   }, ['profileId', 'targetId']),
   'browser.remember_login_fingerprint': objectSchema({
     profileId: profileIdProp,
+    targetId: {
+      ...targetIdProp,
+      description:
+        'The tab whose live page is being recorded. Every marker is checked against that page before it is stored.',
+    },
     origin: {
       ...stringProp,
       description: 'Origin the fingerprint belongs to (e.g. https://portal.example.gov.uk).',
@@ -43,10 +48,11 @@ export const SESSION_TOOL_SCHEMAS = {
       type: 'array',
       items: stringProp,
       description:
-        'Texts present ONLY when logged in (e.g. "Log out", the account name). Record this '
-        + 'right after a successful login so browser.check_session can detect logouts. The '
-        + 'recipe is persisted across restarts; for a shared tab it applies to every tab on '
-        + 'that computer.',
+        'Texts present on every signed-in page (the account name or "Log out"), not a heading '
+        + 'that only one screen shows. Record this right after a successful login so '
+        + 'browser.check_session can detect logouts. Each marker must be visible on the live '
+        + 'targetId page or the recipe is refused. The recipe is persisted across restarts; '
+        + 'for a shared tab it applies to every tab on that computer.',
     },
     relogin: objectSchema({
       vaultItemRef: {
@@ -59,7 +65,7 @@ export const SESSION_TOOL_SCHEMAS = {
       codeSelector: selectorProp,
       codeKind: { type: 'string', enum: ['totp', 'email_code'] },
     }, ['vaultItemRef', 'passwordSelector']),
-  }, ['profileId', 'origin', 'loginUrl', 'loggedInMarkers']),
+  }, ['profileId', 'targetId', 'origin', 'loginUrl', 'loggedInMarkers']),
   'browser.list_login_recipes': objectSchema({
     profileId: {
       ...stringProp,

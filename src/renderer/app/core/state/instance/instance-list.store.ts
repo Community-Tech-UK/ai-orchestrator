@@ -126,17 +126,15 @@ export class InstanceListStore {
     this.stateService.removeInstance(instanceId);
   }
 
-  /**
-   * Load initial instances from the backend
-   */
   async loadInitialInstances(): Promise<void> {
     this.stateService.setLoading(true);
-
     try {
-      const response = (await this.ipc.stateResync()) as {
-        success: boolean;
-        data?: { instances?: unknown[] };
-      };
+      interface Resync { success: boolean; error?: string; data?: { instances?: unknown[] } }
+      let response = (await this.ipc.stateResync()) as Resync;
+      if (!response.success) {
+        await this.ipc.appReady();
+        response = (await this.ipc.stateResync()) as Resync;
+      }
       const snapshotInstances = response.data?.instances;
       if (response.success && Array.isArray(snapshotInstances)) {
         const instances = new Map<string, Instance>();
@@ -145,7 +143,10 @@ export class InstanceListStore {
           instances.set(item['id'] as string, this.deserializeInstance(item));
         }
         this.stateService.setInstances(instances);
+        return;
       }
+      this.stateService.setLoading(false);
+      this.stateService.setError(response.error || 'Failed to load instances');
     } catch (err) {
       console.error('Failed to load instances:', err);
       this.stateService.setLoading(false);

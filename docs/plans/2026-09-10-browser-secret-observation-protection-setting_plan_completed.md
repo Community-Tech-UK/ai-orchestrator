@@ -1,7 +1,7 @@
 # Browser secret observation protection setting
 
 Status: completed 2026-09-10. Remaining live checks are in
-[2026-09-10-browser-secret-observation-protection-setting_livetest.md](2026-09-10-browser-secret-observation-protection-setting_livetest.md).
+[2026-09-10-browser-secret-observation-protection-setting_livetest_completed.md](2026-09-10-browser-secret-observation-protection-setting_livetest_completed.md).
 
 ## Goal
 

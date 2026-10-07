@@ -10,11 +10,34 @@ import type { InstanceManager } from '../instance/instance-manager';
 import { getLogger } from '../logging/logger';
 import { getLoopStoreService } from '../orchestration/loop-store';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
+import { getOrchestratorToolsRpcSocketPath } from '../mcp/orchestrator-tools-rpc-server';
 import { getPlanQueueCoordinator } from './plan-queue-coordinator';
 import { PlanQueueRelaxation } from './plan-queue-relaxation';
 import { PlanQueueStore } from './plan-queue-store';
 
 const logger = getLogger('PlanQueueBootstrap');
+
+/**
+ * The tools RPC server starts in a later boot step. Recovery must not spawn
+ * a verifier until that socket exists, and this wait must not block the boot
+ * step that starts the server.
+ */
+export function waitForOrchestratorToolsListening(): Promise<void> {
+  if (getOrchestratorToolsRpcSocketPath()) return Promise.resolve();
+  logger.info('Plan queue recovery is waiting for the orchestrator-tools RPC server');
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const timer = setInterval(() => {
+      if (!getOrchestratorToolsRpcSocketPath()) return;
+      clearInterval(timer);
+      logger.info('Plan queue recovery continuing; orchestrator-tools RPC is listening', {
+        waitedMs: Date.now() - started,
+      });
+      resolve();
+    }, 50);
+    timer.unref?.();
+  });
+}
 
 export async function initializePlanQueue(instanceManager: InstanceManager): Promise<void> {
   const db = getLoopStoreService().getDb();
@@ -32,6 +55,13 @@ export async function initializePlanQueue(instanceManager: InstanceManager): Pro
       get: (key) => settings.get(key as keyof AppSettings),
       set: (key, value) => settings.set(key as keyof AppSettings, value as AppSettings[keyof AppSettings]),
     }),
+    whenOrchestratorToolsListening: waitForOrchestratorToolsListening,
   });
-  await coordinator.recover();
+  // Do not await. The tools socket is started by a later boot step; awaiting
+  // here would deadlock recovery behind that step (LT-700).
+  void coordinator.recover().catch((error: unknown) => {
+    logger.warn('Plan queue recovery failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
 }

@@ -71,6 +71,39 @@ function normalizeBrowserPolicyPrompt(prompt: string): string {
  */
 const WINDOWS_OS_REFERENCE = /\b(?:microsoft\s*[\\/]\s*)?windows(?=\s*[\\/]|\s+(?:pcs?|machines?|box|host|workers?|nodes?|servers?|os|10|11|registry|startup|update|defender|terminal|powershell|services?|firewall|subsystem|task\s+scheduler)\b)/g;
 
+/**
+ * "existing startup entries" and "the user's Startup folder" name Windows
+ * logon configuration. They are not an existing browser session, so they must
+ * not pair with a later chrome.exe reference.
+ */
+const OS_CONFIGURATION_PHRASE_END = /\b(?!\s+(?:browsers?|chrome|tabs?|sessions?|profiles?|pages?|webpages?|edge)\b)/;
+const OS_CONFIGURATION_EXISTING_PHRASE = new RegExp(
+  String.raw`\bexisting\s+(?:(?:per-user|current-user|enabled|disabled)\s+)*(?:startup\s+(?:folder|menu|entries|entry|items|item|programs|program|apps|app|applications|application|shortcuts|shortcut)|(?:run|registry)\s+(?:entries|entry|keys|key|values|value)|filesystem\s+(?:entries|entry|shortcuts|shortcut))${OS_CONFIGURATION_PHRASE_END.source}`,
+  'g',
+);
+const OS_CONFIGURATION_USER_STARTUP_PHRASE = new RegExp(
+  String.raw`\b(?:user['’]s|users['’])\s+startup\s+(?:folder|menu|entries|entry|shortcuts|shortcut)${OS_CONFIGURATION_PHRASE_END.source}`,
+  'g',
+);
+/**
+ * A finished instruction to leave browsers and tabs alone. A continuation
+ * (", then click") stays in the prompt. Negated wording ("do not leave
+ * ... untouched") is kept by negatesLeaveUntouched and is not removed here.
+ */
+const CLOSED_BROWSER_SAFETY_CLAUSE = /\b(?:leave\s+(?:(?:the|all|every|any)\s+)?(?:(?:running|currently\s+running|already\s+running)\s+)?(?:browsers?\s+and\s+tabs?|tabs?\s+and\s+browsers?)\s+untouched|do\s+not\s+(?:touch|access|open|inspect|read|use)\s+(?:any\s+|the\s+)?(?:running\s+)?(?:browser\s+)?(?:browsers?\s+and\s+)?tabs?|without\s+touching\s+tabs?)\b(?=\s*[.!?;]|\s*$)/g;
+
+function negatesLeaveUntouched(prompt: string): boolean {
+  return /\b(?:do\s+not|don['’]t|never|cannot|can['’]t|must\s+not|neither)\b[^.]{0,80}\bleave\b[^.]{0,80}\buntouched\b/.test(prompt);
+}
+
+function promptWithoutOsConfigurationExemptions(prompt: string): string {
+  const withoutStartupPhrases = prompt
+    .replace(OS_CONFIGURATION_EXISTING_PHRASE, ' ')
+    .replace(OS_CONFIGURATION_USER_STARTUP_PHRASE, ' ');
+  if (negatesLeaveUntouched(prompt)) return withoutStartupPhrases;
+  return withoutStartupPhrases.replace(CLOSED_BROWSER_SAFETY_CLAUSE, ' ');
+}
+
 function namesProtectedBrowserSurface(prompt: string): boolean {
   return /\b(?:browsers?|chrome|tabs?|sessions?|windows?|profiles?|pages?|webpages?|edge)\b/.test(
     normalizeBrowserPolicyPrompt(prompt).replace(WINDOWS_OS_REFERENCE, ' '),
@@ -182,7 +215,7 @@ export function assertRunOnNodeUsesWorkerBrowserSurface(
       return;
     }
   } else {
-    const policyPrompt = prompt;
+    const policyPrompt = promptWithoutOsConfigurationExemptions(prompt);
     const namesBrowserGatewayTool = /\bbrowser\.(?:\*|[a-z][a-z0-9_]*\b)/.test(policyPrompt);
     const explicitlyShared = EXPLICIT_SHARED_BROWSER_MARKERS.some(
       (marker) => policyPrompt.includes(marker),

@@ -119,6 +119,8 @@ export class InstanceCommunicationManager extends EventEmitter {
   private continuityInputQueue = new InstanceContinuityInputQueue();
   private toolResultProcessor: InstanceToolResultProcessor;
   private interruptedInstances = new Set<string>();
+  /** In-flight adapter `complete` handlers. Error cleanup waits for these (LT-674). */
+  private adapterCompletions = new Map<string, Set<Promise<void>>>();
 
   private circuitBreakers = new InstanceCommunicationCircuitBreakers();
   private overflow = new InstanceCommunicationOverflowTracker();
@@ -1653,99 +1655,104 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (instance) this.recordCompletionCost(instanceId, instance, { id: generateId(), content: '', role: 'assistant', usage });
     });
 
-    adapter.on('complete', async (response: CliResponse) => {
-      if (isStaleAdapterEvent('complete')) {
-        return;
-      }
-      const requestCountAtProviderCompletion = this.deps.getInstance(instanceId)?.requestCount;
-      if (this.deps.drainContextEvidence) {
-        await this.deps.drainContextEvidence(instanceId);
-      }
-      if (isStaleAdapterEvent('complete')) {
-        return;
-      }
-      const providerLimitSignal = detectCompletionProviderLimit(
-        response,
-        readAdapterRateLimitTelemetry(adapter),
-      );
-      // A3: when the adapter-layer classifier tagged this turn as degraded
-      // (only possible with `detectDegradedAdapterOutput` enabled), surface it
-      // as an observable warning. The normalized event below also carries the
-      // reason for renderer/coordinator consumers.
-      if (response.degradedReason) {
-        logger.warn('Adapter reported degraded output for completed turn', {
-          instanceId,
-          degradedReason: response.degradedReason,
-          contentLength: response.content?.length ?? 0,
-        });
-      }
-      const completedInstance = this.deps.getInstance(instanceId);
-      // LT-105: an errored turn still records its cost and hooks, but is not a success.
-      const turnErrored = response.metadata?.['turnErrored'] === true;
-      if (completedInstance?.provider === 'codex') {
-        this.reconcileCompletedCodexContent(
-          completedInstance,
+    adapter.on('complete', (response: CliResponse) => {
+      const run = (async () => {
+        if (isStaleAdapterEvent('complete')) {
+          return;
+        }
+        const requestCountAtProviderCompletion = this.deps.getInstance(instanceId)?.requestCount;
+        if (this.deps.drainContextEvidence) {
+          await this.deps.drainContextEvidence(instanceId);
+        }
+        if (isStaleAdapterEvent('complete')) {
+          return;
+        }
+        const providerLimitSignal = detectCompletionProviderLimit(
           response,
-          adapterGenerationAtSubscribe,
+          readAdapterRateLimitTelemetry(adapter),
         );
-      }
-      emitProviderRuntimeEvent(this.toProviderCompleteEvent(
-        response,
-        requestCountAtProviderCompletion,
-      ), {
-        raw: {
-          source: 'adapter-event:complete',
-          payload: toJsonSafeProviderEventPayload(response),
-        },
-      });
-      if (completedInstance) {
-        this.recordCompletionCost(instanceId, completedInstance, response);
-        this.recordEstimationTelemetry(completedInstance, response);
-        // Spec item 5 / LT-046: maintain the rolling handoff document as turns
-        // complete (cheap, no LLM; only when the feature is enabled). Must not
-        // live inside recordCompletionCost — that method early-returns on any
-        // turn without billable `response.usage` (a real, observed case: a
-        // resident-Claude-CLI session with 14 completed turns and correctly
-        // growing `contextUsage`/`totalTokensUsed` still recorded zero cost
-        // entries), which silently starved the handoff state of every turn.
-        if (getSettingsManager().getAll().sessionHandoffStateEnabled) {
-          getHandoffStateService().noteTurnCompleted(completedInstance);
-        }
-        if (!providerLimitSignal && !turnErrored && completedInstance.provider !== 'auto') {
-          this.deps.clearProviderLimitAfterSuccessfulTurn?.({
-            provider: completedInstance.provider,
-            model: completedInstance.currentModel ?? null,
-            accountProfileId: completedInstance.accountProfileId ?? null,
-            now: Date.now(),
-          });
-        }
-        dispatchInstanceLifecycleHook('PostSampling', completedInstance, {
-          modelResponse: response.content,
-          responseTokens: response.usage?.outputTokens,
-          modelId: completedInstance.currentModel,
-        }, logger, this.hookManager);
-        dispatchInstanceLifecycleHook('Stop', completedInstance, {
-          stopReason: turnErrored ? 'error' : response.degradedReason ? `degraded:${response.degradedReason}` : 'complete',
-          transcript: response.content,
-        }, logger, this.hookManager);
-      }
-      this.deps.onToolStateChange?.(instanceId, 'idle');
-      this.deps.onAuthRepairReplayComplete?.(instanceId);
-
-      // Regular-session provider-limit auto-resume (opt-in). A throttled CLI
-      // often exits 0 with the limit *notice as the assistant content*
-      // ("You've hit your session limit · resets 6:30pm") rather than throwing.
-      // Park + schedule a resume so the turn is re-sent after the window resets.
-      if (this.deps.onProviderLimitTurn) {
-        if (providerLimitSignal) {
-          this.deps.onProviderLimitTurn({
+        // A3: when the adapter-layer classifier tagged this turn as degraded
+        // (only possible with `detectDegradedAdapterOutput` enabled), surface it
+        // as an observable warning. The normalized event below also carries the
+        // reason for renderer/coordinator consumers.
+        if (response.degradedReason) {
+          logger.warn('Adapter reported degraded output for completed turn', {
             instanceId,
-            resetAtHint: providerLimitSignal.resetAtHint,
-            reason: providerLimitSignal.reason,
-            resumePrompt: this.overflow.getResumePrompt(instanceId),
+            degradedReason: response.degradedReason,
+            contentLength: response.content?.length ?? 0,
           });
         }
-      }
+        const completedInstance = this.deps.getInstance(instanceId);
+        // LT-105: an errored turn still records its cost and hooks, but is not a success.
+        const turnErrored = response.metadata?.['turnErrored'] === true;
+        if (completedInstance?.provider === 'codex') {
+          this.reconcileCompletedCodexContent(
+            completedInstance,
+            response,
+            adapterGenerationAtSubscribe,
+          );
+        }
+        emitProviderRuntimeEvent(this.toProviderCompleteEvent(
+          response,
+          requestCountAtProviderCompletion,
+        ), {
+          raw: {
+            source: 'adapter-event:complete',
+            payload: toJsonSafeProviderEventPayload(response),
+          },
+        });
+        if (completedInstance) {
+          this.recordCompletionCost(instanceId, completedInstance, response);
+          this.recordEstimationTelemetry(completedInstance, response);
+          // Spec item 5 / LT-046: maintain the rolling handoff document as turns
+          // complete (cheap, no LLM; only when the feature is enabled). Must not
+          // live inside recordCompletionCost — that method early-returns on any
+          // turn without billable `response.usage` (a real, observed case: a
+          // resident-Claude-CLI session with 14 completed turns and correctly
+          // growing `contextUsage`/`totalTokensUsed` still recorded zero cost
+          // entries), which silently starved the handoff state of every turn.
+          if (getSettingsManager().getAll().sessionHandoffStateEnabled) {
+            getHandoffStateService().noteTurnCompleted(completedInstance);
+          }
+          if (!providerLimitSignal && !turnErrored && completedInstance.provider !== 'auto') {
+            this.deps.clearProviderLimitAfterSuccessfulTurn?.({
+              provider: completedInstance.provider,
+              model: completedInstance.currentModel ?? null,
+              accountProfileId: completedInstance.accountProfileId ?? null,
+              now: Date.now(),
+            });
+          }
+          dispatchInstanceLifecycleHook('PostSampling', completedInstance, {
+            modelResponse: response.content,
+            responseTokens: response.usage?.outputTokens,
+            modelId: completedInstance.currentModel,
+          }, logger, this.hookManager);
+          dispatchInstanceLifecycleHook('Stop', completedInstance, {
+            stopReason: turnErrored ? 'error' : response.degradedReason ? `degraded:${response.degradedReason}` : 'complete',
+            transcript: response.content,
+          }, logger, this.hookManager);
+        }
+        this.deps.onToolStateChange?.(instanceId, 'idle');
+        this.deps.onAuthRepairReplayComplete?.(instanceId);
+
+        // Regular-session provider-limit auto-resume (opt-in). A throttled CLI
+        // often exits 0 with the limit *notice as the assistant content*
+        // ("You've hit your session limit · resets 6:30pm") rather than throwing.
+        // Park + schedule a resume so the turn is re-sent after the window resets.
+        if (this.deps.onProviderLimitTurn) {
+          if (providerLimitSignal) {
+            this.deps.onProviderLimitTurn({
+              instanceId,
+              resetAtHint: providerLimitSignal.resetAtHint,
+              reason: providerLimitSignal.reason,
+              resumePrompt: this.overflow.getResumePrompt(instanceId),
+            });
+          }
+        }
+      })();
+      // LT-674: error cleanup must not delete this adapter until the completion
+      // above has recorded capture, cost and hooks.
+      this.trackAdapterCompletion(instanceId, run);
     });
 
     adapter.on('input_required', (payload: { id: string; prompt: string; timestamp: number; metadata?: Record<string, unknown> }) => {
@@ -2363,10 +2370,27 @@ export class InstanceCommunicationManager extends EventEmitter {
   // Cleanup
   // ============================================
 
+  private trackAdapterCompletion(instanceId: string, run: Promise<void>): void {
+    let pending = this.adapterCompletions.get(instanceId);
+    if (!pending) {
+      pending = new Set();
+      this.adapterCompletions.set(instanceId, pending);
+    }
+    pending.add(run);
+    void run.finally(() => {
+      pending.delete(run);
+      if (pending.size === 0) this.adapterCompletions.delete(instanceId);
+    });
+  }
+
   /**
-   * Force cleanup an adapter when errors occur
+   * Force cleanup an adapter when errors occur.
+   * A completion emitted in the same turn is recorded first (LT-674).
    */
   async forceCleanupAdapter(instanceId: string): Promise<void> {
+    await Promise.resolve();
+    const pending = [...(this.adapterCompletions.get(instanceId) ?? [])];
+    if (pending.length > 0) await Promise.all(pending);
     const adapter = this.deps.getAdapter(instanceId);
     if (!adapter) return;
 

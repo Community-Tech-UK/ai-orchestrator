@@ -46,7 +46,7 @@ export const CreateAutomationArgsSchema = z
     workingDirectory: WorkingDirectorySchema.optional(),
     /** Optional human-readable description. */
     description: z.string().max(2000).optional(),
-    /** CLI provider to run with (defaults to Claude Opus latest, 1M). */
+    /** CLI provider to run with (defaults to standard Claude Opus latest). */
     provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']).optional(),
     /** Whether the automation is active immediately. Defaults to true. */
     enabled: z.boolean().optional(),
@@ -342,7 +342,7 @@ export function createAutomationToolDefinitions(
             type: 'string',
             enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'],
             description:
-              'CLI provider to run with. When omitted, new automations default to Claude Opus latest with the 1M context window. An explicitly selected provider uses that provider\'s model resolution.',
+              'CLI provider to run with. When omitted, new automations default to standard Claude Opus latest. An explicitly selected non-Claude provider uses that provider\'s model resolution.',
           },
           enabled: {
             type: 'boolean',

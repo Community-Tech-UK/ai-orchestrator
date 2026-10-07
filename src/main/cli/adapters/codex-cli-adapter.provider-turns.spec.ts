@@ -377,6 +377,50 @@ describe('CodexCliAdapter turns Codex starts by itself', () => {
     expect(h.outputs.filter((output) => output.type === 'error')).toEqual([]);
   });
 
+  it('keeps a steered provider turn open after an early final answer', async () => {
+    const h = createHarness((method) => (method === 'turn/steer' ? { turnId: 'goal-turn' } : {}));
+    h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'goal-turn', status: 'inProgress' } });
+    h.emit(...finalAnswer('goal-turn', 'First paragraph.'));
+
+    const send = (h.adapter as unknown as {
+      sendInputImpl(message: string): Promise<void>;
+    }).sendInputImpl('JOINED');
+    await vi.waitFor(() => expect(h.requests.map(([method]) => method)).toContain('turn/steer'));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(h.statuses).not.toContain('idle');
+    h.emit('item/completed', {
+      threadId: 'thread-1',
+      turnId: 'goal-turn',
+      item: { id: 'goal-turn-joined', type: 'agentMessage', phase: 'final_answer', text: 'MIDJOIN the peregrine falcon' },
+    });
+    h.emit(...turnCompleted('goal-turn'));
+
+    await expect(send).resolves.toBeUndefined();
+    expect(h.statuses.filter((status) => status === 'idle')).toEqual(['idle']);
+    expect(h.outputs.some((output) => output.content.includes('MIDJOIN the peregrine falcon'))).toBe(true);
+    await h.adapter.terminate(false);
+  });
+
+  it('follows a goal turn that starts before the previous capture has torn down', async () => {
+    const h = createHarness(() => ({}));
+    h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'goal-1', status: 'inProgress' } });
+    h.emit(...finalAnswer('goal-1', 'First animal.'));
+    h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'goal-2', status: 'inProgress' } });
+    h.emit(...turnCompleted('goal-1'));
+    await vi.waitFor(() => expect(h.completions).toContain('First animal.'));
+    expect(h.hasActiveTurn()).toBe(true);
+    expect(h.statuses).not.toContain('idle');
+
+    h.emit(...finalAnswer('goal-2', 'Second animal.'));
+    h.emit(...turnCompleted('goal-2'));
+    await vi.waitFor(() => expect(h.completions).toContain('Second animal.'));
+    const idleAt = h.statuses.indexOf('idle');
+    const secondBusy = h.statuses.lastIndexOf('busy');
+    expect(idleAt).toBeGreaterThan(secondBusy);
+    await h.adapter.terminate(false);
+  });
+
   it('does not follow the Compact turn of a Harness compaction request as task work', async () => {
     const h = createHarness((method) => {
       if (method === 'thread/compact/start') {

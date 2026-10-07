@@ -1,8 +1,6 @@
 import type { AuxiliaryLlmSlot } from '../../../../shared/types/auxiliary-llm.types';
 import type { LocalAiRoutingEvent } from '../../../../shared/types/local-ai-guard.types';
 
-const FALLBACK_NOTIFICATION_BATCH_WINDOW_MS = 5_000;
-
 export interface LocalAiFallbackNotificationGroup {
   key: string;
   slot: AuxiliaryLlmSlot;
@@ -23,15 +21,13 @@ export function groupLocalAiFallbackNotifications(
   const ordered = [...events].sort((left, right) =>
     right.createdAt - left.createdAt || right.id.localeCompare(left.id));
   const groups: MutableNotificationGroup[] = [];
-  const currentGroupBySlot = new Map<AuxiliaryLlmSlot, MutableNotificationGroup>();
+  const groupBySlot = new Map<AuxiliaryLlmSlot, MutableNotificationGroup>();
 
+  // One row per slot. The banner has no timestamp, so a time window only
+  // repeats the same "Compression · Cost unknown" notice for every later burst.
   for (const event of ordered) {
-    const current = currentGroupBySlot.get(event.slot);
-    if (
-      current
-      && current.slot === event.slot
-      && current.newestCreatedAt - event.createdAt <= FALLBACK_NOTIFICATION_BATCH_WINDOW_MS
-    ) {
+    const current = groupBySlot.get(event.slot);
+    if (current) {
       current.events.push(event);
       continue;
     }
@@ -41,7 +37,7 @@ export function groupLocalAiFallbackNotifications(
       events: [event],
     };
     groups.push(next);
-    currentGroupBySlot.set(event.slot, next);
+    groupBySlot.set(event.slot, next);
   }
 
   return groups.map((group) => {

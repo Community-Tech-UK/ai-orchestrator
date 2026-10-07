@@ -77,6 +77,8 @@ export interface PlanQueueCoordinatorDeps {
   newId?: () => string;
   /** Periodic re-check (load gate, missed events). `null` disables the timer. */
   pumpIntervalMs?: number | null;
+  /** Wait until orchestrator-tools is listening before queue spawns (LT-700). */
+  whenOrchestratorToolsListening?: () => Promise<void>;
 }
 
 export interface StartRunInput {
@@ -122,6 +124,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   private pumping = false;
   private pumpAgain = false;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private whenOrchestratorToolsListening: () => Promise<void> = () => Promise.resolve();
+  private toolsReady: Promise<void> | null = null;
 
   static getInstance(): PlanQueueCoordinator {
     if (!PlanQueueCoordinator.instance) PlanQueueCoordinator.instance = new PlanQueueCoordinator();
@@ -154,6 +158,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       (instanceId, outcome) => { void this.routeOutcome(instanceId, outcome); },
     );
     this.trackerInstance.attach();
+    this.whenOrchestratorToolsListening = deps.whenOrchestratorToolsListening ?? (() => Promise.resolve());
     this.flow = new PlanQueueItemFlow(this);
     const interval = deps.pumpIntervalMs === undefined ? DEFAULT_PUMP_INTERVAL_MS : deps.pumpIntervalMs;
     if (interval !== null) {
@@ -168,6 +173,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   }
 
   shutdown(): void {
+    this.trackerInstance?.noteAppShutdown();
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
   }
@@ -185,7 +191,16 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   // PlanQueueFlowHost
   // ---------------------------------------------------------------------------
 
-  get instances(): PlanQueueInstancePort { return this.requireDeps().instances; }
+  get instances(): PlanQueueInstancePort {
+    const inner = this.requireDeps().instances;
+    const ready = (this.toolsReady ??= this.whenOrchestratorToolsListening());
+    return {
+      createInstance: (config) => ready.then(() => inner.createInstance(config)),
+      sendInput: (instanceId, message, attachments, options) => inner.sendInput(instanceId, message, attachments, options),
+      terminateInstance: (instanceId, graceful) => inner.terminateInstance(instanceId, graceful),
+      getInstance: (instanceId) => inner.getInstance(instanceId),
+    };
+  }
   get worktrees(): PlanQueueWorktreeService { return this.require(this.worktreeService); }
   get tracker(): PlanQueueInstanceTracker { return this.require(this.trackerInstance); }
   get store(): PlanQueueStore { return this.requireDeps().store; }

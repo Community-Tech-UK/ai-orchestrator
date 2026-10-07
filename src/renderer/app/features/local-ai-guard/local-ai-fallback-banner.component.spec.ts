@@ -337,26 +337,29 @@ describe('LocalAiFallbackBannerComponent', () => {
     expect(fixture.nativeElement.querySelector('.local-ai-fallback-notifications')).toBeNull();
   });
 
-  it('LT-189: dismissing one notification removes only that one from the DOM', () => {
+  it('collapses same-slot notices into one row and leaves a different slot alone', () => {
     fallbackNotifications.set([
-      notification('event-1'),
-      notification('event-2', { createdAt: 7_000 }),
+      notification('event-1', { createdAt: 1_000 }),
+      notification('event-2', { createdAt: 70_000 }),
+      notification('event-3', { slot: 'titleGeneration', createdAt: 80_000 }),
     ]);
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelectorAll('.fallback-notification')).toHaveLength(2);
 
-    const firstDismiss = fixture.nativeElement
-      .querySelector('.fallback-notification[data-event-id="event-1"] button') as HTMLButtonElement;
-    firstDismiss.click();
+    const rows = fixture.nativeElement.querySelectorAll('.fallback-notification');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain('Paid fallback happened automatically');
+    expect(rows[0].textContent).toContain('Title generation');
+    expect(rows[1].textContent).toContain('2 paid fallbacks happened automatically');
+    expect(rows[1].textContent).toContain('Compression');
+
+    const titleDismiss = fixture.nativeElement
+      .querySelector('.fallback-notification[data-event-id="event-3"] button') as HTMLButtonElement;
+    titleDismiss.click();
     fixture.detectChanges();
 
-    expect(dismissFallbackNotification).toHaveBeenCalledExactlyOnceWith('event-1');
-    expect(fixture.nativeElement.querySelector(
-      '.fallback-notification[data-event-id="event-1"]',
-    )).toBeNull();
-    expect(fixture.nativeElement.querySelector(
-      '.fallback-notification[data-event-id="event-2"]',
-    )).not.toBeNull();
+    expect(dismissFallbackNotification).toHaveBeenCalledExactlyOnceWith('event-3');
+    expect(fixture.nativeElement.querySelectorAll('.fallback-notification')).toHaveLength(1);
+    expect(fixture.nativeElement.textContent).toContain('2 paid fallbacks happened automatically');
   });
 
   it('LT-189: renders nothing for the notification section when there are no undismissed notifications', () => {

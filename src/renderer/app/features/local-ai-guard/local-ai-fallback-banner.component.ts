@@ -380,7 +380,7 @@ export class LocalAiFallbackBannerComponent {
         left.createdAt - right.createdAt || left.id.localeCompare(right.id))[0];
   });
   protected readonly isResolving = computed(() => this.store.resolvingFallbackId() !== null);
-  /** Passive, dismissible `notify-and-allow` fallbacks grouped into operational bursts. */
+  /** Passive, dismissible `notify-and-allow` fallbacks, one row per auxiliary slot. */
   protected readonly notificationGroups = computed(() =>
     groupLocalAiFallbackNotifications(this.store.fallbackNotifications()));
   protected readonly notificationGroupCostLabel = fallbackNotificationGroupCostLabel;

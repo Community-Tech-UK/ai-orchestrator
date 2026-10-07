@@ -134,6 +134,14 @@ describe('PlanQueueInstanceTracker', () => {
     expect(outcomes[1].outcome).toEqual({ kind: 'turn-complete', lastAssistantOutput: 'Done with 30 days.' });
   });
 
+  it('does not treat shutdown termination as a worker failure', () => {
+    tracker.track('w1');
+    tracker.noteAppShutdown();
+    source.replay('w1', [{ channel: 'status', status: 'terminated', previousStatus: 'busy' }]);
+    expect(outcomes).toEqual([]);
+    expect(tracker.isTracked('w1')).toBe(true);
+  });
+
   it('fails on a non-zero exit mid-turn but not on the exit of an idle, hibernated worker', () => {
     tracker.track('w1');
     source.replay('w1', [assistant('Done.'), { channel: 'status', status: 'idle' }]);

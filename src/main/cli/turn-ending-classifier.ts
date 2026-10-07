@@ -17,6 +17,8 @@ export interface TurnEndingInput {
   lastToolReadLike?: boolean;
   cancelled?: boolean;
   error?: unknown;
+  /** Combined output+reasoning cap the runtime injected for this turn. */
+  combinedOutputTokenCap?: number;
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -94,6 +96,22 @@ export function classifyTurnEnding(input: TurnEndingInput): TurnEndingClassifica
   if (native.some((reason) => ['tool_calls', 'tool_use', 'pause_turn', 'tool_deferred'].includes(reason))) return result('completed', 'provider_tool_boundary', { autoContinueSuppressed: true });
   if (meta['danglingToolResult'] === true && meta['toolResultAwaitingReply'] === true && !input.hasOpenToolCall) return result('dangling_tool_result', 'explicit_unanswered_tool_result');
   if ([502, 503, 504].includes(Number(status)) || /\b(?:overloaded|server_error|temporarily unavailable|retryable recovery|retrying)\b/i.test(failureText)) return result('retryable', 'provider_transient_error');
+  const userStopped = (meta['is_error'] === true || input.kind === 'error')
+    && /\b(?:interrupted by (?:the )?user|user interrupted)\b/i.test(failureText);
+  if (userStopped) return result('completed', 'client_cancelled', { autoContinueSuppressed: true });
+  if (outputBudgetSaturated(input)) return result('max_output', 'budget_saturated');
   if (input.kind === 'error' || native.includes('error') || meta['is_error'] === true || meta['error'] || meta['completionStatus'] === 'failed') return result('unknown_error', 'provider_error');
   return result('completed', 'provider_completed');
+}
+
+/** A scoped cap was reached and the visible answer is not a finished sentence. */
+function outputBudgetSaturated(input: TurnEndingInput): boolean {
+  const cap = input.combinedOutputTokenCap;
+  if (cap === undefined || cap <= 0 || input.hasOpenToolCall) return false;
+  const used = (input.outputTokens ?? 0) + (input.reasoningTokens ?? 0);
+  const tolerance = Math.min(64, Math.max(8, Math.floor(cap * 0.02)));
+  if (used + tolerance < cap) return false;
+  const text = (input.text ?? '').trim();
+  if (!text) return false;
+  return !/[.!?][\s"')\]]*$/.test(text);
 }

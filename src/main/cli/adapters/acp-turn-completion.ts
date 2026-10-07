@@ -33,6 +33,7 @@ export function buildAcpTurnCompletion(input: AcpTurnCompletionInput) {
     outputTokens: input.result.usage?.outputTokens,
     reasoningTokens: input.result.usage?.thoughtTokens,
     hasOpenToolCall: Boolean(activeTool), lastToolReadLike: lastTool?.kind === 'read',
+    ...(input.generationBudget ? { combinedOutputTokenCap: input.generationBudget.combinedOutputTokens } : {}),
   });
   const endingFailure = classifyTurnEndingFailure(content);
   const response: CliResponse = {

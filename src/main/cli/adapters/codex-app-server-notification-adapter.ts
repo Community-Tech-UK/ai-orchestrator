@@ -518,7 +518,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
    * a final_answer + all subagent turns drain.
    */
   private scheduleInferredCompletion(state: TurnCaptureState): void {
-    if (state.completed || !state.finalAnswerSeen) return;
+    if (state.completed || !state.finalAnswerSeen || state.steeredInputAccepted) return;
     if (state.activeSubagentTurns.size > 0 || state.pendingCollaborations.size > 0) return;
 
     // Clear any existing timer
@@ -527,7 +527,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
     }
 
     state.completionTimer = setTimeout(() => {
-      if (!state.completed) {
+      if (!state.completed && !state.steeredInputAccepted) {
         logger.debug('Inferred turn completion after final answer + subagent drain');
         this.completeTurn(state, null);
       }

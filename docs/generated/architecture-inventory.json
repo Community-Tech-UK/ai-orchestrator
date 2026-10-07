@@ -6059,7 +6059,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 3757
+      "lines": 3805
     },
     {
       "path": "src/main/instance/rlm-process-ownership.spec.ts",
@@ -6142,6 +6142,10 @@
       "lines": 2522
     },
     {
+      "path": "src/main/app/orchestrator-tools-step.spec.ts",
+      "lines": 2485
+    },
+    {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
       "lines": 2483
     },
@@ -6154,12 +6158,8 @@
       "lines": 2455
     },
     {
-      "path": "src/main/app/orchestrator-tools-step.spec.ts",
-      "lines": 2439
-    },
-    {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2407
+      "lines": 2431
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
@@ -6350,6 +6350,10 @@
       "lines": 1520
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
+      "lines": 1494
+    },
+    {
       "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
       "lines": 1482
     },
@@ -6372,10 +6376,6 @@
     {
       "path": "src/main/background-jobs/__tests__/lane-gateway.spec.ts",
       "lines": 1443
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 1439
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-rpc-server.spec.ts",
@@ -6510,16 +6510,16 @@
       "lines": 1268
     },
     {
+      "path": "src/main/instance/auto-title-service.spec.ts",
+      "lines": 1265
+    },
+    {
       "path": "docs/_archive/2026-06-01-remote-workspace-browser-bridge-design.md",
       "lines": 1263
     },
     {
       "path": "docs/superpowers/plans/2026-07-08-remote-local-model-runtime_completed.md",
       "lines": 1261
-    },
-    {
-      "path": "src/main/instance/auto-title-service.spec.ts",
-      "lines": 1260
     },
     {
       "path": "src/main/automations/automation-retry-integration.spec.ts",
@@ -6894,6 +6894,10 @@
       "lines": 958
     },
     {
+      "path": "src/renderer/app/core/state/instance/instance-list.store.spec.ts",
+      "lines": 954
+    },
+    {
       "path": "docs/superpowers/plans/2026-07-11-harness-mobile-codex-redesign_completed.md",
       "lines": 953
     },
@@ -6970,10 +6974,6 @@
       "lines": 911
     },
     {
-      "path": "src/renderer/app/core/state/instance/instance-list.store.spec.ts",
-      "lines": 909
-    },
-    {
       "path": "src/preload/domains/orchestration.preload.ts",
       "lines": 904
     },
@@ -7034,16 +7034,12 @@
       "lines": 870
     },
     {
-      "path": "src/renderer/app/features/verification/config/api-key-manager.component.ts",
+      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
       "lines": 869
     },
     {
-      "path": "src/main/app/compaction-runtime.spec.ts",
-      "lines": 868
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
-      "lines": 868
+      "path": "src/renderer/app/features/verification/config/api-key-manager.component.ts",
+      "lines": 869
     },
     {
       "path": "docs/plans/2026-06-26-loop-engine-overhaul-spec_completed.md",
@@ -7051,6 +7047,10 @@
     },
     {
       "path": "docs/superpowers/plans/2026-03-11-f4-f5-transcript-performance_completed.md",
+      "lines": 867
+    },
+    {
+      "path": "src/main/app/compaction-runtime.spec.ts",
       "lines": 867
     },
     {

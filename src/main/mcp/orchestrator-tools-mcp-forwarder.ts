@@ -447,7 +447,7 @@ export function createOrchestratorToolsForwarderTools(
             type: 'string',
             enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'],
             description:
-              'CLI provider to run with. When omitted, new automations default to Claude Opus latest with the 1M context window. An explicitly selected provider uses that provider\'s model resolution.',
+              'CLI provider to run with. When omitted, new automations default to standard Claude Opus latest. An explicitly selected non-Claude provider uses that provider\'s model resolution.',
           },
           enabled: {
             type: 'boolean',
