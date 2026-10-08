@@ -202,4 +202,25 @@ describe('buildRemoteNodeRoster', () => {
     expect(roster.find((entry) => entry.id === 'live')?.connectivityHint).toBeUndefined();
     expect(roster.find((entry) => entry.id === 'offline')?.connectivityHint).toBe(hint);
   });
+
+  it('keeps recognising an offline node as the browser computer', () => {
+    const roster = buildRemoteNodeRoster(
+      [
+        makeNode({ id: 'live-browser', capabilities: makeCapabilities({ hasBrowserMcp: true }) }),
+        makeNode({ id: 'live-broken', capabilities: makeCapabilities({ hasBrowserMcp: false }) }),
+      ],
+      [
+        makeIdentity({ nodeId: 'live-broken', nodeName: 'studio-pc', browserCapable: true }),
+        makeIdentity({ nodeId: 'offline-browser', nodeName: 'windows-pc', browserCapable: true }),
+        makeIdentity({ nodeId: 'offline-plain', nodeName: 'noahlaptop' }),
+      ],
+    );
+
+    expect(Object.fromEntries(roster.map((entry) => [entry.id, entry.browserComputer]))).toEqual({
+      'live-browser': true,
+      'live-broken': true,
+      'offline-browser': true,
+      'offline-plain': false,
+    });
+  });
 });

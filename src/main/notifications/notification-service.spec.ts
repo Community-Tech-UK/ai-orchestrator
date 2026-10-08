@@ -72,6 +72,24 @@ describe('NotificationService', () => {
     }
   });
 
+  it('does not title another kind\'s digest "Agent finished"', async () => {
+    vi.useFakeTimers();
+    try {
+      const { desktop, service } = createHarness();
+
+      service.notify({ kind: 'quota-pacing', title: 'Quota', body: 'One', fingerprintFields: { n: 1 } });
+      service.notify({ kind: 'quota-pacing', title: 'Quota', body: 'Two', fingerprintFields: { n: 2 } });
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(desktop.show).toHaveBeenLastCalledWith(expect.objectContaining({
+        title: 'More Harness notifications',
+        body: '1 quota pacing notifications',
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps quiet-hours notifications in the center without showing a desktop notification', () => {
     const { desktop, service } = createHarness({
       now: () => new Date(2026, 6, 14, 23, 0, 0).getTime(),

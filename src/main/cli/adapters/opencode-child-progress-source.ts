@@ -270,7 +270,7 @@ export function observeOpenCodeChildProgress(
 /** Credentials remain in the private spawn environment and this closure, never config files. */
 export function createOpenCodeChildProgressSource(directory: string): {
   source: AcpChildProgressSource;
-  prepareSpawn(args: string[], env: NodeJS.ProcessEnv): Promise<() => void>;
+  prepareSpawn(args: string[], env: NodeJS.ProcessEnv, options?: { serveHttp?: boolean }): Promise<() => void>;
   request(path: string, init?: RequestInit): Promise<unknown>;
 } {
   let endpoint: { url: string; authorization: string; controller: AbortController } | undefined;
@@ -312,9 +312,16 @@ export function createOpenCodeChildProgressSource(directory: string): {
         return () => { active(); if (stop === active) stop = undefined; };
       },
     },
-    prepareSpawn: async (args, env) => {
+    prepareSpawn: async (args, env, options) => {
       stop?.();
       endpoint?.controller.abort();
+      endpoint = undefined;
+      // OpenCode 2 `acp` has no local HTTP flags. Progress observation stays off
+      // and the process still starts in the adapter's working directory.
+      if (options?.serveHttp === false) {
+        args.splice(0, args.length, 'acp');
+        return () => undefined;
+      }
       const port = await freeLoopbackPort();
       const password = randomBytes(32).toString('base64url');
       env['OPENCODE_SERVER_PASSWORD'] = password;

@@ -13,6 +13,7 @@ import { installWorkerFileLogging } from './worker-file-logger';
 import { runWorkerSupervisor } from './worker-supervisor';
 import { acquireSingleInstanceLock } from './single-instance-lock';
 import { captureRuntimeVitals, startRuntimeVitalsLogging } from './worker-runtime-vitals';
+import { startHostHealthSampling } from './host-health-sampler';
 
 const SUPERVISE_FLAG = '--supervise';
 
@@ -141,6 +142,9 @@ async function main(): Promise<void> {
   // Resource trend, so a future silent death can be attributed to (or cleared
   // of) heap exhaustion from the last line written before the gap.
   startRuntimeVitalsLogging();
+  // Windows only: rolling network-port and handle usage, so the next drop can
+  // be traced to the process that starved the host.
+  startHostHealthSampling();
 
   // Survive our own bugs. A worker with no supervision that hits an
   // uncaughtException / unhandledRejection would exit and stay dead until the

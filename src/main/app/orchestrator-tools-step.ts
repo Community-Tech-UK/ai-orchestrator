@@ -314,6 +314,7 @@ export function createOrchestratorToolsStep(
                 ...(workerAgent ? { workerAgent } : {}),
                 hasBrowserRuntime: node.hasBrowserRuntime ?? capabilities.hasBrowserRuntime,
                 hasBrowserMcp: node.hasBrowserMcp ?? capabilities.hasBrowserMcp,
+                browserComputer: node.browserComputer === true,
                 ...(node.browserAutomation ?? capabilities.browserAutomation
                   ? { browserAutomation: node.browserAutomation ?? capabilities.browserAutomation }
                   : {}),
@@ -336,6 +337,7 @@ export function createOrchestratorToolsStep(
                 ...(node.fileTransfer ?? capabilities.fileTransfer
                   ? { fileTransfer: node.fileTransfer ?? capabilities.fileTransfer }
                   : {}),
+                ...(capabilities.hostHealth ? { hostHealth: capabilities.hostHealth } : {}),
                 ...(node.connectedAt !== undefined ? { connectedAt: node.connectedAt } : {}),
                 ...(node.lastHeartbeat !== undefined ? { lastHeartbeat: node.lastHeartbeat } : {}),
                 ...(node.lastAuthenticatedAt !== undefined ? { lastAuthenticatedAt: node.lastAuthenticatedAt } : {}),

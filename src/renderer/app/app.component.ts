@@ -45,6 +45,7 @@ import { RlmStorageMaintenanceComponent } from './features/loop/rlm-storage-main
 import { LocalAiGuardStore } from './core/state/local-ai-guard.store';
 import { LocalAiStatusChipComponent } from './features/local-ai-guard/local-ai-status-chip.component';
 import { LocalAiFallbackBannerComponent } from './features/local-ai-guard/local-ai-fallback-banner.component';
+import { BrowserComputerOfflineBannerComponent } from './features/remote-nodes/browser-computer-offline-banner.component';
 
 const STARTUP_BANNER_DISMISSAL_STORAGE_KEY = 'startup-capabilities-banner:dismissed-fingerprint';
 
@@ -120,6 +121,7 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
     RlmStorageMaintenanceComponent,
     LocalAiStatusChipComponent,
     LocalAiFallbackBannerComponent,
+    BrowserComputerOfflineBannerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.component.html',

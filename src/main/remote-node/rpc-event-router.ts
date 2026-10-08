@@ -681,7 +681,7 @@ export class RpcEventRouter {
       return;
     }
     try {
-      getRemoteAuthService().recordTrustedPlatform(nodeId, capabilities.platform);
+      getRemoteAuthService().recordTrustedPlatform(nodeId, capabilities.platform, capabilities.hasBrowserMcp);
     } catch (err) {
       logger.warn('Failed to persist trusted worker platform snapshot', {
         nodeId,

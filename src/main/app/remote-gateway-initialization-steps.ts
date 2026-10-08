@@ -22,6 +22,7 @@ import {
   CoordinatorTailscaleWatcher,
   setActiveCoordinatorTailscaleWatcher,
 } from '../remote-node/coordinator-tailscale-watcher';
+import { NodeOutageTracker, formatRecoveryNotification } from '../remote-node/node-outage-tracker';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { AppInitializationContext, AppInitializationStep } from './initialization-steps';
 import type { RemoteFsEventNotification } from '../../shared/types/remote-fs.types';
@@ -107,15 +108,53 @@ export function createWorkerNodeSubsystemStep(
         context.syncRemoteNodeMetricsToLoadBalancer(nodeId);
       });
 
+      // Pairs each announced disconnect with its reconnect so the operator
+      // hears how long a node was away and why (2026-10-07: six drops of the
+      // browser computer, none noticed).
+      const outageTracker = new NodeOutageTracker();
       registry.on('node:connected', (node) => {
         windowManager.sendToRenderer('remote-node:event', { type: 'connected', node });
         const nodeId = typeof node === 'string' ? node : node.id;
         instanceManager.resumeStuckTrackingForNode(nodeId);
         handleLateNodeReconnect(nodeId, instanceManager);
+        // Diagnostic only: a bad worker report must not break node registration,
+        // which emits this event synchronously.
+        try {
+          const recovery = typeof node === 'string' ? null : outageTracker.noteConnected(node);
+          if (!recovery) return;
+          logger.info('Worker node back online', { ...recovery });
+          if (getSettingsManager().get('notifyOnNodeDisconnect') === false) return;
+          getNotificationService().notify({
+            kind: 'node-reconnected',
+            ...formatRecoveryNotification(recovery),
+            // Critical, like the disconnect it closes: otherwise quiet hours
+            // drop it outright and the per-kind cooldown folds a second node's
+            // recovery into a digest that loses the duration and cause. The
+            // {nodeId} fingerprint still collapses one node flapping within
+            // five minutes into a single alert.
+            urgency: 'critical',
+            fingerprintFields: { nodeId },
+          });
+        } catch (err) {
+          logger.warn('Could not report worker node recovery', {
+            nodeId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       });
       registry.on('node:disconnected', (node) => {
         const nodeId = typeof node === 'string' ? node : node.id;
         const nodeName = typeof node === 'string' ? node : node.name;
+        if (typeof node !== 'string') {
+          try {
+            outageTracker.noteDisconnected(node);
+          } catch (err) {
+            logger.warn('Could not record worker node outage', {
+              nodeId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
         windowManager.sendToRenderer('remote-node:event', {
           type: 'disconnected',
           nodeId,
@@ -129,7 +168,11 @@ export function createWorkerNodeSubsystemStep(
         getNotificationService().notify({
           kind: 'node-disconnected',
           title: 'Worker node disconnected',
-          body: `${nodeName} is no longer connected`,
+          // The browser promise holds only while the offload guard is active
+          // (browser-remote-offload-policy.ts guardOfflineBrowserComputer).
+          body: typeof node !== 'string' && node.capabilities.hasBrowserMcp && getRemoteNodeConfig().autoOffloadBrowser
+            ? `${nodeName} is no longer connected. Agents will not use this Mac's browser without asking you first.`
+            : `${nodeName} is no longer connected`,
           // Critical on purpose: it bypasses quiet hours and the per-kind
           // cooldown. An overnight drop is precisely the case worth waking
           // someone for — the incident this exists for ran from 09:31 to 13:28

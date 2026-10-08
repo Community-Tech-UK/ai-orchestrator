@@ -444,6 +444,11 @@ export abstract class BaseCliAdapter extends EventEmitter {
     return { ...this.config };
   }
 
+  /** Use this executable for later spawns. Absolute paths skip PATH lookup. */
+  setSpawnCommand(command: string): void {
+    this.config.command = command;
+  }
+
   /**
    * B9 — the transport this adapter is currently using. See {@link CliSpawnMode}.
    */

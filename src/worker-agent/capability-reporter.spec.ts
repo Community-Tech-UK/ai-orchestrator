@@ -32,6 +32,7 @@ vi.mock('../main/remote-node/project-discovery', () => ({
 }));
 
 import { reportCapabilities, parseLmStudioLoadedModels } from './capability-reporter';
+import { _resetHostHealthSamplerForTesting, startHostHealthSampling } from './host-health-sampler';
 import { ProjectDiscovery } from '../main/remote-node/project-discovery';
 import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../shared/types/local-ai-guard.types';
 import * as fs from 'fs';
@@ -160,14 +161,47 @@ describe('capability-reporter', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')));
 
     const caps = await reportCapabilities(['/workspace']);
-    const workerAgent = (caps as { workerAgent?: { version?: unknown; startedAt?: unknown } }).workerAgent;
+    const workerAgent = caps.workerAgent;
 
     expect(workerAgent).toEqual({
       version: expect.any(String),
       startedAt: expect.any(Number),
+      hostBootedAt: expect.any(Number),
     });
     expect(workerAgent?.version).not.toBe('');
     expect(workerAgent?.startedAt).toBeGreaterThan(0);
+    // The host booted before this worker process started.
+    expect(workerAgent?.hostBootedAt).toBeGreaterThan(0);
+    expect(workerAgent?.hostBootedAt).toBeLessThanOrEqual(workerAgent?.startedAt ?? 0);
+  });
+
+  it('reports the latest host-health sample once the sampler has one', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')));
+    _resetHostHealthSamplerForTesting();
+    expect((await reportCapabilities(['/workspace'])).hostHealth).toBeUndefined();
+
+    let fire: () => void = () => undefined;
+    const stop = startHostHealthSampling({
+      platform: 'win32',
+      firstDelayMs: 0,
+      now: () => 1_700_000_000_000,
+      emit: vi.fn(),
+      runCommand: async () => JSON.stringify({
+        udp: 85, tcp: 283, topUdp: [], topHandles: [{ name: 'mtkbtsvc', pid: 6712, count: 127519 }],
+      }),
+      setTimeout: ((fn: () => void) => { fire = fn; return 0; }) as never,
+      clearTimeout: vi.fn(),
+    });
+    fire();
+    await vi.waitFor(async () => {
+      expect((await reportCapabilities(['/workspace'])).hostHealth).toMatchObject({
+        sampledAt: 1_700_000_000_000,
+        udpEndpoints: 85,
+        topHandleHolders: [{ name: 'mtkbtsvc', pid: 6712, count: 127519 }],
+      });
+    });
+    stop();
+    _resetHostHealthSamplerForTesting();
   });
 
   it('includes non-secret file transfer capability summaries', async () => {

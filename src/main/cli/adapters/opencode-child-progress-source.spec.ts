@@ -31,6 +31,17 @@ describe('OpenCode child event transport', () => {
     expect(Boolean(env['OPENCODE_SERVER_PASSWORD'])).toBe(false);
   });
 
+  it('starts OpenCode 2 ACP without the v1 local server flags', async () => {
+    const runtime = createOpenCodeChildProgressSource('/tmp');
+    const args = ['acp', '--cwd', '/tmp'];
+    const env: NodeJS.ProcessEnv = {};
+    const cleanup = await runtime.prepareSpawn(args, env, { serveHttp: false });
+    cleanups.push(cleanup);
+    expect(args).toEqual(['acp']);
+    expect(env['OPENCODE_SERVER_PASSWORD']).toBeUndefined();
+    await expect(runtime.request('/global/health')).rejects.toThrow('OpenCode local endpoint unavailable');
+  });
+
   it('uses authenticated child events instead of heartbeat/status or static timestamps', async () => {
     let stream: ServerResponse | undefined;
     let rosterRequests = 0;

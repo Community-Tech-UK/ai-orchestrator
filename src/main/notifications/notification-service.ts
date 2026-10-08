@@ -104,6 +104,11 @@ function isWithinQuietHours(now: number, quietHours: QuietHours): boolean {
   return hour >= quietHours.startHour || hour < quietHours.endHour;
 }
 
+/** Only agent completions digest under their own title; other kinds must not borrow it. */
+function digestTitle(kind: string): string {
+  return kind === 'agent-finished' ? 'Agent finished' : 'More Harness notifications';
+}
+
 function digestBody(kind: string, count: number): string {
   if (kind === 'agent-finished') return `${count} agents finished`;
   return `${count} ${kind.replace(/-/g, ' ')} notifications`;
@@ -264,7 +269,7 @@ export class NotificationService {
       if (isWithinQuietHours(now, policy.quietHours)) return;
       try {
         if (!this.desktop.isSupported()) return;
-        this.desktop.show({ title: 'Agent finished', body: digestBody(kind, digest.count), urgency: 'normal' });
+        this.desktop.show({ title: digestTitle(kind), body: digestBody(kind, digest.count), urgency: 'normal' });
         this.kindLastDesktopDelivery.set(kind, now);
       } catch {
         // The in-app records already retain every event; desktop delivery is best effort.

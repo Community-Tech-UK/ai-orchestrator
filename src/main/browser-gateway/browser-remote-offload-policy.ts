@@ -1,5 +1,6 @@
 import type { BrowserProfile, BrowserTarget } from '@contracts/types/browser';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
+import { getRemoteAuthService } from '../auth/remote-auth';
 import { getRemoteNodeConfig } from '../remote-node/remote-node-config';
 import {
   getWorkerNodeRegistry,
@@ -13,9 +14,17 @@ interface BrowserRemoteOffloadConfig {
   autoOffloadBrowser: boolean;
 }
 
+/** A paired node that has reported browser automation (sticky until unpaired). */
+export interface KnownBrowserComputer {
+  id: string;
+  name: string;
+}
+
 export interface BrowserRemoteOffloadPolicyDeps {
   getConfig: () => BrowserRemoteOffloadConfig;
   getConnectedNodes: () => WorkerNodeInfo[];
+  /** Paired browser computers, connected or not (persisted, sticky until unpaired). */
+  getKnownBrowserComputers: () => KnownBrowserComputer[];
   listTargets: () => BrowserTarget[];
   getProfile: (profileId: string) => BrowserProfile | null;
 }
@@ -66,9 +75,17 @@ const RELEVANT_METHODS = new Set([
   'browser.open_profile',
 ]);
 
+/** Paired nodes that have reported browser automation, connected or not. */
+export function listKnownBrowserComputers(): KnownBrowserComputer[] {
+  return getRemoteAuthService().listSessions()
+    .filter((session) => session.browserCapable === true)
+    .map((session) => ({ id: session.nodeId, name: session.nodeName }));
+}
+
 const defaultDeps: BrowserRemoteOffloadPolicyDeps = {
   getConfig: getRemoteNodeConfig,
   getConnectedNodes: () => getWorkerNodeRegistry().getHealthyNodes(),
+  getKnownBrowserComputers: listKnownBrowserComputers,
   listTargets: () => getBrowserTargetRegistry().listTargets(),
   getProfile: (profileId) => getBrowserProfileStore().getProfile(profileId),
 };
@@ -82,6 +99,12 @@ const defaultDeps: BrowserRemoteOffloadPolicyDeps = {
  * Calls that already carry a coordinator-local target/profile are rejected
  * because a target id is machine-specific and cannot safely be rewritten to a
  * different computer.
+ *
+ * When no browser computer is usable but one is paired, unscoped discovery
+ * and local managed-profile opens are refused instead of silently running on
+ * this Mac (2026-10-07: the Windows PC dropped and browser work took over the
+ * user's mouse and keyboard). An explicit `computer: "local"` still runs: that
+ * is how an agent proceeds once the user has agreed.
  */
 export function routeBrowserGatewayRequest(
   method: string,
@@ -100,7 +123,7 @@ export function routeBrowserGatewayRequest(
   const connectedNodes = deps.getConnectedNodes();
   const preferredNode = selectPreferredBrowserNode(connectedNodes);
   if (!preferredNode) {
-    return payload;
+    return guardOfflineBrowserComputer(method, payload, deps);
   }
 
   if (DISCOVERY_METHODS.has(method)) {
@@ -164,6 +187,45 @@ function assertTargetIsRemote(
   }
 }
 
+/**
+ * No connected node can take browser work. A paired browser computer that is
+ * disconnected, or connected without browser automation, is equally unable to
+ * — so any known browser computer means "do not fall back silently".
+ */
+function guardOfflineBrowserComputer(
+  method: string,
+  payload: Record<string, unknown>,
+  deps: BrowserRemoteOffloadPolicyDeps,
+): Record<string, unknown> {
+  const offline = deps.getKnownBrowserComputers();
+  if (offline.length === 0) {
+    return payload;
+  }
+
+  if (DISCOVERY_METHODS.has(method)) {
+    if (
+      hasInvalidOptionalString(payload, 'nodeId')
+      || hasInvalidOptionalString(payload, 'computer')
+      || stringField(payload, 'nodeId')
+      || stringField(payload, 'computer')
+    ) {
+      return payload;
+    }
+    throw browserComputerOfflineError(offline, 'retry with computer: "local"');
+  }
+
+  if (method === 'browser.open_profile') {
+    const profileId = stringField(payload, 'profileId');
+    const profile = profileId ? deps.getProfile(profileId) : null;
+    if (profile && !profile.executionNodeId) {
+      // open_profile has no computer selector, so there is no explicit-local
+      // form; the agreed path is find_or_open on the user's own Chrome.
+      throw browserComputerOfflineError(offline, 'use browser.find_or_open with computer: "local"');
+    }
+  }
+  return payload;
+}
+
 function selectPreferredBrowserNode(nodes: WorkerNodeInfo[]): WorkerNodeInfo | undefined {
   const browserNodes = nodes.filter((node) => node.capabilities.hasBrowserMcp);
   const windowsNodes = browserNodes.filter((node) => node.capabilities.platform === 'win32');
@@ -197,6 +259,15 @@ function hasInvalidOptionalString(payload: Record<string, unknown>, key: string)
   }
   const value = payload[key];
   return value !== undefined && (typeof value !== 'string' || value.length === 0);
+}
+
+function browserComputerOfflineError(offline: KnownBrowserComputer[], agreedPath: string): Error {
+  const names = offline.map((computer) => `"${computer.name || computer.id}"`).join(', ');
+  return new Error(
+    `browser_remote_computer_offline: The browser computer ${names} is offline or not ready for browser work, so this request did not run. `
+    + 'Do not use this Mac\'s browser instead on your own. Tell the user it is unavailable and ask whether to use this Mac, '
+    + `wait for it to come back, or skip the browser step. Only if the user agrees to this Mac, ${agreedPath}.`,
+  );
 }
 
 function localBrowserBlockedError(node: WorkerNodeInfo): Error {

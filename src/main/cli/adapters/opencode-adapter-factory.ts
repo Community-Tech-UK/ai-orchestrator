@@ -17,7 +17,9 @@ import { openCodeProcessGate } from './opencode-process-gate';
 import { createOpenCodeChildProgressSource } from './opencode-child-progress-source';
 import { sanitizeOpenCodeContentFilterSource } from './opencode-content-filter-recovery';
 import { applyOpenCodeGenerationBudget, assertOpenCodeGenerationBudget } from './opencode-generation-budget';
+import { selectOpenCodeLaunch } from './opencode-cli-launch';
 import { readOpenCodeEffectiveBudgetConfig } from './opencode-effective-budget-config';
+import { mirrorOpenCodeProviderForV2 } from './opencode-v2-config';
 import { applyOpenCodePermissionPolicy, assertOpenCodePermissionPolicy } from './opencode-permission-policy';
 export { buildOpenCodePermissionBlock } from './opencode-permission-policy';
 import { mapAcpEffort } from './acp-session-config-options';
@@ -125,20 +127,26 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
     command: 'opencode',
     args,
     prepareSpawn: async () => {
+      const writableRoots = adapter.getHardenedWritableRoots();
+      const launch = await selectOpenCodeLaunch({ workingDirectory, env, writableRoots });
+      adapter.setSpawnCommand(launch.command);
       const probe = (content: string) => readOpenCodeEffectiveBudgetConfig({ workingDirectory,
+        command: launch.command,
+        cliMajor: launch.major,
         ...(generationBudget && model ? { model } : {}),
-        env: { ...env, [OPENCODE_CONFIG_CONTENT_ENV]: content }, writableRoots: adapter.getHardenedWritableRoots(),
+        env: { ...env, [OPENCODE_CONFIG_CONTENT_ENV]: content }, writableRoots,
       });
       const effectiveConfig = await probe(originalConfigContent);
       const currentConfig = JSON.parse(originalConfigContent) as Record<string, unknown>;
       applyOpenCodePermissionPolicy(currentConfig, yoloMode, effectiveConfig);
       if (generationBudget && model) Object.assign(generationBudget, applyOpenCodeGenerationBudget(currentConfig, model, effectiveConfig));
+      if (launch.major >= 2) mirrorOpenCodeProviderForV2(currentConfig);
       const preparedContent = JSON.stringify(currentConfig);
       const verified = await probe(preparedContent);
       assertOpenCodePermissionPolicy(verified);
       if (generationBudget) assertOpenCodeGenerationBudget(verified, generationBudget);
       env[OPENCODE_CONFIG_CONTENT_ENV] = preparedContent;
-      return childProgress.prepareSpawn(args, env);
+      return childProgress.prepareSpawn(args, env, { serveHttp: launch.major < 2 });
     },
     childProgressSource: childProgress.source,
     prepareContentFilterRecovery: (sessionId, toolCallId, signal) => sanitizeOpenCodeContentFilterSource(childProgress.request, sessionId, signal, toolCallId),

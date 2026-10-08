@@ -60,7 +60,10 @@ export class NodeIdentityStore {
 
   touch(
     nodeId: string,
-    updates: Partial<Pick<NodeIdentity, 'nodeName' | 'lastSeenAt' | 'platform' | 'platformSeenAt'>> = {},
+    updates: Partial<Pick<
+      NodeIdentity,
+      'nodeName' | 'lastSeenAt' | 'platform' | 'platformSeenAt' | 'browserCapable' | 'browserCapableSeenAt'
+    >> = {},
   ): NodeIdentity | undefined {
     const current = this.nodes.get(nodeId);
     if (!current) {
@@ -74,6 +77,10 @@ export class NodeIdentityStore {
       ...(platform ? {
         platform,
         platformSeenAt: updates.platformSeenAt ?? updates.lastSeenAt ?? Date.now(),
+      } : {}),
+      ...(typeof updates.browserCapable === 'boolean' ? {
+        browserCapable: updates.browserCapable,
+        browserCapableSeenAt: updates.browserCapableSeenAt ?? updates.lastSeenAt ?? Date.now(),
       } : {}),
       lastSeenAt: updates.lastSeenAt ?? Date.now(),
     };
@@ -137,6 +144,12 @@ function normalizeIdentity(nodeId: string, identity: Partial<NodeIdentity>): Nod
     ...(platform ? {
       platform,
       platformSeenAt: typeof identity.platformSeenAt === 'number' ? identity.platformSeenAt : issuedAt,
+    } : {}),
+    ...(typeof identity.browserCapable === 'boolean' ? {
+      browserCapable: identity.browserCapable,
+      browserCapableSeenAt: typeof identity.browserCapableSeenAt === 'number'
+        ? identity.browserCapableSeenAt
+        : issuedAt,
     } : {}),
   };
 }

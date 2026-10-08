@@ -1258,6 +1258,53 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
     });
   });
 
+  it('shows an offline browser computer and the latest host-health sample in list_remote_nodes', async () => {
+    const hostHealth = {
+      sampledAt: 1_700_000_000_000,
+      udpEndpoints: 85,
+      tcpConnections: 283,
+      topUdpOwners: [{ name: 'svchost', pid: 12184, count: 20 }],
+      topHandleHolders: [{ name: 'mtkbtsvc', pid: 6712, count: 127_519 }],
+    };
+    const entry = (id: string, browserComputer: boolean, withHealth: boolean) => ({
+      id,
+      name: id,
+      status: 'disconnected',
+      connected: false,
+      address: '',
+      supportedClis: [],
+      hasBrowserRuntime: false,
+      hasBrowserMcp: false,
+      hasAndroidMcp: false,
+      hasDocker: false,
+      activeInstances: 0,
+      maxConcurrentInstances: 0,
+      workingDirectories: [],
+      browserComputer,
+      capabilities: {
+        platform: 'win32',
+        arch: '',
+        supportedClis: [],
+        hasBrowserRuntime: false,
+        hasBrowserMcp: false,
+        hasAndroidMcp: false,
+        hasDocker: false,
+        maxConcurrentInstances: 0,
+        workingDirectories: [],
+        ...(withHealth ? { hostHealth } : {}),
+      },
+    });
+    captured.roster.list.mockReturnValue([entry('windows-pc', true, true), entry('noahlaptop', false, false)]);
+    await startStep();
+
+    const result = await captured.initializeOptions?.listRemoteNodes?.() as
+      { nodes: Record<string, unknown>[] } | undefined;
+
+    expect(result?.nodes[0]).toMatchObject({ id: 'windows-pc', browserComputer: true, hostHealth });
+    expect(result?.nodes[1]).toMatchObject({ id: 'noahlaptop', browserComputer: false });
+    expect(result?.nodes[1]).not.toHaveProperty('hostHealth');
+  });
+
   it('does not infer platform from fallback capabilities in list_remote_nodes', async () => {
     captured.roster.list.mockReturnValue([
       {

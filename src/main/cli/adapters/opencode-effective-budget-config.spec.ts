@@ -61,6 +61,35 @@ describe('private native OpenCode config probe', () => {
     });
     expect(JSON.stringify(projected)).not.toContain('LOCAL_PRIVATE_BODY_PLACEHOLDER');
   });
+  it('reads an OpenCode 2 config document list and keeps numeric limits', async () => {
+    const result = readOpenCodeEffectiveBudgetConfig({ ...params, cliMajor: 2, command: '/Applications/OpenCode.app/Contents/Resources/opencode-cli' });
+    proc.stdout.emit('data', Buffer.from(JSON.stringify([
+      { type: 'document', path: '/tmp/opencode.jsonc', info: { $schema: 'https://opencode.ai/config.json' } },
+      { type: 'directory', path: '/tmp/opencode' },
+      { type: 'document', info: {
+        permissions: [{ action: 'doom_loop', resource: '*', effect: 'ask' }, { action: 'doom_loop*', resource: '*', effect: 'ask' }],
+        providers: { 'xiaomi-token-plan': { models: { 'mimo-v2.6-pro': {
+          limit: { context: 1048576, output: 16384 },
+          headers: { authorization: 'LOCAL_PRIVATE_CREDENTIAL_PLACEHOLDER' },
+        } } } },
+      } },
+    ])));
+    proc.emit('close', 0);
+    expect(await result).toMatchObject({
+      permission: { doom_loop: 'ask', 'doom_loop*': 'ask' },
+      provider: { 'xiaomi-token-plan': { models: { 'mimo-v2.6-pro': {
+        limit: { context: 1048576, output: 16384 },
+        options: { max_completion_tokens: 16384 },
+      } } } },
+    });
+    expect(JSON.stringify(await result)).not.toContain('LOCAL_PRIVATE_CREDENTIAL_PLACEHOLDER');
+    expect(mocks.jail).toHaveBeenCalledWith({
+      hardened: false,
+      command: '/Applications/OpenCode.app/Contents/Resources/opencode-cli',
+      args: ['api', '--standalone', 'GET', '/api/config'],
+      writableRoots: [],
+    });
+  });
   it('uses configured hardened roots for the auxiliary command', async () => {
     const result = readOpenCodeEffectiveBudgetConfig({ ...params, writableRoots: ['/tmp/granted'] });
     proc.stdout.emit('data', Buffer.from('{}'));

@@ -260,12 +260,24 @@ describe('RpcEventRouter', () => {
     expect(node?.lastHeartbeat).toBeGreaterThan(0);
     // Heartbeat should restore a degraded node to connected
     expect(node?.status).toBe('connected');
-    expect(mockRemoteAuth.recordTrustedPlatform).toHaveBeenCalledWith('node-4', 'linux');
+    expect(mockRemoteAuth.recordTrustedPlatform).toHaveBeenCalledWith('node-4', 'linux', false);
 
     expect(mockConnection.sendResponse).toHaveBeenCalledWith(
       'node-4',
       expect.objectContaining({ result: { ok: true } }),
     );
+  });
+
+  it('records a browser-capable heartbeat so the node is remembered as the browser computer', () => {
+    registry.registerNode(makeNode('node-browser'));
+
+    mockConnection.emit('rpc:request', 'node-browser', makeRpcRequest('node.heartbeat', {
+      nodeId: 'node-browser',
+      capabilities: makeCapabilities({ platform: 'win32', hasBrowserMcp: true }),
+      activeInstances: 0,
+    }, 7));
+
+    expect(mockRemoteAuth.recordTrustedPlatform).toHaveBeenCalledWith('node-browser', 'win32', true);
   });
 
   it('returns NODE_NOT_FOUND when heartbeat arrives for an unknown node', () => {
@@ -876,7 +888,7 @@ describe('RpcEventRouter', () => {
 
     expect(registry.getNode('node-8')?.capabilities.availableMemoryMB).toBe(5000);
     expect(registry.getNode('node-8')?.activeInstances).toBe(2);
-    expect(mockRemoteAuth.recordTrustedPlatform).toHaveBeenCalledWith('node-8', 'linux');
+    expect(mockRemoteAuth.recordTrustedPlatform).toHaveBeenCalledWith('node-8', 'linux', false);
     expect(mockConnection.sendResponse).not.toHaveBeenCalled();
   });
 
@@ -1027,7 +1039,7 @@ describe('RpcEventRouter', () => {
       expect(node?.capabilities.localModelEndpoints?.[0]?.loadedModels?.[0]?.contextLength)
         .toBe(contextLength);
       expect(node?.activeInstances).toBe(index + 1);
-      expect(mockRemoteAuth.recordTrustedPlatform).toHaveBeenCalledWith(nodeId, 'linux');
+      expect(mockRemoteAuth.recordTrustedPlatform).toHaveBeenCalledWith(nodeId, 'linux', false);
     }
   });
 

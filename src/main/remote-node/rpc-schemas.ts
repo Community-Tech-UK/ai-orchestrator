@@ -66,7 +66,21 @@ const WorkerLoadedLocalModelSchema = z.object({
 const WorkerAgentBuildSummarySchema = z.object({
   version: z.string().min(1).max(128),
   startedAt: z.number().int().nonnegative(),
+  hostBootedAt: z.number().int().nonnegative().optional().catch(undefined),
 });
+
+const HostHealthProcessesSchema = z.array(z.object({
+  name: z.string().max(256), pid: z.number().int().nonnegative(), count: z.number().int().nonnegative(),
+})).max(10);
+
+// Diagnostic only: a malformed sample is dropped rather than failing the heartbeat.
+const WorkerHostHealthSampleSchema = z.object({
+  sampledAt: z.number().int().nonnegative(),
+  udpEndpoints: z.number().int().nonnegative(),
+  tcpConnections: z.number().int().nonnegative(),
+  topUdpOwners: HostHealthProcessesSchema,
+  topHandleHolders: HostHealthProcessesSchema,
+}).optional().catch(undefined);
 
 const WorkerLocalModelCapabilitySchema = z.object({
   provider: z.enum(['ollama', 'openai-compatible']),
@@ -158,6 +172,7 @@ const WorkerNodeCapabilitiesSchema = z.object({
     models: z.array(z.string()),
     healthy: z.boolean(),
   })).optional(),
+  hostHealth: WorkerHostHealthSampleSchema,
 });
 
 // -- Node -> Coordinator schemas -----------------------------------------------

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWorkerNodeSubsystemStep } from './remote-gateway-initialization-steps';
 import type { AppInitializationContext } from './initialization-steps';
+import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 
 // vi.hoisted runs before imports resolve, so this cannot use node:events.
 const fakes = vi.hoisted(() => {
@@ -26,6 +27,7 @@ const fakes = vi.hoisted(() => {
       serverPort: 4878,
       serverHost: '0.0.0.0',
       namespace: 'default',
+      autoOffloadBrowser: true,
     },
     registry,
     connectionStart: vi.fn(async () => undefined),
@@ -68,6 +70,18 @@ vi.mock('../browser-gateway/browser-unattended-services', () => ({
   setBrowserEscalationNotifyHook: vi.fn(),
 }));
 
+vi.mock('../remote-node/coordinator-address-advertiser', () => ({
+  advertiseCoordinatorAddresses: vi.fn(async () => undefined),
+}));
+vi.mock('../remote-node/coordinator-tailscale-watcher', () => ({
+  CoordinatorTailscaleWatcher: class {
+    noteNodeConnected = vi.fn();
+    noteNodeDisconnected = vi.fn();
+    start = vi.fn();
+  },
+  setActiveCoordinatorTailscaleWatcher: vi.fn(),
+}));
+
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
@@ -89,6 +103,7 @@ describe('createWorkerNodeSubsystemStep', () => {
     fakes.registry.removeAllListeners();
     fakes.settings = {};
     fakes.config.enabled = true;
+    fakes.config.autoOffloadBrowser = true;
   });
 
   // Regression: publish() used to be called ONLY from the Settings
@@ -124,7 +139,7 @@ describe('createWorkerNodeSubsystemStep', () => {
 
     // The registry deletes the node before emitting, so the name has to come
     // off the event payload — getNode() would already return undefined.
-    fakes.registry.emit('node:disconnected', { id: 'node-1', name: 'windows-pc' });
+    fakes.registry.emit('node:disconnected', makeNode({ id: 'node-1', name: 'windows-pc' }));
 
     expect(fakes.notify).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -143,7 +158,7 @@ describe('createWorkerNodeSubsystemStep', () => {
   it('raises the disconnect alert as critical so quiet hours cannot swallow it', async () => {
     await createWorkerNodeSubsystemStep(buildContext()).fn();
 
-    fakes.registry.emit('node:disconnected', { id: 'node-1', name: 'windows-pc' });
+    fakes.registry.emit('node:disconnected', makeNode({ id: 'node-1', name: 'windows-pc' }));
 
     expect(fakes.notify).toHaveBeenCalledWith(
       expect.objectContaining({ urgency: 'critical' }),
@@ -154,15 +169,120 @@ describe('createWorkerNodeSubsystemStep', () => {
     fakes.settings = { notifyOnNodeDisconnect: false };
 
     await createWorkerNodeSubsystemStep(buildContext()).fn();
-    fakes.registry.emit('node:disconnected', { id: 'node-1', name: 'windows-pc' });
+    fakes.registry.emit('node:disconnected', makeNode({ id: 'node-1', name: 'windows-pc' }));
 
     expect(fakes.notify).not.toHaveBeenCalled();
   });
 
   it('still notifies when the setting is unset, since the default is on', async () => {
     await createWorkerNodeSubsystemStep(buildContext()).fn();
-    fakes.registry.emit('node:disconnected', { id: 'node-2', name: 'noahlaptop' });
+    fakes.registry.emit('node:disconnected', makeNode({ id: 'node-2', name: 'noahlaptop' }));
 
     expect(fakes.notify).toHaveBeenCalledTimes(1);
   });
+
+  it('tells the operator agents will ask before using this Mac when the browser computer drops', async () => {
+    await createWorkerNodeSubsystemStep(buildContext()).fn();
+    fakes.registry.emit('node:disconnected', makeNode({ id: 'node-1', name: 'windows-pc', hasBrowserMcp: true }));
+
+    expect(fakes.notify).toHaveBeenCalledWith(expect.objectContaining({
+      body: "windows-pc is no longer connected. Agents will not use this Mac's browser without asking you first.",
+    }));
+  });
+
+  it('makes no browser promise when browser offload is switched off', async () => {
+    fakes.config.autoOffloadBrowser = false;
+    await createWorkerNodeSubsystemStep(buildContext()).fn();
+    fakes.registry.emit('node:disconnected', makeNode({ id: 'node-1', name: 'windows-pc', hasBrowserMcp: true }));
+
+    expect(fakes.notify).toHaveBeenCalledWith(expect.objectContaining({
+      body: 'windows-pc is no longer connected',
+    }));
+  });
+
+  it('announces the node is back online with how long and why', async () => {
+    vi.useFakeTimers({ now: Date.UTC(2026, 9, 7, 9, 0) });
+    try {
+      await createWorkerNodeSubsystemStep(buildContext()).fn();
+      fakes.registry.emit('node:disconnected', makeNode({
+        id: 'node-1', name: 'windows-pc', lastHeartbeat: Date.now(), startedAt: 1_000,
+      }));
+      vi.setSystemTime(Date.now() + 34 * 60_000);
+      fakes.registry.emit('node:connected', makeNode({ id: 'node-1', name: 'windows-pc', startedAt: 1_000 }));
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(fakes.notify).toHaveBeenLastCalledWith({
+      kind: 'node-reconnected',
+      title: 'windows-pc is back online',
+      body: 'It was offline for 34 min. The Harness worker program kept running but could not reach this Mac '
+        + '(a network drop, or the computer was asleep or frozen).',
+      urgency: 'critical',
+      fingerprintFields: { nodeId: 'node-1' },
+    });
+  });
+
+  it('keeps registering a node whose report breaks the outage summary', async () => {
+    await createWorkerNodeSubsystemStep(buildContext()).fn();
+    fakes.registry.emit('node:disconnected', makeNode({ id: 'node-1', name: 'windows-pc', startedAt: 1_000 }));
+    // Registration emits node:connected synchronously; any fault in the
+    // diagnostic summary must not escape into it.
+    const unreadable = makeNode({ id: 'node-1', name: 'windows-pc', startedAt: 1_000 });
+    Object.defineProperty(unreadable, 'capabilities', {
+      get: () => { throw new Error('unreadable capabilities'); },
+    });
+
+    expect(() => fakes.registry.emit('node:connected', unreadable)).not.toThrow();
+    expect(fakes.notify).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'node-reconnected' }));
+  });
+
+  it('stays quiet for a connect that was never announced as a disconnect', async () => {
+    await createWorkerNodeSubsystemStep(buildContext()).fn();
+    fakes.registry.emit('node:connected', makeNode({ id: 'node-1', name: 'windows-pc', startedAt: 1_000 }));
+
+    expect(fakes.notify).not.toHaveBeenCalled();
+  });
+
+  it('skips the back-online notification when node notifications are off', async () => {
+    fakes.settings = { notifyOnNodeDisconnect: false };
+    await createWorkerNodeSubsystemStep(buildContext()).fn();
+    fakes.registry.emit('node:disconnected', makeNode({ id: 'node-1', name: 'windows-pc', startedAt: 1_000 }));
+    fakes.registry.emit('node:connected', makeNode({ id: 'node-1', name: 'windows-pc', startedAt: 1_000 }));
+
+    expect(fakes.notify).not.toHaveBeenCalled();
+  });
 });
+
+function makeNode(options: {
+  id: string;
+  name: string;
+  hasBrowserMcp?: boolean;
+  lastHeartbeat?: number;
+  startedAt?: number;
+}): WorkerNodeInfo {
+  return {
+    id: options.id,
+    name: options.name,
+    status: 'connected',
+    activeInstances: 0,
+    ...(options.lastHeartbeat !== undefined ? { lastHeartbeat: options.lastHeartbeat } : {}),
+    capabilities: {
+      ...(options.startedAt !== undefined ? { workerAgent: { version: '0.1.0', startedAt: options.startedAt } } : {}),
+      platform: 'win32',
+      arch: 'x64',
+      cpuCores: 8,
+      totalMemoryMB: 16_384,
+      availableMemoryMB: 8_192,
+      supportedClis: [],
+      hasBrowserRuntime: options.hasBrowserMcp ?? false,
+      hasBrowserMcp: options.hasBrowserMcp ?? false,
+      hasAndroidMcp: false,
+      hasDocker: false,
+      maxConcurrentInstances: 4,
+      workingDirectories: [],
+      browsableRoots: [],
+      discoveredProjects: [],
+    },
+  };
+}

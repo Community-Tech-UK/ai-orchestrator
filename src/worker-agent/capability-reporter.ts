@@ -21,6 +21,7 @@ import type { CanonicalCliType } from '../shared/types/settings.types';
 import { ProjectDiscovery } from '../main/remote-node/project-discovery';
 import { getAccountProfilesRoot } from '../main/cli/adapters/account-pool/provider-account-home-resolver';
 import { listWorkerAccountProfileIds } from './worker-account-route';
+import { getLatestHostHealthSample } from './host-health-sampler';
 import {
   OLLAMA_LOCAL_BASE_URL,
   LMSTUDIO_LOCAL_BASE_URL,
@@ -40,6 +41,8 @@ import {
 const sharedProjectDiscovery = new ProjectDiscovery();
 
 const WORKER_AGENT_STARTED_AT = Date.now();
+/** Lets the coordinator tell a computer restart from a worker restart after an outage. */
+const HOST_BOOTED_AT = Math.round(Date.now() - os.uptime() * 1000);
 const WORKER_AGENT_VERSION =
   process.env['AIO_WORKER_AGENT_VERSION']
   ?? process.env['npm_package_version']
@@ -72,6 +75,7 @@ export async function reportCapabilities(
     workerAgent: {
       version: WORKER_AGENT_VERSION,
       startedAt: WORKER_AGENT_STARTED_AT,
+      hostBootedAt: HOST_BOOTED_AT,
     },
     platform: process.platform as NodePlatform,
     arch: process.arch,
@@ -103,7 +107,13 @@ export async function reportCapabilities(
     discoveredProjects: projects,
     localModelEndpoints,
     localSttEndpoints,
+    ...hostHealthField(),
   };
+}
+
+function hostHealthField(): { hostHealth?: WorkerNodeCapabilities['hostHealth'] } {
+  const hostHealth = getLatestHostHealthSample();
+  return hostHealth ? { hostHealth } : {};
 }
 
 async function detectLocalModelEndpoints(): Promise<WorkerLocalModelCapability[]> {

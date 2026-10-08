@@ -6,7 +6,7 @@ import { ChatStore } from '../chats/chat-store';
 import { GitBatchCancelledError, GitBatchService, getGitBatchService } from '../operator/git-batch-service';
 import { OperatorRunStore } from '../operator/operator-run-store';
 import type { McpServerToolDefinition } from './mcp-server-tools';
-import type { WorkerAgentBuildSummary, WorkerNodeAndroidAutomationSummary, WorkerNodeBrowserAutomationSummary, WorkerNodeExtensionRelaySummary, WorkerNodeFileTransferSummary } from '../../shared/types/worker-node.types';
+import type { WorkerAgentBuildSummary, WorkerHostHealthSample, WorkerNodeAndroidAutomationSummary, WorkerNodeBrowserAutomationSummary, WorkerNodeExtensionRelaySummary, WorkerNodeFileTransferSummary } from '../../shared/types/worker-node.types';
 import { createAutomationToolDefinitions } from './orchestrator-automation-tools';
 import { createDocReviewToolDefinitions, type GetDocReviewResultFn, type RequestDocReviewFn } from './doc-review-tools';
 import { createPlanQueueToolDefinitions, type PlanQueueToolOperations } from './plan-queue-tools';
@@ -97,6 +97,8 @@ export interface RemoteNodeToolInfo {
   workerAgent?: WorkerAgentBuildSummary;
   hasBrowserRuntime: boolean;
   hasBrowserMcp: boolean;
+  /** Paired browser computer, remembered while disconnected. */
+  browserComputer?: boolean;
   browserAutomation?: WorkerNodeBrowserAutomationSummary;
   hasExtensionRelay?: boolean;
   extensionRelay?: WorkerNodeExtensionRelaySummary;
@@ -109,6 +111,7 @@ export interface RemoteNodeToolInfo {
   maxConcurrentInstances: number;
   workingDirectories: string[];
   fileTransfer?: WorkerNodeFileTransferSummary;
+  hostHealth?: WorkerHostHealthSample;
   connectedAt?: number; lastHeartbeat?: number; lastAuthenticatedAt?: number;
   pairingLabel?: string; authMethod?: 'pairing_credential' | 'manual_pairing'; latencyMs?: number;
 }

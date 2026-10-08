@@ -44,6 +44,34 @@ export interface WorkerLocalSttCapability {
 export interface WorkerAgentBuildSummary {
   version: string;
   startedAt: number;
+  /**
+   * When the worker's operating system last booted (epoch ms). Lets the
+   * coordinator tell "the PC restarted" from "the worker program restarted"
+   * after an outage. Absent on older workers.
+   */
+  hostBootedAt?: number;
+}
+
+/** A process named in a host-health sample, with how much of the resource it holds. */
+export interface WorkerHostHealthProcess {
+  name: string;
+  pid: number;
+  count: number;
+}
+
+/**
+ * Periodic host resource sample from a Windows worker. Collected because the
+ * 2026-10-07 outages coincided with UDP port exhaustion and a ~127k-handle
+ * leak in one service; the last sample before a drop names the likely culprit.
+ */
+export interface WorkerHostHealthSample {
+  sampledAt: number;
+  udpEndpoints: number;
+  tcpConnections: number;
+  /** Processes owning the most UDP endpoints, largest first. */
+  topUdpOwners: WorkerHostHealthProcess[];
+  /** Processes holding the most OS handles, largest first. */
+  topHandleHolders: WorkerHostHealthProcess[];
 }
 
 /**
@@ -181,6 +209,8 @@ export interface WorkerNodeCapabilities {
   discoveredProjects: DiscoveredProject[];
   localModelEndpoints?: WorkerLocalModelCapability[];
   localSttEndpoints?: WorkerLocalSttCapability[];
+  /** Latest host resource sample (Windows workers that run the host-health sampler). */
+  hostHealth?: WorkerHostHealthSample;
 }
 
 export interface WorkerNodeInfo {
@@ -232,6 +262,13 @@ export interface RemoteNodeRosterEntry {
    * while connected.
    */
   connectivityHint?: string;
+  /**
+   * True when this node is a browser computer: it reports browser automation
+   * now, or has ever reported it since pairing (sticky until unpaired).
+   * Survives disconnection so an offline browser computer can still be
+   * recognised.
+   */
+  browserComputer?: boolean;
   /**
    * Backward-compatible non-secret capability block for existing renderer
    * helpers. It deliberately excludes all identity/session tokens.
@@ -329,6 +366,14 @@ export interface NodeIdentity {
   /** Trusted platform last reported by an authenticated registration/heartbeat. */
   platform?: NodePlatform;
   platformSeenAt?: number;
+  /**
+   * Set once the node has reported browser automation (`hasBrowserMcp`) in an
+   * authenticated registration/heartbeat, and kept until it is unpaired.
+   * Persisted so the coordinator still knows a disconnected node is the
+   * browser computer.
+   */
+  browserCapable?: boolean;
+  browserCapableSeenAt?: number;
   issuedAt: number;
   /** Backward-compatible alias for issuedAt. */
   createdAt: number;

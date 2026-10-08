@@ -228,15 +228,28 @@ export class RemoteAuthService {
     return removed;
   }
 
-  recordTrustedPlatform(nodeId: string, platform: NodePlatform): void {
+  /**
+   * Persist what an authenticated registration/heartbeat reported about the
+   * node. The browser-computer flag is sticky: once a node has reported
+   * browser automation it stays the browser computer until it is unpaired, so
+   * a node whose browser side breaks (or that is offline) never lets browser
+   * work fall back silently to this computer.
+   */
+  recordTrustedPlatform(nodeId: string, platform: NodePlatform, browserCapable?: boolean): void {
     this.ensureLoadedFromSettings();
     const current = getNodeIdentityStore().get(nodeId);
-    if (current?.platform === platform && current.platformSeenAt !== undefined) {
+    const platformKnown = current?.platform === platform && current.platformSeenAt !== undefined;
+    const browserKnown = browserCapable !== true || current?.browserCapable === true;
+    if (platformKnown && browserKnown) {
       return;
     }
+    const now = Date.now();
     const touched = getNodeIdentityStore().touch(nodeId, {
       platform,
-      platformSeenAt: Date.now(),
+      platformSeenAt: now,
+      ...(browserCapable === true && current?.browserCapable !== true
+        ? { browserCapable: true, browserCapableSeenAt: now }
+        : {}),
     });
     if (touched) {
       this.persistSessions();

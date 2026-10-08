@@ -100,6 +100,7 @@ function buildEntry(
     supportedClis: [...(live?.capabilities.supportedClis ?? [])],
     hasBrowserRuntime: live?.capabilities.hasBrowserRuntime ?? false,
     hasBrowserMcp: live?.capabilities.hasBrowserMcp ?? false,
+    browserComputer: (live?.capabilities.hasBrowserMcp ?? false) || session?.browserCapable === true,
     hasAndroidMcp: live?.capabilities.hasAndroidMcp ?? false,
     hasDocker: live?.capabilities.hasDocker ?? false,
     maxConcurrentInstances,

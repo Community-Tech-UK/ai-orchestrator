@@ -1,11 +1,30 @@
 import type { BrowserProfile, BrowserTarget } from '@contracts/types/browser';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
+const sessions = vi.hoisted(() => ({ list: [] as Array<{ nodeId: string; nodeName: string; browserCapable?: boolean }> }));
+vi.mock('../auth/remote-auth', () => ({
+  getRemoteAuthService: () => ({ listSessions: () => sessions.list }),
+}));
+
 import {
+  listKnownBrowserComputers,
   routeBrowserGatewayRequest,
   type BrowserRemoteOffloadPolicyDeps,
+  type KnownBrowserComputer,
 } from './browser-remote-offload-policy';
 import { validateBrowserRpcPayload } from './browser-rpc-server-support';
+
+describe('listKnownBrowserComputers', () => {
+  it('reads only paired nodes flagged as browser computers', () => {
+    sessions.list = [
+      { nodeId: 'windows-node', nodeName: 'windows-pc', browserCapable: true },
+      { nodeId: 'noah-node', nodeName: 'noahlaptop', browserCapable: false },
+      { nodeId: 'old-node', nodeName: 'never-reported' },
+    ];
+
+    expect(listKnownBrowserComputers()).toEqual([{ id: 'windows-node', name: 'windows-pc' }]);
+  });
+});
 
 describe('Browser Gateway remote offload policy', () => {
   it('rewrites unscoped discovery onto the connected Windows node but keeps explicit local', () => {
@@ -135,6 +154,76 @@ describe('Browser Gateway remote offload policy', () => {
     expect(routeBrowserGatewayRequest('browser.list_targets', payload, unavailable)).toBe(payload);
   });
 
+  describe('when the paired browser computer is unavailable', () => {
+    const offlineWindows = { id: 'windows-node', name: 'windows-pc' };
+
+    it('refuses unscoped discovery instead of silently using this Mac', () => {
+      const deps = makeDeps({ nodes: [], knownBrowserComputers: [offlineWindows] });
+
+      for (const method of ['browser.list_targets', 'browser.find_or_open', 'browser.preflight_target', 'browser.recover_extension']) {
+        expect(() => routeBrowserGatewayRequest(method, { url: 'https://example.test' }, deps)).toThrow(
+          /browser_remote_computer_offline: The browser computer "windows-pc" is offline or not ready.*ask whether to use this Mac.*retry with computer: "local"/,
+        );
+      }
+    });
+
+    it('still runs an explicit local or explicitly targeted request', () => {
+      const deps = makeDeps({ nodes: [], knownBrowserComputers: [offlineWindows] });
+      const local = { url: 'https://example.test', computer: 'local' };
+      const named = { nodeId: 'windows-node', computer: 'windows-pc' };
+
+      expect(routeBrowserGatewayRequest('browser.find_or_open', local, deps)).toBe(local);
+      expect(routeBrowserGatewayRequest('browser.list_targets', named, deps)).toBe(named);
+    });
+
+    it('leaves malformed selectors for RPC schema validation', () => {
+      const deps = makeDeps({ nodes: [], knownBrowserComputers: [offlineWindows] });
+      const malformed = { computer: 42 };
+
+      expect(routeBrowserGatewayRequest('browser.list_targets', malformed, deps)).toBe(malformed);
+    });
+
+    it('refuses opening a local managed profile and points at the agreed local path', () => {
+      const localProfile = makeProfile({ id: 'local-profile' });
+      const remoteProfile = makeProfile({ id: 'remote-profile', executionNodeId: 'windows-node' });
+      const deps = makeDeps({
+        nodes: [],
+        knownBrowserComputers: [offlineWindows],
+        profiles: [localProfile, remoteProfile],
+      });
+
+      expect(() => routeBrowserGatewayRequest('browser.open_profile', { profileId: 'local-profile' }, deps))
+        .toThrow(/browser_remote_computer_offline.*use browser\.find_or_open with computer: "local"/);
+      expect(routeBrowserGatewayRequest('browser.open_profile', { profileId: 'remote-profile' }, deps))
+        .toEqual({ profileId: 'remote-profile' });
+      expect(routeBrowserGatewayRequest('browser.close_profile', { profileId: 'local-profile' }, deps))
+        .toEqual({ profileId: 'local-profile' });
+    });
+
+    it('keeps an agreed local session usable once a local target exists', () => {
+      const localTarget = makeTarget({ id: 'local-target', profileId: 'local-profile' });
+      const deps = makeDeps({ nodes: [], knownBrowserComputers: [offlineWindows], targets: [localTarget] });
+      const click = { targetId: 'local-target', selector: '#go' };
+
+      expect(routeBrowserGatewayRequest('browser.click', click, deps)).toBe(click);
+    });
+
+    it('treats a connected browser computer without browser automation as unavailable', () => {
+      const windows = makeNode({ id: 'windows-node', name: 'windows-pc', platform: 'win32' });
+      windows.capabilities.hasBrowserMcp = false;
+      const deps = makeDeps({ nodes: [windows], knownBrowserComputers: [offlineWindows] });
+
+      expect(() => routeBrowserGatewayRequest('browser.list_targets', {}, deps))
+        .toThrow(/browser_remote_computer_offline/);
+    });
+
+    it('does nothing when browser offload is switched off', () => {
+      const deps = makeDeps({ nodes: [], knownBrowserComputers: [offlineWindows], autoOffloadBrowser: false });
+
+      expect(routeBrowserGatewayRequest('browser.list_targets', {}, deps)).toEqual({});
+    });
+  });
+
   it('preserves malformed selectors so RPC schema validation rejects them', () => {
     const windows = makeNode({ id: 'windows-node', name: 'windows-pc', platform: 'win32' });
     const deps = makeDeps({ nodes: [windows] });
@@ -161,6 +250,7 @@ function makeDeps(options: {
   profiles?: BrowserProfile[];
   enabled?: boolean;
   autoOffloadBrowser?: boolean;
+  knownBrowserComputers?: KnownBrowserComputer[];
 } = {}): BrowserRemoteOffloadPolicyDeps {
   const profiles = options.profiles ?? [];
   return {
@@ -169,6 +259,7 @@ function makeDeps(options: {
       autoOffloadBrowser: options.autoOffloadBrowser ?? true,
     }),
     getConnectedNodes: () => options.nodes ?? [],
+    getKnownBrowserComputers: () => options.knownBrowserComputers ?? [],
     listTargets: () => options.targets ?? [],
     getProfile: (profileId) => profiles.find((profile) => profile.id === profileId) ?? null,
   };

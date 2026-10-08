@@ -215,6 +215,55 @@ describe('rpc-schemas', () => {
       });
     });
 
+    it('keeps host boot time and host-health samples, dropping malformed ones without failing the heartbeat', () => {
+      const base = {
+        platform: 'win32',
+        arch: 'x64',
+        cpuCores: 16,
+        totalMemoryMB: 96000,
+        availableMemoryMB: 64000,
+        supportedClis: ['claude'],
+        hasBrowserRuntime: true,
+        hasBrowserMcp: true,
+        hasAndroidMcp: false,
+        hasDocker: false,
+        maxConcurrentInstances: 10,
+        workingDirectories: ['/tmp'],
+      };
+      const hostHealth = {
+        sampledAt: 1_700_000_000_000,
+        udpEndpoints: 85,
+        tcpConnections: 283,
+        topUdpOwners: [{ name: 'svchost', pid: 12184, count: 20 }],
+        topHandleHolders: [{ name: 'mtkbtsvc', pid: 6712, count: 127_519 }],
+      };
+
+      const valid = NodeHeartbeatParamsSchema.parse({
+        nodeId: 'node-1',
+        capabilities: {
+          ...base,
+          workerAgent: { version: '0.1.0', startedAt: 1_700_000_000_000, hostBootedAt: 1_699_000_000_000 },
+          hostHealth,
+        },
+        activeInstances: 0,
+      });
+      expect(valid.capabilities.workerAgent?.hostBootedAt).toBe(1_699_000_000_000);
+      expect(valid.capabilities.hostHealth).toEqual(hostHealth);
+
+      const malformed = NodeHeartbeatParamsSchema.parse({
+        nodeId: 'node-1',
+        capabilities: {
+          ...base,
+          workerAgent: { version: '0.1.0', startedAt: 1_700_000_000_000, hostBootedAt: 'yesterday' },
+          hostHealth: { ...hostHealth, udpEndpoints: -1 },
+        },
+        activeInstances: 0,
+      });
+      expect(malformed.capabilities.workerAgent).toMatchObject({ version: '0.1.0', startedAt: 1_700_000_000_000 });
+      expect(malformed.capabilities.workerAgent?.hostBootedAt).toBeUndefined();
+      expect(malformed.capabilities.hostHealth).toBeUndefined();
+    });
+
     it('accepts the standard reporter local-model endpoint payload', () => {
       const result = NodeHeartbeatParamsSchema.safeParse({
         nodeId: 'node-1',

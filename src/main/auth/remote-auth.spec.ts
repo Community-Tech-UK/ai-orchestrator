@@ -344,4 +344,33 @@ describe('RemoteAuthService', () => {
 
     expect(settingsWrites).toEqual([]);
   });
+
+  it('remembers that a node is the browser computer across a reload, writing only on change', () => {
+    const service = new RemoteAuthService();
+    const pairing = service.issuePairingCredential({ label: 'browser-node' });
+    expect(service.authenticateRegistration({
+      nodeId: 'node-1',
+      nodeName: 'windows-pc',
+      token: pairing.token,
+      platform: 'win32',
+    }).status).toBe('paired');
+    settingsWrites.length = 0;
+
+    service.recordTrustedPlatform('node-1', 'win32', true);
+    service.recordTrustedPlatform('node-1', 'win32', true);
+    service.recordTrustedPlatform('node-1', 'win32');
+    expect(settingsWrites).toEqual(['remoteNodesRegisteredNodes']);
+
+    NodeIdentityStore._resetForTesting();
+    const reloaded = new RemoteAuthService();
+    expect(reloaded.listSessions()).toEqual([
+      expect.objectContaining({ nodeId: 'node-1', browserCapable: true, browserCapableSeenAt: expect.any(Number) }),
+    ]);
+
+    // Sticky: a heartbeat reporting no browser automation does not forget it.
+    settingsWrites.length = 0;
+    reloaded.recordTrustedPlatform('node-1', 'win32', false);
+    expect(reloaded.listSessions()[0].browserCapable).toBe(true);
+    expect(settingsWrites).toEqual([]);
+  });
 });

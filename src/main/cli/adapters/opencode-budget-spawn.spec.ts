@@ -3,8 +3,16 @@ import { createOpenCodeAdapter } from './opencode-adapter-factory';
 import type { OpenCodeGenerationBudget } from './opencode-generation-budget';
 import { projectOpenCodeConfig } from './opencode-config-shapes';
 
-const mocks = vi.hoisted(() => ({ probe: vi.fn(), prepare: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  probe: vi.fn(),
+  prepare: vi.fn(),
+  launch: { command: 'opencode', major: 1 },
+}));
 vi.mock('./opencode-effective-budget-config', () => ({ readOpenCodeEffectiveBudgetConfig: mocks.probe }));
+vi.mock('./opencode-cli-launch', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./opencode-cli-launch')>();
+  return { ...actual, selectOpenCodeLaunch: async () => mocks.launch };
+});
 vi.mock('./opencode-child-progress-source', () => ({ createOpenCodeChildProgressSource: () => ({ source: {}, request: vi.fn(), prepareSpawn: mocks.prepare }) }));
 
 interface SpawnConfig {
@@ -13,7 +21,12 @@ interface SpawnConfig {
   generationBudget?: OpenCodeGenerationBudget;
 }
 describe('OpenCode budget actual spawn preparation', () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.prepare.mockResolvedValue(() => undefined); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.launch.command = 'opencode';
+    mocks.launch.major = 1;
+    mocks.prepare.mockResolvedValue(() => undefined);
+  });
   afterEach(() => vi.restoreAllMocks());
   it('re-reads effective native limits from the original overlay on every spawn, without copying private config', async () => {
     const effective = (cap: number) => ({ provider: { 'xiaomi-token-plan': { models: { 'mimo-v2.6-pro': {
@@ -68,6 +81,18 @@ describe('OpenCode budget actual spawn preparation', () => {
     const adapter = createOpenCodeAdapter({ workingDirectory: '/tmp', model: 'xiaomi-token-plan/mimo-v2.6-pro' });
     await expect((adapter as unknown as { acpConfig: SpawnConfig }).acpConfig.prepareSpawn()).rejects.toThrow('doom-loop permission');
     expect(mocks.prepare).not.toHaveBeenCalled();
+  });
+  it('publishes the OpenCode 2 provider tree and skips the v1 HTTP flags', async () => {
+    mocks.launch.command = '/Applications/OpenCode.app/Contents/Resources/opencode-cli';
+    mocks.launch.major = 2;
+    mocks.probe.mockImplementation(async (params) => projectOpenCodeConfig(JSON.parse(params.env.OPENCODE_CONFIG_CONTENT), params.model));
+    const adapter = createOpenCodeAdapter({ workingDirectory: '/tmp', model: 'xiaomi-token-plan/mimo-v2.6-pro' });
+    const config = (adapter as unknown as { acpConfig: SpawnConfig; getConfig(): { command: string } });
+    await config.acpConfig.prepareSpawn();
+    expect(config.getConfig().command).toBe(mocks.launch.command);
+    expect(JSON.parse(config.acpConfig.env['OPENCODE_CONFIG_CONTENT']!).providers['xiaomi-token-plan']
+      .models['mimo-v2.6-pro'].limit.output).toBe(16384);
+    expect(mocks.prepare).toHaveBeenCalledWith(expect.any(Array), expect.any(Object), { serveHttp: false });
   });
   it('does not prepare an ACP server when native limits cannot be resolved', async () => {
     mocks.probe.mockRejectedValue(new Error('Native config unavailable'));
