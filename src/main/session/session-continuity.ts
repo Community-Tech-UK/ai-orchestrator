@@ -27,6 +27,7 @@ import { getResumeHintManager } from './resume-hint';
 import { getLastStopSnapshotIfInitialized } from './last-stop-snapshot';
 import type { RecoverableSessionSelectionInput } from './recoverable-session-selection';
 import { getSafeStorage } from './safe-storage-accessor';
+import { stringifyContinuityEnvelope } from './continuity-payload-envelope';
 import { getProjectStoragePaths } from '../storage/project-storage-paths';
 import { SessionAutoSaveCoordinator } from './autosave-coordinator';
 import { getSessionPersistenceQueue } from './session-persistence-queue';
@@ -1429,10 +1430,12 @@ export class SessionContinuityManager extends EventEmitter {
       const safeStorage = getSafeStorage();
       if (safeStorage.isEncryptionAvailable()) {
         const encrypted = safeStorage.encryptString(json).toString('base64');
-        return JSON.stringify({ encrypted: true, data: encrypted });
+        return stringifyContinuityEnvelope(true, encrypted);
       }
     }
-    return JSON.stringify({ encrypted: false, data: json });
+    // Never JSON.stringify the envelope directly: `json` can be long enough to
+    // abort the process (see continuity-payload-envelope.ts).
+    return stringifyContinuityEnvelope(false, json);
   }
 
   private deserializePayload<T>(raw: string, filePath?: string): T | null {

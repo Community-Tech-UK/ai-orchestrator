@@ -69,6 +69,7 @@ import {
 import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
 import { buildObservedCompactionEvents } from '../cli/adapters/codex/compaction-presentation';
 import { writeContinuityPayloadAsyncAtomic } from './continuity-recovery-metadata';
+import { JSON_STRING_CHUNK_CHARS } from './continuity-payload-envelope';
 import type { SessionContinuityPersistenceOperations } from './session-continuity-persistence-operations';
 
 /** Cast-target for accessing private/protected members in tests. */
@@ -1609,6 +1610,44 @@ describe('SessionContinuityManager logging', () => {
     const exported = await manager.exportSession('tool-redaction');
 
     expect(exported?.state.conversationHistory).toEqual([]);
+  });
+
+  it('saves a state larger than one stringify slice without handing V8 the whole payload', async () => {
+    // 2026-10-08: a restored 19k-message thread produced a 198M-character
+    // state; JSON.stringify({ encrypted, data }) on it aborted the process
+    // (V8 Zone OOM). The envelope must be written in bounded slices.
+    const manager = createManager({ redactToolOutputs: false });
+    await manager.readyPromise;
+    const state = makeState('large-state');
+    const bigContent = '─😀"'.repeat(Math.ceil(JSON_STRING_CHUNK_CHARS / 2));
+    state.conversationHistory = [
+      { id: 'big-1', role: 'assistant', content: bigContent, timestamp: 1 },
+    ];
+
+    const real = JSON.stringify.bind(JSON);
+    let longestEnvelopeInput = 0;
+    const stringifySpy = vi.spyOn(JSON, 'stringify').mockImplementation(((value: unknown, ...rest: unknown[]) => {
+      if (typeof value === 'string') {
+        longestEnvelopeInput = Math.max(longestEnvelopeInput, value.length);
+      } else if (value && typeof value === 'object' && 'encrypted' in value && 'data' in value) {
+        const data = (value as { data: unknown }).data;
+        if (typeof data === 'string') longestEnvelopeInput = Math.max(longestEnvelopeInput, data.length);
+      }
+      return (real as (...args: unknown[]) => string)(value, ...rest);
+    }) as typeof JSON.stringify);
+    try {
+      await manager.importSession({ state });
+    } finally {
+      stringifySpy.mockRestore();
+    }
+
+    expect(longestEnvelopeInput).toBeGreaterThan(0);
+    expect(longestEnvelopeInput).toBeLessThanOrEqual(JSON_STRING_CHUNK_CHARS + 1);
+    const stateFile = path.join(mockState.userDataDir, 'session-continuity', 'states', 'large-state.json');
+    const raw = await fs.promises.readFile(stateFile, 'utf8');
+    expect(raw.startsWith('{"encrypted":false,"data":"')).toBe(true);
+    const persisted = await manager.readPayload<SessionState>(stateFile);
+    expect(persisted?.conversationHistory[0]?.content).toBe(bigContent);
   });
 
   it('keeps tool conversation entries when redaction is disabled', async () => {

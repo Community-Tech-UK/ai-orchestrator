@@ -13,6 +13,7 @@ import type { ConversationEntry } from './session-continuity';
 import type { SessionSnapshot, SessionState } from './session-continuity.types';
 import type { ContinuityRecoveryMetadata } from './session-recovery-candidate-service';
 import { readContinuityPayloadHandleReadOnly } from './continuity-recovery-metadata';
+import { stringifyContinuityEnvelope } from './continuity-payload-envelope';
 import { cleanupOrphanedTmpFiles, type TmpCleanupResult } from './orphaned-tmp-cleanup';
 import { mergeDuplicateToolEntries } from './continuity-tool-entry-merger';
 
@@ -394,13 +395,14 @@ export function repairFile(filePath: string, quarantineDir: string): RepairResul
 
     if (envelopeObj.encrypted === true && typeof envelopeObj.data === 'string') {
       return repairs.length > 0
-        ? writeRepairedFile(filePath, JSON.stringify(envelopeObj), repairs)
+        ? writeRepairedFile(filePath, stringifyContinuityEnvelope(true, envelopeObj.data), repairs)
         : { status: 'ok', repairs };
     }
 
     if (envelopeObj.encrypted === false && typeof envelopeObj.data === 'string') {
-      if (parseJson(envelopeObj.data) === null) {
-        const recoveredInner = tryRecoverJson(envelopeObj.data);
+      let data = envelopeObj.data;
+      if (parseJson(data) === null) {
+        const recoveredInner = tryRecoverJson(data);
         if (recoveredInner === null) {
           repairs.push('Inner data JSON parse failed');
           try {
@@ -412,12 +414,14 @@ export function repairFile(filePath: string, quarantineDir: string): RepairResul
           }
         }
 
-        envelopeObj.data = recoveredInner;
+        data = recoveredInner;
         repairs.push('Recovered truncated inner data JSON');
       }
 
+      // Not JSON.stringify(envelopeObj): a large `data` aborts the process (see
+      // continuity-payload-envelope.ts), and this runs during startup recovery.
       return repairs.length > 0
-        ? writeRepairedFile(filePath, JSON.stringify(envelopeObj), repairs)
+        ? writeRepairedFile(filePath, stringifyContinuityEnvelope(false, data), repairs)
         : { status: 'ok', repairs };
     }
 

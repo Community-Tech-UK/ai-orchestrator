@@ -6234,16 +6234,16 @@
       "lines": 1965
     },
     {
+      "path": "src/main/session/session-continuity.spec.ts",
+      "lines": 1960
+    },
+    {
       "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
       "lines": 1957
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
       "lines": 1939
-    },
-    {
-      "path": "src/main/session/session-continuity.spec.ts",
-      "lines": 1921
     },
     {
       "path": "docs/superpowers/specs/2026-04-26-automations-design_completed.md",
@@ -6279,7 +6279,7 @@
     },
     {
       "path": "src/main/session/session-continuity.ts",
-      "lines": 1740
+      "lines": 1743
     },
     {
       "path": "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
