@@ -16,6 +16,7 @@ describe('getElectronBuilderArgs', () => {
       '--config.mac.notarize=false',
       '--config.mac.timestamp=none',
       '--config.mac.sign=scripts/sign-local-macos.js',
+      '--config.afterPack=scripts/localbuild-after-pack.js',
     ]);
   });
 

@@ -1,9 +1,19 @@
 import { createRequire } from 'node:module';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
 const signer = require('../sign-local-macos.js') as {
+  findCodeSigningIdentity: (output: string) => { hash: string; name: string } | null;
   selectCodeSigningIdentity: (output: string) => { hash: string; name: string };
+  findMachOBinaries: (rootDir: string) => string[];
+  runCodesign: (args: string[], label: string) => void;
+  adHocSignApp: (
+    appPath: string,
+    deps?: { runCodesign?: (args: string[], label: string) => void },
+  ) => void;
   signWithLocalIdentity: (
     options: { app: string; platform: string; identity?: string },
     deps: {
@@ -14,6 +24,14 @@ const signer = require('../sign-local-macos.js') as {
   ) => Promise<void>;
   sign: unknown;
 };
+
+function writeCodeFile(filePath: string, magic: number, secondWord = 0) {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  const header = Buffer.alloc(8);
+  header.writeUInt32BE(magic, 0);
+  header.writeUInt32BE(secondWord, 4);
+  writeFileSync(filePath, header);
+}
 
 describe('local macOS signer', () => {
   it('provides identity selection and signing entry points', () => {
@@ -85,5 +103,84 @@ describe('local macOS signer', () => {
       platform: 'darwin',
       identity: 'RELEASE-CERTIFICATE-HASH',
     });
+  });
+
+  it('finds no identity when none is installed, without throwing', () => {
+    expect(signer.findCodeSigningIdentity('0 valid identities found')).toBeNull();
+    expect(signer.findCodeSigningIdentity('not a security listing')).toBeNull();
+    expect(
+      signer.findCodeSigningIdentity('  1) AAA111 "Apple Development: Local Developer (TEAM123456)"'),
+    ).toEqual({ hash: 'AAA111', name: 'Apple Development: Local Developer (TEAM123456)' });
+  });
+
+  it('finds Mach-O binaries anywhere in a bundle and skips other files', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sign-local-macos-'));
+    try {
+      writeCodeFile(path.join(root, 'Contents/MacOS/Harness'), 0xfeedfacf);
+      writeCodeFile(path.join(root, 'Contents/MacOS/universal'), 0xcafebabf, 2);
+      writeCodeFile(
+        path.join(root, 'Contents/Resources/app.asar.unpacked/better_sqlite3.node'),
+        0xcffaedfe,
+      );
+      writeCodeFile(path.join(root, 'Contents/Resources/prebuilds/win32-arm64/pty.node'), 0x90909090);
+      // Java class files share the fat Mach-O magic; the version word that
+      // follows is what tells them apart.
+      writeCodeFile(path.join(root, 'Contents/Resources/Widget.class'), 0xcafebabe, 0x00000034);
+      writeFileSync(path.join(root, 'Contents/Resources/app.asar'), 'not code');
+
+      const found = signer.findMachOBinaries(root)
+        .map((file) => path.relative(root, file))
+        .sort();
+
+      expect(found).toEqual([
+        'Contents/MacOS/Harness',
+        'Contents/MacOS/universal',
+        'Contents/Resources/app.asar.unpacked/better_sqlite3.node',
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails loudly when a file in the bundle cannot be read', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sign-local-macos-'));
+    const unreadable = path.join(root, 'Contents/MacOS/Harness');
+    try {
+      writeCodeFile(unreadable, 0xfeedfacf);
+      chmodSync(unreadable, 0o000);
+      expect(() => signer.findMachOBinaries(root)).toThrow();
+    } finally {
+      chmodSync(unreadable, 0o600);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('maps codesign failures to a thrown error', () => {
+    expect(() => signer.runCodesign(
+      ['--verify', '--deep', '--strict', '/no/such/Harness.app'],
+      'Signature verification',
+    )).toThrow(/^Signature verification failed/);
+  });
+
+  it('ad-hoc signs loose binaries before the bundle and verifies afterwards', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sign-local-macos-'));
+    try {
+      const app = path.join(root, 'Harness.app');
+      const nativeModule = path.join(app, 'Contents/Resources/app.asar.unpacked/pty.node');
+      writeCodeFile(nativeModule, 0xfeedfacf);
+      const calls: string[][] = [];
+
+      signer.adHocSignApp(app, {
+        runCodesign: (args) => { calls.push(args); },
+      });
+
+      expect(calls).toEqual([
+        ['--force', '--sign', '-', nativeModule],
+        ['--force', '--deep', '--sign', '-', app],
+        ['--verify', '--deep', '--strict', app],
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
