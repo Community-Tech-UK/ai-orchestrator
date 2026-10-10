@@ -6271,7 +6271,7 @@
     },
     {
       "path": "src/main/history/history-manager.ts",
-      "lines": 1783
+      "lines": 1781
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",

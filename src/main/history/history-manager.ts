@@ -39,6 +39,7 @@ import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 import { getSessionRecoveryCandidateServiceIfInitialized, type HistoryRecoverySuppressionQuery,
   type RecoveryHistoryIdentity } from '../session/session-recovery-candidate-service';
 import { resolveHistoryRecoveryCoverage } from './history-recovery-coverage';
+import { memoizeConversationLoads, mergePreviouslyArchivedMessages } from './archive-message-merge';
 import { createArchiveInstanceSummary, getArchiveHistoryIdentity,
   redactArchiveIdentifier, shouldArchiveInstance, type ArchiveHistoryCoverage } from './should-archive-instance';
 import { getArchiveSerializationKey, KeyedSerialTaskQueue } from './history-archive-serialization';
@@ -181,17 +182,13 @@ export class HistoryManager {
         (existingEntry) => this.getEntryThreadKey(existingEntry) === threadKey
       );
 
+      // One read of each previous archive serves both coverage and the merge.
+      const loadPrevious = memoizeConversationLoads((entryId) => this.loadPersistedConversationForCoverage(entryId));
       const summary = createArchiveInstanceSummary({ ...instance, outputBuffer: messages });
       const identity = getArchiveHistoryIdentity(summary);
-      let coverage: ArchiveHistoryCoverage | undefined;
-      if (identity) {
-        const covered = (await resolveHistoryRecoveryCoverage(
-          previousEntries,
-          [identity],
-          (entryId) => this.loadPersistedConversationForCoverage(entryId)
-        )).get(identity.recoveryKey);
-        coverage = covered;
-      }
+      const coverage: ArchiveHistoryCoverage | undefined = identity
+        ? (await resolveHistoryRecoveryCoverage(previousEntries, [identity], loadPrevious)).get(identity.recoveryKey)
+        : undefined;
 
       const decision = shouldArchiveInstance(summary, coverage);
       if (!decision.shouldArchive) {
@@ -205,8 +202,9 @@ export class HistoryManager {
         instance.createdAt
       );
 
-      // Find first and last user messages for preview
-      const userMessages = messages.filter(m => m.type === 'user');
+      // A crash revival's trimmed transcript must not replace the fuller archive.
+      const archived = await mergePreviouslyArchivedMessages(instance, messages, previousEntries, loadPrevious);
+      const userMessages = archived.filter(m => m.type === 'user');
       const firstUserMessage = userMessages[0]?.content || '';
       const lastUserMessage = userMessages[userMessages.length - 1]?.content || firstUserMessage;
 
@@ -243,7 +241,7 @@ export class HistoryManager {
         previousEntries,
         unresolvedNativeResumeFailedAt
       );
-      const snippets = getTranscriptSnippetService().extractAtArchiveTime({ messages });
+      const snippets = getTranscriptSnippetService().extractAtArchiveTime({ messages: archived });
       const entry: ConversationHistoryEntry = {
         id: entryId,
         displayName: instance.displayName,
@@ -256,7 +254,7 @@ export class HistoryManager {
         endedAt: Date.now(),
         historyThreadId: instance.historyThreadId,
         workingDirectory,
-        messageCount: messages.length,
+        messageCount: archived.length,
         firstUserMessage: this.truncatePreview(firstUserMessage),
         lastUserMessage: this.truncatePreview(lastUserMessage),
         status,
@@ -326,7 +324,7 @@ export class HistoryManager {
       // Create conversation data
       const conversationData: ConversationData = {
         entry,
-        messages,
+        messages: archived,
       };
 
       // Save conversation to disk. Queued so the startup backfill cannot write

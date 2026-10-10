@@ -243,4 +243,61 @@ describe('HistoryManager archive coverage integrity', () => {
     expect(loadedBeforeArchive?.entry.historyThreadId).toBe(persistedSessionId);
     expect(loadedBeforeArchive?.entry.sessionId).toBe(persistedSessionId);
   });
+
+  it('keeps the full archive when a trimmed revival of the same thread is re-archived', async () => {
+    // 2026-10-08: a crash-recovery revival seeded with 1,000 of 19,398 messages
+    // replaced the whole archive. Same ids prove the revival descends from it.
+    const fullTranscript = [
+      message('full-user', 'user', 100),
+      message('full-early-assistant', 'assistant', 200),
+      message('full-middle-tool', 'tool_use', 300),
+      message('full-late-assistant', 'assistant', 400),
+    ];
+    const entry = indexedEntry({ endedAt: 400, messageCount: fullTranscript.length });
+    fs.writeFileSync(
+      path.join(storageDir, `${entry.id}.json.gz`),
+      zlib.gzipSync(JSON.stringify({ entry, messages: fullTranscript } satisfies ConversationData)),
+    );
+    const manager = await createManager(entry);
+
+    const revivedBuffer = [fullTranscript[1], fullTranscript[2], message('revival-new-reply', 'assistant', 500)];
+    await manager.archiveInstance(makeInstance('revived-trimmed', revivedBuffer, {
+      status: 'idle',
+      metadata: { continuityRevival: true },
+    }));
+
+    const archivedEntry = manager.getEntries()[0];
+    expect(archivedEntry?.originalInstanceId).toBe('revived-trimmed');
+    expect(archivedEntry?.messageCount).toBe(5);
+    const archived = await manager.loadConversation(archivedEntry!.id);
+    expect(archived?.messages.map((item) => item.id)).toEqual([
+      'full-user',
+      'full-early-assistant',
+      'full-middle-tool',
+      'full-late-assistant',
+      'revival-new-reply',
+    ]);
+  });
+
+  it('drops the discarded branch when an edit-and-resend fork re-archives the thread', async () => {
+    const sourceTranscript = [
+      message('source-user', 'user', 100),
+      message('source-reply', 'assistant', 200),
+      message('discarded-user', 'user', 300),
+      message('discarded-reply', 'assistant', 400),
+    ];
+    const entry = indexedEntry({ endedAt: 400, messageCount: sourceTranscript.length });
+    fs.writeFileSync(
+      path.join(storageDir, `${entry.id}.json.gz`),
+      zlib.gzipSync(JSON.stringify({ entry, messages: sourceTranscript } satisfies ConversationData)),
+    );
+    const manager = await createManager(entry);
+
+    // A fork keeps the source's prefix objects (same ids) and thread id.
+    const forkBuffer = [sourceTranscript[0], sourceTranscript[1], message('edited-user', 'user', 500)];
+    await manager.archiveInstance(makeInstance('edit-fork', forkBuffer, { status: 'idle' }));
+
+    const archived = await manager.loadConversation(manager.getEntries()[0]!.id);
+    expect(archived?.messages.map((item) => item.id)).toEqual(['source-user', 'source-reply', 'edited-user']);
+  });
 });

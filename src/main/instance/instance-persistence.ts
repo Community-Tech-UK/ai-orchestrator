@@ -93,7 +93,8 @@ export class InstancePersistenceManager {
     //      history entry as soon as the fork is live — no duplicate row.
     //   2. history-manager.archiveInstance() dedupes on threadId, so when the
     //      fork later archives it replaces (not appends to) any prior entry
-    //      for this thread on disk.
+    //      for this thread on disk. Only crash revivals merge with the prior
+    //      entry, and a fork never carries that marker (see below).
     // Non-supersede forks (explicit divergent branches) keep getting a fresh
     // threadId so both branches remain independently visible.
     // A trim may have evicted the original ask from every source
@@ -131,9 +132,12 @@ export class InstancePersistenceManager {
       forceNodeId: config.preserveRuntimeSettings === false || sourceInstance.executionLocation?.type !== 'remote'
         ? undefined
         : sourceInstance.executionLocation.nodeId,
+      // A fork is a new branch, never a crash revival. The revival marker lets
+      // re-archiving restore a trimmed transcript (archive-message-merge.ts),
+      // which would resurrect the branch an edit-and-resend discarded.
       metadata: config.preserveRuntimeSettings === false || !sourceInstance.metadata
         ? undefined
-        : { ...sourceInstance.metadata },
+        : withoutContinuityRevivalMarker(sourceInstance.metadata),
       initialOutputBuffer: forkedMessages,
       initialRetainedPrompts: inheritedPrompts,
       initialPrompt: config.initialPrompt,
@@ -365,4 +369,9 @@ export class InstancePersistenceManager {
 
     return instance;
   }
+}
+
+function withoutContinuityRevivalMarker(metadata: Record<string, unknown>): Record<string, unknown> {
+  const { continuityRevival: _continuityRevival, ...rest } = metadata;
+  return rest;
 }

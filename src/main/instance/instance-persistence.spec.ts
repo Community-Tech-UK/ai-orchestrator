@@ -283,6 +283,27 @@ describe('InstancePersistenceManager', () => {
     );
   });
 
+  it('does not copy the crash-revival marker onto a fork', async () => {
+    // The marker lets re-archiving merge a trimmed transcript with the prior
+    // archive; an edit-and-resend fork must replace it instead.
+    sourceInstance.metadata = { continuityRevival: true, reason: 'crash-recovery', custom: true };
+    loadMessagesMock.mockResolvedValue([]);
+
+    await manager.forkInstance({
+      instanceId: sourceInstance.id,
+      atMessageIndex: 1,
+      preserveRuntimeSettings: true,
+      supersedeSource: true,
+    });
+
+    expect(createInstanceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: { reason: 'crash-recovery', custom: true },
+      }),
+    );
+    expect(sourceInstance.metadata).toEqual({ continuityRevival: true, reason: 'crash-recovery', custom: true });
+  });
+
   it('inherits the source historyThreadId on supersede-edit forks so the rail collapses to one entry', async () => {
     // Edit-and-resend forks (supersedeSource: true) are logically the same
     // conversation thread as the source. Sharing the threadId lets:
