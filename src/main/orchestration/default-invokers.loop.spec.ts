@@ -17,12 +17,21 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getDefaultModelForCli } from '../../shared/types/provider.types';
+import { getModelRouter } from '../routing/model-router';
+import { getLoopAccountFailover, _resetLoopAccountFailoverForTesting } from '../providers/account-pool/loop-account-failover';
 import type { LoopChildResult } from './loop-coordinator';
+import { LoopProviderLimitHandler } from './loop-provider-limit-handler';
+import { ProviderLimitLedger, createProviderLimitLedgerSchema } from '../core/system/provider-limit-ledger';
+import Database from 'better-sqlite3';
+import type { SqliteDriver } from '../db/sqlite-driver';
+import type { LoopState } from '../../shared/types/loop.types';
 
 // `vi.hoisted` must not reference any imports — it runs before module
 // imports resolve. Mock-state is created here and the EventEmitter for the
 // loop coordinator is constructed inside beforeEach instead.
 const hoisted = vi.hoisted(() => ({
+  loopModel: undefined as string | undefined,
   initializeForRequest: vi.fn(),
   requestResponse: vi.fn(),
   sendMessage: vi.fn(),
@@ -93,7 +102,8 @@ vi.mock('../providers/provider-runtime-service', () => ({
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: vi.fn(() => ({
     get: (key: string) => (key === 'rtkEnabled' ? true : key === 'rtkBundledOnly' ? false : undefined),
-    getAll: () => ({ defaultCli: 'claude' }),
+    getAll: () => ({ defaultCli: 'claude', loopModelByProvider: { opencode: hoisted.loopModel },
+      providerAccountProfiles: [], providerAccountPools: {}, auxiliaryLlmRoutingClassificationEnabled: false }),
   })),
 }));
 
@@ -150,6 +160,9 @@ describe('Loop Mode invoker plumbing', () => {
     // LT-020: the adapter-loan registry is a module-level singleton, so a test
     // that leaves a loan held would make the next one see a false positive.
     _resetAdapterLoansForTesting();
+    _resetLoopAccountFailoverForTesting();
+    hoisted.loopModel = undefined;
+    vi.mocked(getDefaultModelForCli).mockReturnValue('default-model');
     // Fresh emitter per test; registerDefaultLoopInvoker bails if a listener
     // already exists, so we must reset both the coordinator mock and the
     // listener registry. The fake also implements `registerIterationHook`
@@ -1723,6 +1736,123 @@ describe('Loop Mode invoker plumbing', () => {
       // an unproven occupancy must never recycle.
       expect((result as LoopChildResult).contextCompacted).toBeUndefined();
       expect(hoisted.terminate).not.toHaveBeenCalled();
+    });
+
+
+    it.each([
+      ['MiMo default appears during construction', 'opencode', 'xiaomi-token-plan-ams/mimo-v2.6-pro', 'opencode/big-pickle'],
+      ['native default appears during construction', 'opencode', 'opencode/big-pickle', 'xiaomi-token-plan-ams/mimo-v2.6-pro'],
+      ['physical model genuinely remains unknown', 'opencode', undefined, 'xiaomi-token-plan-ams/mimo-v2.6-pro'],
+      ['constructor falls back to Claude', 'claude', 'default-model', 'xiaomi-token-plan-ams/mimo-v2.6-pro'],
+    ])('keeps actual constructor authority when %s and settings change again', async (_label, actualCli, actualModel, laterModel) => {
+      const routingEnabled = getModelRouter().getConfig().enabled;
+      getModelRouter().updateConfig({ enabled: false });
+      vi.mocked(getDefaultModelForCli).mockImplementation((cli) => cli === 'claude' ? 'default-model' : undefined);
+      let resolutions = 0;
+      hoisted.resolveCliType.mockImplementation(async () => {
+        resolutions++;
+        if (resolutions === 2) {
+          hoisted.loopModel = actualModel;
+          return actualCli;
+        }
+        if (resolutions === 3) hoisted.loopModel = laterModel;
+        return 'opencode';
+      });
+      try {
+        registerDefaultLoopInvoker({} as never);
+        hoisted.sendMessage.mockResolvedValue({ content: 'actual turn', usage: { totalTokens: 1 } });
+        await emitIteration({ provider: 'opencode', config: { contextStrategy: 'same-session' } });
+        expect(hoisted.createAdapter).toHaveBeenCalledTimes(1);
+        expect(hoisted.createAdapter.mock.calls[0][0]).toMatchObject({ cliType: actualCli, options: { model: actualModel } });
+        expect(getLoopAccountFailover().currentModel('loop-1', actualCli)).toBe(actualModel ?? null);
+        if (actualCli !== 'opencode') expect(getLoopAccountFailover().currentModel('loop-1', 'opencode')).toBeNull();
+        const db = new Database(':memory:');
+        const handler = new LoopProviderLimitHandler({ emit: vi.fn(), cloneStateForBroadcast: (state) => state,
+          setConvergenceNote: vi.fn(), terminate: vi.fn(), resumeLoop: vi.fn(() => true) });
+        try {
+          createProviderLimitLedgerSchema(db as unknown as SqliteDriver);
+          const ledger = new ProviderLimitLedger(db as unknown as SqliteDriver);
+          const refresh = vi.fn(async () => null);
+          handler.setProviderLimitLedger(ledger);
+          handler.setProviderLimitResumeScheduler(() => vi.fn());
+          handler.setQuotaSnapshotRefresher(refresh);
+          const state = { id: 'loop-1', status: 'running', config: { provider: actualCli }, totalIterations: 1 } as LoopState;
+          await handler.deriveProviderLimitResumeAfterRefresh(state);
+          expect(handler.handleProviderLimit(state, { reason: 'actual native signal', resumeAt: Date.now() + 600_000,
+            source: 'notice', action: 'notice', mustStop: true })).toBe('parked');
+          const rows = ledger.list();
+          expect(rows).toHaveLength(actualModel === undefined ? 0 : 1);
+          if (actualModel !== undefined) expect(rows[0].model).toBe(actualCli === 'opencode' && actualModel === 'opencode/big-pickle' ? actualModel : null);
+          expect(refresh).toHaveBeenCalledTimes(actualCli !== 'opencode' || actualModel === 'xiaomi-token-plan-ams/mimo-v2.6-pro' ? 1 : 0);
+        } finally {
+          handler.clearResumeTimer('loop-1');
+          db.close();
+        }
+
+      } finally {
+        hoisted.loopCoordinatorRef.current.emit('loop:state-changed', { loopRunId: 'loop-1', state: { status: 'completed' } });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(getLoopAccountFailover().currentModel('loop-1', actualCli)).toBeNull();
+        getModelRouter().updateConfig({ enabled: routingEnabled });
+      }
+    });
+
+    it.each([undefined, 'xiaomi-token-plan-ams/mimo-v2.6-pro', 'opencode/big-pickle'])(
+      'reuses stable unresolved requests whose physical default is %s, then recycles a changed model once', async (physicalModel) => {
+        const routingEnabled = getModelRouter().getConfig().enabled;
+        getModelRouter().updateConfig({ enabled: false });
+        vi.mocked(getDefaultModelForCli).mockReturnValue(undefined);
+        hoisted.loopModel = undefined;
+        let resolutions = 0;
+        hoisted.resolveCliType.mockImplementation(async () => {
+          if (++resolutions === 2) hoisted.loopModel = physicalModel;
+          return 'opencode';
+        });
+        try {
+          registerDefaultLoopInvoker({} as never);
+          hoisted.sendMessage.mockResolvedValue({ content: 'actual turn', usage: { totalTokens: 1 } });
+          const opts = { provider: 'opencode', config: { contextStrategy: 'same-session' } };
+          await emitIteration(opts);
+          await emitIteration({ ...opts, seq: 1 });
+          expect(hoisted.createAdapter).toHaveBeenCalledTimes(1);
+          expect(hoisted.createAdapter.mock.calls[0][0].options.model).toBe(physicalModel);
+          expect(hoisted.terminate).not.toHaveBeenCalled();
+          expect(getLoopAccountFailover().currentModel('loop-1', 'opencode')).toBe(physicalModel ?? null);
+          hoisted.loopModel = 'openrouter/placeholder-next-model';
+          await emitIteration({ ...opts, seq: 2 });
+          await emitIteration({ ...opts, seq: 3 });
+          expect(hoisted.createAdapter).toHaveBeenCalledTimes(2);
+          expect(hoisted.terminate).toHaveBeenCalledTimes(1);
+          expect(hoisted.createAdapter.mock.calls[1][0].options.model).toBe('openrouter/placeholder-next-model');
+          expect(getLoopAccountFailover().currentModel('loop-1', 'opencode')).toBe('openrouter/placeholder-next-model');
+        } finally {
+          hoisted.loopCoordinatorRef.current.emit('loop:state-changed', { loopRunId: 'loop-1', state: { status: 'completed' } });
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          getModelRouter().updateConfig({ enabled: routingEnabled });
+        }
+      },
+    );
+
+    it('recycles a persistent adapter when the actual CLI fallback changes despite an unchanged model', async () => {
+      const routingEnabled = getModelRouter().getConfig().enabled;
+      getModelRouter().updateConfig({ enabled: false });
+      hoisted.resolveCliType.mockResolvedValue('opencode');
+      try {
+        registerDefaultLoopInvoker({} as never);
+        hoisted.sendMessage.mockResolvedValue({ content: 'actual turn', usage: { totalTokens: 1 } });
+        const opts = { provider: 'auto', model: 'placeholder-model', config: { contextStrategy: 'same-session' } };
+        await emitIteration(opts);
+        hoisted.resolveCliType.mockResolvedValue('claude');
+        await emitIteration({ ...opts, seq: 1 });
+        expect(hoisted.createAdapter.mock.calls.map(([input]) => input.cliType)).toEqual(['opencode', 'claude']);
+        expect(hoisted.terminate).toHaveBeenCalledTimes(1);
+        expect(getLoopAccountFailover().currentModel('loop-1', 'opencode')).toBeNull();
+        expect(getLoopAccountFailover().currentModel('loop-1', 'claude')).toBe('placeholder-model');
+      } finally {
+        hoisted.loopCoordinatorRef.current.emit('loop:state-changed', { loopRunId: 'loop-1', state: { status: 'completed' } });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        getModelRouter().updateConfig({ enabled: routingEnabled });
+      }
     });
 
     it('B8: recycles a same-session loop adapter when the requested model changes', async () => {

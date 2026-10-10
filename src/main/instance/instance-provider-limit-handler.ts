@@ -10,6 +10,7 @@ import type {
 import { accountFailoverNote, type AccountFailoverNote } from './account-failover-notes';
 import { isPooledProvider } from '../../shared/types/provider-account.types';
 import { clearLimitLiftedSinceRecorded, snapshotShowsLimitLifted } from './provider-limit-lift';
+import { instanceProviderLimitScope } from './instance-provider-limit-scope';
 import {
   buildProviderLimitContinuationTurn,
   scheduleInstanceProviderLimitResume,
@@ -196,18 +197,20 @@ export class InstanceProviderLimitHandler {
     if (!providerId) return 'skipped';
 
     const now = Date.now();
-    const accountProfileId = params.accountProfileId ?? null;
+    const scope = instanceProviderLimitScope(providerId, params.model, params.accountProfileId);
+    const accountProfileId = scope.accountProfileId;
     const resetAtHint = typeof params.resetAtHint === 'number' && params.resetAtHint > now
       ? params.resetAtHint
       : null;
     const knownLimit = deps.providerLimitLedger?.getActive({
       provider: providerId,
-      model: params.model ?? null,
+      model: scope.model,
       accountProfileId,
+      ...scope.ledgerOptions,
       now,
     }) ?? null;
     const snapshotResumeAt = this.deriveResumeFromSnapshot(
-      deps.getQuotaSnapshot(providerId, accountProfileId),
+      scope.quotaApplies ? deps.getQuotaSnapshot(providerId, accountProfileId) : null,
     );
     const detectedResumeAt = resetAtHint ?? snapshotResumeAt;
     const resumeAt = detectedResumeAt ?? knownLimit?.resumeAt ?? null;
@@ -216,20 +219,20 @@ export class InstanceProviderLimitHandler {
     const failoverPlan = failoverParams ? deps.accountFailover?.plan(failoverParams) : undefined;
     const pooled = failoverPlan !== undefined && !(failoverPlan.kind === 'none' && failoverPlan.reason === 'no-pool');
 
-    if (detectedResumeAt !== null) {
+    if (scope.recordable && detectedResumeAt !== null) {
       deps.providerLimitLedger?.record({
         provider: providerId,
-        model: params.model ?? null,
+        model: scope.recordModel,
         accountProfileId,
         detectedAt: now,
         resumeAt: detectedResumeAt,
         source: resetAtHint !== null ? 'provider-limit-signal' : 'quota-snapshot',
         instanceId: params.instanceId,
       });
-    } else if (pooled && knownLimit === null) {
+    } else if (scope.recordable && pooled && knownLimit === null) {
       deps.providerLimitLedger?.record({
         provider: providerId,
-        model: params.model ?? null,
+        model: scope.recordModel,
         accountProfileId,
         detectedAt: now,
         resumeAt: now + ASSUMED_ACCOUNT_LIMIT_MS,
@@ -252,7 +255,7 @@ export class InstanceProviderLimitHandler {
       // Every hint source came up empty — prime the snapshot for next time
       // instead of leaving this provider's quota view stale until the next
       // scheduled poll.
-      deps.refreshQuotaSnapshot?.(providerId);
+      if (scope.quotaApplies) deps.refreshQuotaSnapshot?.(providerId);
       return 'skipped';
     }
 
@@ -291,20 +294,22 @@ export class InstanceProviderLimitHandler {
     if (!info) return 'skipped';
     const providerId = toProviderId(info.provider);
     if (!providerId) return 'skipped';
-    const accountProfileId = info.accountProfileId ?? null;
-    const model = info.model;
+    const scope = instanceProviderLimitScope(providerId, info.model, info.accountProfileId);
+    const accountProfileId = scope.accountProfileId;
+    const model = scope.model;
 
     const now = Date.now();
     const resetAtHint = typeof params.resetAtHint === 'number' && params.resetAtHint > now
       ? params.resetAtHint
       : null;
     const snapshotResumeAt = this.deriveResumeFromSnapshot(
-      deps.getQuotaSnapshot(providerId, accountProfileId),
+      scope.quotaApplies ? deps.getQuotaSnapshot(providerId, accountProfileId) : null,
     );
     const knownLimit = deps.providerLimitLedger?.getActive({
       provider: providerId,
       model,
       accountProfileId,
+      ...scope.ledgerOptions,
       now,
     }) ?? null;
     // A stop with no reset hint anywhere still needs a hold horizon; the
@@ -314,9 +319,9 @@ export class InstanceProviderLimitHandler {
     // Always durable: the in-memory hold dies with the process, and a restart
     // mid-window must not let the next send walk past a still-refused window.
     try {
-      deps.providerLimitLedger?.record({
+      if (scope.recordable) deps.providerLimitLedger?.record({
         provider: providerId,
-        model,
+        model: scope.recordModel,
         accountProfileId,
         detectedAt: now,
         resumeAt,
@@ -354,15 +359,17 @@ export class InstanceProviderLimitHandler {
 
     const providerId = toProviderId(params.provider);
     if (!providerId) return 'skipped';
-    const accountProfileId = params.accountProfileId ?? null;
+    const scope = instanceProviderLimitScope(providerId, params.model, params.accountProfileId);
+    const accountProfileId = scope.accountProfileId;
     const knownLimit = deps.providerLimitLedger?.getActive({
       provider: providerId,
-      model: params.model ?? null,
+      model: scope.model,
       accountProfileId,
+      ...scope.ledgerOptions,
       now: Date.now(),
     }) ?? null;
     if (!knownLimit) return this.maybeSwitchPreemptively(params, providerId, accountProfileId);
-    if (this.clearLimitLiftedSinceRecorded(params, providerId, accountProfileId)) {
+    if (scope.quotaApplies && this.clearLimitLiftedSinceRecorded(params, providerId, accountProfileId)) {
       return this.maybeSwitchPreemptively(params, providerId, accountProfileId);
     }
 
@@ -587,7 +594,7 @@ export class InstanceProviderLimitHandler {
       this.parked.set(params.instanceId, {
         cancel: () => clearTimeout(timer),
         resumePrompt: params.resumePrompt,
-        stopEarlyResumeProbe: () => {},
+        stopEarlyResumeProbe: () => undefined,
         holdOnly: true,
       });
     }
@@ -793,10 +800,13 @@ export class InstanceProviderLimitHandler {
     const providerId = toProviderId(info.provider);
     if (!providerId) return;
 
+    const scope = instanceProviderLimitScope(providerId, info.model, info.accountProfileId);
+    if (!scope.recordable) return;
     const cleared = ledger.clearActive({
       provider: providerId,
-      model: info.model,
-      accountProfileId: info.accountProfileId ?? null,
+      model: scope.model,
+      accountProfileId: scope.accountProfileId,
+      ...scope.ledgerOptions,
     });
     if (cleared > 0) {
       logger.info('Cleared active provider-limit gate (user override)', {
@@ -833,12 +843,13 @@ export class InstanceProviderLimitHandler {
   ): () => void {
     const deps = this.deps;
     const probe = deps?.probeQuotaSnapshot;
-    if (!deps || !probe) return () => {};
+    if (!deps || !probe || !instanceProviderLimitScope(providerId, params.model).quotaApplies) return () => undefined;
     const instanceId = params.instanceId;
 
     let inFlight = false;
+    let disposed = false;
     const timer = setInterval(() => {
-      if (!this.parked.has(instanceId) || inFlight) return;
+      if (disposed || !this.parked.has(instanceId) || inFlight) return;
       if (resumeAt - Date.now() < 60_000) return; // scheduled resume is about to fire anyway
       inFlight = true;
 
@@ -848,6 +859,7 @@ export class InstanceProviderLimitHandler {
         const entry = this.parked.get(instanceId);
         this.parked.delete(instanceId);
         entry?.cancel();
+        disposed = true;
         clearInterval(timer); // this probe is superseded by startAccountFailover's own re-park (if needed)
         logger.info('Sibling pool account became available while parked; switching instead of waiting for the own window reset', {
           instanceId,
@@ -861,7 +873,7 @@ export class InstanceProviderLimitHandler {
       void probe(providerId, accountProfileId)
         .then((snapshot) => {
           // An interactive session may continue on purchased credits: the user bought them to keep going.
-          if (!this.parked.has(instanceId) || !snapshotShowsLimitLifted(snapshot, { acceptCredits: true })) return;
+          if (disposed || !this.parked.has(instanceId) || !snapshotShowsLimitLifted(snapshot, { acceptCredits: true })) return;
           logger.info('Provider limit lifted early per fresh quota probe; resuming parked session now', {
             instanceId,
             provider: providerId,
@@ -877,7 +889,10 @@ export class InstanceProviderLimitHandler {
         });
     }, EARLY_RESUME_PROBE_MS);
     timer.unref?.();
-    return () => clearInterval(timer);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+    };
   }
 
   /**

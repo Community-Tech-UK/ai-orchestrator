@@ -18,18 +18,21 @@ import {
 } from '@contracts/schemas/provider-account';
 import type {
   AccountAutomationPolicy,
+  OpenCodeAccountRegion,
   PooledProvider,
   ProviderAccountPoolPolicy,
   ProviderAccountPools,
   ProviderAccountProfile,
 } from '../../../shared/types/provider-account.types';
 import {
+  ACCOUNT_CHROME_PROFILE_PATTERN,
   LEGACY_ACCOUNT_PROFILE_ID,
   MAX_PROFILES_PER_PROVIDER,
   POOLED_PROVIDERS,
   PROVIDER_ACCOUNT_PROFILE_ID_PATTERN,
   clonePoolPolicy,
   DEFAULT_ACCOUNT_POOL_POLICY,
+  isPooledProvider,
   pooledProviderLabel,
 } from '../../../shared/types/provider-account.types';
 import { getSettingsManager } from '../../core/config/settings-manager';
@@ -93,12 +96,19 @@ export interface CreateProviderAccountInput {
   provider: PooledProvider;
   label: string;
   automationPolicy?: AccountAutomationPolicy;
+  /** OpenCode/MiMo only and required there: the Token Plan region. */
+  region?: OpenCodeAccountRegion;
+  /** OpenCode/MiMo only: Chrome profile folder for the allowance read (Decision 8). */
+  chromeProfile?: string;
 }
 
 export interface UpdateProviderAccountInput {
   label?: string;
   enabled?: boolean;
   automationPolicy?: AccountAutomationPolicy;
+  /** OpenCode/MiMo only: Chrome profile folder for the allowance read (Decision 8).
+   *  `null` removes the explicit association; added accounts then have no allowance reader. */
+  chromeProfile?: string | null;
 }
 
 export type ProviderAccountPoolPolicyPatch = Partial<Omit<ProviderAccountPoolPolicy, 'preemptive' | 'acknowledgedOwnershipAt'>> & {
@@ -190,12 +200,22 @@ export class ProviderAccountStore {
   }
 
   getPools(): ProviderAccountPools {
-    const { pools } = this.read();
-    return { claude: clonePoolPolicy(pools.claude), codex: clonePoolPolicy(pools.codex) };
+    // `read()` already normalises to full copies for every pooled provider.
+    return this.read().pools;
   }
 
   createProfile(input: CreateProviderAccountInput): ProviderAccountProfile {
     const { profiles, pools } = this.read();
+    if (input.provider === 'opencode') {
+      if (!input.region) {
+        throw new Error('A MiMo account needs its Token Plan region (ams, sgp or cn).');
+      }
+      if (input.chromeProfile !== undefined && !ACCOUNT_CHROME_PROFILE_PATTERN.test(input.chromeProfile.trim())) {
+        throw new Error('The Chrome profile must be a plain folder name like "Default" or "Profile 1".');
+      }
+    } else if (input.region !== undefined || input.chromeProfile !== undefined) {
+      throw new Error('region and chromeProfile belong to MiMo accounts only.');
+    }
     const own = profiles.filter((profile) => profile.provider === input.provider);
     if (own.length >= MAX_PROFILES_PER_PROVIDER) {
       throw new Error(`At most ${MAX_PROFILES_PER_PROVIDER} ${pooledProviderLabel(input.provider)} accounts are allowed.`);
@@ -220,6 +240,8 @@ export class ProviderAccountStore {
       enabled: !alreadyEnabled || pools[input.provider].acknowledgedOwnershipAt !== null,
       automationPolicy: input.automationPolicy ?? 'allow-routed',
       isLegacy: false,
+      ...(input.region ? { region: input.region } : {}),
+      ...(input.chromeProfile !== undefined ? { chromeProfile: input.chromeProfile.trim() } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -254,6 +276,9 @@ export class ProviderAccountStore {
       ...(input.label !== undefined ? { label: input.label.trim() } : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
       ...(input.automationPolicy !== undefined ? { automationPolicy: input.automationPolicy } : {}),
+      ...(input.chromeProfile !== undefined
+        ? { chromeProfile: input.chromeProfile === null ? undefined : input.chromeProfile.trim() }
+        : {}),
     });
   }
 
@@ -396,7 +421,7 @@ export function normalizePools(pools: Partial<ProviderAccountPools> | null | und
  * False for other providers and wherever no settings exist (worker agent).
  */
 export function isAccountPoolActive(provider: string): boolean {
-  if (provider !== 'claude' && provider !== 'codex') return false;
+  if (!isPooledProvider(provider)) return false;
   try {
     return getProviderAccountStore().hasNonLegacyProfiles(provider);
   } catch {

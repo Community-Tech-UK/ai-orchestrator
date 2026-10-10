@@ -81,6 +81,19 @@ describe('InstanceProviderLimitHandler account failover', () => {
     h.db.close();
   });
 
+  it('drives a MiMo limit through the same chain: ledger row for the account, then the switch', async () => {
+    const h = setup({ kind: 'switch' }, { outcome: 'switched', toProfileId: 'max-b', continuity: 'native-resume' });
+    const resetAt = Date.now() + 60_000;
+    expect(h.handler.maybePark({ ...base, provider: 'opencode', model: 'xiaomi-token-plan-ams/mimo-v2.6-pro', resetAtHint: resetAt })).toBe('switching-account');
+    await h.performDone;
+    expect(h.performed[0]).toMatchObject({ exhaustedProfileId: 'max-a', resumePrompt: 'continue', resumeAt: resetAt });
+    // The limit is recorded against the MiMo account, not the provider at large.
+    expect(h.ledger.getActive({ provider: 'opencode', model: null, accountProfileId: 'max-a' })).not.toBeNull();
+    expect(h.ledger.getActive({ provider: 'opencode', model: null, accountProfileId: 'max-b' })).toBeNull();
+    expect(h.handler.isParked('i1')).toBe(false);
+    h.db.close();
+  });
+
   it('falls back to parking when no account can take over', async () => {
     const h = setup({ kind: 'switch' }, { outcome: 'not-switched', reason: 'no-candidate', considered: [] });
     h.handler.maybePark({ ...base, resetAtHint: Date.now() + 60_000 });

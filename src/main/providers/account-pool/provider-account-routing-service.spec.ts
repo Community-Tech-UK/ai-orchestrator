@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { execFile, type ChildProcess } from 'child_process';
 import type { AccountBindingStatus, ProviderAccountProfile } from '../../../shared/types/provider-account.types';
 import { defaultProviderAccountPools } from '../../../shared/types/provider-account.types';
 
@@ -7,11 +8,20 @@ vi.mock('../../logging/logger', () => ({
 }));
 vi.mock('./provider-account-events', () => ({ emitProviderAccountEvent: vi.fn() }));
 vi.mock('../../core/system/provider-limit-ledger', () => ({ getProviderLimitLedgerPort: vi.fn() }));
-vi.mock('./account-quota-evidence', () => ({ readAccountQuotaEvidence: vi.fn(() => null) }));
+vi.mock('./account-quota-evidence', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./account-quota-evidence')>(),
+  readAccountQuotaEvidence: vi.fn(() => null),
+}));
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  const execFile = vi.fn();
+  return { ...actual, execFile, default: { ...actual, execFile } };
+});
 
 import { ProviderAccountStore } from './provider-account-store';
-import { ProviderAccountRoutingService } from './provider-account-routing-service';
-import type { ProviderAccountBindingService } from './provider-account-binding-service';
+import { quotaEvidenceFromSnapshot } from './account-quota-evidence';
+import { ProviderAccountRoutingService, type ProviderAccountRoutingDeps } from './provider-account-routing-service';
+import { ProviderAccountBindingService } from './provider-account-binding-service';
 import type { AccountQuotaEvidence } from './provider-account-selector';
 
 function profile(id: string, priority: number, overrides: Partial<ProviderAccountProfile> = {}): ProviderAccountProfile {
@@ -29,7 +39,7 @@ const checkBinding = vi.fn(async (entry: ProviderAccountProfile) => ({
   provider: entry.provider, profileId: entry.id, nodeId: 'local', state: bindingStates[entry.id] ?? 'authenticated', checkedAt: 1,
 }) as AccountBindingStatus);
 
-function service(): ProviderAccountRoutingService {
+function service(overrides: Partial<ProviderAccountRoutingDeps> = {}): ProviderAccountRoutingService {
   const pools = defaultProviderAccountPools();
   const store = new ProviderAccountStore({
     read: () => ({ profiles, pools }),
@@ -41,10 +51,12 @@ function service(): ProviderAccountRoutingService {
     getParkedProfileIds: () => parked,
     getSoonestResumeAt: (_provider, _model, ids) => (ids[0] === 'max-b' ? 1000 : 5000),
     getQuotaEvidence: (_provider, id) => quota[id] ?? null,
+    ...overrides,
   });
 }
 
 beforeEach(() => {
+  vi.mocked(execFile).mockReset();
   profiles = [profile('legacy', 0), profile('max-b', 1)];
   bindingStates = {};
   parked = [];
@@ -53,6 +65,63 @@ beforeEach(() => {
 });
 
 describe('ProviderAccountRoutingService', () => {
+  it.each(['unauthenticated', 'unavailable'] as const)('fresh admission refuses current %s despite an authenticated cache', async (state) => {
+    const target = profile('max-b', 1, { provider: 'opencode', region: 'ams' });
+    let output: string | null = '┌  Credentials\n●  aio-mimo-max-b api\n└  1 credentials\n';
+    let reads = 0;
+    const bindings = new ProviderAccountBindingService({ readOpenCodeAuthList: async () => { reads++; return output; } });
+    const routing = new ProviderAccountRoutingService({ bindingService: bindings });
+    expect(await routing.admit(target, 'explicit')).toMatchObject({ ok: true });
+    output = state === 'unauthenticated' ? '┌  Credentials\n└  0 credentials\n' : null;
+    expect(await routing.admit(target, 'explicit')).toMatchObject({ ok: true });
+    expect(reads).toBe(1);
+    expect(await routing.admit(target, 'explicit', 'local', { force: true })).toMatchObject({
+      ok: false, profileId: 'max-b', code: state === 'unauthenticated' ? 'profile-unauthenticated' : 'profile-not-bound-on-node',
+    });
+    expect(reads).toBe(2);
+    expect(routing.getLastUsedAt('opencode').size).toBe(0);
+  });
+
+  it('fresh admission bypasses prior in-flight sign-in evidence', async () => {
+    const target = profile('max-b', 1, { provider: 'opencode', region: 'ams' });
+    let release!: (output: string) => void;
+    let reads = 0;
+    const bindings = new ProviderAccountBindingService({ readOpenCodeAuthList: () => {
+      reads++;
+      return reads === 1 ? new Promise<string>((resolve) => { release = resolve; })
+        : Promise.resolve('┌  Credentials\n└  0 credentials\n');
+    } });
+    const routing = new ProviderAccountRoutingService({ bindingService: bindings });
+    const previous = bindings.checkBinding(target);
+    try {
+      expect(await routing.admit(target, 'explicit', 'local', { force: true }))
+        .toMatchObject({ ok: false, code: 'profile-unauthenticated' });
+      expect(reads).toBe(2);
+    } finally {
+      release('┌  Credentials\n●  aio-mimo-max-b api\n└  1 credentials\n');
+      await previous;
+    }
+  });
+
+  it.each([{ code: 7 }, { killed: true, signal: 'SIGTERM' as const }])('fresh admission rejects failed auth-list output %j', async (properties) => {
+    const target = profile('max-b', 1, { provider: 'opencode', region: 'ams' });
+    vi.mocked(execFile).mockImplementation((file, args, options, callback) => {
+      expect(file).toBe('opencode');
+      expect(args).toEqual(['auth', 'list']);
+      expect(options).toMatchObject({ timeout: 8_000, maxBuffer: 256 * 1024 });
+      if (!callback) throw new Error('Missing auth-list callback');
+      queueMicrotask(() => callback(Object.assign(new Error('error-placeholder'), properties),
+        '┌  Credentials\n●  aio-mimo-max-b api\n└  1 credentials\n', 'stderr-placeholder'));
+      return {} as ChildProcess;
+    });
+    const routing = new ProviderAccountRoutingService({ bindingService: new ProviderAccountBindingService() });
+    expect(await routing.admit(target, 'explicit', 'local', { force: true }))
+      .toMatchObject({ ok: false, code: 'profile-not-bound-on-node', detail: expect.stringContaining('auth-list-unreadable') });
+    expect(execFile).toHaveBeenCalledOnce();
+    expect(execFile).toHaveBeenCalledWith('opencode', ['auth', 'list'],
+      expect.objectContaining({ timeout: 8_000, maxBuffer: 256 * 1024 }), expect.any(Function));
+  });
+
   it('returns the legacy route with no binding check while only the legacy profile exists', async () => {
     profiles = [profile('legacy', 0)];
     const outcome = await service().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive' });
@@ -88,6 +157,34 @@ describe('ProviderAccountRoutingService', () => {
     parked = ['legacy'];
     const outcome = await service().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive' });
     expect(outcome).toMatchObject({ ok: true, route: { profileId: 'max-b', source: 'default', profileLabel: 'Label max-b' } });
+  });
+
+  it.each([[20, undefined], [100, 20]] as const)('does not lift a MiMo rate-limit park on calendar counters alone (%s, %s)', async (used, compensation) => {
+    profiles = [profile('legacy', 0, { provider: 'opencode', region: 'ams' }), profile('max-b', 1, { provider: 'opencode', region: 'ams' })];
+    parked = ['legacy'];
+    const evidence = quotaEvidenceFromSnapshot({ provider: 'opencode', source: 'admin-api', ok: true, takenAt: 2000,
+      windows: [
+        { id: 'opencode.plan', label: 'Plan', kind: 'calendar-period', unit: 'tokens', used, limit: 100, remaining: 100 - used, resetsAt: null },
+        ...(compensation === undefined ? [] : [{ id: 'opencode.compensation', label: 'Compensation', kind: 'calendar-period' as const,
+          unit: 'tokens' as const, used: compensation, limit: 100, remaining: 100 - compensation, resetsAt: null }]),
+      ] });
+    quota = { legacy: evidence! };
+    const preview = await service({ getParkedSince: () => new Map([['legacy', 1000]]) })
+      .preview({ provider: 'opencode', origin: 'interactive' });
+    expect(preview).toMatchObject({ outcome: { ok: true, route: { profileId: 'max-b' } },
+      considered: [{ profileId: 'legacy', vetoReason: 'parked' }] });
+  });
+
+  it('preserves a fresh explicit usage-access verdict for MiMo despite spent counters', async () => {
+    profiles = [profile('legacy', 0, { provider: 'opencode', region: 'ams' }), profile('max-b', 1, { provider: 'opencode', region: 'ams' })];
+    parked = ['legacy'];
+    quota = { legacy: quotaEvidenceFromSnapshot({ provider: 'opencode', source: 'admin-api', ok: true, takenAt: 2000,
+      windows: [{ id: 'opencode.plan', label: 'Plan', kind: 'calendar-period', unit: 'tokens', used: 100, limit: 100, remaining: 0, resetsAt: null }],
+      usageAccess: { ordinaryUsageAllowed: true, creditsAvailable: null },
+    })! };
+    const outcome = await service({ getParkedSince: () => new Map([['legacy', 1000]]) })
+      .resolveRouteForSpawn({ provider: 'opencode', origin: 'interactive', newSession: false });
+    expect(outcome).toMatchObject({ ok: true, route: { profileId: 'legacy' } });
   });
 
   it('routes to the soonest reset when every signed-in profile is parked', async () => {

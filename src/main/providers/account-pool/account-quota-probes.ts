@@ -16,7 +16,7 @@
  * The legacy profile keeps the existing provider-level probes untouched.
  */
 
-import type { PooledProvider, ProviderAccountProfile } from '../../../shared/types/provider-account.types';
+import { POOLED_PROVIDERS, type PooledProvider, type ProviderAccountProfile } from '../../../shared/types/provider-account.types';
 import type { ProviderId, ProviderQuotaSnapshot } from '../../../shared/types/provider-quota.types';
 import { resolveAccountProfileHome } from '../../cli/adapters/account-pool/provider-account-home-resolver';
 import {
@@ -26,6 +26,8 @@ import {
 import { ClaudeCredentialsReader } from '../../core/system/provider-quota/claude-credentials-reader';
 import { ClaudeUsageEndpointProbe } from '../../core/system/provider-quota/claude-usage-endpoint-probe';
 import { CompositeQuotaProbe } from '../../core/system/provider-quota/composite-quota-probe';
+import { MimoConsoleCredentialsReader } from '../../core/system/provider-quota/mimo-console-credentials-reader';
+import { MimoTokenPlanProbe } from '../../core/system/provider-quota/mimo-token-plan-probe';
 import { UsageMonitorSource } from '../../core/system/provider-quota/usage-monitor-source';
 import { getLogger } from '../../logging/logger';
 import { codexProbeQuotaSnapshot, probeCodexAccount } from './codex-account-probe';
@@ -37,12 +39,15 @@ const logger = getLogger('AccountQuotaProbes');
 /** Matches the idle refresh cadence wired in ipc-main-handler (`startIdleRefresh(60_000)`). */
 export const CLAUDE_ACCOUNT_PROBE_BASE_INTERVAL_MS = 60_000;
 export const CODEX_ACCOUNT_PROBE_MIN_INTERVAL_MS = 15 * 60_000;
+/** MiMo console reads are browser-session calls; match the Codex cadence. */
+export const MIMO_ACCOUNT_PROBE_MIN_INTERVAL_MS = 15 * 60_000;
 
 /** Skips a probe cycle (resolves null) until its minimum interval has elapsed. */
 export class ThrottledAccountQuotaProbe implements ProviderQuotaProbe {
   readonly provider: ProviderId;
   readonly accountProfileId: string;
   readonly silenceAlerts: boolean;
+  readonly quotaSource?: string;
   private lastRunAt = 0;
 
   constructor(
@@ -54,6 +59,7 @@ export class ThrottledAccountQuotaProbe implements ProviderQuotaProbe {
     this.provider = inner.provider;
     this.accountProfileId = inner.accountProfileId ?? '';
     this.silenceAlerts = silenceAlerts;
+    this.quotaSource = inner.quotaSource;
   }
 
   async probe(opts: { signal: AbortSignal; force?: boolean }): Promise<ProviderQuotaSnapshot | null> {
@@ -95,6 +101,48 @@ class CodexAccountQuotaProbe implements ProviderQuotaProbe {
   }
 }
 
+/**
+ * MiMo per-account allowance (Decision 8): the Token Plan console probe,
+ * reading the MiMo console sign-in from the Chrome profile this account names
+ * (only an explicit association, including `Default`). The legacy account keeps the provider-level probe and
+ * the token-usage-monitor fallback untouched; this probe is silent while a
+ * Chrome profile holds no MiMo console sign-in (an `ok: false`, "no allowance
+ * data" snapshot — never numbers).
+ */
+class MimoAccountQuotaProbe implements ProviderQuotaProbe {
+  readonly provider = 'opencode' as const;
+
+  constructor(
+    readonly accountProfileId: string,
+    readonly quotaSource: string,
+    private readonly inner: MimoTokenPlanProbe | null,
+  ) {}
+
+  async probe(opts: { signal: AbortSignal; force?: boolean }): Promise<ProviderQuotaSnapshot | null> {
+    if (!this.inner) return {
+      provider: 'opencode', takenAt: Date.now(), source: 'admin-api', ok: false,
+      notApplicable: true, windows: [], error: 'No Chrome profile associated with this account',
+    };
+    return this.inner.probe(opts);
+  }
+}
+
+function mimoProbeFor(profile: ProviderAccountProfile): ProviderQuotaProbe {
+  return new ThrottledAccountQuotaProbe(
+    new MimoAccountQuotaProbe(profile.id, profile.chromeProfile ?? '', profile.chromeProfile ? new MimoTokenPlanProbe({
+      // The account IS a Token Plan account: unlike the legacy global probe
+      // there is no configured-model gate to apply here.
+      isTokenPlanModel: () => true,
+      reader: new MimoConsoleCredentialsReader(
+        { chromeProfile: profile.chromeProfile },
+      ),
+    }) : null),
+    () => MIMO_ACCOUNT_PROBE_MIN_INTERVAL_MS,
+    Date.now,
+    !profile.enabled,
+  );
+}
+
 function claudeProbeFor(
   profile: ProviderAccountProfile,
   profileCount: () => number,
@@ -132,12 +180,14 @@ export function buildAccountQuotaProbes(
     try {
       const probe = provider === 'claude'
         ? claudeProbeFor(profile, count, usageMonitor)
-        : new ThrottledAccountQuotaProbe(
-          new CompositeQuotaProbe(new CodexAccountQuotaProbe(profile.id), usageMonitor),
-          () => CODEX_ACCOUNT_PROBE_MIN_INTERVAL_MS,
-          Date.now,
-          !profile.enabled,
-        );
+        : provider === 'opencode'
+          ? mimoProbeFor(profile)
+          : new ThrottledAccountQuotaProbe(
+            new CompositeQuotaProbe(new CodexAccountQuotaProbe(profile.id), usageMonitor),
+            () => CODEX_ACCOUNT_PROBE_MIN_INTERVAL_MS,
+            Date.now,
+            !profile.enabled,
+          );
       if (probe) probes.push(probe);
     } catch (error) {
       logger.warn('Could not build an account quota probe', {
@@ -158,8 +208,7 @@ function registerAll(): void {
   } catch {
     return;
   }
-  for (const provider of ['claude', 'codex'] as const) {
-    service.unregisterAccountProbes(provider);
+  for (const provider of POOLED_PROVIDERS) {
     let profiles: ProviderAccountProfile[] = [];
     try {
       profiles = store.listProfiles(provider);
@@ -167,9 +216,7 @@ function registerAll(): void {
       profiles = [];
     }
     const built = buildAccountQuotaProbes(provider, profiles, monitorSource);
-    for (const probe of built) {
-      service.registerProbe(probe);
-    }
+    service.replaceAccountProbes(provider, built);
   }
 }
 

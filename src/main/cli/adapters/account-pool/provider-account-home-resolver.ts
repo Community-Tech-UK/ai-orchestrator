@@ -40,6 +40,11 @@ export interface ResolveAccountProfileHomeOptions {
 }
 
 function profilesRootDir(provider: PooledProvider): string {
+  if (provider === 'opencode') {
+    // MiMo accounts have no per-account home: OpenCode keeps ONE key store and
+    // ONE session store, and isolation is the derived provider name.
+    throw new Error('MiMo accounts have no per-account home directory.');
+  }
   return provider === 'claude' ? CLAUDE_PROFILES_ROOT_DIR : CODEX_PROFILES_ROOT_DIR;
 }
 
@@ -81,6 +86,11 @@ export function resolveAccountProfileHome(
   assertSafeAccountProfileId(profileId);
   if (profileId === LEGACY_ACCOUNT_PROFILE_ID) {
     return { kind: 'legacy' };
+  }
+  if (provider === 'opencode') {
+    throw new Error(
+      'MiMo accounts have no per-account home directory: OpenCode keeps one key store for every account.',
+    );
   }
 
   const label = pooledProviderLabel(provider);

@@ -488,9 +488,11 @@ export class InstanceManager extends EventEmitter {
         applyRuntimeChange: (id, desired) => this.applyAccountHandoff(id, desired),
         resendInput: (id, prompt) => {
           const resend = automatedResendInput(prompt);
-          void this.sendInput(id, resend.message, undefined, resend.options).catch((err) =>
-            logger.warn('Account failover re-send failed', { instanceId: id, ...errorDiagnostic(err) }));
+          return this.sendInput(id, resend.message, undefined, resend.options);
         },
+        reportResendFailure: (id) => this.emitSystemMessage(id,
+          'The account switched, but the interrupted message could not be confirmed. Check the conversation before sending it again.',
+          { accountFailover: true, accountFailoverOutcome: 'resend-failed' }),
       }),
       emitSystemMessage: (id, content, metadata) => this.emitSystemMessage(id, content, metadata),
       // WS7 Phase B offered switch: notify when a long park has fallbacks available.

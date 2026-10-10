@@ -29,6 +29,7 @@ import {
   AuxiliaryModelGenerateParamsSchema,
   AudioTranscribeParamsSchema,
   ConfigUpdateParamsSchema,
+  InstanceSpawnParamsSchema,
   LocalModelSessionIdParamsSchema,
   LocalModelSessionSendInputParamsSchema,
   LocalModelSessionStartParamsSchema,
@@ -90,6 +91,7 @@ import { WorkerLocalAiHealth } from './worker-local-ai-health';
 import { parseBoundedServiceRpcResponse } from '../main/remote-node/worker-node-connection-helpers';
 import { NodeExecInvalidParamsError, WorkerNodeExecutor } from './worker-node-executor';
 import { configuredNodeExecRoots } from './worker-node-exec-policy';
+import { validateWorkerAccountRoute } from './worker-account-route';
 
 type AudioTranscribeParams = z.infer<typeof AudioTranscribeParamsSchema>;
 
@@ -177,10 +179,21 @@ export class WorkerRpcDispatcher {
           result = { cursors: this.deps.replayDurableEvents?.(cursors) ?? [] };
           break;
         }
-        case COORDINATOR_TO_NODE.INSTANCE_SPAWN:
-          await this.deps.instanceManager.spawn(params as unknown as SpawnParams);
-          result = { instanceId: params['instanceId'] };
+        case COORDINATOR_TO_NODE.INSTANCE_SPAWN: {
+          const validated = InstanceSpawnParamsSchema.parse(params);
+          if (validated.accountRoute !== undefined) {
+            try {
+              validateWorkerAccountRoute(validated.cliType, validated.accountRoute);
+            } catch (error) {
+              this.deps.sendError(msg.id!, RPC_ERROR_CODES.INVALID_PARAMS,
+                error instanceof Error ? error.message : 'Invalid account route.');
+              return;
+            }
+          }
+          await this.deps.instanceManager.spawn(validated as SpawnParams);
+          result = { instanceId: validated.instanceId };
           break;
+        }
         case COORDINATOR_TO_NODE.INSTANCE_SEND_INPUT: {
           const attachments = params['attachments'] as
             | FileAttachment[]

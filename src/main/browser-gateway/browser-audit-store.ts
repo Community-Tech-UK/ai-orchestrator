@@ -21,6 +21,7 @@ interface BrowserAuditEntryRow {
   decision: BrowserGatewayDecision;
   outcome: BrowserGatewayOutcome;
   summary: string;
+  reason: string | null;
   redaction_applied: number;
   screenshot_artifact_id: string | null;
   request_id: string | null;
@@ -48,9 +49,9 @@ export class BrowserAuditStore {
         `
         INSERT INTO browser_audit_entries
           (id, instance_id, provider, profile_id, target_id, action, tool_name,
-           action_class, origin, url, decision, outcome, summary, redaction_applied,
+           action_class, origin, url, decision, outcome, summary, reason, redaction_applied,
            screenshot_artifact_id, request_id, grant_id, autonomous, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       )
       .run(
@@ -67,6 +68,7 @@ export class BrowserAuditStore {
         entry.decision,
         entry.outcome,
         entry.summary,
+        entry.reason ?? null,
         entry.redactionApplied ? 1 : 0,
         entry.screenshotArtifactId ?? null,
         entry.requestId ?? null,
@@ -142,6 +144,7 @@ export class BrowserAuditStore {
       decision: row.decision,
       outcome: row.outcome,
       summary: row.summary,
+      ...(row.reason ? { reason: row.reason } : {}),
       redactionApplied: row.redaction_applied === 1,
       screenshotArtifactId: row.screenshot_artifact_id ?? undefined,
       requestId: row.request_id ?? undefined,

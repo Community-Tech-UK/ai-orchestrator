@@ -158,7 +158,8 @@ describe('approved credential access reaches the actual secure fill path', () =>
   it('reports a locked vault without typing or reporting secure-fill success', async () => {
     const h = harness(); await h.approve();
     h.vault.getSecretForFill.mockRejectedValueOnce(new CredentialVaultError('Vault is locked', 'vault_locked'));
-    expect(await h.service.fillCredential(h.fillRequest)).toMatchObject({ decision: 'denied', outcome: 'failed', reason: 'vault_locked', data: null });
+    // The reason names the exact step and the vault's own cause code.
+    expect(await h.service.fillCredential(h.fillRequest)).toMatchObject({ decision: 'denied', outcome: 'failed', reason: 'vault_resolve:vault_locked', data: null });
     expect(h.driver.type).not.toHaveBeenCalled();
   });
 });

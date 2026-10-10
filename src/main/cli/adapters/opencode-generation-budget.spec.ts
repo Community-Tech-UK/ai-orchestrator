@@ -10,6 +10,14 @@ describe('scoped OpenCode generation budget', () => {
     expect(base.provider['xiaomi-token-plan-ams'].models['mimo-v2.6-pro'].options).toEqual({ thinking: { type: 'enabled' }, max_completion_tokens: 16384 });
     expect(base.provider['xiaomi-token-plan-ams'].options.baseURL).toBe('https://example.test/v1');
   });
+  it('scopes the budget to per-account aio-mimo providers too', () => {
+    const base = { provider: { 'aio-mimo-max-b-1a2b': { name: 'MiMo B', options: { baseURL: 'https://example.test/v1' }, models: { 'mimo-v2.6-pro': { limit: { context: 1_000_000, output: 16384 } } } } } };
+    const budget = applyOpenCodeGenerationBudget(base, 'aio-mimo-max-b-1a2b/mimo-v2.6-pro');
+    expect(budget).toEqual({ model: 'aio-mimo-max-b-1a2b/mimo-v2.6-pro', combinedOutputTokens: 16384, reasoningBudgetSupported: false });
+    expect(base.provider['aio-mimo-max-b-1a2b'].models['mimo-v2.6-pro'].limit.output).toBe(16384);
+    expect(applyOpenCodeGenerationBudget({}, 'aio-mimo-max-b-1a2b/mimo-v2.6-flash')).toBeUndefined();
+    expect(applyOpenCodeGenerationBudget({}, 'aio-mimo/mimo-v2.6-pro')).toBeUndefined();
+  });
   it('retains a tighter configured cap and its context limit', () => {
     const base = { provider: { 'xiaomi-token-plan': { models: { 'mimo-v2.6-pro': { limit: { context: 800000, output: 4096 } } } } } };
     expect(applyOpenCodeGenerationBudget(base, 'xiaomi-token-plan/mimo-v2.6-pro')?.combinedOutputTokens).toBe(4096);

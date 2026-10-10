@@ -147,6 +147,18 @@ describe('announceRuntimeChangeSet (LT-030)', () => {
     expect(order.slice(0, 2)).toEqual(['render:MODEL', 'render:YOLO']);
   });
 
+  it('queues account notice and replay context with the next prompt without starting a turn', async () => {
+    const emitted: string[] = [];
+    const queued: string[] = [];
+    const adapter = { sendInput: vi.fn(async () => undefined), queueNextPromptContext: (text: string) => { queued.push(text); } };
+    await announceRuntimeChangeSet({ instance, adapter, emitSystemNotice: (_instance, text) => { emitted.push(text); },
+      notices: [notice('ACCOUNT', 'account-changed')], preamble: 'REPLAY', delivery: 'next-prompt',
+    } as Parameters<typeof announceRuntimeChangeSet>[0]);
+    expect(emitted).toEqual(['ACCOUNT']);
+    expect(queued).toEqual(['REPLAY\n\nACCOUNT']);
+    expect(adapter.sendInput).not.toHaveBeenCalled();
+  });
+
   it('renders the divergence line too, and sends nothing when there is no body', async () => {
     const emitSystemNotice = vi.fn();
     const adapter = { sendInput: vi.fn() } as never;

@@ -114,6 +114,7 @@ describe('mapAcpEffort', () => {
     expect(mapAcpEffort('high')).toBe('high');
     expect(mapAcpEffort('xhigh')).toBe('high');
     expect(mapAcpEffort('max')).toBe('high');
+    expect(mapAcpEffort('ultra')).toBe('high');
   });
 
   it('omits effort the agent should decide itself', () => {
@@ -126,9 +127,21 @@ describe('mapAcpEffort', () => {
 });
 
 describe('applyAcpSessionConfig', () => {
+  it('records already-selected effort from the post-model options, without conflating it with a write', async () => {
+    const send = vi.fn(async () => ({ configOptions: PRO_MODEL_OPTIONS.map((option) =>
+      option?.id === 'effort' ? { ...option, currentValue: 'high' } : option) }));
+    const outcome = await applyAcpSessionConfig(send, FREE_MODEL_OPTIONS, {
+      model: 'xiaomi-token-plan-ams/mimo-v2.6-pro', effort: 'high',
+    });
+    expect(send).toHaveBeenCalledOnce();
+    expect(outcome.applied).toEqual([{ key: 'model', value: 'xiaomi-token-plan-ams/mimo-v2.6-pro' }]);
+    expect(outcome.alreadySelected).toEqual([{ key: 'effort', value: 'high' }]);
+  });
+
   it('writes the model, re-reads the returned options, then writes effort', async () => {
-    const send = vi.fn(async (configId: string) =>
-      configId === 'model' ? { configOptions: PRO_MODEL_OPTIONS } : { configOptions: PRO_MODEL_OPTIONS });
+    const send = vi.fn(async (configId: string) => ({ configOptions: configId === 'model'
+      ? PRO_MODEL_OPTIONS
+      : PRO_MODEL_OPTIONS.map((option) => option?.id === 'effort' ? { ...option, currentValue: 'high' } : option) }));
     const outcome = await applyAcpSessionConfig(send, FREE_MODEL_OPTIONS, {
       model: 'xiaomi-token-plan-ams/mimo-v2.6-pro',
       effort: 'high',

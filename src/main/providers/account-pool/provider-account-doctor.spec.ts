@@ -55,3 +55,47 @@ describe('buildProviderAccountDoctorReport', () => {
     expect(report.warnings).toEqual([]);
   });
 });
+
+describe('buildProviderAccountDoctorReport for MiMo accounts', () => {
+  function mimoProfile(id: string, priority: number, overrides: Partial<ProviderAccountProfile> = {}): ProviderAccountProfile {
+    return {
+      id, provider: 'opencode', label: `MiMo ${id}`, expectedIdentity: null, expectedAccountKey: null, planLabel: null,
+      priority, enabled: true, automationPolicy: 'allow-routed', isLegacy: id === 'legacy',
+      region: 'ams', createdAt: 1, updatedAt: 1, ...overrides,
+    };
+  }
+
+  it('flags accounts with no key and non-legacy accounts with no model metadata', async () => {
+    const store = new ProviderAccountStore({
+      read: () => ({
+        profiles: [mimoProfile('legacy', 0), mimoProfile('max-b-1a2b', 1), mimoProfile('max-c-2b3c', 2, { region: 'sgp' })],
+        pools: defaultProviderAccountPools(),
+      }),
+    });
+    const report = await buildProviderAccountDoctorReport('opencode', {
+      store,
+      bindings: bindings({ 'max-b-1a2b': 'unauthenticated' }),
+      env: {},
+      getRegionModelMetadata: (region) => (region === 'ams' ? [{}] : []),
+    });
+    expect(report.usableProfileIds).toEqual(['legacy', 'max-c-2b3c']);
+    expect(report.ambientAuthVariablesPresent).toEqual([]);
+    expect(report.warnings.join(' ')).toMatch(/MiMo max-b-1a2b needs attention: unauthenticated/);
+    expect(report.warnings.join(' ')).toMatch(/MiMo max-c-2b3c has no model metadata for xiaomi-token-plan-sgp/);
+    // The legacy account uses OpenCode's own provider and needs no metadata copy.
+    expect(report.warnings.join(' ')).not.toMatch(/MiMo legacy has no model metadata/);
+  });
+
+  it('warns about nothing on a healthy MiMo pool', async () => {
+    const store = new ProviderAccountStore({
+      read: () => ({ profiles: [mimoProfile('legacy', 0), mimoProfile('max-b-1a2b', 1)], pools: defaultProviderAccountPools() }),
+    });
+    const report = await buildProviderAccountDoctorReport('opencode', {
+      store,
+      bindings: bindings({}),
+      env: {},
+      getRegionModelMetadata: () => [{}],
+    });
+    expect(report.warnings.join(' ')).not.toMatch(/needs attention|no model metadata/);
+  });
+});

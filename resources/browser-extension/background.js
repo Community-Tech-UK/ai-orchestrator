@@ -1473,9 +1473,32 @@ function browserCommandErrorMessage(command, error, targetSecretTainted = false)
     // A vault-resolved value is intentionally present inside this trusted
     // process. Never let an exception produced after that point cross the
     // native-command boundary: DOM/Chrome errors may quote their arguments.
-    // The caller must treat the write as ambiguous because an authorized frame
-    // could have accepted the value before a sibling or reporting step failed.
-    return 'credential_write_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state';
+    // The caller must treat such a failure as ambiguous because an authorized
+    // frame could have accepted the value before a sibling or reporting step
+    // failed. The origin-bound writer's OWN fixed codes are the one exception —
+    // compile-time constants with no page text and no value, and the only thing
+    // that says WHICH check refused. (The list lives here rather than at module
+    // scope so this function stays self-contained for the source-extraction
+    // test harness.)
+    const safeCredentialWriteErrors = [
+      'invalid_credential_origin',
+      'invalid_credential_protection',
+      'credential_origin_changed_before_write',
+      'credential_origin_changed_may_have_applied',
+      'credential_authorized_origin_not_in_frames',
+      'credential_selector_not_found',
+      'credential_selector_outside_authorized_origin',
+      'credential_selector_ambiguous_may_have_applied',
+      'credential_write_invalid_selector',
+      'credential_write_refused',
+      'credential_password_requires_masked_input',
+      'credential_write_dispatch_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state',
+      'credential_write_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state',
+    ];
+    const credentialMessage = error instanceof Error ? error.message : String(error);
+    return safeCredentialWriteErrors.includes(credentialMessage)
+      ? credentialMessage
+      : 'credential_write_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state';
   }
   if (targetSecretTainted) {
     // After a vault write, every page-derived exception is untrusted secret
@@ -1959,6 +1982,7 @@ async function executeBrowserCommand(command) {
           value,
           requirePayloadString(command, 'credentialOrigin'),
           command.payload?.credentialProtection,
+          command.payload?.credentialPageOrigin,
         );
       }
       if (uid !== null) {
@@ -3282,9 +3306,13 @@ function credentialFrameOriginProbe() {
 /**
  * Type a vault-resolved value into a shared extension tab without ever
  * exposing it to an unrelated frame. Frame discovery carries no secret. The
- * top-level tab is checked both before and after discovery, then the secret is
- * injected only into exact-origin frameIds. pageBridgeScript checks origin once
- * more inside each isolated execution immediately before touching the DOM.
+ * tab's top-level page origin is checked before and after discovery (it is
+ * what the caller watches for navigation), then the secret is injected only
+ * into exact-origin frameIds — the frames of `expectedOriginValue`, which is
+ * the origin that RECEIVES the value and may be a cross-origin subframe of the
+ * page (an embedded login form). pageBridgeScript checks that origin once more
+ * inside each isolated execution immediately before touching the DOM, so a
+ * frame that navigates anywhere else can never receive the value.
  */
 async function runOriginBoundType(
   command,
@@ -3292,12 +3320,16 @@ async function runOriginBoundType(
   value,
   expectedOriginValue,
   credentialProtectionValue,
+  expectedPageOriginValue,
 ) {
   assertGatewayEnabled();
   const expectedOrigin = normalizeCredentialOrigin(expectedOriginValue);
   if (!expectedOrigin) {
     throw new Error('invalid_credential_origin');
   }
+  // The page-origin guard defaults to the receiving origin, which keeps every
+  // caller that fills a top-level form byte-identical.
+  const expectedPageOrigin = normalizeCredentialOrigin(expectedPageOriginValue) || expectedOrigin;
   const credentialProtection = credentialProtectionValue === undefined
     ? 'secret'
     : credentialProtectionValue;
@@ -3315,7 +3347,7 @@ async function runOriginBoundType(
   };
   const controlToken = await startControlledTab(tabId);
   try {
-    if (await readTopLevelOrigin() !== expectedOrigin) {
+    if (await readTopLevelOrigin() !== expectedPageOrigin) {
       throw new Error('credential_origin_changed_before_write');
     }
 
@@ -3327,10 +3359,13 @@ async function runOriginBoundType(
       .filter((entry) => entry?.result?.origin === expectedOrigin)
       .map((entry) => entry.frameId)
       .filter((frameId) => typeof frameId === 'number');
-    if (!authorizedFrameIds.includes(0)) {
-      throw new Error('credential_top_level_origin_not_authorized');
+    // The value goes ONLY into frames of the receiving origin. A page that
+    // embeds its form from another host is refused here rather than typed into
+    // the wrong document — and the failure names the check that refused.
+    if (authorizedFrameIds.length === 0) {
+      throw new Error('credential_authorized_origin_not_in_frames');
     }
-    if (await readTopLevelOrigin() !== expectedOrigin) {
+    if (await readTopLevelOrigin() !== expectedPageOrigin) {
       throw new Error('credential_origin_changed_before_write');
     }
 
@@ -3370,7 +3405,7 @@ async function runOriginBoundType(
       .map((entry) => entry?.result)
       .filter((result) => result != null)
       .map((result) => result?.__refusal
-        ? { ...result, __refusal: 'credential_write_refused' }
+        ? { ...result, __refusal: safeCredentialRefusal(result.__refusal) }
         : result);
     const originMismatches = frameResults.filter(
       (result) => result?.__credentialOriginMismatch === true,
@@ -3380,19 +3415,89 @@ async function runOriginBoundType(
         (result) => result?.__found === true && !result?.__refusal,
       ).length;
       if (applied > 0) {
-        throw new Error(
-          'credential_origin_changed_during_write: the value WAS applied in '
-          + applied + ' authorized frame(s), so DO NOT retry; another frame navigated away.',
-        );
+        // Fixed code only: it is constructed here and carries no counts or
+        // page text, and it must survive the native-command boundary to say
+        // the value landed and must not be retried.
+        throw new Error('credential_origin_changed_may_have_applied');
       }
       throw new Error('credential_origin_changed_before_write');
     }
-    const merged = mergeFrameResults('type', frameResults, [selector]);
+    let merged;
+    try {
+      merged = mergeFrameResults('type', frameResults, [selector]);
+    } catch (error) {
+      throw await credentialTypeMergeFailure(error, tabId, selector, authorizedFrameIds);
+    }
     await reportTab(await chrome.tabs.get(tabId)).catch(() => undefined);
     return merged;
   } finally {
     await stopControlledTab(tabId, controlToken);
   }
+}
+
+/**
+ * Keep a refusal code only when it is one of the writer's own fixed codes;
+ * page-derived refusals (and anything an input handler can redefine) collapse
+ * to the single fixed refusal code.
+ */
+function safeCredentialRefusal(refusal) {
+  return refusal === 'credential_password_requires_masked_input'
+    ? 'credential_password_requires_masked_input'
+    : 'credential_write_refused';
+}
+
+/**
+ * Translate a merge failure on the origin-bound path into one of the fixed
+ * credential codes. `No element matches selector` is deliberately misleading
+ * here — the element usually DOES exist, in a frame of another origin (an
+ * embedded login form) — so a secret-free probe over every frame decides
+ * between "wrong selector" and "wrong origin"; only frames OUTSIDE the
+ * authorized set count as evidence of the latter. Only the resulting fixed
+ * code escapes; the probe's page-derived detail is never carried into the
+ * error.
+ */
+async function credentialTypeMergeFailure(error, tabId, selector, authorizedFrameIds) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.startsWith('No element matches selector')) {
+    let foundOutsideAuthorizedFrames = false;
+    try {
+      // Bounded like the other frame probes: a stalled injection must not hold
+      // the whole credential command open until the outer watchdog.
+      let probeTimer;
+      const probe = await Promise.race([
+        chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          func: pageBridgeScript,
+          args: ['find', [selector]],
+        }),
+        new Promise((_resolve, reject) => {
+          probeTimer = setTimeout(() => reject(new Error('frame_probe_timeout')), 1500);
+        }),
+      ]).finally(() => clearTimeout(probeTimer));
+      foundOutsideAuthorizedFrames = (probe ?? []).some((entry) => (
+        entry?.result?.__found === true
+        && typeof entry.frameId === 'number'
+        && !authorizedFrameIds.includes(entry.frameId)
+      ));
+    } catch {
+      // An unreadable or timed-out frame proves nothing about where the
+      // selector lives.
+      foundOutsideAuthorizedFrames = false;
+    }
+    return new Error(foundOutsideAuthorizedFrames
+      ? 'credential_selector_outside_authorized_origin'
+      : 'credential_selector_not_found');
+  }
+  if (message.startsWith('Ambiguous selector')) {
+    // Raised only when the value WAS applied in at least one authorized frame
+    // (see mergeFrameResults), so the code must say so or an unattended caller
+    // will retry and write the value twice.
+    return new Error('credential_selector_ambiguous_may_have_applied');
+  }
+  if (message.startsWith('invalid CSS selector')) {
+    return new Error('credential_write_invalid_selector');
+  }
+  return new Error(safeCredentialRefusal(message));
 }
 
 // Reduce per-frame page-bridge results to a single value. For mutating actions
@@ -3598,7 +3703,7 @@ async function waitForSelectorAcrossFrames(tabId, selector, timeoutMs) {
     const hit = pollResults.find((value) => value && value.__found === true);
     if (hit) {
       await reportTab(await chrome.tabs.get(tabId));
-      const { __found, ...rest } = hit;
+      const { __found, __frameOrigin, ...rest } = hit;
       return rest;
     }
     if (Date.now() >= deadline) {
@@ -5403,6 +5508,10 @@ function pageBridgeScript(action, args, expectedCredentialOrigin, credentialProt
     const state = controlState(element);
     return {
       __found: true,
+      // Where this control's document actually lives. A credential typed here
+      // lands on THIS origin, which for an embedded cross-origin form is not
+      // the origin of the tab's top-level page.
+      __frameOrigin: location.origin,
       value: state.value,
       selectedLabel: state.selectedOption,
       checked: state.checked,
@@ -5421,7 +5530,7 @@ function pageBridgeScript(action, args, expectedCredentialOrigin, credentialProt
     }
     const element = found.element;
     return element
-      ? { __found: true, ...describeElement(element) }
+      ? { __found: true, __frameOrigin: location.origin, ...describeElement(element) }
       : { __found: false };
   }
 

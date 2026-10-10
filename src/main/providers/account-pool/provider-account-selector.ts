@@ -6,8 +6,8 @@
  * Eligibility, in order, each with a named veto: enabled → automation policy
  * for the origin → not excluded → binding authenticated → not parked (unless
  * the provider has since said the account can run) → has usage left: the
- * provider's own verdict when it gives one, else the 5-hour and weekly
- * windows under 100% → not credits-only when paid credits are disallowed →
+ * provider's own verdict when it gives one, else the five-hour, weekly and
+ * effective MiMo allowance windows under 100% → not credits-only when paid credits are disallowed →
  * (pre-emptive) under the threshold.
  *
  * Usage left includes purchased credits: an account whose plan window is
@@ -31,6 +31,8 @@ export interface AccountQuotaEvidence {
   fiveHourPct?: number | null;
   /** Weekly window utilisation, 0..100, when known. */
   weeklyPct?: number | null;
+  /** MiMo calendar allowance utilisation, including granted compensation when in use. */
+  allowancePct?: number | null;
   /** Weekly window reset, epoch ms, when known. */
   weeklyResetsAt?: number | null;
   /**
@@ -116,12 +118,13 @@ export function accountVetoFor(
   }
   const fiveHour = quota?.fiveHourPct;
   if (quota?.usable === false) return 'exhausted';
-  if (quota?.usable !== true && ((fiveHour ?? 0) >= 100 || (quota?.weeklyPct ?? 0) >= 100)) return 'exhausted';
+  if (quota?.usable !== true && ((fiveHour ?? 0) >= 100 || (quota?.weeklyPct ?? 0) >= 100 || (quota?.allowancePct ?? 0) >= 100)) return 'exhausted';
   if (quota?.creditsOnly === true && !allowCredits) return 'credits-only';
   if (typeof input.thresholdPct === 'number') {
     // Moving ahead of a limit onto an account that would bill credits defeats the point.
     if (quota?.creditsOnly === true) return 'over-threshold';
-    if (typeof fiveHour === 'number' && fiveHour >= input.thresholdPct) return 'over-threshold';
+    const thresholdUsage = quota?.allowancePct ?? fiveHour;
+    if (typeof thresholdUsage === 'number' && thresholdUsage >= input.thresholdPct) return 'over-threshold';
   }
   return null;
 }

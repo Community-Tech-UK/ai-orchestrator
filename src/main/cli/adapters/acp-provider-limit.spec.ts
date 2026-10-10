@@ -17,6 +17,18 @@ const GO_LIMIT = 'ACP session/prompt failed: Internal error: Go usage limit reac
 const INVALID_KEY = 'ACP session/prompt failed: Internal error: Invalid API Key (-32603)';
 const AUTH_REQUIRED = 'ACP session/prompt failed: provider authentication required (-32000)';
 
+/** MiMo Token Plan shapes captured in the 2026-10-10 Phase 0.1 probe (placeholder bodies). */
+const MIMO_RATE_TEXT = 'ACP session/prompt failed: Internal error: Rate limit reached for requests (-32603)';
+const MIMO_429 = 'ACP session/prompt failed: Internal error: 429 Too Many Requests (-32603)';
+const MIMO_PLAN_EXHAUSTED = 'ACP session/prompt failed: Internal error: Token Plan quota exhausted for this account. Renew the plan to continue. (-32603)';
+const MIMO_QUOTA_400 = 'ACP session/prompt failed: Internal error: You have exceeded your token plan quota for mimo-v2.6-pro (-32603)';
+const MIMO_INSUFFICIENT = 'ACP session/prompt failed: Internal error: Insufficient Balance (-32603)';
+/** Phase 0.1 negatives: auth, 5xx, connection and stream breaks are never limits. */
+const MIMO_SERVER_500 = 'ACP session/prompt failed: Internal error: Internal server error (-32603)';
+const MIMO_BAD_KEY = 'ACP session/prompt failed: Internal error: Invalid API Key provided (-32603)';
+const STREAM_BROKE = 'stream broke: Internal server error';
+const CONNECTION_REFUSED = 'connect ECONNREFUSED 127.0.0.1:8971';
+
 describe('acp provider limit tagging', () => {
   it('recognises OpenCode limit texts and nothing else', () => {
     expect(isAcpProviderLimitMessage(RATE_LIMITED)).toBe(true);
@@ -27,6 +39,35 @@ describe('acp provider limit tagging', () => {
     expect(isAcpProviderLimitMessage('ACP prompt turn was cancelled by the client.')).toBe(false);
     // Capacity, not quota: deliberately not parked (see LIMIT_PATTERNS).
     expect(isAcpProviderLimitMessage('Provider is overloaded')).toBe(false);
+  });
+
+  it('recognises the MiMo Token Plan limit shapes from the probe (429 and plan/quota 4xx)', () => {
+    expect(isAcpProviderLimitMessage(MIMO_RATE_TEXT)).toBe(true);
+    expect(isAcpProviderLimitMessage(MIMO_429)).toBe(true);
+    expect(isAcpProviderLimitMessage(MIMO_PLAN_EXHAUSTED)).toBe(true);
+    expect(isAcpProviderLimitMessage(MIMO_QUOTA_400)).toBe(true);
+    expect(isAcpProviderLimitMessage(MIMO_INSUFFICIENT)).toBe(true);
+  });
+
+  it('never counts MiMo auth errors, 500s, connection errors or stream breaks as limits', () => {
+    expect(isAcpProviderLimitMessage(MIMO_BAD_KEY)).toBe(false);
+    expect(isAcpProviderLimitMessage(MIMO_SERVER_500)).toBe(false);
+    expect(isAcpProviderLimitMessage(STREAM_BROKE)).toBe(false);
+    expect(isAcpProviderLimitMessage(CONNECTION_REFUSED)).toBe(false);
+    for (const message of [MIMO_BAD_KEY, MIMO_SERVER_500, STREAM_BROKE, CONNECTION_REFUSED]) {
+      const tagged = tagAcpProviderLimit(new Error(message), NOW);
+      expect((tagged as Error & { quota?: unknown }).quota, message).toBeUndefined();
+      expect(detectErrorProviderLimit(tagged, tagged.message), message).toBeNull();
+    }
+  });
+
+  it('feeds MiMo limit texts into detectErrorProviderLimit as parked quota', () => {
+    for (const message of [MIMO_RATE_TEXT, MIMO_429, MIMO_PLAN_EXHAUSTED, MIMO_QUOTA_400]) {
+      const tagged = tagAcpProviderLimit(new Error(message), NOW);
+      expect((tagged as Error & { quota?: { exhausted?: boolean } }).quota?.exhausted, message).toBe(true);
+      // No reset text in the MiMo shapes: the park uses the assumed window.
+      expect(detectErrorProviderLimit(tagged, tagged.message)?.resetAtHint ?? null, message).toBeNull();
+    }
   });
 
   it('parses OpenCode reset durations', () => {

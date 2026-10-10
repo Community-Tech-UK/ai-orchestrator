@@ -240,10 +240,10 @@ export const NAV_ITEMS: SettingsNavItem[] = [
   },
   {
     id: 'provider-accounts',
-    label: 'Claude & Codex Accounts',
-    summary: 'Use several Claude or ChatGPT subscriptions and move to the next when one hits its limit.',
+    label: 'Claude, Codex & MiMo Accounts',
+    summary: 'Use several Claude, ChatGPT or MiMo subscriptions and move to the next when one hits its limit.',
     group: 'Network & Remote',
-    keywords: 'claude codex chatgpt account accounts pool subscription max pro limit failover switch login',
+    keywords: 'claude codex chatgpt mimo xiaomi token plan account accounts pool subscription max pro limit failover switch login',
   },
   {
     id: 'voice',

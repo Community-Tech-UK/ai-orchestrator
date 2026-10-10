@@ -5,7 +5,9 @@ vi.mock('../logging/logger', () => ({
 }));
 
 import {
+  buildAccountProfileLoginCommand,
   buildCopilotProfileLoginCommand,
+  buildOpenCodeProfileLoginCommand,
   buildTerminalLaunchCandidates,
   getProviderLoginCommand,
   launchProviderLogin,
@@ -138,6 +140,54 @@ describe('buildCopilotProfileLoginCommand', () => {
   it('uses the cmd.exe set-assignment form on win32', () => {
     const built = buildCopilotProfileLoginCommand({ profileId: 'legacy' }, 'win32');
     expect(built.command).toMatch(/^set "COPILOT_HOME=.*" && copilot login$/);
+  });
+});
+
+/**
+ * OpenCode/MiMo account sign-in. One key store, one terminal command per
+ * account: `opencode auth login -p <derived provider name>` skips the picker
+ * (probe E2) and the key is pasted into the terminal. Nothing here embeds a
+ * path or a caller-controlled fragment beyond the validated safe slug.
+ */
+describe('buildOpenCodeProfileLoginCommand', () => {
+  it('pins the derived per-account provider name', () => {
+    const built = buildOpenCodeProfileLoginCommand('max-b-1a2b', 'darwin');
+    expect(built.command).toMatch(/^node -e "eval\(Buffer.from\('/);
+    const encoded = built.command.match(/Buffer.from\('([^']+)'/)![1];
+    const script = atob(encoded);
+    expect(script).toContain('OPENCODE_MODELS_PATH:file');
+    expect(script).toContain('aio-mimo-max-b-1a2b');
+    expect(buildOpenCodeProfileLoginCommand('max-b-1a2b', 'win32').command).toBe(built.command);
+    expect(built.hint).toMatch(/THIS account's MiMo Token Plan key/);
+    expect(built.hint).toMatch(/Harness never sees the key/);
+  });
+
+  it('escapes configured login JSON in the AppleScript terminal wrapper', () => {
+    const command = buildOpenCodeProfileLoginCommand('max-b', 'darwin').command;
+    const script = buildTerminalLaunchCandidates(command, 'darwin')[0].args[1];
+    expect(script).toContain('\\"eval(Buffer.from');
+    expect(script).toContain('toString())\\"');
+  });
+
+  it('pins the region provider for the legacy account', () => {
+    const built = buildOpenCodeProfileLoginCommand('legacy', 'darwin', 'ams');
+    expect(built.command).toBe('opencode auth login -p xiaomi-token-plan-ams');
+    expect(built.hint).toMatch(/Xiaomi Token Plan \(Europe\)/);
+  });
+
+  it('falls back to the picker when the legacy account region is unknown', () => {
+    expect(buildOpenCodeProfileLoginCommand('legacy').command).toBe('opencode auth login');
+  });
+
+  it('rejects an invalid profile ID before any command is built', () => {
+    for (const profileId of ['../escape', 'a/b', 'Upper', '', 'a;rm -rf /']) {
+      expect(() => buildOpenCodeProfileLoginCommand(profileId), profileId).toThrow();
+    }
+  });
+
+  it('routes through the account-profile dispatcher', () => {
+    expect(buildAccountProfileLoginCommand({ provider: 'opencode', profileId: 'max-b-1a2b' }).command)
+      .toMatch(/^node -e /);
   });
 });
 

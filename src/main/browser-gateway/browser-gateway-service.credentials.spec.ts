@@ -1453,7 +1453,11 @@ describe('BrowserGatewayService credentials', () => {
     expect(result).toMatchObject({
       decision: 'denied',
       outcome: 'failed',
-      reason: 'secret_fill_failed',
+      // The write-confirmation refusal is one of the fixed safe codes, so the
+      // exact step and cause now reach the caller instead of `secret_fill_failed`
+      // (the confirmation runs inside driverType, so its step is classified from
+      // the code rather than the loop's position).
+      reason: 'write_confirmation:shared_tab_secure_credential_write_not_confirmed',
       data: null,
     });
     expect(JSON.stringify({ result, audits })).not.toContain(SECRET);

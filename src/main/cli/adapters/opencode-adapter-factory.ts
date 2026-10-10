@@ -22,8 +22,19 @@ import { readOpenCodeEffectiveBudgetConfig } from './opencode-effective-budget-c
 import { mirrorOpenCodeProviderForV2 } from './opencode-v2-config';
 import { applyOpenCodePermissionPolicy, assertOpenCodePermissionPolicy } from './opencode-permission-policy';
 export { buildOpenCodePermissionBlock } from './opencode-permission-policy';
+import {
+  applyOpenCodeAccountProviderBlocks,
+  buildOpenCodeAccountProviderBlocks,
+  resolveOpenCodeSessionModel,
+  type OpenCodeAccountProviderDef,
+} from './opencode-account-provider-config';
+export { resolveOpenCodeSessionModel } from './opencode-account-provider-config';
+import { resolveOpenCodeAccountSpawnConfig } from './account-pool/account-adapter-guards';
+import {
+  ensureOpenCodeRegionModelMetadata,
+  getCachedOpenCodeRegionModelMetadata,
+} from '../../providers/opencode-region-model-metadata';
 import { mapAcpEffort } from './acp-session-config-options';
-import { normalizeModelForProvider } from '../../../shared/types/provider.types';
 import { getPermissionRegistry } from '../../orchestration/permission-registry';
 import { getProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
 import { buildBrowserGatewayAcpMcpServers } from '../../browser-gateway/browser-mcp-config';
@@ -51,11 +62,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Merge AIO's permission block into an `OPENCODE_CONFIG_CONTENT` that is
- * already in the environment, rather than replacing the caller's config.
- * AIO's permission keys win; an unparseable existing value is replaced.
+ * Merge AIO's permission block and the per-account MiMo provider definitions
+ * into an `OPENCODE_CONFIG_CONTENT` that is already in the environment, rather
+ * than replacing the caller's config. AIO's permission keys win; an unparseable
+ * existing value is replaced. With no account definitions (a legacy-only or
+ * non-MiMo setup) the output is exactly what earlier builds produced.
  */
-export function buildOpenCodeConfigContent(existing: string | undefined, yoloMode: boolean): string {
+export function buildOpenCodeConfigContent(
+  existing: string | undefined,
+  yoloMode: boolean,
+  accountProviderBlocks?: Record<string, unknown>,
+): string {
   let base: Record<string, unknown> = {};
   if (existing?.trim()) {
     try {
@@ -70,14 +87,8 @@ export function buildOpenCodeConfigContent(existing: string | undefined, yoloMod
     }
   }
   applyOpenCodePermissionPolicy(base, yoloMode);
+  if (accountProviderBlocks) applyOpenCodeAccountProviderBlocks(base, accountProviderBlocks);
   return JSON.stringify(base);
-}
-
-/** Explicit `provider/model` id to apply, or undefined to keep OpenCode's default. */
-export function resolveOpenCodeSessionModel(model: string | undefined): string | undefined {
-  const requested = model?.trim();
-  if (!requested || requested.toLowerCase() === 'auto') return undefined;
-  return normalizeModelForProvider('opencode', requested)?.trim() || undefined;
 }
 
 /**
@@ -94,6 +105,12 @@ export function resolveOpenCodePromptTimeoutMs(model: string | undefined): numbe
 
 export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
   const workingDirectory = options.workingDirectory ?? process.cwd();
+  const accountSpawn = resolveOpenCodeAccountSpawnConfig(options);
+  const accountRegions = [...new Set(accountSpawn.accounts.map((account) => account.region))];
+  const accountBlocksFor = (): Record<string, unknown> => {
+    const { blocks } = buildOpenCodeAccountProviderBlocks(accountSpawn.accounts, getCachedOpenCodeRegionModelMetadata);
+    return blocks;
+  };
   const browserGatewayMcpServers = options.browserGatewayMcp
     ? buildBrowserGatewayAcpMcpServers(
         withBrowserGatewayProvider(options.browserGatewayMcp, 'opencode'),
@@ -111,9 +128,13 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
   const staticMcpServers = buildStaticMcpServersAcpMcpServers(options.mcpConfig);
   const yoloMode = options.yoloMode !== false;
   const env = mergeSpawnEnv(options);
-  env[OPENCODE_CONFIG_CONTENT_ENV] = buildOpenCodeConfigContent(env[OPENCODE_CONFIG_CONTENT_ENV], yoloMode);
+  env[OPENCODE_CONFIG_CONTENT_ENV] = buildOpenCodeConfigContent(
+    env[OPENCODE_CONFIG_CONTENT_ENV],
+    yoloMode,
+    accountBlocksFor(),
+  );
   extendEnvWithRtk(env, options.rtk);
-  const model = resolveOpenCodeSessionModel(options.model);
+  const model = resolveOpenCodeSessionModel(options.model, accountSpawn.routedProviderName);
   const originalConfigContent = env[OPENCODE_CONFIG_CONTENT_ENV]!;
   const budgetConfig = JSON.parse(env[OPENCODE_CONFIG_CONTENT_ENV]!) as Record<string, unknown>;
   const generationBudget = applyOpenCodeGenerationBudget(budgetConfig, model);
@@ -126,6 +147,11 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
     adapterName: 'opencode-acp',
     command: 'opencode',
     args,
+    // Metadata owns its own gated subprocess read. Resolve it before spawn
+    // takes that same non-reentrant gate for config probes and ACP initialize.
+    beforeStartupGate: async () => {
+      if (accountSpawn.accounts.length > 0) await ensureOpenCodeRegionModelMetadata(accountRegions);
+    },
     prepareSpawn: async () => {
       const writableRoots = adapter.getHardenedWritableRoots();
       const launch = await selectOpenCodeLaunch({ workingDirectory, env, writableRoots });
@@ -138,6 +164,30 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
       });
       const effectiveConfig = await probe(originalConfigContent);
       const currentConfig = JSON.parse(originalConfigContent) as Record<string, unknown>;
+      const accountBlocks = accountBlocksFor();
+      const routedAccount = accountSpawn.accounts.find(
+        (account) => account.providerName === accountSpawn.routedProviderName,
+      );
+      // Fail closed when the routed account's region metadata is missing or does
+      // not offer the model (a cross-region account/model pairing dies inside
+      // OpenCode with an opaque model-not-found otherwise).
+      if (routedAccount && accountBlocks[routedAccount.providerName] === undefined) {
+        throw new Error(
+          `The MiMo account "${routedAccount.label}" cannot start: no model metadata for xiaomi-token-plan-${routedAccount.region} `
+          + 'on this machine (run `opencode auth login` for that region here once, or use the existing account).',
+        );
+      }
+      if (routedAccount && model && model.startsWith(`${routedAccount.providerName}/`)) {
+        const block = accountBlocks[routedAccount.providerName] as { models?: Record<string, unknown> } | undefined;
+        const modelId = model.slice(model.indexOf('/') + 1);
+        if (block && !(modelId in (block.models ?? {}))) {
+          throw new Error(
+            `The MiMo account "${routedAccount.label}" cannot run ${modelId}: `
+            + `xiaomi-token-plan-${routedAccount.region} does not offer that model on this machine.`,
+          );
+        }
+      }
+      applyOpenCodeAccountProviderBlocks(currentConfig, accountBlocks);
       applyOpenCodePermissionPolicy(currentConfig, yoloMode, effectiveConfig);
       if (generationBudget && model) Object.assign(generationBudget, applyOpenCodeGenerationBudget(currentConfig, model, effectiveConfig));
       if (launch.major >= 2) mirrorOpenCodeProviderForV2(currentConfig);
@@ -164,6 +214,7 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
     ),
     model: options.model,
     ...(model || effort ? { sessionConfig: { ...(model ? { model } : {}), ...(effort ? { effort } : {}) } } : {}),
+    ...(accountSpawn.route ? { requireSessionModelConfirmation: true } : {}),
     startupGate: openCodeProcessGate,
     reportedCostOnly: true,
     generationBudget,

@@ -1720,7 +1720,11 @@ export class BrowserGatewayService {
       // through the extension command channel instead (same channel browser.type
       // uses); the driver path stays for managed profiles.
       readControl: (profileId, targetId, selector) => this.readControlForTarget(profileId, targetId, selector),
-      driverType: (profileId, targetId, selector, value, authorizedOrigin, protection, beforeDispatch) =>
+      // Secret-free: which frame's origin a value typed into this control would
+      // land on. Rides the same extension read_control reply (`__frameOrigin`).
+      resolveFieldFrameOrigin: async (profileId, targetId, selector) =>
+        (await this.readControlForTarget(profileId, targetId, selector)).frameOrigin,
+      driverType: (profileId, targetId, selector, value, authorizedOrigin, protection, beforeDispatch, pageOrigin) =>
         this.driverTypeForTarget(
           profileId,
           targetId,
@@ -1729,6 +1733,7 @@ export class BrowserGatewayService {
           authorizedOrigin,
           protection,
           beforeDispatch,
+          pageOrigin,
         ),
       refreshTargetOrigin: (profileId, targetId) => this.refreshTargetOrigin(profileId, targetId),
       ...(this.credentialVault ? { credentialVault: this.credentialVault } : {}),
@@ -1762,6 +1767,12 @@ export class BrowserGatewayService {
    * Type a value into a field. For shared existing tabs the secret is handed to
    * the extension `type` command (the only way to reach a tab with no puppeteer
    * page); it is never logged or returned. Managed profiles keep the driver path.
+   *
+   * `authorizedOrigin` is the exact origin of the frame that receives the value
+   * (the extension injects ONLY into frames of that origin). `pageOrigin` is the
+   * tab's top-level page origin and is what the extension's navigation guard
+   * watches, so an embedded cross-origin login form can be filled while a tab
+   * that navigates away still aborts the write.
    */
   private async driverTypeForTarget(
     profileId: string,
@@ -1771,6 +1782,7 @@ export class BrowserGatewayService {
     authorizedOrigin: string,
     protection: 'public' | 'password' | 'secret',
     beforeDispatch?: () => void,
+    pageOrigin: string = authorizedOrigin,
   ): Promise<{ valueApplied?: boolean } | void> {
     const existingTab = this.extensionTabStore.getTab(profileId, targetId);
     if (existingTab) {
@@ -1785,6 +1797,7 @@ export class BrowserGatewayService {
         value,
         credentialOrigin: authorizedOrigin,
         credentialProtection: protection,
+        credentialPageOrigin: pageOrigin,
       }, undefined, undefined, beforeDispatch);
       // Password/secret writes accept ONLY the extension's fixed two-field
       // taint sentinel. A legacy page-derived `{ valueApplied: true, ... }`

@@ -16,6 +16,16 @@
  * out on purpose: an overload is the backend's capacity, not the user's quota,
  * so there is no reset to park until. It still classifies as retryable through
  * the shared `overloaded` pattern in `core/error-recovery.ts`.
+ *
+ * MiMo Token Plan (Phase 0.1/0.5 probe, 2026-10-10): exhaustion surfaces as a
+ * 429 ("Rate limit reached for requests", "429 Too Many Requests") or as a
+ * plan/quota 4xx whose provider message passes through verbatim after
+ * `Internal error: ` ("Token Plan quota exhausted for this account…", "You
+ * have exceeded your token plan quota…"). MiMo's own error-code page maps 429
+ * to "requests are too frequent, or the quota of Token Plan has been
+ * exhausted". Negative cases that must NEVER match: 401 "Invalid API Key
+ * provided", 500 "Internal server error", connection errors and mid-stream
+ * breaks (see acp-provider-limit.spec.ts).
  */
 const LIMIT_PATTERNS: readonly RegExp[] = [
   /\brate[ -]?limited\b/i,
@@ -24,6 +34,12 @@ const LIMIT_PATTERNS: readonly RegExp[] = [
   /\btoo many requests\b/i,
   /\busage limit reached\b/i,
   /\b(?:Free|Go)UsageLimitError\b/,
+  /\bquota (?:is )?exhausted\b/i,
+  /\bquota exceeded\b/i,
+  /\btoken plan\b[^.\n]{0,80}\b(?:exhausted|depleted|used up|quota)\b/i,
+  /\bexceeded (?:your|the)\b[^.\n]{0,60}\bquota\b/i,
+  /\bplan quota\b/i,
+  /\binsufficient balance\b/i,
 ];
 
 const RESET_IN = /\breset in (?:(\d+) days?)?\s*(?:(\d+) hours?)?\s*(?:(\d+) minutes?)?/i;

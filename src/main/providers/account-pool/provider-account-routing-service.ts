@@ -354,13 +354,18 @@ export class ProviderAccountRoutingService {
    * Node-local admission for a chosen profile. Refuses anything but a verified
    * sign-in. Never returns a different profile.
    */
-  async admit(profile: ProviderAccountProfile, source: AccountRouteSource, nodeId: string = LOCAL_ACCOUNT_NODE_ID): Promise<AccountRouteOutcome> {
+  async admit(
+    profile: ProviderAccountProfile,
+    source: AccountRouteSource,
+    nodeId: string = LOCAL_ACCOUNT_NODE_ID,
+    bindingOptions: { force?: boolean } = {},
+  ): Promise<AccountRouteOutcome> {
     const route = this.buildRoute(profile.provider, profile.id, source, nodeId, [profile]);
     if (nodeId !== LOCAL_ACCOUNT_NODE_ID) {
       // The worker verifies its own binding before it spawns (remote spawn RPC).
       return { ok: true, route };
     }
-    const status = await this.bindings().checkBinding(profile, nodeId);
+    const status = await this.bindings().checkBinding(profile, nodeId, bindingOptions);
     switch (status.state) {
       case 'authenticated':
         return { ok: true, route };
@@ -388,6 +393,9 @@ export class ProviderAccountRoutingService {
       executionNodeId,
       ...(profile?.label ? { profileLabel: profile.label } : {}),
       ...(profile?.expectedIdentity ? { expectedIdentity: profile.expectedIdentity } : {}),
+      // OpenCode/MiMo: the executing node derives the provider name and reads
+      // the region's model metadata from its own `opencode` (never a path/key).
+      ...(profile?.region ? { region: profile.region } : {}),
     };
   }
 }

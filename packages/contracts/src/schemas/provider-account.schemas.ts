@@ -1,6 +1,7 @@
 /**
- * Zod schemas for provider account pools (Claude Code and Codex CLI): the two
- * settings keys and the `provider-account:*` IPC surface.
+ * Zod schemas for provider account pools (Claude Code, Codex CLI and
+ * OpenCode/MiMo): the two settings keys and the `provider-account:*` IPC
+ * surface.
  *
  * Mirrors `copilot-account.schemas.ts`. The properties that matter:
  *
@@ -8,6 +9,8 @@
  *    strict safe slug.
  * 2. A profile is legacy exactly when its ID is `legacy`; the legacy profile is
  *    bound to `~/.claude` / `~/.codex` and every other profile to a derived home.
+ *    OpenCode/MiMo keeps no per-account home: its profile carries the Token
+ *    Plan `region` that derives its OpenCode provider name instead.
  * 3. No payload can name a path, an environment map or a credential body.
  */
 
@@ -19,7 +22,8 @@ export const ProviderAccountProfileIdSchema = z
   .string()
   .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, 'Profile ID must be a lowercase safe slug');
 
-export const PooledProviderSchema = z.enum(['claude', 'codex']);
+export const PooledProviderSchema = z.enum(['claude', 'codex', 'opencode']);
+export const OpenCodeAccountRegionSchema = z.enum(['ams', 'sgp', 'cn']);
 export const AccountAutomationPolicySchema = z.enum(['allow-routed', 'manual-only', 'disabled']);
 export const AccountFailoverModeSchema = z.enum(['automatic', 'ask', 'off']);
 export const AccountContinuationModeSchema = z.enum(['shared-store', 'replay']);
@@ -33,6 +37,13 @@ const labelSchema = z.string().trim().min(1).max(64);
 export const AccountIdentitySchema = z.string().trim().min(1).max(320);
 const accountKeySchema = z.string().trim().min(1).max(128);
 const planLabelSchema = z.string().trim().min(1).max(64);
+/** Chrome profile folder name ("Default", "Profile 1"): no separators, never a path.
+ *  Keep in sync with `ACCOUNT_CHROME_PROFILE_PATTERN` in
+ *  src/shared/types/provider-account.types.ts. */
+export const AccountChromeProfileSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$/, 'Chrome profile must be a plain folder name');
 
 export const ProviderAccountProfileSchema = z
   .object({
@@ -46,6 +57,10 @@ export const ProviderAccountProfileSchema = z
     enabled: z.boolean(),
     automationPolicy: AccountAutomationPolicySchema,
     isLegacy: z.boolean(),
+    /** OpenCode/MiMo only and required there: picks the derived provider name. */
+    region: OpenCodeAccountRegionSchema.optional(),
+    /** OpenCode/MiMo only and optional: Chrome profile for per-account allowance. */
+    chromeProfile: AccountChromeProfileSchema.optional(),
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
   })
@@ -53,17 +68,25 @@ export const ProviderAccountProfileSchema = z
   .refine(
     (profile) => profile.isLegacy === (profile.id === LEGACY_PROFILE_ID),
     'A profile is legacy exactly when its ID is "legacy"',
+  )
+  .refine(
+    (profile) => (profile.provider === 'opencode') === (profile.region !== undefined),
+    'region belongs to OpenCode/MiMo profiles only, and is required for them',
+  )
+  .refine(
+    (profile) => profile.chromeProfile === undefined || profile.provider === 'opencode',
+    'chromeProfile belongs to OpenCode/MiMo profiles only',
   );
 
 export const ProviderAccountProfilesSchema = z
   .array(ProviderAccountProfileSchema)
-  .max(MAX_PROFILES_PER_PROVIDER * 2)
+  .max(MAX_PROFILES_PER_PROVIDER * 3)
   .superRefine((profiles, context) => {
     const keys = new Set<string>();
     const priorities = new Set<string>();
     const counts = new Map<string, number>();
     for (const profile of profiles) {
-      // IDs are unique per provider: `legacy` exists once for Claude and once for Codex.
+      // IDs are unique per provider: `legacy` exists once per pooled provider.
       const key = `${profile.provider}:${profile.id}`;
       if (keys.has(key)) {
         context.addIssue({ code: 'custom', message: `Duplicate profile ID: ${key}` });
@@ -108,6 +131,7 @@ export const ProviderAccountPoolsSchema = z
   .object({
     claude: ProviderAccountPoolPolicySchema,
     codex: ProviderAccountPoolPolicySchema,
+    opencode: ProviderAccountPoolPolicySchema,
   })
   .strict();
 
@@ -140,8 +164,19 @@ export const ProviderAccountCreatePayloadSchema = z
     provider: PooledProviderSchema,
     label: labelSchema,
     automationPolicy: AccountAutomationPolicySchema.optional(),
+    /** OpenCode/MiMo only and required there (Token Plan region). */
+    region: OpenCodeAccountRegionSchema.optional(),
+    chromeProfile: AccountChromeProfileSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) => (value.provider === 'opencode') === (value.region !== undefined),
+    'region is required for OpenCode/MiMo accounts and forbidden for others',
+  )
+  .refine(
+    (value) => value.chromeProfile === undefined || value.provider === 'opencode',
+    'chromeProfile belongs to OpenCode/MiMo accounts only',
+  );
 
 export const ProviderAccountRefPayloadSchema = z.object(profileRefShape).strict();
 
@@ -159,6 +194,9 @@ export const ProviderAccountUpdatePayloadSchema = z
     label: labelSchema.optional(),
     enabled: z.boolean().optional(),
     automationPolicy: AccountAutomationPolicySchema.optional(),
+    /** OpenCode/MiMo only: retarget the per-account allowance read (Decision 8).
+     *  `null` removes the explicit association; added accounts then have no allowance reader. */
+    chromeProfile: z.union([AccountChromeProfileSchema, z.null()]).optional(),
     /** Adopt the identity the binding check observed. */
     adoptObservedIdentity: z.boolean().optional(),
   })
@@ -167,8 +205,13 @@ export const ProviderAccountUpdatePayloadSchema = z
     (value) => value.label !== undefined
       || value.enabled !== undefined
       || value.automationPolicy !== undefined
+      || value.chromeProfile !== undefined
       || value.adoptObservedIdentity !== undefined,
     'Provide at least one field to change',
+  )
+  .refine(
+    (value) => value.chromeProfile === undefined || value.provider === 'opencode',
+    'chromeProfile belongs to OpenCode/MiMo accounts only',
   );
 
 export const ProviderAccountSetPriorityOrderPayloadSchema = z

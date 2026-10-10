@@ -21,6 +21,7 @@ import {
 } from '../instance/lifecycle/copilot-route-preflight';
 import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
 import { getLoopAccountFailover } from '../providers/account-pool/loop-account-failover';
+import { canReuseLoopAdapter, getLoopAdapterInvocation, noteLoopAdapterAccountScope } from './loop-adapter-account-scope';
 import type { CopilotInvocationOrigin } from '../../shared/types/copilot-account.types';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { readCodexAuthMode } from '../providers/codex-auth-mode';
@@ -184,7 +185,7 @@ async function invokeCliTextResponse(params: {
    *  adapter lifecycle when this is set. */
   reusedAdapter?: unknown;
   activity?: (activity: LoopInvocationActivity) => void;
-  onAdapterReady?: (adapter: CliAdapter) => (() => void) | void;
+  onAdapterReady?: (adapter: CliAdapter, model: string | undefined, cliType: string) => (() => void) | void;
   cleanupAdapter?: (adapter: CliAdapter, graceful: boolean) => Promise<void>;
 }): Promise<ReturnType<typeof normalizeInvocationTextResult> & {
   costKnown: boolean;
@@ -310,7 +311,7 @@ async function invokeCliTextResponse(params: {
     const ownsAdapter = !params.reusedAdapter;
     const adapter: CliAdapter = (params.reusedAdapter as CliAdapter | undefined)
       ?? getProviderRuntimeService().createAdapter({ cliType, options: routedSpawnOptions });
-    const untrackAdapter = params.onAdapterReady?.(adapter) ?? (() => { /* noop */ });
+    const untrackAdapter = params.onAdapterReady?.(adapter, model, cliType) ?? (() => { /* noop */ });
     const detachActivity = params.activity
       ? attachInvocationActivity(adapter, params.activity, {
           autoAnswerInputRequired: params.autoAnswerInputRequired,
@@ -1335,9 +1336,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       });
       const existing = persistentLoopAdapters.get(p.loopRunId);
       if (existing) {
-        const existingModelKnown = persistentLoopAdapterModels.has(p.loopRunId);
         const existingModel = persistentLoopAdapterModels.get(p.loopRunId);
-        if (!existingModelKnown || existingModel !== persistentModel) {
+        if (!canReuseLoopAdapter(p.loopRunId, existing, persistentCliType, persistentModel, persistentLoopAdapterModels)) {
           await recyclePersistentLoopAdapter(p.loopRunId);
           oneShotContextReset = true;
           emitActivity({
@@ -1375,7 +1375,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         });
         if (reusedAdapter) {
           persistentLoopAdapters.set(p.loopRunId, reusedAdapter);
-          persistentLoopAdapterModels.set(p.loopRunId, persistentModel);
+          persistentLoopAdapterModels.set(p.loopRunId, getLoopAdapterInvocation(reusedAdapter)?.model);
         }
       }
     }
@@ -1440,9 +1440,10 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
                 stopTracking();
               };
             }
-          : (adapter) => {
+          : (adapter, resolvedModel, cliType) => {
               activeAdapterRef = adapter;
-              getLoopAccountFailover().noteIterationAdapter(p.loopRunId, adapter); // account pools (D9)
+              noteLoopAdapterAccountScope(p.loopRunId, adapter, cliType, resolvedModel,
+                sameSession ? persistentLoopAdapterModels : undefined);
               const stopTracking = trackActiveAdapter(p.loopRunId, adapter);
               const stopEventCapture = observeLoopProviderRuntimeEvents({
                 adapter,

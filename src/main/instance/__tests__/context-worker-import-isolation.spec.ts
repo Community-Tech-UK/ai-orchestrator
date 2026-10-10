@@ -95,7 +95,13 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // edge is `rlm-schema.ts` -> `./rlm-migrations-071-075`. Its only import is
 // `import type { Migration }`, erased at runtime. Both closures contain zero
 // Electron value-importers; the no-Electron assertion below is unchanged.
-const CLOSURE_SIZE_CEILING = 151;
+// 2026-10-10: 151 after `rlm-migrations-076-080.ts` (browser audit `reason`
+// column, LT-703) joined the same numbered migration graph. Diff-verified the
+// same way: stashing just that change drops the measured closure below 151, it
+// is the sole addition, and its only import is the type-only `Migration`, so it
+// is a leaf. The browser-gateway modules from the same change are NOT in this
+// closure (the gateway is not reachable from `context-worker-main.ts`).
+const CLOSURE_SIZE_CEILING = 152;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

@@ -125,6 +125,34 @@ const REQUEST: BrowserGatewayFillSecretRequest = {
 };
 
 describe('fillSecretOperation', () => {
+  it('types into the receiving FRAME origin while the page origin guards navigation (LT-703)', async () => {
+    const FRAME_ORIGIN = 'https://forms.supplier.example';
+    const h = makeHarness({
+      existingTab: true,
+      sharedTabAllowed: true,
+      vaultValue: 'TEST_ONLY_IBAN_VALUE',
+      authorization: {
+        allowedOrigins: [{ scheme: 'https', hostPattern: 'forms.supplier.example', includeSubdomains: false }],
+      },
+    });
+    const vaultRead = vi.fn(async (_input: { origin: string }) => 'TEST_ONLY_IBAN_VALUE');
+    (h.deps.credentialVault as { getGenericSecretForFill: unknown }).getGenericSecretForFill = vaultRead;
+    h.deps.resolveFieldFrameOrigin = vi.fn(async () => FRAME_ORIGIN);
+
+    const result = await fillSecretOperation(h.deps, REQUEST);
+
+    expect(result.decision).toBe('allowed');
+    // Authorization + vault binding key on the origin that RECEIVES the value…
+    expect(vaultRead.mock.calls.map(([input]) => input.origin)).toEqual([FRAME_ORIGIN]);
+    // …while the 8th argument keeps the navigation guard watching the PAGE
+    // origin (passing the frame origin there would make a never-navigated
+    // embedded form look like "the tab navigated away").
+    expect(h.driverType).toHaveBeenCalledWith(
+      'p1', 't1', '#iban', expect.any(String), FRAME_ORIGIN, 'secret', undefined, ORIGIN,
+    );
+    expect(JSON.stringify(result)).not.toContain('TEST_ONLY_IBAN_VALUE');
+  });
+
   it('fills + verifies an authorized bank secret and returns counts only (no value leaks)', async () => {
     const { deps, driverType } = makeHarness();
     const result = await fillSecretOperation(deps, REQUEST);
@@ -135,7 +163,7 @@ describe('fillSecretOperation', () => {
     expect(result.data).toEqual({ filled: 1, verified: 1 });
 
     // The secret WAS typed into the page...
-    expect(driverType).toHaveBeenCalledWith('p1', 't1', '#iban', SECRET, ORIGIN, 'secret');
+    expect(driverType).toHaveBeenCalledWith('p1', 't1', '#iban', SECRET, ORIGIN, 'secret', undefined, ORIGIN);
     // ...but appears NOWHERE in the model-visible result (data, summary, reason).
     expect(JSON.stringify(result)).not.toContain(SECRET);
     expect(withEcho(result).summary).not.toContain(SECRET);
@@ -204,7 +232,7 @@ describe('fillSecretOperation', () => {
 
     const result = await fillSecretOperation(deps, REQUEST);
 
-    expect(result.reason).toBe('secret_fill_failed');
+    expect(result.reason).toBe('dispatch:secret_fill_failed');
     expect(JSON.stringify(result)).not.toContain(SECRET);
   });
 
@@ -260,7 +288,7 @@ describe('fillSecretOperation', () => {
 
     expect(result.decision).toBe('allowed');
     expect(result.data).toEqual({ filled: 1, verified: 1 });
-    expect(driverType).toHaveBeenCalledWith('p1', 't1', '#iban', stored, ORIGIN, 'secret');
+    expect(driverType).toHaveBeenCalledWith('p1', 't1', '#iban', stored, ORIGIN, 'secret', undefined, ORIGIN);
     expect(vaultRead).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).not.toContain(stored);
   });

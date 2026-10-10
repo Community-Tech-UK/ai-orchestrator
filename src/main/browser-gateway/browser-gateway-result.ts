@@ -59,6 +59,9 @@ export class BrowserGatewayResultRecorder {
       decision: params.decision,
       outcome: params.outcome,
       summary: safeSummary,
+      // The reason code reaches the forensic record too (LT-703), not only the
+      // tool result — same redaction and length bound as the summary.
+      ...(safeReason ? { reason: safeReason } : {}),
       redactionApplied: true,
       requestId: params.requestId,
       grantId: params.grantId,

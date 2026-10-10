@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as browserSchemas from '../browser.schemas';
+import { MAX_REMEMBER_CREDENTIAL_ACCESS_MS } from '../browser-credential-access.schemas';
 import type { ZodType } from 'zod';
 
 const schemas = browserSchemas as unknown as Record<string, ZodType>;
@@ -22,7 +23,9 @@ describe('credential access contracts', () => {
     expect(schema.safeParse({ permission: 'task' }).success).toBe(true);
     expect(schema.safeParse({ permission: 'remember' }).success).toBe(false);
     expect(schema.safeParse({ permission: 'remember', rememberForMs: 86_400_000 }).success).toBe(true);
-    expect(schema.safeParse({ permission: 'remember', rememberForMs: 8 * 86_400_000 }).success).toBe(false);
+    expect(schema.safeParse({ permission: 'remember', rememberForMs: 8 * 86_400_000 }).success).toBe(true);
+    expect(schema.safeParse({ permission: 'remember', rememberForMs: MAX_REMEMBER_CREDENTIAL_ACCESS_MS }).success).toBe(true);
+    expect(schema.safeParse({ permission: 'remember', rememberForMs: MAX_REMEMBER_CREDENTIAL_ACCESS_MS + 1 }).success).toBe(false);
     expect(schema.safeParse({ permission: 'task', rememberForMs: 86_400_000 }).success).toBe(false);
   });
 });

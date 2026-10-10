@@ -168,7 +168,8 @@ describe('BrowserApprovalRequestComponent', () => {
     expect(element.textContent).toContain('Approval will move this login into the AgentVault agent vault folder.');
     const duration = element.querySelector<HTMLSelectElement>('.credential-access-duration');
     expect(duration?.value).toBe('task');
-    expect(Array.from(duration?.options ?? []).map((option) => option.value)).toEqual(['task', '1h', '24h', '7d']);
+    expect(Array.from(duration?.options ?? []).map((option) => option.value))
+      .toEqual(['task', '1h', '24h', '7d', '30d', '90d', '365d']);
     await fixture.componentInstance.approveRequest(approval);
     expect(fakeBrowserGateway.approveRequest).toHaveBeenCalledWith(expect.objectContaining({
       credentialAccess: { permission: 'task' },

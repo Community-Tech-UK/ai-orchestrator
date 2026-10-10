@@ -30,6 +30,15 @@ export interface FillControlReadback {
   value?: string;
   selectedLabel?: string;
   checked?: boolean;
+  /**
+   * Exact origin of the frame whose document holds the control
+   * (`location.origin` from the extension's per-frame read). This is where a
+   * value typed into this control actually LANDS, which for an embedded
+   * cross-origin login form differs from the page origin the tab shows.
+   * Absent on the managed-profile driver path and on older extensions; callers
+   * must fall back to the page origin.
+   */
+  frameOrigin?: string;
 }
 
 export interface FillPlanStep {

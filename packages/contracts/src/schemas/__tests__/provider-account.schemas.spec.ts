@@ -48,6 +48,29 @@ describe('ProviderAccountProfileSchema', () => {
   it('rejects unsafe ids', () => {
     expect(ProviderAccountProfileSchema.safeParse({ ...legacyClaude, id: '../x', isLegacy: false }).success).toBe(false);
   });
+
+  it('requires region on OpenCode/MiMo profiles and forbids it elsewhere', () => {
+    const legacyOpenCode = {
+      ...legacyClaude,
+      provider: 'opencode',
+      label: 'Existing MiMo account (ams)',
+      region: 'ams',
+    } as const;
+    expect(ProviderAccountProfileSchema.safeParse(legacyOpenCode).success).toBe(true);
+    expect(ProviderAccountProfileSchema.safeParse({ ...legacyOpenCode, region: 'moon' }).success).toBe(false);
+    expect(ProviderAccountProfileSchema.safeParse({ ...legacyOpenCode, region: undefined }).success).toBe(false);
+    expect(ProviderAccountProfileSchema.safeParse({ ...legacyClaude, region: 'ams' }).success).toBe(false);
+    const derived = {
+      ...legacyOpenCode,
+      id: 'max-b-1a2b',
+      isLegacy: false,
+      chromeProfile: 'Profile 1',
+    } as const;
+    expect(ProviderAccountProfileSchema.safeParse(derived).success).toBe(true);
+    expect(ProviderAccountProfileSchema.safeParse({ ...derived, chromeProfile: '../evil' }).success).toBe(false);
+    expect(ProviderAccountProfileSchema.safeParse({ ...derived, chromeProfile: 'C:\\Users\\x' }).success).toBe(false);
+    expect(ProviderAccountProfileSchema.safeParse({ ...legacyClaude, id: 'max-a-1a2b', isLegacy: false, chromeProfile: 'Default' }).success).toBe(false);
+  });
 });
 
 describe('ProviderAccountProfilesSchema', () => {
@@ -80,12 +103,13 @@ describe('ProviderAccountProfilesSchema', () => {
 });
 
 describe('ProviderAccountPoolsSchema', () => {
-  it('requires both providers and a bounded threshold', () => {
-    expect(ProviderAccountPoolsSchema.safeParse({ claude: policy, codex: policy }).success).toBe(true);
-    expect(ProviderAccountPoolsSchema.safeParse({ claude: policy }).success).toBe(false);
+  it('requires every pooled provider and a bounded threshold', () => {
+    expect(ProviderAccountPoolsSchema.safeParse({ claude: policy, codex: policy, opencode: policy }).success).toBe(true);
+    expect(ProviderAccountPoolsSchema.safeParse({ claude: policy, codex: policy }).success).toBe(false);
     expect(ProviderAccountPoolsSchema.safeParse({
       claude: { ...policy, preemptive: { ...policy.preemptive, thresholdPct: 0 } },
       codex: policy,
+      opencode: policy,
     }).success).toBe(false);
   });
 });
@@ -104,5 +128,17 @@ describe('IPC payloads', () => {
   it('require at least one field on update', () => {
     expect(ProviderAccountUpdatePayloadSchema.safeParse({ provider: 'claude', profileId: 'max-a' }).success).toBe(false);
     expect(ProviderAccountUpdatePayloadSchema.safeParse({ provider: 'claude', profileId: 'max-a', enabled: true }).success).toBe(true);
+    expect(ProviderAccountUpdatePayloadSchema.safeParse({ provider: 'opencode', profileId: 'max-b', chromeProfile: 'Profile 2' }).success).toBe(true);
+    expect(ProviderAccountUpdatePayloadSchema.safeParse({ provider: 'claude', profileId: 'max-a', chromeProfile: 'Profile 2' }).success).toBe(false);
+    // `null` removes the explicit MiMo Chrome profile association.
+    expect(ProviderAccountUpdatePayloadSchema.safeParse({ provider: 'opencode', profileId: 'max-b', chromeProfile: null }).success).toBe(true);
+  });
+
+  it('require region exactly for OpenCode/MiMo creates', () => {
+    expect(ProviderAccountCreatePayloadSchema.safeParse({ provider: 'opencode', label: 'MiMo B', region: 'sgp' }).success).toBe(true);
+    expect(ProviderAccountCreatePayloadSchema.safeParse({ provider: 'opencode', label: 'MiMo B' }).success).toBe(false);
+    expect(ProviderAccountCreatePayloadSchema.safeParse({ provider: 'claude', label: 'Max A', region: 'ams' }).success).toBe(false);
+    expect(ProviderAccountCreatePayloadSchema.safeParse({ provider: 'opencode', label: 'MiMo B', region: 'cn', chromeProfile: 'Default' }).success).toBe(true);
+    expect(ProviderAccountCreatePayloadSchema.safeParse({ provider: 'opencode', label: 'MiMo B', region: 'cn', chromeProfile: '../x' }).success).toBe(false);
   });
 });

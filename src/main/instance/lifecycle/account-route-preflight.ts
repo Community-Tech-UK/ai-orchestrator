@@ -16,7 +16,7 @@ import type {
   AccountRouteFailure,
   AccountRouteSource,
 } from '../../../shared/types/provider-account.types';
-import { LEGACY_ACCOUNT_PROFILE_ID, isPooledProvider } from '../../../shared/types/provider-account.types';
+import { LEGACY_ACCOUNT_PROFILE_ID, isLogicalMiMoModel, isPooledProvider } from '../../../shared/types/provider-account.types';
 import {
   getProviderAccountRoutingService,
   type ProviderAccountRoutingService,
@@ -107,6 +107,12 @@ export async function attachAccountRoute(
 ): Promise<UnifiedSpawnOptions> {
   if (!isPooledProvider(cliType)) {
     return options;
+  }
+  // Model selection (including remembered defaults) resolves before preflight.
+  // Unset/auto intentionally lets OpenCode choose its native backend.
+  if (cliType === 'opencode' && !isLogicalMiMoModel(options.model)) {
+    if (!options.accountRoute) return options;
+    return { ...options, accountRoute: undefined };
   }
   if (options.accountRoute?.profileId && options.accountRoute.provider === cliType) {
     return options;

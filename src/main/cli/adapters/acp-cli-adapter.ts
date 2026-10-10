@@ -32,7 +32,8 @@ import { AcpNdjsonFramer } from './acp-ndjson-framer';
 import { acpTextDiagnostic, safeAcpProtocolDetails } from './acp-protocol-diagnostics';
 import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 import { isStdinWriteProcessError } from './child-stdin-write';
-import { assertAcpGenerationBudgetSelection } from './acp-generation-budget-selection';
+import { assertAcpGenerationBudgetSelection, isAcpSessionModelConfirmed } from './acp-generation-budget-selection';
+import { reduceAcpSessionConfigResponse, type AcpSessionResponseRequest } from './acp-session-config-response';
 import { ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE, isAcpPromptRequestTimeout, isAcpPromptCancelledByClient,
   isAcpActiveTurnCollision, isAcpAgentExitRejection, isAcpInputWriteFailure, markAcpInputWriteFailure, normalizeAcpInputWriteError } from './acp-prompt-errors';
 import { AcpDelegatedTaskLiveness, type AcpChildProgressSource } from './acp-delegated-task-liveness';
@@ -124,6 +125,7 @@ import { classifyMissingUsage } from './acp-transport-failure';
 import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
 import { buildAcpElicitationResponse } from './acp-elicitation-response';
 import { applyAcpSessionConfig, type AcpSessionConfigRequest } from './acp-session-config-options';
+import { confirmAcpLiveSessionConfig, isAcpSessionConfigSelected } from './acp-session-config-confirmation';
 import { AcpSessionCostLedger, buildAcpMeasuredContextEvent, parseAcpUsageUpdate } from './acp-usage-update';
 import { appendAcpThoughtDelta, buildAcpTurnThinking } from './acp-thought-stream';
 import { buildAcpTurnCompletion } from './acp-turn-completion';
@@ -216,8 +218,7 @@ const ACP_CAPABILITIES: CliCapabilities = {
   outputFormats: ['jsonrpc', 'text'],
 };
 
-interface AcpPendingRequest {
-  method: string;
+interface AcpPendingRequest extends AcpSessionResponseRequest {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   /** Timer that rejects the pending promise if the agent never replies.
@@ -319,10 +320,15 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
    *  the wait so a long silence is visible before the turn fails. */
   stallWarningMs?: number;
   /** Model/effort applied with `session/set_config_option` once the session
-   *  opens (agents with no model flag, e.g. OpenCode). Never fails the spawn. */
+   *  opens (agents with no model flag, e.g. OpenCode). Best effort unless model
+   *  confirmation is required for an account route or generation budget. */
   sessionConfig?: AcpSessionConfigRequest;
+  /** Refuse startup unless native model selection confirms the routed account. */
+  requireSessionModelConfirmation?: boolean;
   /** Held from process spawn until `initialize` answers (see acp-startup-gate.ts). */
   startupGate?: AcpStartupGate;
+  /** Gated discovery that must finish before acquiring the non-reentrant startup gate. */
+  beforeStartupGate?: () => Promise<void>;
   /** The agent's reported cost is the only cost: a turn without one records
    *  $0 instead of pricing its tokens from a static table (OpenCode fronts
    *  flat-fee and free backends that no price row describes). */
@@ -395,8 +401,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
   /** Wait kinds already surfaced to the transcript for the current turn. */
   private readonly stallKindsNoticed = new Set<AcpTurnWaitKind>();
   private protocolErrorOutputCount = 0;
-  /** `configOptions` from the last `session/new`/`session/load` response. */
+  /** Latest authoritative options from session responses and configuration notifications. */
   private sessionConfigOptions: unknown;
+  private readonly nextPromptContext: string[] = [];
   /** Bounded stderr tail, logged at exit/error so a silent CLI self-shutdown
    *  keeps its trigger (e.g. the raw " Exiting… " signal marker). */
   private readonly stderrTail = new StderrTailBuffer();
@@ -554,15 +561,20 @@ export class AcpCliAdapter extends BaseCliAdapter {
       }
     }
 
-    const releaseStartupGate = this.acpConfig.startupGate ? await this.acpConfig.startupGate() : undefined;
+    let releaseStartupGate: (() => void) | undefined;
     try {
+      await this.acpConfig.beforeStartupGate?.();
+      releaseStartupGate = await this.acpConfig.startupGate?.();
       this.spawnCleanup = await this.acpConfig.prepareSpawn?.() ?? null;
       this.process = this.spawnProcess([]);
     } catch (error) {
-      this.spawnCleanup?.();
-      this.spawnCleanup = null;
-      releaseStartupGate?.();
-      this.releaseConcurrencySlot();
+      try { this.spawnCleanup?.(); }
+      catch (cleanupError) { logger.warn('ACP failed-spawn cleanup failed', safeAcpProtocolDetails({ error: cleanupError })); }
+      finally {
+        this.spawnCleanup = null;
+        releaseStartupGate?.();
+        this.releaseConcurrencySlot();
+      }
       throw error;
     }
     this.attachProcessListeners();
@@ -735,10 +747,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
       );
     }
 
+    const queuedContext = this.nextPromptContext.slice();
     const previousPromptFlags = { system: this.systemPromptSent, rtk: this.rtkAwarenessSent };
     const promptParams: AcpSessionPromptParams = {
       sessionId: this.sessionId,
-      prompt: this.toPromptBlocks(message),
+      prompt: [...queuedContext.map((text) => ({ type: 'text' as const, text })), ...this.toPromptBlocks(message)],
     };
 
     const responseId = this.generateResponseId();
@@ -837,6 +850,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       }
       throw failure;
     } finally {
+      if (writePhase.accepted) this.nextPromptContext.splice(0, queuedContext.length);
       this.recentAssistantTurn = this.currentPrompt ?? this.recentAssistantTurn;
       const lastTool = [...this.toolCalls.values()].at(-1);
       this.recentReadToolCallId = lastTool?.kind === 'read' && lastTool.status === 'completed' ? lastTool.id : null;
@@ -846,6 +860,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
       this.delegatedLiveness.clear();
       this.clearStallWatchdog();
     }
+  }
+
+  queueNextPromptContext(text: string): void {
+    if (text.trim()) this.nextPromptContext.push(text);
   }
 
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
@@ -1130,8 +1148,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
         mcpServers: this.sessionMcpServers(),
       };
       try {
-        const loaded = await this.sendRequest<{ configOptions?: unknown } | null>('session/load', loadParams);
-        this.sessionConfigOptions = loaded?.configOptions;
+        await this.sendRequest<{ configOptions?: unknown } | null>('session/load', loadParams);
         this.costLedger.reset(false);
       } catch (error) {
         this.lastResumeAttemptResult = {
@@ -1159,30 +1176,75 @@ export class AcpCliAdapter extends BaseCliAdapter {
       mcpServers: this.sessionMcpServers(),
     };
     const result = await this.sendRequest<AcpSessionNewResult>('session/new', newParams);
-    this.sessionConfigOptions = result.configOptions;
     this.costLedger.reset(true);
     this.lastResumeAttemptResult = undefined;
     this.reportResolvedModel(result.models?.currentModelId);
     return result.sessionId;
   }
 
-  /** Apply `acpConfig.sessionConfig`; skips and rejections become one warning line. */
+  /** Apply startup settings; routed accounts must confirm their native model selection. */
   private async applySessionConfig(sessionId: string): Promise<void> {
     const requested = this.acpConfig.sessionConfig;
     if (!requested?.model && !requested?.effort) {
-      assertAcpGenerationBudgetSelection(this.acpConfig.generationBudget, requested, this.sessionConfigOptions); return;
+      assertAcpGenerationBudgetSelection(this.acpConfig.generationBudget, requested, this.sessionConfigOptions);
+      if (this.acpConfig.requireSessionModelConfirmation) {
+        throw new Error('Unable to confirm the selected model for the routed account; refusing startup.');
+      }
+      return;
     }
+    const modelWasSelected = requested.model ? isAcpSessionConfigSelected(this.sessionConfigOptions, 'model', requested.model) : false;
     const outcome = await applyAcpSessionConfig(
       (configId, value) => this.sendRequest('session/set_config_option', { sessionId, configId, value }),
       this.sessionConfigOptions,
       requested,
+      () => this.sessionConfigOptions,
     );
     assertAcpGenerationBudgetSelection(this.acpConfig.generationBudget, requested, this.sessionConfigOptions, outcome);
+    if (this.acpConfig.requireSessionModelConfirmation
+      && (!(modelWasSelected || outcome.applied.some((entry) => entry.key === 'model' && entry.value === requested.model?.trim()))
+        || !isAcpSessionModelConfirmed(requested.model, this.sessionConfigOptions, outcome))) {
+      throw new Error('Unable to confirm the selected model for the routed account; refusing startup.');
+    }
     if (outcome.warnings.length === 0) return;
     logger.warn('ACP session config not fully applied', { adapter: this.getName(), warningCount: outcome.warnings.length });
     this.emitStructuredOutput('system', `${outcome.warnings.join(' ')} The agent's own default is used instead.`, {
       source: 'acp-session-config',
     });
+  }
+
+  /**
+   * Apply new session settings to the OPEN session without a restart — the
+   * MiMo multi-account live switch (plan 2026-10-10 phase 4, probe 0.2).
+   *
+   * An in-flight turn is cancelled first: a turn stuck retrying a 429 keeps
+   * retrying the OLD account after the model is switched (probe 0.2b), and the
+   * cancelled prompt settles locally as a client-cancelled error, never as a
+   * completed turn. The model and explicitly requested effort must be confirmed
+   * here, so the caller cannot report an unapplied handoff. Startup effort
+   * remains best effort; routed-account startup requires model confirmation.
+   */
+  async applyLiveSessionConfig(request: AcpSessionConfigRequest): Promise<void> {
+    if (!this.process || !this.initialized || !this.sessionId) {
+      throw new Error('ACP session is not running.');
+    }
+    if (this.currentPromptRequestId) {
+      await this.cancelCurrentPrompt();
+    }
+    const outcome = await applyAcpSessionConfig(
+      (configId, value) => this.sendRequest('session/set_config_option', { sessionId: this.sessionId!, configId, value }),
+      this.sessionConfigOptions,
+      request,
+      () => this.sessionConfigOptions,
+    );
+    this.acpConfig.sessionConfig = confirmAcpLiveSessionConfig(
+      this.acpConfig.sessionConfig, request, this.sessionConfigOptions, outcome,
+    );
+    if (outcome.warnings.length > 0) {
+      logger.warn('ACP live session config not fully applied', {
+        adapter: this.getName(),
+        warningCount: outcome.warnings.length,
+      });
+    }
   }
 
   /**
@@ -1351,6 +1413,14 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     clearTimeout(pending.timer);
     this.pendingRequests.delete(key);
+    try {
+      const state = reduceAcpSessionConfigResponse(this.sessionConfigOptions, pending, response.result);
+      if (state.sessionId !== undefined) this.setSessionId(state.sessionId);
+      this.sessionConfigOptions = state.configOptions;
+    } catch (error) {
+      pending.reject(toError(error, 'Invalid ACP session response.'));
+      return;
+    }
     pending.resolve(response.result);
   }
 
@@ -1475,6 +1545,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
         this.handleUsageUpdate(rawUpdate);
         break;
       case 'config_option_update':
+        if (Array.isArray(rawUpdate['configOptions'])) this.sessionConfigOptions = rawUpdate['configOptions'];
+        break;
       case 'session_info_update':
         // Session metadata (auto-generated title, summary, mode/model
         // defaults). Older code dumped raw JSON into the chat — e.g.
@@ -2290,6 +2362,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
     const responsePromise = new Promise<TResult>((resolve, reject) => {
       this.pendingRequests.set(id, {
         method,
+        ...(method === 'session/load' && isRecord(params) && typeof params['sessionId'] === 'string'
+          ? { loadSessionId: params['sessionId'] } : {}),
+        ...(method === 'session/set_config_option' && isRecord(params)
+          && typeof params['configId'] === 'string' && typeof params['value'] === 'string'
+          ? { configOption: { configId: params['configId'], value: params['value'] } } : {}),
         resolve: (value) => resolve(value as TResult),
         reject,
         timer: this.createRequestTimeout(id, method, timeoutMs),

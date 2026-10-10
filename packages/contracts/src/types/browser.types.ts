@@ -219,6 +219,13 @@ export interface BrowserAuditEntry {
   decision: BrowserGatewayDecision;
   outcome: BrowserGatewayOutcome;
   summary: string;
+  /**
+   * Safe decision/failure reason code (`<step>:<code>` on the fill failure
+   * path, or a self-naming denial code whose template may carry short
+   * explanatory prose). Redaction-filtered and length-bounded; never carries a
+   * value or secret.
+   */
+  reason?: string;
   redactionApplied: boolean;
   screenshotArtifactId?: string;
   requestId?: string;

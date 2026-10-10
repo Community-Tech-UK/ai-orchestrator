@@ -154,8 +154,8 @@ const ALLOWLIST: Record<string, number> = {
   // acp-assistant-stream.ts.
   // Raised 2326 -> 2379: ACP client-cancel now emits idle and clears the
   // stream-idle watchdog so Stop does not leave the stuck detector generating.
-  // Raised 2379 -> 2437: remote-MCP mcpCapabilities gate (this work) plus concurrent ACP-exit-observability growth; re-tighten when both land.
-  'src/main/cli/adapters/acp-cli-adapter.ts': 2437,
+  // Raised 2379 -> 2437: remote-MCP mcpCapabilities gate (this work) plus concurrent ACP-exit-observability growth; re-tighten when both land. Raised 2437 -> 2530 (2026-10-10) for applyLiveSessionConfig (MiMo live account switch).
+  'src/main/cli/adapters/acp-cli-adapter.ts': 2530,
   // Sat at 699 — one line under the cap — so the automation-provider-exclusion
   // guard in resolveCliType could not be added without crossing it. Entered at
   // 706 rather than dropping the guard; the file is a refactor candidate.
@@ -279,7 +279,7 @@ const ALLOWLIST: Record<string, number> = {
   // context percentage into a new session. Two extractions already came out of
   // this file in the same change (`resolveRuntimeChangeModel`,
   // `resolveSwapContextUsage`); a third purely to reclaim 5 lines would be churn.
-  'src/main/instance/lifecycle/runtime-reconciler.ts': 705,
+  'src/main/instance/lifecycle/runtime-reconciler.ts': 775, // raised 705 -> 775 (2026-10-10): MiMo in-place account-switch branch (machinery in runtime-reconciler-account-handoff.ts)
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 660,
   // Raised 1208 -> 1251 (2026-07-17 thread-resilience + context-evidence handlers).

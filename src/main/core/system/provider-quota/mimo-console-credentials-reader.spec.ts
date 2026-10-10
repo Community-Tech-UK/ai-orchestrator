@@ -265,6 +265,25 @@ describe('MimoConsoleCredentialsReader', () => {
       'Google');
   });
 
+  it('selects the Chrome profile folder a MiMo account names, per platform', () => {
+    expect(defaultChromeCookiesPath('darwin', { HOME: '/h' }, 'Profile 1')).toBe(
+      '/h/Library/Application Support/Google/Chrome/Profile 1/Cookies');
+    expect(defaultChromeCookiesPath('win32', { HOME: 'C:\\h', APPDATA: 'C:\\a' }, 'Profile 2')).toContain(
+      'User Data\\Profile 2\\Cookies');
+    expect(defaultChromeCookiesPath('linux', { HOME: '/h' }, 'Profile 1')).toBe(
+      '/h/.config/google-chrome/Profile 1/Cookies');
+    // An empty profile is the Default profile, same as before.
+    expect(defaultChromeCookiesPath('darwin', { HOME: '/h' }, '  ')).toBe(
+      defaultChromeCookiesPath('darwin', { HOME: '/h' }));
+  });
+
+  it('refuses a Chrome profile that is not a plain folder name', () => {
+    for (const profile of ['../evil', 'Profile 1/../..', 'C:\\Users\\x', 'a/b', '.hidden']) {
+      expect(() => defaultChromeCookiesPath('darwin', { HOME: '/h' }, profile), profile)
+        .toThrow(/plain folder name/);
+    }
+  });
+
   it('falls back to a snapshot copy when the live store is locked', async () => {
     // Regression: Chrome holds the live Cookies store often enough that the
     // direct read fails with OperationalError. The snapshot is opened

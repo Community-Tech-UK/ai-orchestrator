@@ -235,7 +235,9 @@ export async function sendInputWithoutWedging(
  */
 export async function announceRuntimeChangeSet(params: {
   instance: Instance;
-  adapter: CliAdapter;
+  adapter: Pick<CliAdapter, 'sendInput'> & { queueNextPromptContext?(text: string): void };
+  /** ACP account handoffs must never start a notice-only model turn. */
+  delivery?: 'immediate' | 'next-prompt';
   notices: RuntimeChangeNotice[];
   emitSystemNotice(
     instance: Instance,
@@ -292,6 +294,10 @@ export async function announceRuntimeChangeSet(params: {
     .filter((part): part is string => Boolean(part && part.trim()))
     .join('\n\n');
   if (!body) return;
+  if (params.delivery === 'next-prompt') {
+    params.adapter.queueNextPromptContext?.(body);
+    return;
+  }
   try {
     await sendInputWithoutWedging(params.adapter, body, {
       instanceId: params.instance.id,

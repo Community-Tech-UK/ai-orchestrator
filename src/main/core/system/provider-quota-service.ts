@@ -67,6 +67,8 @@ export interface ProviderQuotaProbe {
    * warning, exhausted or pacing alerts (e.g. a disabled pool account).
    */
   readonly silenceAlerts?: boolean;
+  /** Non-secret association identity; replacing it invalidates account figures. */
+  readonly quotaSource?: string;
   /**
    * `force` asks a throttled probe to run now anyway: a decision (an account
    * switch) is about to act on the answer.
@@ -120,7 +122,10 @@ export class ProviderQuotaService extends EventEmitter {
   }
 
   registerProbe(probe: ProviderQuotaProbe): void {
-    this.probes.set(providerQuotaKey(probe.provider, probe.accountProfileId), probe);
+    const key = providerQuotaKey(probe.provider, probe.accountProfileId);
+    const previous = this.probes.get(key);
+    this.probes.set(key, probe);
+    if (previous && previous.quotaSource !== probe.quotaSource) this.invalidateAccountQuota(probe);
   }
 
   /** Drop every non-legacy account probe (and its polling) for a provider, before re-registering. */
@@ -131,6 +136,30 @@ export class ProviderQuotaService extends EventEmitter {
         this.stopPolling(provider, probe.accountProfileId);
       }
     }
+  }
+
+  /** Reconcile account probes without retaining figures from a different source. */
+  replaceAccountProbes(provider: ProviderId, probes: readonly ProviderQuotaProbe[]): void {
+    const nextKeys = new Set(probes.map((probe) => providerQuotaKey(probe.provider, probe.accountProfileId)));
+    for (const [key, previous] of this.probes) {
+      if (previous.provider !== provider || !previous.accountProfileId || previous.accountProfileId === 'legacy') continue;
+      this.stopPolling(provider, previous.accountProfileId);
+      if (nextKeys.has(key)) continue;
+      this.probes.delete(key);
+      if (previous.quotaSource !== undefined) this.invalidateAccountQuota(previous);
+    }
+    for (const probe of probes) this.registerProbe(probe);
+  }
+
+  private invalidateAccountQuota(probe: ProviderQuotaProbe): void {
+    const prefix = `${providerQuotaKey(probe.provider, probe.accountProfileId)}:`;
+    for (const cache of [this.lastUsed, this.alertedKeys, this.pacingAlertedKeys]) {
+      for (const key of cache.keys()) if (key.startsWith(prefix)) cache.delete(key);
+    }
+    this.storeSnapshot(probe.provider, {
+      provider: probe.provider, takenAt: Date.now(), source: 'admin-api', ok: false,
+      notApplicable: true, windows: [],
+    }, probe.accountProfileId);
   }
 
   /** Install (or clear, with null) the CLI-installed gate used by refresh(). */
@@ -230,6 +259,7 @@ export class ProviderQuotaService extends EventEmitter {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+      if (this.probes.get(probeKey) !== probe) return null;
       if (!installed) {
         const notInstalled: ProviderQuotaSnapshot = {
           provider,
@@ -264,7 +294,7 @@ export class ProviderQuotaService extends EventEmitter {
           },
         },
       );
-      if (result == null) return null;
+      if (this.probes.get(probeKey) !== probe || result == null) return null;
       const full: ProviderQuotaSnapshot = {
         ...result,
         takenAt: result.takenAt > 0 ? result.takenAt : Date.now(),
@@ -272,6 +302,7 @@ export class ProviderQuotaService extends EventEmitter {
       this.storeSnapshot(provider, full, accountProfileId);
       return this.getSnapshot(provider, accountProfileId);
     } catch (err) {
+      if (this.probes.get(probeKey) !== probe) return null;
       if (ac.signal.aborted && (this.isPaused || getPauseCoordinator().isPaused())) {
         return null;
       }

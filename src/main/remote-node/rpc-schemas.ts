@@ -142,6 +142,7 @@ const WorkerNodeCapabilitiesSchema = z.object({
   accountProfileIds: z.object({
     claude: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)).max(16).optional(),
     codex: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)).max(16).optional(),
+    opencode: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)).max(16).optional(),
   }).optional().catch(undefined),
   maxConcurrentInstances: z.number().int().positive(),
   workingDirectories: z.array(z.string()),
@@ -272,15 +273,18 @@ export const InstanceSpawnParamsSchema = z.object({
     source: z.string().max(32).optional(),
   }).optional(),
   /**
-   * Claude Code / Codex account pool routing (decision D10). Same contract as
-   * `copilotAccountRoute`: safe metadata only, the worker verifies its own
-   * binding for the profile before spawning.
+   * Claude Code / Codex / OpenCode account pool routing (decision D10). Same
+   * contract as `copilotAccountRoute`: safe metadata only, the worker verifies
+   * its own binding for the profile before spawning. OpenCode/MiMo routes also
+   * carry the Token Plan `region` — it derives the account's provider name and
+   * model metadata on the executing node, and is never a path or credential.
    */
   accountRoute: z.object({
-    provider: z.enum(['claude', 'codex']),
+    provider: z.enum(['claude', 'codex', 'opencode']),
     profileId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/),
     expectedIdentity: z.string().max(320).nullable().optional(),
     source: z.string().max(32).optional(),
+    region: z.enum(['ams', 'sgp', 'cn']).optional(),
   }).optional(),
 });
 

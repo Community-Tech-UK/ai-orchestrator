@@ -36,4 +36,29 @@ describe('BrowserGatewayResultRecorder', () => {
     expect(result.auditId).toBeTruthy();
     expect(result.auditId).not.toBe('persisted-id');
   });
+
+  it('LT-703: writes the safe reason code to both the tool result and the audit row', () => {
+    const record = vi.fn().mockReturnValue({ id: 'persisted-id' });
+    const recorder = new BrowserGatewayResultRecorder({ record });
+
+    const result = recorder.record(baseParams({
+      decision: 'denied',
+      outcome: 'failed',
+      reason: 'dispatch:credential_selector_outside_authorized_origin',
+    }));
+
+    expect(result.reason).toBe('dispatch:credential_selector_outside_authorized_origin');
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'dispatch:credential_selector_outside_authorized_origin',
+    }));
+  });
+
+  it('LT-703: omits the reason column entirely when there is no reason', () => {
+    const record = vi.fn().mockReturnValue({ id: 'persisted-id' });
+    const recorder = new BrowserGatewayResultRecorder({ record });
+
+    recorder.record(baseParams());
+
+    expect(record.mock.calls[0][0]).not.toHaveProperty('reason');
+  });
 });

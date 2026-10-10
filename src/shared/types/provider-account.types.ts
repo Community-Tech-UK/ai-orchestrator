@@ -1,13 +1,17 @@
 /**
- * Provider account pools (Claude Code and Codex CLI) — shared domain types.
+ * Provider account pools (Claude Code, Codex CLI and OpenCode/MiMo) — shared
+ * domain types.
  *
- * A *provider account profile* is one Claude or ChatGPT subscription the user
- * owns, isolated by pointing the unmodified vendor CLI at its own home
- * directory (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`). Profiles of one provider form
- * a *pool*: every Harness-originated invocation resolves exactly one profile
- * before the CLI starts, and a usage-limit rejection on one profile can move
- * the conversation to another profile of the same provider.
- * See docs/superpowers/specs/2026-09-13-provider-account-pools_spec_planned.md.
+ * A *provider account profile* is one Claude, ChatGPT or MiMo Token Plan
+ * subscription the user owns. Claude and Codex are isolated by pointing the
+ * unmodified vendor CLI at its own home directory (`CLAUDE_CONFIG_DIR` /
+ * `CODEX_HOME`); OpenCode/MiMo keeps ONE key store and session store and maps
+ * each account to its own provider name (`aio-mimo-<profileId>`), injected at
+ * spawn through `OPENCODE_CONFIG_CONTENT`. Profiles of one provider form a
+ * *pool*: Claude/Codex invocations and logical MiMo model requests resolve one
+ * profile before the CLI starts. A usage-limit rejection on one profile can
+ * move the conversation to another profile of the same provider.
+ * See docs/plans/2026-10-10-mimo-multi-account_plan_completed.md.
  *
  * Like the Copilot account types these are deliberately secret-free: a profile
  * carries labels and a verified identity string, never a token, a keychain
@@ -18,12 +22,33 @@
 import type { CopilotInvocationOrigin } from './copilot-account.types';
 import { isAutomaticCopilotOrigin } from './copilot-account.types';
 
-export type PooledProvider = 'claude' | 'codex';
+export type PooledProvider = 'claude' | 'codex' | 'opencode';
 
-export const POOLED_PROVIDERS: readonly PooledProvider[] = ['claude', 'codex'];
+export const POOLED_PROVIDERS: readonly PooledProvider[] = ['claude', 'codex', 'opencode'];
 
 export function isPooledProvider(provider: unknown): provider is PooledProvider {
-  return provider === 'claude' || provider === 'codex';
+  return provider === 'claude' || provider === 'codex' || provider === 'opencode';
+}
+
+/** MiMo Token Plan regions. Each region is its own OpenCode built-in provider. */
+export type OpenCodeAccountRegion = 'ams' | 'sgp' | 'cn';
+
+export const OPENCODE_ACCOUNT_REGIONS: readonly OpenCodeAccountRegion[] = ['ams', 'sgp', 'cn'];
+
+/**
+ * Prefix of the OpenCode provider names AIO defines per non-legacy MiMo
+ * account in `OPENCODE_CONFIG_CONTENT`. Filtered out of AIO's own model
+ * discovery; OpenCode resolves the key for such a name from its own key store.
+ */
+export const OPENCODE_ACCOUNT_PROVIDER_PREFIX = 'aio-mimo-';
+
+/**
+ * Only logical MiMo Token Plan selections participate in the MiMo account
+ * pool. OpenCode's native default/auto and other backend ids retain their own
+ * authentication. Routed aio-mimo-* ids exist only inside the adapter.
+ */
+export function isLogicalMiMoModel(model: string | null | undefined): boolean {
+  return /^xiaomi-token-plan(?:-(?:ams|sgp|cn))?\/\S+$/.test(model?.trim() ?? '');
 }
 
 /** Whether a profile may be selected by paths that pick an account automatically. */
@@ -47,8 +72,41 @@ export interface ProviderAccountProfile {
   automationPolicy: AccountAutomationPolicy;
   /** Bound to `~/.claude` / `~/.codex`, never to a derived home. */
   isLegacy: boolean;
+  /**
+   * OpenCode/MiMo only (schema-enforced): the Token Plan region, which decides
+   * the derived provider name and base URL. Absent for Claude/Codex.
+   */
+  region?: OpenCodeAccountRegion;
+  /**
+   * OpenCode/MiMo only, optional (Decision 8): Chrome profile folder name whose
+   * MiMo console sign-in the quota reader uses for this account's allowance.
+   * A bare folder name ("Default", "Profile 1"), never a path.
+   */
+  chromeProfile?: string;
   createdAt: number;
   updatedAt: number;
+}
+
+/**
+ * The OpenCode provider name one account maps to (Decision 1: never stored
+ * free-form). Legacy keeps the pre-existing built-in region provider; every
+ * other account is a `aio-mimo-<profileId>` provider AIO defines at spawn.
+ */
+export function opencodeAccountProviderName(
+  profile: Pick<ProviderAccountProfile, 'id' | 'isLegacy' | 'region'>,
+): string {
+  if (profile.isLegacy) {
+    if (!profile.region) {
+      throw new Error(`OpenCode account profile ${profile.id} has no Token Plan region.`);
+    }
+    return `xiaomi-token-plan-${profile.region}`;
+  }
+  return `${OPENCODE_ACCOUNT_PROVIDER_PREFIX}${profile.id}`;
+}
+
+/** True for the per-account provider names AIO defines (not OpenCode backends). */
+export function isOpenCodeAccountProviderName(providerName: string): boolean {
+  return providerName.startsWith(OPENCODE_ACCOUNT_PROVIDER_PREFIX);
 }
 
 export type AccountFailoverMode = 'automatic' | 'ask' | 'off';
@@ -66,7 +124,7 @@ export interface AccountPreemptivePolicy {
   newSessions: boolean;
   /** Move live sessions at a turn boundary when their profile crosses the threshold. */
   liveSessionsAtTurnBoundary: boolean;
-  /** 5-hour window utilisation, 1..100. */
+  /** Five-hour utilisation or effective MiMo plan/monthly/compensation usage, 1..100. */
   thresholdPct: number;
 }
 
@@ -103,6 +161,12 @@ export interface ResolvedAccountRoute {
   executionNodeId: string;
   profileLabel?: string;
   expectedIdentity?: string;
+  /**
+   * OpenCode/MiMo only: the account's Token Plan region. The executing node
+   * needs it to derive the provider name and read the region's model metadata
+   * from its own `opencode`. Safe metadata, never a credential.
+   */
+  region?: OpenCodeAccountRegion;
 }
 
 export type AccountBindingState =
@@ -173,6 +237,13 @@ export type AccountVetoReason =
 export const PROVIDER_ACCOUNT_PROFILE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 /**
+ * Chrome profile folder names a MiMo account may name for its console sign-in
+ * ("Default", "Profile 1"). A plain folder name, never a path. Keep in sync
+ * with `AccountChromeProfileSchema` in the contracts package.
+ */
+export const ACCOUNT_CHROME_PROFILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$/;
+
+/**
  * The migration-created profile bound to `~/.claude` or `~/.codex`. A profile
  * is legacy exactly when its id is this value (the schema enforces
  * `isLegacy === (id === 'legacy')`), so a wire route needs no extra flag: the
@@ -200,6 +271,7 @@ export function defaultProviderAccountPools(): ProviderAccountPools {
   return {
     claude: clonePoolPolicy(DEFAULT_ACCOUNT_POOL_POLICY),
     codex: clonePoolPolicy(DEFAULT_ACCOUNT_POOL_POLICY),
+    opencode: clonePoolPolicy(DEFAULT_ACCOUNT_POOL_POLICY),
   };
 }
 
@@ -209,5 +281,5 @@ export function clonePoolPolicy(policy: ProviderAccountPoolPolicy): ProviderAcco
 
 /** Display label for a provider's accounts. */
 export function pooledProviderLabel(provider: PooledProvider): string {
-  return provider === 'claude' ? 'Claude' : 'Codex';
+  return provider === 'claude' ? 'Claude' : provider === 'codex' ? 'Codex' : 'MiMo';
 }

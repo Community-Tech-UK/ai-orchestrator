@@ -25,7 +25,14 @@ import {
   assertSafeAccountProfileId,
   resolveAccountProfileHome,
 } from '../cli/adapters/account-pool/provider-account-home-resolver';
-import type { PooledProvider } from '../../shared/types/provider-account.types';
+import {
+  LEGACY_ACCOUNT_PROFILE_ID,
+  opencodeAccountProviderName,
+  type OpenCodeAccountRegion,
+  type PooledProvider,
+} from '../../shared/types/provider-account.types';
+import { openCodeAccountLoginCommand } from '../../shared/utils/opencode-account-login-command';
+import { OPENCODE_REGION_AUTH_LABELS } from './opencode-auth-status';
 import { getProviderAccountStore } from './account-pool/provider-account-store';
 import { seedClaudeProfileHome } from './account-pool/claude-profile-seed';
 import { codexProfileHasAuth, seedCodexProfileHome } from './account-pool/codex-profile-seed';
@@ -304,6 +311,55 @@ export function buildCodexProfileLoginCommand(
   };
 }
 
+/**
+ * A portable temporary-catalog launcher for one custom MiMo account profile.
+ *
+ * OpenCode keeps one key store for every account and keys it by provider name,
+ * so the account's isolation IS the derived provider name: the legacy profile
+ * signs in to `xiaomi-token-plan-<region>`, every other account to
+ * `aio-mimo-<profileId>` (Decision 2). `-p <id>` skips OpenCode's provider
+ * picker after registering the custom name in a temporary catalog; Node is
+ * required on that machine. The key is pasted into the terminal — AIO never reads,
+ * stores or passes it. With no region known for the legacy profile, fall back
+ * to the plain picker command.
+ */
+export function buildOpenCodeProfileLoginCommand(
+  profileId: string,
+  _platform: NodeJS.Platform = process.platform,
+  region?: OpenCodeAccountRegion,
+): ProviderLoginCommand {
+  assertSafeAccountProfileId(profileId);
+  const isLegacy = profileId === LEGACY_ACCOUNT_PROFILE_ID;
+  if (isLegacy && !region) {
+    return {
+      provider: 'opencode',
+      command: 'opencode auth login',
+      hint: 'Pick the Xiaomi Token Plan region that matches the base URL in the MiMo console (Europe is token-plan-ams), then paste the key. OpenCode stores it; Harness never sees it.',
+    };
+  }
+  const providerName = opencodeAccountProviderName({ id: profileId, isLegacy, region });
+  const command = openCodeAccountLoginCommand({ id: profileId, isLegacy, region });
+  return {
+    provider: 'opencode',
+    command,
+    hint: isLegacy
+      ? `Paste the existing ${OPENCODE_REGION_AUTH_LABELS[region!] ?? region} account's Token Plan key. OpenCode stores it under ${providerName}; Harness never sees the key.`
+      : `Paste THIS account's MiMo Token Plan key when prompted. OpenCode stores it under ${providerName}; Harness never sees the key.`,
+  };
+}
+
+/** The account's Token Plan region from settings, when the store is reachable. */
+export function lookupOpenCodeLoginRegion(profileId: string): OpenCodeAccountRegion | undefined {
+  try {
+    return getProviderAccountStore()
+      .listProfiles('opencode')
+      .find((entry) => entry.id === profileId)
+      ?.region;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildAccountProfileLoginCommand(
   request: AccountProfileLoginRequest,
   platform: NodeJS.Platform = process.platform,
@@ -320,6 +376,13 @@ export function buildAccountProfileLoginCommand(
       platform,
       continuation,
       lookupClaudeLoginEmail(request.profileId),
+    );
+  }
+  if (request.provider === 'opencode') {
+    return buildOpenCodeProfileLoginCommand(
+      request.profileId,
+      platform,
+      lookupOpenCodeLoginRegion(request.profileId),
     );
   }
   return buildCodexProfileLoginCommand(request.profileId, platform);
@@ -377,7 +440,7 @@ export function buildTerminalLaunchCandidates(
         file: '/usr/bin/osascript',
         args: [
           '-e',
-          `tell application "Terminal" to do script "${command}"`,
+          `tell application "Terminal" to do script "${command.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`,
           '-e',
           'tell application "Terminal" to activate',
         ],

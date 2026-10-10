@@ -58,7 +58,8 @@ import { assertAdapterNotOnLoan, beginRuntimeChange, type RuntimeChangeClaim } f
 import { announceRuntimeChangeSet, runtimeChangeNoticesFor } from './runtime-change-notices';
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
-import { accountChangeNotice, applyAccountHandoff, restoreAccount, snapshotAccount } from './runtime-reconciler-account-handoff';
+import { isLogicalMiMoModel } from '../../../shared/types/provider-account.types';
+import { accountChangeNotice, applyAccountHandoff, isAccountOnlyChange, restoreAccount, snapshotAccount, tryAccountSwitchInPlace } from './runtime-reconciler-account-handoff';
 import type {
   RecoveryRespawnHooks,
   RecoveryRespawnOutcome,
@@ -110,6 +111,29 @@ export class RuntimeReconciler {
         ? desired.modelRuntimeTarget
         : null;
       const diff = computeRuntimeDiff(instance, desired);
+      if (diff.accountProfileChanged && desired.provider === 'opencode'
+        && !isLogicalMiMoModel(desired.model ?? instance.currentModel)) {
+        throw new Error('MiMo account switches require a MiMo Token Plan model.');
+      }
+      // MiMo multi-account (plan 2026-10-10 phase 4, Decision 6): an
+      // account-only change on a RUNNING OpenCode session switches the live
+      // session between accounts in place — one shared session store, no
+      // restart. Anything else falls through to the respawn handoff below.
+      if (isAccountOnlyChange(diff) && await tryAccountSwitchInPlace({
+        instance,
+        desired,
+        adapter: this.deps.getAdapter(instanceId),
+        oldAccount,
+        emitSystemNotice: this.deps.emitSystemNotice.bind(this.deps),
+        queueUpdate: this.deps.queueUpdate.bind(this.deps),
+        emitRuntimeChanged: this.deps.emitRuntimeChanged.bind(this.deps),
+      })) {
+        logger.info('Account switched in place on the live OpenCode session', {
+          instanceId,
+          accountProfileId: instance.accountProfileId,
+        });
+        return instance;
+      }
       const isProviderSwap = diff.providerChanged;
       const targetProvider = desired.provider as SwapTargetProvider;
       const settingsAll = this.deps.getSettings();
@@ -189,179 +213,182 @@ export class RuntimeReconciler {
         await oldAdapter.terminate(true);
       }
 
-      // Update instance state
-      this.deps.transitionState(instance, 'initializing');
-      instance.yoloMode = nextYoloMode;
-
-      // Resolve agent and permissions
-      const agent = getAgentById(instance.agentId) || getDefaultAgent();
-      const toolPermissions = buildToolPermissionConfig(
-        instance.toolPermissionsOverride ?? agent.permissions,
-        {
-          allowedToolsPolicy: 'standard-unless-yolo',
-          yoloMode: nextYoloMode,
-        },
-      );
-      attachToolFilterMetadata(instance, toolPermissions.toolFilter);
-
-      if (isProviderSwap) {
-        // Must happen before resolveCliTypeForInstance — the CLI type (and
-        // every spawn option keyed off it: MCP config, browser-gateway MCP,
-        // permission hooks) derives from instance.provider.
-        instance.provider = targetProvider;
-        if (instance.fastMode && targetProvider !== 'claude' && targetProvider !== 'codex') {
-          logger.info('Dropping fast mode — target provider has no equivalent', {
-            instanceId,
-            targetProvider,
-          });
-          instance.fastMode = false;
-        }
-      }
-
-      // Copilot account handoff. Terminating the old provider session and
-      // creating a new one is the ONLY way to move a conversation between
-      // GitHub accounts: a native resume would replay this conversation's
-      // context through the new seat under the old session's identity.
-      // Requires explicit confirmation because the context does cross.
-      if (diff.copilotAccountChanged) {
-        if (!desired.copilotAccountHandoffConfirmed) {
-          throw new Error(
-            'Switching this conversation to another GitHub Copilot account needs explicit confirmation: '
-            + 'the existing provider session is ended and the conversation context is sent through the new account.',
-          );
-        }
-        instance.copilotAccountProfileId = desired.copilotAccountProfileId;
-        instance.copilotRoutingSource = 'explicit';
-        instance.copilotRoutingRuleId = undefined;
-      }
-
-      // Claude/Codex account-pool handoff: failover/pre-emptive need no confirmation.
-      const accountContinuation = diff.accountProfileChanged ? applyAccountHandoff(instance, desired) : undefined;
-      const cliType = await this.deps.resolveCliTypeForInstance(instance);
-      const continuity = isYoloOnlyChange
-        ? (hasConversation && oldAdapterCapabilities.supportsResume
-            ? (oldAdapterCapabilities.supportsForkSession ? 'native-resume-fork' : 'native-resume')
-            : 'replay')
-        : planContinuity({
-            diff,
-            capabilities: oldAdapterCapabilities,
-            hasConversation,
-            cliType,
-            isLocalModelTarget: !!localModelTarget,
-            accountContinuation,
-          });
-      const shouldResume = continuity !== 'replay';
-      const shouldForkSession = continuity === 'native-resume-fork';
-
-      // Validate model against provider before passing it
       let validatedModel: string | undefined = localModelTarget?.modelId ?? newModel;
-      if (!localModelTarget && newModel !== undefined && isModelTier(newModel)) {
-        validatedModel = resolveModelForTier(newModel, cliType);
-      }
+      // Admission and adapter construction can reject before spawn. Cover
+      // every post-teardown mutation with the same rollback as spawn.
+      try {
+        // Update instance state
+        this.deps.transitionState(instance, 'initializing');
+        instance.yoloMode = nextYoloMode;
 
-      // Mirrors spawn-time validation against CLI discovery + unified catalog snapshot.
-      const modelToValidate = validatedModel;
-      if (!localModelTarget && modelToValidate !== undefined) {
-        // Keyed by the session's Copilot account: an account policy can deny an
-        // individual model, so a denial under one seat must not decide what is
-        // valid for the other.
-        const knownModelIds = await getKnownModelsForCli(
-          cliType,
-          instance.copilotAccountProfileId,
+        // Resolve agent and permissions
+        const agent = getAgentById(instance.agentId) || getDefaultAgent();
+        const toolPermissions = buildToolPermissionConfig(
+          instance.toolPermissionsOverride ?? agent.permissions,
+          {
+            allowedToolsPolicy: 'standard-unless-yolo',
+            yoloMode: nextYoloMode,
+          },
         );
-        const selection = resolveRuntimeChangeModel({
-          provider: cliType,
-          requestedModel: modelToValidate,
-          knownModelIds,
-          fallbackModel: getDefaultModelForCli(cliType),
-          allowDynamicModel: isDynamicProviderModelId(cliType, modelToValidate),
-          modelSource: swapModelSource,
-        });
-        if (selection.degradation) {
-          logger.warn('Model not valid for target provider during runtime change, using provider default', {
-            model: selection.degradation.requestedModel,
-            provider: cliType,
-            validModelCount: knownModelIds.length,
-            fallbackModel: selection.degradation.fallbackModel ?? 'provider-default',
-            source: swapModelSource ?? 'requested',
-            userVisible: selection.userVisible,
-          });
-          if (selection.userVisible) {
-            this.deps.emitModelSelectionDegradation(instance, selection.degradation);
+        attachToolFilterMetadata(instance, toolPermissions.toolFilter);
+
+        if (isProviderSwap) {
+          // Must happen before resolveCliTypeForInstance — the CLI type (and
+          // every spawn option keyed off it: MCP config, browser-gateway MCP,
+          // permission hooks) derives from instance.provider.
+          instance.provider = targetProvider;
+          if (instance.fastMode && targetProvider !== 'claude' && targetProvider !== 'codex') {
+            logger.info('Dropping fast mode — target provider has no equivalent', {
+              instanceId,
+              targetProvider,
+            });
+            instance.fastMode = false;
           }
         }
-        validatedModel = selection.model;
-      }
 
-      // The id the CLI must resume FROM. A fork mints its own target id, so the
-      // pre-generated `newSessionId` below has never existed as a transcript —
-      // passing it as the resume source makes the adapter skip `--resume`
-      // entirely, the health probe find no proof, and this method tear down a
-      // perfectly live session (LT-008). Mirrors interrupt-respawn-handler.
-      const resumeSourceSessionId = instance.sessionId;
-      const newSessionId = shouldResume && shouldForkSession
-        ? generateId()
-        : (shouldResume ? instance.sessionId : generateId());
-      instance.sessionId = newSessionId;
+        // Copilot account handoff. Terminating the old provider session and
+        // creating a new one is the ONLY way to move a conversation between
+        // GitHub accounts: a native resume would replay this conversation's
+        // context through the new seat under the old session's identity.
+        // Requires explicit confirmation because the context does cross.
+        if (diff.copilotAccountChanged) {
+          if (!desired.copilotAccountHandoffConfirmed) {
+            throw new Error(
+              'Switching this conversation to another GitHub Copilot account needs explicit confirmation: '
+              + 'the existing provider session is ended and the conversation context is sent through the new account.',
+            );
+          }
+          instance.copilotAccountProfileId = desired.copilotAccountProfileId;
+          instance.copilotRoutingSource = 'explicit';
+          instance.copilotRoutingRuleId = undefined;
+        }
 
-      instance.currentModel = validatedModel;
-      instance.reasoningEffort = nextReasoningEffort;
-      instance.executionLocation = nextExecutionLocation;
-      if (localModelTarget) {
-        instance.modelRuntimeTarget = localModelTarget;
-        instance.runtimeSummary = buildLocalModelRuntimeSummary(localModelTarget);
-      } else {
-        instance.modelRuntimeTarget = undefined;
-        instance.runtimeSummary = undefined;
-      }
-      const contextTotal = getProviderModelContextWindow(cliType, validatedModel);
-      // LT-018: see resolveSwapContextUsage.
-      instance.contextUsage = resolveSwapContextUsage(
-        instance.contextUsage,
-        contextTotal,
-        shouldResume,
-      );
+        // Claude/Codex account-pool handoff: failover/pre-emptive need no confirmation.
+        const accountContinuation = diff.accountProfileChanged ? applyAccountHandoff(instance, desired) : undefined;
+        const cliType = await this.deps.resolveCliTypeForInstance(instance);
+        const continuity = isYoloOnlyChange
+          ? (hasConversation && oldAdapterCapabilities.supportsResume
+              ? (oldAdapterCapabilities.supportsForkSession ? 'native-resume-fork' : 'native-resume')
+              : 'replay')
+          : planContinuity({
+              diff,
+              capabilities: oldAdapterCapabilities,
+              hasConversation,
+              cliType,
+              isLocalModelTarget: !!localModelTarget,
+              accountContinuation,
+            });
+        const shouldResume = continuity !== 'replay';
+        let actuallyResumed = shouldResume;
+        const shouldForkSession = continuity === 'native-resume-fork';
 
-      const spawnConfigBuilder = this.deps.spawnConfigBuilder;
-      const spawnOptions: UnifiedSpawnOptions = {
-        instanceId: instance.id,
-        sessionId: shouldResume ? resumeSourceSessionId : newSessionId,
-        workingDirectory: instance.workingDirectory,
-        systemPrompt: agent.systemPrompt,
-        model: validatedModel,
-        yoloMode: instance.yoloMode,
-        launchMode: instance.launchMode,
-        bare: instance.bareMode === true,
-        reasoningEffort: nextReasoningEffort,
-        fastMode: instance.fastMode,
-        residentClaude: this.deps.residentClaudeForSpawn(instance),
-        allowedTools: toolPermissions.allowedTools,
-        disallowedTools: toolPermissions.disallowedToolsForSpawn,
-        resume: shouldResume,
-        forkSession: shouldForkSession,
-        mcpConfig: spawnConfigBuilder.getMcpConfig(
-          instance.executionLocation,
-          instance.id,
-          cliType,
-          instance.workingDirectory,
-        ),
-        chromeDevtoolsMcp: spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
-        browserGatewayMcp: spawnConfigBuilder.getBrowserGatewayMcpOptions(
-          instance.executionLocation,
-          instance.id,
-          cliType,
-        ) ?? undefined,
-        nodePlacement: instance.nodePlacement,
-        permissionHookPath: spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
-        rtk: spawnConfigBuilder.getRtkSpawnConfig(),
-        ...(localModelTarget ? { modelRuntimeTarget: localModelTarget } : {}),
-      };
+        // Validate model against provider before passing it
+        if (!localModelTarget && newModel !== undefined && isModelTier(newModel)) {
+          validatedModel = resolveModelForTier(newModel, cliType);
+        }
 
-      let adapter = await this.deps.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
-      this.deps.setupAdapterEvents(instanceId, adapter);
-      this.deps.setAdapter(instanceId, adapter);
+        // Mirrors spawn-time validation against CLI discovery + unified catalog snapshot.
+        const modelToValidate = validatedModel;
+        if (!localModelTarget && modelToValidate !== undefined) {
+          // Keyed by the session's Copilot account: an account policy can deny an
+          // individual model, so a denial under one seat must not decide what is
+          // valid for the other.
+          const knownModelIds = await getKnownModelsForCli(
+            cliType,
+            instance.copilotAccountProfileId,
+          );
+          const selection = resolveRuntimeChangeModel({
+            provider: cliType,
+            requestedModel: modelToValidate,
+            knownModelIds,
+            fallbackModel: getDefaultModelForCli(cliType),
+            allowDynamicModel: isDynamicProviderModelId(cliType, modelToValidate),
+            modelSource: swapModelSource,
+          });
+          if (selection.degradation) {
+            logger.warn('Model not valid for target provider during runtime change, using provider default', {
+              model: selection.degradation.requestedModel,
+              provider: cliType,
+              validModelCount: knownModelIds.length,
+              fallbackModel: selection.degradation.fallbackModel ?? 'provider-default',
+              source: swapModelSource ?? 'requested',
+              userVisible: selection.userVisible,
+            });
+            if (selection.userVisible) {
+              this.deps.emitModelSelectionDegradation(instance, selection.degradation);
+            }
+          }
+          validatedModel = selection.model;
+        }
 
-      try {
+        // The id the CLI must resume FROM. A fork mints its own target id, so the
+        // pre-generated `newSessionId` below has never existed as a transcript —
+        // passing it as the resume source makes the adapter skip `--resume`
+        // entirely, the health probe find no proof, and this method tear down a
+        // perfectly live session (LT-008). Mirrors interrupt-respawn-handler.
+        const resumeSourceSessionId = instance.sessionId;
+        const newSessionId = shouldResume && shouldForkSession
+          ? generateId()
+          : (shouldResume ? instance.sessionId : generateId());
+        instance.sessionId = newSessionId;
+
+        instance.currentModel = validatedModel;
+        instance.reasoningEffort = nextReasoningEffort;
+        instance.executionLocation = nextExecutionLocation;
+        if (localModelTarget) {
+          instance.modelRuntimeTarget = localModelTarget;
+          instance.runtimeSummary = buildLocalModelRuntimeSummary(localModelTarget);
+        } else {
+          instance.modelRuntimeTarget = undefined;
+          instance.runtimeSummary = undefined;
+        }
+        const contextTotal = getProviderModelContextWindow(cliType, validatedModel);
+        // LT-018: see resolveSwapContextUsage.
+        instance.contextUsage = resolveSwapContextUsage(
+          instance.contextUsage,
+          contextTotal,
+          shouldResume,
+        );
+
+        const spawnConfigBuilder = this.deps.spawnConfigBuilder;
+        const spawnOptions: UnifiedSpawnOptions = {
+          instanceId: instance.id,
+          sessionId: shouldResume ? resumeSourceSessionId : newSessionId,
+          workingDirectory: instance.workingDirectory,
+          systemPrompt: agent.systemPrompt,
+          model: validatedModel,
+          yoloMode: instance.yoloMode,
+          launchMode: instance.launchMode,
+          bare: instance.bareMode === true,
+          reasoningEffort: nextReasoningEffort,
+          fastMode: instance.fastMode,
+          residentClaude: this.deps.residentClaudeForSpawn(instance),
+          allowedTools: toolPermissions.allowedTools,
+          disallowedTools: toolPermissions.disallowedToolsForSpawn,
+          resume: shouldResume,
+          forkSession: shouldForkSession,
+          mcpConfig: spawnConfigBuilder.getMcpConfig(
+            instance.executionLocation,
+            instance.id,
+            cliType,
+            instance.workingDirectory,
+          ),
+          chromeDevtoolsMcp: spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
+          browserGatewayMcp: spawnConfigBuilder.getBrowserGatewayMcpOptions(
+            instance.executionLocation,
+            instance.id,
+            cliType,
+          ) ?? undefined,
+          nodePlacement: instance.nodePlacement,
+          permissionHookPath: spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
+          rtk: spawnConfigBuilder.getRtkSpawnConfig(),
+          ...(localModelTarget ? { modelRuntimeTarget: localModelTarget } : {}),
+        };
+
+        let adapter = await this.deps.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
+        this.deps.setupAdapterEvents(instanceId, adapter);
+        this.deps.setAdapter(instanceId, adapter);
+
         let pid: number;
         try {
           pid = await adapter.spawn();
@@ -375,6 +402,7 @@ export class RuntimeReconciler {
           await this.deps.waitForInputReadinessBoundary(instanceId, adapter);
         } catch (spawnError) {
           if (shouldResume) {
+            actuallyResumed = false;
             logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
             // Strip listeners BEFORE terminating so the doomed resume adapter's
             // exit is not handled as a real instance exit. Without this the exit
@@ -416,6 +444,7 @@ export class RuntimeReconciler {
         }
 
         instance.processId = pid;
+        if (diff.accountProfileChanged) instance.recoveryMethod = actuallyResumed ? 'native' : hasConversation ? 'replay' : 'fresh';
         this.deps.transitionState(instance, 'idle');
         logger.info('Runtime change applied', {
           instanceId,
@@ -463,6 +492,7 @@ export class RuntimeReconciler {
         await announceRuntimeChangeSet({
           instance,
           adapter,
+          ...(diff.accountProfileChanged && instance.provider === 'opencode' ? { delivery: 'next-prompt' as const } : {}),
           emitSystemNotice: this.deps.emitSystemNotice.bind(this.deps),
           notices: runtimeChangeNoticesFor({
             isYoloOnlyChange,

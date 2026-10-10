@@ -4,6 +4,7 @@ import { resolveCliType } from '../cli/adapters/adapter-factory';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
 import { resolveAutomationDefaultModel } from './automation-model-defaults';
+import { rememberLoopAdapterInvocation } from './loop-adapter-account-scope';
 
 export function enableAdapterResume(adapter: unknown): void {
   const setResume = (adapter as { setResume?: (resume: boolean) => void } | null | undefined)?.setResume;
@@ -61,6 +62,7 @@ export async function createPersistentLoopAdapter(opts: {
     'loop',
   );
   const adapter = getProviderRuntimeService().createAdapter({ cliType, options: spawnOptions });
+  rememberLoopAdapterInvocation(adapter, cliType, model);
   if (typeof opts.streamIdleTimeoutMs === 'number') {
     const setter = (adapter as { setStreamIdleTimeoutMs?: (ms: number) => void }).setStreamIdleTimeoutMs;
     if (typeof setter === 'function') setter.call(adapter, opts.streamIdleTimeoutMs);

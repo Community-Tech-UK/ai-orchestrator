@@ -42,7 +42,9 @@ describe('vault locks between secret resolution and browser dispatch', () => {
     if (unlockAgain) session.unlock('TEST_ONLY_NEW_SESSION_PLACEHOLDER');
     finish();
     const result = await filling;
-    expect(result).toMatchObject({ decision: 'denied', outcome: 'failed', reason: 'vault_locked', data: null });
+    // The lock lands during the in-loop origin re-check, so the pre-dispatch
+    // guard is what cancels the fill — and the reason names that exact step.
+    expect(result).toMatchObject({ decision: 'denied', outcome: 'failed', reason: 'pre_dispatch_guard:vault_locked', data: null });
     expect(driverType).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).not.toContain('TEST_ONLY_PASSWORD_PLACEHOLDER');
   });

@@ -56,6 +56,9 @@ describe('browser-approvals-banner.rules', () => {
     }
     expect(credentialAccessChoice('task')).toEqual({ permission: 'task' });
     expect(credentialAccessChoice('7d')).toEqual({ permission: 'remember', rememberForMs: 604_800_000 });
+    expect(credentialAccessChoice('30d')).toEqual({ permission: 'remember', rememberForMs: 2_592_000_000 });
+    expect(credentialAccessChoice('90d')).toEqual({ permission: 'remember', rememberForMs: 7_776_000_000 });
+    expect(credentialAccessChoice('365d')).toEqual({ permission: 'remember', rememberForMs: 31_536_000_000 });
   });
   it('offers all durations for a request_grant that includes submit', () => {
     const approval = makeApproval();

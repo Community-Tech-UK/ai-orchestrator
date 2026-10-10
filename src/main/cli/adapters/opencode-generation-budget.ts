@@ -6,7 +6,10 @@ export interface OpenCodeGenerationBudget {
   combinedOutputTokens: number;
   reasoningBudgetSupported: false;
 }
-const scopedModel = (model: string | undefined) => model?.match(/^(xiaomi-token-plan(?:-[^/]+)?)\/(mimo-v2\.6-pro)$/);
+// Scopes to MiMo-V2.6-Pro under the built-in region providers and under the
+// per-account `aio-mimo-*` providers AIO defines (same model, other account).
+const scopedModel = (model: string | undefined) =>
+  model?.match(/^((?:xiaomi-token-plan(?:-[^/]+)?)|(?:aio-mimo-[a-z0-9-]+))\/(mimo-v2\.6-pro)$/);
 const capOf = (options: Record<string, unknown>) => openCodePositive(options['max_completion_tokens']);
 
 function scopedAgents(config: Record<string, unknown>, model: string): [string, Record<string, unknown>][] {

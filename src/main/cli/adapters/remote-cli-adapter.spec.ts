@@ -12,13 +12,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
 
 const registryEmitter = new EventEmitter();
+const pause = { active: false };
 
 vi.mock('../../remote-node/worker-node-registry', () => ({
   getWorkerNodeRegistry: () => registryEmitter,
 }));
 
 vi.mock('../../pause/pause-coordinator', () => ({
-  getPauseCoordinator: () => ({ isPaused: () => false }),
+  getPauseCoordinator: () => ({ isPaused: () => pause.active }),
 }));
 
 import { RemoteCliAdapter } from './remote-cli-adapter';
@@ -40,6 +41,7 @@ function makeAdapter(sendRpc: ReturnType<typeof vi.fn>): RemoteCliAdapter {
 describe('RemoteCliAdapter.spawn() cleanup invariants', () => {
   beforeEach(() => {
     registryEmitter.removeAllListeners();
+    pause.active = false;
   });
 
   it('RPC success + throwing `spawned` listener keeps remoteInstanceId set so terminate() reaches the worker (Fix C)', async () => {
@@ -122,5 +124,56 @@ describe('RemoteCliAdapter.spawn() cleanup invariants', () => {
     expect(spawnedPids).toEqual([-1]);
     expect(adapter.getRemoteInstanceId()).toBe('inst-remote-1');
     expect(adapter.isRunning()).toBe(true);
+  });
+});
+
+
+describe('RemoteCliAdapter deferred account context', () => {
+  beforeEach(() => { registryEmitter.removeAllListeners(); pause.active = false; });
+
+  it('sends queued notices and replay history with one real prompt, then consumes them', async () => {
+    const sendRpc = vi.fn().mockResolvedValueOnce({ instanceId: 'inst-remote-1' }).mockResolvedValue(undefined);
+    const adapter = makeAdapter(sendRpc);
+    await adapter.spawn();
+    adapter.queueNextPromptContext('REPLAY');
+    adapter.queueNextPromptContext('ACCOUNT');
+    expect(sendRpc).toHaveBeenCalledTimes(1);
+    await adapter.sendInput('work');
+    await adapter.sendInput('next work');
+    expect(sendRpc.mock.calls.filter((call) => call[1] === 'instance.sendInput').map((call) => call[2].message))
+      .toEqual(['REPLAY\n\nACCOUNT\n\nwork', 'next work']);
+  });
+
+  it('retains context after pause and RPC refusal, without consuming later additions', async () => {
+    const sendRpc = vi.fn().mockResolvedValueOnce({ instanceId: 'inst-remote-1' })
+      .mockRejectedValueOnce(new Error('previous turn still running')).mockResolvedValue(undefined);
+    const adapter = makeAdapter(sendRpc);
+    await adapter.spawn();
+    adapter.queueNextPromptContext('ACCOUNT');
+    pause.active = true;
+    await expect(adapter.sendInput('work')).rejects.toThrow(/paused/);
+    pause.active = false;
+    await expect(adapter.sendInput('work')).rejects.toThrow(/previous turn/);
+    await adapter.sendInput('work');
+    await adapter.sendInput('next');
+    expect(sendRpc.mock.calls.filter((call) => call[1] === 'instance.sendInput').map((call) => call[2].message))
+      .toEqual(['ACCOUNT\n\nwork', 'ACCOUNT\n\nwork', 'next']);
+  });
+
+  it('reserves context for one pending RPC, retaining additions for the following prompt', async () => {
+    let release!: () => void;
+    const sendRpc = vi.fn().mockResolvedValueOnce({ instanceId: 'inst-remote-1' })
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; })).mockResolvedValue(undefined);
+    const adapter = makeAdapter(sendRpc);
+    await adapter.spawn();
+    adapter.queueNextPromptContext('FIRST');
+    const pending = adapter.sendInput('work');
+    adapter.queueNextPromptContext('SECOND');
+    await expect(adapter.sendInput('collision')).rejects.toThrow(/previous turn/);
+    release();
+    await pending;
+    await adapter.sendInput('next work');
+    expect(sendRpc.mock.calls.filter((call) => call[1] === 'instance.sendInput').map((call) => call[2].message))
+      .toEqual(['FIRST\n\nwork', 'SECOND\n\nnext work']);
   });
 });

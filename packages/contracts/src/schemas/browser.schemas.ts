@@ -323,6 +323,13 @@ export const BrowserAuditEntrySchema = z
     decision: BrowserGatewayDecisionSchema,
     outcome: BrowserGatewayOutcomeSchema,
     summary: z.string().min(1).max(2000),
+    /**
+     * Safe decision/failure reason code (`<step>:<code>` on the fill failure
+     * path, or the operation's self-naming denial code). Redaction-filtered and
+     * length-bounded before storage; never carries a value or secret, but may
+     * contain short explanatory prose from a denial template.
+     */
+    reason: z.string().min(1).max(1000).optional(),
     redactionApplied: z.boolean(),
     screenshotArtifactId: idSchema.optional(),
     requestId: idSchema.optional(),

@@ -58,3 +58,32 @@ describe('ACP generation budget requires native model selection', () => {
     } finally { proc.exit(); }
   });
 });
+
+
+describe('ACP budget confirmation follows the latest native state', () => {
+  it.each(['notification', 'effort-response'] as const)('rejects a prior model acknowledgment superseded by a mismatching %s', async (mode) => {
+    const proc = createInitializedAgentHarness();
+    const options = (selected: string) => [modelOption(selected, ['other/model', MODEL]), {
+      id: 'effort', category: 'thought_level', currentValue: 'low', options: [{ value: 'low' }, { value: 'high' }],
+    }];
+    proc.onRequest('session/new', (request) => proc.respond(request.id, { sessionId: 'sess-acp-1', configOptions: options('other/model') }));
+    proc.onRequest('session/set_config_option', (request) => {
+      if ((request.params as { configId: string }).configId === 'effort') {
+        proc.respond(request.id, { configOptions: options('other/model') }); return;
+      }
+      proc.respond(request.id, { configOptions: options(MODEL) });
+      if (mode === 'notification') proc.notify('session/update', { sessionId: 'sess-acp-1', update: {
+        sessionUpdate: 'config_option_update', configOptions: options('other/model'),
+      } });
+    });
+    const adapter = new TestAcpCliAdapter(proc, { workingDirectory: '/tmp', generationBudget: BUDGET,
+      sessionConfig: { model: MODEL, ...(mode === 'effort-response' ? { effort: 'high' } : {}) } });
+    const statuses: string[] = [];
+    adapter.on('status', (status) => statuses.push(status));
+    try {
+      await expect(adapter.spawn()).rejects.toThrow('Unable to confirm the selected model');
+      expect(statuses).not.toContain('ready');
+      expect(proc.receivedMessages.filter((message) => 'method' in message && message.method === 'session/prompt')).toEqual([]);
+    } finally { proc.exit(); }
+  });
+});

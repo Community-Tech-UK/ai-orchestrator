@@ -1,5 +1,6 @@
 /**
- * Node-local sign-in health for Claude and Codex account profiles.
+ * Node-local sign-in health for Claude, Codex and OpenCode/MiMo account
+ * profiles.
  *
  * - Claude: `claude auth status --json` with the profile's `CLAUDE_CONFIG_DIR`
  *   (no network). The reported `configDirectory` must equal the derived home
@@ -10,6 +11,10 @@
  *   file holds refresh tokens and is never logged, returned or retained.
  *   Identity (email, account id) comes from the short-lived app-server probe,
  *   recorded here via `rememberObservedIdentity`.
+ * - OpenCode/MiMo: `opencode auth list` lists the derived provider name
+ *   (`aio-mimo-<profileId>`, or the region name for the legacy profile) —
+ *   names only, never values. No identity can be read from a key, so identity
+ *   is the user's label and `identity-mismatch` never occurs.
  *
  * Never throws for an unreadable profile: `unavailable` blocks a spawn just as
  * firmly. Results are cached for 30 s per (provider, profile, node).
@@ -25,9 +30,12 @@ import type {
   PooledProvider,
   ProviderAccountProfile,
 } from '../../../shared/types/provider-account.types';
+import { opencodeAccountProviderName } from '../../../shared/types/provider-account.types';
 import { buildCliSpawnOptions } from '../../cli/cli-environment';
 import { resolveAccountProfileHome, type AccountProfileHome } from '../../cli/adapters/account-pool/provider-account-home-resolver';
 import { CLAUDE_STRIPPED_AUTH_ENV_VARS } from '../../cli/adapters/adapter-spawn-helpers';
+import { withOpenCodeProcessGate } from '../../cli/adapters/opencode-process-gate';
+import { parseOpenCodeAuthCredentialNames, parseOpenCodeAuthList, openCodeAuthNamesFor } from '../opencode-auth-status';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { getLogger } from '../../logging/logger';
 import { emitProviderAccountEvent } from './provider-account-events';
@@ -37,6 +45,7 @@ const logger = getLogger('ProviderAccountBinding');
 export const LOCAL_ACCOUNT_NODE_ID = 'local';
 const BINDING_CACHE_TTL_MS = 30_000;
 const CLAUDE_AUTH_STATUS_TIMEOUT_MS = 8_000;
+const OPENCODE_AUTH_LIST_TIMEOUT_MS = 8_000;
 export const MAX_CODEX_AUTH_BYTES = 64 * 1024;
 
 export interface ObservedAccountIdentity {
@@ -56,6 +65,8 @@ export interface ProviderAccountBindingDeps {
   runClaudeAuthStatus?: (env: NodeJS.ProcessEnv) => Promise<ClaudeAuthStatusResult>;
   readCodexAuthHead?: (home: string) => Promise<string | null>;
   legacyCodexHome?: () => string;
+  /** Raw `opencode auth list` output, or null when it cannot be read. Names only. */
+  readOpenCodeAuthList?: () => Promise<string | null>;
   now?: () => number;
 }
 
@@ -97,6 +108,28 @@ async function defaultReadCodexAuthHead(home: string): Promise<string | null> {
     if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') return null;
     throw error;
   }
+}
+
+/**
+ * `opencode auth list` through the shared process gate (it opens OpenCode's
+ * database). The output lists provider names/labels and counts only.
+ */
+function defaultReadOpenCodeAuthList(): Promise<string | null> {
+  return withOpenCodeProcessGate(() => new Promise<string | null>((resolve) => {
+    execFile(
+      'opencode',
+      ['auth', 'list'],
+      { timeout: OPENCODE_AUTH_LIST_TIMEOUT_MS, maxBuffer: 256 * 1024, ...buildCliSpawnOptions() },
+      (error, stdout) => {
+        // Partial output from a failed process is not sign-in evidence.
+        if (error) {
+          resolve(null);
+          return;
+        }
+        resolve(typeof stdout === 'string' ? stdout : String(stdout ?? ''));
+      },
+    );
+  }));
 }
 
 export class ProviderAccountBindingService {
@@ -195,6 +228,20 @@ export class ProviderAccountBindingService {
   }
 
   private async runCheck(profile: ProviderAccountProfile, nodeId: string): Promise<AccountBindingStatus> {
+    if (profile.provider === 'opencode') {
+      // OpenCode keeps one key store for every account: no per-account home to
+      // resolve or verify.
+      try {
+        return await this.checkOpenCode(profile, nodeId);
+      } catch (error) {
+        logger.warn('Account binding check failed', {
+          provider: profile.provider,
+          profileId: profile.id,
+          code: (error as NodeJS.ErrnoException | undefined)?.code,
+        });
+        return this.build(profile, nodeId, 'unavailable', { errorCode: 'check-failed' });
+      }
+    }
     let home: AccountProfileHome;
     try {
       home = this.resolveHome(profile);
@@ -213,6 +260,35 @@ export class ProviderAccountBindingService {
       });
       return this.build(profile, nodeId, 'unavailable', { errorCode: 'check-failed' });
     }
+  }
+
+  /**
+   * An OpenCode/MiMo account is authenticated when `opencode auth list` lists
+   * its derived provider name (probe finding P3: `aio-mimo-*` prints its id,
+   * the built-in region providers their display label). Names only; the key
+   * value is never read. No identity can be read from a key, so identity is
+   * the user's label and a mismatch is undetectable here.
+   */
+  private async checkOpenCode(profile: ProviderAccountProfile, nodeId: string): Promise<AccountBindingStatus> {
+    const output = await (this.deps.readOpenCodeAuthList ?? defaultReadOpenCodeAuthList)();
+    if (output === null) {
+      return this.build(profile, nodeId, 'unavailable', { errorCode: 'auth-list-unreadable' });
+    }
+    if (parseOpenCodeAuthList(output) === null) {
+      return this.build(profile, nodeId, 'unavailable', { errorCode: 'unexpected-output' });
+    }
+    const names = parseOpenCodeAuthCredentialNames(output);
+    let providerName: string;
+    try {
+      providerName = opencodeAccountProviderName(profile);
+    } catch {
+      return this.build(profile, nodeId, 'unavailable', { errorCode: 'no-region' });
+    }
+    const listed = openCodeAuthNamesFor(providerName).some((name) => names.includes(name));
+    if (!listed) {
+      return this.build(profile, nodeId, 'unauthenticated', { errorCode: 'no-auth' });
+    }
+    return this.build(profile, nodeId, 'authenticated');
   }
 
   private async checkClaude(

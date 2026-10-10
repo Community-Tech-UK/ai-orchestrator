@@ -1345,7 +1345,7 @@ export class LoopCoordinator extends EventEmitter {
   /** Banner "Cancel": disarm a provider-limit auto-resume, staying parked. */
   cancelProviderLimitResume(loopRunId: string): boolean {
     if (this.lifecycle.getState(loopRunId)?.status !== 'provider-limit') return false;
-    this.providerLimitHandler.clearResumeTimer(loopRunId);
+    this.providerLimitHandler.clearResumeTimer(loopRunId, true);
     return true;
   }
 
@@ -1406,7 +1406,7 @@ export class LoopCoordinator extends EventEmitter {
       this.scheduledWakeups.delete(loopRunId);
     }
     // A manual resume supersedes any pending provider-limit auto-resume timer.
-    this.providerLimitHandler.clearResumeTimer(loopRunId);
+    this.providerLimitHandler.clearResumeTimer(loopRunId, state.status === 'provider-limit');
     // Clears both park gates — see applyManualResumeOverride.
     if (state.status === 'provider-limit') this.providerLimitHandler.applyManualResumeOverride(state.config.provider, loopRunId);
     state.status = 'running';
@@ -1797,6 +1797,7 @@ export class LoopCoordinator extends EventEmitter {
             source: 'quota',
             action: throttle.action,
             windowId: throttle.window?.id,
+            limitScope: throttle.limitScope,
           });
           if (outcome === 'terminated') return;
           // parked: next pass blocks in waitWhilePaused; switched-provider: re-check the new provider.

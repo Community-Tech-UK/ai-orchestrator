@@ -12,6 +12,7 @@ import type {
   AccountFailoverMode,
   AccountPreemptivePolicy,
   AccountRouteOutcome,
+  OpenCodeAccountRegion,
   PooledProvider,
   ProviderAccountPoolPolicy,
   ProviderAccountPools,
@@ -29,6 +30,10 @@ export interface ProviderAccountView {
   enabled: boolean;
   automationPolicy: AccountAutomationPolicy;
   isLegacy: boolean;
+  /** MiMo only: Token Plan region. */
+  region?: OpenCodeAccountRegion;
+  /** MiMo only: Chrome profile folder for the allowance read. */
+  chromeProfile?: string;
   createdAt: number;
   updatedAt: number;
   binding?: {
@@ -75,7 +80,13 @@ export class ProviderAccountIpcService {
     return response.data as { profiles: ProviderAccountView[]; pools: ProviderAccountPools };
   }
 
-  create(input: { provider: PooledProvider; label: string; automationPolicy?: AccountAutomationPolicy }): Promise<IpcResponse> {
+  create(input: {
+    provider: PooledProvider;
+    label: string;
+    automationPolicy?: AccountAutomationPolicy;
+    region?: OpenCodeAccountRegion;
+    chromeProfile?: string;
+  }): Promise<IpcResponse> {
     return this.api?.createProviderAccount(input) ?? Promise.resolve(NOT_ELECTRON);
   }
 
@@ -85,6 +96,8 @@ export class ProviderAccountIpcService {
     label?: string;
     enabled?: boolean;
     automationPolicy?: AccountAutomationPolicy;
+    /** MiMo only: `null` removes the association; added accounts then have no allowance reader. */
+    chromeProfile?: string | null;
     adoptObservedIdentity?: boolean;
   }): Promise<IpcResponse> {
     return this.api?.updateProviderAccount(input) ?? Promise.resolve(NOT_ELECTRON);

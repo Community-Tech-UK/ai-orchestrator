@@ -25,7 +25,7 @@ import {
   COPILOT_LEGACY_PROFILE_ID,
   normalizeCopilotHost,
 } from '../../../shared/types/copilot-account.types';
-import { migrateProviderAccountLegacyProfiles } from './settings-migrations-provider-accounts';
+import { migrateProviderAccountLegacyProfiles, migrateOpenCodeLegacyProfile } from './settings-migrations-provider-accounts';
 // Static, not `require`: the legacy profile must resolve to the SAME directory
 // the adapter uses, and a second copy of that derivation here would drift.
 // adapter-spawn-helpers has no path back to the settings manager, so this
@@ -565,6 +565,11 @@ export function runSettingsMigrations(store: SettingsMigrationStore): void {
   // profiles so account pools have something to resolve to.
   if (migrateProviderAccountLegacyProfiles(store)) {
     logger.info('Created the legacy Claude and Codex account profiles');
+  }
+  // Bind a pre-existing `xiaomi-token-plan-*` credential (names only) to the
+  // legacy OpenCode/MiMo profile. Conditional: no credential, no profile.
+  if (migrateOpenCodeLegacyProfile(store)) {
+    logger.info('Created the legacy MiMo account profile');
   }
   migrateLegacyCustomModelOverride({
     // The generic deps read/write concrete AppSettings keys; this store surface

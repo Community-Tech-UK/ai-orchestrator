@@ -10,7 +10,7 @@
  */
 
 import type { PooledProvider } from '../../../shared/types/provider-account.types';
-import { isPooledProvider, pooledProviderLabel } from '../../../shared/types/provider-account.types';
+import { isLogicalMiMoModel, isPooledProvider, pooledProviderLabel } from '../../../shared/types/provider-account.types';
 import { getProviderLimitLedgerPort } from '../../core/system/provider-limit-ledger';
 import { getNotificationService } from '../../notifications/notification-service';
 import { getLogger } from '../../logging/logger';
@@ -43,6 +43,7 @@ export interface LoopAccountFailoverDeps {
 
 export class LoopAccountFailover {
   private readonly accounts = new Map<string, LoopAccountState>();
+  private readonly models = new Map<string, { provider: string; model: string | null }>();
   private readonly recyclers = new Map<string, () => Promise<void> | void>();
 
   constructor(private readonly deps: LoopAccountFailoverDeps = {}) {}
@@ -52,9 +53,20 @@ export class LoopAccountFailover {
   }
 
   /** Record the account a loop iteration's adapter ran on. */
-  noteIterationAdapter(loopRunId: string, adapter: unknown): void {
+  noteIterationAdapter(
+    loopRunId: string,
+    adapter: unknown,
+    invocation?: { provider: string; model: string | null | undefined },
+  ): void {
     const route = getAdapterAccountRoute(adapter);
-    if (!route) return;
+    if (invocation) this.models.set(loopRunId, { provider: invocation.provider, model: invocation.model?.trim() || null });
+    else this.models.delete(loopRunId);
+    // A same-provider OpenCode replacement may be Zen or another unpooled
+    // backend. Absence of a route is evidence, not permission to keep MiMo.
+    if (!route || (route.provider === 'opencode' && invocation && !isLogicalMiMoModel(invocation.model))) {
+      this.accounts.delete(loopRunId);
+      return;
+    }
     const previous = this.accounts.get(loopRunId);
     this.accounts.set(loopRunId, {
       provider: route.provider,
@@ -75,7 +87,24 @@ export class LoopAccountFailover {
     return state && state.provider === provider ? state.profileId : null;
   }
 
+  /** Logical model passed when the current adapter was created, never a new settings read. */
+  currentModel(loopRunId: string, provider: string): string | null {
+    const current = this.models.get(loopRunId);
+    return current?.provider === provider ? current.model : null;
+  }
+
+  /** Whether next-spawn routing can choose a non-legacy profile; null means unavailable. */
+  hasAccountPool(provider: string): boolean | null {
+    if (!isPooledProvider(provider)) return false;
+    try {
+      return (this.deps.store ?? getProviderAccountStore)().listProfiles(provider).some((profile) => !profile.isLegacy);
+    } catch {
+      return null;
+    }
+  }
+
   clear(loopRunId: string): void {
+    this.models.delete(loopRunId);
     this.accounts.delete(loopRunId);
     this.recyclers.delete(loopRunId);
   }
@@ -98,6 +127,9 @@ export class LoopAccountFailover {
     if (!isPooledProvider(params.provider)) return false;
     const current = this.accounts.get(params.loopRunId);
     if (!current || current.provider !== params.provider) return false;
+    // null is the current handler's account-wide MiMo limit, whose route is
+    // already confirmed. Concrete switch requests must name logical MiMo.
+    if (params.provider === 'opencode' && params.model !== null && !isLogicalMiMoModel(params.model)) return false;
     let store: Pick<ProviderAccountStore, 'listProfiles' | 'getPoolPolicy' | 'getProfile'>;
     try {
       store = (this.deps.store ?? getProviderAccountStore)();

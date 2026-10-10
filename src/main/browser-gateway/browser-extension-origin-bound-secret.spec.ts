@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it, vi } from 'vitest';
 import { extractFunctionSource } from './browser-extension-function-source.testutil';
+import { SAFE_CREDENTIAL_CODES } from './browser-credential-fill-targeting';
 
 const background = readFileSync('resources/browser-extension/background.js', 'utf8');
 const SECRET = 'TEST_ONLY_ORIGIN_BOUND_SECRET';
@@ -27,6 +28,10 @@ interface ScriptInjection {
 function buildOriginBoundTypeHarness(options: {
   tabUrls?: string[];
   frameOrigins?: Array<{ frameId: number; origin: string }>;
+  /** Per-frame answer for the secret-free `find` probe used to classify a miss. */
+  findResults?: Array<{ frameId: number; found: boolean }>;
+  /** Per-frame answer for the secret-bearing `type` injection. */
+  typeResults?: Array<{ frameId: number; found: boolean }>;
   secretWriteError?: string;
   taintError?: string;
 }) {
@@ -48,6 +53,20 @@ function buildOriginBoundTypeHarness(options: {
         }
         if (options.secretWriteError) {
           throw new Error(options.secretWriteError);
+        }
+        if (input.args?.[0] === 'find' && options.findResults) {
+          return options.findResults.map(({ frameId, found }) => ({
+            frameId,
+            result: found ? { __found: true } : { __found: false },
+          }));
+        }
+        if (input.args?.[0] === 'type' && options.typeResults) {
+          return options.typeResults.map(({ frameId, found }) => ({
+            frameId,
+            result: found
+              ? { __found: true, valueApplied: true }
+              : { __found: false },
+          }));
         }
         return (input.target.frameIds ?? []).map((frameId) => ({
           frameId,
@@ -76,6 +95,8 @@ function buildOriginBoundTypeHarness(options: {
 ${extractFunctionSource(background, 'credentialFrameOriginProbe')}
 ${extractFunctionSource(background, 'mergeFrameResults')}
 ${extractFunctionSource(background, 'pageBridgeScript')}
+${extractFunctionSource(background, 'safeCredentialRefusal')}
+${extractFunctionSource(background, 'credentialTypeMergeFailure')}
 ${extractFunctionSource(background, 'runOriginBoundType')}
 return runOriginBoundType;`,
   );
@@ -92,6 +113,8 @@ return runOriginBoundType;`,
     selector: string,
     value: string,
     expectedOrigin: string,
+    credentialProtection?: string,
+    expectedPageOrigin?: string,
   ) => Promise<unknown>;
   return { chrome, markSecretTaint, runOriginBoundType };
 }
@@ -791,6 +814,7 @@ ${extractFunctionSource(background, 'executeBrowserCommand')}; return executeBro
       SECRET,
       AUTHORIZED_ORIGIN,
       undefined,
+      undefined,
     );
     expect(runInTargetTab).not.toHaveBeenCalled();
     expect(typeByUid).not.toHaveBeenCalled();
@@ -1100,5 +1124,297 @@ ${extractFunctionSource(background, 'executeBrowserCommand')}; return executeBro
     expect(JSON.stringify(result)).not.toContain(SECRET);
     expect((dom.window.document.querySelector('#password') as HTMLSelectElement).value)
       .toBe('unchanged');
+  });
+});
+
+/**
+ * LT-703 regressions. LCN serves https://www.lcn.com/login's form from
+ * https://login.lcn.com through #login-iframe, so the fields live in a
+ * cross-origin subframe of the page the tab shows. The writer used to require
+ * the TOP-LEVEL frame to be the authorized origin (and to report every miss as
+ * `No element matches selector`), which made such a form unfillable and the
+ * failure unreadable.
+ */
+describe('extension credential writes into embedded cross-origin forms', () => {
+  const PAGE_ORIGIN = 'https://www.lcn.com';
+  const FORM_ORIGIN = 'https://login.lcn.com';
+  // Frame 0 is the embedding page; frame 3 is the login form's own document.
+  const EMBEDDED_FORM_FRAMES = [
+    { frameId: 0, origin: PAGE_ORIGIN },
+    { frameId: 3, origin: FORM_ORIGIN },
+  ];
+
+  it('writes into the form frame when that frame is the authorized origin', async () => {
+    const { chrome, runOriginBoundType } = buildOriginBoundTypeHarness({
+      tabUrls: [`${PAGE_ORIGIN}/login`],
+      frameOrigins: EMBEDDED_FORM_FRAMES,
+    });
+
+    // The receiving origin is the FORM's; the page origin is watched separately.
+    const result = await runOriginBoundType(
+      { target: { tabId: 42 } },
+      '#password',
+      SECRET,
+      FORM_ORIGIN,
+      'password',
+      PAGE_ORIGIN,
+    );
+
+    // The write landed in frame 3 (the form frame) and never in frame 0: the
+    // secret-bearing injection targets only the receiving origin's frames.
+    expect(result).toMatchObject({ valueApplied: true });
+    const typeInjection = chrome.scripting.executeScript.mock.calls
+      .map((call) => call[0] as { args?: unknown[]; target: { frameIds?: number[] } })
+      .find((injection) => injection.args?.[0] === 'type');
+    expect(typeInjection?.target.frameIds).toEqual([3]);
+  });
+
+  it('classifies a field that lives only outside the authorized origin', async () => {
+    const { chrome, runOriginBoundType } = buildOriginBoundTypeHarness({
+      tabUrls: [`${PAGE_ORIGIN}/login`],
+      frameOrigins: EMBEDDED_FORM_FRAMES,
+      findResults: [
+        { frameId: 0, found: false },
+        { frameId: 3, found: true },
+      ],
+    });
+
+    // Scoped to the EMBEDDING page's origin (the LCN failure exactly): the
+    // field is on the page, but only in the form's frame.
+    await expect(runOriginBoundType(
+      { target: { tabId: 42 } },
+      '#username',
+      SECRET,
+      PAGE_ORIGIN,
+      'public',
+      PAGE_ORIGIN,
+    )).rejects.toThrow('credential_selector_outside_authorized_origin');
+
+    // The secret-bearing injection only ever targets the authorized frames.
+    for (const call of chrome.scripting.executeScript.mock.calls) {
+      const injection = call[0] as { args?: unknown[]; target: { frameIds?: number[] } };
+      if (injection.args?.[0] === 'type') {
+        expect(injection.target.frameIds).toEqual([0]);
+      }
+    }
+  });
+
+  it('distinguishes a wrong selector from a wrong origin', async () => {
+    const { runOriginBoundType } = buildOriginBoundTypeHarness({
+      tabUrls: [`${PAGE_ORIGIN}/login`],
+      frameOrigins: EMBEDDED_FORM_FRAMES,
+      typeResults: [{ frameId: 3, found: false }],
+      findResults: [
+        { frameId: 0, found: false },
+        { frameId: 3, found: false },
+      ],
+    });
+
+    await expect(runOriginBoundType(
+      { target: { tabId: 42 } },
+      '#nope',
+      SECRET,
+      FORM_ORIGIN,
+      'password',
+      PAGE_ORIGIN,
+    )).rejects.toThrow('credential_selector_not_found');
+  });
+
+  it('refuses before any injection when no frame carries the authorized origin', async () => {
+    const { chrome, runOriginBoundType } = buildOriginBoundTypeHarness({
+      tabUrls: [`${PAGE_ORIGIN}/login`],
+      frameOrigins: [{ frameId: 0, origin: PAGE_ORIGIN }],
+    });
+
+    await expect(runOriginBoundType(
+      { target: { tabId: 42 } },
+      '#password',
+      SECRET,
+      FORM_ORIGIN,
+      'password',
+      PAGE_ORIGIN,
+    )).rejects.toThrow('credential_authorized_origin_not_in_frames');
+
+    const injected = chrome.scripting.executeScript.mock.calls
+      .map((call) => (call[0] as { args?: unknown[] }).args?.[0]);
+    expect(injected).not.toContain('type');
+  });
+
+  it('still aborts when the page navigates away, whatever the form frame is', async () => {
+    const { runOriginBoundType } = buildOriginBoundTypeHarness({
+      // The tab moves off the page origin before the write.
+      tabUrls: [`${PAGE_ORIGIN}/login`, 'https://evil.example/'],
+      frameOrigins: EMBEDDED_FORM_FRAMES,
+    });
+
+    await expect(runOriginBoundType(
+      { target: { tabId: 42 } },
+      '#password',
+      SECRET,
+      FORM_ORIGIN,
+      'password',
+      PAGE_ORIGIN,
+    )).rejects.toThrow('credential_origin_changed_before_write');
+  });
+
+  it('marks an ambiguous multi-frame match as may-have-applied', async () => {
+    const { runOriginBoundType } = buildOriginBoundTypeHarness({
+      tabUrls: [`${PAGE_ORIGIN}/login`],
+      // Two frames of the receiving origin both hold the selector.
+      frameOrigins: [
+        { frameId: 0, origin: FORM_ORIGIN },
+        { frameId: 3, origin: FORM_ORIGIN },
+      ],
+      typeResults: [
+        { frameId: 0, found: true },
+        { frameId: 3, found: true },
+      ],
+    });
+
+    // mergeFrameResults raises this only after the value landed in >=1 frame,
+    // so the code must say so — otherwise an unattended caller retries and
+    // writes the value twice.
+    await expect(runOriginBoundType(
+      { target: { tabId: 42 } },
+      '#username',
+      SECRET,
+      FORM_ORIGIN,
+      'public',
+      PAGE_ORIGIN,
+    )).rejects.toThrow('credential_selector_ambiguous_may_have_applied');
+  });
+
+  it('does not call a hit inside the authorized frames "outside the authorized origin"', async () => {
+    const { runOriginBoundType } = buildOriginBoundTypeHarness({
+      tabUrls: [`${PAGE_ORIGIN}/login`],
+      frameOrigins: EMBEDDED_FORM_FRAMES,
+      // The write missed in frame 0, but by the classification probe the
+      // selector has appeared there (a race between the two injections).
+      typeResults: [{ frameId: 0, found: false }],
+      findResults: [{ frameId: 0, found: true }],
+    });
+
+    await expect(runOriginBoundType(
+      { target: { tabId: 42 } },
+      '#username',
+      SECRET,
+      PAGE_ORIGIN,
+      'public',
+      PAGE_ORIGIN,
+    )).rejects.toThrow('credential_selector_not_found');
+  });
+
+  it('lets its own fixed codes cross the native boundary but never free text', async () => {
+    const postNativeMessage = vi.fn();
+    const build = new Function(
+      'assertGatewayEnabled',
+      'runCommandWithWatchdog',
+      'isTabPayload',
+      'broadcastNativeMessage',
+      'postNativeMessage',
+      'clearPollInFlight',
+      'persistBridgeStatus',
+      'scheduleNextPoll',
+      'POLL_TIMEOUT_MS',
+      'targetSecretTaintOrigin',
+      `const secretObservationGuardErrors = new WeakSet();
+${SECRET_OBSERVATION_PROTECTION_STUBS}
+${extractFunctionSource(background, 'browserCommandErrorMessage')}
+${extractFunctionSource(background, 'runBrowserCommand')}
+return runBrowserCommand;`,
+    );
+    const runFixedCode = async (failure: string) => {
+      postNativeMessage.mockClear();
+      const runBrowserCommand = build(
+        () => undefined,
+        async () => { throw new Error(failure); },
+        () => false,
+        () => undefined,
+        postNativeMessage,
+        () => undefined,
+        () => undefined,
+        () => undefined,
+        1_000,
+        async () => null,
+      );
+      await runBrowserCommand({
+        id: 'credential-command',
+        command: 'type',
+        payload: { selector: '#username', value: SECRET, credentialOrigin: PAGE_ORIGIN },
+      }, {});
+      return postNativeMessage.mock.calls[0]?.[1] as { error: string };
+    };
+
+    // The writer's own fixed codes survive, so the caller learns WHICH check
+    // refused.
+    const fixed = await runFixedCode('credential_selector_outside_authorized_origin');
+    expect(fixed.error).toBe('credential_selector_outside_authorized_origin');
+    // A page-derived message still collapses to the ambiguous fallback.
+    const pageDerived = await runFixedCode(`element.value was ${SECRET}`);
+    expect(pageDerived.error)
+      .toBe('credential_write_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state');
+    expect(JSON.stringify(postNativeMessage.mock.calls)).not.toContain(SECRET);
+  });
+
+  it('keeps the main-process allowlist in step with the extension fixed codes', () => {
+    // Two runtimes carry the same vocabulary (the extension cannot import the
+    // main process). Drift fails safe — a code would collapse to the opaque
+    // fallback — but this pins both directions: every extension code must be
+    // known to the main process, and the main-process-only codes (minted by the
+    // main process itself) are an exact, pinned complement.
+    const fn = extractFunctionSource(background, 'browserCommandErrorMessage');
+    const block = /const safeCredentialWriteErrors = \[([\s\S]*?)\];/.exec(fn)?.[1] ?? '';
+    const extensionCodes = [...block.matchAll(/'([A-Za-z0-9_]+)'/g)].map((match) => match[1]);
+    expect(extensionCodes.length).toBeGreaterThan(10);
+    for (const code of extensionCodes) {
+      expect(SAFE_CREDENTIAL_CODES.has(code), code).toBe(true);
+    }
+    const mainOnly = [...SAFE_CREDENTIAL_CODES].filter((code) => !extensionCodes.includes(code));
+    expect(new Set(mainOnly)).toEqual(new Set([
+      'shared_tab_secure_credential_fill_unavailable',
+      'shared_tab_secure_credential_write_not_confirmed',
+      'shared_tab_public_credential_write_not_confirmed',
+      'credential_authorization_changed',
+      'browser_verify_readback_invalid',
+    ]));
+  });
+
+  it('reports the receiving frame origin from read_control and find', () => {
+    const dom = new JSDOM('<!doctype html><input id="username" type="text">', {
+      url: `${FORM_ORIGIN}/login/embed`,
+    });
+    dom.window.Element.prototype.scrollIntoView = () => undefined;
+    const build = new Function(
+      'window',
+      'document',
+      'location',
+      'HTMLInputElement',
+      'HTMLTextAreaElement',
+      'HTMLSelectElement',
+      'InputEvent',
+      'Event',
+      `${extractFunctionSource(background, 'pageBridgeScript')}; return pageBridgeScript;`,
+    );
+    const pageBridgeScript = build(
+      dom.window,
+      dom.window.document,
+      dom.window.location,
+      dom.window.HTMLInputElement,
+      dom.window.HTMLTextAreaElement,
+      dom.window.HTMLSelectElement,
+      dom.window.InputEvent,
+      dom.window.Event,
+    );
+
+    // This is what lets the main process resolve WHERE a value would land
+    // before any secret exists in the process.
+    expect(pageBridgeScript('read_control', ['#username'])).toMatchObject({
+      __found: true,
+      __frameOrigin: FORM_ORIGIN,
+    });
+    expect(pageBridgeScript('find', ['#username'])).toMatchObject({
+      __found: true,
+      __frameOrigin: FORM_ORIGIN,
+    });
   });
 });

@@ -10,11 +10,26 @@ import type { ProviderQuotaSnapshot, ProviderQuotaWindow } from '../../shared/ty
 import { ScriptedCliAdapter } from '../cli/adapters/scripted-cli-adapter';
 import { CliDetectionService } from '../cli/cli-detection';
 import { tokenPacedTurn } from '../cli/adapters/scripted-cli-adapter.test-helpers';
+import { LoopAccountFailover, _resetLoopAccountFailoverForTesting } from '../providers/account-pool/loop-account-failover';
+import { getModelRouter } from '../routing/model-router';
+import { ProviderLimitLedger, createProviderLimitLedgerSchema } from '../core/system/provider-limit-ledger';
+import Database from 'better-sqlite3';
+import type { SqliteDriver } from '../db/sqlite-driver';
+
+const loopSettings = vi.hoisted(() => ({ model: undefined as string | undefined }));
+vi.mock('../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({ get: () => undefined, getAll: () => ({
+    defaultCli: 'claude', loopModelByProvider: { opencode: loopSettings.model },
+    providerAccountProfiles: [], providerAccountPools: {}, auxiliaryLlmRoutingClassificationEnabled: false,
+  }) }),
+}));
+
 
 let workspace: string;
 let coordinator: LoopCoordinator;
 
 beforeEach(() => {
+  loopSettings.model = undefined;
   workspace = mkdtempSync(join(tmpdir(), 'loop-usage-throttle-'));
   writeFileSync(join(workspace, 'STAGE.md'), 'IMPLEMENT\n');
   writeFileSync(join(workspace, 'package.json'), '{"name":"loop-usage-throttle"}\n');
@@ -63,7 +78,7 @@ describe('LoopCoordinator usage-aware throttling', () => {
     ['a limit notice in the output', "You've hit your session limit · resets 6:30pm", {}],
     ["Claude's structured 429 signal with clean output", '', { providerQuotaExhausted: true }],
   ])('account pool: %s moves the loop to another account and the next attempt starts a fresh session', async (_label, limitedOutput, limitedOverrides) => {
-    const calls: Array<{ forceContextReset: boolean }> = [];
+    const calls: { forceContextReset: boolean }[] = [];
     coordinator.setQuotaSnapshotProvider(() => null);
     const handler = (coordinator as unknown as { providerLimitHandler: { setLoopAccountFailover(f: unknown): void } }).providerLimitHandler;
     const trySwitch = vi.fn(() => true);
@@ -90,7 +105,7 @@ describe('LoopCoordinator usage-aware throttling', () => {
     ['usage-limit wording', { error: "You've hit your usage limit. Try again later.", status: 429, headers: { 'retry-after': '60' } }],
     ['only the structured quota flag', { error: 'turn failed', status: 429, headers: { 'retry-after': '60' }, quota: { exhausted: true } }],
   ])('account pool: a thrown plan limit (%s) switches accounts and retries even with no degraded-retry budget', async (_label, thrown) => {
-    const calls: Array<{ forceContextReset: boolean }> = [];
+    const calls: { forceContextReset: boolean }[] = [];
     coordinator.setQuotaSnapshotProvider(() => null);
     const handler = (coordinator as unknown as { providerLimitHandler: { setLoopAccountFailover(f: unknown): void } }).providerLimitHandler;
     const trySwitch = vi.fn(() => true);
@@ -201,6 +216,99 @@ describe('LoopCoordinator usage-aware throttling', () => {
       }));
     } finally {
       await coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it.each([null, 'opencode/big-pickle'])(
+    'persists the accepted next MiMo quota scope through actual coordinator parking (previous model %s)', async (oldModel) => {
+      const routingEnabled = getModelRouter().getConfig().enabled;
+      getModelRouter().updateConfig({ enabled: false });
+      loopSettings.model = 'xiaomi-token-plan-ams/mimo-v2.6-pro';
+      const accounts = new LoopAccountFailover();
+      _resetLoopAccountFailoverForTesting(accounts);
+      const db = new Database(':memory:');
+      let loopId: string | undefined;
+      try {
+        createProviderLimitLedgerSchema(db as unknown as SqliteDriver);
+        const ledger = new ProviderLimitLedger(db as unknown as SqliteDriver);
+        ledger.record({ provider: 'opencode', model: 'opencode/big-pickle', detectedAt: Date.now(),
+          resumeAt: Date.now() + 600_000, source: 'unrelated native control', instanceId: null });
+        coordinator.setProviderLimitLedger(ledger);
+        coordinator.setProviderLimitResumeScheduler(() => vi.fn());
+        coordinator.setQuotaSnapshotProvider(() => {
+          loopSettings.model = 'opencode/big-pickle'; // changes after the evaluator accepted NEXT MiMo
+          return { ...snapshot([win({ used: 100, resetsAt: Date.now() + 600_000 })]), provider: 'opencode' };
+        });
+        coordinator.on('loop:started', ({ loopRunId }: { loopRunId: string }) => {
+          loopId = loopRunId;
+          if (oldModel) accounts.noteIterationAdapter(loopRunId, {}, { provider: 'opencode', model: oldModel });
+        });
+        const invoked = vi.fn();
+        coordinator.on('loop:invoke-iteration', invoked);
+        const state = await coordinator.startLoop('chat-next-mimo-scope', {
+          initialPrompt: 'keep going', workspaceCwd: workspace, provider: 'opencode',
+          caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
+          blockSanityProbe: { enabled: false },
+          completion: { ...defaultLoopConfig(workspace, 'x').completion, verifyCommand: 'false',
+            requireCompletedFileRename: false, crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' } },
+        });
+        await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'provider-limit', 5000);
+        expect(invoked).not.toHaveBeenCalled();
+        expect(ledger.list().map((row) => row.model).sort()).toEqual([null, 'opencode/big-pickle'].sort());
+        expect(ledger.list().filter((row) => row.model === null)).toHaveLength(1);
+        // Manual resume must consume the accepted MiMo scope even while CURRENT is absent/native.
+        coordinator.cancelProviderLimitResume(state.id);
+        expect(coordinator.resumeLoop(state.id)).toBe(true);
+        expect(ledger.list().map((row) => row.model)).toEqual(['opencode/big-pickle']);
+      } finally {
+        if (loopId) await coordinator.cancelLoop(loopId);
+        db.close();
+        _resetLoopAccountFailoverForTesting();
+        getModelRouter().updateConfig({ enabled: routingEnabled });
+      }
+    },
+  );
+
+  it.each(['xiaomi-token-plan-ams/mimo-v2.6-pro', null])('actual initial coordinator dispatch honors historical/account-wide MiMo gate %s', async (gateModel) => {
+    const routingEnabled = getModelRouter().getConfig().enabled;
+    getModelRouter().updateConfig({ enabled: false });
+    loopSettings.model = 'xiaomi-token-plan-ams/mimo-v2.6-pro';
+    _resetLoopAccountFailoverForTesting(new LoopAccountFailover());
+    const db = new Database(':memory:') as unknown as SqliteDriver;
+    let loopId: string | undefined;
+    try {
+      createProviderLimitLedgerSchema(db);
+      const ledger = new ProviderLimitLedger(db);
+      const gate = ledger.record({ provider: 'opencode', model: gateModel, accountProfileId: 'legacy',
+        detectedAt: Date.now() - 1000, resumeAt: Date.now() + 600_000,
+        source: 'historical regular refusal', instanceId: null });
+      const native = ledger.record({ provider: 'opencode', model: 'opencode/big-pickle', accountProfileId: null,
+        detectedAt: Date.now(), resumeAt: Date.now() + 600_000, source: 'native sibling', instanceId: null });
+      coordinator.setProviderLimitLedger(ledger);
+      coordinator.setProviderLimitResumeScheduler(() => vi.fn());
+      coordinator.setQuotaSnapshotProvider(() => null);
+      const invoked = vi.fn();
+      coordinator.on('loop:invoke-iteration', invoked);
+      coordinator.on('loop:started', ({ loopRunId }: { loopRunId: string }) => { loopId = loopRunId; });
+      const state = await coordinator.startLoop('chat-historical-mimo-gate', {
+        initialPrompt: 'placeholder', workspaceCwd: workspace, provider: 'opencode',
+        caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
+        blockSanityProbe: { enabled: false },
+        completion: { ...defaultLoopConfig(workspace, 'x').completion, requireCompletedFileRename: false,
+          crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' } },
+      });
+      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'provider-limit', 5000);
+      expect(invoked).not.toHaveBeenCalled();
+      expect(ledger.list().map((row) => row.id)).toEqual([gate.id, native.id]);
+      loopSettings.model = 'opencode/big-pickle';
+      coordinator.cancelProviderLimitResume(state.id);
+      expect(coordinator.resumeLoop(state.id)).toBe(true);
+      expect(ledger.list().map((row) => row.id)).toEqual([native.id]);
+    } finally {
+      if (loopId) await coordinator.cancelLoop(loopId);
+      db.close();
+      _resetLoopAccountFailoverForTesting();
+      getModelRouter().updateConfig({ enabled: routingEnabled });
     }
   });
 

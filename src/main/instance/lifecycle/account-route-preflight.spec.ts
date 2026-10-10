@@ -57,6 +57,35 @@ describe('attachAccountRoute', () => {
     }));
   });
 
+  it.each(['opencode/big-pickle', 'openrouter/xiaomi/mimo-v2.6-pro', 'xiaomi-token-planning/mimo', undefined, '', 'auto'])('bypasses MiMo admission for native/non-MiMo selection %s, including resume', async (model) => {
+    const { service, resolveRouteForSpawn } = serviceReturning({ ok: false, code: 'profile-unauthenticated', detail: 'MiMo signed out' });
+    for (const resume of [false, true]) {
+      const options = { model, resume };
+      await expect(attachAccountRoute('opencode', options, 'interactive', {
+        routingService: service, persistedProfileId: 'signed-out-mimo',
+      })).resolves.toBe(options);
+    }
+    expect(resolveRouteForSpawn).not.toHaveBeenCalled();
+  });
+
+  it.each(['xiaomi-token-plan/mimo-v2.6-pro', 'xiaomi-token-plan-ams/mimo-v2.6-pro', 'xiaomi-token-plan-sgp/mimo-v2.6-pro', 'xiaomi-token-plan-cn/mimo-v2.6-pro'])('admits logical MiMo selection %s and preserves resume pinning', async (model) => {
+    const { service, resolveRouteForSpawn } = serviceReturning({ ok: false, code: 'profile-unauthenticated', detail: 'MiMo signed out' });
+    await expect(attachAccountRoute('opencode', { model, resume: true }, 'interactive', {
+      routingService: service, persistedProfileId: 'account-b',
+    })).rejects.toMatchObject({ code: 'profile-unauthenticated' });
+    expect(resolveRouteForSpawn).toHaveBeenCalledWith(expect.objectContaining({ model, persistedProfileId: 'account-b', newSession: false }));
+  });
+
+  it('drops a stale MiMo route when a model change chooses another backend', async () => {
+    const { service, resolveRouteForSpawn } = serviceReturning({ ok: false, code: 'profile-unauthenticated', detail: 'signed out' });
+    const result = await attachAccountRoute('opencode', {
+      model: 'openrouter/anthropic/claude-sonnet',
+      accountRoute: { provider: 'opencode', profileId: 'b', source: 'persisted', executionNodeId: 'local' },
+    }, 'interactive', { routingService: service });
+    expect(result.accountRoute).toBeUndefined();
+    expect(resolveRouteForSpawn).not.toHaveBeenCalled();
+  });
+
   it('throws a typed error on failure', async () => {
     const { service } = serviceReturning({ ok: false, code: 'profile-unauthenticated', detail: 'sign in', profileId: 'max-b' });
     const error = await attachAccountRoute('claude', {}, 'interactive', { routingService: service }).catch((caught: unknown) => caught);

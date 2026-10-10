@@ -1,4 +1,3 @@
-import { getDomain } from 'tldts';
 import type {
   BrowserGatewayContext,
   BrowserGatewayExecuteFillPlanRequest,
@@ -9,10 +8,16 @@ import type { BrowserGatewayResult } from '@contracts/types/browser';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import type { CredentialPurpose } from './browser-credential-authorization-store';
 import {
-  CredentialVaultError,
   type CredentialVault,
   type CredentialFieldKind,
 } from './browser-credential-vault';
+import {
+  credentialFailureCode,
+  credentialFailureStep,
+  resolveFillOrigin,
+  type CredentialFillStep,
+} from './browser-credential-fill-targeting';
+import { resolveEmailCode, resolveEmailSenderDomains } from './browser-credential-email-senders';
 import type { CredentialAuthorizationService } from './browser-credential-authorization-store';
 import { buildCredentialAuthorizationDenial } from './browser-credential-authorization-denial';
 import { resolveCredentialTaskScope } from './browser-credential-access-session';
@@ -78,6 +83,18 @@ export interface FillOperationDeps {
   }) => Promise<BrowserGatewayResult<unknown>>;
   readControl: (profileId: string, targetId: string, selector: string) => Promise<FillControlReadback>;
   /**
+   * Resolve the exact origin of the frame that holds a control — i.e. where a
+   * value typed into it would LAND. Secret-free, and run before any vault read
+   * so a page-derived origin can never be reported alongside a resolved secret.
+   * Absent (or resolving to undefined) means "the page origin" and keeps the
+   * pre-existing single-origin behaviour.
+   */
+  resolveFieldFrameOrigin?: (
+    profileId: string,
+    targetId: string,
+    selector: string,
+  ) => Promise<string | undefined>;
+  /**
    * Raw driver type — bypasses the classifier's credential hard-stop. Used ONLY
    * by fill_credential, which is authorized by a standing credential
    * authorization instead of per-action approval.
@@ -90,6 +107,14 @@ export interface FillOperationDeps {
     authorizedOrigin: string,
     protection: 'public' | 'password' | 'secret',
     beforeDispatch?: () => void,
+    /**
+     * Origin of the tab's TOP-LEVEL page. Defaults to `authorizedOrigin` (the
+     * frame that receives the value) when omitted, which keeps every existing
+     * caller byte-identical. Supplying it lets a credential be typed into a
+     * cross-origin subframe (an embedded login form) while the page-navigation
+     * re-check still watches the page the user is actually looking at.
+     */
+    pageOrigin?: string,
   ) => Promise<{ valueApplied?: boolean } | void>;
   refreshTargetOrigin: (profileId: string, targetId: string) => Promise<string>;
   credentialVault?: Pick<
@@ -263,12 +288,13 @@ export async function fillCredentialOperation(
     );
   }
 
+  let pageOrigin = '';
   try {
-    origin = await deps.refreshTargetOrigin(request.profileId, request.targetId);
+    pageOrigin = await deps.refreshTargetOrigin(request.profileId, request.targetId);
   } catch {
     return deny('target_unavailable', `${toolName} could not resolve the live page origin`);
   }
-  if (!origin) {
+  if (!pageOrigin) {
     return deny('origin_unknown', `${toolName} could not determine the live page origin`);
   }
   if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
@@ -277,6 +303,28 @@ export async function fillCredentialOperation(
       `${toolName} requires a current secure Browser Gateway extension on this shared tab`,
     );
   }
+
+  // WHERE THE SECRET LANDS is the frame that holds the field, not the page the
+  // tab shows (see browser-credential-fill-targeting). Resolved BEFORE any
+  // secret exists in this process — the probe is secret-free — so authorization,
+  // vault binding and the write all key on the exact origin that receives the
+  // value, while `pageOrigin` keeps guarding against the tab navigating away.
+  const fillResolution = await resolveFillOrigin({
+    toolName,
+    profileId: request.profileId,
+    targetId: request.targetId,
+    fields: request.fields,
+    pageOrigin,
+    ...(deps.resolveFieldFrameOrigin
+      ? { resolveFieldFrameOrigin: deps.resolveFieldFrameOrigin }
+      : {}),
+  });
+  if (fillResolution.denial) {
+    return deny(fillResolution.denial.reason, fillResolution.denial.summary);
+  }
+  const fillOrigin = fillResolution.fillOrigin;
+  // The denial/audit `origin` is the origin that would receive the secret.
+  origin = fillOrigin;
 
   const hasEmailCodeField = request.fields.some((field) => field.kind === 'email_code');
   if (hasEmailCodeField && !deps.emailCodeReader) {
@@ -334,17 +382,24 @@ export async function fillCredentialOperation(
 
   let filled = 0;
   let secretObservationBlocked = false;
+  let step: CredentialFillStep = 'fill_guard';
+  // 1-based index of the field being worked on; starts at 1 so a failure before
+  // the loop (e.g. the fill guard itself) still names a real field position.
+  let fieldIndex = 1;
   try {
     const assertFillUnlocked = request.fields.some((field) => field.kind !== 'email_code')
       ? vault.captureFillGuard?.() : undefined;
     for (const field of request.fields) {
+      step = 'fill_guard';
       assertFillUnlocked?.();
       const purpose = field.kind === 'totp' ? 'totp' : field.kind === 'email_code' ? 'email_code' : 'login';
+      step = 'authorization';
       if (!checkField(purpose, field.selector).authorized) return deny('credential_authorization_changed', `${toolName} permission is no longer valid`);
       // Authorization and live-origin refreshes above are synchronous/secret-free
       // trust boundaries. Recheck the exact extension runtime immediately before
       // asking the vault or mailbox to resolve anything, so a disconnect/reload
       // during those checks cannot cause an unsafe generation to trigger a read.
+      step = 'secure_extension';
       if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
         return deny(
           'shared_tab_secure_credential_fill_unavailable',
@@ -354,6 +409,7 @@ export async function fillCredentialOperation(
       // The secret exists only in this main-process scope; it is typed into the
       // page and never returned or logged. Resolve it first (no page contact) so the
       // origin re-check below sits back-to-back with the type command.
+      step = 'vault_resolve';
       const secret =
         field.kind === 'email_code'
           ? await resolveEmailCode(deps.emailCodeReader!, emailSenderDomains!, request.emailCode)
@@ -366,6 +422,10 @@ export async function fillCredentialOperation(
       // authorization check and this type. Re-confirm the live origin still matches the
       // authorized one immediately before typing, so a secret can never land on a page we
       // never authorized (TOCTOU). Managed profiles are agent-controlled — left untouched.
+      // The check watches the PAGE origin (the tab must not have navigated away);
+      // the receiving frame's own origin is re-verified in-page immediately before
+      // the DOM write.
+      step = 'origin_recheck';
       if (isExistingTab && !secretObservationBlocked) {
         let liveOrigin: string;
         try {
@@ -376,26 +436,30 @@ export async function fillCredentialOperation(
             `${toolName} could not re-confirm the live page origin before filling`,
           );
         }
-        if (liveOrigin !== origin) {
+        if (liveOrigin !== pageOrigin) {
           return deny(
             'origin_changed_during_fill',
-            `${toolName} aborted: the tab navigated away from ${origin} before the secret was typed`,
+            `${toolName} aborted: the tab navigated away from ${pageOrigin} before the secret was typed`,
           );
         }
       }
+      step = 'secure_extension';
       if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
         return deny(
           'shared_tab_secure_credential_fill_unavailable',
           `${toolName} aborted because the secure Browser Gateway extension changed before filling`,
         );
       }
+      step = 'authorization';
       if (!checkField(purpose, field.selector).authorized) return deny('credential_authorization_changed', `${toolName} permission changed before filling`);
       const protection = field.kind === 'username'
         ? 'public'
         : field.kind === 'password'
           ? 'password'
           : 'secret';
+      step = 'pre_dispatch_guard';
       assertFillUnlocked?.();
+      step = 'dispatch';
       await deps.driverType(
         request.profileId,
         request.targetId,
@@ -404,15 +468,27 @@ export async function fillCredentialOperation(
         origin,
         protection,
         () => {
+          step = 'pre_dispatch_guard';
           assertFillUnlocked?.();
           if (!checkField(purpose, field.selector).authorized) throw new Error('credential_authorization_changed');
           if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) throw new Error('shared_tab_secure_credential_fill_unavailable');
+          step = 'dispatch';
         },
+        pageOrigin,
       );
+      step = 'write_confirmation';
       if (protection !== 'public') secretObservationBlocked = true;
       filled += 1;
+      fieldIndex += 1;
     }
   } catch (error) {
+    // The reason is a fixed `<step>:<code>` pair so the tool result and the
+    // audit row say exactly which step failed and why, without ever echoing a
+    // value: only vault codes and the extension's fixed snake_case codes pass
+    // through, everything else collapses to `credential_fill_failed`.
+    const code = credentialFailureCode(error, 'credential_fill_failed');
+    const failureStep = credentialFailureStep(step, code);
+    const failing = request.fields[fieldIndex - 1];
     return deps.result({
       context,
       profileId: request.profileId,
@@ -422,8 +498,10 @@ export async function fillCredentialOperation(
       actionClass: 'credential',
       decision: 'denied',
       outcome: 'failed',
-      reason: credentialFailureReason(error, 'credential_fill_failed'),
-      summary: `${toolName} failed after filling ${filled} field(s)`,
+      reason: `${failureStep}:${code}`,
+      summary: `${toolName} failed at ${failureStep} on field ${fieldIndex} of ${request.fields.length} `
+        + `(${failing?.selector ?? 'unknown'}, ${failing?.kind ?? 'unknown'}) `
+        + `after filling ${filled} field(s): ${code}`,
       data: null,
     });
   }
@@ -552,7 +630,7 @@ export async function createAgentCredentialOperation(
       actionClass: 'credential',
       decision: 'denied',
       outcome: 'failed',
-      reason: credentialFailureReason(error, 'create_agent_credential_failed'),
+      reason: credentialFailureCode(error, 'create_agent_credential_failed'),
       summary: `${toolName} failed`,
       data: null,
     });
@@ -571,10 +649,6 @@ function parseCredentialLoginUri(value: string): URL | null {
   }
 }
 
-function credentialFailureReason(error: unknown, fallback: string): string {
-  return error instanceof CredentialVaultError ? error.code : fallback;
-}
-
 function contextOf(request: BrowserGatewayContext): BrowserGatewayContext {
   return {
     ...(request.instanceId ? { instanceId: request.instanceId } : {}),
@@ -582,72 +656,6 @@ function contextOf(request: BrowserGatewayContext): BrowserGatewayContext {
   };
 }
 
-const DEFAULT_EMAIL_CODE_WINDOW_MS = 15 * 60 * 1000;
-
-/**
- * Validate agent-supplied sender domains against the live page origin: each
- * domain must equal the origin host, be a subdomain of it, or share the same
- * REGISTRABLE domain (public-suffix aware via tldts). This keeps email_code
- * disambiguation scoped to the site being filled — an agent can never point
- * the reader at an unrelated inbox sender (e.g. a bank) to harvest someone
- * else's code, and a public suffix like 'co.uk' or 'github.io' is never
- * accepted as "related" (its registrable domain is null). Hosts without a
- * registrable domain (localhost, IPs) fail closed to exact/subdomain matches.
- * Returns null when any domain fails; defaults to [originHost] when none are
- * supplied.
- */
-export function resolveEmailSenderDomains(
-  origin: string,
-  requested: string[] | undefined,
-  /**
-   * Sender domains the live, human-granted authorization permits for this origin
-   * even though they are unrelated to it (a shared notification platform such as
-   * GOV.UK Notify). Explicit consent only — never derived from the page.
-   */
-  authorized?: string[],
-): string[] | null {
-  let host: string;
-  try {
-    host = new URL(origin).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-  const authorizedNormalized = (authorized ?? [])
-    .map((domain) => domain.trim().toLowerCase())
-    .filter((domain) => domain.length > 0);
-  if (!requested || requested.length === 0) {
-    // De-duplicate: an authorization may name the origin host itself.
-    return [...new Set([host, ...authorizedNormalized])];
-  }
-  // allowPrivateDomains: platform suffixes (github.io, netlify.app, …) are
-  // boundaries too — two tenants of one platform are unrelated parties.
-  const PSL_OPTIONS = { allowPrivateDomains: true };
-  const registrable = getDomain(host, PSL_OPTIONS);
-  const related = (domain: string): boolean => {
-    if (domain === host || domain.endsWith(`.${host}`)) {
-      return true;
-    }
-    if (authorizedNormalized.includes(domain)) {
-      return true;
-    }
-    return registrable !== null && getDomain(domain, PSL_OPTIONS) === registrable;
-  };
-  const normalized = requested.map((domain) => domain.trim().toLowerCase());
-  return normalized.every((domain) => domain.length > 0 && related(domain))
-    ? normalized
-    : null;
-}
-
-async function resolveEmailCode(
-  reader: Pick<BrowserEmailCodeReader, 'fetchCode'>,
-  senderDomains: string[],
-  options: { sinceMs?: number; withinMs?: number } | undefined,
-): Promise<string> {
-  const withinMs = options?.withinMs ?? DEFAULT_EMAIL_CODE_WINDOW_MS;
-  const result = await reader.fetchCode({
-    expectedSenderDomains: senderDomains,
-    sinceMs: options?.sinceMs ?? Date.now() - withinMs,
-    withinMs,
-  });
-  return result.code;
-}
+// Email-code sender scoping and the mailbox read live in their own module;
+// re-exported here so the existing import surface is unchanged.
+export { resolveEmailSenderDomains };

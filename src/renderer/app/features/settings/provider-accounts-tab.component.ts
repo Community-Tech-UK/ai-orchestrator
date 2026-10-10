@@ -1,10 +1,10 @@
 /**
- * Claude & Codex Accounts settings section (provider account pools).
+ * Claude, Codex & MiMo Accounts settings section (provider account pools).
  *
- * Where James adds the Claude and ChatGPT subscriptions he owns, orders them,
- * and decides what happens when one hits its usage limit. Each account signs
- * in through a terminal running the official CLI against that account's own
- * home; Harness never sees a token.
+ * Where James adds the Claude, ChatGPT and MiMo Token Plan subscriptions he
+ * owns, orders them, and decides what happens when one hits its usage limit.
+ * Each account signs in through a terminal against its own home (or, for MiMo,
+ * its own key name in OpenCode's key store); Harness never sees a token.
  */
 
 import {
@@ -27,14 +27,18 @@ import type {
   AccountAutomationPolicy,
   AccountContinuationMode,
   AccountFailoverMode,
+  OpenCodeAccountRegion,
   PooledProvider,
   ProviderAccountPoolPolicy,
   ProviderAccountPools,
 } from '../../../../shared/types/provider-account.types';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { accountMachinesFor, nodeLoginCommandFor, type AccountMachineState } from './provider-accounts-machines';
 
-const PROVIDERS: readonly { id: PooledProvider; label: string; subscription: string }[] = [
-  { id: 'claude', label: 'Claude', subscription: 'Claude' },
-  { id: 'codex', label: 'Codex', subscription: 'ChatGPT' },
+const PROVIDERS: readonly { id: PooledProvider; label: string; subscription: string; vendor: string }[] = [
+  { id: 'claude', label: 'Claude', subscription: 'Claude', vendor: 'Anthropic' },
+  { id: 'codex', label: 'Codex', subscription: 'ChatGPT', vendor: 'OpenAI' },
+  { id: 'opencode', label: 'MiMo', subscription: 'MiMo Token Plan', vendor: 'Xiaomi' },
 ];
 
 const SIGN_IN_POLL_MS = 5_000;
@@ -119,6 +123,24 @@ const SIGN_IN_POLL_LIMIT = 60;
                   </p>
                 }
 
+                @if (provider.id === 'opencode' && machinesFor(account).length > 0) {
+                  <div class="machines">
+                    <p class="machines-title">Per-machine sign-in — a MiMo sign-in lives on each machine:</p>
+                    @for (machine of machinesFor(account); track machine.nodeId) {
+                      <div class="machine-row">
+                        <span class="machine-name">{{ machine.name }}</span>
+                        @if (machine.hasAccount) {
+                          <span class="machine-state ok">Signed in on that machine</span>
+                        } @else {
+                          <span class="machine-state">Not signed in there — run</span>
+                          <code>{{ nodeLoginCommand(account) }}</code>
+                          <button type="button" class="btn btn-secondary" (click)="copyNodeCommand(account)">Copy</button>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+
                 <div class="account-controls">
                   <label class="inline-field">
                     Automatic use
@@ -172,6 +194,26 @@ const SIGN_IN_POLL_LIMIT = 60;
                 [attr.aria-label]="'New ' + provider.label + ' account name'"
                 maxlength="64"
               />
+              @if (provider.id === 'opencode') {
+                <select
+                  [ngModel]="newRegions()[provider.id] ?? 'ams'"
+                  (ngModelChange)="setNewRegion(provider.id, $event)"
+                  [disabled]="busy()"
+                  [attr.aria-label]="'Token Plan region for the new MiMo account'"
+                >
+                  <option value="ams">Europe (token-plan-ams)</option>
+                  <option value="sgp">Singapore (token-plan-sgp)</option>
+                  <option value="cn">China (token-plan-cn)</option>
+                </select>
+                <input
+                  type="text"
+                  [ngModel]="newChromeProfiles()[provider.id] ?? ''"
+                  (ngModelChange)="setNewChromeProfile(provider.id, $event)"
+                  placeholder="Chrome profile for allowance, e.g. Profile 1 (optional)"
+                  [attr.aria-label]="'Chrome profile for the new MiMo account'"
+                  maxlength="64"
+                />
+              }
               <button
                 type="button"
                 class="btn btn-secondary"
@@ -196,7 +238,7 @@ const SIGN_IN_POLL_LIMIT = 60;
                     <p>
                       Before a second {{ provider.label }} account can be enabled, confirm that every account in
                       this list is a {{ provider.subscription }} subscription you personally pay for, and that you
-                      understand {{ provider.id === 'claude' ? 'Anthropic' : 'OpenAI' }} may still apply its own
+                      understand {{ provider.vendor }} may still apply its own
                       usage policies to how the accounts are used.
                     </p>
                     <button type="button" class="btn btn-primary" (click)="acknowledge(provider.id)" [disabled]="busy()">
@@ -236,7 +278,7 @@ const SIGN_IN_POLL_LIMIT = 60;
                       (change)="updatePool(provider.id, { preemptive: { thresholdPct: clampPct($any($event.target).value) } })"
                       [disabled]="busy()"
                     />
-                    % of its 5-hour usage
+                    % of its {{ provider.id === 'opencode' ? 'usage allowance' : '5-hour usage' }}
                   </label>
                   <label class="toggle">
                     <input
@@ -327,6 +369,10 @@ const SIGN_IN_POLL_LIMIT = 60;
     .status[data-state='unauthenticated']::before { background: var(--warning-color, #d93); }
     .status[data-state='identity-mismatch']::before { background: var(--error-color, #d33); }
     .mismatch { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .machines { display: flex; flex-direction: column; gap: 4px; }
+    .machines-title { margin: 0; font-size: 12px; color: var(--text-secondary); }
+    .machine-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
+    .machine-row code { padding: 1px 6px; border: 1px solid var(--border-color); border-radius: 4px; } .machine-state.ok { color: var(--success-color, #4a9); }
     .account-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
     .inline-field { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
     .account-actions, .add-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -351,6 +397,7 @@ const SIGN_IN_POLL_LIMIT = 60;
 export class ProviderAccountsTabComponent implements OnInit {
   private readonly ipc = inject(ProviderAccountIpcService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly nodeStore = inject(RemoteNodeStore);
 
   readonly providers = PROVIDERS;
 
@@ -361,6 +408,8 @@ export class ProviderAccountsTabComponent implements OnInit {
   private readonly errorSignal = signal<string | null>(null);
   private readonly noticeSignal = signal<string | null>(null);
   private readonly newLabelsSignal = signal<Partial<Record<PooledProvider, string>>>({});
+  private readonly newRegionsSignal = signal<Partial<Record<PooledProvider, OpenCodeAccountRegion>>>({});
+  private readonly newChromeProfilesSignal = signal<Partial<Record<PooledProvider, string>>>({});
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   readonly accounts = this.accountsSignal.asReadonly();
@@ -369,8 +418,10 @@ export class ProviderAccountsTabComponent implements OnInit {
   readonly error = this.errorSignal.asReadonly();
   readonly notice = this.noticeSignal.asReadonly();
   readonly newLabels = this.newLabelsSignal.asReadonly();
+  readonly newRegions = this.newRegionsSignal.asReadonly();
+  readonly newChromeProfiles = this.newChromeProfilesSignal.asReadonly();
   private readonly byProvider = computed(() => {
-    const grouped: Record<PooledProvider, ProviderAccountView[]> = { claude: [], codex: [] };
+    const grouped: Record<PooledProvider, ProviderAccountView[]> = { claude: [], codex: [], opencode: [] };
     for (const account of this.accountsSignal()) grouped[account.provider].push(account);
     for (const list of Object.values(grouped)) list.sort((a, b) => a.priority - b.priority);
     return grouped;
@@ -411,6 +462,33 @@ export class ProviderAccountsTabComponent implements OnInit {
     this.newLabelsSignal.update((labels) => ({ ...labels, [provider]: value }));
   }
 
+  setNewRegion(provider: PooledProvider, value: OpenCodeAccountRegion): void {
+    this.newRegionsSignal.update((regions) => ({ ...regions, [provider]: value }));
+  }
+
+  setNewChromeProfile(provider: PooledProvider, value: string): void {
+    this.newChromeProfilesSignal.update((profiles) => ({ ...profiles, [provider]: value }));
+  }
+
+  /** Remote machines and whether each has this MiMo account's sign-in (names-only advertisement). */
+  machinesFor(account: ProviderAccountView): AccountMachineState[] {
+    return accountMachinesFor(account, this.nodeStore.connectedNodes());
+  }
+
+  nodeLoginCommand(account: ProviderAccountView): string {
+    return nodeLoginCommandFor(account);
+  }
+
+  async copyNodeCommand(account: ProviderAccountView): Promise<void> {
+    const command = this.nodeLoginCommand(account);
+    try {
+      await globalThis.navigator.clipboard.writeText(command);
+      this.noticeSignal.set('Copied the sign-in command. Run it in a terminal on that machine.');
+    } catch {
+      this.noticeSignal.set('Could not copy. Select the command shown beside this button and copy it yourself.');
+    }
+  }
+
   bindingLabel(account: ProviderAccountView): string {
     switch (account.binding?.state) {
       case 'authenticated':
@@ -446,7 +524,17 @@ export class ProviderAccountsTabComponent implements OnInit {
     // Enter in the name field bypasses the disabled button, so re-check here.
     if (!label || this.busySignal()) return;
     await this.run(async () => {
-      const created = await this.ipc.create({ provider, label });
+      const chromeProfile = (this.newChromeProfilesSignal()[provider] ?? '').trim();
+      const created = await this.ipc.create({
+        provider,
+        label,
+        ...(provider === 'opencode'
+          ? {
+              region: this.newRegionsSignal()[provider] ?? 'ams',
+              ...(chromeProfile ? { chromeProfile } : {}),
+            }
+          : {}),
+      });
       if (!created.success) throw new Error(created.error?.message ?? 'The account could not be added.');
       this.setNewLabel(provider, '');
       const profile = created.data as ProviderAccountView;

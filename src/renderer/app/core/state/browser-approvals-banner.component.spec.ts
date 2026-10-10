@@ -92,7 +92,8 @@ describe('BrowserApprovalsBannerComponent', () => {
     expect(element.textContent).toContain('Approval will move this login into the AgentVault agent vault folder.');
     const duration = element.querySelector<HTMLSelectElement>('.credential-access-duration');
     expect(duration?.value).toBe('task');
-    expect(Array.from(duration?.options ?? []).map((option) => option.value)).toEqual(['task', '1h', '24h', '7d']);
+    expect(Array.from(duration?.options ?? []).map((option) => option.value))
+      .toEqual(['task', '1h', '24h', '7d', '30d', '90d', '365d']);
     expect(element.textContent).not.toContain('Allow forever');
     element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
     await fixture.whenStable();
@@ -101,7 +102,10 @@ describe('BrowserApprovalsBannerComponent', () => {
     }));
   });
 
-  it.each([['1h', 3_600_000], ['24h', 86_400_000], ['7d', 604_800_000]] as const)(
+  it.each([
+    ['1h', 3_600_000], ['24h', 86_400_000], ['7d', 604_800_000],
+    ['30d', 2_592_000_000], ['90d', 7_776_000_000], ['365d', 31_536_000_000],
+  ] as const)(
     'remembers saved-login permission for %s only when selected', async (duration, rememberForMs) => {
       const fixture = setup([makeApproval({ credentialAccess: savedLoginAccess() })]);
       await fixture.whenStable();

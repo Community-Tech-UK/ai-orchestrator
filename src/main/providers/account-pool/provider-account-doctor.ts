@@ -10,6 +10,7 @@
 
 import type {
   AccountBindingStatus,
+  OpenCodeAccountRegion,
   PooledProvider,
   ProviderAccountPoolPolicy,
   ProviderAccountProfile,
@@ -19,6 +20,7 @@ import {
   CLAUDE_STRIPPED_AUTH_ENV_VARS,
   CODEX_STRIPPED_AUTH_ENV_VARS,
 } from '../../cli/adapters/adapter-spawn-helpers';
+import { getCachedOpenCodeRegionModelMetadata } from '../opencode-region-model-metadata';
 import {
   LOCAL_ACCOUNT_NODE_ID,
   getProviderAccountBindingService,
@@ -60,13 +62,25 @@ export function detectAmbientAccountAuthVariables(
   provider: PooledProvider,
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
-  const names = provider === 'claude' ? CLAUDE_STRIPPED_AUTH_ENV_VARS : CODEX_STRIPPED_AUTH_ENV_VARS;
+  // OpenCode/MiMo has no ambient auth variable: its keys live in OpenCode's
+  // own key store and profile-routed spawns change no environment.
+  const names = provider === 'claude'
+    ? CLAUDE_STRIPPED_AUTH_ENV_VARS
+    : provider === 'codex'
+      ? CODEX_STRIPPED_AUTH_ENV_VARS
+      : [];
   return names.filter((name) => typeof env[name] === 'string' && env[name]!.trim().length > 0);
 }
 
 export async function buildProviderAccountDoctorReport(
   provider: PooledProvider,
-  deps: { store?: ProviderAccountStore; bindings?: ProviderAccountBindingService; env?: NodeJS.ProcessEnv } = {},
+  deps: {
+    store?: ProviderAccountStore;
+    bindings?: ProviderAccountBindingService;
+    env?: NodeJS.ProcessEnv;
+    /** Region model metadata as the spawn path sees it (MiMo accounts only). */
+    getRegionModelMetadata?: (region: OpenCodeAccountRegion) => readonly unknown[] | null;
+  } = {},
 ): Promise<ProviderAccountDoctorReport> {
   const store = deps.store ?? getProviderAccountStore();
   const bindings = deps.bindings ?? getProviderAccountBindingService();
@@ -119,6 +133,21 @@ export async function buildProviderAccountDoctorReport(
   for (const entry of entries) {
     if (entry.enabled && entry.bindingState !== 'authenticated') {
       warnings.push(`${entry.label} needs attention: ${entry.bindingState}${entry.bindingErrorCode ? ` (${entry.bindingErrorCode})` : ''}.`);
+    }
+  }
+  if (provider === 'opencode') {
+    // Non-legacy MiMo accounts are injected as `aio-mimo-*` providers whose
+    // model metadata is copied from the region's built-in provider at spawn;
+    // without it such an account cannot start (fail closed).
+    const readMetadata = deps.getRegionModelMetadata ?? getCachedOpenCodeRegionModelMetadata;
+    for (const profile of profiles) {
+      if (profile.isLegacy || !profile.enabled || !profile.region) continue;
+      if ((readMetadata(profile.region) ?? []).length === 0) {
+        warnings.push(
+          `${profile.label} has no model metadata for xiaomi-token-plan-${profile.region} on this machine. `
+          + 'Sign in once with `opencode auth login` for that region here; until then this account cannot start sessions.',
+        );
+      }
     }
   }
   if (sharedWorkspaceProfileIds.length > 0) {

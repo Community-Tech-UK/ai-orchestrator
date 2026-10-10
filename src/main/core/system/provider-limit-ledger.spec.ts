@@ -105,6 +105,87 @@ describe('ProviderLimitLedger', () => {
     expect(ledger.list({ provider: 'claude' })).toHaveLength(1);
   });
 
+  it('exact-only native clearing retains account-wide, other-model, expired, and foreign-profile limits', () => {
+    const now = 1_700_000_000_000;
+    const base = { provider: 'opencode' as const, detectedAt: now - 100, resumeAt: now + 60_000, source: 'synthetic', instanceId: null };
+    ledger.record({ ...base, model: null, accountProfileId: 'legacy', instanceId: 'mimo-legacy' });
+    ledger.record({ ...base, model: 'opencode/big-pickle', instanceId: 'zen' });
+    ledger.record({ ...base, model: 'openrouter/placeholder-model', instanceId: 'other-model' });
+    ledger.record({ ...base, model: 'opencode/big-pickle', resumeAt: now - 1, instanceId: 'expired' });
+    ledger.record({ ...base, model: 'opencode/big-pickle', accountProfileId: 'placeholder-b', instanceId: 'foreign-profile' });
+
+    expect(ledger.clearActive({ provider: 'opencode', model: 'opencode/big-pickle', includeAccountWideFallback: false, now })).toBe(1);
+    expect(ledger.list().map((event) => event.instanceId).sort()).toEqual(['expired', 'foreign-profile', 'mimo-legacy', 'other-model']);
+    expect(ledger.getActive({ provider: 'opencode', model: null, now })).toMatchObject({ instanceId: 'mimo-legacy' });
+    expect(ledger.clearActive({ provider: 'opencode', model: 'opencode/big-pickle', accountProfileId: 'placeholder-b', includeAccountWideFallback: false, now })).toBe(1);
+    expect(ledger.getActive({ provider: 'opencode', model: null, now })).not.toBeNull();
+  });
+
+  it.each([null, '', '   '])('exact-only clearing with unknown model %s preserves every gate', (model) => {
+    const now = 1_700_000_000_000;
+    const base = { provider: 'opencode' as const, detectedAt: now, resumeAt: now + 60_000, source: 'synthetic', instanceId: null };
+    ledger.record({ ...base, model: null });
+    ledger.record({ ...base, model: 'opencode/big-pickle' });
+    expect(ledger.clearActive({ provider: 'opencode', model, includeAccountWideFallback: false, now })).toBe(0);
+    expect(ledger.list()).toHaveLength(2);
+  });
+
+  it.each([null, '', '   ', ' legacy '])('account-wide-only clearing normalizes legacy profile %s and preserves native gates', (accountProfileId) => {
+    const now = 1_700_000_000_000;
+    const base = { provider: 'opencode' as const, detectedAt: now - 100, resumeAt: now + 60_000, source: 'synthetic', instanceId: null };
+    const account = ledger.record({ ...base, model: null });
+    const native = ledger.record({ ...base, model: 'opencode/big-pickle' });
+    const expired = ledger.record({ ...base, model: null, resumeAt: now });
+    const named = ledger.record({ ...base, model: null, accountProfileId: 'placeholder-b' });
+    const other = ledger.record({ ...base, provider: 'claude', model: null });
+    expect(ledger.clearActive({ provider: 'opencode', model: '  ', accountProfileId, accountWideOnly: true, now })).toBe(1);
+    expect(ledger.list().map((event) => event.id).sort()).toEqual([native.id, expired.id, named.id, other.id].sort());
+    expect(ledger.list().some((event) => event.id === account.id)).toBe(false);
+    expect(ledger.clearActive({ provider: 'opencode', model: null, accountProfileId: ' placeholder-b ', accountWideOnly: true, now })).toBe(1);
+    expect(ledger.list().map((event) => event.id).sort()).toEqual([native.id, expired.id, other.id].sort());
+  });
+
+  it.each([null, '', '   ', 'opencode/big-pickle'])('exact-only takes precedence over account-wide-only for model %s', (model) => {
+    const now = 1_700_000_000_000;
+    const base = { provider: 'opencode' as const, detectedAt: now, resumeAt: now + 60_000, source: 'synthetic', instanceId: null };
+    const account = ledger.record({ ...base, model: null });
+    const native = ledger.record({ ...base, model: 'opencode/big-pickle' });
+    expect(ledger.clearActive({ provider: 'opencode', model, includeAccountWideFallback: false, accountWideOnly: true, now })).toBe(model?.trim() ? 1 : 0);
+    expect(ledger.list().some((event) => event.id === account.id)).toBe(true);
+    expect(ledger.list().some((event) => event.id === native.id)).toBe(!model?.trim());
+  });
+
+  it('account-wide-only rejects an exact model while the default null-model policy still clears all active models', () => {
+    const now = 1_700_000_000_000;
+    const base = { provider: 'opencode' as const, detectedAt: now, resumeAt: now + 60_000, source: 'synthetic', instanceId: null };
+    ledger.record({ ...base, model: null });
+    ledger.record({ ...base, model: 'opencode/big-pickle' });
+    expect(ledger.clearActive({ provider: 'opencode', model: ' opencode/big-pickle ', accountWideOnly: true, now })).toBe(0);
+    expect(ledger.list()).toHaveLength(2);
+    expect(ledger.clearActive({ provider: 'opencode', model: null, now })).toBe(2);
+    expect(ledger.list()).toEqual([]);
+  });
+
+  it.each([null, '', '   ', ' legacy '])('exact-only lookup isolates the native model under profile %s', (accountProfileId) => {
+    const now = 1_700_000_000_000;
+    const base = { provider: 'opencode' as const, detectedAt: now - 100, resumeAt: now + 60_000, source: 'synthetic', instanceId: null };
+    ledger.record({ ...base, model: null });
+    ledger.record({ ...base, model: 'opencode/big-pickle', resumeAt: now });
+    ledger.record({ ...base, model: 'opencode/big-pickle', accountProfileId: 'placeholder-b' });
+    ledger.record({ ...base, provider: 'claude', model: 'opencode/big-pickle' });
+    expect(ledger.getActive({ provider: 'opencode', model: ' opencode/big-pickle ', accountProfileId, includeAccountWideFallback: false, now })).toBeNull();
+    const native = ledger.record({ ...base, model: 'opencode/big-pickle' });
+    expect(ledger.getActive({ provider: 'opencode', model: ' opencode/big-pickle ', accountProfileId, includeAccountWideFallback: false, now })?.id).toBe(native.id);
+    expect(ledger.getActive({ provider: 'opencode', model: 'another-model', now })?.model).toBeNull();
+  });
+
+  it.each([null, '', '   '])('exact-only lookup for unknown model %s cannot alias an account gate', (model) => {
+    const now = 1_700_000_000_000;
+    ledger.record({ provider: 'opencode', model: null, detectedAt: now, resumeAt: now + 60_000, source: 'synthetic', instanceId: null });
+    expect(ledger.getActive({ provider: 'opencode', model, includeAccountWideFallback: false, now })).toBeNull();
+    expect(ledger.getActive({ provider: 'opencode', model, now })).not.toBeNull();
+  });
+
   it('clears both the successful model scope and its account fallback only after their reset', () => {
     const now = 1_700_000_000_000;
     const resumeAt = now + 10_000;

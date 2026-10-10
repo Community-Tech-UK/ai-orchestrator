@@ -18,7 +18,7 @@ import {
   onProviderAccountsChanged,
 } from './provider-account-store';
 
-function legacy(provider: 'claude' | 'codex'): ProviderAccountProfile {
+function legacy(provider: 'claude' | 'codex' | 'opencode'): ProviderAccountProfile {
   return {
     id: 'legacy',
     provider,
@@ -30,6 +30,7 @@ function legacy(provider: 'claude' | 'codex'): ProviderAccountProfile {
     enabled: true,
     automationPolicy: 'allow-routed',
     isLegacy: true,
+    ...(provider === 'opencode' ? { region: 'ams' as const } : {}),
     createdAt: 1,
     updatedAt: 1,
   };
@@ -119,6 +120,25 @@ describe('ProviderAccountStore', () => {
     expect(updated).toMatchObject({ expectedIdentity: 'me@example.com', expectedAccountKey: 'acct-1', planLabel: 'pro' });
   });
 
+  it('requires the Token Plan region for MiMo accounts and rejects Chrome profile paths', () => {
+    const { store } = makeStore({ profiles: [legacy('claude'), legacy('codex'), legacy('opencode')] });
+    expect(() => store.createProfile({ provider: 'opencode', label: 'MiMo B' })).toThrow(/region/);
+    expect(() => store.createProfile({ provider: 'opencode', label: 'MiMo B', region: 'ams', chromeProfile: '../evil' }))
+      .toThrow(/Chrome profile/);
+    expect(() => store.createProfile({ provider: 'claude', label: 'Max B', region: 'ams' })).toThrow(/MiMo/);
+    const profile = store.createProfile({ provider: 'opencode', label: 'MiMo B', region: 'sgp', chromeProfile: 'Profile 1' });
+    expect(profile).toMatchObject({ provider: 'opencode', region: 'sgp', chromeProfile: 'Profile 1', priority: 1 });
+    expect(store.getPoolPolicy('opencode').continuation).toBe('shared-store');
+  });
+
+  it('updates the MiMo Chrome profile on an existing account and removes its association', () => {
+    const { store } = makeStore({ profiles: [legacy('opencode')] });
+    const profile = store.createProfile({ provider: 'opencode', label: 'MiMo B', region: 'ams', chromeProfile: 'Default' });
+    expect(store.updateProfile('opencode', profile.id, { chromeProfile: 'Profile 2' }).chromeProfile).toBe('Profile 2');
+    // `null` removes the association; this added account then has no allowance reader.
+    expect(store.updateProfile('opencode', profile.id, { chromeProfile: null }).chromeProfile).toBeUndefined();
+  });
+
   it('rejects an invalid pool policy without persisting', () => {
     const { store, state } = makeStore();
     expect(() => store.setPoolPolicy('claude', { preemptive: { thresholdPct: 500 } })).toThrow(/invalid/);
@@ -142,5 +162,7 @@ describe('normalizePools', () => {
     expect(pools.claude.failoverMode).toBe('off');
     expect(pools.claude.preemptive.thresholdPct).toBe(90);
     expect(pools.codex.failoverMode).toBe('ask');
+    expect(pools.opencode.failoverMode).toBe('ask');
+    expect(Object.keys(pools).sort()).toEqual(['claude', 'codex', 'opencode']);
   });
 });

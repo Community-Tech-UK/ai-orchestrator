@@ -32,7 +32,7 @@ import type {
   PooledProvider,
   ProviderAccountProfile,
 } from '../../../shared/types/provider-account.types';
-import { LEGACY_ACCOUNT_PROFILE_ID, isPooledProvider, pooledProviderLabel } from '../../../shared/types/provider-account.types';
+import { LEGACY_ACCOUNT_PROFILE_ID, isLogicalMiMoModel, isPooledProvider, pooledProviderLabel } from '../../../shared/types/provider-account.types';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
 import { isModelSwitchAllowedStatus } from '../../../shared/types/instance-status-policy';
 import { getLogger } from '../../logging/logger';
@@ -72,7 +72,7 @@ export interface AccountFailoverParams {
   handoffKind?: Extract<AccountHandoffKind, 'failover' | 'preemptive'>;
 }
 
-/** 5-hour utilisation at/above which a live session counts as "approaching" its limit. */
+/** Effective MiMo allowance or five-hour usage at which a live session approaches its limit. */
 function preemptiveThreshold(policy: { preemptive: { thresholdPct: number } }): number {
   return policy.preemptive.thresholdPct;
 }
@@ -109,7 +109,9 @@ export interface AccountFailoverDeps {
   refreshQuotaEvidence?: (provider: PooledProvider, profileId: string) => Promise<void>;
   getInstance: (instanceId: string) => Instance | undefined;
   applyRuntimeChange: (instanceId: string, desired: DesiredRuntime) => Promise<Instance>;
-  resendInput: (instanceId: string, prompt: string) => void;
+  resendInput: (instanceId: string, prompt: string) => void | Promise<void>;
+  /** Visible notice if the asynchronous replay fails; the account remains switched. */
+  reportResendFailure?: (instanceId: string) => void;
   notify: (input: { kind: string; instanceId: string; title: string; body: string }) => void;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -142,7 +144,7 @@ export class AccountFailoverCoordinator {
   /**
    * Pre-emptive live-session switch at a turn boundary (spec §8.4, off by
    * default): the session's account is at or above the pool threshold on its
-   * 5-hour window and another account is under it. Only in automatic,
+   * effective MiMo allowance or five-hour window and another account is under it. Only in automatic,
    * acknowledged pools; never offered.
    */
   shouldSwitchPreemptively(params: AccountFailoverParams): boolean {
@@ -152,7 +154,8 @@ export class AccountFailoverCoordinator {
       if (!policy.preemptive.liveSessionsAtTurnBoundary) return false;
       if (policy.failoverMode !== 'automatic' || policy.acknowledgedOwnershipAt === null) return false;
       const evidence = this.deps.getQuotaEvidence(params.provider, params.exhaustedProfileId);
-      if (typeof evidence?.fiveHourPct !== 'number' || evidence.fiveHourPct < preemptiveThreshold(policy)) return false;
+      const utilisation = evidence?.allowancePct ?? evidence?.fiveHourPct;
+      if (typeof utilisation !== 'number' || utilisation < preemptiveThreshold(policy)) return false;
       const plan = this.plan({ ...params, handoffKind: 'preemptive' });
       return plan.kind === 'switch';
     } catch {
@@ -162,6 +165,7 @@ export class AccountFailoverCoordinator {
 
   /** Synchronous gate: should a switch be attempted for this rejection? */
   plan(params: AccountFailoverParams): AccountFailoverPlan {
+    if (params.provider === 'opencode' && !isLogicalMiMoModel(params.model)) return { kind: 'none', reason: 'no-pool' };
     let profiles: ProviderAccountProfile[];
     let policy;
     try {
@@ -199,6 +203,9 @@ export class AccountFailoverCoordinator {
    * re-send the turn. Never throws.
    */
   async perform(params: AccountFailoverParams): Promise<AccountFailoverOutcome> {
+    if (params.provider === 'opencode' && !isLogicalMiMoModel(params.model)) {
+      return { outcome: 'not-switched', reason: 'no-pool', considered: [] };
+    }
     // Checked before any guardrail: a late report for a profile this instance
     // already left must not be answered with `cooldown`/`cap-reached`, which
     // the caller would turn into a park on the old profile's reset time.
@@ -256,13 +263,17 @@ export class AccountFailoverCoordinator {
       return { outcome: 'offered', toProfileId: replan.toProfileId };
     }
 
-    // Verified bindings for the enabled candidates (30 s cache inside).
+    // Controller bindings apply only to local execution. Remote candidates are
+    // verified by the worker while applying the runtime change, before spawn.
+    const remote = this.isRemoteExecution(params.instanceId);
     const bindingStates = new Map<string, AccountBindingState>();
-    await Promise.all(profiles.filter((profile) => profile.enabled && profile.id !== params.exhaustedProfileId)
-      .map(async (profile) => {
-        bindingStates.set(profile.id, (await this.deps.bindings().checkBinding(profile)).state);
-      }));
-    const cachedQuota = await this.refreshCandidateQuota(params, profiles, bindingStates);
+    if (!remote) {
+      await Promise.all(profiles.filter((profile) => profile.enabled && profile.id !== params.exhaustedProfileId)
+        .map(async (profile) => {
+          bindingStates.set(profile.id, (await this.deps.bindings().checkBinding(profile)).state);
+        }));
+    }
+    const cachedQuota = await this.refreshCandidateQuota(params, profiles, bindingStates, remote);
     const selection = this.select(params, profiles, { bindingStates, cachedQuota });
     if (selection.profileId === null) {
       this.emitExhausted(params);
@@ -329,7 +340,14 @@ export class AccountFailoverCoordinator {
 
     if (params.resumePrompt) {
       this.rememberDelivered(params.instanceId, params.resumePrompt);
-      this.deps.resendInput(params.instanceId, params.resumePrompt);
+      try {
+        // sendInput can await a whole provider turn: observe failures without
+        // retaining the provider lock or automatically repeating uncertain work.
+        void Promise.resolve(this.deps.resendInput(params.instanceId, params.resumePrompt))
+          .catch(() => this.reportResendFailure(params.instanceId));
+      } catch {
+        this.reportResendFailure(params.instanceId);
+      }
     }
     return { outcome: 'switched', toProfileId, continuity };
   }
@@ -344,13 +362,14 @@ export class AccountFailoverCoordinator {
     params: AccountFailoverParams,
     profiles: ProviderAccountProfile[],
     bindingStates: ReadonlyMap<string, AccountBindingState>,
+    remote: boolean,
   ): Promise<Map<string, AccountQuotaEvidence>> {
     const cachedQuota = this.readQuota(params.provider, profiles);
     const refresh = this.deps.refreshQuotaEvidence;
     if (!refresh) return cachedQuota;
     const candidates = profiles.filter((profile) => profile.enabled
       && profile.id !== params.exhaustedProfileId
-      && bindingStates.get(profile.id) === 'authenticated');
+      && (remote || bindingStates.get(profile.id) === 'authenticated'));
     if (candidates.length === 0) return cachedQuota;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<void>((resolve) => {
@@ -383,6 +402,10 @@ export class AccountFailoverCoordinator {
   private isMovedOff(params: AccountFailoverParams): boolean {
     const current = this.deps.getInstance(params.instanceId);
     return current !== undefined && (current.accountProfileId ?? LEGACY_ACCOUNT_PROFILE_ID) !== params.exhaustedProfileId;
+  }
+
+  private isRemoteExecution(instanceId: string): boolean {
+    return this.deps.getInstance(instanceId)?.executionLocation?.type === 'remote';
   }
 
   /** `already-moved` when the instance no longer runs on the exhausted profile; never sends anything. */
@@ -423,7 +446,8 @@ export class AccountFailoverCoordinator {
     },
   ): ReturnType<typeof selectAccount> {
     const bindingStates = options.bindingStates ?? new Map<string, AccountBindingState>();
-    if (options.useCachedBindings) {
+    const remote = this.isRemoteExecution(params.instanceId);
+    if (options.useCachedBindings && !remote) {
       for (const profile of profiles) {
         // Unknown (not yet checked) counts as signed in here; perform() verifies.
         bindingStates.set(profile.id, this.deps.bindings().getCached(params.provider, profile.id)?.state ?? 'authenticated');
@@ -466,6 +490,7 @@ export class AccountFailoverCoordinator {
       parkedSince,
       allowCredits: true,
       bindings: bindingStates,
+      ignoreBindings: remote,
       quotaByProfile,
       lastUsedAt,
       // A pre-emptive move only makes sense onto an account that is itself under the threshold.
@@ -511,6 +536,14 @@ export class AccountFailoverCoordinator {
     }
   }
 
+  private reportResendFailure(instanceId: string): void {
+    try { this.deps.reportResendFailure?.(instanceId); } catch { /* Notice is best-effort. */ }
+    this.safeNotify({
+      kind: 'account-resend-failed', instanceId, title: 'Account switched; continuation failed',
+      body: 'The interrupted message could not be confirmed. Check the conversation before sending it again.',
+    });
+  }
+
   private safeNotify(input: Parameters<AccountFailoverDeps['notify']>[0]): void {
     try {
       this.deps.notify(input);
@@ -527,8 +560,8 @@ export class AccountFailoverCoordinator {
 }
 
 /** The profile an instance currently runs on, for a pooled provider. */
-export function currentAccountProfileId(instance: Pick<Instance, 'provider' | 'accountProfileId'>): string | null {
-  if (!isPooledProvider(instance.provider)) return null;
+export function currentAccountProfileId(instance: Pick<Instance, 'provider' | 'accountProfileId'> & Partial<Pick<Instance, 'currentModel'>>): string | null {
+  if (!isPooledProvider(instance.provider) || (instance.provider === 'opencode' && !isLogicalMiMoModel(instance.currentModel))) return null;
   return instance.accountProfileId ?? LEGACY_ACCOUNT_PROFILE_ID;
 }
 

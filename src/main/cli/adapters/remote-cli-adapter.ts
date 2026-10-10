@@ -70,6 +70,8 @@ interface RemoteCompleteEvent {
 
 export class RemoteCliAdapter extends EventEmitter {
   private remoteInstanceId: string | null = null;
+  private readonly nextPromptContexts: string[] = [];
+  private contextDispatchPending = false;
   /** Latest resume proof relayed from the worker adapter (P2.9). */
   private lastResumeAttemptResult: ResumeAttemptResult | null = null;
   /**
@@ -204,8 +206,9 @@ export class RemoteCliAdapter extends EventEmitter {
                 },
               }
             : {}),
-          // Claude/Codex account pools (D10): same rule, a profile ID and the
-          // identity expected. The worker derives its own profile home.
+          // Claude/Codex/OpenCode account pools (D10): same rule, a profile ID
+          // and the identity expected (plus the MiMo Token Plan region). The
+          // worker derives its own profile home / provider name.
           ...(this.spawnOptions.accountRoute
             ? {
                 accountRoute: {
@@ -213,6 +216,9 @@ export class RemoteCliAdapter extends EventEmitter {
                   profileId: this.spawnOptions.accountRoute.profileId,
                   expectedIdentity: this.spawnOptions.accountRoute.expectedIdentity ?? null,
                   source: this.spawnOptions.accountRoute.source,
+                  ...(this.spawnOptions.accountRoute.region
+                    ? { region: this.spawnOptions.accountRoute.region }
+                    : {}),
                 },
               }
             : {}),
@@ -246,6 +252,11 @@ export class RemoteCliAdapter extends EventEmitter {
     return -1; // No local PID for remote instances
   }
 
+  /** Carry account-change context with the next user turn, never as a separate RPC. */
+  queueNextPromptContext(text: string): void {
+    if (text.trim()) this.nextPromptContexts.push(text);
+  }
+
   /** Remote nodes receive the Harness envelope in the text; `_options` is not forwarded. */
   async sendInput(message: string, attachments?: FileAttachment[], _options?: AdapterInputOptions): Promise<void> {
     if (!this.remoteInstanceId) {
@@ -255,22 +266,33 @@ export class RemoteCliAdapter extends EventEmitter {
       throw new OrchestratorPausedError('Remote input refused while orchestrator is paused');
     }
 
-    // No RPC timeout: some worker-side adapters (notably the Codex app-server)
-    // block inside sendInput() for the ENTIRE turn before responding, and turns
-    // are unbounded in length. A fixed timeout would falsely fail healthy turns
-    // that run longer than it — even though output streams back over separate
-    // notifications meanwhile. Stuck turns are handled by the coordinator's own
-    // stuck-process watchdog; a node disconnect rejects this RPC promptly.
-    await this.nodeConnection.sendRpc(
-      this.targetNodeId,
-      'instance.sendInput',
-      {
-        instanceId: this.remoteInstanceId,
-        message,
-        attachments,
-      },
-      0,
-    );
+    if (this.contextDispatchPending) {
+      throw new Error('Cannot send message: the previous turn is still running.');
+    }
+    const contextCount = this.nextPromptContexts.length;
+    const prompt = contextCount > 0 ? [...this.nextPromptContexts, message].join('\n\n') : message;
+    this.contextDispatchPending = contextCount > 0;
+    try {
+      // No RPC timeout: some worker-side adapters (notably the Codex app-server)
+      // block inside sendInput() for the ENTIRE turn before responding, and turns
+      // are unbounded in length. A fixed timeout would falsely fail healthy turns
+      // that run longer than it — even though output streams back over separate
+      // notifications meanwhile. Stuck turns are handled by the coordinator's own
+      // stuck-process watchdog; a node disconnect rejects this RPC promptly.
+      await this.nodeConnection.sendRpc(
+        this.targetNodeId,
+        'instance.sendInput',
+        {
+          instanceId: this.remoteInstanceId,
+          message: prompt,
+          attachments,
+        },
+        0,
+      );
+      this.nextPromptContexts.splice(0, contextCount);
+    } finally {
+      this.contextDispatchPending = false;
+    }
   }
 
   /**

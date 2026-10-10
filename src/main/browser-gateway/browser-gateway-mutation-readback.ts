@@ -74,5 +74,27 @@ export function normalizeExistingTabControlReadback(value: unknown): FillControl
     ...(typeof record['value'] === 'string' ? { value: record['value'] } : {}),
     ...(typeof record['selectedLabel'] === 'string' ? { selectedLabel: record['selectedLabel'] } : {}),
     ...(typeof record['checked'] === 'boolean' ? { checked: record['checked'] } : {}),
+    ...frameOriginOf(record),
   };
+}
+
+/**
+ * Accept a frame origin only in exact-origin shape, and only under the
+ * extension's own `__frameOrigin` key (no speculative aliases for a
+ * security-relevant input). This value decides where a vault secret may be
+ * typed, so a malformed or page-elongated string must fail to the caller's
+ * page-origin fallback rather than steer a credential write.
+ */
+function frameOriginOf(record: Record<string, unknown>): { frameOrigin?: string } {
+  // Own property only: this value decides where a vault secret may be typed,
+  // so nothing inherited (a forged prototype) may supply it.
+  const raw = Object.hasOwn(record, '__frameOrigin') ? record['__frameOrigin'] : undefined;
+  if (typeof raw !== 'string' || raw === '') {
+    return {};
+  }
+  try {
+    return new URL(raw).origin === raw ? { frameOrigin: raw } : {};
+  } catch {
+    return {};
+  }
 }

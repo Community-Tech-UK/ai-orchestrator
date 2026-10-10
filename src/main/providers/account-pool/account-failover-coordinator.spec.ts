@@ -9,7 +9,7 @@ vi.mock('../../logging/logger', () => ({
 const events = vi.hoisted(() => [] as Array<{ event: string }>);
 vi.mock('./provider-account-events', () => ({ emitProviderAccountEvent: (event: { event: string }) => events.push(event) }));
 
-import { AccountFailoverCoordinator, FRESH_QUOTA_TIMEOUT_MS, type AccountFailoverParams } from './account-failover-coordinator';
+import { AccountFailoverCoordinator, currentAccountProfileId, FRESH_QUOTA_TIMEOUT_MS, type AccountFailoverParams } from './account-failover-coordinator';
 import type { AccountQuotaEvidence } from './provider-account-selector';
 import { ProviderAccountStore } from './provider-account-store';
 import type { ProviderAccountBindingService } from './provider-account-binding-service';
@@ -40,7 +40,8 @@ interface Harness {
 
 function harness(overrides: Partial<ProviderAccountPoolPolicy> = {}, profiles = [profile('legacy', 0), profile('max-b', 1), profile('max-c', 2)]): Harness {
   const pools = defaultProviderAccountPools();
-  pools.claude = { ...pools.claude, failoverMode: 'automatic', acknowledgedOwnershipAt: 1, switchCooldownMs: 0, ...overrides };
+  const provider = profiles[0]?.provider ?? 'claude';
+  pools[provider] = { ...pools[provider], failoverMode: 'automatic', acknowledgedOwnershipAt: 1, switchCooldownMs: 0, ...overrides };
   const state: Harness = {
     coordinator: undefined as unknown as AccountFailoverCoordinator,
     instances: new Map(),
@@ -48,7 +49,7 @@ function harness(overrides: Partial<ProviderAccountPoolPolicy> = {}, profiles = 
     resent: [],
     notified: [],
     parked: [],
-    policy: pools.claude,
+    policy: pools[provider],
     bindingStates: {},
     clock: { now: 10_000 },
     quota: {},
@@ -79,7 +80,7 @@ function harness(overrides: Partial<ProviderAccountPoolPolicy> = {}, profiles = 
       instance.accountProfileId = desired.accountProfileId;
       return instance;
     },
-    resendInput: (id, prompt) => state.resent.push({ id, prompt }),
+    resendInput: (id, prompt) => { state.resent.push({ id, prompt }); },
     notify: (input) => state.notified.push(input),
     now: () => state.clock.now,
     sleep: async () => undefined,
@@ -103,6 +104,17 @@ beforeEach(() => {
 });
 
 describe('AccountFailoverCoordinator', () => {
+  it.each(['opencode/big-pickle', 'openrouter/xiaomi/mimo-v2.6-pro', null, 'auto'])('does not route a non-MiMo %s limit through MiMo accounts', async (model) => {
+    const h = harness();
+    h.instances.set('i1', { id: 'i1', provider: 'opencode', currentModel: model ?? undefined, accountProfileId: 'stale-mimo', status: 'idle' } as Instance);
+    const request = params('i1', { provider: 'opencode', model });
+    expect(h.coordinator.plan(request)).toEqual({ kind: 'none', reason: 'no-pool' });
+    expect(await h.coordinator.perform(request)).toMatchObject({ outcome: 'not-switched', reason: 'no-pool' });
+    expect(currentAccountProfileId(h.instances.get('i1')!)).toBeNull();
+    expect(h.applied).toHaveLength(0);
+    expect(h.resent).toHaveLength(0);
+  });
+
   it('switches to the next profile by priority, re-sends once and notifies once', async () => {
     const h = harness();
     addInstance(h, 'i1');
@@ -113,6 +125,55 @@ describe('AccountFailoverCoordinator', () => {
     expect(h.resent).toEqual([{ id: 'i1', prompt: 'keep going' }]);
     expect(h.notified).toEqual([expect.objectContaining({ kind: 'account-switched' })]);
     expect(events.map((event) => event.event)).toContain('account_failover_performed');
+  });
+
+  it('observes a rejected replay without blocking the provider lock or retrying uncertain work', async () => {
+    const h = harness();
+    addInstance(h, 'i1'); addInstance(h, 'i2');
+    let rejectReplay!: (error: Error) => void;
+    const reported: string[] = [];
+    const realDeps = (h.coordinator as unknown as { deps: ConstructorParameters<typeof AccountFailoverCoordinator>[0] }).deps;
+    const coordinator = new AccountFailoverCoordinator({ ...realDeps,
+      resendInput: (id, prompt) => {
+        h.resent.push({ id, prompt });
+        return new Promise<void>((_resolve, reject) => { if (id === 'i1') rejectReplay = reject; });
+      },
+      reportResendFailure: (id: string) => { reported.push(id); },
+    } as ConstructorParameters<typeof AccountFailoverCoordinator>[0]);
+    expect(await coordinator.perform(params('i1'))).toMatchObject({ outcome: 'switched' });
+    // A pending model turn cannot hold every other instance's failover lock.
+    expect(await coordinator.perform(params('i2'))).toMatchObject({ outcome: 'switched' });
+    rejectReplay(new Error('worker disconnected after prompt dispatch'));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(reported).toEqual(['i1']);
+    expect(h.instances.get('i1')!.accountProfileId).toBe('max-b');
+    expect(h.notified.filter((notice) => notice.kind === 'account-resend-failed')).toHaveLength(1);
+    expect(await coordinator.perform(params('i1'))).toMatchObject({ outcome: 'already-moved', turnNotSent: false });
+    expect(h.resent).toHaveLength(2);
+  });
+
+  it('does not publish a replay failure after a successful asynchronous resend', async () => {
+    const h = harness(); addInstance(h, 'i1');
+    const realDeps = (h.coordinator as unknown as { deps: ConstructorParameters<typeof AccountFailoverCoordinator>[0] }).deps;
+    const reported: string[] = [];
+    const coordinator = new AccountFailoverCoordinator({ ...realDeps,
+      resendInput: async (id, prompt) => { h.resent.push({ id, prompt }); },
+      reportResendFailure: (id: string) => { reported.push(id); },
+    } as ConstructorParameters<typeof AccountFailoverCoordinator>[0]);
+    await coordinator.perform(params('i1'));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(reported).toEqual([]);
+    expect(h.notified.map((notice) => notice.kind)).toEqual(['account-switched']);
+    expect(h.resent).toEqual([{ id: 'i1', prompt: 'keep going' }]);
+  });
+
+  it('uses MiMo calendar allowance for the live pre-emptive threshold', () => {
+    const h = harness({ preemptive: { newSessions: true, liveSessionsAtTurnBoundary: true, thresholdPct: 90 } }, [profile('legacy', 0), profile('max-b', 1)].map((entry) => ({ ...entry, provider: 'opencode' as const, region: 'ams' as const })));
+    h.instances.set('i1', { id: 'i1', provider: 'opencode', currentModel: 'xiaomi-token-plan-ams/mimo-v2.6-pro', status: 'idle' } as Instance);
+    h.quota = { legacy: { allowancePct: 90 }, 'max-b': { allowancePct: 15 } };
+    expect(h.coordinator.shouldSwitchPreemptively(params('i1', { provider: 'opencode', model: 'xiaomi-token-plan-ams/mimo-v2.6-pro', handoffKind: 'preemptive' }))).toBe(true);
+    h.quota['legacy'] = { allowancePct: 89, fiveHourPct: 99 };
+    expect(h.coordinator.shouldSwitchPreemptively(params('i1', { provider: 'opencode', model: 'xiaomi-token-plan-ams/mimo-v2.6-pro', handoffKind: 'preemptive' }))).toBe(false);
   });
 
   it('makes one switch when the same instance reports the limit twice concurrently', async () => {

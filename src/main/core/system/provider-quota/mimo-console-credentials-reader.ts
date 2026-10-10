@@ -37,6 +37,7 @@ import * as path from 'path';
 import { defaultDriverFactory } from '../../../db/better-sqlite3-driver';
 import type { SqliteDriver, SqliteDriverFactory } from '../../../db/sqlite-driver';
 import { getLogger } from '../../../logging/logger';
+import { ACCOUNT_CHROME_PROFILE_PATTERN } from '../../../../shared/types/provider-account.types';
 
 const logger = getLogger('MimoConsoleCredentialsReader');
 
@@ -102,6 +103,13 @@ export interface MimoConsoleCredentialsReaderOptions {
   env?: NodeJS.ProcessEnv;
   /** Override the Chrome Cookies DB path (tests). */
   cookiesPath?: string;
+  /**
+   * Chrome profile folder whose MiMo console sign-in to read (Decision 8):
+   * "Default", "Profile 1", … — a plain folder name, never a path. Defaults to
+   * "Default". Each MiMo account names the Chrome profile signed into its own
+   * console account.
+   */
+  chromeProfile?: string;
   /** SQLite driver factory — defaults to the real better-sqlite3 driver. */
   driverFactory?: SqliteDriverFactory;
   /** File-existence check (tests). */
@@ -125,7 +133,8 @@ export class MimoConsoleCredentialsReader {
   constructor(opts: MimoConsoleCredentialsReaderOptions = {}) {
     this.platform = opts.platform ?? process.platform;
     this.securityExec = opts.securityExec ?? defaultSecurityExec;
-    this.cookiesPath = opts.cookiesPath ?? defaultChromeCookiesPath(this.platform, opts.env);
+    this.cookiesPath = opts.cookiesPath
+      ?? defaultChromeCookiesPath(this.platform, opts.env, opts.chromeProfile);
     this.driverFactory = opts.driverFactory ?? defaultDriverFactory;
     this.fileExists = opts.fileExists ?? existsSync;
     this.takeDbSnapshot = opts.takeDbSnapshot ?? snapshotChromeCookiesDb;
@@ -311,23 +320,37 @@ export function decryptChromeV10(password: string, blob: Buffer): Buffer | null 
 }
 
 /**
- * Resolve the platform-specific path to Chrome's cookie store. Chrome's
- * profile layout is the standard Chromium one (`Default` profile).
+ * Resolve the platform-specific path to Chrome's cookie store for one profile
+ * (`Default` unless a MiMo account names another Chrome profile folder,
+ * Decision 8). The profile is validated as a plain folder name first: this
+ * value joins a path and must never be a traversal.
  */
 export function defaultChromeCookiesPath(
   platform: NodeJS.Platform,
   env?: NodeJS.ProcessEnv,
+  chromeProfile = 'Default',
 ): string {
+  const profile = normalizeChromeProfileFolder(chromeProfile);
   const home = (env && env['HOME']) || os.homedir();
   if (platform === 'darwin') {
     return path.posix.join(
-      home, 'Library', 'Application Support', 'Google', 'Chrome', 'Default', 'Cookies');
+      home, 'Library', 'Application Support', 'Google', 'Chrome', profile, 'Cookies');
   }
   if (platform === 'win32') {
     const appData = (env && env['APPDATA']) || path.win32.join(home, 'AppData', 'Roaming');
-    return path.win32.join(appData, 'Google', 'Chrome', 'User Data', 'Default', 'Cookies');
+    return path.win32.join(appData, 'Google', 'Chrome', 'User Data', profile, 'Cookies');
   }
-  return path.posix.join(home, '.config', 'google-chrome', 'Default', 'Cookies');
+  return path.posix.join(home, '.config', 'google-chrome', profile, 'Cookies');
+}
+
+/** Plain Chrome folder name ("Default", "Profile 1"); anything else is refused. */
+export function normalizeChromeProfileFolder(chromeProfile: string | undefined): string {
+  const trimmed = chromeProfile?.trim() ?? '';
+  if (!trimmed) return 'Default';
+  if (!ACCOUNT_CHROME_PROFILE_PATTERN.test(trimmed)) {
+    throw new Error('Chrome profile must be a plain folder name like "Default" or "Profile 1".');
+  }
+  return trimmed;
 }
 
 /** Snapshot files kept from earlier fallback reads (deleted on the next one). */

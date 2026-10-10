@@ -146,4 +146,22 @@ describe('BrowserAuditStore', () => {
     );
     expect(remaining).not.toContain('stale read row');
   });
+
+  it('LT-703: persists and returns the safe reason code with the audit row', () => {
+    const entry = store.record({
+      provider: 'codex',
+      action: 'fill_credential',
+      toolName: 'browser.fill_credential',
+      actionClass: 'credential',
+      decision: 'denied',
+      outcome: 'failed',
+      summary: 'browser.fill_credential failed at dispatch on field 1 of 2 (#username, username)',
+      reason: 'dispatch:credential_selector_outside_authorized_origin',
+      redactionApplied: true,
+    });
+
+    expect(entry.reason).toBe('dispatch:credential_selector_outside_authorized_origin');
+    const listed = store.list({ limit: 10 }).find((row) => row.id === entry.id);
+    expect(listed?.reason).toBe('dispatch:credential_selector_outside_authorized_origin');
+  });
 });

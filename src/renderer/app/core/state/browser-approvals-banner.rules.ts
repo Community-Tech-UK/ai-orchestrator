@@ -20,7 +20,7 @@ const EXACT_APPROVAL_CLASSES = new Set<BrowserActionClass>([
 ]);
 
 export type BannerGrantMode = BrowserGrantMode;
-export type CredentialAccessDuration = 'task' | '1h' | '24h' | '7d';
+export type CredentialAccessDuration = 'task' | '1h' | '24h' | '7d' | '30d' | '90d' | '365d';
 
 export const CREDENTIAL_ACCESS_DURATIONS: readonly {
   value: CredentialAccessDuration;
@@ -30,12 +30,18 @@ export const CREDENTIAL_ACCESS_DURATIONS: readonly {
   { value: '1h', label: 'Remember for 1 hour' },
   { value: '24h', label: 'Remember for 24 hours' },
   { value: '7d', label: 'Remember for 7 days' },
+  { value: '30d', label: 'Remember for 30 days' },
+  { value: '90d', label: 'Remember for 90 days' },
+  { value: '365d', label: 'Remember for 1 year' },
 ];
 
 export function credentialAccessChoice(
   duration: CredentialAccessDuration,
 ): NonNullable<BrowserApproveRequestPayload['credentialAccess']> {
-  const rememberForMs = { '1h': 3_600_000, '24h': 86_400_000, '7d': 604_800_000 };
+  const rememberForMs = {
+    '1h': 3_600_000, '24h': 86_400_000, '7d': 604_800_000,
+    '30d': 2_592_000_000, '90d': 7_776_000_000, '365d': 31_536_000_000,
+  };
   return duration === 'task'
     ? { permission: 'task' }
     : { permission: 'remember', rememberForMs: rememberForMs[duration] };

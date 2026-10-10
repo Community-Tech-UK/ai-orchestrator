@@ -21,7 +21,8 @@ export { currentAccountProfileId } from './account-failover-coordinator';
 export function createAccountFailoverCoordinator(deps: {
   getInstance: (instanceId: string) => Instance | undefined;
   applyRuntimeChange: (instanceId: string, desired: DesiredRuntime) => Promise<Instance>;
-  resendInput: (instanceId: string, prompt: string) => void;
+  resendInput: (instanceId: string, prompt: string) => void | Promise<void>;
+  reportResendFailure?: (instanceId: string) => void;
 }): AccountFailoverCoordinator {
   return configureAccountFailoverCoordinator({
     ...deps,

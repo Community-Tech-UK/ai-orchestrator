@@ -1,4 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import Database from 'better-sqlite3';
+import { LoopProviderLimitHandler } from '../orchestration/loop-provider-limit-handler';
+import { LoopAccountFailover } from '../providers/account-pool/loop-account-failover';
+import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
+import type { SqliteDriver } from '../db/sqlite-driver';
+import { ProviderLimitLedger, createProviderLimitLedgerSchema } from '../core/system/provider-limit-ledger';
+import { createProviderLimitCommunicationCallbacks } from './instance-provider-limit-runtime';
+import { shouldSkipKnownProviderLimitDispatch } from './instance-communication-provider-limit';
+import type { Instance } from '../../shared/types/instance.types';
+import { getInstanceProviderLimitHandler, _resetInstanceProviderLimitHandlerForTesting } from './instance-provider-limit-handler';
 import {
   InstanceProviderLimitHandler,
   EARLY_RESUME_PROBE_MS,
@@ -9,7 +19,7 @@ import { buildProviderLimitContinuationTurn } from './instance-provider-limit-re
 import type { InstanceProvider, InstanceWaitReason } from '../../shared/types/instance.types';
 import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 
-function makeSnapshot(provider: ProviderId, windows: Array<{ used: number; limit: number; resetsAt: number | null }>): ProviderQuotaSnapshot {
+function makeSnapshot(provider: ProviderId, windows: { used: number; limit: number; resetsAt: number | null }[]): ProviderQuotaSnapshot {
   return {
     provider,
     takenAt: Date.now(),
@@ -30,7 +40,7 @@ function makeSnapshot(provider: ProviderId, windows: Array<{ used: number; limit
 interface Harness {
   handler: InstanceProviderLimitHandler;
   waitReasons: Map<string, InstanceWaitReason | null>;
-  resends: Array<{ instanceId: string; prompt: string }>;
+  resends: { instanceId: string; prompt: string }[];
   scheduleCalls: number;
   cancels: number;
   enabled: { value: boolean };
@@ -44,7 +54,7 @@ interface Harness {
 function makeHarness(overrides: Partial<InstanceProviderLimitHandlerDeps> = {}): Harness {
   const handler = new InstanceProviderLimitHandler();
   const waitReasons = new Map<string, InstanceWaitReason | null>();
-  const resends: Array<{ instanceId: string; prompt: string }> = [];
+  const resends: { instanceId: string; prompt: string }[] = [];
   const enabled = { value: true };
   const snapshot = { value: null as ProviderQuotaSnapshot | null };
   let scheduleCalls = 0;
@@ -130,7 +140,7 @@ describe('InstanceProviderLimitHandler.maybePark', () => {
   });
 
   it('invokes onParked with the park facts (WS7 Phase B offered-switch seam), fail-soft', () => {
-    const parkedCalls: Array<{ instanceId: string; provider: string; resumeAt: number }> = [];
+    const parkedCalls: { instanceId: string; provider: string; resumeAt: number }[] = [];
     const resumeAt = Date.now() + 60_000;
     const withOffer = makeHarness({
       onParked: (params) => parkedCalls.push(params),
@@ -190,7 +200,7 @@ describe('InstanceProviderLimitHandler.maybePark', () => {
 
   it('records a detected model limit and parks a second instance from that known limit', () => {
     const resumeAt = Date.now() + 60_000;
-    const events: Array<{ provider: ProviderId; model: string | null; resumeAt: number; instanceId: string | null }> = [];
+    const events: { provider: ProviderId; model: string | null; resumeAt: number; instanceId: string | null }[] = [];
     const ledger = {
       record: vi.fn((event) => events.push(event)),
       getActive: vi.fn(() => events.length > 0 ? events[0] : null),
@@ -493,7 +503,7 @@ describe('InstanceProviderLimitHandler.release', () => {
 describe('InstanceProviderLimitHandler known-limit gate override', () => {
   function makeOverrideHarness() {
     const calls: string[] = [];
-    const resends: Array<{ instanceId: string; prompt: string }> = [];
+    const resends: { instanceId: string; prompt: string }[] = [];
     const ledger = {
       record: vi.fn(() => { calls.push('record'); }),
       getActive: vi.fn(() => null),
@@ -919,5 +929,175 @@ describe('InstanceProviderLimitHandler.maybeParkOnUsageLimit', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+
+describe('regular OpenCode and MiMo durable scope isolation', () => {
+  const mimo = 'xiaomi-token-plan-ams/mimo-v2.6-pro';
+  function setup(model: string | null) {
+    const db = new Database(':memory:') as unknown as SqliteDriver;
+    createProviderLimitLedgerSchema(db);
+    const ledger = new ProviderLimitLedger(db);
+    const instance = { id: 'placeholder-regular', provider: 'opencode', currentModel: model } as Instance;
+    const snapshot = vi.fn(() => makeSnapshot('opencode', [{ used: 10, limit: 100, resetsAt: Date.now() + 600_000 }]));
+    const probe = vi.fn(async () => snapshot());
+    const refresh = vi.fn();
+    const handler = getInstanceProviderLimitHandler();
+    const h = makeHarness({ providerLimitLedger: ledger, getQuotaSnapshot: snapshot, probeQuotaSnapshot: probe,
+      refreshQuotaSnapshot: refresh, getProviderModel: () => ({ provider: 'opencode', model }) });
+    // Exercise the production communication callback's singleton owner.
+    handler.configure((h.handler as unknown as { deps: InstanceProviderLimitHandlerDeps }).deps);
+    const record = (rowModel: string | null, accountProfileId: string | null = null) => ledger.record({ provider: 'opencode',
+      model: rowModel, accountProfileId, detectedAt: Date.now() - 100, resumeAt: Date.now() + 600_000,
+      source: 'synthetic actual scope', instanceId: null });
+    return { db, ledger, instance, snapshot, probe, refresh, handler, h, record,
+      cleanup: () => { _resetInstanceProviderLimitHandlerForTesting(); h.handler._resetForTesting(); db.close(); } };
+  }
+
+  it.each(['opencode/big-pickle', 'openrouter/placeholder-model', 'aio-mimo-placeholder/mimo-v2.6-pro', 'auto', null, '   '])('actual dispatch and manual resume for %s cannot consult or clear a MiMo legacy gate', (model) => {
+      const h = setup(model);
+      try {
+        const mimoRow = h.record(null);
+        const callbacks = createProviderLimitCommunicationCallbacks(() => h.instance);
+        expect(shouldSkipKnownProviderLimitDispatch(callbacks.checkKnownProviderLimitBeforeSend, {
+          instanceId: h.instance.id, provider: 'opencode', model, prompt: 'placeholder native work',
+        })).toBe(false);
+        expect(h.snapshot).not.toHaveBeenCalled();
+        expect(h.probe).not.toHaveBeenCalled();
+        h.handler.resumeNow(h.instance.id);
+        expect(h.ledger.list().map((row) => row.id)).toEqual([mimoRow.id]);
+      } finally { h.cleanup(); }
+    });
+
+  it.each(['resume', 'cancel', 'automation'])('native exact gate survives MiMo headroom and %s clears only that native gate', async (action) => {
+    vi.useFakeTimers();
+    const h = setup('opencode/big-pickle');
+    try {
+      const mimoRow = h.record(null);
+      const native = h.record('opencode/big-pickle');
+      expect(h.handler.maybeParkKnown({ instanceId: h.instance.id, provider: 'opencode', model: 'opencode/big-pickle',
+        reason: 'synthetic exact limit', resumePrompt: 'placeholder turn' })).toBe('parked');
+      await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS + 5);
+      expect(h.handler.isParked(h.instance.id)).toBe(true);
+      expect(h.snapshot).not.toHaveBeenCalled();
+      expect(h.probe).not.toHaveBeenCalled();
+      expect(h.ledger.list().map((row) => row.id)).toContain(native.id);
+      if (action === 'cancel') h.handler.cancel(h.instance.id);
+      else if (action === 'automation') h.handler.resumeFromAutomation(h.instance.id, 'placeholder turn');
+      else h.handler.resumeNow(h.instance.id);
+      expect(h.ledger.list().map((row) => row.id)).toEqual([mimoRow.id]);
+    } finally { h.cleanup(); vi.useRealTimers(); }
+  });
+
+  it.each([false, true])('native reactive error with reset hint %s never derives reset from MiMo quota', (hint) => {
+    const h = setup('opencode/big-pickle');
+    try {
+      const mimoRow = h.record(null);
+      const callbacks = createProviderLimitCommunicationCallbacks(() => h.instance);
+      expect(callbacks.onProviderLimitTurn?.({ instanceId: h.instance.id, resetAtHint: hint ? Date.now() + 600_000 : null,
+        reason: 'synthetic native limit', resumePrompt: 'placeholder turn' })).toBe(hint ? 'parked' : 'skipped');
+      expect(h.snapshot).not.toHaveBeenCalled();
+      expect(h.refresh).not.toHaveBeenCalled();
+      if (hint) expect(h.ledger.list().filter((row) => row.model === 'opencode/big-pickle')).toHaveLength(1);
+      h.handler.resumeNow(h.instance.id);
+      expect(h.ledger.list().map((row) => row.id)).toEqual([mimoRow.id]);
+    } finally { h.cleanup(); }
+  });
+
+  it.each([null, mimo])('MiMo lookup retains historical gate %s and early resume preserves native sibling rows', async (scopeModel) => {
+    vi.useFakeTimers();
+    const h = setup(mimo);
+    try {
+      const native = h.record('opencode/big-pickle');
+      h.record(scopeModel);
+      expect(h.handler.maybeParkKnown({ instanceId: h.instance.id, provider: 'opencode', model: mimo,
+        accountProfileId: 'legacy', reason: 'synthetic historical gate', resumePrompt: 'placeholder turn' })).toBe('parked');
+      await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS + 5);
+      expect(h.probe).toHaveBeenCalledWith('opencode', 'legacy');
+      expect(h.handler.isParked(h.instance.id)).toBe(false);
+      expect(h.ledger.list().map((row) => row.id)).toEqual([native.id]);
+    } finally { h.cleanup(); vi.useRealTimers(); }
+  });
+
+  it('a cancelled MiMo refresh cannot resume or clear a newer native-model park', async () => {
+    vi.useFakeTimers();
+    const h = setup(mimo);
+    let model = mimo;
+    let resolveProbe!: (snapshot: ProviderQuotaSnapshot | null) => void;
+    const pending = new Promise<ProviderQuotaSnapshot | null>((resolve) => { resolveProbe = resolve; });
+    const probe = vi.fn(() => pending);
+    h.handler.configure({
+      ...((h.h.handler as unknown as { deps: InstanceProviderLimitHandlerDeps }).deps),
+      getQuotaSnapshot: () => null,
+      getProviderModel: () => ({ provider: 'opencode', model }),
+      probeQuotaSnapshot: probe,
+    });
+    try {
+      h.record(null);
+      const params = () => ({ instanceId: h.instance.id, provider: 'opencode' as const, model,
+        reason: 'synthetic current limit', resumePrompt: 'placeholder turn' });
+      expect(h.handler.maybeParkKnown(params())).toBe('parked');
+      await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS + 5);
+      expect(probe).toHaveBeenCalledTimes(1);
+
+      h.handler.cancel(h.instance.id);
+      model = 'opencode/big-pickle';
+      const native = h.record(model);
+      expect(h.handler.maybeParkKnown(params())).toBe('parked');
+      resolveProbe(makeSnapshot('opencode', [{ used: 0, limit: 100, resetsAt: Date.now() + 600_000 }]));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(h.handler.isParked(h.instance.id)).toBe(true);
+      expect(h.ledger.list().map((row) => row.id)).toEqual([native.id]);
+      expect(h.h.resends).toEqual([]);
+      await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS + 5);
+      expect(probe).toHaveBeenCalledTimes(1);
+      expect(h.handler.isParked(h.instance.id)).toBe(true);
+    } finally { h.cleanup(); vi.useRealTimers(); }
+  });
+
+  it.each(['regular-to-loop', 'loop-to-regular'])('actual handlers share only MiMo gates across %s', (direction) => {
+    const h = setup(mimo);
+    const accounts = new LoopAccountFailover();
+    const loop = new LoopProviderLimitHandler({ emit: vi.fn(), cloneStateForBroadcast: (state) => state,
+      setConvergenceNote: vi.fn(), terminate: vi.fn(), resumeLoop: vi.fn(() => true) });
+    const config = defaultLoopConfig('/tmp/placeholder', 'placeholder goal');
+    const state = { id: 'placeholder-loop', status: 'running', config: { ...config, provider: 'opencode' } } as LoopState;
+    try {
+      const native = h.record('opencode/big-pickle');
+      accounts.noteIterationAdapter(state.id, {}, { provider: 'opencode', model: mimo });
+      loop.setLoopAccountFailover(accounts);
+      loop.setProviderLimitLedger(h.ledger);
+      loop.setProviderLimitResumeScheduler(() => vi.fn());
+      if (direction === 'regular-to-loop') {
+        expect(createProviderLimitCommunicationCallbacks(() => h.instance).onProviderLimitTurn?.({
+          instanceId: h.instance.id, resetAtHint: Date.now() + 600_000,
+          reason: 'synthetic MiMo rejection', resumePrompt: 'placeholder turn',
+        })).toBe('parked');
+        expect(loop.maybeParkKnownProviderLimit(state, mimo)).toBe('parked');
+      } else {
+        expect(loop.handleProviderLimit(state, { reason: 'synthetic loop MiMo rejection',
+          resumeAt: Date.now() + 600_000, source: 'notice', action: 'notice', accountFailover: false })).toBe('parked');
+        expect(h.handler.maybeParkKnown({ instanceId: h.instance.id, provider: 'opencode', model: mimo,
+          reason: 'synthetic shared MiMo gate', resumePrompt: 'placeholder turn' })).toBe('parked');
+      }
+      expect(h.ledger.list().filter((row) => row.model === null)).toHaveLength(1);
+      h.handler.resumeNow(h.instance.id);
+      expect(h.ledger.list().map((row) => row.id)).toEqual([native.id]);
+    } finally { loop.clearResumeTimer(state.id); accounts.clear(state.id); h.cleanup(); }
+  });
+
+  it('regular MiMo reactive limits write account-wide rows visible to loop account-scoped consultation', () => {
+    const h = setup(mimo);
+    try {
+      const callbacks = createProviderLimitCommunicationCallbacks(() => h.instance);
+      expect(callbacks.onProviderLimitTurn?.({ instanceId: h.instance.id, resetAtHint: Date.now() + 600_000,
+        reason: 'synthetic MiMo rejection', resumePrompt: 'placeholder turn' })).toBe('parked');
+      expect(h.ledger.getActive({ provider: 'opencode', model: null, accountProfileId: 'legacy' })).toMatchObject({ model: null });
+      expect(h.ledger.getActive({ provider: 'opencode', model: 'opencode/big-pickle', includeAccountWideFallback: false })).toBeNull();
+    } finally { h.cleanup(); }
   });
 });

@@ -19,6 +19,36 @@ function rendererSources(): string[] {
   return walk(join(__dirname, '..', '..', 'renderer'));
 }
 
+/**
+ * Setting keys the renderer writes. One pass over the sources: repeating the
+ * scan once per internal key re-reads the whole renderer and exceeds the 5s
+ * test timeout when the suite is already saturating the machine.
+ *
+ * Same two shapes as the previous per-key expression:
+ *  - `.set` / `setSetting` / `persistSetting` called with the key as a string
+ *  - `update({ key: ... })` with the key inside the first 400 characters
+ */
+function writtenSettingKeys(sources: readonly string[]): Set<string> {
+  const found = new Set<string>();
+  const setWrite = /(?:\.set|setSetting|persistSetting)\(\s*['"]([A-Za-z0-9]+)['"]/g;
+  const updateWrite = /update\(\s*\{([^}]{0,400})/g;
+  const keyInUpdate = /\b([A-Za-z0-9]+)\s*:/g;
+  for (const source of sources) {
+    for (const match of source.matchAll(setWrite)) {
+      const key = match[1];
+      if (key) found.add(key);
+    }
+    for (const match of source.matchAll(updateWrite)) {
+      const body = match[1] ?? '';
+      for (const keyMatch of body.matchAll(keyInUpdate)) {
+        const key = keyMatch[1];
+        if (key) found.add(key);
+      }
+    }
+  }
+  return found;
+}
+
 describe('SETTING_SURFACING', () => {
   const metaByKey = new Map<string, (typeof SETTINGS_METADATA)[number]>(
     SETTINGS_METADATA.map((m) => [m.key as string, m]),
@@ -143,17 +173,13 @@ describe('SETTING_SURFACING', () => {
   ];
 
   it('no `internal` key is written from anywhere in the renderer', () => {
+    const writtenKeys = writtenSettingKeys(
+      rendererSources().map((f) => readFileSync(f, 'utf8')),
+    );
     const written = entries
       .filter(([, v]) => v === 'internal')
       .map(([key]) => key)
-      .filter((key) => {
-        const write = new RegExp(
-          String.raw`(?:\.set|setSetting|persistSetting)\(\s*['"]${key}['"]`
-          + String.raw`|update\(\s*\{[^}]{0,400}?\b${key}\s*:`,
-          's',
-        );
-        return rendererSources().some((f) => write.test(readFileSync(f, 'utf8')));
-      })
+      .filter((key) => writtenKeys.has(key))
       .filter((key) => !WRITTEN_BUT_INTERNAL.some((e) => e.key === key));
 
     expect(written).toEqual([]);

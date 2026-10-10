@@ -123,6 +123,16 @@ describe('saved login access workflow', () => {
     expect((await h.service.status(p.requestId, h.context())).data?.status).toBe('expired');
   });
 
+  it('remembers up to one year and refuses anything beyond the lifetime cap', async () => {
+    const h = harness(); const p = (await h.service.request(h.input, h.context())).data!;
+    expect((await h.service.approve(p, { permission: 'remember', rememberForMs: 365 * 86_400_000 })).decision).toBe('allowed');
+    const auth = h.auth.list()[0];
+    expect(auth.taskScope).toBeUndefined();
+    expect(auth.expiresAt).toBe(auth.createdAt + 365 * 86_400_000);
+    const over = (await h.service.request(h.input, h.context())).data!;
+    expect((await h.service.approve(over, { permission: 'remember', rememberForMs: 366 * 86_400_000 })).decision).toBe('denied');
+  });
+
   it('does not authorise after cancellation while enrolment is waiting', async () => {
     const h = harness(); const p = (await h.service.request(h.input, h.context())).data!;
     let finish!: () => void;
@@ -160,6 +170,16 @@ describe('saved login access workflow', () => {
     expect((await h.service.approve(p, { permission: 'task' })).decision).toBe('allowed');
     expect(h.auth.list()[0].taskScope).toBe('conversation:placeholder');
     expect(h.auth.list()[0].expiresAt).toBeLessThanOrEqual(before + 8 * 60 * 60_000);
+  });
+
+  it('does not let a retrying approval extend a recorded expiry', async () => {
+    const h = harness(); const p = (await h.service.request(h.input, h.context())).data!;
+    h.enrol.mockRejectedValueOnce(new CredentialVaultError('locked', 'vault_locked'));
+    expect((await h.service.approve(p, { permission: 'remember', rememberForMs: 3_600_000 })).decision).toBe('denied');
+    expect((await h.service.approve(p, { permission: 'remember', rememberForMs: 365 * 86_400_000 })).decision).toBe('allowed');
+    const auth = h.auth.list()[0];
+    expect(auth.taskScope).toBeUndefined();
+    expect(auth.expiresAt).toBe(auth.createdAt + 3_600_000);
   });
 
   it('expires a rolled-back request so a fresh explicit approval can recover', async () => {

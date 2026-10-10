@@ -20,7 +20,7 @@ const STREAM_EPOCH = Date.now();
 import type { CanonicalCliType } from '../shared/types/settings.types';
 import { ProjectDiscovery } from '../main/remote-node/project-discovery';
 import { getAccountProfilesRoot } from '../main/cli/adapters/account-pool/provider-account-home-resolver';
-import { listWorkerAccountProfileIds } from './worker-account-route';
+import { listWorkerAccountProfileIds, listWorkerOpenCodeAccountProfileIds } from './worker-account-route';
 import { getLatestHostHealthSample } from './host-health-sampler';
 import {
   OLLAMA_LOCAL_BASE_URL,
@@ -70,6 +70,12 @@ export async function reportCapabilities(
 
   const hasBrowserRuntime = resolveChromeExecutablePath() !== null;
   const accountProfileIds = listWorkerAccountProfileIds(getAccountProfilesRoot);
+  // MiMo accounts keep no profile home on this node (one OpenCode key store),
+  // so their advertisement comes from `opencode auth list` instead.
+  const openCodeAccountProfileIds = await listWorkerOpenCodeAccountProfileIds();
+  if (openCodeAccountProfileIds.length > 0) {
+    accountProfileIds.opencode = openCodeAccountProfileIds;
+  }
 
   return {
     workerAgent: {

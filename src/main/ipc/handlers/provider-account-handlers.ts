@@ -98,6 +98,10 @@ function toSafeProfile(profile: ProviderAccountProfile, binding?: AccountBinding
     enabled: profile.enabled,
     automationPolicy: profile.automationPolicy,
     isLegacy: profile.isLegacy,
+    // OpenCode/MiMo only: Token Plan region and Chrome profile folder — both
+    // plain names, never paths or credentials.
+    ...(profile.region ? { region: profile.region } : {}),
+    ...(profile.chromeProfile ? { chromeProfile: profile.chromeProfile } : {}),
     createdAt: profile.createdAt,
     updatedAt: profile.updatedAt,
     ...(binding
@@ -208,11 +212,13 @@ export function registerProviderAccountHandlers(deps: RegisterProviderAccountHan
     ProviderAccountUpdatePayloadSchema,
     async (payload) => {
       let profile = requireProfile(payload.provider, payload.profileId);
-      if (payload.label !== undefined || payload.enabled !== undefined || payload.automationPolicy !== undefined) {
+      if (payload.label !== undefined || payload.enabled !== undefined || payload.automationPolicy !== undefined
+        || payload.chromeProfile !== undefined) {
         profile = store().updateProfile(payload.provider, payload.profileId, {
           ...(payload.label !== undefined ? { label: payload.label } : {}),
           ...(payload.enabled !== undefined ? { enabled: payload.enabled } : {}),
           ...(payload.automationPolicy !== undefined ? { automationPolicy: payload.automationPolicy } : {}),
+          ...(payload.chromeProfile !== undefined ? { chromeProfile: payload.chromeProfile } : {}),
         });
       }
       if (payload.adoptObservedIdentity) {
@@ -345,7 +351,7 @@ export function registerProviderAccountHandlers(deps: RegisterProviderAccountHan
         return failure('PROVIDER_ACCOUNT_SESSION_NOT_FOUND', 'That session is not available.');
       }
       if (!isPooledProvider(instance.provider)) {
-        return failure('PROVIDER_ACCOUNT_NOT_POOLED', 'Account switching is available for Claude and Codex sessions only.');
+        return failure('PROVIDER_ACCOUNT_NOT_POOLED', 'Account switching is available for Claude, Codex and MiMo sessions only.');
       }
       const target = requireProfile(instance.provider, payload.profileId);
       if (!target.enabled) {

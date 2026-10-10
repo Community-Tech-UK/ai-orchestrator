@@ -7,6 +7,7 @@ import {
 } from '../../core/services/ipc/provider-account-ipc.service';
 import { defaultProviderAccountPools, type ProviderAccountPools } from '../../../../shared/types/provider-account.types';
 import { ProviderAccountsTabComponent } from './provider-accounts-tab.component';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
 
 function account(overrides: Partial<ProviderAccountView> = {}): ProviderAccountView {
   return {
@@ -32,6 +33,9 @@ interface MutationResult {
   data?: unknown;
   error?: { message?: string };
 }
+
+/** Deterministic worker roster for the per-machine MiMo rows. */
+let connectedNodesValue: { id: string; name: string; capabilities: { accountProfileIds?: { opencode?: string[] } } }[] = [];
 
 let pools: ProviderAccountPools;
 const ipc = {
@@ -68,10 +72,15 @@ function claudeSection(fixture: ComponentFixture<ProviderAccountsTabComponent>):
 
 beforeEach(async () => {
   pools = defaultProviderAccountPools();
+  connectedNodesValue = [];
   for (const spy of Object.values(ipc)) spy.mockClear();
   await TestBed.configureTestingModule({
     imports: [ProviderAccountsTabComponent],
-    providers: [{ provide: ProviderAccountIpcService, useValue: ipc }],
+    providers: [
+      { provide: ProviderAccountIpcService, useValue: ipc },
+      // Deterministic worker roster: the per-machine MiMo rows read it.
+      { provide: RemoteNodeStore, useValue: { connectedNodes: () => connectedNodesValue } },
+    ],
   }).compileComponents();
 });
 
@@ -244,5 +253,167 @@ describe('ProviderAccountsTabComponent', () => {
     fixture.componentInstance.rename(target);
     await fixture.componentInstance.onRenameSubmitted(target.label);
     expect(ipc.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProviderAccountsTabComponent — MiMo accounts', () => {
+  function mimoAccount(overrides: Partial<ProviderAccountView> = {}): ProviderAccountView {
+    return account({
+      id: 'max-b-1a2b',
+      provider: 'opencode',
+      label: 'MiMo B',
+      isLegacy: false,
+      region: 'ams',
+      expectedIdentity: null,
+      binding: { nodeId: 'local', state: 'authenticated', checkedAt: 1 },
+      ...overrides,
+    });
+  }
+
+  function opencodeSection(fixture: ComponentFixture<ProviderAccountsTabComponent>): HTMLElement {
+    return fixture.nativeElement.querySelector('[data-provider="opencode"]') as HTMLElement;
+  }
+
+  it('describes the MiMo allowance separately and saves its rendered switching threshold', async () => {
+    const original = ipc.list.getMockImplementation();
+    ipc.list.mockImplementation(async () => ({
+      profiles: [
+        ...(['claude', 'codex'] as const).flatMap((provider) => [
+          account({ provider }),
+          account({ provider, id: 'synthetic-b', isLegacy: false, priority: 1 }),
+        ]),
+        mimoAccount({ id: 'legacy', isLegacy: true, priority: 0 }),
+        mimoAccount({ priority: 1 }),
+      ],
+      pools,
+    }));
+    let fixture: ComponentFixture<ProviderAccountsTabComponent> | undefined;
+    try {
+      fixture = await render();
+      const policy = opencodeSection(fixture).querySelector<HTMLElement>('.early-switch')!;
+      expect(policy.textContent).toContain('usage allowance');
+      expect(policy.textContent).not.toContain('5-hour usage');
+      for (const provider of ['claude', 'codex']) {
+        const otherPolicy = fixture.nativeElement.querySelector(`[data-provider="${provider}"] .early-switch`);
+        expect(otherPolicy.textContent).toContain('5-hour usage');
+        expect(otherPolicy.textContent).not.toContain('usage allowance');
+      }
+      const threshold = policy.querySelector<HTMLInputElement>('input[type="number"]')!;
+      expect(threshold.value).toBe('90');
+      threshold.value = '95';
+      threshold.dispatchEvent(new Event('change'));
+      await settle(fixture);
+      expect(ipc.updatePool).toHaveBeenCalledWith({ provider: 'opencode', preemptive: { thresholdPct: 95 } });
+    } finally {
+      fixture?.destroy();
+      if (original) ipc.list.mockImplementation(original);
+    }
+  });
+
+  it('creates a MiMo account with its Token Plan region and Chrome profile', async () => {
+    const fixture = await render();
+    fixture.componentInstance.setNewLabel('opencode', 'MiMo B');
+    fixture.componentInstance.setNewRegion('opencode', 'sgp');
+    fixture.componentInstance.setNewChromeProfile('opencode', 'Profile 1');
+    await fixture.componentInstance.addAccount('opencode');
+    expect(ipc.create).toHaveBeenCalledWith({
+      provider: 'opencode',
+      label: 'MiMo B',
+      region: 'sgp',
+      chromeProfile: 'Profile 1',
+    });
+    fixture.destroy();
+  });
+
+  it('omits the Chrome profile when none is given and defaults the region to Europe', async () => {
+    const fixture = await render();
+    fixture.componentInstance.setNewLabel('opencode', 'MiMo C');
+    await fixture.componentInstance.addAccount('opencode');
+    expect(ipc.create).toHaveBeenCalledWith({ provider: 'opencode', label: 'MiMo C', region: 'ams' });
+    fixture.destroy();
+  });
+
+  it('shows each machine’s MiMo sign-in and the exact command for one missing it', async () => {
+    const original = ipc.list.getMockImplementation();
+    ipc.list.mockImplementation(async () => ({ profiles: [mimoAccount()], pools }));
+    connectedNodesValue = [
+      { id: 'node-a', name: 'windows-pc', capabilities: { accountProfileIds: { opencode: ['max-b-1a2b'] } } },
+      { id: 'node-b', name: 'noahlaptop', capabilities: {} },
+    ];
+    try {
+      const fixture = await render();
+      const section = opencodeSection(fixture);
+      expect(section.textContent).toContain('windows-pc');
+      expect(section.textContent).toContain('Signed in on that machine');
+      expect(section.textContent).toContain('noahlaptop');
+      expect(section.textContent).toContain('node -e');
+      fixture.destroy();
+    } finally {
+      if (original) ipc.list.mockImplementation(original);
+      connectedNodesValue = [];
+    }
+  });
+
+  it.each(['missing', 'denied', 'success'] as const)(
+    'reports the actual clipboard result when the remote Copy button is %s', async (mode) => {
+      const original = ipc.list.getMockImplementation();
+      const priorClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+      const profile = mimoAccount();
+      ipc.list.mockImplementation(async () => ({ profiles: [profile], pools }));
+      connectedNodesValue = [{ id: 'node-b', name: 'windows-pc', capabilities: {} }];
+      let finishCopy: () => void = () => { throw new Error('Clipboard write was not started'); };
+      const writeText = vi.fn(() => mode === 'denied'
+        ? Promise.reject(new Error('Clipboard denied'))
+        : new Promise<void>((resolve) => { finishCopy = resolve; }));
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: mode === 'missing' ? undefined : { writeText },
+      });
+      let fixture: ComponentFixture<ProviderAccountsTabComponent> | undefined;
+      try {
+        fixture = await render();
+        const row = opencodeSection(fixture).querySelector<HTMLElement>('.machine-row')!;
+        const command = row.querySelector('code')!.textContent!.trim();
+        expect(command).toMatch(/^node -e /);
+        row.querySelector<HTMLButtonElement>('button')!.click();
+        await settle(fixture);
+        if (mode === 'success') {
+          expect(fixture.nativeElement.querySelector('[role="status"]')).toBeNull();
+          expect(writeText).toHaveBeenCalledExactlyOnceWith(command);
+          finishCopy();
+          await settle(fixture);
+          expect(fixture.nativeElement.querySelector('[role="status"]')?.textContent)
+            .toContain('Copied the sign-in command. Run it in a terminal on that machine.');
+        } else {
+          expect(writeText).toHaveBeenCalledTimes(mode === 'missing' ? 0 : 1);
+          if (mode === 'denied') expect(writeText).toHaveBeenCalledWith(command);
+          expect(fixture.nativeElement.querySelector('[role="status"]')?.textContent)
+            .toContain('Could not copy. Select the command shown beside this button and copy it yourself.');
+          expect(fixture.nativeElement.querySelector('[role="status"]')?.textContent).not.toMatch(/^Copied /);
+        }
+        expect(row.querySelector('code')?.textContent?.trim()).toBe(command);
+      } finally {
+        fixture?.destroy();
+        if (original) ipc.list.mockImplementation(original);
+        if (priorClipboard) Object.defineProperty(navigator, 'clipboard', priorClipboard);
+        else Reflect.deleteProperty(navigator, 'clipboard');
+        connectedNodesValue = [];
+      }
+    },
+  );
+
+  it('derives the per-machine sign-in command from the derived provider name', async () => {
+    const fixture = await render();
+    const command = fixture.componentInstance.nodeLoginCommand(mimoAccount());
+    expect(command).toMatch(/^node -e /);
+    const script = atob(command.match(/Buffer.from\('([^']+)'/)![1]);
+    expect(script).toContain('aio-mimo-max-b-1a2b');
+    expect(script).toContain('OPENCODE_MODELS_PATH:file');
+    // The legacy account pins its region provider; no region falls back to the picker.
+    expect(fixture.componentInstance.nodeLoginCommand(mimoAccount({ id: 'legacy', isLegacy: true })))
+      .toBe('opencode auth login -p xiaomi-token-plan-ams');
+    expect(fixture.componentInstance.nodeLoginCommand(mimoAccount({ id: 'legacy', isLegacy: true, region: undefined })))
+      .toBe('opencode auth login');
+    fixture.destroy();
   });
 });

@@ -4,7 +4,8 @@ import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const stateRoot = { current: '' };
-const pool = { hasNonLegacy: { claude: false, codex: false } };
+const pool = { hasNonLegacy: { claude: false, codex: false, opencode: false } };
+const openCodeProfiles = { current: [] as Array<{ id: string; label: string; enabled: boolean; isLegacy: boolean; region?: 'ams' | 'sgp' | 'cn' }> };
 const spawnCalls: Array<{ env: NodeJS.ProcessEnv }> = [];
 
 // Capture the merged child env at the last step before spawn, then stop: the
@@ -27,10 +28,11 @@ vi.mock('../adapter-spawn-helpers', async () => {
 });
 
 vi.mock('../../../providers/account-pool/provider-account-store', () => ({
-  isAccountPoolActive: (provider: 'claude' | 'codex') => pool.hasNonLegacy[provider],
+  isAccountPoolActive: (provider: 'claude' | 'codex' | 'opencode') => pool.hasNonLegacy[provider],
   getProviderAccountStore: () => ({
-    hasNonLegacyProfiles: (provider: 'claude' | 'codex') => pool.hasNonLegacy[provider],
+    hasNonLegacyProfiles: (provider: 'claude' | 'codex' | 'opencode') => pool.hasNonLegacy[provider],
     getPoolPolicy: () => ({ continuation: 'replay' }),
+    listProfiles: (provider: string) => (provider === 'opencode' ? openCodeProfiles.current : []),
   }),
 }));
 
@@ -38,8 +40,13 @@ vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-import { createClaudeAdapter, createCliAdapter, createCodexAdapter } from '../adapter-factory';
+import { createClaudeAdapter, createCliAdapter, createCodexAdapter, createOpenCodeAdapter } from '../adapter-factory';
 import { CLAUDE_STRIPPED_AUTH_ENV_VARS, CODEX_STRIPPED_AUTH_ENV_VARS } from '../adapter-spawn-helpers';
+import {
+  putOpenCodeRegionModelMetadata,
+  _resetOpenCodeRegionModelMetadataForTesting,
+} from '../../../providers/opencode-region-model-metadata';
+import { OPENCODE_CONFIG_CONTENT_ENV } from '../opencode-adapter-factory';
 import { _resetHardenedModeScopingForTesting, setInstanceHardened } from '../../../instance/lifecycle/hardened-mode-scoping';
 import type { UnifiedSpawnOptions } from '../adapter-factory.types';
 import type { ResolvedAccountRoute } from '../../../../shared/types/provider-account.types';
@@ -47,8 +54,12 @@ import type { ResolvedAccountRoute } from '../../../../shared/types/provider-acc
 const AMBIENT = [...CLAUDE_STRIPPED_AUTH_ENV_VARS, ...CODEX_STRIPPED_AUTH_ENV_VARS];
 const savedEnv: Record<string, string | undefined> = {};
 
-function route(provider: 'claude' | 'codex', profileId: string): ResolvedAccountRoute {
-  return { provider, profileId, source: 'default', executionNodeId: 'local' };
+function route(
+  provider: 'claude' | 'codex' | 'opencode',
+  profileId: string,
+  extra: Partial<ResolvedAccountRoute> = {},
+): ResolvedAccountRoute {
+  return { provider, profileId, source: 'default', executionNodeId: 'local', ...extra };
 }
 
 function childEnvOf(adapter: unknown): NodeJS.ProcessEnv {
@@ -60,8 +71,10 @@ function childEnvOf(adapter: unknown): NodeJS.ProcessEnv {
 
 beforeEach(() => {
   _resetHardenedModeScopingForTesting();
+  _resetOpenCodeRegionModelMetadataForTesting();
   stateRoot.current = mkdtempSync(join(tmpdir(), 'factory-account-route-'));
-  pool.hasNonLegacy = { claude: false, codex: false };
+  pool.hasNonLegacy = { claude: false, codex: false, opencode: false };
+  openCodeProfiles.current = [];
   for (const key of AMBIENT) {
     savedEnv[key] = process.env[key];
     process.env[key] = `ambient-${key.toLowerCase()}`;
@@ -189,5 +202,91 @@ describe('createCodexAdapter account routing', () => {
   it('fails closed when a pool exists and no route was attached', () => {
     pool.hasNonLegacy.codex = true;
     expect(() => createCodexAdapter(base)).toThrow(/without a resolved account profile/);
+  });
+});
+
+describe('createOpenCodeAdapter account routing', () => {
+  const base: UnifiedSpawnOptions = { workingDirectory: tmpdir() };
+
+  const metaBlock = {
+    providerId: 'xiaomi-token-plan-ams',
+    modelId: 'mimo-v2.6-pro',
+    metadata: {
+      id: 'mimo-v2.6-pro',
+      name: 'MiMo-V2.6-Pro',
+      api: { npm: '@ai-sdk/openai-compatible', url: 'https://token-plan-ams.xiaomimimo.com/v1' },
+      limit: { context: 1000000, output: 16384 },
+      options: { max_completion_tokens: 16384 },
+      capabilities: { reasoning: true, toolcall: true, interleaved: { field: 'reasoning_content' } },
+      variants: { low: { reasoningEffort: 'low' }, medium: { reasoningEffort: 'medium' }, high: { reasoningEffort: 'high' } },
+    },
+  };
+
+  it('defines the aio-mimo provider with copied metadata and swaps the model prefix', () => {
+    pool.hasNonLegacy.opencode = true;
+    openCodeProfiles.current = [
+      { id: 'max-b-1a2b', label: 'MiMo B', enabled: true, isLegacy: false, region: 'ams' },
+    ];
+    putOpenCodeRegionModelMetadata('ams', [metaBlock]);
+    const adapter = createOpenCodeAdapter({
+      ...base,
+      model: 'xiaomi-token-plan-ams/mimo-v2.6-pro',
+      accountRoute: route('opencode', 'max-b-1a2b', { region: 'ams' }),
+    });
+    const config = (adapter as unknown as { acpConfig: { env: Record<string, string>; sessionConfig?: { model?: string } } }).acpConfig;
+    expect(config.sessionConfig?.model).toBe('aio-mimo-max-b-1a2b/mimo-v2.6-pro');
+    const content = JSON.parse(config.env[OPENCODE_CONFIG_CONTENT_ENV]!);
+    expect(content.provider['aio-mimo-max-b-1a2b']).toMatchObject({
+      npm: '@ai-sdk/openai-compatible',
+      options: { baseURL: 'https://token-plan-ams.xiaomimimo.com/v1' },
+      models: { 'mimo-v2.6-pro': { interleaved: { field: 'reasoning_content' } } },
+    });
+    expect(config.env[OPENCODE_CONFIG_CONTENT_ENV]).not.toContain('apiKey');
+  });
+
+  it('changes nothing while only the legacy profile exists (no route is attached)', () => {
+    openCodeProfiles.current = [
+      { id: 'legacy', label: 'Existing MiMo account (ams)', enabled: true, isLegacy: true, region: 'ams' },
+    ];
+    const adapter = createOpenCodeAdapter({
+      ...base,
+      model: 'xiaomi-token-plan-ams/mimo-v2.6-pro',
+    });
+    const config = (adapter as unknown as { acpConfig: { env: Record<string, string>; sessionConfig?: { model?: string } } }).acpConfig;
+    expect(config.sessionConfig?.model).toBe('xiaomi-token-plan-ams/mimo-v2.6-pro');
+    const content = JSON.parse(config.env[OPENCODE_CONFIG_CONTENT_ENV]!);
+    expect(Object.keys(content.provider ?? {}).filter((key: string) => key.startsWith('aio-mimo-'))).toEqual([]);
+  });
+
+  it.each(['opencode/big-pickle', 'openrouter/anthropic/claude-sonnet', 'openrouter/xiaomi/mimo-v2.6-pro', undefined, '', 'auto'])('starts %s without MiMo account config or metadata in an active pool', (model) => {
+    pool.hasNonLegacy.opencode = true;
+    openCodeProfiles.current = [{ id: 'b', label: 'MiMo B', enabled: true, isLegacy: false, region: 'ams' }];
+    const adapter = createOpenCodeAdapter({ ...base, model });
+    const config = (adapter as unknown as { acpConfig: { env: Record<string, string>; sessionConfig?: { model?: string } } }).acpConfig;
+    const content = JSON.parse(config.env[OPENCODE_CONFIG_CONTENT_ENV]!);
+    expect(Object.keys(content.provider ?? {}).filter((key) => key.startsWith('aio-mimo-'))).toEqual([]);
+    expect(config.sessionConfig?.model).toBe(model && model !== 'auto' ? model : undefined);
+  });
+
+  it('fails closed when a pool exists and no route was attached', () => {
+    pool.hasNonLegacy.opencode = true;
+    openCodeProfiles.current = [
+      { id: 'max-b-1a2b', label: 'MiMo B', enabled: true, isLegacy: false, region: 'ams' },
+    ];
+    expect(() => createOpenCodeAdapter({ ...base, model: 'xiaomi-token-plan-ams/mimo-v2.6-pro' })).toThrow(/without a resolved account profile/);
+  });
+
+  it('rejects a route for another provider', () => {
+    expect(() => createOpenCodeAdapter({ ...base, model: 'xiaomi-token-plan-ams/mimo-v2.6-pro', accountRoute: route('claude', 'max-b') })).toThrow(/internal routing error/);
+  });
+
+  it('requires the account region on the route (it is what the spawn derives)', () => {
+    pool.hasNonLegacy.opencode = true;
+    openCodeProfiles.current = [];
+    expect(() => createOpenCodeAdapter({
+      ...base,
+      model: 'xiaomi-token-plan-ams/mimo-v2.6-pro',
+      accountRoute: route('opencode', 'max-b-1a2b'),
+    })).toThrow(/no Token Plan region/);
   });
 });

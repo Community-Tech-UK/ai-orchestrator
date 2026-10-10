@@ -2,7 +2,14 @@ import { z } from 'zod';
 
 const id = z.string().trim().min(1).max(200);
 const purpose = z.enum(['login', 'totp']);
-export const MAX_REMEMBER_CREDENTIAL_ACCESS_MS = 7 * 86_400_000;
+/**
+ * Explicit "remember" consent is long-lived but never indefinite. One year
+ * matches MAX_AUTHORIZATION_LIFETIME_MS in
+ * src/main/browser-gateway/browser-credential-authorization-store.ts, the
+ * standing-consent cap shared by every authorization door; keeping the two
+ * equal means the card can never mint a lifetime the standing policy refuses.
+ */
+export const MAX_REMEMBER_CREDENTIAL_ACCESS_MS = 365 * 86_400_000;
 export const TASK_CREDENTIAL_ACCESS_MS = 8 * 60 * 60 * 1000;
 
 export const BrowserRequestCredentialAccessSchema = z.object({

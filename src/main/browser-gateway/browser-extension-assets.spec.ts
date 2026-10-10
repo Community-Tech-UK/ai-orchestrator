@@ -166,6 +166,10 @@ describe('browser extension assets', () => {
     '0.2.35': 'a7bb39633b15',
     '0.2.36': 'aec2ae55e31a',
     '0.2.37': '7b8b2245d0af',
+    // LT-703: origin-bound writes into an embedded cross-origin login form,
+    // precise fixed failure codes, and the receiving `__frameOrigin` on
+    // read_control/find.
+    '0.2.38': 'f119d530848d',
   };
 
   it('ships each background bundle under its own manifest version', () => {

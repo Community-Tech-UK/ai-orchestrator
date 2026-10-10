@@ -33,6 +33,61 @@ export function parseOpenCodeAuthList(output: string): OpenCodeAuthCounts | null
   };
 }
 
+/**
+ * Credential names as `opencode auth list` prints them: custom providers show
+ * their provider id (`aio-mimo-max-b-1a2b`), catalog providers their display
+ * name ("Xiaomi Token Plan (Europe)"). Names only — values never leave the CLI.
+ * Only the `Credentials` block is read; the `Environment` block lists env-var
+ * rows, not stored credentials.
+ */
+export function parseOpenCodeAuthCredentialNames(output: string): string[] {
+  const text = output.replace(ANSI_PATTERN, '');
+  const counts = parseOpenCodeAuthList(text);
+  if (!counts || counts.credentials === 0) return [];
+  const names: string[] = [];
+  let inCredentialsBlock = false;
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (/^[┌T]\s{1,2}/.test(line)) {
+      inCredentialsBlock = /Credentials\b/.test(line);
+      continue;
+    }
+    if (/\d+\s+credentials?\b/i.test(line)) {
+      inCredentialsBlock = false;
+      continue;
+    }
+    if (!inCredentialsBlock) continue;
+    // `●  <name> <type>`; the name may contain spaces, the type never does.
+    const row = /^[●•]\s+(.*)\s{1,}(\S+)\s*$/.exec(line);
+    if (row?.[1]) names.push(row[1].trim());
+  }
+  return names;
+}
+
+/**
+ * Display names OpenCode's own `auth list` uses for the built-in region
+ * providers (probe finding P3). Keep in sync with `BACKEND_LABELS` in
+ * `opencode-cli-discovery-service.ts`.
+ */
+export const OPENCODE_REGION_AUTH_LABELS: Readonly<Record<string, string>> = {
+  ams: 'Xiaomi Token Plan (Europe)',
+  sgp: 'Xiaomi Token Plan (Singapore)',
+  cn: 'Xiaomi Token Plan (China)',
+};
+
+/**
+ * Every name under which one account's credential may appear in `auth list`:
+ * the derived provider id, plus the region display name for
+ * `xiaomi-token-plan-<region>` legacy providers.
+ */
+export function openCodeAuthNamesFor(providerName: string): string[] {
+  const names = [providerName];
+  const region = /^xiaomi-token-plan-(ams|sgp|cn)$/.exec(providerName)?.[1];
+  const label = region ? OPENCODE_REGION_AUTH_LABELS[region] : undefined;
+  if (label) names.push(label);
+  return names;
+}
+
 export function isOpenCodeFreeModel(model: string | undefined): boolean {
   return !model?.trim() || model.trim().startsWith('opencode/');
 }

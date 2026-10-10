@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  OPENCODE_REGION_AUTH_LABELS,
+  openCodeAuthNamesFor,
+  parseOpenCodeAuthCredentialNames,
   parseOpenCodeAuthList,
   parseOpenCodeConfig,
   readOpenCodeAuthStatus,
@@ -32,6 +35,44 @@ describe('parseOpenCodeAuthList', () => {
   it('returns null for output it does not recognise', () => {
     expect(parseOpenCodeAuthList('Error: unknown command')).toBeNull();
     expect(parseOpenCodeAuthList('')).toBeNull();
+  });
+});
+
+describe('parseOpenCodeAuthCredentialNames', () => {
+  const THREE_CREDENTIALS = [
+    '┌  Credentials ~/.local/share/opencode/auth.json',
+    '│',
+    '●  Xiaomi Token Plan (Europe) api',
+    '│',
+    '●  aio-mimo-max-b-1a2b api',
+    '│',
+    '●  mimo-c api',
+    '│',
+    '└  3 credentials',
+  ].join('\n');
+
+  it('extracts names only — custom ids and catalog display names alike', () => {
+    expect(parseOpenCodeAuthCredentialNames(THREE_CREDENTIALS)).toEqual([
+      'Xiaomi Token Plan (Europe)',
+      'aio-mimo-max-b-1a2b',
+      'mimo-c',
+    ]);
+  });
+
+  it('is empty for zero credentials and unrecognisable output, and skips the Environment block', () => {
+    expect(parseOpenCodeAuthCredentialNames(EMPTY_LIST)).toEqual([]);
+    expect(parseOpenCodeAuthCredentialNames('Error: unknown command')).toEqual([]);
+    // ONE_CREDENTIAL also has an Environment block: its rows are env-var names,
+    // not stored credentials.
+    expect(parseOpenCodeAuthCredentialNames(ONE_CREDENTIAL)).toEqual(['Xiaomi Token Plan (Europe)']);
+  });
+
+  it('maps a derived provider name to every name auth list may print for it', () => {
+    expect(openCodeAuthNamesFor('aio-mimo-max-b-1a2b')).toEqual(['aio-mimo-max-b-1a2b']);
+    expect(openCodeAuthNamesFor('xiaomi-token-plan-ams')).toEqual([
+      'xiaomi-token-plan-ams',
+      OPENCODE_REGION_AUTH_LABELS['ams'],
+    ]);
   });
 });
 

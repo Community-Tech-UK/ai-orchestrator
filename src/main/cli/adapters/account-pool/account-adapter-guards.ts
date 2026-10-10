@@ -1,6 +1,6 @@
 /**
- * Fail-closed route enforcement and spawn-environment derivation for Claude and
- * Codex account pools.
+ * Fail-closed route enforcement and spawn-environment derivation for Claude,
+ * Codex and OpenCode/MiMo account pools.
  *
  * Routing reads settings, the ledger and node-local binding state, and the
  * adapter factory is synchronous, so the route is resolved earlier
@@ -14,12 +14,20 @@
 import type { UnifiedSpawnOptions } from '../adapter-factory.types';
 import {
   isLegacyAccountProfileId,
+  isLogicalMiMoModel,
+  opencodeAccountProviderName,
+  pooledProviderLabel,
+  type OpenCodeAccountRegion,
   type PooledProvider,
   type ResolvedAccountRoute,
 } from '../../../../shared/types/provider-account.types';
 import { getProviderAccountStore, isAccountPoolActive } from '../../../providers/account-pool/provider-account-store';
 import { seedClaudeProfileHome } from '../../../providers/account-pool/claude-profile-seed';
 import { seedCodexProfileHome } from '../../../providers/account-pool/codex-profile-seed';
+import {
+  openCodeAccountProviderDef,
+  type OpenCodeAccountProviderDef,
+} from '../opencode-account-provider-config';
 import { resolveAccountProfileHome } from './provider-account-home-resolver';
 import {
   CLAUDE_STRIPPED_AUTH_ENV_VARS,
@@ -56,7 +64,7 @@ export function requireAccountRoute(
   }
   if (poolIsActive(provider)) {
     throw new Error(
-      `${provider === 'claude' ? 'Claude' : 'Codex'} cannot start without a resolved account profile (${where} spawn). `
+      `${pooledProviderLabel(provider)} cannot start without a resolved account profile (${where} spawn). `
       + 'This is an internal routing error: every spawn path must call attachAccountRoute() first.',
     );
   }
@@ -134,6 +142,82 @@ export function resolveCodexAccountSpawnConfig(options: UnifiedSpawnOptions, whe
     envRemove: CODEX_STRIPPED_AUTH_ENV_VARS,
     configOverrides: [CODEX_FILE_CREDENTIAL_STORE_OVERRIDE],
   };
+}
+
+export interface OpenCodeAccountSpawnConfig {
+  route: ResolvedAccountRoute | null;
+  /**
+   * OpenCode provider name the routed account maps to (derived from the
+   * profile id and region; never stored free-form). Null for a legacy
+   * pass-through spawn without a route.
+   */
+  routedProviderName: string | null;
+  /** Non-legacy accounts whose `aio-mimo-*` definition must be injected. */
+  accounts: readonly OpenCodeAccountProviderDef[];
+}
+
+/**
+ * Spawn configuration for an OpenCode adapter under its resolved account route.
+ *
+ * OpenCode keeps ONE key store and ONE session store for every account, so a
+ * derived profile has no home: its isolation is the `aio-mimo-<profileId>`
+ * provider name defined in `OPENCODE_CONFIG_CONTENT` (Phase 2 of the MiMo
+ * plan). Definitions are injected for every enabled non-legacy account — not
+ * only the routed one — so a failover can switch live with no restart.
+ */
+export function resolveOpenCodeAccountSpawnConfig(
+  options: UnifiedSpawnOptions,
+  where: 'local' | 'remote' = 'local',
+): OpenCodeAccountSpawnConfig {
+  if (!isLogicalMiMoModel(options.model)) {
+    return { route: null, routedProviderName: null, accounts: [] };
+  }
+  const route = requireAccountRoute(options, 'opencode', where);
+  const accounts = collectOpenCodeAccountDefs(route);
+  if (!route) {
+    return { route: null, routedProviderName: null, accounts };
+  }
+  return {
+    route,
+    routedProviderName: opencodeAccountProviderName({
+      id: route.profileId,
+      isLegacy: isLegacyAccountProfileId(route.profileId),
+      region: route.region,
+    }),
+    accounts,
+  };
+}
+
+/**
+ * Enabled non-legacy OpenCode accounts to define at spawn. From settings where
+ * they exist (the coordinator); on a worker (no settings manager) just the
+ * routed account, whose region travels inside the secret-free route.
+ */
+function collectOpenCodeAccountDefs(route: ResolvedAccountRoute | null): OpenCodeAccountProviderDef[] {
+  const defs = new Map<string, OpenCodeAccountProviderDef>();
+  try {
+    for (const profile of getProviderAccountStore().listProfiles('opencode')) {
+      if (!profile.enabled || profile.isLegacy || !profile.region) continue;
+      defs.set(profile.id, openCodeAccountProviderDef(profile));
+    }
+  } catch {
+    // Worker agent or isolated tests: no settings, so only the routed account.
+  }
+  if (route && !isLegacyAccountProfileId(route.profileId) && !defs.has(route.profileId)) {
+    if (!route.region) {
+      throw new Error(
+        `The OpenCode account route for ${route.profileId} carries no Token Plan region. `
+        + 'This is an internal routing error: the route must include the account region.',
+      );
+    }
+    defs.set(route.profileId, {
+      profileId: route.profileId,
+      label: route.profileLabel ?? route.profileId,
+      region: route.region as OpenCodeAccountRegion,
+      providerName: opencodeAccountProviderName({ id: route.profileId, isLegacy: false, region: route.region }),
+    });
+  }
+  return [...defs.values()];
 }
 
 function continuationFor(provider: PooledProvider): 'shared-store' | 'replay' {

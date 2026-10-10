@@ -112,7 +112,7 @@ describe('credential dispatch boundaries', () => {
     await begun;
     locked = true; finishScan();
     const result = await filling;
-    expect(result).toMatchObject({ decision: 'denied', outcome: 'failed', reason: 'vault_locked', data: null });
+    expect(result).toMatchObject({ decision: 'denied', outcome: 'failed', reason: 'pre_dispatch_guard:vault_locked', data: null });
     expect(sendCommand).not.toHaveBeenCalledWith(expect.objectContaining({ command: 'type' }));
     expect(JSON.stringify({ result, audit: h.audits })).not.toContain(placeholder);
   });

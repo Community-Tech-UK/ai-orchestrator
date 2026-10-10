@@ -133,9 +133,20 @@ export class ProviderLimitLedger {
     provider: ProviderId;
     model: string | null;
     accountProfileId?: string | null;
+    /** False consults only a known exact model, ignoring account-wide fallback. */
+    includeAccountWideFallback?: boolean;
     now?: number;
   }): ProviderLimitEvent | null {
     const model = normalizeModel(params.model) ?? '';
+    if (params.includeAccountWideFallback === false) {
+      if (!model) return null;
+      const exact = this.db.prepareCached(`
+        SELECT ${EVENT_COLUMNS} FROM provider_limit_events
+        WHERE provider = ? AND account_profile_id = ? AND resume_at > ? AND model = ?
+        ORDER BY detected_at DESC LIMIT 1
+      `).get<ProviderLimitEventRow>(params.provider, toDiskProfileId(params.accountProfileId), params.now ?? Date.now(), model);
+      return exact ? toEvent(exact) : null;
+    }
     const row = this.db.prepareCached(`
       SELECT ${EVENT_COLUMNS}
       FROM provider_limit_events
@@ -177,7 +188,7 @@ export class ProviderLimitLedger {
   getParkedSince(params: { provider: ProviderId; model: string | null; now?: number; anyModel?: boolean }): Map<string, number> {
     const model = normalizeModel(params.model) ?? '';
     const scope = params.anyModel && model === '' ? '' : "AND (model = ? OR model = '')";
-    const args: Array<string | number> = [params.provider, params.now ?? Date.now()];
+    const args: (string | number)[] = [params.provider, params.now ?? Date.now()];
     if (scope) args.push(model);
     const rows = this.db.prepareCached(`
       SELECT account_profile_id, MAX(detected_at) AS detected_at
@@ -256,11 +267,27 @@ export class ProviderLimitLedger {
     provider: ProviderId;
     model: string | null;
     accountProfileId?: string | null;
+    /** False clears only a known exact model, retaining account-wide gates. */
+    includeAccountWideFallback?: boolean;
+    /** True clears only a null-model account gate, retaining exact-model limits. */
+    accountWideOnly?: boolean;
     now?: number;
   }): number {
     const model = normalizeModel(params.model);
     const now = params.now ?? Date.now();
     const profile = toDiskProfileId(params.accountProfileId);
+    if (params.includeAccountWideFallback === false) {
+      if (model === null) return 0;
+      return this.db.prepareCached(
+        'DELETE FROM provider_limit_events WHERE provider = ? AND account_profile_id = ? AND model = ? AND resume_at > ?',
+      ).run(params.provider, profile, model, now).changes;
+    }
+    if (params.accountWideOnly) {
+      if (model !== null) return 0;
+      return this.db.prepareCached(
+        "DELETE FROM provider_limit_events WHERE provider = ? AND account_profile_id = ? AND model = '' AND resume_at > ?",
+      ).run(params.provider, profile, now).changes;
+    }
     if (model === null) {
       return this.db.prepareCached(
         'DELETE FROM provider_limit_events WHERE provider = ? AND account_profile_id = ? AND resume_at > ?',

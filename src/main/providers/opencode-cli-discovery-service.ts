@@ -18,8 +18,14 @@ import { spawn, type ChildProcess } from 'child_process';
 import { getLogger } from '../logging/logger';
 import { buildCliSpawnOptions } from '../cli/cli-environment';
 import { PosixSpawnCommandResolver } from '../cli/adapters/posix-spawn-command-resolver';
-import { killProcessGroup } from '../cli/adapters/base-cli-process-utils';
+import { captureOpenCodeModelList } from './opencode-model-lister-process';
 import { withOpenCodeProcessGate } from '../cli/adapters/opencode-process-gate';
+import { parseOpenCodeModelMetadataBlocks, type OpenCodeModelMetadataBlock } from '../cli/adapters/opencode-account-provider-config';
+import { putOpenCodeRegionModelMetadata } from './opencode-region-model-metadata';
+import {
+  isOpenCodeAccountProviderName,
+  OPENCODE_ACCOUNT_REGIONS,
+} from '../../shared/types/provider-account.types';
 import { MAX_MODEL_ID_LENGTH, type ModelDisplayInfo } from '../../shared/types/provider.types';
 import { getUnifiedModelCatalog } from './unified-model-catalog-service';
 
@@ -29,7 +35,6 @@ const OPENCODE_PROVIDER = 'opencode';
 
 /** Same cadence as Grok discovery. */
 export const OPENCODE_MODEL_DISCOVERY_INTERVAL_MS = 5 * 60_000;
-const OPENCODE_MODEL_DISCOVERY_TIMEOUT_MS = 20_000;
 
 const MODEL_HEADER = /^([a-z0-9][\w.-]*)\/(\S+)\s*$/i;
 const NON_CHAT_NAME = /tts|voiceclone|voicedesign|embedding/i;
@@ -113,6 +118,10 @@ function classifyTier(id: string): ModelDisplayInfo['tier'] {
 
 export function toOpenCodeModelDisplayInfos(entries: OpenCodeModelListEntry[]): ModelDisplayInfo[] {
   return entries
+    // `aio-mimo-*` is AIO's own per-account alias for the same models; the
+    // picker shows each model once under its logical `xiaomi-token-plan-*` id
+    // (Decision 4 in the MiMo multi-account plan).
+    .filter((entry) => !isOpenCodeAccountProviderName(entry.providerId))
     .filter((entry) => entry.isChatModel)
     .map((entry) => ({
       id: entry.id,
@@ -122,38 +131,33 @@ export function toOpenCodeModelDisplayInfos(entries: OpenCodeModelListEntry[]): 
     }));
 }
 
-/** Runs the lister process and parses its output. Rejects on timeout, spawn error or empty output. */
-export function discoverOpenCodeModels(spawnLister: () => ChildProcess): Promise<ModelDisplayInfo[]> {
-  return new Promise<ModelDisplayInfo[]>((resolve, reject) => {
-    const proc = spawnLister();
-    let output = '';
-    proc.stdout?.on('data', (data) => {
-      output += (data as Buffer).toString();
-    });
-    const timer = setTimeout(() => {
-      if (!killProcessGroup(proc.pid, 'SIGTERM')) {
-        try {
-          proc.kill('SIGTERM');
-        } catch {
-          /* ignored */
-        }
-      }
-      reject(new Error('Timeout fetching OpenCode model list'));
-    }, OPENCODE_MODEL_DISCOVERY_TIMEOUT_MS);
-    proc.on('close', (code) => {
-      clearTimeout(timer);
-      const models = toOpenCodeModelDisplayInfos(parseOpenCodeModelList(output));
-      if (models.length > 0) {
-        resolve(models);
-        return;
-      }
-      reject(new Error(`OpenCode model list was empty or unparseable (exit ${code})`));
-    });
-    proc.on('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
+/**
+ * Runs the lister process and parses its output. Rejects on timeout, spawn
+ * error or empty output. `onMetadata` receives the raw per-model metadata
+ * blocks so region metadata can be cached alongside discovery.
+ */
+export async function discoverOpenCodeModels(
+  spawnLister: () => ChildProcess,
+  onMetadata?: (blocks: OpenCodeModelMetadataBlock[]) => void,
+): Promise<ModelDisplayInfo[]> {
+  const { output, code } = await captureOpenCodeModelList(spawnLister, {
+    timeout: 'Timeout fetching OpenCode model list',
+    process: 'Failed fetching OpenCode model list',
   });
+  const models = toOpenCodeModelDisplayInfos(parseOpenCodeModelList(output));
+  if (models.length === 0) throw new Error(`OpenCode model list was empty or unparseable (exit ${code})`);
+  if (onMetadata) {
+    try { onMetadata(parseOpenCodeModelMetadataBlocks(output)); }
+    catch { /* Metadata caching is best-effort; spawn paths fail closed on a miss. */ }
+  }
+  return models;
+}
+
+/** Feed the per-region MiMo model metadata cache from a discovery run. */
+export function cacheOpenCodeRegionModelMetadata(blocks: readonly OpenCodeModelMetadataBlock[]): void {
+  for (const region of OPENCODE_ACCOUNT_REGIONS) {
+    putOpenCodeRegionModelMetadata(region, blocks);
+  }
 }
 
 export interface OpenCodeCatalogSink {
@@ -176,7 +180,9 @@ function defaultLister(): Promise<ModelDisplayInfo[]> {
     spawn(commandResolver.resolve('opencode'), ['models', '--verbose'], {
       stdio: ['ignore', 'pipe', 'pipe'],
       ...buildCliSpawnOptions(),
+      detached: process.platform !== 'win32',
     }),
+  cacheOpenCodeRegionModelMetadata,
   ));
 }
 

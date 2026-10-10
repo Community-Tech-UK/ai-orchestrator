@@ -138,6 +138,8 @@ export type AcpSetConfigOption = (configId: string, value: string) => Promise<un
 
 export interface AcpSessionConfigOutcome {
   applied: Array<{ key: AcpSessionConfigKey; value: string }>;
+  /** Authoritative selection observed while planning this key, before any attempted write. */
+  alreadySelected?: Array<{ key: AcpSessionConfigKey; value: string }>;
   /** Skips and rejected writes that the user should hear about. */
   warnings: string[];
 }
@@ -151,6 +153,7 @@ export async function applyAcpSessionConfig(
   setConfigOption: AcpSetConfigOption,
   initialOptions: unknown,
   requested: AcpSessionConfigRequest,
+  getCurrentOptions?: () => unknown,
 ): Promise<AcpSessionConfigOutcome> {
   const outcome: AcpSessionConfigOutcome = { applied: [], warnings: [] };
   let advertised: AcpConfigOptionEntry[] | null = Array.isArray(initialOptions)
@@ -161,19 +164,29 @@ export async function applyAcpSessionConfig(
   for (const key of keys) {
     const value = requested[key]?.trim();
     if (!value) continue;
+    if (getCurrentOptions) {
+      const current = getCurrentOptions();
+      advertised = Array.isArray(current) ? parseAcpConfigOptions(current) : null;
+    }
     const entry = planConfigOptionWrite(advertised, key, value);
     if (entry.kind === 'skip') {
-      if (entry.reason !== 'already selected') {
+      if (entry.reason === 'already selected') {
+        (outcome.alreadySelected ??= []).push({ key, value });
+      } else {
         outcome.warnings.push(`Did not set ${key} "${value}": ${entry.reason}.`);
       }
       continue;
     }
     try {
       const result = await setConfigOption(entry.configId, entry.value);
-      outcome.applied.push({ key, value });
       if (isRecord(result) && Array.isArray(result['configOptions'])) {
         advertised = parseAcpConfigOptions(result['configOptions']);
+        if (findOption(advertised, key)?.currentValue !== value) {
+          outcome.warnings.push(`Could not set ${key} "${value}": the agent did not confirm the selected value.`);
+          continue;
+        }
       }
+      outcome.applied.push({ key, value });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       outcome.warnings.push(`Could not set ${key} "${value}": ${message}`);

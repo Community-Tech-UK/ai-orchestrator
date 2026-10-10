@@ -25,6 +25,7 @@ import { realpathSync } from 'fs';
 import { getLogger } from '../../logging/logger';
 import { getGitWriteQueue } from './git-write-queue';
 import { hermeticGitEnv } from './git-env';
+import { readGitStatusPaths } from './git-status-stream';
 import type { MergeStrategy } from '../../../shared/types/worktree.types';
 
 const execFileAsync = promisify(execFile);
@@ -275,26 +276,14 @@ function canonicalPath(value: string): string {
   }
 }
 
-function hasRootCheckoutChanges(
-  statusPorcelain: string,
-  checkouts: WorktreeCheckout[],
-  repoRoot: string,
-): boolean {
-  const nestedWorktrees = checkouts
+function nestedWorktreePaths(checkouts: WorktreeCheckout[], repoRoot: string): string[] {
+  const root = canonicalPath(repoRoot);
+  return checkouts
     .map((checkout) => canonicalPath(checkout.path))
-    .filter((checkoutPath) => checkoutPath !== canonicalPath(repoRoot))
-    .map((checkoutPath) => path.relative(canonicalPath(repoRoot), checkoutPath))
-    .filter((relativePath) => relativePath && !relativePath.startsWith('..'));
-
-  return statusPorcelain.split('\n').filter(Boolean).some((line) => {
-    if (!line.startsWith('?? ')) return true;
-
-    const untrackedPath = line.slice(3).replace(/\/$/, '');
-    return !nestedWorktrees.some(
-      (worktreePath) =>
-        untrackedPath === worktreePath || untrackedPath.startsWith(`${worktreePath}${path.sep}`),
-    );
-  });
+    .filter((checkoutPath) => checkoutPath !== root)
+    .map((checkoutPath) => path.relative(root, checkoutPath))
+    .filter((relativePath) => relativePath && !relativePath.startsWith('..'))
+    .map((relativePath) => relativePath.split(path.sep).join('/'));
 }
 
 /**
@@ -311,22 +300,6 @@ export type DirtyRootPolicy = 'block-any' | 'block-overlap';
 
 export interface PromoteIntegrationOptions {
   dirtyRootPolicy?: DirtyRootPolicy;
-}
-
-/** Root paths from `git status --porcelain -z`, both sides of a rename included. */
-function parseStatusPathsZ(statusZ: string): string[] {
-  const paths: string[] = [];
-  const fields = statusZ.split('\0').filter(Boolean);
-  for (let i = 0; i < fields.length; i += 1) {
-    const entry = fields[i];
-    paths.push(entry.slice(3));
-    // Renames and copies carry their source path as the next NUL field.
-    if (entry[0] === 'R' || entry[0] === 'C') {
-      i += 1;
-      if (fields[i]) paths.push(fields[i]);
-    }
-  }
-  return paths;
 }
 
 function pathsCollide(a: string, b: string): boolean {
@@ -439,16 +412,21 @@ export async function promoteIntegrationBranch(
           reason: `${baseBranch} is not the active root branch`,
         };
       }
-      let rootStatus: string;
+      let hasRootChanges = false;
+      const nestedWorktrees = nestedWorktreePaths(checkouts, repoRoot);
       try {
-        rootStatus = await git(
-          ['status', '--porcelain', '--untracked-files=all'],
-          repoRoot,
-        );
+        await readGitStatusPaths(repoRoot, (filePath, status) => {
+          const untrackedPath = filePath.replace(/\/$/, '');
+          const managedUntracked = status === '??' && nestedWorktrees.some(
+            (worktreePath) => untrackedPath === worktreePath
+              || untrackedPath.startsWith(`${worktreePath}/`),
+          );
+          if (!managedUntracked) hasRootChanges = true;
+        });
       } catch {
         return { status: 'blocked', reason: 'unable to inspect root checkout status' };
       }
-      if (hasRootCheckoutChanges(rootStatus, checkouts, repoRoot)) {
+      if (hasRootChanges) {
         if (dirtyRootPolicy === 'block-any') {
           return { status: 'blocked', reason: 'root checkout has uncommitted changes' };
         }
@@ -457,10 +435,11 @@ export async function promoteIntegrationBranch(
           const landing = (await gitRaw(['diff', '--name-only', '-z', baseTip, integrationTip], repoRoot))
             .split('\0')
             .filter(Boolean);
-          const dirty = parseStatusPathsZ(
-            await gitRaw(['status', '--porcelain', '-z', '--untracked-files=all'], repoRoot),
-          );
-          overlap = dirty.find((d) => landing.some((l) => pathsCollide(d, l)));
+          await readGitStatusPaths(repoRoot, (filePath) => {
+            if (overlap === undefined && landing.some((landingPath) => pathsCollide(filePath, landingPath))) {
+              overlap = filePath;
+            }
+          });
         } catch {
           return { status: 'blocked', reason: 'unable to compare root changes with the promotion' };
         }

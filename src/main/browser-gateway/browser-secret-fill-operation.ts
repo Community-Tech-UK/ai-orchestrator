@@ -3,6 +3,12 @@ import type {
   BrowserGatewayContext,
   BrowserGatewayFillSecretRequest,
 } from './browser-gateway-service-types';
+import {
+  credentialFailureCode,
+  credentialFailureStep,
+  resolveFillOrigin,
+  type CredentialFillStep,
+} from './browser-credential-fill-targeting';
 import type { FillOperationDeps } from './browser-form-fill-operations';
 import { buildCredentialAuthorizationDenial } from './browser-credential-authorization-denial';
 import { verifyFilledSecret, type GenericSecretKind } from './browser-credential-vault';
@@ -94,6 +100,27 @@ export async function fillSecretOperation(
       `${toolName} requires a current secure Browser Gateway extension on this shared tab`,
     );
   }
+  // The tab's page origin is what the navigation re-check below watches.
+  const pageOrigin = origin;
+
+  // WHERE THE SECRET LANDS is the frame that holds the field (see
+  // browser-credential-fill-targeting): a site may embed its form in a
+  // cross-origin subframe, and the origin-bound writer only types into frames
+  // of the receiving origin. Resolved before any secret exists in this process.
+  const fillResolution = await resolveFillOrigin({
+    toolName,
+    profileId: request.profileId,
+    targetId: request.targetId,
+    fields: request.fields.map((field) => ({ selector: field.selector })),
+    pageOrigin,
+    ...(deps.resolveFieldFrameOrigin
+      ? { resolveFieldFrameOrigin: deps.resolveFieldFrameOrigin }
+      : {}),
+  });
+  if (fillResolution.denial) {
+    return deny(fillResolution.denial.reason, fillResolution.denial.summary);
+  }
+  origin = fillResolution.fillOrigin;
 
   // Managed profiles authorize by their own id; a shared existing tab authorizes
   // by its stable node scope (its own profileId is per-tab/ephemeral).
@@ -126,11 +153,16 @@ export async function fillSecretOperation(
   let filled = 0;
   let verified = 0;
   let secretObservationBlocked = false;
+  let step: CredentialFillStep = 'secure_extension';
+  // 1-based index of the field being worked on; starts at 1 so a failure before
+  // the loop still names a real field position.
+  let fieldIndex = 1;
   try {
     for (const field of request.fields) {
       // Revalidate at the last secret-free boundary. A disconnect or service-
       // worker replacement during origin/authorization work must prevent the
       // vault resolver from being called for the now-untrusted generation.
+      step = 'secure_extension';
       if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
         return deny(
           'shared_tab_secure_credential_fill_unavailable',
@@ -140,6 +172,7 @@ export async function fillSecretOperation(
       // Resolve the secret first (no page contact) so the origin re-check sits
       // back-to-back with the type command. It exists only in this scope.
       let secret: string;
+      step = 'vault_resolve';
       if (request.vaultItemRef.startsWith('secret://')) {
         if (!deps.resolveWorkspaceSecret) {
           return deny(
@@ -169,6 +202,7 @@ export async function fillSecretOperation(
 
       // TOCTOU: a shared tab is the user's real browser — re-confirm the live
       // origin still matches immediately before typing.
+      step = 'origin_recheck';
       if (isExistingTab && !secretObservationBlocked) {
         let liveOrigin: string;
         try {
@@ -179,10 +213,10 @@ export async function fillSecretOperation(
             `${toolName} could not re-confirm the live page origin before filling`,
           );
         }
-        if (liveOrigin !== origin) {
+        if (liveOrigin !== pageOrigin) {
           return deny(
             'origin_changed_during_fill',
-            `${toolName} aborted: the tab navigated away from ${origin} before the secret was typed`,
+            `${toolName} aborted: the tab navigated away from ${pageOrigin} before the secret was typed`,
           );
         }
       }
@@ -193,6 +227,7 @@ export async function fillSecretOperation(
         );
       }
 
+      step = 'dispatch';
       const writeResult = await deps.driverType(
         request.profileId,
         request.targetId,
@@ -200,7 +235,12 @@ export async function fillSecretOperation(
         secret,
         origin,
         'secret',
+        undefined,
+        // `origin` is the receiving FRAME's origin (possibly a cross-origin
+        // embedded form); the navigation guard watches the tab's page origin.
+        pageOrigin,
       );
+      step = 'write_confirmation';
       secretObservationBlocked = isExistingTab;
       filled += 1;
 
@@ -224,8 +264,16 @@ export async function fillSecretOperation(
       if (writeVerified) {
         verified += 1;
       }
+      fieldIndex += 1;
     }
-  } catch {
+  } catch (error) {
+    // A driver/DOM error may quote the value it was asked to write, so an
+    // exception from a secret-bearing operation is never surfaced verbatim:
+    // only vault codes and the extension's fixed snake_case codes pass through
+    // (see credentialFailureCode), and the reason prefixes the exact step.
+    const code = credentialFailureCode(error, 'secret_fill_failed');
+    const failureStep = credentialFailureStep(step, code);
+    const failing = request.fields[fieldIndex - 1];
     return deps.result({
       context,
       profileId: request.profileId,
@@ -235,10 +283,9 @@ export async function fillSecretOperation(
       actionClass: opActionClass,
       decision: 'denied',
       outcome: 'failed',
-      // A driver/DOM error may quote the value it was asked to write. Never
-      // surface an exception from a secret-bearing operation.
-      reason: 'secret_fill_failed',
-      summary: `${toolName} failed after filling ${filled} field(s)`,
+      reason: `${failureStep}:${code}`,
+      summary: `${toolName} failed at ${failureStep} on field ${fieldIndex} of ${request.fields.length} `
+        + `(${failing?.selector ?? 'unknown'}) after filling ${filled} field(s): ${code}`,
       data: null,
     });
   }

@@ -6,6 +6,7 @@ import type {
   AccountContinuationMode,
   AccountFailoverMode,
   AccountPreemptivePolicy,
+  OpenCodeAccountRegion,
   PooledProvider,
 } from '../../shared/types/provider-account.types';
 
@@ -24,7 +25,15 @@ export function createProviderAccountDomain(
     listProviderAccounts: (provider?: PooledProvider): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PROVIDER_ACCOUNT_LIST, withAuth(provider ? { provider } : {})),
 
-    createProviderAccount: (input: { provider: PooledProvider; label: string; automationPolicy?: AccountAutomationPolicy }): Promise<IpcResponse> =>
+    createProviderAccount: (input: {
+      provider: PooledProvider;
+      label: string;
+      automationPolicy?: AccountAutomationPolicy;
+      /** MiMo only: Token Plan region (required for MiMo accounts). */
+      region?: OpenCodeAccountRegion;
+      /** MiMo only: Chrome profile folder for the per-account allowance read. */
+      chromeProfile?: string;
+    }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PROVIDER_ACCOUNT_CREATE, withAuth({ ...input })),
 
     updateProviderAccount: (input: {
@@ -33,6 +42,8 @@ export function createProviderAccountDomain(
       label?: string;
       enabled?: boolean;
       automationPolicy?: AccountAutomationPolicy;
+      /** MiMo only: `null` removes the association; added accounts then have no allowance reader. */
+      chromeProfile?: string | null;
       adoptObservedIdentity?: boolean;
     }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PROVIDER_ACCOUNT_UPDATE, withAuth({ ...input })),
