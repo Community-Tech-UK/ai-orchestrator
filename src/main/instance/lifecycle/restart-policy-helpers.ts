@@ -63,7 +63,7 @@ export interface RestartPolicyDeps {
   /** Load persisted messages for an instance. */
   loadMessages: (instanceId: string) => Promise<OutputMessage[]>;
   /** Archive an instance snapshot to history. */
-  archiveInstance: (instance: Instance, finalStatus: ConversationEndStatus) => Promise<void>;
+  archiveInstance: (instance: Instance, finalStatus: ConversationEndStatus) => Promise<unknown>;
   /** Reset the compaction budget tracker for an instance. */
   resetBudgetTracker: (instanceId: string) => void;
   /** Clear first-message tracking flag for an instance. */

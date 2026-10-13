@@ -65,13 +65,14 @@ async function archiveAutosavesToHistory(
   try {
     const result = await archiveRecoverableSessionsToHistory({
       candidates: recoveryCandidates,
-      archiveInstance: (instance) => getHistoryManager().archiveInstance(instance, 'completed'),
+      archiveInstance: (instance, options) => getHistoryManager().archiveInstance(instance, 'completed', options),
       recordToolOutcome,
       clearToolOutcomes,
     });
-    if (result.submitted > 0 || result.failed.length > 0) {
+    if (result.archived > 0 || result.declined > 0 || result.failed.length > 0) {
       logger.info('Startup autosave archive finished', {
-        submitted: result.submitted,
+        archived: result.archived,
+        declined: result.declined,
         skipped: result.skipped,
         failed: result.failed.length,
       });

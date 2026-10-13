@@ -4,6 +4,7 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { ConversationEntry, SessionState } from '../session/session-continuity.types';
+import type { ArchiveInstanceOptions } from './should-archive-instance';
 import type {
   ContinuityRecoveryMetadata,
   SessionRecoveryCandidateService,
@@ -115,7 +116,8 @@ describe('archiveRecoverableSessionsToHistory', () => {
     // Registered as the singleton so History's post-archive invalidation reaches it.
     const service: SessionRecoveryCandidateService = initializeSessionRecoveryCandidateService(deps);
     expect(service).toBeInstanceOf(SessionRecoveryCandidateService);
-    const archiveInstance = vi.fn((instance: Instance) => history.archiveInstance(instance, 'completed'));
+    const archiveInstance = vi.fn((instance: Instance, options: ArchiveInstanceOptions) =>
+      history.archiveInstance(instance, 'completed', options));
     const run = () => archiveRecoverableSessionsToHistory({
       candidates: service, archiveInstance, recordToolOutcome, clearToolOutcomes,
     });
@@ -128,7 +130,7 @@ describe('archiveRecoverableSessionsToHistory', () => {
 
     const result = await run();
 
-    expect(result).toEqual({ submitted: 1, skipped: 0, failed: [] });
+    expect(result).toEqual({ archived: 1, declined: 0, skipped: 0, failed: [] });
     const [archived] = history.getEntries();
     expect(archived).toMatchObject({
       displayName: 'Autosaved crashed',
@@ -187,6 +189,113 @@ describe('archiveRecoverableSessionsToHistory', () => {
       'continued-u1', 'continued-a1', 'continued-u2', 'continued-a2',
     ]);
     expect(await service.listCandidates()).toEqual([]);
+  });
+
+  it('treats History as covering a session whose archive holds a message without id or time', async () => {
+    // 2026-10-13: Codex's "stopped retrying" notice was archived with no id and
+    // no timestamp, and the whole archive stopped counting as coverage.
+    const state = continuityState('idless');
+    const { history, service, run, archiveInstance } = await setup([state]);
+    const { createInstance } = await import('../../shared/types/instance.types');
+    const closed = createInstance({
+      displayName: 'Autosaved idless',
+      workingDirectory: '/workspace/project',
+      provider: 'claude',
+      historyThreadId: 'thread-idless',
+      sessionId: 'session-idless',
+    });
+    closed.id = 'idless';
+    closed.status = 'idle';
+    closed.outputBuffer = [
+      message('idless-u1', 'user', 'first prompt', NOW - 4_000),
+      message('idless-a1', 'assistant', 'first answer', NOW - 3_000),
+      { type: 'system', content: 'Codex stopped retrying the provider failure. Work is preserved.' } as OutputMessage,
+    ];
+    await history.archiveInstance(closed, 'error');
+    service.invalidate();
+
+    const coverage = await history.getRecoveryCoverage([{
+      recoveryKey: 'history:claude:thread-idless', provider: 'claude', historyThreadId: 'thread-idless',
+    }]);
+    expect(coverage.get('history:claude:thread-idless')).toMatchObject({ messageCount: 3 });
+    expect(await service.listCandidates()).toEqual([]);
+    const result = await run();
+    expect(result).toEqual({ archived: 0, declined: 0, skipped: 0, failed: [] });
+    expect(archiveInstance).not.toHaveBeenCalled();
+    const [archived] = history.getEntries();
+    const conversation = await history.loadConversation(archived!.id);
+    expect(conversation?.messages[2]).toMatchObject({
+      id: `${archived!.id}:repaired:2`,
+      timestamp: NOW - 3_000,
+      type: 'system',
+    });
+  });
+
+  async function archiveEarlierRun(
+    history: Awaited<ReturnType<typeof setup>>['history'],
+    id: string,
+    outputBuffer: OutputMessage[],
+  ): Promise<void> {
+    const { createInstance } = await import('../../shared/types/instance.types');
+    const closed = createInstance({
+      displayName: `Autosaved ${id}`,
+      workingDirectory: '/workspace/project',
+      provider: 'claude',
+      historyThreadId: `thread-${id}`,
+      sessionId: `session-${id}`,
+    });
+    closed.id = id;
+    closed.status = 'idle';
+    closed.outputBuffer = outputBuffer;
+    await history.archiveInstance(closed, 'completed');
+  }
+
+  it('merges newer autosaved work into the History entry of that same runtime', async () => {
+    const later = Date.now() + 60_000;
+    const state = continuityState('samerun', {
+      conversationHistory: [
+        entry('samerun-u2', 'user', 'second prompt', later),
+        entry('samerun-a2', 'assistant', 'second answer', later + 1_000),
+      ],
+    });
+    const { history, service, run, archiveInstance } = await setup([state]);
+    await archiveEarlierRun(history, 'samerun', [
+      message('samerun-u1', 'user', 'first prompt', NOW - 60_000),
+      message('samerun-a1', 'assistant', 'first answer', NOW - 59_000),
+    ]);
+    service.invalidate();
+    expect((await service.listCandidates()).map((item) => item.reason)).toEqual(['newer-than-history']);
+
+    expect(await run()).toEqual({ archived: 1, declined: 0, skipped: 0, failed: [] });
+
+    expect(archiveInstance).toHaveBeenCalledWith(expect.anything(), { allowSameInstanceRearchive: true });
+    const entries = history.getEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.originalInstanceId).toBe('samerun');
+    const conversation = await history.loadConversation(entries[0]!.id);
+    expect(conversation?.messages.map((item) => item.id)).toEqual([
+      'samerun-u1', 'samerun-a1', 'samerun-u2', 'samerun-a2',
+    ]);
+    expect(await service.listCandidates()).toEqual([]);
+  });
+
+  it('keeps offering an autosave whose runtime History holds only in a copy it cannot verify', async () => {
+    // A damaged History file may leave the autosave as the only good copy, so it
+    // stays in the banner and the startup pass must not write over History.
+    const { history, service, run, archiveInstance } = await setup([continuityState('damaged')]);
+    await archiveEarlierRun(history, 'damaged', [
+      message('damaged-u1', 'user', 'first prompt', NOW - 4_000),
+      { ...message('damaged-x', 'assistant', 'unreadable', NOW - 3_500), type: 'robot' as OutputMessage['type'] },
+    ]);
+    service.invalidate();
+
+    expect((await service.listCandidates()).map((item) => [item.sourceInstanceId, item.reason]))
+      .toEqual([['damaged', 'unarchived']]);
+    expect(await run()).toEqual({ archived: 0, declined: 1, skipped: 0, failed: [] });
+    expect(archiveInstance).toHaveBeenCalledWith(expect.anything(), { allowSameInstanceRearchive: false });
+    const [kept] = history.getEntries();
+    const conversation = await history.loadConversation(kept!.id);
+    expect(conversation?.messages.map((item) => item.id)).toEqual(['damaged-u1', 'damaged-x']);
   });
 
   it('folds in output the crashed runtime spilled to disk before its autosave window', async () => {
@@ -252,7 +361,7 @@ describe('archiveRecoverableSessionsToHistory', () => {
 
     const result = await run();
 
-    expect(result).toEqual({ submitted: 0, skipped: 0, failed: [] });
+    expect(result).toEqual({ archived: 0, declined: 0, skipped: 0, failed: [] });
     expect(archiveInstance).not.toHaveBeenCalled();
     expect(history.getEntries()).toEqual([]);
     expect((await service.listCandidates()).map((item) => item.sourceInstanceId)).toEqual(['legacy']);
@@ -294,7 +403,8 @@ describe('archiveRecoverableSessionsToHistory', () => {
     const result = await run();
 
     expect(result).toEqual({
-      submitted: 1,
+      archived: 1,
+      declined: 0,
       skipped: 0,
       failed: [{ instanceId: 'broken', error: 'Recovery candidate validation failed' }],
     });

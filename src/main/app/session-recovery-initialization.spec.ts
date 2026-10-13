@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Instance } from '../../shared/types/instance.types';
+import type { ArchiveInstanceOutcome } from '../history/should-archive-instance';
 import type { RecoverableSessionSelectionInput } from '../session/recoverable-session-selection';
 import type { SessionState } from '../session/session-continuity.types';
 import type { ContinuityRecoveryMetadata } from '../session/session-recovery-candidate-service';
@@ -11,7 +12,9 @@ const history = vi.hoisted(() => ({
   startupTasks: Promise.resolve(),
   getEntries: vi.fn(() => [] as { historyThreadId?: string }[]),
   isRecoverySuppressed: vi.fn((_query: { historyThreadId?: string }) => false),
-  archiveInstance: vi.fn(async (_instance: Instance) => undefined),
+  archiveInstance: vi.fn(async (
+    _instance: Instance, _status?: string, _options?: unknown,
+  ): Promise<ArchiveInstanceOutcome> => 'archived'),
   getRecoveryCoverage: vi.fn(async () => new Map()),
   loadConversation: vi.fn(async () => null),
 }));
@@ -159,9 +162,28 @@ describe('initializeSessionRecoveryRuntime', () => {
     await waitForSessionRecoveryStartupArchive();
 
     expect(history.archiveInstance).toHaveBeenCalledOnce();
-    const [archived] = history.archiveInstance.mock.calls[0]!;
+    const [archived, status, options] = history.archiveInstance.mock.calls[0]!;
     expect(archived).toMatchObject({ id: 'crashed', historyThreadId: 'thread-crashed', status: 'idle' });
     expect(archived.outputBuffer.map((item) => item.id)).toEqual(['u1', 'a1']);
+    // No History copy to build on, so History may not replace an entry from this runtime.
+    expect([status, options]).toEqual(['completed', { allowSameInstanceRearchive: false }]);
+    expect(logger.info).toHaveBeenCalledWith('Startup autosave archive finished', {
+      archived: 1, declined: 0, skipped: 0, failed: 0,
+    });
+  });
+
+  it('reports a write History declined instead of counting it as saved', async () => {
+    const { waitForSessionRecoveryStartupArchive } = await import('../session/session-recovery-candidate-service');
+    const continuity = continuityWith({ crashed: crashedState() });
+    continuity.listContinuityRecoveryMetadata.mockResolvedValue([crashedMetadata()]);
+    history.archiveInstance.mockResolvedValueOnce('already-archived');
+
+    await initialize(continuity);
+    await waitForSessionRecoveryStartupArchive();
+
+    expect(logger.info).toHaveBeenCalledWith('Startup autosave archive finished', {
+      archived: 0, declined: 1, skipped: 0, failed: 0,
+    });
   });
 
   it('logs why an autosave could not be archived', async () => {

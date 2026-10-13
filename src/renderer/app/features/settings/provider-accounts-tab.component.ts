@@ -52,25 +52,26 @@ const SIGN_IN_POLL_LIMIT = 60;
   imports: [FormsModule, PromptModalComponent],
   templateUrl: './provider-accounts-tab.component.html',
   styles: [`
-    .provider-accounts-tab { display: flex; flex-direction: column; gap: 24px; }
+    :host { display: block; min-width: 0; }
+    .provider-accounts-tab { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
     .tab-intro { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
     .section-desc { color: var(--text-secondary); margin: 0; max-width: 68ch; }
     .error-banner, .warning-banner, .notice-banner {
       margin: 0; padding: 8px 12px; border-radius: 6px;
-      border: 1px solid var(--border-color); background: var(--bg-secondary);
+      border: 1px solid var(--border-color); background: var(--bg-secondary); overflow-wrap: anywhere;
     }
     .error-banner { border-color: var(--error-color, #d33); }
     .hint { margin: 0; font-size: 12px; color: var(--text-muted, var(--text-secondary)); }
     .hint.indented { padding-left: 24px; }
     .provider-section {
-      display: flex; flex-direction: column; gap: 12px;
+      display: flex; flex-direction: column; gap: 12px; min-width: 0;
       padding: 16px; border: 1px solid var(--border-color); border-radius: 10px;
     }
     .provider-title { margin: 0; font-size: 15px; }
     .accounts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
     .account-card {
       border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px;
-      display: flex; flex-direction: column; gap: 10px; background: var(--bg-secondary);
+      display: flex; flex-direction: column; gap: 10px; background: var(--bg-secondary); min-width: 0;
     }
     .account-card.is-disabled .account-summary { opacity: 0.6; }
     .account-row { display: flex; align-items: center; gap: 12px; }
@@ -80,7 +81,7 @@ const SIGN_IN_POLL_LIMIT = 60;
       font-size: 12px; border: 1px solid var(--border-color); color: var(--text-secondary);
     }
     .account-summary { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-    .account-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .account-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; overflow-wrap: anywhere; }
     .chip { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-color); color: var(--text-secondary); }
     .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
     .status::before { content: ''; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted, #888); }
@@ -89,12 +90,16 @@ const SIGN_IN_POLL_LIMIT = 60;
     .status[data-state='identity-mismatch']::before { background: var(--error-color, #d33); }
     .mismatch { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     .machines { display: flex; flex-direction: column; gap: 4px; }
-    .usage-access { display: flex; flex-direction: column; gap: 6px; }
+    .usage-access { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border-color); padding-top: 10px; }
+    .usage-title { margin: 0; font-size: 12px; font-weight: 600; }
     .machines-title { margin: 0; font-size: 12px; color: var(--text-secondary); }
     .machine-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
-    .machine-row code { padding: 1px 6px; border: 1px solid var(--border-color); border-radius: 4px; } .machine-state.ok { color: var(--success-color, #4a9); }
+    .machine-command { display: flex; align-items: flex-start; gap: 8px; flex: 1 1 100%; min-width: 0; }
+    .machine-command code { flex: 1; min-width: 0; max-height: 72px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 4px; }
+    .machine-command .btn { flex: none; }
+    .machine-state.ok { color: var(--success-color, #4a9); }
     .account-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
-    .inline-field { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
+    .inline-field { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
     .account-actions, .add-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     .account-actions .btn { padding: 4px 10px; }
     .account-actions .btn.icon { min-width: 30px; padding: 4px 6px; }
@@ -106,9 +111,10 @@ const SIGN_IN_POLL_LIMIT = 60;
     .policy-title { margin: 0; font-size: 13px; }
     .ownership { padding: 12px; border-radius: 6px; border: 1px solid var(--warning-border, var(--border-color)); background: var(--warning-bg, var(--bg-secondary)); }
     .ownership p { margin: 0 0 10px; }
-    .policy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-    .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
-    .early-switch { margin: 0; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 6px; display: flex; flex-direction: column; gap: 8px; }
+    .policy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; }
+    .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); min-width: 0; }
+    select { min-width: 0; max-width: 100%; }
+    .early-switch { margin: 0; min-width: 0; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 6px; display: flex; flex-direction: column; gap: 8px; }
     .early-switch legend { padding: 0 4px; font-size: 12px; color: var(--text-secondary); }
     .sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
     input.narrow { width: 5rem; }
@@ -127,19 +133,23 @@ export class ProviderAccountsTabComponent implements OnInit {
   private readonly busySignal = signal(false);
   private readonly errorSignal = signal<string | null>(null);
   private readonly noticeSignal = signal<string | null>(null);
+  private readonly feedbackAccountSignal = signal<string | null>(null);
   private readonly newLabelsSignal = signal<Partial<Record<PooledProvider, string>>>({});
   private readonly newRegionsSignal = signal<Partial<Record<PooledProvider, OpenCodeAccountRegion>>>({});
   private readonly newChromeProfilesSignal = signal<Partial<Record<PooledProvider, string>>>({});
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private actionGeneration = 0;
 
   readonly accounts = this.accountsSignal.asReadonly();
   readonly pools = this.poolsSignal.asReadonly();
   readonly busy = this.busySignal.asReadonly();
   readonly error = this.errorSignal.asReadonly();
   readonly notice = this.noticeSignal.asReadonly();
+  readonly feedbackAccount = this.feedbackAccountSignal.asReadonly();
   readonly newLabels = this.newLabelsSignal.asReadonly();
   readonly newRegions = this.newRegionsSignal.asReadonly();
   readonly newChromeProfiles = this.newChromeProfilesSignal.asReadonly();
+  readonly hasAccountFeedback = computed(() => this.accountsSignal().some(account => this.feedbackFor(account)));
   private readonly byProvider = computed(() => {
     const grouped: Record<PooledProvider, ProviderAccountView[]> = { claude: [], codex: [], opencode: [] };
     for (const account of this.accountsSignal()) grouped[account.provider].push(account);
@@ -148,7 +158,10 @@ export class ProviderAccountsTabComponent implements OnInit {
   });
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.stopPolling());
+    this.destroyRef.onDestroy(() => {
+      this.actionGeneration += 1;
+      this.stopPolling();
+    });
   }
 
   ngOnInit(): void {
@@ -200,13 +213,18 @@ export class ProviderAccountsTabComponent implements OnInit {
   }
 
   async copyNodeCommand(account: ProviderAccountView): Promise<void> {
-    const command = this.nodeLoginCommand(account);
-    try {
-      await globalThis.navigator.clipboard.writeText(command);
-      this.noticeSignal.set('Copied the sign-in command. Run it in a terminal on that machine.');
-    } catch {
-      this.noticeSignal.set('Could not copy. Select the command shown beside this button and copy it yourself.');
-    }
+    await this.run(async () => {
+      try {
+        await globalThis.navigator.clipboard.writeText(this.nodeLoginCommand(account));
+        this.noticeSignal.set('Copied the sign-in command. Run it in a terminal on that machine.');
+      } catch {
+        this.noticeSignal.set('Could not copy. Select the command shown beside this button and copy it yourself.');
+      }
+    }, account);
+  }
+
+  feedbackFor(account: ProviderAccountView): boolean {
+    return this.feedbackAccount() === `${account.provider}/${account.id}`;
   }
 
   bindingLabel(account: ProviderAccountView): string {
@@ -264,7 +282,7 @@ export class ProviderAccountsTabComponent implements OnInit {
   }
 
   async signIn(account: ProviderAccountView, openTerminal = false): Promise<void> {
-    await this.run(() => this.launchSignIn(account, openTerminal));
+    await this.run(() => this.launchSignIn(account, openTerminal), account);
   }
 
   async manageUsageSession(account: ProviderAccountView, action: 'connect' | 'disconnect'): Promise<void> {
@@ -277,25 +295,25 @@ export class ProviderAccountsTabComponent implements OnInit {
         ? `Opened a Xiaomi sign-in window for "${account.label}". Sign in to the same account as its Token Plan, close the window, then click Refresh here to check the connection.`
         : `Saved usage login removed for "${account.label}". Usage may still refresh through its Chrome profile.`);
       await this.load();
-    });
+    }, account);
   }
 
   async verify(account: ProviderAccountView): Promise<void> {
-    await this.mutate(() => this.ipc.verify(account.provider, account.id));
+    await this.mutate(() => this.ipc.verify(account.provider, account.id), account);
   }
 
   async adoptObserved(account: ProviderAccountView): Promise<void> {
-    await this.mutate(() => this.ipc.update({ provider: account.provider, profileId: account.id, adoptObservedIdentity: true }));
+    await this.mutate(() => this.ipc.update({ provider: account.provider, profileId: account.id, adoptObservedIdentity: true }), account);
   }
 
   async setEnabled(account: ProviderAccountView, enabled: boolean): Promise<void> {
     if (enabled === account.enabled) return;
-    await this.mutate(() => this.ipc.update({ provider: account.provider, profileId: account.id, enabled }));
+    await this.mutate(() => this.ipc.update({ provider: account.provider, profileId: account.id, enabled }), account);
   }
 
   async setAutomationPolicy(account: ProviderAccountView, automationPolicy: AccountAutomationPolicy): Promise<void> {
     if (automationPolicy === account.automationPolicy) return;
-    await this.mutate(() => this.ipc.update({ provider: account.provider, profileId: account.id, automationPolicy }));
+    await this.mutate(() => this.ipc.update({ provider: account.provider, profileId: account.id, automationPolicy }), account);
   }
 
   renameModalOpen = signal(false);
@@ -313,7 +331,7 @@ export class ProviderAccountsTabComponent implements OnInit {
     const account = this.renameTarget;
     this.renameTarget = null;
     if (!account || !label || label === account.label) return;
-    await this.mutate(() => this.ipc.update({ provider: account.provider, profileId: account.id, label }));
+    await this.mutate(() => this.ipc.update({ provider: account.provider, profileId: account.id, label }), account);
   }
 
   onRenameCancelled(): void {
@@ -327,7 +345,7 @@ export class ProviderAccountsTabComponent implements OnInit {
     const target = index + delta;
     if (index < 0 || target < 0 || target >= ordered.length) return;
     [ordered[index], ordered[target]] = [ordered[target]!, ordered[index]!];
-    await this.mutate(() => this.ipc.setPriorityOrder(account.provider, ordered));
+    await this.mutate(() => this.ipc.setPriorityOrder(account.provider, ordered), account);
   }
 
   async remove(account: ProviderAccountView): Promise<void> {
@@ -336,7 +354,7 @@ export class ProviderAccountsTabComponent implements OnInit {
       + 'This does not sign the account out or cancel the subscription.',
     );
     if (!confirmed) return;
-    await this.mutate(() => this.ipc.remove(account.provider, account.id));
+    await this.mutate(() => this.ipc.remove(account.provider, account.id), account);
   }
 
   async acknowledge(provider: PooledProvider): Promise<void> {
@@ -356,6 +374,7 @@ export class ProviderAccountsTabComponent implements OnInit {
   }
 
   private async launchSignIn(account: ProviderAccountView, openTerminal = false): Promise<void> {
+    this.feedbackAccountSignal.set(`${account.provider}/${account.id}`);
     const response = await this.ipc.launchLogin(account.provider, account.id, openTerminal ? { openTerminal: true } : undefined);
     if (!response.success) {
       throw new Error(response.error?.message ?? (openTerminal
@@ -372,6 +391,7 @@ export class ProviderAccountsTabComponent implements OnInit {
   /** After a sign-in launch, re-verify until the account reports signed in (or give up quietly). */
   private pollUntilSignedIn(account: ProviderAccountView): void {
     this.stopPolling();
+    const generation = this.actionGeneration;
     let attempts = 0;
     this.pollTimer = setInterval(() => {
       attempts += 1;
@@ -379,18 +399,19 @@ export class ProviderAccountsTabComponent implements OnInit {
         this.stopPolling();
         return;
       }
-      void this.checkSignIn(account);
+      void this.checkSignIn(account, generation);
     }, SIGN_IN_POLL_MS);
   }
 
   /** One poll tick. Never rejects: a failed check is simply retried on the next tick. */
-  private async checkSignIn(account: ProviderAccountView): Promise<void> {
+  private async checkSignIn(account: ProviderAccountView, generation = this.actionGeneration): Promise<void> {
     try {
       const response = await this.ipc.verify(account.provider, account.id);
+      if (generation !== this.actionGeneration) return;
       const state = (response.data as ProviderAccountView | undefined)?.binding?.state;
       if (response.success && state === 'authenticated') {
         this.stopPolling();
-        this.noticeSignal.set(`"${account.label}" is signed in.`);
+        if (this.feedbackFor(account)) this.noticeSignal.set(`"${account.label}" is signed in.`);
         await this.load();
       }
     } catch {
@@ -411,17 +432,23 @@ export class ProviderAccountsTabComponent implements OnInit {
     this.doctorSignal.set(Object.fromEntries(doctors));
   }
 
-  private async mutate(action: () => Promise<{ success: boolean; error?: { message?: string } }>): Promise<void> {
+  private async mutate(action: () => Promise<{ success: boolean; error?: { message?: string } }>, account?: ProviderAccountView): Promise<void> {
     await this.run(async () => {
       const response = await action();
       if (!response.success) throw new Error(response.error?.message ?? 'That change could not be applied.');
       await this.load();
-    });
+    }, account);
   }
 
-  private async run(work: () => Promise<void>): Promise<void> {
+  private async run(work: () => Promise<void>, account?: ProviderAccountView): Promise<void> {
+    if (this.busySignal()) return;
+    // A previous coding check must not replace a later action's feedback or stop its poll.
+    this.actionGeneration += 1;
+    this.stopPolling();
     this.busySignal.set(true);
     this.errorSignal.set(null);
+    this.noticeSignal.set(null);
+    this.feedbackAccountSignal.set(account ? `${account.provider}/${account.id}` : null);
     try {
       await work();
     } catch (error) {

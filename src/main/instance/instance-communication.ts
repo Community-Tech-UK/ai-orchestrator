@@ -242,6 +242,10 @@ export class InstanceCommunicationManager extends EventEmitter {
   ): OutputMessage {
     return {
       ...message,
+      // History, recovery and the renderer all key on these; an adapter that
+      // omits them must not leave an unreadable message in the transcript.
+      id: typeof message.id === 'string' && message.id ? message.id : generateId(),
+      timestamp: Number.isFinite(message.timestamp) ? message.timestamp : Date.now(),
       metadata: {
         ...message.metadata,
         adapterGeneration,

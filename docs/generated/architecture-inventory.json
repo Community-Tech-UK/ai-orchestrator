@@ -6059,12 +6059,12 @@
       "lines": 3994
     },
     {
-      "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
-      "lines": 3817
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 3823
     },
     {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 3805
+      "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
+      "lines": 3817
     },
     {
       "path": "src/main/instance/rlm-process-ownership.spec.ts",
@@ -6164,7 +6164,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2431
+      "lines": 2435
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
@@ -6276,7 +6276,7 @@
     },
     {
       "path": "src/main/history/history-manager.ts",
-      "lines": 1781
+      "lines": 1784
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",

@@ -30,7 +30,7 @@ interface Harness {
   adapter: CodexCliAdapter;
   emit(method: string, params: Record<string, unknown>): void;
   requests: [string, Record<string, unknown>][];
-  outputs: { type: string; content: string; metadata?: Record<string, unknown> }[];
+  outputs: { id?: string; timestamp?: number; type: string; content: string; metadata?: Record<string, unknown> }[];
   statuses: string[];
   completions: string[];
   hasActiveTurn(): boolean;
@@ -332,6 +332,24 @@ describe('CodexCliAdapter turns Codex starts by itself', () => {
     expect(JSON.stringify(h.outputs)).not.toContain('provider retry pending');
     await expect(h.adapter.hasProviderAutoContinuation()).resolves.toBe(true);
     expect(h.requests).toEqual([]);
+    await h.adapter.terminate(false);
+  });
+
+  // 2026-10-13: these notices were archived without id or time, which made
+  // History stop counting the whole conversation as saved.
+  it('gives both native-retry notices an id and a time', async () => {
+    const h = createHarness(() => ({ goal: null }));
+    h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'retry-turn', status: 'inProgress' } });
+    h.emit('error', { threadId: 'thread-1', turnId: 'retry-turn', error: { message: 'pending' }, willRetry: true });
+    h.emit('error', { threadId: 'thread-1', turnId: 'retry-turn', error: { message: 'gave up' }, willRetry: false });
+
+    const notices = h.outputs.filter((output) => output.metadata?.['source'] === 'codex-native-retry');
+    expect(notices.map((notice) => notice.metadata?.['willRetry'])).toEqual([true, false]);
+    for (const notice of notices) {
+      expect(notice.id).toEqual(expect.any(String));
+      expect(Number.isFinite(notice.timestamp)).toBe(true);
+    }
+    expect(notices[0]!.id).not.toBe(notices[1]!.id);
     await h.adapter.terminate(false);
   });
 

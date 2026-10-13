@@ -39,9 +39,10 @@ import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 import { getSessionRecoveryCandidateServiceIfInitialized, type HistoryRecoverySuppressionQuery,
   type RecoveryHistoryIdentity } from '../session/session-recovery-candidate-service';
 import { resolveHistoryRecoveryCoverage } from './history-recovery-coverage';
+import { repairArchivedMessageIdentity } from './archived-message-repair';
 import { memoizeConversationLoads, mergePreviouslyArchivedMessages } from './archive-message-merge';
-import { createArchiveInstanceSummary, getArchiveHistoryIdentity,
-  redactArchiveIdentifier, shouldArchiveInstance, type ArchiveHistoryCoverage } from './should-archive-instance';
+import { createArchiveInstanceSummary, getArchiveHistoryIdentity, redactArchiveIdentifier, shouldArchiveInstance,
+  type ArchiveHistoryCoverage, type ArchiveInstanceOptions, type ArchiveInstanceOutcome } from './should-archive-instance';
 import { getArchiveSerializationKey, KeyedSerialTaskQueue } from './history-archive-serialization';
 import { isSameHistoryEntryForIdentityBackfill } from './history-identity-backfill';
 import { isRecoverySuppressedByHistory, tombstoneDeletedHistoryEntry } from './history-recovery-suppression';
@@ -163,16 +164,16 @@ export class HistoryManager {
    * Serializes by logical thread so coverage is re-evaluated after any archive
    * from a sibling runtime generation has committed.
    */
-  async archiveInstance(instance: Instance, status: ConversationEndStatus = 'completed'): Promise<void> {
+  async archiveInstance(instance: Instance, status: ConversationEndStatus = 'completed',
+    options: ArchiveInstanceOptions = {}): Promise<ArchiveInstanceOutcome> {
     return this.archiveQueue.run(getArchiveSerializationKey(instance), async () => {
       // Re-check only after acquiring the logical-thread turn: a concurrent
       // generation may have committed while this call was queued.
-      const alreadyArchived = this.index.entries.some(e => e.originalInstanceId === instance.id);
-      if (alreadyArchived) {
+      if (!options.allowSameInstanceRearchive && this.index.entries.some(e => e.originalInstanceId === instance.id)) {
         logger.info('Skipping archive - already archived', {
           instanceId: redactArchiveIdentifier(instance.id),
         });
-        return;
+        return 'already-archived';
       }
 
       const messages = await this.getCompleteArchiveMessages(instance);
@@ -193,7 +194,7 @@ export class HistoryManager {
       const decision = shouldArchiveInstance(summary, coverage);
       if (!decision.shouldArchive) {
         logger.info('Skipping archive - already covered by history', decision.logData);
-        return;
+        return 'covered';
       }
 
       const entryId = previousEntries[0]?.id ?? crypto.randomUUID();
@@ -367,6 +368,7 @@ export class HistoryManager {
         replacedEntries: previousEntries.length,
       });
       getSessionRecoveryCandidateServiceIfInitialized()?.invalidate();
+      return 'archived';
     });
   }
 
@@ -435,7 +437,7 @@ export class HistoryManager {
     return conversation;
   }
 
-  /** Read unmodified persisted data for coverage evidence. */
+  /** Read persisted data for coverage evidence; only message ids/times are repaired. */
   private async loadPersistedConversationForCoverage(
     entryId: string,
   ): Promise<ConversationData | null> {
@@ -448,8 +450,9 @@ export class HistoryManager {
 
     try {
       const compressed = await fs.promises.readFile(conversationPath);
-      const data = await gunzip(compressed);
-      return JSON.parse(data.toString()) as ConversationData;
+      const conversation = JSON.parse((await gunzip(compressed)).toString()) as ConversationData;
+      repairArchivedMessageIdentity(conversation);
+      return conversation;
     } catch (error) {
       logger.error('Failed to load conversation', error instanceof Error ? error : undefined, { entryId });
       return null;

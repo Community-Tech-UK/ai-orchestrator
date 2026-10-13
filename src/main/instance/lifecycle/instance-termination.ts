@@ -71,7 +71,7 @@ export interface InstanceTerminationDeps {
   endRlmSession: (instanceId: string) => void;
   deleteOutputStorage: (instanceId: string) => Promise<void>;
   drainContextEvidence?: (instanceId: string) => Promise<void>;
-  archiveInstance: (instance: Instance, status: ConversationEndStatus) => Promise<void>;
+  archiveInstance: (instance: Instance, status: ConversationEndStatus) => Promise<unknown>;
   importTranscript: (transcript: string, options: TranscriptImportOptions) => void;
   emitRemoved: (instanceId: string) => void;
 }

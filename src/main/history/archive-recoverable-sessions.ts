@@ -1,6 +1,7 @@
 import { createInstance } from '../../shared/types/instance.types';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import { buildVerifiedRecoveryBuffer } from '../instance/lifecycle/continuity-revival';
+import type { ArchiveInstanceOptions, ArchiveInstanceOutcome } from './should-archive-instance';
 import type {
   ResolvedRecoveryCandidate,
   SessionRecoveryCandidateService,
@@ -8,14 +9,15 @@ import type {
 
 export interface ArchiveRecoverableSessionsDeps {
   candidates: Pick<SessionRecoveryCandidateService, 'listTopLevelCandidates' | 'resolveCandidate'>;
-  archiveInstance: (instance: Instance) => Promise<void>;
+  archiveInstance: (instance: Instance, options: ArchiveInstanceOptions) => Promise<ArchiveInstanceOutcome>;
   recordToolOutcome: (instanceId: string, message: OutputMessage) => void;
   clearToolOutcomes: (instanceId: string) => void;
 }
 
 export interface ArchiveRecoverableSessionsResult {
-  /** Handed to History; it may still decline a write it finds already covered. */
-  submitted: number;
+  archived: number;
+  /** History declined the write: it already holds this runtime, or covers it. */
+  declined: number;
   skipped: number;
   failed: Array<{ instanceId: string; error: string }>;
 }
@@ -27,6 +29,8 @@ function errorMessage(error: unknown): string {
 interface PreparedArchive {
   instance: Instance;
   toolOutcomes: OutputMessage[];
+  /** The transcript already holds the verified History copy it would replace. */
+  mergesHistory: boolean;
 }
 
 /**
@@ -71,7 +75,7 @@ export function buildArchiveInstanceFromRecovery(
   instance.copilotRoutingSource = state.copilotRoutingSource;
   instance.accountProfileId = state.accountProfileId;
   instance.accountRoutingSource = state.accountRoutingSource;
-  return { instance, toolOutcomes };
+  return { instance, toolOutcomes, mergesHistory: resolved.historyConversation !== null };
 }
 
 /**
@@ -87,7 +91,7 @@ export function buildArchiveInstanceFromRecovery(
 export async function archiveRecoverableSessionsToHistory(
   deps: ArchiveRecoverableSessionsDeps,
 ): Promise<ArchiveRecoverableSessionsResult> {
-  const result: ArchiveRecoverableSessionsResult = { submitted: 0, skipped: 0, failed: [] };
+  const result: ArchiveRecoverableSessionsResult = { archived: 0, declined: 0, skipped: 0, failed: [] };
   const prepared: PreparedArchive[] = [];
   for (const candidate of await deps.candidates.listTopLevelCandidates()) {
     try {
@@ -101,11 +105,15 @@ export async function archiveRecoverableSessionsToHistory(
     }
   }
 
-  for (const { instance, toolOutcomes } of prepared) {
+  for (const { instance, toolOutcomes, mergesHistory } of prepared) {
     try {
       for (const outcome of toolOutcomes) deps.recordToolOutcome(instance.id, outcome);
-      await deps.archiveInstance(instance);
-      result.submitted++;
+      // History skips a runtime it already archived. Newer work from that same
+      // runtime is only re-archived when the transcript was built on the
+      // verified History copy as read at resolve time, so it adds to that copy.
+      const outcome = await deps.archiveInstance(instance, { allowSameInstanceRearchive: mergesHistory });
+      if (outcome === 'archived') result.archived++;
+      else result.declined++;
     } catch (error) {
       result.failed.push({ instanceId: instance.id, error: errorMessage(error) });
     } finally {

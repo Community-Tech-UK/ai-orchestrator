@@ -42,6 +42,18 @@ export type ArchiveInstanceDecisionReason =
   | 'automation-needs-visibility'
   | 'no-meaningful-message';
 
+/** What `HistoryManager.archiveInstance` did with an instance it was handed. */
+export type ArchiveInstanceOutcome = 'archived' | 'already-archived' | 'covered';
+
+export interface ArchiveInstanceOptions {
+  /**
+   * Re-archive even though History already holds an entry from this runtime.
+   * Only for a transcript built on that entry as read moments earlier (startup
+   * autosave recovery). Nothing here re-checks it: the caller is responsible.
+   */
+  allowSameInstanceRearchive?: boolean;
+}
+
 export interface ArchiveInstanceDecision {
   shouldArchive: boolean;
   reason: ArchiveInstanceDecisionReason;

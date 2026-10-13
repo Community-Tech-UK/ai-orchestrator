@@ -9,11 +9,13 @@
     </button>
   </div>
 
-  @if (error(); as message) {
-    <p class="error-banner" role="alert">{{ message }}</p>
-  }
-  @if (notice(); as message) {
-    <p class="notice-banner" role="status">{{ message }}</p>
+  @if (!hasAccountFeedback()) {
+    @if (error(); as message) {
+      <p class="error-banner" role="alert">{{ message }}</p>
+    }
+    @if (notice(); as message) {
+      <p class="notice-banner" role="status">{{ message }}</p>
+    }
   }
 
   @for (provider of providers; track provider.id) {
@@ -45,6 +47,7 @@
                   }
                 </div>
                 <span class="status" [attr.data-state]="account.binding?.state ?? 'unavailable'">
+                  @if (provider.id === 'opencode') { Coding sign-in: }
                   {{ bindingLabel(account) }}
                   @if (account.expectedIdentity && account.binding?.state !== 'authenticated' && account.binding?.state !== 'identity-mismatch') {
                     · {{ account.expectedIdentity }}
@@ -73,16 +76,18 @@
 
             @if (provider.id === 'opencode' && machinesFor(account).length > 0) {
               <div class="machines">
-                <p class="machines-title">Per-machine sign-in — a MiMo sign-in lives on each machine:</p>
+                <p class="machines-title">Coding sign-in on other machines</p>
                 @for (machine of machinesFor(account); track machine.nodeId) {
                   <div class="machine-row">
                     <span class="machine-name">{{ machine.name }}</span>
                     @if (machine.hasAccount) {
                       <span class="machine-state ok">Signed in on that machine</span>
                     } @else {
-                      <span class="machine-state">Not signed in there — run</span>
-                      <code>{{ nodeLoginCommand(account) }}</code>
-                      <button type="button" class="btn btn-secondary" (click)="copyNodeCommand(account)">Copy</button>
+                      <span class="machine-state">Not signed in. Run this command on that machine:</span>
+                      <div class="machine-command">
+                        <code tabindex="0" [attr.aria-label]="'Coding sign-in command for ' + account.label + ' on ' + machine.name">{{ nodeLoginCommand(account) }}</code>
+                        <button type="button" class="btn btn-secondary" (click)="copyNodeCommand(account)" [disabled]="busy()">Copy</button>
+                      </div>
                     }
                   </div>
                 }
@@ -91,9 +96,11 @@
 
             @if (provider.id === 'opencode') {
               <div class="usage-access">
+                <p class="usage-title">Usage sign-in</p>
                 <p class="hint">
-                  {{ account.quotaSessionConnected ? 'Usage session saved. Sign in again if usage stops updating.' : 'Connect usage to check this account without a Chrome profile.' }}
+                  {{ account.quotaSessionConnected ? 'Usage session saved. Sign in again if usage stops updating.' : 'No saved usage login. Connect usage to sign in to this account’s Xiaomi console.' }}
                 </p>
+                <p class="hint">This is separate from coding sign-in. It lets Harness read your Token Plan usage.</p>
                 <div class="account-actions">
                   <button type="button" class="btn btn-secondary" (click)="manageUsageSession(account, 'connect')" [disabled]="busy()">
                     {{ account.quotaSessionConnected ? 'Sign in to usage again' : 'Connect usage' }}
@@ -124,9 +131,9 @@
                 @if (isSignedIn(account)) {
                   <button type="button" class="btn btn-secondary" (click)="verify(account)" [disabled]="busy()">Check sign-in</button>
                   <button type="button" class="btn btn-secondary" (click)="signIn(account)" [disabled]="busy()"
-                    title="Copies a sign-in command to paste in your terminal">Sign in again</button>
+                    title="Copies a sign-in command to paste in your terminal">{{ provider.id === 'opencode' ? 'Copy coding sign-in command' : 'Copy sign-in command' }}</button>
                 } @else {
-                  <button type="button" class="btn btn-primary" (click)="signIn(account)" [disabled]="busy()">Copy sign-in command</button>
+                  <button type="button" class="btn btn-primary" (click)="signIn(account)" [disabled]="busy()">{{ provider.id === 'opencode' ? 'Copy coding sign-in command' : 'Copy sign-in command' }}</button>
                   <button type="button" class="btn btn-secondary" (click)="signIn(account, true)" [disabled]="busy()">Open a terminal</button>
                   <button type="button" class="btn btn-secondary" (click)="verify(account)" [disabled]="busy()">Check sign-in</button>
                 }
@@ -143,6 +150,14 @@
                 }
               </div>
             </div>
+            @if (feedbackFor(account)) {
+              @if (error(); as message) {
+                <p class="error-banner" role="alert">{{ message }}</p>
+              }
+              @if (notice(); as message) {
+                <p class="notice-banner" role="status">{{ message }}</p>
+              }
+            }
           </li>
         }
       </ol>

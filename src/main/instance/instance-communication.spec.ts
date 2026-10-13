@@ -1953,6 +1953,24 @@ describe('InstanceCommunicationManager', () => {
     });
   });
 
+  it('gives adapter output that arrives without an id or time both before buffering it', async () => {
+    const adapter = new FakeAdapter('codex-cli');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+
+    manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+    adapter.emit('output', { type: 'system', content: 'provider notice' });
+    const wellFormed = createMessage('assistant', 'well formed');
+    adapter.emit('output', wellFormed);
+    await flushOutputHandlers();
+
+    const [notice, answer] = instance.outputBuffer;
+    expect(notice).toMatchObject({ type: 'system', content: 'provider notice' });
+    expect(typeof notice?.id).toBe('string');
+    expect(notice?.id).not.toBe('');
+    expect(Number.isFinite(notice?.timestamp)).toBe(true);
+    expect(answer).toMatchObject({ id: wellFormed.id, timestamp: wellFormed.timestamp });
+  });
+
   it('resets tool state to idle when adapter becomes ready for input', () => {
     const onToolStateChange = vi.fn();
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;

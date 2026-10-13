@@ -17,7 +17,7 @@ const KNOWN_PROVIDERS = new Set<InstanceProvider>([
 export interface IngestMissingLastStopHistoryDeps {
   sessions: readonly RecoverableSessionSelectionInput[];
   hasHistoryThread: (historyThreadId: string) => boolean;
-  archiveInstance: (instance: Instance) => Promise<void>;
+  archiveInstance: (instance: Instance) => Promise<unknown>;
   shouldIngest?: (session: RecoverableSessionSelectionInput) => boolean | Promise<boolean>;
 }
 

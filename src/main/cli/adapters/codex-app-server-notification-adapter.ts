@@ -1,5 +1,6 @@
 import { CodexAppServerAdapter } from './codex-app-server-adapter';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
+import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
 import { errorDiagnostic, textDiagnostic } from '../../logging/source-diagnostics';
 import type {
@@ -227,6 +228,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
         const errorDetails = extractCodexAppServerError(params);
         if (errorDetails.willRetry === true) {
           this.emit('output', {
+            id: generateId(), timestamp: Date.now(),
             type: 'system', content: 'Codex is retrying a temporary provider failure. Work is preserved.',
             metadata: { willRetry: true, source: 'codex-native-retry' },
           });
@@ -239,6 +241,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
           break;
         }
         this.emit('output', {
+          id: generateId(), timestamp: Date.now(),
           type: 'system', content: 'Codex stopped retrying the provider failure. Work is preserved.',
           metadata: { willRetry: false, source: 'codex-native-retry' },
         });

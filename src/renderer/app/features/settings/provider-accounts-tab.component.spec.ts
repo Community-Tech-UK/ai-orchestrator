@@ -165,6 +165,21 @@ describe('ProviderAccountsTabComponent', () => {
     fixture.destroy();
   });
 
+  it('shows a global error when a newly created account’s sign-in command cannot be copied before its card loads', async () => {
+    const fixture = await render();
+    try {
+      ipc.launchLogin.mockResolvedValueOnce({ success: false, error: { message: 'Sign-in command could not be copied.' } });
+      fixture.componentInstance.setNewLabel('claude', 'Max C');
+      await fixture.componentInstance.addAccount('claude');
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.provider-accounts-tab > [role="alert"]')?.textContent)
+        .toContain('Sign-in command could not be copied.');
+      expect(fixture.nativeElement.querySelector('[role="status"]')).toBeNull();
+    } finally {
+      fixture.destroy();
+    }
+  });
+
   it('opens a Harness terminal only from the explicit button', async () => {
     const fixture = await render();
     await fixture.componentInstance.signIn(account({ id: 'max-b-1a2b', label: 'Max B', isLegacy: false }), true);
@@ -287,6 +302,91 @@ describe('ProviderAccountsTabComponent — MiMo accounts', () => {
     return fixture.nativeElement.querySelector('[data-provider="opencode"]') as HTMLElement;
   }
 
+  it('distinguishes coding sign-in from missing usage access and reports copying inside the right account', async () => {
+    const original = ipc.list.getMockImplementation();
+    ipc.list.mockImplementation(async () => ({ profiles: [account(), mimoAccount({ id: 'legacy', isLegacy: true })], pools }));
+    let fixture: ComponentFixture<ProviderAccountsTabComponent> | undefined;
+    try {
+      fixture = await render();
+      const card = opencodeSection(fixture).querySelector<HTMLElement>('.account-card')!;
+      expect(card.textContent).toContain('Coding sign-in:');
+      expect(card.textContent).toContain('No saved usage login');
+      const copy = Array.from(card.querySelectorAll('button')).find(button => button.textContent?.trim() === 'Copy coding sign-in command')!;
+      expect(copy).toBeDefined();
+      copy.click();
+      await settle(fixture);
+      expect(ipc.launchLogin).toHaveBeenCalledExactlyOnceWith('opencode', 'legacy', undefined);
+      expect(ipc.quotaSession).not.toHaveBeenCalled();
+      expect(card.querySelector('[role="status"]')?.textContent).toContain('Paste it in your own terminal');
+      expect(claudeSection(fixture).querySelector('[role="status"]')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.provider-accounts-tab > [role="status"]')).toBeNull();
+    } finally {
+      fixture?.destroy();
+      if (original) ipc.list.mockImplementation(original);
+    }
+  });
+
+  it('places usage login failures in the clicked account and clears an earlier copying notice', async () => {
+    const original = ipc.list.getMockImplementation();
+    ipc.list.mockImplementation(async () => ({ profiles: [mimoAccount({ id: 'legacy', isLegacy: true }), mimoAccount({ priority: 1 })], pools }));
+    let fixture: ComponentFixture<ProviderAccountsTabComponent> | undefined;
+    try {
+      fixture = await render();
+      await fixture.componentInstance.signIn(fixture.componentInstance.accountsFor('opencode')[0]!);
+      ipc.quotaSession.mockResolvedValueOnce({ success: false, error: { message: 'Secure session storage is unavailable.' } });
+      const cards = opencodeSection(fixture).querySelectorAll<HTMLElement>('.account-card');
+      Array.from(cards[1]!.querySelectorAll('button')).find(button => button.textContent?.trim() === 'Connect usage')!.click();
+      await settle(fixture);
+      expect(cards[1]!.querySelector('[role="alert"]')?.textContent).toContain('Secure session storage is unavailable.');
+      expect(cards[0]!.querySelector('[role="alert"]')).toBeNull();
+      expect(fixture.nativeElement.querySelector('[role="status"]')).toBeNull();
+    } finally {
+      fixture?.destroy();
+      if (original) ipc.list.mockImplementation(original);
+    }
+  });
+
+  it('keeps Xiaomi instructions when usage sign-in follows copying a coding command', async () => {
+    const fixture = await render();
+    vi.useFakeTimers();
+    try {
+      const profile = mimoAccount();
+      await fixture.componentInstance.signIn(profile);
+      await fixture.componentInstance.manageUsageSession(profile, 'connect');
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(ipc.verify).not.toHaveBeenCalled();
+      expect(fixture.componentInstance.notice()).toContain('Xiaomi sign-in window');
+    } finally {
+      fixture.destroy();
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores an older in-flight coding check without stopping the newer account’s sign-in poll', async () => {
+    const fixture = await render();
+    vi.useFakeTimers();
+    try {
+      const first = mimoAccount();
+      const second = mimoAccount({ id: 'synthetic-next', label: 'Next MiMo' });
+      let finishOldCheck: (result: MutationResult) => void = () => { throw new Error('Old check did not start'); };
+      ipc.verify
+        .mockImplementationOnce(() => new Promise(resolve => { finishOldCheck = resolve; }))
+        .mockResolvedValueOnce({ success: true, data: second });
+      await fixture.componentInstance.signIn(first);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await fixture.componentInstance.signIn(second);
+      finishOldCheck({ success: true, data: first });
+      await Promise.resolve();
+      expect(fixture.componentInstance.notice()).toContain('Sign-in command copied for "Next MiMo"');
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(ipc.verify).toHaveBeenCalledTimes(2);
+      expect(fixture.componentInstance.notice()).toBe('"Next MiMo" is signed in.');
+    } finally {
+      fixture.destroy();
+      vi.useRealTimers();
+    }
+  });
+
   it('connects usage independently of CLI sign-in and refreshes the saved connection state', async () => {
     const original = ipc.list.getMockImplementation();
     let connected = false;
@@ -302,6 +402,7 @@ describe('ProviderAccountsTabComponent — MiMo accounts', () => {
       expect(ipc.launchLogin).not.toHaveBeenCalled();
       expect(fixture.componentInstance.notice()).toContain('Xiaomi sign-in window');
       expect(fixture.componentInstance.notice()).toContain('Refresh');
+      expect(opencodeSection(fixture).querySelector('.account-card [role="status"]')?.textContent).toContain('Xiaomi sign-in window');
       connected = true;
       fixture.nativeElement.querySelector('.tab-intro button').click();
       await settle(fixture);
