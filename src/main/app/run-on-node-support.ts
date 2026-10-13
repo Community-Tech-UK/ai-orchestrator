@@ -87,10 +87,15 @@ const OS_CONFIGURATION_USER_STARTUP_PHRASE = new RegExp(
 );
 /**
  * A finished instruction to leave browsers and tabs alone. A continuation
- * (", then click") stays in the prompt. Negated wording ("do not leave
- * ... untouched") is kept by negatesLeaveUntouched and is not removed here.
+ * (", then click" or "; then inspect them") stays in the prompt. A semicolon
+ * joins clauses rather than closing the safety sentence. A following sentence
+ * that acts on "them" or "their" keeps its browser antecedent too. Negated
+ * wording ("do not leave ... untouched") is kept by negatesLeaveUntouched.
  */
-const CLOSED_BROWSER_SAFETY_CLAUSE = /\b(?:leave\s+(?:(?:the|all|every|any)\s+)?(?:(?:running|currently\s+running|already\s+running)\s+)?(?:browsers?\s+and\s+tabs?|tabs?\s+and\s+browsers?)\s+untouched|do\s+not\s+(?:touch|access|open|inspect|read|use)\s+(?:any\s+|the\s+)?(?:running\s+)?(?:browser\s+)?(?:browsers?\s+and\s+)?tabs?|without\s+touching\s+tabs?)\b(?=\s*[.!?;]|\s*$)/g;
+const CLOSED_BROWSER_SAFETY_CLAUSE = /\b(?:leave\s+(?:(?:the|all|every|any)\s+)?(?:(?:running|currently\s+running|already\s+running)\s+)?(?:browsers?\s+and\s+tabs?|tabs?\s+and\s+browsers?)\s+untouched|do\s+not\s+(?:touch|access|open|inspect|read|use)\s+(?:any\s+|the\s+)?(?:running\s+)?(?:browser\s+)?(?:browsers?\s+and\s+)?tabs?|without\s+touching\s+tabs?)\b(?=\s*[.!?]|\s*$)/g;
+const BROWSER_SAFETY_PRONOUN_CONTINUATION = new RegExp(
+  String.raw`^\s*[.!?]+\s*(?:(?:then|and|but|instead|please)\s+)*${BROWSER_ACTION.source}\s+(?:it|them|these|those|its|their)\b`,
+);
 
 function negatesLeaveUntouched(prompt: string): boolean {
   return /\b(?:do\s+not|don['’]t|never|cannot|can['’]t|must\s+not|neither)\b[^.]{0,80}\bleave\b[^.]{0,80}\buntouched\b/.test(prompt);
@@ -101,7 +106,11 @@ function promptWithoutOsConfigurationExemptions(prompt: string): string {
     .replace(OS_CONFIGURATION_EXISTING_PHRASE, ' ')
     .replace(OS_CONFIGURATION_USER_STARTUP_PHRASE, ' ');
   if (negatesLeaveUntouched(prompt)) return withoutStartupPhrases;
-  return withoutStartupPhrases.replace(CLOSED_BROWSER_SAFETY_CLAUSE, ' ');
+  return withoutStartupPhrases.replace(CLOSED_BROWSER_SAFETY_CLAUSE, (match, offset: number) =>
+    BROWSER_SAFETY_PRONOUN_CONTINUATION.test(withoutStartupPhrases.slice(offset + match.length))
+      ? match
+      : ' ',
+  );
 }
 
 function namesProtectedBrowserSurface(prompt: string): boolean {
