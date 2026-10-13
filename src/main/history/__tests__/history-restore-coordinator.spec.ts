@@ -113,6 +113,32 @@ describe('HistoryRestoreCoordinator', () => {
     });
   });
 
+  it('replays onto a different account instead of resuming the other account\'s session', async () => {
+    loadConversation.mockResolvedValue(conversation({
+      provider: 'codex',
+      accountProfileId: 'codexsuas-1',
+    }));
+
+    const result = await coordinator.restore(manager, 'entry-1', { accountProfileId: 'codexcomtech-1' });
+
+    expect(result.restoreMode).toBe('replay-fallback');
+    expect(createInstance).toHaveBeenCalledTimes(1);
+    const config = createInstance.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(config['resume']).toBeUndefined();
+    expect(config['sessionId']).toBeUndefined();
+    expect(config['accountProfileId']).toBe('codexcomtech-1');
+  });
+
+  it('pins an explicitly chosen account when native resume falls through to replay', async () => {
+    loadConversation.mockResolvedValue(conversation({ accountProfileId: 'codexsuas-1' }));
+
+    await coordinator.restore(manager, 'entry-1', { accountProfileId: 'codexsuas-1' });
+
+    const configs = createInstance.mock.calls.map((call) => call[0] as Record<string, unknown>);
+    expect(configs[0]).toMatchObject({ resume: true, accountProfileId: 'codexsuas-1', sessionId: 'native-session' });
+    expect(configs.at(-1)?.['accountProfileId']).toBe('codexsuas-1');
+  });
+
   it('forces replay fallback without attempting native resume', async () => {
     const result = await coordinator.restore(manager, 'entry-1', { forceFallback: true });
 

@@ -170,6 +170,8 @@ describe('browser extension assets', () => {
     // precise fixed failure codes, and the receiving `__frameOrigin` on
     // read_control/find.
     '0.2.38': 'f119d530848d',
+    // A tab the extension cannot script is inspection_unavailable, not readable.
+    '0.2.39': '9d9630e3d6d9',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -2008,6 +2010,9 @@ describe('browser extension assets', () => {
       ok: true,
       result: expect.objectContaining({
         text: '',
+        url: 'https://example.test/42',
+        title: 'Example 42',
+        inspectionState: 'inspection_unavailable',
         textUnavailableReason: 'host_permission_denied',
       }),
     }));
@@ -2041,6 +2046,9 @@ describe('browser extension assets', () => {
       ok: true,
       result: expect.objectContaining({
         text: '',
+        url: 'https://example.test/42',
+        title: 'Example 42',
+        inspectionState: 'inspection_unavailable',
         textUnavailableReason: 'page_text_read_failed',
       }),
     }));
@@ -2067,7 +2075,10 @@ describe('browser extension assets', () => {
       .find((message) => message?.type === 'command_result' && message?.commandId === 'snapshot-normal');
     expect(call).toEqual(expect.objectContaining({ ok: true }));
     expect(call?.result).not.toHaveProperty('textUnavailableReason');
-    expect(call?.result?.text).toBe('Example page');
+    expect(call?.result).toEqual(expect.objectContaining({
+      text: 'Example page',
+      inspectionState: 'readable',
+    }));
   });
 
   it('keeps the legacy bridge polling when the relay host is absent and retries relay on the alarm cadence', async () => {

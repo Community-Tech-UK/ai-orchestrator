@@ -419,6 +419,7 @@
             [outputMessages]="preview.messages"
             [instanceStatus]="preview.restoring ? 'initializing' : 'idle'"
             [provider]="historyPreviewComposerProvider()"
+            [accountProfileId]="preview.entry.accountProfileId"
             [currentModel]="preview.currentModel"
             [runtimeSummary]="preview.runtimeSummary"
             [workingDirectory]="preview.entry.workingDirectory"

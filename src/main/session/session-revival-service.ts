@@ -14,6 +14,8 @@ export interface SessionRevivalRequest {
   historyEntryId?: string;
   providerSessionId?: string;
   workingDirectory?: string;
+  /** Continue the revived session on this account instead of the one it was archived with. */
+  accountProfileId?: string;
   reviveIfArchived: boolean;
   reason: 'thread-wakeup' | 'history-restore';
 }
@@ -99,7 +101,10 @@ export class SessionRevivalService {
       const restored = await this.historyRestore.restore(
         this.instanceManager,
         historyEntryId,
-        { workingDirectory: request.workingDirectory },
+        {
+          workingDirectory: request.workingDirectory,
+          ...(request.accountProfileId ? { accountProfileId: request.accountProfileId } : {}),
+        },
       );
       return this.toRevived(restored);
     } catch (error) {

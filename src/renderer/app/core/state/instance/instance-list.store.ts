@@ -27,7 +27,7 @@ import {
   validateFiles,
   type InstanceAttachment,
 } from './instance-attachments';
-import { inferInstanceProvider } from './instance-list-provider-helpers';
+import { deserializeInstanceProvider } from './instance-list-provider-helpers';
 
 export interface CreateInstanceWithMessageOptions {
   message: string;
@@ -721,7 +721,7 @@ export class InstanceListStore {
       // Older restores and some legacy payloads can arrive without provider.
       // Recover it from model/session identifiers instead of silently
       // repainting Gemini/Codex threads as Claude.
-      provider: inferInstanceProvider(d),
+      ...deserializeInstanceProvider(d),
       status: d['status'] as InstanceStatus,
       contextUsage: (d['contextUsage'] as Instance['contextUsage']) || {
         used: 0,

@@ -134,6 +134,8 @@ export async function tryAccountSwitchInPlace(params: {
   emitSystemNotice(instance: Instance, content: string, metadata?: Record<string, unknown>): void;
   queueUpdate: RuntimeReconcilerDeps['queueUpdate'];
   emitRuntimeChanged: RuntimeReconcilerDeps['emitRuntimeChanged'];
+  /** The caller must retain ownership across admission, native writes and publication. */
+  assertCurrent(): void;
 }): Promise<boolean> {
   const { instance, desired } = params;
   if (instance.provider !== 'opencode' || !isLogicalMiMoModel(instance.currentModel) || !desired.accountProfileId) return false;
@@ -157,11 +159,13 @@ export async function tryAccountSwitchInPlace(params: {
   // Native model options can outlive sign-out. Admit on this executing node
   // before any write, bypassing earlier cached or in-flight binding evidence.
   const admission = await getProviderAccountRoutingService().admit(profile, handoffKind, undefined, { force: true });
+  params.assertCurrent();
   if (!admission.ok) throw new AccountRoutingError(admission);
   const effort = mapAcpEffort(instance.reasoningEffort);
   try {
     await params.adapter.applyLiveSessionConfig({ model, ...(effort ? { effort } : {}) });
   } catch (error) {
+    params.assertCurrent();
     logger.warn('Live account switch refused; falling back to the respawn handoff', {
       instanceId: instance.id,
       error: error instanceof Error ? error.message : String(error),
@@ -169,6 +173,7 @@ export async function tryAccountSwitchInPlace(params: {
     return false;
   }
 
+  params.assertCurrent();
   applyAccountHandoff(instance, desired);
   instance.recoveryMethod = 'native';
   await announceRuntimeChangeSet({
@@ -176,6 +181,7 @@ export async function tryAccountSwitchInPlace(params: {
     adapter: params.adapter,
     delivery: 'next-prompt',
     emitSystemNotice: params.emitSystemNotice,
+    assertCurrent: params.assertCurrent,
     notices: runtimeChangeNoticesFor({
       isYoloOnlyChange: false,
       isProviderSwap: false,
@@ -190,6 +196,7 @@ export async function tryAccountSwitchInPlace(params: {
       accountChange: accountChangeNotice(instance, desired, params.oldAccount.accountProfileId),
     }),
   });
+  params.assertCurrent();
   params.queueUpdate(
     instance.id,
     instance.status,
@@ -202,14 +209,16 @@ export async function tryAccountSwitchInPlace(params: {
     undefined,
     instance.currentModel,
     undefined,
-    { provider: instance.provider, desiredRuntime: null },
+    { provider: instance.provider, desiredRuntime: instance.desiredRuntime ?? null },
   );
+  params.assertCurrent();
   params.emitRuntimeChanged({
     instanceId: instance.id,
     model: instance.currentModel,
     provider: instance.provider,
     reasoningEffort: instance.reasoningEffort,
   });
+  params.assertCurrent();
   return true;
 }
 

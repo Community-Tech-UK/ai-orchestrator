@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ProviderQuotaService, type ProviderQuotaProbe } from './provider-quota-service';
+import { ProviderQuotaService, clearElapsedQuotaWindows, type ProviderQuotaProbe } from './provider-quota-service';
 import type {
   ProviderId,
   ProviderQuotaAlert,
@@ -219,6 +219,104 @@ describe('ProviderQuotaService', () => {
       expect(out!.error).toContain('boom');
       expect(out!.windows).toEqual([]);
       expect(svc.getSnapshot('claude')).not.toBeNull();
+    });
+
+    it('treats last-known account bars as reset once their reset time has passed', async () => {
+      // The token-usage-monitor fallback while a login is briefly unusable:
+      // a reading from three hours ago whose weekly window reset an hour ago.
+      const now = Date.now();
+      const stale: ProviderQuotaSnapshot = {
+        provider: 'claude',
+        takenAt: now - 3 * 3_600_000,
+        source: 'inferred',
+        ok: true,
+        windows: [
+          { kind: 'rolling-window', id: 'claude.weekly', label: 'weekly', unit: 'percent', used: 100, limit: 100, remaining: 0, resetsAt: now - 3_600_000 },
+          { kind: 'rolling-window', id: 'claude.5h', label: '5-hour', unit: 'percent', used: 40, limit: 100, remaining: 60, resetsAt: now + 3_600_000 },
+        ],
+      };
+      svc.registerProbe(new FakeProbe('claude', stale, 'claudecomtech-7e12'));
+
+      await svc.refresh('claude', 'claudecomtech-7e12');
+
+      const stored = svc.getSnapshot('claude', 'claudecomtech-7e12')!;
+      expect(stored.takenAt).toBe(stale.takenAt);
+      expect(stored.windows[0]).toMatchObject({ id: 'claude.weekly', used: 0, remaining: 100, resetsAt: null });
+      expect(stored.windows[1]).toEqual(stale.windows[1]);
+    });
+
+    it('keeps a window the provider reported with an already-past reset time', async () => {
+      const now = Date.now();
+      const snapshot: ProviderQuotaSnapshot = {
+        ...makeSnapshot('codex', 100, 100),
+        takenAt: now,
+      };
+      snapshot.windows[0] = { ...snapshot.windows[0], resetsAt: now - 1_000 };
+      svc.registerProbe(new FakeProbe('codex', snapshot));
+
+      await svc.refresh('codex');
+
+      expect(svc.getSnapshot('codex')!.windows[0]).toMatchObject({ used: 100, resetsAt: now - 1_000 });
+    });
+
+    it('clears an elapsed window kept from an earlier reading when a later probe fails', async () => {
+      vi.useFakeTimers();
+      try {
+        const start = Date.now();
+        let next = makeSnapshot('claude', 100, 100);
+        next.windows[0] = { ...next.windows[0], resetsAt: start + 60_000 };
+        svc.registerProbe({ provider: 'claude', probe: async () => next });
+        await svc.refresh('claude');
+        expect(svc.getSnapshot('claude')!.windows[0].used).toBe(100);
+
+        vi.setSystemTime(start + 120_000);
+        next = {
+          provider: 'claude', takenAt: Date.now(), source: 'admin-api', ok: false,
+          error: 'Claude OAuth access token expired', windows: [],
+        };
+        await svc.refresh('claude');
+
+        expect(svc.getSnapshot('claude')!.windows[0]).toMatchObject({ used: 0, resetsAt: null });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('makes an elapsed reading\'s "not allowed" verdict unknown but keeps its credits verdict', () => {
+      const now = 10_000_000;
+      const base: ProviderQuotaSnapshot = {
+        ...makeSnapshot('codex', 100, 100),
+        takenAt: now - 5_000,
+        usageAccess: { ordinaryUsageAllowed: false, creditsAvailable: true },
+      };
+      base.windows[0] = { ...base.windows[0], resetsAt: now - 1_000 };
+
+      expect(clearElapsedQuotaWindows(base, now).usageAccess).toEqual({ ordinaryUsageAllowed: null, creditsAvailable: true });
+      const noCredits = clearElapsedQuotaWindows({ ...base, usageAccess: { ordinaryUsageAllowed: false, creditsAvailable: null } }, now);
+      expect(noCredits).not.toHaveProperty('usageAccess');
+      const allowed = { ordinaryUsageAllowed: true, creditsAvailable: null };
+      expect(clearElapsedQuotaWindows({ ...base, usageAccess: allowed }, now).usageAccess).toEqual(allowed);
+    });
+
+    it('clears only windows that reset after the reading and by now', () => {
+      const now = 10_000_000;
+      const takenAt = now - 5_000;
+      const window = makeSnapshot('cursor', 7, 0).windows[0];
+      const snapshot: ProviderQuotaSnapshot = {
+        ...makeSnapshot('cursor', 7, 0),
+        takenAt,
+        windows: [
+          { ...window, id: 'at-reading', resetsAt: takenAt },
+          { ...window, id: 'at-now', resetsAt: now },
+          { ...window, id: 'future', resetsAt: now + 1 },
+        ],
+      };
+
+      const out = clearElapsedQuotaWindows(snapshot, now);
+
+      expect(out.windows.map((w) => [w.id, w.used])).toEqual([['at-reading', 7], ['at-now', 0], ['future', 7]]);
+      expect(out.windows[1].remaining).toBeNaN();
+      expect(clearElapsedQuotaWindows(out, now)).toBe(out);
     });
 
     it('keeps the probe takenAt so last-known monitor data does not look fresh', async () => {

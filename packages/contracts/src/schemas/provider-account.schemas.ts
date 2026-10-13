@@ -188,6 +188,16 @@ export const ProviderAccountLaunchLoginPayloadSchema = z
   })
   .strict();
 
+/** MiMo console access stays in main; the renderer sends only the requested action. */
+export const ProviderAccountQuotaSessionPayloadSchema = z
+  .object({
+    ...ipcAuthTokenField,
+    provider: z.literal('opencode'),
+    profileId: ProviderAccountProfileIdSchema,
+    action: z.enum(['connect', 'disconnect']),
+  })
+  .strict();
+
 export const ProviderAccountUpdatePayloadSchema = z
   .object({
     ...profileRefShape,

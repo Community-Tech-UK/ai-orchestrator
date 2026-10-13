@@ -354,6 +354,7 @@ export interface HistoryDeletePayload {
 export interface HistoryRestorePayload {
   entryId: string;
   workingDirectory?: string;
+  accountProfileId?: string;
 }
 
 // ============================================

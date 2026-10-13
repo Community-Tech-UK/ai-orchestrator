@@ -18,6 +18,13 @@ vi.mock('../../cli/adapters/adapter-spawn-helpers', async () => {
 
 import { ThrottledAccountQuotaProbe, buildAccountQuotaProbes } from './account-quota-probes';
 import { ClaudeCredentialsReader } from '../../core/system/provider-quota/claude-credentials-reader';
+import { MimoSavedSessionStore } from '../../core/system/provider-quota/mimo-saved-session-store';
+
+let savedSessions: MimoSavedSessionStore;
+vi.mock('../../core/system/provider-quota/mimo-saved-session-store', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../core/system/provider-quota/mimo-saved-session-store')>(),
+  getMimoSavedSessionStore: () => savedSessions,
+}));
 
 vi.mock('../../core/system/provider-quota/mimo-console-credentials-reader', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../core/system/provider-quota/mimo-console-credentials-reader')>();
@@ -48,10 +55,16 @@ function profile(provider: 'claude' | 'codex' | 'opencode', id: string, enabled 
 
 beforeEach(() => {
   stateRoot.current = mkdtempSync(join(tmpdir(), 'account-quota-probes-'));
+  savedSessions = new MimoSavedSessionStore({ rootDir: join(stateRoot.current, 'mimo-usage'), safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (text) => Buffer.from(`test-only:${text}`),
+    decryptString: (data) => data.toString().slice('test-only:'.length),
+  } });
 });
 
 afterEach(() => {
   rmSync(stateRoot.current, { recursive: true, force: true });
+  vi.unstubAllGlobals();
 });
 
 describe('account quota probes', () => {
@@ -139,8 +152,32 @@ describe('account quota probes', () => {
     // A missing MiMo console sign-in yields "no allowance data", never numbers.
     const snapshot = await probe!.probe({ signal: new AbortController().signal, force: true });
     expect(snapshot?.ok ?? false).toBe(false);
-    expect(snapshot?.notApplicable).toBe(true);
+    expect(snapshot?.notApplicable).toBeUndefined();
+    expect(snapshot?.needsReauth).toBe(true);
+    expect(snapshot?.error).toMatch(/Connect usage/);
     expect(snapshot?.windows ?? []).toEqual([]);
+  });
+
+  it('polls saved MiMo usage without any Chrome association and tracks reconnects', async () => {
+    savedSessions.save('max-b', [
+      { domain: '.platform.xiaomimimo.com', name: 'api-platform_serviceToken', value: 'placeholder' },
+      { domain: '.platform.xiaomimimo.com', name: 'api-platform_slh', value: 'placeholder' },
+      { domain: '.platform.xiaomimimo.com', name: 'api-platform_ph', value: 'placeholder' },
+      { domain: '.xiaomimimo.com', name: 'userId', value: 'placeholder-user' },
+    ]);
+    readerOptions.length = 0;
+    vi.stubGlobal('fetch', async (url: string) => ({ status: 200, json: async () => url.includes('/usage')
+      ? { data: { usage: { items: [{ name: 'plan_total_token', used: 25, limit: 100 }] } } }
+      : { data: { planName: 'Pro' } } }));
+    const [probe] = buildAccountQuotaProbes('opencode', [profile('opencode', 'max-b')]);
+    expect(probe?.quotaSource).toBe('saved:1');
+    expect(await probe!.probe({ signal: new AbortController().signal })).toMatchObject({ ok: true, windows: [{ used: 25, limit: 100 }] });
+    expect(readerOptions).toEqual([]);
+    savedSessions.remove('max-b');
+    expect(await probe!.probe({ signal: new AbortController().signal, force: true })).toBeNull();
+    const [disconnected] = buildAccountQuotaProbes('opencode', [profile('opencode', 'max-b')]);
+    expect(disconnected?.quotaSource).toBe('chrome:');
+    expect(await disconnected!.probe({ signal: new AbortController().signal })).toMatchObject({ needsReauth: true, windows: [] });
   });
 
   it('falls back to the usage monitor for an account when the native probe has no windows', async () => {

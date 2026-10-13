@@ -859,6 +859,9 @@ vi.mock('../../codemem', () => {
 
 import { InstanceManager } from '../instance-manager';
 import { WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
+import { getProviderAccountRoutingService } from '../../providers/account-pool/provider-account-routing-service';
+import { getDeferDecisionStore } from '../../cli/hooks/defer-decision-store';
+import type { BatchUpdatePayload } from '../../../shared/types/ipc.types';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -1211,6 +1214,103 @@ describe('InstanceManager', () => {
         /only available while the instance is waiting for user input/,
       );
       expect(instance.yoloMode).toBe(false);
+    });
+
+    it('settles a confirmed same-account request and publicly clears YOLO after actual deferred permission approval', async () => {
+      const instance = await createReadyInstance();
+      const profileId = instance.accountProfileId ?? 'legacy';
+      const batches: BatchUpdatePayload[] = [];
+      manager.on('instance:batch-update', (batch: BatchUpdatePayload) => batches.push(batch));
+      const old = manager.getAdapter(instance.id)!;
+      Object.assign(old, { getDeferredToolUse: () => ({ toolUseId: 'example-tool', toolName: 'Read', sessionId: instance.sessionId }) });
+      const continuity = mockSessionContinuity as typeof mockSessionContinuity & { getSessionState?: () => undefined };
+      const previousRead = continuity.getSessionState;
+      let health: { mockRestore(): void } | undefined;
+      let decision: { mockRestore(): void } | undefined;
+      let confirmed: ReturnType<typeof manager.requestModelChange> | undefined;
+      let confirmedSettled = false;
+      try {
+        continuity.getSessionState = () => undefined;
+        const lifecycle = (manager as unknown as { lifecycle: { runtimeReadiness: { waitForResumeHealth(id: string): Promise<boolean> } } }).lifecycle;
+        health = vi.spyOn(lifecycle.runtimeReadiness, 'waitForResumeHealth').mockResolvedValue(true);
+        decision = vi.spyOn(getDeferDecisionStore(), 'writeDecision').mockImplementation(() => undefined);
+        mockCreateCliAdapter.mockImplementation(() => Object.assign(makeMockAdapter(), { config: { env: {} } }));
+        manager.updateInstanceStatus(instance.id, 'busy');
+        manager.updateInstanceStatus(instance.id, 'waiting_for_permission');
+        await manager.requestYoloModeToggle(instance.id);
+        confirmed = manager.requestModelChange(instance.id, {
+          provider: instance.provider, accountProfileId: profileId, accountHandoffKind: 'explicit', accountHandoffConfirmed: true,
+        });
+        void confirmed.then(() => { confirmedSettled = true; }, () => { confirmedSettled = true; });
+        await vi.waitFor(() => expect(batches.some(batch => batch.updates.some(update => update.desiredRuntime?.yoloMode === true))).toBe(true));
+        mockAdapterSpawn.mockClear();
+        await manager.resumeAfterDeferredPermission(instance.id, true, undefined, { yoloMode: true });
+        await vi.waitFor(() => expect(confirmedSettled).toBe(true));
+        await expect(confirmed).resolves.toBe(instance);
+        expect(instance.yoloMode).toBe(true);
+        expect(instance.desiredRuntime).toBeUndefined();
+        expect(instance.accountProfileId ?? 'legacy').toBe(profileId);
+        await vi.waitFor(() => expect(batches.some(batch => batch.updates.some(update => update.desiredRuntime === null))).toBe(true));
+        expect(mockAdapterSpawn).toHaveBeenCalledOnce();
+      } finally {
+        try {
+          if (confirmed && !confirmedSettled) manager.updateInstanceStatus(instance.id, 'terminated');
+          await Promise.allSettled(confirmed ? [confirmed] : []);
+        } finally {
+          health?.mockRestore(); decision?.mockRestore();
+          if (previousRead === undefined) delete continuity.getSessionState;
+          else continuity.getSessionState = previousRead;
+        }
+      }
+    });
+
+    it.each(['success', 'rollback'] as const)('cancels a newer opposite YOLO flip without abandoning its account during active %s', async outcome => {
+      const routing = vi.spyOn(getProviderAccountRoutingService(), 'resolveRouteForSpawn').mockImplementation(async request => ({
+        ok: true, route: { provider: request.provider, profileId: request.persistedProfileId ?? 'legacy', source: 'persisted', executionNodeId: 'local' },
+      }));
+      let instanceForCleanup: Awaited<ReturnType<typeof createReadyInstance>> | undefined;
+      let failCleanup: ((error: Error) => void) | undefined;
+      let firstForCleanup: Promise<unknown> | undefined;
+      let complete = false;
+      let newer: ReturnType<typeof manager.requestModelChange> | undefined;
+      try {
+        const instance = await createReadyInstance();
+        instanceForCleanup = instance;
+        let finish!: (pid: number) => void;
+        let fail!: (error: Error) => void;
+        const held = new Promise<number>((resolve, reject) => { finish = resolve; fail = reject; failCleanup = reject; });
+        mockAdapterSpawn.mockClear();
+        mockAdapterSpawn.mockImplementationOnce(() => held);
+        const desired = { provider: instance.provider, accountProfileId: 'example-picked', accountHandoffKind: 'explicit', accountHandoffConfirmed: true, yoloMode: true } as const;
+        const first = manager.requestModelChange(instance.id, desired).catch(error => error);
+        firstForCleanup = first;
+        await vi.waitFor(() => { expect(instance.status).toBe('initializing'); expect(instance.accountProfileId).toBe('example-picked'); });
+        newer = manager.requestModelChange(instance.id, { ...desired, yoloMode: false }).then(result => { complete = true; return result; });
+        void newer.catch(() => undefined);
+        const pendingIdentity = instance.desiredRuntime;
+        // ChatService skips a same-value request; this covers the public setter itself.
+        await manager.setYoloMode(instance.id, true);
+        expect(instance.desiredRuntime).toBe(pendingIdentity);
+        expect(complete).toBe(false);
+        if (outcome === 'rollback') fail(new Error('Example account startup failed'));
+        else finish(12345);
+        const firstResult = await first;
+        if (outcome === 'rollback') expect(firstResult).toEqual(expect.objectContaining({ message: 'Example account startup failed' }));
+        else expect(firstResult).toBe(instance);
+        await expect(newer).resolves.toBe(instance);
+        expect(instance.accountProfileId).toBe('example-picked');
+        expect(instance.yoloMode).toBe(true);
+        expect(instance.desiredRuntime).toBeUndefined();
+        expect(mockAdapterSpawn).toHaveBeenCalledTimes(outcome === 'rollback' ? 2 : 1);
+      } finally {
+        try {
+          failCleanup?.(new Error('Example test cleanup'));
+          if (instanceForCleanup && !complete) manager.updateInstanceStatus(instanceForCleanup.id, 'terminated');
+          await Promise.allSettled([...(firstForCleanup ? [firstForCleanup] : []), ...(newer ? [newer] : [])]);
+        } finally {
+          routing.mockRestore();
+        }
+      }
     });
   });
 });

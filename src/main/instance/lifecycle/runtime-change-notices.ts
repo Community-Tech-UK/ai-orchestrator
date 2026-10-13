@@ -16,8 +16,12 @@
 
 import { getLogger } from '../../logging/logger';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
-import type { Instance } from '../../../shared/types/instance.types';
+import type { FileAttachment, Instance } from '../../../shared/types/instance.types';
 import type { ReasoningEffort } from '../../../shared/types/provider.types';
+import {
+  prepareReplayImageCarryover,
+  replayMessagesForImages,
+} from '../../session/replay-image-carryover';
 
 const logger = getLogger('RuntimeChangeNotices');
 
@@ -189,6 +193,17 @@ export function runtimeChangeNoticesFor(params: {
 /** How long to wait for the CLI to accept a notice before giving up on it. */
 const NOTICE_DELIVERY_TIMEOUT_MS = 10_000;
 
+function acceptsInlineImages(adapter: { getCapabilities?(): { vision?: boolean } }): boolean {
+  try {
+    return adapter.getCapabilities?.().vision === true;
+  } catch (error) {
+    logger.warn('Could not read provider image support; saving replay images as files', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
 /**
  * Send to the CLI, but never wait forever (LT-030).
  *
@@ -204,11 +219,15 @@ export async function sendInputWithoutWedging(
   adapter: Pick<CliAdapter, 'sendInput'>,
   text: string,
   context: { instanceId: string; what: string },
+  attachments?: FileAttachment[],
 ): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    const send = attachments?.length
+      ? adapter.sendInput(text, attachments)
+      : adapter.sendInput(text);
     await Promise.race([
-      adapter.sendInput(text),
+      send,
       new Promise<void>((resolve) => {
         timer = setTimeout(() => {
           logger.warn('CLI did not accept a post-change message in time; continuing', {
@@ -235,7 +254,10 @@ export async function sendInputWithoutWedging(
  */
 export async function announceRuntimeChangeSet(params: {
   instance: Instance;
-  adapter: Pick<CliAdapter, 'sendInput'> & { queueNextPromptContext?(text: string): void };
+  adapter: Pick<CliAdapter, 'sendInput'> & {
+    queueNextPromptContext?(text: string): void;
+    getCapabilities?(): { vision?: boolean };
+  };
   /** ACP account handoffs must never start a notice-only model turn. */
   delivery?: 'immediate' | 'next-prompt';
   notices: RuntimeChangeNotice[];
@@ -257,10 +279,13 @@ export async function announceRuntimeChangeSet(params: {
    * the loop's.
    */
   preamble?: string;
+  /** Runtime reconciliation supplies this to reject an owner lost during a callback or delivery. */
+  assertCurrent?(): void;
 }): Promise<void> {
   // Render first, always — this is the half the user sees, and it must not
   // depend on a CLI that may be slow, busy, or gone.
   for (const notice of params.notices) {
+    params.assertCurrent?.();
     try {
       params.emitSystemNotice(params.instance, notice.text, { kind: notice.kind });
     } catch (error) {
@@ -270,8 +295,10 @@ export async function announceRuntimeChangeSet(params: {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+    params.assertCurrent?.();
   }
   if (params.divergence) {
+    params.assertCurrent?.();
     try {
       params.emitSystemNotice(params.instance, params.divergence, {
         kind: 'loop-provider-divergence',
@@ -286,23 +313,34 @@ export async function announceRuntimeChangeSet(params: {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+    params.assertCurrent?.();
   }
 
   // Then ONE delivery for the whole set — see `preamble` for why it cannot be
-  // several.
-  const body = [params.preamble, ...params.notices.map((n) => n.text)]
+  // several. Images from the replayed turns ride in that same delivery.
+  const imageCarryover = params.preamble?.trim()
+    ? await prepareReplayImageCarryover({
+      messages: replayMessagesForImages(params.instance),
+      inline: params.delivery !== 'next-prompt' && acceptsInlineImages(params.adapter),
+      sessionId: params.instance.sessionId,
+      workingDirectory: params.instance.workingDirectory,
+    })
+    : null;
+  const body = [params.preamble, ...params.notices.map((n) => n.text), imageCarryover?.note]
     .filter((part): part is string => Boolean(part && part.trim()))
     .join('\n\n');
+  params.assertCurrent?.();
   if (!body) return;
   if (params.delivery === 'next-prompt') {
     params.adapter.queueNextPromptContext?.(body);
+    params.assertCurrent?.();
     return;
   }
   try {
     await sendInputWithoutWedging(params.adapter, body, {
       instanceId: params.instance.id,
       what: 'runtime-change-announcement',
-    });
+    }, imageCarryover?.attachments);
   } catch (error) {
     // Best-effort by construction. The runtime change is already applied AND
     // its identity written through by the time we get here, so a refused send
@@ -314,4 +352,5 @@ export async function announceRuntimeChangeSet(params: {
       error: error instanceof Error ? error.message : String(error),
     });
   }
+  params.assertCurrent?.();
 }

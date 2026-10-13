@@ -20,6 +20,7 @@ import {
   ProviderAccountCreatePayloadSchema,
   ProviderAccountDoctorPayloadSchema,
   ProviderAccountLaunchLoginPayloadSchema,
+  ProviderAccountQuotaSessionPayloadSchema,
   ProviderAccountPoolUpdatePayloadSchema,
   ProviderAccountProviderPayloadSchema,
   ProviderAccountRefPayloadSchema,
@@ -48,6 +49,8 @@ import { getProviderAccountRoutingService } from '../../providers/account-pool/p
 import { getProviderAccountStore, type ProviderAccountStore } from '../../providers/account-pool/provider-account-store';
 import { copyAccountProfileLoginCommand, launchProviderLogin } from '../../providers/provider-login-launcher';
 import { validatedHandler, type IpcResponse } from '../validated-handler';
+import { getMimoUsageLogin, type MimoUsageLogin } from '../../core/system/provider-quota/mimo-usage-login';
+import { getMimoSavedSessionStore, type MimoSavedSessionStore } from '../../core/system/provider-quota/mimo-saved-session-store';
 
 const logger = getLogger('ProviderAccountHandlers');
 
@@ -57,6 +60,8 @@ export interface RegisterProviderAccountHandlersDeps {
   /** Live instances, for the in-use guard and the explicit session switch. */
   getInstances?: () => Pick<Instance, 'id' | 'provider' | 'accountProfileId' | 'status'>[];
   requestRuntimeChange?: (instanceId: string, request: RuntimeChangeRequest) => Promise<unknown>;
+  quotaLogin?: Pick<MimoUsageLogin, 'connect' | 'disconnect'>;
+  usageSessions?: Pick<MimoSavedSessionStore, 'exists'>;
 }
 
 /**
@@ -194,7 +199,12 @@ export function registerProviderAccountHandlers(deps: RegisterProviderAccountHan
     async (payload) => {
       const providers = payload?.provider ? [payload.provider] : [...POOLED_PROVIDERS];
       const profiles = await Promise.all(providers.flatMap((provider) => store().listProfiles(provider))
-        .map(async (profile) => toSafeProfile(profile, await bindings.checkBinding(profile))));
+        .map(async (profile) => ({
+          ...toSafeProfile(profile, await bindings.checkBinding(profile)),
+          ...(profile.provider === 'opencode'
+            ? { quotaSessionConnected: (deps.usageSessions ?? getMimoSavedSessionStore()).exists(profile.id) }
+            : {}),
+        })));
       return { success: true, data: { profiles, pools: store().getPools() } };
     },
     'PROVIDER_ACCOUNT_LIST_FAILED',
@@ -250,8 +260,11 @@ export function registerProviderAccountHandlers(deps: RegisterProviderAccountHan
   handle(
     IPC_CHANNELS.PROVIDER_ACCOUNT_REMOVE,
     ProviderAccountRefPayloadSchema,
-    (payload) => {
+    async (payload) => {
       store().removeProfile(payload.provider, payload.profileId, inUse(payload.provider));
+      if (payload.provider === 'opencode') {
+        await (deps.quotaLogin ?? getMimoUsageLogin()).disconnect(payload.profileId);
+      }
       bindings.invalidate(payload.provider, payload.profileId);
       return { success: true, data: { provider: payload.provider, profileId: payload.profileId } };
     },
@@ -267,6 +280,26 @@ export function registerProviderAccountHandlers(deps: RegisterProviderAccountHan
       return { success: true, data: toSafeProfile(requireProfile(payload.provider, payload.profileId), status) };
     },
     'PROVIDER_ACCOUNT_VERIFY_FAILED',
+  );
+
+  handle(
+    IPC_CHANNELS.PROVIDER_ACCOUNT_QUOTA_SESSION,
+    ProviderAccountQuotaSessionPayloadSchema,
+    async (payload) => {
+      const profile = requireProfile(payload.provider, payload.profileId);
+      try {
+        const login = deps.quotaLogin ?? getMimoUsageLogin();
+        if (payload.action === 'connect') await login.connect(profile);
+        else await login.disconnect(profile.id);
+        return { success: true, data: { opened: payload.action === 'connect' } };
+      } catch {
+        return failure('PROVIDER_ACCOUNT_QUOTA_SESSION_FAILED',
+          payload.action === 'connect'
+            ? 'MiMo usage could not be connected. Check that secure storage is available and try again.'
+            : 'MiMo usage could not be disconnected. Try again.');
+      }
+    },
+    'PROVIDER_ACCOUNT_QUOTA_SESSION_FAILED',
   );
 
   handle(

@@ -34,6 +34,8 @@ export interface ProviderAccountView {
   region?: OpenCodeAccountRegion;
   /** MiMo only: Chrome profile folder for the allowance read. */
   chromeProfile?: string;
+  /** MiMo only: encrypted usage session exists; it may still require signing in again. */
+  quotaSessionConnected?: boolean;
   createdAt: number;
   updatedAt: number;
   binding?: {
@@ -121,6 +123,10 @@ export class ProviderAccountIpcService {
     options?: { openTerminal?: boolean },
   ): Promise<IpcResponse> {
     return this.api?.launchProviderAccountLogin(provider, profileId, options) ?? Promise.resolve(NOT_ELECTRON);
+  }
+
+  quotaSession(profileId: string, action: 'connect' | 'disconnect'): Promise<IpcResponse> {
+    return this.api?.manageProviderAccountQuotaSession(profileId, action) ?? Promise.resolve(NOT_ELECTRON);
   }
 
   updatePool(input: {

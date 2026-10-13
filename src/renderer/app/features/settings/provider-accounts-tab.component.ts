@@ -4,7 +4,8 @@
  * Where James adds the Claude, ChatGPT and MiMo Token Plan subscriptions he
  * owns, orders them, and decides what happens when one hits its usage limit.
  * Each account signs in through a terminal against its own home (or, for MiMo,
- * its own key name in OpenCode's key store); Harness never sees a token.
+ * its own key name in OpenCode's key store). MiMo usage has a separate saved
+ * console session; credentials never cross into this renderer.
  */
 
 import {
@@ -49,289 +50,7 @@ const SIGN_IN_POLL_LIMIT = 60;
   selector: 'app-provider-accounts-tab',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, PromptModalComponent],
-  template: `
-    <div class="provider-accounts-tab">
-      <div class="tab-intro">
-        <p class="section-desc">
-          New sessions use the first available account in each list. Only you can change
-          these settings; agents cannot.
-        </p>
-        <button type="button" class="btn btn-secondary" (click)="refresh()" [disabled]="busy()">
-          {{ busy() ? 'Working…' : 'Refresh' }}
-        </button>
-      </div>
-
-      @if (error(); as message) {
-        <p class="error-banner" role="alert">{{ message }}</p>
-      }
-      @if (notice(); as message) {
-        <p class="notice-banner" role="status">{{ message }}</p>
-      }
-
-      @for (provider of providers; track provider.id) {
-        <section class="provider-section" [attr.data-provider]="provider.id">
-          <h4 class="provider-title">{{ provider.label }}</h4>
-
-          @for (warning of doctorWarnings(provider.id); track warning) {
-            <p class="warning-banner">{{ warning }}</p>
-          }
-
-          <ol class="accounts">
-            @for (account of accountsFor(provider.id); track account.id; let index = $index; let first = $first; let last = $last; let count = $count) {
-              <li class="account-card" [class.is-disabled]="!account.enabled">
-                <div class="account-row">
-                  @if (count > 1) {
-                    <span class="order" [attr.aria-label]="'Position ' + (index + 1)">{{ index + 1 }}</span>
-                  }
-                  <div class="account-summary">
-                    <div class="account-title">
-                      <strong>{{ account.label }}</strong>
-                      @if (account.id === defaultAccountId(provider.id)) {
-                        <span class="chip default">Default</span>
-                      }
-                      @if (account.isLegacy) {
-                        <span class="chip legacy">Existing sign-in</span>
-                      }
-                      @if (account.planLabel) {
-                        <span class="chip plan">{{ account.planLabel }}</span>
-                      }
-                    </div>
-                    <span class="status" [attr.data-state]="account.binding?.state ?? 'unavailable'">
-                      {{ bindingLabel(account) }}
-                      @if (account.expectedIdentity && account.binding?.state !== 'authenticated' && account.binding?.state !== 'identity-mismatch') {
-                        · {{ account.expectedIdentity }}
-                      }
-                    </span>
-                  </div>
-                  <label class="toggle" [attr.title]="isOnlyEnabled(account) ? 'At least one account must stay enabled' : null">
-                    <input
-                      type="checkbox"
-                      [checked]="account.enabled"
-                      (change)="setEnabled(account, $any($event.target).checked)"
-                      [disabled]="busy() || isOnlyEnabled(account)"
-                    />
-                    Enabled
-                  </label>
-                </div>
-
-                @if (account.binding?.state === 'identity-mismatch' && account.binding?.observedIdentity) {
-                  <p class="mismatch">
-                    Signed in as {{ account.binding?.observedIdentity }}, not {{ account.expectedIdentity }}.
-                    <button type="button" class="btn btn-secondary" (click)="adoptObserved(account)" [disabled]="busy()">
-                      Use this account instead
-                    </button>
-                  </p>
-                }
-
-                @if (provider.id === 'opencode' && machinesFor(account).length > 0) {
-                  <div class="machines">
-                    <p class="machines-title">Per-machine sign-in — a MiMo sign-in lives on each machine:</p>
-                    @for (machine of machinesFor(account); track machine.nodeId) {
-                      <div class="machine-row">
-                        <span class="machine-name">{{ machine.name }}</span>
-                        @if (machine.hasAccount) {
-                          <span class="machine-state ok">Signed in on that machine</span>
-                        } @else {
-                          <span class="machine-state">Not signed in there — run</span>
-                          <code>{{ nodeLoginCommand(account) }}</code>
-                          <button type="button" class="btn btn-secondary" (click)="copyNodeCommand(account)">Copy</button>
-                        }
-                      </div>
-                    }
-                  </div>
-                }
-
-                <div class="account-controls">
-                  <label class="inline-field">
-                    Automatic use
-                    <select
-                      [ngModel]="account.automationPolicy"
-                      (ngModelChange)="setAutomationPolicy(account, $event)"
-                      [disabled]="busy()"
-                      [attr.aria-label]="'Automatic use for ' + account.label"
-                    >
-                      <option value="allow-routed">Allowed</option>
-                      <option value="manual-only">Only when I pick it</option>
-                      <option value="disabled">Never</option>
-                    </select>
-                  </label>
-
-                  <div class="account-actions">
-                    @if (isSignedIn(account)) {
-                      <button type="button" class="btn btn-secondary" (click)="verify(account)" [disabled]="busy()">Check sign-in</button>
-                      <button type="button" class="btn btn-secondary" (click)="signIn(account)" [disabled]="busy()"
-                        title="Copies a sign-in command to paste in your terminal">Sign in again</button>
-                    } @else {
-                      <button type="button" class="btn btn-primary" (click)="signIn(account)" [disabled]="busy()">Copy sign-in command</button>
-                      <button type="button" class="btn btn-secondary" (click)="signIn(account, true)" [disabled]="busy()">Open a terminal</button>
-                      <button type="button" class="btn btn-secondary" (click)="verify(account)" [disabled]="busy()">Check sign-in</button>
-                    }
-                    <span class="action-divider" aria-hidden="true"></span>
-                    @if (count > 1) {
-                      <button type="button" class="btn btn-secondary icon" (click)="move(account, -1)" [disabled]="busy() || first"
-                        [attr.aria-label]="'Move ' + account.label + ' up'" title="Move up">↑</button>
-                      <button type="button" class="btn btn-secondary icon" (click)="move(account, 1)" [disabled]="busy() || last"
-                        [attr.aria-label]="'Move ' + account.label + ' down'" title="Move down">↓</button>
-                    }
-                    <button type="button" class="btn btn-secondary" (click)="rename(account)" [disabled]="busy()">Rename</button>
-                    @if (!account.isLegacy) {
-                      <button type="button" class="btn btn-danger" (click)="remove(account)" [disabled]="busy()">Remove</button>
-                    }
-                  </div>
-                </div>
-              </li>
-            }
-          </ol>
-
-          <div class="add-account">
-            <div class="add-row">
-              <input
-                type="text"
-                [ngModel]="newLabels()[provider.id]"
-                (ngModelChange)="setNewLabel(provider.id, $event)"
-                (keydown.enter)="addAccount(provider.id)"
-                [placeholder]="provider.subscription + ' account name, e.g. Work'"
-                [attr.aria-label]="'New ' + provider.label + ' account name'"
-                maxlength="64"
-              />
-              @if (provider.id === 'opencode') {
-                <select
-                  [ngModel]="newRegions()[provider.id] ?? 'ams'"
-                  (ngModelChange)="setNewRegion(provider.id, $event)"
-                  [disabled]="busy()"
-                  [attr.aria-label]="'Token Plan region for the new MiMo account'"
-                >
-                  <option value="ams">Europe (token-plan-ams)</option>
-                  <option value="sgp">Singapore (token-plan-sgp)</option>
-                  <option value="cn">China (token-plan-cn)</option>
-                </select>
-                <input
-                  type="text"
-                  [ngModel]="newChromeProfiles()[provider.id] ?? ''"
-                  (ngModelChange)="setNewChromeProfile(provider.id, $event)"
-                  placeholder="Chrome profile for allowance, e.g. Profile 1 (optional)"
-                  [attr.aria-label]="'Chrome profile for the new MiMo account'"
-                  maxlength="64"
-                />
-              }
-              <button
-                type="button"
-                class="btn btn-secondary"
-                (click)="addAccount(provider.id)"
-                [disabled]="busy() || !(newLabels()[provider.id] ?? '').trim()"
-              >
-                Add account
-              </button>
-            </div>
-            <p class="hint">Adding an account copies a sign-in command for you to paste in your own terminal.</p>
-          </div>
-
-          @if (pools()?.[provider.id]; as policy) {
-            @if (accountsFor(provider.id).length < 2) {
-              <p class="hint">Add a second {{ provider.subscription }} account to choose what happens when one hits its limit.</p>
-            } @else {
-              <div class="pool-policy">
-                <h5 class="policy-title">When an account hits its limit</h5>
-
-                @if (policy.acknowledgedOwnershipAt === null) {
-                  <div class="ownership">
-                    <p>
-                      Before a second {{ provider.label }} account can be enabled, confirm that every account in
-                      this list is a {{ provider.subscription }} subscription you personally pay for, and that you
-                      understand {{ provider.vendor }} may still apply its own
-                      usage policies to how the accounts are used.
-                    </p>
-                    <button type="button" class="btn btn-primary" (click)="acknowledge(provider.id)" [disabled]="busy()">
-                      I confirm these are my own accounts
-                    </button>
-                  </div>
-                }
-
-                <div class="policy-grid">
-                  <label class="field">
-                    Switching
-                    <select [ngModel]="policy.failoverMode" (ngModelChange)="updatePool(provider.id, { failoverMode: $event })" [disabled]="busy()">
-                      <option value="automatic">Move to the next account automatically</option>
-                      <option value="ask">Tell me and let me switch</option>
-                      <option value="off">Wait for the limit to reset</option>
-                    </select>
-                  </label>
-                  <label class="field">
-                    Conversation after a switch
-                    <select [ngModel]="policy.continuation" (ngModelChange)="updatePool(provider.id, { continuation: $event })" [disabled]="busy()">
-                      <option value="shared-store">Resume the same session (shared history)</option>
-                      <option value="replay">Start a fresh session with the transcript</option>
-                    </select>
-                  </label>
-                </div>
-
-                <fieldset class="early-switch">
-                  <legend>Switch before the limit</legend>
-                  <label class="sentence">
-                    Treat an account as nearly used up at
-                    <input
-                      type="number"
-                      class="narrow"
-                      min="1"
-                      max="100"
-                      [ngModel]="policy.preemptive.thresholdPct"
-                      (change)="updatePool(provider.id, { preemptive: { thresholdPct: clampPct($any($event.target).value) } })"
-                      [disabled]="busy()"
-                    />
-                    % of its {{ provider.id === 'opencode' ? 'usage allowance' : '5-hour usage' }}
-                  </label>
-                  <label class="toggle">
-                    <input
-                      type="checkbox"
-                      [checked]="policy.preemptive.newSessions"
-                      (change)="updatePool(provider.id, { preemptive: { newSessions: $any($event.target).checked } })"
-                      [disabled]="busy()"
-                    />
-                    Start new sessions on another account
-                  </label>
-                  <label class="toggle">
-                    <input
-                      type="checkbox"
-                      [checked]="policy.preemptive.liveSessionsAtTurnBoundary"
-                      (change)="updatePool(provider.id, { preemptive: { liveSessionsAtTurnBoundary: $any($event.target).checked } })"
-                      [disabled]="busy()"
-                    />
-                    Also move running sessions between turns
-                  </label>
-                  @if (policy.preemptive.liveSessionsAtTurnBoundary && policy.failoverMode !== 'automatic') {
-                    <p class="hint indented">Running sessions only move when switching is set to automatic.</p>
-                  }
-                  <label class="sentence">
-                    Wait at least
-                    <input
-                      type="number"
-                      class="narrow"
-                      min="0"
-                      max="1440"
-                      [ngModel]="cooldownMinutes(policy)"
-                      (change)="updatePool(provider.id, { switchCooldownMs: minutesToMs($any($event.target).value) })"
-                      [disabled]="busy()"
-                    />
-                    minutes before switching the same session again
-                  </label>
-                </fieldset>
-              </div>
-            }
-          }
-        </section>
-      }
-
-      <app-prompt-modal
-        [isOpen]="renameModalOpen()"
-        title="Rename account"
-        [initialValue]="renameInitial()"
-        placeholder="Account name"
-        confirmLabel="Rename"
-        (submitted)="onRenameSubmitted($event)"
-        (cancelled)="onRenameCancelled()"
-      />
-    </div>
-  `,
+  templateUrl: './provider-accounts-tab.component.html',
   styles: [`
     .provider-accounts-tab { display: flex; flex-direction: column; gap: 24px; }
     .tab-intro { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
@@ -370,6 +89,7 @@ const SIGN_IN_POLL_LIMIT = 60;
     .status[data-state='identity-mismatch']::before { background: var(--error-color, #d33); }
     .mismatch { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     .machines { display: flex; flex-direction: column; gap: 4px; }
+    .usage-access { display: flex; flex-direction: column; gap: 6px; }
     .machines-title { margin: 0; font-size: 12px; color: var(--text-secondary); }
     .machine-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
     .machine-row code { padding: 1px 6px; border: 1px solid var(--border-color); border-radius: 4px; } .machine-state.ok { color: var(--success-color, #4a9); }
@@ -545,6 +265,19 @@ export class ProviderAccountsTabComponent implements OnInit {
 
   async signIn(account: ProviderAccountView, openTerminal = false): Promise<void> {
     await this.run(() => this.launchSignIn(account, openTerminal));
+  }
+
+  async manageUsageSession(account: ProviderAccountView, action: 'connect' | 'disconnect'): Promise<void> {
+    if (account.provider !== 'opencode' || this.busySignal()) return;
+    await this.run(async () => {
+      this.noticeSignal.set(null);
+      const response = await this.ipc.quotaSession(account.id, action);
+      if (!response.success) throw new Error(response.error?.message ?? 'Usage access could not be changed.');
+      this.noticeSignal.set(action === 'connect'
+        ? `Opened a Xiaomi sign-in window for "${account.label}". Sign in to the same account as its Token Plan, close the window, then click Refresh here to check the connection.`
+        : `Saved usage login removed for "${account.label}". Usage may still refresh through its Chrome profile.`);
+      await this.load();
+    });
   }
 
   async verify(account: ProviderAccountView): Promise<void> {

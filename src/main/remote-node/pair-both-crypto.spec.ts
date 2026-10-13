@@ -143,7 +143,10 @@ describe('pair-both crypto', () => {
       coordinatorUrl: 'ws://192.168.1.2:4878',
     });
 
-    const tampered = { ...encrypted, ciphertext: `${encrypted.ciphertext.slice(0, -2)}AA` };
+    const tamperedCiphertext = Buffer.from(encrypted.ciphertext, 'base64url');
+    tamperedCiphertext[0] ^= 1;
+    const tampered = { ...encrypted, ciphertext: tamperedCiphertext.toString('base64url') };
+    expect(tamperedCiphertext.equals(Buffer.from(encrypted.ciphertext, 'base64url'))).toBe(false);
     expect(() => decryptPairBothPayload(tampered, key, transcriptHash)).toThrow();
   });
 });

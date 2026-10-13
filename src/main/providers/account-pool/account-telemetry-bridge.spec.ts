@@ -122,6 +122,28 @@ describe('account telemetry bridge', () => {
     expect(snapshot?.windows[0]?.resetsAt).toBe(1_790_169_067_000);
   });
 
+  it('does not carry a window that reset since it was stored into a fresh live update', () => {
+    vi.useFakeTimers();
+    try {
+      const start = Date.now();
+      const adapter = new EventEmitter();
+      attachAccountTelemetryBridge(adapter, { provider: 'claude', profileId: 'max-b', source: 'default', executionNodeId: 'local' }, service);
+      service.ingestFromAdapter('claude', {
+        provider: 'claude', ok: true,
+        windows: [{ kind: 'rolling-window', id: 'claude.weekly', label: 'Weekly', unit: 'messages', used: 100, limit: 100, remaining: 0, resetsAt: start + 60_000 }],
+      }, 'admin-api', 'max-b');
+
+      vi.setSystemTime(start + 120_000);
+      adapter.emit('rate-limit-telemetry', { rateLimitType: 'five_hour', utilization: 0.2 });
+
+      const windows = service.getSnapshot('claude', 'max-b')!.windows;
+      expect(windows.find((window) => window.id === 'claude.weekly')).toMatchObject({ used: 0, resetsAt: null });
+      expect(windows.find((window) => window.id === 'claude.5h')).toMatchObject({ used: 20 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does nothing without a route', () => {
     const adapter = new EventEmitter();
     attachAccountTelemetryBridge(adapter, undefined, service);

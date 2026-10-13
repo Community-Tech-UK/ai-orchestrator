@@ -129,8 +129,8 @@ the three Local AI Guard fallback-policy and budget keys, the WS-B1
 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
 automation-provider block-list (`providersExcludedFromAutomation`), the two GitHub
 Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`),
-the two Claude/Codex account-pool keys (`providerAccountProfiles`,
-`providerAccountPools`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
+the two account-pool keys (`providerAccountProfiles`,
+`providerAccountPools`, covering Claude, Codex and MiMo), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
 `workspaceSecretsAllowAgentRequests`), and the post-fill observation lock
 (`browserSecretObservationProtectionEnabled`).
 `PRIVILEGED_CLI_OPERATOR_ONLY_KEYS` in
@@ -307,8 +307,9 @@ Use the live `profileId` and `targetId` reported by Browser Gateway. Default
 purpose is `login`; `--purpose login` and `--purpose totp` may repeat. Agents
 cannot set the lifetime, request other purposes or approve their own request.
 James's visible approval defaults to the current task. A separate explicit
-choice can remember permission for a limited period, and the approval tells him
-whether the saved login will move into the agent vault folder.
+choice can remember permission for a limited period (up to one year, never
+indefinitely), and the approval tells him whether the saved login will move
+into the agent vault folder.
 
 If the shell cannot connect, use `browser.request_credential_access` with
 `{profileId, targetId, item, reason, purposes?}`. Read the decision with

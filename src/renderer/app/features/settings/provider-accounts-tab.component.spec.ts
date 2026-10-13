@@ -1,4 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ProviderAccountIpcService,
@@ -8,6 +12,14 @@ import {
 import { defaultProviderAccountPools, type ProviderAccountPools } from '../../../../shared/types/provider-account.types';
 import { ProviderAccountsTabComponent } from './provider-accounts-tab.component';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+
+const template = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), './provider-accounts-tab.component.html'), 'utf8');
+
+await resolveComponentResources((url) => {
+  if (url.endsWith('provider-accounts-tab.component.html')) return Promise.resolve(template);
+  if (url.endsWith('.html') || url.endsWith('.scss')) return Promise.resolve('');
+  return Promise.reject(new Error(`Unexpected resource: ${url}`));
+});
 
 function account(overrides: Partial<ProviderAccountView> = {}): ProviderAccountView {
   return {
@@ -47,6 +59,7 @@ const ipc = {
   remove: vi.fn(async (): Promise<MutationResult> => ({ success: true })),
   verify: vi.fn(async (): Promise<MutationResult> => ({ success: true })),
   launchLogin: vi.fn(async (): Promise<MutationResult> => ({ success: true, data: { terminal: 'Terminal' } })),
+  quotaSession: vi.fn(async (): Promise<MutationResult> => ({ success: true })),
   updatePool: vi.fn(async (): Promise<MutationResult> => ({ success: true })),
   acknowledgeOwnership: vi.fn(async (): Promise<MutationResult> => ({ success: true })),
 };
@@ -273,6 +286,73 @@ describe('ProviderAccountsTabComponent — MiMo accounts', () => {
   function opencodeSection(fixture: ComponentFixture<ProviderAccountsTabComponent>): HTMLElement {
     return fixture.nativeElement.querySelector('[data-provider="opencode"]') as HTMLElement;
   }
+
+  it('connects usage independently of CLI sign-in and refreshes the saved connection state', async () => {
+    const original = ipc.list.getMockImplementation();
+    let connected = false;
+    ipc.list.mockImplementation(async () => ({ profiles: [mimoAccount({ quotaSessionConnected: connected })], pools }));
+    let fixture: ComponentFixture<ProviderAccountsTabComponent> | undefined;
+    try {
+      fixture = await render();
+      const connect = Array.from(opencodeSection(fixture).querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Connect usage');
+      expect(connect).toBeDefined();
+      connect!.click();
+      await settle(fixture);
+      expect(ipc.quotaSession).toHaveBeenCalledExactlyOnceWith('max-b-1a2b', 'connect');
+      expect(ipc.launchLogin).not.toHaveBeenCalled();
+      expect(fixture.componentInstance.notice()).toContain('Xiaomi sign-in window');
+      expect(fixture.componentInstance.notice()).toContain('Refresh');
+      connected = true;
+      fixture.nativeElement.querySelector('.tab-intro button').click();
+      await settle(fixture);
+      expect(opencodeSection(fixture).textContent).toContain('Usage session saved');
+      expect(opencodeSection(fixture).textContent).toContain('Sign in to usage again');
+      expect(opencodeSection(fixture).textContent).toContain('Disconnect usage');
+    } finally {
+      fixture?.destroy();
+      if (original) ipc.list.mockImplementation(original);
+    }
+  });
+
+  it('disconnects saved usage access and exposes the reconnect control', async () => {
+    const original = ipc.list.getMockImplementation();
+    ipc.list.mockImplementationOnce(async () => ({ profiles: [mimoAccount({ quotaSessionConnected: true })], pools }));
+    ipc.list.mockImplementation(async () => ({ profiles: [mimoAccount({ quotaSessionConnected: false })], pools }));
+    let fixture: ComponentFixture<ProviderAccountsTabComponent> | undefined;
+    try {
+      fixture = await render();
+      const disconnect = Array.from(opencodeSection(fixture).querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Disconnect usage');
+      expect(disconnect).toBeDefined();
+      disconnect!.click();
+      await settle(fixture);
+      expect(ipc.quotaSession).toHaveBeenCalledExactlyOnceWith('max-b-1a2b', 'disconnect');
+      expect(opencodeSection(fixture).textContent).toContain('Connect usage');
+      expect(opencodeSection(fixture).textContent).not.toContain('Disconnect usage');
+      expect(fixture.componentInstance.notice()).toContain('Saved usage login removed');
+    } finally {
+      fixture?.destroy();
+      if (original) ipc.list.mockImplementation(original);
+    }
+  });
+
+  it('shows usage connection failures without reporting that a sign-in window opened', async () => {
+    const original = ipc.list.getMockImplementation();
+    ipc.list.mockImplementation(async () => ({ profiles: [mimoAccount()], pools }));
+    ipc.quotaSession.mockResolvedValueOnce({ success: false, error: { message: 'Secure session storage is unavailable.' } });
+    let fixture: ComponentFixture<ProviderAccountsTabComponent> | undefined;
+    try {
+      fixture = await render();
+      const connect = Array.from(opencodeSection(fixture).querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Connect usage');
+      expect(connect).toBeDefined();
+      connect!.click();
+      await settle(fixture);
+      expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain('Secure session storage is unavailable.');
+      expect(fixture.nativeElement.querySelector('[role="status"]')).toBeNull();
+    } finally {
+      fixture?.destroy();
+      if (original) ipc.list.mockImplementation(original);
+    }
+  });
 
   it('describes the MiMo allowance separately and saves its rendered switching threshold', async () => {
     const original = ipc.list.getMockImplementation();

@@ -7,6 +7,7 @@ import {
   getMessagesForRestoreTranscript,
   getNativeResumeSessionId,
   getProviderDisplayName,
+  resolveRestoreAccount,
 } from './history-restore-helpers';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -198,6 +199,42 @@ describe('getNativeResumeSessionId', () => {
 });
 
 // ── getProviderDisplayName ────────────────────────────────────────────────────
+
+describe('resolveRestoreAccount', () => {
+  it('leaves an unchosen restore on the stored account and lets replay route itself', () => {
+    expect(resolveRestoreAccount({ storedAccountProfileId: 'codexsuas-1' })).toEqual({
+      nativeAccountProfileId: 'codexsuas-1',
+      forceReplay: false,
+    });
+  });
+
+  it('keeps native resume when the chosen account is the one the session ran on', () => {
+    expect(resolveRestoreAccount({
+      storedAccountProfileId: 'codexsuas-1',
+      requestedAccountProfileId: 'codexsuas-1',
+    })).toEqual({
+      nativeAccountProfileId: 'codexsuas-1',
+      explicitAccountProfileId: 'codexsuas-1',
+      forceReplay: false,
+    });
+  });
+
+  it('replays when the chosen account is a different install', () => {
+    expect(resolveRestoreAccount({
+      storedAccountProfileId: 'codexsuas-1',
+      requestedAccountProfileId: 'codexcomtech-1',
+    })).toEqual({
+      nativeAccountProfileId: 'codexcomtech-1',
+      explicitAccountProfileId: 'codexcomtech-1',
+      forceReplay: true,
+    });
+  });
+
+  it('treats an unstamped thread as the legacy account', () => {
+    expect(resolveRestoreAccount({ requestedAccountProfileId: 'legacy' }).forceReplay).toBe(false);
+    expect(resolveRestoreAccount({ requestedAccountProfileId: 'codexcomtech-1' }).forceReplay).toBe(true);
+  });
+});
 
 describe('getProviderDisplayName', () => {
   it.each([

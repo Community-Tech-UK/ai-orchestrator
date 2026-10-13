@@ -115,6 +115,7 @@ function liveAdapter(overrides: { applyLiveSessionConfig?: () => Promise<void> }
 
 function deps() {
   return {
+    assertCurrent: () => undefined,
     emitSystemNotice: vi.fn(),
     queueUpdate: vi.fn(),
     emitRuntimeChanged: vi.fn(),

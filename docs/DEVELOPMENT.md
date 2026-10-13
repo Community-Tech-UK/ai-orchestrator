@@ -297,6 +297,39 @@ standalone token-usage-monitor shows the same figures as its "MiMo Code" section
 Chrome closed or the console signed out, the numbers stop refreshing until the console is
 signed in again.
 
+#### Multiple MiMo subscriptions
+
+Settings → **Claude, Codex & MiMo Accounts** holds one pool of MiMo accounts, exactly
+like the Claude and Codex pools: priority order, enable/disable, and automatic failover
+when one account hits its usage limit (Decision 5: failover only — sessions stay on the
+first account until it is refused or nearly used up).
+
+- Each account is one OpenCode provider name: the existing sign-in keeps
+  `xiaomi-token-plan-<region>`, every added account becomes `aio-mimo-<account id>`.
+  Harness defines those providers at spawn (model metadata copied from the built-in
+  region provider at run time) and never reads a key.
+- Sign in per account using the **complete command copied from Settings**; the
+  "Open a terminal" action runs the same command. For added accounts it uses Node.js
+  to register a temporary, non-secret provider list for OpenCode's login command,
+  then opens the key prompt and removes the temporary list. A bare
+  `opencode auth login -p aio-mimo-<account id>` cannot register a new account.
+  Each account is a
+  **separate Xiaomi account** — MiMo counts its limits per account across all of that
+  account's keys. Sign-ins are per machine: Settings shows each machine's status and the
+  exact command to run on a machine missing the account.
+- A conversation that hits a limit moves to the next account with its history intact:
+  live on a running OpenCode session (the session store is shared, so no restart), or
+  through the normal respawn-and-reload handoff when no session is running. The switch
+  note appears in the transcript and accompanies the next real message as context;
+  it does not start a separate model turn.
+- Each account can name the **Chrome profile** whose MiMo console sign-in supplies its
+  allowance numbers. An added account without a named profile still works, with no
+  allowance figures. Explicit `Default` and `Profile 1` associations are supported.
+  Plan and monthly usage steer new sessions away at 90% used; available compensation
+  allowance can keep an exhausted plan eligible for selection. Allowance counters
+  alone do not clear an account parked after a provider refusal. These rules apply to MiMo models;
+  other OpenCode backends run independently of the MiMo pool.
+
 ---
 
 ## Architecture Decisions

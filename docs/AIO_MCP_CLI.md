@@ -225,8 +225,8 @@ rollout mode, the three Local AI Guard fallback-policy and budget keys, the
 WS-B1 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
 automation-provider block-list (`providersExcludedFromAutomation`), the two GitHub
 Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`),
-the two Claude/Codex account-pool keys (`providerAccountProfiles`,
-`providerAccountPools`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
+the two account-pool keys (`providerAccountProfiles`,
+`providerAccountPools`, covering Claude, Codex and MiMo), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
 `workspaceSecretsAllowAgentRequests`), and the post-fill observation lock
 (`browserSecretObservationProtectionEnabled`).
 Those are changed from the Settings UI by the operator, never by an agent.
@@ -402,7 +402,8 @@ $AIO_MCP browser-credentials cancel --id <requestId> --json
 approve its own request. James sees the session, reason, exact website and
 computer, saved-login title, requested purposes, duration, and any proposed move
 into the agent vault folder. Access defaults to the current task; remembering it
-for a limited period is a separate choice in that approval.
+for a limited period (up to one year, never indefinitely) is a separate choice
+in that approval.
 
 The request stays `pending` until James decides, including in YOLO mode.
 Existing valid permission may be reused within its scope. Repeated requests for

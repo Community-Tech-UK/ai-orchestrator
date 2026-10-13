@@ -168,7 +168,8 @@ export interface ConversationHistoryEntry {
   /**
    * Claude/Codex account-pool profile the conversation last ran on. A native
    * resume restores on it (the provider session lives in that account's
-   * store); a replay restore routes normally.
+   * store). Continuing on a different account replays the transcript there
+   * instead of resuming the other account's session.
    */
   accountProfileId?: string;
   accountRoutingSource?: AccountRouteSource;

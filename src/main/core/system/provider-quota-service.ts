@@ -430,7 +430,7 @@ export class ProviderQuotaService extends EventEmitter {
     const previous = key === provider
       ? this.snapshots.get(provider) ?? null
       : this.accountSnapshots.get(key) ?? null;
-    snapshot = retainLastKnownQuotaWindows(previous, snapshot);
+    snapshot = clearElapsedQuotaWindows(retainLastKnownQuotaWindows(previous, snapshot));
     if (key === provider) {
       this.snapshots.set(provider, snapshot);
     } else {
@@ -587,6 +587,38 @@ export function retainLastKnownQuotaWindows(
     needsReauth: incoming.needsReauth ?? false,
     error: incoming.needsReauth ? incoming.error : undefined,
   };
+}
+
+/**
+ * Last-known bars (kept above, or read back from the token-usage-monitor's
+ * state.json while a login is briefly unusable) can outlive a window's reset.
+ * A reading taken before a reset that has since passed no longer describes
+ * that window: showing its old "100%" kept a reset account looking exhausted
+ * in the chip and to account selection. Treat such a window as freshly reset
+ * until a real probe reports it again. A window whose reset was already past
+ * when the reading was taken is the provider's own answer and is left alone.
+ * The same reading's "included usage not allowed" verdict predates the reset
+ * too, so it becomes unknown; a credits verdict is kept.
+ */
+export function clearElapsedQuotaWindows(
+  snapshot: ProviderQuotaSnapshot,
+  now = Date.now(),
+): ProviderQuotaSnapshot {
+  let changed = false;
+  const windows = snapshot.windows.map((window) => {
+    if (window.resetsAt === null || window.resetsAt <= snapshot.takenAt || window.resetsAt > now) return window;
+    changed = true;
+    return { ...window, used: 0, remaining: window.limit > 0 ? window.limit : Number.NaN, resetsAt: null };
+  });
+  if (!changed) return snapshot;
+  const next: ProviderQuotaSnapshot = { ...snapshot, windows };
+  const access = snapshot.usageAccess;
+  if (access?.ordinaryUsageAllowed !== false) return next;
+  if (access.creditsAvailable === null) {
+    delete next.usageAccess;
+    return next;
+  }
+  return { ...next, usageAccess: { ...access, ordinaryUsageAllowed: null } };
 }
 
 // Lazy singleton — same pattern as cost-tracker.ts.

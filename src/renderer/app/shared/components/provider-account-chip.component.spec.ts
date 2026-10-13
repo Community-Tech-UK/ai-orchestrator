@@ -27,12 +27,22 @@ function account(overrides: Partial<ProviderAccountView> = {}): ProviderAccountV
 }
 
 let profiles: ProviderAccountView[];
+let pools = defaultProviderAccountPools();
 let preview: ProviderAccountRoutePreview | null;
 const ipc = {
-  list: vi.fn(async () => ({ profiles, pools: defaultProviderAccountPools() })),
+  list: vi.fn(async () => ({ profiles, pools })),
   previewRoute: vi.fn(async () => preview),
   switchSession: vi.fn(async () => ({ success: true })),
+  acknowledgeOwnership: vi.fn(async () => ({ success: true })),
+  update: vi.fn(async () => ({ success: true })),
 };
+
+function acknowledgePools(): void {
+  pools = defaultProviderAccountPools();
+  for (const provider of ['claude', 'codex', 'opencode'] as const) {
+    pools[provider] = { ...pools[provider], acknowledgedOwnershipAt: 1 };
+  }
+}
 
 async function render(inputs: Record<string, unknown>): Promise<ComponentFixture<ProviderAccountChipComponent>> {
   const fixture = TestBed.createComponent(ProviderAccountChipComponent);
@@ -47,6 +57,7 @@ async function render(inputs: Record<string, unknown>): Promise<ComponentFixture
 
 beforeEach(async () => {
   profiles = [account(), account({ id: 'max-b-1a2b', label: 'Max B', priority: 1, isLegacy: false })];
+  pools = defaultProviderAccountPools();
   preview = {
     outcome: { ok: true, route: { provider: 'claude', profileId: 'max-b-1a2b', source: 'default', executionNodeId: 'local', profileLabel: 'Max B' } },
     considered: [{ profileId: 'legacy', vetoReason: 'parked' }],
@@ -76,10 +87,55 @@ describe('ProviderAccountChipComponent', () => {
     expect(fixture.nativeElement.querySelector('.provider-account-chip')).toBeNull();
   });
 
-  it('renders nothing when a second account is disabled', async () => {
+  it('renders nothing when a second account was turned off after ownership was confirmed', async () => {
+    acknowledgePools();
     profiles = [account(), account({ id: 'max-b-1a2b', label: 'Max B', priority: 1, isLegacy: false, enabled: false })];
     const fixture = await render({ provider: 'claude', mode: 'session', instanceId: 'inst-1' });
     expect(fixture.nativeElement.querySelector('.provider-account-chip')).toBeNull();
+  });
+
+  it('offers a MiMo account that is off only because ownership is not confirmed yet', async () => {
+    profiles = [
+      account({ provider: 'opencode', label: 'SuasMimo', region: 'ams' }),
+      account({
+        id: 'comtechspare-f7a6',
+        provider: 'opencode',
+        label: 'ComTechSpare',
+        priority: 1,
+        isLegacy: false,
+        enabled: false,
+        region: 'ams',
+      }),
+    ];
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirm);
+    const fixture = await render({ provider: 'opencode', model: 'xiaomi-token-plan-ams/mimo-v2.6-pro' });
+    expect(fixture.nativeElement.querySelector('.provider-account-chip')).not.toBeNull();
+    const options = [...fixture.nativeElement.querySelectorAll('option')].map((option) => option.textContent);
+    expect(options).toContain('ComTechSpare');
+
+    const chosen: (string | null)[] = [];
+    fixture.componentInstance.accountChosen.subscribe((value) => chosen.push(value));
+    const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+    select.value = 'comtechspare-f7a6';
+    await fixture.componentInstance.onSelect({ target: select } as unknown as Event);
+    expect(chosen).toEqual([]);
+    expect(ipc.acknowledgeOwnership).not.toHaveBeenCalled();
+    expect(ipc.update).not.toHaveBeenCalled();
+    expect(select.value).toBe('');
+
+    confirm.mockReturnValue(true);
+    select.value = 'comtechspare-f7a6';
+    await fixture.componentInstance.onSelect({ target: select } as unknown as Event);
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('MiMo Token Plan'));
+    expect(ipc.acknowledgeOwnership).toHaveBeenCalledWith('opencode');
+    expect(ipc.update).toHaveBeenCalledWith({
+      provider: 'opencode',
+      profileId: 'comtechspare-f7a6',
+      enabled: true,
+    });
+    expect(chosen).toEqual(['comtechspare-f7a6']);
+    expect(ipc.switchSession).not.toHaveBeenCalled();
   });
 
   it('renders nothing for providers without pools', async () => {
@@ -118,6 +174,30 @@ describe('ProviderAccountChipComponent', () => {
     fixture.detectChanges();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(emitted).toEqual([null]);
+    expect(ipc.previewRoute).not.toHaveBeenCalled();
+  });
+
+  it('emits a continuation account without switching a session', async () => {
+    profiles = [
+      account({ id: 'codexsuas-1', provider: 'codex', label: 'codexsuas' }),
+      account({ id: 'codexcomtech-1', provider: 'codex', label: 'codexcomtech', priority: 1, isLegacy: false }),
+    ];
+    const fixture = await render({
+      provider: 'codex',
+      mode: 'continuation',
+      accountProfileId: 'codexsuas-1',
+    });
+    expect(fixture.nativeElement.querySelector('.text')?.textContent).toBe('codexsuas');
+    expect(fixture.nativeElement.querySelector('select')?.getAttribute('aria-label')).toBe(
+      'Account to continue this session on',
+    );
+    const chosen: (string | null)[] = [];
+    fixture.componentInstance.accountChosen.subscribe((value) => chosen.push(value));
+    const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+    select.value = 'codexcomtech-1';
+    await fixture.componentInstance.onSelect({ target: select } as unknown as Event);
+    expect(chosen).toEqual(['codexcomtech-1']);
+    expect(ipc.switchSession).not.toHaveBeenCalled();
     expect(ipc.previewRoute).not.toHaveBeenCalled();
   });
 

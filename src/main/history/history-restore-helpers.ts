@@ -1,5 +1,6 @@
 import type { ConversationHistoryEntry } from '../../shared/types/history.types';
 import type { InstanceProvider, OutputMessage } from '../../shared/types/instance.types';
+import { LEGACY_ACCOUNT_PROFILE_ID } from '../../shared/types/provider-account.types';
 import { isToolOutcomeMessage } from '../../shared/types/tool-outcome';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 import { isLegacyRedactedToolOutput } from '../session/redacted-tool-output';
@@ -61,6 +62,35 @@ export function getMessagesForRestoreTranscript(messages: OutputMessage[]): Outp
 function normalizeSessionId(value: string | null | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed || undefined;
+}
+
+/**
+ * A native resume only works in the account whose CLI home holds that session.
+ * Choosing a different account replays the transcript there instead.
+ * No choice keeps today's behaviour: native resume pins the stored account,
+ * and a replay restore lets the pool route.
+ */
+export function resolveRestoreAccount(params: {
+  storedAccountProfileId?: string;
+  requestedAccountProfileId?: string;
+}): {
+  nativeAccountProfileId?: string;
+  explicitAccountProfileId?: string;
+  forceReplay: boolean;
+} {
+  const requested = params.requestedAccountProfileId?.trim();
+  if (!requested) {
+    return {
+      nativeAccountProfileId: params.storedAccountProfileId,
+      forceReplay: false,
+    };
+  }
+  const stored = params.storedAccountProfileId ?? LEGACY_ACCOUNT_PROFILE_ID;
+  return {
+    nativeAccountProfileId: requested,
+    explicitAccountProfileId: requested,
+    forceReplay: requested !== stored,
+  };
 }
 
 export function getNativeResumeSessionId(

@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   localModelInventory: [] as unknown[],
   localModelRefresh: vi.fn(),
   getProviderCapabilities: vi.fn(),
+  resolveInstructionStack: vi.fn(),
   buildProjectMemoryBrief: vi.fn(),
   extractAuthoredLessons: vi.fn(),
   outputStyle: 'default' as string,
@@ -107,7 +108,7 @@ vi.mock('../../security/permission-manager', () => ({
 }));
 
 vi.mock('../../core/config/instruction-resolver', () => ({
-  resolveInstructionStack: vi.fn().mockResolvedValue({ sources: [], mergedContent: null }),
+  resolveInstructionStack: mocks.resolveInstructionStack,
 }));
 
 vi.mock('../context-worker-client', () => ({
@@ -386,6 +387,33 @@ describe('instance-lifecycle system-prompt composition (WS-B4 regression)', () =
       sources: [],
     });
     mocks.extractAuthoredLessons.mockReturnValue(null);
+    mocks.resolveInstructionStack.mockResolvedValue({ sources: [], mergedContent: null });
+  });
+
+  it('loads applicable instructions before spawning a restored session', async () => {
+    const harness = makeHarness();
+    try {
+      const adapter = makeFakeAdapter();
+      mocks.createAdapter.mockReturnValue(adapter);
+
+      const instance = await harness.manager.createInstance({
+        workingDirectory: '/tmp/project',
+        provider: 'claude',
+        isRestoredSession: true,
+        resume: true,
+        sessionId: 'restored-session',
+      });
+      await instance.readyPromise;
+
+      expect(mocks.resolveInstructionStack).toHaveBeenCalledExactlyOnceWith({
+        workingDirectory: '/tmp/project',
+        discovery: 'applicable',
+      });
+      expect(adapter.spawn).toHaveBeenCalledOnce();
+      expect(instance.status).toBe('idle');
+    } finally {
+      harness.manager.destroy();
+    }
   });
 
   it('assembles instructions + tool-permissions in contract order with no optional blocks populated', async () => {

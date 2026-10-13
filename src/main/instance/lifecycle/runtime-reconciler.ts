@@ -54,6 +54,7 @@ import {
 } from './model-change-provider-swap';
 import { computeRuntimeDiff, planContinuity } from './runtime-reconciler-plan';
 import { resolveReconcilerResumeHealth } from './runtime-reconciler-resume-health';
+import { assertRuntimeChangeOwner, createOwnedRuntimeAdapter, evaluateOwnedResumeHealth, publishRuntimeChange } from './runtime-reconciler-ownership';
 import { assertAdapterNotOnLoan, beginRuntimeChange, type RuntimeChangeClaim } from './adapter-loan-registry';
 import { announceRuntimeChangeSet, runtimeChangeNoticesFor } from './runtime-change-notices';
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
@@ -86,10 +87,12 @@ export class RuntimeReconciler {
     }
 
     const release = await getSessionMutex().acquire(instanceId, 'runtime-change');
+    const assertCurrent = () => assertRuntimeChangeOwner(this.deps, instance);
     let runtimeChangeClaim: RuntimeChangeClaim | undefined;
     /** Set when the resume ladder fell back; delivered with the notices (LT-030). */
     let fallbackPreamble: string | undefined;
     try {
+      assertCurrent();
       const unavailableReason = getModelSwitchUnavailableReason(instance.status);
       if (unavailableReason) {
         throw new Error(unavailableReason);
@@ -99,7 +102,6 @@ export class RuntimeReconciler {
       // claim, held through the post-change messaging.
       assertAdapterNotOnLoan(instanceId, Boolean(this.deps.getAdapter(instanceId)));
       runtimeChangeClaim = beginRuntimeChange(instanceId);
-
       const oldModel = instance.currentModel || 'default';
       const oldCurrentModel = instance.currentModel;
       const oldProvider = instance.provider;
@@ -124,16 +126,19 @@ export class RuntimeReconciler {
         desired,
         adapter: this.deps.getAdapter(instanceId),
         oldAccount,
+        assertCurrent,
         emitSystemNotice: this.deps.emitSystemNotice.bind(this.deps),
         queueUpdate: this.deps.queueUpdate.bind(this.deps),
         emitRuntimeChanged: this.deps.emitRuntimeChanged.bind(this.deps),
       })) {
+        assertCurrent();
         logger.info('Account switched in place on the live OpenCode session', {
           instanceId,
           accountProfileId: instance.accountProfileId,
         });
         return instance;
       }
+      assertCurrent();
       const isProviderSwap = diff.providerChanged;
       const targetProvider = desired.provider as SwapTargetProvider;
       const settingsAll = this.deps.getSettings();
@@ -163,6 +168,7 @@ export class RuntimeReconciler {
       let swapModelSource: SwapModelSource | undefined;
       if (isProviderSwap) {
         await assertSwapTargetCliAvailable(instance, targetProvider, settingsAll.defaultCli);
+        assertCurrent();
         const resolution = resolveSwapModelWithSource(targetProvider, desired.model, settingsAll);
         newModel = resolution.model;
         swapModelSource = resolution.source;
@@ -191,6 +197,7 @@ export class RuntimeReconciler {
       let nextExecutionLocation = instance.executionLocation;
       if (localModelTarget) {
         await this.deps.assertLocalModelRuntimeAvailable(localModelTarget);
+        assertCurrent();
         nextExecutionLocation = resolveExecutionLocation({
           workingDirectory: instance.workingDirectory,
           modelRuntimeTarget: localModelTarget,
@@ -211,6 +218,7 @@ export class RuntimeReconciler {
         assertAdapterNotOnLoan(instanceId, true);
         this.deps.deleteAdapter(instanceId);
         await oldAdapter.terminate(true);
+        assertCurrent();
       }
 
       let validatedModel: string | undefined = localModelTarget?.modelId ?? newModel;
@@ -219,6 +227,7 @@ export class RuntimeReconciler {
       try {
         // Update instance state
         this.deps.transitionState(instance, 'initializing');
+        assertCurrent();
         instance.yoloMode = nextYoloMode;
 
         // Resolve agent and permissions
@@ -266,6 +275,7 @@ export class RuntimeReconciler {
         // Claude/Codex account-pool handoff: failover/pre-emptive need no confirmation.
         const accountContinuation = diff.accountProfileChanged ? applyAccountHandoff(instance, desired) : undefined;
         const cliType = await this.deps.resolveCliTypeForInstance(instance);
+        assertCurrent();
         const continuity = isYoloOnlyChange
           ? (hasConversation && oldAdapterCapabilities.supportsResume
               ? (oldAdapterCapabilities.supportsForkSession ? 'native-resume-fork' : 'native-resume')
@@ -297,6 +307,7 @@ export class RuntimeReconciler {
             cliType,
             instance.copilotAccountProfileId,
           );
+          assertCurrent();
           const selection = resolveRuntimeChangeModel({
             provider: cliType,
             requestedModel: modelToValidate,
@@ -316,6 +327,7 @@ export class RuntimeReconciler {
             });
             if (selection.userVisible) {
               this.deps.emitModelSelectionDegradation(instance, selection.degradation);
+              assertCurrent();
             }
           }
           validatedModel = selection.model;
@@ -385,22 +397,25 @@ export class RuntimeReconciler {
           ...(localModelTarget ? { modelRuntimeTarget: localModelTarget } : {}),
         };
 
-        let adapter = await this.deps.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
-        this.deps.setupAdapterEvents(instanceId, adapter);
-        this.deps.setAdapter(instanceId, adapter);
+        let adapter = await createOwnedRuntimeAdapter(this.deps, instance, cliType, spawnOptions, instance.executionLocation);
 
         let pid: number;
         try {
+          assertCurrent();
           pid = await adapter.spawn();
+          assertCurrent();
           instance.processId = pid;
           if (shouldResume && !(await resolveReconcilerResumeHealth(
             instanceId,
-            () => this.deps.evaluateResumeHealth(instanceId),
+            () => evaluateOwnedResumeHealth(this.deps, instance),
           ))) {
             throw new Error('Native resume did not stabilize after model change');
           }
+          assertCurrent();
           await this.deps.waitForInputReadinessBoundary(instanceId, adapter);
+          assertCurrent();
         } catch (spawnError) {
+          assertCurrent();
           if (shouldResume) {
             actuallyResumed = false;
             logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
@@ -411,17 +426,18 @@ export class RuntimeReconciler {
             // `Illegal transition: error → busy` (LT-008). applyRecoveryRespawn
             // has always done this; the runtime-change path never did.
             adapter.removeAllListeners();
+            assertCurrent();
             await adapter.terminate(true);
+            assertCurrent();
 
             const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
             instance.sessionId = fallbackOptions.sessionId;
             // LT-018: resume failed, identity is fresh — recompute occupancy.
             instance.contextUsage = resolveSwapContextUsage(instance.contextUsage, contextTotal, false);
-            adapter = await this.deps.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
-            this.deps.setupAdapterEvents(instanceId, adapter);
-            this.deps.setAdapter(instanceId, adapter);
-
+            adapter = await createOwnedRuntimeAdapter(this.deps, instance, cliType, fallbackOptions, instance.executionLocation);
+            assertCurrent();
             pid = await adapter.spawn();
+            assertCurrent();
             try {
               await getSessionContinuityManager().writeThroughIdentityLocked(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null });
             } catch (err) {
@@ -430,13 +446,17 @@ export class RuntimeReconciler {
                 error: err instanceof Error ? err.message : String(err),
               });
             }
+            assertCurrent();
             await this.deps.waitForInputReadinessBoundary(instanceId, adapter);
+            assertCurrent();
 
             if (hasConversation) {
               this.deps.prepareStatusForAdapterInput(instance);
+              assertCurrent();
               // LT-030: carried as the preamble so it ships in the SAME
               // delivery as the notices — a separate send starts a turn they hit.
               fallbackPreamble = await this.deps.buildFallbackHistory(instance, 'resume-failed-fallback');
+              assertCurrent();
             }
           } else {
             throw spawnError;
@@ -446,6 +466,7 @@ export class RuntimeReconciler {
         instance.processId = pid;
         if (diff.accountProfileChanged) instance.recoveryMethod = actuallyResumed ? 'native' : hasConversation ? 'replay' : 'fresh';
         this.deps.transitionState(instance, 'idle');
+        assertCurrent();
         logger.info('Runtime change applied', {
           instanceId,
           pid,
@@ -469,6 +490,7 @@ export class RuntimeReconciler {
               provider: instance.provider,
               ...(validatedModel !== undefined ? { modelId: validatedModel } : {}),
             });
+            assertCurrent();
             await getSessionContinuityManager().writeThroughIdentityLocked(instanceId, {
               sessionId: instance.sessionId,
               resumeCursor: null,
@@ -479,6 +501,7 @@ export class RuntimeReconciler {
               error: err instanceof Error ? err.message : String(err),
             });
           }
+          assertCurrent();
         }
 
         // LT-030: the preamble rides WITH the notices in one delivery.
@@ -487,11 +510,12 @@ export class RuntimeReconciler {
           ? this.deps.buildReplayContinuityMessage(instance, why) : undefined);
 
         // LT-015/LT-020: control messages for the model, and the user must see
-        // the runtime changed too. LT-030: the change is already applied and
-        // written through here, so this never throws (see the set function).
+        // the runtime changed too. LT-030: notice delivery remains best-effort;
+        // loss of runtime ownership still rejects the change.
         await announceRuntimeChangeSet({
           instance,
           adapter,
+          assertCurrent,
           ...(diff.accountProfileChanged && instance.provider === 'opencode' ? { delivery: 'next-prompt' as const } : {}),
           emitSystemNotice: this.deps.emitSystemNotice.bind(this.deps),
           notices: runtimeChangeNoticesFor({
@@ -520,7 +544,9 @@ export class RuntimeReconciler {
             : null,
           preamble,
         });
+        assertCurrent();
       } catch (error) {
+        assertCurrent();
         if (isProviderSwap) {
           // Leave the instance pointed at its previous provider so a manual
           // restart relaunches the CLI that was actually running. The resume
@@ -539,40 +565,13 @@ export class RuntimeReconciler {
         }
         if (diff.accountProfileChanged) restoreAccount(instance, oldAccount);
         this.deps.transitionState(instance, 'error');
+        assertCurrent();
         logger.error('Failed to apply runtime change', error instanceof Error ? error : undefined, { instanceId, newModel, targetProvider });
         throw error;
       }
 
-      this.deps.queueUpdate(
-        instanceId,
-        instance.status,
-        instance.contextUsage,
-        undefined,
-        undefined,
-        undefined,
-        instance.executionLocation,
-        undefined,
-        undefined,
-        instance.currentModel,
-        undefined,
-        { provider: instance.provider, desiredRuntime: null },
-      );
-      if (!isYoloOnlyChange) {
-        // A pure permission-posture flip is not a model/provider change —
-        // the old toggleYoloMode never announced one either.
-        this.deps.emitRuntimeChanged({
-          instanceId,
-          model: validatedModel ?? newModel,
-          provider: instance.provider,
-          reasoningEffort: nextReasoningEffort,
-        });
-      }
-      if (diff.yoloModeChanged) {
-        // Live push for the renderer's pending-yolo convenience state. This
-        // also covers the deferred auto-apply path, which never goes through
-        // the requestYoloModeToggle wrapper.
-        this.deps.emitYoloToggled({ instanceId, yoloMode: nextYoloMode });
-      }
+      publishRuntimeChange(this.deps, instance, { isYoloOnlyChange, model: validatedModel ?? newModel,
+        nextReasoningEffort, yoloModeChanged: diff.yoloModeChanged, nextYoloMode });
 
       return instance;
     } finally {

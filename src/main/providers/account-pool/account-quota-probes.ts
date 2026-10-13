@@ -26,7 +26,7 @@ import {
 import { ClaudeCredentialsReader } from '../../core/system/provider-quota/claude-credentials-reader';
 import { ClaudeUsageEndpointProbe } from '../../core/system/provider-quota/claude-usage-endpoint-probe';
 import { CompositeQuotaProbe } from '../../core/system/provider-quota/composite-quota-probe';
-import { MimoConsoleCredentialsReader } from '../../core/system/provider-quota/mimo-console-credentials-reader';
+import { MimoUsageCredentialsReader } from '../../core/system/provider-quota/mimo-usage-credentials-reader';
 import { MimoTokenPlanProbe } from '../../core/system/provider-quota/mimo-token-plan-probe';
 import { UsageMonitorSource } from '../../core/system/provider-quota/usage-monitor-source';
 import { getLogger } from '../../logging/logger';
@@ -102,12 +102,8 @@ class CodexAccountQuotaProbe implements ProviderQuotaProbe {
 }
 
 /**
- * MiMo per-account allowance (Decision 8): the Token Plan console probe,
- * reading the MiMo console sign-in from the Chrome profile this account names
- * (only an explicit association, including `Default`). The legacy account keeps the provider-level probe and
- * the token-usage-monitor fallback untouched; this probe is silent while a
- * Chrome profile holds no MiMo console sign-in (an `ok: false`, "no allowance
- * data" snapshot — never numbers).
+ * MiMo per-account allowance: prefer its encrypted usage login. Existing
+ * explicit Chrome associations remain available when no saved login exists.
  */
 class MimoAccountQuotaProbe implements ProviderQuotaProbe {
   readonly provider = 'opencode' as const;
@@ -115,28 +111,26 @@ class MimoAccountQuotaProbe implements ProviderQuotaProbe {
   constructor(
     readonly accountProfileId: string,
     readonly quotaSource: string,
-    private readonly inner: MimoTokenPlanProbe | null,
+    private readonly inner: MimoTokenPlanProbe,
   ) {}
 
   async probe(opts: { signal: AbortSignal; force?: boolean }): Promise<ProviderQuotaSnapshot | null> {
-    if (!this.inner) return {
-      provider: 'opencode', takenAt: Date.now(), source: 'admin-api', ok: false,
-      notApplicable: true, windows: [], error: 'No Chrome profile associated with this account',
-    };
     return this.inner.probe(opts);
   }
 }
 
 function mimoProbeFor(profile: ProviderAccountProfile): ProviderQuotaProbe {
+  const reader = new MimoUsageCredentialsReader({
+    accountProfileId: profile.id,
+    chromeProfile: profile.chromeProfile,
+  });
   return new ThrottledAccountQuotaProbe(
-    new MimoAccountQuotaProbe(profile.id, profile.chromeProfile ?? '', profile.chromeProfile ? new MimoTokenPlanProbe({
+    new MimoAccountQuotaProbe(profile.id, reader.quotaSource, new MimoTokenPlanProbe({
       // The account IS a Token Plan account: unlike the legacy global probe
       // there is no configured-model gate to apply here.
       isTokenPlanModel: () => true,
-      reader: new MimoConsoleCredentialsReader(
-        { chromeProfile: profile.chromeProfile },
-      ),
-    }) : null),
+      reader,
+    })),
     () => MIMO_ACCOUNT_PROBE_MIN_INTERVAL_MS,
     Date.now,
     !profile.enabled,

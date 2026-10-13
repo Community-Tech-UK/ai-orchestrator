@@ -487,6 +487,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
       const result = await sessionRevival.revive({
         historyEntryId: validated.entryId,
         workingDirectory: validated.workingDirectory,
+        ...(validated.accountProfileId ? { accountProfileId: validated.accountProfileId } : {}),
         reviveIfArchived: true,
         reason: 'history-restore',
       });

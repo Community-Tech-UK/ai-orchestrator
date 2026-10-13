@@ -1,52 +1,54 @@
-# Live Activities — one-time Xcode setup
+# Live Activities — tracked native setup
 
-Everything except the widget-extension *target* is already in place:
+The app target, widget-extension target, embed phase, plists, entitlements, and Swift sources
+are tracked in the repository. No one-time Xcode target creation is required.
 
-- App side: `LiveActivityPlugin` lives in the managed `AppDelegate.swift`
-  (source of truth: `apps/mobile/resources/native/AppDelegate.swift`).
-- `Info.plist` gets `NSSupportsLiveActivities` from the ensure-script.
-- The widget UI code is ready at
-  `apps/mobile/resources/native/HarnessWidgets/HarnessLiveActivity.swift`.
-- The Mac gateway already pushes `liveactivity` updates for registered tokens.
+## Source layout
 
-Adding an Xcode *target* can't be scripted safely (pbxproj surgery), so this
-one is a 3-minute manual step:
+- App-side ActivityKit plugin and shared attributes:
+  `apps/mobile/ios/App/App/AppDelegate.swift`
+- Widget UI and its matching attributes:
+  `apps/mobile/resources/native/HarnessWidgets/HarnessLiveActivity.swift`
+- Widget plist:
+  `apps/mobile/resources/native/HarnessWidgets/Info.plist`
+- Xcode target and embed configuration:
+  `apps/mobile/ios/App/App.xcodeproj/project.pbxproj`
 
-## Steps (Xcode 15+)
+The App target deploys to iOS 16.0 for the wider phone app. `HarnessWidgets` deploys to
+iOS 16.1, the first ActivityKit release, and is embedded as `HarnessWidgets.appex`.
 
-1. `cd apps/mobile && npm run ios` (builds, syncs, opens Xcode).
-2. File → New → Target… → **Widget Extension**.
-   - Product Name: `HarnessWidgets`
-   - UNCHECK "Include Configuration App Intent".
-   - CHECK "Include Live Activity" (harmless either way — we replace the files).
-   - Embed in: App. Finish. "Activate scheme" → Activate.
-3. In the new `HarnessWidgets` group, delete every template `.swift` file
-   (Move to Trash).
-4. Right-click the `HarnessWidgets` group → "Add Files to 'App'…" → select
-   `apps/mobile/resources/native/HarnessWidgets/HarnessLiveActivity.swift`
-   - UNCHECK "Copy items if destination" (add by reference → future edits to
-     the resources/ file flow straight into builds).
-   - Target membership: **HarnessWidgets only** (not App).
-5. Widget extension's `Info.plist` needs no changes (the template's
-   `NSExtension` entry is correct).
-6. Build & run the App scheme on the phone.
+## Build and install
 
-## Verify
+```bash
+cd apps/mobile
+npm ci
+npm run sync
+npm run ios:device -- --device "your iPhone name" --team "your Apple team ID"
+```
 
-- Start a session from the phone, background the app → the activity appears on
-  the lock screen with the session name + status.
-- With APNs configured in desktop Settings (`mobileGatewayApns*`), status
-  changes keep updating the activity even after iOS suspends the app
-  (per-activity token flow: plugin → gateway `POST
-  /api/devices/:id/live-activity-token` → `apns-push-type: liveactivity`).
-- Session ends → activity dismisses within a few minutes.
+`npm run sync` preserves the widget target while refreshing Angular assets, Capacitor
+configuration, plugins, Pods, and generated brand assets. Signing is supplied at runtime;
+the tracked Xcode project deliberately contains no developer-team identifier.
+
+## Verify on a physical phone
+
+1. Pair Harness with a disposable desktop gateway and open a running session.
+2. Background or lock the phone. Confirm the activity appears with the correct session name,
+   project, and status.
+3. Change the session status and confirm the activity updates after iOS suspends the app.
+4. Finish the session and confirm the activity ends.
+
+With APNs configured in desktop Settings (`mobileGatewayApns*`), the per-activity token flows
+from the plugin to `POST /api/devices/:id/live-activity-token`; the gateway then sends
+`apns-push-type: liveactivity` updates.
 
 ## Gotchas
 
-- The `HarnessSessionAttributes` struct is compiled into BOTH targets (one
-  copy in the managed AppDelegate, one in HarnessLiveActivity.swift). ActivityKit
-  matches them by name + Codable shape — if you change one, change both.
-- Live Activities require iOS 16.2+ and the user not having disabled them
-  (Settings → harness → Live Activities).
-- The activity push token is per-activity and in-memory on the gateway; a Mac
-  restart just means updates resume on the next activity start.
+- `HarnessSessionAttributes` is intentionally compiled into both targets. ActivityKit matches
+  the definitions by type name and Codable shape; change both copies together.
+- Live Activities require iOS 16.1+, and remote token updates in this app require iOS 16.2+.
+  The user can also disable Live Activities in Settings → harness.
+- The activity push token is per activity and held in memory by the gateway. After a Mac
+  restart, remote updates resume when the next activity starts.
+- Build this CocoaPods app through `App.xcworkspace`, not `App.xcodeproj`, or plugin frameworks
+  will be missing.

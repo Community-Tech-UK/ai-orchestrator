@@ -26,6 +26,7 @@ export class CompositeQuotaProbe implements ProviderQuotaProbe {
   readonly provider: ProviderId;
   readonly accountProfileId?: string;
   readonly silenceAlerts?: boolean;
+  readonly quotaSource?: string;
 
   constructor(
     private readonly native: ProviderQuotaProbe,
@@ -34,6 +35,7 @@ export class CompositeQuotaProbe implements ProviderQuotaProbe {
     this.provider = native.provider;
     this.accountProfileId = native.accountProfileId;
     this.silenceAlerts = native.silenceAlerts;
+    this.quotaSource = native.quotaSource;
   }
 
   async probe(opts: { signal: AbortSignal; force?: boolean }): Promise<ProviderQuotaSnapshot | null> {

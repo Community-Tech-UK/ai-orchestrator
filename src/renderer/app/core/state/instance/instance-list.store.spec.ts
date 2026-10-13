@@ -184,6 +184,8 @@ describe('InstanceListStore', () => {
       agentId: 'build',
       agentMode: 'build',
       provider: 'claude',
+      accountProfileId: 'example-profile',
+      accountRoutingSource: 'persisted',
       status: 'idle',
       contextUsage: { used: 5, total: 200000, percentage: 0.0025 },
       lastActivity: 222,
@@ -263,6 +265,45 @@ describe('InstanceListStore', () => {
     expect(instance.sessionId).toBe('');
     expect(instance.providerSessionId).toBe('');
     expect(getInstanceThreadId(instance)).toBe('recovered-instance');
+  });
+
+  it('preserves account identity across a created event and an authoritative resync', async () => {
+    const payload = {
+      id: 'restored-account-instance',
+      provider: 'codex',
+      status: 'idle',
+      accountProfileId: 'example-original-profile',
+      accountRoutingSource: 'persisted',
+    };
+    store.addInstance(payload);
+    expect(stateService.getInstance(payload.id)).toMatchObject({
+      accountProfileId: 'example-original-profile',
+      accountRoutingSource: 'persisted',
+    });
+
+    ipc.stateResync.mockResolvedValue({
+      success: true,
+      data: {
+        instances: [{ ...payload, accountProfileId: 'example-chosen-profile', accountRoutingSource: 'explicit' }],
+      },
+    });
+    await store.loadInitialInstances();
+    expect(stateService.getInstance(payload.id)).toMatchObject({
+      accountProfileId: 'example-chosen-profile',
+      accountRoutingSource: 'explicit',
+    });
+  });
+
+  it('keeps absent or malformed account metadata unknown', () => {
+    for (const account of [
+      {},
+      { accountProfileId: 1, accountRoutingSource: 'unknown-source' },
+      { accountProfileId: '', accountRoutingSource: null },
+    ]) {
+      const instance = store.deserializeInstance({ id: 'example-instance', provider: 'codex', ...account });
+      expect(instance.accountProfileId).toBeUndefined();
+      expect(instance.accountRoutingSource).toBeUndefined();
+    }
   });
 
   it('carries selfManagesAutoCompaction from the snapshot payload', () => {

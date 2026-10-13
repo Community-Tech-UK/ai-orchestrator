@@ -868,6 +868,7 @@ export class InstanceDetailComponent {
     }
 
     const submittedSelection = this.historySessions.selection(preview.entry.id);
+    const submittedAccount = this.historySessions.accountChoice(preview.entry.id);
     try {
       const instanceId = await this.ensureHistoryPreviewRestored();
       if (!instanceId) {
@@ -878,6 +879,12 @@ export class InstanceDetailComponent {
       // The loop config was captured on submission, while prepare intentionally
       // applies the latest choice. Do not launch an older provider configuration
       // if the user changed that choice during restore; preserve the form for retry.
+      if (this.historySessions.accountChoice(preview.entry.id) !== submittedAccount) {
+        const message = 'The account choice changed while restoring. Start the loop again to use the latest choice.';
+        this.historySessions.setError(preview.entry.id, message);
+        payload.onResolved(false, message);
+        return;
+      }
       if (this.historySessions.selection(preview.entry.id) !== submittedSelection) {
         const message = 'The model choice changed while restoring. Start the loop again to use the latest choice.';
         this.historySessions.setError(preview.entry.id, message);

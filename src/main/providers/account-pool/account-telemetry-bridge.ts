@@ -31,7 +31,7 @@ import {
   parseCodexRateLimitSnapshot,
   type CodexRateLimitSnapshot,
 } from '../../cli/adapters/codex/account-rate-limits';
-import { getProviderQuotaService } from '../../core/system/provider-quota-service';
+import { clearElapsedQuotaWindows, getProviderQuotaService } from '../../core/system/provider-quota-service';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('AccountTelemetryBridge');
@@ -115,7 +115,10 @@ export function attachAccountTelemetryBridge(
   ): void => {
     if (windows.length === 0) return;
     try {
-      const existing = service.getSnapshot(route.provider, profileId);
+      // Re-stamped below as a fresh reading, so first drop any window that
+      // reset since it was stored rather than carrying its old usage forward.
+      const stored = service.getSnapshot(route.provider, profileId);
+      const existing = stored ? clearElapsedQuotaWindows(stored) : null;
       const previousAccess = existing?.ok && existing.usageAccess
         ? { ...existing.usageAccess, observedAt: existing.usageAccess.observedAt ?? existing.takenAt }
         : undefined;

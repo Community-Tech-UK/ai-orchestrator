@@ -420,6 +420,9 @@ it('keeps the confirmed history model on the picker when the restored instance s
     selection: vi.fn().mockReturnValue(selected),
     confirmedSelectionForInstance: vi.fn().mockReturnValue(selected),
     clearConfirmedSelection: vi.fn(),
+    accountChoice: vi.fn().mockReturnValue(null),
+    chooseAccount: vi.fn(),
+    clearAccountChoice: vi.fn(),
   };
   await TestBed.configureTestingModule({
     imports: [ComposerToolbarComponent],
@@ -686,16 +689,19 @@ describe('ComposerToolbarComponent account chip', () => {
     providerAccountIpcStub.list.mockResolvedValue({ profiles: [], pools: {} });
   });
 
-  async function renderToolbar(instanceId: string): Promise<HTMLElement> {
+  async function renderToolbar(
+    instanceId: string,
+    extras: { provider?: string; accountProfileId?: string } = {},
+  ): Promise<HTMLElement> {
     await TestBed.configureTestingModule({
       imports: [ComposerToolbarComponent],
       providers: toolbarProviders,
     }).compileComponents();
     const fixture = TestBed.createComponent(ComposerToolbarComponent);
     fixture.componentRef.setInput('instanceId', instanceId);
-    fixture.componentRef.setInput('provider', 'claude');
+    fixture.componentRef.setInput('provider', extras.provider ?? 'claude');
     fixture.componentRef.setInput('currentModel', 'claude-opus-4-5');
-    fixture.componentRef.setInput('accountProfileId', 'legacy');
+    fixture.componentRef.setInput('accountProfileId', extras.accountProfileId ?? 'legacy');
     fixture.componentRef.setInput('accountRoutingSource', 'persisted');
     fixture.detectChanges();
     for (let tick = 0; tick < 5; tick += 1) {
@@ -748,17 +754,31 @@ describe('ComposerToolbarComponent account chip', () => {
     );
   });
 
-  it('hides the account chip on a history preview', async () => {
+  it('offers the archived account on a history preview and remembers a different choice', async () => {
     providerAccountIpcStub.list.mockResolvedValue({
       profiles: [
         {
-          id: 'legacy',
-          provider: 'claude',
-          label: 'Max A',
+          id: 'codexsuas-1',
+          provider: 'codex',
+          label: 'codexsuas',
           expectedIdentity: null,
           expectedAccountKey: null,
           planLabel: null,
           priority: 0,
+          enabled: true,
+          automationPolicy: 'allow-routed',
+          isLegacy: true,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          id: 'codexcomtech-1',
+          provider: 'codex',
+          label: 'codexcomtech',
+          expectedIdentity: null,
+          expectedAccountKey: null,
+          planLabel: null,
+          priority: 1,
           enabled: true,
           automationPolicy: 'allow-routed',
           isLegacy: false,
@@ -768,7 +788,20 @@ describe('ComposerToolbarComponent account chip', () => {
       ],
       pools: {},
     });
-    const host = await renderToolbar('history-preview:history-a');
-    expect(host.querySelector('app-provider-account-chip')).toBeNull();
+    const host = await renderToolbar('history-preview:history-a', {
+      provider: 'codex',
+      accountProfileId: 'codexsuas-1',
+    });
+    const chip = host.querySelector('app-provider-account-chip');
+    expect(chip).not.toBeNull();
+    expect(chip?.textContent).toContain('codexsuas');
+    expect(host.querySelector('select')?.getAttribute('aria-label')).toBe(
+      'Account to continue this session on',
+    );
+    const select = host.querySelector('select') as HTMLSelectElement;
+    select.value = 'codexcomtech-1';
+    select.dispatchEvent(new Event('change'));
+    const sessions = TestBed.inject(HistoryPreviewSessionService);
+    expect(sessions.accountChoice('history-a')).toBe('codexcomtech-1');
   });
 });

@@ -18,6 +18,8 @@ import { GeminiQuotaProbe } from './gemini-quota-probe';
 import { GeminiUsageEndpointProbe } from './gemini-usage-endpoint-probe';
 import { GrokBillingProbe } from './grok-billing-probe';
 import { MimoTokenPlanProbe, isTokenPlanModelSetting } from './mimo-token-plan-probe';
+import { MimoUsageCredentialsReader } from './mimo-usage-credentials-reader';
+import { getMimoSavedSessionStore } from './mimo-saved-session-store';
 import { CompositeQuotaProbe } from './composite-quota-probe';
 import { FallbackQuotaProbe } from './fallback-quota-probe';
 import { UsageMonitorSource, gatedUsageMonitor } from './usage-monitor-source';
@@ -258,8 +260,11 @@ export function registerDefaultQuotaProbes(): void {
   // Refresh button) still answers instantly.
   service.registerProbe(new ThrottledAccountQuotaProbe(
     new CompositeQuotaProbe(
-      new MimoTokenPlanProbe({ isTokenPlanModel }),
-      gatedUsageMonitor(usageMonitor, isTokenPlanModel),
+      new MimoTokenPlanProbe({
+        isTokenPlanModel,
+        reader: new MimoUsageCredentialsReader({ accountProfileId: 'legacy', allowDefaultChrome: true }),
+      }),
+      gatedUsageMonitor(usageMonitor, () => isTokenPlanModel() && !getMimoSavedSessionStore().exists('legacy')),
     ),
     () => OPENCODE_QUOTA_PROBE_MIN_INTERVAL_MS,
   ));

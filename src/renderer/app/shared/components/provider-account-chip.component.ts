@@ -1,15 +1,19 @@
 /**
  * Which Claude or Codex account a session uses, and why (provider account pools).
  *
- * Two placements:
+ * Three placements:
  *  - `draft`: before a session starts, shows the account the pool would pick
  *    ("Max A · default", "Max B · Max A is at its limit") with an override.
  *    The override is emitted so the create sends the account the user chose.
  *  - `session`: the account a live session runs on, with a switch that asks
  *    for confirmation (an explicit account handoff).
+ *  - `continuation`: a history preview that has not started yet. The select
+ *    emits the account to continue on; nothing is switched until restore.
  *
- * Renders nothing for other providers or while the provider has fewer than
- * two enabled accounts (nothing to switch to), so hosts embed it unconditionally.
+ * Renders nothing for other providers, or while fewer than two accounts can be
+ * chosen. A second account that is off only because ownership is not confirmed
+ * yet is still listed: picking it asks for that confirmation and turns it on.
+ * Hosts embed the chip unconditionally.
  */
 
 import {
@@ -27,8 +31,19 @@ import {
   type ProviderAccountRoutePreview,
   type ProviderAccountView,
 } from '../../core/services/ipc/provider-account-ipc.service';
-import type { AccountRouteSource, PooledProvider } from '../../../../shared/types/provider-account.types';
-import { isPooledProvider } from '../../../../shared/types/provider-account.types';
+import type {
+  AccountRouteSource,
+  PooledProvider,
+  ProviderAccountPools,
+} from '../../../../shared/types/provider-account.types';
+import { isPooledProvider, pooledProviderLabel } from '../../../../shared/types/provider-account.types';
+
+/** Same promise as Settings → Accounts. A second account stays off until the user confirms it. */
+const OWNERSHIP_COPY: Record<PooledProvider, { subscription: string; vendor: string }> = {
+  claude: { subscription: 'Claude', vendor: 'Anthropic' },
+  codex: { subscription: 'ChatGPT', vendor: 'OpenAI' },
+  opencode: { subscription: 'MiMo Token Plan', vendor: 'Xiaomi' },
+};
 
 @Component({
   standalone: true,
@@ -41,7 +56,7 @@ import { isPooledProvider } from '../../../../shared/types/provider-account.type
         <span class="text" [title]="title()">{{ blockedText() ?? label() }}</span>
         <select
           class="override"
-          [attr.aria-label]="mode() === 'session' ? 'Switch this session to another account' : 'Account for this session'"
+          [attr.aria-label]="accountAriaLabel()"
           [value]="selectedValue()"
           (change)="onSelect($event)"
         >
@@ -79,7 +94,7 @@ export class ProviderAccountChipComponent {
   private readonly ipc = inject(ProviderAccountIpcService);
 
   readonly provider = input<string | null>(null);
-  readonly mode = input<'draft' | 'session'>('draft');
+  readonly mode = input<'draft' | 'session' | 'continuation'>('draft');
   readonly model = input<string | null>(null);
   /** Draft placement: the worker node the session will run on (null = this machine). */
   readonly executionNodeId = input<string | null>(null);
@@ -94,6 +109,7 @@ export class ProviderAccountChipComponent {
   readonly accountChosen = output<string | null>();
 
   private readonly accountsSignal = signal<ProviderAccountView[]>([]);
+  private readonly poolsSignal = signal<ProviderAccountPools | null>(null);
   private readonly previewSignal = signal<ProviderAccountRoutePreview | null>(null);
   private readonly errorSignal = signal<string | null>(null);
   /** Bumped per load so a slower, older response never overwrites a newer one. */
@@ -103,17 +119,45 @@ export class ProviderAccountChipComponent {
     const provider = this.provider();
     return isPooledProvider(provider) ? provider : null;
   });
-  readonly selectableAccounts = computed(() =>
-    this.accountsSignal().filter((account) => account.enabled).sort((a, b) => a.priority - b.priority));
+  /**
+   * A second account is created off until the user confirms they pay for every
+   * account in the pool. Until that confirmation, those accounts are still
+   * choices: picking one asks for the confirmation and turns it on. After
+   * confirmation, an account the user turned off stays out of the list.
+   */
+  readonly ownershipOpen = computed(() => {
+    const provider = this.pooled();
+    if (!provider) return false;
+    return this.poolsSignal()?.[provider]?.acknowledgedOwnershipAt == null;
+  });
+  readonly selectableAccounts = computed(() => {
+    const includeUnconfirmed = this.ownershipOpen();
+    return this.accountsSignal()
+      .filter((account) => account.automationPolicy !== 'disabled'
+        && (account.enabled || includeUnconfirmed))
+      .sort((a, b) => a.priority - b.priority);
+  });
   readonly poolActive = computed(() => this.selectableAccounts().length > 1);
-  readonly selectedValue = computed(() =>
-    this.mode() === 'session' ? this.currentProfileId() : (this.chosenProfileId() ?? ''));
+  readonly selectedValue = computed(() => {
+    if (this.mode() === 'session') return this.currentProfileId();
+    if (this.mode() === 'continuation') return this.chosenProfileId() || this.currentProfileId();
+    return this.chosenProfileId() ?? '';
+  });
 
   readonly currentProfileId = computed(() => this.accountProfileId() ?? 'legacy');
+
+  readonly accountAriaLabel = computed(() => {
+    if (this.mode() === 'session') return 'Switch this session to another account';
+    if (this.mode() === 'continuation') return 'Account to continue this session on';
+    return 'Account for this session';
+  });
 
   readonly label = computed(() => {
     if (this.mode() === 'session') {
       return this.labelFor(this.currentProfileId());
+    }
+    if (this.mode() === 'continuation') {
+      return this.labelFor(this.chosenProfileId() || this.currentProfileId());
     }
     const preview = this.previewSignal();
     if (!preview?.outcome.ok) return '';
@@ -132,21 +176,27 @@ export class ProviderAccountChipComponent {
     return preview && !preview.outcome.ok ? preview.outcome.detail : null;
   });
 
-  readonly title = computed(() =>
-    this.mode() === 'session'
-      ? 'The account this conversation runs on. Pick another to move it there.'
-      : 'The account a new session will use. Harness moves to the next account if this one hits its limit.');
+  readonly title = computed(() => {
+    if (this.mode() === 'session') {
+      return 'The account this conversation runs on. Pick another to move it there.';
+    }
+    if (this.mode() === 'continuation') {
+      return 'The account this conversation will continue on. Pick another to continue there.';
+    }
+    return 'The account a new session will use. Harness moves to the next account if this one hits its limit.';
+  });
 
   constructor() {
     effect(() => {
       const provider = this.pooled();
-      const override = this.mode() === 'draft' ? this.chosenProfileId() ?? '' : '';
+      const override = this.mode() === 'session' ? '' : this.chosenProfileId() ?? '';
       const model = this.model();
       const nodeId = this.executionNodeId();
       const mode = this.mode();
       if (!provider) {
         this.loadGeneration += 1;
         this.accountsSignal.set([]);
+        this.poolsSignal.set(null);
         this.previewSignal.set(null);
         return;
       }
@@ -157,7 +207,15 @@ export class ProviderAccountChipComponent {
   async onSelect(event: Event): Promise<void> {
     const target = event.target as HTMLSelectElement;
     const value = target.value;
-    if (this.mode() === 'draft') {
+    const chosen = this.accountsSignal().find((account) => account.id === value);
+    if (chosen && !chosen.enabled) {
+      const turnedOn = await this.turnOnForSelection(chosen);
+      if (!turnedOn) {
+        target.value = this.selectedValue();
+        return;
+      }
+    }
+    if (this.mode() === 'draft' || this.mode() === 'continuation') {
       this.accountChosen.emit(value || null);
       return;
     }
@@ -173,6 +231,44 @@ export class ProviderAccountChipComponent {
     const response = await this.ipc.switchSession(instanceId, value);
     this.errorSignal.set(response.success ? null : response.error?.message ?? 'The account could not be switched.');
     if (!response.success) target.value = this.currentProfileId();
+  }
+
+  /**
+   * Picking an account that is off only because ownership is unconfirmed
+   * records that confirmation, then turns the account on, before the session
+   * uses it. Cancelling leaves the account off.
+   */
+  private async turnOnForSelection(account: ProviderAccountView): Promise<boolean> {
+    const provider = this.pooled();
+    if (!provider || !this.ownershipOpen()) return false;
+    const copy = OWNERSHIP_COPY[provider];
+    const confirmed = globalThis.confirm?.(
+      `Before "${account.label}" can be used, confirm that every ${pooledProviderLabel(provider)} account is a ${copy.subscription} subscription you personally pay for, and that you understand ${copy.vendor} may still apply its own usage policies.`,
+    );
+    if (!confirmed) return false;
+    const acknowledged = await this.ipc.acknowledgeOwnership(provider);
+    if (!acknowledged.success) {
+      this.errorSignal.set(acknowledged.error?.message ?? 'The accounts could not be confirmed.');
+      return false;
+    }
+    const enabled = await this.ipc.update({ provider, profileId: account.id, enabled: true });
+    if (!enabled.success) {
+      this.errorSignal.set(enabled.error?.message ?? 'The account could not be turned on.');
+      return false;
+    }
+    this.errorSignal.set(null);
+    this.accountsSignal.update((accounts) => accounts.map((entry) => (
+      entry.id === account.id ? { ...entry, enabled: true } : entry
+    )));
+    this.poolsSignal.update((pools) => {
+      const policy = pools?.[provider];
+      if (!pools || !policy) return pools;
+      return {
+        ...pools,
+        [provider]: { ...policy, acknowledgedOwnershipAt: policy.acknowledgedOwnershipAt ?? Date.now() },
+      };
+    });
+    return true;
   }
 
   private labelFor(profileId: string): string {
@@ -198,18 +294,19 @@ export class ProviderAccountChipComponent {
 
   private async load(
     provider: PooledProvider,
-    mode: 'draft' | 'session',
+    mode: 'draft' | 'session' | 'continuation',
     override: string,
     model: string | null,
     nodeId: string | null,
   ): Promise<void> {
     const generation = ++this.loadGeneration;
     try {
-      const { profiles } = await this.ipc.list(provider);
+      const { profiles, pools } = await this.ipc.list(provider);
       if (generation !== this.loadGeneration) return;
       this.accountsSignal.set(profiles);
+      this.poolsSignal.set(pools);
       this.errorSignal.set(null);
-      if (mode === 'draft' && override && !profiles.some((profile) => profile.id === override)) {
+      if (mode !== 'session' && override && !profiles.some((profile) => profile.id === override)) {
         // A choice made for another provider (or a removed account) must not ride along.
         this.accountChosen.emit(null);
         return;

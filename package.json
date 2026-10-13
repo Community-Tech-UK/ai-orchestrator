@@ -199,7 +199,7 @@
     "@types/ws": "^8.18.1",
     "@typescript/native-preview": "^7.0.0-dev.20250327.1",
     "angular-eslint": "22.1.0",
-    "concurrently": "^9.0.0",
+    "concurrently": "^9.2.5",
     "electron": "^40.6.0",
     "electron-builder": "^26.15.7",
     "esbuild": "^0.28.0",

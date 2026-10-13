@@ -21,6 +21,9 @@ import type { RuntimeReconcilerDeps } from './runtime-reconciler.types';
 import { TestAcpCliAdapter, createInitializedAgentHarness } from '../../cli/adapters/acp-cli-adapter.test-helpers';
 import { ProviderAccountBindingService } from '../../providers/account-pool/provider-account-binding-service';
 import { ProviderAccountRoutingService, _resetProviderAccountRoutingServiceForTesting } from '../../providers/account-pool/provider-account-routing-service';
+import { DesiredRuntimeQueue } from './desired-runtime-queue';
+import { InstanceStateManager } from '../instance-state';
+import type { BatchUpdatePayload } from '../../../shared/types/ipc.types';
 
 const { mockContinuity, mockSessionMutex, mockProcessKill } = vi.hoisted(() => ({
   mockProcessKill: vi.fn(() => false),
@@ -71,6 +74,11 @@ import {
   AdapterOnLoanError,
   beginAdapterLoan,
   endAdapterLoan,
+  isAdapterOnLoan,
+  isRuntimeChangeInFlight,
+  onAdapterLoanReleased,
+  waitForRuntimeChange,
+  type AdapterLoan,
   _resetAdapterLoansForTesting,
 } from './adapter-loan-registry';
 
@@ -277,6 +285,415 @@ describe('RuntimeReconciler.applyRuntimeChange — fork resume source (LT-008)',
 
     expect(createCalls[0].options['forkSession']).toBe(false);
     expect(createCalls[0].options['sessionId']).toBe(LIVE_SESSION_ID);
+  });
+});
+
+describe('RuntimeReconciler — captured instance ownership', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSessionMutex.acquire.mockResolvedValue(vi.fn());
+    _resetAdapterLoansForTesting();
+    accountPool.continuation = 'shared-store';
+  });
+  afterEach(() => { _resetAdapterLoansForTesting(); vi.useRealTimers(); });
+
+  it.each([
+    ['immediate', 'in-place'], ['deferred', 'in-place'],
+    ['immediate', 'respawn'], ['deferred', 'respawn'],
+  ] as const)('rejects discarded %s %s completion without publishing over its owner', async (mode, producer) => {
+    for (const outcome of ['busy-replacement', 'loan-replacement', 'removed', 'terminated', 'failed', 'superseded', 'success'] as const) {
+      vi.useFakeTimers();
+      const instance = makeInstance({ accountProfileId: 'a',
+        ...(producer === 'in-place' ? { provider: 'opencode', currentModel: 'xiaomi-token-plan-ams/mimo-v2.6-pro' } : {}),
+        status: mode === 'immediate' ? 'idle' : 'busy' });
+      let finish!: () => void;
+      const held = new Promise<void>(resolve => { finish = resolve; });
+      const adapter = makeAdapter();
+      if (producer === 'in-place') Object.assign(adapter, { applyLiveSessionConfig: vi.fn(() => held) });
+      else vi.mocked(adapter.sendInput).mockReturnValue(held);
+      const state = new InstanceStateManager();
+      state.setInstance(instance);
+      state.setAdapter(instance.id, producer === 'in-place' ? adapter : makeAdapter());
+      const h = makeHarness(instance, [adapter]);
+      const deps = (h.reconciler as unknown as { deps: RuntimeReconcilerDeps }).deps;
+      deps.getInstance = id => state.getInstance(id);
+      deps.getAdapter = id => state.getAdapter(id);
+      deps.setAdapter = state.setAdapter.bind(state);
+      deps.deleteAdapter = state.deleteAdapter.bind(state);
+      const published: BatchUpdatePayload['updates'] = [];
+      state.on('batch-update', (batch: BatchUpdatePayload) => published.push(...structuredClone(batch.updates)));
+      deps.queueUpdate = state.queueUpdate.bind(state);
+      let loan: AdapterLoan | undefined;
+      const applyChange = vi.fn(async (id: string, desired: DesiredRuntime) => {
+        try { return await h.reconciler.applyRuntimeChange(id, desired); }
+        finally {
+          expect(isRuntimeChangeInFlight(id)).toBe(false);
+          if (outcome === 'loan-replacement') loan = beginAdapterLoan(id, 'example-replacement-loop');
+        }
+      });
+      const queue = new DesiredRuntimeQueue({ getInstance: id => state.getInstance(id), isAdapterOnLoan, applyChange,
+        publishPendingState: current => state.queueUpdate(current.id, current.status, current.contextUsage,
+          undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+          { desiredRuntime: current.desiredRuntime ?? null }), notifyApplyFailure: vi.fn() });
+      deps.transitionState = (current, status) => { current.status = status; queue.onSettled(current); };
+      const request = queue.requestChange(instance.id, { provider: instance.provider, accountProfileId: 'b',
+        accountHandoffKind: 'explicit', accountHandoffConfirmed: true }).catch(error => error);
+      const target: DesiredRuntime = { provider: instance.provider, model: 'example-new-model' };
+      let replacement: Instance | undefined;
+      const replacementAdapter = makeAdapter();
+      try {
+        if (mode === 'deferred') { instance.status = 'idle'; queue.onSettled(instance); }
+        await vi.advanceTimersByTimeAsync(0);
+        expect(applyChange).toHaveBeenCalledOnce();
+        if (outcome === 'busy-replacement' || outcome === 'loan-replacement') {
+          replacement = makeInstance({ ...instance, status: outcome === 'busy-replacement' ? 'busy' : 'idle',
+            accountProfileId: 'example-replacement', desiredRuntime: target });
+          state.setInstance(replacement);
+          state.setAdapter(instance.id, replacementAdapter);
+          state.queueUpdate(instance.id, replacement.status, replacement.contextUsage,
+            undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+            { desiredRuntime: target });
+          await vi.advanceTimersByTimeAsync(100);
+          expect(published.at(-1)?.desiredRuntime).toEqual(target);
+        } else if (outcome === 'removed') state.deleteInstance(instance.id);
+        else if (outcome !== 'success') { instance.status = outcome; queue.onSettled(instance); }
+        finish();
+        await vi.advanceTimersByTimeAsync(0);
+        const result = await request;
+        expect(applyChange).toHaveBeenCalledOnce();
+        if (outcome === 'success') {
+          expect(result).toBe(instance);
+          expect(instance.accountProfileId).toBe('b');
+          expect(instance.desiredRuntime).toBeUndefined();
+        } else expect(result).toBeInstanceOf(Error);
+        if (replacement) {
+          if (outcome === 'loan-replacement') expect(isAdapterOnLoan(instance.id)).toBe(true);
+          expect(state.getInstance(instance.id)).toBe(replacement);
+          expect(state.getAdapter(instance.id)).toBe(replacementAdapter);
+          expect(replacement.accountProfileId).toBe('example-replacement');
+          expect(replacement.desiredRuntime).toBe(target);
+          await vi.advanceTimersByTimeAsync(100);
+          expect(published.at(-1)?.desiredRuntime).toEqual(target);
+          expect(published.at(-1)?.status).toBe(replacement.status);
+        } else if (outcome !== 'success' && outcome !== 'removed') expect(instance.status).toBe(outcome);
+        if (producer === 'in-place' && outcome !== 'success') {
+          expect(instance.accountProfileId).toBe('a');
+          expect(h.deps.emitSystemNotice).not.toHaveBeenCalled();
+        }
+      } finally {
+        const current = state.getInstance(instance.id);
+        if (current) { current.status = 'terminated'; queue.onSettled(current); }
+        finish(); endAdapterLoan(loan);
+        await vi.advanceTimersByTimeAsync(1000);
+        await Promise.allSettled([request]);
+        state.destroy(); _resetAdapterLoansForTesting(); vi.useRealTimers();
+      }
+    }
+  });
+
+  it.each(['replacement', 'same-owner'] as const)('keeps %s adapter ownership when an old native switch refuses', async owner => {
+    const instance = makeInstance({ provider: 'opencode', currentModel: 'xiaomi-token-plan-ams/mimo-v2.6-pro', accountProfileId: 'a' });
+    let refuse!: (error: Error) => void;
+    const held = new Promise<void>((_resolve, reject) => { refuse = reject; });
+    const oldAdapter = makeAdapter();
+    Object.assign(oldAdapter, { applyLiveSessionConfig: vi.fn(() => held) });
+    const replacement = makeInstance({ ...instance, status: 'busy', accountProfileId: 'example-replacement' });
+    const replacementAdapter = makeAdapter();
+    const nextAdapter = makeAdapter();
+    const h = makeHarness(instance, [nextAdapter]);
+    const deps = (h.reconciler as unknown as { deps: RuntimeReconcilerDeps }).deps;
+    let current = instance;
+    let registered: CliAdapter | undefined = oldAdapter;
+    deps.getInstance = () => current;
+    deps.getAdapter = () => registered;
+    deps.deleteAdapter = vi.fn(() => { registered = undefined; return true; });
+    deps.setAdapter = (_id, adapter) => { registered = adapter; };
+    const request = h.reconciler.applyRuntimeChange(instance.id, { provider: 'opencode', accountProfileId: 'b', accountHandoffKind: 'failover' }).catch(error => error);
+    await vi.waitFor(() => expect((oldAdapter as unknown as { applyLiveSessionConfig: unknown }).applyLiveSessionConfig).toHaveBeenCalledOnce());
+    if (owner === 'replacement') { current = replacement; registered = replacementAdapter; }
+    refuse(new Error('Synthetic native refusal'));
+    const result = await request;
+    if (owner === 'replacement') {
+      expect(result).toBeInstanceOf(Error);
+      expect(registered).toBe(replacementAdapter);
+      expect(replacementAdapter.terminate).not.toHaveBeenCalled();
+      expect(h.createCalls).toHaveLength(0);
+      expect(replacement.accountProfileId).toBe('example-replacement');
+    } else {
+      expect(result).toBe(instance);
+      expect(oldAdapter.terminate).toHaveBeenCalledOnce();
+      expect(registered).toBe(nextAdapter);
+      expect(instance.accountProfileId).toBe('b');
+    }
+    expect(isRuntimeChangeInFlight(instance.id)).toBe(false);
+  });
+
+  it.each(['current', 'replacement', 'terminal'] as const)(
+    'rechecks %s ownership after the in-place helper promise completes', async owner => {
+      const instance = makeInstance({ provider: 'opencode', currentModel: 'xiaomi-token-plan-ams/mimo-v2.6-pro', accountProfileId: 'a' });
+      const replacement = makeInstance({ ...instance, accountProfileId: 'example-replacement', status: 'busy' });
+      const adapter = makeAdapter();
+      Object.assign(adapter, { applyLiveSessionConfig: vi.fn().mockResolvedValue(undefined) });
+      const replacementAdapter = makeAdapter();
+      let current = instance;
+      let registered = adapter;
+      const h = makeHarness(instance, [adapter], { getAdapter: () => registered });
+      const deps = (h.reconciler as unknown as { deps: RuntimeReconcilerDeps }).deps;
+      deps.getInstance = () => current;
+      deps.emitRuntimeChanged = () => {
+        queueMicrotask(() => {
+          if (owner === 'replacement') { current = replacement; registered = replacementAdapter; }
+          if (owner === 'terminal') instance.status = 'terminated';
+        });
+      };
+      const result = await h.reconciler.applyRuntimeChange(instance.id, {
+        provider: 'opencode', accountProfileId: 'b', accountHandoffKind: 'failover',
+      }).catch(error => error);
+      if (owner === 'current') {
+        expect(result).toBe(instance);
+        expect(instance.accountProfileId).toBe('b');
+      } else expect(result).toBeInstanceOf(Error);
+      if (owner === 'replacement') {
+        expect(current).toBe(replacement);
+        expect(registered).toBe(replacementAdapter);
+        expect(replacement.accountProfileId).toBe('example-replacement');
+        expect(replacement.status).toBe('busy');
+      }
+      if (owner === 'terminal') expect(instance.status).toBe('terminated');
+      expect(adapter.terminate).not.toHaveBeenCalled();
+      expect(replacementAdapter.terminate).not.toHaveBeenCalled();
+      expect(h.createCalls).toHaveLength(0);
+      expect(isRuntimeChangeInFlight(instance.id)).toBe(false);
+    },
+  );
+
+  it.each(['current', 'replacement-adopts', 'terminal'] as const)(
+    'rechecks %s ownership after native-fallback listener teardown before termination', async owner => {
+      const instance = makeInstance();
+      const replacement = makeInstance({ ...instance, status: 'busy' });
+      const resume = makeAdapter();
+      const fresh = makeAdapter();
+      let current = instance;
+      let registered: CliAdapter | undefined = makeAdapter();
+      const h = makeHarness(instance, [resume, fresh], { getAdapter: () => registered });
+      const deps = (h.reconciler as unknown as { deps: RuntimeReconcilerDeps }).deps;
+      deps.getInstance = () => current;
+      deps.deleteAdapter = () => { registered = undefined; return true; };
+      deps.setAdapter = (_id, adapter) => { registered = adapter; };
+      h.deps.evaluateResumeHealth.mockResolvedValue('unrecoverable');
+      resume.on('removeListener', () => {
+        if (owner === 'replacement-adopts') current = replacement;
+        if (owner === 'terminal') instance.status = 'terminated';
+      });
+      resume.on('example-runtime-output', () => undefined);
+      const result = await h.reconciler.applyRuntimeChange(instance.id, yoloOnly(true)).catch(error => error);
+      if (owner === 'current') {
+        expect(result).toBe(instance);
+        expect(resume.terminate).toHaveBeenCalledOnce();
+        expect(registered).toBe(fresh);
+        expect(fresh.spawn).toHaveBeenCalledOnce();
+      } else {
+        expect(result).toBeInstanceOf(Error);
+        expect(registered).toBe(resume);
+        expect(resume.terminate).not.toHaveBeenCalled();
+        expect(fresh.spawn).not.toHaveBeenCalled();
+        expect(h.createCalls).toHaveLength(1);
+      }
+      if (owner === 'replacement-adopts') {
+        expect(current).toBe(replacement);
+        expect(replacement.status).toBe('busy');
+      }
+      if (owner === 'terminal') expect(instance.status).toBe('terminated');
+      expect(isRuntimeChangeInFlight(instance.id)).toBe(false);
+    },
+  );
+
+  it.each(['spawn-failure', 'notice', 'publication', 'runtime-event', 'yolo-event', 'construction'] as const)(
+    'rejects direct stale %s completion before later by-ID effects', async boundary => {
+      const instance = makeInstance();
+      const replacement = makeInstance({ status: 'busy', currentModel: 'example-replacement-model' });
+      const replacementAdapter = makeAdapter();
+      const adapter = makeAdapter();
+      const h = makeHarness(instance, [adapter]);
+      const deps = (h.reconciler as unknown as { deps: RuntimeReconcilerDeps }).deps;
+      let current = instance;
+      let registered: CliAdapter | undefined = makeAdapter();
+      deps.getInstance = () => current;
+      deps.getAdapter = () => registered;
+      deps.setAdapter = (_id, value) => { registered = value; };
+      const replace = () => { current = replacement; registered = replacementAdapter; };
+      if (boundary === 'spawn-failure') vi.mocked(adapter.spawn).mockImplementation(async () => { replace(); throw new Error('Synthetic startup refusal'); });
+      if (boundary === 'notice') h.deps.emitSystemNotice.mockImplementation(replace);
+      if (boundary === 'publication') deps.queueUpdate = vi.fn(replace);
+      if (boundary === 'runtime-event') deps.emitRuntimeChanged = vi.fn(replace);
+      if (boundary === 'yolo-event') deps.emitYoloToggled = vi.fn(replace);
+      if (boundary === 'construction') deps.createRuntimeAdapter = async () => { replace(); return adapter; };
+      await expect(h.reconciler.applyRuntimeChange(instance.id, { provider: 'claude', model: 'opus', yoloMode: true }))
+        .rejects.toThrow('no longer available');
+      expect(current).toBe(replacement);
+      expect(replacement.status).toBe('busy');
+      expect(replacement.currentModel).toBe('example-replacement-model');
+      expect(registered).toBe(replacementAdapter);
+      expect(replacementAdapter.terminate).not.toHaveBeenCalled();
+      if (boundary === 'spawn-failure') expect(h.deps.transitionState).not.toHaveBeenCalledWith(instance, 'error');
+      if (boundary === 'notice') expect(adapter.sendInput).not.toHaveBeenCalled();
+      if (boundary === 'construction') {
+        expect(adapter.spawn).not.toHaveBeenCalled();
+        expect(adapter.terminate).toHaveBeenCalledWith(true);
+      }
+      if (boundary === 'publication' || boundary === 'notice' || boundary === 'spawn-failure' || boundary === 'construction') {
+        expect(deps.emitRuntimeChanged).not.toHaveBeenCalled();
+      }
+      if (boundary !== 'yolo-event') expect(deps.emitYoloToggled).not.toHaveBeenCalled();
+      expect(isRuntimeChangeInFlight(instance.id)).toBe(false);
+    },
+  );
+
+  it.each(['private', 'adopted', 'adopted-during-cleanup', 'listener-failure', 'termination-failure'] as const)(
+    'cleans a late %s construction without touching the replacement adapter or masking ownership loss', async mode => {
+      const instance = makeInstance();
+      const replacement = makeInstance({ status: 'busy' });
+      const replacementAdapter = makeAdapter();
+      const lateAdapter = makeAdapter();
+      const strip = vi.spyOn(lateAdapter, 'removeAllListeners');
+      if (mode === 'listener-failure') strip.mockImplementation(() => { throw new Error('Synthetic listener cleanup refusal'); });
+      if (mode === 'termination-failure') vi.mocked(lateAdapter.terminate).mockRejectedValue(new Error('Synthetic termination refusal'));
+      let finish!: (adapter: CliAdapter) => void;
+      const held = new Promise<CliAdapter>(resolve => { finish = resolve; });
+      const h = makeHarness(instance, [lateAdapter]);
+      const deps = (h.reconciler as unknown as { deps: RuntimeReconcilerDeps }).deps;
+      let current = instance;
+      let registered: CliAdapter = makeAdapter();
+      if (mode === 'adopted-during-cleanup') {
+        lateAdapter.on('removeListener', () => { registered = lateAdapter; });
+        lateAdapter.on('example-private-event', () => undefined);
+      }
+      deps.getInstance = () => current;
+      deps.getAdapter = () => registered;
+      deps.createRuntimeAdapter = vi.fn(() => held);
+      deps.setAdapter = vi.fn();
+      const request = h.reconciler.applyRuntimeChange(instance.id, { provider: 'claude', model: 'opus' });
+      const rejection = expect(request).rejects.toThrow('no longer available');
+      await vi.waitFor(() => expect(deps.createRuntimeAdapter).toHaveBeenCalledOnce());
+      current = replacement;
+      registered = mode === 'adopted' ? lateAdapter : replacementAdapter;
+      finish(lateAdapter);
+      await rejection;
+      expect(registered).toBe(mode === 'adopted' || mode === 'adopted-during-cleanup' ? lateAdapter : replacementAdapter);
+      expect(deps.setAdapter).not.toHaveBeenCalled();
+      expect(lateAdapter.spawn).not.toHaveBeenCalled();
+      expect(replacementAdapter.terminate).not.toHaveBeenCalled();
+      if (mode === 'adopted' || mode === 'adopted-during-cleanup') {
+        if (mode === 'adopted') expect(strip).not.toHaveBeenCalled();
+        else expect(strip).toHaveBeenCalledWith();
+        expect(lateAdapter.terminate).not.toHaveBeenCalled();
+      } else {
+        expect(strip).toHaveBeenCalledOnce();
+        expect(lateAdapter.terminate).toHaveBeenCalledWith(true);
+      }
+      expect(isRuntimeChangeInFlight(instance.id)).toBe(false);
+    },
+  );
+});
+
+describe('RuntimeReconciler — pending runtime broadcasts', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSessionMutex.acquire.mockResolvedValue(vi.fn());
+    mockContinuity.writeThroughIdentityLocked.mockResolvedValue(undefined);
+    mockContinuity.updateState.mockResolvedValue(undefined);
+    _resetAdapterLoansForTesting();
+    accountPool.continuation = 'shared-store';
+  });
+  afterEach(() => { _resetAdapterLoansForTesting(); vi.useRealTimers(); });
+
+  const accountChange = (provider: Instance['provider'], profileId: string): DesiredRuntime => ({
+    provider, accountProfileId: profileId, accountHandoffKind: 'explicit', accountHandoffConfirmed: true,
+  });
+  const targetInstance = (mode: 'respawn' | 'in-place') => makeInstance({
+    accountProfileId: 'a',
+    ...(mode === 'in-place' ? { provider: 'opencode', currentModel: 'xiaomi-token-plan-ams/mimo-v2.6-pro' } : {}),
+  });
+
+  it.each(['respawn', 'in-place'] as const)('preserves a newer queued account in actual %s broadcasts while its apply is deferred', async mode => {
+    vi.useFakeTimers();
+    const instance = targetInstance(mode);
+    const desiredB = accountChange(instance.provider, 'b');
+    const desiredC = accountChange(instance.provider, 'c');
+    let finish!: () => void;
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const adapter = makeAdapter();
+    if (mode === 'in-place') {
+      (adapter as unknown as { applyLiveSessionConfig(): Promise<void> }).applyLiveSessionConfig = vi.fn(() => held);
+    } else {
+      vi.mocked(adapter.sendInput).mockImplementation(() => held);
+    }
+    const h = makeHarness(instance, [adapter], mode === 'in-place' ? { getAdapter: () => adapter } : {});
+    const runtimeDeps = (h.reconciler as unknown as { deps: RuntimeReconcilerDeps }).deps;
+    const state = new InstanceStateManager();
+    state.setInstance(instance);
+    const updates: BatchUpdatePayload['updates'] = [];
+    state.on('batch-update', (batch: BatchUpdatePayload) => updates.push(...batch.updates));
+    runtimeDeps.queueUpdate = state.queueUpdate.bind(state);
+    const queue = new DesiredRuntimeQueue({
+      getInstance: () => instance, isAdapterOnLoan,
+      applyChange: (id, desired) => h.reconciler.applyRuntimeChange(id, desired),
+      publishPendingState: current => state.queueUpdate(current.id, current.status, current.contextUsage,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        { desiredRuntime: current.desiredRuntime ?? null }),
+      notifyApplyFailure: vi.fn(),
+    });
+    runtimeDeps.transitionState = (current, status) => { current.status = status; queue.onSettled(current); };
+    const unsubscribe = onAdapterLoanReleased(id => queue.onAdapterLoanReleased(id));
+    let loan: AdapterLoan | undefined;
+    if (mode === 'in-place') {
+      runtimeDeps.emitRuntimeChanged = () => { instance.status = 'busy'; queue.onSettled(instance); };
+    }
+    const first = queue.requestChange(instance.id, desiredB);
+    await vi.advanceTimersByTimeAsync(0);
+    let newerSettled = false;
+    const newer = queue.requestChange(instance.id, desiredC).catch(error => error).then(result => { newerSettled = true; return result; });
+    await vi.advanceTimersByTimeAsync(200);
+    expect(updates.at(-1)?.desiredRuntime).toEqual(desiredC);
+    const loop = mode === 'respawn'
+      ? waitForRuntimeChange(instance.id).then(() => { loan = beginAdapterLoan(instance.id, 'example-next-iteration'); })
+      : Promise.resolve();
+    finish();
+    await first;
+    await loop;
+    await vi.advanceTimersByTimeAsync(200);
+    try {
+      expect(instance.accountProfileId).toBe('b');
+      expect(instance.desiredRuntime).toEqual(desiredC);
+      expect(newerSettled).toBe(false);
+      expect(mode === 'respawn' ? isAdapterOnLoan(instance.id) : instance.status === 'busy').toBe(true);
+      expect(updates.at(-1)?.desiredRuntime).toEqual(desiredC);
+      // Status-only updates must preserve the producer's authoritative pending state.
+      state.queueUpdate(instance.id, instance.status, instance.contextUsage);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(updates.at(-1)?.desiredRuntime).toBeUndefined();
+      expect(updates.at(-2)?.desiredRuntime).toEqual(desiredC);
+    } finally {
+      await queue.requestChange(instance.id, desiredB);
+      await newer;
+      unsubscribe();
+      endAdapterLoan(loan);
+      state.destroy();
+    }
+  });
+
+  it.each(['respawn', 'in-place'] as const)('still clears the %s producer broadcast for a direct handoff with no pending runtime', async mode => {
+    const instance = targetInstance(mode);
+    const adapter = makeAdapter();
+    if (mode === 'in-place') {
+      (adapter as unknown as { applyLiveSessionConfig(): Promise<void> }).applyLiveSessionConfig = vi.fn().mockResolvedValue(undefined);
+    }
+    const h = makeHarness(instance, [adapter], mode === 'in-place' ? { getAdapter: () => adapter } : {});
+    const runtimeDeps = (h.reconciler as unknown as { deps: RuntimeReconcilerDeps }).deps;
+    await h.reconciler.applyRuntimeChange(instance.id, accountChange(instance.provider, 'b'));
+    expect(instance.accountProfileId).toBe('b');
+    expect(instance.desiredRuntime).toBeUndefined();
+    expect(vi.mocked(runtimeDeps.queueUpdate).mock.calls.at(-1)?.[11]).toEqual({ provider: instance.provider, desiredRuntime: null });
   });
 });
 

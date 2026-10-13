@@ -236,11 +236,13 @@ export function createSessionDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
      */
     restoreHistory: (
       entryId: string,
-      workingDirectory?: string
+      workingDirectory?: string,
+      accountProfileId?: string,
     ): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.HISTORY_RESTORE, {
         entryId,
-        workingDirectory
+        workingDirectory,
+        ...(accountProfileId ? { accountProfileId } : {}),
       });
     },
 

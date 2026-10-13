@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 1186,
+    "channelCount": 1187,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -5905,34 +5905,39 @@
         "line": 1579
       },
       {
+        "name": "PROVIDER_ACCOUNT_QUOTA_SESSION",
+        "value": "provider-account:quota-session",
+        "line": 1581
+      },
+      {
         "name": "PROVIDER_ACCOUNT_POOL_READ",
         "value": "provider-account:pool-read",
-        "line": 1581
+        "line": 1583
       },
       {
         "name": "PROVIDER_ACCOUNT_POOL_UPDATE",
         "value": "provider-account:pool-update",
-        "line": 1583
+        "line": 1585
       },
       {
         "name": "PROVIDER_ACCOUNT_ACKNOWLEDGE_OWNERSHIP",
         "value": "provider-account:acknowledge-ownership",
-        "line": 1585
+        "line": 1587
       },
       {
         "name": "PROVIDER_ACCOUNT_DOCTOR",
         "value": "provider-account:doctor",
-        "line": 1587
+        "line": 1589
       },
       {
         "name": "PROVIDER_ACCOUNT_RESOLVE_PREVIEW",
         "value": "provider-account:resolve-preview",
-        "line": 1589
+        "line": 1591
       },
       {
         "name": "PROVIDER_ACCOUNT_SWITCH_SESSION",
         "value": "provider-account:switch-session",
-        "line": 1591
+        "line": 1593
       }
     ]
   },
@@ -6027,7 +6032,7 @@
     },
     {
       "path": "resources/browser-extension/background.js",
-      "lines": 5733
+      "lines": 5740
     },
     {
       "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
@@ -6067,7 +6072,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3639
+      "lines": 3633
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
@@ -6095,7 +6100,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 2994
+      "lines": 3005
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -6263,7 +6268,7 @@
     },
     {
       "path": "packages/contracts/src/types/transport.types.ts",
-      "lines": 1824
+      "lines": 1825
     },
     {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
@@ -6322,16 +6327,16 @@
       "lines": 1604
     },
     {
+      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
+      "lines": 1587
+    },
+    {
       "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
       "lines": 1585
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
       "lines": 1582
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1580
     },
     {
       "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
@@ -6406,6 +6411,10 @@
       "lines": 1402
     },
     {
+      "path": "src/renderer/app/features/instance-detail/history-preview-session.service.spec.ts",
+      "lines": 1398
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-10-cross-project-improvements_completed.md",
       "lines": 1394
     },
@@ -6462,6 +6471,10 @@
       "lines": 1319
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.yolo-mode.spec.ts",
+      "lines": 1317
+    },
+    {
       "path": "src/main/plugins/plugin-manager.ts",
       "lines": 1314
     },
@@ -6488,6 +6501,10 @@
     {
       "path": "src/main/instance/instance-context.ts",
       "lines": 1294
+    },
+    {
+      "path": "src/main/instance/lifecycle/runtime-reconciler.runtime-change.spec.ts",
+      "lines": 1292
     },
     {
       "path": "src/main/instance/__tests__/context-worker-client.spec.ts",
@@ -6538,6 +6555,10 @@
       "lines": 1250
     },
     {
+      "path": "src/main/instance/lifecycle/desired-runtime-queue.spec.ts",
+      "lines": 1248
+    },
+    {
       "path": "docs/fable_todo_completed.md",
       "lines": 1246
     },
@@ -6576,10 +6597,6 @@
     {
       "path": "src/main/orchestration/debate-coordinator.ts",
       "lines": 1220
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.yolo-mode.spec.ts",
-      "lines": 1217
     },
     {
       "path": "src/main/security/permission-manager.ts",
@@ -6818,6 +6835,10 @@
       "lines": 996
     },
     {
+      "path": "src/renderer/app/core/state/instance/instance-list.store.spec.ts",
+      "lines": 995
+    },
+    {
       "path": "src/main/context/context-compactor.ts",
       "lines": 991
     },
@@ -6896,10 +6917,6 @@
     {
       "path": "docs/superpowers/plans/2026-05-03-browser-gateway-first-milestone_completed.md",
       "lines": 958
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance-list.store.spec.ts",
-      "lines": 954
     },
     {
       "path": "docs/superpowers/plans/2026-07-11-harness-mobile-codex-redesign_completed.md",
@@ -7032,10 +7049,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-error-recovery-resilience.COMPLETED.md",
       "lines": 876
-    },
-    {
-      "path": "src/main/instance/lifecycle/runtime-reconciler.runtime-change.spec.ts",
-      "lines": 875
     },
     {
       "path": "src/main/instance/lifecycle/__tests__/interrupt-respawn-handler.spec.ts",
@@ -7244,6 +7257,10 @@
     {
       "path": "docs/superpowers/specs/2026-07-08-desktop-computer-use-gateway-design_completed.md",
       "lines": 809
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/composer-toolbar.component.spec.ts",
+      "lines": 808
     },
     {
       "path": "src/worker-agent/provider-runtime-diagnostics.spec.ts",

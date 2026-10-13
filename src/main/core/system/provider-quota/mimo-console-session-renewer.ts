@@ -5,7 +5,7 @@
  * starts answering 401/403. The platform's own 401 body carries a `loginUrl`
  * pointing at Xiaomi account SSO
  * (`account.xiaomi.com/pass/serviceLogin?callback=<signed /sts link>`); hitting
- * it with the persistent Xiaomi SSO cookies already stored in Chrome re-mints
+ * it with Xiaomi SSO cookies from the selected usage login source re-mints
  * the console session without any credential entry (the account-host walk was
  * verified live 2026-09-25 — a walk of that chain restored quota access for
  * the same cookie values; the per-hop cookie scoping of platform hops is
@@ -18,8 +18,8 @@
  *  - Collects `Set-Cookie` values seen on `*.xiaomimimo.com` hops into the
  *    returned overlay so a rotated session can be used immediately — without
  *    ever writing anything back into Chrome's cookie store.
- *  - Cookie values are never logged or persisted; the overlay lives in the
- *    probe's memory only.
+ *  - This renewer never logs or persists cookie values. The caller may save
+ *    rotated cookies to its encrypted usage session after quota access succeeds.
  */
 
 import { getLogger } from '../../../logging/logger';
@@ -154,8 +154,8 @@ export class MimoConsoleSessionRenewer {
     try {
       const supplied = typeof ssoCookies === 'function' ? await ssoCookies() : ssoCookies;
       ssoCookieHeader = supplied || '';
-    } catch (err) {
-      logger.debug(`MiMo SSO cookie read failed: ${(err as Error).message}`);
+    } catch {
+      logger.debug('MiMo SSO cookie read failed.');
     }
 
     const setCookies = new Map<string, string>();
@@ -196,8 +196,8 @@ export class MimoConsoleSessionRenewer {
       }
       logger.warn('MiMo session renewal exceeded its redirect budget');
       return { attempted: true, completed: false, setCookies };
-    } catch (err) {
-      logger.debug(`MiMo session renewal failed: ${(err as Error).message}`);
+    } catch {
+      logger.debug('MiMo session renewal failed.');
       return { attempted: true, completed: false, setCookies };
     }
   }

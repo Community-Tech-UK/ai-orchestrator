@@ -94,7 +94,6 @@ import { ModelSelectionResolver } from './lifecycle/model-selection-resolver';
 import { InstanceSpawnPreflightChain } from './lifecycle/instance-spawn-preflight-chain';
 import { resolveExecutionLocation } from './lifecycle/execution-location-resolver';
 import { resolveFastMode } from './lifecycle/resolve-fast-mode';
-import { computeRuntimeDiff } from './lifecycle/runtime-reconciler-plan';
 import {
   removeInstanceBrowserToolsMode,
   setInstanceBrowserToolsMode,
@@ -1102,11 +1101,12 @@ export class InstanceLifecycleManager extends EventEmitter {
     // §4.G/B-series: proving a native resume can take seconds. Surface a
     // `resume-proof` waitReason for the duration so the user sees why the
     // session is "thinking" before it accepts input — but only when there is a
-    // session id to prove (otherwise this probe isn't a resume at all).
+    // session id to prove and no non-proof reason owned by another operation.
     const instance = this.deps.getInstance(instanceId);
     const proofSessionId = instance?.providerSessionId ?? instance?.sessionId;
     const isCrashRecovery = instance?.metadata?.['reason'] === 'crash-recovery';
-    const surfaceProof = !!instance && !!proofSessionId;
+    const surfaceProof = !!instance && !!proofSessionId
+      && (!instance.waitReason || instance.waitReason.kind === 'resume-proof');
     if (surfaceProof) {
       this.deps.queueUpdate(instanceId, instance!.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
         kind: 'resume-proof',
@@ -1116,6 +1116,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         deadlineAt: Date.now() + timeoutMs,
       });
     }
+    const ownedProof = instance?.waitReason;
     try {
       const verdict = await this.runtimeReadiness.evaluateResumeHealth(instanceId, timeoutMs, pollIntervalMs);
       if (verdict === 'unrecoverable') {
@@ -1137,7 +1138,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         // Clear the resume-proof reason; the caller (respawn) sets its own next
         // reason or the instance settles to ready/idle which clears it anyway.
         const cur = this.deps.getInstance(instanceId);
-        if (cur) {
+        if (cur && cur === instance && cur.waitReason === ownedProof) {
           this.deps.queueUpdate(instanceId, cur.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, null);
         }
       }
@@ -1208,6 +1209,7 @@ export class InstanceLifecycleManager extends EventEmitter {
   private async loadPromptHierarchy(workDir: string, provider?: string): Promise<string[]> {
     const resolved = await resolveInstructionStack({
       workingDirectory: workDir,
+      discovery: 'applicable',
     });
     const resolution = omitNativeOwnedInstructionStack(
       resolved,
@@ -3245,20 +3247,12 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
   }
 
   /**
-   * Clear only the `yoloMode` key of a queued desired runtime, preserving any
-   * other still-queued field; drops the whole object when nothing else would
-   * still change.
+   * Delegate forced/satisfied YOLO cleanup to the queue, which owns remainder
+   * publication and account completion. Active writes postpone cleanup until
+   * their provisional stamps are settled; other queued fields remain owned.
    */
   private clearQueuedYoloKey(instance: Instance): void {
-    const queued = instance.desiredRuntime;
-    if (!queued || queued.yoloMode === undefined) {
-      return;
-    }
-    const { yoloMode: _cleared, ...rest } = queued;
-    const remainder = { ...rest, provider: queued.provider };
-    instance.desiredRuntime = computeRuntimeDiff(instance, remainder).hasChanges
-      ? remainder
-      : undefined;
+    this.desiredRuntimeQueue.clearQueuedYoloKey(instance);
   }
 
   /**

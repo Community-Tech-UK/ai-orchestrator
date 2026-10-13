@@ -145,6 +145,7 @@ Legend: ✅ Implemented · ⚠️ Partial · ❌ Not supported · 🔲 Untested
 | Stale-process detection | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Resume after restart | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | 🔲 |
 | Failover to alternate provider | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Account pools (multi-account failover) | ✅ | ❌ | ❌ | ✅ | ❌ (own seats) | ❌ | ❌ | ✅ | ❌ |
 
 ## MCP / Tooling
 
@@ -178,7 +179,22 @@ Legend: ✅ Implemented · ⚠️ Partial · ❌ Not supported · 🔲 Untested
   (`/api/v1/tokenPlan/usage` + `/detail`) through the console session cookies in Chrome
   (the Token Plan key is refused with 401): `MimoTokenPlanProbe`, gated on the
   configured model being `xiaomi-token-plan-*`, with token-usage-monitor's `mimo` state
-  key as the fallback source. It needs a live Chrome console session. OpenCode retries
+  key as the fallback source. It needs a live Chrome console session. Multiple MiMo
+  subscriptions run through the account pool (plan 2026-10-10): each account is one
+  OpenCode provider name (`aio-mimo-<profileId>`, defined at spawn through
+  `OPENCODE_CONFIG_CONTENT` with model metadata copied from the built-in
+  `xiaomi-token-plan-<region>` provider at run time), keys live in OpenCode's own key
+  store. Settings generates a complete sign-in command that temporarily registers
+  the custom provider with OpenCode's login catalog before opening the key prompt;
+  a bare `opencode auth login -p aio-mimo-<account>` is insufficient for a new account.
+  Each account can name a Chrome profile for its own allowance read; an added account
+  without an association exposes no allowance figures. Plan/monthly allowance and
+  compensation feed selection. MiMo admission applies only to logical MiMo models,
+  so unrelated OpenCode backends do not depend on MiMo sign-in. Usage limits surface as MiMo's 429 / plan-quota 4xx
+  texts (0.1 probe: `Internal error: <provider message>` after OpenCode's bounded
+  retries), and a limit moves the conversation to the next account — in place on a
+  running OpenCode session (one shared session store), via the respawn handoff
+  otherwise. OpenCode retries
   rate limits silently inside the turn (no ACP
   notification), so AIO only sees the limit if OpenCode gives up; the ACP stall
   watchdog covers the quiet wait (rate-limit row ⚠️, live check pending). AIO's

@@ -117,16 +117,16 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
       }
 
       <!-- (c) Claude/Codex account — same switch as the header, next to the
-           picker so a restarted session can change accounts without scrolling. -->
-      @if (showAccountChip()) {
-        <app-provider-account-chip
-          mode="session"
-          [provider]="provider()"
-          [instanceId]="instanceId()"
-          [accountProfileId]="accountProfileId()"
-          [accountRoutingSource]="accountRoutingSource()"
-        />
-      }
+           picker. A history preview picks the account to continue on. -->
+      <app-provider-account-chip
+        [mode]="historyEntryId() ? 'continuation' : 'session'"
+        [provider]="provider()"
+        [instanceId]="historyEntryId() ? null : instanceId()"
+        [accountProfileId]="accountProfileId()"
+        [accountRoutingSource]="accountRoutingSource()"
+        [chosenProfileId]="continuationAccountId()"
+        (accountChosen)="onContinuationAccount($event)"
+      />
 
       <!-- (d) Queued change badge — a swap requested while busy applies on the
            next idle; clicking the ✕ cancels it. -->
@@ -440,8 +440,11 @@ export class ComposerToolbarComponent {
   });
 
   private readonly historyEntryId = computed(() => historyEntryIdFromPreview(this.instanceId()));
-  /** History preview is not a live instance; switching accounts would have nowhere to go. */
-  readonly showAccountChip = computed(() => !this.historyEntryId());
+  /** Explicit continuation account, or null to keep the account the thread was archived on. */
+  readonly continuationAccountId = computed(() => {
+    const entryId = this.historyEntryId();
+    return entryId ? this.historySessions.accountChoice(entryId) : null;
+  });
   readonly pickerSelection = computed<PendingSelection | null>(() => {
     const entryId = this.historyEntryId();
     return (entryId ? this.historySessions.selection(entryId) : null) ?? this.pendingSelection();
@@ -460,6 +463,13 @@ export class ComposerToolbarComponent {
       .find(model => model.id === selection.model)?.name
       ?? (selection.modelRuntimeTarget?.kind === 'local-model' ? selection.modelRuntimeTarget.modelId : null)
       ?? selection.model ?? 'the provider default';
+  }
+
+  onContinuationAccount(profileId: string | null): void {
+    const entryId = this.historyEntryId();
+    if (!entryId) return;
+    if (profileId) this.historySessions.chooseAccount(entryId, profileId);
+    else this.historySessions.clearAccountChoice(entryId);
   }
 
   async onPickerSelectionChange(sel: PendingSelection): Promise<void> {

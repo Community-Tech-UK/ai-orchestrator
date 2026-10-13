@@ -9,6 +9,7 @@ import {
   FileAttachmentSchema,
   RequiredModelIdSchema,
 } from './common.schemas';
+import { ProviderAccountProfileIdSchema } from './provider-account.schemas';
 export * from './session-admission.schemas';
 export * from './session-snapshot.schemas';
 export * from './session-recovery.schemas';
@@ -511,6 +512,8 @@ export const HistoryDeletePayloadSchema = z.object({
 export const HistoryRestorePayloadSchema = z.object({
   entryId: z.string().min(1).max(200),
   workingDirectory: WorkingDirectorySchema.optional(),
+  /** Continue on this account. A different account replays instead of native-resuming. */
+  accountProfileId: ProviderAccountProfileIdSchema.optional(),
 });
 
 export const HistoryTimeRangeSchema = z.object({

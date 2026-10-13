@@ -18,6 +18,7 @@ import {
 import {
   deriveBrowserTargetInspectionState,
   isOpaqueBrowserTarget,
+  isPageTextUnreadableReason,
 } from './browser-target-inspection';
 import { getLogger } from '../logging/logger';
 
@@ -279,6 +280,20 @@ async function evaluateLiveSession(
       ? { textUnavailableReason: snap.data.textUnavailableReason }
       : {}),
   });
+  // A host-permission or read failure is unreadable, so derive maps it to
+  // inspection_unavailable. Keep the specific reason: observation_blocked is
+  // the secret-taint / inspection-boundary outcome, and a restored tab is
+  // neither.
+  if (isPageTextUnreadableReason(snap.data.textUnavailableReason)) {
+    return {
+      state: 'unknown',
+      reason: snap.data.textUnavailableReason,
+      url,
+      title,
+      origin,
+      ...(recipe ? { recipe } : {}),
+    };
+  }
   if (isOpaqueBrowserTarget(inspection)) {
     return { state: 'unknown', reason: OBSERVATION_BLOCKED, url, title, origin, ...(recipe ? { recipe } : {}) };
   }

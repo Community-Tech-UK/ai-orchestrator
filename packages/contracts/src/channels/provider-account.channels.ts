@@ -23,6 +23,8 @@ export const PROVIDER_ACCOUNT_CHANNELS = {
   PROVIDER_ACCOUNT_VERIFY: 'provider-account:verify',
   /** Renderer → main: open a terminal signing in to one profile's home. */
   PROVIDER_ACCOUNT_LAUNCH_LOGIN: 'provider-account:launch-login',
+  /** Renderer → main: connect/disconnect a MiMo usage session (no credentials in IPC). */
+  PROVIDER_ACCOUNT_QUOTA_SESSION: 'provider-account:quota-session',
   /** Renderer → main: read both providers' pool policy. */
   PROVIDER_ACCOUNT_POOL_READ: 'provider-account:pool-read',
   /** Renderer → main: change a provider's pool policy. */

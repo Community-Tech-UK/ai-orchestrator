@@ -244,7 +244,7 @@ describe('MimoTokenPlanProbe', () => {
   });
 
   it('renews the console session through the platform SSO URL and re-pulls the quota', async () => {
-    const renewCalls: Array<{ url: string; sso: string }> = [];
+    const renewCalls: { url: string; sso: string }[] = [];
     const fetchSessions: MimoConsoleSession[] = [];
     let first = true;
     const probe = new MimoTokenPlanProbe({
@@ -355,5 +355,84 @@ describe('MimoTokenPlanProbe', () => {
 
     expect(snap!.ok).toBe(false);
     expect(snap!.error).toMatch(/no usage windows/i);
+  });
+
+  it('saves renewed cookies only after the retry returns parsed allowance data', async () => {
+    let persisted: MimoConsoleSession | undefined;
+    let calls = 0;
+    const probe = new MimoTokenPlanProbe({
+      isTokenPlanModel: () => true,
+      reader: {
+        read: async () => ({ session: SESSION }),
+        saveRenewed: async (session) => { persisted = session; },
+      },
+      fetchPlans: async () => ++calls === 1
+        ? { usage: { status: 401, body: { loginUrl: 'https://account.xiaomi.com/pass/serviceLogin' } }, detail: { status: 401, body: {} } }
+        : { usage: { status: 200, body: USAGE_BODY }, detail: { status: 200, body: DETAIL_BODY } },
+      renewer: { renew: async () => ({ attempted: true, completed: true, setCookies: new Map([['api-platform_serviceToken', 'placeholder-renewed'], ['unrelated-cookie', 'placeholder']]) }) },
+    });
+    const snapshot = await probe.probe({ signal: new AbortController().signal });
+    expect(snapshot?.ok).toBe(true);
+    expect(persisted?.cookieHeader).toContain('api-platform_serviceToken=placeholder-renewed');
+    expect(persisted?.cookieHeader).not.toContain('unrelated-cookie');
+  });
+
+  it('does not save renewed cookies when the retry has no valid allowance data', async () => {
+    let persisted = false;
+    let calls = 0;
+    const probe = new MimoTokenPlanProbe({
+      isTokenPlanModel: () => true,
+      reader: { read: async () => ({ session: SESSION }), saveRenewed: async () => { persisted = true; } },
+      fetchPlans: async () => ++calls === 1
+        ? { usage: { status: 401, body: { loginUrl: 'https://account.xiaomi.com/pass/serviceLogin' } }, detail: { status: 401, body: {} } }
+        : { usage: { status: 200, body: {} }, detail: { status: 200, body: DETAIL_BODY } },
+      renewer: { renew: async () => ({ attempted: true, completed: true, setCookies: new Map() }) },
+    });
+    const snapshot = await probe.probe({ signal: new AbortController().signal });
+    expect(snapshot?.needsReauth).toBe(true);
+    expect(persisted).toBe(false);
+  });
+
+  it('drops an in-flight response after its saved connection is disconnected', async () => {
+    let current = true;
+    const probe = new MimoTokenPlanProbe({
+      isTokenPlanModel: () => true,
+      reader: { read: async () => ({ session: SESSION }), isCurrent: () => current },
+      fetchPlans: async () => {
+        current = false;
+        return { usage: { status: 200, body: USAGE_BODY }, detail: { status: 200, body: DETAIL_BODY } };
+      },
+    });
+    expect(await probe.probe({ signal: new AbortController().signal })).toBeNull();
+  });
+
+  it('uses the saved-login guidance for a missing usage connection', async () => {
+    const probe = new MimoTokenPlanProbe({
+      isTokenPlanModel: () => true,
+      reader: { read: async () => ({ session: null, reason: 'not-found' }), reauthError: () => 'Choose Connect usage to sign in.' },
+      fetchPlans: okFetch(),
+    });
+    expect(await probe.probe({ signal: new AbortController().signal })).toMatchObject({
+      needsReauth: true, error: 'Choose Connect usage to sign in.', windows: [],
+    });
+  });
+
+  it('does not reveal request exception text in quota errors', async () => {
+    const probe = new MimoTokenPlanProbe({
+      isTokenPlanModel: () => true,
+      reader: readerReturning({ session: SESSION }).reader,
+      fetchPlans: async () => { throw new Error('https://account.xiaomi.com/?credential=placeholder-sensitive'); },
+    });
+    expect((await probe.probe({ signal: new AbortController().signal }))?.error).toBe('MiMo Token Plan request failed');
+  });
+
+  it('fails closed when session renewal throws', async () => {
+    const probe = new MimoTokenPlanProbe({
+      isTokenPlanModel: () => true,
+      reader: readerReturning({ session: SESSION }).reader,
+      fetchPlans: async () => ({ usage: { status: 401, body: { loginUrl: 'https://account.xiaomi.com/pass/serviceLogin' } }, detail: { status: 401, body: {} } }),
+      renewer: { renew: async () => { throw new Error('placeholder-sensitive'); } },
+    });
+    expect(await probe.probe({ signal: new AbortController().signal })).toMatchObject({ ok: false, needsReauth: true, windows: [] });
   });
 });

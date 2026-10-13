@@ -5,6 +5,7 @@ import {
   ProviderAccountProfileSchema,
   ProviderAccountProfilesSchema,
   ProviderAccountLaunchLoginPayloadSchema,
+  ProviderAccountQuotaSessionPayloadSchema,
   ProviderAccountRefPayloadSchema,
   ProviderAccountUpdatePayloadSchema,
 } from '../provider-account.schemas';
@@ -115,6 +116,21 @@ describe('ProviderAccountPoolsSchema', () => {
 });
 
 describe('IPC payloads', () => {
+  it('allows only safe MiMo usage-session connect and disconnect requests', () => {
+    const request = { provider: 'opencode', profileId: 'mimo-spare', action: 'connect' };
+    expect(ProviderAccountQuotaSessionPayloadSchema.safeParse(request).success).toBe(true);
+    expect(ProviderAccountQuotaSessionPayloadSchema.safeParse({ ...request, action: 'disconnect', ipcAuthToken: 'test-placeholder' }).success).toBe(true);
+    for (const patch of [
+      { provider: 'claude' },
+      { profileId: '../account' },
+      { action: 'read' },
+      { cookie: 'test-placeholder' },
+      { url: 'https://example.com' },
+    ]) {
+      expect(ProviderAccountQuotaSessionPayloadSchema.safeParse({ ...request, ...patch }).success).toBe(false);
+    }
+  });
+
   it('accept the preload auth token and reject paths or unknown fields', () => {
     expect(ProviderAccountCreatePayloadSchema.safeParse({ ipcAuthToken: 't', provider: 'claude', label: 'Max A' }).success).toBe(true);
     expect(ProviderAccountCreatePayloadSchema.safeParse({ provider: 'claude', label: 'Max A', home: '/x' }).success).toBe(false);

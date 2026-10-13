@@ -56,9 +56,13 @@ export class HistoryIpcService {
   /**
    * Restore a conversation from history as a new instance
    */
-  async restoreHistory(entryId: string, workingDirectory?: string): Promise<IpcResponse> {
+  async restoreHistory(
+    entryId: string,
+    workingDirectory?: string,
+    accountProfileId?: string,
+  ): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.restoreHistory(entryId, workingDirectory);
+    return this.api.restoreHistory(entryId, workingDirectory, accountProfileId);
   }
 
   async searchHistoryAdvanced(payload: {

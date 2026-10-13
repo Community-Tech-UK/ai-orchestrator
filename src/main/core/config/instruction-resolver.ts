@@ -1,10 +1,10 @@
 import * as fs from 'fs/promises';
-import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { execFile } from 'child_process';
 import { getLogger } from '../../logging/logger';
 import { interpolateConfigString } from './config-interpolation';
+import { collectApplicableAgentsFiles, collectMatchingFiles, isBroadDirectory } from './instruction-discovery';
 import {
   getInstructionTrustEvaluator,
   sha256OfContent,
@@ -20,32 +20,6 @@ import type {
 
 const logger = getLogger('InstructionResolver');
 
-const EXCLUDED_SCAN_DIRS = new Set([
-  '.git',
-  'node_modules',
-  'dist',
-  'build',
-  'release',
-  '.angular',
-  '.worktrees',
-  // macOS protected directories — scanning these triggers TCC permission prompts
-  'Documents',
-  'Desktop',
-  'Downloads',
-  'Movies',
-  'Music',
-  'Pictures',
-  'Library',
-  'Applications',
-  '.Trash',
-  // Linux common non-project directories
-  'snap',
-  // Volumes / mounts — avoid removable volume TCC prompts
-  'Volumes',
-  'mnt',
-  'media',
-]);
-
 interface InstructionSourceDescriptor {
   path: string;
   kind: InstructionSourceKind;
@@ -59,6 +33,8 @@ export interface ResolveInstructionStackParams {
   workingDirectory: string;
   contextPaths?: string[];
   customPaths?: string[];
+  /** Runtime loads only applicable sources; diagnostics keep the full inventory. */
+  discovery?: 'inventory' | 'applicable';
   /** WS12: injectable trust gate (tests); defaults to settings + pin store. */
   trustGate?: InstructionTrustGate;
 }
@@ -113,24 +89,6 @@ function matchGlob(value: string, pattern: string): boolean {
   return new RegExp(`^${escaped}$`).test(value);
 }
 
-/**
- * Returns true if the given directory is too broad to recursively scan for
- * instruction files.  The home directory and the filesystem root are never
- * real project roots — scanning them triggers macOS TCC permission prompts
- * (Documents, Desktop, removable volumes, etc.) and is extremely slow.
- */
-function isBroadDirectory(directory: string): boolean {
-  const resolved = path.resolve(directory);
-  const home = os.homedir();
-  // Filesystem root ('/' on unix, 'C:\' on Windows)
-  if (resolved === path.parse(resolved).root) return true;
-  // Home directory
-  if (resolved === home) return true;
-  // /Volumes on macOS (parent of all mount points)
-  if (resolved === '/Volumes') return true;
-  return false;
-}
-
 async function pathExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
@@ -138,53 +96,6 @@ async function pathExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-async function collectMatchingFiles(
-  directory: string,
-  predicate: (absolutePath: string) => boolean,
-): Promise<string[]> {
-  if (!(await pathExists(directory))) {
-    return [];
-  }
-
-  const results: string[] = [];
-  const queue = [directory];
-
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    let entries;
-    try {
-      entries = await fs.readdir(current, { withFileTypes: true });
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'EACCES' || code === 'EPERM') {
-        logger.debug('Skipping instruction scan directory', {
-          directory: current,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        continue;
-      }
-      throw error;
-    }
-
-    for (const entry of entries) {
-      const absolutePath = path.join(current, entry.name);
-
-      if (entry.isDirectory()) {
-        if (!EXCLUDED_SCAN_DIRS.has(entry.name)) {
-          queue.push(absolutePath);
-        }
-        continue;
-      }
-
-      if (entry.isFile() && predicate(absolutePath)) {
-        results.push(absolutePath);
-      }
-    }
-  }
-
-  return results.sort((a, b) => a.localeCompare(b));
 }
 
 function parseFrontmatter(content: string): Record<string, unknown> {
@@ -284,6 +195,8 @@ export async function findInstructionProjectRoot(workingDirectory: string): Prom
 async function discoverInstructionDescriptors(
   projectRoot: string,
   customPaths: string[],
+  applicableAnchors?: string[],
+  hasContextPaths = false,
 ): Promise<InstructionSourceDescriptor[]> {
   const homeDir = getHomeDir();
   const descriptors: InstructionSourceDescriptor[] = [];
@@ -356,12 +269,14 @@ async function discoverInstructionDescriptors(
   // is an actual project directory.  Broad directories (home, filesystem root)
   // would walk into macOS-protected folders and trigger TCC permission prompts.
   if (!isBroadDirectory(projectRoot)) {
-    const nestedAgentFiles = await collectMatchingFiles(
-      projectRoot,
-      (absolutePath) =>
-        path.basename(absolutePath) === 'AGENTS.md' &&
-        normalizePath(absolutePath) !== normalizePath(path.join(projectRoot, 'AGENTS.md')),
-    );
+    const nestedAgentFiles = applicableAnchors
+      ? await collectApplicableAgentsFiles(projectRoot, applicableAnchors)
+      : await collectMatchingFiles(
+        projectRoot,
+        (absolutePath) =>
+          path.basename(absolutePath) === 'AGENTS.md' &&
+          normalizePath(absolutePath) !== normalizePath(path.join(projectRoot, 'AGENTS.md')),
+      );
 
     for (const agentFile of nestedAgentFiles) {
       descriptors.push({
@@ -374,10 +289,14 @@ async function discoverInstructionDescriptors(
     }
 
     const copilotInstructionsDir = path.join(projectRoot, '.github', 'instructions');
-    const copilotInstructionFiles = await collectMatchingFiles(
-      copilotInstructionsDir,
-      (absolutePath) => absolutePath.endsWith('.instructions.md'),
-    );
+    // Without context paths these rules cannot apply; only diagnostics need
+    // to enumerate them as non-applied sources.
+    const copilotInstructionFiles = applicableAnchors && !hasContextPaths
+      ? []
+      : await collectMatchingFiles(
+        copilotInstructionsDir,
+        (absolutePath) => absolutePath.endsWith('.instructions.md'),
+      );
 
     for (const instructionsFile of copilotInstructionFiles) {
       const content = await fs.readFile(instructionsFile, 'utf-8');
@@ -483,7 +402,12 @@ export async function resolveInstructionStack(
   const projectRoot = await findInstructionProjectRoot(workingDirectory);
   const rawContextPaths = params.contextPaths ?? [];
   const anchors = collectContextAnchors(projectRoot, workingDirectory, rawContextPaths);
-  const descriptors = await discoverInstructionDescriptors(projectRoot, params.customPaths ?? []);
+  const descriptors = await discoverInstructionDescriptors(
+    projectRoot,
+    params.customPaths ?? [],
+    params.discovery === 'applicable' ? anchors : undefined,
+    rawContextPaths.length > 0,
+  );
 
   const sources: ResolvedInstructionSource[] = [];
 

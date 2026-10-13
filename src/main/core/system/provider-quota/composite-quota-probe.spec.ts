@@ -28,6 +28,10 @@ const STATE_JSON: ProviderQuotaSnapshot = {
 };
 
 describe('CompositeQuotaProbe', () => {
+  it('preserves connection identity so replacements invalidate legacy quota', () => {
+    const probe = new CompositeQuotaProbe({ ...nativeProbe(OK_NO_WINDOWS), quotaSource: 'saved:2' }, fallback(null));
+    expect(probe.quotaSource).toBe('saved:2');
+  });
   it('returns the native snapshot when it has windows (native wins)', async () => {
     const probe = new CompositeQuotaProbe(nativeProbe(OK_WITH_WINDOWS), fallback(STATE_JSON));
     const snap = await probe.probe({ signal: signal() });
@@ -89,7 +93,7 @@ describe('CompositeQuotaProbe', () => {
   });
 
   it('asks the monitor for the wrapped account profile, not the legacy provider key', async () => {
-    const calls: Array<[string, string | null | undefined]> = [];
+    const calls: [string, string | null | undefined][] = [];
     const nativeReauth: ProviderQuotaSnapshot = {
       provider: 'claude', takenAt: 1, source: 'admin-api', ok: false,
       error: 'expired', needsReauth: true, windows: [],

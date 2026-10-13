@@ -135,6 +135,11 @@ export class UpdateBatcherService {
       historyThreadId: update.historyThreadId ?? existing?.historyThreadId,
       // null clears waitReason; undefined preserves existing.
       waitReason: update.waitReason !== undefined ? update.waitReason : existing?.waitReason,
+      // Status-only IPC packets carry undefined; retain the last runtime update.
+      provider: update.provider ?? existing?.provider,
+      desiredRuntime: update.desiredRuntime !== undefined
+        ? update.desiredRuntime
+        : existing?.desiredRuntime,
       backgroundWork: update.backgroundWork !== undefined ? update.backgroundWork : existing?.backgroundWork,
       computerUseMode: update.computerUseMode !== undefined
         ? update.computerUseMode

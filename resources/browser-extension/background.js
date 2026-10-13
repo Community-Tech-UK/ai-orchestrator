@@ -3812,7 +3812,14 @@ async function buildTabPayloadLocked(tab, options = {}) {
     : secretTainted
       ? (secretTaintedOrigin ? secretTaintedOrigin + '/' : 'https://redacted.invalid/')
       : observedTab.url;
-  const inspectionState = inspectionUnavailable
+  // chrome.tabs still has the URL and title when scripting is refused (a tab
+  // restored at startup does this until it is reloaded). That is not a
+  // readable page. Keep the specific textUnavailableReason and the real
+  // URL/title; only the inspection state changes. Same two reasons as
+  // isPageTextUnreadableReason in browser-target-inspection.ts.
+  const pageUnreadable = page.textUnavailableReason === 'host_permission_denied'
+    || page.textUnavailableReason === 'page_text_read_failed';
+  const inspectionState = inspectionUnavailable || pageUnreadable
     ? 'inspection_unavailable'
     : secretTainted ? 'secret_tainted' : 'readable';
 

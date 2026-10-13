@@ -20,6 +20,7 @@ import {
   getNativeResumeSessionId,
   getOriginalSessionIdFromRestoreNotices,
   getProviderDisplayName,
+  resolveRestoreAccount,
   selectMessagesForRestore,
 } from './history-restore-helpers';
 import type { ResumeAttemptResult } from '../cli/adapters/base-cli-adapter.types';
@@ -82,6 +83,8 @@ export interface HistoryRestoreCoordinatorOptions {
   workingDirectory?: string;
   forkAs?: HistoryRestoreForkIds;
   forceFallback?: boolean;
+  /** Account to continue on. A different account replays instead of native-resuming. */
+  accountProfileId?: string;
 }
 
 export interface HistoryRestoreCoordinatorResult {
@@ -288,9 +291,12 @@ export class HistoryRestoreCoordinator {
     // with. Restoring it under the current default would send this
     // conversation's context through a different identity.
     const restoreCopilotProfileId = data.entry.copilotAccountProfileId;
-    // Account pools: only the native-resume attempt pins the profile.
-    const restoreAccountProfileId = data.entry.accountProfileId;
-    const nativeResumeSessionId = opts.forkAs || opts.forceFallback
+    const accountPlan = resolveRestoreAccount({
+      storedAccountProfileId: data.entry.accountProfileId,
+      requestedAccountProfileId: opts.accountProfileId,
+    });
+    const restoreAccountProfileId = accountPlan.nativeAccountProfileId;
+    const nativeResumeSessionId = opts.forkAs || opts.forceFallback || accountPlan.forceReplay
       ? undefined
       : getNativeResumeSessionId(data.entry);
     const restoreNodeId = data.entry.executionLocation?.type === 'remote'
@@ -388,6 +394,7 @@ export class HistoryRestoreCoordinator {
       nativeResumeSessionId,
       originalSessionId: data.entry.sessionId,
       storedMessages: data.messages,
+      explicitAccountProfileId: accountPlan.explicitAccountProfileId,
     }), data.messages);
   }
 
@@ -628,6 +635,7 @@ export class HistoryRestoreCoordinator {
     nativeResumeSessionId?: string;
     originalSessionId: string;
     storedMessages: OutputMessage[];
+    explicitAccountProfileId?: string;
   }): Promise<HistoryRestoreCoordinatorResult> {
     const { selected: displayMessages, hidden: hiddenMessages, truncatedCount } =
       selectMessagesForRestore(params.restoreTranscriptMessages, 100);
@@ -653,6 +661,7 @@ export class HistoryRestoreCoordinator {
       browserToolsMode: params.restoreBrowserToolsMode,
       hardened: params.restoreHardened,
       copilotAccountProfileId: params.restoreCopilotProfileId,
+      ...(params.explicitAccountProfileId ? { accountProfileId: params.explicitAccountProfileId } : {}),
       forceNodeId: fallbackNodeId,
     });
 

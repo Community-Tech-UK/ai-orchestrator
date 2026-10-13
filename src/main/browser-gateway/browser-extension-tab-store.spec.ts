@@ -329,4 +329,32 @@ describe('BrowserExtensionTabStore', () => {
       'existing-tab:n.node-1:7:42:target',
     ]);
   });
+
+  it('does not keep a host-permission failure as a readable target', () => {
+    const targetRegistry = new BrowserTargetRegistry();
+    const store = new BrowserExtensionTabStore({ targetRegistry, now: () => 1234 });
+
+    const attachment = store.attachTab({
+      tabId: 42,
+      windowId: 7,
+      url: 'https://www.lcn.com/login',
+      title: 'Login - LCN',
+      text: '',
+      inspectionState: 'readable',
+      textUnavailableReason: 'host_permission_denied',
+    });
+
+    expect(attachment.inspectionState).toBe('inspection_unavailable');
+    expect(attachment.url).toBe('https://www.lcn.com/login');
+    expect(attachment.title).toBe('Login - LCN');
+    expect(attachment.textUnavailableReason).toBe('host_permission_denied');
+    expect(targetRegistry.listTargets(attachment.profileId)).toEqual([
+      expect.objectContaining({
+        inspectionState: 'inspection_unavailable',
+        url: 'https://www.lcn.com/login',
+        title: 'Login - LCN',
+        textUnavailableReason: 'host_permission_denied',
+      }),
+    ]);
+  });
 });

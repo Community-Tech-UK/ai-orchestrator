@@ -64,6 +64,8 @@ function legacy(provider: 'claude' | 'codex'): ProviderAccountProfile {
 
 let state: { profiles: ProviderAccountProfile[]; pools: ReturnType<typeof defaultProviderAccountPools> };
 const requestRuntimeChange = vi.fn(async () => undefined);
+const quotaLogin = { connect: vi.fn(async () => undefined), disconnect: vi.fn(async () => undefined) };
+const usageSessions = { exists: vi.fn(() => false) };
 const token = { ipcAuthToken: 'renderer-token' };
 
 beforeEach(() => {
@@ -72,6 +74,9 @@ beforeEach(() => {
   copied.length = 0;
   previewRequests.length = 0;
   requestRuntimeChange.mockClear();
+  quotaLogin.connect.mockClear();
+  quotaLogin.disconnect.mockClear();
+  usageSessions.exists.mockReset().mockReturnValue(false);
   bindingState.state = 'authenticated';
   state = { profiles: [legacy('claude'), legacy('codex')], pools: defaultProviderAccountPools() };
   const store = new ProviderAccountStore({
@@ -86,6 +91,8 @@ beforeEach(() => {
     store,
     getInstances: () => [{ id: 'inst-1', provider: 'claude', status: 'idle', accountProfileId: 'max-b-ab12' }],
     requestRuntimeChange,
+    quotaLogin,
+    usageSessions,
   });
 });
 
@@ -94,6 +101,52 @@ async function call(channel: string, payload: unknown) {
 }
 
 describe('provider-account IPC handlers', () => {
+  it('opens a MiMo usage login through the separate account-scoped action without returning credentials', async () => {
+    const created = await call(IPC_CHANNELS.PROVIDER_ACCOUNT_CREATE, { ...token, provider: 'opencode', label: 'Work', region: 'ams' });
+    const id = (created.data as { id: string }).id;
+    const response = await call(IPC_CHANNELS.PROVIDER_ACCOUNT_QUOTA_SESSION, { ...token, provider: 'opencode', profileId: id, action: 'connect' });
+    expect(response).toMatchObject({ success: true, data: { opened: true } });
+    expect(quotaLogin.connect).toHaveBeenCalledWith(expect.objectContaining({ id, label: 'Work' }));
+    expect(copied).toEqual([]);
+    expect(launched).toEqual([]);
+    expect(JSON.stringify(response)).not.toMatch(/cookie|token|password/i);
+  });
+
+  it('disconnects usage and cleans up the saved session when removing a MiMo account', async () => {
+    await call(IPC_CHANNELS.PROVIDER_ACCOUNT_CREATE, { ...token, provider: 'opencode', label: 'Keep', region: 'ams' });
+    const created = await call(IPC_CHANNELS.PROVIDER_ACCOUNT_CREATE, { ...token, provider: 'opencode', label: 'Work', region: 'ams' });
+    const id = (created.data as { id: string }).id;
+    const response = await call(IPC_CHANNELS.PROVIDER_ACCOUNT_QUOTA_SESSION, { ...token, provider: 'opencode', profileId: id, action: 'disconnect' });
+    expect(response.success).toBe(true);
+    expect(quotaLogin.disconnect).toHaveBeenCalledWith(id);
+    expect(await call(IPC_CHANNELS.PROVIDER_ACCOUNT_REMOVE, { ...token, provider: 'opencode', profileId: id })).toMatchObject({ success: true });
+    expect(quotaLogin.disconnect).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects non-MiMo and missing accounts for usage login', async () => {
+    expect(await call(IPC_CHANNELS.PROVIDER_ACCOUNT_QUOTA_SESSION, { provider: 'claude', profileId: 'legacy', action: 'connect' })).toMatchObject({ success: false });
+    expect(await call(IPC_CHANNELS.PROVIDER_ACCOUNT_QUOTA_SESSION, { provider: 'opencode', profileId: 'missing', action: 'connect' })).toMatchObject({ success: false });
+    expect(quotaLogin.connect).not.toHaveBeenCalled();
+  });
+
+  it('rejects an untrusted sender before opening the Xiaomi login', async () => {
+    registerProviderAccountHandlers({
+      ensureTrustedSender: () => ({ success: false, error: { code: 'UNTRUSTED', message: 'Untrusted sender', timestamp: 1 } }),
+      quotaLogin, usageSessions,
+    });
+    expect(await call(IPC_CHANNELS.PROVIDER_ACCOUNT_QUOTA_SESSION, { provider: 'opencode', profileId: 'legacy', action: 'connect' }))
+      .toMatchObject({ success: false, error: { code: 'UNTRUSTED' } });
+    expect(quotaLogin.connect).not.toHaveBeenCalled();
+  });
+
+  it('reports saved login presence as metadata for MiMo accounts only', async () => {
+    await call(IPC_CHANNELS.PROVIDER_ACCOUNT_CREATE, { ...token, provider: 'opencode', label: 'Work', region: 'ams' });
+    usageSessions.exists.mockReturnValue(true);
+    const response = await call(IPC_CHANNELS.PROVIDER_ACCOUNT_LIST, {});
+    const profiles = (response.data as { profiles: Array<{ provider: string; quotaSessionConnected?: boolean }> }).profiles;
+    expect(profiles.filter((profile) => profile.provider === 'opencode').every((profile) => profile.quotaSessionConnected)).toBe(true);
+    expect(profiles.filter((profile) => profile.provider !== 'opencode').every((profile) => profile.quotaSessionConnected === undefined)).toBe(true);
+  });
   it('accepts the preload auth token and lists profiles with bindings and pools', async () => {
     const response = await call(IPC_CHANNELS.PROVIDER_ACCOUNT_LIST, { ...token });
     expect(response.success).toBe(true);

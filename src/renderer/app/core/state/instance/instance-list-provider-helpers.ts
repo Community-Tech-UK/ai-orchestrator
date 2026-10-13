@@ -1,11 +1,35 @@
 /**
- * Pure provider-inference helpers for instance deserialization.
+ * Pure provider-inference and account helpers for instance deserialization.
  *
  * Split out of instance-list.store.ts. Given a raw instance payload, infer the
  * provider from an explicit field, then from the model id / thread / session /
  * instance identifiers. Stateless — no store or signal access.
  */
 import type { Instance } from './instance.types';
+
+export function deserializeInstanceProvider(
+  data: Record<string, unknown>,
+): Pick<Instance, 'provider' | 'accountProfileId' | 'accountRoutingSource'> {
+  return {
+    provider: inferInstanceProvider(data),
+    accountProfileId:
+      typeof data['accountProfileId'] === 'string' && data['accountProfileId'].trim()
+        ? data['accountProfileId']
+        : undefined,
+    accountRoutingSource: isAccountRouteSource(data['accountRoutingSource'])
+      ? data['accountRoutingSource']
+      : undefined,
+  };
+}
+
+function isAccountRouteSource(value: unknown): value is NonNullable<Instance['accountRoutingSource']> {
+  return value === 'explicit'
+    || value === 'default'
+    || value === 'failover'
+    || value === 'persisted'
+    || value === 'legacy'
+    || value === 'preemptive';
+}
 
 export function inferInstanceProvider(data: Record<string, unknown>): Instance['provider'] {
   const explicitProvider = data['provider'];

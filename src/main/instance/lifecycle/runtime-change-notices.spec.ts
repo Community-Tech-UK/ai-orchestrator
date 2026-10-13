@@ -6,7 +6,10 @@
  * families asserted on a transcript line that could not appear.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
@@ -174,7 +177,7 @@ describe('announceRuntimeChangeSet (LT-030)', () => {
 
   it('never throws when a render fails — the change is already applied', async () => {
     const emitSystemNotice = vi.fn(() => { throw new Error('renderer detached'); });
-    const adapter = { sendInput: vi.fn(async () => {}) } as never;
+    const adapter = { sendInput: vi.fn(async () => undefined) } as never;
 
     await expect(announceRuntimeChangeSet({
       instance, adapter, emitSystemNotice,
@@ -197,7 +200,7 @@ describe('announceRuntimeChangeSet (LT-030)', () => {
   it('does not hang when the CLI never accepts the message', async () => {
     vi.useFakeTimers();
     const emitSystemNotice = vi.fn();
-    const adapter = { sendInput: vi.fn(() => new Promise<void>(() => {})) } as never;
+    const adapter = { sendInput: vi.fn(() => new Promise<void>(() => undefined)) } as never;
 
     const promise = announceRuntimeChangeSet({
       instance, adapter, emitSystemNotice, notices: [notice('MODEL', 'model-changed')],
@@ -206,5 +209,89 @@ describe('announceRuntimeChangeSet (LT-030)', () => {
     await vi.advanceTimersByTimeAsync(10_000);
     await expect(promise).resolves.toBeUndefined();
     vi.useRealTimers();
+  });
+
+  const workspaces: string[] = [];
+  afterEach(() => {
+    for (const dir of workspaces.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function workspace(): string {
+    const dir = mkdtempSync(path.join(tmpdir(), 'replay-notice-'));
+    workspaces.push(dir);
+    return dir;
+  }
+
+  function imageInstance(dir: string) {
+    return {
+      id: 'inst-1',
+      sessionId: 'session-1',
+      workingDirectory: dir,
+      outputBuffer: [{
+        id: 'u1',
+        type: 'user',
+        content: 'please suspend this user.',
+        timestamp: 1,
+        attachments: [{ name: 'who.png', type: 'image/png', size: 4, data: 'data:image/png;base64,AAAA' }],
+      }],
+    } as never;
+  }
+
+  it('sends the original image with the replay when the new provider accepts images', async () => {
+    const sent: unknown[][] = [];
+    const adapter = {
+      sendInput: vi.fn(async (...args: unknown[]) => { sent.push(args); }),
+      getCapabilities: () => ({ vision: true }),
+    };
+    await announceRuntimeChangeSet({
+      instance: imageInstance(workspace()),
+      adapter,
+      emitSystemNotice: vi.fn(),
+      notices: [notice('PROVIDER', 'provider-changed')],
+      preamble: 'replay preamble',
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(String(sent[0]?.[0])).toContain('please suspend this user.');
+    expect(String(sent[0]?.[0])).toContain('who.png');
+    expect(sent[0]?.[1]).toEqual([
+      { name: 'who.png', type: 'image/png', size: 4, data: 'data:image/png;base64,AAAA' },
+    ]);
+  });
+
+  it('saves the original image and points the replay at it when the provider refuses attachments', async () => {
+    const dir = workspace();
+    const sent: unknown[][] = [];
+    const adapter = { sendInput: vi.fn(async (...args: unknown[]) => { sent.push(args); }) };
+    await announceRuntimeChangeSet({
+      instance: imageInstance(dir),
+      adapter,
+      emitSystemNotice: vi.fn(),
+      notices: [notice('PROVIDER', 'provider-changed')],
+      preamble: 'replay preamble',
+    });
+
+    const body = String(sent[0]?.[0]);
+    expect(body).toContain('replay preamble');
+    expect(body).toContain('please suspend this user.');
+    expect(body).toContain(path.join(dir, '.claude-attachments', 'session-1', '1-who.png'));
+    expect(sent[0]?.[1]).toBeUndefined();
+  });
+
+  it('does not resend images on a notice that is not replaying the conversation', async () => {
+    const sent: unknown[][] = [];
+    const adapter = {
+      sendInput: vi.fn(async (...args: unknown[]) => { sent.push(args); }),
+      getCapabilities: () => ({ vision: true }),
+    };
+    await announceRuntimeChangeSet({
+      instance: imageInstance(workspace()),
+      adapter,
+      emitSystemNotice: vi.fn(),
+      notices: [notice('YOLO', 'yolo-mode-changed')],
+    });
+
+    expect(String(sent[0]?.[0])).toBe('YOLO');
+    expect(sent[0]?.[1]).toBeUndefined();
   });
 });

@@ -296,7 +296,7 @@ export class HistoryStore {
   /**
    * Restore a conversation as a new instance
    */
-  async restoreEntry(entryId: string, workingDirectory?: string): Promise<{
+  async restoreEntry(entryId: string, workingDirectory?: string, accountProfileId?: string): Promise<{
     success: boolean;
     instanceId?: string;
     restoredMessages?: unknown[];
@@ -306,7 +306,7 @@ export class HistoryStore {
     this.state.update(s => ({ ...s, loading: true }));
 
     try {
-      const response = await this.ipc.restoreHistory(entryId, workingDirectory) as {
+      const response = await this.ipc.restoreHistory(entryId, workingDirectory, accountProfileId) as {
         success: boolean;
         data?: {
           instanceId: string;

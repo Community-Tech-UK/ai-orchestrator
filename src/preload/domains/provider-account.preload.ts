@@ -70,6 +70,10 @@ export function createProviderAccountDomain(
         ...(options?.openTerminal ? { openTerminal: true } : {}),
       })),
 
+    /** Opens a separate Xiaomi sign-in window, or removes the saved usage session. */
+    manageProviderAccountQuotaSession: (profileId: string, action: 'connect' | 'disconnect'): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PROVIDER_ACCOUNT_QUOTA_SESSION, withAuth({ provider: 'opencode', profileId, action })),
+
     readProviderAccountPools: (): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PROVIDER_ACCOUNT_POOL_READ, withAuth({})),
 
