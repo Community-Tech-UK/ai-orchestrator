@@ -233,7 +233,7 @@ export class SettingsStore {
 
       const response = await this.settingsIpc.setSetting(key, value);
       if (!response.success) {
-        throw new Error('Failed to save setting');
+        throw new Error(response.error?.message || 'Failed to save setting');
       }
     } catch (error) {
       this._error.set((error as Error).message);

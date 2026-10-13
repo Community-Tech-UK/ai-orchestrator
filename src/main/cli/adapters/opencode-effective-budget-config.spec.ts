@@ -97,6 +97,37 @@ describe('private native OpenCode config probe', () => {
     await result;
     expect(mocks.jail).toHaveBeenCalledWith({ hardened: true, command: 'opencode', args: ['debug', 'config'], writableRoots: ['/tmp/granted'] });
   });
+  it('accepts native account effort variants, including unrelated models, without exposing their settings', async () => {
+    const result = readOpenCodeEffectiveBudgetConfig({ ...params, cliMajor: 2 });
+    proc.stdout.emit('data', Buffer.from(JSON.stringify([{ type: 'document', info: {
+      providers: { 'xiaomi-token-plan': { models: {
+        'mimo-v2.5': { variants: [{ id: 'high', settings: { reasoningEffort: 'high' } }] },
+        'mimo-v2.6-pro': { limit: { context: 1000000, output: 16384 }, variants: [
+          { id: 'low', settings: { reasoningEffort: 'low' } },
+          { id: 'medium', settings: { reasoningEffort: 'medium' } },
+          { id: 'high', settings: { reasoningEffort: 'high', private: 'LOCAL_PRIVATE_BODY_PLACEHOLDER' } },
+        ] },
+      } } },
+    } }])));
+    proc.emit('close', 0);
+    expect(await result).toEqual({ agent: {}, permission: {}, provider: { 'xiaomi-token-plan': { models: { 'mimo-v2.6-pro': {
+      limit: { context: 1000000, output: 16384 }, options: { max_completion_tokens: 16384 },
+      variants: { low: { max_completion_tokens: undefined }, medium: { max_completion_tokens: undefined }, high: { max_completion_tokens: undefined } },
+    } } } } });
+    expect(JSON.stringify(await result)).not.toContain('LOCAL_PRIVATE_BODY_PLACEHOLDER');
+    expect(JSON.stringify(await result)).not.toContain('reasoningEffort');
+  });
+  it('still refuses invalid variant caps through the private probe without leaking settings', async () => {
+    const result = readOpenCodeEffectiveBudgetConfig({ ...params, cliMajor: 2 });
+    const assertion = expect(result).rejects.toThrow(/^Unable to resolve OpenCode model limits safely; refusing to replace native configuration\.$/);
+    proc.stdout.emit('data', Buffer.from(JSON.stringify([{ type: 'document', info: {
+      providers: { 'xiaomi-token-plan': { models: { 'mimo-v2.6-pro': { variants: [
+        { id: 'high', settings: { maxTokens: 'LOCAL_PRIVATE_BODY_PLACEHOLDER' } },
+      ] } } } },
+    } }])));
+    proc.emit('close', 0);
+    await assertion;
+  });
   it.each(['invalid-json', 'exit', 'spawn', 'stream', 'oversized', 'timeout', 'jail'])('fails closed without leaking native output on %s', async (kind) => {
     if (kind === 'jail') mocks.jail.mockImplementation(() => { throw new Error('LOCAL_PRIVATE_CREDENTIAL_PLACEHOLDER'); });
     const result = readOpenCodeEffectiveBudgetConfig(params);

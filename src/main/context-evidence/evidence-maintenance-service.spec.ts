@@ -228,6 +228,8 @@ describe('EvidenceMaintenanceService', () => {
       updatedAt: 10,
     }));
     const { service, ledger } = harness([], 20);
+    vi.mocked(ledger.getEvidenceForMaintenance).mockImplementation(async (_conversationId, id) =>
+      rows.find((row) => row.id === id) ?? null);
     vi.mocked(ledger.listEvidenceForMaintenance).mockImplementation(async (query) => {
       const start = query.afterId
         ? rows.findIndex((row) => row.id === query.afterId) + 1
@@ -247,9 +249,9 @@ describe('EvidenceMaintenanceService', () => {
   it('passes a complete paginated reference set to finalized orphan cleanup', async () => {
     const { service, ledger, blobStore } = harness([], 20);
     const firstPage = Array.from({ length: 1_000 }, (_, index) => `ref-${index}`);
-    vi.mocked(ledger.listReferencedEvidenceBlobRefs)
-      .mockResolvedValueOnce(firstPage)
-      .mockResolvedValueOnce(['ref-final']);
+    vi.mocked(ledger.listEvidenceBlobReferenceScanPage)
+      .mockResolvedValueOnce({ blobRefs: firstPage, afterBlobRef: firstPage.at(-1), done: false })
+      .mockResolvedValueOnce({ blobRefs: ['ref-final'], done: true });
     vi.mocked(blobStore.cleanupOrphanFinalizedBlobs).mockResolvedValue(2);
 
     await expect(service.reconcileStartup()).resolves.toMatchObject({
@@ -263,6 +265,60 @@ describe('EvidenceMaintenanceService', () => {
     });
     expect(cleanupInput?.referencedBlobRefs.size).toBe(1_001);
     expect(cleanupInput?.referencedBlobRefs.has('ref-final')).toBe(true);
+  });
+
+  it('never deletes finalized orphans after an incomplete reference enumeration', async () => {
+    const { service, ledger, blobStore } = harness([], 20);
+    vi.mocked(ledger.listEvidenceBlobReferenceScanPage)
+      .mockResolvedValueOnce({ blobRefs: Array.from({ length: 1_000 }, (_, index) => `ref-${index}`), afterBlobRef: 'ref-999', done: false })
+      .mockRejectedValueOnce(new Error('fixture worker failed'));
+    await expect(service.reconcileStartup()).rejects.toThrow('fixture worker failed');
+    expect(blobStore.cleanupOrphanFinalizedBlobs).not.toHaveBeenCalled();
+  });
+
+  it('continues through empty live pages using the independent raw cursor', async () => {
+    const { service, ledger, blobStore } = harness([], 20);
+    vi.mocked(ledger.listEvidenceBlobReferenceScanPage)
+      .mockResolvedValueOnce({ blobRefs: [], afterBlobRef: 'placeholder/deleted-tail', done: false })
+      .mockResolvedValueOnce({ blobRefs: ['placeholder/live-tail'], done: true });
+    await service.reconcileStartup();
+    expect(ledger.listEvidenceBlobReferenceScanPage).toHaveBeenNthCalledWith(2, {
+      afterBlobRef: 'placeholder/deleted-tail', limit: 1000,
+    });
+    expect(vi.mocked(blobStore.cleanupOrphanFinalizedBlobs).mock.calls[0][0].referencedBlobRefs)
+      .toEqual(new Set(['placeholder/live-tail']));
+  });
+
+  it.each([undefined, 'placeholder/first'])(
+    'refuses finalized deletion when an unfinished page has no advancing cursor (%s)',
+    async (afterBlobRef) => {
+      const { service, ledger, blobStore } = harness([], 20);
+      vi.mocked(ledger.listEvidenceBlobReferenceScanPage)
+        .mockResolvedValueOnce({ blobRefs: [], afterBlobRef: 'placeholder/first', done: false })
+        .mockResolvedValueOnce({ blobRefs: [], afterBlobRef, done: false });
+      await expect(service.reconcileStartup()).rejects.toThrow('EVIDENCE_REFERENCE_SCAN_CURSOR_INVALID');
+      expect(blobStore.cleanupOrphanFinalizedBlobs).not.toHaveBeenCalled();
+    },
+  );
+
+  it('leaves a staging row unchanged when its metadata changed after enumeration', async () => {
+    const staged = record({ updatedAt: 1 });
+    const { service, ledger, blobStore } = harness([staged], EVIDENCE_STAGING_STALE_MS + 10);
+    vi.mocked(ledger.getEvidenceForMaintenance).mockResolvedValue({ ...staged, status: 'complete' });
+    await expect(service.reconcileStartup()).resolves.toMatchObject({ pending: 1, failed: 0 });
+    expect(ledger.failEvidence).not.toHaveBeenCalled();
+    expect(blobStore.read).not.toHaveBeenCalled();
+  });
+
+  it('cancels before cleanup when shutdown occurs during reference enumeration', async () => {
+    const { service, ledger, blobStore } = harness([], 20);
+    const controller = new AbortController();
+    vi.mocked(ledger.listEvidenceBlobReferenceScanPage).mockImplementation(async () => {
+      controller.abort();
+      return { blobRefs: [], done: true };
+    });
+    await expect(service.reconcileStartup(controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(blobStore.cleanupOrphanFinalizedBlobs).not.toHaveBeenCalled();
   });
 
   it('rotates one complete blob at a time after authenticating the old version', async () => {
@@ -325,8 +381,11 @@ function harness(records: EvidenceLedgerRecord[], now: number): {
   keyManager: { getActiveKey: ReturnType<typeof vi.fn> };
 } {
   const ledger: EvidenceMaintenanceLedger = {
+    getEvidenceForMaintenance: vi.fn(async (_conversationId, evidenceId) =>
+      records.find((row) => row.id === evidenceId) ?? null),
+    listReferencedEvidenceBlobRefsForCandidates: vi.fn(async () => []),
     listEvidenceForMaintenance: vi.fn(async () => records),
-    listReferencedEvidenceBlobRefs: vi.fn(async () => []),
+    listEvidenceBlobReferenceScanPage: vi.fn(async () => ({ blobRefs: [], done: true })),
     finalizeEvidence: vi.fn(async (input) => record({
       id: input.evidenceId,
       conversationId: input.conversationId,

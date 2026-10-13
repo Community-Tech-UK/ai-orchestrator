@@ -99,6 +99,15 @@ describe('packaged startup smoke helpers', () => {
       .toBe('pending');
   });
 
+  it.each([
+    'CONTEXT_EVIDENCE_RUNTIME_UNAVAILABLE',
+    'Context evidence initialization failed',
+    'Context-evidence IPC registered in unavailable mode',
+    'Window failed to load content',
+  ])('rejects %s even after the normal readiness log', (failure) => {
+    expect(classifyStartupLog(`Harness initialized\n${failure}\n`)).toBe('failed');
+  });
+
   it('keeps polling after the bootstrap process exits cleanly for a relaunch', () => {
     expect(getStartupPollDecision?.('pending', { code: 0, signal: null })).toBe('wait');
     expect(getStartupPollDecision?.('ready', { code: 0, signal: null })).toBe('ready');

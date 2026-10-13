@@ -8,11 +8,14 @@
  * to the worker's own provider silently.
  */
 
+import type { PlanQueueRouteChoice } from '@contracts/schemas/plan-queue';
+import { sameFamily } from '../../shared/models/model-family';
+import { sameProviderCheckerCanDiffer } from '../../shared/models/multi-maker-providers';
 import { detectAvailableClis } from '../cli/cli-detection';
 import { getLogger } from '../logging/logger';
-import { filterProvidersForAutomation } from '../providers/automation-provider-exclusions';
+import { filterProvidersForAutomation, isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
 import { normalizeAgenticReviewerCliList, normalizeReviewerCli } from '../orchestration/cross-model-review-service.constants';
-import { modelOverrideOptionFor, resolveCheckerPlan, type CheckerPlanDeps } from '../review/checker-plan';
+import { classifyCheckerScope, modelOverrideOptionFor, resolveCheckerPlan, type CheckerPlanDeps } from '../review/checker-plan';
 
 const logger = getLogger('PlanQueueVerifierSelect');
 
@@ -23,6 +26,8 @@ export interface VerifierChoice {
   provider: string;
   modelOverride?: string;
   copilotProfileId?: string;
+  /** Pool accounts the verifier may use (James's checker choice). */
+  accountProfileIds?: string[];
 }
 
 export type VerifierSelection =
@@ -33,10 +38,19 @@ export interface VerifierSelectInput {
   workerProvider: string;
   workerModel?: string | null;
   workingDirectory: string;
+  /** The run's checker choices, in order. Empty/absent = automatic selection. */
+  choices?: readonly PlanQueueRouteChoice[];
+  /**
+   * True when the choices are James's saved setting, which may replace the
+   * licence-pinned work Copilot seat in a protected folder. A per-run list
+   * (an agent's tool call) may not: there the seat still checks the work.
+   */
+  choicesOverrideLicence?: boolean;
 }
 
 export interface VerifierSelectDeps extends CheckerPlanDeps {
   listInstalledProviders?: () => Promise<string[]>;
+  isProviderExcluded?: (provider: string) => boolean;
 }
 
 async function installedProviders(): Promise<string[]> {
@@ -54,6 +68,12 @@ export async function selectPlanQueueVerifier(
     installed = normalizeAgenticReviewerCliList(await (deps.listInstalledProviders ?? installedProviders)());
   } catch (error) {
     return { ok: false, reason: `provider detection failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  if (input.choices?.length) {
+    const scope = input.choicesOverrideLicence ? null : classifyCheckerScope(input.workingDirectory, deps);
+    if (!scope || scope.kind === 'none') return selectFromChoices(input, worker, installed, deps);
+    // A protected (or unresolvable) work scope keeps its own rule below.
+    logger.info('Plan queue checker choices set aside: this run\'s list cannot override the work Copilot scope', { scope: scope.kind });
   }
   const eligible = filterProvidersForAutomation(installed, 'planQueueVerifier').filter((p) => p !== worker);
   const ordered = [
@@ -96,4 +116,64 @@ export async function selectPlanQueueVerifier(
       ...(candidate.copilotProfileId ? { copilotProfileId: candidate.copilotProfileId } : {}),
     },
   };
+}
+
+/**
+ * The run names its checkers: use the first one that can run. Honoured as
+ * given (in a protected work folder only when the list is James's saved
+ * choice), but never on the worker's own provider unless the models are from
+ * different families, and never on a provider since added to the "never
+ * auto-pick" list.
+ */
+function selectFromChoices(
+  input: VerifierSelectInput,
+  worker: string,
+  installed: readonly string[],
+  deps: VerifierSelectDeps,
+): VerifierSelection {
+  const isExcluded = deps.isProviderExcluded ?? isProviderExcludedFromAutomation;
+  const skipped: string[] = [];
+  for (const choice of input.choices ?? []) {
+    const provider = normalizeReviewerCli(choice.provider);
+    if (!installed.includes(provider)) { skipped.push(`${provider} is not installed`); continue; }
+    if (isExcluded(provider)) { skipped.push(`${provider} is on the "never auto-pick" list`); continue; }
+    // The same rule the run's start check applied (multi-maker-providers.ts), so a list accepted there is not skipped here.
+    if (provider === worker && !sameProviderCheckerCanDiffer(provider, choice.model, input.workerModel, (a, b) => !sameFamily(a, b))) {
+      skipped.push(`${provider} is the worker's provider and no different-family model was chosen`);
+      continue;
+    }
+    const model = choice.model
+      ? { modelOverride: choice.model }
+      : checkerModelFor(provider, input, worker, deps);
+    logger.info('Plan queue verifier selected from James\'s choices', { workerProvider: worker, provider, model: model.modelOverride ?? null });
+    return {
+      ok: true,
+      choice: {
+        provider,
+        ...model,
+        ...(choice.copilotProfileId ? { copilotProfileId: choice.copilotProfileId } : {}),
+        ...(choice.accountProfileIds?.length ? { accountProfileIds: [...choice.accountProfileIds] } : {}),
+      },
+    };
+  }
+  return { ok: false, reason: `none of the checkers chosen for this run can check it: ${skipped.join('; ')}` };
+}
+
+/** The configured checker model, re-modelled away from the worker's family where the provider can. */
+function checkerModelFor(
+  provider: string,
+  input: VerifierSelectInput,
+  worker: string,
+  deps: VerifierSelectDeps,
+): { modelOverride?: string } {
+  const plan = resolveCheckerPlan([provider], {
+    implementerProvider: worker,
+    ...(input.workerModel ? { implementerModel: input.workerModel } : {}),
+    workingDirectory: input.workingDirectory,
+    context: 'planQueueVerifier',
+  // Copilot keeps its real scope so a work seat gets one of its own models;
+  // other providers are James's choice and are only re-modelled for family.
+  }, provider === 'copilot' ? deps : { ...deps, classifyScope: () => ({ kind: 'none' }) });
+  const candidate = plan.candidates[0];
+  return candidate ? modelOverrideOptionFor(candidate) : {};
 }

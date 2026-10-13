@@ -50,6 +50,8 @@ import {
   type HarnessShutdownOperations,
 } from './process/harness-shutdown-operations';
 import { CLEANUP_TIMEOUT_MS } from './process/shutdown-timeouts';
+import { abortContextEvidenceMaintenance, stopContextEvidenceMaintenance } from './context-evidence/evidence-maintenance-service';
+import { createWindowAndStartEvidenceMaintenance } from './app/initialization-steps';
 
 // Register built-in provider adapters once at startup so the instance
 // manager (and future consumers) can look them up by ProviderName.
@@ -202,12 +204,16 @@ class HarnessApp {
     }
 
     // Create main window (this loads the renderer which may call IPC)
-    await this.windowManager.createMainWindow();
-
-    this.contextWorkerClient.signalAppReady();
-
-    logger.info('Harness initialized');
     const startupSmokeDirectory = getStartupSmokeDirectory({ isPackaged: app.isPackaged, env: process.env });
+    await createWindowAndStartEvidenceMaintenance(
+      () => this.windowManager.createMainWindow(),
+      () => {
+        this.contextWorkerClient.signalAppReady();
+        logger.info('Harness initialized');
+      },
+      Boolean(startupSmokeDirectory),
+    );
+
     if (startupSmokeDirectory) {
       fs.writeFileSync(
         path.join(startupSmokeDirectory, STARTUP_SMOKE_READY_MARKER),
@@ -250,11 +256,13 @@ class HarnessApp {
    * Inspired by Claude Code's writeSync()-first pattern in gracefulShutdown.ts.
    */
   cleanupSync(): void {
+    abortContextEvidenceMaintenance();
     this.contextWorkerClient.beginShutdown();
     this.shutdownOperations.cleanupSync();
   }
 
   async cleanup(): Promise<void> {
+    await stopContextEvidenceMaintenance();
     this.contextWorkerClient.beginShutdown();
     logger.info('Cleaning up');
 

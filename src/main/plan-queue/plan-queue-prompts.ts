@@ -17,6 +17,7 @@ export const TRIAGE_TOOL = 'plan_queue_report_triage';
 
 const RUNBOOK_RELATIVE = 'docs/plans/livetest-campaign-runbook.md';
 const MAX_DATA_CHARS = 12_000;
+const WORKER_EVIDENCE_CLEANUP_RULE = '- After the report, seal and command receipts are written, delete the runtime you created: database clusters, browser binaries, dependency installs, compile caches and copied source trees. Leave the report, the seal and the receipts. Do not copy a checkout or node_modules into the plan folder or into a directory outside the worktree.';
 
 /** Wrap untrusted text in a named delimiter, neutralising any closing tag inside it. */
 function dataBlock(tag: string, text: string): string {
@@ -75,6 +76,7 @@ export function buildWorkerPrompt(ctx: ItemPromptContext): string {
     'Rules:',
     ...documentRules(ctx),
     ...autonomyRules(),
+    WORKER_EVIDENCE_CLEANUP_RULE,
     '- Follow AGENTS.md in the repository. Read the plan, its linked spec and every file you change, with its callers and tests, before editing.',
     '- Run the targeted tests for what you changed and the repository\'s fast static checks (type-check and lint, as its AGENTS.md or README documents them). Do not run the full test suite; the verifier does that.',
     '- If the repository has generators whose output is committed (for example IPC or alias generators), run them so generated files are current in the worktree.',
@@ -93,6 +95,7 @@ function buildLivetestWorkerPrompt(ctx: ItemPromptContext, answer: string[]): st
     'Rules:',
     ...documentRules(ctx),
     ...autonomyRules(),
+    WORKER_EVIDENCE_CLEANUP_RULE,
     `- Read \`${path.join(ctx.repoRoot, RUNBOOK_RELATIVE)}\` in full first and follow it. Build and launch the dev app from your worktree.`,
     `- Isolate your dev app: set \`AIO_DEV_USER_DATA_PATH=${env.userDataPath}\` and use \`--remote-debugging-port=${env.debugPort}\`. Enable focus emulation before any DOM assertion.`,
     '- Record per-check evidence in the document as a new dated section. File every reproduced defect in the remediation register as the runbook describes.',
@@ -112,6 +115,8 @@ export function buildFixPrompt(round: number, maxRounds: number, findings: reado
     `An independent verifier failed your work (verification round ${round} of ${maxRounds}). Its findings follow as data.`,
     '',
     dataBlock('verifier_findings', rendered),
+    '',
+    WORKER_EVIDENCE_CLEANUP_RULE,
     '',
     'Task: fix every finding in your worktree, re-run the targeted checks, update the document\'s as-built notes, then stop. The same rules as before apply: no commits, no branch changes, no `_completed` rename.',
   ].join('\n');
@@ -188,6 +193,7 @@ export function buildVerifierPrompt(ctx: VerifierPromptContext): string {
     `- The document is \`${ctx.item.documentPath}\` in the root checkout \`${ctx.repoRoot}\`.`,
     `- The work is on branch \`${ctx.item.branchName ?? 'unknown'}\` in the worktree \`${ctx.worktreePath}\`. Review it with \`git diff $(git merge-base HEAD ${ctx.baseBranch})\` there.`,
     '- Do not edit, create or delete any tracked file, and do not commit. The coordinator compares the tree before and after your review and discards a verdict from a reviewer that changed it. Build output and caches that git ignores are fine.',
+    '- Do not leave a copy of the worktree, a database cluster, a browser install or a compile cache beside the plan.',
     '',
     'Judge against these criteria:',
     ...criteria,

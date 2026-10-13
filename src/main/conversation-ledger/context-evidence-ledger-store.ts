@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { EvidenceBlobReferenceStore } from './evidence-blob-reference-store';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type {
   ContextEvidenceEventInput,
@@ -15,6 +16,7 @@ import type {
   EvidenceLedgerRecord,
   EvidenceListQuery,
   EvidenceBlobReferenceQuery,
+  EvidenceBlobReferenceScanPage,
   EvidenceMaintenanceQuery,
   EvidenceMetadataSearchQuery,
   EvidenceBlobReplacementInput,
@@ -69,7 +71,11 @@ interface EvidenceCardRow {
 }
 
 export class ContextEvidenceLedgerStore {
-  constructor(private readonly db: SqliteDriver) {}
+  private readonly blobReferences: EvidenceBlobReferenceStore;
+
+  constructor(private readonly db: SqliteDriver) {
+    this.blobReferences = new EvidenceBlobReferenceStore(db);
+  }
 
   stageEvidence(input: EvidenceStageInput): EvidenceLedgerRecord {
     const id = input.id ?? randomUUID();
@@ -101,6 +107,12 @@ export class ContextEvidenceLedgerStore {
   finalizeEvidence(input: EvidenceFinalizeInput): EvidenceLedgerRecord {
     const existing = this.findEvidenceForMaintenance(input.conversationId, input.evidenceId);
     if (!existing) throw new Error('EVIDENCE_NOT_FOUND');
+    const guard = this.reconciliationGuard(input);
+    if (guard && (existing.status !== 'staging' || existing.updatedAt !== input.expectedUpdatedAt
+      || existing.blobRef !== input.expectedBlobRef
+      || !this.getEvidenceForMaintenance(input.conversationId, input.evidenceId))) {
+      throw new Error('EVIDENCE_RECONCILIATION_CHANGED');
+    }
     if (existing.status === 'complete') {
       if (existing.keyedContentId !== input.keyedContentId) {
         throw new Error('EVIDENCE_CAPTURE_KEY_CONTENT_CONFLICT');
@@ -110,15 +122,17 @@ export class ContextEvidenceLedgerStore {
     if (existing.status !== 'staging') throw new Error('EVIDENCE_FINALIZE_INVALID_STATE');
     this.assertPreparedIdentityCompatible(existing, input);
     const completedAt = input.completedAt ?? Date.now();
-    this.db.prepare(`
+    const result = this.db.prepare(`
       UPDATE evidence_records
       SET status = 'complete', blob_ref = ?, keyed_content_id = ?, byte_count = ?,
           token_estimate = ?, key_version = ?, completed_at = ?, updated_at = ?
-      WHERE id = ? AND conversation_id = ? AND status = 'staging'
+      WHERE id = ? AND conversation_id = ? AND status = 'staging' ${guard}
     `).run(
       input.blobRef, input.keyedContentId, input.byteCount, input.tokenEstimate ?? null,
       input.keyVersion, completedAt, completedAt, input.evidenceId, input.conversationId,
+      ...(guard ? [input.expectedUpdatedAt, input.expectedBlobRef] : []),
     );
+    if (result.changes !== 1) throw new Error('EVIDENCE_RECONCILIATION_CHANGED');
     return this.findEvidenceForMaintenance(input.conversationId, input.evidenceId)!;
   }
 
@@ -143,11 +157,15 @@ export class ContextEvidenceLedgerStore {
   failEvidence(input: EvidenceFailureInput): EvidenceLedgerRecord {
     const status = input.status ?? 'failed';
     const updatedAt = input.updatedAt ?? Date.now();
+    const guard = this.reconciliationGuard(input);
     const result = this.db.prepare(`
       UPDATE evidence_records SET status = ?, updated_at = ?
-      WHERE id = ? AND conversation_id = ? AND status IN ('staging', 'complete')
-    `).run(status, updatedAt, input.evidenceId, input.conversationId);
-    if (result.changes === 0) throw new Error('EVIDENCE_NOT_FOUND_OR_INVALID_STATE');
+      WHERE id = ? AND conversation_id = ?
+        AND ${guard ? "status = 'staging'" : "status IN ('staging', 'complete')"} ${guard}
+    `).run(status, updatedAt, input.evidenceId, input.conversationId,
+      ...(guard ? [input.expectedUpdatedAt, input.expectedBlobRef] : []));
+    if (result.changes === 0) throw new Error(guard
+      ? 'EVIDENCE_RECONCILIATION_CHANGED' : 'EVIDENCE_NOT_FOUND_OR_INVALID_STATE');
     return this.findEvidenceForMaintenance(input.conversationId, input.evidenceId)!;
   }
 
@@ -203,8 +221,8 @@ export class ContextEvidenceLedgerStore {
       throw new Error('EVIDENCE_MAINTENANCE_QUERY_INVALID');
     }
     if (query.afterUpdatedAt !== undefined && query.afterId !== undefined) {
-      where.push('(evidence_records.updated_at > ? OR (evidence_records.updated_at = ? AND evidence_records.id > ?))');
-      params.push(query.afterUpdatedAt, query.afterUpdatedAt, query.afterId);
+      where.push('(evidence_records.updated_at, evidence_records.id) > (?, ?)');
+      params.push(query.afterUpdatedAt, query.afterId);
     }
     const limit = Math.max(1, Math.min(query.limit, 1000));
     return this.db.prepare(`
@@ -216,32 +234,24 @@ export class ContextEvidenceLedgerStore {
   }
 
   listReferencedEvidenceBlobRefs(query: EvidenceBlobReferenceQuery): string[] {
-    const limit = Math.max(1, Math.min(query.limit, 1000));
-    const cursor = query.afterBlobRef;
-    return this.db.prepare(`
-      SELECT blob_ref FROM (
-        SELECT evidence_records.blob_ref AS blob_ref
-        FROM evidence_records
-        JOIN conversation_threads
-          ON conversation_threads.id = evidence_records.conversation_id
-        WHERE evidence_records.blob_ref IS NOT NULL
-          AND evidence_records.status <> 'deleted'
-          AND conversation_threads.deleted_at IS NULL
-        UNION
-        SELECT evidence_cards.blob_ref AS blob_ref
-        FROM evidence_cards
-        JOIN conversation_threads
-          ON conversation_threads.id = evidence_cards.conversation_id
-        WHERE evidence_cards.blob_ref IS NOT NULL
-          AND conversation_threads.deleted_at IS NULL
-        UNION
-        SELECT blob_ref FROM evidence_deletion_queue
-        WHERE completed_at IS NULL
-      ) AS referenced_blobs
-      WHERE (? IS NULL OR blob_ref > ?)
-      ORDER BY blob_ref ASC LIMIT ?
-    `).all<{ blob_ref: string }>(cursor ?? null, cursor ?? null, limit)
-      .map((row) => row.blob_ref);
+    return this.blobReferences.listReferencedEvidenceBlobRefs(query);
+  }
+
+  listEvidenceBlobReferenceScanPage(query: EvidenceBlobReferenceQuery): EvidenceBlobReferenceScanPage {
+    return this.blobReferences.listEvidenceBlobReferenceScanPage(query);
+  }
+
+  listReferencedEvidenceBlobRefsForCandidates(blobRefs: string[]): string[] {
+    return this.blobReferences.listReferencedEvidenceBlobRefsForCandidates(blobRefs);
+  }
+
+  getEvidenceForMaintenance(conversationId: string, evidenceId: string): EvidenceLedgerRecord | null {
+    const row = this.db.prepare(`SELECT evidence_records.* FROM evidence_records
+      JOIN conversation_threads ON conversation_threads.id = evidence_records.conversation_id
+      WHERE evidence_records.conversation_id = ? AND evidence_records.id = ?
+        AND conversation_threads.deleted_at IS NULL`)
+      .get<EvidenceRow>(conversationId, evidenceId);
+    return row ? evidenceRowToRecord(row) : null;
   }
 
   replaceEvidenceBlob(input: EvidenceBlobReplacementInput): boolean {
@@ -623,6 +633,17 @@ export class ContextEvidenceLedgerStore {
       SET last_error_code = ?, next_attempt_at = ?, claim_token = NULL, claimed_until = NULL
       WHERE id = ? AND claim_token = ? AND completed_at IS NULL
     `).run(errorCode, retryAt, id, claimToken).changes === 1;
+  }
+
+  private reconciliationGuard(input: EvidenceFailureInput | EvidenceFinalizeInput): string {
+    const conditional = input.expectedUpdatedAt !== undefined;
+    if (conditional !== (input.expectedBlobRef !== undefined)) {
+      throw new Error('EVIDENCE_RECONCILIATION_GUARD_INVALID');
+    }
+    return conditional ? `AND updated_at = ? AND blob_ref IS ? AND EXISTS (
+      SELECT 1 FROM conversation_threads WHERE conversation_threads.id = evidence_records.conversation_id
+        AND conversation_threads.deleted_at IS NULL
+    )` : '';
   }
 
   private assertPreparedIdentityCompatible(

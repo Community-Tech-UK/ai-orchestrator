@@ -40,15 +40,13 @@ import {
 } from './plan-queue-instance-tracker';
 import type { PlanQueueFlowHost, PlanQueueInstancePort, PlanQueueRoleRecord } from './plan-queue-host';
 import { PlanQueueItemFlow } from './plan-queue-item-flow';
-import {
-  buildRunSummaryMessage,
-  runToDto,
-} from './plan-queue-messages';
+import { buildRunSummaryMessage, runToDto, triageParkDetail } from './plan-queue-messages';
 import { buildTriagePrompt } from './plan-queue-prompts';
 import { reconcilePlanQueueWorktrees } from './plan-queue-reconciler';
 import { recoverPlanQueue } from './plan-queue-recovery';
 import { applyTriageRecords, PRE_START_STATES, reconcileWaitingDocuments } from './plan-queue-readiness';
 import type { PlanQueueRelaxation } from './plan-queue-relaxation';
+import { resolveRunRouting, routeQueueSpawn, type PlanQueueRoutingDeps, type PlanQueueRoutingOverride } from './plan-queue-routing';
 import { assertItemTransition, isTerminalItemState, itemHoldsWorktree, newPlanQueueItem } from './plan-queue-state';
 import type { PlanQueueStore } from './plan-queue-store';
 import { PlanQueueWorktreeService, type PlanQueueWorktreeCreator } from './plan-queue-worktree';
@@ -73,6 +71,8 @@ export interface PlanQueueCoordinatorDeps {
   /** 1-, 5- and 15-minute load averages. */
   loadAverage?: () => number[];
   relaxation?: PlanQueueRelaxation | null;
+  /** Saved routing and account lists; defaults to the settings manager. */
+  routing?: PlanQueueRoutingDeps;
   now?: () => number;
   newId?: () => string;
   /** Periodic re-check (load gate, missed events). `null` disables the timer. */
@@ -87,6 +87,8 @@ export interface StartRunInput {
   workspaceCwd?: string;
   glob?: string;
   config?: Partial<PlanQueueRunConfig>;
+  /** Per-run provider/account choices (`plan_queue_start`); else the saved choice. */
+  routing?: PlanQueueRoutingOverride;
 }
 
 export interface StartRunResult {
@@ -101,13 +103,12 @@ interface ResolvedDeps {
   selectVerifier: (input: VerifierSelectInput) => Promise<VerifierSelection>;
   loadAverage: () => number[];
   relaxation: PlanQueueRelaxation | null;
+  routing: PlanQueueRoutingDeps | undefined;
   now: () => number;
   newId: () => string;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
 export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowHost {
   private static instance: PlanQueueCoordinator | null = null;
@@ -120,6 +121,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   /** runId → triage instance id, or 'starting' while it spawns. */
   private readonly triageByRun = new Map<string, string>();
   private readonly triageAttempts = new Map<string, number>();
+  private readonly triageStartErrors = new Map<string, string>(); // why triage last failed to start
   private alerts: PlanQueueAlert[] = [];
   private pumping = false;
   private pumpAgain = false;
@@ -145,6 +147,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       selectVerifier: deps.selectVerifier ?? ((input) => selectPlanQueueVerifier(input)),
       loadAverage: deps.loadAverage ?? (() => os.loadavg()),
       relaxation: deps.relaxation ?? null,
+      routing: deps.routing,
       now: deps.now ?? Date.now,
       newId: deps.newId ?? randomUUID,
     };
@@ -195,7 +198,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     const inner = this.requireDeps().instances;
     const ready = (this.toolsReady ??= this.whenOrchestratorToolsListening());
     return {
-      createInstance: (config) => ready.then(() => inner.createInstance(config)),
+      createInstance: (config) => ready.then(() => inner.createInstance(routeQueueSpawn(config, (id) => this.store.getRun(id), this.requireDeps().routing?.isProviderExcluded))),
       sendInput: (instanceId, message, attachments, options) => inner.sendInput(instanceId, message, attachments, options),
       terminateInstance: (instanceId, graceful) => inner.terminateInstance(instanceId, graceful),
       getInstance: (instanceId) => inner.getInstance(instanceId),
@@ -279,7 +282,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     const baseBranch = await currentBranch(repoRoot);
     if (!baseBranch) throw new Error(`${repoRoot} is not on a branch; the queue lands work on the checked-out branch`);
 
-    const config: PlanQueueRunConfig = { ...DEFAULT_PLAN_QUEUE_CONFIG[input.kind], ...input.config, baseBranch };
+    // Fixed now, validated now: a choice the queue cannot honour refuses the run.
+    const routing = resolveRunRouting(parent, { ...input.routing, relaxExclusions: input.config?.relaxSettings === true, workspaceCwd: repoRoot }, deps.routing);
+    const config: PlanQueueRunConfig = { ...DEFAULT_PLAN_QUEUE_CONFIG[input.kind], ...input.config, baseBranch, routing };
     const documents = await discoverPlanQueueDocuments(repoRoot, input.kind, input.glob);
     // No await from here until the items are written: reading the owned set and
     // claiming documents is atomic on the main thread, so two concurrent starts
@@ -296,8 +301,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       status: 'running',
       config,
       relaxation: null,
-      workerProvider: parent.provider && parent.provider !== 'auto' ? parent.provider : null,
-      workerModel: parent.currentModel ?? null,
+      workerProvider: routing.worker?.provider ?? null,
+      workerModel: routing.worker?.model ?? null,
       startedAt: now,
       endedAt: null,
     };
@@ -331,9 +336,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     return store.listRuns(limit).map((run) => runToDto(run, store.listItems(run.id)));
   }
 
-  getAlerts(): PlanQueueAlert[] {
-    return [...this.alerts];
-  }
+  getAlerts(): PlanQueueAlert[] { return [...this.alerts]; }
 
   async refreshAlerts(): Promise<PlanQueueAlert[]> {
     const store = this.requireDeps().store;
@@ -507,7 +510,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (attempts >= MAX_TRIAGE_ATTEMPTS) {
       for (const item of undecided) this.transition(item, 'parked', {
         parkReason: 'worker-error', question: null,
-        detail: 'Triage could not classify this document after two attempts. No human decision or authority was inferred; resume to retry technical investigation.',
+        detail: triageParkDetail(this.triageStartErrors.get(run.id)),
       });
       return;
     }
@@ -525,10 +528,12 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       metadata: { planQueueRunId: run.id, planQueueRole: 'triage' },
     }).then((instance) => {
       this.triageByRun.set(run.id, instance.id);
+      this.triageStartErrors.delete(run.id);
       this.registerRole(instance.id, { role: 'triage', runId: run.id });
       this.tracker.track(instance.id);
     }).catch((error: unknown) => {
       logger.warn('Plan queue: triage failed to start', { runId: run.id, error: errorMessage(error) });
+      this.triageStartErrors.set(run.id, errorMessage(error));
       this.triageByRun.delete(run.id);
       this.requestPump();
     });
@@ -584,6 +589,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (triage && triage !== 'starting') this.requireFlow().retireInstance(triage);
     this.triageByRun.delete(run.id);
     this.triageAttempts.delete(run.id);
+    this.triageStartErrors.delete(run.id);
     const ended = this.releaseRelaxation({ ...run, status, endedAt: this.requireDeps().now() });
     this.saveRun(ended);
     this.notifyParent(ended, buildRunSummaryMessage(ended, this.requireDeps().store.listItems(run.id)));
@@ -676,18 +682,11 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     logger.error('Plan queue item step failed', error instanceof Error ? error : undefined, { itemId: item.id });
   }
 
-  private announce(event: PlanQueueStateChangedEvent): void {
-    this.emit('state-changed', event);
-  }
+  private announce(event: PlanQueueStateChangedEvent): void { this.emit('state-changed', event); }
 
-  private requireDeps(): ResolvedDeps {
-    if (!this.deps) throw new Error('PlanQueueCoordinator has not been initialized');
-    return this.deps;
-  }
+  private requireDeps(): ResolvedDeps { return this.require(this.deps); }
 
-  private requireFlow(): PlanQueueItemFlow {
-    return this.require(this.flow);
-  }
+  private requireFlow(): PlanQueueItemFlow { return this.require(this.flow); }
 
   private require<T>(value: T | null): T {
     if (value === null) throw new Error('PlanQueueCoordinator has not been initialized');

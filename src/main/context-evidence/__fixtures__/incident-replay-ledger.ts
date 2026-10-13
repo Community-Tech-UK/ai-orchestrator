@@ -16,6 +16,7 @@ import type {
   ConversationEvidenceDeletionResult,
   EvidenceAccessLogInput,
   EvidenceBlobReferenceQuery,
+  EvidenceBlobReferenceScanPage,
   EvidenceBlobReplacementInput,
   EvidenceCardListQuery,
   EvidenceCardMetadataInput,
@@ -99,6 +100,7 @@ export class InMemoryEvidenceLedger {
   }
 
   async finalizeEvidence(input: EvidenceFinalizeInput): Promise<EvidenceLedgerRecord> {
+    this.assertReconciliationGuard(input);
     const prepared = await this.prepareEvidenceBlob(input);
     const completed: EvidenceLedgerRecord = {
       ...prepared,
@@ -111,6 +113,7 @@ export class InMemoryEvidenceLedger {
   }
 
   async failEvidence(input: EvidenceFailureInput): Promise<EvidenceLedgerRecord> {
+    this.assertReconciliationGuard(input);
     const record = this.requireRecord(input.evidenceId, input.conversationId);
     const updated: EvidenceLedgerRecord = {
       ...record,
@@ -197,21 +200,55 @@ export class InMemoryEvidenceLedger {
     const rows = [...this.records.values()]
       .filter((record) => statuses.has(record.status))
       .filter((record) => query.keyVersionNot === undefined || record.keyVersion !== query.keyVersionNot)
-      .filter((record) => query.updatedBefore === undefined || record.updatedAt < query.updatedBefore)
+      .filter((record) => query.updatedBefore === undefined || record.updatedAt <= query.updatedBefore)
+      .filter((record) => !this.deletedConversations.has(record.conversationId))
       .filter((record) => !isBeforeCursor(record, query.afterUpdatedAt, query.afterId))
       .sort((left, right) => left.updatedAt - right.updatedAt || left.id.localeCompare(right.id));
     return rows.slice(0, query.limit);
   }
 
   async listReferencedEvidenceBlobRefs(query: EvidenceBlobReferenceQuery): Promise<string[]> {
-    const refs = [...this.records.values()]
+    const records = [...this.records.values()]
       .filter((record) => record.status !== 'deleted' && record.blobRef !== null)
-      .map((record) => record.blobRef!)
-      .sort();
-    const startIndex = query.afterBlobRef
-      ? refs.findIndex((ref) => ref > query.afterBlobRef!)
-      : 0;
-    return refs.slice(Math.max(0, startIndex), Math.max(0, startIndex) + query.limit);
+      .filter((record) => !this.deletedConversations.has(record.conversationId))
+      .map((record) => record.blobRef!);
+    const cards = [...this.cards.values()]
+      .filter((card) => card.blobRef && !this.deletedConversations.has(card.conversationId))
+      .map((card) => card.blobRef!);
+    const deletions = [...this.deletionQueue.values()]
+      .filter((row) => row.completedAt === null).map((row) => row.blobRef);
+    return [...new Set([...records, ...cards, ...deletions])].sort()
+      .filter((ref) => query.afterBlobRef === undefined || ref > query.afterBlobRef)
+      .slice(0, query.limit);
+  }
+
+  async getEvidenceForMaintenance(conversationId: string, evidenceId: string): Promise<EvidenceLedgerRecord | null> {
+    if (this.deletedConversations.has(conversationId)) return null;
+    return this.getEvidence(conversationId, evidenceId);
+  }
+
+  async listEvidenceBlobReferenceScanPage(query: EvidenceBlobReferenceQuery): Promise<EvidenceBlobReferenceScanPage> {
+    const rawRefs = [...new Set([
+      ...[...this.records.values()].filter(row => row.status !== 'deleted').map(row => row.blobRef),
+      ...[...this.cards.values()].map(row => row.blobRef),
+      ...[...this.deletionQueue.values()].filter(row => row.completedAt === null).map(row => row.blobRef),
+    ].filter((ref): ref is string => ref !== null))]
+      .sort((left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)))
+      .filter(ref => query.afterBlobRef === undefined
+        || Buffer.compare(Buffer.from(ref), Buffer.from(query.afterBlobRef)) > 0);
+    const candidates = rawRefs.slice(0, query.limit);
+    const blobRefs: string[] = [];
+    for (let start = 0; start < candidates.length; start += 100) {
+      blobRefs.push(...await this.listReferencedEvidenceBlobRefsForCandidates(candidates.slice(start, start + 100)));
+    }
+    return { blobRefs, afterBlobRef: candidates.at(-1), done: rawRefs.length <= query.limit };
+  }
+
+  async listReferencedEvidenceBlobRefsForCandidates(blobRefs: string[]): Promise<string[]> {
+    if (blobRefs.length > 100) throw new Error('EVIDENCE_BLOB_CANDIDATES_INVALID');
+    const wanted = new Set(blobRefs);
+    const refs = await this.listReferencedEvidenceBlobRefs({ limit: Number.MAX_SAFE_INTEGER });
+    return refs.filter((ref) => wanted.has(ref));
   }
 
   async replaceEvidenceBlob(input: EvidenceBlobReplacementInput): Promise<boolean> {
@@ -352,6 +389,15 @@ export class InMemoryEvidenceLedger {
       throw new Error('INCIDENT_REPLAY_LEDGER_RECORD_NOT_FOUND');
     }
     return record;
+  }
+
+  private assertReconciliationGuard(input: EvidenceFinalizeInput | EvidenceFailureInput): void {
+    if (input.expectedUpdatedAt === undefined) return;
+    const record = this.requireRecord(input.evidenceId, input.conversationId);
+    if (this.deletedConversations.has(input.conversationId) || record.status !== 'staging'
+      || record.updatedAt !== input.expectedUpdatedAt || record.blobRef !== input.expectedBlobRef) {
+      throw new Error('EVIDENCE_RECONCILIATION_CHANGED');
+    }
   }
 }
 

@@ -11,6 +11,7 @@ vi.mock('../../providers/account-pool/provider-account-routing-service', () => (
 import {
   AccountRoutingError,
   attachAccountRoute,
+  restoreAccountStamp,
   stampAccountRouteOnInstance,
 } from './account-route-preflight';
 import type { ProviderAccountRoutingService } from '../../providers/account-pool/provider-account-routing-service';
@@ -91,6 +92,21 @@ describe('attachAccountRoute', () => {
     const error = await attachAccountRoute('claude', {}, 'interactive', { routingService: service }).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(AccountRoutingError);
     expect(error).toMatchObject({ code: 'profile-unauthenticated', profileId: 'max-b', message: 'sign in' });
+  });
+
+  it('forwards the session\'s account fence to routing', async () => {
+    const route = { provider: 'claude' as const, profileId: 'max-c', source: 'default' as const, executionNodeId: 'local' };
+    const { service, resolveRouteForSpawn } = serviceReturning({ ok: true, route });
+    await attachAccountRoute('claude', {}, 'automation', { routingService: service, restrictTo: ['max-c'] });
+    expect(resolveRouteForSpawn).toHaveBeenCalledWith(expect.objectContaining({ origin: 'automation', restrictTo: ['max-c'] }));
+  });
+
+  it('restores the routing origin and account fence on wake, even without a stamped account', () => {
+    const instance: Record<string, unknown> = {};
+    restoreAccountStamp(instance as never, { accountRouteOrigin: 'automation', allowedAccountProfileIds: ['max-b'] });
+    expect(instance).toEqual({ accountRouteOrigin: 'automation', allowedAccountProfileIds: ['max-b'] });
+    restoreAccountStamp(instance as never, { accountProfileId: 'max-b', accountRoutingSource: 'default', accountSwitches: 1 });
+    expect(instance).toMatchObject({ accountProfileId: 'max-b', accountRoutingSource: 'default', accountSwitches: 1, accountRouteOrigin: 'automation' });
   });
 
   it('stamps first-class instance fields', () => {

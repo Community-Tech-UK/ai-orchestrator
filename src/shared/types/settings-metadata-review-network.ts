@@ -112,6 +112,14 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
     hidden: true,
   },
   {
+    key: 'planQueueRouting',
+    label: 'Plan Queue providers and accounts',
+    description: 'Which providers and accounts Plan Queue workers and checkers may use. Managed from the Plan Queue page. Set only from there — not changeable by agents.',
+    type: 'json',
+    category: 'review',
+    hidden: true,
+  },
+  {
     key: 'crossModelReviewLocalEnabled',
     label: 'Enable local reviewer',
     description: 'Run an additional review with the selected local model when one is available.',

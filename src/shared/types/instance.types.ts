@@ -13,7 +13,7 @@ import type {
   ContextInheritanceConfig,
 } from './supervision.types';
 import type { CopilotRouteSource } from './copilot-account.types';
-import type { AccountHandoffKind, AccountRouteSource } from './provider-account.types';
+import type { AccountHandoffKind, AccountInvocationOrigin, AccountRouteSource } from './provider-account.types';
 import type { ExecutionLocation, NodePlacementPrefs } from './worker-node.types';
 import type { InstanceRuntimeSummary, ModelRuntimeTarget } from './local-model-runtime.types';
 import { createDefaultContextInheritance } from './supervision.types';
@@ -564,6 +564,10 @@ export interface Instance {
   accountRoutingSource?: AccountRouteSource;
   /** Account switches performed on this session (failover/pre-emptive/explicit). */
   accountSwitches?: number;
+  /** Who account routing acts for; absent = `interactive`. Automatic work obeys account automation policies. */
+  accountRouteOrigin?: AccountInvocationOrigin;
+  /** Pool accounts this session may run on, including after failover; absent = any. */
+  allowedAccountProfileIds?: string[];
   /**
    * WS7 Phase B — ordered fallback providers this session may fail over to when
    * its recovery ladder exhausts on a provider-fault category. Empty/undefined
@@ -741,6 +745,9 @@ export interface InstanceCreateConfig {
   copilotConfirmProtectedOverride?: boolean;
   /** Explicit Claude/Codex account profile for this session (provider account pools). */
   accountProfileId?: string;
+  /** See `Instance.accountRouteOrigin` / `Instance.allowedAccountProfileIds`. */
+  accountRouteOrigin?: AccountInvocationOrigin;
+  allowedAccountProfileIds?: string[];
   /** WS7 Phase B — ordered fallback providers; undefined = seed from global `sessionFailoverProviders`. */
   failoverProviders?: string[];
 

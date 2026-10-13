@@ -534,7 +534,7 @@ describe('privileged settings CLI writability reporting', () => {
   });
 
   it('holds the operator-only anchor count the docs quote', () => {
-    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 23
+    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 24
     // anchors and enumerate them by group. History: the count reached 21 on
     // 2026-08-26 (`computerUseAutonomyLevel` took the Computer Use group from
     // five keys to six, after Copilot account routing added two on 2026-08-25,
@@ -549,12 +549,14 @@ describe('privileged settings CLI writability reporting', () => {
     // settings-control-policy.browser-secret-observation.spec.ts. On 2026-09-15
     // Claude/Codex account pools added `providerAccountProfiles` and
     // `providerAccountPools`, taking it to 23: they decide which subscription a
-    // conversation runs under, like the Copilot pair.
-    // Fail here if a 24th is added, or one is removed, without updating the
+    // conversation runs under, like the Copilot pair. On 2026-10-13
+    // `planQueueRouting` became the 24th: it decides which of those accounts
+    // unattended Plan Queue sessions may spend.
+    // Fail here if a 25th is added, or one is removed, without updating the
     // prose.
     const anchors = [...privilegedList().values()].filter((setting) => !setting.cliWritable);
 
-    expect(anchors).toHaveLength(23);
+    expect(anchors).toHaveLength(24);
   });
 
   it('refuses an operator-only key before parsing the supplied value', () => {

@@ -70,7 +70,7 @@ lands on the checked-out branch as one local squash commit (never pushed).
 
 | Tool | Args | Purpose |
 | --- | --- | --- |
-| `plan_queue_start` | `kind` (`plans`\|`livetests`), `glob?`, `worker_slots?`, `verification_slots?`, `max_rounds?`, `relax_settings?`, `verifier_gates?`, `post_merge_gate?` | Discover documents and start a run with the caller as parent. The gate lists default to this app's checklist; pass the target repository's own commands (or `[]`) elsewhere. Not available to queue-spawned sessions. |
+| `plan_queue_start` | `kind` (`plans`\|`livetests`), `glob?`, `worker_slots?`, `verification_slots?`, `max_rounds?`, `relax_settings?`, `verifier_gates?`, `post_merge_gate?`, `worker?`, `verifiers?` | Discover documents and start a run with the caller as parent. The gate lists default to this app's checklist; pass the target repository's own commands (or `[]`) elsewhere. `worker` and each `verifiers` entry are `{ provider, model?, account_ids?, copilot_account_id? }` and override, for this run only, James's saved choice on the Plan Queue page (`planQueueRouting`); without either, workers use the caller's provider and model, and its account when that account is allowed for automatic work, and checkers are picked automatically. Choices the queue may not use refuse the run: a provider on the never-auto-pick list, an account that is off or manual-only, a misspelt key, or checkers that all share the workers' provider without a model from a different maker. A per-run `verifiers` list is refused in a repository covered by a protected work Copilot rule; only James's saved choice can replace that seat. `verifiers: []` means automatic checker selection for that run, even when a saved list exists. Not available to queue-spawned sessions. |
 | `plan_queue_status` | `run_id?` | One run's items (state, round, question, park reason, findings), or recent runs plus reconciler alerts. |
 | `plan_queue_answer` | `item_id`, `option_id` | Record James's answer to a readiness or worker question. Parent session only. |
 | `plan_queue_control` | `action`, `run_id?`, `item_id?` | Pause, resume or cancel a run; skip, resume, land-anyway or discard an item. Parent session only, except the stranded-run rescue: once the parent session no longer exists, any session that the queue did not spawn may `cancel` the run or `discard-item` a parked item. Each affected item's detail and the log record which session did it. |
@@ -219,14 +219,15 @@ Because of that, the two surfaces have different write boundaries:
 The `CLI-Write` column (`cliWritable` under `--json`) answers "can this CLI
 change it". The `Policy` column reports the safe MCP tool tier instead, so a
 `read-only` policy does not imply the CLI is blocked. `CLI-Write: no` marks the
-23 operator-only authorization anchors: the six Computer Use policy keys, the
+24 operator-only authorization anchors: the six Computer Use policy keys, the
 four Microsoft Graph OAuth and calendar-allowlist keys, the context-evidence
 rollout mode, the three Local AI Guard fallback-policy and budget keys, the
 WS-B1 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
 automation-provider block-list (`providersExcludedFromAutomation`), the two GitHub
 Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`),
 the two account-pool keys (`providerAccountProfiles`,
-`providerAccountPools`, covering Claude, Codex and MiMo), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
+`providerAccountPools`, covering Claude, Codex and MiMo), the Plan Queue
+provider-and-account choice (`planQueueRouting`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
 `workspaceSecretsAllowAgentRequests`), and the post-fill observation lock
 (`browserSecretObservationProtectionEnabled`).
 Those are changed from the Settings UI by the operator, never by an agent.

@@ -2167,7 +2167,7 @@ describe('CodexCliAdapter', () => {
 
     it('treats the configured timeout as a total deadline and caps idle budgets by it', () => {
       const internals = (a: CodexCliAdapter) => a as unknown as {
-        resolveDeadlineMs(): number;
+        resolveDeadlineMs(): number | null;
         resolveTurnIdleTimeoutMs(): number;
         resolveNotificationIdleTimeoutMs(turnEstablished: boolean): number;
       };
@@ -2197,12 +2197,16 @@ describe('CodexCliAdapter', () => {
       expect(tiny.resolveNotificationIdleTimeoutMs(false)).toBe(30_000);
       expect(tiny.resolveNotificationIdleTimeoutMs(true)).toBe(30_000);
 
-      // Unset / invalid configs fall back to the built-in turn budget.
+      // Unset / invalid configs (every interactive session) have no total
+      // deadline — a long, still-productive turn must not be killed at 15
+      // minutes. Idle budgets stay at the built-in constants.
       const unset = internals(new CodexCliAdapter());
-      expect(unset.resolveDeadlineMs()).toBe(900_000);
+      expect(unset.resolveDeadlineMs()).toBeNull();
       expect(unset.resolveTurnIdleTimeoutMs()).toBe(900_000);
-      expect(internals(new CodexCliAdapter({ timeout: 0 })).resolveDeadlineMs()).toBe(900_000);
-      expect(internals(new CodexCliAdapter({ timeout: Number.NaN })).resolveDeadlineMs()).toBe(900_000);
+      expect(unset.resolveNotificationIdleTimeoutMs(false)).toBe(90_000);
+      expect(unset.resolveNotificationIdleTimeoutMs(true)).toBe(900_000);
+      expect(internals(new CodexCliAdapter({ timeout: 0 })).resolveDeadlineMs()).toBeNull();
+      expect(internals(new CodexCliAdapter({ timeout: Number.NaN })).resolveDeadlineMs()).toBeNull();
     });
   });
 

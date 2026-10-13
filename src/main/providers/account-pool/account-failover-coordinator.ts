@@ -482,10 +482,13 @@ export class AccountFailoverCoordinator {
         thresholdPct = null;
       }
     }
+    // A session fenced to certain accounts (Plan Queue) never moves outside them.
+    const fence = this.deps.getInstance(params.instanceId)?.allowedAccountProfileIds;
+    const outsideFence = fence?.length ? profiles.filter((profile) => !fence.includes(profile.id)).map((profile) => profile.id) : [];
     return selectAccount({
       profiles,
       origin,
-      exclude: [params.exhaustedProfileId],
+      exclude: [params.exhaustedProfileId, ...outsideFence],
       parkedProfileIds: parked,
       parkedSince,
       allowCredits: true,

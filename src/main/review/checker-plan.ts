@@ -126,7 +126,8 @@ export interface CheckerPlanDeps {
   isModelUnavailable?: (profileId: string | undefined, model: string) => boolean;
 }
 
-function classify(cwd: string | undefined, deps: CheckerPlanDeps): WorkspaceCopilotScope {
+/** The workspace's Copilot licence scope, as checker planning sees it. */
+export function classifyCheckerScope(cwd: string | undefined, deps: CheckerPlanDeps = {}): WorkspaceCopilotScope {
   if (deps.classifyScope) return deps.classifyScope(cwd);
   return getCopilotAccountRoutingService().classifyWorkspaceScope(cwd);
 }
@@ -238,7 +239,7 @@ export function resolveCheckerPlan(
 ): CheckerPlan {
   const resolveProviderModel = deps.resolveProviderModel ?? resolveReviewerModelOverride;
   const isUnavailable = deps.isModelUnavailable ?? isModelKnownUnavailable;
-  const scope = classify(ctx.workingDirectory, deps);
+  const scope = classifyCheckerScope(ctx.workingDirectory, deps);
 
   if (scope.kind === 'ambiguous' || scope.kind === 'indeterminate') {
     const blockedReason =

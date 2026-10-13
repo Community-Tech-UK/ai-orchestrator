@@ -1,3 +1,4 @@
+import { cleanupEvidenceFiles } from './evidence-blob-cleanup';
 import {
   createCipheriv,
   createDecipheriv,
@@ -37,7 +38,6 @@ const TAG_BYTES = 16;
 const MINIMUM_ENVELOPE_BYTES = HEADER_BYTES + NONCE_BYTES + TAG_BYTES;
 const STREAM_CHUNK_BYTES = 64 * 1024;
 const BLOB_REF_PATTERN = /^[a-f0-9]{64}\/[a-f0-9]{32}\.aioev1$/;
-const DIRECTORY_REF_PATTERN = /^[a-f0-9]{64}$/;
 const STAGING_FILE_PATTERN = /^\.staging-[a-f0-9]{32}\.tmp$/;
 const FINALIZED_FILE_PATTERN = /^[a-f0-9]{32}\.aioev1$/;
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
@@ -74,10 +74,28 @@ const NODE_FILE_SYSTEM: EvidenceStorageFileSystem = {
 export class EncryptedEvidenceBlobStore {
   private readonly storagePath: string;
   private readonly fileSystem: EvidenceStorageFileSystem;
+  private readonly activeWrites = new Set<string>();
+  private publications = 0;
+  private publicationEpoch = 0;
 
   constructor(private readonly options: EncryptedEvidenceBlobStoreOptions) {
     this.storagePath = join(options.userDataPath, STORAGE_DIRECTORY_NAME);
     this.fileSystem = { ...NODE_FILE_SYSTEM, ...options.fileSystem };
+  }
+
+  /** Own the interval from a new randomized filename through its metadata publication.
+   * A sweep conservatively skips unlink while a publisher owns this store, and
+   * retries on the next launch. No publisher reuses an existing filename.
+   */
+  async withBlobPublication<T>(operation: () => Promise<T>): Promise<T> {
+    this.publications += 1;
+    this.publicationEpoch += 1;
+    try {
+      return await operation();
+    } finally {
+      this.publications -= 1;
+      this.publicationEpoch += 1;
+    }
   }
 
   async write(
@@ -120,6 +138,8 @@ export class EncryptedEvidenceBlobStore {
     };
     let handle: Awaited<ReturnType<typeof open>> | null = null;
     let finalized = false;
+    this.activeWrites.add(stagingPath);
+    this.activeWrites.add(join(directoryPath, opaqueName));
 
     try {
       await this.verifyDirectoryIdentity(directory);
@@ -161,6 +181,10 @@ export class EncryptedEvidenceBlobStore {
       if (error instanceof EvidenceStorageError) throw error;
       if (cleanupError instanceof EvidenceStorageError) throw cleanupError;
       throw new EvidenceStorageError('BLOB_WRITE_FAILED');
+    } finally {
+      this.activeWrites.delete(stagingPath);
+      this.activeWrites.delete(join(directoryPath, opaqueName));
+      ownedPlaintext.fill(0);
     }
 
     return writeResult;
@@ -253,7 +277,8 @@ export class EncryptedEvidenceBlobStore {
     return collector.finish();
   }
 
-  async remove(blobRef: string): Promise<void> {
+  async remove(blobRef: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     const { root, parent } = await this.resolveSafeBlobPath(blobRef);
     const blobName = basename(blobRef);
     try {
@@ -262,7 +287,7 @@ export class EncryptedEvidenceBlobStore {
       await performSecureDirectoryOperation(parent, {
         kind: 'remove',
         sourceName: blobName,
-      }, this.options.beforeDirectoryOperation);
+      }, this.options.beforeDirectoryOperation, signal);
       await this.verifyDirectoryIdentity(root);
       await this.verifyDirectoryIdentity(parent);
       await this.syncDirectory(parent, 'BLOB_DELETE_FAILED');
@@ -317,61 +342,27 @@ export class EncryptedEvidenceBlobStore {
       (directoryRef, name) => FINALIZED_FILE_PATTERN.test(name)
         && !options.referencedBlobRefs.has(`${directoryRef}/${name}`),
       options,
+      options.findReferencedCandidates,
     );
   }
 
   private async cleanupFiles(
     shouldRemove: (directoryRef: string, name: string) => boolean,
     options: EvidenceStagingCleanupOptions,
+    findReferencedCandidates?: (refs: string[]) => Promise<string[]>,
   ): Promise<number> {
-    const olderThanMs = Math.max(0, options.olderThanMs ?? 0);
-    const cutoff = (options.now ?? Date.now()) - olderThanMs;
-    const root = await this.ensureSafeRoot();
-    let removed = 0;
-    try {
-      await this.verifyDirectoryIdentity(root);
-      const directories = await this.fileSystem.readdir(this.storagePath, { withFileTypes: true });
-      await this.verifyDirectoryIdentity(root);
-      for (const directory of directories) {
-        if (!directory.isDirectory() || directory.isSymbolicLink()) continue;
-        if (!DIRECTORY_REF_PATTERN.test(directory.name)) continue;
-        const directoryPath = join(this.storagePath, directory.name);
-        await this.verifyDirectoryIdentity(root);
-        const directoryIdentity = await this.captureDirectoryIdentity(directoryPath);
-        if (!isPathInside(directoryIdentity.realPath, root.realPath)) {
-          throw new EvidenceStorageError('UNSAFE_STORAGE_PATH');
-        }
-        await this.verifyDirectoryIdentity(directoryIdentity);
-        const entries = await this.fileSystem.readdir(directoryPath, { withFileTypes: true });
-        await this.verifyDirectoryIdentity(directoryIdentity);
-        let removedFromDirectory = false;
-        for (const entry of entries) {
-          if (!entry.isFile() || entry.isSymbolicLink() || !shouldRemove(directory.name, entry.name)) {
-            continue;
-          }
-          const candidatePath = join(directoryPath, entry.name);
-          await this.verifyDirectoryIdentity(directoryIdentity);
-          const stat = await this.fileSystem.lstat(candidatePath);
-          await this.verifyDirectoryIdentity(directoryIdentity);
-          if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs > cutoff) continue;
-          await this.verifyDirectoryIdentity(directoryIdentity);
-          await performSecureDirectoryOperation(directoryIdentity, {
-            kind: 'remove',
-            sourceName: entry.name,
-          }, this.options.beforeDirectoryOperation);
-          await this.verifyDirectoryIdentity(directoryIdentity);
-          removed += 1;
-          removedFromDirectory = true;
-        }
-        if (removedFromDirectory) {
-          await this.syncDirectory(directoryIdentity, 'CLEANUP_FAILED');
-        }
-      }
-      return removed;
-    } catch (error) {
-      if (error instanceof EvidenceStorageError) throw error;
-      throw new EvidenceStorageError('CLEANUP_FAILED');
-    }
+    return cleanupEvidenceFiles({
+      storagePath: this.storagePath,
+      fileSystem: this.fileSystem,
+      activeWrites: this.activeWrites,
+      publications: () => this.publications,
+      publicationEpoch: () => this.publicationEpoch,
+      ensureSafeRoot: () => this.ensureSafeRoot(),
+      verifyDirectoryIdentity: (identity) => this.verifyDirectoryIdentity(identity),
+      captureDirectoryIdentity: (path) => this.captureDirectoryIdentity(path),
+      syncDirectory: (identity) => this.syncDirectory(identity, 'CLEANUP_FAILED'),
+      beforeDirectoryOperation: this.options.beforeDirectoryOperation,
+    }, shouldRemove, options, findReferencedCandidates);
   }
 
   private keyedDigest(key: Uint8Array, label: Buffer, content: Buffer): string {

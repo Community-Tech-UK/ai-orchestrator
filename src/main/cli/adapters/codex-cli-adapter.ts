@@ -76,13 +76,18 @@ export class CodexCliAdapter extends CodexAppServerTurnAdapter {
    * of `CodexCliConfig.timeout` (cross-model review, loop iterations,
    * magic-prompt, compare, auto-title) intends a *total* deadline — not an
    * idle budget. `0`/negative/`NaN` are treated as unset.
+   *
+   * Unset means no total deadline (`null`): interactive sessions never
+   * configure one, and a long implementation turn that keeps producing output
+   * must not be killed for running longer than any fixed budget. The idle
+   * watchdog still catches a turn that hangs silent.
    */
-  protected override resolveDeadlineMs(): number {
+  protected override resolveDeadlineMs(): number | null {
     const configuredTimeout = this.cliConfig.timeout;
     if (typeof configuredTimeout === 'number' && Number.isFinite(configuredTimeout) && configuredTimeout > 0) {
       return configuredTimeout;
     }
-    return CODEX_TIMEOUTS.EXEC_TURN_MS;
+    return null;
   }
 
   /**
@@ -93,7 +98,7 @@ export class CodexCliAdapter extends CodexAppServerTurnAdapter {
    * a 30s deadline shouldn't wait 60s of silence to report.
    */
   protected override resolveTurnIdleTimeoutMs(): number {
-    return Math.min(CODEX_TIMEOUTS.EXEC_TURN_MS, this.resolveDeadlineMs());
+    return this.capByDeadline(CODEX_TIMEOUTS.EXEC_TURN_MS);
   }
 
   /** Short handshake budget before `turn/started`; long budget thereafter.
@@ -103,6 +108,11 @@ export class CodexCliAdapter extends CodexAppServerTurnAdapter {
     const base = turnEstablished
       ? CODEX_TIMEOUTS.NOTIFICATION_IDLE_ACTIVE_MS
       : CODEX_TIMEOUTS.NOTIFICATION_IDLE_MS;
-    return Math.min(base, this.resolveDeadlineMs());
+    return this.capByDeadline(base);
+  }
+
+  private capByDeadline(budgetMs: number): number {
+    const deadlineMs = this.resolveDeadlineMs();
+    return deadlineMs === null ? budgetMs : Math.min(budgetMs, deadlineMs);
   }
 }

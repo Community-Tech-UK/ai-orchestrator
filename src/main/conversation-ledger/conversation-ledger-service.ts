@@ -46,6 +46,7 @@ import type {
   EvidenceLedgerRecord,
   EvidenceListQuery,
   EvidenceBlobReferenceQuery,
+  EvidenceBlobReferenceScanPage,
   EvidenceMaintenanceQuery,
   EvidenceMetadataSearchQuery,
   EvidenceBlobReplacementInput,
@@ -552,12 +553,24 @@ export class ConversationLedgerService {
     return this.port.listEvidence(conversationId, query);
   }
 
+  async getEvidenceForMaintenance(conversationId: string, evidenceId: string): Promise<EvidenceLedgerRecord | null> {
+    return this.port.getEvidenceForMaintenance(conversationId, evidenceId);
+  }
+
   async listEvidenceForMaintenance(query: EvidenceMaintenanceQuery): Promise<EvidenceLedgerRecord[]> {
     return this.port.listEvidenceForMaintenance(query);
   }
 
   async listReferencedEvidenceBlobRefs(query: EvidenceBlobReferenceQuery): Promise<string[]> {
     return this.port.listReferencedEvidenceBlobRefs(query);
+  }
+
+  async listEvidenceBlobReferenceScanPage(query: EvidenceBlobReferenceQuery): Promise<EvidenceBlobReferenceScanPage> {
+    return this.port.listEvidenceBlobReferenceScanPage(query);
+  }
+
+  async listReferencedEvidenceBlobRefsForCandidates(blobRefs: string[]): Promise<string[]> {
+    return this.port.listReferencedEvidenceBlobRefsForCandidates(blobRefs);
   }
 
   async replaceEvidenceBlob(input: EvidenceBlobReplacementInput): Promise<boolean> {

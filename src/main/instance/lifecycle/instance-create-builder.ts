@@ -111,6 +111,8 @@ export function buildInstanceRecord(
       : {}),
     // Account-pool seed; `stampAccountRouteOnInstance` records the resolved value.
     ...(config.accountProfileId ? { accountProfileId: config.accountProfileId } : {}),
+    ...(config.accountRouteOrigin ? { accountRouteOrigin: config.accountRouteOrigin } : {}),
+    ...(config.allowedAccountProfileIds?.length ? { allowedAccountProfileIds: [...config.allowedAccountProfileIds] } : {}),
     // WS7 Phase B: per-instance override wins; else seed from the global list.
     ...((config.failoverProviders ?? options.defaultFailoverProviders)?.length
       ? { failoverProviders: config.failoverProviders ?? options.defaultFailoverProviders }

@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PlanQueueRouting } from '@contracts/schemas/plan-queue';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
+import type { ProviderAccountProfile } from '../../shared/types/provider-account.types';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { runLoopMigrations } from '../orchestration/loop-schema';
 import { getLogger } from '../logging/logger';
@@ -17,6 +19,7 @@ import { PlanQueueCoordinator } from './plan-queue-coordinator';
 import type { PlanQueueInstanceRecord } from './plan-queue-host';
 import { PlanQueueRelaxation } from './plan-queue-relaxation';
 import { PlanQueueStore } from './plan-queue-store';
+import type { VerifierSelectInput } from './plan-queue-verifier-select';
 
 const landing = vi.hoisted(() => ({ active: 0, max: 0, hang: false, hung: false, hangPromotion: false }));
 vi.mock('./plan-queue-landing', async (importOriginal) => {
@@ -59,6 +62,11 @@ let driver: SqliteDriver;
 let store: PlanQueueStore;
 let fake: FakeInstances;
 let coordinator: PlanQueueCoordinator;
+/** James's saved Plan Queue routing and account pool, as the coordinator reads them. */
+let savedRouting: PlanQueueRouting;
+let poolProfiles: ProviderAccountProfile[];
+let verifierInputs: VerifierSelectInput[];
+let excludedProviders: string[];
 
 function git(args: string[], cwd = repo): string {
   try {
@@ -244,6 +252,10 @@ beforeEach(() => {
   driver.exec('PRAGMA foreign_keys = ON');
   runLoopMigrations(driver);
   store = new PlanQueueStore(driver);
+  savedRouting = { worker: null, verifiers: [] };
+  poolProfiles = [];
+  verifierInputs = [];
+  excludedProviders = [];
   fake = new FakeInstances();
   fake.scripts.triage = triageAllReady;
   fake.scripts.worker = implement;
@@ -262,7 +274,18 @@ function startCoordinator(
     instances,
     worktreeCreator: WorktreeManager.getInstance(),
     skipInstall: true,
-    selectVerifier: async () => ({ ok: true, choice: { provider: 'codex' } }),
+    selectVerifier: async (input) => {
+      verifierInputs.push(input);
+      return { ok: true, choice: { provider: 'codex' } };
+    },
+    routing: {
+      readSaved: () => savedRouting,
+      poolProfiles: () => poolProfiles,
+      copilotProfiles: () => [],
+      isProviderExcluded: (provider) => excludedProviders.includes(provider),
+      defaultProvider: () => null,
+      checkerScopeKind: () => 'none',
+    },
     loadAverage: () => [0, 0, 0],
     relaxation,
     pumpIntervalMs: null,
@@ -1563,5 +1586,149 @@ describe('PlanQueueCoordinator — the landing commit runs the repository hooks'
     expect(item).toMatchObject({ state: 'parked', parkReason: 'land-blocked' });
     expect(item.detail).toContain('Nothing was landed');
     expect(git(['log', '--format=%s', 'main'])).toBe('base');
+  });
+});
+
+function poolAccount(id: string, provider: 'claude' | 'codex', overrides: Partial<ProviderAccountProfile> = {}): ProviderAccountProfile {
+  return {
+    id, provider, label: id.toUpperCase(), expectedIdentity: null, expectedAccountKey: null, planLabel: null,
+    priority: poolProfiles.length, enabled: true, automationPolicy: 'allow-routed', isLegacy: false,
+    createdAt: 0, updatedAt: 0, ...overrides,
+  };
+}
+
+describe('PlanQueueCoordinator — providers and accounts', { timeout: 30_000 }, () => {
+  it('gives workers the starting session\'s account and routes every queue session as automatic work', async () => {
+    planDoc('2026-01-01-alpha');
+    poolProfiles = [poolAccount('max-a', 'claude'), poolAccount('max-b', 'claude')];
+    const parent = fake.addParent();
+    parent.accountProfileId = 'max-b';
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    expect(run.config.routing).toEqual({
+      worker: { provider: 'claude', model: 'claude-sonnet-5', accountProfileIds: ['max-b'] },
+      verifiers: [],
+    });
+    await waitForRun(run.id);
+
+    const triage = fake.created.find((i) => i.role === 'triage')!;
+    expect(triage.config).toMatchObject({ provider: 'claude', accountRouteOrigin: 'automation', allowedAccountProfileIds: ['max-b'] });
+    const worker = fake.created.find((i) => i.role === 'worker')!;
+    expect(worker.config).toMatchObject({ provider: 'claude', accountRouteOrigin: 'automation', allowedAccountProfileIds: ['max-b'] });
+    const verifier = fake.created.find((i) => i.role === 'verifier')!;
+    expect(verifier.config.accountRouteOrigin).toBe('verification');
+    expect(verifier.config.allowedAccountProfileIds).toBeUndefined();
+  });
+
+  it('does not inherit an account James kept for manual use', async () => {
+    planDoc('2026-01-01-alpha');
+    poolProfiles = [poolAccount('max-a', 'claude', { automationPolicy: 'manual-only' })];
+    const parent = fake.addParent();
+    parent.accountProfileId = 'max-a';
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    expect(run.config.routing?.worker).toEqual({ provider: 'claude', model: 'claude-sonnet-5' });
+    await waitForRun(run.id);
+    expect(fake.created.find((i) => i.role === 'worker')!.config.allowedAccountProfileIds).toBeUndefined();
+  });
+
+  it('uses the saved choice over the starting session, and passes the saved checkers to verifier selection', async () => {
+    planDoc('2026-01-01-alpha');
+    poolProfiles = [poolAccount('pro-1', 'codex'), poolAccount('pro-2', 'codex')];
+    savedRouting = {
+      worker: { provider: 'codex', model: 'gpt-6.1-sol', accountProfileIds: ['pro-2'] },
+      verifiers: [{ provider: 'claude' }],
+    };
+    const parent = fake.addParent();
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    expect(run.workerProvider).toBe('codex');
+    expect(run.config.routing?.checkersChosenBy).toBe('saved');
+    await waitForRun(run.id);
+
+    const worker = fake.created.find((i) => i.role === 'worker')!;
+    expect(worker.config).toMatchObject({ provider: 'codex', modelOverride: 'gpt-6.1-sol', allowedAccountProfileIds: ['pro-2'] });
+    expect(verifierInputs[0]).toMatchObject({ choices: [{ provider: 'claude' }], choicesOverrideLicence: true });
+  });
+
+  it('lets one run override the saved choice', async () => {
+    planDoc('2026-01-01-alpha');
+    savedRouting = { worker: { provider: 'codex' }, verifiers: [{ provider: 'claude' }] };
+    const parent = fake.addParent();
+
+    const { run } = await coordinator.startRun({
+      parentInstanceId: parent.id,
+      kind: 'plans',
+      routing: { worker: { provider: 'cursor' }, verifiers: [] },
+    });
+    expect(run.config.routing).toEqual({ worker: { provider: 'cursor' }, verifiers: [] });
+    await waitForRun(run.id);
+    expect(fake.created.find((i) => i.role === 'worker')!.config.provider).toBe('cursor');
+    expect(verifierInputs[0]?.choices).toEqual([]);
+  });
+
+  it('refuses a run on a never-auto-pick provider unless the run relaxes that list', async () => {
+    planDoc('2026-01-01-alpha');
+    excludedProviders = ['claude'];
+    const parent = fake.addParent();
+
+    await expect(coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' }))
+      .rejects.toThrow('Plan Queue worker: claude is on the "never auto-pick these providers" list');
+    expect(coordinator.listRunDtos()).toEqual([]);
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { relaxSettings: true } });
+    expect(run.config.routing?.worker?.provider).toBe('claude');
+    await waitForRun(run.id);
+  });
+
+  it('parks a worker, with the reason, when its provider joins the never-auto-pick list mid-run', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.triage = (instance, message, f) => {
+      excludedProviders = ['claude'];
+      return triageAllReady(instance, message, f);
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+
+    expect(fake.created.some((i) => i.role === 'worker')).toBe(false);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({
+      state: 'parked',
+      parkReason: 'worker-error',
+      detail: expect.stringContaining('claude has been added to the "never auto-pick these providers" list since this run started'),
+    });
+  });
+
+  it('parks undecided documents with the real reason when triage cannot start', async () => {
+    planDoc('2026-01-01-alpha');
+    // Hold every spawn until the exclusion is in place, so the order is deterministic.
+    let openTools!: () => void;
+    const listening = new Promise<void>((resolve) => { openTools = resolve; });
+    PlanQueueCoordinator._resetForTesting();
+    coordinator = startCoordinator(fake, null, { whenOrchestratorToolsListening: () => listening });
+    const parent = fake.addParent();
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    excludedProviders = ['claude'];
+    openTools();
+    await waitForRun(run.id);
+
+    expect(fake.created.some((i) => i.role === 'triage')).toBe(false);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({
+      state: 'parked',
+      detail: expect.stringContaining('Triage could not start (claude has been added to the "never auto-pick these providers" list since this run started, so the queue will not start another session on it). Resume'),
+    });
+  });
+
+  it('refuses to start a run whose saved choice names an account the queue may not use', async () => {
+    planDoc('2026-01-01-alpha');
+    poolProfiles = [poolAccount('max-a', 'claude', { enabled: false })];
+    savedRouting = { worker: { provider: 'claude', accountProfileIds: ['max-a'] }, verifiers: [] };
+    const parent = fake.addParent();
+
+    await expect(coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' }))
+      .rejects.toThrow('the claude account "MAX-A" is turned off');
+    expect(coordinator.listRunDtos()).toEqual([]);
   });
 });

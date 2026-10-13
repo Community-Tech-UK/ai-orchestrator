@@ -5,8 +5,11 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import { CopilotAccountIpcService } from '../../core/services/ipc/copilot-account-ipc.service';
+import { ProviderAccountIpcService } from '../../core/services/ipc/provider-account-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import { PlanQueueStore } from '../../core/state/plan-queue.store';
+import { SettingsStore } from '../../core/state/settings.store';
 import { PlanQueuePageComponent } from './plan-queue-page.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -135,6 +138,17 @@ describe('PlanQueuePageComponent', () => {
       providers: [
         { provide: PlanQueueStore, useValue: store },
         {
+          provide: SettingsStore,
+          useValue: {
+            settings: signal({ planQueueRouting: { worker: null, verifiers: [] }, providersExcludedFromAutomation: [] }),
+            error: signal(null),
+            clearError: vi.fn(),
+            set: vi.fn().mockResolvedValue(undefined),
+          },
+        },
+        { provide: ProviderAccountIpcService, useValue: { list: vi.fn().mockResolvedValue({ profiles: [], pools: {} }) } },
+        { provide: CopilotAccountIpcService, useValue: { list: vi.fn().mockResolvedValue([]) } },
+        {
           provide: InstanceStore,
           useValue: {
             rootInstances: signal([
@@ -187,7 +201,7 @@ describe('PlanQueuePageComponent', () => {
     expect(host.height).toBe('100%');
   });
 
-  it('leads with the questions, then runs, start, livetest checks, parked work and alerts, each with a purpose line', async () => {
+  it('leads with the questions, then runs, providers, start, livetest checks, parked work and alerts, each with a purpose line', async () => {
     store.needsAnswerItems.set([NEEDS_ANSWER_ITEM]);
     store.questionGroups.set([{ runId: 'run-x', kind: 'plans', workspaceCwd: '/repo', items: [NEEDS_ANSWER_ITEM] }]);
     store.needJamesReal.set([{ runId: 'run-1', itemId: 'item-1', documentPath: 'docs/x.md', check: 'c', reason: 'r' }]);
@@ -199,13 +213,14 @@ describe('PlanQueuePageComponent', () => {
     expect(sections.map((section) => section.querySelector('h2')?.textContent?.trim())).toEqual([
       'Needs your answer',
       'Runs',
+      'Providers and accounts',
       'Start a run',
       'Needs James (livetests)',
       'Parked work',
       'Reconciler alerts',
     ]);
     for (const section of sections) {
-      expect(section.querySelector('.pq-purpose')?.textContent?.trim()).toBeTruthy();
+      expect(section.querySelector('.pq-purpose, .pq-routing-purpose')?.textContent?.trim()).toBeTruthy();
     }
   });
 

@@ -85,6 +85,19 @@ const DECISION_SCHEMA = {
   ],
 };
 
+/** One provider/account choice for `plan_queue_start` (mirrors PlanQueueRouteChoiceArgsSchema). */
+const ROUTE_CHOICE_SCHEMA = {
+  type: 'object',
+  properties: {
+    provider: { type: 'string', description: 'CLI id, for example "claude", "codex" or "copilot".' },
+    model: { type: 'string', description: 'Optional model id. Omit for the provider\'s default.' },
+    account_ids: { type: 'array', items: { type: 'string' }, maxItems: 20, description: 'Claude, Codex or OpenCode account ids (Settings → Accounts) the session may use, including after a usage-limit switch. Omit for the account pool\'s own choice.' },
+    copilot_account_id: { type: 'string', description: 'Copilot account id. Omit to let the Copilot account rules decide.' },
+  },
+  required: ['provider'],
+  additionalProperties: false,
+} as const;
+
 /** Name, description and input schema per tool; shared with the stdio forwarder. */
 export const PLAN_QUEUE_TOOL_SPECS = {
   plan_queue_start: {
@@ -101,6 +114,8 @@ export const PLAN_QUEUE_TOOL_SPECS = {
         relax_settings: { type: 'boolean', description: 'Temporarily relax computerUseAutonomyLevel and providersExcludedFromAutomation for this run only. Only when James asked for it.' },
         verifier_gates: { type: 'array', items: { type: 'string' }, description: 'Commands every verifier must run and report. Defaults to this app\'s canonical checklist; pass the target repository\'s own commands for any other repository, or [] to let the verifier use the repository\'s documented checks.' },
         post_merge_gate: { type: 'array', items: { type: 'string' }, description: 'Commands the coordinator runs after merging a moved base branch into an item. Defaults to the two TypeScript checks; pass [] for a repository without them.' },
+        worker: { ...ROUTE_CHOICE_SCHEMA, description: 'Provider, model and accounts the workers use for this run. Omit to use James\'s saved Plan Queue choice, else this session\'s own provider, model and account. Pass only when James asked for specific providers or accounts.' },
+        verifiers: { type: 'array', maxItems: 10, items: ROUTE_CHOICE_SCHEMA, description: 'Checkers this run may use, in preference order. Omit to use James\'s saved choice, else automatic selection. Pass only when James asked for specific checkers.' },
       },
       required: ['kind'],
       additionalProperties: false,

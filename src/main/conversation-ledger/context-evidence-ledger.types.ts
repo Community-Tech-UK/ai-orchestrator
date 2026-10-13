@@ -56,6 +56,8 @@ export interface EvidenceStageInput {
 }
 
 export interface EvidenceFinalizeInput {
+  expectedUpdatedAt?: number;
+  expectedBlobRef?: string | null;
   evidenceId: string;
   conversationId: string;
   blobRef: string;
@@ -80,6 +82,16 @@ export interface EvidenceBlobReferenceQuery {
   limit: number;
 }
 
+/** A bounded maintenance scan; an empty live page may still advance the raw cursor.
+ * done alone signals exhaustion. Cursor is the greatest examined safe raw ref,
+ * independent of whether any of those refs still have a live owner.
+ */
+export interface EvidenceBlobReferenceScanPage {
+  blobRefs: string[];
+  afterBlobRef?: string;
+  done: boolean;
+}
+
 export interface EvidenceBlobReplacementInput extends EvidenceFinalizeInput {
   expectedBlobRef: string;
   expectedKeyVersion: number;
@@ -88,6 +100,8 @@ export interface EvidenceBlobReplacementInput extends EvidenceFinalizeInput {
 }
 
 export interface EvidenceFailureInput {
+  expectedUpdatedAt?: number;
+  expectedBlobRef?: string | null;
   evidenceId: string;
   conversationId: string;
   status?: Extract<EvidenceStatus, 'failed' | 'corrupt'>;

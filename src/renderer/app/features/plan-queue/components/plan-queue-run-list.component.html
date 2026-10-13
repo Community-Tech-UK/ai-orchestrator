@@ -13,6 +13,10 @@
         />
       </div>
 
+      @if (run.config.routing; as routing) {
+        <div class="pq-run-routing">{{ routingSummary(routing) }}</div>
+      }
+
       <details class="pq-run-documents">
         <summary>
           <span class="pq-run-item-count">{{ run.items.length }} document(s)</span>

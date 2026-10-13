@@ -285,6 +285,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // `legacy` Claude and Codex profiles bound to ~/.claude and ~/.codex.
   providerAccountProfiles: [],
   providerAccountPools: defaultProviderAccountPools(),
+  // Plan Queue: workers follow the starting session, checkers are automatic.
+  planQueueRouting: { worker: null, verifiers: [] },
 
   // Conversational ping-pong review
   pingPongReviewerProvider: 'auto',

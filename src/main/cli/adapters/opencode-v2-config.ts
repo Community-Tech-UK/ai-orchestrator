@@ -1,4 +1,4 @@
-import { openCodeRecord } from './opencode-config-shapes';
+import { openCodePositive, openCodeRecord } from './opencode-config-shapes';
 
 const PERMISSION_EFFECTS = new Set(['ask', 'allow', 'deny']);
 
@@ -30,17 +30,21 @@ function modelRef(value: unknown): unknown {
 function mapVariants(value: unknown): Record<string, unknown> | undefined {
   if (isRecord(value)) return value;
   if (!Array.isArray(value)) return undefined;
-  const variants: Record<string, unknown> = {};
+  const variants = new Map<string, Record<string, unknown>>();
   for (const entry of value) {
-    if (!isRecord(entry) || typeof entry['id'] !== 'string') continue;
+    if (!isRecord(entry) || typeof entry['id'] !== 'string' || !entry['id'].trim()
+      || (entry['settings'] !== undefined && !isRecord(entry['settings']))) {
+      throw new Error('Unsupported native variant configuration');
+    }
     const settings = openCodeRecord(entry['settings']);
-    const cap = settings['max_completion_tokens'] ?? settings['maxTokens'];
-    if (typeof cap === 'number') variants[entry['id']] = { max_completion_tokens: cap };
+    const completionCap = openCodePositive(settings['max_completion_tokens']);
+    const tokenCap = openCodePositive(settings['maxTokens']);
+    const caps = [completionCap, tokenCap].filter((cap): cap is number => cap !== undefined);
+    // Effort-only variants inherit the model ceiling. Keep their names so the
+    // budget overlay clamps them too, without retaining private native settings.
+    variants.set(entry['id'], caps.length ? { max_completion_tokens: Math.min(...caps) } : {});
   }
-  if (value.length > 0 && Object.keys(variants).length === 0) {
-    throw new Error('Unsupported native numeric limit');
-  }
-  return Object.keys(variants).length ? variants : undefined;
+  return variants.size ? Object.fromEntries(variants) : undefined;
 }
 
 function mapModel(model: Record<string, unknown>): Record<string, unknown> {

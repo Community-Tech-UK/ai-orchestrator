@@ -127,6 +127,23 @@ describe('AccountFailoverCoordinator', () => {
     expect(events.map((event) => event.event)).toContain('account_failover_performed');
   });
 
+  it('moves a fenced session only to an account inside its fence', async () => {
+    const h = harness();
+    addInstance(h, 'i1', 'legacy');
+    h.instances.get('i1')!.allowedAccountProfileIds = ['legacy', 'max-c'];
+    expect(await h.coordinator.perform(params('i1'))).toMatchObject({ outcome: 'switched', toProfileId: 'max-c' });
+  });
+
+  it('does not switch a fenced session when every other account in its fence is unavailable', async () => {
+    const h = harness();
+    addInstance(h, 'i1', 'legacy');
+    h.instances.get('i1')!.allowedAccountProfileIds = ['legacy', 'max-c'];
+    h.parked = ['max-c'];
+    expect(h.coordinator.plan(params('i1'))).toEqual({ kind: 'none', reason: 'no-candidate' });
+    expect(await h.coordinator.perform(params('i1'))).toMatchObject({ outcome: 'not-switched', reason: 'no-candidate' });
+    expect(h.applied).toHaveLength(0);
+  });
+
   it('observes a rejected replay without blocking the provider lock or retrying uncertain work', async () => {
     const h = harness();
     addInstance(h, 'i1'); addInstance(h, 'i2');

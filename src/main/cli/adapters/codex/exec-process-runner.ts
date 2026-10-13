@@ -40,7 +40,8 @@ interface CodexExecProcessState {
 export interface CodexExecProcessOptions {
   writePhase?: CodexExecInputWritePhase;
   dispatch?: AdapterInputDispatch;
-  deadlineMs: number;
+  /** Total per-attempt budget; `null` disables the total deadline (idle watchdog only). */
+  deadlineMs: number | null;
   emitExit: (code: number | null, signal: NodeJS.Signals | null) => void;
   emitHeartbeat: () => void;
   emitOutput: (message: OutputMessage) => void;
@@ -135,7 +136,7 @@ export function runCodexExecProcess(
       catch (error) { cancel(error); return; }
       if (inputFailure) { cancel(inputError()); return; }
       finished = true;
-      const budgetMs = kind === 'deadline' ? options.deadlineMs : currentBudgetMs;
+      const budgetMs = kind === 'deadline' ? options.deadlineMs ?? currentBudgetMs : currentBudgetMs;
       const elapsedMs = Date.now() - startedAt;
       const silentMs = Date.now() - lastActivityAt;
       const networkErrors = state.diagnostics.filter((diagnostic) =>
@@ -225,7 +226,9 @@ export function runCodexExecProcess(
     };
 
     resetIdleTimer();
-    deadlineTimer = setTimeout(() => fireWatchdogTimeout('deadline'), options.deadlineMs);
+    if (options.deadlineMs !== null) {
+      deadlineTimer = setTimeout(() => fireWatchdogTimeout('deadline'), options.deadlineMs);
+    }
     livenessTimer = setInterval(() => {
       if (inputFailure || !options.isActiveProcess(childProcess) || childProcess.killed || childProcess.exitCode !== null) return;
       options.emitHeartbeat();

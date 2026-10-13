@@ -67,6 +67,12 @@ export interface AccountRouteRequest {
   newSession?: boolean;
   /** Profiles that must not be chosen (failover away from them). */
   exclude?: readonly string[];
+  /**
+   * The only profiles that may be chosen (a session's account fence, e.g. the
+   * accounts James allowed for the Plan Queue). Absent/empty = any profile.
+   * A persisted profile still wins: a live thread never moves.
+   */
+  restrictTo?: readonly string[];
   /** Source to stamp when the default selection runs on behalf of failover. */
   defaultSource?: Extract<AccountRouteSource, 'default' | 'failover' | 'preemptive'>;
   /** Correlation only. */
@@ -183,6 +189,12 @@ export class ProviderAccountRoutingService {
     }
 
     const legacyOnly = !profiles.some((profile) => !profile.isLegacy);
+    if (legacyOnly && request.restrictTo?.length && !request.persistedProfileId && !request.restrictTo.includes(LEGACY_ACCOUNT_PROFILE_ID)) {
+      return {
+        outcome: failure('no-profiles', `None of the ${pooledProviderLabel(request.provider)} accounts this session is limited to exist any more. Start it again with accounts that exist.`),
+        considered: [],
+      };
+    }
     if (legacyOnly) {
       // Pre-pools behaviour, byte for byte: no sign-in check, no env change.
       return { outcome: { ok: true, route: this.buildRoute(request.provider, LEGACY_ACCOUNT_PROFILE_ID, 'legacy', nodeId, profiles) }, considered: [] };
@@ -201,6 +213,23 @@ export class ProviderAccountRoutingService {
         };
       }
       return { outcome: await this.admit(persisted, 'persisted', nodeId), considered: [] };
+    }
+
+    if (request.restrictTo?.length) {
+      const allowed = new Set(request.restrictTo);
+      profiles = profiles.filter((profile) => allowed.has(profile.id));
+      if (profiles.length === 0) {
+        return {
+          outcome: failure('no-profiles', `None of the ${pooledProviderLabel(request.provider)} accounts this session is limited to exist any more. Start it again with accounts that exist.`),
+          considered: [],
+        };
+      }
+      if (request.explicitProfileId && !allowed.has(request.explicitProfileId)) {
+        return {
+          outcome: failure('automation-disallowed', `The "${request.explicitProfileId}" ${pooledProviderLabel(request.provider)} account is not one this session may use.`, request.explicitProfileId),
+          considered: [],
+        };
+      }
     }
 
     if (request.explicitProfileId) {

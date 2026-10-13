@@ -165,10 +165,16 @@ function callStore(method: LedgerStoreMethod, args: unknown[]): unknown {
       return store.contextEvidence.getEvidence(args[0] as string, args[1] as string);
     case 'listEvidence':
       return store.contextEvidence.listEvidence(args[0] as string, args[1] as EvidenceListQuery | undefined);
+    case 'getEvidenceForMaintenance':
+      return store.contextEvidence.getEvidenceForMaintenance(args[0] as string, args[1] as string);
     case 'listEvidenceForMaintenance':
       return store.contextEvidence.listEvidenceForMaintenance(args[0] as EvidenceMaintenanceQuery);
     case 'listReferencedEvidenceBlobRefs':
       return store.contextEvidence.listReferencedEvidenceBlobRefs(args[0] as EvidenceBlobReferenceQuery);
+    case 'listEvidenceBlobReferenceScanPage':
+      return store.contextEvidence.listEvidenceBlobReferenceScanPage(args[0] as EvidenceBlobReferenceQuery);
+    case 'listReferencedEvidenceBlobRefsForCandidates':
+      return store.contextEvidence.listReferencedEvidenceBlobRefsForCandidates(args[0] as string[]);
     case 'replaceEvidenceBlob':
       return store.contextEvidence.replaceEvidenceBlob(args[0] as EvidenceBlobReplacementInput);
     case 'searchEvidenceMetadata':

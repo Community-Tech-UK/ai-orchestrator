@@ -52,7 +52,7 @@ describe('conversation ledger schema', () => {
     expect(tables).toContain('evidence_deletion_queue');
     expect(tables).toContain('context_evidence_events');
     expect(tables).toContain('conversation_ledger_migrations');
-    expect(CONVERSATION_LEDGER_SCHEMA_VERSION).toBe(6);
+    expect(CONVERSATION_LEDGER_SCHEMA_VERSION).toBe(7);
   });
 
   it('LT-221: allows a get-card evidence_access_log row and preserves existing rows across the rebuild', () => {
@@ -188,12 +188,16 @@ describe('conversation ledger schema', () => {
       'idx_context_evidence_events_conversation_created',
       'idx_evidence_access_log_conversation_created',
       'idx_evidence_cards_conversation_evidence',
+      'idx_evidence_cards_live_blob',
       'idx_evidence_deletion_queue_blob',
       'idx_evidence_deletion_queue_claim',
+      'idx_evidence_deletion_queue_pending_blob',
       'idx_evidence_records_capture_key',
       'idx_evidence_records_conversation_created',
       'idx_evidence_records_conversation_id_id',
       'idx_evidence_records_conversation_status',
+      'idx_evidence_records_live_blob',
+      'idx_evidence_records_maintenance',
     ]);
 
     db.prepare(`

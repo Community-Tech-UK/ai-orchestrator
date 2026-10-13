@@ -1,5 +1,11 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
-import type { PlanQueueItemDto, PlanQueueItemState, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import type {
+  PlanQueueItemDto,
+  PlanQueueItemState,
+  PlanQueueRouteChoice,
+  PlanQueueRouting,
+  PlanQueueRunDto,
+} from '@contracts/schemas/plan-queue';
 import { PlanQueueItemListComponent, planQueueStateLabel } from './plan-queue-item-list.component';
 import { PlanQueueRunControlsComponent } from './plan-queue-run-controls.component';
 
@@ -37,6 +43,19 @@ export function planQueueStateCounts(items: readonly PlanQueueItemDto[]): string
     .join(', ');
 }
 
+function describeRouteChoice(choice: PlanQueueRouteChoice): string {
+  const accounts = choice.accountProfileIds?.length ? ` (accounts: ${choice.accountProfileIds.join(', ')})` : '';
+  const copilot = choice.copilotProfileId ? ` (account: ${choice.copilotProfileId})` : '';
+  return `${choice.provider}${choice.model ? `/${choice.model}` : ''}${accounts}${copilot}`;
+}
+
+/** "Workers: claude/opus (accounts: a, b) · Checkers: automatic": the providers a run was fixed to. */
+export function planQueueRoutingSummary(routing: PlanQueueRouting): string {
+  const workers = routing.worker ? describeRouteChoice(routing.worker) : 'default provider';
+  const checkers = routing.verifiers.length > 0 ? routing.verifiers.map(describeRouteChoice).join(', ') : 'automatic';
+  return `Workers: ${workers} · Checkers: ${checkers}`;
+}
+
 /**
  * Every loaded run with its controls always in view. Each run's document list
  * is collapsed behind a state-count summary so that many runs, or one large run,
@@ -60,4 +79,5 @@ export class PlanQueueRunListComponent {
 
   protected readonly formatStartedAt = formatStartedAt;
   protected readonly stateCounts = planQueueStateCounts;
+  protected readonly routingSummary = planQueueRoutingSummary;
 }

@@ -1,5 +1,6 @@
 /** Application settings shared by the main and renderer processes. */
 
+import type { PlanQueueRouting } from '@contracts/schemas/plan-queue';
 import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
 import type {
   CopilotAccountProfile,
@@ -512,6 +513,8 @@ export interface AppSettings extends DesktopComputerUseSettings {
   // Provider account pools (2026-09-13 spec). Operator-only; no tokens or paths.
   providerAccountProfiles: ProviderAccountProfile[];
   providerAccountPools: ProviderAccountPools;
+  /** Providers and accounts Plan Queue sessions may use. Operator-only, edited on the Plan Queue page. */
+  planQueueRouting: PlanQueueRouting;
 
   // Conversational ping-pong review (bigchange_pingpong_review)
   /**

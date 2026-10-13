@@ -1,7 +1,7 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { MESSAGE_SOURCE_OWNER_SQL } from './conversation-message-source-query';
 
-export const CONVERSATION_LEDGER_SCHEMA_VERSION = 6;
+export const CONVERSATION_LEDGER_SCHEMA_VERSION = 7;
 
 interface LedgerMigration {
   version: number;
@@ -337,6 +337,19 @@ const MIGRATIONS: LedgerMigration[] = [
     up: `CREATE INDEX idx_conversation_messages_user_source_owner
       ON conversation_messages(thread_id, (${MESSAGE_SOURCE_OWNER_SQL}), sequence DESC)
       WHERE role = 'user';`,
+  },
+  {
+    version: 7,
+    name: '007_evidence_maintenance_ranges',
+    up: `
+      CREATE INDEX idx_evidence_records_maintenance ON evidence_records(status, updated_at, id);
+      CREATE INDEX idx_evidence_records_live_blob ON evidence_records(blob_ref, conversation_id)
+        WHERE blob_ref IS NOT NULL AND status <> 'deleted';
+      CREATE INDEX idx_evidence_cards_live_blob ON evidence_cards(blob_ref, conversation_id)
+        WHERE blob_ref IS NOT NULL;
+      CREATE INDEX idx_evidence_deletion_queue_pending_blob ON evidence_deletion_queue(blob_ref)
+        WHERE completed_at IS NULL;
+    `,
   },
 ];
 

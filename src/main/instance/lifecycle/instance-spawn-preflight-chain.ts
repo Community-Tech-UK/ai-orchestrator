@@ -115,10 +115,13 @@ export class InstanceSpawnPreflightChain {
     // reaches instance creation. Throws `CopilotRoutingError` when no account
     // can be resolved or verified, which the caller surfaces as an actionable
     // state rather than a generic "Copilot unavailable".
+    // Unattended work (automations, Plan Queue sessions) obeys account
+    // automation policies; a session James opens himself does not need to.
+    const routeOrigin = config.accountRouteOrigin ?? (config.metadata?.['automationId'] ? 'automation' : 'interactive');
     const routedSpawnOptions = await attachCopilotRoute(
       provider,
       spawnOptions,
-      config.metadata?.['automationId'] ? 'automation' : 'interactive',
+      routeOrigin,
       {
         explicitProfileId: config.copilotAccountProfileId,
         confirmProtectedOverride: config.copilotConfirmProtectedOverride,
@@ -132,9 +135,10 @@ export class InstanceSpawnPreflightChain {
     const accountRoutedSpawnOptions = await attachAccountRoute(
       provider,
       routedSpawnOptions,
-      config.metadata?.['automationId'] ? 'automation' : 'interactive',
+      routeOrigin,
       {
         explicitProfileId: config.resume ? undefined : config.accountProfileId,
+        restrictTo: config.allowedAccountProfileIds,
         // A resume/restore keeps the account the session ran on; an unstamped
         // resume predates pools and ran on the legacy profile.
         persistedProfileId: config.resume ? (config.accountProfileId ?? 'legacy') : undefined,

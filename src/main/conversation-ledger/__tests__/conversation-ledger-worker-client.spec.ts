@@ -126,4 +126,28 @@ describe('ConversationLedgerWorkerClient', () => {
     respond(worker, (msg as { id: number }).id, { ...input, status: 'staging' });
     await expect(promise).resolves.toMatchObject({ id: 'evidence-1', status: 'staging' });
   });
+  it('round-trips fresh maintenance reads and bounded candidate checks through the closed protocol', async () => {
+    const read = client.getEvidenceForMaintenance('placeholder-conversation', 'placeholder-evidence');
+    const readMsg = lastPosted(worker);
+    expect(readMsg).toMatchObject({ type: 'store-call', method: 'getEvidenceForMaintenance',
+      args: ['placeholder-conversation', 'placeholder-evidence'] });
+    respond(worker, readMsg.id, { id: 'placeholder-evidence', status: 'staging' });
+    await expect(read).resolves.toMatchObject({ id: 'placeholder-evidence', status: 'staging' });
+    const check = client.listReferencedEvidenceBlobRefsForCandidates(['placeholder/ref']);
+    const checkMsg = lastPosted(worker);
+    expect(checkMsg).toMatchObject({ type: 'store-call', method: 'listReferencedEvidenceBlobRefsForCandidates',
+      args: [['placeholder/ref']] });
+    respond(worker, checkMsg.id, ['placeholder/ref']);
+    await expect(check).resolves.toEqual(['placeholder/ref']);
+  });
+
+  it('preserves empty live pages and their authoritative raw cursor through the worker scan route', async () => {
+    const promise = client.listEvidenceBlobReferenceScanPage({ limit: 1000, afterBlobRef: 'placeholder/before' });
+    const msg = lastPosted(worker);
+    expect(msg).toMatchObject({ type: 'store-call', method: 'listEvidenceBlobReferenceScanPage',
+      args: [{ limit: 1000, afterBlobRef: 'placeholder/before' }] });
+    respond(worker, msg.id, { blobRefs: [], afterBlobRef: 'placeholder/deleted-history', done: false });
+    await expect(promise).resolves.toEqual({ blobRefs: [], afterBlobRef: 'placeholder/deleted-history', done: false });
+  });
+
 });

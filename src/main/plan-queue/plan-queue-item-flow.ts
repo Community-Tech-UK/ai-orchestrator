@@ -345,6 +345,8 @@ export class PlanQueueItemFlow {
         workerProvider: worker?.provider ?? run.workerProvider ?? 'claude',
         workerModel: worker?.currentModel ?? run.workerModel,
         workingDirectory: item.worktreePath ?? run.workspaceCwd,
+        choices: run.config.routing?.verifiers,
+        choicesOverrideLicence: run.config.routing?.checkersChosenBy === 'saved',
       });
       if (!selection.ok) {
         await this.parkUnlocked(item, 'no-diverse-verifier', selection.reason);
@@ -382,6 +384,7 @@ export class PlanQueueItemFlow {
         provider: choice.provider as InstanceProvider,
         ...(choice.modelOverride ? { modelOverride: choice.modelOverride } : {}),
         ...(choice.copilotProfileId ? { copilotAccountProfileId: choice.copilotProfileId } : {}),
+        ...(choice.accountProfileIds?.length ? { allowedAccountProfileIds: choice.accountProfileIds } : {}),
         yoloMode: true,
         metadata: { planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'verifier' },
       });

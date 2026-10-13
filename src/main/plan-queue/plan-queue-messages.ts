@@ -118,3 +118,10 @@ export function buildRunSummaryMessage(run: PlanQueueRun, items: readonly PlanQu
   }
   return lines.join('\n');
 }
+
+/** Why a document parked when triage never classified it: the start failure when there was one. */
+export function triageParkDetail(startError: string | undefined): string {
+  return startError
+    ? `Triage could not start (${startError.trim().replace(/[.\s]+$/, '')}). Resume after fixing that.`
+    : 'Triage could not classify this document after two attempts. No human decision or authority was inferred; resume to retry technical investigation.';
+}

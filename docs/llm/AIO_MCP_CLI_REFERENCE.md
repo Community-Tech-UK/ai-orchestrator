@@ -76,9 +76,11 @@ to the Markdown source. These are MCP tools, not `$AIO_MCP` CLI subcommands.
 
 It also exposes the Plan Queue tools: `plan_queue_start` (args: `kind` =
 `plans` or `livetests`, optional `glob`, `worker_slots`, `verification_slots`,
-`max_rounds`, `relax_settings`, `verifier_gates`, `post_merge_gate`; the gate
-lists default to this app's checklist, so pass the target repository's own
-commands or `[]` for any other repository), `plan_queue_status` (`run_id?`),
+`max_rounds`, `relax_settings`, `verifier_gates`, `post_merge_gate`, and
+`worker` / `verifiers` provider-and-account choices — pass those only when James
+asks for specific providers or accounts, since his saved Plan Queue choice
+applies otherwise; the gate lists default to this app's checklist, so pass the
+target repository's own commands or `[]` for any other repository), `plan_queue_status` (`run_id?`),
 `plan_queue_answer` (`item_id`, `option_id`) and `plan_queue_control`
 (`action`, `run_id?`, `item_id?`). Use them when James asks to work through the
 plan or livetest documents; ask James any question the queue sends back and
@@ -130,7 +132,8 @@ per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
 automation-provider block-list (`providersExcludedFromAutomation`), the two GitHub
 Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`),
 the two account-pool keys (`providerAccountProfiles`,
-`providerAccountPools`, covering Claude, Codex and MiMo), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
+`providerAccountPools`, covering Claude, Codex and MiMo), the Plan Queue
+provider-and-account choice (`planQueueRouting`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
 `workspaceSecretsAllowAgentRequests`), and the post-fill observation lock
 (`browserSecretObservationProtectionEnabled`).
 `PRIVILEGED_CLI_OPERATOR_ONLY_KEYS` in

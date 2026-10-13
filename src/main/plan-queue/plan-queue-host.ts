@@ -18,6 +18,9 @@ export interface PlanQueueInstanceRecord {
   outputBuffer: readonly { type: string; content: string }[];
   provider?: string;
   currentModel?: string;
+  /** The session's pool account / Copilot account, inherited by a run's workers. */
+  accountProfileId?: string;
+  copilotAccountProfileId?: string;
   workingDirectory?: string;
   metadata?: Record<string, unknown>;
 }

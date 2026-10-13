@@ -1,4 +1,7 @@
 import type { ChildProcess } from 'child_process';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const listBrowserApprovalRequestsMock = vi.hoisted(() =>
@@ -20,6 +23,7 @@ vi.mock('../../browser-gateway/browser-approval-store', () => ({
 
 import { CodexCliAdapter, CodexTimeoutError } from './codex-cli-adapter';
 import { isRecoverableThreadResumeError } from './codex/exec-error-classifier';
+import { ActivityStateDetector } from '../../providers/activity-state-detector';
 import {
   createMockProcess,
   queueCodexRun,
@@ -1299,6 +1303,86 @@ describe('CodexCliAdapter', () => {
         expect(result.response.metadata?.['timedOut']).toBe(true);
         expect(result.response.metadata?.['partial']).toBe(true);
         expect(result.response.metadata?.['timeoutKind']).toBe('deadline');
+      });
+
+      it('keeps an unconfigured (interactive) turn alive past 15 minutes while codex keeps producing output', async () => {
+        const adapter = await spawnExecAdapter();
+        expect((adapter as unknown as { cliConfig: { timeout?: number } }).cliConfig.timeout).toBeUndefined();
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+        const proc = createMockProcess();
+        spawnSpy.mockReturnValueOnce(proc as unknown as ChildProcess);
+
+        vi.useFakeTimers();
+        try {
+          let settled = false;
+          const exec = (adapter as unknown as {
+            executePreparedMessage(
+              message: { role: 'user'; content: string },
+              options: { timeoutMs: number; phase: 'startup' | 'turn' },
+            ): Promise<{ response: { content: string } }>;
+          }).executePreparedMessage({ role: 'user', content: 'go' }, { timeoutMs: 60_000, phase: 'turn' });
+          void exec.then(() => { settled = true; }, () => { settled = true; });
+
+          // 20 minutes of steady progress: well past the old 900s fallback
+          // deadline, with no silence long enough for the idle watchdog.
+          for (let elapsedMs = 0; elapsedMs < 1_200_000; elapsedMs += 30_000) {
+            proc.stdout.write('{"type":"item.started"}\n');
+            await vi.advanceTimersByTimeAsync(30_000);
+          }
+          expect(settled).toBe(false);
+
+          proc.stdout.write('{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"done"}}\n');
+          proc.stdout.end();
+          proc.stderr.end();
+          proc.emitClose(0, null);
+          await vi.advanceTimersByTimeAsync(1);
+
+          await expect(exec).resolves.toMatchObject({ response: { content: 'done' } });
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('does not report a working exec turn as blocked when tool output contains error text', async () => {
+        const adapter = await spawnExecAdapter();
+        const workspace = mkdtempSync(join(tmpdir(), 'codex-exec-activity-'));
+        const detector = new ActivityStateDetector('inst-exec', workspace, 'openai');
+        adapter.setActivityDetector(detector);
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+        const proc = createMockProcess();
+        spawnSpy.mockReturnValueOnce(proc as unknown as ChildProcess);
+
+        const exec = (adapter as unknown as {
+          executePreparedMessage(
+            message: { role: 'user'; content: string },
+            options: { timeoutMs: number; phase: 'startup' | 'turn' },
+          ): Promise<{ response: { content: string } }>;
+        }).executePreparedMessage({ role: 'user', content: 'go' }, { timeoutMs: 60_000, phase: 'turn' });
+
+        await new Promise<void>((resolve) => proc.stdin.once('finish', resolve));
+        try {
+          // One chunk, as codex emitted it in the 2026-10-13 incident: a benign
+          // `git status` failure inside an otherwise healthy turn, which the
+          // terminal keyword classifier read as "blocked".
+          proc.stdout.write(
+            '{"type":"item.completed","item":{"id":"item_1","type":"command_execution","aggregated_output":"fatal: not a git repository"}}\n'
+            + '{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"done"}}\n',
+          );
+          proc.stdout.end();
+          proc.stderr.end();
+          proc.emitClose(0, null);
+          await exec;
+          await vi.waitFor(async () => {
+            expect(await detector.getLastRecordedActivity()).not.toBeNull();
+          });
+
+          // The idle monitor interrupts on 'blocked'; a live exec child is active.
+          const result = await detector.detect();
+          expect(result.state).toBe('active');
+          expect(await detector.getLastRecordedActivity()).toMatchObject({ state: 'active', source: 'native' });
+        } finally {
+          rmSync(workspace, { recursive: true, force: true });
+        }
       });
 
       it('clears the idle, deadline, and liveness timers when the process closes cleanly', async () => {

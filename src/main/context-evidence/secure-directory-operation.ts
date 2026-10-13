@@ -44,9 +44,12 @@ export async function performSecureDirectoryOperation(
   identity: SecureDirectoryIdentity,
   operation: SecureDirectoryOperation,
   beforeOperation?: BeforeDirectoryOperation,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   const notice = { ...operation, directoryPath: identity.path };
   await beforeOperation?.(notice);
+  signal?.throwIfAborted();
 
   const entrypoint = join(
     __dirname,
@@ -124,6 +127,9 @@ function minimalChildEnvironment(): Record<string, string | undefined> {
   for (const name of ['PATH', 'SystemRoot', 'SYSTEMROOT', 'WINDIR']) {
     if (process.env[name] !== undefined) env[name] = process.env[name];
   }
+  // A headless Electron CLI must keep its helper headless too. Never enable
+  // this for a normal application/utility-process launch.
+  if (process.env['ELECTRON_RUN_AS_NODE'] === '1') env['ELECTRON_RUN_AS_NODE'] = '1';
   return env;
 }
 

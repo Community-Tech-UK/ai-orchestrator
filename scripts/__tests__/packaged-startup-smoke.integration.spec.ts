@@ -14,6 +14,8 @@ const { isProcessAlive, runPackagedStartupSmoke } = require('../packaged-startup
     startupTimeoutMs?: number;
     exitTimeoutMs?: number;
     terminateGraceMs?: number;
+    seedProfile?: (directory: string) => Promise<void>;
+    onReady?: (result: { userDataPath: string; readinessMs: number }) => void;
   }) => Promise<void>;
 };
 
@@ -29,6 +31,19 @@ const APP_BEHAVIOURS = {
       fs.writeFileSync(path.join(dir, 'startup-smoke-ready'), 'Harness initialized\\n');
       setTimeout(() => process.exit(0), 300);
     }, 300);`,
+  populated: `
+    fs.writeFileSync(path.join(dir, 'startup-smoke-pid'), process.pid + '\\n');
+    if (!fs.existsSync(path.join(dir, 'fixture-ready'))) process.exit(1);
+    setTimeout(() => {
+      fs.writeFileSync(path.join(dir, 'startup-smoke-ready'), 'Harness initialized\\n');
+      setTimeout(() => process.exit(0), 300);
+    }, 300);`,
+  unavailable: `
+    fs.writeFileSync(path.join(dir, 'startup-smoke-pid'), process.pid + '\\n');
+    fs.mkdirSync(path.join(dir, 'logs'));
+    fs.writeFileSync(path.join(dir, 'logs', 'app.log'), 'Context-evidence IPC registered in unavailable mode\\n');
+    fs.writeFileSync(path.join(dir, 'startup-smoke-ready'), 'Harness initialized\\n');
+    setTimeout(() => process.exit(0), 300);`,
   diesBeforeReady: `
     fs.writeFileSync(path.join(dir, 'startup-smoke-pid'), process.pid + '\\n');
     setTimeout(() => process.exit(1), 300);`,
@@ -138,6 +153,42 @@ describe.skipIf(process.platform === 'win32')('packaged startup smoke against a 
     expect(Date.now() - started).toBeLessThan(FAIL_FAST_BOUND_MS);
     expect(profiles()).toHaveLength(1);
     expect(keptAppPids()).toHaveLength(1);
+  }, TEST_TIMEOUT_MS);
+
+  it('awaits isolated fixture seeding before launch and reports post-window readiness timing', async () => {
+    writeFakePackagedApp(workDir, 'populated');
+    const onReady = vi.fn();
+    let seededDirectory = '';
+    await runPackagedStartupSmoke({
+      root: workDir, platform: 'darwin', tempRoot,
+      startupTimeoutMs: STARTUP_TIMEOUT_MS, exitTimeoutMs: 5_000,
+      seedProfile: async (directory) => {
+        seededDirectory = directory;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        writeFileSync(join(directory, 'fixture-ready'), 'synthetic placeholders only');
+      },
+      onReady,
+    });
+    expect(onReady).toHaveBeenCalledWith({
+      userDataPath: seededDirectory, readinessMs: expect.any(Number),
+    });
+    expect(onReady.mock.calls[0]![0].readinessMs).toBeGreaterThan(0);
+    expect(profiles()).toEqual([]);
+  }, TEST_TIMEOUT_MS);
+
+  it('rejects unavailable evidence even if the app wrote its ready marker', async () => {
+    await expect(run('unavailable')).rejects.toThrow(/critical initialization failure/);
+    expect(profiles()).toHaveLength(1);
+  }, TEST_TIMEOUT_MS);
+
+  it('keeps a failed seed for diagnosis without launching the app', async () => {
+    writeFakePackagedApp(workDir, 'healthy');
+    await expect(runPackagedStartupSmoke({
+      root: workDir, platform: 'darwin', tempRoot,
+      seedProfile: async () => { throw new Error('synthetic seed failure'); },
+    })).rejects.toThrow('synthetic seed failure');
+    expect(profiles()).toHaveLength(1);
+    expect(keptAppPids()).toEqual([]);
   }, TEST_TIMEOUT_MS);
 
   it('SIGKILLs a relaunched app that ignores SIGTERM instead of orphaning it', async () => {

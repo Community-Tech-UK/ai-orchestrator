@@ -551,6 +551,50 @@ describe('ProviderQuotaChipComponent', () => {
     });
   });
 
+  describe('MiMo usage sign-in navigation', () => {
+    it.each(['legacy', 'mimo-extra'])('opens Accounts from the %s warning and closes the popover first', async (id) => {
+      accountIpc.list.mockResolvedValue({
+        profiles: [{ id: 'mimo-extra', provider: 'opencode', label: 'Example MiMo' }],
+        pools: {},
+      });
+      const snapshot: ProviderQuotaSnapshot = {
+        ...makeSnapshot('opencode', undefined, false),
+        needsReauth: true,
+        error: 'MiMo usage login is unavailable. Choose Connect usage in Accounts to sign in.',
+        ...(id === 'legacy' ? {} : { accountProfileId: id }),
+      };
+      if (id === 'legacy') store.setSnapshot('opencode', snapshot);
+      else store.setAccountSnapshots([snapshot]);
+      const popoverStatesAtRequest: boolean[] = [];
+      component.accountsRequested.subscribe(() => popoverStatesAtRequest.push(component.popoverOpen()));
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      host.querySelector<HTMLButtonElement>('[data-testid="quota-toggle"]')!.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      // Refresh must retain the popover and must not request navigation.
+      host.querySelector<HTMLButtonElement>('[data-testid="quota-refresh-opencode"]')!.click();
+      fixture.detectChanges();
+      expect(store.refresh).toHaveBeenCalledWith('opencode');
+      expect(popoverStatesAtRequest).toEqual([]);
+      expect(host.querySelector('[data-testid="quota-popover"]')).toBeTruthy();
+
+      const warningId = id === 'legacy' ? 'quota-reauth-opencode' : 'quota-reauth-opencode-mimo-extra';
+      const warning = host.querySelector<HTMLButtonElement>(`[data-testid="${warningId}"]`)!;
+      expect(warning.tagName).toBe('BUTTON');
+      expect(warning.type).toBe('button');
+      expect(warning.textContent).toContain('Choose Connect usage in Accounts');
+      warning.click();
+      fixture.detectChanges();
+
+      expect(popoverStatesAtRequest).toEqual([false]);
+      expect(host.querySelector('[data-testid="quota-popover"]')).toBeNull();
+      expect(store.refresh).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('account-pool rows', () => {
     const claudeWeekly = (used: number) => ({ ...makeWindow(used, 100), id: 'claude.weekly', label: 'Weekly (all models)' });
     const accountSnap = (id: string, used: number, provider: ProviderId = 'claude'): ProviderQuotaSnapshot => ({

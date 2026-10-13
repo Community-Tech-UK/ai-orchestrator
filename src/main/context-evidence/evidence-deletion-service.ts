@@ -32,7 +32,7 @@ export interface EvidenceDeletionLedger {
 }
 
 export interface EvidenceDeletionBlobStore {
-  remove(blobRef: string): Promise<void>;
+  remove(blobRef: string, signal?: AbortSignal): Promise<void>;
 }
 
 export interface EvidenceDeletionServiceOptions {
@@ -46,6 +46,8 @@ export class EvidenceDeletionService {
   private readonly now: () => number;
   private janitorTimer: ReturnType<typeof setInterval> | null = null;
   private janitorRunning = false;
+  private controller = new AbortController();
+  private scheduledRun: Promise<unknown> | null = null;
 
   constructor(private readonly options: EvidenceDeletionServiceOptions) {
     this.now = options.now ?? Date.now;
@@ -61,7 +63,8 @@ export class EvidenceDeletionService {
     });
   }
 
-  async runJanitor(limit = 25): Promise<{ claimed: number; deleted: number; failed: number }> {
+  async runJanitor(limit = 25, signal?: AbortSignal): Promise<{ claimed: number; deleted: number; failed: number }> {
+    signal?.throwIfAborted();
     const now = this.now();
     const boundedLimit = Math.max(1, Math.min(limit, MAX_JANITOR_BATCH));
     const claims = await this.options.ledger.claimEvidenceDeletions(
@@ -72,18 +75,22 @@ export class EvidenceDeletionService {
     let deleted = 0;
     let failed = 0;
     for (const claim of claims) {
+      signal?.throwIfAborted();
       if (!claim.claimToken) {
         failed += 1;
         continue;
       }
       try {
-        await this.options.blobStore.remove(claim.blobRef);
+        if (signal) await this.options.blobStore.remove(claim.blobRef, signal);
+        else await this.options.blobStore.remove(claim.blobRef);
+        signal?.throwIfAborted();
         if (await this.options.ledger.completeEvidenceDeletion(claim.id, claim.claimToken, now)) {
           deleted += 1;
         } else {
           failed += 1;
         }
       } catch (error) {
+        signal?.throwIfAborted();
         if (isAlreadyAbsent(error)) {
           if (await this.options.ledger.completeEvidenceDeletion(claim.id, claim.claimToken, now)) {
             deleted += 1;
@@ -107,11 +114,12 @@ export class EvidenceDeletionService {
 
   startJanitorScheduler(intervalMs = DEFAULT_JANITOR_INTERVAL_MS): void {
     if (this.janitorTimer) return;
+    if (this.controller.signal.aborted) this.controller = new AbortController();
     const boundedIntervalMs = Math.max(1_000, intervalMs);
     this.janitorTimer = setInterval(() => {
       if (this.janitorRunning) return;
       this.janitorRunning = true;
-      void this.runJanitor(DEFAULT_JANITOR_BATCH)
+      this.scheduledRun = this.runJanitor(DEFAULT_JANITOR_BATCH, this.controller.signal)
         .catch((error: unknown) => {
           logger.warn('Evidence deletion sweep failed', {
             errorCode: contentFreeErrorCode(error),
@@ -125,9 +133,15 @@ export class EvidenceDeletionService {
   }
 
   stopJanitorScheduler(): void {
+    this.controller.abort();
     if (!this.janitorTimer) return;
     clearInterval(this.janitorTimer);
     this.janitorTimer = null;
+  }
+
+  async stop(): Promise<void> {
+    this.stopJanitorScheduler();
+    await this.scheduledRun;
   }
 }
 

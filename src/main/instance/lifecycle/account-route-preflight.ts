@@ -65,11 +65,13 @@ export function persistedAccountProfileId(
   return instance?.accountProfileId ?? (resume ? LEGACY_ACCOUNT_PROFILE_ID : undefined);
 }
 
-/** Restore the account-pool stamp from persisted session state (wake). */
+/** Restore the account-pool stamp, routing origin and account fence from persisted session state (wake). */
 export function restoreAccountStamp(
-  instance: Pick<Instance, 'accountProfileId' | 'accountRoutingSource' | 'accountSwitches'>,
-  state: { accountProfileId?: string; accountRoutingSource?: Instance['accountRoutingSource']; accountSwitches?: number },
+  instance: Pick<Instance, 'accountProfileId' | 'accountRoutingSource' | 'accountSwitches' | 'accountRouteOrigin' | 'allowedAccountProfileIds'>,
+  state: Pick<Instance, 'accountProfileId' | 'accountRoutingSource' | 'accountSwitches' | 'accountRouteOrigin' | 'allowedAccountProfileIds'>,
 ): void {
+  if (state.accountRouteOrigin) instance.accountRouteOrigin = state.accountRouteOrigin;
+  if (state.allowedAccountProfileIds?.length) instance.allowedAccountProfileIds = [...state.allowedAccountProfileIds];
   if (!state.accountProfileId) return;
   instance.accountProfileId = state.accountProfileId;
   instance.accountRoutingSource = state.accountRoutingSource;
@@ -85,6 +87,8 @@ export interface AttachAccountRouteOptions {
   executionNodeId?: string;
   /** Profiles that must not be chosen. */
   exclude?: readonly string[];
+  /** The only profiles that may be chosen (the session's account fence); absent/empty = any. */
+  restrictTo?: readonly string[];
   /** Source stamped when the default selection runs on behalf of a handoff. */
   defaultSource?: Extract<AccountRouteSource, 'default' | 'failover' | 'preemptive'>;
   instanceId?: string;
@@ -127,6 +131,7 @@ export async function attachAccountRoute(
     executionNodeId: attachOptions.executionNodeId ?? LOCAL_ACCOUNT_NODE_ID,
     newSession: !options.resume && !attachOptions.persistedProfileId,
     exclude: attachOptions.exclude,
+    restrictTo: attachOptions.restrictTo,
     defaultSource: attachOptions.defaultSource,
     instanceId: attachOptions.instanceId ?? options.instanceId,
   });

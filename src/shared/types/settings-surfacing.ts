@@ -153,6 +153,7 @@ export const SETTING_SURFACING = {
   copilotAccountRoutingRules: 'bespoke',
   providerAccountProfiles: 'bespoke',
   providerAccountPools: 'bespoke',
+  planQueueRouting: 'bespoke', // Plan Queue page panel
   pingPongReviewerProvider: 'tab',
   pingPongMaxRounds: 'tab',
   voiceSttRoutingMode: 'bespoke', // voice tab

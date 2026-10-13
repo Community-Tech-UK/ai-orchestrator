@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
-import { PlanQueueRunListComponent, planQueueStateCounts } from './plan-queue-run-list.component';
+import { PlanQueueRunListComponent, planQueueRoutingSummary, planQueueStateCounts } from './plan-queue-run-list.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const resources: Record<string, string> = {
@@ -131,6 +131,32 @@ describe('PlanQueueRunListComponent', () => {
     expect(fixture.nativeElement.querySelector('.pq-run-head .pq-run-controls')).not.toBeNull();
   });
 
+  it('shows each run\'s fixed providers and accounts on a muted line, and nothing for older runs', () => {
+    const base = makeRun().config;
+    fixture.componentRef.setInput('runs', [
+      makeRun({ id: 'run-default', config: { ...base, routing: { worker: null, verifiers: [] } } }),
+      makeRun({
+        id: 'run-fixed',
+        config: {
+          ...base,
+          routing: {
+            worker: { provider: 'claude', model: 'opus', accountProfileIds: ['acc-a', 'acc-b'] },
+            verifiers: [{ provider: 'codex' }, { provider: 'copilot', model: 'gpt', copilotProfileId: 'cp-1' }],
+          },
+        },
+      }),
+      makeRun({ id: 'run-old' }),
+    ]);
+    fixture.detectChanges();
+
+    const lines = Array.from(fixture.nativeElement.querySelectorAll('.pq-run-routing') as NodeListOf<HTMLElement>)
+      .map((line) => line.textContent?.trim());
+    expect(lines).toEqual([
+      'Workers: default provider · Checkers: automatic',
+      'Workers: claude/opus (accounts: acc-a, acc-b) · Checkers: codex, copilot/gpt (account: cp-1)',
+    ]);
+  });
+
   it('forwards a skip from the document list with the item id', () => {
     fixture.componentRef.setInput('runs', [makeRun({ items: [makeItem({ id: 'item-q', state: 'queued' })] })]);
     fixture.detectChanges();
@@ -155,5 +181,16 @@ describe('planQueueStateCounts', () => {
 
   it('is empty for a run with no documents', () => {
     expect(planQueueStateCounts([])).toBe('');
+  });
+});
+
+describe('planQueueRoutingSummary', () => {
+  it('reads a null worker as the default provider and no checkers as automatic', () => {
+    expect(planQueueRoutingSummary({ worker: null, verifiers: [] })).toBe('Workers: default provider · Checkers: automatic');
+  });
+
+  it('lists provider, model and accounts without empty brackets', () => {
+    expect(planQueueRoutingSummary({ worker: { provider: 'codex', accountProfileIds: [] }, verifiers: [] }))
+      .toBe('Workers: codex · Checkers: automatic');
   });
 });

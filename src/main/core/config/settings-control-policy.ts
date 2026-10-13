@@ -20,6 +20,7 @@ import {
   ProviderAccountPoolsSchema,
   ProviderAccountProfilesSchema,
 } from '@contracts/schemas/provider-account';
+import { PlanQueueRoutingSchema } from '@contracts/schemas/plan-queue';
 
 export type SettingsToolPolicyTier = 'open' | 'read-only' | 'secret';
 
@@ -97,6 +98,9 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   // ownership could spend accounts the user never approved.
   'providerAccountProfiles',
   'providerAccountPools',
+  // Plan Queue routing (2026-10-13): which of those accounts unattended queue
+  // sessions may spend. Same authority class as the pool keys above.
+  'planQueueRouting',
   'computerUseEnabled',
   'computerUseAllowedAppsJson',
   'computerUseDeniedAppsJson',
@@ -468,6 +472,7 @@ export const SETTINGS_TOOL_POLICY = {
   // Provider account pools: same reasoning as the Copilot keys above.
   providerAccountProfiles: readOnly(false, ProviderAccountProfilesSchema),
   providerAccountPools: readOnly(false, ProviderAccountPoolsSchema),
+  planQueueRouting: readOnly(false, PlanQueueRoutingSchema),
   pingPongReviewerProvider: open(
     z.enum(['auto', ...REMOTE_REVIEWER_PROVIDER_IDS]),
   ),

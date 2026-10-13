@@ -6,6 +6,7 @@
 import type { PlanQueueControlPayload, PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import type { PlanQueueToolOperations } from '../mcp/plan-queue-tools';
 import type { PlanQueueCoordinator } from './plan-queue-coordinator';
+import { describeRouting, routeChoiceFromArgs } from './plan-queue-routing';
 
 function itemSummary(item: PlanQueueItemDto) {
   return {
@@ -28,6 +29,7 @@ function runSummary(run: PlanQueueRunDto) {
     status: run.status,
     workspace: run.workspaceCwd,
     baseBranch: run.config.baseBranch,
+    ...(run.config.routing ? { routing: describeRouting(run.config.routing) } : {}),
     relaxedSettings: run.relaxedSettings,
     items: run.items.map(itemSummary),
   };
@@ -60,6 +62,10 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
           ...(args.relax_settings !== undefined ? { relaxSettings: args.relax_settings } : {}),
           ...(args.verifier_gates ? { verifierGates: args.verifier_gates } : {}),
           ...(args.post_merge_gate ? { postMergeGate: args.post_merge_gate } : {}),
+        },
+        routing: {
+          ...(args.worker ? { worker: routeChoiceFromArgs(args.worker) } : {}),
+          ...(args.verifiers ? { verifiers: args.verifiers.map(routeChoiceFromArgs) } : {}),
         },
       });
       return {

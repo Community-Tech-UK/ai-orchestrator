@@ -32,6 +32,7 @@ export interface EvidenceCaptureLedger {
 }
 
 export interface EvidenceCaptureBlobStore {
+  withBlobPublication?<T>(operation: () => Promise<T>): Promise<T>;
   write(
     conversationId: string,
     content: Uint8Array,
@@ -64,12 +65,18 @@ export class EvidenceCaptureService {
     const previous = this.captureQueues.get(queueKey) ?? Promise.resolve();
     const capture = previous
       .catch(() => undefined)
-      .then(() => this.captureOnce(ownedInput));
+      .then(() => this.options.blobStore.withBlobPublication
+        ? this.options.blobStore.withBlobPublication(() => this.captureOnce(ownedInput))
+        : this.captureOnce(ownedInput));
     const tail = capture.then(() => undefined, () => undefined);
     this.captureQueues.set(queueKey, tail);
     return capture.finally(() => {
       if (this.captureQueues.get(queueKey) === tail) this.captureQueues.delete(queueKey);
     });
+  }
+
+  isCapturing(conversationId: string, captureKey: string): boolean {
+    return this.captureQueues.has(`${conversationId}\u0000${captureKey}`);
   }
 
   private async captureOnce(input: EvidenceCaptureServiceInput): Promise<EvidenceCaptureResult> {

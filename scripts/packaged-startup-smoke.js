@@ -159,6 +159,14 @@ async function runPackagedStartupSmoke(options = {}) {
     path.join(options.tempRoot ?? os.tmpdir(), 'harness-startup-smoke-'),
   );
   const logPath = path.join(userDataPath, 'logs', 'app.log');
+  // Seed only the fresh directory we own; never accept a production profile.
+  // Finish seeding before spawning so migration timing measures launch work.
+  try {
+    await options.seedProfile?.(userDataPath);
+  } catch (error) {
+    reportFailedStartup({ userDataPath, logPath, capturedOutput: '' });
+    throw error;
+  }
   const readyMarkerPath = path.join(userDataPath, READY_MARKER);
   const pidMarkerPath = path.join(userDataPath, PID_MARKER);
   const env = {
@@ -167,6 +175,7 @@ async function runPackagedStartupSmoke(options = {}) {
     AIO_STARTUP_SMOKE_USER_DATA_PATH: userDataPath,
   };
   const launch = getLaunchCommand({ executablePath, platform, env });
+  const launchStartedAt = Date.now();
   const child = spawn(launch.command, launch.args, {
     cwd: root,
     env,
@@ -246,6 +255,7 @@ async function runPackagedStartupSmoke(options = {}) {
     if (finalStatus !== 'ready') {
       throw new Error(`Packaged app did not initialize within ${startupTimeoutMs}ms`);
     }
+    await options.onReady?.({ userDataPath, readinessMs: Date.now() - launchStartedAt });
 
     // The smoke build quits itself once ready. Wait for the launched process AND
     // the relaunched app: the launched one exits long before the app does.

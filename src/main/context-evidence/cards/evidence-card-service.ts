@@ -37,6 +37,7 @@ export interface EvidenceCardLedger {
 }
 
 export interface EvidenceCardBlobStore {
+  withBlobPublication?<T>(operation: () => Promise<T>): Promise<T>;
   read(blobRef: string, expectedKeyedContentId?: string): Promise<Uint8Array>;
   write(conversationId: string, content: Uint8Array): Promise<EvidenceBlobWriteResult>;
   remove?(blobRef: string): Promise<void>;
@@ -156,8 +157,13 @@ export class EvidenceCardService {
       }
 
       const payload = encodePayload(card, disclosures);
-      const write = await this.writeCardBlob(record.conversationId, payload);
-      const metadata = await this.persistMetadata(record, card, extractorKind, write, payload);
+      const publish = async () => {
+        const write = await this.writeCardBlob(record.conversationId, payload);
+        return this.persistMetadata(record, card, extractorKind, write, payload);
+      };
+      const metadata = this.options.blobStore.withBlobPublication
+        ? await this.options.blobStore.withBlobPublication(publish)
+        : await publish();
       return { card, metadata, extractorKind, modelAssistedUsed, disclosures };
     } finally {
       content.fill(0);

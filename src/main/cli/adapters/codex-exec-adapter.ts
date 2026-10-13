@@ -219,8 +219,9 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
     const previousPromptFlags = { system: this.systemPromptSent, rtk: this.rtkAwarenessSent };
     const preparedMessage = this.prepareMessageForExecution(normalizedMessage);
     const phase: CodexExecPhase = this.hasCompletedExecTurn ? 'turn' : 'startup';
+    const deadlineMs = this.resolveDeadlineMs();
     const timeoutMs = phase === 'startup'
-      ? Math.min(CODEX_TIMEOUTS.EXEC_STARTUP_MS, this.resolveDeadlineMs())
+      ? Math.min(CODEX_TIMEOUTS.EXEC_STARTUP_MS, deadlineMs ?? CODEX_TIMEOUTS.EXEC_STARTUP_MS)
       : this.resolveTurnIdleTimeoutMs();
     const maxAttempts = 2;
     let lastError: Error | null = null;
@@ -430,8 +431,16 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
       emitHeartbeat: () => this.emit('heartbeat'),
       emitExit: (code, signal) => this.emit('exit', code, signal),
       generateResponseId: () => this.generateResponseId(),
+      // Exec stdout is structured JSON, not a terminal: tool output inside it
+      // routinely contains "error:"/"confirm" text, and an exec child cannot
+      // wait for input. Any chunk is liveness, as in app-server mode.
       recordActivity: this.activityDetector
-        ? (chunk) => this.activityDetector!.recordTerminalActivity(chunk)
+        ? () => this.activityDetector!.recordActivityEntry({
+          ts: Date.now(),
+          state: 'active',
+          source: 'native',
+          provider: 'openai',
+        })
         : undefined,
       onThreadId: (threadId) => {
         if (!this.supportsNativeResume()) return;
@@ -494,6 +503,7 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
 
   protected static readonly MAX_REPLAY_CHARS_PER_ENTRY = 1200;
   protected static readonly MAX_REPLAY_ENTRIES = 16;
-  protected abstract resolveDeadlineMs(): number;
+  /** Total per-attempt budget, or `null` for no total deadline. */
+  protected abstract resolveDeadlineMs(): number | null;
   protected abstract resolveTurnIdleTimeoutMs(): number;
 }

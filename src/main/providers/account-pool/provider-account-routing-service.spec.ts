@@ -153,6 +153,36 @@ describe('ProviderAccountRoutingService', () => {
       .resolves.toMatchObject({ code: 'automation-disallowed' });
   });
 
+  it('chooses only inside an account fence, even past a free higher-priority account', async () => {
+    profiles = [profile('legacy', 0), profile('max-b', 1), profile('max-c', 2)];
+    await expect(service().resolveRouteForSpawn({ provider: 'claude', origin: 'automation', restrictTo: ['max-c'] }))
+      .resolves.toMatchObject({ ok: true, route: { profileId: 'max-c', source: 'default' } });
+    // The soonest-reset fallback also stays inside the fence.
+    parked = ['legacy', 'max-b', 'max-c'];
+    await expect(service().resolveRouteForSpawn({ provider: 'claude', origin: 'automation', restrictTo: ['max-c'] }))
+      .resolves.toMatchObject({ ok: true, route: { profileId: 'max-c' } });
+  });
+
+  it('refuses a fence with no remaining accounts and an explicit profile outside the fence', async () => {
+    await expect(service().resolveRouteForSpawn({ provider: 'claude', origin: 'automation', restrictTo: ['gone'] }))
+      .resolves.toMatchObject({ ok: false, code: 'no-profiles' });
+    await expect(service().resolveRouteForSpawn({ provider: 'claude', origin: 'automation', restrictTo: ['max-b'], explicitProfileId: 'legacy' }))
+      .resolves.toMatchObject({ ok: false, code: 'automation-disallowed', profileId: 'legacy' });
+  });
+
+  it('refuses a fenced new session once only the legacy profile is left, instead of running it on legacy', async () => {
+    profiles = [profile('legacy', 0)];
+    await expect(service().resolveRouteForSpawn({ provider: 'claude', origin: 'automation', restrictTo: ['max-b'] }))
+      .resolves.toMatchObject({ ok: false, code: 'no-profiles' });
+    await expect(service().resolveRouteForSpawn({ provider: 'claude', origin: 'automation', restrictTo: ['legacy'] }))
+      .resolves.toMatchObject({ ok: true, route: { profileId: 'legacy', source: 'legacy' } });
+  });
+
+  it('keeps a persisted profile outside a later fence: a live thread never moves', async () => {
+    await expect(service().resolveRouteForSpawn({ provider: 'claude', origin: 'automation', restrictTo: ['max-b'], persistedProfileId: 'legacy' }))
+      .resolves.toMatchObject({ ok: true, route: { profileId: 'legacy', source: 'persisted' } });
+  });
+
   it('defaults past a parked profile to the next in priority', async () => {
     parked = ['legacy'];
     const outcome = await service().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive' });

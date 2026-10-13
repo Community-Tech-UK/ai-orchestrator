@@ -1245,6 +1245,8 @@ export class SessionContinuityManager extends EventEmitter {
       accountProfileId: instance.accountProfileId,
       accountRoutingSource: instance.accountRoutingSource,
       accountSwitches: instance.accountSwitches,
+      accountRouteOrigin: instance.accountRouteOrigin,
+      allowedAccountProfileIds: instance.allowedAccountProfileIds,
     };
 
     return state;

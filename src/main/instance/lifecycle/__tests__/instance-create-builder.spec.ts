@@ -46,6 +46,27 @@ describe('buildInstanceRecord', () => {
     expect(instance.abortController).toBeInstanceOf(AbortController);
   });
 
+  it('carries the account routing origin and a copy of the account fence onto the instance', () => {
+    const fence = ['max-b'];
+    const instance = buildInstanceRecord(
+      buildConfig({ provider: 'claude', accountRouteOrigin: 'automation', allowedAccountProfileIds: fence }),
+      buildAgent(),
+      { defaultYoloMode: false, getParent: () => undefined },
+    );
+    expect(instance).toMatchObject({ accountRouteOrigin: 'automation', allowedAccountProfileIds: ['max-b'] });
+    expect(instance.allowedAccountProfileIds).not.toBe(fence);
+
+    const plain = buildInstanceRecord(buildConfig({ provider: 'claude' }), buildAgent(), { defaultYoloMode: false, getParent: () => undefined });
+    expect(plain.accountRouteOrigin).toBeUndefined();
+    expect(plain.allowedAccountProfileIds).toBeUndefined();
+  });
+
+  it('lets an explicit empty failover list (Plan Queue sessions) override the global seed', () => {
+    const seeded = { defaultYoloMode: false, getParent: () => undefined, defaultFailoverProviders: ['codex'] };
+    expect(buildInstanceRecord(buildConfig({ provider: 'claude' }), buildAgent(), seeded).failoverProviders).toEqual(['codex']);
+    expect(buildInstanceRecord(buildConfig({ provider: 'claude', failoverProviders: [] }), buildAgent(), seeded).failoverProviders).toBeUndefined();
+  });
+
   it('copies the seeded output buffer so the instance never aliases the caller array', () => {
     const seeded = [
       { id: 'm1', timestamp: 1, type: 'user', content: 'earlier' },

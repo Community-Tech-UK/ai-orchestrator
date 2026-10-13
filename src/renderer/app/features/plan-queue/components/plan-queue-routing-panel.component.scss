@@ -1,0 +1,154 @@
+.pq-routing {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid var(--pq-border-color, #3a3a3a);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.pq-routing-purpose {
+  margin: 0;
+  opacity: 0.75;
+  font-size: 0.92em;
+  max-width: 72ch;
+}
+
+.pq-routing-note {
+  margin: 0;
+  opacity: 0.7;
+  font-size: 0.85em;
+}
+
+.pq-routing-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--pq-border-color, #3a3a3a);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0;
+}
+
+.pq-routing-group > legend {
+  font-weight: 600;
+  padding: 0 6px;
+}
+
+.pq-routing-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.pq-routing-route {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 22px;
+}
+
+.pq-routing-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.pq-routing-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9em;
+}
+
+.pq-routing-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-size: 0.9em;
+}
+
+.pq-routing-accounts > legend {
+  padding: 0;
+  margin-bottom: 4px;
+  opacity: 0.8;
+}
+
+.pq-routing-account {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.pq-routing-account-off {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.pq-routing-account-note {
+  opacity: 0.8;
+}
+
+.pq-routing-checker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pq-routing-checker {
+  border: 1px solid var(--pq-border-color, #3a3a3a);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.pq-routing-checker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.pq-routing-checker-number {
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.pq-routing-checker-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.pq-routing-error {
+  margin: 0;
+  color: #b3261e;
+  font-size: 0.88em;
+}
+
+.pq-routing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.pq-routing-status {
+  font-size: 0.9em;
+}
+
+.pq-routing-status-ok {
+  color: #3d8b40;
+}
+
+.pq-routing-status-error {
+  color: #b3261e;
+}

@@ -139,6 +139,39 @@ export const PlanQueueTriageRecordSchema = z.discriminatedUnion('disposition', [
   }),
 ]);
 
+/**
+ * One provider/account choice for queue sessions. `accountProfileIds` fences a
+ * Claude/Codex/OpenCode session to those pool accounts (the pool still picks
+ * among them and may only fail over inside them); absent = the pool's own
+ * automatic choice. `copilotProfileId` pins a Copilot account; absent = the
+ * Copilot routing rules decide.
+ */
+export const PlanQueueRouteChoiceSchema = z.object({
+  provider: z.string().trim().min(1).max(50),
+  model: z.string().trim().min(1).max(200).optional(),
+  accountProfileIds: z.array(z.string().min(1).max(100)).max(20).optional(),
+  copilotProfileId: z.string().min(1).max(100).optional(),
+}).strict();
+
+/**
+ * Which providers and accounts a run's sessions may use. `worker: null` = the
+ * session that starts the run (its provider, model and account). An empty
+ * `verifiers` list = automatic checker selection.
+ */
+export const PlanQueueRoutingSchema = z.object({
+  worker: PlanQueueRouteChoiceSchema.nullable(),
+  verifiers: z.array(PlanQueueRouteChoiceSchema).max(10),
+  /**
+   * Set by the coordinator on a run's routing, never in the saved setting:
+   * where the checker list came from. Only James's saved choice ('saved') may
+   * replace the licence-pinned work Copilot seat in a protected folder; a
+   * per-run list ('run') comes from an agent's tool call and may not.
+   */
+  checkersChosenBy: z.enum(['saved', 'run']).optional(),
+}).strict();
+
+export const DEFAULT_PLAN_QUEUE_ROUTING: PlanQueueRouting = { worker: null, verifiers: [] };
+
 export const PlanQueueRunConfigSchema = z.object({
   workerSlots: z.number().int().min(1).max(8),
   verificationSlots: z.number().int().min(1).max(4),
@@ -151,6 +184,8 @@ export const PlanQueueRunConfigSchema = z.object({
   relaxSettings: z.boolean(),
   /** Branch verified work lands on; fixed when the run starts. */
   baseBranch: z.string().min(1).max(500).optional(),
+  /** Effective providers and accounts, fixed when the run starts. Absent on older runs. */
+  routing: PlanQueueRoutingSchema.optional(),
 });
 
 // -------------------------------------------------------------------------
@@ -252,6 +287,14 @@ export const PlanQueueReportTriageArgsSchema = z.object({
   records: z.array(PlanQueueTriageRecordSchema).min(1).max(500),
 });
 
+/** `RouteChoice` in the MCP tools' snake_case. */
+export const PlanQueueRouteChoiceArgsSchema = z.object({
+  provider: z.string().trim().min(1).max(50),
+  model: z.string().trim().min(1).max(200).optional(),
+  account_ids: z.array(z.string().min(1).max(100)).max(20).optional(),
+  copilot_account_id: z.string().min(1).max(100).optional(),
+}).strict();
+
 export const PlanQueueStartArgsSchema = z.object({
   kind: PlanQueueKindSchema,
   glob: z.string().max(1000).optional(),
@@ -261,6 +304,10 @@ export const PlanQueueStartArgsSchema = z.object({
   relax_settings: z.boolean().optional(),
   verifier_gates: z.array(z.string().min(1).max(2000)).max(20).optional(),
   post_merge_gate: z.array(z.string().min(1).max(2000)).max(10).optional(),
+  /** Worker provider/model/accounts for this run; overrides the saved choice. */
+  worker: PlanQueueRouteChoiceArgsSchema.optional(),
+  /** Checker choices for this run, in preference order; overrides the saved choice. */
+  verifiers: z.array(PlanQueueRouteChoiceArgsSchema).max(10).optional(),
 });
 
 export const PlanQueueStatusArgsSchema = z.object({ run_id: IdSchema.optional() });
@@ -296,6 +343,9 @@ export type PlanQueueQuestion = z.infer<typeof PlanQueueQuestionSchema>;
 export type PlanQueueDecision = z.infer<typeof PlanQueueDecisionSchema>;
 export type PlanQueueTriageRecord = z.infer<typeof PlanQueueTriageRecordSchema>;
 export type PlanQueueRunConfig = z.infer<typeof PlanQueueRunConfigSchema>;
+export type PlanQueueRouteChoice = z.infer<typeof PlanQueueRouteChoiceSchema>;
+export type PlanQueueRouting = z.infer<typeof PlanQueueRoutingSchema>;
+export type PlanQueueRouteChoiceArgs = z.infer<typeof PlanQueueRouteChoiceArgsSchema>;
 export type PlanQueueItemDto = z.infer<typeof PlanQueueItemDtoSchema>;
 export type PlanQueueRunDto = z.infer<typeof PlanQueueRunDtoSchema>;
 export type PlanQueueAlert = z.infer<typeof PlanQueueAlertSchema>;

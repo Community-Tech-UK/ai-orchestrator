@@ -27,7 +27,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { initializeUnifiedModelCatalogRuntime } from './unified-model-catalog-initialization';
 import { maybeStartWorkerModeOnLaunch } from '../remote-node/worker-mode-autostart';
-import { initializeContextEvidenceRuntime } from '../context-evidence/evidence-maintenance-service';
+import { initializeContextEvidenceRuntime, startContextEvidenceMaintenance } from '../context-evidence/evidence-maintenance-service';
 import { initializeLocalAiGuardRuntime } from '../local-ai-guard';
 import { initializeInstanceContinuationRuntime } from '../instance/instance-continuation-runtime';
 import { initializeInstanceAsyncWorkPublisher } from '../instance/instance-async-work-publisher';
@@ -41,6 +41,18 @@ import { createLateRuntimeInitializationSteps } from './late-runtime-initializat
 import type { StatelessExecProviderPredicate } from './stateless-exec-provider';
 
 const logger = getLogger('AppInitialization');
+
+/** Keep the production ordering directly testable without opening an Electron window. */
+export async function createWindowAndStartEvidenceMaintenance(
+  createWindow: () => Promise<unknown>,
+  markReady: () => void,
+  selfQuittingSmoke: boolean,
+  startMaintenance: () => void = startContextEvidenceMaintenance,
+): Promise<void> {
+  await createWindow();
+  markReady();
+  if (!selfQuittingSmoke) startMaintenance();
+}
 
 export interface AppInitializationStep {
   name: string;

@@ -1,4 +1,4 @@
-import type { AccountRouteSource } from '../../shared/types/provider-account.types';
+import type { AccountInvocationOrigin, AccountRouteSource } from '../../shared/types/provider-account.types';
 import type { InstanceProvider, ThinkingContent } from '../../shared/types/instance.types';
 import type { CopilotRouteSource } from '../../shared/types/copilot-account.types';
 import type { InternalInputMetadata } from '../../shared/types/input-provenance.types';
@@ -124,6 +124,9 @@ export interface SessionState {
   accountProfileId?: string;
   accountRoutingSource?: AccountRouteSource;
   accountSwitches?: number;
+  /** Routing origin and account fence (Plan Queue sessions); see the matching `Instance` fields. */
+  accountRouteOrigin?: AccountInvocationOrigin;
+  allowedAccountProfileIds?: string[];
 }
 
 export interface ConversationEntry {

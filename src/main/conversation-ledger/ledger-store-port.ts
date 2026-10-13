@@ -50,6 +50,7 @@ import type {
   EvidenceLedgerRecord,
   EvidenceListQuery,
   EvidenceBlobReferenceQuery,
+  EvidenceBlobReferenceScanPage,
   EvidenceMaintenanceQuery,
   EvidenceMetadataSearchQuery,
   EvidenceBlobReplacementInput,
@@ -106,8 +107,11 @@ export interface LedgerStorePort {
   failEvidence(input: EvidenceFailureInput): Promise<EvidenceLedgerRecord>;
   getEvidence(conversationId: string, evidenceId: string): Promise<EvidenceLedgerRecord | null>;
   listEvidence(conversationId: string, query?: EvidenceListQuery): Promise<EvidenceLedgerRecord[]>;
+  getEvidenceForMaintenance(conversationId: string, evidenceId: string): Promise<EvidenceLedgerRecord | null>;
   listEvidenceForMaintenance(query: EvidenceMaintenanceQuery): Promise<EvidenceLedgerRecord[]>;
   listReferencedEvidenceBlobRefs(query: EvidenceBlobReferenceQuery): Promise<string[]>;
+  listEvidenceBlobReferenceScanPage(query: EvidenceBlobReferenceQuery): Promise<EvidenceBlobReferenceScanPage>;
+  listReferencedEvidenceBlobRefsForCandidates(blobRefs: string[]): Promise<string[]>;
   replaceEvidenceBlob(input: EvidenceBlobReplacementInput): Promise<boolean>;
   searchEvidenceMetadata(
     conversationId: string,
@@ -270,12 +274,24 @@ export class InProcessLedgerStorePort implements LedgerStorePort {
     return this.store.contextEvidence.listEvidence(conversationId, query);
   }
 
+  async getEvidenceForMaintenance(conversationId: string, evidenceId: string): Promise<EvidenceLedgerRecord | null> {
+    return this.store.contextEvidence.getEvidenceForMaintenance(conversationId, evidenceId);
+  }
+
   async listEvidenceForMaintenance(query: EvidenceMaintenanceQuery): Promise<EvidenceLedgerRecord[]> {
     return this.store.contextEvidence.listEvidenceForMaintenance(query);
   }
 
   async listReferencedEvidenceBlobRefs(query: EvidenceBlobReferenceQuery): Promise<string[]> {
     return this.store.contextEvidence.listReferencedEvidenceBlobRefs(query);
+  }
+
+  async listEvidenceBlobReferenceScanPage(query: EvidenceBlobReferenceQuery): Promise<EvidenceBlobReferenceScanPage> {
+    return this.store.contextEvidence.listEvidenceBlobReferenceScanPage(query);
+  }
+
+  async listReferencedEvidenceBlobRefsForCandidates(blobRefs: string[]): Promise<string[]> {
+    return this.store.contextEvidence.listReferencedEvidenceBlobRefsForCandidates(blobRefs);
   }
 
   async replaceEvidenceBlob(input: EvidenceBlobReplacementInput): Promise<boolean> {
@@ -388,8 +404,11 @@ export type LedgerStoreMethod =
   | 'failEvidence'
   | 'getEvidence'
   | 'listEvidence'
+  | 'getEvidenceForMaintenance'
   | 'listEvidenceForMaintenance'
   | 'listReferencedEvidenceBlobRefs'
+  | 'listEvidenceBlobReferenceScanPage'
+  | 'listReferencedEvidenceBlobRefsForCandidates'
   | 'replaceEvidenceBlob'
   | 'searchEvidenceMetadata'
   | 'authorizeEvidenceRange'

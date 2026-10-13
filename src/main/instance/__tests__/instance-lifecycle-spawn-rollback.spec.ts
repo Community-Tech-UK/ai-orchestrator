@@ -186,6 +186,19 @@ vi.mock('../../cli/adapters/adapter-factory', () => ({
   getCliDisplayName: vi.fn(() => 'Claude'),
 }));
 
+// Pass-through spies: the real account routing runs, and its requests are visible.
+const accountRouteCalls = vi.hoisted(() => [] as Array<{ origin: unknown; options: Record<string, unknown> }>);
+vi.mock('../lifecycle/account-route-preflight', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lifecycle/account-route-preflight')>();
+  return {
+    ...actual,
+    attachAccountRoute: (...args: Parameters<typeof actual.attachAccountRoute>) => {
+      accountRouteCalls.push({ origin: args[2], options: { ...(args[3] ?? {}) } });
+      return actual.attachAccountRoute(...args);
+    },
+  };
+});
+
 vi.mock('../lifecycle/create-validation-helpers', () => ({
   getKnownModelsForCli: mocks.getKnownModelsForCli,
   isRestoreOrReplayContinuity: vi.fn(() => false),
@@ -719,6 +732,47 @@ describe('createInstance spawn transaction rollback', () => {
       (m) => (m as { metadata?: { initialPromptFailed?: boolean } }).metadata?.initialPromptFailed,
     );
     expect(failedNotice).toBeDefined();
+  });
+
+  it('routes a Plan Queue session\'s accounts as automatic work inside its fence, at first spawn and adapter construction', async () => {
+    const harness = makeHarness();
+    mocks.createAdapter.mockReturnValue(makeFakeAdapter());
+    accountRouteCalls.length = 0;
+
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+      accountRouteOrigin: 'automation',
+      // This harness has no account store, so only the legacy profile exists.
+      allowedAccountProfileIds: ['legacy'],
+    });
+    await instance.readyPromise;
+
+    expect(instance).toMatchObject({ accountRouteOrigin: 'automation', allowedAccountProfileIds: ['legacy'] });
+    // The preflight chain (first spawn) and createRuntimeAdapter (every adapter construction) both ask.
+    expect(accountRouteCalls.length).toBeGreaterThanOrEqual(2);
+    for (const call of accountRouteCalls) {
+      expect(call.origin).toBe('automation');
+      expect(call.options['restrictTo']).toEqual(['legacy']);
+    }
+    // The chain always passes `explicitProfileId`; createRuntimeAdapter never does.
+    expect(accountRouteCalls.some((call) => 'explicitProfileId' in call.options)).toBe(true);
+    expect(accountRouteCalls.some((call) => !('explicitProfileId' in call.options))).toBe(true);
+  });
+
+  it('routes an ordinary session as interactive with no fence', async () => {
+    const harness = makeHarness();
+    mocks.createAdapter.mockReturnValue(makeFakeAdapter());
+    accountRouteCalls.length = 0;
+
+    const instance = await harness.manager.createInstance({ workingDirectory: '/tmp/project', provider: 'claude' });
+    await instance.readyPromise;
+
+    expect(accountRouteCalls.length).toBeGreaterThanOrEqual(2);
+    for (const call of accountRouteCalls) {
+      expect(call.origin).toBe('interactive');
+      expect(call.options['restrictTo']).toBeUndefined();
+    }
   });
 
   it('commits on success and leaves every resource registered', async () => {

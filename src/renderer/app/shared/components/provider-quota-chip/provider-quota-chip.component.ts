@@ -25,6 +25,7 @@ import {
   computed,
   effect,
   inject,
+  output,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -168,10 +169,20 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
                     </span>
                   }
                   @if (section.needsReauth) {
-                    <span
-                      class="reauth-row"
-                      [attr.data-testid]="section.id === 'legacy' ? 'quota-reauth-' + provider.provider : 'quota-reauth-' + provider.provider + '-' + section.id"
-                    >⚠ Reauth needed — {{ section.reauthHint }}</span>
+                    @if (provider.provider === 'opencode') {
+                      <button
+                        type="button"
+                        class="reauth-row reauth-action"
+                        [attr.data-testid]="section.id === 'legacy' ? 'quota-reauth-' + provider.provider : 'quota-reauth-' + provider.provider + '-' + section.id"
+                        title="Open Accounts to sign in to MiMo usage"
+                        (click)="openAccounts()"
+                      >⚠ Reauth needed — {{ section.reauthHint }}</button>
+                    } @else {
+                      <span
+                        class="reauth-row"
+                        [attr.data-testid]="section.id === 'legacy' ? 'quota-reauth-' + provider.provider : 'quota-reauth-' + provider.provider + '-' + section.id"
+                      >⚠ Reauth needed — {{ section.reauthHint }}</span>
+                    }
                   }
                   @for (window of section.windows; track window.id) {
                     <span class="window-row">
@@ -260,6 +271,9 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
       background: rgba(239,68,68,0.10);
       border: 1px solid rgba(239,68,68,0.28);
     }
+    .reauth-action { font-family: inherit; text-align: left; cursor: pointer; }
+    .reauth-action:hover { background: rgba(239,68,68,0.18); }
+    .reauth-action:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
   `],
 })
 export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
@@ -273,6 +287,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   private readonly accountProfiles = signal<QuotaAccountProfile[] | null>(null);
   private nowTimer: ReturnType<typeof setInterval> | null = null;
   readonly popoverOpen = signal(false);
+  readonly accountsRequested = output<void>();
 
   constructor() {
     effect(() => {
@@ -448,6 +463,11 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   togglePopover(): void {
     this.popoverOpen.update((open) => !open);
     if (this.popoverOpen() && this.store.accountSnapshots().length > 0) void this.loadAccountProfiles();
+  }
+
+  openAccounts(): void {
+    this.popoverOpen.set(false);
+    this.accountsRequested.emit();
   }
 
   private async loadAccountProfiles(): Promise<void> {

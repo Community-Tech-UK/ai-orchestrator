@@ -57,10 +57,12 @@ export interface EvidenceBlobWriteResult {
 export interface EvidenceStagingCleanupOptions {
   olderThanMs?: number;
   now?: number;
+  signal?: AbortSignal;
 }
 
 export interface EvidenceFinalizedCleanupOptions extends EvidenceStagingCleanupOptions {
   referencedBlobRefs: ReadonlySet<string>;
+  findReferencedCandidates?: (blobRefs: string[]) => Promise<string[]>;
 }
 
 export interface EvidenceStorageFileSystem {
