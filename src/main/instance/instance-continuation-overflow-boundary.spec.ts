@@ -33,7 +33,7 @@ describe('actual communication overflow retry owner boundary', () => {
     const requests:[string,Record<string,unknown>,boolean][]=[];
     let compacted=false;
     let turnStarts=0;
-    const emit=(method:AppServerNotification['method'],params:Record<string,unknown>)=>{for(const fn of [...subscribers])fn({method,params});};
+    const emit=(method:AppServerNotification['method'],params:Record<string,unknown>)=>{for(const fn of Array.from(subscribers))fn({method,params});};
     const client={exitPromise:new Promise<void>(()=>undefined),request:async(method:string,params:Record<string,unknown>)=>{
       requests.push([method,params,compacted]);
       if (method === 'thread/inject_items' && compacted) {

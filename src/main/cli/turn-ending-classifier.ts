@@ -73,7 +73,7 @@ export function classifyTurnEnding(input: TurnEndingInput): TurnEndingClassifica
   if (native.includes('model_context_window_exceeded') || /\b(?:context_length_exceeded|context window exceeded|context overflow|prompt too long|prompt_too_long|request too large)\b/i.test(failureText)) return result('context_overflow', 'provider_context_error');
   if (record(meta['quota'])['exhausted'] === true || status === 429 || /\b(?:quota exceeded|rate limit|rate_limit_exceeded|usage limit|resource_exhausted)\b/i.test(failureText)) return result('quota', 'provider_quota_error');
   if (native.some((reason) => ['refusal', 'content_filter', 'content_filtered'].includes(reason)) || /\b(?:ContentFilterError|content_filter|content filter|policy violation|safety policy)\b/i.test(failureText) || meta['contentFilterBlocked'] === true || isContentFilterEnding(input.text ?? '')) {
-    return result('content_filter', native.includes('refusal') || native.includes('content_filter') ? 'native_content_filter' : 'content_filter_fallback', { ...(input.lastToolReadLike || meta['contentFilterFromTool'] === true ? { contentFilterFromTool: true } : {}) });
+    return result('content_filter', native.includes('refusal') || native.includes('content_filter') ? 'native_content_filter' : 'content_filter_fallback', input.lastToolReadLike || meta['contentFilterFromTool'] === true ? { contentFilterFromTool: true } : {});
   }
   if (meta['doomLoop'] === true || /\bdoom[_ ]loop\b/i.test(failureText)) return result('doom_loop', 'provider_doom_loop');
   if (meta['parentSilent'] === true || errorRecord['parentSilent'] === true) return result('parent_silent', 'delegated_task_lease_expired');

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { UpdateBatcherService, type StateUpdate } from './update-batcher.service';
-import { InstanceStateManager } from '../../../../main/instance/instance-state';
-import type { Instance } from '../../../../shared/types/instance.types';
-import type { BatchUpdatePayload } from '../../../../shared/types/ipc.types';
-import { LIMITS } from '../../../../shared/constants/limits';
+import { UpdateBatcherService, type StateUpdate } from '../../renderer/app/core/services/update-batcher.service';
+import { InstanceStateManager } from '../../main/instance/instance-state';
+import type { Instance } from '../../shared/types/instance.types';
+import type { BatchUpdatePayload } from '../../shared/types/ipc.types';
+import { LIMITS } from '../../shared/constants/limits';
 
 describe('UpdateBatcherService', () => {
   let batcher: UpdateBatcherService;

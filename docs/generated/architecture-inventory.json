@@ -6411,7 +6411,7 @@
       "lines": 1402
     },
     {
-      "path": "src/renderer/app/features/instance-detail/history-preview-session.service.spec.ts",
+      "path": "src/tests/renderer-integration/history-preview-session.service.spec.ts",
       "lines": 1398
     },
     {

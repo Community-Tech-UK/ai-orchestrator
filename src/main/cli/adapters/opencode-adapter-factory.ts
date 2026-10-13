@@ -26,7 +26,6 @@ import {
   applyOpenCodeAccountProviderBlocks,
   buildOpenCodeAccountProviderBlocks,
   resolveOpenCodeSessionModel,
-  type OpenCodeAccountProviderDef,
 } from './opencode-account-provider-config';
 export { resolveOpenCodeSessionModel } from './opencode-account-provider-config';
 import { resolveOpenCodeAccountSpawnConfig } from './account-pool/account-adapter-guards';

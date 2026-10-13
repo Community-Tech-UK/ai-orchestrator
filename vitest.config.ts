@@ -58,6 +58,13 @@ const defaultExcludes = [
   ...slowTestGlobs,
 ];
 
+// Suites that exercise main and renderer together live outside production
+// renderer boundaries, but still need Angular TestBed and renderer transforms.
+const rendererIntegrationTestGlobs = [
+  'src/tests/renderer-integration/**/*.spec.ts',
+  'src/tests/renderer-integration/**/*.test.ts',
+];
+
 export default defineConfig({
   test: {
     globals: true,
@@ -88,6 +95,7 @@ export default defineConfig({
           include: [
             'src/renderer/**/*.spec.ts',
             'src/renderer/**/*.test.ts',
+            ...rendererIntegrationTestGlobs,
             // Cross-layer smoke that boots Angular TestBed from scripts/.
             'scripts/__tests__/cross-wave-smoke.spec.ts',
           ],
@@ -124,6 +132,7 @@ export default defineConfig({
           exclude: [
             ...defaultExcludes,
             // Owned by the renderer project (needs Angular TestBed).
+            ...rendererIntegrationTestGlobs,
             'scripts/__tests__/cross-wave-smoke.spec.ts',
           ],
           setupFiles: ['src/test-setup-node.ts'],

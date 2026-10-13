@@ -71,7 +71,7 @@ function harness(config: ConstructorParameters<typeof CodexCliAdapter>[0] = {}) 
   const responses: [string, Promise<unknown>][] = [];
   let onRequest: ((method: string) => Promise<void> | void) | undefined;
   const emit = (method: AppServerNotification['method'], params: Record<string, unknown>) => {
-    for (const listener of [...subscribers]) listener({ method, params });
+    for (const listener of Array.from(subscribers)) listener({ method, params });
   };
   const client = {
     exitPromise: new Promise<void>(() => { /* stays connected */ }),

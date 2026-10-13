@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { buildCliSpawnOptions } from '../cli-environment';
 import { getLogger } from '../../logging/logger';
+import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { runOpenCodeCapture } from './opencode-effective-budget-config';
 
 const logger = getLogger('OpenCodeCliLaunch');
@@ -15,7 +16,9 @@ export interface OpenCodeLaunch {
 }
 
 function pathCandidates(env: NodeJS.ProcessEnv): string[] {
-  const spawnOptions = buildCliSpawnOptions(env);
+  // Factory env contains overrides, not a complete process environment. Use
+  // the same inherited HOME/PATH as the probes and the eventual ACP spawn.
+  const spawnOptions = buildCliSpawnOptions({ ...getSafeEnvForTrustedProcess(), ...env });
   const listed = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['-a', 'opencode'], {
     encoding: 'utf8',
     ...spawnOptions,

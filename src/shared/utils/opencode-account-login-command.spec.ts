@@ -63,7 +63,7 @@ describe('portable OpenCode account sign-in', () => {
     expect(result.stderr).toContain('ENOENT');
     expect(readdirSync(root)).toEqual([]);
   });
-  it.each(['../escape', 'b & echo unsafe', 'b%PATH%', "b'", 'b\"', 'Upper', ''])('rejects unsafe profile %s before shell encoding', (id) => {
+  it.each(['../escape', 'b & echo unsafe', 'b%PATH%', "b'", 'b"', 'Upper', ''])('rejects unsafe profile %s before shell encoding', (id) => {
     expect(() => openCodeAccountLoginCommand({ id, isLegacy: false })).toThrow('Invalid account profile ID');
   });
 });

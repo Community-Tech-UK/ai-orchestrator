@@ -193,7 +193,7 @@ vi.mock('../lifecycle/account-route-preflight', async (importOriginal) => {
   return {
     ...actual,
     attachAccountRoute: (...args: Parameters<typeof actual.attachAccountRoute>) => {
-      accountRouteCalls.push({ origin: args[2], options: { ...(args[3] ?? {}) } });
+      accountRouteCalls.push({ origin: args[2], options: { ...args[3] } });
       return actual.attachAccountRoute(...args);
     },
   };
