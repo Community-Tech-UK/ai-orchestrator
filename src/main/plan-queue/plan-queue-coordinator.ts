@@ -401,7 +401,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         this.transition(item, 'skipped', { question: null, detail: 'Skipped by James.' });
         break;
       case 'resume-item':
-        this.transition(item, 'queued', { parkReason: null, detail: null, round: 0, erroredRounds: 0, landingRefusals: 0, question: null });
+        this.transition(item, 'queued', { parkReason: null, detail: null, round: 0, erroredRounds: 0, landingRefusals: 0, question: null, landedCommit: null, verdict: null, verifiedMainCommit: null });
         this.reopen(run);
         break;
       case 'land-anyway':

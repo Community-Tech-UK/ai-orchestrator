@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
 import { WorktreeManager } from '../workspace/git/worktree-manager';
 import { UnresolvedMergeError } from './plan-queue-git';
+import { landItemBranch } from './plan-queue-landing';
 import { PlanQueueWorktreeService, planQueueBranchName } from './plan-queue-worktree';
 import type { PlanQueueItem } from './plan-queue.types';
 
@@ -176,6 +177,63 @@ describe('PlanQueueWorktreeService', () => {
     const item = await service.checkpoint(prepared, 'nothing to do');
 
     expect(item.checkpointCommit).toBe(prepared.baseCommit);
+  });
+
+  async function itemWithBlockedCandidate(): Promise<PlanQueueItem> {
+    let item = await service.prepare(makeItem(), repo);
+    writeFileSync(join(item.worktreePath ?? '', 'a.txt'), 'first version\n');
+    item = await service.checkpoint(item, 'first version');
+    writeFileSync(join(repo, 'a.txt'), 'operator work\n');
+    const result = await landItemBranch(item, repo, 'main', 'first candidate', [], (commit) => {
+      item = { ...item, landedCommit: commit };
+    });
+    expect(result.status).toBe('blocked');
+    expect(item.landedCommit).not.toBeNull();
+    return item;
+  }
+
+  it.each(['unchanged', 'uncommitted repair', 'committed repair'] as const)(
+    'checkpoint protects the next landing after %s', async (change) => {
+      const before = await itemWithBlockedCandidate();
+      const wt = before.worktreePath ?? '';
+      if (change !== 'unchanged') writeFileSync(join(wt, 'repair.txt'), 'required repair\n');
+      if (change === 'committed repair') {
+        git(['add', 'repair.txt'], wt);
+        git(['commit', '--no-verify', '-q', '-m', 'worker repair'], wt);
+      }
+
+      const after = await service.checkpoint(before, 'new work');
+
+      expect(saved.at(-1)).toEqual(after);
+      expect(after.checkpointCommit).toBe(git(['rev-parse', 'HEAD'], wt));
+      expect(after.landedCommit).toBe(change === 'unchanged' ? before.landedCommit : null);
+      if (change !== 'unchanged') {
+        expect(after.checkpointCommit).not.toBe(before.checkpointCommit);
+        expect(git(['show', `${after.checkpointCommit}:repair.txt`])).toBe('required repair');
+      }
+      expect(readFileSync(join(repo, 'a.txt'), 'utf8')).toBe('operator work\n');
+      expect(git(['rev-parse', 'main'])).toBe(before.baseCommit);
+    },
+  );
+
+  it.each([false, true])('reattach preserves candidate validity when changed head is %s', async (changed) => {
+    const before = await itemWithBlockedCandidate();
+    const wt = before.worktreePath ?? '';
+    if (changed) {
+      writeFileSync(join(wt, 'repair.txt'), 'required repair\n');
+      git(['add', 'repair.txt'], wt);
+      git(['commit', '--no-verify', '-q', '-m', 'worker repair'], wt);
+    }
+
+    const after = await service.reattach(before, repo);
+
+    expect(saved.at(-1)).toEqual(after);
+    expect(after.checkpointCommit).toBe(git(['rev-parse', 'HEAD'], wt));
+    expect(after.landedCommit).toBe(changed ? null : before.landedCommit);
+    const checkpointed = await service.checkpoint(after, 'after reattach');
+    expect(checkpointed.landedCommit).toBe(after.landedCommit);
+    expect(checkpointed.checkpointCommit).toBe(after.checkpointCommit);
+    expect(readFileSync(join(repo, 'a.txt'), 'utf8')).toBe('operator work\n');
   });
 
   it('refuses to remove a dirty worktree and leaves the work intact', async () => {

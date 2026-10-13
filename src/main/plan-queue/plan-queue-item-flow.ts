@@ -315,7 +315,7 @@ export class PlanQueueItemFlow {
 
   /** awaiting-slot → verifying. Synchronous first transition reserves the slot. */
   startVerification(waiting: PlanQueueItem): Promise<void> {
-    this.host.transition(waiting, 'verifying', { verdict: null });
+    this.host.transition(waiting, 'verifying', { verdict: null, landedCommit: null });
     return this.withItemLock(waiting.id, async () => {
       let item = this.host.getItem(waiting.id);
       if (item.state !== 'verifying' || item.verifierInstanceId) return;

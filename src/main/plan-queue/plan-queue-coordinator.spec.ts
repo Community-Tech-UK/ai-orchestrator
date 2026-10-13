@@ -1068,6 +1068,80 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     expect(git(['show', 'main:2026-01-01-alpha_plan.feature.txt'])).toBe('built 2026-01-01-alpha_plan');
   });
 
+  it.each([
+    { change: 'code repair', resume: 'explicit resume' },
+    { change: 'document only', resume: 'explicit resume' },
+    { change: 'code repair', resume: 'legacy awaiting verification' },
+    { change: 'document only', resume: 'legacy awaiting verification' },
+  ] as const)('$resume rebuilds a blocked candidate for $change', async ({ change, resume }) => {
+    const doc = planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    const hooks = join(repo, '.git', 'hooks');
+    const counter = join(repo, '.git', 'landing-hook-runs');
+    writeFileSync(join(hooks, 'pre-commit'),
+      `#!/bin/sh\nn=$(cat "${counter}" 2>/dev/null || echo 0); echo $((n+1)) > "${counter}"\n`);
+    chmodSync(join(hooks, 'pre-commit'), 0o755);
+    git(['config', 'core.hooksPath', hooks]);
+    writeFileSync(join(repo, 'a.txt'), 'operator work\n');
+    fake.scripts.worker = (instance) => {
+      writeFileSync(join(instance.workingDirectory!, 'a.txt'), 'first version\n');
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+    const before = store.getItem(run.items[0].id)!;
+    expect(before).toMatchObject({ state: 'parked', parkReason: 'land-blocked' });
+    expect(before.landedCommit).not.toBeNull();
+    expect(git(['show', `${before.landedCommit}:a.txt`])).toBe('first version');
+    expect(readFileSync(join(repo, 'a.txt'), 'utf8')).toBe('operator work\n');
+    expect(readFileSync(counter, 'utf8').trim()).toBe('1');
+    appendFileSync(doc, '\nNew acceptance evidence from the resumed round.\n');
+    writeFileSync(join(repo, 'a.txt'), 'base\n');
+    const repair = (worktreePath: string) => {
+      if (change === 'code repair') {
+        writeFileSync(join(worktreePath, 'a.txt'), 'repaired version\n');
+        writeFileSync(join(worktreePath, 'repair.txt'), 'required new repair\n');
+      }
+    };
+    fake.scripts.worker = (instance) => repair(instance.workingDirectory!);
+    fake.scripts.verifier = (instance, message, instances) => {
+      expect(store.getItem(before.id)!.landedCommit).toBeNull();
+      return pass(instance, message, instances);
+    };
+
+    if (resume === 'explicit resume') {
+      await coordinator.control({ action: 'resume-item', itemId: before.id }, parent.id);
+      expect(store.getItem(before.id)).toMatchObject({ landedCommit: null, verdict: null, verifiedMainCommit: null });
+    } else {
+      // Persisted state from the old app: its worker already checkpointed the
+      // repair, but left the original prepared candidate in the item row.
+      let waiting = await coordinator.worktrees.reattach(before, repo);
+      repair(waiting.worktreePath!);
+      waiting = await coordinator.worktrees.checkpoint(waiting, 'legacy worker finished');
+      store.upsertItem({ ...waiting, state: 'awaiting-slot', landedCommit: before.landedCommit });
+      store.upsertRun({ ...store.getRun(run.id)!, status: 'running', endedAt: null });
+      coordinator.requestPump();
+    }
+    await waitForRun(run.id);
+
+    const after = store.getItem(before.id)!;
+    expect(after).toMatchObject({ state: 'landed', branchName: null, worktreePath: null });
+    expect(after.landedCommit).not.toBe(before.landedCommit);
+    expect(git(['rev-parse', 'main'])).toBe(after.landedCommit);
+    expect(git(['show', 'main:a.txt'])).toBe(change === 'code repair' ? 'repaired version' : 'first version');
+    if (change === 'code repair') {
+      expect(git(['show', 'main:repair.txt'])).toBe('required new repair');
+      expect(after.checkpointCommit).not.toBe(before.checkpointCommit);
+    } else {
+      expect(after.checkpointCommit).toBe(before.checkpointCommit);
+    }
+    expect(git(['show', 'main:docs/plans/2026-01-01-alpha_plan_completed.md']))
+      .toContain('New acceptance evidence from the resumed round.');
+    expect(readFileSync(counter, 'utf8').trim()).toBe('2');
+    expect(git(['log', '--format=%s', 'main']).split('\n')).toEqual(['Plan: 2026-01-01-alpha_plan', 'base']);
+    expect(git(['branch', '--list', before.branchName!])).toBe('');
+  });
+
   it('Land anyway squashes the parked branch without closing the document', async () => {
     const { runId, itemId } = await parkedAtRoundLimit();
 

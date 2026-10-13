@@ -6334,6 +6334,10 @@
       "lines": 1580
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
+      "lines": 1568
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-16-ai-orchestrator-cross-repo-improvements-design.md",
       "lines": 1561
     },
@@ -6348,10 +6352,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience_completed.md",
       "lines": 1520
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 1494
     },
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.ts",

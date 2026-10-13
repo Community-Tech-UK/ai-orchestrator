@@ -140,7 +140,11 @@ export class PlanQueueWorktreeService {
       await recordProvisionedPaths(worktreePath);
     }
     const head = await gitExec(['rev-parse', 'HEAD'], worktreePath);
-    const reattached = { ...withPath, checkpointCommit: head };
+    const reattached = {
+      ...withPath,
+      checkpointCommit: head,
+      landedCommit: head === item.checkpointCommit ? item.landedCommit : null,
+    };
     this.deps.saveItem(reattached);
     return reattached;
   }
@@ -171,7 +175,13 @@ export class PlanQueueWorktreeService {
       }
       return gitExec(['rev-parse', 'HEAD'], worktreePath);
     });
-    const updated = { ...item, checkpointCommit: hash };
+    // Keep an unchanged candidate for crash recovery; a changed checkpoint
+    // requires a fresh squash, including its current document evidence.
+    const updated = {
+      ...item,
+      checkpointCommit: hash,
+      landedCommit: hash === item.checkpointCommit ? item.landedCommit : null,
+    };
     this.deps.saveItem(updated);
     return updated;
   }
