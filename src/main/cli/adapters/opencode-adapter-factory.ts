@@ -153,6 +153,8 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
     },
     prepareSpawn: async () => {
       const writableRoots = adapter.getHardenedWritableRoots();
+      // Only supported majors are returned, so the `major >= 2` branches below
+      // stay inactive while MAX_SUPPORTED_OPENCODE_MAJOR is 1.
       const launch = await selectOpenCodeLaunch({ workingDirectory, env, writableRoots });
       adapter.setSpawnCommand(launch.command);
       const probe = (content: string) => readOpenCodeEffectiveBudgetConfig({ workingDirectory,

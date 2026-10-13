@@ -8,7 +8,19 @@ import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { runOpenCodeCapture } from './opencode-effective-budget-config';
 
 const logger = getLogger('OpenCodeCliLaunch');
-const SAFE_PROBE_ERROR = 'Unable to resolve OpenCode model limits safely; refusing to replace native configuration.';
+
+/**
+ * Newest OpenCode major version Harness starts sessions with (LT-705).
+ * OpenCode 2's `acp` command (checked on 2.0.18) takes no options and attaches
+ * to the shared background service, whose configuration was fixed when that
+ * service started. The per-session OPENCODE_CONFIG_CONTENT carrying the
+ * permission policy, generation budget and per-account MiMo providers never
+ * reaches an OpenCode 2 session, so the startup checks would verify settings
+ * the session does not use. Raise this only with a launch path whose session
+ * honours that overlay; the version-2 branches in the adapter factory are not
+ * enough alone.
+ */
+export const MAX_SUPPORTED_OPENCODE_MAJOR = 1;
 
 export interface OpenCodeLaunch {
   command: string;
@@ -63,10 +75,21 @@ function jsonConfig(stdout: string): boolean {
   }
 }
 
+function unusableOpenCodeMessage(openCode1Failed: boolean, newerInstalled: boolean): string {
+  // Shown after "This session could not start. Reason:", so no repeated preamble.
+  const cause = openCode1Failed
+    ? 'The OpenCode 1 command-line tool could not read its settings in this folder. To see why, check that `opencode --version` shows 1.x, then run `opencode debug config` here.'
+    : 'Harness needs the OpenCode 1 command-line tool and could not find a working one. Install it with `npm install -g opencode-ai@1`.';
+  return newerInstalled
+    ? `${cause} A newer OpenCode is installed, but Harness can't use it yet: its sessions ignore Harness's settings for permissions, reply length and which MiMo account to use.`
+    : cause;
+}
+
 /**
- * Use the first OpenCode install that can print its resolved config in this
- * directory. A newer desktop install can migrate the shared database so the
- * older CLI on PATH exits before ACP starts.
+ * Use the first supported OpenCode install that can print its resolved config
+ * in this directory. A newer desktop install can migrate the shared database so
+ * an older CLI exits before ACP starts; Harness then refuses to start rather
+ * than run the session on an unsupported version.
  */
 export async function selectOpenCodeLaunch(params: {
   workingDirectory: string;
@@ -75,39 +98,40 @@ export async function selectOpenCodeLaunch(params: {
   candidates?: readonly string[];
 }): Promise<OpenCodeLaunch> {
   const candidates = params.candidates ?? listOpenCodeCommandCandidates(params.env);
-  let skipped = 0;
+  const capture = (command: string, args: string[]) => runOpenCodeCapture({
+    command,
+    args,
+    workingDirectory: params.workingDirectory,
+    env: params.env,
+    writableRoots: params.writableRoots,
+  });
+  let unknownVersion = 0;
+  let unsupported = 0;
+  let unreadable = 0;
   for (const command of candidates) {
-    try {
-      const config = await runOpenCodeCapture({
-        command,
-        args: ['debug', 'config'],
-        workingDirectory: params.workingDirectory,
-        env: params.env,
-        writableRoots: params.writableRoots,
-      });
-      if (config.code !== 0 || !jsonConfig(config.stdout)) {
-        skipped += 1;
-        continue;
-      }
-      const version = await runOpenCodeCapture({
-        command,
-        args: ['--version'],
-        workingDirectory: params.workingDirectory,
-        env: params.env,
-        writableRoots: params.writableRoots,
-      });
-      const major = version.code === 0 ? majorFromVersion(version.stdout) : undefined;
-      if (!major) {
-        skipped += 1;
-        continue;
-      }
-      if (skipped > 0) {
-        logger.warn('OpenCode CLI could not read its database; using another install', { major });
-      }
-      return { command, major };
-    } catch {
-      skipped += 1;
+    // `--version` does not open the shared database, so an unsupported
+    // install is skipped without touching it.
+    const major = await capture(command, ['--version'])
+      .then((version) => (version.code === 0 ? majorFromVersion(version.stdout) : undefined), () => undefined);
+    if (!major) {
+      unknownVersion += 1;
+      continue;
     }
+    if (major > MAX_SUPPORTED_OPENCODE_MAJOR) {
+      unsupported += 1;
+      continue;
+    }
+    const printsConfig = await capture(command, ['debug', 'config'])
+      .then((config) => config.code === 0 && jsonConfig(config.stdout), () => false);
+    if (!printsConfig) {
+      unreadable += 1;
+      continue;
+    }
+    if (unknownVersion + unsupported + unreadable > 0) {
+      logger.warn('Skipped unusable OpenCode installs; using another', { major, unknownVersion, unsupported, unreadable });
+    }
+    return { command, major };
   }
-  throw new Error(SAFE_PROBE_ERROR);
+  logger.warn('No usable OpenCode install', { candidates: candidates.length, unknownVersion, unsupported, unreadable });
+  throw new Error(unusableOpenCodeMessage(unreadable > 0, unsupported > 0));
 }
