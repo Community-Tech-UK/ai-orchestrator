@@ -209,7 +209,15 @@ export class InstanceReasoningCollapseContinuation {
         { source: policy.source, attempt }),
       onCommitted: () => { state.pending = undefined; },
     });
-    if (!reservation) return;
+    if (!reservation) {
+      if (classification.reason === 'crash') {
+        logger.warn('Crash continuation reservation refused after recovery', {
+          instanceId, reason: classification.reason, requestCount: instance.requestCount,
+          status: instance.status, waitKind: instance.waitReason?.kind,
+        });
+      }
+      return;
+    }
     const pending: Pending = { classification, reservation };
     state.pending = pending;
     void this.dispatch.dispatch(reservation, {

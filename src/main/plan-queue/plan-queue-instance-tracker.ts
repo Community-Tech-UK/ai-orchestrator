@@ -208,12 +208,14 @@ export class PlanQueueInstanceTracker {
 
   /** A failure is reported even for a settled turn: the instance is gone either way. */
   private fail(instanceId: string, reason: string): void {
+    if (this.appShuttingDown) return;
     if (!this.tracking.has(instanceId)) return;
     this.tracking.delete(instanceId);
     this.onOutcome(instanceId, { kind: 'failed', reason });
   }
 
   private settle(instanceId: string, tracking: Tracking, outcome: PlanQueueTurnOutcome): void {
+    if (this.appShuttingDown) return;
     tracking.settled = true;
     tracking.settledBy = outcome.kind;
     this.onOutcome(instanceId, outcome);

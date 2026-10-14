@@ -142,6 +142,29 @@ describe('PlanQueueInstanceTracker', () => {
     expect(tracker.isTracked('w1')).toBe(true);
   });
 
+  it.each<Recorded>([
+    { channel: 'provider', kind: 'error', message: 'Adapter stopped during shutdown' },
+    { channel: 'provider', kind: 'exit', code: null, signal: 'SIGTERM' },
+    { channel: 'removed' },
+  ])('preserves tracked work during shutdown event %j', (event) => {
+    tracker.track('w1');
+    tracker.noteAppShutdown();
+    source.replay('w1', [event]);
+
+    expect(outcomes).toEqual([]);
+    expect(tracker.isTracked('w1')).toBe(true);
+  });
+
+  it('does not start verification from a completion arriving during shutdown', () => {
+    tracker.track('w1');
+    source.replay('w1', [assistant('Partial work preserved.')]);
+    tracker.noteAppShutdown();
+    source.replay('w1', [{ channel: 'provider', kind: 'complete' }, { channel: 'status', status: 'idle' }]);
+
+    expect(outcomes).toEqual([]);
+    expect(tracker.isTracked('w1')).toBe(true);
+  });
+
   it('fails on a non-zero exit mid-turn but not on the exit of an idle, hibernated worker', () => {
     tracker.track('w1');
     source.replay('w1', [assistant('Done.'), { channel: 'status', status: 'idle' }]);

@@ -60,7 +60,7 @@ export function evaluateSessionState(
     if (allPresent) {
       return { state: 'logged_in', reason: 'fingerprint_matched' };
     }
-    return { state: 'logged_out', reason: 'fingerprint_markers_missing' };
+    return { state: 'unknown', reason: 'fingerprint_markers_missing' };
   }
 
   return { state: 'unknown', reason: 'no_fingerprint' };

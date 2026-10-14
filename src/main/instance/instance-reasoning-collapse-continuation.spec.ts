@@ -14,8 +14,9 @@ import {
 } from './instance-reasoning-collapse-continuation';
 import { captureInstanceRecoveryEpoch, isInstanceRecoveryEpochCurrent } from './instance-turn-ending-state';
 
+const continuationWarning = vi.hoisted(() => vi.fn());
 vi.mock('../logging/logger', () => ({
-  getLogger: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }),
+  getLogger: () => ({ info: vi.fn(), warn: continuationWarning, debug: vi.fn(), error: vi.fn() }),
 }));
 
 const ID = 'instance-1';
@@ -55,6 +56,7 @@ describe('InstanceReasoningCollapseContinuation', () => {
   }
 
   beforeEach(() => {
+    continuationWarning.mockClear();
     events = new EventEmitter();
     registry = new InstanceAsyncWorkRegistry();
     instance = {
@@ -218,6 +220,21 @@ describe('InstanceReasoningCollapseContinuation', () => {
     collapseComplete();
     await flush();
     expect(sendInput).toHaveBeenCalledTimes(2);
+  });
+
+  it('logs a refused crash continuation reservation after recovery is announced', async () => {
+    isPaused.mockReturnValue(true);
+    events.emit('instance:state-changed', { instanceId: ID, previousStatus: 'busy', status: 'respawning' });
+    events.emit('provider:normalized-event', {
+      instanceId: ID, event: { kind: 'output', messageType: 'system', metadata: { autoRespawn: true } },
+    });
+    await flush();
+
+    expect(sendInput).not.toHaveBeenCalled();
+    expect(continuationWarning).toHaveBeenCalledWith(
+      expect.stringContaining('reservation'),
+      expect.objectContaining({ instanceId: ID, reason: 'crash', requestCount: 3 }),
+    );
   });
 
   it('stands down while Codex owns the next goal turn', async () => {

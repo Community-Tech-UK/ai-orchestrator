@@ -39,6 +39,36 @@ evidence records.
 
 ## Remediation Index
 
+### Current status corrections — 2026-10-14
+
+These supersede the status phrase in the matching index rows. All 17 defects from the 2026-10-04
+campaign (LT-664 to LT-702) are **FIXED + REGRESSION-TESTED 2026-10-14 (working tree)**: their
+focused regressions pass (23 files, 1014 tests, cache-disabled) and the canonical gates
+(`tsc --noEmit`, `typecheck:spec`, `lint`, `check:ts-max-loc`, `build:main`, `build:renderer`,
+alias/IPC generators with drift checks) are green on the Plan Queue worktree. Implementation
+decisions and as-built detail live in
+[the active plan](2026-10-05-livetest-campaign-defects_plan.md). Real-runtime acceptance remains
+in [the campaign livetest](2026-10-05-livetest-campaign-defects_livetest.md).
+
+| ID | Current status |
+| --- | --- |
+| LT-664 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** Retiring a target now closes its incidents in the same SQLite transaction before lifecycle observers run (repository, Settings/IPC and CLI callers); a failing-resolution trigger proves rollback. Live re-check (Local AI CLI parity check 1) pending in the campaign livetest. |
+| LT-665, LT-666 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** Missing fingerprint markers alone give `unknown / fingerprint_markers_missing` and never navigate or fill; a password field or login-shaped URL remains the positive logged-out signal; failed post-login observations and unreadable login forms stop with their specific reason and no further credential attempts. Scope note: these guards are this plan's code; the 2026-10-11 restored-tab reproduction and the extension-side inventory-stamp fix recorded in [the LT-665 detail](#lt-665) landed in the codebase separately (extension ≥0.2.39, covered by the `browser-target-inspection`, tab-store and assets regressions) and are not part of this plan's diff. Live re-check (login recipe checks 1–2) and the extension confirmation on `windows-pc` are pending in the campaign livetest. |
+| LT-670 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); dev-app re-check 2026-10-06** (a Codex session waiting out circuit-breaker backoff at attempts 3–4 was not terminated). Campaign livetest LT-C still pending. |
+| LT-671 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** A refused crash-continuation reservation after recovery now logs a metadata-only warning (instance ID, request count, state, wait kind); fresh-replay admission is unchanged. Live re-check (crash-turn LT-A) pending in the campaign livetest. |
+| LT-672 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); dev-app re-check 2026-10-06** (user Stop on a busy turn returned to idle with interrupt notices only). Campaign livetest LT-B still pending. |
+| LT-673 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); dev-app re-check 2026-10-06** (reload kept the session in the list and rail). Packaged cold start still pending in the campaign livetest. |
+| LT-674 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** An errored completion is captured (cost, telemetry, hooks) before adapter cleanup deletes the adapter. Live re-check (outstanding plans sweep check 3) pending in the campaign livetest. |
+| LT-675 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** Claude and Codex sign-in banners are rejected as titles and title escalation continues to the next provider. Live re-check (session title quality) pending in the campaign livetest. |
+| LT-680 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** An accepted Codex steer keeps turn capture open through the real completion instead of an inferred 250 ms idle edge. Live re-check (codex compaction reliability check 4) pending in the campaign livetest. |
+| LT-681 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); dev-app re-check 2026-10-06** (manual Codex compact kept the measured occupancy as estimated `awaiting-post-compaction-usage`, not ~0%). Campaign livetest check 3 still pending. |
+| LT-682 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); dev-app re-check 2026-10-06** (busy Codex button titled `Interrupt Codex (Esc)`). Cosmetic; acceptance needs no further live re-check. |
+| LT-683 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** Overlapping native provider turns are followed without an early idle edge. Original reproduction was seen once 2026-10-04; live re-check (codex compaction reliability check 1) pending in the campaign livetest. |
+| LT-690 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** An injected-cap saturation ending is classified `max_output` with continuation, and ordinary completions stay `completed` (negative cases covered). Live re-check (provider hardening check 1) pending in the campaign livetest. |
+| LT-700 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** A recovered Plan Queue verifier spawn is deferred until the orchestrator-tools socket waiter resolves. Live re-check (Plan Queue check 3) pending in the campaign livetest. |
+| LT-701 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** App shutdown suppresses failure and settlement outcomes at the tracker's status/error/exit/removal/completion boundaries and is signalled before synchronous provider kills as well as async termination, so mid-turn items survive a normal quit. Live re-check (Plan Queue check 3) pending in the campaign livetest. |
+| LT-702 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** The settled predicate is re-evaluated on an interval so a finished, valid reviewer verdict releases the round. Live acceptance (ping-pong loop) pending in the campaign livetest. |
+
 ### Current status corrections — 2026-09-24
 
 These supersede the status phrase in the matching index rows. Evidence lives in the owning

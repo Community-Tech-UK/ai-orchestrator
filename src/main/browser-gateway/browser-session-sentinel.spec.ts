@@ -37,10 +37,10 @@ describe('evaluateSessionState', () => {
     ).toMatchObject({ state: 'logged_in', reason: 'fingerprint_matched' });
   });
 
-  it('is logged out when fingerprint markers are missing', () => {
+  it('is unknown when fingerprint markers are missing without a positive logged-out signal', () => {
     expect(
       evaluateSessionState(signal({ presentTexts: ['Welcome'] }), fingerprint),
-    ).toMatchObject({ state: 'logged_out', reason: 'fingerprint_markers_missing' });
+    ).toMatchObject({ state: 'unknown', reason: 'fingerprint_markers_missing' });
   });
 
   it('is unknown without a fingerprint on a non-login page', () => {

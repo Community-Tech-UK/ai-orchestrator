@@ -113,6 +113,8 @@ class MarkersNotMatchedOnSignedInPage extends Error {
   }
 }
 
+class LoginFormUnreadable extends Error {}
+
 export async function checkSessionOperation(
   deps: CheckSessionDeps,
   request: CheckSessionRequest,
@@ -204,7 +206,22 @@ export async function checkSessionOperation(
           parked: true,
         };
       }
+      if (settled.state === 'unknown') {
+        record(deps, request, recipe.origin, 'unknown', settled.reason);
+        return {
+          state: 'unknown',
+          reason: settled.reason,
+          reloggedIn: false,
+          attempts: attempt,
+          recipeScope,
+          ...pageOf(settled),
+        };
+      }
     } catch (error) {
+      if (error instanceof LoginFormUnreadable) {
+        record(deps, request, recipe.origin, 'unknown', error.message);
+        return { state: 'unknown', reason: error.message, reloggedIn: false, attempts: attempt, recipeScope };
+      }
       if (error instanceof MarkersNotMatchedOnSignedInPage) {
         record(deps, request, recipe.origin, 'unknown', MARKERS_NOT_MATCHED);
         return {
@@ -343,7 +360,7 @@ async function waitForSettledSession(
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   let latest = await evaluateLiveSession(deps, request);
   for (let poll = 1; poll < SETTLE_POLLS; poll++) {
-    if (latest.state === 'logged_in' || latest.reason === OBSERVATION_BLOCKED) {
+    if (latest.state === 'logged_in' || (latest.state === 'unknown' && latest.reason !== 'fingerprint_markers_missing')) {
       return latest;
     }
     await sleep(SETTLE_INTERVAL_MS);
@@ -395,7 +412,7 @@ async function attemptRelogin(
 
   const loginForm = await deps.queryElements({ ...base, limit: 100 });
   if (loginForm.decision !== 'allowed' || loginForm.outcome !== 'succeeded' || loginForm.data == null) {
-    throw new Error(`relogin login form unreadable: ${loginForm.reason ?? 'elements_unreadable'}`);
+    throw new LoginFormUnreadable(loginForm.reason ?? 'elements_unreadable');
   }
   const loginFormHasPassword = loginForm.data.some((candidate) => candidate.inputType === 'password');
   if (!loginFormHasPassword) {

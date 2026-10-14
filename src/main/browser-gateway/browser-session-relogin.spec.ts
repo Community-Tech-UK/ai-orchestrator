@@ -73,6 +73,45 @@ describe('checkSessionOperation', () => {
     expect(harness.escalations.raise).not.toHaveBeenCalled();
   });
 
+  it('does not navigate or fill when only page-specific fingerprint markers are missing', async () => {
+    harness.page.text = 'Hello, James · Current tenders';
+
+    const outcome = await checkSessionOperation(harness.deps, REQUEST);
+
+    expect(outcome).toMatchObject({ state: 'unknown', reason: 'fingerprint_markers_missing', attempts: 0 });
+    expect(harness.deps.navigate).not.toHaveBeenCalled();
+    expect(harness.deps.fillCredential).not.toHaveBeenCalled();
+    expect(harness.escalations.raise).not.toHaveBeenCalled();
+  });
+
+  it.each(['host_permission_denied', 'page_text_read_failed'])('does not retry credentials after sign-in when the page becomes %s', async (reason) => {
+    harness.page.hasPasswordField = true;
+    harness.deps.snapshot = vi.fn()
+      .mockResolvedValueOnce(allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Sign in' }))
+      .mockResolvedValue(allowed({ title: 'Portal', url: `${ORIGIN}/dashboard`, text: '', textUnavailableReason: reason }));
+
+    const outcome = await checkSessionOperation(harness.deps, REQUEST);
+
+    expect(outcome).toMatchObject({ state: 'unknown', reason, attempts: 1 });
+    expect(harness.deps.fillCredential).toHaveBeenCalledTimes(1);
+    expect(harness.deps.navigate).toHaveBeenCalledTimes(1);
+    expect(harness.escalations.raise).not.toHaveBeenCalled();
+  });
+
+  it('does not retry an unreadable login form after navigation', async () => {
+    harness.page.hasPasswordField = true;
+    harness.deps.queryElements = vi.fn()
+      .mockResolvedValueOnce(allowed([{ selector: '#pw', tagName: 'input', inputType: 'password' }]))
+      .mockResolvedValue({ decision: 'allowed', outcome: 'failed', reason: 'page_text_read_failed', data: null });
+
+    const outcome = await checkSessionOperation(harness.deps, REQUEST);
+
+    expect(outcome).toMatchObject({ state: 'unknown', reason: 'page_text_read_failed', attempts: 1 });
+    expect(harness.deps.navigate).toHaveBeenCalledTimes(1);
+    expect(harness.deps.fillCredential).not.toHaveBeenCalled();
+    expect(harness.escalations.raise).not.toHaveBeenCalled();
+  });
+
   it('re-logs in when the page shows a password field', async () => {
     harness.page.hasPasswordField = true;
     harness.page.text = 'Please sign in';
@@ -306,13 +345,14 @@ describe('checkSessionOperation', () => {
     const outcome = await checkSessionOperation(harness.deps, REQUEST);
 
     expect(outcome).toMatchObject({
-      state: 'logged_out',
-      reason: 'relogin_failed',
+      state: 'unknown',
+      reason: 'browser_extension_command_timeout',
       reloggedIn: false,
-      attempts: 2,
+      attempts: 1,
     });
+    expect(harness.deps.fillCredential).toHaveBeenCalledTimes(1);
     expect(harness.fingerprints.list()[0]).toMatchObject({
-      lastOutcome: 'relogin_failed',
+      lastOutcome: 'unknown',
       lastOutcomeReason: 'browser_extension_command_timeout',
     });
   });
@@ -377,7 +417,7 @@ describe('checkSessionOperation', () => {
   it('stops re-login without filling when the login URL has no password field', async () => {
     harness.deps.snapshot = vi.fn(async () => allowed({
       title: 'Home',
-      url: `${ORIGIN}/home`,
+      url: `${ORIGIN}/login`,
       text: 'Hello, James',
     }));
     harness.deps.queryElements = vi.fn(async () => allowed([]));

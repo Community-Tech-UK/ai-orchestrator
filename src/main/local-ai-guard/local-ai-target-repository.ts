@@ -15,6 +15,8 @@ import {
   LocalAiTargetSchema,
 } from '../../shared/validation/local-ai-guard.schemas';
 import { getLogger } from '../logging/logger';
+import { LocalAiHealthRepository } from './local-ai-health-repository';
+import { closeIncidentsForRetiredTarget } from './local-ai-incident-retirement';
 import {
   mapLocalAiTargetRow,
   type LocalAiRepositoryLogger,
@@ -171,6 +173,16 @@ export class LocalAiTargetRepository {
   }
 
   private write(target: LocalAiTarget): void {
+    const operation = this.db.transaction(() => {
+      this.writeTarget(target);
+      if (target.lifecycle === 'retired') {
+        closeIncidentsForRetiredTarget(new LocalAiHealthRepository(this.db, this.logger, this.clock), target.id, target.updatedAt);
+      }
+    });
+    operation();
+  }
+
+  private writeTarget(target: LocalAiTarget): void {
     this.db.prepareCached(`
       UPDATE local_ai_targets SET
         label = ?, lifecycle = ?, location_type = ?, worker_node_id = ?, provider = ?, endpoint_id = ?, base_url = ?,

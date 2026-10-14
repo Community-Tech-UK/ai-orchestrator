@@ -67,6 +67,38 @@ describe('retiring a Local AI target closes its incidents (LT-664)', () => {
     for (const db of dbs.splice(0)) db.close();
   });
 
+  it('resolves incidents before notifying lifecycle subscribers', () => {
+    const db = openDb();
+    const targets = new LocalAiTargetRepository(db, undefined, () => NOW);
+    const health = new LocalAiHealthRepository(db, undefined, () => NOW);
+    const target = targets.create(config());
+    health.upsertIncident({ kind: 'open-or-update', incident: incident(target.id, 'open-1') });
+    const observed: LocalAiIncident[][] = [];
+    targets.subscribe(() => observed.push(health.listIncidents({ targetId: target.id, state: 'open', limit: 10 })));
+
+    targets.setLifecycle(target.id, 'retired');
+
+    expect(observed).toEqual([[]]);
+    expect(health.listIncidents({ targetId: target.id, limit: 10 })[0]).toMatchObject({ state: 'resolved' });
+  });
+
+  it('rolls back retirement if closing the incident fails', () => {
+    const db = openDb();
+    const targets = new LocalAiTargetRepository(db, undefined, () => NOW);
+    const health = new LocalAiHealthRepository(db, undefined, () => NOW);
+    const target = targets.create(config());
+    health.upsertIncident({ kind: 'open-or-update', incident: incident(target.id, 'open-1') });
+    db.exec(`CREATE TRIGGER refuse_incident_resolution BEFORE UPDATE ON local_ai_incidents
+      WHEN NEW.state = 'resolved' BEGIN SELECT RAISE(ABORT, 'test resolution failure'); END;`);
+    const observed: LocalAiTargetConfig[] = [];
+    targets.subscribe((value) => observed.push(value));
+
+    expect(() => targets.setLifecycle(target.id, 'retired')).toThrow('test resolution failure');
+    expect(targets.get(target.id)?.lifecycle).toBe('enrolled');
+    expect(health.listIncidents({ targetId: target.id, state: 'open', limit: 10 })).toHaveLength(1);
+    expect(observed).toEqual([]);
+  });
+
   it('drops open and acknowledged incidents from status when the target is retired, including ones already retired', async () => {
     const db = openDb();
     const targets = new LocalAiTargetRepository(db, undefined, () => NOW);
@@ -78,11 +110,14 @@ describe('retiring a Local AI target closes its incidents (LT-664)', () => {
     }));
     const open = health.upsertIncident({ kind: 'open-or-update', incident: incident(active.id, 'open-1') });
     health.upsertIncident({ kind: 'acknowledge', incidentId: open.id, at: 2_000 });
+    targets.setLifecycle(alreadyRetired.id, 'retired');
+    // Simulate an incident left behind by a pre-LT-664 application version.
     health.upsertIncident({
       kind: 'open-or-update',
       incident: incident(alreadyRetired.id, 'stale-retired'),
     });
-    targets.setLifecycle(alreadyRetired.id, 'retired');
+
+    expect(health.listIncidents({ targetId: alreadyRetired.id, state: 'open', limit: 10 })).toHaveLength(1);
 
     const operations = createLocalAiPublicOperations({
       getRuntime: () => ({

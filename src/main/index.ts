@@ -147,7 +147,11 @@ class HarnessApp {
     this.instanceManager = new InstanceManager(this.windowManager, this.contextWorkerClient);
     this.shutdownOperations = createHarnessShutdownOperations({
       shutdownContinuitySync: () => getSessionContinuityManagerIfInitialized()?.shutdown(),
-      killActiveProcessesSync: () => BaseCliAdapter.killAllActiveProcesses(),
+      killActiveProcessesSync: () => {
+        // Sync cleanup signals providers before the async terminate phase.
+        try { getPlanQueueCoordinator().shutdown(); } catch { /* best effort */ }
+        BaseCliAdapter.killAllActiveProcesses();
+      },
       stopRemoteServices: async () => {
         try { getWorkerNodeHealth().stopAll(); } catch { /* best effort */ }
         try { getWorkerNodeConnectionServer().stop(); } catch { /* best effort */ }
