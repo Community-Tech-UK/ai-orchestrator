@@ -18,7 +18,8 @@ vi.mock('../logging/logger', () => ({
   }),
 }));
 
-import { ProviderConcurrencyLimiter } from './provider-concurrency-limiter';
+import { ProviderConcurrencyLimiter, applyProviderConcurrencyLimits, DEFAULT_PROVIDER_LIMITS } from './provider-concurrency-limiter';
+import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
 
 describe('ProviderConcurrencyLimiter', () => {
   beforeEach(() => {
@@ -33,6 +34,66 @@ describe('ProviderConcurrencyLimiter', () => {
     const a = ProviderConcurrencyLimiter.getInstance();
     const b = ProviderConcurrencyLimiter.getInstance();
     expect(a).toBe(b);
+  });
+
+  it('caps OpenCode at 20 concurrent children by default', () => {
+    const limiter = ProviderConcurrencyLimiter.getInstance();
+    expect(limiter.getStats('opencode')).toEqual({ active: 0, waiting: 0, limit: 20 });
+  });
+
+  it('falls back to 6 for a provider without an explicit default cap', () => {
+    const limiter = ProviderConcurrencyLimiter.getInstance();
+    expect(limiter.getStats('antigravity')).toEqual({ active: 0, waiting: 0, limit: 6 });
+  });
+
+  it('applies setting overrides over the built-in defaults', () => {
+    const limiter = ProviderConcurrencyLimiter.getInstance();
+    applyProviderConcurrencyLimits(limiter, { opencode: 30 });
+    expect(limiter.getStats('opencode')).toMatchObject({ limit: 30 });
+    expect(limiter.getStats('copilot')).toMatchObject({ limit: 10 });
+  });
+
+  it('returns providers to built-in defaults when the setting drops them', () => {
+    const limiter = ProviderConcurrencyLimiter.getInstance();
+    applyProviderConcurrencyLimits(limiter, { opencode: 30 });
+    applyProviderConcurrencyLimits(limiter, {});
+    expect(limiter.getStats('opencode')).toMatchObject({ limit: 20 });
+  });
+
+  it('returns custom keys with no built-in default to the fallback when dropped', () => {
+    const limiter = ProviderConcurrencyLimiter.getInstance();
+    applyProviderConcurrencyLimits(limiter, { antigravity: 10 });
+    expect(limiter.getStats('antigravity')).toMatchObject({ limit: 10 });
+    applyProviderConcurrencyLimits(limiter, {});
+    expect(limiter.getStats('antigravity')).toMatchObject({ limit: 6 });
+  });
+
+  it('treats an array-shaped override value as no overrides at all', () => {
+    const limiter = ProviderConcurrencyLimiter.getInstance();
+    applyProviderConcurrencyLimits(limiter, { opencode: 30 });
+    applyProviderConcurrencyLimits(limiter, [5] as unknown as Record<string, number>);
+    expect(limiter.getStats('opencode')).toMatchObject({ limit: 20 });
+    expect(limiter.getStats('0')).toMatchObject({ limit: 6 });
+  });
+
+  it('ignores out-of-range or non-integer override values', () => {
+    const limiter = ProviderConcurrencyLimiter.getInstance();
+    applyProviderConcurrencyLimits(limiter, {
+      opencode: 0,
+      copilot: 10.5,
+      cursor: 101,
+      grok: Number.NaN,
+    });
+    expect(limiter.getStats('opencode')).toMatchObject({ limit: 20 });
+    expect(limiter.getStats('copilot')).toMatchObject({ limit: 10 });
+    expect(limiter.getStats('cursor')).toMatchObject({ limit: 8 });
+    expect(limiter.getStats('grok')).toMatchObject({ limit: 6 });
+  });
+
+  it('keeps the settings defaults consistent with the built-in caps', () => {
+    for (const [key, value] of Object.entries(DEFAULT_SETTINGS.concurrencyLimitByProvider)) {
+      expect(DEFAULT_PROVIDER_LIMITS[key]).toBe(value);
+    }
   });
 
   it('grants immediate slots up to the limit', async () => {

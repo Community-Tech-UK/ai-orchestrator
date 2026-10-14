@@ -104,7 +104,8 @@ import { InstanceContinuityInputQueue } from './instance-continuity-input-queue'
 import { InstanceToolResultProcessor } from './instance-tool-result-processor';
 import { getInstanceAsyncWorkRegistry } from './instance-async-work-registry';
 import { throwIfInstanceInputAborted, type InstanceSendInputOptions } from './instance-input-cancellation';
-import { InstanceInputFailureScopes } from './instance-input-failure-scope';
+import { InstanceInputFailureScopes, type InstanceInputFailureScope } from './instance-input-failure-scope';
+import { OutputPublicationOrder, type OutputPublicationTicket } from './instance-communication-output-order';
 import { handleInstanceAdapterError } from './instance-adapter-error-handler';
 import { createInstanceAdapterInputDispatch, createInstanceInputReceipt } from './instance-adapter-input-dispatch';
 export type { CommunicationDependencies } from './instance-communication.types';
@@ -162,6 +163,64 @@ export class InstanceCommunicationManager extends EventEmitter {
   private getMessageTurnId(message: OutputMessage): string | undefined {
     const turnId = message.metadata?.['turnId'];
     return typeof turnId === 'string' ? turnId : undefined;
+  }
+
+  /** Stops an instance whose CLI reported context overflow with no recovery owner. */
+  private stopForOutputOverflow(instanceId: string, instance: Instance, message?: OutputMessage): void {
+    // Force the instance to stop — don't let the CLI keep retrying. Stop first,
+    // so the notice below never claims a stop the lifecycle refused.
+    const alreadyStopped = instance.status === 'error' || instance.status === 'terminated';
+    if (!alreadyStopped) {
+      try {
+        this.transitionInstanceStatus(instance, 'error');
+      } catch (err) {
+        if (err instanceof IllegalTransitionError) {
+          // A lifecycle-owned status (hibernating, superseded, ...) settles itself.
+          // Callers include a send's success path, which must not turn into a failure.
+          logger.warn('Context-overflow stop rejected by the lifecycle state machine — ignoring', {
+            instanceId,
+            from: instance.status,
+          });
+          if (message) {
+            this.addToOutputBuffer(instance, message, { countAsProcessOutput: true });
+            this.emit('output', { instanceId, message });
+          }
+          return;
+        }
+        // The lifecycle sets the status before notifying listeners, so a failing
+        // listener can leave the instance stopped: finish the stop in that case.
+        if (instance.status !== 'error') throw err;
+        logger.error('Status listener failed while stopping for context overflow', undefined, { instanceId, ...errorDiagnostic(err) });
+        this.markTurnInactiveIfSettled(instance, 'error');
+      }
+    }
+
+    // Only show the first occurrence; suppress duplicates
+    if (!this.overflow.hasSeen(instanceId)) {
+      this.overflow.markSeen(instanceId);
+      if (message) {
+        this.addToOutputBuffer(instance, message, { countAsProcessOutput: true });
+        this.emit('output', { instanceId, message });
+      }
+
+      // Add guidance message
+      const guidanceMessage: OutputMessage = {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: 'system',
+        content: 'Context window limit reached. The instance has been stopped. Please start a new conversation or delegate large tasks to child instances.',
+        metadata: { contextOverflow: true, fatal: true }
+      };
+      this.addToOutputBuffer(instance, guidanceMessage);
+      this.emit('output', { instanceId, message: guidanceMessage });
+    }
+
+    if (!alreadyStopped) {
+      this.deps.queueUpdate(instanceId, 'error');
+      this.forceCleanupAdapter(instanceId).catch((err) => {
+        logger.error('Failed to cleanup adapter after context overflow', undefined, { instanceId, ...errorDiagnostic(err) });
+      });
+    }
   }
 
   private reconcileCompletedCodexContent(
@@ -859,6 +918,16 @@ export class InstanceCommunicationManager extends EventEmitter {
       await dispatch();
       logger.info('Message sent to adapter');
       receipt.delivered();
+      // A printed overflow whose send still succeeded has no failure owner.
+      if (failureScope.overflowOutput && !failureScope.hasRecovery && failureScope.isCurrent()) {
+        // The send is already delivered: a failed stop must not reach the
+        // send-failure catch below, which would compact and resend it.
+        try {
+          this.stopForOutputOverflow(instanceId, instance);
+        } catch (error) {
+          logger.error('Context-overflow stop failed after a delivered send', undefined, { instanceId, ...errorDiagnostic(error) });
+        }
+      }
     } catch (initialError) {
       receipt.failed(initialError);
       if (options?.autoContinuation && initialError instanceof Error && initialError.name === 'AbortError') return;
@@ -902,17 +971,26 @@ export class InstanceCommunicationManager extends EventEmitter {
       // The adapter's on('error') handler won't fire for thrown errors,
       // so we must handle context overflow recovery inline.
       const errorMsg = sendError instanceof Error ? sendError.message : String(sendError);
-      const overflowEvidence = classifyContextOverflow({
-        errorText: errorMsg,
+      const classifyOverflow = (errorText: string) => classifyContextOverflow({
+        errorText,
         promptTokens: instance.contextUsage?.inputTokens ?? instance.contextUsage?.used,
         contextWindowTokens: instance.contextUsage?.total,
       });
+      // An exec CLI may reject with a bare exit code after printing the overflow.
+      // A stopped or superseded send leaves it to whatever now owns the instance.
+      const printedOverflow = failureScope.isCurrent() ? failureScope.overflowOutput : undefined;
+      let overflowEvidence = classifyOverflow(errorMsg);
+      let overflowText = errorMsg;
+      if (!overflowEvidence.matched && printedOverflow) {
+        overflowEvidence = classifyOverflow(printedOverflow);
+        overflowText = printedOverflow;
+      }
 
       if (overflowEvidence.matched && this.deps.compactContext) {
         const handled = await this.overflowPolicy.recoverSendInputOverflow({
           instanceId,
           instance,
-          errorText: errorMsg,
+          errorText: overflowText,
           message,
           attachments,
           contextBlock: finalContextBlock,
@@ -942,6 +1020,15 @@ export class InstanceCommunicationManager extends EventEmitter {
 
       this.reportAuthFailureTurn(instanceId, sendError);
 
+      // Recovery could not take the printed overflow, so stop as the output path used to.
+      // A failed stop is logged so the caller still sees the provider's own error.
+      if (printedOverflow && failureScope.isCurrent()) {
+        try {
+          this.stopForOutputOverflow(instanceId, instance);
+        } catch (error) {
+          logger.error('Context-overflow stop failed after a failed send', undefined, { instanceId, ...errorDiagnostic(error) });
+        }
+      }
       throw sendError;
     } finally { failureScope.close(); }
   }
@@ -1057,12 +1144,12 @@ export class InstanceCommunicationManager extends EventEmitter {
       this.deps.emitProviderRuntimeEvent?.(instanceId, event, options);
     };
 
-    adapter.on('output', async (message: OutputMessage) => {
-      if (isStaleAdapterEvent('output')) {
-        return;
-      }
-      const failureScope = message.type === 'error' ? this.inputFailureScopes.find(instanceId, adapter) : undefined;
-      if (failureScope?.hasRecovery && !failureScope.isCurrent()) return;
+    const handleOutput = async (
+      message: OutputMessage,
+      failureScope: InstanceInputFailureScope | undefined,
+      ticket: OutputPublicationTicket,
+    ): Promise<void> => {
+      if (ticket.turn) await ticket.turn;
       // LT-196: never enters the visible transcript. Held in a side store and
       // merged in only at archive assembly, keeping it out of `outputBuffer`,
       // disk storage, every buffer consumer and the event bus. See
@@ -1122,6 +1209,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           // B4/C1: Persist blacklist immediately so a crash cannot replay the
           // doomed session ID. Awaited so the save completes before this handler
           // returns — eliminates the crash window between in-memory update and disk.
+          ticket.hold();
           try {
             await getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
               nativeResumeFailedAt: Date.now(),
@@ -1142,6 +1230,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           const previousSessionId = instance.sessionId;
           instance.providerSessionId = cliSessionId;
           instance.sessionId = cliSessionId;
+          this.inputFailureScopes.adoptSessionId(instanceId, adapter, previousSessionId, cliSessionId);
           if (previousSessionId !== cliSessionId) {
             getTodoManager().copyTodos(previousSessionId, cliSessionId);
           }
@@ -1149,7 +1238,9 @@ export class InstanceCommunicationManager extends EventEmitter {
           // process crashes in the window between in-memory adoption and save.
           // A crash after queueUpdate but before the save would leave disk with the
           // old session ID while the renderer had already stored the new one;
-          // the correct order is: save first, then tell the UI (B4/C1).
+          // the correct order is: save first, then tell the UI (B4/C1). Messages
+          // emitted during the save queue behind this one instead of overtaking it.
+          ticket.hold();
           try {
             await getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
               sessionId: cliSessionId,
@@ -1210,6 +1301,8 @@ export class InstanceCommunicationManager extends EventEmitter {
               contextWindowTokens: instance.contextUsage?.total,
             });
             if (overflowEvidence.matched && this.deps.compactContext) {
+              // Compaction drives the adapter, whose output must not queue behind it.
+              ticket.release();
               await this.overflowPolicy.compactSilentEmptyResponse({
                 instanceId,
                 instance,
@@ -1238,6 +1331,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
             // Attempt compaction if available
             if (this.deps.compactContext) {
+              ticket.release();
               try {
                 await this.deps.compactContext(instanceId);
                 this.resetCircuitBreaker(instanceId);
@@ -1266,10 +1360,6 @@ export class InstanceCommunicationManager extends EventEmitter {
         const todoItems = extractTodoToolItems(message);
         if (todoItems !== null) {
           getTodoManager().writeTodos(instance.sessionId, todoItems);
-        }
-
-        if (message.type === 'tool_use' || message.type === 'tool_result') {
-          await this.toolResultProcessor.processToolLifecycle(instanceId, instance, message);
         }
 
         // Detect corrupted session errors (empty user messages stored in CLI history).
@@ -1309,35 +1399,17 @@ export class InstanceCommunicationManager extends EventEmitter {
             ...textDiagnostic(message.content),
             observedTokens: tokenInfo.observed,
             maximumTokens: tokenInfo.maximum,
+            inFlightSend: Boolean(failureScope?.active),
           });
-
-          // Only show the first occurrence; suppress duplicates
-          if (!this.overflow.hasSeen(instanceId)) {
-            this.overflow.markSeen(instanceId);
-            this.addToOutputBuffer(instance, message, { countAsProcessOutput: true });
-            this.emit('output', { instanceId, message });
-
-            // Add guidance message
-            const guidanceMessage: OutputMessage = {
-              id: generateId(),
-              timestamp: Date.now(),
-              type: 'system',
-              content: 'Context window limit reached. The instance has been stopped. Please start a new conversation or delegate large tasks to child instances.',
-              metadata: { contextOverflow: true, fatal: true }
-            };
-            this.addToOutputBuffer(instance, guidanceMessage);
-            this.emit('output', { instanceId, message: guidanceMessage });
+          if (failureScope?.active) {
+            // An exec CLI prints this before its process exits. The send is still
+            // in flight, and its error event or rejection owns compact-and-retry;
+            // stopping here would remove the adapter that recovery is about to use.
+            failureScope.noteOverflowOutput(message.content);
+          } else {
+            this.stopForOutputOverflow(instanceId, instance, message);
+            return; // Don't add duplicate errors to buffer
           }
-
-          // Force the instance to stop — don't let the CLI keep retrying
-          if (instance.status !== 'error' && instance.status !== 'terminated') {
-            this.transitionInstanceStatus(instance, 'error');
-            this.deps.queueUpdate(instanceId, 'error');
-            this.forceCleanupAdapter(instanceId).catch((err) => {
-              logger.error('Failed to cleanup adapter after context overflow', undefined, { instanceId, ...errorDiagnostic(err) });
-            });
-          }
-          return; // Don't add duplicate errors to buffer
         }
 
         this.addToOutputBuffer(instance, message, { countAsProcessOutput: true });
@@ -1354,7 +1426,28 @@ export class InstanceCommunicationManager extends EventEmitter {
         if (message.type === 'assistant' && message.content) {
           this.deps.processOrchestrationOutput(instanceId, message.content);
         }
+        ticket.release();
+
+        // Tool hooks run only after publication. Adapters emit tool records and
+        // the answer that follows them in one synchronous burst (Codex exec), so
+        // awaiting hooks first let the answer overtake its tool result and made
+        // turn-ending classification auto-continue a finished turn.
+        if (message.type === 'tool_use' || message.type === 'tool_result') {
+          await this.toolResultProcessor.processToolLifecycle(instanceId, instance, message);
+        }
       }
+    };
+    // Publication follows emit order; see OutputPublicationOrder. The stale and
+    // failure-scope checks stay synchronous so they judge the emitting moment.
+    const outputOrder = new OutputPublicationOrder();
+    adapter.on('output', (message: OutputMessage) => {
+      if (isStaleAdapterEvent('output')) {
+        return;
+      }
+      const failureScope = message.type === 'error' ? this.inputFailureScopes.find(instanceId, adapter) : undefined;
+      if (failureScope?.hasRecovery && !failureScope.isCurrent()) return;
+      const ticket = outputOrder.enter();
+      void handleOutput(message, failureScope, ticket).finally(ticket.release);
     });
 
     bindRawAdapterProviderEvents({
@@ -1665,6 +1758,10 @@ export class InstanceCommunicationManager extends EventEmitter {
           return;
         }
         const requestCountAtProviderCompletion = this.deps.getInstance(instanceId)?.requestCount;
+        // A completion follows the outputs emitted before it, including any
+        // still queued behind a session-identity save.
+        const heldOutput = outputOrder.pending();
+        if (heldOutput) await heldOutput;
         if (this.deps.drainContextEvidence) {
           await this.deps.drainContextEvidence(instanceId);
         }

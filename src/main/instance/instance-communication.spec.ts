@@ -92,7 +92,7 @@ vi.mock('../browser-gateway/browser-approval-store', () => ({
 import { InstanceCommunicationManager } from './instance-communication';
 import { _resetSessionMutexForTesting, getSessionMutex } from '../session/session-mutex';
 import { _resetToolOutcomeStoreForTesting, getToolOutcomes } from '../learning/tool-outcome-store';
-import { InstanceStateMachine } from './instance-state-machine';
+import { IllegalTransitionError, InstanceStateMachine } from './instance-state-machine';
 import { TokenBudgetTracker } from '../context/token-budget-tracker';
 import { AcpCliAdapter } from '../cli/adapters/acp-cli-adapter';
 import { CodexCliAdapter } from '../cli/adapters/codex-cli-adapter';
@@ -298,6 +298,47 @@ describe('InstanceCommunicationManager', () => {
         }),
       },
     }));
+  });
+
+  it('publishes a synchronous tool/answer burst in adapter order while tool hooks are still pending', async () => {
+    // Codex exec mode delivers tool_use, tool_result and the final answer in one
+    // synchronous burst after the process exits. Slow tool hooks must not let
+    // the answer overtake its tool records: turn-ending classification would
+    // otherwise see an unanswered tool result and auto-continue a finished turn.
+    const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    let releaseHooks!: () => void;
+    const hooksReleased = new Promise<void>((resolve) => { releaseHooks = resolve; });
+    lifecycleHookMocks.triggerLifecycleHooks.mockClear();
+    lifecycleHookMocks.triggerLifecycleHooks.mockImplementation(async () => {
+      await hooksReleased;
+      return { blocked: false };
+    });
+    const published: string[] = [];
+    manager.on('output', (event: { message: OutputMessage }) => published.push(event.message.type));
+
+    try {
+      manager.setupAdapterEvents(instance.id, adapter);
+      const emitter = adapter as unknown as EventEmitter;
+      emitter.emit('output', createMessage('tool_use', 'Using tool: read', {
+        metadata: { id: 'call-1', name: 'read', arguments: { path: 'plan.md' } },
+      }));
+      emitter.emit('output', createMessage('tool_result', 'plan text', {
+        metadata: { id: 'call-1', name: 'read', is_error: false },
+      }));
+      emitter.emit('output', createMessage('assistant', 'Yes. The plan covers both.'));
+      await flushOutputHandlers();
+
+      expect(published).toEqual(['tool_use', 'tool_result', 'assistant']);
+      expect(instance.outputBuffer.map((message) => message.type)).toEqual(['tool_use', 'tool_result', 'assistant']);
+      expect(lifecycleHookMocks.triggerLifecycleHooks).toHaveBeenCalledWith('PreToolUse', expect.objectContaining({ toolName: 'read' }));
+      expect(lifecycleHookMocks.triggerLifecycleHooks).toHaveBeenCalledWith('PostToolUse', expect.objectContaining({ toolOutput: 'plan text' }));
+    } finally {
+      releaseHooks();
+      await flushOutputHandlers();
+      lifecycleHookMocks.triggerLifecycleHooks.mockReset();
+      lifecycleHookMocks.triggerLifecycleHooks.mockResolvedValue({ blocked: false });
+    }
   });
 
   it('LT-196: holds a tool_outcome in the side store, never in outputBuffer or the event stream', async () => {
@@ -2101,6 +2142,264 @@ describe('InstanceCommunicationManager', () => {
     ).toBe(true);
   });
 
+  describe('context overflow printed by an exec CLI before it exits', () => {
+    const overflowText = 'context_length_exceeded: input exceeds the maximum context length';
+    const isStopNotice = (message: OutputMessage) => message.metadata?.['contextOverflow'] === true && message.metadata?.['fatal'] === true;
+
+    function createExecManager(
+      adapter: FakeAdapter,
+      compactContext?: () => Promise<void>,
+      transitionState?: (target: Instance, status: Instance['status']) => void,
+    ): InstanceCommunicationManager {
+      adapters.set(instance.id, adapter as unknown as CliAdapter);
+      const created = new InstanceCommunicationManager({
+        getInstance: (id) => (id === instance.id ? instance : undefined),
+        getAdapter: (id) => adapters.get(id),
+        setAdapter: (id, currentAdapter) => adapters.set(id, currentAdapter),
+        deleteAdapter: (id) => adapters.delete(id),
+        queueUpdate,
+        processOrchestrationOutput: vi.fn(),
+        onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+        ingestToRLM: vi.fn(),
+        ingestToUnifiedMemory: vi.fn(),
+        ...(compactContext ? { compactContext } : {}),
+        ...(transitionState ? { transitionState } : {}),
+        emitProviderRuntimeEvent,
+      });
+      created.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+      return created;
+    }
+
+    function printOverflowThen(adapter: FakeAdapter, outcome: () => Promise<void>, cliSessionId?: string): void {
+      adapter.sendInput.mockImplementationOnce(async () => {
+        // A CLI that assigns its own session id reports it with its first output.
+        if (cliSessionId) adapter.getSessionId = () => cliSessionId;
+        adapter.emit('output', createMessage('error', overflowText));
+        await outcome();
+      });
+    }
+    const afterOutputSettles = () => new Promise<void>((resolve) => setTimeout(resolve, 5));
+
+    it('lets the send recover when its process rejects with only an exit code', async () => {
+      const adapter = new FakeAdapter('gemini-cli');
+      printOverflowThen(adapter, () => Promise.reject(new Error('Gemini exited with code 1')));
+      adapter.sendInput.mockResolvedValueOnce(undefined);
+      const compactContext = vi.fn().mockResolvedValue(undefined);
+      const execManager = createExecManager(adapter, compactContext);
+
+      await execManager.sendInput(instance.id, 'summarize the workspace');
+
+      expect(compactContext).toHaveBeenCalledWith(instance.id);
+      expect(adapter.sendInput).toHaveBeenCalledTimes(2);
+      expect(instance.status).not.toBe('error');
+      expect(instance.outputBuffer.some(isStopNotice)).toBe(false);
+      expect(instance.outputBuffer.some((message) => message.type === 'error' && message.content === overflowText)).toBe(true);
+    });
+
+    it('stops the instance when the printed overflow cannot be recovered', async () => {
+      const adapter = new FakeAdapter('gemini-cli');
+      printOverflowThen(adapter, () => Promise.reject(new Error('Gemini exited with code 1')));
+      const execManager = createExecManager(adapter);
+
+      await expect(execManager.sendInput(instance.id, 'summarize the workspace')).rejects.toThrow('Gemini exited with code 1');
+
+      expect(instance.status).toBe('error');
+      expect(instance.outputBuffer.filter(isStopNotice)).toHaveLength(1);
+    });
+
+    it('stops the instance when the send still succeeds after printing an overflow', async () => {
+      const adapter = new FakeAdapter('gemini-cli');
+      printOverflowThen(adapter, () => Promise.resolve());
+      const execManager = createExecManager(adapter, vi.fn().mockResolvedValue(undefined));
+
+      await execManager.sendInput(instance.id, 'summarize the workspace');
+
+      expect(instance.status).toBe('error');
+      expect(instance.outputBuffer.filter(isStopNotice)).toHaveLength(1);
+    });
+
+    it('stops after a printed overflow on the reply where the CLI assigns its own session id', async () => {
+      const adapter = new FakeAdapter('codex-cli');
+      printOverflowThen(adapter, afterOutputSettles, 'cli-thread-1');
+      const execManager = createExecManager(adapter, vi.fn().mockResolvedValue(undefined));
+
+      await execManager.sendInput(instance.id, 'summarize the workspace');
+
+      expect(instance.sessionId).toBe('cli-thread-1');
+      expect(instance.status).toBe('error');
+      expect(instance.outputBuffer.filter(isStopNotice)).toHaveLength(1);
+    });
+
+    it('stops an unrecoverable printed overflow on the reply where the CLI assigns its own session id', async () => {
+      const adapter = new FakeAdapter('codex-cli');
+      printOverflowThen(adapter, async () => {
+        await afterOutputSettles();
+        throw new Error('Codex exited with code 1');
+      }, 'cli-thread-1');
+      const execManager = createExecManager(adapter);
+
+      await expect(execManager.sendInput(instance.id, 'summarize the workspace')).rejects.toThrow('Codex exited with code 1');
+
+      expect(instance.status).toBe('error');
+      expect(instance.outputBuffer.filter(isStopNotice)).toHaveLength(1);
+    });
+
+    it('lets the error event recover on the reply where the CLI assigns its own session id', async () => {
+      const adapter = new FakeAdapter('gemini-cli');
+      printOverflowThen(adapter, async () => {
+        await afterOutputSettles();
+        adapter.emit('error', new Error(overflowText));
+        throw new Error(overflowText);
+      }, 'cli-thread-1');
+      adapter.sendInput.mockResolvedValueOnce(undefined);
+      const compactContext = vi.fn().mockResolvedValue(undefined);
+      const execManager = createExecManager(adapter, compactContext);
+
+      await execManager.sendInput(instance.id, 'summarize the workspace');
+
+      expect(compactContext).toHaveBeenCalledTimes(1);
+      expect(adapter.sendInput).toHaveBeenCalledTimes(2);
+      expect(instance.status).not.toBe('error');
+      expect(instance.outputBuffer.some(isStopNotice)).toBe(false);
+    });
+
+    it('keeps a successful send successful when the lifecycle refuses the overflow stop', async () => {
+      const adapter = new FakeAdapter('gemini-cli');
+      printOverflowThen(adapter, () => Promise.resolve());
+      const transitionState = vi.fn((target: Instance, status: Instance['status']) => {
+        if (status === 'error') throw new IllegalTransitionError(target.status, status);
+        target.status = status;
+      });
+      const compactContext = vi.fn().mockResolvedValue(undefined);
+      const execManager = createExecManager(adapter, compactContext, transitionState);
+
+      await expect(execManager.sendInput(instance.id, 'summarize the workspace')).resolves.toBeUndefined();
+
+      expect(transitionState).toHaveBeenCalledWith(instance, 'error');
+      // The refusal must not be treated as a failed send and retried.
+      expect(adapter.sendInput).toHaveBeenCalledTimes(1);
+      expect(compactContext).not.toHaveBeenCalled();
+      // Nor may the notice claim a stop that did not happen.
+      await flushOutputHandlers();
+      expect(instance.outputBuffer.some(isStopNotice)).toBe(false);
+      expect(instance.status).not.toBe('error');
+      expect(adapter.terminate).not.toHaveBeenCalled();
+    });
+
+    it('never resends a delivered message when the overflow stop fails unexpectedly', async () => {
+      const adapter = new FakeAdapter('gemini-cli');
+      printOverflowThen(adapter, () => Promise.resolve());
+      const transitionState = vi.fn((target: Instance, status: Instance['status']) => {
+        if (status === 'error') throw new Error('state-update listener failed');
+        target.status = status;
+      });
+      const compactContext = vi.fn().mockResolvedValue(undefined);
+      const execManager = createExecManager(adapter, compactContext, transitionState);
+
+      await expect(execManager.sendInput(instance.id, 'summarize the workspace')).resolves.toBeUndefined();
+
+      expect(adapter.sendInput).toHaveBeenCalledTimes(1);
+      expect(compactContext).not.toHaveBeenCalled();
+    });
+
+    it('finishes the stop when a status listener fails after the instance already stopped', async () => {
+      const adapter = new FakeAdapter('gemini-cli');
+      const transitionState = vi.fn((target: Instance, status: Instance['status']) => {
+        target.status = status;
+        // The lifecycle sets the status before notifying listeners; one fails.
+        if (status === 'error') throw new Error('state-update listener failed');
+      });
+      createExecManager(adapter, vi.fn().mockResolvedValue(undefined), transitionState);
+      instance.activeTurnId = 'turn-1';
+
+      adapter.emit('output', createMessage('error', overflowText));
+      await flushOutputHandlers();
+
+      expect(instance.status).toBe('error');
+      expect(instance.activeTurnId).toBeUndefined();
+      expect(instance.outputBuffer.filter(isStopNotice)).toHaveLength(1);
+      expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'error');
+      expect(adapter.terminate).toHaveBeenCalled();
+    });
+
+    it('claims no stop when the status change fails without stopping the instance', async () => {
+      const adapter = new FakeAdapter('gemini-cli');
+      const transitionState = vi.fn((target: Instance, status: Instance['status']) => {
+        if (status === 'error') throw new Error('state machine unavailable');
+        target.status = status;
+      });
+      createExecManager(adapter, vi.fn().mockResolvedValue(undefined), transitionState);
+
+      adapter.emit('output', createMessage('error', overflowText));
+      await flushOutputHandlers();
+
+      expect(instance.status).not.toBe('error');
+      expect(instance.outputBuffer.some(isStopNotice)).toBe(false);
+      expect(queueUpdate).not.toHaveBeenCalledWith(instance.id, 'error');
+      expect(adapter.terminate).not.toHaveBeenCalled();
+    });
+
+    it('keeps the provider error when the overflow stop fails before rethrowing a failed send', async () => {
+      const adapter = new FakeAdapter('gemini-cli');
+      printOverflowThen(adapter, () => Promise.reject(new Error('Gemini exited with code 1')));
+      const transitionState = vi.fn((target: Instance, status: Instance['status']) => {
+        if (status === 'error') throw new Error('state machine unavailable');
+        target.status = status;
+      });
+      const execManager = createExecManager(adapter, undefined, transitionState);
+
+      await expect(execManager.sendInput(instance.id, 'summarize the workspace')).rejects.toThrow('Gemini exited with code 1');
+      expect(adapter.sendInput).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows the overflow without a stop notice when the lifecycle refuses an immediate stop', async () => {
+      const adapter = new FakeAdapter('gemini-cli');
+      const transitionState = vi.fn((target: Instance, status: Instance['status']) => {
+        if (status === 'error') throw new IllegalTransitionError(target.status, status);
+        target.status = status;
+      });
+      createExecManager(adapter, vi.fn().mockResolvedValue(undefined), transitionState);
+
+      adapter.emit('output', createMessage('error', overflowText));
+      await flushOutputHandlers();
+
+      expect(instance.status).not.toBe('error');
+      expect(instance.outputBuffer.some((message) => message.type === 'error' && message.content === overflowText)).toBe(true);
+      expect(instance.outputBuffer.some(isStopNotice)).toBe(false);
+      expect(adapter.terminate).not.toHaveBeenCalled();
+    });
+
+    it('leaves a printed overflow alone once the user has stopped the send', async () => {
+      const adapter = new FakeAdapter('gemini-cli');
+      const controller = new AbortController();
+      printOverflowThen(adapter, async () => {
+        controller.abort();
+        throw new Error('Gemini exited with code 1');
+      });
+      const compactContext = vi.fn().mockResolvedValue(undefined);
+      const execManager = createExecManager(adapter, compactContext);
+
+      await expect(execManager.sendInput(instance.id, 'summarize the workspace', undefined, undefined, { signal: controller.signal }))
+        .rejects.toThrow('Gemini exited with code 1');
+
+      // A stopped send owns neither recovery nor the stop: no compact, no retry.
+      expect(compactContext).not.toHaveBeenCalled();
+      expect(adapter.sendInput).toHaveBeenCalledTimes(1);
+      expect(instance.status).not.toBe('error');
+      expect(instance.outputBuffer.some(isStopNotice)).toBe(false);
+    });
+
+    it('stops at once when the overflow arrives with no send in flight', () => {
+      const adapter = new FakeAdapter('gemini-cli');
+      createExecManager(adapter, vi.fn().mockResolvedValue(undefined));
+
+      adapter.emit('output', createMessage('error', overflowText));
+
+      expect(instance.status).toBe('error');
+      expect(instance.outputBuffer.filter(isStopNotice)).toHaveLength(1);
+    });
+  });
+
   it('compacts and retries when sendInput throws a provider-specific context overflow', async () => {
     const adapter = new FakeAdapter('gemini-cli');
     adapter.sendInput
@@ -2267,6 +2566,50 @@ describe('InstanceCommunicationManager', () => {
         instance.id,
         { sessionId: 'provider-assigned-id' },
       );
+    });
+
+    it('keeps a burst in emit order while the first message saves a new session ID', async () => {
+      // A new Codex exec thread reports its session ID just before the turn's
+      // burst. Only the first message saves it; the rest must not overtake it.
+      let releaseSave!: () => void;
+      mockWriteThroughIdentity.mockClear();
+      mockWriteThroughIdentity.mockImplementationOnce(() => new Promise<void>((resolve) => { releaseSave = resolve; }));
+      const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+      (adapter as unknown as FakeAdapter & { getSessionId(): string }).getSessionId = () => 'codex-thread-1';
+      adapters.set(instance.id, adapter);
+      (instance as unknown as { providerSessionId: string | undefined }).providerSessionId = undefined;
+      const published: string[] = [];
+      manager.on('output', (event: { message: OutputMessage }) => published.push(event.message.type));
+
+      manager.setupAdapterEvents(instance.id, adapter);
+      const emitter = adapter as unknown as EventEmitter;
+      emitter.emit('output', createMessage('tool_use', 'Using tool: read', { metadata: { id: 'call-1', name: 'read' } }));
+      emitter.emit('output', createMessage('tool_result', 'plan text', { metadata: { id: 'call-1', name: 'read' } }));
+      emitter.emit('output', createMessage('assistant', 'Done.'));
+      emitProviderRuntimeEvent.mockImplementation((_id: string, event: { kind: string }) => {
+        if (event.kind === 'complete') published.push('complete');
+      });
+      emitter.emit('complete', { id: 'r1', content: 'Done.', role: 'assistant' } satisfies CliResponse);
+      await flushOutputHandlers();
+
+      // Save first, then tell the UI (B4/C1): nothing publishes ahead of the save.
+      expect(published).toEqual([]);
+      expect(queueUpdate).not.toHaveBeenCalled();
+
+      releaseSave();
+      await flushOutputHandlers();
+      expect(published).toEqual(['tool_use', 'tool_result', 'assistant', 'complete']);
+      expect(instance.outputBuffer.map((message) => message.type)).toEqual(['tool_use', 'tool_result', 'assistant']);
+      expect(mockWriteThroughIdentity).toHaveBeenCalledTimes(1);
+      expect(queueUpdate).toHaveBeenCalledWith(
+        instance.id, instance.status, instance.contextUsage, instance.diffStats,
+        undefined, undefined, undefined,
+        expect.objectContaining({ providerSessionId: 'codex-thread-1' }),
+      );
+
+      // Once the save has settled, later messages publish immediately again.
+      emitter.emit('output', createMessage('assistant', 'Next turn.'));
+      expect(published).toEqual(['tool_use', 'tool_result', 'assistant', 'complete', 'assistant']);
     });
 
     it('does not call writeThroughIdentity when the session ID is unchanged', async () => {

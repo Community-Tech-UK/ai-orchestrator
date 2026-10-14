@@ -12,6 +12,7 @@ import {
 } from '../../shared/validation/remote-fs-schemas';
 import { FileAttachmentSchema } from '@contracts/schemas/common';
 import { BrowserAttachExistingTabRequestSchema } from '@contracts/schemas/browser';
+import { WorkerAgentBuildSummarySchema } from './worker-agent-build-schema';
 import {
   LocalAiDiagnosticReportSchema,
   LocalAiProbeResultSchema,
@@ -61,12 +62,6 @@ const WorkerLoadedLocalModelSchema = z.object({
   contextLength: z.number().int()
     .min(LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength.min)
     .max(LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength.max),
-});
-
-const WorkerAgentBuildSummarySchema = z.object({
-  version: z.string().min(1).max(128),
-  startedAt: z.number().int().nonnegative(),
-  hostBootedAt: z.number().int().nonnegative().optional().catch(undefined),
 });
 
 const HostHealthProcessesSchema = z.array(z.object({

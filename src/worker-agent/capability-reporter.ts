@@ -11,6 +11,7 @@ import type {
   WorkerNodeAndroidAutomationSummary,
   WorkerNodeExtensionRelaySummary,
   WorkerNodeFileTransferSummary,
+  WorkerAgentBuildSummary,
 } from '../shared/types/worker-node.types';
 import { AUXILIARY_DISCOVERY_MAX_MODELS } from '../shared/types/auxiliary-llm.types';
 import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../shared/types/local-ai-guard.types';
@@ -48,6 +49,14 @@ const WORKER_AGENT_VERSION =
   ?? process.env['npm_package_version']
   ?? '0.1.0';
 
+type WorkerBuildStatus = Pick<WorkerAgentBuildSummary, 'buildCommit' | 'autoUpdate'>;
+let buildStatusProvider: (() => WorkerBuildStatus) | null = null;
+
+/** Registered once by the self-update wiring; its result rides on every heartbeat. */
+export function setWorkerBuildStatusProvider(provider: (() => WorkerBuildStatus) | null): void {
+  buildStatusProvider = provider;
+}
+
 /**
  * Detect local capabilities (CLIs, browser, GPU, memory) for reporting
  * to the coordinator. Called once on startup and periodically on heartbeat.
@@ -82,6 +91,7 @@ export async function reportCapabilities(
       version: WORKER_AGENT_VERSION,
       startedAt: WORKER_AGENT_STARTED_AT,
       hostBootedAt: HOST_BOOTED_AT,
+      ...(buildStatusProvider?.() ?? {}),
     },
     platform: process.platform as NodePlatform,
     arch: process.arch,

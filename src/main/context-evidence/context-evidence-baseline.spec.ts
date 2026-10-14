@@ -251,7 +251,7 @@ describe('provider-agnostic context evidence incident baseline', () => {
     expect(captured).toMatchObject([{ seq: 0 }, { seq: 1 }]);
   });
 
-  it('records that completion can overtake an async tool-result output handler', async () => {
+  it('records that a tool-result output publishes before completion while its PostToolUse hook is pending', async () => {
     let releasePostToolUse: (() => void) | undefined;
     const postToolUsePending = new Promise<void>((resolve) => { releasePostToolUse = resolve; });
     hookMocks.triggerLifecycleHooks.mockImplementation((name: string) =>
@@ -291,10 +291,13 @@ describe('provider-agnostic context evidence incident baseline', () => {
       id: 'complete', role: 'assistant', content: 'done',
     });
 
-    expect(order).toEqual(['complete']);
+    // Tool hooks run after publication, so a slow hook no longer lets the
+    // completion overtake the tool result it follows.
+    expect(order).toEqual(['output', 'complete']);
+    expect(hookMocks.triggerLifecycleHooks).toHaveBeenCalledWith('PostToolUse', expect.objectContaining({ toolOutput: 'tool finished' }));
     releasePostToolUse?.();
     await flushAsyncListeners();
-    expect(order).toEqual(['complete', 'output']);
+    expect(order).toEqual(['output', 'complete']);
   });
 
   it('records Codex cumulative telemetry without restoring an adapter-owned decision', () => {

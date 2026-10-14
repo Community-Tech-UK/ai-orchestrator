@@ -132,6 +132,60 @@ describe('OrchestrationSettingsTabComponent', () => {
     expect(pickerFor('claude').selection?.provider).toBe('claude');
   });
 
+  it('renders one concurrency box per gated provider with its default cap', () => {
+    fixture.detectChanges();
+
+    const openCode = fixture.nativeElement.querySelector('#concurrency-opencode') as HTMLInputElement;
+    const copilot = fixture.nativeElement.querySelector('#concurrency-copilot') as HTMLInputElement;
+    expect(openCode.value).toBe('20');
+    expect(copilot.value).toBe('10');
+  });
+
+  it('persists a concurrency change for one provider', () => {
+    fixture.detectChanges();
+
+    const openCode = fixture.nativeElement.querySelector('#concurrency-opencode') as HTMLInputElement;
+    openCode.value = '30';
+    openCode.dispatchEvent(new Event('change'));
+
+    expect(store.set).toHaveBeenCalledWith('concurrencyLimitByProvider', { opencode: 30 });
+  });
+
+  it('ignores an out-of-range concurrency edit', () => {
+    fixture.detectChanges();
+
+    const openCode = fixture.nativeElement.querySelector('#concurrency-opencode') as HTMLInputElement;
+    openCode.value = '0';
+    openCode.dispatchEvent(new Event('change'));
+
+    expect(store.set).not.toHaveBeenCalled();
+    expect(openCode.value).toBe('20');
+  });
+
+  it('anchors the bespoke concurrency section for settings search jumps', () => {
+    fixture.detectChanges();
+
+    const section = fixture.nativeElement.querySelector(
+      '[data-setting-key="concurrencyLimitByProvider"]',
+    );
+    expect(section).toBeTruthy();
+  });
+
+  it('preserves other providers caps when one box changes', async () => {
+    await store.set('concurrencyLimitByProvider', { antigravity: 10, opencode: 20 });
+    store.set.mockClear();
+    fixture.detectChanges();
+
+    const openCode = fixture.nativeElement.querySelector('#concurrency-opencode') as HTMLInputElement;
+    openCode.value = '30';
+    openCode.dispatchEvent(new Event('change'));
+
+    expect(store.set).toHaveBeenCalledWith('concurrencyLimitByProvider', {
+      antigravity: 10,
+      opencode: 30,
+    });
+  });
+
   function pickerFor(provider: string): CompactModelPickerStubComponent {
     const picker = fixture.debugElement
       .queryAll(By.directive(CompactModelPickerStubComponent))

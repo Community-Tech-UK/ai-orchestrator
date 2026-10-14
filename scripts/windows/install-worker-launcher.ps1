@@ -24,7 +24,8 @@
 
   The deployed launcher lives outside the repo so scheduled-task actions remain
   stable while the checkout changes. The templates in scripts/windows/ are the
-  source of truth; this script renders them. Updates are explicit maintenance.
+  source of truth; this script renders them. The launcher never pulls code: a
+  running worker updates its own checkout when idle (worker-self-update.ts).
   Any legacy worker-update task is disabled on every install.
 
 .EXAMPLE
@@ -275,7 +276,7 @@ Re-run naming them explicitly:
 
 $taskPresence = 'unknown'
 if ($RegisterUpdateTask) {
-  Write-Warning '-RegisterUpdateTask is retired. Updates now require an explicit maintenance action; the old update task will be disabled.'
+  Write-Warning '-RegisterUpdateTask is retired. The running worker now updates itself when idle; the old update task will be disabled.'
 }
 if ($RegisterTask) {
   $taskPresence = Get-TaskPresence -Name $TaskName

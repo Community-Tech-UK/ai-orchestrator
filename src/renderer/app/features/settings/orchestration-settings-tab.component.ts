@@ -7,6 +7,7 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { SettingsTieredRowListComponent } from './settings-tiered-row-list.component';
 import { RoutingMatrixComponent } from './routing-matrix.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
+import { DEFAULT_SETTINGS } from '../../../../shared/types/settings.types';
 import type { PickerProvider } from '../models/compact-model-picker.types';
 import { getDefaultModelForCli } from '../../../../shared/types/provider.types';
 import { ProviderModelOverrideComponent } from './provider-model-override.component';
@@ -28,6 +29,20 @@ interface LoopProviderView {
   label: string;
 }
 
+/** Providers whose children are gated by the provider concurrency limiter. */
+const CONCURRENCY_PROVIDER_DEFINITIONS: readonly { id: string; label: string }[] = [
+  { id: 'opencode', label: 'OpenCode' },
+  { id: 'copilot', label: 'GitHub Copilot' },
+  { id: 'cursor', label: 'Cursor CLI' },
+  { id: 'grok', label: 'Grok Build' },
+];
+
+interface ConcurrencyRowView {
+  id: string;
+  label: string;
+  value: number;
+}
+
 @Component({
   selector: 'app-orchestration-settings-tab',
   standalone: true,
@@ -40,6 +55,36 @@ interface LoopProviderView {
         [valueFor]="readSetting"
         (valueChange)="onSettingChange($event)"
       />
+    </section>
+
+    <section
+      class="settings-list-card provider-concurrency"
+      aria-label="Concurrent CLI agents per provider"
+      data-setting-key="concurrencyLimitByProvider"
+    >
+      <header class="provider-concurrency__header">
+        <h3 class="provider-concurrency__title">Concurrent CLI agents per provider</h3>
+        <p class="provider-concurrency__hint">
+          How many agents one CLI may run at the same time. Changes apply
+          immediately — no restart needed.
+        </p>
+      </header>
+      <ol class="provider-concurrency__list">
+        @for (row of concurrencyRows(); track row.id) {
+          <li class="provider-concurrency__item">
+            <label class="provider-concurrency__name" [attr.for]="'concurrency-' + row.id">{{ row.label }}</label>
+            <input
+              class="provider-concurrency__input"
+              type="number"
+              [id]="'concurrency-' + row.id"
+              [min]="1"
+              [max]="100"
+              [value]="row.value"
+              (change)="onConcurrencyChange(row.id, $event)"
+            />
+          </li>
+        }
+      </ol>
     </section>
 
     <section class="settings-list-card" aria-label="Model routing">
@@ -95,6 +140,27 @@ export class OrchestrationSettingsTabComponent {
   /** What the picker shows for a provider with nothing pinned. */
   defaultModelFor(provider: PickerProvider): string | null {
     return getDefaultModelForCli(provider) || null;
+  }
+
+  readonly concurrencyRows = computed<ConcurrencyRowView[]>(() => {
+    const limits = this.store.get('concurrencyLimitByProvider') ?? {};
+    return CONCURRENCY_PROVIDER_DEFINITIONS.map((provider) => ({
+      ...provider,
+      value: typeof limits[provider.id] === 'number'
+        ? limits[provider.id]
+        : DEFAULT_SETTINGS.concurrencyLimitByProvider[provider.id],
+    }));
+  });
+
+  onConcurrencyChange(providerId: string, event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const value = Number(input.value);
+    if (!Number.isInteger(value) || value < 1 || value > 100) {
+      input.value = String(this.concurrencyRows().find((row) => row.id === providerId)?.value ?? '');
+      return;
+    }
+    const current = this.store.get('concurrencyLimitByProvider') ?? {};
+    void this.store.set('concurrencyLimitByProvider', { ...current, [providerId]: value });
   }
 
   onSettingChange(event: { key: string; value: unknown }): void {

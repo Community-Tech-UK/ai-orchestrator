@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
+import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
@@ -242,6 +243,99 @@ describe('browser extension native host', () => {
         extensionStartedAt: 1_700_000_000_000,
       },
     }));
+  });
+
+  it('passes on the extension version a worker relay expects', async () => {
+    const sendPoll = vi.fn().mockResolvedValue({ result: null, expectedExtensionVersion: '0.2.40' });
+
+    await expect(handleBrowserExtensionNativeMessage({
+      message: { type: 'poll_command', timeoutMs: 25 },
+      runtimeConfig: { socketPath: '/tmp/browser.sock', extensionToken: 'native-token', updatedAt: 1 },
+      sendPoll,
+    })).resolves.toEqual({
+      type: 'browser_command',
+      command: null,
+      expectedExtensionVersion: '0.2.40',
+    });
+    expect(sendPoll).toHaveBeenCalledWith(expect.objectContaining({ method: 'browser.extension_poll_command' }));
+  });
+
+  it('flags itself stale when the relay runs a different worker build', async () => {
+    const sendPoll = vi.fn().mockResolvedValue({ result: null, workerBuildId: 'build-new' });
+    const runtimeConfig = { socketPath: '/tmp/browser.sock', extensionToken: 'native-token', updatedAt: 1 };
+
+    await expect(handleBrowserExtensionNativeMessage({
+      message: { type: 'poll_command' },
+      runtimeConfig,
+      sendPoll,
+      ownWorkerBuildId: 'build-old',
+    })).resolves.toEqual({
+      type: 'browser_command',
+      command: null,
+      nativeHostStale: true,
+      workerBuildId: 'build-new',
+    });
+
+    // Same build, or a host with no build id of its own (Electron, aio-mcp): not stale.
+    for (const ownWorkerBuildId of ['build-new', undefined]) {
+      await expect(handleBrowserExtensionNativeMessage({
+        message: { type: 'poll_command' },
+        runtimeConfig,
+        sendPoll,
+        ...(ownWorkerBuildId ? { ownWorkerBuildId } : {}),
+      })).resolves.toEqual({ type: 'browser_command', command: null });
+    }
+  });
+
+  it('ignores a malformed relay build id', async () => {
+    const sendPoll = vi.fn().mockResolvedValue({ result: null, workerBuildId: 'x'.repeat(65) });
+    await expect(handleBrowserExtensionNativeMessage({
+      message: { type: 'poll_command' },
+      runtimeConfig: { socketPath: '/tmp/browser.sock', extensionToken: 'native-token', updatedAt: 1 },
+      sendPoll,
+      ownWorkerBuildId: 'build-old',
+    })).resolves.toEqual({ type: 'browser_command', command: null });
+  });
+
+  it('reads the expected version from a real relay socket reply', async () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-native-host-'));
+    const socketPath = path.join(dir, 'relay.sock');
+    const server = net.createServer((socket) => {
+      socket.once('data', () => {
+        socket.end(`${JSON.stringify({ jsonrpc: '2.0', id: 1, result: null, expectedExtensionVersion: '0.2.40' })}\n`);
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(socketPath, () => resolve()));
+    try {
+      await expect(handleBrowserExtensionNativeMessage({
+        message: { type: 'poll_command', timeoutMs: 25 },
+        runtimeConfig: { socketPath, extensionToken: 'native-token', updatedAt: 1 },
+      })).resolves.toEqual({
+        type: 'browser_command',
+        command: null,
+        expectedExtensionVersion: '0.2.40',
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['absent', undefined],
+    ['not a version', '0.2.40; reload'],
+    ['not a string', 40],
+  ])('drops an expected extension version that is %s', async (_label, expectedExtensionVersion) => {
+    const sendPoll = vi.fn().mockResolvedValue({ result: { id: 'command-1' }, expectedExtensionVersion });
+
+    await expect(handleBrowserExtensionNativeMessage({
+      message: { type: 'poll_command', timeoutMs: 25 },
+      runtimeConfig: { socketPath: '/tmp/browser.sock', extensionToken: 'native-token', updatedAt: 1 },
+      sendPoll,
+    })).resolves.toEqual({ type: 'browser_command', command: { id: 'command-1' } });
   });
 
   it('acks command receipt fire-and-forget without blocking the frame chain', async () => {

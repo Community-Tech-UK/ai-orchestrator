@@ -19,12 +19,25 @@ const POLL_FORWARD_TIMEOUT_BUFFER_MS = 10_000;
 const COMMAND_RESULT_RETRY_BASE_MS = 3_000;
 const COMMAND_RESULT_MAX_RETRIES = 4;
 const RELAY_STOP_TIMEOUT_MS = 1_000;
+// Replaced at build time by build-worker-agent.ts with the manifest version of
+// the extension checked in beside this bundle. Undefined in other builds.
+const BUILD_EXTENSION_VERSION = process.env['AIO_WORKER_EXTENSION_VERSION'];
+// Unique per worker build, also replaced at build time. A native host compares
+// it with its own to notice it is running an older bundle than the relay.
+const BUILD_ID = process.env['AIO_WORKER_BUILD_ID'];
 
 export interface WorkerExtensionRelayOptions {
   config: WorkerExtensionRelayConfig;
   sendRequest: (method: string, params: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>;
   logger?: Pick<Console, 'info' | 'warn'>;
   now?: () => number;
+  /**
+   * Extension version this worker build ships with. Sent beside every poll
+   * reply so an extension running other code can reload itself onto it.
+   */
+  expectedExtensionVersion?: string;
+  /** This worker build's id, sent beside poll replies. Defaults to the build-time value. */
+  workerBuildId?: string;
 }
 
 interface ExtensionRpcRequest {
@@ -74,12 +87,22 @@ export class WorkerExtensionRelay {
   private extensionReloadedAt: number | undefined;
   private extensionContactState: 'never' | 'active' | 'lost' = 'never';
   private authenticatedPollCount = 0;
+  private lastCommandActivityAt = 0;
+  private readonly expectedExtensionVersion: string | undefined;
+  private readonly workerBuildId: string | undefined;
 
   constructor(options: WorkerExtensionRelayOptions) {
     this.config = options.config;
     this.sendRequest = options.sendRequest;
     this.logger = options.logger ?? console;
     this.now = options.now ?? Date.now;
+    this.expectedExtensionVersion = options.expectedExtensionVersion ?? BUILD_EXTENSION_VERSION;
+    this.workerBuildId = options.workerBuildId ?? BUILD_ID;
+  }
+
+  /** When a browser command last passed through the relay (epoch ms, 0 = never). */
+  getLastCommandActivityAt(): number {
+    return this.lastCommandActivityAt;
   }
 
   getSocketPath(): string {
@@ -276,11 +299,13 @@ export class WorkerExtensionRelay {
       ? pollPayload['timeoutMs']
       : 10_000;
     try {
-      return await this.sendRequest(
+      const command = await this.sendRequest(
         NODE_TO_COORDINATOR.BROWSER_EXT_POLL_COMMAND,
         payload,
         pollWindowMs + POLL_FORWARD_TIMEOUT_BUFFER_MS,
       );
+      if (command !== null && command !== undefined) this.lastCommandActivityAt = this.now();
+      return command;
     } catch (error) {
       // A poll the coordinator REFUSED is not the same as "the queue is empty".
       // Swallowing every failure as `null` makes the extension treat a throttled
@@ -302,6 +327,7 @@ export class WorkerExtensionRelay {
   }
 
   private async forwardCommandResult(params: AuthorizedExtensionParams): Promise<unknown> {
+    this.lastCommandActivityAt = this.now();
     const payload = {
       ...this.extensionRuntimeEvidence(params.payload),
       ...(params.extensionOrigin ? { extensionOrigin: params.extensionOrigin } : {}),
@@ -513,7 +539,10 @@ export class WorkerExtensionRelay {
     try {
       request = JSON.parse(line) as ExtensionRpcRequest;
       const result = await this.handleExtensionRpcRequest(request);
-      this.endSocket(socket, `${JSON.stringify({ jsonrpc: '2.0', id: request.id ?? null, result })}\n`);
+      // Top-level siblings of `result`, never inside it: native hosts from
+      // older builds hand `result` to the extension as the command itself.
+      const build = request.method === 'browser.extension_poll_command' ? this.buildIdentity() : {};
+      this.endSocket(socket, `${JSON.stringify({ jsonrpc: '2.0', id: request.id ?? null, result, ...build })}\n`);
     } catch (error) {
       this.writeError(
         socket,
@@ -521,6 +550,13 @@ export class WorkerExtensionRelay {
         error instanceof Error ? error.message : String(error),
       );
     }
+  }
+
+  private buildIdentity(): { expectedExtensionVersion?: string; workerBuildId?: string } {
+    return {
+      ...(this.expectedExtensionVersion ? { expectedExtensionVersion: this.expectedExtensionVersion } : {}),
+      ...(this.workerBuildId ? { workerBuildId: this.workerBuildId } : {}),
+    };
   }
 
   private writeError(socket: net.Socket, id: string | number | null, message: string): void {

@@ -28,6 +28,10 @@ import { registerBuiltinTerminationGates } from '../session/builtin-termination-
 import { initializeSessionRecoveryRuntime } from './session-recovery-initialization';
 import { getResourceGovernor } from '../process/resource-governor';
 import { getCliAutoUpdateService } from '../cli/cli-auto-update-service';
+import {
+  applyProviderConcurrencyLimits,
+  getProviderConcurrencyLimiter,
+} from '../cli/provider-concurrency-limiter';
 import { getHibernationManager } from '../process/hibernation-manager';
 import { runIdleHibernationSweep } from '../process/idle-hibernation-sweep';
 import { getPoolManager } from '../process/pool-manager';
@@ -245,6 +249,22 @@ export function createLateRuntimeInitializationSteps(
         settings.on('setting:reactionsPollIntervalMs', (value: unknown) => {
           if (typeof value === 'number') engine.updateConfig({ pollIntervalMs: value });
         });
+      },
+    },
+    {
+      name: 'Provider concurrency limits',
+      fn: () => {
+        const settings = getSettingsManager();
+        const apply = (value: unknown): void => {
+          applyProviderConcurrencyLimits(
+            getProviderConcurrencyLimiter(),
+            value as Readonly<Record<string, number>> | undefined,
+          );
+        };
+        // Live-apply so the settings UI and `aio-mcp settings set` take effect
+        // without a restart; the full reapply also clears stale overrides.
+        apply(settings.get('concurrencyLimitByProvider'));
+        settings.on('setting:concurrencyLimitByProvider', apply);
       },
     },
     { name: 'Observation ingestor', fn: () => getObservationIngestor().initialize(instanceManager) },

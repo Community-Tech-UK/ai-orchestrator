@@ -280,9 +280,11 @@ What it produces:
 | `scripts/windows/run-worker-hidden.template.vbs` | tracked source; renders to `%USERPROFILE%\.orchestrator\run-worker-hidden.vbs` |
 
 **Why the deployed copy lives outside the repo.** The scheduled task points at a
-stable launcher while the checkout changes. The launcher no longer runs `git
-pull`; updating the worker is a separate, explicit maintenance action. The
-tracked template keeps the deployed copy reviewable.
+stable launcher while the checkout changes. The launcher does not run `git
+pull`: the running worker updates the checkout itself, when idle (see
+*Automatic updates* below). A launcher installed before 2026-09-24 still pulls on
+every keep-alive fire; re-run the installer to retire it. The tracked template
+keeps the deployed copy reviewable.
 
 The installer refuses to run if `start-worker.bat`'s `node` command has lost
 `--supervise`, backs up the launcher files it overwrites and the existing task
@@ -406,14 +408,90 @@ In the intended steady state the keep-alive's repeats do not fire at all, becaus
 the task owns the worker: the blocking VBS keeps the task *Running* for the
 worker's lifetime and `MultipleInstancesPolicy=IgnoreNew` suppresses them.
 
-### Updating a running worker deliberately
+### Automatic updates (the worker updates itself)
+
+A worker that runs from a git checkout under `--supervise` keeps itself on the
+latest code of its branch, and moves the Chrome extension with it. Added
+2026-10-14 (`src/worker-agent/worker-self-update.ts`,
+`docs/plans/2026-10-14-worker-auto-update_plan_completed.md`). The reason: on windows-pc an
+old launcher pulled new code every five minutes, nothing rebuilt the worker, and
+Chrome loads the Harness extension straight from `resources\browser-extension` in
+the same checkout. After each pull the worker, its native host and the extension
+ran different versions until someone restarted the worker and Chrome by hand.
+
+How it works, every five minutes inside the worker:
+
+1. `git fetch`. If the branch's upstream is ahead (fast-forward only), or the
+   checkout is ahead of the commit the running bundle was built from
+   (`dist\worker-agent\.source-commit`), an update is due.
+2. It waits until the worker has been idle for three minutes: no agent sessions,
+   local-model sessions, terminals, CDP tunnels, coordinator requests in flight,
+   or browser commands through the extension relay.
+3. `git merge --ff-only`, then builds a candidate `dist\worker-agent\index.next.js`
+   and runs it with `--self-check`. Only then is it swapped in. The old bundle is
+   kept as `index.prev.js`.
+4. It disconnects cleanly and exits with code 75. The supervisor respawns the
+   child on the new bundle at once, without counting it as a crash.
+5. The new relay names its extension version beside every poll reply. The
+   extension, when it is idle and installed unpacked, reloads itself onto that
+   version: at most once per version every six hours, so a folder that does not
+   hold that version cannot cause a loop.
+6. Chrome keeps each native-messaging host process alive across the worker
+   restart, so it still runs the old bundle. Every build has a unique id; a host
+   whose id differs from the relay's says so, and the extension reconnects just
+   that channel (Chrome starts a fresh host from disk), at most once per build
+   every ten minutes.
+
+Coordinator housekeeping never counts as work: `node.ping`, health checks,
+service status and the auxiliary-model inventory probe are ignored, and short
+one-off requests (file transfer, a local-model call) only block while they run.
+See `src/worker-agent/worker-activity.ts`.
+
+What it never does:
+
+- **Take the node down for a bad commit.** A failed merge, build, self-check or
+  file swap undoes the fast-forward (the checkout goes back to where it was before
+  this update) and leaves the live bundle alone. If the new bundle dies on start
+  anyway (straight after the update restart, or after any crash respawns onto it), the
+  supervisor puts `index.prev.js` back, and the restored worker then
+  moves the checkout back to its own commit once (never a commit that exists only
+  on this machine). Either way the commit is recorded in
+  `dist\worker-agent\.auto-update-failed`. Most failures can be transient on
+  Windows (a timeout, a file a scanner held), so the same commit is tried again
+  after two hours; a bundle that died on startup is not retried until upstream
+  moves on. To retry at once, delete that file and restart the worker (it is read
+  at startup).
+- **Hang on a stuck shutdown.** The restart allows 30 seconds for a clean
+  shutdown, then exits for the supervisor regardless.
+- **Run `npm install`.** On Windows that can fail on native modules the running
+  worker holds open and leave `node_modules` broken. A build that needs a new
+  dependency fails, rolls back and shows as blocked; install dependencies by hand
+  (`npm install`, then restart the worker).
+- **Fight a diverged checkout.** Local commits that are not on upstream block the
+  update until someone sorts the branch out.
+
+It is off when the worker is not under the supervisor, runs as an OS service,
+is not running from `dist/worker-agent/index.js` in a buildable git checkout, or
+the config says `"autoUpdate": { "enabled": false }`.
+
+**Checking it.** The heartbeat carries `workerAgent.buildCommit` and
+`workerAgent.autoUpdate` (`state`: `idle`, `waiting_for_idle`, `updating`,
+`restart_pending`, `blocked` or `disabled`, plus a `reason`), so
+`list_remote_nodes` shows which code a node runs and why an update has not
+happened. The worker log has `[WorkerSelfUpdate]` lines for each step, and the
+supervisor log has `Worker child exited to load an update`.
+
+**Rolling back by hand.** Stop the worker, move `dist\worker-agent\index.prev.js`
+over `index.js` (move, not copy, so a stale previous bundle is not left behind), put the previous commit in `.source-commit`, and set
+`"autoUpdate": { "enabled": false }` until the problem commit is fixed.
+
+### Updating a running worker by hand
 
 Before 2026-09-22 a pull landed new code on disk and the running worker kept
 serving the old build: the launcher exited as soon as it saw a live worker, and
 in the steady state the keep-alive never even ran. windows-pc was found running a
-three-day-old bundle.
-
-The update script remains available for a deliberate maintenance window:
+three-day-old bundle. Automatic updates (above) now cover this; the script
+remains for a worker with automatic updates turned off:
 
 ```powershell
 cd 'C:\path\to\ai-orchestrator'
@@ -426,7 +504,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\update-running-worker
 ```
 
 This script can briefly disconnect the worker when it restarts the child. The
-normal keep-alive launcher neither pulls nor calls it. Stop new work before
+keep-alive launcher neither pulls nor calls it. Stop new work before
 running the update; the script checks existing worker descendants before it
 builds and again before it stops the child.
 

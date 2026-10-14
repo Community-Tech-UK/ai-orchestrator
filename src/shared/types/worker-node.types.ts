@@ -50,6 +50,27 @@ export interface WorkerAgentBuildSummary {
    * after an outage. Absent on older workers.
    */
   hostBootedAt?: number;
+  /** Git commit the running worker bundle was built from. Absent when unknown. */
+  buildCommit?: string;
+  /** Automatic self-update state (src/worker-agent/worker-self-update.ts). */
+  autoUpdate?: WorkerAgentAutoUpdateSummary;
+}
+
+export type WorkerAgentAutoUpdateState =
+  | 'disabled'
+  | 'idle'
+  | 'waiting_for_idle'
+  | 'updating'
+  | 'restart_pending'
+  | 'blocked';
+
+export interface WorkerAgentAutoUpdateSummary {
+  state: WorkerAgentAutoUpdateState;
+  /** Plain-language reason for `disabled`, `blocked`, or a delayed restart. */
+  reason?: string;
+  /** Commit an update is heading to. */
+  targetCommit?: string;
+  lastCheckedAt?: number;
 }
 
 /** A process named in a host-health sample, with how much of the resource it holds. */

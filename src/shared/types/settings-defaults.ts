@@ -139,6 +139,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Orchestration
   maxChildrenPerParent: 10,
   maxTotalInstances: 20,
+  concurrencyLimitByProvider: { copilot: 10, cursor: 8, grok: 6, opencode: 20 },
   autoTerminateIdleMinutes: 30,
   allowNestedOrchestration: false,
   maxSpawnDepth: 3,

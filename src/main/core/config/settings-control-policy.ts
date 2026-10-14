@@ -173,6 +173,10 @@ const customModelsByProviderSchema = z.record(
   z.array(customModelIdSchema).max(200),
 );
 const fastModeByProviderSchema = z.record(shortStringSchema, z.boolean());
+const concurrencyLimitByProviderSchema = z.record(
+  shortStringSchema,
+  z.number().int().min(1).max(100),
+);
 const modelUsageEntrySchema = z.object({
   count: z.number().finite().int().min(1).max(1_000_000),
   lastUsedAt: z.number().finite().int().min(0),
@@ -334,6 +338,7 @@ export const SETTINGS_TOOL_POLICY = {
   theme: open(themeSchema),
   maxChildrenPerParent: open(numberSettingSchema('maxChildrenPerParent')),
   maxTotalInstances: open(numberSettingSchema('maxTotalInstances')),
+  concurrencyLimitByProvider: open(concurrencyLimitByProviderSchema),
   autoTerminateIdleMinutes: open(numberSettingSchema('autoTerminateIdleMinutes')),
   allowNestedOrchestration: readOnly(),
   maxSpawnDepth: readOnly(),

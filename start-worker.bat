@@ -60,8 +60,8 @@ where powershell >nul 2>&1
 if not "%errorlevel%"=="0" goto :aio_live_check_done
 powershell -NoProfile -ExecutionPolicy Bypass -Command "if (-not $env:AIO_LIVE_PATH) { exit 2 }; try { $ps = @(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" -ErrorAction Stop) } catch { exit 2 }; foreach ($p in $ps) { $c = $p.CommandLine; if (-not $c) { continue }; if ($c.IndexOf('native-host', [StringComparison]::OrdinalIgnoreCase) -ge 0) { continue }; if ($c.IndexOf($env:AIO_LIVE_PATH, [StringComparison]::OrdinalIgnoreCase) -ge 0) { exit 0 } }; exit 2" >nul 2>&1
 if not "%errorlevel%"=="0" goto :aio_live_check_done
-REM Keep-alive must never rebuild or restart a live worker. Updating is an
-REM explicit maintenance action through update-running-worker.ps1.
+REM Keep-alive must never rebuild or restart a live worker. A live worker 
+REM updates itself when idle (worker-self-update.ts).             
 echo A worker is already running for this checkout - leaving it alone.
 rmdir "%_AIO_LOCK%" 2>nul
 exit /b 0
@@ -75,7 +75,7 @@ if errorlevel 1 (
     rmdir "%_AIO_LOCK%" 2>nul
     exit /b 1
 )
-REM Record which commit this bundle came from for explicit maintenance updates.
+REM Record which commit this bundle came from. The worker's updater reads it.  
 for /f "delims=" %%C in ('git rev-parse HEAD 2^>nul') do >"%~dp0dist\worker-agent\.source-commit" echo %%C
 
 REM Capture raw stderr. V8's fatal handler ("FATAL ERROR: ... JavaScript heap
@@ -292,4 +292,17 @@ REM whole lifetime, and holding the lock that long would stop later keep-alive
 REM runs from checking whether a worker is present.
 rmdir "%_AIO_LOCK%" 2>nul
 echo Starting worker agent (supervised)...
-node dist/worker-agent/index.js %* --supervise 2>> "%_AIO_STDERR_DIR%\worker-stderr.log"
+node dist/worker-agent/index.js %* --supervise 2>> "%_AIO_STDERR_DIR%\worker-stderr.log" & exit /b
+REM Nothing below this point ever runs, which is why this note sits here.
+REM
+REM `& exit /b` must stay on the SAME line as node. The worker updates this
+REM checkout while that node line is still running (worker-self-update.ts), and
+REM cmd re-reads a batch file by byte offset after each command finishes. When
+REM the supervisor finally exits, cmd would otherwise resume at the old offset
+REM inside the NEW file and run whatever text happens to be there. cmd parses a
+REM whole line before running it, so the exit is already in hand. Without a
+REM number, exit /b keeps node's exit code.
+REM
+REM Keep every line ABOVE the node line byte-identical when you can, and put new
+REM notes down here: a cmd started from the previous version of this file resumes
+REM at the end of ITS node line, which then lands inside this one's `& exit /b`.

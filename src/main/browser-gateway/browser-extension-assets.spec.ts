@@ -172,6 +172,8 @@ describe('browser extension assets', () => {
     '0.2.38': 'f119d530848d',
     // A tab the extension cannot script is inspection_unavailable, not readable.
     '0.2.39': '9d9630e3d6d9',
+    // Reload onto the version a worker relay expects (worker auto-update).
+    '0.2.40': '5809d0399317',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -2195,6 +2197,193 @@ describe('browser extension assets', () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  describe('reloading onto the version a worker relay expects', () => {
+    const VERSION_KEY = 'browserGatewayVersionReload';
+
+    async function emitIdlePoll(
+      harness: BrowserExtensionBackgroundHarness,
+      expectedExtensionVersion: unknown,
+      hostName = RELAY_HOST_NAME,
+    ): Promise<void> {
+      harness.ports.get(hostName)!.emitMessage({ type: 'browser_command', command: null, expectedExtensionVersion });
+      await flushPromises();
+    }
+
+    it('reloads once, while idle, when an unpacked install runs another version', async () => {
+      const harness = loadBackgroundHarnessForTest({ installType: 'development' });
+      await flushPromises();
+
+      await emitIdlePoll(harness, '0.2.40');
+
+      expect(harness.chrome.runtime.reload).toHaveBeenCalledTimes(1);
+      expect(harness.chrome.storage.local.set).toHaveBeenCalledWith({
+        [VERSION_KEY]: { target: '0.2.40', from: '0.1.0', at: 1_000_000 },
+      });
+    });
+
+    it('does not reload when the running version already matches', async () => {
+      const harness = loadBackgroundHarnessForTest({ installType: 'development' });
+      await flushPromises();
+
+      await emitIdlePoll(harness, '0.1.0');
+
+      expect(harness.chrome.runtime.reload).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a store install', 'normal'],
+      ['no management API', undefined],
+    ])('does not reload with %s', async (_label, installType) => {
+      const harness = loadBackgroundHarnessForTest(installType === undefined ? {} : { installType });
+      await flushPromises();
+
+      await emitIdlePoll(harness, '0.2.40');
+
+      expect(harness.chrome.runtime.reload).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['missing', undefined],
+      ['not a version', '0.2.40 && reload'],
+      ['not a string', 40],
+    ])('ignores an expected version that is %s', async (_label, expected) => {
+      const harness = loadBackgroundHarnessForTest({ installType: 'development' });
+      await flushPromises();
+
+      await emitIdlePoll(harness, expected);
+
+      expect(harness.chrome.runtime.reload).not.toHaveBeenCalled();
+    });
+
+    it('tries a given target at most once per six hours, so a wrong folder cannot loop', async () => {
+      const harness = loadBackgroundHarnessForTest({ installType: 'development' });
+      await flushPromises();
+
+      await emitIdlePoll(harness, '0.2.40');
+      // The reload did not change our version (the folder holds something else).
+      harness.advanceTimeBy(60 * 60_000);
+      await emitIdlePoll(harness, '0.2.40');
+      expect(harness.chrome.runtime.reload).toHaveBeenCalledTimes(1);
+
+      // A different target is a new attempt.
+      await emitIdlePoll(harness, '0.2.41');
+      expect(harness.chrome.runtime.reload).toHaveBeenCalledTimes(2);
+
+      harness.advanceTimeBy(6 * 60 * 60_000);
+      await emitIdlePoll(harness, '0.2.41');
+      expect(harness.chrome.runtime.reload).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not reload when the attempt cannot be recorded', async () => {
+      const harness = loadBackgroundHarnessForTest({ installType: 'development' });
+      await flushPromises();
+      harness.chrome.storage.local.set.mockImplementation(async (values: Record<string, unknown>) => {
+        if (VERSION_KEY in values) throw new Error('QUOTA_BYTES quota exceeded');
+      });
+
+      await emitIdlePoll(harness, '0.2.40');
+
+      expect(harness.chrome.runtime.reload).not.toHaveBeenCalled();
+    });
+
+    it('puts the reload record back when a command arrives while it is being written', async () => {
+      const harness = loadBackgroundHarnessForTest({ installType: 'development' });
+      await flushPromises();
+      harness.chrome.scripting.executeScript.mockImplementation(() => new Promise(() => undefined));
+      harness.chrome.debugger.sendCommand.mockImplementation(() => new Promise(() => undefined));
+      const writes: unknown[] = [];
+      const set = harness.chrome.storage.local.set.getMockImplementation()!;
+      harness.chrome.storage.local.set.mockImplementation(async (values: Record<string, unknown>) => {
+        if (VERSION_KEY in values) {
+          writes.push(values[VERSION_KEY]);
+          if (writes.length === 1) {
+            // Another bridge hands over a command in the gap before the reload.
+            harness.ports.get(LEGACY_HOST_NAME)!.emitMessage({
+              type: 'browser_command',
+              command: { id: 'late-1', command: 'snapshot', target: { tabId: 42 }, payload: {}, createdAt: 1 },
+            });
+          }
+        }
+        return set(values);
+      });
+
+      await emitIdlePoll(harness, '0.2.40');
+
+      expect(harness.chrome.runtime.reload).not.toHaveBeenCalled();
+      expect(writes).toEqual([{ target: '0.2.40', from: '0.1.0', at: 1_000_000 }, null]);
+    });
+
+    it('waits while a browser command is still running', async () => {
+      const harness = loadBackgroundHarnessForTest({ installType: 'development' });
+      await flushPromises();
+      // The command never finishes, so it stays in flight for the whole test.
+      harness.chrome.scripting.executeScript.mockImplementation(() => new Promise(() => undefined));
+      harness.chrome.debugger.sendCommand.mockImplementation(() => new Promise(() => undefined));
+      harness.ports.get(RELAY_HOST_NAME)!.emitMessage({
+        type: 'browser_command',
+        command: { id: 'busy-1', command: 'snapshot', target: { tabId: 42 }, payload: {}, createdAt: 1 },
+      });
+      await flushPromises();
+
+      await emitIdlePoll(harness, '0.2.40', LEGACY_HOST_NAME);
+
+      expect(harness.chrome.runtime.reload).not.toHaveBeenCalled();
+    });
+
+    it('reconnects only the bridge whose native host runs an older worker build, once per build', async () => {
+      const harness = loadBackgroundHarnessForTest({ installType: 'development' });
+      await flushPromises();
+      const stalePort = harness.ports.get(RELAY_HOST_NAME)!;
+      const otherPort = harness.ports.get(LEGACY_HOST_NAME)!;
+      const staleReply = {
+        type: 'browser_command',
+        command: null,
+        expectedExtensionVersion: '0.1.0',
+        nativeHostStale: true,
+        workerBuildId: 'build-2',
+      };
+
+      stalePort.emitMessage(staleReply);
+      await flushPromises();
+
+      expect(stalePort.disconnect).toHaveBeenCalledTimes(1);
+      expect(otherPort.disconnect).not.toHaveBeenCalled();
+      expect(harness.chrome.runtime.reload).not.toHaveBeenCalled();
+      const freshPort = harness.ports.get(RELAY_HOST_NAME)!;
+      expect(freshPort).not.toBe(stalePort);
+
+      // Still stale after the reconnect (the host points at another checkout):
+      // no reconnect storm.
+      freshPort.emitMessage(staleReply);
+      await flushPromises();
+      expect(harness.ports.get(RELAY_HOST_NAME)).toBe(freshPort);
+      expect(freshPort.disconnect).not.toHaveBeenCalled();
+
+      // A newer build is a new reason to reconnect.
+      freshPort.emitMessage({ ...staleReply, workerBuildId: 'build-3' });
+      await flushPromises();
+      expect(freshPort.disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('prefers a full reload when the extension version also differs', async () => {
+      const harness = loadBackgroundHarnessForTest({ installType: 'development' });
+      await flushPromises();
+      const port = harness.ports.get(RELAY_HOST_NAME)!;
+
+      port.emitMessage({
+        type: 'browser_command',
+        command: null,
+        expectedExtensionVersion: '0.2.40',
+        nativeHostStale: true,
+        workerBuildId: 'build-2',
+      });
+      await flushPromises();
+
+      expect(harness.chrome.runtime.reload).toHaveBeenCalledTimes(1);
+      expect(port.disconnect).not.toHaveBeenCalled();
+    });
+  });
+
   it('does not self-heal while the worker is young or while polls are acking', async () => {
     const harness = loadBackgroundHarnessForTest();
     await flushPromises();
@@ -2612,6 +2801,8 @@ function loadBackgroundHarnessForTest(options: {
   failConnectHosts?: Set<string>;
   initialGatewayEnabled?: boolean;
   initialTabGroupId?: number;
+  /** chrome.management.getSelf().installType; omit for no management API at all. */
+  installType?: string;
 } = {}): BrowserExtensionBackgroundHarness {
   const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
   const deletedGroupIds = options.deletedGroupIds ?? new Set<number>();
@@ -2673,6 +2864,9 @@ function loadBackgroundHarnessForTest(options: {
         detach: vi.fn(async () => undefined),
         sendCommand: vi.fn(async () => ({ nodes: [] })),
       },
+      ...(options.installType === undefined
+        ? {}
+        : { management: { getSelf: vi.fn(async () => ({ installType: options.installType })) } }),
       runtime: {
         connectNative,
         getManifest: vi.fn(() => ({ version: '0.1.0' })),

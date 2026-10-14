@@ -791,6 +791,24 @@ describe('WorkerAgent', () => {
     expect((agent as unknown as { reconnectAttempt: number }).reconnectAttempt).toBe(2);
   });
 
+  it('does not let coordinator pings keep the worker looking busy to the self-updater', async () => {
+    const handleMessage = (agent as unknown as { handleMessage: (raw: string) => void }).handleMessage.bind(agent);
+    for (let id = 1; id <= 3; id++) {
+      handleMessage(JSON.stringify({ jsonrpc: '2.0', id: `ping-${id}`, method: 'node.ping', params: {} }));
+    }
+    await vi.waitFor(() => expect(wsSend).toHaveBeenCalledTimes(3));
+
+    expect(agent.activity.isBusy()).toBe(false);
+    expect(agent.activity.lastActivityAt()).toBe(0);
+
+    // Real work does restart the quiet period.
+    handleMessage(JSON.stringify({
+      jsonrpc: '2.0', id: 'term-1', method: 'instance.terminate', params: { instanceId: 'missing' },
+    }));
+    await vi.waitFor(() => expect(wsSend).toHaveBeenCalledTimes(4));
+    expect(agent.activity.lastActivityAt()).toBeGreaterThan(0);
+  });
+
   it('stores and persists coordinator-advertised addresses, then tries them after configured ones', () => {
     const config: WorkerConfig = { ...mockConfig, coordinatorUrls: ['ws://10.0.0.5:4878'] };
     agent = new WorkerAgent(config);

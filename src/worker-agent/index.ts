@@ -14,11 +14,17 @@ import { runWorkerSupervisor } from './worker-supervisor';
 import { acquireSingleInstanceLock } from './single-instance-lock';
 import { captureRuntimeVitals, startRuntimeVitalsLogging } from './worker-runtime-vitals';
 import { startHostHealthSampling } from './host-health-sampler';
+import { runWorkerSelfCheck, startWorkerSelfUpdate } from './worker-self-update-wiring';
 
 const SUPERVISE_FLAG = '--supervise';
 
 async function main(): Promise<void> {
   let argv = process.argv.slice(2);
+  if (argv[0] === '--self-check') {
+    // The self-updater runs this on a freshly built bundle before swapping it
+    // in. Reaching here proves the whole module graph loads; no side effects.
+    process.exit(runWorkerSelfCheck(argv));
+  }
   if (argv[0] === 'native-host') {
     await runBrowserExtensionNativeHost();
     return;
@@ -166,6 +172,18 @@ async function main(): Promise<void> {
 
   await agent.connect();
   console.log('Worker agent started. Listening for work.');
+
+  startWorkerSelfUpdate({
+    agent,
+    config,
+    configPath: activeConfigPath,
+    serviceMode,
+    onRestart: async () => {
+      shuttingDown = true;
+      await agent.disconnect();
+      lock.release();
+    },
+  });
 }
 
 main().catch((err) => {

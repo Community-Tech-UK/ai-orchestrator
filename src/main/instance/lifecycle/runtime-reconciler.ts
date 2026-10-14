@@ -246,6 +246,14 @@ export class RuntimeReconciler {
           // every spawn option keyed off it: MCP config, browser-gateway MCP,
           // permission hooks) derives from instance.provider.
           instance.provider = targetProvider;
+          // Account IDs belong to one provider's pool. A fresh destination
+          // must route anew, even when its pool contains the same profile ID.
+          // Keep the invocation origin and allowed-account fence enforced.
+          restoreAccount(instance, {
+            accountProfileId: undefined,
+            accountRoutingSource: undefined,
+            accountSwitches: undefined,
+          });
           if (instance.fastMode && targetProvider !== 'claude' && targetProvider !== 'codex') {
             logger.info('Dropping fast mode — target provider has no equivalent', {
               instanceId,
@@ -488,6 +496,9 @@ export class RuntimeReconciler {
           try {
             await getSessionContinuityManager().updateState(instanceId, {
               provider: instance.provider,
+              accountProfileId: instance.accountProfileId,
+              accountRoutingSource: instance.accountRoutingSource,
+              accountSwitches: instance.accountSwitches,
               ...(validatedModel !== undefined ? { modelId: validatedModel } : {}),
             });
             assertCurrent();
@@ -563,7 +574,7 @@ export class RuntimeReconciler {
           // resume under, not the one it never reached.
           instance.copilotAccountProfileId = oldCopilotProfileId;
         }
-        if (diff.accountProfileChanged) restoreAccount(instance, oldAccount);
+        if (isProviderSwap || diff.accountProfileChanged) restoreAccount(instance, oldAccount);
         this.deps.transitionState(instance, 'error');
         assertCurrent();
         logger.error('Failed to apply runtime change', error instanceof Error ? error : undefined, { instanceId, newModel, targetProvider });

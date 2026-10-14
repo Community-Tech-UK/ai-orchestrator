@@ -70,6 +70,20 @@ const SELF_RELOAD_STORAGE_KEY = 'browserGatewayLastSelfReloadAt';
 const SW_STARTED_AT = Date.now();
 let lastSelfHealRecycleAt = 0;
 
+// Version follow. On a worker node this extension is loaded unpacked from the
+// same git checkout the worker builds from, so after the worker updates itself
+// the files on disk are new while this service worker still runs the old code.
+// The worker relay names the version its build ships with on every poll reply;
+// when that differs from ours we reload once, while idle, to pick it up. The
+// per-target window stops a loop when the loaded folder does not hold that
+// version (for example a second checkout).
+const EXPECTED_VERSION_PATTERN = /^\d+(?:\.\d+){0,3}$/;
+const VERSION_RELOAD_STORAGE_KEY = 'browserGatewayVersionReload';
+const VERSION_RELOAD_MIN_INTERVAL_MS = 6 * 60 * 60000;
+const STALE_NATIVE_HOST_RECYCLE_MIN_INTERVAL_MS = 10 * 60000;
+let versionReloadInProgress = false;
+let queuedBrowserCommandCount = 0;
+
 let inventoryPromise = null;
 let gatewayEnabled = false;
 let gatewayStateLoaded = false;
@@ -270,6 +284,8 @@ function createBridge(definition) {
     unhealthySince: now,
     lastPollAckAt: null,
     lastError: null,
+    // { buildId, at } of the last reconnect made to replace a stale native host.
+    staleNativeHostRecycle: null,
   };
 }
 
@@ -873,28 +889,34 @@ async function reconnectAllBridges() {
     return getStatusPayload();
   }
   for (const bridge of bridges) {
-    clearReconnectTimer(bridge);
-    clearPollInFlight(bridge);
-    const port = bridge.nativePort;
-    bridge.nativePort = null;
-    bridge.forcedDisconnectPort = null;
-    bridge.forcedDisconnectReason = null;
-    bridge.lastError = null;
-    bridge.reconnectAttempts = 0;
-    setBridgeState(bridge, 'disconnected');
-    if (port) {
-      try {
-        port.disconnect?.();
-      } catch {
-        // Reconnect is best-effort; stale channels are replaced below.
-      }
-    }
-    startBridge(bridge);
-    pollForCommand(bridge, { retryAbsent: true });
+    recycleBridge(bridge);
   }
   await reportTabInventory().catch(() => undefined);
   persistBridgeStatus();
   return getStatusPayload();
+}
+
+// Tear the port down and connect again. Chrome ends the old native host process
+// and starts a new one from the files on disk.
+function recycleBridge(bridge) {
+  clearReconnectTimer(bridge);
+  clearPollInFlight(bridge);
+  const port = bridge.nativePort;
+  bridge.nativePort = null;
+  bridge.forcedDisconnectPort = null;
+  bridge.forcedDisconnectReason = null;
+  bridge.lastError = null;
+  bridge.reconnectAttempts = 0;
+  setBridgeState(bridge, 'disconnected');
+  if (port) {
+    try {
+      port.disconnect?.();
+    } catch {
+      // Reconnect is best-effort; stale channels are replaced below.
+    }
+  }
+  startBridge(bridge);
+  pollForCommand(bridge, { retryAbsent: true });
 }
 
 // Commands must execute strictly one-at-a-time. The inventory alarm and the
@@ -938,6 +960,8 @@ async function handleNativeMessage(message, bridge) {
     // best-effort observability succeeding.
     scheduleNextPoll(bridge, POLL_IDLE_DELAY_MS);
     persistBridgeStatus();
+    // Only on an EMPTY poll: no command was handed to us in this reply.
+    void followWorkerBuild(bridge, message).catch(() => undefined);
     return;
   }
   const command = message.command;
@@ -967,6 +991,7 @@ async function handleNativeMessage(message, bridge) {
   // if it throws, the chain is left rejected again and the wedge returns. A
   // duplicate command_result is harmless — the coordinator's resolveCommand
   // no-ops once the command is no longer pending.
+  queuedBrowserCommandCount += 1;
   commandChain = commandChain
     .then(() => runBrowserCommand(command, bridge))
     .catch(async (error) => {
@@ -1008,8 +1033,92 @@ async function handleNativeMessage(message, bridge) {
       } catch {
         // Must not escape this handler.
       }
+    })
+    .finally(() => {
+      queuedBrowserCommandCount -= 1;
     });
   await commandChain;
+}
+
+function browserWorkInProgress() {
+  return activeBrowserCommandCount !== 0
+    || queuedBrowserCommandCount !== 0
+    || secretRecoveryInProgress;
+}
+
+// After a worker updates itself, an idle poll reply names what the worker now
+// runs. A different extension version means reload the whole extension; a
+// native host on an older bundle (Chrome keeps that process alive across the
+// worker restart) means reconnect just this bridge.
+async function followWorkerBuild(bridge, message) {
+  if (await reloadOntoExpectedVersion(message.expectedExtensionVersion)) {
+    return;
+  }
+  if (message.nativeHostStale !== true || browserWorkInProgress()) {
+    return;
+  }
+  const buildId = typeof message.workerBuildId === 'string' ? message.workerBuildId : '';
+  const last = bridge.staleNativeHostRecycle;
+  const now = Date.now();
+  // A native host that stays stale after a reconnect (its manifest points at a
+  // different checkout) must not be recycled on every poll.
+  if (last && last.buildId === buildId && now - last.at < STALE_NATIVE_HOST_RECYCLE_MIN_INTERVAL_MS) {
+    return;
+  }
+  bridge.staleNativeHostRecycle = { buildId, at: now };
+  recycleBridge(bridge);
+  persistBridgeStatus();
+}
+
+/** Resolves true when it asked Chrome to reload the extension. */
+async function reloadOntoExpectedVersion(expectedVersion) {
+  if (typeof expectedVersion !== 'string' || !EXPECTED_VERSION_PATTERN.test(expectedVersion)) {
+    return false;
+  }
+  const runningVersion = chrome.runtime.getManifest?.().version;
+  if (!runningVersion || runningVersion === expectedVersion) {
+    return false;
+  }
+  if (versionReloadInProgress || browserWorkInProgress() || typeof chrome.runtime.reload !== 'function') {
+    return false;
+  }
+  versionReloadInProgress = true;
+  try {
+    // Only an unpacked install reads its files from a folder the worker
+    // updates. A store install would reload into the same version.
+    const self = await chrome.management?.getSelf?.();
+    if (self?.installType !== 'development') {
+      return false;
+    }
+    const values = await chrome.storage.local.get(VERSION_RELOAD_STORAGE_KEY);
+    const last = values?.[VERSION_RELOAD_STORAGE_KEY];
+    const now = Date.now();
+    if (
+      last
+      && last.target === expectedVersion
+      && typeof last.at === 'number'
+      && now - last.at < VERSION_RELOAD_MIN_INTERVAL_MS
+    ) {
+      return false;
+    }
+    // Record BEFORE reloading. If the record cannot be written, do not reload:
+    // without it a folder that never holds the target would reload forever.
+    await chrome.storage.local.set({
+      [VERSION_RELOAD_STORAGE_KEY]: { target: expectedVersion, from: runningVersion, at: now },
+    });
+    if (browserWorkInProgress()) {
+      // A command arrived while we were deciding. Put the previous record back:
+      // leaving ours would rate-limit this version for six hours though no
+      // reload happened.
+      await chrome.storage.local.set({ [VERSION_RELOAD_STORAGE_KEY]: last ?? null })
+        .catch(() => undefined);
+      return false;
+    }
+    chrome.runtime.reload();
+    return true;
+  } finally {
+    versionReloadInProgress = false;
+  }
 }
 
 function handleNativePollError(message, bridge) {

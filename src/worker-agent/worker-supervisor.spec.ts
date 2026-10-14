@@ -2,9 +2,11 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   runWorkerSupervisor,
   resolveWorkerChildCommand,
+  workerChildEnv,
   type SupervisedChildHandle,
   type WorkerSupervisorOptions,
 } from './worker-supervisor';
+import { WORKER_SUPERVISED_ENV, WORKER_UPDATE_RESTART_EXIT_CODE } from './worker-self-update';
 
 interface ExitPlan {
   code: number | null;
@@ -158,6 +160,127 @@ describe('runWorkerSupervisor', () => {
 
     // Handler is cleaned up on exit.
     expect(process.listeners('SIGINT').filter((l) => !before.includes(l))).toHaveLength(0);
+  });
+
+  it('respawns promptly after an update exit without spending the rapid-failure budget', async () => {
+    const restorePreviousBundle = vi.fn(() => true);
+    const { options, spawned, delays } = makeHarness(
+      [
+        // Six quick update exits would exceed maxRapidRestarts (5) if counted.
+        ...Array.from({ length: 6 }, () => ({ code: WORKER_UPDATE_RESTART_EXIT_CODE, ranMs: 1_000 })),
+        { code: 0, ranMs: 120_000 },
+      ],
+      { restorePreviousBundle, updateRestartDelayMs: 500 },
+    );
+
+    const result = await runWorkerSupervisor(options);
+
+    expect(result).toBe(0);
+    expect(spawned).toHaveLength(7);
+    expect(delays).toEqual([500, 500, 500, 500, 500, 500]);
+    expect(restorePreviousBundle).not.toHaveBeenCalled();
+  });
+
+  it('restores the previous bundle when the first child after an update dies before it is stable', async () => {
+    const restorePreviousBundle = vi.fn(() => true);
+    const { options, spawned } = makeHarness(
+      [
+        { code: WORKER_UPDATE_RESTART_EXIT_CODE, ranMs: 600_000 },
+        { code: 1, ranMs: 2_000 }, // the new bundle crashes on start
+        { code: 0, ranMs: 120_000 }, // the restored bundle runs
+      ],
+      { restorePreviousBundle },
+    );
+
+    expect(await runWorkerSupervisor(options)).toBe(0);
+    expect(restorePreviousBundle).toHaveBeenCalledTimes(1);
+    expect(spawned).toHaveLength(3);
+  });
+
+  it('keeps trying the restore when Windows refuses it once, instead of giving up', async () => {
+    const restorePreviousBundle = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
+    const { options } = makeHarness(
+      [
+        { code: WORKER_UPDATE_RESTART_EXIT_CODE, ranMs: 3_600_000 },
+        { code: 1, ranMs: 2_000 }, // new bundle crashes; restore refused
+        { code: 1, ranMs: 2_000 }, // still the new bundle; restore succeeds now
+        { code: 0, ranMs: 120_000 }, // the restored bundle runs
+      ],
+      { restorePreviousBundle },
+    );
+
+    expect(await runWorkerSupervisor(options)).toBe(0);
+    expect(restorePreviousBundle).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not restore after an update when the new child was stable before it crashed', async () => {
+    const restorePreviousBundle = vi.fn(() => true);
+    const { options } = makeHarness(
+      [
+        { code: WORKER_UPDATE_RESTART_EXIT_CODE, ranMs: 600_000 },
+        { code: 1, ranMs: 90_000 }, // ran past stableRuntimeMs: an ordinary crash
+        { code: 0, ranMs: 120_000 },
+      ],
+      { restorePreviousBundle },
+    );
+
+    expect(await runWorkerSupervisor(options)).toBe(0);
+    expect(restorePreviousBundle).not.toHaveBeenCalled();
+  });
+
+  it('restores after a crash that respawned onto a bundle swapped in while the worker was busy', async () => {
+    const restorePreviousBundle = vi.fn(() => true);
+    const fingerprints = ['bundle-A', 'bundle-B', 'bundle-A'];
+    const { options } = makeHarness(
+      [
+        { code: 1, ranMs: 600_000 }, // long, healthy run on A, then an unrelated crash
+        { code: 1, ranMs: 2_000 }, // the respawn loads B, which dies at once
+        { code: 0, ranMs: 120_000 },
+      ],
+      { restorePreviousBundle, bundleFingerprint: () => fingerprints.shift() ?? null },
+    );
+
+    expect(await runWorkerSupervisor(options)).toBe(0);
+    expect(restorePreviousBundle).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not restore a rapid failure on the same bundle that last ran stably', async () => {
+    const restorePreviousBundle = vi.fn(() => true);
+    const { options } = makeHarness(
+      [
+        { code: 1, ranMs: 600_000 },
+        { code: 1, ranMs: 2_000 },
+        { code: 0, ranMs: 120_000 },
+      ],
+      { restorePreviousBundle, bundleFingerprint: () => 'bundle-A' },
+    );
+
+    expect(await runWorkerSupervisor(options)).toBe(0);
+    expect(restorePreviousBundle).not.toHaveBeenCalled();
+  });
+
+  it('falls back to normal crash handling when there is no previous bundle to restore', async () => {
+    const restorePreviousBundle = vi.fn(() => false);
+    const { options, delays } = makeHarness(
+      [
+        { code: WORKER_UPDATE_RESTART_EXIT_CODE, ranMs: 600_000 },
+        { code: 1, ranMs: 2_000 },
+        { code: 0, ranMs: 120_000 },
+      ],
+      { restorePreviousBundle, updateRestartDelayMs: 500 },
+    );
+
+    expect(await runWorkerSupervisor(options)).toBe(0);
+    expect(restorePreviousBundle).toHaveBeenCalledTimes(1);
+    // The update pause, then the ordinary crash backoff (base 1000, jitter 0 → 500).
+    expect(delays).toEqual([500, 500]);
+  });
+});
+
+describe('workerChildEnv', () => {
+  it('marks the child as supervised without dropping the parent environment', () => {
+    const env = workerChildEnv({ PATH: '/bin', AIO_WORKER_TOKEN: 'placeholder' });
+    expect(env).toEqual({ PATH: '/bin', AIO_WORKER_TOKEN: 'placeholder', [WORKER_SUPERVISED_ENV]: '1' });
   });
 });
 

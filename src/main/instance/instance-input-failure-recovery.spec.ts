@@ -24,11 +24,13 @@ vi.mock('node:http',()=>({request:native.request}));
 afterEach(()=>{vi.unstubAllGlobals();native.request.mockReset();});
 
 describe('actual Gemini event-owned recovery joins rejected send once',()=>{
- it.each(['overflow-success','overflow-failure','stop','manual-input','adapter-replaced','park','reentrant-error','observer-manual','old-request-error','ordinary-overflow-success','ordinary-park'] as const)('keeps recovery and persisted receipt truthful for %s',async scenario=>{
+ // The provider session is new only on a first reply; later replies skip the
+ // identity save, so recovery must not depend on that save's delay.
+ for(const knownSession of [false,true]) it.each(['overflow-success','overflow-failure','stop','manual-input','adapter-replaced','park','reentrant-error','observer-manual','old-request-error','ordinary-overflow-success','ordinary-park'] as const)(`keeps recovery and persisted receipt truthful for %s${knownSession?' with the provider session already known':''}`,async scenario=>{
   const ordinary=scenario==='ordinary-overflow-success'||scenario==='ordinary-park';
   const mode=scenario==='ordinary-overflow-success'?'overflow-success':scenario==='ordinary-park'?'park':scenario;
   const adapter=new GeminiCliAdapter({timeout:1000});Object.assign(adapter,{isSpawned:true});
-  const instance={id:'event-owned-'+scenario,parentId:null,launchMode:'orchestrated',provider:'gemini',sessionId:adapter.getSessionId(),adapterGeneration:0,restartEpoch:0,status:'idle',requestCount:4,lastActivity:0,errorCount:0,outputBuffer:[]} as unknown as Instance;
+  const instance={id:'event-owned-'+scenario,parentId:null,launchMode:'orchestrated',provider:'gemini',sessionId:adapter.getSessionId(),...(knownSession?{providerSessionId:adapter.getSessionId()}:{}),adapterGeneration:0,restartEpoch:0,status:'idle',requestCount:4,lastActivity:0,errorCount:0,outputBuffer:[]} as unknown as Instance;
   let currentAdapter=adapter;let nativeInputs=0;
   const nativePrompts:string[]=[];
   (adapter as unknown as {spawnProcess:(args:string[])=>ChildProcess}).spawnProcess=args=>{

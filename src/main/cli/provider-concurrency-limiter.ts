@@ -44,6 +44,10 @@ export const DEFAULT_PROVIDER_LIMITS: Readonly<Record<string, number>> = Object.
   codex: 6,
   gemini: 6,
   grok: 6,
+  // OpenCode: raised from the 6 default (James, 2026-10-14) so queue and
+  // automation children are not starved while interactive OpenCode sessions
+  // hold the pool.
+  opencode: 20,
 });
 
 /**
@@ -102,6 +106,7 @@ export class ProviderConcurrencyLimiter {
       this.instance.slots.clear();
     }
     this.instance = null;
+    lastAppliedCustomKeys = [];
   }
 
   /**
@@ -271,6 +276,41 @@ export class ProviderConcurrencyLimiter {
 
 export function getProviderConcurrencyLimiter(): ProviderConcurrencyLimiter {
   return ProviderConcurrencyLimiter.getInstance();
+}
+
+/** Custom keys applied by the previous pass, so a later pass can reset them. */
+let lastAppliedCustomKeys: readonly string[] = [];
+
+/**
+ * Reapply every per-provider cap from the `concurrencyLimitByProvider`
+ * setting: built-in defaults first, then the operator's overrides. A full
+ * reapply (rather than a diff) means removing a key from the setting returns
+ * that provider to its built-in default — or to the fallback limit when the
+ * key has no built-in default. Invalid entries are skipped; the settings
+ * policy already rejects them on write.
+ */
+export function applyProviderConcurrencyLimits(
+  limiter: ProviderConcurrencyLimiter,
+  overrides: Readonly<Record<string, number>> | null | undefined,
+): void {
+  for (const key of lastAppliedCustomKeys) {
+    if (!Object.hasOwn(DEFAULT_PROVIDER_LIMITS, key)) {
+      limiter.setLimit(key, FALLBACK_DEFAULT_LIMIT);
+    }
+  }
+  lastAppliedCustomKeys = [];
+  for (const [key, limit] of Object.entries(DEFAULT_PROVIDER_LIMITS)) {
+    limiter.setLimit(key, limit);
+  }
+  if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) return;
+  const applied: string[] = [];
+  for (const [key, limit] of Object.entries(overrides)) {
+    if (Number.isInteger(limit) && limit >= 1 && limit <= 100) {
+      limiter.setLimit(key, limit);
+      applied.push(key);
+    }
+  }
+  lastAppliedCustomKeys = applied;
 }
 
 function effectiveSlotCap(

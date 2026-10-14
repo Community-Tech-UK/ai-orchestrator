@@ -65,11 +65,29 @@ interface ExtensionRpcSendInput {
   timeoutMs?: number;
 }
 
+interface ExtensionRpcReply {
+  result: unknown;
+  /** Set by a worker relay: the extension version its build ships with. */
+  expectedExtensionVersion?: unknown;
+  /** Set by a worker relay: its build id (see build-worker-agent.ts). */
+  workerBuildId?: unknown;
+}
+
+const EXTENSION_VERSION_PATTERN = /^\d+(?:\.\d+){0,3}$/;
+const WORKER_BUILD_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
+// Replaced at build time in the worker bundle, which is also this native host
+// on a worker node. Undefined in every other build (Electron, aio-mcp).
+const OWN_WORKER_BUILD_ID = process.env['AIO_WORKER_BUILD_ID'];
+
 export interface HandleBrowserExtensionNativeMessageInput {
   message: unknown;
   extensionOrigin?: string;
   runtimeConfig: BrowserExtensionNativeRuntimeConfig;
   send?: (input: ExtensionRpcSendInput) => Promise<unknown>;
+  /** Poll transport that also returns reply metadata. Defaults to the socket. */
+  sendPoll?: (input: ExtensionRpcSendInput) => Promise<ExtensionRpcReply>;
+  /** This native host's own worker build id. Defaults to the build-time value. */
+  ownWorkerBuildId?: string;
 }
 
 export interface AppendNativeHostErrorLogInput {
@@ -137,7 +155,7 @@ export async function handleBrowserExtensionNativeMessage(
     }
     case 'poll_command': {
       const pollWindowMs = message.timeoutMs ?? 10_000;
-      const result = await send({
+      const rpc: ExtensionRpcSendInput = {
         ...toBaseRpcInput({
           extensionOrigin: input.extensionOrigin,
           runtimeConfig: input.runtimeConfig,
@@ -148,10 +166,28 @@ export async function handleBrowserExtensionNativeMessage(
           message,
         ),
         timeoutMs: pollWindowMs + NATIVE_POLL_RPC_TIMEOUT_BUFFER_MS,
-      });
+      };
+      const reply: ExtensionRpcReply = input.sendPoll
+        ? await input.sendPoll(rpc)
+        : input.send
+          ? { result: await input.send(rpc) }
+          : await sendExtensionRpcDetailed(rpc);
+      const expected = reply.expectedExtensionVersion;
+      const relayBuildId = reply.workerBuildId;
+      const ownBuildId = input.ownWorkerBuildId ?? OWN_WORKER_BUILD_ID;
+      // The worker updated itself but Chrome keeps this process alive on the
+      // old bundle. Tell the extension, which reconnects to get a fresh one.
+      const stale = typeof relayBuildId === 'string'
+        && WORKER_BUILD_ID_PATTERN.test(relayBuildId)
+        && Boolean(ownBuildId)
+        && relayBuildId !== ownBuildId;
       return {
         type: 'browser_command',
-        command: result ?? null,
+        command: reply.result ?? null,
+        ...(typeof expected === 'string' && EXTENSION_VERSION_PATTERN.test(expected)
+          ? { expectedExtensionVersion: expected }
+          : {}),
+        ...(stale ? { nativeHostStale: true, workerBuildId: relayBuildId } : {}),
       };
     }
     case 'command_received': {
@@ -482,7 +518,11 @@ function withExtensionRuntimeEvidence(
 }
 
 function sendExtensionRpc(input: ExtensionRpcSendInput): Promise<unknown> {
-  return new Promise<unknown>((resolve, reject) => {
+  return sendExtensionRpcDetailed(input).then((reply) => reply.result);
+}
+
+function sendExtensionRpcDetailed(input: ExtensionRpcSendInput): Promise<ExtensionRpcReply> {
+  return new Promise<ExtensionRpcReply>((resolve, reject) => {
     const socket = net.connect(input.socketPath);
     let buffer = '';
     const timeout = setTimeout(() => {
@@ -512,13 +552,19 @@ function sendExtensionRpc(input: ExtensionRpcSendInput): Promise<unknown> {
       socket.end();
       const response = JSON.parse(buffer.slice(0, newline)) as {
         result?: unknown;
+        expectedExtensionVersion?: unknown;
+        workerBuildId?: unknown;
         error?: { message?: string };
       };
       if (response.error) {
         reject(new Error(response.error.message ?? 'Browser Gateway extension RPC failed'));
         return;
       }
-      resolve(response.result);
+      resolve({
+        result: response.result,
+        expectedExtensionVersion: response.expectedExtensionVersion,
+        workerBuildId: response.workerBuildId,
+      });
     });
     socket.on('error', (error) => {
       clearTimeout(timeout);

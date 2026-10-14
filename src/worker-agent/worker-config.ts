@@ -120,6 +120,11 @@ export interface WorkerConfig {
   extensionRelay?: WorkerExtensionRelayConfig;
   /** Allowlisted roots for coordinator-worker file transfer. */
   fileTransfer?: WorkerFileTransferConfig;
+  /**
+   * Automatic self-update from the git checkout this worker runs from.
+   * On by default; `{ "enabled": false }` turns it off.
+   */
+  autoUpdate?: { enabled?: boolean };
 }
 
 interface PairingConfigFile {

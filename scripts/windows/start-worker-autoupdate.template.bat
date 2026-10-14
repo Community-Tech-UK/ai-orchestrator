@@ -11,7 +11,8 @@ REM The scheduled task points to this deployed copy outside the repo. The
 REM installer renders it from a tracked template so launcher drift is visible.
 REM
 REM Keep this file MINIMAL and STABLE. Anything that might need to change belongs
-REM in start-worker.bat. Updating the checkout is a manual maintenance action.
+REM in start-worker.bat. This file never pulls code: the running worker updates
+REM its own checkout when idle (src\worker-agent\worker-self-update.ts).
 REM
 REM Keep this file pure ASCII: the installer writes it with ASCII encoding, so
 REM smart quotes or dashes would be corrupted on write.

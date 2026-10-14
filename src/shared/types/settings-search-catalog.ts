@@ -13,9 +13,9 @@
  * `!hidden`, so `hidden` is exactly the "no generic row" signal, and the one
  * documented exception is listed below with the tab that does render it.
  *
- * No fuzzy-match library: installing a dependency needs sign-off, and
- * `SettingMetadata` has no `keywords` field, so a keyword weight would score
- * against data that does not exist.
+ * No fuzzy-match library: installing a dependency needs sign-off, and the
+ * scorer weights only the label and description, so the optional `keywords`
+ * field is never scored here.
  */
 
 import { SETTINGS_METADATA } from './settings.types';
@@ -57,6 +57,7 @@ const CATEGORY_TAB: Readonly<Record<SettingMetadata['category'], SettingsSearchT
  * make six real, editable settings permanently unsearchable.
  */
 const HIDDEN_BUT_RENDERED: Readonly<Record<string, SettingsSearchTab>> = {
+  concurrencyLimitByProvider: 'orchestration',
   computerUseEnabled: 'computer-use',
   computerUseAllowedAppsJson: 'computer-use',
   computerUseDeniedAppsJson: 'computer-use',

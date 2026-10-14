@@ -732,6 +732,109 @@ describe('WorkerExtensionRelay', () => {
     }
   });
 
+  async function relayRoundTrip(
+    relayOptions: { expectedExtensionVersion?: string; workerBuildId?: string; sendRequest: () => Promise<unknown> },
+    method: string,
+    payload: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const socketPath = tempSocketPath();
+    const relay = new WorkerExtensionRelay({
+      config: { enabled: true, socketPath, extensionToken: 'extension-token' },
+      sendRequest: vi.fn(relayOptions.sendRequest),
+      ...(relayOptions.expectedExtensionVersion
+        ? { expectedExtensionVersion: relayOptions.expectedExtensionVersion }
+        : {}),
+      ...(relayOptions.workerBuildId ? { workerBuildId: relayOptions.workerBuildId } : {}),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+    await relay.start();
+    try {
+      const client = net.createConnection(socketPath);
+      let reply = '';
+      client.on('data', (chunk) => {
+        reply += chunk.toString('utf8');
+      });
+      const closed = new Promise<void>((resolve) => client.once('close', () => resolve()));
+      await new Promise<void>((resolve) => client.once('connect', () => resolve()));
+      client.write(`${JSON.stringify({
+        jsonrpc: '2.0',
+        id: 7,
+        method,
+        params: { extensionToken: 'extension-token', payload },
+      })}\n`);
+      await closed;
+      return JSON.parse(reply.trim()) as Record<string, unknown>;
+    } finally {
+      await relay.stop();
+    }
+  }
+
+  it('names the extension version its build ships with beside a poll reply', async () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+    const reply = await relayRoundTrip(
+      { expectedExtensionVersion: '0.2.40', workerBuildId: 'build-1', sendRequest: async () => null },
+      'browser.extension_poll_command',
+      { timeoutMs: 10 },
+    );
+    // Siblings of `result`: older native hosts pass `result` on as the command.
+    expect(reply).toEqual({
+      jsonrpc: '2.0',
+      id: 7,
+      result: null,
+      expectedExtensionVersion: '0.2.40',
+      workerBuildId: 'build-1',
+    });
+  });
+
+  it('adds no expected version to other replies, or when the build has none', async () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+    const attach = await relayRoundTrip(
+      { expectedExtensionVersion: '0.2.40', workerBuildId: 'build-1', sendRequest: async () => ({ ok: true }) },
+      'browser.extension_attach_tab',
+      { tabId: 1 },
+    );
+    expect(attach).not.toHaveProperty('expectedExtensionVersion');
+    expect(attach).not.toHaveProperty('workerBuildId');
+
+    const poll = await relayRoundTrip(
+      { sendRequest: async () => null },
+      'browser.extension_poll_command',
+      { timeoutMs: 10 },
+    );
+    expect(poll).not.toHaveProperty('expectedExtensionVersion');
+  });
+
+  it('records browser command traffic so a self-update waits for it to settle', async () => {
+    const { relay, sendRequest, setNow } = makeRelay();
+    expect(relay.getLastCommandActivityAt()).toBe(0);
+
+    sendRequest.mockResolvedValueOnce(null as never);
+    await relay.handleExtensionRpcRequest({
+      method: 'browser.extension_poll_command',
+      params: { extensionToken: 'extension-token', payload: {} },
+    });
+    expect(relay.getLastCommandActivityAt()).toBe(0); // an empty poll is not activity
+
+    setNow(5_000);
+    sendRequest.mockResolvedValueOnce({ id: 'cmd-1', command: 'snapshot' } as never);
+    await relay.handleExtensionRpcRequest({
+      method: 'browser.extension_poll_command',
+      params: { extensionToken: 'extension-token', payload: {} },
+    });
+    expect(relay.getLastCommandActivityAt()).toBe(5_000);
+
+    setNow(9_000);
+    await relay.handleExtensionRpcRequest({
+      method: 'browser.extension_command_result',
+      params: { extensionToken: 'extension-token', payload: { commandId: 'cmd-1', ok: true } },
+    });
+    expect(relay.getLastCommandActivityAt()).toBe(9_000);
+  });
+
   it('survives a client that disconnects before the response is written', async () => {
     if (process.platform === 'win32') {
       return;

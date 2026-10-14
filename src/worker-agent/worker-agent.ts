@@ -45,6 +45,7 @@ import { WorkerCdpTunnel } from './worker-cdp-tunnel';
 import { wireCdpTunnelEvents, wireInstanceEvents } from './worker-event-wiring';
 import { WorkerAndroidManager } from './android/worker-android-manager';
 import { WorkerExtensionRelay } from './worker-extension-relay';
+import { WorkerActivity } from './worker-activity';
 import { WorkerNodeExecutor } from './worker-node-executor';
 import { buildWorkerFileTransferSummary } from './worker-file-transfer-summary';
 import { configuredNodeExecRoots } from './worker-node-exec-policy';
@@ -106,6 +107,9 @@ export class WorkerAgent extends EventEmitter {
   private readonly legacyNativeHostWarnedFailures = new Set<string>();
   private activeCoordinatorUrl: string | null = null;
   private retryRegistrationWithRecovery = false;
+  /** Read by the self-updater, which must never restart over live work. */
+  readonly activity = new WorkerActivity(() => this.instanceManager.getInstanceCount() + this.localModelSessionManager.getSessionCount()
+    + (this.terminalHandler?.sessionCount() ?? 0) + this.cdpTunnel.activeSessionCount(), () => this.extensionRelay.getLastCommandActivityAt());
 
   constructor(
     private readonly config: WorkerConfig,
@@ -858,7 +862,7 @@ export class WorkerAgent extends EventEmitter {
   }
 
   private async handleRpcRequest(msg: RpcMessage): Promise<void> {
-    return this.rpcDispatcher.handleRpcRequest(msg);
+    return this.activity.track(msg.method, this.rpcDispatcher.handleRpcRequest(msg));
   }
 
   private resolvePendingRequest(msg: RpcMessage): boolean {
@@ -1028,7 +1032,4 @@ export class WorkerAgent extends EventEmitter {
       }
     });
   }
-
-  // -- Instance event forwarding ----------------------------------------------
-
 }

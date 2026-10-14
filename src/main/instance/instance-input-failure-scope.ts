@@ -5,6 +5,7 @@ import type { Instance } from '../../shared/types/instance.types';
 export class InstanceInputFailureScope {
   private identity: Pick<Instance, 'requestCount' | 'sessionId' | 'adapterGeneration' | 'provider'> | undefined;
   private recovery: Promise<boolean> | undefined;
+  private overflowText: string | undefined;
   private closed = false;
   private retryDelivered = false;
   private cancel!: () => void;
@@ -32,6 +33,17 @@ export class InstanceInputFailureScope {
       && current.provider === this.identity.provider;
   }
   markRetryDelivered(): void { if (this.isCurrent()) this.retryDelivered = true; }
+  /** The CLI assigned its own session id mid-send: still this native turn, so follow it. */
+  adoptSessionId(previous: string, next: string): void {
+    if (this.identity && !this.closed && this.identity.sessionId === previous) this.identity = { ...this.identity, sessionId: next };
+  }
+  /**
+   * An exec CLI can print its context-overflow error before its process exits.
+   * While the send is in flight its own failure handling owns recovery, so the
+   * printed error is kept here for that owner instead of stopping the instance.
+   */
+  noteOverflowOutput(text: string): void { this.overflowText ??= text; }
+  get overflowOutput(): string | undefined { return this.overflowText; }
   capture(work: () => Promise<boolean>): Promise<boolean> {
     if (this.recovery) return this.recovery;
     let resolve!: (handled: boolean) => void;
@@ -79,6 +91,11 @@ export class InstanceInputFailureScopes {
     // Queued sends are inactive until their actual admission callback runs.
     const active = [...this.scopes.get(instanceId) ?? []].filter(scope => scope.adapter === adapter && scope.active);
     return active.find(scope => scope.isCurrent()) ?? active[0];
+  }
+  adoptSessionId(instanceId: string, adapter: CliAdapter, previous: string, next: string): void {
+    for (const scope of this.scopes.get(instanceId) ?? []) {
+      if (scope.adapter === adapter) scope.adoptSessionId(previous, next);
+    }
   }
   cleanup(instanceId: string): void {
     for (const scope of this.scopes.get(instanceId) ?? []) scope.close();

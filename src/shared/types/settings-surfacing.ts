@@ -55,6 +55,8 @@ export const SETTING_SURFACING = {
   theme: 'tab',
   maxChildrenPerParent: 'tab',
   maxTotalInstances: 'tab',
+  // Edited by hand-coded per-provider boxes in the Orchestration tab.
+  concurrencyLimitByProvider: 'bespoke',
   autoTerminateIdleMinutes: 'tab',
   allowNestedOrchestration: 'tab',
   maxSpawnDepth: 'tab',

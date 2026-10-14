@@ -109,6 +109,11 @@ describe('bestSettingMatch', () => {
   it('is null when nothing matches', () => {
     expect(bestSettingMatch('zzzzz-no-such-setting')).toBeNull();
   });
+
+  it('finds the bespoke concurrency setting by intent words', () => {
+    expect(searchSettings('concurrency').map((m) => m.key)).toContain('concurrencyLimitByProvider');
+    expect(bestSettingMatch('concurrency limit')?.key).toBe('concurrencyLimitByProvider');
+  });
 });
 
 describe('the catalog only lands on rows that exist', () => {

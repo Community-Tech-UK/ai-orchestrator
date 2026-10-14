@@ -118,6 +118,15 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     max: 100,
   },
   {
+    key: 'concurrencyLimitByProvider',
+    label: 'Concurrent CLI agents per provider',
+    description: 'Per-provider concurrency limit: how many agents one CLI (OpenCode, Copilot, Cursor, Grok) may run in parallel at the same time. Changes apply immediately. The Orchestration tab shows one box per provider; the JSON form is {"opencode": 20}.',
+    type: 'json',
+    category: 'orchestration',
+    hidden: true,
+    keywords: ['concurrency', 'limit', 'slots', 'parallel', 'agents', 'provider', 'opencode', 'copilot', 'cursor', 'grok', 'capacity'],
+  },
+  {
     key: 'autoTerminateIdleMinutes',
     label: 'Close idle agents after',
     description: 'After this many minutes with no activity, hibernate an idle session (it stays in the sidebar and wakes on your next message). Idle helper agents are hibernated too if they have done work, or closed if they have not. 0 keeps everything running indefinitely.',

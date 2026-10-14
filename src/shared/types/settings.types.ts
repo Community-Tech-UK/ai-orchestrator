@@ -105,6 +105,14 @@ export interface AppSettings extends DesktopComputerUseSettings {
   // Orchestration
   maxChildrenPerParent: number;
   maxTotalInstances: number; // 0 = unlimited
+  /**
+   * Per-provider ceiling on concurrently running CLI children for the
+   * ACP-backed CLIs (Copilot, Cursor, Grok, OpenCode). Every entry with an
+   * integer cap of 1-100 is applied, including keys that no CLI gates on
+   * today; a key absent here falls back to the built-in defaults from
+   * `src/main/cli/provider-concurrency-limiter.ts`.
+   */
+  concurrencyLimitByProvider: Record<string, number>;
   autoTerminateIdleMinutes: number; // 0 = disabled
   allowNestedOrchestration: boolean;
   /**

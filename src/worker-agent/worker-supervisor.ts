@@ -1,5 +1,11 @@
 import { spawn } from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
+import {
+  restorePreviousWorkerBundle,
+  WORKER_SUPERVISED_ENV,
+  WORKER_UPDATE_RESTART_EXIT_CODE,
+} from './worker-self-update';
 
 /**
  * Self-supervision for the worker agent.
@@ -56,6 +62,22 @@ export interface WorkerSupervisorOptions {
   delay?: (ms: number) => Promise<void>;
   /** Injectable jitter in [0,1). Default `Math.random`. */
   random?: () => number;
+  /** Pause before respawning a child that exited to load an update. Default 500ms. */
+  updateRestartDelayMs?: number;
+  /**
+   * Put the pre-update bundle back. Called when the first child after an update
+   * restart dies before it was stable. Returns false when there is nothing to
+   * restore. Default: restorePreviousWorkerBundle on this entrypoint.
+   */
+  restorePreviousBundle?: () => boolean;
+  /**
+   * Identifies the bundle on disk at spawn time. A rapid failure on a bundle
+   * other than the last one that ran stably counts as a failed update too: the
+   * updater may have swapped a new bundle in while the worker was busy, and a
+   * crash then respawns onto it without any exit-75 restart. Default: the
+   * entrypoint's size and modification time; null when unreadable.
+   */
+  bundleFingerprint?: () => string | null;
 }
 
 const DEFAULTS = {
@@ -64,7 +86,13 @@ const DEFAULTS = {
   backoffFactor: 2,
   stableRuntimeMs: 60_000,
   maxRapidRestarts: 5,
+  updateRestartDelayMs: 500,
 };
+
+/** Child environment: tells the child something will respawn it (self-update needs that). */
+export function workerChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...env, [WORKER_SUPERVISED_ENV]: '1' };
+}
 
 /**
  * Resolve the command used to relaunch the worker as a child. Mirrors the
@@ -83,7 +111,7 @@ function defaultSpawnChild(childArgs: string[]): SupervisedChildHandle {
   const { exe, args } = resolveWorkerChildCommand(childArgs);
   const child = spawn(exe, args, {
     stdio: 'inherit',
-    env: process.env,
+    env: workerChildEnv(process.env),
   });
   return {
     pid: child.pid,
@@ -119,8 +147,13 @@ export async function runWorkerSupervisor(options: WorkerSupervisorOptions): Pro
   const now = options.now ?? Date.now;
   const delay = options.delay ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const random = options.random ?? Math.random;
+  const restorePreviousBundle = options.restorePreviousBundle
+    ?? (() => restorePreviousWorkerBundle(process.argv[1]));
 
   let stopping = false;
+  let previousExitWasUpdate = false;
+  const bundleFingerprint = options.bundleFingerprint ?? (() => defaultBundleFingerprint(process.argv[1]));
+  let lastStableFingerprint: string | null = null;
   let current: SupervisedChildHandle | null = null;
   let rapidFailures = 0;
   let backoff = initialBackoffMs;
@@ -146,6 +179,7 @@ export async function runWorkerSupervisor(options: WorkerSupervisorOptions): Pro
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const startedAt = now();
+      const spawnedFingerprint = bundleFingerprint();
       const child = spawnChild(options.childArgs);
       current = child;
       log.info('Worker child started', { pid: child.pid, restarts });
@@ -166,6 +200,41 @@ export async function runWorkerSupervisor(options: WorkerSupervisorOptions): Pro
       if (result.code === 0) {
         log.info('Worker child exited cleanly — supervisor stopping', { ranMs });
         return 0;
+      }
+
+      // A planned exit to load a freshly built bundle. Not a crash: it must not
+      // spend the rapid-failure budget or grow the backoff.
+      if (result.code === WORKER_UPDATE_RESTART_EXIT_CODE) {
+        previousExitWasUpdate = true;
+        restarts++;
+        log.info('Worker child exited to load an update — restarting', { ranMs, restarts });
+        await delay(options.updateRestartDelayMs ?? DEFAULTS.updateRestartDelayMs);
+        continue;
+      }
+
+      // The first child on a new bundle died before it was ever stable. Do not
+      // burn the rapid-failure budget on a bad update and then give up, which
+      // would leave the node offline: go back to the bundle that worked.
+      const bundleChanged = lastStableFingerprint !== null
+        && spawnedFingerprint !== null
+        && spawnedFingerprint !== lastStableFingerprint;
+      if (ranMs >= stableRuntimeMs) lastStableFingerprint = spawnedFingerprint;
+      const failedRightAfterUpdate: boolean = (previousExitWasUpdate || bundleChanged) && ranMs < stableRuntimeMs;
+      const restored: boolean = failedRightAfterUpdate && restorePreviousBundle();
+      // Stay armed until a restore succeeds or a child runs stably: Windows can
+      // refuse the copy once (a scanner holding the file), and giving up after
+      // the first refusal would let a bad bundle burn the rapid-failure budget.
+      previousExitWasUpdate = failedRightAfterUpdate && !restored;
+      if (restored) {
+        restarts++;
+        log.warn('Worker failed on the updated bundle — restored the previous one', {
+          code: result.code,
+          signal: result.signal,
+          ranMs,
+          restarts,
+        });
+        await delay(options.updateRestartDelayMs ?? DEFAULTS.updateRestartDelayMs);
+        continue;
       }
 
       if (ranMs >= stableRuntimeMs) {
@@ -202,6 +271,16 @@ export async function runWorkerSupervisor(options: WorkerSupervisorOptions): Pro
   } finally {
     process.off('SIGINT', sigintHandler);
     process.off('SIGTERM', sigtermHandler);
+  }
+}
+
+function defaultBundleFingerprint(entrypoint: string | undefined): string | null {
+  if (!entrypoint) return null;
+  try {
+    const stat = fs.statSync(entrypoint);
+    return `${stat.size}:${stat.mtimeMs}`;
+  } catch {
+    return null;
   }
 }
 
