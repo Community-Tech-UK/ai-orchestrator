@@ -326,4 +326,58 @@ describe('ProjectRailBuilderService', () => {
       expect(groups[0]?.historyItems.map((item) => item.entry.id)).toEqual(['normal-archived']);
     });
   });
+
+  describe('worktree sessions', () => {
+    const repo = '/Users/james/work/project';
+    const queueWorktree = `${repo}/.worktrees/queue/item-abc123`;
+    const loopWorktree = `${repo}/.worktrees/task-fix-the-build`;
+
+    it('groups sessions in a repository\'s .worktrees checkout under that repository', () => {
+      const groups = service.buildProjectGroups(buildInput({
+        instances: [
+          makeInstance('main', { lastActivity: 3000 }),
+          makeInstance('queue-worker', { workingDirectory: queueWorktree, lastActivity: 2000 }),
+        ],
+        historyEntries: [makeHistoryEntry('loop-session', { workingDirectory: loopWorktree })],
+        recentDirectories: [
+          { path: repo, displayName: 'project', lastAccessed: 1000, accessCount: 1, isPinned: false },
+          { path: queueWorktree, displayName: 'item-abc123', lastAccessed: 5000, accessCount: 1, isPinned: false },
+        ],
+      }));
+
+      expect(groups.map((group) => [group.key, group.title, group.path])).toEqual([
+        [repo.toLowerCase(), 'project', repo],
+      ]);
+      expect(groups[0]?.liveItems.map((item) => item.instance.id)).toEqual(['main', 'queue-worker']);
+      expect(groups[0]?.historyItems.map((item) => item.entry.id)).toEqual(['loop-session']);
+    });
+
+    it('puts history-only worktree sessions under the repository and hides stale worktree projects', () => {
+      const groups = service.buildProjectGroups(buildInput({
+        historyEntries: [makeHistoryEntry('loop-session', { workingDirectory: loopWorktree })],
+        recentDirectories: [
+          { path: `${repo}/.worktrees/queue/old-item`, displayName: 'old-item', lastAccessed: 5000, accessCount: 1, isPinned: false },
+        ],
+        showEmptyProjects: true,
+      }));
+
+      expect(groups.map((group) => [group.key, group.title, group.path])).toEqual([
+        [repo.toLowerCase(), 'project', repo],
+      ]);
+    });
+
+    it('keeps finished parentless Plan Queue sessions out of the rail, as nested ones already are', () => {
+      const groups = service.buildProjectGroups(buildInput({
+        instances: [makeInstance('queue-verifier-live', { workingDirectory: queueWorktree })],
+        historyEntries: [
+          makeHistoryEntry('queue-verifier-finished', { workingDirectory: queueWorktree }),
+          makeHistoryEntry('project-session'),
+        ],
+      }));
+
+      expect(groups).toHaveLength(1);
+      expect(groups[0]?.liveItems.map((item) => item.instance.id)).toEqual(['queue-verifier-live']);
+      expect(groups[0]?.historyItems.map((item) => item.entry.id)).toEqual(['project-session']);
+    });
+  });
 });

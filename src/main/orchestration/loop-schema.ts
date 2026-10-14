@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 19;
+export const LOOP_SCHEMA_VERSION = 20;
 
 interface LoopMigration {
   version: number;
@@ -411,6 +411,11 @@ const MIGRATIONS: LoopMigration[] = [
       ALTER TABLE campaign_nodes ADD COLUMN worktree_path TEXT;
       ALTER TABLE campaign_nodes ADD COLUMN worktree_lifecycle_json TEXT;
     `,
+  },
+  {
+    version: 20,
+    name: '020_plan_queue_runs_parent_thread',
+    up: `ALTER TABLE plan_queue_runs ADD COLUMN parent_history_thread_id TEXT;`,
   },
 ];
 

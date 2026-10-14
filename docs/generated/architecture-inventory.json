@@ -6164,7 +6164,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2457
+      "lines": 2467
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
@@ -6184,7 +6184,7 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
-      "lines": 2169
+      "lines": 2195
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
@@ -6239,6 +6239,10 @@
       "lines": 1965
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
+      "lines": 1963
+    },
+    {
       "path": "src/main/session/session-continuity.spec.ts",
       "lines": 1960
     },
@@ -6263,12 +6267,12 @@
       "lines": 1847
     },
     {
-      "path": "src/main/desktop-gateway/desktop-gateway-service.spec.ts",
-      "lines": 1830
+      "path": "packages/contracts/src/types/transport.types.ts",
+      "lines": 1832
     },
     {
-      "path": "packages/contracts/src/types/transport.types.ts",
-      "lines": 1825
+      "path": "src/main/desktop-gateway/desktop-gateway-service.spec.ts",
+      "lines": 1830
     },
     {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
@@ -6289,10 +6293,6 @@
     {
       "path": "src/main/session/session-continuity.ts",
       "lines": 1745
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 1735
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
@@ -6364,7 +6364,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1482
+      "lines": 1484
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
@@ -6428,7 +6428,7 @@
     },
     {
       "path": "src/main/orchestration/orchestration-handler.ts",
-      "lines": 1357
+      "lines": 1359
     },
     {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
@@ -6664,7 +6664,7 @@
     },
     {
       "path": "src/main/instance/instance-orchestration.ts",
-      "lines": 1152
+      "lines": 1156
     },
     {
       "path": "src/main/providers/__tests__/unified-model-catalog-service.spec.ts",
@@ -7167,6 +7167,10 @@
       "lines": 841
     },
     {
+      "path": "src/renderer/app/core/state/instance/instance.store.ts",
+      "lines": 839
+    },
+    {
       "path": "src/main/orchestration/child-result-storage.ts",
       "lines": 838
     },
@@ -7185,10 +7189,6 @@
     {
       "path": "src/renderer/app/features/review/review-results.component.ts",
       "lines": 838
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance.store.ts",
-      "lines": 837
     },
     {
       "path": "src/shared/types/history.types.spec.ts",

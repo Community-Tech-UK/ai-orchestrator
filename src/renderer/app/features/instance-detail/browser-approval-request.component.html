@@ -30,8 +30,8 @@
             @if (credentialDuration(approval) === 'task' && access.permissionExpiresAt; as expiresAt) {
               <div><dt>Latest expiry</dt><dd>{{ formatExpiry(expiresAt) }}</dd></div>
             }
-            @if (access.operationError) {
-              <div class="browser-approval-error"><dt>Needs attention</dt><dd>{{ access.operationError }}</dd></div>
+            @if (access.operationError && errorMessage() !== credentialError(access.operationError)) {
+              <div class="browser-approval-error"><dt>Needs attention</dt><dd>{{ credentialError(access.operationError) }}</dd></div>
             }
           } @else {
           <div>

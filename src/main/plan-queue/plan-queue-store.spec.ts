@@ -13,6 +13,7 @@ function makeRun(overrides: Partial<PlanQueueRun> = {}): PlanQueueRun {
   return {
     id: 'run-1',
     parentInstanceId: 'parent-1',
+    parentHistoryThreadId: 'thread-1',
     kind: 'plans',
     workspaceCwd: '/repo',
     status: 'running',
@@ -101,6 +102,24 @@ describe('PlanQueueStore', () => {
     expect(store.listRunsWithRelaxation()).toEqual([]);
     expect(store.listActiveRuns()).toEqual([]);
     expect(store.getRun('run-1')?.endedAt).toBe(5_000);
+  });
+
+  it('repoints a run at its restored parent, and a stale snapshot save cannot undo it', () => {
+    const run = makeRun();
+    store.upsertRun(run);
+    store.setRunParent('run-1', 'parent-restored', null);
+    store.upsertRun({ ...run, status: 'paused', parentHistoryThreadId: null });
+
+    expect(store.getRun('run-1')).toMatchObject({
+      parentInstanceId: 'parent-restored', parentHistoryThreadId: 'thread-1', status: 'paused',
+    });
+  });
+
+  it('records the parent thread for a run that started without one', () => {
+    store.upsertRun(makeRun({ parentHistoryThreadId: null }));
+    store.setRunParent('run-1', 'parent-1', 'thread-found');
+
+    expect(store.getRun('run-1')?.parentHistoryThreadId).toBe('thread-found');
   });
 
   it('round-trips an item with question, verdict and git ownership', () => {

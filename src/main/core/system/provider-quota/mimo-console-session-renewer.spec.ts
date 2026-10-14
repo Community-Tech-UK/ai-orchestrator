@@ -214,4 +214,126 @@ describe('MimoConsoleSessionRenewer', () => {
     expect(result.attempted).toBe(true);
     expect(result.completed).toBe(true);
   });
+
+  it('completes the live platform chain whose follow-up hop is plain http', async () => {
+    // Replay of the real chain (2026-10-14): the platform's 401 publishes
+    // serviceLogin?callback=<https platform /sts…followup=http://platform…>;
+    // the /sts hop mints the console session and redirects to that http
+    // follow-up. The minted session must win — the walk may stop before the
+    // plain-http hop, but it must not report failure and throw the cookies away.
+    const { fetch, calls } = scriptFetch([
+      response(302, {
+        location: 'https://platform.xiaomimimo.com/sts?sign=abc&followup=http%3A%2F%2Fplatform.xiaomimimo.com%2Fapi%2Fv1%2FtokenPlan%2Fusage',
+        setCookies: ['passToken=PLACEHOLDER_ROTATED; Domain=account.xiaomi.com'],
+      }),
+      response(302, {
+        location: 'http://platform.xiaomimimo.com/api/v1/tokenPlan/usage',
+        setCookies: [
+          'api-platform_serviceToken=fresh; Domain=.platform.xiaomimimo.com',
+          'api-platform_slh=fresh-slh; Domain=.platform.xiaomimimo.com',
+          'api-platform_ph=fresh-ph; Domain=.platform.xiaomimimo.com',
+          'userId=PLACEHOLDER_USER; Domain=.xiaomimimo.com',
+        ],
+      }),
+    ]);
+    const renewer = new MimoConsoleSessionRenewer({ fetchImpl: fetch });
+
+    const result = await renewer.renew(
+      'https://account.xiaomi.com/pass/serviceLogin?callback=platform',
+      SSO,
+      { signal: new AbortController().signal },
+    );
+
+    expect(result.completed).toBe(true);
+    expect(Object.fromEntries(result.setCookies)).toEqual({
+      'api-platform_serviceToken': 'fresh',
+      'api-platform_slh': 'fresh-slh',
+      'api-platform_ph': 'fresh-ph',
+      userId: 'PLACEHOLDER_USER',
+    });
+    // No cookie is ever sent to the plain-http follow-up: it is not fetched.
+    expect(calls.some((url) => url.startsWith('http://'))).toBe(false);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('completes when only the session trio is re-minted and userId stays in the stored session', async () => {
+    const { fetch } = scriptFetch([
+      response(302, { location: 'https://platform.xiaomimimo.com/sts?sign=abc' }),
+      response(302, {
+        location: 'http://platform.xiaomimimo.com/api/v1/tokenPlan/usage',
+        setCookies: [
+          'api-platform_serviceToken=fresh; Domain=.platform.xiaomimimo.com',
+          'api-platform_slh=fresh-slh; Domain=.platform.xiaomimimo.com',
+          'api-platform_ph=fresh-ph; Domain=.platform.xiaomimimo.com',
+        ],
+      }),
+    ]);
+    const renewer = new MimoConsoleSessionRenewer({ fetchImpl: fetch });
+
+    const result = await renewer.renew('https://account.xiaomi.com/pass/serviceLogin', SSO);
+
+    expect(result.completed).toBe(true);
+    expect([...result.setCookies.keys()].sort()).toEqual([
+      'api-platform_ph', 'api-platform_serviceToken', 'api-platform_slh',
+    ]);
+  });
+
+  it('returns rotated account SSO cookies for the caller to persist', async () => {
+    const { fetch } = scriptFetch([
+      response(302, {
+        location: 'https://platform.xiaomimimo.com/sts?sign=abc',
+        setCookies: [
+          'passToken=PLACEHOLDER_ROTATED; Domain=account.xiaomi.com',
+          'cUserId=PLACEHOLDER_PARENT_ROTATED; Domain=.xiaomi.com',
+          'userId=PLACEHOLDER_NOT_PERSISTED; Domain=.xiaomi.com',
+          'serviceToken=PLACEHOLDER_NOT_SSO; Domain=account.xiaomi.com',
+          'passToken=PLACEHOLDER_LOOKALIKE; Domain=account.xiaomi.com.evil.example',
+        ],
+      }),
+      response(200),
+    ]);
+    const renewer = new MimoConsoleSessionRenewer({ fetchImpl: fetch });
+
+    const result = await renewer.renew('https://account.xiaomi.com/pass/serviceLogin', SSO);
+
+    // Only the exact SSO pairs the encrypted store persists, from real Xiaomi
+    // account hosts. Lookalike domains and non-SSO names never reach the store.
+    expect(result.ssoCookies).toEqual([
+      { domain: 'account.xiaomi.com', name: 'passToken', value: 'PLACEHOLDER_ROTATED' },
+      { domain: '.xiaomi.com', name: 'cUserId', value: 'PLACEHOLDER_PARENT_ROTATED' },
+    ]);
+    expect([...result.setCookies]).toEqual([]);
+  });
+
+  it('keeps stopping at genuinely foreign hosts without minted session cookies', async () => {
+    const { fetch } = scriptFetch([
+      response(302, {
+        location: 'https://evil.example/next',
+        setCookies: ['passToken=PLACEHOLDER_ROTATED; Domain=account.xiaomi.com'],
+      }),
+    ]);
+    const renewer = new MimoConsoleSessionRenewer({ fetchImpl: fetch });
+
+    const result = await renewer.renew('https://account.xiaomi.com/pass/serviceLogin', SSO);
+
+    expect(result.completed).toBe(false);
+  });
+
+  it('drops an SSO cookie whose Domain does not domain-match the response host', async () => {
+    // A hop on a sibling Xiaomi host must not hand over a pair for
+    // account.xiaomi.com — a browser would reject that Set-Cookie outright.
+    const { fetch } = scriptFetch([
+      response(302, { location: 'https://foo.xiaomi.com/next' }),
+      response(302, {
+        location: 'https://platform.xiaomimimo.com/sts',
+        setCookies: ['passToken=PLACEHOLDER_SIBLING; Domain=account.xiaomi.com'],
+      }),
+      response(200),
+    ]);
+    const renewer = new MimoConsoleSessionRenewer({ fetchImpl: fetch });
+
+    const result = await renewer.renew('https://account.xiaomi.com/pass/serviceLogin', SSO);
+
+    expect(result.ssoCookies).toEqual([]);
+  });
 });

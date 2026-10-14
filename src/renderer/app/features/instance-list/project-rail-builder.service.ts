@@ -74,6 +74,7 @@ export class ProjectRailBuilderService {
     const visibleHistoryEntries = input.historyEntries.filter((entry) =>
       !entry.hideFromProjectRail
       && !isHiddenAutomationHistoryEntry(entry, input.showHiddenAutomations)
+      && !this.isFinishedOrphanQueueSession(entry)
     );
     const childrenByParent = this.projectGroupComputation.buildChildrenMap(visibleInstances);
     const instanceMap = new Map(visibleInstances.map((instance) => [instance.id, instance]));
@@ -111,18 +112,25 @@ export class ProjectRailBuilderService {
       activityCutoff,
       input.historySortMode,
     );
+    // Sessions in a `.worktrees/` checkout group under their repository, so an
+    // unpinned worktree recorded as a recent directory (earlier builds synced
+    // every session's directory) is not a project of its own.
+    const recentProjects = input.recentDirectories.filter(
+      (entry) => entry.isPinned || !this.paths.isWorktreePath(entry.path),
+    );
     const recentDirectoriesByKey = new Map(
-      input.recentDirectories.map((entry) => [this.paths.getProjectKey(entry.path), entry]),
+      recentProjects.map((entry) => [this.paths.getProjectKey(entry.path), entry]),
     );
     const recentDirectoryOrder = new Map(
-      input.recentDirectories.map((entry, index) => [this.paths.getProjectKey(entry.path), index] as const),
+      recentProjects.map((entry, index) => [this.paths.getProjectKey(entry.path), index] as const),
     );
     const groups = new Map<string, ProjectGroup>();
 
     for (const root of getOrderedRootInstances(visibleInstances, input.rootInstanceOrder)) {
-      const projectKey = this.paths.getProjectKey(root.workingDirectory);
-      const title = this.paths.getProjectTitle(root.workingDirectory);
-      const subtitle = this.paths.getProjectSubtitle(root.workingDirectory);
+      const projectPath = this.paths.getSessionProjectPath(root.workingDirectory);
+      const projectKey = this.paths.getProjectKey(projectPath);
+      const title = this.paths.getProjectTitle(projectPath);
+      const subtitle = this.paths.getProjectSubtitle(projectPath);
       const projectMatches = !!filter && this.projectGroupComputation.matchesProjectText(title, subtitle, filter);
       const rawHistoryItems = historyByProject.get(projectKey) ?? [];
       const existingGroup = groups.get(projectKey);
@@ -170,10 +178,10 @@ export class ProjectRailBuilderService {
       }
 
       const recentDirectory = recentDirectoriesByKey.get(projectKey);
-      const draftInfo = this.projectGroupComputation.getProjectDraftInfo(root.workingDirectory);
+      const draftInfo = this.projectGroupComputation.getProjectDraftInfo(projectPath);
       const group = existingGroup ?? {
         key: projectKey,
-        path: root.workingDirectory?.trim() || null,
+        path: projectPath?.trim() || null,
         title: recentDirectory?.displayName || title,
         subtitle: recentDirectory ? this.paths.getProjectSubtitle(recentDirectory.path) : subtitle,
         createdAt: recentDirectory?.lastAccessed ?? root.createdAt,
@@ -305,7 +313,8 @@ export class ProjectRailBuilderService {
       }
 
       const recentDirectory = recentDirectoriesByKey.get(projectKey);
-      const workingDirectory = recentDirectory?.path || historyItems[0].workingDirectory || null;
+      const historyProjectPath = this.paths.getSessionProjectPath(historyItems[0].workingDirectory);
+      const workingDirectory = recentDirectory?.path || historyProjectPath || null;
       const draftInfo = this.projectGroupComputation.getProjectDraftInfo(workingDirectory);
       const groupedHistoryItems = this.projectGroupComputation.buildVisibleHistoryRoots(
         historyItems,
@@ -329,10 +338,10 @@ export class ProjectRailBuilderService {
       groups.set(projectKey, {
         key: projectKey,
         path: workingDirectory,
-        title: recentDirectory?.displayName || this.paths.getProjectTitle(historyItems[0].workingDirectory),
+        title: recentDirectory?.displayName || this.paths.getProjectTitle(historyProjectPath),
         subtitle: recentDirectory
           ? this.paths.getProjectSubtitle(recentDirectory.path)
-          : this.paths.getProjectSubtitle(historyItems[0].workingDirectory),
+          : this.paths.getProjectSubtitle(historyProjectPath),
         createdAt: Math.max(
           recentDirectory?.lastAccessed ?? 0,
           ...allHistoryItems.map((item) => item.createdAt),
@@ -448,7 +457,7 @@ export class ProjectRailBuilderService {
         continue;
       }
 
-      const projectKey = this.paths.getProjectKey(entry.workingDirectory);
+      const projectKey = this.paths.getProjectKey(this.paths.getSessionProjectPath(entry.workingDirectory));
       const projectEntries = groups.get(projectKey) ?? [];
       projectEntries.push(entry);
       groups.set(projectKey, projectEntries);
@@ -604,8 +613,9 @@ export class ProjectRailBuilderService {
       return false;
     }
 
-    const title = this.paths.getProjectTitle(entry.workingDirectory);
-    const subtitle = this.paths.getProjectSubtitle(entry.workingDirectory);
+    const projectPath = this.paths.getSessionProjectPath(entry.workingDirectory);
+    const title = this.paths.getProjectTitle(projectPath);
+    const subtitle = this.paths.getProjectSubtitle(projectPath);
 
     return !filter ||
       this.projectGroupComputation.matchesProjectText(title, subtitle, filter) ||
@@ -667,6 +677,17 @@ export class ProjectRailBuilderService {
     }
 
     return group.lastActivity;
+  }
+
+  /**
+   * A finished Plan Queue session archived without a parent. A queue session
+   * nested under the session that started its run is never archived (children
+   * are not), so it leaves the rail when it ends; one that lost its parent
+   * (the parent was not restored yet, or never was) is archived as a root and
+   * would otherwise pile up in its project's history. It stays in History.
+   */
+  private isFinishedOrphanQueueSession(entry: ConversationHistoryEntry): boolean {
+    return !entry.parentId && this.paths.isPlanQueueWorktreePath(entry.workingDirectory);
   }
 
   private isProjectRailHiddenInstance(instance: Instance): boolean {

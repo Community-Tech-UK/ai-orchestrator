@@ -61,6 +61,36 @@ export function credentialAccessMovement(approval: BrowserApprovalRequest): stri
     : `This login will stay in its current vault folder (${access.vaultFolder}).`;
 }
 
+const CREDENTIAL_ACCESS_ERROR_TEXT: Readonly<Record<string, string>> = {
+  vault_locked: 'The password vault is locked. Unlock it, then approve again.',
+  target_unavailable: 'The browser tab could not be reached. It may be closed, not responding, on a site Harness is not allowed to use, or on a computer that is offline.',
+  bw_command_failed: 'The password vault command failed. Check the vault is reachable, then approve again.',
+  credential_access_failed: 'Something went wrong while preparing the saved login.',
+  expired: 'This request timed out.',
+  denied: 'This request was already denied.',
+  computer_changed: 'The browser tab is now on a different computer, so this request can no longer be approved.',
+  session_changed: 'The requesting session changed while approving. Try approving again.',
+  session_unavailable: 'The requesting session is no longer running, or is open more than once.',
+  saved_login_changed: 'The saved login changed in the vault after it was requested, so this request can no longer be approved.',
+  item_not_found: 'The saved login could not be found in the vault.',
+  item_ambiguous: 'More than one saved login matches this name.',
+  request_no_longer_pending: 'This request was already decided, cancelled or timed out.',
+  permission_expired: 'The chosen permission period has already ended.',
+  authorization_revoked: 'This saved-login permission was revoked or ran out while approving, so the request has ended.',
+  origin_mismatch: 'The website in the tab, or the website this saved login is already linked to, does not match this request. If the tab is on a normal web page and this keeps happening, deny it.',
+  item_outside_agent_folder: 'The saved login is not in the agent vault folder.',
+  secret_field_empty: 'The saved login is missing its username or password.',
+  item_changed: 'The saved login changed in the vault while approving, so this request can no longer be approved.',
+  shared_tab_credential_fill_not_allowed: 'Saved logins on shared browser tabs are turned off in settings.',
+  shared_tab_secure_credential_fill_unavailable: 'The browser extension on that computer needs updating or reconnecting before it can use saved logins.',
+};
+
+/** Plain-language text for a saved-login approval failure code. */
+export function credentialAccessErrorText(reason: string): string {
+  if (reason.startsWith('vault_relock_failed:')) return 'The password vault could not be unlocked again. Check the vault login, then approve again.';
+  return CREDENTIAL_ACCESS_ERROR_TEXT[reason] ?? reason.replaceAll('_', ' ');
+}
+
 export function bannerCanQuickApprove(approval: BrowserApprovalRequest): boolean {
   return Boolean(approval.credentialAccess) || bannerGrantModes(approval).length > 0;
 }

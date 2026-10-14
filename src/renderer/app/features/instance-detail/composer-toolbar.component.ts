@@ -439,7 +439,7 @@ export class ComposerToolbarComponent {
     return `Context window: ${pct}% used (${u.used.toLocaleString()} / ${u.total.toLocaleString()} tokens)`;
   });
 
-  private readonly historyEntryId = computed(() => historyEntryIdFromPreview(this.instanceId()));
+  protected readonly historyEntryId = computed(() => historyEntryIdFromPreview(this.instanceId()));
   /** Explicit continuation account, or null to keep the account the thread was archived on. */
   readonly continuationAccountId = computed(() => {
     const entryId = this.historyEntryId();

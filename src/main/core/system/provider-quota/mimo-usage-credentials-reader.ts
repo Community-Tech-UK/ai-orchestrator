@@ -1,4 +1,5 @@
 import { MimoConsoleCredentialsReader, type MimoConsoleSession, type MimoCredentialResult } from './mimo-console-credentials-reader';
+import type { MimoRenewedSsoCookie } from './mimo-console-session-renewer';
 import { getMimoSavedSessionStore, type MimoSavedSessionStore } from './mimo-saved-session-store';
 import type { MimoCredentialSource } from './mimo-token-plan-probe';
 
@@ -57,9 +58,9 @@ export class MimoUsageCredentialsReader implements MimoCredentialSource {
       && this.store.exists(this.opts.accountProfileId) === this.saved;
   }
 
-  saveRenewed(session: MimoConsoleSession): void {
+  saveRenewed(session: MimoConsoleSession, sso?: readonly MimoRenewedSsoCookie[]): void {
     if (this.saved && this.isCurrent()) {
-      this.store.saveRenewed(this.opts.accountProfileId, session, this.generation);
+      this.store.saveRenewed(this.opts.accountProfileId, session, this.generation, sso);
     }
   }
 

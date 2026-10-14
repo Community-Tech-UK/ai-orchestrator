@@ -124,13 +124,13 @@ describe('BrowserApprovalsBannerComponent', () => {
   );
 
   it.each([
-    { decision: 'denied', outcome: 'not_run', reason: 'vault_locked' },
-    { decision: 'allowed', outcome: 'failed', reason: 'worker_disconnected' },
+    { decision: 'denied', outcome: 'not_run', reason: 'vault_locked', message: 'The password vault is locked. Unlock it, then approve again.' },
+    { decision: 'allowed', outcome: 'failed', reason: 'worker_disconnected', message: 'worker disconnected' },
   ])('retains a failed credential request without treating IPC delivery as approval', async (failure) => {
     const fixture = setup([makeApproval({ credentialAccess: savedLoginAccess() })]);
     await fixture.whenStable();
     fixture.detectChanges();
-    gateway.approveRequest.mockResolvedValueOnce({ success: true, data: { ...failure, auditId: 'placeholder-audit' } } as never);
+    gateway.approveRequest.mockResolvedValueOnce({ success: true, data: { decision: failure.decision, outcome: failure.outcome, reason: failure.reason, auditId: 'placeholder-audit' } } as never);
     const store = TestBed.inject(BrowserApprovalsStore);
     const removeRequest = vi.spyOn(store, 'removeRequest');
     (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
@@ -138,7 +138,38 @@ describe('BrowserApprovalsBannerComponent', () => {
     fixture.detectChanges();
     expect(removeRequest).not.toHaveBeenCalled();
     expect(store.pendingRequests()).toHaveLength(1);
-    expect(fixture.componentInstance.errorMessage()).toBe(failure.reason.replaceAll('_', ' '));
+    expect(fixture.componentInstance.errorMessage()).toBe(failure.message);
+  });
+
+  it('shows one plain-language saved-login error after a failed approval', async () => {
+    const fixture = setup([makeApproval({ credentialAccess: { ...savedLoginAccess(), operationError: 'vault_locked' } })]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const element: HTMLElement = fixture.nativeElement;
+    const errors = () => Array.from(element.querySelectorAll('.banner-error')).map((node) => node.textContent?.trim());
+    expect(errors()).toEqual(['The password vault is locked. Unlock it, then approve again.']);
+    gateway.approveRequest.mockResolvedValueOnce({ success: true, data: { decision: 'denied', outcome: 'not_run', reason: 'vault_locked', auditId: 'placeholder-audit' } } as never);
+    element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(errors()).toEqual(['The password vault is locked. Unlock it, then approve again.']);
+  });
+
+  it('clears an approval error when the banner moves to the next request', async () => {
+    const first = makeApproval({ credentialAccess: savedLoginAccess() });
+    const second = makeApproval({ id: 'row-2', requestId: 'request-2', createdAt: 1_500, credentialAccess: savedLoginAccess() });
+    const fixture = setup([first, second]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    gateway.approveRequest.mockResolvedValueOnce({ success: true, data: { decision: 'denied', outcome: 'not_run', reason: 'vault_locked', auditId: 'placeholder-audit' } } as never);
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
+    await fixture.whenStable();
+    expect(fixture.componentInstance.errorMessage()).not.toBeNull();
+    TestBed.inject(BrowserApprovalsStore).removeRequest(first.requestId);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(fixture.componentInstance.oldestPending()?.requestId).toBe(second.requestId);
+    expect(fixture.componentInstance.errorMessage()).toBeNull();
   });
 
   it('stays hidden when no approvals are pending', async () => {

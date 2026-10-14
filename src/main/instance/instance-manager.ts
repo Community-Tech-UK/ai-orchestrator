@@ -65,6 +65,7 @@ import type { InstanceContextPort } from './instance-context-port';
 import { InstanceEventAggregator, type InstanceEventLogQuery } from './instance-event-aggregator';
 import type { InstanceEventEnvelope } from '@contracts/types/instance-events';
 import { InstanceOrchestrationManager } from './instance-orchestration';
+import { adoptInstance } from './instance-adoption';
 import { InstancePersistenceManager } from './instance-persistence';
 import { InstanceSettledTracker } from './instance-settled-tracker';
 import { InstanceChildCompletionHandler } from './instance-child-completion-handler';
@@ -987,6 +988,15 @@ export class InstanceManager extends EventEmitter {
 
   getAllInstances(): Instance[] {
     return this.state.getAllInstances();
+  }
+
+  /** Nest a live session that lost its parent under a live parent; see instance-adoption.ts. */
+  adoptOrphanInstance(childId: string, parentId: string): boolean {
+    return adoptInstance({
+      getInstance: (id) => this.state.getInstance(id),
+      reparentOrchestration: (id, parent) => this.orchestrationMgr.setOrchestrationParent(id, parent),
+      queueUpdate: (instance) => this.state.queueUpdate(instance.id, instance.status),
+    }, childId, parentId);
   }
 
   getLiveRecoveryKeys(): ReadonlySet<string> { return this.continuityRecovery.getLiveRecoveryKeys(); }

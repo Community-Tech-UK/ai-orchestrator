@@ -381,6 +381,29 @@ describe('HistoryRestoreCoordinator', () => {
       expect(fallbackConfig['provider']).toBe('codex');
     });
 
+    it('releases sessions adopted under a dead native-resume attempt instead of terminating them', async () => {
+      // A Plan Queue run follows its restored parent as soon as the session
+      // appears, so the attempt may already hold the run's workers.
+      const attempt = makeInstance({ id: 'native-instance', status: 'error', childrenIds: ['queue-worker'] });
+      getInstance.mockImplementation((id: string) => (id === 'native-instance' ? attempt : undefined));
+      createInstance.mockImplementation(
+        async (config: { resume?: boolean; historyThreadId?: string; initialOutputBuffer?: OutputMessage[] }) =>
+          config.resume ? attempt : makeInstance({
+            id: 'fallback-instance',
+            historyThreadId: config.historyThreadId ?? 'history-thread',
+            outputBuffer: config.initialOutputBuffer ?? [],
+          }),
+      );
+      let policyAtTermination: string | undefined;
+      terminateInstance.mockImplementation(async () => { policyAtTermination = attempt.terminationPolicy; });
+
+      const result = await coordinator.restore(manager, 'entry-1');
+
+      expect(result.restoreMode).toBe('replay-fallback');
+      expect(terminateInstance).toHaveBeenCalledWith('native-instance', false);
+      expect(policyAtTermination).toBe('orphan-children');
+    });
+
     it('keeps the native session handle when the resume spawn fails for a local reason', async () => {
       // Cold-start reality (2026-07-25): a stalled main event loop timed out
       // `codex --version`, so background init rejected before the provider was

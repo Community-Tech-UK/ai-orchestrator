@@ -30,8 +30,19 @@ const SSO_COOKIES = [
   ['.xiaomi.com', 'cUserId'],
 ] as const;
 const ALLOWED_PAIRS = new Set([...CONSOLE_COOKIES, ...SSO_COOKIES].map(([domain, name]) => `${domain}|${name}`));
+const SSO_PAIRS = new Set(SSO_COOKIES.map(([domain, name]) => `${domain}|${name}`));
 const MAX_FILE_BYTES = 128 * 1024;
 const MAX_VALUE_BYTES = 8192;
+
+/**
+ * True for the exact account SSO pairs this store can persist (`domain` in its
+ * stored form: `account.xiaomi.com` or `.xiaomi.com`). The renewal walk uses
+ * this so rotated "refresh" cookies it hands back are always persistable, and
+ * nothing else from a walk can reach the store.
+ */
+export function isPersistableMimoSsoCookie(domain: string, name: string): boolean {
+  return SSO_PAIRS.has(`${domain}|${name}`);
+}
 
 export interface MimoSavedSessionStoreOptions {
   rootDir?: string;
@@ -121,7 +132,18 @@ export class MimoSavedSessionStore {
     return this.generations.get(profileId) ?? 0;
   }
 
-  saveRenewed(profileId: string, session: MimoConsoleSession, expectedGeneration: number): void {
+  /**
+   * Persist a renewed console session (and, optionally, the account SSO
+   * cookies the renewal walk rotated — the "refresh" half of the login).
+   * Unpersistable pairs and unusable values are dropped rather than taking a
+   * good console renewal down with them; everything kept is strictly validated.
+   */
+  saveRenewed(
+    profileId: string,
+    session: MimoConsoleSession,
+    expectedGeneration: number,
+    ssoUpdates: readonly Pick<MimoSavedCookie, 'domain' | 'name' | 'value'>[] = [],
+  ): void {
     if (this.generation(profileId) !== expectedGeneration || !this.exists(profileId)) return;
     const cookies = this.load(profileId);
     const originalUser = cookies.find((cookie) => cookie.domain === '.xiaomimimo.com' && cookie.name === 'userId');
@@ -136,12 +158,35 @@ export class MimoSavedSessionStore {
       // The renewal API returns session cookies without an expiry date.
       return { domain, name, value: part.slice(prefix.length), path: previous?.path, secure: previous?.secure, httpOnly: previous?.httpOnly };
     });
+    const rotatedSso = this.rotatedSsoUpdates(ssoUpdates);
+    const replaced = new Set([
+      ...CONSOLE_COOKIES.map(([domain, name]) => `${domain}|${name}`),
+      ...rotatedSso.map((cookie) => `${cookie.domain}|${cookie.name}`),
+    ]);
     const all = validateCookies([
-      ...cookies.filter((cookie) => !CONSOLE_COOKIES.some(([domain, name]) => cookie.domain === domain && cookie.name === name)),
+      ...cookies.filter((cookie) => !replaced.has(`${cookie.domain}|${cookie.name}`)),
       ...renewed,
+      ...rotatedSso,
     ]);
     if (this.consoleSession(all)?.userId !== session.userId) throw invalidSession();
     this.persist(profileId, this.liveCookies(all));
+  }
+
+  /** Last-wins per persisted SSO pair; anything else is dropped, never fatal. */
+  private rotatedSsoUpdates(
+    updates: readonly Pick<MimoSavedCookie, 'domain' | 'name' | 'value'>[],
+  ): MimoSavedCookie[] {
+    const byPair = new Map<string, MimoSavedCookie>();
+    for (const update of updates) {
+      if (!update || typeof update.domain !== 'string' || typeof update.name !== 'string') continue;
+      if (!isPersistableMimoSsoCookie(update.domain, update.name)) continue;
+      try {
+        byPair.set(`${update.domain}|${update.name}`, validateCookies([update])[0]!);
+      } catch {
+        // A malformed rotation value must not discard a good console renewal.
+      }
+    }
+    return [...byPair.values()];
   }
 
   private directory(): string {

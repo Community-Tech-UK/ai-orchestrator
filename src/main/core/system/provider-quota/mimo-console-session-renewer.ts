@@ -17,12 +17,19 @@
  *  - Follows at most {@link MAX_REDIRECTS} hops, never more.
  *  - Collects `Set-Cookie` values seen on `*.xiaomimimo.com` hops into the
  *    returned overlay so a rotated session can be used immediately — without
- *    ever writing anything back into Chrome's cookie store.
- *  - This renewer never logs or persists cookie values. The caller may save
- *    rotated cookies to its encrypted usage session after quota access succeeds.
+ *    ever writing anything back into Chrome's cookie store. The walk stops
+ *    successfully as soon as the platform session is re-minted: the platform's
+ *    own follow-up hop is plain `http://` and must never be fetched (no cookie
+ *    travels over it).
+ *  - Reports the rotated Xiaomi account SSO cookies (the "refresh" half of the
+ *    login) so the caller can persist them with the rotated console session;
+ *    only the exact pairs the encrypted store already allows are returned.
+ *  - This renewer never logs cookie values. The caller may save rotated
+ *    cookies to its encrypted usage session after quota access succeeds.
  */
 
 import { getLogger } from '../../../logging/logger';
+import { isPersistableMimoSsoCookie } from './mimo-saved-session-store';
 
 const logger = getLogger('MimoConsoleSessionRenewer');
 
@@ -30,6 +37,12 @@ const MAX_REDIRECTS = 6;
 const DEFAULT_TIMEOUT_MS = 15_000;
 /** A renewal walk touches Xiaomi account SSO — at most once per half hour. */
 const DEFAULT_MIN_INTERVAL_MS = 30 * 60_000;
+/**
+ * The session cookies that make the quota API accept a request. Once the
+ * platform has re-minted them the walk has succeeded; `userId` is carried over
+ * from the stored session when the platform does not re-mint it.
+ */
+const MINTED_SESSION_COOKIES = ['api-platform_serviceToken', 'api-platform_slh', 'api-platform_ph'] as const;
 
 export interface MimoRenewResponse {
   status: number;
@@ -57,13 +70,26 @@ export interface MimoSessionRenewerOptions {
   userAgent?: string;
 }
 
+/**
+ * A rotated Xiaomi account SSO cookie seen on a trusted walk, ready for the
+ * caller's encrypted store. `domain` is the stored form (`account.xiaomi.com`
+ * or `.xiaomi.com`); only pairs that store persists are ever produced.
+ */
+export interface MimoRenewedSsoCookie {
+  domain: string;
+  name: string;
+  value: string;
+}
+
 export interface MimoSessionRenewalResult {
   /** False when the walk was skipped (throttled) or refused (untrusted URL). */
   attempted: boolean;
-  /** The redirect chain completed without a network error. */
+  /** The platform session was re-minted (or the chain ended normally). */
   completed: boolean;
   /** Platform-domain session cookies seen along the way (name → value). */
   setCookies: Map<string, string>;
+  /** Rotated account SSO cookies for the caller to persist on success. */
+  ssoCookies: MimoRenewedSsoCookie[];
 }
 
 /** True for the exact SSO entry point the platform's 401 body publishes. */
@@ -109,6 +135,35 @@ function isPlatformHost(url: string, domainAttr: string | null): boolean {
   return host === 'xiaomimimo.com' || host.endsWith('.xiaomimimo.com');
 }
 
+/** Xiaomi account/platform hosts (https is checked separately). */
+function isXiaomiHost(host: string): boolean {
+  return host === 'account.xiaomi.com' || host.endsWith('.xiaomi.com') || host.endsWith('.xiaomimimo.com');
+}
+
+/** True once the platform has re-minted the session cookies the quota API needs. */
+function hasMintedConsoleSession(setCookies: Map<string, string>): boolean {
+  return MINTED_SESSION_COOKIES.every((name) => setCookies.has(name));
+}
+
+/**
+ * Stored cookie domain, matching the usage-login capture: the account host
+ * stays exact, everything else keeps its parent-domain dot.
+ */
+function savedSsoDomain(host: string): string {
+  const bare = host.replace(/^\./, '');
+  return bare === 'account.xiaomi.com' ? 'account.xiaomi.com' : `.${bare}`;
+}
+
+/**
+ * RFC 6265 domain-match: the cookie's domain must be the response host or a
+ * parent of it. A hop may not hand over a pair for a sibling host.
+ */
+function domainMatches(requestHost: string, cookieDomain: string): boolean {
+  const host = requestHost.toLowerCase();
+  const bare = cookieDomain.replace(/^\./, '').toLowerCase();
+  return host === bare || host.endsWith(`.${bare}`);
+}
+
 /** Overlay cookies for a platform hop, as a Cookie header (values stay in memory). */
 function overlayCookieHeader(setCookies: Map<string, string>): string {
   return [...setCookies].map(([name, value]) => `${name}=${value}`).join('; ');
@@ -137,7 +192,7 @@ export class MimoConsoleSessionRenewer {
     ssoCookies: MimoSsoCookies,
     opts: { signal?: AbortSignal } = {},
   ): Promise<MimoSessionRenewalResult> {
-    const empty: MimoSessionRenewalResult = { attempted: false, completed: false, setCookies: new Map() };
+    const empty: MimoSessionRenewalResult = { attempted: false, completed: false, setCookies: new Map(), ssoCookies: [] };
     if (!isTrustedLoginUrl(loginUrl)) {
       logger.warn('Refused an untrusted MiMo session renewal URL');
       return empty;
@@ -159,6 +214,7 @@ export class MimoConsoleSessionRenewer {
     }
 
     const setCookies = new Map<string, string>();
+    const renewedSsoCookies = new Map<string, MimoRenewedSsoCookie>();
     const deadline = AbortSignal.timeout(this.timeoutMs);
     const signal = opts.signal
       ? anySignal([opts.signal, deadline])
@@ -181,24 +237,32 @@ export class MimoConsoleSessionRenewer {
           },
           signal,
         });
-        collectSetCookies(response.headers, url, setCookies);
+        collectSetCookies(response.headers, url, setCookies, renewedSsoCookies);
+        // The platform's own follow-up hop (the `followup` the 401's loginUrl
+        // carries) is plain http. Stop as soon as the session is re-minted so
+        // that hop is never fetched and no cookie can travel over it.
+        if (hasMintedConsoleSession(setCookies)) {
+          return { attempted: true, completed: true, setCookies, ssoCookies: [...renewedSsoCookies.values()] };
+        }
         const location = response.headers.get('location');
         if (response.status >= 300 && response.status < 400 && location) {
-          const next = new URL(location, url).toString();
-          if (!isAllowedHop(next)) {
-            logger.warn('MiMo session renewal left the Xiaomi hosts — stopping the walk');
-            return { attempted: true, completed: false, setCookies };
+          const next = new URL(location, url);
+          if (!isAllowedHop(next.toString())) {
+            logger.warn(isXiaomiHost(next.hostname)
+              ? 'MiMo session renewal stopped before a non-https hop'
+              : 'MiMo session renewal left the Xiaomi hosts — stopping the walk');
+            return { attempted: true, completed: false, setCookies, ssoCookies: [...renewedSsoCookies.values()] };
           }
-          url = next;
+          url = next.toString();
           continue;
         }
-        return { attempted: true, completed: true, setCookies };
+        return { attempted: true, completed: true, setCookies, ssoCookies: [...renewedSsoCookies.values()] };
       }
       logger.warn('MiMo session renewal exceeded its redirect budget');
-      return { attempted: true, completed: false, setCookies };
+      return { attempted: true, completed: false, setCookies, ssoCookies: [...renewedSsoCookies.values()] };
     } catch {
       logger.debug('MiMo session renewal failed.');
-      return { attempted: true, completed: false, setCookies };
+      return { attempted: true, completed: false, setCookies, ssoCookies: [...renewedSsoCookies.values()] };
     }
   }
 }
@@ -207,6 +271,7 @@ function collectSetCookies(
   headers: MimoRenewResponse['headers'],
   url: string,
   into: Map<string, string>,
+  ssoInto: Map<string, MimoRenewedSsoCookie>,
 ): void {
   const raw: string[] = typeof headers.getSetCookie === 'function'
     ? headers.getSetCookie()
@@ -219,8 +284,22 @@ function collectSetCookies(
     const value = pair.slice(eq + 1).trim();
     if (!name || !value) continue;
     const domain = /;\s*domain=([^;]+)/i.exec(entry)?.[1]?.trim() ?? null;
-    if (!isPlatformHost(url, domain)) continue;
-    into.set(name, value);
+    if (isPlatformHost(url, domain)) {
+      into.set(name, value);
+      continue;
+    }
+    // Account-host rotations are the "refresh" half of the login. Only the
+    // exact pairs the encrypted store persists are kept; anything else from
+    // the walk (lookalike domains, non-SSO names) is dropped here.
+    if (!isAccountHost(url)) continue;
+    const requestHost = new URL(url).hostname;
+    const cookieHost = (domain ?? requestHost).replace(/^\./, '');
+    if (!domainMatches(requestHost, cookieHost)) continue;
+    const savedDomain = savedSsoDomain(cookieHost);
+    if (!isPersistableMimoSsoCookie(savedDomain, name)) continue;
+    // A response may set the same pair twice; the later value is the one a
+    // browser would keep, so it overwrites (first-seen order is preserved).
+    ssoInto.set(`${savedDomain}|${name}`, { domain: savedDomain, name, value });
   }
 }
 

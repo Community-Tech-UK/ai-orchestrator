@@ -25,6 +25,7 @@ import type { PlanQueueItem, PlanQueueRelaxationSnapshot, PlanQueueRun } from '.
 interface RunRow {
   id: string;
   parent_instance_id: string;
+  parent_history_thread_id: string | null;
   kind: string;
   workspace_cwd: string;
   status: string;
@@ -72,9 +73,9 @@ export class PlanQueueStore {
   upsertRun(run: PlanQueueRun): void {
     this.db.prepare(`
       INSERT INTO plan_queue_runs (
-        id, parent_instance_id, kind, workspace_cwd, status, config_json, relaxation_json,
+        id, parent_instance_id, parent_history_thread_id, kind, workspace_cwd, status, config_json, relaxation_json,
         worker_provider, worker_model, started_at, ended_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         status          = excluded.status,
         config_json     = excluded.config_json,
@@ -86,6 +87,7 @@ export class PlanQueueStore {
     `).run(
       run.id,
       run.parentInstanceId,
+      run.parentHistoryThreadId,
       run.kind,
       run.workspaceCwd,
       run.status,
@@ -97,6 +99,20 @@ export class PlanQueueStore {
       run.endedAt,
       this.now(),
     );
+  }
+
+  /**
+   * Repoint a run at its restored parent session and record that session's
+   * thread (kept when null). The only writer of the parent columns after
+   * insert: upsertRun leaves them alone, so a caller re-saving an older
+   * snapshot of the run cannot put the old parent back.
+   */
+  setRunParent(runId: string, parentInstanceId: string, parentHistoryThreadId: string | null): void {
+    this.db.prepare(`
+      UPDATE plan_queue_runs
+      SET parent_instance_id = ?, parent_history_thread_id = COALESCE(?, parent_history_thread_id), updated_at = ?
+      WHERE id = ?
+    `).run(parentInstanceId, parentHistoryThreadId, this.now(), runId);
   }
 
   getRun(runId: string): PlanQueueRun | null {
@@ -227,6 +243,7 @@ function rowToRun(row: RunRow): PlanQueueRun {
   return {
     id: row.id,
     parentInstanceId: row.parent_instance_id,
+    parentHistoryThreadId: row.parent_history_thread_id ?? null,
     kind: row.kind as PlanQueueKind,
     workspaceCwd: row.workspace_cwd,
     status: row.status as PlanQueueRunStatus,

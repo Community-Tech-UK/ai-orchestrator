@@ -258,4 +258,25 @@ describe('InstanceStateManager', () => {
     state.destroy();
     vi.useRealTimers();
   });
+
+  it('carries the live parent link, so an adopted session reaches the renderer nested', () => {
+    vi.useFakeTimers();
+    const state = new InstanceStateManager();
+    const instance = makeInstance({ parentId: null });
+    state.setInstance(instance);
+    const batches: Array<{ updates: Array<{ parentId?: string }> }> = [];
+    state.on('batch-update', (batch) => batches.push(batch));
+
+    state.queueUpdate('instance-1', 'busy');
+    vi.advanceTimersByTime(1_000);
+    expect(batches.at(-1)?.updates[0]?.parentId).toBeUndefined();
+
+    instance.parentId = 'parent-1';
+    state.queueUpdate('instance-1', 'busy');
+    vi.advanceTimersByTime(1_000);
+    expect(batches.at(-1)?.updates[0]?.parentId).toBe('parent-1');
+
+    state.destroy();
+    vi.useRealTimers();
+  });
 });

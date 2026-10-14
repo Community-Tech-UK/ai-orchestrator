@@ -199,7 +199,9 @@ export class BrowserCredentialAccessService {
 
   private async validateTarget(request: BrowserApprovalRequest, m: BrowserCredentialAccessMetadata, session: CredentialAccessSession): Promise<void> {
     const target = await this.deps.readTarget(request.profileId, request.targetId!, { instanceId: session.instanceId, provider: request.provider });
-    if (target.origin !== m.origin) throw new Error('origin_changed');
+    // The tab's current page is deliberately not compared with m.origin. Approval binds
+    // only the origin the user was shown, and secure fill re-checks the live origin
+    // before any secret is read. A tab that left the sign-in page must not strand approval.
     if (target.scope !== m.scope) throw new Error('computer_changed');
     if ((target.computerId ?? target.scope) !== m.computerId) throw new Error('computer_changed');
     if (this.deps.findSession(m.taskScope)?.instanceId !== session.instanceId) throw new Error('session_changed');

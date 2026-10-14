@@ -107,6 +107,13 @@ export interface InstanceStateUpdatePayload {
   archivedUpToMessageId?: string;
   historyThreadId?: string;
   /**
+   * The live parent link. Sent on every update because a parentless session
+   * can be adopted after creation (a Plan Queue run following its parent
+   * across a restart), and the renderer otherwise learns the parent only at
+   * creation. Undefined preserves the renderer's existing value.
+   */
+  parentId?: string;
+  /**
    * Machine-readable reason for the current wait state (Phase 6 / §G).
    * Populated by the backend when the instance enters a long-wait status;
    * cleared (set to null) when status returns to idle/busy/ready.

@@ -333,6 +333,7 @@ const mockSupervisorTree = {
     workerNodeId: 'worker-node-1',
   }),
   unregisterInstance: vi.fn(),
+  reparentInstance: vi.fn(),
   terminate: vi.fn(),
 };
 
@@ -2123,6 +2124,31 @@ describe('InstanceManager', () => {
       expect(manager.getAdapter(instance.id)).toBeUndefined();
       expect(instance.status).toBe('error');
       expect(mockAdapterTerminate).toHaveBeenCalled();
+    });
+  });
+
+  describe('adoptOrphanInstance', () => {
+    it('nests a parentless session under a live parent everywhere, and tells the renderer', async () => {
+      const parent = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR, displayName: 'Parent' });
+      const worker = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR, displayName: 'Worker' });
+      const batches: { updates: { instanceId: string; parentId?: string }[] }[] = [];
+      manager.on('instance:batch-update', (batch) => batches.push(batch));
+
+      expect(manager.adoptOrphanInstance(worker.id, parent.id)).toBe(true);
+
+      expect(manager.getInstance(worker.id)).toMatchObject({ parentId: parent.id, depth: parent.depth + 1 });
+      expect(manager.getInstance(parent.id)?.childrenIds).toContain(worker.id);
+      expect(mockSupervisorTree.reparentInstance).toHaveBeenCalledWith(worker.id, parent.id);
+      const orchestration = (manager as unknown as {
+        orchestrationMgr: { getOrchestrationHandler(): { contexts: Map<string, { parentId: string | null }> } };
+      }).orchestrationMgr.getOrchestrationHandler();
+      expect(orchestration.contexts.get(worker.id)?.parentId).toBe(parent.id);
+      await vi.waitFor(() => expect(
+        batches.flatMap((batch) => batch.updates).some((u) => u.instanceId === worker.id && u.parentId === parent.id),
+      ).toBe(true));
+
+      // A second adoption is refused: the worker now has a parent.
+      expect(manager.adoptOrphanInstance(worker.id, parent.id)).toBe(false);
     });
   });
 

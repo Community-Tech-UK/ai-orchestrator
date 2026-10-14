@@ -38,7 +38,7 @@ import {
   type MimoConsoleSession,
   type MimoCredentialResult,
 } from './mimo-console-credentials-reader';
-import { MimoConsoleSessionRenewer } from './mimo-console-session-renewer';
+import { MimoConsoleSessionRenewer, type MimoRenewedSsoCookie } from './mimo-console-session-renewer';
 
 const logger = getLogger('MimoTokenPlanProbe');
 
@@ -63,8 +63,12 @@ export interface MimoCredentialSource {
   /** Non-secret connection identity for invalidating quota after reconnects. */
   readonly quotaSource?: string;
   isCurrent?(): boolean;
-  /** Saved sources persist only cookies validated by a successful quota retry. */
-  saveRenewed?(session: MimoConsoleSession): Promise<void> | void;
+  /**
+   * Saved sources persist the cookies validated by a successful quota retry:
+   * the rotated console session and the rotated account SSO ("refresh")
+   * cookies the renewal walk saw.
+   */
+  saveRenewed?(session: MimoConsoleSession, sso?: readonly MimoRenewedSsoCookie[]): Promise<void> | void;
   reauthError?(reason?: string): string;
 }
 
@@ -186,14 +190,20 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
       if (!this.isCurrent(signal)) return null;
       if (revived) {
         try {
-          const retry = await this.fetchPlans(revived, { signal, timeoutMs: this.timeoutMs });
+          const retry = await this.fetchPlans(revived.session, { signal, timeoutMs: this.timeoutMs });
           if (!this.isCurrent(signal)) return null;
           const parsedRetry = retry.usage.status >= 200 && retry.usage.status < 300
             && retry.detail.status >= 200 && retry.detail.status < 300
             ? parseMimoTokenPlanResponses(retry.usage.body, retry.detail.body)
             : null;
           if (parsedRetry && parsedRetry.windows.length > 0) {
-            await this.reader.saveRenewed?.(revived);
+            // Persist the rotated login/refresh cookies, but never let a store
+            // failure discard live numbers or demand a sign-in that is not needed.
+            try {
+              await this.reader.saveRenewed?.(revived.session, revived.ssoCookies);
+            } catch {
+              logger.warn('MiMo renewed session could not be saved; the refreshed session is used for this request only');
+            }
             if (!this.isCurrent(signal)) return null;
             logger.info('MiMo console session renewed through Xiaomi SSO');
             return {
@@ -207,7 +217,7 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
           }
         } catch {
           if (!this.isCurrent(signal)) return null;
-          logger.debug('MiMo quota re-pull or saved session update after renewal failed');
+          logger.debug('MiMo quota re-pull after session renewal failed');
         }
       }
       return failedSnapshot(
@@ -240,8 +250,9 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
 
   /**
    * Walk the platform's SSO renewal URL with the account cookies already in
-   * the selected credential source. Returns the session to retry with (merging any rotated platform
-   * cookies the walk minted), or null when renewal is impossible — no
+   * the selected credential source. Returns the session to retry with (merging
+   * any rotated platform cookies the walk minted) plus the rotated account SSO
+   * cookies to persist on success, or null when renewal is impossible — no
    * loginUrl in the body, throttled, or the walk failed. The SSO cookie read
    * is a lazy supplier so skipped walks never pay a Keychain/cookie-DB read.
    */
@@ -250,7 +261,7 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
     detailBody: unknown,
     session: MimoConsoleSession,
     signal: AbortSignal,
-  ): Promise<MimoConsoleSession | null> {
+  ): Promise<{ session: MimoConsoleSession; ssoCookies: MimoRenewedSsoCookie[] } | null> {
     const loginUrl = extractLoginUrl(usageBody) ?? extractLoginUrl(detailBody);
     if (!loginUrl) return null;
     let result;
@@ -267,8 +278,11 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
     if (!this.isCurrent(signal)) return null;
     if (!result.completed) return null;
     return {
-      cookieHeader: mergeSessionCookies(session.cookieHeader, result.setCookies),
-      userId: session.userId,
+      session: {
+        cookieHeader: mergeSessionCookies(session.cookieHeader, result.setCookies),
+        userId: session.userId,
+      },
+      ssoCookies: result.ssoCookies,
     };
   }
 

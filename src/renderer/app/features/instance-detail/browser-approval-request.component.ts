@@ -19,6 +19,7 @@ import {
   CREDENTIAL_ACCESS_DURATIONS,
   type CredentialAccessDuration,
   credentialAccessChoice,
+  credentialAccessErrorText,
   credentialAccessMovement,
   credentialAccessPurpose,
 } from '../../core/state/browser-approvals-banner.rules';
@@ -47,6 +48,7 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
   readonly credentialDurations = CREDENTIAL_ACCESS_DURATIONS;
   credentialPurpose = credentialAccessPurpose;
   credentialMovement = credentialAccessMovement;
+  credentialError = credentialAccessErrorText;
 
   constructor() {
     effect(() => {
@@ -162,7 +164,8 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
         reason: 'Approved from session page',
       });
       if (!response.success || response.data?.decision !== 'allowed' || response.data.outcome !== 'succeeded') {
-        this.errorMessage.set(response.error?.message ?? response.data?.reason?.replaceAll('_', ' ') ?? 'Approval could not be completed. The request is still waiting.');
+        const reason = response.data?.reason;
+        this.errorMessage.set(response.error?.message ?? (reason ? (approval.credentialAccess ? credentialAccessErrorText(reason) : reason.replaceAll('_', ' ')) : 'Approval could not be completed. The request is still waiting.'));
         return;
       }
       this.removeRequest(approval.requestId);

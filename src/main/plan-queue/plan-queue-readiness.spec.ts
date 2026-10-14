@@ -42,7 +42,7 @@ beforeEach(async () => {
   runLoopMigrations(driver);
   store = new PlanQueueStore(driver);
   run = {
-    id: 'run-1', parentInstanceId: 'parent-1', kind: 'plans', workspaceCwd: workspace,
+    id: 'run-1', parentInstanceId: 'parent-1', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: workspace,
     status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans, relaxation: null,
     workerProvider: null, workerModel: null, startedAt: 1, endedAt: null,
   };

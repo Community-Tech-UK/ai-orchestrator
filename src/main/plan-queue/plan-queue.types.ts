@@ -16,6 +16,11 @@ export interface PlanQueueRelaxationSnapshot {
 export interface PlanQueueRun {
   id: string;
   parentInstanceId: string;
+  /**
+   * The parent's conversation thread. Instance ids change at every restart;
+   * the thread is how the run finds its restored parent (plan-queue-parent.ts).
+   */
+  parentHistoryThreadId: string | null;
   kind: PlanQueueKind;
   workspaceCwd: string;
   status: PlanQueueRunStatus;

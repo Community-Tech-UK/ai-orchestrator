@@ -271,6 +271,7 @@ describe('MimoTokenPlanProbe', () => {
             attempted: true,
             completed: true,
             setCookies: new Map([['api-platform_serviceToken', 'fresh-token']]),
+            ssoCookies: [],
           };
         },
       },
@@ -300,7 +301,7 @@ describe('MimoTokenPlanProbe', () => {
           detail: { status: 401, body: { code: 401 } },
         };
       },
-      renewer: { renew: async () => ({ attempted: true, completed: false, setCookies: new Map() }) },
+      renewer: { renew: async () => ({ attempted: true, completed: false, setCookies: new Map(), ssoCookies: [] }) },
     });
 
     const snap = await probe.probe({ signal: new AbortController().signal });
@@ -312,7 +313,7 @@ describe('MimoTokenPlanProbe', () => {
   });
 
   it('does not attempt renewal when the 401 body publishes no login URL', async () => {
-    const renew = vi.fn(async () => ({ attempted: true, completed: true, setCookies: new Map<string, string>() }));
+    const renew = vi.fn(async () => ({ attempted: true, completed: true, setCookies: new Map<string, string>(), ssoCookies: [] }));
     const probe = new MimoTokenPlanProbe({
       isTokenPlanModel: () => true,
       reader: readerReturning({ session: SESSION }).reader,
@@ -369,7 +370,7 @@ describe('MimoTokenPlanProbe', () => {
       fetchPlans: async () => ++calls === 1
         ? { usage: { status: 401, body: { loginUrl: 'https://account.xiaomi.com/pass/serviceLogin' } }, detail: { status: 401, body: {} } }
         : { usage: { status: 200, body: USAGE_BODY }, detail: { status: 200, body: DETAIL_BODY } },
-      renewer: { renew: async () => ({ attempted: true, completed: true, setCookies: new Map([['api-platform_serviceToken', 'placeholder-renewed'], ['unrelated-cookie', 'placeholder']]) }) },
+      renewer: { renew: async () => ({ attempted: true, completed: true, setCookies: new Map([['api-platform_serviceToken', 'placeholder-renewed'], ['unrelated-cookie', 'placeholder']]), ssoCookies: [] }) },
     });
     const snapshot = await probe.probe({ signal: new AbortController().signal });
     expect(snapshot?.ok).toBe(true);
@@ -386,11 +387,70 @@ describe('MimoTokenPlanProbe', () => {
       fetchPlans: async () => ++calls === 1
         ? { usage: { status: 401, body: { loginUrl: 'https://account.xiaomi.com/pass/serviceLogin' } }, detail: { status: 401, body: {} } }
         : { usage: { status: 200, body: {} }, detail: { status: 200, body: DETAIL_BODY } },
-      renewer: { renew: async () => ({ attempted: true, completed: true, setCookies: new Map() }) },
+      renewer: { renew: async () => ({ attempted: true, completed: true, setCookies: new Map(), ssoCookies: [] }) },
     });
     const snapshot = await probe.probe({ signal: new AbortController().signal });
     expect(snapshot?.needsReauth).toBe(true);
     expect(persisted).toBe(false);
+  });
+
+  it('persists the rotated SSO cookies alongside the renewed session', async () => {
+    let savedSso: unknown;
+    let calls = 0;
+    const probe = new MimoTokenPlanProbe({
+      isTokenPlanModel: () => true,
+      reader: {
+        read: async () => ({ session: SESSION }),
+        saveRenewed: async (_session, sso) => { savedSso = sso; },
+      },
+      fetchPlans: async () => ++calls === 1
+        ? { usage: { status: 401, body: { loginUrl: 'https://account.xiaomi.com/pass/serviceLogin' } }, detail: { status: 401, body: {} } }
+        : { usage: { status: 200, body: USAGE_BODY }, detail: { status: 200, body: DETAIL_BODY } },
+      renewer: {
+        renew: async () => ({
+          attempted: true,
+          completed: true,
+          setCookies: new Map([['api-platform_serviceToken', 'placeholder-renewed']]),
+          ssoCookies: [{ domain: 'account.xiaomi.com', name: 'passToken', value: 'PLACEHOLDER_ROTATED' }],
+        }),
+      },
+    });
+
+    const snapshot = await probe.probe({ signal: new AbortController().signal });
+
+    expect(snapshot?.ok).toBe(true);
+    // The refresh credentials the walk rotated must reach the durable store;
+    // without them the stored passToken goes stale at the first renewal.
+    expect(savedSso).toEqual([{ domain: 'account.xiaomi.com', name: 'passToken', value: 'PLACEHOLDER_ROTATED' }]);
+  });
+
+  it('keeps a successful renewal when persisting the refreshed session fails', async () => {
+    let calls = 0;
+    const probe = new MimoTokenPlanProbe({
+      isTokenPlanModel: () => true,
+      reader: {
+        read: async () => ({ session: SESSION }),
+        saveRenewed: async () => { throw new Error('PLACEHOLDER_STORE_FAILURE'); },
+      },
+      fetchPlans: async () => ++calls === 1
+        ? { usage: { status: 401, body: { loginUrl: 'https://account.xiaomi.com/pass/serviceLogin' } }, detail: { status: 401, body: {} } }
+        : { usage: { status: 200, body: USAGE_BODY }, detail: { status: 200, body: DETAIL_BODY } },
+      renewer: {
+        renew: async () => ({
+          attempted: true,
+          completed: true,
+          setCookies: new Map([['api-platform_serviceToken', 'placeholder-renewed']]),
+          ssoCookies: [],
+        }),
+      },
+    });
+
+    const snapshot = await probe.probe({ signal: new AbortController().signal });
+
+    // The quota re-pull already succeeded: a store failure must not discard
+    // live numbers or demand a sign-in the user does not need.
+    expect(snapshot?.ok).toBe(true);
+    expect(snapshot?.needsReauth).toBeFalsy();
   });
 
   it('drops an in-flight response after its saved connection is disconnected', async () => {

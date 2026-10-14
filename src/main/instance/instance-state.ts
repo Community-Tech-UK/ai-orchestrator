@@ -433,6 +433,8 @@ export class InstanceStateManager extends EventEmitter {
         runtimeInstance?.metadata?.['automationRevealed'] === true || existing?.automationRevealed
           ? true
           : undefined,
+      // Same live-stamp rule: adoptOrphanInstance sets a parent after creation.
+      parentId: runtimeInstance ? runtimeInstance.parentId ?? undefined : existing?.parentId,
     });
   }
 

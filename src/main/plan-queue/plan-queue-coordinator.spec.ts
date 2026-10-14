@@ -17,6 +17,7 @@ import { WorktreeManager } from '../workspace/git/worktree-manager';
 import { buildOrchestratorToolsMcpConfig } from '../mcp/orchestrator-tools-mcp-config';
 import { PlanQueueCoordinator } from './plan-queue-coordinator';
 import type { PlanQueueInstanceRecord } from './plan-queue-host';
+import { findRestoredSessionId } from './plan-queue-parent';
 import { PlanQueueRelaxation } from './plan-queue-relaxation';
 import { PlanQueueStore } from './plan-queue-store';
 import type { VerifierSelectInput } from './plan-queue-verifier-select';
@@ -67,6 +68,8 @@ let savedRouting: PlanQueueRouting;
 let poolProfiles: ProviderAccountProfile[];
 let verifierInputs: VerifierSelectInput[];
 let excludedProviders: string[];
+/** History entries archived at a simulated shutdown, read by the restored-parent lookup. */
+let archivedEntries: { originalInstanceId: string; historyThreadId?: string }[];
 
 function git(args: string[], cwd = repo): string {
   try {
@@ -87,6 +90,9 @@ interface FakeInstance extends PlanQueueInstanceRecord {
   role: Role;
 }
 
+/** Ids stay unique across simulated restarts, as a restored session's new id would be. */
+let fakeInstanceSeq = 0;
+
 /**
  * Scripted stand-in for InstanceManager. Each role's script decides what the
  * "agent" does with a prompt; the fake then emits the event sequence a real
@@ -96,26 +102,40 @@ class FakeInstances extends EventEmitter {
   readonly live = new Map<string, FakeInstance>();
   readonly created: FakeInstance[] = [];
   readonly inputs: { instanceId: string; message: string; internalSource?: string }[] = [];
+  readonly adoptions: { childId: string; parentId: string }[] = [];
   readonly scripts: Partial<Record<Role, Script>> = {};
   maxLive: Partial<Record<Role, number>> = {};
-  private next = 0;
 
   addParent(): FakeInstance {
     const parent = this.make('parent', { workingDirectory: repo } as InstanceCreateConfig, 'claude', 'claude-sonnet-5');
     parent.status = 'idle';
+    parent.historyThreadId = `thread-${parent.id}`;
+    return parent;
+  }
+
+  /** History restore: the same conversation (thread) back under a new id, announced as created. */
+  restoreParent(previous: FakeInstance): FakeInstance {
+    const parent = this.addParent();
+    parent.historyThreadId = previous.historyThreadId;
+    this.emit('instance:event', {
+      eventId: 'e', seq: 0, timestamp: 0, instanceId: parent.id,
+      event: { kind: 'created', status: parent.status, provider: 'claude', parentId: null, workingDirectory: repo },
+    });
     return parent;
   }
 
   private make(role: Role, config: InstanceCreateConfig, provider: string, model?: string): FakeInstance {
-    this.next += 1;
+    fakeInstanceSeq += 1;
     const instance: FakeInstance = {
-      id: `${role}-${this.next}`,
+      id: `${role}-${fakeInstanceSeq}`,
       status: 'initializing',
       outputBuffer: [],
       provider,
       currentModel: model,
       workingDirectory: config.workingDirectory,
       metadata: config.metadata,
+      parentId: config.parentId ?? null,
+      createdAt: fakeInstanceSeq,
       config,
       role,
     };
@@ -156,6 +176,20 @@ class FakeInstances extends EventEmitter {
 
   getInstance(instanceId: string): FakeInstance | undefined {
     return this.live.get(instanceId);
+  }
+
+  getAllInstances(): FakeInstance[] {
+    return [...this.live.values()];
+  }
+
+  adoptOrphanInstance(childId: string, parentId: string): boolean {
+    const child = this.live.get(childId);
+    const current = child?.parentId ? this.live.get(child.parentId) : undefined;
+    if (!child || !this.live.has(parentId) || child.parentId === parentId) return false;
+    if (current && current.status !== 'superseded') return false;
+    child.parentId = parentId;
+    this.adoptions.push({ childId, parentId });
+    return true;
   }
 
   say(instance: FakeInstance, content: string): void {
@@ -256,6 +290,7 @@ beforeEach(() => {
   poolProfiles = [];
   verifierInputs = [];
   excludedProviders = [];
+  archivedEntries = [];
   fake = new FakeInstances();
   fake.scripts.triage = triageAllReady;
   fake.scripts.worker = implement;
@@ -289,6 +324,7 @@ function startCoordinator(
     loadAverage: () => [0, 0, 0],
     relaxation,
     pumpIntervalMs: null,
+    findRestoredSession: (instanceId) => findRestoredSessionId(instanceId, archivedEntries, instances.getAllInstances()),
     ...(extras.whenOrchestratorToolsListening
       ? { whenOrchestratorToolsListening: extras.whenOrchestratorToolsListening }
       : {}),
@@ -300,10 +336,15 @@ const never: Script = () => new Promise<void>(() => undefined);
 
 /**
  * Simulate an app restart: the old coordinator and every live instance are
- * gone; the database and the repository survive. The parent session is
- * restored with the same id.
+ * gone; the database and the repository survive. By default the parent
+ * session is restored with the same id. With `parentRestoredLater` it is
+ * archived instead, as the app does: recovery runs without it, and the test
+ * restores it under a new id with `FakeInstances.restoreParent`.
  */
-async function restart(relaxation: PlanQueueRelaxation | null = null): Promise<FakeInstances> {
+async function restart(
+  relaxation: PlanQueueRelaxation | null = null,
+  options: { parentRestoredLater?: boolean; parentArchived?: boolean; scripts?: Partial<Record<Role, Script>> } = {},
+): Promise<FakeInstances> {
   const parent = fake.created.find((i) => i.role === 'parent')!;
   // Let the old coordinator reach a resting point (a hung landing never does),
   // then every session of the old process dies with it.
@@ -315,7 +356,15 @@ async function restart(relaxation: PlanQueueRelaxation | null = null): Promise<F
   next.scripts.triage = triageAllReady;
   next.scripts.worker = implement;
   next.scripts.verifier = pass;
-  next.live.set(parent.id, { ...parent, outputBuffer: [] });
+  Object.assign(next.scripts, options.scripts);
+  if (options.parentRestoredLater) {
+    // A crash or force quit archives nothing.
+    if (options.parentArchived !== false) {
+      archivedEntries.push({ originalInstanceId: parent.id, historyThreadId: parent.historyThreadId });
+    }
+  } else {
+    next.live.set(parent.id, { ...parent, outputBuffer: [] });
+  }
   fake = next;
   coordinator = startCoordinator(next, relaxation);
   await coordinator.recover();
@@ -760,6 +809,185 @@ describe('PlanQueueCoordinator — boot recovery', { timeout: 30_000 }, () => {
     expect(newWorker.config.initialPrompt).toContain('the app restarted');
     expect(coordinator.getRunDto(run.id)!.items[0].state).toBe('landed');
     expect(git(['show', 'main:2026-01-01-alpha_plan.feature.txt'])).toBe('built 2026-01-01-alpha_plan');
+  });
+
+  it('follows a parent restored under a new id: adopts the respawned worker and nests and reports to it', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'working');
+
+    // As in the app: recovery respawns the worker before the parent is restored.
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const held: Script = async (instance, message, f) => {
+      await implement(instance, message, f);
+      await released;
+    };
+    const next = await restart(null, { parentRestoredLater: true, scripts: { worker: held } });
+    const worker = next.created.find((i) => i.role === 'worker')!;
+    expect(worker.config.parentId).toBeUndefined();
+
+    // No scheduler pass: the restored parent is followed the moment it appears.
+    const restored = next.restoreParent(parent);
+
+    expect(restored.id).not.toBe(parent.id);
+    expect(store.getRun(run.id)!.parentInstanceId).toBe(restored.id);
+    expect(next.adoptions).toEqual([{ childId: worker.id, parentId: restored.id }]);
+
+    release();
+    await waitForRun(run.id);
+    expect(next.created.find((i) => i.role === 'verifier')!.config.parentId).toBe(restored.id);
+    expect(next.inputs.some((input) => input.instanceId === restored.id && input.internalSource === 'plan-queue')).toBe(true);
+  });
+
+  it('records the parent\'s thread and finds the restored parent by it after a crash archived nothing', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    expect(store.getRun(run.id)!.parentHistoryThreadId).toBe(parent.historyThreadId);
+    await waitForState(0, run.id, 'working');
+
+    const next = await restart(null, { parentRestoredLater: true, parentArchived: false, scripts: { worker: never } });
+    const worker = next.created.find((i) => i.role === 'worker')!;
+    const restored = next.restoreParent(parent);
+
+    expect(store.getRun(run.id)!.parentInstanceId).toBe(restored.id);
+    expect(next.adoptions).toEqual([{ childId: worker.id, parentId: restored.id }]);
+  });
+
+  it('finds the parent of a run recorded without a thread through history, then records the thread', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'working');
+    driver.prepare('UPDATE plan_queue_runs SET parent_history_thread_id = NULL').run();
+
+    const next = await restart(null, { parentRestoredLater: true, scripts: { worker: never } });
+    const restored = next.restoreParent(parent);
+
+    expect(store.getRun(run.id)).toMatchObject({ parentInstanceId: restored.id, parentHistoryThreadId: parent.historyThreadId });
+  });
+
+  it('keeps the recorded thread current when the parent starts a fresh thread, and still finds it after a restart', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'working');
+
+    // "Restart fresh" keeps the session id and mints a new thread.
+    parent.historyThreadId = 'thread-after-fresh-restart';
+    coordinator.requestPump();
+    await coordinator._whenSettledForTesting();
+    expect(store.getRun(run.id)!.parentHistoryThreadId).toBe('thread-after-fresh-restart');
+
+    const next = await restart(null, { parentRestoredLater: true, scripts: { worker: never } });
+    const restored = next.restoreParent(parent);
+    expect(store.getRun(run.id)!.parentInstanceId).toBe(restored.id);
+  });
+
+  it('falls back to the history archived from the old id when the recorded thread is stale', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'working');
+    // The thread moved after the last follow, just before shutdown.
+    parent.historyThreadId = 'thread-moved-at-shutdown';
+
+    const next = await restart(null, { parentRestoredLater: true, scripts: { worker: never } });
+    const restored = next.restoreParent(parent);
+
+    expect(store.getRun(run.id)).toMatchObject({ parentInstanceId: restored.id, parentHistoryThreadId: 'thread-moved-at-shutdown' });
+  });
+
+  it('moves the run and its sessions to the replacement when the parent is edited and resent', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'working');
+    const worker = fake.created.find((i) => i.role === 'worker')!;
+    expect(worker.parentId).toBe(parent.id);
+
+    // Edit-and-resend, in the app's order: the replacement appears on the
+    // same thread, then the source (kept in memory, hidden) is superseded.
+    const replacement = fake.restoreParent(parent);
+    expect(store.getRun(run.id)!.parentInstanceId).toBe(parent.id);
+    fake.setStatus(parent, 'superseded');
+
+    expect(store.getRun(run.id)!.parentInstanceId).toBe(replacement.id);
+    expect(fake.adoptions).toEqual([{ childId: worker.id, parentId: replacement.id }]);
+    await coordinator.control({ action: 'pause', runId: run.id }, replacement.id);
+    expect(coordinator.getRunDto(run.id)!.status).toBe('paused');
+  });
+
+  it('finds the edit replacement on the source\'s current thread when the recorded one is stale', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'working');
+
+    // Restart fresh, then an edit-and-resend with no follow in between to
+    // record the new thread (the replacement is not announced here).
+    parent.historyThreadId = 'thread-after-fresh-restart';
+    const replacement = fake.addParent();
+    replacement.historyThreadId = parent.historyThreadId;
+    fake.setStatus(parent, 'superseded');
+
+    expect(store.getRun(run.id)).toMatchObject({ parentInstanceId: replacement.id, parentHistoryThreadId: 'thread-after-fresh-restart' });
+  });
+
+  it('accepts control from a parent restored under a new id', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'working');
+
+    const next = await restart(null, { parentRestoredLater: true, scripts: { worker: never } });
+    const restored = next.restoreParent(parent);
+    await coordinator.control({ action: 'pause', runId: run.id }, restored.id);
+
+    expect(coordinator.getRunDto(run.id)).toMatchObject({ status: 'paused', parentInstanceId: restored.id });
+  });
+
+  it('follows the restored parent without re-saving a stale run snapshot', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'working');
+
+    const next = await restart(null, { parentRestoredLater: true, scripts: { worker: never } });
+    // A spawn path holds this snapshot across awaits while James pauses the run.
+    const stale = store.getRun(run.id)!;
+    await coordinator.control({ action: 'pause', runId: run.id });
+    const restored = next.restoreParent(parent);
+
+    expect(coordinator.liveParentId(stale)).toBe(restored.id);
+    expect(store.getRun(run.id)).toMatchObject({ status: 'paused', parentInstanceId: restored.id });
+  });
+
+  it('keeps a run whose parent was not restored on the recorded parent, its sessions unparented', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'working');
+
+    const next = await restart(null, { parentRestoredLater: true, scripts: { worker: never } });
+    next.addParent(); // an unrelated session: a different conversation thread
+    coordinator.requestPump();
+    await coordinator._whenSettledForTesting();
+
+    expect(store.getRun(run.id)!.parentInstanceId).toBe(parent.id);
+    expect(next.adoptions).toEqual([]);
   });
 
   it('re-verifies an item that was verifying with a fresh verifier, discarding the dead verifier\'s edits', async () => {

@@ -78,7 +78,7 @@ describe('PlanQueueRelaxation', () => {
 
 describe('relaxedSettingsFor', () => {
   const run = (overrides: Partial<PlanQueueRun>): PlanQueueRun => ({
-    id: 'r', parentInstanceId: 'p', kind: 'plans', workspaceCwd: '/repo', status: 'running',
+    id: 'r', parentInstanceId: 'p', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: '/repo', status: 'running',
     config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, relaxSettings: true }, relaxation: null,
     workerProvider: null, workerModel: null, startedAt: 1, endedAt: null, ...overrides,
   });

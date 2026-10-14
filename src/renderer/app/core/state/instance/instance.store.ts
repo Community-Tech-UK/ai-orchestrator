@@ -378,6 +378,7 @@ export class InstanceStore implements OnDestroy {
               : inst.computerUseMode,
           accountProfileId: update.accountProfileId ?? inst.accountProfileId,
           accountRoutingSource: update.accountRoutingSource ?? inst.accountRoutingSource,
+          parentId: update.parentId ?? inst.parentId,
           ...(update.displayName ? { displayName: update.displayName } : {}),
           ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
         });
@@ -497,6 +498,7 @@ export class InstanceStore implements OnDestroy {
                 : instance.computerUseMode,
             accountProfileId: update.accountProfileId ?? instance.accountProfileId,
             accountRoutingSource: update.accountRoutingSource ?? instance.accountRoutingSource,
+            parentId: update.parentId ?? instance.parentId,
             ...(update.displayName ? { displayName: update.displayName } : {}),
             ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
           });

@@ -147,17 +147,19 @@ export class OrchestrationHandler extends EventEmitter {
   /**
    * Register an instance for orchestration
    */
-  registerInstance(
-    instanceId: string,
-    workingDirectory: string,
-    parentId: string | null = null
-  ): void {
+  registerInstance(instanceId: string, workingDirectory: string, parentId: string | null = null): void {
     this.contexts.set(instanceId, {
       instanceId,
       workingDirectory,
       parentId,
       childrenIds: []
     });
+  }
+
+  /** Record a parent for an instance adopted after registration. */
+  setParent(instanceId: string, parentId: string): void {
+    const ctx = this.contexts.get(instanceId);
+    if (ctx) ctx.parentId = parentId;
   }
 
   /**

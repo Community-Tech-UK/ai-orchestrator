@@ -222,7 +222,9 @@ export class InstanceListComponent implements OnDestroy {
 
       this.lastVisitedHistoryThreadId.set(getInstanceThreadId(selected));
 
-      const projectKey = this.projectRailPaths.getProjectKey(selected.workingDirectory);
+      const projectKey = this.projectRailPaths.getProjectKey(
+        this.projectRailPaths.getSessionProjectPath(selected.workingDirectory),
+      );
       this.collapsedProjectKeys.update((current) => {
         if (!current.has(projectKey)) {
           return current;
@@ -264,7 +266,7 @@ export class InstanceListComponent implements OnDestroy {
 
       // Sync live workspaces into the persisted recent-project index.
       for (const instance of this.store.rootInstances()) {
-        const workingDirectory = instance.workingDirectory?.trim();
+        const workingDirectory = this.projectRailPaths.getSessionProjectPath(instance.workingDirectory)?.trim();
         if (workingDirectory && !knownRecentDirectories.has(this.projectRailPaths.getProjectKey(workingDirectory))) {
           knownRecentDirectories.add(this.projectRailPaths.getProjectKey(workingDirectory));
           const loc = instance.executionLocation;
@@ -279,7 +281,7 @@ export class InstanceListComponent implements OnDestroy {
           continue;
         }
 
-        const workingDirectory = entry.workingDirectory?.trim();
+        const workingDirectory = this.projectRailPaths.getSessionProjectPath(entry.workingDirectory)?.trim();
         if (workingDirectory && !knownRecentDirectories.has(this.projectRailPaths.getProjectKey(workingDirectory))) {
           knownRecentDirectories.add(this.projectRailPaths.getProjectKey(workingDirectory));
           missingDirectories.push({

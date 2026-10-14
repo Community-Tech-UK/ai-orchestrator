@@ -33,6 +33,7 @@ import {
   type CredentialAccessDuration,
   CREDENTIAL_ACCESS_DURATIONS,
   credentialAccessChoice,
+  credentialAccessErrorText,
   credentialAccessMovement,
   credentialAccessPurpose,
   bannerCanQuickApprove,
@@ -76,8 +77,8 @@ import {
                 @if (credentialDuration() === 'task' && access.permissionExpiresAt; as expiresAt) {
                   <span class="credential-access-detail">Access expires by {{ formatExpiry(expiresAt) }}.</span>
                 }
-                @if (access.operationError) {
-                  <span class="banner-error">{{ access.operationError }}</span>
+                @if (access.operationError && !errorMessage()) {
+                  <span class="banner-error">{{ credentialError(access.operationError) }}</span>
                 }
               }
               <span class="request-identity">New request · Request 1 of {{ pendingRequests().length }} · #{{ shortRequestId(approval) }} · received {{ receivedAt(approval) }}</span>
@@ -392,6 +393,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
       this.selectedMode.set(approval ? (this.modesFor(approval)[0] ?? 'per_action') : 'per_action');
       this.credentialDuration.set('task');
       this.confirmation.set('');
+      this.errorMessage.set(null);
     });
   }
 
@@ -442,6 +444,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
 
   credentialPurpose = credentialAccessPurpose;
   credentialMovement = credentialAccessMovement;
+  credentialError = credentialAccessErrorText;
 
   formatExpiry(expiresAt: number): string {
     return new Date(expiresAt).toLocaleString();
@@ -493,7 +496,8 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
         } : { reason: this.approveReason(mode) }),
       });
       if (!response.success || response.data?.decision !== 'allowed' || response.data.outcome !== 'succeeded') {
-        this.errorMessage.set(response.error?.message ?? response.data?.reason?.replaceAll('_', ' ') ?? 'Approval could not be completed. The request is still waiting.');
+        const reason = response.data?.reason;
+        this.errorMessage.set(response.error?.message ?? (reason ? (approval.credentialAccess ? credentialAccessErrorText(reason) : reason.replaceAll('_', ' ')) : 'Approval could not be completed. The request is still waiting.'));
         return;
       }
       this.approvals.removeRequest(approval.requestId);

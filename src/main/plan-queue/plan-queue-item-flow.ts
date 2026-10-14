@@ -191,7 +191,7 @@ export class PlanQueueItemFlow {
       const instance = await this.host.instances.createInstance({
         displayName: `Queue · ${documentStem(item.documentPath)}`,
         isRenamed: true,
-        parentId: this.liveParentId(run),
+        parentId: this.host.liveParentId(run),
         workingDirectory: item.worktreePath ?? run.workspaceCwd,
         initialPrompt: prompt,
         ...(run.workerProvider ? { provider: run.workerProvider as InstanceProvider } : {}),
@@ -371,7 +371,7 @@ export class PlanQueueItemFlow {
       const instance = await this.host.instances.createInstance({
         displayName: `Queue verifier · ${documentStem(item.documentPath)} (round ${item.round + 1})`,
         isRenamed: true,
-        parentId: this.liveParentId(run),
+        parentId: this.host.liveParentId(run),
         workingDirectory: worktreePath,
         initialPrompt: buildVerifierPrompt({
           item,
@@ -579,15 +579,6 @@ export class PlanQueueItemFlow {
   // ---------------------------------------------------------------------------
   // Instances
   // ---------------------------------------------------------------------------
-
-  /**
-   * The run's parent session, or undefined once it is gone (after a restart
-   * its id is not restored): a child of a missing parent could not be shown
-   * nested, so it is shown at the top of the rail instead.
-   */
-  liveParentId(run: PlanQueueRun): string | undefined {
-    return this.host.instances.getInstance(run.parentInstanceId) ? run.parentInstanceId : undefined;
-  }
 
   retireWorker(item: PlanQueueItem): void {
     if (item.workerInstanceId) this.retireInstance(item.workerInstanceId);

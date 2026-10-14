@@ -10,6 +10,7 @@ import {
   bannerModeLabel,
   buildBannerGrant,
   credentialAccessChoice,
+  credentialAccessErrorText,
 } from './browser-approvals-banner.rules';
 
 function makeApproval(overrides: Partial<BrowserApprovalRequest> = {}): BrowserApprovalRequest {
@@ -312,5 +313,11 @@ describe('browser-approvals-banner.rules', () => {
     expect(bannerGrantRequiresConfirmation(buildBannerGrant(destructive, 'per_action')!)).toBe(true);
     expect(bannerGrantRequiresConfirmation(buildBannerGrant(destructive, 'autonomous')!)).toBe(true);
     expect(bannerGrantRequiresConfirmation(buildBannerGrant(destructive, 'persistent')!)).toBe(true);
+  });
+
+  it('explains saved-login approval failures in plain language', () => {
+    expect(credentialAccessErrorText('vault_locked')).toBe('The password vault is locked. Unlock it, then approve again.');
+    expect(credentialAccessErrorText('vault_relock_failed:placeholder_reason')).toContain('could not be unlocked again');
+    expect(credentialAccessErrorText('placeholder_unknown_reason')).toBe('placeholder unknown reason');
   });
 });

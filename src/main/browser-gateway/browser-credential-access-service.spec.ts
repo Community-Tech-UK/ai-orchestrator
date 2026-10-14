@@ -78,12 +78,23 @@ describe('saved login access workflow', () => {
     expect(h.enrol).not.toHaveBeenCalled(); expect(h.auth.list()).toHaveLength(0);
   });
 
-  it.each(['origin', 'scope'] as const)('refuses a changed %s while approval is pending', async (key) => {
+  it('refuses a changed computer while approval is pending', async () => {
     const h = harness(); const p = (await h.service.request(h.input, h.context())).data!;
-    h.setTarget({ origin: 'https://login.example.test', scope: 'node-placeholder', computerName: 'Windows test computer', [key]: key === 'origin' ? 'https://other.example.test' : 'other-node' });
+    h.setTarget({ origin: 'https://login.example.test', scope: 'other-node', computerName: 'Windows test computer' });
     const result = await h.service.approve(p);
     expect(result.decision).toBe('denied'); expect(h.enrol).not.toHaveBeenCalled(); expect(h.auth.list()).toHaveLength(0);
     expect(h.store.getRequest(p.requestId)?.status).toBe('pending');
+  });
+
+  it('approves only the requested site after the tab navigates away', async () => {
+    const h = harness(); const p = (await h.service.request(h.input, h.context())).data!;
+    h.setTarget({ origin: 'https://app.example.test', scope: 'node-placeholder', computerName: 'Windows test computer' });
+    expect(await h.service.approve(p)).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(h.enrol).toHaveBeenCalledWith(expect.objectContaining({ origin: 'https://login.example.test' }));
+    expect(h.grants[0].allowedOrigins).toEqual([expect.objectContaining({ hostPattern: 'login.example.test' })]);
+    const check = { profileId: 'node-placeholder', purpose: 'login' as const, taskScope: 'conversation:placeholder', vaultItemRef: 'vault-placeholder', computerId: 'node-placeholder' };
+    expect(h.auth.check({ ...check, origin: 'https://login.example.test' }).authorized).toBe(true);
+    expect(h.auth.check({ ...check, origin: 'https://app.example.test' }).authorized).toBe(false);
   });
 
   it('retains a locked-vault failure visibly without claiming approval', async () => {

@@ -183,6 +183,25 @@ describe('MimoSavedSessionStore', () => {
     expect(store.readAccountSso('spare')).toEqual({ cookieHeader: 'passToken=PLACEHOLDER_SSO' });
   });
 
+  it('merges rotated SSO cookies from a renewal and ignores non-persistable pairs', () => {
+    store.save('spare', [
+      ...consoleCookies(),
+      { name: 'passToken', domain: 'account.xiaomi.com', value: 'PLACEHOLDER_SSO' },
+      { name: 'cUserId', domain: '.xiaomi.com', value: 'PLACEHOLDER_PARENT' },
+    ]);
+    const generation = store.generation('spare');
+    store.saveRenewed('spare', { cookieHeader: header, userId: 'PLACEHOLDER_USER' }, generation, [
+      { name: 'passToken', domain: 'account.xiaomi.com', value: 'PLACEHOLDER_ROTATED' },
+      { name: 'cUserId', domain: '.xiaomi.com', value: 'PLACEHOLDER_PARENT_ROTATED' },
+      // Never a persisted pair (the login capture drops it too): ignored.
+      { name: 'userId', domain: '.xiaomi.com', value: 'PLACEHOLDER_IGNORED' },
+      { name: 'serviceToken', domain: 'account.xiaomi.com', value: 'PLACEHOLDER_IGNORED' },
+    ]);
+    expect(store.readAccountSso('spare')).toEqual({
+      cookieHeader: 'cUserId=PLACEHOLDER_PARENT_ROTATED; passToken=PLACEHOLDER_ROTATED',
+    });
+  });
+
   it('never resurrects disconnected or replaced accounts from an old renewal', () => {
     const initial = store.generation('spare');
     store.save('spare', consoleCookies());

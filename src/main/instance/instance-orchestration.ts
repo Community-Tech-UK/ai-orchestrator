@@ -142,6 +142,10 @@ export class InstanceOrchestrationManager {
     this.orchestration.registerInstance(instanceId, workingDirectory, parentId);
   }
 
+  setOrchestrationParent(instanceId: string, parentId: string): void {
+    this.orchestration.setParent(instanceId, parentId);
+  }
+
   /**
    * Unregister an instance from orchestration
    */

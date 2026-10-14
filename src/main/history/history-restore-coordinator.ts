@@ -519,7 +519,7 @@ export class HistoryRestoreCoordinator {
         };
       }
 
-      await this.cleanupFailedNativeResume(params.instanceManager, instance);
+      await this.discardRestoreAttempt(params.instanceManager, instance.id);
       return { kind: 'session-dead' };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -529,16 +529,7 @@ export class HistoryRestoreCoordinator {
       });
 
       if (resumeInstanceId) {
-        const staleInstance = params.instanceManager.getInstance(resumeInstanceId);
-        if (staleInstance) {
-          staleInstance.outputBuffer = [];
-          staleInstance.autoRespawnSuppressedUntil = undefined;
-        }
-        try {
-          await params.instanceManager.terminateInstance(resumeInstanceId, false);
-        } catch {
-          // Ignore cleanup errors.
-        }
+        await this.discardRestoreAttempt(params.instanceManager, resumeInstanceId);
       }
       return { kind: 'infrastructure', error: errorMessage };
     }
@@ -598,17 +589,21 @@ export class HistoryRestoreCoordinator {
     });
   }
 
-  private async cleanupFailedNativeResume(
-    instanceManager: InstanceManager,
-    instance: Instance,
-  ): Promise<void> {
-    const currentInstance = instanceManager.getInstance(instance.id);
-    instance.autoRespawnSuppressedUntil = undefined;
-    if (currentInstance) {
-      currentInstance.outputBuffer = [];
+  /**
+   * Terminate a native-resume attempt that did not take. Sessions adopted
+   * under it while it was live (a Plan Queue run follows its restored parent
+   * as soon as the session appears) are released, not terminated with it:
+   * the replacement restore of the same thread adopts them.
+   */
+  private async discardRestoreAttempt(instanceManager: InstanceManager, instanceId: string): Promise<void> {
+    const attempt = instanceManager.getInstance(instanceId);
+    if (attempt) {
+      attempt.outputBuffer = [];
+      attempt.autoRespawnSuppressedUntil = undefined;
+      attempt.terminationPolicy = 'orphan-children';
     }
     try {
-      await instanceManager.terminateInstance(instance.id, false);
+      await instanceManager.terminateInstance(instanceId, false);
     } catch {
       // Ignore cleanup errors.
     }

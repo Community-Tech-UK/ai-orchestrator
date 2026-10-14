@@ -6,12 +6,14 @@
 
 import type { AppSettings } from '../../shared/types/settings.types';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { getHistoryManager } from '../history/history-manager';
 import type { InstanceManager } from '../instance/instance-manager';
 import { getLogger } from '../logging/logger';
 import { getLoopStoreService } from '../orchestration/loop-store';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
 import { getOrchestratorToolsRpcSocketPath } from '../mcp/orchestrator-tools-rpc-server';
 import { getPlanQueueCoordinator } from './plan-queue-coordinator';
+import { findRestoredSessionId } from './plan-queue-parent';
 import { PlanQueueRelaxation } from './plan-queue-relaxation';
 import { PlanQueueStore } from './plan-queue-store';
 
@@ -56,6 +58,8 @@ export async function initializePlanQueue(instanceManager: InstanceManager): Pro
       set: (key, value) => settings.set(key as keyof AppSettings, value as AppSettings[keyof AppSettings]),
     }),
     whenOrchestratorToolsListening: waitForOrchestratorToolsListening,
+    findRestoredSession: (instanceId) =>
+      findRestoredSessionId(instanceId, getHistoryManager().getEntries(), instanceManager.getAllInstances()),
   });
   // Do not await. The tools socket is started by a later boot step; awaiting
   // here would deadlock recovery behind that step (LT-700).

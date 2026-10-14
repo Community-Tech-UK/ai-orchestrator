@@ -176,6 +176,32 @@ describe('BrowserApprovalRequestComponent', () => {
     }));
   });
 
+  it('shows a saved-login approval failure once, in plain language', async () => {
+    const approval = makeBrowserApprovalRequest({ credentialAccess: {
+      taskScope: 'conversation:placeholder-task', sessionName: '12steps', reason: 'Finish the requested sign-in',
+      origin: 'https://login.example.com', computerName: 'windows-pc', computerId: 'placeholder-computer', scope: 'placeholder-scope',
+      vaultItemRef: 'placeholder-item', itemTitle: 'Example login', vaultFolder: 'AgentVault',
+      moveIntoFolder: false, purposes: ['login'], permission: 'task', operationError: 'vault_locked',
+    } });
+    fakeBrowserGateway.listApprovalRequests.mockResolvedValue({
+      success: true, data: { decision: 'allowed', outcome: 'succeeded', data: [approval], auditId: 'placeholder-audit' },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+    const element: HTMLElement = fixture.nativeElement;
+    const message = 'The password vault is locked. Unlock it, then approve again.';
+    const count = () => element.textContent?.split(message).length ?? 0;
+    expect(count() - 1).toBe(1);
+    fakeBrowserGateway.approveRequest.mockResolvedValueOnce({
+      success: true, data: { decision: 'denied', outcome: 'not_run', reason: 'vault_locked', auditId: 'placeholder-audit' },
+    });
+    await fixture.componentInstance.approveRequest(approval);
+    await settle(fixture);
+    expect(fixture.componentInstance.errorMessage()).toBe(message);
+    expect(count() - 1).toBe(1);
+    expect(element.textContent).not.toContain('vault_locked');
+  });
+
   it('retains the request when approval delivered over IPC did not complete', async () => {
     fixture.detectChanges();
     await settle(fixture);

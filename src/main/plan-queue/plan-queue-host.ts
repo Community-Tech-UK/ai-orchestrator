@@ -23,6 +23,17 @@ export interface PlanQueueInstanceRecord {
   copilotAccountProfileId?: string;
   workingDirectory?: string;
   metadata?: Record<string, unknown>;
+  parentId?: string | null;
+  /** App-owned conversation identity; survives a restart that changes the id. */
+  historyThreadId?: string;
+  createdAt?: number;
+}
+
+/** The slice of InstanceManager that keeps a run's sessions nested under its parent. */
+export interface PlanQueueSessionTreePort {
+  getAllInstances(): PlanQueueInstanceRecord[];
+  /** Refused while the child's current parent is live and not superseded. */
+  adoptOrphanInstance(childId: string, parentId: string): boolean;
 }
 
 /** The slice of InstanceManager the queue drives. */
@@ -58,5 +69,7 @@ export interface PlanQueueFlowHost {
   unregisterRole(instanceId: string): void;
   roleOf(instanceId: string): PlanQueueRoleRecord | undefined;
   notifyParent(run: PlanQueueRun, message: string): void;
+  /** The run's parent session, followed across a restart; undefined while it is gone. */
+  liveParentId(run: PlanQueueRun): string | undefined;
   requestPump(): void;
 }
