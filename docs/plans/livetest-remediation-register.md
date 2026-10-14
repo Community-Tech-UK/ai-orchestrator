@@ -13,6 +13,8 @@ status lives in the Remediation Index; implementation progress lives in the plan
 **Plan:** [2026-07-19-livetest-failure-remediation_plan_completed.md](2026-07-19-livetest-failure-remediation_plan_completed.md)
 (closed). LT-664 to LT-702 from the 2026-10-04 campaign are tracked in the active follow-up
 [2026-10-05-livetest-campaign-defects_plan.md](2026-10-05-livetest-campaign-defects_plan.md).
+LT-704 and LT-705 are tracked separately in the active
+[2026-10-13-opencode-startup-remediation_plan.md](2026-10-13-opencode-startup-remediation_plan.md).
 
 **Purpose:** Provide one execution index for every confirmed defect found while running the
 live-test backlog. The originating live-test files remain the canonical acceptance procedures and
@@ -266,7 +268,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-662 | P2 | **FIXED + REGRESSION-TESTED 2026-09-27 (working tree); rebuilt-runtime re-check pending.** The renderer preload sent `SETTINGS_GET` a bare key string even though the handler and Zod IPC contract require `{ key }`, so every `electronAPI.getSetting(key)` call failed validation. | [LT-662 detail](#lt-662) | [Plan Queue relaxation check 6](2026-09-18-plan-queue_livetest.md#6-relaxation-profile-restore) |
 | LT-663 | P1 | **FIXED + REGRESSION-TESTED + CONFIRMED LIVE 2026-10-04.** The indexed source lookup preserves the genuine recorded user beyond the old 200-row window. Newly executed Windows worker tools retain complete, distinct captures with correct canonical ownership; the synthetic localhost tour campaign and owned cleanup pass. Fresh independent completion review: PASS. | [LT-663 detail](#lt-663); [completed follow-up plan](2026-10-03-mcp-evidence-source_plan_completed.md) | [Completed MCP evidence source and Windows fixture checks](2026-10-03-mcp-evidence-source_livetest_completed.md) |
 | LT-664 | P3 | **OPEN — reproduced live 2026-10-04.** Retiring a Local AI target never closes its open incidents. The retired Ollama target's `connection-refused` incident stayed `open` in `local-ai status` for 10+ hours after retirement, because a retired target is no longer probed and probe recovery is the only path that resolves an incident. | [LT-664 detail](#lt-664) | [Aux LLM check 1](2026-10-03-aux-llm-lmstudio-dual-gpu_livetest.md); [Local AI CLI parity check 1](2026-10-04-local-ai-cli-parity_livetest.md) |
-| LT-665 | P2 | **OPEN — reproduced live 2026-10-04.** `browser.check_session` judges a page whose contents the extension cannot read (`host_permission_denied`) as **logged out** and drives an automatic re-login: it navigated James's shared `windows-pc` tab to the login URL and attempted a vault credential fill twice, then parked a false `relogin_failed` escalation, while James was signed in. | [LT-665 detail](#lt-665) | [Login recipe check 1](2026-09-23-browser-login-recipe-persistence_livetest.md) |
+| LT-665 | P2 | **OPEN — check-session guard and inventory stamp fixed in the working tree (extension 0.2.39); live confirmation still open.** `browser.check_session` used to treat `host_permission_denied` as logged out and drive a re-login (2026-10-04). A tab Chrome restored at startup was still inventoried as `readable` (LCN pageId `771576274`, 2026-10-11). Both now stay `unknown` / `inspection_unavailable` without hiding the URL. Live confirmation needs extension 0.2.39 on `windows-pc`. | [LT-665 detail](#lt-665) | [Login recipe check 1](2026-09-23-browser-login-recipe-persistence_livetest.md) |
 | LT-666 | P3 | **OPEN — reproduced live 2026-10-04.** A login recipe whose markers only appear on some pages (In-tend `["My Tenders","Current"]`) classifies every other signed-in page as logged out, including its own login URL, so auto re-login can never succeed; the failure surfaces as `credential_fill_failed` instead of "already signed in / markers do not match". `remember_login_fingerprint` does not check the markers against the live page. | [LT-666 detail](#lt-666) | [Login recipe check 1](2026-09-23-browser-login-recipe-persistence_livetest.md) |
 | LT-690 | P2 | **OPEN — reproduced live 2026-10-04.** A genuine output-ceiling ending on OpenCode `xiaomi-token-plan-ams/mimo-v2.6-pro` (OpenCode's own record: `finish: "length"`, output 16229 + reasoning 155 = the 16384 combined cap) reaches Harness as ACP `stopReason: "end_turn"` with no native finish field, so it is classified `completed / provider_completed`, not `max_output`: no notice, no automatic continuation, and the visible answer is silently cut off mid-list. The classifier's native-length path is inert for the target model on installed OpenCode 1.18.34 (the plan records this as an unapplied upstream proposal); the adapter already knows the cap (`generationBudget.combinedOutputTokens`) but never compares it with the turn's token usage. | [LT-690 detail](#lt-690) | [Provider hardening check 1](2026-10-02-provider-hardening_livetest.md) |
 | LT-670 | P1 | **OPEN — reproduced live 2026-10-04.** The renderer's 15 s respawn watchdog force-terminates (and archives) any session that is merely waiting out a 30 s or longer circuit-breaker backoff, so the fourth unexpected provider exit of one session within an hour destroys it with no notice and no restart. | [LT-670 detail](#lt-670) | [Crash-turn auto-continue LT-C](2026-09-28-crash-turn-auto-continue_livetest.md) |
@@ -282,6 +284,9 @@ sections below. The historical reproduction remains unchanged.
 | LT-700 | P2 | **OPEN — reproduced live 2026-10-04 (dev app, 1 of 1 restarts with a `verifying` item).** After an app restart, Plan Queue recovery starts a fresh verifier about 6 s after the coordinator initialises, but the orchestrator-tools socket only starts listening about 7 s after that. The verifier is spawned with no orchestrator-tools MCP (`Orchestrator-tools MCP not configured — … socket missing`), so it has no `plan_queue_report_verdict`, works for ~5 minutes, ends its turn without a verdict, and the item parks `verifier-unreliable`. A verifier started later in the same session (after the socket exists) reported its verdict normally. | [LT-700 detail](#lt-700) | [Plan Queue check 3](2026-09-18-plan-queue_livetest.md) |
 | LT-701 | P2 | **OPEN — reproduced live 2026-10-04 (1 of 1).** A normal quit (SIGTERM, shutdown path ran to "Cleanup complete") while two Plan Queue workers were mid-turn parks both items `worker-error: instance entered terminated` and ends the run `completed` during shutdown, so nothing is left for the restart-recovery path to resume. The check expects the working items to be resumed on the same `queue/…` branch after restart. | [LT-701 detail](#lt-701) | [Plan Queue check 3](2026-09-18-plan-queue_livetest.md) |
 | LT-702 | P1 | **OPEN — reproduced live 2026-10-04 (1 of 6 ping-pong loops that day; LT-643's hang again, intermittent).** A ping-pong reviewer (Codex) settled with a complete, parseable `CHANGES_REQUESTED` verdict about 46 s after spawn, but the loop never noticed: `inFlightRound: 1`, no `Ping-pong reviewer produced a verdict` line, for 757 s. Cancelling the loop released the wait instantly and the same verdict then parsed normally (+334 ms), proving the instance was settled and the output valid the whole time. The five other loops that day completed rounds in 50–100 s. | [LT-702 detail](#lt-702) | [Ping-pong livetest](PINGPONG_IMPLEMENTATION_STATUS_livetest_completed.md) |
+| LT-703 | P1 | **FIXED + REGRESSION-TESTED 2026-10-10 (working tree). Live re-check 2026-10-11 did not pass:** after a reload made the restored LCN tab readable, `fill_credential` reached the extension write and failed `dispatch:credential_write_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state` (audit `19d7214e-…`); `#username` and the password field stayed empty and the form was not submitted. The `dispatch:` prefix shows the coordinator reason plumbing is live; the code after it is the extension's unclassified fallback, not an origin-bound code. Original defect: the writer injected only into top-level-origin frames of `https://www.lcn.com/login` (form is `https://login.lcn.com` in `#login-iframe`) and swallowed the miss. | [LT-703 detail](#lt-703) | [Browser Gateway credential login — embedded form](browser-gateway-credential-login_livetest.md#lt-703-embedded-cross-origin-login-form) |
+| LT-704 | P1 | **CODE VERIFIED 2026-10-13 — independent completion-gate PASS; packaged acceptance pending.** Candidate discovery now inherits the trusted environment before caller overrides, retaining the working NVM CLI and confirming `aio-mimo-comtechspare-f7a6/mimo-v2.6-pro`. Source and independently checked compiled default/High replies, six canonical gates and full suite pass. Both installed/restarted packaged checks remain open; this is not confirmed fixed live. | [LT-704 detail](#lt-704) | [Plan-owned packaged default/High checks](2026-10-13-opencode-launch-environment_livetest.md); [original failure evidence](2026-10-13-opencode-effort-variant-startup_livetest.md#evidence-run--2026-10-13-rebuilt-packaged-app) |
+| LT-705 | P1 | **MACHINE REPAIR + CODE VERIFIED 2026-10-13 — gates and full suite pass, independent reviews PASS; packaged acceptance pending.** OpenCode 1 failed in `~/work/communitytech` (`no such column: project_id`) after OpenCode 2 rebuilt the shared `workspace` table, so selection fell back to OpenCode 2, whose `acp` ignores the per-spawn overlay and lacked the second account's key. Added nullable `workspace.project_id` (backed up); selection now refuses OpenCode 2 and explains why. | [LT-705 detail](#lt-705) | [Plan-owned packaged checks](2026-10-13-opencode-launch-environment_livetest.md) |
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
@@ -12047,8 +12052,10 @@ notifications stop reporting a target that no longer exists. Re-enrolling must s
 
 ## LT-665 — `check_session` treats an unreadable page as logged out and drives a credential re-login
 
-**Status: open, reproduced live 2026-10-04 on `windows-pc` (extension 0.2.37, packaged app built
-19:06).**
+**Status: open.** Reproduced live 2026-10-04 on `windows-pc` (extension 0.2.37, packaged app built
+19:06) and again on 2026-10-11 (restored LCN tab, pageId `771576274`). The check-session guard and
+the inventory stamp are fixed in the working tree (extension 0.2.39). Live confirmation needs that
+extension on `windows-pc`.
 
 ### Observed behaviour
 
@@ -12066,22 +12073,60 @@ signed-in session, and a false escalation was parked for James.
 
 ### Root cause
 
-`evaluateLiveSession` (`src/main/browser-gateway/browser-session-relogin.ts:234-284`) treats a target
-as unobservable only when `isOpaqueBrowserTarget(...)` is true. `deriveBrowserTargetInspectionState`
-(`browser-target-inspection.ts:6-28`) maps only the two secret-observation reasons to opaque; any
-other `textUnavailableReason`, including `host_permission_denied` (and `page_text_read_failed`),
-falls through to `readable`. The evaluation then runs on empty page text, a failed element query
+On 2026-10-04, `evaluateLiveSession` treated a target as unobservable only when
+`isOpaqueBrowserTarget(...)` was true. `deriveBrowserTargetInspectionState`
+(`browser-target-inspection.ts`) maps only the two secret-observation reasons to opaque; any other
+`textUnavailableReason`, including `host_permission_denied` and `page_text_read_failed`, falls
+through to `readable`. The evaluation then ran on empty page text, a failed element query
 (`elements.data` undefined → `hasPasswordField: false`) and the title alone, so the recipe's markers
-are "missing" and `evaluateSessionState` (`browser-session-sentinel.ts:44-66`) returns
-`logged_out / fingerprint_markers_missing`, which starts the re-login loop. This is the same
-"unreadable reported as readable" family as LT-218, on a path that acts on the conclusion.
+were "missing" and `evaluateSessionState` returned `logged_out / fingerprint_markers_missing`, which
+started the re-login loop. This is the same "unreadable reported as readable" family as LT-218, on a
+path that acts on the conclusion.
+
+`evaluateLiveSession` now returns `unknown` for any `textUnavailableReason` before it scores markers
+(`browser-session-relogin.ts`, covered by `browser-session-relogin.spec.ts`). The stamp that made
+the page look readable is still there, and it is what a restored tab hits. See the 2026-10-11
+reproduction below.
 
 ### Required behaviour
 
 When the page's text or elements cannot be read for any reason, `check_session` returns
 `state: "unknown"` with the specific unreadable reason and never navigates or fills a credential.
 A failed `query_elements` must not be read as "no password field". Re-login may only start from a
-positive logged-out signal observed on a readable page.
+positive logged-out signal observed on a readable page. A tab the extension cannot script must not
+be inventoried as `inspectionState: "readable"`.
+
+### Further reproduction — 2026-10-11, restored tab reported readable
+
+After James restarted `windows-pc`, Chrome restored the LCN tab (pageId `771576274`). Its snapshot
+correctly returned `textUnavailableReason: "host_permission_denied"`, and `query_elements` failed
+with "Cannot access contents of the page. Extension manifest must request permission to access the
+respective host." The tab was still reported as readable. `browser.navigate` reloaded it and the
+permission failure cleared.
+
+Chrome refuses `chrome.scripting.executeScript` on a tab restored at startup until that document is
+reloaded, and it uses this host-permission message even when the manifest already grants
+`http://*/*` and `https://*/*` (`resources/browser-extension/manifest.json`). The `tabs` permission
+still supplies the URL and title, so the payload looks like an ordinary page.
+
+`buildTabPayloadLocked` (`resources/browser-extension/background.js`) sets `inspectionState` to
+`readable` whenever the tab is not secret-tainted and the post-capture `chrome.tabs.get` identity
+check succeeded. A host-permission failure only fills `textUnavailableReason`; it does not flip
+`inspectionUnavailable`. `deriveBrowserTargetInspectionState`
+(`src/main/browser-gateway/browser-target-inspection.ts`) returns that stamped `readable`
+immediately, so `list_targets` reports the tab as readable while the snapshot, separately, names
+`host_permission_denied`.
+
+`evaluateLiveSession` returns `unknown` with the specific reason for
+`host_permission_denied` and `page_text_read_failed` (`browser-session-relogin.ts`, covered by
+`browser-session-relogin.spec.ts`). That stops the re-login.
+
+**Fix (working tree, extension 0.2.39).** `buildTabPayloadLocked` sets `inspectionState` to
+`inspection_unavailable` for those two reasons and still returns the real URL and title.
+`deriveBrowserTargetInspectionState` does the same even when an older extension stamped
+`readable`, so `list_targets` follows the permission failure before the extension is reloaded.
+Close-matching skips that tab unless `includeInspectionUnavailable` is set, which is the existing
+rule for a tab whose contents cannot be read.
 
 ### Acceptance
 
@@ -12091,6 +12136,10 @@ positive logged-out signal observed on a readable page.
 - Live: `check_session {autoRelogin: true}` on a `windows-pc` tab the extension cannot read returns
   `unknown` with the reason, leaves the tab URL unchanged, writes no `fill_credential` audit row and
   parks no escalation.
+- A host-permission failure (and `page_text_read_failed`) sets `inspectionState` to something other
+  than `readable` on the extension payload, and `list_targets` reports that state. A regression
+  test fails while `buildTabPayloadLocked` still stamps `readable` beside `textUnavailableReason:
+  "host_permission_denied"`.
 
 <a id="lt-666"></a>
 
@@ -12730,3 +12779,274 @@ A settled reviewer is noticed within seconds, independently of whether the singl
 
 - Unit test: emit the settled event while the waiter's predicate is false, then make the predicate true without another event; `waitForSettled` resolves within its progress interval.
 - Live: at least 10 consecutive real ping-pong rounds (Claude builder, Codex reviewer) each log `Ping-pong reviewer produced a verdict` within 120 s of reviewer spawn.
+
+<a id="lt-703"></a>
+
+## LT-703 — `fill_credential` cannot reach a login form embedded in a cross-origin subframe, and reports the refusal as a selector miss
+
+**Status: fixed + regression-tested 2026-10-10 (working tree). Live re-check 2026-10-11 did not pass.**
+The coordinator reason plumbing is live. The extension write still failed, the fields stayed empty,
+and the form was not submitted. One fill attempt was used; do not retry until the extension on
+`windows-pc` is confirmed to emit the origin-bound codes and James approves another attempt.
+Origin: [Browser Gateway credential login — embedded cross-origin login form](browser-gateway-credential-login_livetest.md#lt-703-embedded-cross-origin-login-form) (2026-10-09 LCN sign-in attempt; 2026-10-11 re-check below).
+
+### Observed behaviour
+
+2026-10-09 21:50–22:25 BST, `windows-pc` shared tab `771575145` (`existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:771574393:771575145`), page `https://www.lcn.com/login`. `browser.request_credential_access` for the saved login "LCN - CAUK email hosting account" (vault item `0f10ee9c-f4de-40e5-9244-b4de0154b59a`) was approved: authorization `eab250d6-8620-4e85-bdab-4bfe5e1bc383` with `allowedOrigins: [{scheme: https, hostPattern: www.lcn.com, includeSubdomains: false}]`, vault binding `https://www.lcn.com` (`browser_vault_item_bindings`), item moved into `AIO-Agent`. `browser.fill_credential {fields: [#username/username, #password/password]}` was then denied **twice** with `reason: credential_fill_failed`, `summary: failed after filling 0 field(s)` (audit ids `016274cd-8413-4a34-a721-a7ea3e349f01`, `d956ef59-94fe-4dd7-a637-0e25aac3dab4`). `app.log` and `traces.ndjson` had nothing explaining the failure.
+
+The per-target write journal is decisive (redaction-safe by design — selectors, counts and rounded value lengths only):
+`~/Library/Application Support/harness/browser-write-journal/existing-tab-n.bb62e3ee-…-771574393-771575145-existing-1392813ba27e362aacebf661.json`
+
+- `type #username` (`approxValueLength: 24` — the 22-char username) → `outcome: failed`, `reason: credential_write_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state`, `persistence: unverified`. The intent entry proves the vault resolve **succeeded** and the dispatch was reached; `persistence: unverified` + that exact reason prove the failure came from inside the extension `type` command itself (not the post-write persistence sentinel, not a channel/not-delivered/timeout error).
+- `click "div:nth-of-type(2) > button:nth-of-type(1)"` (the cookie-consent dialog) → **succeeded**, same tab and channel, between the two attempts.
+- `type #username` again → identical failure.
+
+Read-only probes of the live page afterwards (`browser.query_elements`, `browser.accessibility_snapshot`) show `#username` (text) and `#password` (password) exist, match exactly once, and are still empty — and that the tab holds **two documents**: the top-level `Login - LCN` (`#wrap`, header/footer, inline script doing `document.getElementById('login-iframe')` + a `postMessage` auth bridge) and `Control Panel Login - LCN` holding `Account Login` / `Username*` / `Password*` / `Log in`. The form document's own links resolve to `https://login.lcn.com/…` (e.g. "Forgotten password?" → `https://login.lcn.com/password-reset/create/srcUrl/d3d3Lmxjbi5jb20vbG9naW4%3D`, whose `srcUrl` decodes to `www.lcn.com/login`), so the form is served by **`https://login.lcn.com`** and embedded cross-origin through `#login-iframe`. It is same-site (`lcn.com`) with the page, which is why `query_elements` and the a11y tree can still see it while an origin-exact write cannot.
+
+### Root cause
+
+`runOriginBoundType` (`resources/browser-extension/background.js:3326-3332`) builds `authorizedFrameIds` from frames whose `location.origin` equals the authorized origin (`https://www.lcn.com`) and injects the write only into those frames (`:3343-3348`), and it additionally required the **top-level** frame to be authorized (`:3330`, `credential_top_level_origin_not_authorized`). The fields live in the `login.lcn.com` frame, so the write was injected only into the top-level document, where `#username` does not exist; `mergeFrameResults` then threw `No element matches selector: #username` (`background.js:3574`) — a factually wrong diagnosis (the element exists, in another origin's frame).
+
+That error was then swallowed twice:
+
+1. `browserCommandErrorMessage` (`background.js:1469-1479`) replaced EVERY credential-`type` error with `credential_write_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state` — deliberate, because DOM/Chrome errors may quote their arguments (i.e. the value being written), but it discarded which check refused.
+2. `credentialFailureReason` (`src/main/browser-gateway/browser-form-fill-operations.ts:574-576`) replaced every non-`CredentialVaultError` with `credential_fill_failed`, and the summary carried only a field count.
+
+`fillCredentialOperation` also keyed the authorization check, the vault origin binding (the anti-phishing lock), and the write on the **top-level page** origin, so even a correctly-scoped credential could never reach a form served from another origin. Separately, `browser_audit_entries` had no `reason` column at all, so a failure's reason code could never reach the audit row. (LT-665/LT-666 reached the same `credential_fill_failed` symptom from different causes — an unreadable page and page-specific login markers.)
+
+### Required behaviour
+
+- A credential is typed only into frames of the origin that **receives** it, and `fill_credential` resolves that origin from the field's own frame **before any secret exists in the process**: the authorization, the vault binding, the anti-phishing check and the write all key on it (the "bind the exact origin you log in to" model of `normaliseBindableOrigin`). The top-level page origin is what the navigation re-check watches. Fields whose controls sit in frames of different origins are refused (`credential_fields_span_multiple_origins`).
+- Every credential-write failure names its step and cause as a safe reason code in the tool result **and** the audit row: `<step>:<code>` on the exception path (e.g. `dispatch:credential_selector_outside_authorized_origin`, `vault_resolve:origin_mismatch`, `write_confirmation:shared_tab_secure_credential_write_not_confirmed`), and a self-naming step-specific code on the pre-dispatch denial paths (`no_fields`, `shared_tab_secure_credential_fill_unavailable`, `origin_changed_during_fill`, `credential_authorization_changed`, …). The code vocabulary is a fixed allowlist (cross-checked between the extension and main-process copies) plus the closed `CredentialVaultError` code union, exhaustiveness-pinned against `CredentialVaultErrorCode` at compile time in `browser-credential-vault-codes.ts` — a message merely *shaped* like a code must collapse, because a generated secret is itself identifier-shaped. It distinguishes a wrong selector (`credential_selector_not_found`) from a field outside the authorized origin (`credential_selector_outside_authorized_origin`), from "no frame carries the authorized origin" (`credential_authorized_origin_not_in_frames`), and from an ambiguous multi-frame match that DID write (`credential_selector_ambiguous_may_have_applied`, never retriable). No page-derived or value-derived text may cross that boundary.
+
+### Acceptance
+
+- Regression tests, each failing without the fix (verified by stashing the source changes and re-running: 18 failures):
+  - extension: writes into the form frame when that frame is the authorized origin; classifies a field that lives only outside the authorized origin as `credential_selector_outside_authorized_origin` (and only ever injects into authorized frames); distinguishes `credential_selector_not_found`; refuses `credential_authorized_origin_not_in_frames` before any injection; still aborts `credential_origin_changed_before_write` when the page navigates; lets its own fixed codes cross the native boundary while collapsing page-derived text; `read_control`/`find` report the receiving `__frameOrigin`.
+  - main: authorization + vault binding + `driverType` all name the FRAME origin while `pageOrigin` guards navigation; falls back to the page origin when no frame origin is reported; refuses `credential_fields_span_multiple_origins`; `dispatch:credential_selector_outside_authorized_origin` and `vault_resolve:origin_mismatch` reach the caller; any page-derived or code-shaped message collapses to `credential_fill_failed` and is never echoed; the reason code reaches both the tool result and the audit row (new `browser_audit_entries.reason`, with a rollback-tested migration).
+- Live (see the [credential-login livetest](browser-gateway-credential-login_livetest.md#lt-703-embedded-cross-origin-login-form)): on `windows-pc`, `fill_credential` for a credential scoped to `https://login.lcn.com` fills the form embedded in `https://www.lcn.com/login`; and with the current `www.lcn.com`-scoped item it refuses with a reason naming `https://login.lcn.com` rather than `credential_fill_failed`.
+
+### Live re-check — 2026-10-11
+
+After James restarted `windows-pc`, the restored LCN tab (pageId `771576274`) was first unreadable
+(`host_permission_denied`; see [LT-665](#lt-665)). `browser.navigate` reloaded it and the page text
+became readable. `browser.fill_credential` for the same vault item, standing approval still valid,
+then failed with reason
+`dispatch:credential_write_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state`
+(audit `19d7214e-0b22-4e35-a528-66a1b512714b`). A read-back showed `#username` empty and the password
+field visibly empty. The form was not submitted.
+
+The `dispatch:` prefix is applied in `fillCredentialOperation` only after vault resolve and
+authorization, around `deps.driverType`. The code after the colon is in `SAFE_CREDENTIAL_CODES`, so
+the coordinator passed the extension's message through rather than collapsing it to
+`credential_fill_failed`. That message is the extension fallback in `browserCommandErrorMessage`:
+it replaces any credential-`type` error whose text is not one of the fixed origin-bound codes.
+Current `runOriginBoundType` throws those specific codes (`credential_selector_not_found`,
+`credential_authorized_origin_not_in_frames`, `credential_selector_outside_authorized_origin`,
+`credential_write_dispatch_failed_…`), and the fallback would not be used for them. Empty fields
+show this attempt did not write a value, so the fallback's "may have applied" claim is wrong for
+this audit row. The write on the `windows-pc` extension is the remaining failure; the vault lookup
+is not.
+
+<a id="lt-704"></a>
+
+## LT-704 — OpenCode candidate discovery drops the inherited environment and selects an install without the routed account model
+
+**Status: code verified 2026-10-13, independent completion-gate PASS; installed/restarted packaged acceptance remains pending.**
+Origin: [OpenCode effort variant startup live test](2026-10-13-opencode-effort-variant-startup_livetest.md#evidence-run--2026-10-13-rebuilt-packaged-app).
+Implementation status: [active startup remediation plan](2026-10-13-opencode-startup-remediation_plan.md).
+Code implementation: [completed launch-environment plan](2026-10-13-opencode-launch-environment_plan_completed.md).
+Plan-owned packaged acceptance: [launch-environment live check](2026-10-13-opencode-launch-environment_livetest.md),
+sharing the original owner's two open UI steps; record one live run there and link its evidence back.
+
+### Observed behaviour
+
+After James rebuilt and restarted Harness, provider-default thinking still failed for session
+`ix0iunga7` in `~/work/12steps`, OpenCode `xiaomi-token-plan-ams/mimo-v2.6-pro`, explicitly routed
+to local Amsterdam account ComTechSpare (`comtechspare-f7a6`). Packaged-app High thinking was not tested.
+The installed archive contains the prior effort-only variant repair, including the `Map` projection;
+this is a distinct reproduced failure after that repair, not evidence that its projection regressed.
+
+`app.log` lines 27455, 27457 and 27458–27459 record startup at 17:38:06.816 UTC, fallback to
+another OpenCode install of major 2 at 17:38:08.011 UTC, and initialization failure at
+17:38:09.553 UTC. The retained-session error has `textChars: 92` and
+`textHash: 7d9b0dca8f11b1bd`, which identifies the static
+`Unable to confirm the selected model for its configured generation budget; refusing startup.`
+message in `acp-generation-budget-selection.ts`, not the native-config probe error.
+Per-check timestamps and installed-build provenance remain in the owning live test.
+
+### Root cause
+
+The actual factory supplies caller environment overrides, not a complete inherited environment,
+to `listOpenCodeCommandCandidates`. That function passes the overrides-only object straight into
+`buildCliSpawnOptions` for `which -a opencode`. Without inherited `HOME`/`PATH`, discovery misses
+the working NVM OpenCode 1.19.0 and sees the stale Homebrew install plus desktop OpenCode 2.
+The later native probe/spawn merges `getSafeEnvForTrustedProcess()` with caller overrides, so
+discovery and execution use different environment semantics.
+
+The factory then selects desktop OpenCode 2. Its native model options include the region's
+`xiaomi-token-plan-ams` models, but not the requested derived
+`aio-mimo-comtechspare-f7a6/mimo-v2.6-pro` account model. The post-session generation-budget
+guard correctly refuses startup rather than allowing an unconfirmed account/model.
+
+The implementing agent reproduced this through the actual factory with an overrides-only
+environment. Supplying inherited `HOME` selected the NVM CLI, confirmed the exact routed
+ComTechSpare model and reached adapter ready. These experiments sent no model prompt and
+do not count as a packaged-app reply or High-thinking acceptance pass.
+
+Reproducer: `_scratch/opencode-real-startup.ts`. The before-fix options-only run exited 1;
+`--inherit-home` reached ready without a prompt and exited 0. After the source merge repair,
+both normal `--prompt` and `--high --prompt` source-runtime runs exited 0 and confirmed the
+exact routed account/model and requested effort (`modelConfirmed: true`, `effortConfirmed: true`,
+`responseIsOK: true`). Safe retained outputs: `_scratch/opencode-launch-runtime-default.log`
+and `_scratch/opencode-launch-runtime-high.log`. Packaged-app High thinking remains unrun;
+the installed/restarted packaged checks remain open.
+
+Focused verification passed eight spec files / 181 tests (`_scratch/test-run.opencode-launch-focused.log`).
+Temporarily removing only the source fix made the new regressions fail, exit 1
+(`_scratch/opencode-launch-regression-red.log`); the implementing agent restored the repaired source.
+Typecheck, spec typecheck, lint, length ratchet, main build and renderer build exited 0
+(`_scratch/opencode-launch-{types,spec-types,lint,length,main,renderer}.log`). The guard is unchanged.
+The actual compiled JavaScript factory also passed both real default and High-thinking prompts,
+exit 0 (`_scratch/opencode-launch-compiled-default.log`, `_scratch/opencode-launch-compiled-high.log`).
+Both safe results record `compiled: true`, `modelConfirmed: true`, `effortConfirmed: true`,
+and `responseIsOK: true`; the second records `high: true`. The implementation coordinator's
+pinned no-cache full suite passed, and independent fresh review returned PASS with no
+actionable findings. Code remediation is verified; this item stays open for packaged acceptance.
+Both installed/restarted packaged acceptance checks remain pending.
+
+The initial full-suite run exited 1 with exactly two SEA build-repeatability spec failures:
+the shell used Homebrew Node 26.3, whose binary lacked the SEA fuse, rather than `.nvmrc`'s
+pinned Node 24.15.0. Both affected SEA specs passed under the installed pinned version, without
+code/test changes for this environment mismatch. Typecheck, spec typecheck, lint, length ratchet,
+main build and renderer build were all rerun under the pinned Node/PATH and exited 0
+(`_scratch/opencode-launch-pinned-{types,spec-types,lint,length,main,renderer}.log`).
+The implementation coordinator's pinned no-cache full suite exited 0: 2,420 files,
+31,276 tests passed, six skipped (`_scratch/opencode-launch-full-pinned.log`; raw
+`_scratch/test-run.opencode-launch-full-pinned.log`).
+
+Independent report `_scratch/opencode-launch-fresh-gate.md`: **VERDICT: PASS**, no actionable
+findings. The fresh reviewer independently reran all six canonical non-test gates, eight focused
+spec files / 181 tests, compiled default/High actual replies, and the full no-cache suite under
+pinned Node 24.15.0. All exits are 0. Independent full exit record:
+`_scratch/opencode-launch-fresh-full-exits.json`; raw full output:
+`_scratch/test-run.opencode-launch-fresh-full.log` — 2,420 files, 31,276 tests passed, zero
+failures and six existing pending tests. Native current session options confirmed the exact
+ComTechSpare account model and requested effort, and both real responses were `OK`.
+This verdict covers the scoped launcher code repair on the shared dirty checkout; no
+installed/restarted packaged live pass is claimed. The remediation status plan remains active.
+
+### Required behaviour
+
+Candidate discovery uses the same trusted inherited environment plus caller overrides as native
+probe/spawn. Inherited `HOME` and `PATH` allow the normal NVM CLI to be discovered; explicit
+caller overrides retain precedence. The launched adapter confirms the exact derived routed
+account/model before starting a budgeted turn. Keep the guard fail-closed: a native region model
+is not confirmation of the requested account model, and no silent account fallback is permitted.
+
+### Acceptance
+
+- A focused regression proves inherited `HOME`/`PATH` reach the candidate-discovery subprocess
+  when the caller supplies only overrides, and proves explicit caller overrides still win.
+- The actual factory startup reproducer succeeds with the ordinary overrides-only caller object:
+  selects the working install, confirms `aio-mimo-comtechspare-f7a6/mimo-v2.6-pro`, and reaches
+  ready. Preserve negative coverage for absent/unconfirmed routed account models.
+- Targeted tests, all canonical project gates and an independent fresh-context completion gate
+  pass. Do not mark implementation complete while verification or actionable review findings remain.
+- After installing and restarting a build containing this repair, both provider-default and High
+  thinking checks in the owning live test start and respond while retaining ComTechSpare and the
+  selected model. A default-thinking failure does not establish a High-thinking failure.
+- No raw native configuration, credentials or prompt content is emitted in diagnostics or fixtures.
+
+<a id="lt-705"></a>
+
+## LT-705 — OpenCode 1 cannot open a folder whose shared database OpenCode 2 changed, and the OpenCode 2 fallback cannot honour per-session settings
+
+**Status: machine repair applied and verified 2026-10-13; code change implemented, canonical gates and full suite pass, independent reviews PASS with advisory notes addressed; installed/restarted packaged acceptance pending.**
+Origin: the LT-704 packaged provider-default check, run by James on 2026-10-13 at 20:22 UTC
+(21:22 BST) in `~/work/communitytech` ([launch-environment live check](2026-10-13-opencode-launch-environment_livetest.md)).
+Implementation status: [active startup remediation plan](2026-10-13-opencode-startup-remediation_plan.md).
+
+### Observed behaviour
+
+The installed archive was built at 20:17 UTC and contains the LT-704 discovery repair. Session
+`icott8xxw` (`~/work/communitytech`, OpenCode `xiaomi-token-plan-ams/mimo-v2.6-pro`, routed by
+default to ComTechSpare `comtechspare-f7a6`) logged `OpenCodeCliLaunch` "OpenCode CLI could not
+read its database; using another install" `{major: 2}` at 20:22:27 UTC, then failed at 20:22:28
+with `textChars: 92`, `textHash: 7d9b0dca8f11b1bd`: the same selected-model confirmation refusal
+as LT-704. James's screenshot shows the 13:35 BST message timestamp and the native-config probe
+error (`textChars: 89`, `textHash: 1f2fc4ca0fb107ff`, logged for `i1sevv0tp` at 12:35 UTC), so the
+restored session appears to display its earlier error. That UI detail was not separately verified.
+
+### Root cause
+
+Each step was reproduced without sending a model prompt and without printing native values.
+
+1. **OpenCode 1 cannot open this folder.** NVM OpenCode 1.19.0, the newest 1.x on npm, exits 1
+   with `no such column: project_id` in `~/work/communitytech` (`debug config`, `models`), but
+   works in `/`, `~`, ai-orchestrator and 12steps. Desktop OpenCode 2.0.18 shares
+   `~/.local/share/opencode/opencode.db` and has rebuilt `workspace` as
+   `(id, provider, binding, created_at, last_used_at)`; OpenCode 1's schema has
+   `workspace.project_id`. On an APFS clone of the database, adding a nullable
+   `workspace.project_id` alone made OpenCode 1 start in communitytech. Clearing the project's
+   `sandboxes` or deleting its duplicate project row did not. LT-704's discovery repair therefore
+   found the right CLI, which then failed in this folder, and selection fell back to OpenCode 2.
+2. **OpenCode 2 sessions ignore the per-spawn overlay.** OpenCode 2's `acp` command takes no
+   options (`--standalone` and `--server` are rejected) and attaches to the shared background
+   service (`opencode-cli serve --service`). A probe overlay that defined a provider with a
+   placeholder key was visible to an OpenCode 1 ACP session and invisible to an OpenCode 2 one.
+   The running service's `GET /api/config` held an inline document with `agents`, `permissions`
+   and an `aio-mimo-comtechspare-f7a6` provider: a frozen copy from whichever process started the
+   service. The pre-spawn probe (`api --standalone GET /api/config`) reads a private server that
+   does see the overlay, so the permission and generation-budget assertions passed against
+   settings the session never used. This affects every OpenCode 2 session, not only routed accounts.
+3. **OpenCode 2 has no key for the second account.** OpenCode 2 keeps credentials in the
+   database `credential` table, which held only `xiaomi-token-plan-ams` (row created 2026-09-26).
+   OpenCode 1's `auth.json` holds both accounts. Harness's account sign-in command runs
+   `opencode auth login -p …`, which is OpenCode 1 syntax. The OpenCode 2 ACP session listed only
+   the eight `xiaomi-token-plan-ams` models, and `session/set_config_option` answered
+   `-32602 model not found: aio-mimo-comtechspare-f7a6/mimo-v2.6-pro`. The guard correctly refused.
+
+Reproducers: `_scratch/mimo-second-account/repro.ts` (routed handshake per CLI),
+`overlay-test.ts` (overlay visibility), `app-path.ts` (actual factory startup, no prompt) and
+`refusal.ts` (selection against the real OpenCode 2 install).
+
+### Repair
+
+- **Machine, 2026-10-13 about 20:40 UTC:** `ALTER TABLE workspace ADD COLUMN project_id text` on the
+  shared OpenCode database, after an APFS clone backup at
+  `~/.local/share/opencode-backups/2026-10-13-before-workspace-column`. Undo with
+  `ALTER TABLE workspace DROP COLUMN project_id`. Verified on a clean clone first: OpenCode 1
+  `debug config`, and OpenCode 2 `api --standalone GET /api/config`, `/api/session`,
+  `/api/project` and `session list`, all exit 0. On the live database, OpenCode 1 opens
+  communitytech, 12steps, binsout, one-more-floor and ai-orchestrator, and the live OpenCode 2
+  service still lists sessions and projects. The actual factory then started ComTechSpare in
+  communitytech on OpenCode 1 and confirmed `aio-mimo-comtechspare-f7a6/mimo-v2.6-pro`. A future
+  OpenCode 2 migration that rebuilds `workspace` would undo this repair.
+- **Code (James approved "both" follow-ups):** `selectOpenCodeLaunch` reads `--version` first,
+  which does not open the database, skips any install newer than `MAX_SUPPORTED_OPENCODE_MAJOR`
+  (1), and refuses startup before any ACP spawn with a plain message when no OpenCode 1 install
+  can print its config. The OpenCode 2 branches in the adapter factory remain but are inactive.
+
+### Required behaviour
+
+Harness never starts an OpenCode session on a version whose session ignores the per-spawn overlay.
+When no supported install works, it refuses before spawning, naming the cause without native
+output, paths or credentials. Routed-account model confirmation stays fail-closed.
+
+### Acceptance
+
+- Focused regressions: OpenCode 2 is never selected and its `debug config` never runs; a lone
+  OpenCode 2 install, a broken OpenCode 1 install and no install each give the right plain
+  message; LT-704's inherited-environment discovery tests still pass.
+- The actual factory starts ComTechSpare in `~/work/communitytech` on OpenCode 1 and confirms the
+  exact account model without a prompt.
+- Canonical gates and an independent completion review pass.
+- Packaged: after installing and restarting a build containing this change, a ComTechSpare
+  session in `~/work/communitytech` starts and replies. This shares the LT-704 packaged checks.
+
+### Not in scope
+
+Account sign-in writes only OpenCode 1's key store; renewed OpenCode 2 support would need both
+stores. A transient OpenCode 1 `database is locked` during selection now refuses startup instead
+of silently falling back; the existing process gate makes that rare.
