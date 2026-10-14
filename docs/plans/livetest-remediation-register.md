@@ -14,7 +14,10 @@ status lives in the Remediation Index; implementation progress lives in the plan
 (closed). LT-664 to LT-702 from the 2026-10-04 campaign are tracked in the active follow-up
 [2026-10-05-livetest-campaign-defects_plan.md](2026-10-05-livetest-campaign-defects_plan.md).
 LT-704 and LT-705 are tracked separately in the active
-[2026-10-13-opencode-startup-remediation_plan.md](2026-10-13-opencode-startup-remediation_plan.md).
+[2026-10-13-opencode-startup-remediation_plan.md](2026-10-13-opencode-startup-remediation_plan.md)
+(an untracked root-checkout working document — active `_plan.md`/`_livetest.md` documents are
+never committed; the coordinator lands it as
+`2026-10-13-opencode-startup-remediation_plan_completed.md` after verifier PASS).
 
 **Purpose:** Provide one execution index for every confirmed defect found while running the
 live-test backlog. The originating live-test files remain the canonical acceptance procedures and
@@ -315,8 +318,8 @@ sections below. The historical reproduction remains unchanged.
 | LT-701 | P2 | **OPEN — reproduced live 2026-10-04 (1 of 1).** A normal quit (SIGTERM, shutdown path ran to "Cleanup complete") while two Plan Queue workers were mid-turn parks both items `worker-error: instance entered terminated` and ends the run `completed` during shutdown, so nothing is left for the restart-recovery path to resume. The check expects the working items to be resumed on the same `queue/…` branch after restart. | [LT-701 detail](#lt-701) | [Plan Queue check 3](2026-09-18-plan-queue_livetest.md) |
 | LT-702 | P1 | **OPEN — reproduced live 2026-10-04 (1 of 6 ping-pong loops that day; LT-643's hang again, intermittent).** A ping-pong reviewer (Codex) settled with a complete, parseable `CHANGES_REQUESTED` verdict about 46 s after spawn, but the loop never noticed: `inFlightRound: 1`, no `Ping-pong reviewer produced a verdict` line, for 757 s. Cancelling the loop released the wait instantly and the same verdict then parsed normally (+334 ms), proving the instance was settled and the output valid the whole time. The five other loops that day completed rounds in 50–100 s. | [LT-702 detail](#lt-702) | [Ping-pong livetest](PINGPONG_IMPLEMENTATION_STATUS_livetest_completed.md) |
 | LT-703 | P1 | **FIXED + REGRESSION-TESTED 2026-10-10 (working tree). Live re-check 2026-10-11 did not pass:** after a reload made the restored LCN tab readable, `fill_credential` reached the extension write and failed `dispatch:credential_write_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state` (audit `19d7214e-…`); `#username` and the password field stayed empty and the form was not submitted. The `dispatch:` prefix shows the coordinator reason plumbing is live; the code after it is the extension's unclassified fallback, not an origin-bound code. Original defect: the writer injected only into top-level-origin frames of `https://www.lcn.com/login` (form is `https://login.lcn.com` in `#login-iframe`) and swallowed the miss. | [LT-703 detail](#lt-703) | [Browser Gateway credential login — embedded form](browser-gateway-credential-login_livetest.md#lt-703-embedded-cross-origin-login-form) |
-| LT-704 | P1 | **CODE VERIFIED 2026-10-13 — independent completion-gate PASS; packaged acceptance pending.** Candidate discovery now inherits the trusted environment before caller overrides, retaining the working NVM CLI and confirming `aio-mimo-comtechspare-f7a6/mimo-v2.6-pro`. Source and independently checked compiled default/High replies, six canonical gates and full suite pass. Both installed/restarted packaged checks remain open; this is not confirmed fixed live. | [LT-704 detail](#lt-704) | [Plan-owned packaged default/High checks](2026-10-13-opencode-launch-environment_livetest.md); [original failure evidence](2026-10-13-opencode-effort-variant-startup_livetest.md#evidence-run--2026-10-13-rebuilt-packaged-app) |
-| LT-705 | P1 | **MACHINE REPAIR + CODE VERIFIED 2026-10-13 — gates and full suite pass, independent reviews PASS; packaged acceptance pending.** OpenCode 1 failed in `~/work/communitytech` (`no such column: project_id`) after OpenCode 2 rebuilt the shared `workspace` table, so selection fell back to OpenCode 2, whose `acp` ignores the per-spawn overlay and lacked the second account's key. Added nullable `workspace.project_id` (backed up); selection now refuses OpenCode 2 and explains why. | [LT-705 detail](#lt-705) | [Plan-owned packaged checks](2026-10-13-opencode-launch-environment_livetest.md) |
+| LT-704 | P1 | **CODE VERIFIED 2026-10-13 — independent completion-gate PASS; queue re-verified 2026-10-14; packaged smokes pending.** Candidate discovery now inherits the trusted environment before caller overrides, retaining the working NVM CLI and confirming `aio-mimo-comtechspare-f7a6/mimo-v2.6-pro`. Source and independently checked compiled default/High replies, six canonical gates and full suite pass. The install/restart prerequisite is satisfied (installed 2026-10-14 13:00 UTC, booted 13:08 UTC, compiled launcher byte-identical to the verified build); the two packaged smoke checks remain unrun and their exact deferred procedure is recorded inline in [LT-704 detail](#lt-704-deferred-packaged-acceptance) (branch-resident) and mirrored in the untracked root-checkout [startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md). This is not confirmed fixed live. | [LT-704 detail](#lt-704) | [Plan-owned packaged default/High checks](2026-10-13-opencode-launch-environment_livetest.md); [original failure evidence](2026-10-13-opencode-effort-variant-startup_livetest.md#evidence-run--2026-10-13-rebuilt-packaged-app) |
+| LT-705 | P1 | **MACHINE REPAIR + CODE VERIFIED 2026-10-13 — gates and full suite pass, independent reviews PASS; queue re-verified 2026-10-14; packaged smoke pending.** OpenCode 1 failed in `~/work/communitytech` (`no such column: project_id`) after OpenCode 2 rebuilt the shared `workspace` table, so selection fell back to OpenCode 2, whose `acp` ignores the per-spawn overlay and lacked the second account's key. Added nullable `workspace.project_id` (backed up); selection now refuses OpenCode 2 and explains why. The install/restart prerequisite is satisfied as for LT-704; the communitytech packaged smoke remains unrun and its exact deferred procedure is recorded inline in [LT-705 detail](#lt-705-deferred-packaged-acceptance) (branch-resident) and mirrored in the untracked root-checkout [startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md). | [LT-705 detail](#lt-705) | [Plan-owned packaged checks](2026-10-13-opencode-launch-environment_livetest.md) |
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
@@ -12882,12 +12885,18 @@ is not.
 
 ## LT-704 — OpenCode candidate discovery drops the inherited environment and selects an install without the routed account model
 
-**Status: code verified 2026-10-13, independent completion-gate PASS; installed/restarted packaged acceptance remains pending.**
+**Status: code verified 2026-10-13, independent completion-gate PASS; queue re-verified 2026-10-14; install/restart prerequisite satisfied 2026-10-14; the two packaged smoke checks remain unrun and deferred — not confirmed fixed live.**
 Origin: [OpenCode effort variant startup live test](2026-10-13-opencode-effort-variant-startup_livetest.md#evidence-run--2026-10-13-rebuilt-packaged-app).
-Implementation status: [active startup remediation plan](2026-10-13-opencode-startup-remediation_plan.md).
+Implementation status: [active startup remediation plan](2026-10-13-opencode-startup-remediation_plan.md)
+(untracked root-checkout working document; lands as `2026-10-13-opencode-startup-remediation_plan_completed.md` at close).
 Code implementation: [completed launch-environment plan](2026-10-13-opencode-launch-environment_plan_completed.md).
 Plan-owned packaged acceptance: [launch-environment live check](2026-10-13-opencode-launch-environment_livetest.md),
 sharing the original owner's two open UI steps; record one live run there and link its evidence back.
+Deferred-check record: the exact procedure is recorded inline in
+[Deferred packaged acceptance](#lt-704-deferred-packaged-acceptance) below so any checkout of
+this branch can follow it; the untracked root-checkout
+[startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md) (active
+`_livetest.md`, never committed) is the identical campaign/evidence copy.
 
 ### Observed behaviour
 
@@ -12966,6 +12975,24 @@ ComTechSpare account model and requested effort, and both real responses were `O
 This verdict covers the scoped launcher code repair on the shared dirty checkout; no
 installed/restarted packaged live pass is claimed. The remediation status plan remains active.
 
+### Implementation status update — 2026-10-14 (Plan Queue worker)
+
+The committed implementation was re-verified in queue worktree
+`queue/2026-10-13-opencode-startup-re-bf56b9` with no code changes: 19 OpenCode spec files /
+325 tests, the six canonical static gates, main/renderer builds and the alias/IPC generators
+all pass (receipts `_scratch/opencode-startup-remediation-queue-worker-20261014-bf56b9/`).
+Read-only installed-build provenance: the archive installed 2026-10-14 13:00:28 UTC contains
+both this repair and LT-705's, and its compiled `opencode-cli-launch.js` is byte-identical
+(sha256 `9c5cd822…`) to the worktree build; the production app booted 13:08:32 UTC, after that
+install. The install/restart prerequisite is satisfied. The two packaged smoke checks
+themselves require creating sessions with interactive account/model/thinking selection in the
+packaged app, which no agent-reachable surface provides (`aio-mcp` has no session commands;
+Harness desktop control is hard-denied), so the deferred procedure (exact steps) is recorded
+inline in [Deferred packaged acceptance](#lt-704-deferred-packaged-acceptance) below and
+mirrored in the untracked root-checkout
+[startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md). No
+packaged live pass is claimed.
+
 ### Required behaviour
 
 Candidate discovery uses the same trusted inherited environment plus caller overrides as native
@@ -12988,14 +13015,71 @@ is not confirmation of the requested account model, and no silent account fallba
   selected model. A default-thinking failure does not establish a High-thinking failure.
 - No raw native configuration, credentials or prompt content is emitted in diagnostics or fixtures.
 
+<a id="lt-704-deferred-packaged-acceptance"></a>
+
+### Deferred packaged acceptance (branch-recorded procedure)
+
+The exact procedure for LT-704's two deferred live checks is recorded here so any checkout of
+this branch can follow it: active `_plan.md`/`_livetest.md` documents are never committed (the
+plan-spec guard and the landing squash in `src/main/plan-queue/plan-queue-squash.ts` refuse
+them), so a live-test file alone would not be reachable from a checkout. The identical text is
+kept in the untracked root-checkout
+[startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md) (beside the
+plan, per AGENTS.md Live-Test Deferral), which remains the campaign runbook and per-check
+evidence home; keep the two copies identical and never weaken either. The owning
+acceptance/evidence record stays the
+[launch-environment live check](2026-10-13-opencode-launch-environment_livetest.md): record one
+live run there and link its evidence back to the original owner.
+
+Prerequisite (satisfied 2026-10-14; receipts
+`_scratch/opencode-startup-remediation-queue-worker-20261014-bf56b9/`): the installed packaged
+Harness at `/Applications/Harness.app`, with James's normal account — the archive installed
+2026-10-14 13:00:28 UTC contains both repairs and its compiled
+`dist/main/cli/adapters/opencode-cli-launch.js` is byte-identical (sha256 `9c5cd822…`, 6,115
+bytes) to the verified worktree build; the production log shows `App Initializing Harness` at
+13:08:32 UTC and `Harness initialized` at 13:08:52 UTC — after that install. Limitation:
+archive-on-disk plus boot-after-install provenance; loaded process memory is not established.
+Re-check this provenance if the app has been rebuilt or restarted since 2026-10-14 13:08 UTC.
+
+- **Check 1 — LT-704 provider-default smoke (12steps).** In the running packaged Harness,
+  create a disposable session in `/Users/suas/work/12steps`. Select OpenCode, MiMo-V2.6-Pro,
+  account ComTechSpare (Amsterdam), and provider-default thinking. Send exactly
+  `Reply with exactly OK. Do not use tools or change files.`
+  Expected: startup succeeds, ComTechSpare and MiMo-V2.6-Pro remain selected, and the session
+  responds `OK` without a model-limit or selected-model-confirmation error. Retain safe startup
+  evidence and build provenance in the owning live test; never record native configuration,
+  credentials or unrelated task content.
+- **Check 2 — LT-704 High-thinking smoke (12steps).** A second, otherwise identical disposable
+  session with High thinking, same prompt. Expected: startup and response succeed; High thinking
+  and ComTechSpare remain selected. Record the observed selections and reply, then end only the
+  disposable smoke sessions. A default-thinking failure does not establish a High-thinking
+  failure.
+
+Why deferred: each check needs a disposable session created in the packaged app with interactive
+account/model/thinking selection and James's signed-in ComTechSpare account. No agent-reachable
+surface can do that: `aio-mcp` exposes `settings`, `remote-nodes`, `release-readiness`,
+`local-ai`, `copilot-account`, `browser-credentials`, `loop` and MCP forwarders only — no
+session-create or prompt-send command (docs/AIO_MCP_CLI.md) — and the orchestrator-tools toolset
+has none either; Harness desktop control is hard-denied, and the thin-client/mobile gateways are
+user remote-control surfaces with no sanctioned agent flow. Agent-side verification of the same
+runtime behaviour already exists (source and compiled factory default/High real replies
+confirming the exact routed account/model); these checks confirm the installed app's own
+session path.
+
 <a id="lt-705"></a>
 
 ## LT-705 — OpenCode 1 cannot open a folder whose shared database OpenCode 2 changed, and the OpenCode 2 fallback cannot honour per-session settings
 
-**Status: machine repair applied and verified 2026-10-13; code change implemented, canonical gates and full suite pass, independent reviews PASS with advisory notes addressed; installed/restarted packaged acceptance pending.**
+**Status: machine repair applied and verified 2026-10-13; code change implemented, canonical gates and full suite pass, independent reviews PASS with advisory notes addressed; queue re-verified 2026-10-14; install/restart prerequisite satisfied 2026-10-14; the communitytech packaged smoke remains unrun and deferred — not confirmed fixed live.**
 Origin: the LT-704 packaged provider-default check, run by James on 2026-10-13 at 20:22 UTC
 (21:22 BST) in `~/work/communitytech` ([launch-environment live check](2026-10-13-opencode-launch-environment_livetest.md)).
-Implementation status: [active startup remediation plan](2026-10-13-opencode-startup-remediation_plan.md).
+Implementation status: [active startup remediation plan](2026-10-13-opencode-startup-remediation_plan.md)
+(untracked root-checkout working document; lands as `2026-10-13-opencode-startup-remediation_plan_completed.md` at close).
+Deferred-check record: the exact procedure is recorded inline in
+[Deferred packaged acceptance](#lt-705-deferred-packaged-acceptance) below so any checkout of
+this branch can follow it; the untracked root-checkout
+[startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md) (active
+`_livetest.md`, never committed) is the identical campaign/evidence copy.
 
 ### Observed behaviour
 
@@ -13058,6 +13142,23 @@ Reproducers: `_scratch/mimo-second-account/repro.ts` (routed handshake per CLI),
   (1), and refuses startup before any ACP spawn with a plain message when no OpenCode 1 install
   can print its config. The OpenCode 2 branches in the adapter factory remain but are inactive.
 
+### Implementation status update — 2026-10-14 (Plan Queue worker)
+
+Queue worktree `queue/2026-10-13-opencode-startup-re-bf56b9` re-verified the committed code with
+no changes (19 OpenCode spec files / 325 tests, six canonical gates, builds, generators —
+receipts `_scratch/opencode-startup-remediation-queue-worker-20261014-bf56b9/`). The machine
+repair still holds: OpenCode 1 `debug config` exits 0 in `~/work/communitytech` and
+`~/work/12steps` (output discarded). The installed archive (2026-10-14 13:00:28 UTC) contains
+both repairs with a compiled launcher byte-identical to the worktree build, and the production
+app booted 13:08:32 UTC after that install, so the install/restart prerequisite is satisfied.
+The communitytech packaged smoke needs session creation in the packaged app UI (no
+agent-reachable surface; desktop control hard-denied) and its deferred procedure (exact steps)
+is recorded inline in
+[Deferred packaged acceptance](#lt-705-deferred-packaged-acceptance) below and mirrored in the
+untracked root-checkout
+[startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md).
+No packaged live pass is claimed.
+
 ### Required behaviour
 
 Harness never starts an OpenCode session on a version whose session ignores the per-spawn overlay.
@@ -13074,6 +13175,28 @@ output, paths or credentials. Routed-account model confirmation stays fail-close
 - Canonical gates and an independent completion review pass.
 - Packaged: after installing and restarting a build containing this change, a ComTechSpare
   session in `~/work/communitytech` starts and replies. This shares the LT-704 packaged checks.
+
+<a id="lt-705-deferred-packaged-acceptance"></a>
+
+### Deferred packaged acceptance (branch-recorded procedure)
+
+The exact procedure for LT-705's deferred live check is recorded here for the same
+branch-access reason as the LT-704 section above, and is mirrored identically in the untracked
+root-checkout [startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md)
+(keep both copies identical; that file is the campaign runbook and per-check evidence home):
+
+- **Check 3 — LT-705 communitytech smoke.** In the running packaged Harness
+  (`/Applications/Harness.app`, James's normal account; same satisfied install/restart
+  prerequisite as LT-704), repeat check 1 in `/Users/suas/work/communitytech`: create a
+  disposable session, select OpenCode, MiMo-V2.6-Pro, account ComTechSpare (Amsterdam), and
+  provider-default thinking, and send exactly
+  `Reply with exactly OK. Do not use tools or change files.`
+  Expected: startup succeeds on OpenCode 1 with ComTechSpare and MiMo-V2.6-Pro retained, and
+  the session replies `OK`. Owner/evidence home:
+  [launch-environment live check](2026-10-13-opencode-launch-environment_livetest.md) check 3.
+
+Why deferred: as for LT-704 — packaged-app UI session creation on James's account is not
+agent-runnable (no session-create surface; desktop control hard-denied).
 
 ### Not in scope
 
