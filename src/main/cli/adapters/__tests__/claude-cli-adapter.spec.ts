@@ -1028,20 +1028,6 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
       expect(settled).toBe(false);
     });
 
-    it('sendEndSession writes end_session JSON to stdin', async () => {
-      const { adapter, proc } = adapterWithResidentProcess();
-      await adapter.sendEndSession();
-      const written = proc.stdin.write.mock.calls
-        .map((c: unknown[]) => String(c[0]))
-        .join('');
-      expect(written).toContain('"type":"end_session"');
-    });
-
-    it('sendEndSession is a no-op when no formatter', async () => {
-      const adapter = new ClaudeCliAdapter({});
-      await expect(adapter.sendEndSession()).resolves.toBeUndefined();
-    });
-
     it('residentClaude:false disables the resident interrupt path and falls through to SIGINT', () => {
       const adapter = new ClaudeCliAdapter({ residentClaude: false });
       const proc = makeFakeProc();

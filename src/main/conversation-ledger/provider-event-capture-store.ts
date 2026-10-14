@@ -61,9 +61,10 @@ export class ProviderEventCaptureStore {
     `).all<ProviderEventCaptureRow>(query.instanceId, limit).map(rowToRecord);
   }
 
-  pruneBefore(before: number): number {
-    return this.db.prepare('DELETE FROM provider_event_captures WHERE created_at < ?')
-      .run(before).changes;
+  pruneBefore(before: number, limit = 20_000): number {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 20_000) throw new Error('Invalid capture prune limit');
+    return this.db.prepare('DELETE FROM provider_event_captures WHERE rowid IN (SELECT rowid FROM provider_event_captures WHERE created_at < ? LIMIT ?)')
+      .run(before, limit).changes;
   }
 }
 

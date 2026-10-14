@@ -19,6 +19,7 @@ visual-qa/
 .vscode/
 *.swp
 *.swo
+*.bak
 
 # OS
 .DS_Store

@@ -5,6 +5,7 @@ export const RlmStorageHealthRequestSchema = z.object({}).strict();
 export const RlmMaintenanceRequestSchema = z
   .object({
     loopRunId: z.string().min(1).optional(),
+    deleteOldBackups: z.array(z.string().min(1).max(300)).max(50).optional(),
   })
   .strict();
 

@@ -61,7 +61,7 @@ import {
   EXCLUDE_DYNAMIC_SECTIONS_FLAG,
   detectExcludeDynamicSectionsSupport,
   helpAdvertisesExcludeDynamicSections,
-  isVersionAtLeast,
+  isVersionAtLeast, resolveClaudeCliVersion,
 } from './claude-cli-feature-probes';
 import {
   createApprovalTraceId,
@@ -70,6 +70,7 @@ import {
   isPermissionDenialContent,
   type ClaudeToolUseContext,
 } from './claude-cli-permission-details';
+import { emitClaudeSelfWakeup, emitClaudeSelfWakeupRefusal, sanitizeClaudeToolInput, sanitizeClaudeSelfWakeupRawNdjson } from './claude-cli-self-wakeup';
 import { probeVersionStatus } from './cli-status-probe';
 import { structuredOutputContent, type StructuredOutputCandidate } from './structured-output-content';
 import { parseClaudeStreamError } from './claude-stream-error';
@@ -400,24 +401,6 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       pid: this.getPid(),
     });
     return super.interrupt();
-  }
-
-  /**
-   * Send `end_session` to gracefully tear down the resident CLI process.
-   * Called during instance termination to let the CLI flush its transcript.
-   */
-  async sendEndSession(): Promise<void> {
-    if (!this.isRealPipe() || !this.formatter) return;
-    try {
-      const endSessionMsg = ndjsonSafeStringify({ type: 'end_session' });
-      await this.formatter.sendRaw(endSessionMsg);
-      logger.info('Sent end_session to Claude CLI', { sessionId: this.sessionId });
-    } catch (err) {
-      logger.debug('sendEndSession failed (process already closed)', {
-        sessionId: this.sessionId,
-        ...errorDiagnostic(err),
-      });
-    }
   }
 
   /**
@@ -920,7 +903,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             toolCalls.push({
               id: tool.id || generateId(),
               name: tool.name || '',
-              arguments: tool.input || {}
+              arguments: sanitizeClaudeToolInput(tool.name || '', tool.input || {})
             });
           }
 
@@ -998,7 +981,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       role: 'assistant',
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       usage,
-      raw,
+      raw: sanitizeClaudeSelfWakeupRawNdjson(raw),
       ...(planLimitNotice !== undefined ? { metadata: { quota: this.planLimitQuota(planLimitNotice) } } : {}),
     };
   }
@@ -1360,6 +1343,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             // same channel AcpCliAdapter already uses, transcript untouched.
             if (block.type === 'tool_result' && block.tool_use_id && typeof block.content === 'string') {
               const context = this.toolUseContexts.get(block.tool_use_id);
+              emitClaudeSelfWakeupRefusal(this, context?.name, block.tool_use_id, block.is_error === true);
               this.emitAsyncWork(parseClaudeAsyncWorkToolResult(
                 block.tool_use_id,
                 context?.name ?? '',
@@ -1648,7 +1632,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           timestamp: message.timestamp || Date.now(),
           type: 'tool_use',
           content: `Using tool: ${message.tool.name}`,
-          metadata: message.tool
+          metadata: { ...message.tool, input: sanitizeClaudeToolInput(message.tool.name, message.tool.input ?? {}) }
         });
         if (message.tool.name === 'AskUserQuestion') {
           this.emitAskUserQuestionInputRequired(
@@ -1661,6 +1645,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
       case 'tool_result': {
         const context = this.toolUseContexts.get(message.tool_use_id);
+        emitClaudeSelfWakeupRefusal(this, context?.name, message.tool_use_id, message.is_error === true);
         this.emitAsyncWork(parseClaudeAsyncWorkToolResult(
           message.tool_use_id,
           context?.name ?? '',
@@ -2067,9 +2052,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       input && typeof input === 'object'
         ? (input as Record<string, unknown>)
         : {};
+    emitClaudeSelfWakeup(this, toolName, toolUseId, normalizedInput);
     this.toolUseContexts.set(toolUseId, {
       name: toolName,
-      input: normalizedInput
+      input: sanitizeClaudeToolInput(toolName, normalizedInput)
     });
   }
 
@@ -2091,6 +2077,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     if (this.spawnOptions.excludeDynamicSystemPromptSections) {
       await this.detectExcludeDynamicSupport();
     }
+    if ((this.spawnOptions.excludeDynamicSystemPromptSections || (this.spawnOptions.resume && this.spawnOptions.systemPrompt)) && !resolveClaudeCliVersion(this.cachedCliStatus?.version)) await this.checkStatus().catch(() => undefined);
     if (this.spawnOptions.yoloMode || !this.spawnOptions.permissionHookPath) {
       return;
     }

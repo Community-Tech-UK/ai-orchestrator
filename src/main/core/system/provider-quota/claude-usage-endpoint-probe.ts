@@ -53,6 +53,8 @@ import {
 } from './claude-credentials-reader';
 import { getLogger } from '../../../logging/logger';
 
+import { parseRetryAfterMs, quotaCooldownMs } from './quota-refresh-policy';
+
 const logger = getLogger('ClaudeUsageEndpointProbe');
 
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
@@ -66,7 +68,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 export type UsageFetch = (
   token: string,
   opts: { signal: AbortSignal; timeoutMs: number },
-) => Promise<{ status: number; body: unknown }>;
+) => Promise<{ status: number; body: unknown; retryAfterMs?: number }>;
 
 export interface ClaudeUsageEndpointProbeOptions {
   /** Injected credentials reader (tests). Defaults to a real keychain/file reader. */
@@ -136,6 +138,7 @@ export class ClaudeUsageEndpointProbe implements ProviderQuotaProbe {
   private readonly credentialsReader: Pick<ClaudeCredentialsReader, 'read'>;
   private readonly fetchUsage: UsageFetch;
   private readonly timeoutMs: number;
+  private cooldownUntil = 0;
 
   constructor(opts: ClaudeUsageEndpointProbeOptions = {}) {
     this.credentialsReader = opts.credentialsReader ?? new ClaudeCredentialsReader();
@@ -144,8 +147,9 @@ export class ClaudeUsageEndpointProbe implements ProviderQuotaProbe {
     if (opts.accountProfileId) this.accountProfileId = opts.accountProfileId;
   }
 
-  async probe({ signal }: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null> {
+  async probe({ signal, force }: { signal: AbortSignal; force?: boolean }): Promise<ProviderQuotaSnapshot | null> {
     const takenAt = Date.now();
+    if (!force && takenAt < this.cooldownUntil) return null;
 
     const { credential, reason } = await this.credentialsReader.read();
     if (!credential) {
@@ -159,8 +163,9 @@ export class ClaudeUsageEndpointProbe implements ProviderQuotaProbe {
 
     let status: number;
     let body: unknown;
+    let retryAfterMs: number | undefined;
     try {
-      ({ status, body } = await this.fetchUsage(credential.accessToken, {
+      ({ status, body, retryAfterMs } = await this.fetchUsage(credential.accessToken, {
         signal,
         timeoutMs: this.timeoutMs,
       }));
@@ -176,6 +181,8 @@ export class ClaudeUsageEndpointProbe implements ProviderQuotaProbe {
       );
     }
     if (status === 429) {
+      this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + quotaCooldownMs(retryAfterMs));
+      logger.warn('Claude usage endpoint rate-limited', { retryAfterMs, cooldownUntil: this.cooldownUntil });
       return failedSnapshot(takenAt, 'Claude usage endpoint rate-limited (429)');
     }
     if (status < 200 || status >= 300) {
@@ -381,7 +388,7 @@ const defaultFetchUsage: UsageFetch = async (token, { signal, timeoutMs }) => {
       // maps non-2xx to an error and a 2xx-with-bad-body to its own message.
       logger.debug('Claude usage endpoint returned a non-JSON body');
     }
-    return { status: response.status, body };
+    return { status: response.status, body, retryAfterMs: parseRetryAfterMs(response.headers.get('Retry-After'), Date.now()) };
   } finally {
     clearTimeout(timer);
     signal.removeEventListener('abort', onCallerAbort);

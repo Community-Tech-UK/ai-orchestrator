@@ -16,7 +16,7 @@
 import { nativeSessionIdInUse } from './claude-transcript-registry';
 import { buildDeferPermissionHookCommand } from '../hooks/hook-path-resolver';
 import { HOST_CLI_CLOUD_SCHEDULER_TOOLS } from './host-cli-tool-policy';
-import { EXCLUDE_DYNAMIC_SECTIONS_FLAG } from './claude-cli-feature-probes';
+import { EXCLUDE_DYNAMIC_SECTIONS_FLAG, EXCLUDE_DYNAMIC_MIN_VERSION, RECORDED_PROMPT_MIN_VERSION, isVersionAtLeast, isKnownOlderThan, resolveClaudeCliVersion } from './claude-cli-feature-probes';
 import { getLogger } from '../../logging/logger';
 import type {
   ClaudeCliReasoningEffort,
@@ -25,6 +25,7 @@ import type {
 } from './claude-cli-adapter.types';
 
 const logger = getLogger('ClaudeCliAdapter');
+let unknownVersionLogged = false;
 
 /** Minimum Claude CLI version that supports the `defer` permission decision.
  *  VALIDATED: defer works in CLI 2.1.98. Conservative estimate for first release.
@@ -128,6 +129,8 @@ export interface BuildClaudeCliArgsInput {
 
 export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
   const { spawnOptions, sessionId, materializeInlineJsonArg } = input;
+  const cliVersion = resolveClaudeCliVersion(input.cliVersion);
+  const includeSystemPrompt = !!spawnOptions.systemPrompt && (!spawnOptions.resume || isKnownOlderThan(cliVersion, RECORDED_PROMPT_MIN_VERSION));
   const args = [
     '--print',
     '--output-format',
@@ -155,8 +158,14 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
   // fails. Strict `=== true`: omit when support is unconfirmed (safe — just loses
   // the optimization). Live-verified against a Windows worker (2026-06-03).
   if (spawnOptions.excludeDynamicSystemPromptSections
-      && input.excludeDynamicSectionsSupported === true) {
+      && input.excludeDynamicSectionsSupported === true
+      && isVersionAtLeast(cliVersion, EXCLUDE_DYNAMIC_MIN_VERSION)) {
     args.push(EXCLUDE_DYNAMIC_SECTIONS_FLAG);
+  }
+
+  if (spawnOptions.excludeDynamicSystemPromptSections && !cliVersion && !unknownVersionLogged) {
+    unknownVersionLogged = true;
+    logger.info('Claude CLI version unknown; skipping prompt-cache optimization');
   }
 
   const permissionHookEnabled = !spawnOptions.yoloMode && input.shouldUsePermissionHook;
@@ -284,8 +293,8 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     args.push('--disallowedTools', disallowedTools.join(','));
   }
 
-  // Don't pass system prompt when resuming - the session already has one
-  // and Claude CLI doesn't support changing it mid-session.
+  // Claude 2.1.267+ records and restores the prompt; known older versions need
+  // the overlay again on resume. An unknown version keeps the existing behavior.
   // Default is APPEND: `--system-prompt` REPLACES Claude Code's entire default
   // system prompt (tool guidance, safety, todo machinery) and also disables
   // --exclude-dynamic-system-prompt-sections. Our orchestration prompt and
@@ -293,11 +302,11 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
   // systemPrompt as "to prepend"), so they must ride on top of the default,
   // not supplant it. Only explicit systemPromptMode: 'replace' (minimal
   // one-shot spawns like title generation) uses the replacing flag.
-  if (spawnOptions.systemPrompt && !spawnOptions.resume) {
+  if (includeSystemPrompt) {
     const flag = spawnOptions.systemPromptMode === 'replace'
       ? '--system-prompt'
       : '--append-system-prompt';
-    args.push(flag, spawnOptions.systemPrompt);
+    args.push(flag, spawnOptions.systemPrompt!);
   }
 
   // MCP server configurations may contain decrypted workspace secrets. Keep
@@ -333,7 +342,7 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     model: spawnOptions.model,
     reasoningEffort: spawnOptions.reasoningEffort ?? null,
     mappedReasoningEffort: mappedReasoningEffort ?? null,
-    hasSystemPrompt: Boolean(spawnOptions.systemPrompt && !spawnOptions.resume),
+    hasSystemPrompt: includeSystemPrompt,
     allowedToolsCount: spawnOptions.allowedTools?.length ?? 0,
     disallowedToolsCount: spawnOptions.disallowedTools?.length ?? 0,
     mcpConfigCount: spawnOptions.mcpConfig?.length ?? 0,

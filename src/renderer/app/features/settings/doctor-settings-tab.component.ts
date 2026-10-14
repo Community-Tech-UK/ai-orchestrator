@@ -8,6 +8,8 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { StorageUsageCardComponent } from './storage-usage-card.component';
+import { LeftoverWorktreesCardComponent } from './leftover-worktrees-card.component';
 import { CliHealthSettingsTabComponent } from './cli-health-settings-tab.component';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { DoctorStore } from '../../core/state/doctor.store';
@@ -47,10 +49,12 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
 @Component({
   selector: 'app-doctor-settings-tab',
   standalone: true,
-  imports: [CliHealthSettingsTabComponent],
+  imports: [CliHealthSettingsTabComponent, StorageUsageCardComponent, LeftoverWorktreesCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="doctor-tab">
+      <app-storage-usage-card />
+      <app-leftover-worktrees-card [workingDirectory]="workingDirectory()" />
       <header class="doctor-header">
         <div>
           <h3 class="section-title">Doctor</h3>

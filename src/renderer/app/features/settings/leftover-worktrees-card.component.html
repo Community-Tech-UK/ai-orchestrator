@@ -1,0 +1,52 @@
+<section class="folder-card" aria-labelledby="leftover-folders-heading">
+  <div class="card-heading"><h3 id="leftover-folders-heading">Leftover work folders</h3>
+    <button type="button" [appTooltip]="refreshHint" [disabled]="store.busy()" (click)="store.load(workingDirectory())">Refresh</button>
+  </div>
+  <p>Folders from earlier work, including folders still in use. Nothing is removed until you review one folder and confirm.</p>
+  @if (store.error(); as error) { <p role="alert">{{ error }}</p> }
+  @for (error of store.reportErrors(); track $index) { <p role="status">Could not inspect {{ error.repoRoot }}: {{ error.message }}</p> }
+  @if (store.busy()) { <p role="status">Checking work folders…</p> }
+  @for (row of store.rows(); track row.path) {
+    <article class="folder-row">
+      <h4>{{ folderName(row) }}</h4><code>{{ row.path }}</code>
+      <p>{{ maker(row) }} · {{ row.ageDays }} days since its newest saved change · {{ size(row.bytes) }}</p>
+      @if (ownerLabel(row)) { <p>{{ ownerLabel(row) }}</p> }
+      <p>{{ row.sentence }}</p>
+      @if (row.reason) { <p class="reason">{{ row.reason }}</p> }
+      @if (row.createdBy === 'harness') {
+        <button type="button" [appTooltip]="reviewHint" [disabled]="!row.removableByHarness || store.busy()" (click)="review(row)">Review</button>
+      } @else {
+        <p>These commands are for you to review and run yourself. The second removes the branch only if Git considers it merged.</p>
+        <pre>{{ commands(row) }}</pre>
+        <button type="button" (click)="copyCommands(row)">{{ copiedPath() === row.path ? 'Copied' : 'Copy the commands' }}</button>
+      }
+    </article>
+  } @empty { @if (!store.busy()) { <p>No extra work folders were found.</p> } }
+  @if (clipboardError(); as error) { <p role="alert">Could not copy the commands: {{ error }}</p> }
+</section>
+@if (store.preview(); as preview) {
+  <div class="dialog-overlay">
+    <div #dialog class="removal-dialog" role="dialog" aria-modal="true" aria-labelledby="folder-removal-heading"
+      aria-describedby="folder-removal-consequence" (keydown.escape)="store.cancel()">
+      <h3 id="folder-removal-heading">Remove {{ folderName(preview.row) }}?</h3>
+      <label>What should go?
+        <select [value]="preview.action" [disabled]="store.busy()" (change)="changeAction($event, preview.row)">
+          <option value="remove-folder">Folder only; keep the branch and its saved work</option>
+          @if (preview.row.mergedIntoMain) { <option value="remove-folder-and-branch">Folder and branch; saved work is in your main copy</option> }
+          <option value="discard-saved-work">Folder and branch; discard saved work</option>
+        </select>
+      </label>
+      <p id="folder-removal-consequence">{{ preview.consequence }}</p>
+      <p>{{ preview.row.patchCount }} saved changes · {{ preview.row.fileCount }} files</p>
+      @if (preview.action === 'discard-saved-work') {
+        <label><input type="checkbox" [checked]="discardConfirmed()" (change)="updateDiscardConfirmation($event)" [disabled]="store.busy()" />
+          I agree to discard the saved work in {{ preview.row.fileCount }} files. It cannot be brought back.</label>
+      }
+      <div class="dialog-actions">
+        <button #cancelButton data-cancel type="button" [disabled]="store.busy()" (click)="store.cancel()">Cancel</button>
+        <button data-remove type="button" class="danger" [disabled]="store.busy() || (preview.action === 'discard-saved-work' && !discardConfirmed())"
+          (click)="store.run(discardConfirmed(), workingDirectory())">{{ store.busy() ? 'Removing…' : 'Remove' }}</button>
+      </div>
+    </div>
+  </div>
+}

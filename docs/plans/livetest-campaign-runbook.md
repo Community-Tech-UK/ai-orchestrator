@@ -57,6 +57,9 @@ whole campaign.
 
 ## 3. Two environments, two different jobs
 
+Turn the debug record on before a campaign that needs adapter-event evidence.
+Leftover-folder removal is an ask-first action: review one folder, then get James’s confirmation before removing real folders or branches.
+
 ### Dev app — for anything interactive
 
 ```bash

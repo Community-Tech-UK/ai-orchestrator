@@ -93,7 +93,7 @@ db.pragma('busy_timeout = 5000');
 db.pragma('foreign_keys = ON');
 runConversationLedgerMigrations(db);
 
-const store = new ConversationLedgerStore(db);
+const store = new ConversationLedgerStore(db, dbPath);
 
 // ── IPC ───────────────────────────────────────────────────────────────────────
 
@@ -152,7 +152,10 @@ function callStore(method: LedgerStoreMethod, args: unknown[]): unknown {
     case 'listProviderEventCaptures':
       return store.listProviderEventCaptures(args[0] as ProviderEventCaptureQuery);
     case 'pruneProviderEventCapturesBefore':
-      return store.pruneProviderEventCapturesBefore(args[0] as number);
+      return store.pruneProviderEventCapturesBefore(args[0] as number, args[1] as number | undefined);
+    case 'getLedgerStorageStats': return store.getLedgerStorageStats();
+    case 'compactLedgerStorage': return store.compactLedgerStorage(args[0] as number);
+    case 'rebuildLedgerStorage': return store.rebuildLedgerStorage();
     case 'stageEvidence':
       return store.contextEvidence.stageEvidence(args[0] as EvidenceStageInput);
     case 'prepareEvidenceBlob':

@@ -124,6 +124,8 @@ import {
 import { registerLspFeedback } from '../codemem/lsp-feedback-registration';
 import { registerCircuitBreaker } from '../security/circuit-breaker-registration';
 import { getCostTracker } from '../core/system/cost-tracker';
+import { registerStorageHandlers } from './handlers/storage-handlers';
+import { registerWorktreeLeftoverHandlers } from './handlers/worktree-leftover-handlers';
 import { initializeRlmStorageMaintenance } from '../rlm/rlm-storage-maintenance-runtime';
 
 const logger = getLogger('IpcMainHandler');
@@ -320,6 +322,8 @@ export class IpcMainHandler {
     registerResumeHandlers({ instanceManager: this.instanceManager });
     registerWorkflowHandlers();
     registerDiagnosticsHandlers({ instanceManager: this.instanceManager });
+    registerStorageHandlers({ getLiveIds: () => new Set(this.instanceManager.getAllInstances().map(instance => instance.id)), ensureTrustedSender: this.ensureTrustedSender.bind(this) });
+    registerWorktreeLeftoverHandlers({ getLiveSessions: () => this.instanceManager.getAllInstances().filter(instance => instance.executionLocation?.type !== 'remote').map(instance => ({ id: instance.id, cwd: instance.workingDirectory, status: instance.status })), ensureTrustedSender: this.ensureTrustedSender.bind(this) });
     registerNotificationHandlers({ windowManager: this.windowManager });
     registerSkillAttributionHandlers({
       windowManager: this.windowManager,

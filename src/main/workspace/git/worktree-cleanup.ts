@@ -72,15 +72,19 @@ export async function removeManagedWorktreeDirectory(params: {
   worktreePath: string;
   baseDir: string;
   expectedBranch: string;
+  /** Caller holds the shared GitWriteQueue for its entire fresh-check transaction. */
+  alreadyQueued?: boolean;
 }): Promise<void> {
   const { repoRoot, worktreePath, baseDir } = params;
+  const enqueue = <T>(label: string, operation: () => Promise<T>): Promise<T> =>
+    params.alreadyQueued ? operation() : getGitWriteQueue().enqueue(label, operation);
   if (!(await verifyManagedWorktreeOwnership(params))) {
     throw new Error('Managed worktree ownership could not be verified');
   }
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      await getGitWriteQueue().enqueue('worktree-remove', () =>
+      await enqueue('worktree-remove', () =>
         gitExec(['worktree', 'remove', '--force', worktreePath], repoRoot)
       );
     } catch (error) {
@@ -91,7 +95,7 @@ export async function removeManagedWorktreeDirectory(params: {
   }
 
   if (isManagedWorktreePath(repoRoot, baseDir, worktreePath)) {
-    await getGitWriteQueue().enqueue('worktree-remove-fallback', async () => {
+    await enqueue('worktree-remove-fallback', async () => {
       await fs.rm(worktreePath, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
       await gitExec(['worktree', 'prune'], repoRoot);
     });
@@ -108,8 +112,9 @@ export async function deleteLocalBranchIfPresent(
   options:
     | { mergedIntoBranch: string; expectedTip: string; allowUnmerged?: false }
     | { allowUnmerged: true; expectedTip: string; mergedIntoBranch?: never },
+  alreadyQueued = false,
 ): Promise<void> {
-  await getGitWriteQueue().enqueue('worktree-branch-delete', async () => {
+  const operation = async () => {
     const listed = await gitExec(['branch', '--list', branchName], repoRoot);
     if (!listed.trim()) return;
     if ('mergedIntoBranch' in options && options.mergedIntoBranch) {
@@ -130,5 +135,7 @@ export async function deleteLocalBranchIfPresent(
     if (remaining.trim()) {
       throw new Error(`Managed session branch ${branchName} was not deleted`);
     }
-  });
+  };
+  if (alreadyQueued) await operation();
+  else await getGitWriteQueue().enqueue('worktree-branch-delete', operation);
 }

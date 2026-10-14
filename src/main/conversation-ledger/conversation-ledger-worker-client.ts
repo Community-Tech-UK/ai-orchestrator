@@ -18,6 +18,7 @@
  *   to MAX_RESTART_ATTEMPTS consecutive crashes (reset to 0 on a healthy reply).
  */
 
+import type { LedgerStorageStats, LedgerCompactionResult, LedgerRebuildResult } from './ledger-space-reclaim';
 import { Worker } from 'node:worker_threads';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
@@ -246,9 +247,13 @@ export class ConversationLedgerWorkerClient implements LedgerStorePort {
     return (await this.call('listProviderEventCaptures', [query])) as ProviderEventCaptureRecord[];
   }
 
-  async pruneProviderEventCapturesBefore(before: number): Promise<number> {
-    return (await this.call('pruneProviderEventCapturesBefore', [before])) as number;
+  async pruneProviderEventCapturesBefore(before: number, limit?: number): Promise<number> {
+    return (await this.call('pruneProviderEventCapturesBefore', [before, limit])) as number;
   }
+
+  async getLedgerStorageStats() { return await this.call('getLedgerStorageStats', []) as LedgerStorageStats; }
+  async compactLedgerStorage(maxPages: number) { return await this.call('compactLedgerStorage', [maxPages]) as LedgerCompactionResult; }
+  async rebuildLedgerStorage() { return await this.call('rebuildLedgerStorage', [], 15 * 60_000) as LedgerRebuildResult; }
 
   async stageEvidence(input: EvidenceStageInput): Promise<EvidenceLedgerRecord> {
     return (await this.call('stageEvidence', [input])) as EvidenceLedgerRecord;
@@ -404,8 +409,8 @@ export class ConversationLedgerWorkerClient implements LedgerStorePort {
 
   // ── Private helpers ──────────────────────────────────────────────────────────
 
-  private call(method: LedgerStoreMethod, args: unknown[]): Promise<unknown> {
-    return this.postRpc({ type: 'store-call', id: this.nextId(), method, args });
+  private call(method: LedgerStoreMethod, args: unknown[], timeoutMs?: number): Promise<unknown> {
+    return this.postRpc({ type: 'store-call', id: this.nextId(), method, args }, timeoutMs);
   }
 
   private nextId(): number {
@@ -494,7 +499,7 @@ export class ConversationLedgerWorkerClient implements LedgerStorePort {
     this.pending.clear();
   }
 
-  private postRpc(msg: LedgerWorkerInboundMsg): Promise<unknown> {
+  private postRpc(msg: LedgerWorkerInboundMsg, timeoutMs = this.rpcTimeoutMs): Promise<unknown> {
     if (!this.worker) {
       return Promise.reject(new Error('conversation ledger worker unavailable'));
     }
@@ -503,8 +508,8 @@ export class ConversationLedgerWorkerClient implements LedgerStorePort {
         this.pending.delete(msg.id);
         this.metrics.failed++;
         this.metrics.lastError = `ledger worker RPC timed out: ${msg.type}`;
-        reject(new Error(`conversation ledger worker RPC timed out after ${this.rpcTimeoutMs}ms`));
-      }, this.rpcTimeoutMs);
+        reject(new Error(`conversation ledger worker RPC timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
       timeout.unref?.();
       this.pending.set(msg.id, { resolve, reject, timeout });
       try {

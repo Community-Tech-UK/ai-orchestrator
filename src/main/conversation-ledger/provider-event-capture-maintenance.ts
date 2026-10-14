@@ -17,7 +17,8 @@ export interface ProviderEventCaptureMaintenanceOptions {
   intervalMs?: number;
   retentionMs?: number;
   now?: () => number;
-  ledger?: Pick<ConversationLedgerService, 'pruneProviderEventCapturesBefore'>;
+  ledger?: Pick<ConversationLedgerService, 'pruneProviderEventCapturesBefore' | 'compactLedgerStorage'>;
+  yield?: () => Promise<void>;
 }
 
 let scheduled = false;
@@ -62,8 +63,22 @@ export async function runProviderEventCaptureMaintenance(
     options.retentionMs,
     DEFAULT_RETENTION_MS,
   );
-  const removed = await (options.ledger ?? getConversationLedgerService())
-    .pruneProviderEventCapturesBefore(now - retentionMs);
+  const ledger = options.ledger ?? getConversationLedgerService();
+  const yieldWorker = options.yield ?? (() => new Promise<void>((resolve) => setImmediate(resolve)));
+  let removed = 0;
+  let batch: number;
+  do {
+    batch = await ledger.pruneProviderEventCapturesBefore(now - retentionMs, 20_000);
+    removed += batch;
+    if (batch === 20_000) await yieldWorker();
+  } while (batch === 20_000);
+  if (removed > 0) {
+    let compacted;
+    do {
+      await yieldWorker();
+      compacted = await ledger.compactLedgerStorage(25_600);
+    } while (compacted.pagesFreed > 0 && compacted.freePages > 0);
+  }
   if (removed > 0) {
     logger.info('Pruned expired provider event captures', { removed, retentionMs });
   }

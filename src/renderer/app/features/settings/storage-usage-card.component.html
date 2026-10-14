@@ -1,0 +1,51 @@
+<section class="disk-card" aria-labelledby="disk-space-heading">
+  <header><h3 id="disk-space-heading">Disk space used by Harness</h3>
+    <button type="button" [appTooltip]="refreshHint" [disabled]="store.busy() || store.loading()" (click)="store.refresh(true)">Refresh</button>
+  </header>
+  @if (store.error(); as error) { <p role="alert">{{ error }}</p> }
+  @if (store.loading() && !store.usage()) { <p role="status">Measuring Harness's files…</p> }
+  @if (store.usage(); as usage) {
+    @if (usage.reclaimableBytes > 10 * 1024 * 1024 * 1024) {
+      <p class="reclaim-summary">Harness can give back {{ bytes(usage.reclaimableBytes) }} of old files; the biggest part takes two steps. Review below.</p>
+    }
+    @for (row of usage.rows; track row.id) {
+      <article class="usage-row"><div><h4>{{ row.label }}</h4><strong>{{ bytes(row.bytes) }}</strong><p>{{ row.note }}</p>
+        @if (row.reclaimableBytes > 0) { <p>{{ bytes(row.reclaimableBytes) }} can be cleared.</p> }
+        @if (row.diskReclaimableBytes) { <p>{{ bytes(row.diskReclaimableBytes) }} can then be handed back to the disk.</p> }
+      </div>
+      @if (row.target) {
+        <div class="row-actions"><button type="button" [appTooltip]="reviewHint" [disabled]="store.busy() || row.reclaimableBytes === 0" (click)="store.review(row.target)">{{ row.target === 'event-record' ? 'Review and clear' : 'Review and clean up' }}</button>
+          @if (row.shrinkAvailable) { <button type="button" [disabled]="store.busy()" (click)="store.review('event-record-shrink')">Shrink the file</button> }
+        </div>
+      }
+      </article>
+    }
+    @if (usage.progress; as progress) {
+      @if (progress.running) { <p role="status">Removed {{ progress.removed.toLocaleString() }} of about {{ progress.estimatedTotal.toLocaleString() }} entries. {{ progress.target === 'event-record-shrink' ? 'Rebuilding the conversation file…' : 'Clean-up is running…' }}</p> }
+    }
+  }
+</section>
+@if (store.preview(); as preview) {
+  <div class="dialog-overlay" (click)="store.cancel()" role="presentation">
+    <section #dialog class="cleanup-dialog" role="dialog" aria-modal="true" aria-labelledby="disk-cleanup-heading" aria-describedby="disk-cleanup-consequence"
+      (click)="$event.stopPropagation()" (keydown.escape)="store.cancel()">
+      <h3 id="disk-cleanup-heading">{{ heading(preview.target) }}</h3>
+      <p>About {{ preview.estimatedCount.toLocaleString() }} {{ preview.target === 'event-record' ? 'entries' : 'items' }} · {{ bytes(preview.bytes) }}.</p>
+      @if (preview.oldestAt !== null) { <p>From {{ date(preview.oldestAt) }} to {{ date(preview.newestAt) }}.</p> }
+      <p id="disk-cleanup-consequence">{{ preview.consequence }}</p>
+      @if (preview.keptBackup; as backup) { <p>Your newest backup stays: {{ date(backup.createdAt) }}, {{ bytes(backup.bytes) }}.</p> }
+      @if (preview.target === 'event-record-shrink') {
+        <p>The scratch trial took about 2 seconds for 249 MB of live data; your file may take longer.</p>
+        <p>Live data: {{ bytes(preview.liveBytes ?? 0) }}. Free disk needed for a moment: {{ bytes(preview.requiredDiskBytes ?? 0) }}. Available: {{ bytes(preview.availableDiskBytes ?? 0) }}.</p>
+      }
+      @if (preview.target !== 'event-record' && preview.items.length) {
+        <details><summary>Exact files to remove ({{ preview.items.length }})</summary><ul>
+          @for (item of preview.items; track $index) { <li>{{ item.name }} · {{ date(item.createdAt) }} · {{ bytes(item.bytes) }}</li> }
+        </ul></details>
+      }
+      <footer><button #cancelButton data-cancel type="button" [disabled]="store.busy()" (click)="store.cancel()">{{ preview.target === 'event-record-shrink' ? 'Not now' : 'Keep them' }}</button>
+        <button data-confirm type="button" class="danger" [disabled]="store.busy()" (click)="store.run()">{{ store.busy() ? 'Working…' : confirmLabel(preview.target) }}</button>
+      </footer>
+    </section>
+  </div>
+}

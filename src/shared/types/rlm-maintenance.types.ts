@@ -17,6 +17,7 @@ export type RlmMaintenanceStage =
 
 export interface RlmMaintenanceRequest {
   loopRunId?: string;
+  deleteOldBackups?: string[];
 }
 
 export interface RlmStorageHealth {
@@ -40,6 +41,7 @@ export interface RlmMaintenancePreview {
   cutoffTimestamp: number;
   retentionDays: number;
   backupDirectory: string;
+  backups: { name: string; createdAt: number; bytes: number; wouldBeRemoved: boolean }[];
   canRun: boolean;
   generatedAt: number;
 }
@@ -70,6 +72,7 @@ export interface RlmMaintenanceSuccessResult {
   verifiedBytesReclaimed: number;
   backupPath: string;
   backupsPruned?: number;
+  backupsKept?: number;
   backupBytesFreed?: number;
   externalContentCleanupFailures: number;
   loopResumed: boolean;

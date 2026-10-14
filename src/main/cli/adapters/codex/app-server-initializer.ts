@@ -10,6 +10,7 @@ import { resumeThreadWithRetry } from './thread-resume-retry';
 import { startThreadWithRetry } from './thread-start-retry';
 import { SERVICE_NAME } from './app-server-types';
 import type { CodexAskForApproval } from './app-server-types';
+import { warnOnceIfCodexSnapshotBehind } from './codex-protocol-snapshot-check';
 import type { CodexSessionScanner } from './session-scanner';
 
 const logger = getLogger('CodexCliAdapter');
@@ -57,6 +58,7 @@ export function resolveCodexAppServerApprovalPolicy(
 export async function initializeCodexAppServer(
   options: CodexAppServerInitializationOptions,
 ): Promise<CodexAppServerInitializationResult | null> {
+  warnOnceIfCodexSnapshotBehind();
   const {
     client,
     config,

@@ -78,6 +78,14 @@ export function tooltipText(entry: TooltipCopyEntry): string {
  * control does not silently orphan its copy.
  */
 export const TOOLTIP_COPY = {
+  'diskSpace.review': { label: 'Review and clean up', meaning: 'Shows the current list and its consequence before you decide.' },
+  'diskSpace.refresh': { label: 'Refresh', meaning: 'Measures Harness’s files again.' },
+  'workFolders.review': {
+    label: 'Review', meaning: 'Shows what would be removed and what would stay before you decide.',
+  },
+  'workFolders.refresh': {
+    label: 'Refresh', meaning: 'Reads the folders and their current saved changes again.',
+  },
   // ---- Loop HUD controls (UX3 rollout order: loop HUD first) ----
   'loop.pause': {
     label: 'Pause',

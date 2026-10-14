@@ -132,6 +132,7 @@ export interface AppSettings extends DesktopComputerUseSettings {
   maxDiskStorageMB: number; // max disk space for output storage (0 = unlimited)
   memoryWarningThresholdMB: number; // warn when heap exceeds this (0 = disabled)
   autoTerminateOnMemoryPressure: boolean; // terminate idle instances when memory critical
+  recordProviderEvents: boolean;
   persistSessionContent: boolean; // persist session content (conversation/tool output) to disk
   /**
    * Cost-cap compaction trigger (claude2_todo #34b): auto-compact an instance

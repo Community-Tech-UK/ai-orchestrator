@@ -102,6 +102,8 @@ import { reconcileClaudeSafetyRouteModel } from './claude-model-routing';
 import { bindRawAdapterProviderEvents } from './instance-communication-provider-events';
 import { InstanceContinuityInputQueue } from './instance-continuity-input-queue';
 import { InstanceToolResultProcessor } from './instance-tool-result-processor';
+import { readClaudeSelfWakeupNotice } from '../cli/adapters/claude-cli-self-wakeup';
+import { getSelfWakeupTracker, appendLostSelfWakeupNotice } from './self-wakeup-tracker';
 import { getInstanceAsyncWorkRegistry } from './instance-async-work-registry';
 import { throwIfInstanceInputAborted, type InstanceSendInputOptions } from './instance-input-cancellation';
 import { InstanceInputFailureScopes, type InstanceInputFailureScope } from './instance-input-failure-scope';
@@ -1162,6 +1164,8 @@ export class InstanceCommunicationManager extends EventEmitter {
       // Persist provenance before instance metadata is added below. The visible
       // message needs adapter generation/turn tags; the raw capture must remain
       // the adapter's original event for deterministic replay.
+      const selfWakeup = readClaudeSelfWakeupNotice(message.metadata);
+      if (selfWakeup) getSelfWakeupTracker().observe(instanceId, selfWakeup);
       let rawAdapterPayload = toJsonSafeProviderEventPayload(message);
 
       // Skip user messages echoed back by the CLI — we add them explicitly
@@ -1459,6 +1463,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         if (!instance) return;
         this.toolResultProcessor.captureRawEvidence(instance, toolCall);
       },
+      observeSelfWakeup: (event) => getSelfWakeupTracker().observe(instanceId, event),
       observeAsyncWork: (event) => {
         const instance = this.deps.getInstance(instanceId);
         if (!instance) return;
@@ -2028,6 +2033,8 @@ export class InstanceCommunicationManager extends EventEmitter {
       // that exit as a crash would both mark a healthy session failed and throw
       // an IllegalTransitionError out of this synchronous listener.
       if (instance.status === 'hibernating' || instance.status === 'hibernated') {
+        const wakeupNotice = appendLostSelfWakeupNotice(instance);
+        if (wakeupNotice) this.emit('output', { instanceId, message: wakeupNotice });
         logger.info('Adapter exit during hibernation — expected, not a crash', {
           instanceId,
           status: instance.status,

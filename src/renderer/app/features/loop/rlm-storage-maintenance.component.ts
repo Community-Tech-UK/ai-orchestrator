@@ -5,9 +5,11 @@ import {
   ElementRef,
   inject,
   input,
+  signal,
   OnInit,
   ViewChild,
 } from '@angular/core';
+import { formatStorageBytes } from '../../../../shared/utils/storage-format';
 import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-maintenance.store';
 
 @Component({
@@ -18,7 +20,7 @@ import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-mainten
     @if (showWarning() && store.visible(); as visible) {
       <section class="rlm-storage-warning" [attr.data-level]="store.health()?.level">
         <div>
-          <strong>{{ store.health()?.level === 'critical' ? 'RLM storage limit reached' : 'RLM storage needs maintenance' }}</strong>
+          <strong>{{ store.health()?.level === 'critical' ? 'Learning database limit reached' : 'Learning database needs maintenance' }}</strong>
           <span>
             {{ bytes(store.health()?.databaseSizeBytes ?? 0) }} is in use. Prune session stores unused for 60+ days
             and compact the database to keep loops running.
@@ -45,7 +47,7 @@ import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-mainten
           <header>
             <div>
               <span class="eyebrow">Storage maintenance</span>
-              <h2 id="rlm-maintenance-title">Clean up stale RLM sessions</h2>
+              <h2 id="rlm-maintenance-title">Clean up Harness's learning database</h2>
             </div>
             @if (!store.busy()) {
               <button type="button" class="icon-button" aria-label="Close" (click)="close()">×</button>
@@ -65,6 +67,19 @@ import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-mainten
               <div><span>Codebase protected</span><strong>{{ preview.protectedCodebaseAutoStoreCount }}</strong></div>
               <div><span>Reclaimable pages</span><strong>{{ bytes(preview.reclaimableDatabaseBytes) }}</strong></div>
             </div>
+            <section aria-label="Backups">
+              <h3>Backups</h3>
+              <p>Harness makes a new backup before it cleans up. Earlier backups:</p>
+              @for (backup of preview.backups; track backup.name) {
+                <p>{{ dateTime(backup.createdAt) }} · {{ bytes(backup.bytes) }}</p>
+                @if (backup.wouldBeRemoved) {
+                  <label><input type="checkbox" [checked]="selectedBackups().includes(backup.name)"
+                    [disabled]="store.busy()" (change)="toggleBackup(backup.name, $event)">
+                    Also delete the older backup after the clean-up: {{ dateTime(backup.createdAt) }} · {{ bytes(backup.bytes) }}. This cannot be undone.</label>
+                }
+              }
+              <p>Leave this unticked and Harness keeps every backup.</p>
+            </section>
             <p>Backing up and compacting may take several minutes. Loops wait between iterations while maintenance runs.</p>
             <p class="backup-note">Backup destination: <code>{{ preview.backupDirectory }}</code></p>
             @if (!preview.canRun) {
@@ -92,6 +107,7 @@ import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-mainten
                 @if (result.backupsPruned && result.backupsPruned > 0) {
                   <span>{{ result.backupsPruned }} old backups removed · {{ bytes(result.backupBytesFreed ?? 0) }} freed</span>
                 }
+                @if (!result.backupsPruned) { <span>{{ result.backupsKept ?? 0 }} earlier backups kept</span> }
                 @if (result.externalContentCleanupFailures > 0) {
                   <span class="cleanup-warning">{{ result.externalContentCleanupFailures }} external content files could not be removed.</span>
                 }
@@ -181,6 +197,8 @@ export class RlmStorageMaintenanceComponent implements OnInit {
    */
   readonly showModal = input(true);
   protected readonly store = inject(RlmStorageMaintenanceStore);
+  protected readonly selectedBackups = signal<string[]>([]);
+  private readonly resetBackupSelection = effect(() => { this.store.preview(); this.selectedBackups.set([]); });
   private focusReturnTarget: HTMLElement | null = null;
   @ViewChild('dialog')
   private set dialog(element: ElementRef<HTMLElement> | undefined) {
@@ -207,21 +225,21 @@ export class RlmStorageMaintenanceComponent implements OnInit {
   protected openPreview(): void {
     void this.store.openPreview(this.loopRunId() ?? undefined);
   }
-  protected run(): void { void this.store.run(this.loopRunId() ?? undefined); }
+  protected run(): void { void this.store.run(this.loopRunId() ?? undefined, this.selectedBackups().length ? this.selectedBackups() : undefined); }
   protected retry(): void { void this.store.openPreview(this.loopRunId() ?? undefined); }
   protected close(): void {
     this.store.closePreview();
     queueMicrotask(() => this.focusReturnTarget?.focus());
   }
 
-  protected bytes(value: number): string {
-    if (value < 1024) return `${value} B`;
-    const units = ['KiB', 'MiB', 'GiB', 'TiB'];
-    let amount = value;
-    let unit = -1;
-    do { amount /= 1024; unit += 1; } while (amount >= 1024 && unit < units.length - 1);
-    return `${amount.toFixed(amount >= 10 ? 1 : 2)} ${units[unit]}`;
+  protected bytes(value: number): string { return formatStorageBytes(value); }
+
+  protected toggleBackup(name: string, event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.selectedBackups.update((names) => checked ? [...names, name] : names.filter((item) => item !== name));
   }
+
+  protected dateTime(timestamp: number): string { return new Date(timestamp).toLocaleString(); }
 
   protected date(timestamp: number): string {
     return new Date(timestamp).toLocaleDateString();

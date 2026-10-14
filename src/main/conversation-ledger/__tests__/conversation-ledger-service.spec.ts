@@ -126,6 +126,20 @@ describe('ConversationLedgerService', () => {
     expect(older.nextBeforeSequence).toBe(2);
   });
 
+  it('delegates storage estimates, bounded pruning, compaction and guarded rebuilding', async () => {
+    const service = new ConversationLedgerService({ dbPath: ':memory:', enableWAL: false, registry: new NativeConversationRegistry() });
+    services.push(service);
+    await service.appendProviderEventCaptures([0, 1, 2].map((sequence) => ({
+      eventId: `event-${sequence}`, provider: 'codex', instanceId: 'instance-1', sessionId: null, sequence, createdAt: sequence,
+      event: { kind: 'status', status: 'idle' }, raw: { source: 'synthetic', payload: 'idle' },
+    })));
+    expect((await service.getLedgerStorageStats()).providerEvents.estimatedRows).toBe(3);
+    expect(await service.pruneProviderEventCapturesBefore(3, 1)).toBe(1);
+    expect(await service.listProviderEventCaptures({ instanceId: 'instance-1' })).toHaveLength(2);
+    expect((await service.compactLedgerStorage(25_600)).pagesFreed).toBe(0);
+    await expect(service.rebuildLedgerStorage()).rejects.toThrow('half');
+  });
+
   it('exposes scoped evidence operations through the async ledger port', async () => {
     const service = new ConversationLedgerService({
       dbPath: ':memory:',

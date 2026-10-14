@@ -108,6 +108,33 @@ describe('ConversationLedgerWorkerClient', () => {
     await expect(promise).resolves.toBeUndefined();
   });
 
+  it('keeps normal calls at 10 seconds while only rebuilding gets 15 minutes', async () => {
+    vi.useFakeTimers();
+    try {
+      client = new ConversationLedgerWorkerClient({ workerFactory: () => worker as never, userDataPath: '/tmp/test' });
+      const rebuild = client.rebuildLedgerStorage();
+      const rebuildId = lastPosted(worker).id;
+      const normal = client.getLedgerStorageStats();
+      const rejected = expect(normal).rejects.toThrow('10000ms');
+      await vi.advanceTimersByTimeAsync(10_000);
+      await rejected;
+      expect(client.getMetrics().inFlight).toBe(1);
+      respond(worker, rebuildId, { bytesFreed: 42 });
+      await expect(rebuild).resolves.toMatchObject({ bytesFreed: 42 });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('passes the prune limit and bounded vacuum size over the worker protocol', async () => {
+    const prune = client.pruneProviderEventCapturesBefore(100, 20_000);
+    expect(lastPosted(worker)).toMatchObject({ method: 'pruneProviderEventCapturesBefore', args: [100, 20_000] });
+    respond(worker, lastPosted(worker).id, 20_000);
+    await expect(prune).resolves.toBe(20_000);
+    const compact = client.compactLedgerStorage(25_600);
+    expect(lastPosted(worker)).toMatchObject({ method: 'compactLedgerStorage', args: [25_600] });
+    respond(worker, lastPosted(worker).id, { pagesFreed: 1, freePages: 0 });
+    await expect(compact).resolves.toEqual({ pagesFreed: 1, freePages: 0 });
+  });
+
   it('round-trips context-evidence operations through the closed worker protocol', async () => {
     const input = {
       id: 'evidence-1', conversationId: 'thread-1', provider: 'codex',

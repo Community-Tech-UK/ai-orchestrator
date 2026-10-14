@@ -151,7 +151,7 @@ export class ConversationLedgerService {
       db.pragma(`cache_size = -${(config.cacheSize ?? 64) * 1024}`);
       db.pragma('foreign_keys = ON');
       runConversationLedgerMigrations(db);
-      return new InProcessLedgerStorePort(new ConversationLedgerStore(db), db);
+      return new InProcessLedgerStorePort(new ConversationLedgerStore(db, dbPath), db);
     }
     return new ConversationLedgerWorkerClient();
   }
@@ -519,9 +519,13 @@ export class ConversationLedgerService {
     return this.port.listProviderEventCaptures(query);
   }
 
-  async pruneProviderEventCapturesBefore(before: number): Promise<number> {
-    return this.port.pruneProviderEventCapturesBefore(before);
+  async pruneProviderEventCapturesBefore(before: number, limit?: number): Promise<number> {
+    return this.port.pruneProviderEventCapturesBefore(before, limit);
   }
+
+  async getLedgerStorageStats() { return this.port.getLedgerStorageStats(); }
+  async compactLedgerStorage(maxPages: number) { return this.port.compactLedgerStorage(maxPages); }
+  async rebuildLedgerStorage() { return this.port.rebuildLedgerStorage(); }
 
   async stageEvidence(input: EvidenceStageInput): Promise<EvidenceLedgerRecord> {
     return this.port.stageEvidence(input);

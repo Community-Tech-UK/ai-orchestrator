@@ -201,6 +201,20 @@ describe('SessionContinuityManager logging', () => {
     tempDirs.push(mockState.userDataDir);
   });
 
+  it('forgets removed retained records so they cannot be resumed from memory', async () => {
+    const manager = createManager();
+    await manager.readyPromise;
+    await manager.importSession({ state: makeState('retained-old') });
+    const retention = manager as unknown as SessionContinuityManager;
+    const context = retention.getRetentionContext();
+    expect(context.stateDir).toBe(path.join(mockState.userDataDir, 'session-continuity', 'states'));
+    expect(retention.getTrackedInstanceIds().has('retained-old')).toBe(true);
+    await fs.promises.unlink(path.join(context.stateDir, 'retained-old.json'));
+    retention.forgetRetainedSession('retained-old');
+    expect(retention.getTrackedInstanceIds().has('retained-old')).toBe(false);
+    await expect(manager.resumeSession('retained-old')).resolves.toBeNull();
+  });
+
   it('persists one atomic runtime snapshot without mutating the provider cursor', async () => {
     const manager = createManager();
     await manager.readyPromise;

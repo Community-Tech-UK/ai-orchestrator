@@ -4,10 +4,14 @@ import type {
   CliUpdatePillState,
   OperatorArtifactExportRequest,
 } from '../../shared/types/diagnostics.types';
+import type { StorageCleanupTarget } from '../../shared/types/storage.types';
 import type { IpcResponse } from './types';
 
 export function createDiagnosticsDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
   return {
+    storageGetUsage: (force = false): Promise<IpcResponse> => ipcRenderer.invoke(ch.STORAGE_GET_USAGE, { force }),
+    storagePreviewCleanup: (target: StorageCleanupTarget): Promise<IpcResponse> => ipcRenderer.invoke(ch.STORAGE_PREVIEW_CLEANUP, { target }),
+    storageRunCleanup: (target: StorageCleanupTarget, previewId: string): Promise<IpcResponse> => ipcRenderer.invoke(ch.STORAGE_RUN_CLEANUP, { target, previewId }),
     diagnosticsGetDoctorReport: (payload?: {
       workingDirectory?: string;
       force?: boolean;

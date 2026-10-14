@@ -64,20 +64,20 @@ describe('ModelCapabilitiesRegistry', () => {
       expect(caps.supportsThinking).toBe(false);
     });
 
-    it('includes pricing for claude sonnet', () => {
+    it('includes Claude 5.5 pricing for the sonnet shorthand', () => {
       const registry = ModelCapabilitiesRegistry.getInstance();
       const caps = registry.getCapabilities('claude', 'sonnet');
       expect(caps.pricing).toBeDefined();
-      expect(caps.pricing!.inputPerMillion).toBe(3.0);
-      expect(caps.pricing!.outputPerMillion).toBe(15.0);
+      expect(caps.pricing!.inputPerMillion).toBe(2.0);
+      expect(caps.pricing!.outputPerMillion).toBe(10.0);
     });
 
-    it('includes pricing for claude opus', () => {
+    it('includes Claude 5.5 pricing for the opus shorthand', () => {
       const registry = ModelCapabilitiesRegistry.getInstance();
       const caps = registry.getCapabilities('claude', 'opus');
       expect(caps.pricing).toBeDefined();
-      expect(caps.pricing!.inputPerMillion).toBe(5.0);
-      expect(caps.pricing!.outputPerMillion).toBe(25.0);
+      expect(caps.pricing!.inputPerMillion).toBe(4.0);
+      expect(caps.pricing!.outputPerMillion).toBe(20.0);
     });
 
     it('returns Fable 5.1 limits and pricing for the pinned model id', () => {

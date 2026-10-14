@@ -1,3 +1,4 @@
+import { getSettingsManager } from '../core/config/settings-manager';
 import type { EventEmitter } from 'node:events';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
@@ -18,6 +19,7 @@ type LedgerCapturePort = Pick<ConversationLedgerService, 'appendProviderEventCap
 export interface ProviderEventCaptureServiceOptions {
   ledger?: LedgerCapturePort;
   flushDelayMs?: number;
+  enabled?: () => boolean;
 }
 
 /**
@@ -28,6 +30,7 @@ export interface ProviderEventCaptureServiceOptions {
  * ConversationLedgerService's worker-backed port.
  */
 export class ProviderEventCaptureService {
+  private readonly enabled: () => boolean;
   private readonly ledger: LedgerCapturePort;
   private readonly flushDelayMs: number;
   private readonly pending: ProviderEventCaptureInput[] = [];
@@ -38,6 +41,7 @@ export class ProviderEventCaptureService {
   private readonly onRawEvent = (value: unknown): void => this.enqueue(value);
 
   constructor(options: ProviderEventCaptureServiceOptions = {}) {
+    this.enabled = options.enabled ?? (() => getSettingsManager().get('recordProviderEvents') === true);
     this.ledger = options.ledger ?? getConversationLedgerService();
     this.flushDelayMs = Math.max(0, options.flushDelayMs ?? DEFAULT_FLUSH_DELAY_MS);
   }
@@ -99,6 +103,7 @@ export class ProviderEventCaptureService {
   }
 
   private enqueue(value: unknown): void {
+    if (!this.enabled()) return;
     const parsed = ProviderRuntimeEventEnvelopeSchema.safeParse(value);
     if (!parsed.success || !parsed.data.raw) {
       return;

@@ -9,7 +9,7 @@ import { RemoteCliAdapter } from '../../cli/adapters/remote-cli-adapter';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import { getLogger } from '../../logging/logger';
 import type { ConversationEndStatus } from '../../../shared/types/history.types';
-import type { Instance, InstanceStatus, InstanceWaitReason } from '../../../shared/types/instance.types';
+import type { Instance, InstanceStatus, InstanceWaitReason, OutputMessage } from '../../../shared/types/instance.types';
 import { emitPluginHook } from '../../plugins/hook-emitter';
 import { normalizeProjectMemoryKey } from '../../memory/project-memory-key';
 import { clearToolOutcomes } from '../../learning/tool-outcome-store';
@@ -19,6 +19,7 @@ import { getInstanceProviderLimitHandler } from '../instance-provider-limit-hand
 import { getInstanceAuthRepairHandler } from '../instance-auth-repair-handler';
 import { deleteCircuitBreaker } from './respawn-circuit-breaker';
 import { mergeSessionBranchToMain } from './session-branch-merge';
+import { appendLostSelfWakeupNotice } from '../self-wakeup-tracker';
 import { getAutoTitleService } from '../auto-title-service';
 
 const logger = getLogger('InstanceTermination');
@@ -74,6 +75,7 @@ export interface InstanceTerminationDeps {
   archiveInstance: (instance: Instance, status: ConversationEndStatus) => Promise<unknown>;
   importTranscript: (transcript: string, options: TranscriptImportOptions) => void;
   emitRemoved: (instanceId: string) => void;
+  emitSystemOutput?: (instanceId: string, message: OutputMessage) => void;
 }
 
 export class InstanceTerminationCoordinator {
@@ -108,6 +110,8 @@ export class InstanceTerminationCoordinator {
     // Same reasoning for an auth-blocked instance: it holds a polling interval
     // and a Map entry keyed by this id.
     getInstanceAuthRepairHandler().forget(instanceId);
+
+    if (instance) this.warnLostWakeup(instanceId, instance);
 
     if (adapter) {
       // LT-013: a deliberate terminate must not be observed as an *unexpected*
@@ -172,6 +176,11 @@ export class InstanceTerminationCoordinator {
     // LT-196: archiving (above) has already folded these in when it ran at all;
     // a skipped or covered archive must not leave them behind either.
     clearToolOutcomes(instanceId);
+  }
+
+  warnLostWakeup(instanceId: string, instance: Instance): void {
+    const notice = appendLostSelfWakeupNotice(instance);
+    if (notice) this.deps.emitSystemOutput?.(instanceId, notice);
   }
 
   mineTranscript(instanceId: string, instance: Instance, source: 'terminate' | 'hibernate'): void {

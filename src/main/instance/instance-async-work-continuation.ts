@@ -18,6 +18,7 @@ const logger = getLogger('InstanceAsyncWorkContinuation');
  */
 const PROVIDER_RESUME_GRACE_MS = 15_000;
 /** An idle session silent this long while it still owns background work gets one check-in. */
+// Do not shorten Claude stall timers below 5 minutes without reading CHANGELOG.md:4179.
 export const STALLED_WORK_CHECK_IN_AFTER_MS = 10 * 60_000;
 const STALLED_WORK_SWEEP_INTERVAL_MS = 60_000;
 const READY_FOR_AUTOMATIC_INPUT = new Set<Instance['status']>(['idle', 'ready', 'hibernated']);

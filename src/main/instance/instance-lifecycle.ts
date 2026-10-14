@@ -378,6 +378,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       importTranscript: (transcript, options) => {
         getConversationMiner().importFromString(transcript, options);
       },
+      emitSystemOutput: (instanceId, message) => { this.emit('output', { instanceId, message }); },
       emitRemoved: (id) => {
         this.emit('removed', id);
       },
@@ -1985,6 +1986,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     this.deps.queueUpdate(instanceId, 'hibernating', instance.contextUsage);
 
     try {
+      this.terminator.warnLostWakeup(instanceId, instance);
       // Persist session state to disk (archive=true keeps the file for wake).
       const continuity = getSessionContinuityManager();
       await continuity.startTracking(instance);

@@ -16,6 +16,7 @@
  * adapter / registry work stays in the service on the main thread.
  */
 
+import type { LedgerStorageStats, LedgerCompactionResult, LedgerRebuildResult } from './ledger-space-reclaim';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type {
   ConversationCheckpointRecord,
@@ -100,7 +101,10 @@ export interface LedgerStorePort {
   getLatestCheckpoint(threadId: string): Promise<ConversationCheckpointRecord | null>;
   appendProviderEventCaptures(captures: ProviderEventCaptureInput[]): Promise<void>;
   listProviderEventCaptures(query: ProviderEventCaptureQuery): Promise<ProviderEventCaptureRecord[]>;
-  pruneProviderEventCapturesBefore(before: number): Promise<number>;
+  pruneProviderEventCapturesBefore(before: number, limit?: number): Promise<number>;
+  getLedgerStorageStats(): Promise<LedgerStorageStats>;
+  compactLedgerStorage(maxPages: number): Promise<LedgerCompactionResult>;
+  rebuildLedgerStorage(): Promise<LedgerRebuildResult>;
   stageEvidence(input: EvidenceStageInput): Promise<EvidenceLedgerRecord>;
   prepareEvidenceBlob(input: EvidenceFinalizeInput): Promise<EvidenceLedgerRecord>;
   finalizeEvidence(input: EvidenceFinalizeInput): Promise<EvidenceLedgerRecord>;
@@ -246,9 +250,13 @@ export class InProcessLedgerStorePort implements LedgerStorePort {
     return this.store.listProviderEventCaptures(query);
   }
 
-  async pruneProviderEventCapturesBefore(before: number): Promise<number> {
-    return this.store.pruneProviderEventCapturesBefore(before);
+  async pruneProviderEventCapturesBefore(before: number, limit?: number): Promise<number> {
+    return this.store.pruneProviderEventCapturesBefore(before, limit);
   }
+
+  async getLedgerStorageStats() { return this.store.getLedgerStorageStats(); }
+  async compactLedgerStorage(maxPages: number) { return this.store.compactLedgerStorage(maxPages); }
+  async rebuildLedgerStorage() { return this.store.rebuildLedgerStorage(); }
 
   async stageEvidence(input: EvidenceStageInput): Promise<EvidenceLedgerRecord> {
     return this.store.contextEvidence.stageEvidence(input);
@@ -398,6 +406,9 @@ export type LedgerStoreMethod =
   | 'appendProviderEventCaptures'
   | 'listProviderEventCaptures'
   | 'pruneProviderEventCapturesBefore'
+  | 'getLedgerStorageStats'
+  | 'compactLedgerStorage'
+  | 'rebuildLedgerStorage'
   | 'stageEvidence'
   | 'prepareEvidenceBlob'
   | 'finalizeEvidence'

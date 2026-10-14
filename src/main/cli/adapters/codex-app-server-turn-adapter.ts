@@ -315,9 +315,9 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       content = wrapCodexSystemInstructions(prompt, content);
     }
 
-    // Inject RTK awareness on the first turn when the feature is enabled.
-    // Codex has no programmatic PreToolUse hook, so awareness-via-prompt is
-    // the integration surface — keeps shell commands prefixed with `rtk`.
+    // Inject RTK awareness on the first turn. Codex runs PreToolUse hooks
+    // (hooks.json in its home; RTK 0.50+ ships `rtk hook codex`), but Harness
+    // installs none yet (Phase 1, A13), so this prompt note is the route today.
     const includeRtkAwareness = !this.rtkAwarenessSent && this.cliConfig.rtkEnabled;
     if (includeRtkAwareness) {
       content = `${wrapRtkAwareness()}\n\n${content}`;

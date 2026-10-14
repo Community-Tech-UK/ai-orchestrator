@@ -2,6 +2,9 @@
  * IPC channels for Doctor diagnostics, operator artifacts, and CLI update pill state.
  */
 export const DIAGNOSTICS_CHANNELS = {
+  STORAGE_GET_USAGE: 'storage:get-usage',
+  STORAGE_PREVIEW_CLEANUP: 'storage:preview-cleanup',
+  STORAGE_RUN_CLEANUP: 'storage:run-cleanup',
   DIAGNOSTICS_GET_DOCTOR_REPORT: 'diagnostics:get-doctor-report',
   DIAGNOSTICS_GET_SKILL_DIAGNOSTICS: 'diagnostics:get-skill-diagnostics',
   DIAGNOSTICS_GET_INSTRUCTION_DIAGNOSTICS: 'diagnostics:get-instruction-diagnostics',

@@ -172,3 +172,22 @@ describe('buildClaudeCliArgs', () => {
     expect(args).not.toContain('--fallback-model');
   });
 });
+
+
+describe('Claude version gates', () => {
+  it.each(['2.1.266', '2.1.267', null])('omits the cache flag at %s', cliVersion => {
+    expect(buildClaudeCliArgs(baseInput({ cliVersion, excludeDynamicSectionsSupported: true,
+      spawnOptions: { excludeDynamicSystemPromptSections: true } }))).not.toContain('--exclude-dynamic-system-prompt-sections');
+  });
+  it.each(['2.1.268', '2.1.296'])('includes the cache flag at %s only with help support', cliVersion => {
+    const input = baseInput({ cliVersion, excludeDynamicSectionsSupported: true,
+      spawnOptions: { yoloMode: true, excludeDynamicSystemPromptSections: true } });
+    expect(buildClaudeCliArgs(input)).toContain('--exclude-dynamic-system-prompt-sections');
+    expect(buildClaudeCliArgs({ ...input, excludeDynamicSectionsSupported: false })).not.toContain('--exclude-dynamic-system-prompt-sections');
+  });
+  it.each([['2.1.266', true], ['2.1.267', false], [null, false]] as const)('resume at %s carries overlay: %s', (cliVersion, carries) => {
+    const args = buildClaudeCliArgs(baseInput({ cliVersion, shouldUseNativeResume: true, sessionId: 'stub-session',
+      spawnOptions: { resume: true, systemPrompt: 'STUB_OVERLAY' } }));
+    expect(args.includes('--append-system-prompt')).toBe(carries);
+  });
+});

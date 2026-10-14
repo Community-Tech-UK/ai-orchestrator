@@ -82,6 +82,13 @@ describe('RlmStorageMaintenanceStore', () => {
     expect(api.rlmStorageRunMaintenance).toHaveBeenCalledWith('loop-42');
   });
 
+  it('passes selected backup names with the remembered initiating loop', async () => {
+    const store = new RlmStorageMaintenanceStore();
+    await store.openPreview('loop-42');
+    await store.run(undefined, ['old.db']);
+    expect(api.rlmStorageRunMaintenance).toHaveBeenCalledWith('loop-42', ['old.db']);
+  });
+
   it('surfaces failed preview IPC', async () => {
     api.rlmStoragePreviewMaintenance.mockResolvedValue({
       success: false,
@@ -190,6 +197,7 @@ function preview() {
     protectedCodebaseAutoStoreCount: 1,
     cutoffTimestamp: 1,
     retentionDays: 60,
+    backups: [],
     backupDirectory: '/backups',
     canRun: true,
     generatedAt: 1,

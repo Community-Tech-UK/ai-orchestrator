@@ -71,6 +71,7 @@
       "@contracts/schemas/campaign":         ["./packages/contracts/src/schemas/campaign.schemas"],
       "@contracts/schemas/plan-queue":       ["./packages/contracts/src/schemas/plan-queue.schemas"],
       "@contracts/schemas/doc-review":       ["./packages/contracts/src/schemas/doc-review.schemas"],
+      "@contracts/schemas/storage": ["./packages/contracts/src/schemas/storage.schemas"],
       "@contracts/schemas/rlm-maintenance":  ["./packages/contracts/src/schemas/rlm-maintenance.schemas"],
       "@contracts/schemas/rtk":              ["./packages/contracts/src/schemas/rtk.schemas"],
       "@contracts/schemas/context-evidence": ["./packages/contracts/src/schemas/context-evidence.schemas"],

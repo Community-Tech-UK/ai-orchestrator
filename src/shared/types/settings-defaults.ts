@@ -152,6 +152,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxDiskStorageMB: 500, // 500MB max disk storage
   memoryWarningThresholdMB: 1024, // warn at 1GB heap
   autoTerminateOnMemoryPressure: true,
+  recordProviderEvents: false,
   persistSessionContent: true,
   cumulativeTokenCompactionTrigger: 0, // disabled by default (opt-in cost cap)
   compactionDecisionLogEnabled: false, // opt-in decision log on restart-with-summary compaction

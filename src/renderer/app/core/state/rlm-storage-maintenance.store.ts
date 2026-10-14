@@ -10,7 +10,7 @@ import type { IpcResponse } from '../../../../preload/domains/types';
 interface RlmStorageApi {
   rlmStorageGetHealth(): Promise<IpcResponse<RlmStorageHealth>>;
   rlmStoragePreviewMaintenance(loopRunId?: string): Promise<IpcResponse<RlmMaintenancePreview>>;
-  rlmStorageRunMaintenance(loopRunId?: string): Promise<IpcResponse<RlmMaintenanceResult>>;
+  rlmStorageRunMaintenance(loopRunId?: string, deleteOldBackups?: string[]): Promise<IpcResponse<RlmMaintenanceResult>>;
   rlmStorageGetMaintenanceStatus(): Promise<IpcResponse<RlmMaintenanceResult | null>>;
   onRlmStorageMaintenanceProgress(callback: (progress: RlmMaintenanceProgress) => void): () => void;
 }
@@ -111,7 +111,7 @@ export class RlmStorageMaintenanceStore implements OnDestroy {
     this.modalOpen.set(false);
   }
 
-  async run(loopRunId?: string): Promise<void> {
+  async run(loopRunId?: string, deleteOldBackups?: string[]): Promise<void> {
     if (!this.api || this.busy() || !this.preview()?.canRun) return;
     // Fall back to the loop captured at preview time so a modal rendered outside
     // the selected-instance path (the app shell) still resumes the right loop.
@@ -120,7 +120,9 @@ export class RlmStorageMaintenanceStore implements OnDestroy {
     this.error.set(null);
     this.result.set(null);
     try {
-      const response = await this.api.rlmStorageRunMaintenance(targetLoopRunId);
+      const response = await (deleteOldBackups?.length
+        ? this.api.rlmStorageRunMaintenance(targetLoopRunId, deleteOldBackups)
+        : this.api.rlmStorageRunMaintenance(targetLoopRunId));
       if (!response.success || !response.data) {
         this.error.set(response.error?.message ?? 'RLM maintenance failed');
         this.progress.set(null);

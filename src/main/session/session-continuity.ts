@@ -1665,6 +1665,16 @@ export class SessionContinuityManager extends EventEmitter {
    * disk I/O (e.g. to pass configFingerprint + resumeCursor to planSessionRecovery).
    * Returns null when the instance is not tracked.
    */
+  getRetentionContext(): { stateDir: string; metadataDir: string; dirtyIds: Set<string> } {
+    return { stateDir: this.stateDir, metadataDir: this.recoveryMetadataDir, dirtyIds: new Set(this.dirty) };
+  }
+  getTrackedInstanceIds(): Set<string> { return new Set(this.sessionStates.keys()); }
+  forgetRetainedSession(instanceId: string): void {
+    this.persistenceEpochs.advance(instanceId);
+    this.autoSave.clearPendingAutoSaveTimer(instanceId);
+    for (const cache of [this.sessionStates, this.dehydratedStateIds, this.stateActivityTimestamps, this.stateRecoveryMetadata, this.dirty]) cache.delete(instanceId);
+  }
+
   getSessionState(instanceId: string): SessionState | null {
     return this.sessionStates.get(instanceId) ?? null;
   }

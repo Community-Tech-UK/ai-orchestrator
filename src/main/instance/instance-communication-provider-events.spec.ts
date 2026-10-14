@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { describe, expect, it, vi } from 'vitest';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
+import { getSelfWakeupTracker, SelfWakeupTracker } from './self-wakeup-tracker';
 import { bindRawAdapterProviderEvents } from './instance-communication-provider-events';
 import {
   buildParsedToolResultEvidenceIngress,
@@ -146,3 +147,24 @@ function evidenceInstance(): Instance {
     contextEvidence: { mode: 'shadow', conversationId: 'conversation-1', captureFailureCount: 0 },
   };
 }
+
+
+describe('self wakeup provider-event wiring', () => {
+  it('forwards current events and ignores a stale adapter', () => {
+    const adapter = new EventEmitter() as CliAdapter;
+    SelfWakeupTracker._resetForTesting();
+    const tracker = getSelfWakeupTracker();
+    let stale = false;
+    const observeSelfWakeup = vi.fn(event => tracker.observe('stub-session', event));
+    bindRawAdapterProviderEvents({ adapter, isStale: () => stale, emit: vi.fn(), observeSelfWakeup });
+    const now = Date.now();
+    const event = { kind: 'requested', toolUseId: 'stub', requestedAt: now, delaySeconds: 90, dueAt: now + 90_000, reason: '' };
+    try {
+      adapter.emit('self_wakeup', event);
+      stale = true;
+      adapter.emit('self_wakeup', { kind: 'stopped', toolUseId: 'stop', requestedAt: now });
+      expect(observeSelfWakeup).toHaveBeenCalledExactlyOnceWith(event);
+      expect(tracker.hasPending('stub-session')).toBe(true);
+    } finally { SelfWakeupTracker._resetForTesting(); }
+  });
+});

@@ -63,12 +63,19 @@ describe('DoctorSettingsTabComponent sign-in', () => {
       imports: [DoctorSettingsTabComponent],
       providers: [
         { provide: DoctorStore, useValue: store },
-        { provide: SettingsStore, useValue: { get: () => '' } },
+        { provide: SettingsStore, useValue: { get: () => '', settings: signal({}), metadata: [] } },
         { provide: ElectronIpcService, useValue: { getApi } },
         { provide: ActivatedRoute, useValue: { queryParamMap: of({ get: () => null }) } },
         { provide: Router, useValue: { navigate: vi.fn() } },
       ],
     }).compileComponents();
+  });
+
+  it('mounts both housekeeping cards in Doctor', () => {
+    const fixture = TestBed.createComponent(DoctorSettingsTabComponent);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('app-storage-usage-card')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('app-leftover-worktrees-card')).not.toBeNull();
   });
 
   it('only offers one-click sign-in for auth repair actions', () => {

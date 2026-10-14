@@ -67,6 +67,7 @@ export const SETTING_SURFACING = {
   maxDiskStorageMB: 'tab',
   memoryWarningThresholdMB: 'tab',
   autoTerminateOnMemoryPressure: 'tab',
+  recordProviderEvents: 'tab',
   persistSessionContent: 'tab',
   cumulativeTokenCompactionTrigger: 'tab',
   compactionDecisionLogEnabled: 'tab',

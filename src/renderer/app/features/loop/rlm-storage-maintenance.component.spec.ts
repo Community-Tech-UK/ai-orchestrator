@@ -28,7 +28,7 @@ describe('RlmStorageMaintenanceComponent', () => {
   });
 
   it('shows warning health and opens an exact-candidate preview', () => {
-    expect(fixture.nativeElement.textContent).toContain('RLM storage needs maintenance');
+    expect(fixture.nativeElement.textContent).toContain('Learning database needs maintenance');
     click('Review cleanup');
     expect(store.openPreview).toHaveBeenCalledWith('loop-1');
 
@@ -40,6 +40,27 @@ describe('RlmStorageMaintenanceComponent', () => {
     expect(text).toContain('Codebase protected');
     expect(text).toContain('/backups');
     expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeTruthy();
+  });
+
+  it('shows date, time and size, starts unchecked, sends selections and resets on new preview', () => {
+    store.modalOpen.set(true);
+    fixture.detectChanges();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain(new Date(Date.UTC(2026, 6, 12, 11, 32)).toLocaleString());
+    expect(text).toContain('2.00 GiB');
+    expect(fixture.nativeElement.querySelector('[title]')).toBeNull();
+    let checkbox = fixture.nativeElement.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+    click('Back up, prune & compact');
+    expect(store.run).toHaveBeenCalledWith('loop-1', undefined);
+    checkbox.click();
+    fixture.detectChanges();
+    click('Back up, prune & compact');
+    expect(store.run).toHaveBeenLastCalledWith('loop-1', ['old.db']);
+    store.preview.set({ ...store.preview(), generatedAt: 2 });
+    fixture.detectChanges();
+    checkbox = fixture.nativeElement.querySelector('input[type="checkbox"]');
+    expect(checkbox.checked).toBe(false);
   });
 
   it('makes progress non-dismissible and suppresses repeated execution', () => {
@@ -79,7 +100,7 @@ describe('RlmStorageMaintenanceComponent', () => {
     (fixture.componentInstance as unknown as { showModal: () => boolean }).showModal = () => false;
     store.modalOpen.set(true);
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('RLM storage needs maintenance');
+    expect(fixture.nativeElement.textContent).toContain('Learning database needs maintenance');
     expect(fixture.nativeElement.querySelector('.modal-backdrop')).toBeNull();
   });
 
@@ -87,7 +108,7 @@ describe('RlmStorageMaintenanceComponent', () => {
     (fixture.componentInstance as unknown as { showWarning: () => boolean }).showWarning = () => false;
     store.modalOpen.set(true);
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).not.toContain('RLM storage needs maintenance');
+    expect(fixture.nativeElement.textContent).not.toContain('Learning database needs maintenance');
     expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeTruthy();
   });
 
@@ -178,13 +199,22 @@ describe('RlmStorageMaintenanceComponent', () => {
     });
     fixture.detectChanges();
     const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain('RLM storage limit reached');
+    expect(text).toContain('Learning database limit reached');
     expect(text).toContain('Cleanup completed and verified');
     expect(text).toContain('Database: 12.0 GiB before · 12.0 GiB after');
     expect(text).toContain('External content: 20 B before · 10 B after');
     expect(text).toContain('/backups/verified.db');
     expect(text).toContain('2 external content files could not be removed');
     expect(text).toContain('still at or above 12 GiB');
+  });
+
+  it('reports only earlier retained backups separately from the newly created backup', () => {
+    store.modalOpen.set(true);
+    store.result.set({ ...successResult(), backupsPruned: 0, backupsKept: 2 });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('2 earlier backups kept');
+    expect(fixture.nativeElement.textContent).not.toContain('3 earlier backups kept');
+    expect(fixture.nativeElement.textContent).toContain('/backups/verified.db');
   });
 
   it('reports retained backup cleanup when old backups were pruned', () => {
@@ -249,6 +279,7 @@ function fakeStore() {
       protectedCodebaseAutoStoreCount: 2,
       cutoffTimestamp: 1,
       retentionDays: 60,
+      backups: [{ name: 'new.db', createdAt: Date.UTC(2026, 6, 12, 17, 5), bytes: 1024 ** 3, wouldBeRemoved: false }, { name: 'old.db', createdAt: Date.UTC(2026, 6, 12, 11, 32), bytes: 2 * 1024 ** 3, wouldBeRemoved: true }],
       backupDirectory: '/backups',
       canRun: true,
       generatedAt: 1,

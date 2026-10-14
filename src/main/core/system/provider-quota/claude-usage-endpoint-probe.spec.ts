@@ -1,10 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   ClaudeUsageEndpointProbe,
   claudeUsageAccess,
   parseUsagePayload,
   type UsageFetch,
 } from './claude-usage-endpoint-probe';
+const logs = vi.hoisted(() => ({ warn: vi.fn(), debug: vi.fn() }));
+vi.mock('../../../logging/logger', () => ({ getLogger: () => logs }));
+
 import type { CredentialResult } from './claude-credentials-reader';
 
 function reader(result: CredentialResult): { read: () => Promise<CredentialResult> } {
@@ -12,7 +15,7 @@ function reader(result: CredentialResult): { read: () => Promise<CredentialResul
 }
 
 const VALID_CREDENTIAL: CredentialResult = {
-  credential: { accessToken: 'sk-ant-oat01-x', expiresAt: Date.now() + 1_000_000, subscriptionType: 'max' },
+  credential: { accessToken: 'TEST_OAUTH_PLACEHOLDER', expiresAt: Date.now() + 1_000_000, subscriptionType: 'max' },
 };
 
 /** A realistic oauth/usage payload (utilization is a 0–100 percentage). */
@@ -196,5 +199,55 @@ describe('ClaudeUsageEndpointProbe', () => {
       expect(snap!.ok).toBe(false);
       expect(snap!.error).toMatch(/unexpected body/i);
     });
+  });
+});
+
+
+describe('Claude quota cooldown', () => {
+  it('waits after 429, expires at the deadline, and force bypasses it', async () => {
+    const fetch = vi.fn(async () => ({ status: 429, body: null, retryAfterMs: 120_000 }));
+    vi.useFakeTimers();
+    try {
+      const probe = new ClaudeUsageEndpointProbe({ credentialsReader: reader(VALID_CREDENTIAL), fetchUsage: fetch });
+      expect((await probe.probe({ signal: signal() }))?.ok).toBe(false);
+      expect(await probe.probe({ signal: signal() })).toBeNull();
+      expect(fetch).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(120_000);
+      await probe.probe({ signal: signal() });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      await probe.probe({ signal: signal(), force: true });
+      expect(fetch).toHaveBeenCalledTimes(3);
+    } finally { vi.useRealTimers(); }
+  });
+  it.each([[undefined, 300_000], [10_000, 60_000], [7_200_000, 3_600_000]])('clamps a delay of %s to %s', async (retryAfterMs, delay) => {
+    const fetch = vi.fn(async () => ({ status: 429, body: null, retryAfterMs }));
+    vi.useFakeTimers();
+    try {
+      const probe = new ClaudeUsageEndpointProbe({ credentialsReader: reader(VALID_CREDENTIAL), fetchUsage: fetch });
+      await probe.probe({ signal: signal() });
+      vi.advanceTimersByTime(delay - 1);
+      expect(await probe.probe({ signal: signal() })).toBeNull();
+      vi.advanceTimersByTime(1);
+      await probe.probe({ signal: signal() });
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+
+describe('production quota Retry-After header', () => {
+  it('reads the HTTP-date header through the real fetch wrapper and logs the 429 cooldown', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-10T12:00:00Z'));
+    const fetch = vi.fn(async () => new Response('', { status: 429, headers: { 'Retry-After': 'Sat, 10 Oct 2026 12:02:00 GMT' } }));
+    vi.stubGlobal('fetch', fetch);
+    try {
+      const probe = new ClaudeUsageEndpointProbe({ credentialsReader: reader(VALID_CREDENTIAL) });
+      expect((await probe.probe({ signal: signal() }))?.ok).toBe(false);
+      expect(await probe.probe({ signal: signal() })).toBeNull();
+      vi.advanceTimersByTime(120_000);
+      await probe.probe({ signal: signal() });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(logs.warn).toHaveBeenCalledWith('Claude usage endpoint rate-limited', { retryAfterMs: 120_000, cooldownUntil: Date.parse('2026-10-10T12:02:00Z') });
+    } finally { vi.unstubAllGlobals(); vi.useRealTimers(); }
   });
 });

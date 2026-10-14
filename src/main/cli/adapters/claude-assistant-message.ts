@@ -12,6 +12,7 @@ import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 import { parseClaudeStreamError } from './claude-stream-error';
 import { parseClaudeAsyncWorkToolUse, type CliAsyncWorkEvent } from './claude-cli-async-work';
+import { sanitizeClaudeToolInput } from './claude-cli-self-wakeup';
 import type { RawCliPayload } from './claude-cli-adapter.types';
 
 export interface ClaudeAssistantMessageHost {
@@ -82,7 +83,7 @@ export function processClaudeAssistantMessage(
         emitAssistantTextBlock(block.text);
       } else if (block.type === 'tool_use' && block.name) {
         const toolUseId = block.id || generateId();
-        const toolInput = block.input || {};
+        const toolInput = sanitizeClaudeToolInput(block.name, block.input || {});
         host.rememberToolUse(toolUseId, block.name, toolInput);
         host.emitAsyncWork(parseClaudeAsyncWorkToolUse(block.name, toolUseId, toolInput));
 

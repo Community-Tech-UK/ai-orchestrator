@@ -1,3 +1,4 @@
+import type { RlmBackupSet } from './rlm-backup-retention';
 import { EventEmitter } from 'node:events';
 import * as path from 'node:path';
 import type {
@@ -72,7 +73,8 @@ export interface RlmStorageMaintenanceDependencies {
   now(): number;
   createOperationId(): string;
   backupDirectory: string;
-  pruneBackups(keepCount: number): { deleted: number; bytesFreed: number; failed: number };
+  listBackups(): RlmBackupSet[];
+  pruneBackups(keepCount: number, onlyNames: ReadonlySet<string>): { deleted: number; bytesFreed: number; failed: number };
 }
 
 interface ActiveOperation {
@@ -135,6 +137,9 @@ export class RlmStorageMaintenanceService extends EventEmitter {
       cutoffTimestamp,
       retentionDays: RLM_STALE_STORE_RETENTION_DAYS,
       backupDirectory: this.dependencies.backupDirectory,
+      backups: this.dependencies.listBackups().map((backup, index) => ({
+        ...backup, wouldBeRemoved: index >= RLM_BACKUP_RETENTION_COUNT - 1,
+      })),
       canRun: !this.isRunning()
         && (inspection.eligibleStoreCount > 0 || measured.reclaimableDatabaseBytes > 0),
       generatedAt,
@@ -218,7 +223,18 @@ export class RlmStorageMaintenanceService extends EventEmitter {
       await this.dependencies.reload();
 
       const after = this.dependencies.database.measure();
-      const backupRetention = this.dependencies.pruneBackups(RLM_BACKUP_RETENTION_COUNT);
+      let backupRetention = { deleted: 0, bytesFreed: 0, failed: 0 };
+      const earlierBackups = this.dependencies.listBackups();
+      const createdBackupName = path.basename(backup.dbBackupPath);
+      if (request.deleteOldBackups?.length) {
+        const eligibleNames = new Set(earlierBackups.slice(RLM_BACKUP_RETENTION_COUNT).map((backup) => backup.name));
+        const selectedNames = new Set(request.deleteOldBackups.filter((name) => eligibleNames.has(name)));
+        logger.info('RLM backup deletion selections checked', { operationId, ignored: request.deleteOldBackups.length - selectedNames.size });
+        if (selectedNames.size > 0) backupRetention = this.dependencies.pruneBackups(RLM_BACKUP_RETENTION_COUNT, selectedNames);
+      } else {
+        logger.info(`Kept ${earlierBackups.filter((backup) => backup.name !== createdBackupName).length} earlier backups; no deletion was requested`, { operationId });
+      }
+      const backupsKept = this.dependencies.listBackups().filter((backup) => backup.name !== createdBackupName).length;
       if (backupRetention.failed > 0) {
         logger.warn('Some old RLM maintenance backup paths could not be removed', {
           operationId,
@@ -248,6 +264,7 @@ export class RlmStorageMaintenanceService extends EventEmitter {
         ),
         backupPath: backupPath!,
         backupsPruned: backupRetention.deleted,
+        backupsKept,
         backupBytesFreed: backupRetention.bytesFreed,
         externalContentCleanupFailures,
         loopResumed,
@@ -264,6 +281,7 @@ export class RlmStorageMaintenanceService extends EventEmitter {
         externalContentSizeAfterBytes: after.externalContentSizeBytes,
         verifiedBytesReclaimed: result.status === 'success' ? result.verifiedBytesReclaimed : 0,
         backupsPruned: backupRetention.deleted,
+        backupsKept,
         backupBytesFreed: backupRetention.bytesFreed,
         backupPruneFailures: backupRetention.failed,
         externalContentCleanupFailures,

@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'child_process';
+import { getCliDetectionService } from '../cli-detection';
 
 /** The optional, version-dependent prompt-cache optimization flag. */
 export const EXCLUDE_DYNAMIC_SECTIONS_FLAG = '--exclude-dynamic-system-prompt-sections';
@@ -15,27 +16,34 @@ export function helpAdvertisesExcludeDynamicSections(helpOutput: string): boolea
   return helpOutput.includes(EXCLUDE_DYNAMIC_SECTIONS_FLAG);
 }
 
-export function isVersionAtLeast(version: string | undefined, minimumVersion: string): boolean {
-  if (!version || version === 'unknown') {
-    return false;
+export const EXCLUDE_DYNAMIC_MIN_VERSION = '2.1.268';
+export const RECORDED_PROMPT_MIN_VERSION = '2.1.267';
+
+function parseVersion(version: string | undefined | null): number[] | null {
+  return version && /^\d+\.\d+\.\d+$/.test(version) ? version.split('.').map(Number) : null;
+}
+
+export function isVersionAtLeast(version: string | undefined | null, minimumVersion: string): boolean {
+  const current = parseVersion(version);
+  const minimum = parseVersion(minimumVersion);
+  if (!current || !minimum) return false;
+  for (let index = 0; index < 3; index += 1) {
+    if (current[index] !== minimum[index]) return current[index] > minimum[index];
   }
-
-  const currentParts = version.split('.').map((part) => Number.parseInt(part, 10));
-  const minimumParts = minimumVersion.split('.').map((part) => Number.parseInt(part, 10));
-  const maxLength = Math.max(currentParts.length, minimumParts.length);
-
-  for (let index = 0; index < maxLength; index += 1) {
-    const currentPart = Number.isFinite(currentParts[index]) ? currentParts[index] : 0;
-    const minimumPart = Number.isFinite(minimumParts[index]) ? minimumParts[index] : 0;
-    if (currentPart > minimumPart) {
-      return true;
-    }
-    if (currentPart < minimumPart) {
-      return false;
-    }
-  }
-
   return true;
+}
+
+export function isKnownOlderThan(version: string | undefined | null, minimumVersion: string): boolean {
+  return !!parseVersion(version) && !!parseVersion(minimumVersion) && !isVersionAtLeast(version, minimumVersion);
+}
+
+/** One fallback for main-process callers; workers probe their machine when it returns null. */
+export function resolveClaudeCliVersion(adapterVersion: string | undefined | null): string | null {
+  if (parseVersion(adapterVersion)) return adapterVersion!;
+  try {
+    const detected = getCliDetectionService().peekCachedResult()?.detected.find(entry => entry.name === 'claude')?.version;
+    return parseVersion(detected) ? detected! : null;
+  } catch { return null; }
 }
 
 export function detectExcludeDynamicSectionsSupport(

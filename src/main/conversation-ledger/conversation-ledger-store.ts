@@ -1,3 +1,4 @@
+import { getLedgerStorageStats, compactLedgerStorage, rebuildLedgerStorage } from './ledger-space-reclaim';
 import { randomUUID } from 'crypto';
 import { getLogger } from '../logging/logger';
 import type { SqliteDriver } from '../db/sqlite-driver';
@@ -85,7 +86,7 @@ export class ConversationLedgerStore {
   private readonly providerEventCaptures: ProviderEventCaptureStore;
   readonly contextEvidence: ContextEvidenceLedgerStore;
 
-  constructor(private readonly db: SqliteDriver) {
+  constructor(private readonly db: SqliteDriver, private readonly dbPath?: string) {
     this.providerEventCaptures = new ProviderEventCaptureStore(db);
     this.contextEvidence = new ContextEvidenceLedgerStore(db);
   }
@@ -543,8 +544,16 @@ export class ConversationLedgerStore {
     return this.providerEventCaptures.list(query);
   }
 
-  pruneProviderEventCapturesBefore(before: number): number {
-    return this.providerEventCaptures.pruneBefore(before);
+  pruneProviderEventCapturesBefore(before: number, limit?: number): number {
+    return this.providerEventCaptures.pruneBefore(before, limit);
+  }
+  getLedgerStorageStats() { return getLedgerStorageStats(this.db); }
+  compactLedgerStorage(maxPages: number) { return compactLedgerStorage(this.db, maxPages); }
+  rebuildLedgerStorage() {
+    const filename = this.dbPath
+      ?? (this.db.pragma('database_list') as { name: string; file: string }[]).find((item) => item.name === 'main')?.file;
+    if (!filename) throw new Error('Rebuild requires an on-disk ledger');
+    return rebuildLedgerStorage(this.db, { dbPath: filename });
   }
 
   private upsertMessage(threadId: string, input: ConversationMessageUpsertInput): string {

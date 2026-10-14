@@ -178,12 +178,38 @@ function generate(): string {
   }
 }
 
+/**
+ * Name both versions and the minor-version gap in a stale `--check` failure,
+ * matching `describeSnapshotGap` in codex-protocol-snapshot-check.ts (patch
+ * bumps do not count; a new major always represents an older snapshot).
+ */
+function describeStaleDetail(current: string, generatedText: string): string {
+  const readVersion = (text: string): { label: string; major: number; minor: number } | null => {
+    const match = /CODEX_APP_SERVER_PROTOCOL_VERSION = "codex-cli (\d+\.\d+\.\d+)"/.exec(text);
+    return match
+      ? { label: match[1]!, major: Number(match[1].split('.')[0]), minor: Number(match[1].split('.')[1]) }
+      : null;
+  };
+  const snapshot = readVersion(current);
+  const installed = readVersion(generatedText);
+  if (!snapshot || !installed) return '';
+  if (installed.major < snapshot.major) return `: snapshot ${snapshot.label}, installed ${installed.label}`;
+  const gap =
+    installed.major > snapshot.major
+      ? Math.max(1, installed.minor - snapshot.minor)
+      : installed.minor > snapshot.minor
+        ? installed.minor - snapshot.minor
+        : null;
+  const gapText = gap === null ? '' : ` (${gap} minor versions behind)`;
+  return `: snapshot ${snapshot.label}, installed ${installed.label}${gapText}`;
+}
+
 const generated = generate();
 if (process.argv.includes('--check')) {
   const current = readFileSync(OUTPUT_PATH, 'utf8');
   if (current !== generated) {
     throw new Error(
-      `Codex protocol manifest is stale. Run: npm run generate:codex-protocol (${relative(ROOT, OUTPUT_PATH)})`,
+      `Codex protocol manifest is stale${describeStaleDetail(current, generated)}. Run: npm run generate:codex-protocol (${relative(ROOT, OUTPUT_PATH)})`,
     );
   }
 } else {

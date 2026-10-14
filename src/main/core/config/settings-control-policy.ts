@@ -349,6 +349,7 @@ export const SETTINGS_TOOL_POLICY = {
   maxDiskStorageMB: open(numberSettingSchema('maxDiskStorageMB')),
   memoryWarningThresholdMB: open(numberSettingSchema('memoryWarningThresholdMB')),
   autoTerminateOnMemoryPressure: open(z.boolean()),
+  recordProviderEvents: open(z.boolean()),
   persistSessionContent: open(z.boolean()),
   cumulativeTokenCompactionTrigger: open(numberSettingSchema('cumulativeTokenCompactionTrigger')),
   compactionDecisionLogEnabled: open(z.boolean()),

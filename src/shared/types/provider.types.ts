@@ -363,6 +363,11 @@ export const RETIRED_PROVIDER_MODELS: Readonly<Record<string, readonly string[]>
   grok: [GROK_MODELS.GROK_45],
 };
 
+/** IDs priced for accounting, without offering them in the model picker. */
+export const PRICED_ONLY_PROVIDER_MODELS: Readonly<Record<string, readonly string[]>> = {
+  claude: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'],
+};
+
 /**
  * Default models for each provider. OpenCode has none on purpose: its model ids
  * are `provider/model` pairs that depend on which backends the user connected,
@@ -403,18 +408,20 @@ export const DEFAULT_MODELS: Record<Exclude<ProviderType, 'opencode'>, string> &
  * Known model pricing (USD per million tokens)
  */
 export const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  // Claude current models (bare shorthand keys)
-  [CLAUDE_MODELS.SONNET]: { input: 3.0, output: 15.0 },
-  [CLAUDE_MODELS.SONNET_1M]: { input: 3.0, output: 15.0 },
-  [CLAUDE_MODELS.OPUS]: { input: 5.0, output: 25.0 },
-  [CLAUDE_MODELS.OPUS_1M]: { input: 5.0, output: 25.0 },
-  [CLAUDE_MODELS.HAIKU]: { input: 1.0, output: 5.0 },
+  // Claude current models (bare shorthand keys, Claude 5.5)
+  [CLAUDE_MODELS.SONNET]: { input: 2.0, output: 10.0 },
+  [CLAUDE_MODELS.SONNET_1M]: { input: 2.0, output: 10.0 },
+  [CLAUDE_MODELS.OPUS]: { input: 4.0, output: 20.0 },
+  [CLAUDE_MODELS.OPUS_1M]: { input: 4.0, output: 20.0 },
+  [CLAUDE_MODELS.HAIKU]: { input: 0.10, output: 0.50 },
+  // Haiku 5.5 prompts over 100K cost five times more; this flat table cannot express that.
+  'claude-opus-5-5': { input: 4.0, output: 20.0 },
+  'claude-sonnet-5-5': { input: 2.0, output: 10.0 },
+  'claude-haiku-5-5': { input: 0.10, output: 0.50 },
   // Claude models (full IDs for API-level pricing lookups)
   [CLAUDE_PINNED_MODELS.FABLE_51]: { input: 10.0, output: 50.0 },
   [CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5]: { input: 10.0, output: 50.0 },
-  // Introductory pricing through 2026-08-31; reverts to 3.0/15.0 on 2026-09-01.
-  // Live models.dev overlay takes precedence at runtime, so the switch is picked
-  // up automatically — this static value is just the offline fallback.
+  // Sonnet 5 standing list price; the live models.dev overlay takes precedence.
   'claude-sonnet-5': { input: 2.0, output: 10.0 },
   'claude-sonnet-4-6-20260401': { input: 3.0, output: 15.0 },
   'claude-opus-4-6-20260401': { input: 5.0, output: 25.0 },

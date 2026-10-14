@@ -17,7 +17,9 @@
  *  1. Update RTK_VERSION below
  *  2. Run this script (it'll download but mismatch hashes, capture printed actuals)
  *  3. Update scripts/rtk-binaries.sha256.json with the printed actuals
- *  4. Commit both files
+ *  4. Update RTK_BUNDLED_VERSION in src/main/cli/rtk/rtk-runtime.ts
+ *  5. Run src/main/cli/rtk/rtk-version-pins.spec.ts; commit all three pins together
+ * The binaries under resources/rtk are tracked in git, so a bump commits about 20 MB of history.
  *
  * To bypass for local dev / CI runs that don't need rtk: set FETCH_RTK_SKIP=1.
  */
@@ -29,7 +31,7 @@ const crypto = require('node:crypto');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 
-const RTK_VERSION = '0.39.0';
+const RTK_VERSION = '0.51.0';
 const projectRoot = path.resolve(__dirname, '..');
 const outputRoot = path.join(projectRoot, 'resources', 'rtk');
 const manifestPath = path.join(__dirname, 'rtk-binaries.sha256.json');

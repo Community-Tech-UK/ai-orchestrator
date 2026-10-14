@@ -7,7 +7,7 @@
  * Codex/Gemini used a flat $30/M blended rate).
  *
  * Rates in `MODEL_PRICING` are USD per 1M tokens. Cache reads normally bill at
- * 10% of the input rate; Fable 5.1 reads bill at 2.5%. Cache writes bill at the
+ * 10% of the input rate; Opus/Sonnet 5.5 read at 5%, Fable 5.1 at 2.5%. Cache writes bill at the
  * input rate (Anthropic-style prompt caching) except on GPT-5.6 and later,
  * where OpenAI charges 1.25x — see {@link getCacheWriteMultiplier}.
  * Reasoning/thinking tokens bill at the output rate, so callers should fold
@@ -18,7 +18,7 @@
  * accounting. Use this helper only to price token counts when no authoritative
  * cost is reported.
  */
-import { MODEL_PRICING, PROVIDER_MODEL_LIST, RETIRED_PROVIDER_MODELS } from '../types/provider.types';
+import { CLAUDE_MODELS, MODEL_PRICING, PROVIDER_MODEL_LIST, RETIRED_PROVIDER_MODELS, PRICED_ONLY_PROVIDER_MODELS } from '../types/provider.types';
 
 export interface TokenCostInput {
   inputTokens?: number;
@@ -144,7 +144,8 @@ export function getProviderModelRate(
     (entry) => entry.id === normalizedModel,
   );
   const retired = (RETIRED_PROVIDER_MODELS[normalizedProvider] ?? []).includes(normalizedModel);
-  if (!offered && !retired) {
+  const pricedOnly = (PRICED_ONLY_PROVIDER_MODELS[normalizedProvider] ?? []).includes(normalizedModel);
+  if (!offered && !retired && !pricedOnly) {
     return undefined;
   }
   return MODEL_PRICING[normalizedModel];
@@ -182,13 +183,20 @@ export function getModelRate(model: string | undefined | null): ModelRate {
  */
 const OPENAI_CACHE_WRITE_MULTIPLIER = 1.25;
 const DEFAULT_CACHE_READ_MULTIPLIER = 0.1;
-const FABLE_51_CACHE_READ_MULTIPLIER = 0.025;
+const CACHE_READ_MULTIPLIERS: Readonly<Record<string, number>> = {
+  'claude-fable-5-1': 0.025,
+  'claude-opus-5-5': 0.05,
+  'claude-sonnet-5-5': 0.05,
+  [CLAUDE_MODELS.SONNET]: 0.05,
+  [CLAUDE_MODELS.SONNET_1M]: 0.05,
+  [CLAUDE_MODELS.OPUS]: 0.05,
+  [CLAUDE_MODELS.OPUS_1M]: 0.05,
+  // Haiku 5.5 cache-read rate not published in the changelog; use the default.
+};
 
 /** Cache-read multiplier applied on top of the input rate for `model`. */
 export function getCacheReadMultiplier(model: string | undefined | null): number {
-  return model?.trim().toLowerCase() === 'claude-fable-5-1'
-    ? FABLE_51_CACHE_READ_MULTIPLIER
-    : DEFAULT_CACHE_READ_MULTIPLIER;
+  return CACHE_READ_MULTIPLIERS[model?.trim().toLowerCase() ?? ''] ?? DEFAULT_CACHE_READ_MULTIPLIER;
 }
 
 /**

@@ -43,6 +43,7 @@ export const aliases = {
   '@contracts/schemas/campaign': resolve(configDir, './packages/contracts/src/schemas/campaign.schemas'),
   '@contracts/schemas/plan-queue': resolve(configDir, './packages/contracts/src/schemas/plan-queue.schemas'),
   '@contracts/schemas/doc-review': resolve(configDir, './packages/contracts/src/schemas/doc-review.schemas'),
+  '@contracts/schemas/storage': resolve(configDir, './packages/contracts/src/schemas/storage.schemas'),
   '@contracts/schemas/rlm-maintenance': resolve(configDir, './packages/contracts/src/schemas/rlm-maintenance.schemas'),
   '@contracts/schemas/rtk': resolve(configDir, './packages/contracts/src/schemas/rtk.schemas'),
   '@contracts/schemas/context-evidence': resolve(configDir, './packages/contracts/src/schemas/context-evidence.schemas'),

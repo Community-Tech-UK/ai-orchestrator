@@ -47,6 +47,15 @@ describe('RlmStorageMaintenanceService', () => {
     });
   });
 
+  it('marks earlier backups and ignores protected or unknown selections', async () => {
+    const listBackups = () => [{ name: 'new.db', createdAt: 3, bytes: 10 }, { name: 'kept.db', createdAt: 2, bytes: 10 }, { name: 'old.db', createdAt: 1, bytes: 10 }];
+    const pruneBackups = vi.fn(() => ({ deleted: 0, bytesFreed: 0, failed: 0 }));
+    const { service } = makeService({}, { listBackups, pruneBackups });
+    expect(service.preview({}).backups.map((backup) => backup.wouldBeRemoved)).toEqual([false, true, true]);
+    await service.run({ deleteOldBackups: ['new.db', 'kept.db', '../unknown.db'] });
+    expect(pruneBackups).not.toHaveBeenCalled();
+  });
+
   it('allows compaction-only maintenance only when free pages are reclaimable', () => {
     const empty = makeService({ reclaimableDatabaseBytes: 0 });
     empty.database.inspect.mockReturnValue({
@@ -63,6 +72,13 @@ describe('RlmStorageMaintenanceService', () => {
       protectedCodebaseAutoStoreCount: 0,
     });
     expect(compactable.service.preview({}).canRun).toBe(true);
+  });
+
+  it('keeps every backup when deletion was not selected', async () => {
+    const pruneBackups = vi.fn(() => ({ deleted: 1, bytesFreed: 10, failed: 0 }));
+    const { service } = makeService({}, { pruneBackups, listBackups: () => [{ name: 'old.db', createdAt: 1, bytes: 10 }] });
+    await expect(service.run({})).resolves.toMatchObject({ status: 'success', backupsPruned: 0, backupsKept: 1 });
+    expect(pruneBackups).not.toHaveBeenCalled();
   });
 
   it('creates and verifies a content-inclusive backup before pruning', async () => {
@@ -192,21 +208,21 @@ describe('RlmStorageMaintenanceService', () => {
 
   it('prunes older backups only after a successful reload and returns its summary', async () => {
     const pruneBackups = vi.fn(() => ({ deleted: 2, bytesFreed: 1234, failed: 0 }));
-    const { service, lifecycle } = makeService({}, { pruneBackups });
+    const { service, lifecycle } = makeService({}, { pruneBackups, listBackups: () => [{ name: 'new.db', createdAt: 3, bytes: 10 }, { name: 'kept.db', createdAt: 2, bytes: 10 }, { name: 'old.db', createdAt: 1, bytes: 10 }] });
 
-    await expect(service.run({})).resolves.toMatchObject({
+    await expect(service.run({ deleteOldBackups: ['old.db'] })).resolves.toMatchObject({
       status: 'success',
       backupsPruned: 2,
       backupBytesFreed: 1234,
     });
     expect(pruneBackups).toHaveBeenCalledOnce();
-    expect(pruneBackups).toHaveBeenCalledWith(RLM_BACKUP_RETENTION_COUNT);
+    expect(pruneBackups).toHaveBeenCalledWith(RLM_BACKUP_RETENTION_COUNT, new Set(['old.db']));
     expect(pruneBackups).toHaveBeenCalledAfter(lifecycle.reload);
   });
 
   it('does not prune old backups when maintenance fails', async () => {
     const pruneBackups = vi.fn(() => ({ deleted: 2, bytesFreed: 1234, failed: 0 }));
-    const { service, database } = makeService({}, { pruneBackups });
+    const { service, database } = makeService({}, { pruneBackups, listBackups: () => [{ name: 'new.db', createdAt: 3, bytes: 10 }, { name: 'kept.db', createdAt: 2, bytes: 10 }, { name: 'old.db', createdAt: 1, bytes: 10 }] });
     database.vacuum.mockImplementation(() => { throw new Error('disk full'); });
 
     await expect(service.run({})).resolves.toMatchObject({ status: 'failed', failedStage: 'compacting' });
@@ -268,6 +284,7 @@ function makeService(
     now: () => NOW,
     createOperationId: () => 'op-1',
     backupDirectory: '/backups',
+    listBackups: vi.fn(() => []),
     pruneBackups: vi.fn(() => ({ deleted: 0, bytesFreed: 0, failed: 0 })),
     ...dependencyOverrides,
   });

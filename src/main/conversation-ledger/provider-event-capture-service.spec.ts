@@ -7,6 +7,9 @@ import {
 } from './provider-event-capture-service';
 import { _resetForTesting, runCleanupFunctions } from '../util/cleanup-registry';
 
+const settings = vi.hoisted(() => ({ record: false }));
+vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ get: () => settings.record }) }));
+
 describe('ProviderEventCaptureService', () => {
   let events: EventEmitter;
   let appendProviderEventCaptures: ReturnType<typeof vi.fn>;
@@ -18,6 +21,7 @@ describe('ProviderEventCaptureService', () => {
     appendProviderEventCaptures = vi.fn().mockResolvedValue(undefined);
     service = new ProviderEventCaptureService({
       ledger: { appendProviderEventCaptures },
+      enabled: () => true,
     });
     service.start(events);
   });
@@ -25,6 +29,46 @@ describe('ProviderEventCaptureService', () => {
   afterEach(async () => {
     await service.stop();
     _resetForTesting();
+  });
+
+  it('ignores raw events while the debug record is off', async () => {
+    await service.stop();
+    service = new ProviderEventCaptureService({ ledger: { appendProviderEventCaptures }, enabled: () => false });
+    service.start(events);
+    events.emit('provider:raw-event', envelope({ raw: { source: 'test', payload: 'hello' } }));
+    await service.flush();
+    expect(appendProviderEventCaptures).not.toHaveBeenCalled();
+  });
+
+  it('reads the production setting on every raw event', async () => {
+    await service.stop();
+    settings.record = false;
+    service = new ProviderEventCaptureService({ ledger: { appendProviderEventCaptures } });
+    service.start(events);
+    events.emit('provider:raw-event', envelope({ raw: { source: 'test', payload: 'off' } }));
+    await service.flush();
+    expect(appendProviderEventCaptures).not.toHaveBeenCalled();
+    settings.record = true;
+    events.emit('provider:raw-event', envelope({ raw: { source: 'test', payload: 'on' } }));
+    await service.flush();
+    expect(appendProviderEventCaptures).toHaveBeenCalledOnce();
+    settings.record = false;
+  });
+
+  it('applies switch changes immediately and drains previously queued captures', async () => {
+    await service.stop();
+    let enabled = false;
+    service = new ProviderEventCaptureService({ ledger: { appendProviderEventCaptures }, enabled: () => enabled });
+    service.start(events);
+    events.emit('provider:raw-event', envelope({ raw: { source: 'test', payload: 'ignored' } }));
+    enabled = true;
+    events.emit('provider:raw-event', envelope({ raw: { source: 'test', payload: 'queued' } }));
+    enabled = false;
+    events.emit('provider:raw-event', envelope({ raw: { source: 'test', payload: 'ignored again' } }));
+    await service.flush();
+    expect(appendProviderEventCaptures).toHaveBeenCalledOnce();
+    expect(appendProviderEventCaptures.mock.calls[0][0]).toHaveLength(1);
+    expect(appendProviderEventCaptures.mock.calls[0][0][0].raw.payload).toBe('queued');
   });
 
   it('batches raw-backed canonical events without requiring a conversation thread', async () => {
@@ -89,6 +133,7 @@ describe('ProviderEventCaptureService', () => {
       await service.stop();
       service = new ProviderEventCaptureService({
         ledger: { appendProviderEventCaptures },
+      enabled: () => true,
         flushDelayMs: 0,
       });
       service.start(events);

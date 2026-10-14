@@ -1,6 +1,7 @@
 import { IpcRenderer, IpcRendererEvent } from 'electron';
 import { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
+import type { WorktreeLeftoversPreviewPayload, WorktreeLeftoversRemovePayload } from '@contracts/schemas/workspace-tools';
 
 export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
   return {
@@ -198,6 +199,15 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     },
     worktreeGetStatus: (worktreeId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.WORKTREE_GET_STATUS, { worktreeId });
+    },
+    worktreeLeftoversList: (payload: { workingDirectory?: string } = {}): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.WORKTREE_LEFTOVERS_LIST, payload);
+    },
+    worktreeLeftoversPreview: (payload: WorktreeLeftoversPreviewPayload): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.WORKTREE_LEFTOVERS_PREVIEW, payload);
+    },
+    worktreeLeftoversRemove: (payload: WorktreeLeftoversRemovePayload): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.WORKTREE_LEFTOVERS_REMOVE, payload);
     },
 
     todoGetList: (sessionId: string): Promise<IpcResponse> => {

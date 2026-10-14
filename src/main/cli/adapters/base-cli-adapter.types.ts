@@ -1,3 +1,4 @@
+import type { ClaudeSelfWakeupEvent } from './claude-cli-self-wakeup';
 import type { DegradedReason } from './degraded-output-classifier';
 import type { ContextUsage } from '../../../shared/types/instance.types';
 import type { CliAsyncWorkEvent } from './claude-cli-async-work';
@@ -372,6 +373,7 @@ export type CliEvent =
   | 'exit'        // Process exited
   | 'spawned'     // Process spawned
   | 'spawn_mode'  // B9: spawn mode established or changed at runtime
+  | 'self_wakeup'
   | 'async_work'; // Provider-owned background task lifecycle
 
 /**
@@ -389,5 +391,6 @@ export interface CliAdapterEvents {
   'exit': (code: number | null, signal: string | null) => void;
   'spawned': (pid: number) => void;
   'spawn_mode': (change: SpawnModeChange) => void;
+  'self_wakeup': (event: ClaudeSelfWakeupEvent) => void;
   'async_work': (event: CliAsyncWorkEvent) => void;
 }

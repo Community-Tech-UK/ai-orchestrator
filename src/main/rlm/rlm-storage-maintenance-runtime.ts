@@ -7,7 +7,7 @@ import { getRLMDatabase } from '../persistence/rlm-database';
 import { getContextWorkerClient } from '../instance/context-worker-client';
 import { RlmStorageMaintenanceService } from './rlm-storage-maintenance';
 import { RlmMaintenanceDatabaseAdapter } from './rlm-storage-maintenance-database';
-import { pruneOldBackups } from './rlm-backup-retention';
+import { listBackupSets, pruneOldBackups } from './rlm-backup-retention';
 import { registerCleanup } from '../util/cleanup-registry';
 import type { Instance } from '../../shared/types/instance.types';
 
@@ -31,14 +31,15 @@ export function initializeRlmStorageMaintenance(
     now: () => Date.now(),
     createOperationId: () => randomUUID(),
     backupDirectory,
-    pruneBackups: (keepCount) => pruneOldBackups(backupDirectory, keepCount),
+    listBackups: () => listBackupSets(backupDirectory),
+    pruneBackups: (keepCount, onlyNames) => pruneOldBackups(backupDirectory, keepCount, onlyNames),
   });
   registerCleanup(() => service?.requestShutdown());
   return service;
 }
 
 export function getProtectedRlmSessionIds(
-  instances: Array<Pick<Instance, 'sessionId' | 'providerSessionId' | 'rlmStoreSessionId'>>,
+  instances: Pick<Instance, 'sessionId' | 'providerSessionId' | 'rlmStoreSessionId'>[],
 ): Set<string> {
   return new Set(
     instances.flatMap((instance) => [

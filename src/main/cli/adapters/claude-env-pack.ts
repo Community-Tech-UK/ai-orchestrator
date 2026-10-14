@@ -1,14 +1,15 @@
 /**
  * WS14 — Claude CLI hygiene env/flag pack.
  *
- * Verified against the installed CLI (2.1.211, macOS arm64) via binary-string
- * search on 2026-07-17:
+ * Verified against the installed CLI (2.1.296, macOS arm64), 10 Oct 2026:
  * - `DISABLE_UPDATES`, `CLAUDE_CODE_TMPDIR`, `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`
  *   are all present and supported.
- * - No stream-idle / watchdog env vars exist in the binary's `CLAUDE_CODE_*`
- *   namespace — the plan's "watchdog vars" item is verified-unsupported and
- *   deliberately omitted (env vars stay in agreement with app-side thresholds
- *   by NOT pretending the CLI honours any).
+ * - The stream watchdog is on by default since 2.1.196 (CHANGELOG.md:4179):
+ *   it aborts and retries a stream silent for 5 minutes. Its switches are
+ *   `CLAUDE_ENABLE_STREAM_WATCHDOG`, `CLAUDE_STREAM_IDLE_TIMEOUT_MS`, and
+ *   `CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS`. Harness sets none of them on purpose.
+ *   Do not shorten Harness's own stall timers for Claude below 5 minutes
+ *   without reading CHANGELOG.md:4179.
  *
  * Unknown env vars are inert to older CLIs, so version gating is unnecessary
  * for the vars we do set. `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` is nevertheless

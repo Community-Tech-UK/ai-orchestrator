@@ -151,3 +151,24 @@ describe('attachQuotaAutoRefresh', () => {
     await Promise.resolve();
   });
 });
+
+
+describe('post-turn quota freshness', () => {
+  beforeEach(_resetQuotaAutoRefreshForTesting);
+  it('skips complete for fresh header figures but spawned still refreshes', () => {
+    const adapter = new EventEmitter();
+    const service = { refresh: vi.fn(async () => undefined), getSnapshot: vi.fn(() => ({ provider: 'claude' as const, ok: true, source: 'header' as const, takenAt: Date.now(), windows: [] })) };
+    attachQuotaAutoRefresh(adapter, 'claude', { service, accountProfileId: 'stub-profile' });
+    adapter.emit('complete');
+    expect(service.refresh).not.toHaveBeenCalled();
+    expect(service.getSnapshot).toHaveBeenCalledWith('claude', 'stub-profile');
+    adapter.emit('spawned');
+    expect(service.refresh).toHaveBeenCalledOnce();
+  });
+  it.each(['stale', 'endpoint', 'absent'])('refreshes complete with %s figures', kind => {
+    const adapter = new EventEmitter();
+    const service = { refresh: vi.fn(async () => undefined), getSnapshot: () => kind === 'absent' ? null : ({ provider: 'claude' as const, ok: true, source: kind === 'endpoint' ? 'admin-api' as const : 'header' as const, takenAt: Date.now() - 600_000, windows: [] }) };
+    attachQuotaAutoRefresh(adapter, 'claude', { service }); adapter.emit('complete');
+    expect(service.refresh).toHaveBeenCalledOnce();
+  });
+});

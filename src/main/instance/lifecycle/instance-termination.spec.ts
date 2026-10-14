@@ -54,6 +54,7 @@ vi.mock('../instance-auth-repair-handler', () => ({
   getInstanceAuthRepairHandler: () => ({ forget: vi.fn() }),
 }));
 
+import { getSelfWakeupTracker, SelfWakeupTracker } from '../self-wakeup-tracker';
 import { InstanceTerminationCoordinator } from './instance-termination';
 
 const LIVE_SESSION_ID = 'live-claude-session';
@@ -111,6 +112,7 @@ describe('InstanceTerminationCoordinator — deliberate terminate vs unexpected 
 
   beforeEach(() => {
     vi.clearAllMocks();
+    SelfWakeupTracker._resetForTesting();
     historyManagerMock.getRecoveryCoverage.mockResolvedValue(new Map());
     instance = makeInstance();
     adapter = makeAdapter();
@@ -172,6 +174,19 @@ describe('InstanceTerminationCoordinator — deliberate terminate vs unexpected 
     expect(archiveInstance).toHaveBeenCalledTimes(1);
     const archived = archiveInstance.mock.calls[0]![0] as Instance;
     expect(archived.sessionId).toBe(LIVE_SESSION_ID);
+  });
+
+  it('adds and publishes a pending wakeup warning before archiving, exactly once', async () => {
+    const now = Date.now();
+    getSelfWakeupTracker().observe(instance.id, { kind: 'requested', toolUseId: 'stub-wakeup', requestedAt: now, delaySeconds: 90, dueAt: now + 90_000, reason: '' });
+    deps.emitSystemOutput = vi.fn();
+    const coordinator = new InstanceTerminationCoordinator(deps);
+    await coordinator.terminateInstance(instance.id, true);
+    expect(instance.outputBuffer.filter(message => message.content.includes('wake-up pending'))).toHaveLength(1);
+    expect(deps.emitSystemOutput).toHaveBeenCalledOnce();
+    expect(archiveInstance.mock.calls[0][0].outputBuffer.some((message: { content: string }) => message.content.includes('wake-up pending'))).toBe(true);
+    coordinator.warnLostWakeup(instance.id, instance);
+    expect(deps.emitSystemOutput).toHaveBeenCalledOnce();
   });
 
   it('still terminates the adapter and completes teardown', async () => {

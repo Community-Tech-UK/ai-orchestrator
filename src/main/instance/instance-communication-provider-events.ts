@@ -1,3 +1,4 @@
+import type { ClaudeSelfWakeupEvent } from '../cli/adapters/claude-cli-self-wakeup';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
 import type { CliAsyncWorkEvent } from '../cli/adapters/claude-cli-async-work';
@@ -17,6 +18,7 @@ interface BindRawAdapterProviderEventsInput {
     options: { raw: ProviderRuntimeEventRaw; provider?: ProviderName },
   ) => void;
   captureToolResult?: (toolCall: CliToolCall) => void;
+  observeSelfWakeup?: (event: ClaudeSelfWakeupEvent) => void;
   observeAsyncWork?: (event: CliAsyncWorkEvent) => void;
 }
 
@@ -72,6 +74,11 @@ export function bindRawAdapterProviderEvents(input: BindRawAdapterProviderEvents
       },
       { raw: { source: 'adapter-event:tool_result', payload: toJsonSafeProviderEventPayload(toolCall) } },
     );
+  });
+
+  input.adapter.on('self_wakeup', (event: ClaudeSelfWakeupEvent) => {
+    if (input.isStale('self_wakeup')) return;
+    input.observeSelfWakeup?.(event);
   });
 
   input.adapter.on('async_work', (event: CliAsyncWorkEvent) => {

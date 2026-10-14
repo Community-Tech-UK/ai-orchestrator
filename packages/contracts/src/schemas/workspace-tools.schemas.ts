@@ -6,6 +6,66 @@ import {
   StoreIdSchema,
 } from './common.schemas';
 
+// One folder per explicit confirmation; no bulk cleanup endpoint.
+export const LeftoverRemovalActionSchema = z.enum([
+  'remove-folder', 'remove-folder-and-branch', 'discard-saved-work',
+]);
+export const WorktreeLeftoversListPayloadSchema = z.object({
+  workingDirectory: WorkingDirectorySchema.optional(),
+}).strict();
+export const WorktreeLeftoversPreviewPayloadSchema = z.object({
+  repoRoot: WorkingDirectorySchema,
+  path: DirectoryPathSchema,
+  action: LeftoverRemovalActionSchema,
+}).strict();
+export const WorktreeLeftoversRemovePayloadSchema = WorktreeLeftoversPreviewPayloadSchema.extend({
+  previewId: z.string().min(1).max(200),
+  discardSavedWork: z.boolean().optional(),
+}).strict();
+export type LeftoverRemovalAction = z.infer<typeof LeftoverRemovalActionSchema>;
+export type WorktreeLeftoversPreviewPayload = z.infer<typeof WorktreeLeftoversPreviewPayloadSchema>;
+export type WorktreeLeftoversRemovePayload = z.infer<typeof WorktreeLeftoversRemovePayloadSchema>;
+export interface LeftoverWorktreeOwner {
+  kind: 'loop' | 'queue' | 'session';
+  id: string;
+  status: string;
+  phase?: string;
+  inUse: boolean;
+}
+export interface LeftoverWorktreeRow {
+  repoRoot: string;
+  path: string;
+  branch: string | null;
+  tip: string;
+  createdBy: 'harness' | 'claude-code' | 'other';
+  owner: LeftoverWorktreeOwner | null;
+  inUse: boolean;
+  leftover: boolean;
+  category: 'saved-work' | 'nothing-to-save' | 'in-use';
+  removableByHarness: boolean;
+  reason: string | null;
+  dirtyCount: number;
+  ahead: number;
+  behind: number;
+  patchCount: number;
+  fileCount: number;
+  mergedIntoMain: boolean;
+  lastCommitAt: number;
+  ageDays: number;
+  bytes: number;
+  sentence: string;
+}
+export interface LeftoverWorktreeReport {
+  rows: LeftoverWorktreeRow[];
+  errors: { repoRoot: string; message: string }[];
+}
+export interface LeftoverRemovalPreview {
+  previewId: string;
+  action: LeftoverRemovalAction;
+  row: LeftoverWorktreeRow;
+  consequence: string;
+}
+
 // ============ Recent Directories Payloads ============
 
 export const RecentDirsGetPayloadSchema = z.object({

@@ -667,9 +667,10 @@ describe('ClaudeCliAdapter exclude-dynamic-sections capability gating', () => {
       .excludeDynamicSectionsSupported = value;
   }
 
-  it('includes the flag only when the CLI is confirmed to support it', () => {
+  it('includes the flag only when help support and a fixed CLI version are confirmed', () => {
     const adapter = createClaudeAdapter({});
     setSupport(adapter, true);
+    (adapter as unknown as { cachedCliStatus: { available: boolean; version: string } }).cachedCliStatus = { available: true, version: '2.1.296' };
     expect(getBuildArgs(adapter)).toContain(EXCLUDE_DYNAMIC_SECTIONS_FLAG);
   });
 
@@ -858,7 +859,7 @@ describe('ClaudeCliAdapter rate_limit_event handling', () => {
 
   it('turns a plan 429 result (subtype success, is_error) into a structured limit signal with the reset time', () => {
     const { adapter, processCliMessage } = makeAdapter();
-    const completions: Array<{ content: string; metadata?: Record<string, unknown> }> = [];
+    const completions: { content: string; metadata?: Record<string, unknown> }[] = [];
     adapter.on('complete', (response: { content: string; metadata?: Record<string, unknown> }) => completions.push(response));
     const resetsAtSeconds = Math.floor(Date.now() / 1000) + 3600;
     const result = {
@@ -891,7 +892,7 @@ describe('ClaudeCliAdapter rate_limit_event handling', () => {
 
   it('does not treat an ordinary success result as a limit', () => {
     const { adapter, processCliMessage } = makeAdapter();
-    const completions: Array<{ content: string; metadata?: Record<string, unknown> }> = [];
+    const completions: { content: string; metadata?: Record<string, unknown> }[] = [];
     adapter.on('complete', (response: { content: string; metadata?: Record<string, unknown> }) => completions.push(response));
     const result = { type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: 'sess-ok' };
 
@@ -906,7 +907,7 @@ describe('ClaudeCliAdapter rate_limit_event handling', () => {
 describe('ClaudeCliAdapter LT-105 errored resident turn completion', () => {
   function makeAdapter() {
     const adapter = new ClaudeCliAdapter();
-    const completions: Array<{ content: string; metadata?: Record<string, unknown> }> = [];
+    const completions: { content: string; metadata?: Record<string, unknown> }[] = [];
     const errors: Error[] = [];
     adapter.on('complete', (response: { content: string; metadata?: Record<string, unknown> }) => completions.push(response));
     adapter.on('error', (error: Error) => errors.push(error));
@@ -976,8 +977,8 @@ describe('ClaudeCliAdapter LT-105 errored resident turn completion', () => {
 describe('ClaudeCliAdapter LT-062 raw tool_result emission', () => {
   function makeAdapter() {
     const adapter = new ClaudeCliAdapter();
-    const outputs: Array<{ type: string; content: string; metadata?: Record<string, unknown> }> = [];
-    const toolResults: Array<{ id: string; name: string; arguments: unknown; result?: string }> = [];
+    const outputs: { type: string; content: string; metadata?: Record<string, unknown> }[] = [];
+    const toolResults: { id: string; name: string; arguments: unknown; result?: string }[] = [];
     adapter.on('output', (o: { type: string; content: string }) => outputs.push(o));
     adapter.on('tool_result', (t: { id: string; name: string; arguments: unknown; result?: string }) => toolResults.push(t));
     const processCliMessage = (

@@ -55,7 +55,7 @@ describe('getCacheReadMultiplier', () => {
   it('bills Fable 5.1 cache reads at 2.5% of the input rate', () => {
     expect(getCacheReadMultiplier('claude-fable-5-1')).toBe(0.025);
     expect(getCacheReadMultiplier('claude-fable-5')).toBe(0.1);
-    expect(getCacheReadMultiplier(CLAUDE_MODELS.OPUS)).toBe(0.1);
+    expect(getCacheReadMultiplier(CLAUDE_MODELS.OPUS)).toBe(0.05);
 
     expect(
       computeTokenCost('claude-fable-5-1', { cacheReadTokens: 1_000_000 }),
@@ -73,7 +73,7 @@ describe('computeTokenCost', () => {
     expect(cost).toBeCloseTo(rate.input + rate.output, 6);
   });
 
-  it('prices cache reads at 10% of input and cache writes at the input rate', () => {
+  it('prices current Opus cache reads at 5% of input and cache writes at the input rate', () => {
     const rate = MODEL_PRICING[CLAUDE_MODELS.OPUS];
     const cost = computeTokenCost(CLAUDE_MODELS.OPUS, {
       inputTokens: 0,
@@ -81,7 +81,7 @@ describe('computeTokenCost', () => {
       cacheReadTokens: 1_000_000,
       cacheWriteTokens: 1_000_000,
     });
-    expect(cost).toBeCloseTo(rate.input * 0.1 + rate.input, 6);
+    expect(cost).toBeCloseTo(rate.input * 0.05 + rate.input, 6);
   });
 
   it('prices reasoning tokens at the output-token rate', () => {
@@ -307,5 +307,26 @@ describe('model-pricing live overlay (models.dev)', () => {
     clearModelRateOverlay();
     expect(modelRateOverlaySize()).toBe(0);
     expect(getModelRate(CLAUDE_MODELS.OPUS)).toEqual(MODEL_PRICING[CLAUDE_MODELS.OPUS]);
+  });
+});
+
+
+describe('Claude 5.5 fallback pricing', () => {
+  afterEach(clearModelRateOverlay);
+  it.each([
+    ['claude-sonnet-5-5', 2, 10, 0.05], ['sonnet', 2, 10, 0.05], ['sonnet[1m]', 2, 10, 0.05],
+    ['claude-opus-5-5', 4, 20, 0.05], ['opus', 4, 20, 0.05], ['opus[1m]', 4, 20, 0.05],
+    ['claude-haiku-5-5', 0.1, 0.5, 0.1], ['haiku', 0.1, 0.5, 0.1],
+  ] as const)('prices %s and its cache reads', (id, input, output, cache) => {
+    clearModelRateOverlay();
+    expect(getModelRate(id)).toEqual({ input, output });
+    expect(getCacheReadMultiplier(id)).toBe(cache);
+    expect(computeTokenCost(id, { cacheReadTokens: 1_000_000 })).toBeCloseTo(input * cache);
+    expect(getProviderModelRate('claude', id)).toEqual({ input, output });
+    expect(getProviderModelRate('copilot', id)).toBeUndefined();
+  });
+  it('keeps unknown rates and cache reads at the defaults', () => {
+    expect(getModelRate('unknown-housekeeping')).toEqual(DEFAULT_MODEL_RATE);
+    expect(getCacheReadMultiplier('unknown-housekeeping')).toBe(0.1);
   });
 });
