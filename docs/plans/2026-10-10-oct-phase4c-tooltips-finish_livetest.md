@@ -1,0 +1,19 @@
+# October Phase 4 part 3: live checks for the implemented subset
+
+**Status:** pending. The overall implementation plan remains open and dependency-blocked. This document currently covers only the implemented jump-rail focus and setting-description requirements; the remaining parts retain their live requirements in the plan until implemented.
+
+**Plan:** [Remaining screens and lint](2026-10-10-oct-phase4c-tooltips-finish_plan.md).
+
+**Prerequisites:** AIO integrates the prerequisite plans and this item's patch; rebuild main and renderer (`npm run build:main`, `npm run build:renderer`) and restart the designated Harness instance on `windows-pc`. Record the build commit, instance, Windows version, date, and assistive-technology version for any screen-reader test. Do not run against a stale installed build. Use a disposable conversation containing at least two user prompts and enough content to scroll; no provider session is required if an existing disposable transcript suffices. Use both light and dark themes for the visual check.
+
+**Routing:** all interactive browser/desktop checks target `windows-pc` explicitly after the appropriate gateway health preflight. No local Mac browser or desktop without James's permission for this task. If the worker is unavailable, report the actual health result and leave these checks pending.
+
+**Remediation flow:** read [the campaign runbook](livetest-campaign-runbook.md) before testing. A reproduced defect becomes an LT-NNN index row and full entry in [the remediation register](livetest-remediation-register.md), plus a matching implementation-status section in `2026-07-19-livetest-failure-remediation_plan.md`. Keep per-check evidence here. Rename this document `_livetest_completed.md` only after every check passes.
+
+**Why pending:** native focus indication, integrated Electron layout and spoken screen-reader output require the designated Windows runtime or an assistive-technology operator. Agent-runnable focus events, description references, blur/Escape, hover-timer interaction, setting-type variants and history-prepend behaviour already run in Vitest DOM tests. Missing implementation dependencies are not deferred into this document.
+
+1. **Jump-rail visual check (1a subset).** On the rebuilt Windows instance, Tab to a transcript tick. Expect an immediate prompt/reply/files preview and visible focused-tick highlight. Tab to the next tick: expect its preview. Move the pointer out of the rail while the tick remains focused: expect the preview to remain. Press Escape: expect the preview to close without changing focus. Tab out: expect no preview. Repeat in light/dark themes. With keyboard focus on a prompt, load earlier transcript history using the designated instance's normal history controls; return to the same focused prompt and confirm the preview belongs to it. Record exact actions, observed results and screenshots. Pending: Windows integration and visual evidence.
+2. **Jump-rail spoken description (1a subset).** With NVDA on the same Windows instance, Tab to a tick. Expect its existing “Jump to” accessible name and the current preview description; no description from another tick. Tab to the next tick, press Escape, then Tab away. Record the announced text and whether dismissal leaves any stale spoken description. Pending: screen-reader operator and designated runtime.
+3. **Settings descriptions (1d subset).** With NVDA, open Settings and Tab through a representative boolean, select, number, string, directory and JSON row, plus the multi-select options where present. Expect the visible setting description to be associated with each input, and with the directory Browse and per-setting Reset controls. Existing names and saved values must stay intact. Record the row key/type and spoken output; changes to values are not needed. Pending: screen-reader operator and designated runtime.
+
+No PASS result is implied by the source or unit tests.

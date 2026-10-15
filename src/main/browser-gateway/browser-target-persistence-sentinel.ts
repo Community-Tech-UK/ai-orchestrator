@@ -45,6 +45,8 @@ const APP_STATE_MUTATING_COMMANDS: ReadonlySet<string> = new Set([
   'type',
   'fill_form',
   'select',
+  // Enter/Space can activate a control and change the app's saved state.
+  'press_key',
   'upload_file',
   'evaluate',
 ]);

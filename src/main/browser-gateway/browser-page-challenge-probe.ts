@@ -40,7 +40,11 @@ export const CHALLENGE_RESPONSE_SELECTOR = [
 ].join(', ');
 
 /** Tools that act on the page and therefore must not act on a live challenge. */
-export const PAGE_CHALLENGE_GATED_TOOLS: ReadonlySet<string> = new Set(['browser.click', 'browser.evaluate']);
+export const PAGE_CHALLENGE_GATED_TOOLS: ReadonlySet<string> = new Set([
+  'browser.click',
+  'browser.evaluate',
+  'browser.press_key',
+]);
 
 // Under 5s so the command store treats it as a fast probe (no 90s undelivered wait).
 const EXTENSION_PROBE_TIMEOUT_MS = 4_000;

@@ -939,3 +939,148 @@ describe('PuppeteerBrowserDriver', () => {
     expect(page.click).toHaveBeenCalledWith('a.download');
   });
 });
+
+describe('PuppeteerBrowserDriver input controls', () => {
+  async function openDriverWith(page: Record<string, unknown>) {
+    const browser = { pages: async () => [page] };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => browser as unknown as Browser,
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+    });
+    const [target] = await driver.openProfile(makeProfile());
+    return { driver, target };
+  }
+
+  it('presses keys through the real keyboard and releases modifiers even on failure', async () => {
+    const calls: string[] = [];
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+      keyboard: {
+        down: vi.fn(async (key: string) => { calls.push(`down:${key}`); }),
+        up: vi.fn(async (key: string) => { calls.push(`up:${key}`); }),
+        press: vi.fn(async (key: string) => {
+          calls.push(`press:${key}`);
+          throw new Error('key press failed');
+        }),
+      },
+      evaluate: vi.fn(async () => ({ focus: { tagName: 'BUTTON', text: 'Next' } })),
+    };
+    const { driver, target } = await openDriverWith(page);
+
+    await expect(
+      driver.pressKey('profile-1', target.id, 'Enter', ['Shift', 'Control']),
+    ).rejects.toThrow('key press failed');
+
+    // Modifiers released in reverse order despite the failure.
+    expect(calls).toEqual([
+      'down:Shift',
+      'down:Control',
+      'press:Enter',
+      'up:Control',
+      'up:Shift',
+    ]);
+    expect(page.evaluate).not.toHaveBeenCalled();
+  });
+
+  it('releases already-held modifiers when a later modifier down throws', async () => {
+    const calls: string[] = [];
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+      keyboard: {
+        down: vi.fn(async (key: string) => {
+          calls.push(`down:${key}`);
+          if (key === 'Control') throw new Error('modifier down failed');
+        }),
+        up: vi.fn(async (key: string) => { calls.push(`up:${key}`); }),
+        press: vi.fn(async (key: string) => { calls.push(`press:${key}`); }),
+      },
+      evaluate: vi.fn(async () => ({ focus: { tagName: 'BODY' } })),
+    };
+    const { driver, target } = await openDriverWith(page);
+
+    await expect(
+      driver.pressKey('profile-1', target.id, 'Tab', ['Shift', 'Control']),
+    ).rejects.toThrow('modifier down failed');
+
+    // Shift was already held when Control's down failed — it must be released.
+    expect(calls).toContain('down:Shift');
+    expect(calls).toContain('up:Shift');
+    expect(calls).not.toContain('press:Tab');
+    expect(page.evaluate).not.toHaveBeenCalled();
+  });
+
+  it('reports the focused element after a successful press without field values', async () => {
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+      keyboard: {
+        down: vi.fn(async () => undefined),
+        up: vi.fn(async () => undefined),
+        press: vi.fn(async () => undefined),
+      },
+      evaluate: vi.fn(async () => ({
+        focus: {
+          tagName: 'INPUT',
+          type: 'text',
+          ariaLabel: 'Search',
+          text: 'query',
+        },
+      })),
+    };
+    const { driver, target } = await openDriverWith(page);
+
+    const result = await driver.pressKey('profile-1', target.id, 'Tab', ['Shift']);
+
+    expect(result).toMatchObject({
+      applied: true,
+      key: 'Tab',
+      modifiers: ['Shift'],
+      focus: { tagName: 'INPUT', type: 'text' },
+    });
+    expect(page.evaluate).toHaveBeenCalledWith(expect.any(Function), {
+      action: 'read_focus',
+      args: [],
+    });
+  });
+
+  it('emulates and clears a tab-scoped viewport reporting actual content dimensions', async () => {
+    let emulation: { width: number; height: number } | null = null;
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+      setViewport: vi.fn(async (viewport: { width: number; height: number } | null) => {
+        emulation = viewport;
+      }),
+      viewport: () => emulation,
+      evaluate: vi.fn(async (_fn: unknown, input?: { action?: string }) => (
+        input?.action === 'read_viewport'
+          ? { innerWidth: emulation?.width ?? 1280, innerHeight: emulation?.height ?? 800 }
+          : undefined
+      )),
+    };
+    const { driver, target } = await openDriverWith(page);
+
+    const set = await driver.viewport('profile-1', target.id, { width: 768, height: 1024 });
+    expect(set).toMatchObject({
+      mode: 'tab_emulation',
+      scope: 'tab',
+      requested: { width: 768, height: 1024 },
+      actual: { innerWidth: 768, innerHeight: 1024 },
+    });
+
+    const reset = await driver.viewport('profile-1', target.id, { reset: true });
+    expect(reset).toMatchObject({
+      mode: 'reset',
+      scope: 'tab',
+      actual: { innerWidth: 1280, innerHeight: 800 },
+      previous: { emulationActive: true, emulationWidth: 768, emulationHeight: 1024 },
+    });
+    expect(page.setViewport).toHaveBeenLastCalledWith(null);
+  });
+});

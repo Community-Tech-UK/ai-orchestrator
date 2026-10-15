@@ -9,6 +9,11 @@ import {
   stringProp,
   targetIdProp,
 } from './browser-mcp-schema-props';
+import {
+  pressKeyToolSchema,
+  setViewportToolSchema,
+  setZoomToolSchema,
+} from './browser-mcp-control-schemas';
 import { SESSION_TOOL_SCHEMAS, sessionToolDescription } from './browser-mcp-session-tools';
 
 const UNTRUSTED_WARNING =
@@ -28,6 +33,9 @@ const TOOL_NAMES = [
   'browser.type',
   'browser.fill_form',
   'browser.select',
+  'browser.press_key',
+  'browser.set_viewport',
+  'browser.set_zoom',
   'browser.execute_fill_plan',
   'browser.fill_credential',
   'browser.request_credential_access',
@@ -334,6 +342,9 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     verify: verifyExpectationSchema,
     requestId: requestIdProp,
   }, ['profileId', 'targetId', 'value']),
+  'browser.press_key': pressKeyToolSchema,
+  'browser.set_viewport': setViewportToolSchema,
+  'browser.set_zoom': setZoomToolSchema,
   'browser.execute_fill_plan': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,
@@ -812,6 +823,15 @@ function toolDescription(name: BrowserMcpToolName): string {
   }
   if (name === 'browser.close_matching') {
     return `${UNTRUSTED_WARNING} Close matching tabs by URL/title substring or already-closed status. Destructive. Requires at least one filter. Opaque/secret-tainted tabs are skipped unless explicitly included.`;
+  }
+  if (name === 'browser.press_key') {
+    return `${UNTRUSTED_WARNING} Press a named key (Tab, Shift+Tab with modifiers, Enter, Escape, arrows) with the browser's real input mechanism, so focus actually moves and default key behaviour occurs. Reads back the focused element and page state without exposing field values. Enter/Space with no informative actionHint require explicit user approval; retries must reuse the same idempotencyKey so an Enter is never double-activated.`;
+  }
+  if (name === 'browser.set_viewport') {
+    return `${UNTRUSTED_WARNING} Set or read the content viewport in CSS pixels (tablet-width testing). Default scope "tab" emulates only the selected tab's viewport, reported as mode "tab_emulation" — never other tabs or the OS window; scope "window" resizes the real Chrome window (mode "window_resize") and reports the affected window, its other tabs and retained original bounds. Omit width/height/reset to read current dimensions; reset restores. The result always reports which mechanism ran and window.innerWidth/innerHeight.`;
+  }
+  if (name === 'browser.set_zoom') {
+    return `${UNTRUSTED_WARNING} Set, read or reset real Chrome browser zoom (1 = 100%, 2 = 200%) on a shared Chrome tab. CSS zoom, transforms and device-scale emulation are not substitutes. Tab-scoped; the original zoom factor and settings are preserved and restored by reset (restoration failures are reported explicitly). Fails clearly on managed browser profiles.`;
   }
   return `${UNTRUSTED_WARNING} Calls the managed Browser Gateway tool ${name}.`;
 }

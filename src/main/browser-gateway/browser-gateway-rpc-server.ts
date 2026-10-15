@@ -322,6 +322,9 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('fillForm')(withContext);
       case 'browser.select':
         return this.requireMethod('select')(withContext);
+      case 'browser.press_key': return this.requireMethod('pressKey')(withContext);
+      case 'browser.set_viewport': return this.requireMethod('setViewport')(withContext);
+      case 'browser.set_zoom': return this.requireMethod('setZoom')(withContext);
       case 'browser.execute_fill_plan':
         return this.requireMethod('executeFillPlan')(withContext);
       case 'browser.fill_credential':

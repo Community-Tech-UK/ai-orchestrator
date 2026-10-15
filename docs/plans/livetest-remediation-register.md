@@ -320,6 +320,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-703 | P1 | **FIXED + REGRESSION-TESTED 2026-10-10 (working tree). Live re-check 2026-10-11 did not pass:** after a reload made the restored LCN tab readable, `fill_credential` reached the extension write and failed `dispatch:credential_write_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state` (audit `19d7214e-…`); `#username` and the password field stayed empty and the form was not submitted. The `dispatch:` prefix shows the coordinator reason plumbing is live; the code after it is the extension's unclassified fallback, not an origin-bound code. Original defect: the writer injected only into top-level-origin frames of `https://www.lcn.com/login` (form is `https://login.lcn.com` in `#login-iframe`) and swallowed the miss. | [LT-703 detail](#lt-703) | [Browser Gateway credential login — embedded form](browser-gateway-credential-login_livetest.md#lt-703-embedded-cross-origin-login-form) |
 | LT-704 | P1 | **CODE VERIFIED 2026-10-13 — independent completion-gate PASS; queue re-verified 2026-10-14; packaged smokes pending.** Candidate discovery now inherits the trusted environment before caller overrides, retaining the working NVM CLI and confirming `aio-mimo-comtechspare-f7a6/mimo-v2.6-pro`. Source and independently checked compiled default/High replies, six canonical gates and full suite pass. The install/restart prerequisite is satisfied (installed 2026-10-14 13:00 UTC, booted 13:08 UTC, compiled launcher byte-identical to the verified build); the two packaged smoke checks remain unrun and their exact deferred procedure is recorded inline in [LT-704 detail](#lt-704-deferred-packaged-acceptance) (branch-resident) and mirrored in the untracked root-checkout [startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md). This is not confirmed fixed live. | [LT-704 detail](#lt-704) | [Plan-owned packaged default/High checks](2026-10-13-opencode-launch-environment_livetest.md); [original failure evidence](2026-10-13-opencode-effort-variant-startup_livetest.md#evidence-run--2026-10-13-rebuilt-packaged-app) |
 | LT-705 | P1 | **MACHINE REPAIR + CODE VERIFIED 2026-10-13 — gates and full suite pass, independent reviews PASS; queue re-verified 2026-10-14; packaged smoke pending.** OpenCode 1 failed in `~/work/communitytech` (`no such column: project_id`) after OpenCode 2 rebuilt the shared `workspace` table, so selection fell back to OpenCode 2, whose `acp` ignores the per-spawn overlay and lacked the second account's key. Added nullable `workspace.project_id` (backed up); selection now refuses OpenCode 2 and explains why. The install/restart prerequisite is satisfied as for LT-704; the communitytech packaged smoke remains unrun and its exact deferred procedure is recorded inline in [LT-705 detail](#lt-705-deferred-packaged-acceptance) (branch-resident) and mirrored in the untracked root-checkout [startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md). | [LT-705 detail](#lt-705) | [Plan-owned packaged checks](2026-10-13-opencode-launch-environment_livetest.md) |
+| LT-706 | P2 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); live re-check pending.** A MiMo step that spends the whole combined cap on reasoning (OpenCode `finish: "length"`, ACP `end_turn`) was classified `completed` (or `dangling_tool_result`), so the session stopped silently. LT-690's saturation check skipped empty text, judged from whole-turn text while usage covers only the final step, and the shared observation layer could not see the cap. MiMo cap raised 16384 → 32000 at James's request. | [LT-706 detail](#lt-706) | [MiMo reasoning-cap live checks](2026-10-14-mimo-reasoning-cap-cutoff_livetest.md) |
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
@@ -13203,3 +13204,48 @@ agent-runnable (no session-create surface; desktop control hard-denied).
 Account sign-in writes only OpenCode 1's key store; renewed OpenCode 2 support would need both
 stores. A transient OpenCode 1 `database is locked` during selection now refuses startup instead
 of silently falling back; the existing process gate makes that rare.
+
+<a id="lt-706"></a>
+
+## LT-706 — a MiMo step that exhausts the combined cap on reasoning ends the session silently
+
+**Status: fixed and regression-tested in the working tree 2026-10-14; live re-check pending.**
+Origin: James's live session `ivx7upc8u` (installed app, OpenCode 1.19.0,
+`aio-mimo-comtechspare-f7a6/mimo-v2.6-pro`), 2026-10-14 20:39–21:41 BST.
+Plan: [2026-10-14-mimo-reasoning-cap-cutoff_plan_completed.md](2026-10-14-mimo-reasoning-cap-cutoff_plan_completed.md).
+
+### Observed behaviour
+
+- OpenCode session `ses_ec4126b42ffemKuqDOJBnet17O` records three consecutive assistant steps
+  with `finish: "length"`: output 0 + reasoning 16388 (21:21:59 BST), output 1 + reasoning 16383
+  (21:29:16 BST), and output 0 + reasoning 16386 (21:41:26 BST, after James's manual
+  "continue"). Earlier tool-call steps used up to about 12.7k reasoning tokens each.
+- `app.log`: all three `ACP turn completed` lines report `stopReason: "end_turn"`,
+  `classifierReason: "completed"`, `generationBudget.combinedOutputTokens: 16384`. The shared
+  `ProviderTurnEnding` line reclassified the first as `dangling_tool_result` (one automatic
+  continuation); the other two stayed `completed`. No notice, no further continuation; the
+  session went idle each time, so the manual "continue" also appeared to do nothing.
+
+### Root cause
+
+`outputBudgetSaturated` (`src/main/cli/turn-ending-classifier.ts`, added for LT-690) returned false
+for empty text and otherwise required the whole-turn text to end unfinished. ACP usage covers only
+the final provider step, so a step cut off while reasoning after earlier finished narration, or
+with no text at all, read as a normal completion. `AdapterTurnEndingObservation` reclassifies
+without `combinedOutputTokenCap`, and its `dangling_tool_result` overrides the adapter ending.
+
+### Required behaviour
+
+A non-error completion with no open tool call whose final-step output + reasoning reaches the
+injected cap (within tolerance) is `max_output / budget_saturated` when the final step's visible
+output is within tolerance or the turn text is empty or unfinished. The cap is also read from the
+adapter's `generationBudget` metadata so both classification layers agree, and saturation takes
+precedence over an unanswered tool result. Failure and transient-error signals keep
+saturation out, so a failed turn is never auto-continued.
+
+### Acceptance
+
+- Regression tests for the zero-text, earlier-narration, metadata-cap/dangling, metadata-usage,
+  runtime observation and `acp-turn-completion` cases fail on the previous classifier and pass; negative cases (finished answer,
+  open tool, error, empty under cap) stay out of saturation.
+- Live: [MiMo reasoning-cap live checks](2026-10-14-mimo-reasoning-cap-cutoff_livetest.md).

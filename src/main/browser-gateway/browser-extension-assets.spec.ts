@@ -99,10 +99,18 @@ interface BrowserExtensionChromeHarness {
     reload: ReturnType<typeof vi.fn>;
     ungroup: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
+    getZoom: ReturnType<typeof vi.fn>;
+    getZoomSettings: ReturnType<typeof vi.fn>;
+    setZoom: ReturnType<typeof vi.fn>;
+    setZoomSettings: ReturnType<typeof vi.fn>;
   };
   tabGroups: {
     get: ReturnType<typeof vi.fn>;
     query: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
+  };
+  windows: {
+    get: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
   };
 }
@@ -174,6 +182,10 @@ describe('browser extension assets', () => {
     '0.2.39': '9d9630e3d6d9',
     // Reload onto the version a worker relay expects (worker auto-update).
     '0.2.40': '5809d0399317',
+    // Native keyboard (press_key) via CDP Input events with modifier release +
+    // idempotent-activation dedupe; tab/window viewport control; real Chrome
+    // zoom with per-tab baseline restore.
+    '0.2.41': 'b137eaa54663',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -2746,6 +2758,368 @@ describe('browser extension assets', () => {
     expect(popup).toContain('getManifest().update_url');
     expect(popup).toContain('chrome.runtime.reload()');
   });
+
+  describe('keyboard, viewport and zoom controls', () => {
+    function lastCommandResult(
+      harness: BrowserExtensionBackgroundHarness,
+      commandId: string,
+    ): Record<string, unknown> | undefined {
+      return harness.ports.get(RELAY_HOST_NAME)!.postMessage.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .find((message) => message['type'] === 'command_result'
+          && message['commandId'] === commandId);
+    }
+
+    async function dispatchControlCommand(
+      harness: BrowserExtensionBackgroundHarness,
+      commandId: string,
+      command: string,
+      payload?: Record<string, unknown>,
+    ): Promise<Record<string, unknown> | undefined> {
+      const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+      relayPort.postMessage.mockClear();
+      relayPort.emitMessage({
+        type: 'browser_command',
+        command: { id: commandId, command, target: { tabId: 42 }, payload },
+      });
+      await flushPromises();
+      return lastCommandResult(harness, commandId);
+    }
+
+    it('dispatches native key events with modifiers and reads the focus back secret-free', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      const keyEvents: { type: string; vk: number | undefined; modifiers: number | undefined; text?: string }[] = [];
+      let focusExpression = '';
+      harness.chrome.debugger.sendCommand.mockImplementation(
+        async (_debuggee: unknown, method: string, params?: Record<string, unknown>) => {
+          if (method === 'Input.dispatchKeyEvent') {
+            keyEvents.push({
+              type: String(params?.['type']),
+              vk: params?.['windowsVirtualKeyCode'] as number | undefined,
+              modifiers: params?.['modifiers'] as number | undefined,
+              ...(typeof params?.['text'] === 'string' ? { text: params['text'] as string } : {}),
+            });
+            return {};
+          }
+          if (method === 'Runtime.evaluate') {
+            focusExpression = String(params?.['expression'] ?? '');
+            return {
+              result: {
+                value: {
+                  focus: {
+                    tagName: 'A',
+                    role: 'link',
+                    id: 'help-link',
+                  },
+                },
+              },
+            };
+          }
+          return {};
+        },
+      );
+
+      const result = await dispatchControlCommand(harness, 'press-1', 'press_key', {
+        key: 'Tab',
+        modifiers: ['Shift'],
+        idempotencyKey: 'focus-back-1',
+      });
+
+      expect(result?.['ok']).toBe(true);
+      expect(result?.['result']).toMatchObject({
+        applied: true,
+        key: 'Tab',
+        modifiers: ['Shift'],
+        focus: { tagName: 'A', role: 'link', id: 'help-link' },
+      });
+      // Native sequence: modifier down, rawKeyDown, (char), keyUp, modifier up.
+      expect(keyEvents.map((event) => [event.type, event.vk])).toEqual([
+        ['rawKeyDown', 16],
+        ['rawKeyDown', 9],
+        ['keyUp', 9],
+        ['keyUp', 16],
+      ]);
+      // The main key event carries the Shift modifier bit.
+      expect(keyEvents[1].modifiers).toBe(8);
+      // The in-page focus read-back must never touch field values.
+      expect(focusExpression).toContain("type === 'password'");
+      expect(focusExpression).not.toContain('el.value');
+      expect(focusExpression).not.toContain('.value');
+    });
+
+    it('always releases modifiers even when the key dispatch fails', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      const keyEvents: { type: string; vk: number | undefined }[] = [];
+      harness.chrome.debugger.sendCommand.mockImplementation(
+        async (_debuggee: unknown, method: string, params?: Record<string, unknown>) => {
+          if (method === 'Input.dispatchKeyEvent') {
+            const type = String(params?.['type']);
+            const vk = params?.['windowsVirtualKeyCode'] as number | undefined;
+            keyEvents.push({ type, vk });
+            if (vk === 13 && type === 'keyUp') {
+              throw new Error('CDP hop failed mid-press');
+            }
+            return {};
+          }
+          return {};
+        },
+      );
+
+      const result = await dispatchControlCommand(harness, 'press-2', 'press_key', {
+        key: 'Enter',
+        modifiers: ['Shift', 'Control'],
+      });
+
+      expect(result?.['ok']).toBe(false);
+      // Shift+Control were held when the failure hit; both must be released.
+      // Enter carries text ('\r'), so a char event sits between down and up.
+      expect(keyEvents.map((event) => [event.type, event.vk])).toEqual([
+        ['rawKeyDown', 16],
+        ['rawKeyDown', 17],
+        ['rawKeyDown', 13],
+        ['char', 13],
+        ['keyUp', 13],
+        ['keyUp', 17],
+        ['keyUp', 16],
+      ]);
+    });
+
+    it('suppresses a retried activation behind the same idempotencyKey', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      const sendCommand = harness.chrome.debugger.sendCommand;
+      sendCommand.mockImplementation(
+        async (_debuggee: unknown, method: string, params?: Record<string, unknown>) => {
+          if (method === 'Input.dispatchKeyEvent') {
+            return {};
+          }
+          if (method === 'Runtime.evaluate') {
+            return { result: { value: { focus: { tagName: 'A', text: 'Next' } } } };
+          }
+          return {};
+        },
+      );
+      const countKeyEvents = () => sendCommand.mock.calls.filter(
+        (call: unknown[]) => call[1] === 'Input.dispatchKeyEvent',
+      ).length;
+
+      const first = await dispatchControlCommand(harness, 'press-3a', 'press_key', {
+        key: 'Enter',
+        idempotencyKey: 'activate-next-1',
+      });
+      const eventsAfterFirst = countKeyEvents();
+      const second = await dispatchControlCommand(harness, 'press-3b', 'press_key', {
+        key: 'Enter',
+        idempotencyKey: 'activate-next-1',
+      });
+
+      expect(first?.['ok']).toBe(true);
+      expect(first?.['result']).toMatchObject({ applied: true });
+      expect((first?.['result'] as Record<string, unknown>)['deduplicated']).toBeUndefined();
+      expect(second?.['ok']).toBe(true);
+      expect(second?.['result']).toMatchObject({ applied: true, deduplicated: true });
+      // The retry pressed nothing.
+      expect(countKeyEvents()).toBe(eventsAfterFirst);
+    });
+
+    it('burns the idempotencyKey of a failed press so a retry cannot re-fire it', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      const sendCommand = harness.chrome.debugger.sendCommand;
+      sendCommand.mockImplementation(
+        async (_debuggee: unknown, method: string, params?: Record<string, unknown>) => {
+          if (method === 'Input.dispatchKeyEvent') {
+            if (String(params?.['type']) === 'keyUp') {
+              throw new Error('CDP hop failed after keyDown landed');
+            }
+            return {};
+          }
+          return {};
+        },
+      );
+      const countKeyEvents = () => sendCommand.mock.calls.filter(
+        (call: unknown[]) => call[1] === 'Input.dispatchKeyEvent',
+      ).length;
+
+      const first = await dispatchControlCommand(harness, 'press-5a', 'press_key', {
+        key: 'Enter',
+        idempotencyKey: 'activate-fragile-1',
+      });
+      const eventsAfterFailure = countKeyEvents();
+      const retry = await dispatchControlCommand(harness, 'press-5b', 'press_key', {
+        key: 'Enter',
+        idempotencyKey: 'activate-fragile-1',
+      });
+
+      // The original attempt failed and must not claim success...
+      expect(first?.['ok']).toBe(false);
+      // ...and the retry is suppressed without pressing again and without
+      // claiming the activation happened.
+      expect(retry?.['ok']).toBe(true);
+      expect(retry?.['result']).toMatchObject({
+        applied: false,
+        key: 'Enter',
+        deduplicated: true,
+      });
+      expect(countKeyEvents()).toBe(eventsAfterFailure);
+    });
+
+    it('refuses printable keys so credential typing cannot bypass the type hard stops', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      const result = await dispatchControlCommand(harness, 'press-4', 'press_key', { key: 'A' });
+
+      expect(result?.['ok']).toBe(false);
+      expect(String(result?.['error'])).toContain('Unsupported press_key key');
+    });
+
+    it('emulates a tab-scoped viewport and clears it on reset', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      const cdpCalls: { method: string; params?: Record<string, unknown> }[] = [];
+      harness.chrome.debugger.sendCommand.mockImplementation(
+        async (_debuggee: unknown, method: string, params?: Record<string, unknown>) => {
+          cdpCalls.push({ method, ...(params ? { params } : {}) });
+          if (method === 'Emulation.getDeviceMetricsOverride') {
+            const override = cdpCalls.find((call) => call.method === 'Emulation.setDeviceMetricsOverride');
+            return override
+              ? { width: override.params?.['width'], height: override.params?.['height'] }
+              : { width: 0, height: 0 };
+          }
+          return {};
+        },
+      );
+      harness.chrome.scripting.executeScript.mockImplementation(async () => [{
+        result: { innerWidth: 768, innerHeight: 1024 },
+      }]);
+
+      const set = await dispatchControlCommand(harness, 'vp-1', 'set_viewport', {
+        width: 768,
+        height: 1024,
+      });
+      expect(set?.['ok']).toBe(true);
+      expect(set?.['result']).toMatchObject({
+        mode: 'tab_emulation',
+        scope: 'tab',
+        requested: { width: 768, height: 1024 },
+        actual: { innerWidth: 768, innerHeight: 1024 },
+      });
+      expect(cdpCalls.some((call) => call.method === 'Emulation.setDeviceMetricsOverride'
+        && call.params?.['width'] === 768 && call.params?.['height'] === 1024
+        && call.params?.['deviceScaleFactor'] === 1)).toBe(true);
+
+      const reset = await dispatchControlCommand(harness, 'vp-2', 'set_viewport', { reset: true });
+      expect(reset?.['ok']).toBe(true);
+      expect(reset?.['result']).toMatchObject({ mode: 'reset', scope: 'tab' });
+      expect(cdpCalls.some((call) => call.method === 'Emulation.clearDeviceMetricsOverride')).toBe(true);
+    });
+
+    it('resizes the real Chrome window on window scope and restores the recorded bounds', async () => {
+      const harness = loadBackgroundHarnessForTest({ additionalTabs: [{ tabId: 43, groupId: -1 }] });
+      await flushPromises();
+      harness.chrome.scripting.executeScript.mockImplementation(async () => [{
+        result: { innerWidth: 1024, innerHeight: 768 },
+      }]);
+
+      const set = await dispatchControlCommand(harness, 'vpw-1', 'set_viewport', {
+        width: 1024,
+        height: 768,
+        scope: 'window',
+      });
+      expect(set?.['ok']).toBe(true);
+      expect(set?.['result']).toMatchObject({
+        mode: 'window_resize',
+        scope: 'window',
+        window: {
+          windowId: 7,
+          otherTabIds: [43],
+          bounds: { width: 1024, height: 768 },
+        },
+        previous: {
+          emulationActive: false,
+          windowBounds: { left: 10, top: 20, width: 1280, height: 800 },
+        },
+      });
+      expect(harness.chrome.windows.update).toHaveBeenCalledWith(7, {
+        state: 'normal',
+        width: 1024,
+        height: 768,
+      });
+
+      const reset = await dispatchControlCommand(harness, 'vpw-2', 'set_viewport', {
+        scope: 'window',
+        reset: true,
+      });
+      expect(reset?.['ok']).toBe(true);
+      expect(harness.chrome.windows.update).toHaveBeenLastCalledWith(7, {
+        state: 'normal',
+        left: 10,
+        top: 20,
+        width: 1280,
+        height: 800,
+      });
+    });
+
+    it('reports a lost window-bounds baseline explicitly instead of claiming restoration', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+
+      const reset = await dispatchControlCommand(harness, 'vpw-3', 'set_viewport', {
+        scope: 'window',
+        reset: true,
+      });
+
+      expect(reset?.['ok']).toBe(true);
+      expect(reset?.['result']).toMatchObject({
+        mode: 'reset',
+        restorationFailed: 'browser_window_bounds_baseline_lost',
+      });
+    });
+
+    it('sets real Chrome zoom tab-scoped and restores factor and settings on reset', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      harness.chrome.scripting.executeScript.mockImplementation(async () => [{
+        result: { innerWidth: 640, innerHeight: 512 },
+      }]);
+
+      const set = await dispatchControlCommand(harness, 'zoom-1', 'set_zoom', { zoomFactor: 2 });
+      expect(set?.['ok']).toBe(true);
+      expect(set?.['result']).toMatchObject({
+        mode: 'set',
+        zoomFactor: 2,
+        zoomPercent: 200,
+        previousZoomFactor: 1,
+        previousZoomScope: 'per-origin',
+        zoomScope: 'per-tab',
+        viewport: { innerWidth: 640, innerHeight: 512 },
+      });
+      expect(harness.chrome.tabs.setZoomSettings).toHaveBeenCalledWith(42, { scope: 'per-tab' });
+      expect(harness.chrome.tabs.setZoom).toHaveBeenCalledWith(42, 2);
+
+      const reset = await dispatchControlCommand(harness, 'zoom-2', 'set_zoom', { reset: true });
+      expect(reset?.['ok']).toBe(true);
+      expect(reset?.['result']).toMatchObject({ mode: 'reset', zoomFactor: 1 });
+      // The original settings come back, not the per-tab switch.
+      expect(harness.chrome.tabs.setZoomSettings).toHaveBeenLastCalledWith(42, { scope: 'per-origin' });
+      expect(harness.chrome.tabs.setZoom).toHaveBeenLastCalledWith(42, 1);
+    });
+
+    it('reports a lost zoom baseline explicitly instead of restoring blindly', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+
+      const reset = await dispatchControlCommand(harness, 'zoom-3', 'set_zoom', { reset: true });
+
+      expect(reset?.['ok']).toBe(true);
+      expect(reset?.['result']).toMatchObject({
+        mode: 'reset',
+        restorationFailed: 'browser_zoom_baseline_lost',
+      });
+    });
+  });
 });
 
 async function captureSnapshotAcrossRedirect(marker: string): Promise<Record<string, unknown>> {
@@ -2821,6 +3195,17 @@ function loadBackgroundHarnessForTest(options: {
     tab.groupId = additionalTab.groupId;
     tabsById.set(additionalTab.tabId, tab);
   }
+  const zoomByTab = new Map<number, number>();
+  const zoomSettingsByTab = new Map<number, { scope?: string }>();
+  const windowsById = new Map<number, {
+    id: number;
+    state: string;
+    bounds: { left: number; top: number; width: number; height: number };
+  }>([[7, {
+    id: 7,
+    state: 'normal',
+    bounds: { left: 10, top: 20, width: 1280, height: 800 },
+  }]]);
   const connectNative = vi.fn((hostName: string) => {
     if (failConnectHosts.has(hostName)) {
       throw new Error(`Specified native messaging host not found: ${hostName}`);
@@ -2961,6 +3346,16 @@ function loadBackgroundHarnessForTest(options: {
           }
         }),
         update: vi.fn(async (tabId: number) => tabsById.get(tabId)),
+        getZoom: vi.fn(async (tabId: number) => zoomByTab.get(tabId) ?? 1),
+        getZoomSettings: vi.fn(async (tabId: number) => (
+          zoomSettingsByTab.get(tabId) ?? { scope: 'per-origin' }
+        )),
+        setZoom: vi.fn(async (tabId: number, factor: number) => {
+          zoomByTab.set(tabId, factor);
+        }),
+        setZoomSettings: vi.fn(async (tabId: number, settings: { scope?: string }) => {
+          zoomSettingsByTab.set(tabId, settings ?? {});
+        }),
       },
       tabGroups: {
         TAB_GROUP_ID_NONE: -1,
@@ -2973,6 +3368,39 @@ function loadBackgroundHarnessForTest(options: {
         })),
         query: vi.fn(async () => []),
         update: vi.fn(async () => undefined),
+      },
+      windows: {
+        onRemoved: createChromeEvent(),
+        get: vi.fn(async (windowId: number) => windowsById.get(windowId) ?? {
+          id: windowId,
+          state: 'normal',
+          bounds: { left: 0, top: 0, width: 1280, height: 800 },
+        }),
+        update: vi.fn(async (windowId: number, update: {
+          state?: string;
+          width?: number;
+          height?: number;
+          left?: number;
+          top?: number;
+        }) => {
+          const existing = windowsById.get(windowId) ?? {
+            id: windowId,
+            state: 'normal',
+            bounds: { left: 0, top: 0, width: 1280, height: 800 },
+          };
+          const bounds = {
+            left: update.left ?? existing.bounds.left,
+            top: update.top ?? existing.bounds.top,
+            width: update.width ?? existing.bounds.width,
+            height: update.height ?? existing.bounds.height,
+          };
+          windowsById.set(windowId, {
+            id: windowId,
+            state: update.state ?? existing.state,
+            bounds,
+          });
+          return windowsById.get(windowId);
+        }),
       },
     },
     __backgroundHarness: undefined as (BrowserExtensionBackgroundHarness & {

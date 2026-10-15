@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyBrowserAction,
   classifyBrowserFillForm,
+  classifyPressKeyAction,
   CAPTCHA_CHALLENGE_REASON,
   TWO_FACTOR_CHALLENGE_REASON,
   CREDENTIAL_CHALLENGE_REASON,
+  PRESS_KEY_ACTIVATION_REASON,
   withPageChallengeEvidence,
 } from './browser-action-classifier';
 
@@ -380,5 +382,38 @@ describe('browser-action-classifier', () => {
       const payment = { actionClass: 'payment', hardStop: true, reason: 'payment_field_never_automated' } as const;
       expect(withPageChallengeEvidence(payment, { detected: true })).toBe(payment);
     });
+  });
+});
+
+describe('classifyPressKeyAction', () => {
+  it('gates unproven Enter/Space activations behind explicit authority', () => {
+    for (const key of ['Enter', 'Space'] as const) {
+      expect(classifyPressKeyAction({ key })).toEqual({
+        actionClass: 'unknown',
+        hardStop: true,
+        reason: PRESS_KEY_ACTIVATION_REASON,
+      });
+    }
+  });
+
+  it('treats focus movement as ordinary input', () => {
+    for (const key of ['Tab', 'Escape', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Home', 'End', 'PageUp', 'PageDown', 'Backspace', 'Delete'] as const) {
+      expect(classifyPressKeyAction({ key, modifiers: key === 'Tab' ? ['Shift'] : undefined }))
+        .toEqual({ actionClass: 'input', hardStop: false });
+    }
+  });
+
+  it('keeps submission and destructive rules at least as strong as click', () => {
+    expect(classifyPressKeyAction({ key: 'Enter', actionHint: 'submit the tender' }).actionClass)
+      .toBe('submit');
+    expect(classifyPressKeyAction({ key: 'Enter', actionHint: 'delete this record' }).actionClass)
+      .toBe('destructive');
+  });
+
+  it('keeps credential and identity hard stops for hinted key presses', () => {
+    expect(classifyPressKeyAction({ key: 'Enter', actionHint: 'confirm the password' }))
+      .toMatchObject({ actionClass: 'credential', hardStop: true });
+    expect(classifyPressKeyAction({ key: 'Enter', actionHint: 'enter the IBAN' }))
+      .toMatchObject({ actionClass: 'financial_identity', hardStop: true });
   });
 });

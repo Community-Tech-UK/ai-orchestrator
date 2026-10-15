@@ -31,6 +31,19 @@ describe('ACP completion diagnostics', () => {
     expect(JSON.stringify(completion.logFields)).not.toContain('Hmm.');
   });
 
+  it('classifies a final step that spent the injected cap on reasoning as a cut-off', () => {
+    const turn = createAcpAssistantTurn('fixture');
+    turn.chunks.push('I read the plan queue. Next I will check the first plan.');
+    const completion = buildAcpTurnCompletion({
+      result: { stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 0, thoughtTokens: 32_000, totalTokens: 32_001 } },
+      turn, toolCalls: [{ title: 'fixture tool', kind: 'read', status: 'completed' }], adapter: 'OpenCode',
+      model: 'fixture-model', providerUsageReported: true, usage: undefined, leaseMs: 100,
+      generationBudget: { model: 'xiaomi-token-plan-ams/mimo-v2.6-pro', combinedOutputTokens: 32_000, reasoningBudgetSupported: false },
+    });
+    expect(completion.logFields).toMatchObject({ classifierReason: 'max_output', evidence: 'budget_saturated' });
+    expect(completion.response.metadata?.['turnEnding']).toMatchObject({ reason: 'max_output', evidence: 'budget_saturated' });
+  });
+
   it('filters untrusted usage, tool kinds and multiline identifiers at the same boundary', () => {
     const completion = buildAcpTurnCompletion({
       result: { stopReason: 'end_turn', usage: { outputTokens: 'LOCAL_TEST_SOURCE_PLACEHOLDER', thoughtTokens: 'LOCAL_TEST_SOURCE_PLACEHOLDER' } } as unknown as AcpSessionPromptResult,

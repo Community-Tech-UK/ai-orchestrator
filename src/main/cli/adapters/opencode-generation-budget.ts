@@ -11,6 +11,10 @@ export interface OpenCodeGenerationBudget {
 const scopedModel = (model: string | undefined) =>
   model?.match(/^((?:xiaomi-token-plan(?:-[^/]+)?)|(?:aio-mimo-[a-z0-9-]+))\/(mimo-v2\.6-pro)$/);
 const capOf = (options: Record<string, unknown>) => openCodePositive(options['max_completion_tokens']);
+// MiMo allows up to 131072, but OpenCode also sends max_tokens clamped to its own
+// 32000 ceiling. Matching that ceiling keeps both wire fields equal, so the classifier's
+// saturation check uses the cap the provider actually enforced.
+export const MIMO_COMBINED_OUTPUT_TOKEN_CAP = 32_000;
 
 function scopedAgents(config: Record<string, unknown>, model: string): [string, Record<string, unknown>][] {
   return Object.entries(openCodeRecord(config['agent'])).filter(([name, raw]) => {
@@ -65,7 +69,7 @@ export function applyOpenCodeGenerationBudget(base: Record<string, unknown>, mod
   const caps = [openCodePositive(limit['output']), capOf(options), openCodePositive(effectiveLimit['output']), capOf(openCodeRecord(effectiveModel['options'])),
     ...[nativeVariants, overlayVariants].flatMap((layer) => Object.values(layer).map((variant) => capOf(openCodeRecord(variant)))),
     ...agents.flatMap(([name]) => [agentCap(openCodeRecord(overlayAgents[name])), agentCap(openCodeRecord(nativeAgents[name]))])];
-  const output = Math.min(16384, ...caps.filter((value): value is number => value !== undefined));
+  const output = Math.min(MIMO_COMBINED_OUTPUT_TOKEN_CAP, ...caps.filter((value): value is number => value !== undefined));
   // Official MiMo-V2.6 launch documentation publishes a 1M context window.
   // The compatible SDK sends max_tokens; MiMo documents the combined cap as max_completion_tokens.
   models[modelId] = { ...config, options: { ...options, max_completion_tokens: output },

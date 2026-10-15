@@ -682,6 +682,8 @@ export type BrowserSelectRequest = z.infer<typeof BrowserSelectRequestSchema>;
 
 export { BrowserFillPlanStepSchema, BrowserExecuteFillPlanRequestSchema, BrowserFillCredentialRequestSchema, BrowserFillSecretRequestSchema, BrowserCreateAgentCredentialRequestSchema, type BrowserFillPlanStep, type BrowserExecuteFillPlanRequest, type BrowserFillCredentialRequest, type BrowserFillSecretRequest, type BrowserCreateAgentCredentialRequest } from './browser-form-fill.schemas';
 
+export * from './browser-input-controls.schemas';
+
 export const BrowserUploadFileRequestSchema = BrowserTargetRequestSchema.extend({
   selector: z.string().min(1).max(2000),
   filePath: z.string().min(1).max(2000),

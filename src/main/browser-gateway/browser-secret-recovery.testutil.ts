@@ -87,6 +87,9 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
       get: vi.fn(async (id: number) => tabs.get(id)),
       update: vi.fn(async (id: number) => tabs.get(id)),
     },
+    windows: {
+      onRemoved: event(),
+    },
     scripting: {
       executeScript: vi.fn(async (input: { func: { name: string }; target: { tabId: number }; args?: unknown[] }): Promise<ScriptResult[]> => {
         if (input.func.name === 'credentialFrameOriginProbe') {

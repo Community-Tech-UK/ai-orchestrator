@@ -127,7 +127,7 @@ describe('adapter factory — opencode', () => {
     expect(acpConfig(adapter).promptTimeoutMs).toBe(45 * 60_000);
     expect(injectedConfig(adapter)['provider']).toMatchObject({
       'xiaomi-token-plan-ams': { models: { 'mimo-v2.6-pro': {
-        options: { max_completion_tokens: 16384 }, limit: { context: 1_000_000, output: 16384 },
+        options: { max_completion_tokens: 32000 }, limit: { context: 1_000_000, output: 32000 },
       } } },
     });
   });

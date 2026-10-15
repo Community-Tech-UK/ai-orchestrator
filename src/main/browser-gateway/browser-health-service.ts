@@ -204,6 +204,29 @@ export interface BrowserGatewayHealthReport {
     expectedSurfaceHash: string;
   };
   /**
+   * Input-control capability advertisement (keyboard / viewport / zoom):
+   * which execution path can run each control and the known limits, so agents
+   * and operators see support without probing blindly. Per-operation failures
+   * remain explicit (e.g. browser_zoom_requires_shared_extension_tab).
+   */
+  controls: {
+    press_key: {
+      sharedTabs: boolean;
+      managedProfiles: boolean;
+      mechanism: string;
+    };
+    set_viewport: {
+      sharedTabs: boolean;
+      managedProfiles: boolean;
+      windowScope: string;
+    };
+    set_zoom: {
+      sharedTabs: boolean;
+      managedProfiles: boolean;
+      mechanism: string;
+    };
+  };
+  /**
    * Per-instance MCP forwarder sessions that reported their tool surface.
    * `schemaMatch` false or a non-empty `missing` list means the bridge binary
    * is skewed against this build — rebuild before starting a long flow.
@@ -555,6 +578,32 @@ export class BrowserHealthService {
         protocolVersion: BROWSER_GATEWAY_RPC_PROTOCOL_VERSION,
         expectedToolCount: expectedSurface.names.length,
         expectedSurfaceHash: expectedSurface.surfaceHash,
+      },
+      controls: {
+        press_key: {
+          sharedTabs: true,
+          managedProfiles: true,
+          mechanism:
+            'native keystrokes (CDP Input.dispatchKeyEvent on shared tabs, CDP '
+            + 'keyboard on managed profiles); named keys only — type text with browser.type',
+        },
+        set_viewport: {
+          sharedTabs: true,
+          managedProfiles: true,
+          windowScope:
+            "scope 'window' (real Chrome window resize) is shared-tab only and reports "
+            + 'the affected window, its other tabs and retained original bounds; managed '
+            + "profiles support scope 'tab' emulation only",
+        },
+        set_zoom: {
+          sharedTabs: true,
+          managedProfiles: false,
+          mechanism:
+            'real Chrome zoom via chrome.tabs.setZoom with per-tab zoom settings '
+            + '(original factor and settings preserved for reset); managed profiles '
+            + 'have no browser-zoom surface and CSS zoom/transforms/device-scale are '
+            + 'never substituted',
+        },
       },
       mcpSessions,
       recentReliabilityEvents: this.reliabilityEvents.recent(30),

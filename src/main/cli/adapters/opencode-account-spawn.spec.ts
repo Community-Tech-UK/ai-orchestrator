@@ -247,7 +247,7 @@ describe('createOpenCodeAdapter under a MiMo account route', () => {
     expect(config.requireSessionModelConfirmation).toBe(true);
     const content = JSON.parse(config.env[OPENCODE_CONFIG_CONTENT_ENV]!);
     expect(Object.keys(content.provider)).toEqual([`xiaomi-token-plan-${region}`]);
-    expect(content.provider[`xiaomi-token-plan-${region}`].models['mimo-v2.6-pro'].limit.output).toBe(16384);
+    expect(content.provider[`xiaomi-token-plan-${region}`].models['mimo-v2.6-pro'].limit.output).toBe(32000);
   });
 
   it('refuses the spawn when the routed account region metadata cannot be read', async () => {

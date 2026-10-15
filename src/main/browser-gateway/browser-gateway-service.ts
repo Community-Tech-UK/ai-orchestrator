@@ -186,6 +186,19 @@ import type { BrowserTargetPreflightResult } from './browser-target-preflight';
 import { withBrowserSnapshotLiveness } from './browser-target-liveness';
 import { BrowserReloadOperation } from './browser-reload-operation';
 import { BrowserMutationEffectVerifier } from './browser-mutation-effect-verifier';
+import {
+  createBrowserInputControlOperations,
+  type BrowserInputControlOperations,
+} from './browser-input-control-operations';
+import { requireUserForMutatingActionResult } from './browser-mutation-result';
+import type {
+  BrowserPressKeyRequest,
+  BrowserPressKeyResult,
+  BrowserSetViewportRequest,
+  BrowserSetViewportResult,
+  BrowserSetZoomRequest,
+  BrowserSetZoomResult,
+} from '@contracts/schemas/browser';
 import { BrowserExtensionRecoveryOperation } from './browser-extension-recovery-operation';
 export type {
   BrowserGatewayAttachExistingTabRequest,
@@ -233,6 +246,8 @@ export class BrowserGatewayService {
     | 'type'
     | 'fillForm'
     | 'select'
+    | 'pressKey'
+    | 'viewport'
     | 'readControl'
     | 'setChecked'
     | 'uploadFile'
@@ -272,6 +287,7 @@ export class BrowserGatewayService {
   private readonly reloadOperation: BrowserReloadOperation;
   private readonly extensionRecoveryOperation: BrowserExtensionRecoveryOperation;
   private readonly mutationEffectVerifier: BrowserMutationEffectVerifier;
+  private readonly inputControls: BrowserInputControlOperations;
   constructor(options: BrowserGatewayServiceOptions = {}) {
     this.profileStore = options.profileStore ?? getBrowserProfileStore();
     this.profileRegistry = options.profileRegistry ?? getBrowserProfileRegistry();
@@ -397,6 +413,15 @@ export class BrowserGatewayService {
       driver: this.driver, existingTabOperations: this.existingTabOperations,
       delay: options.mutationEffectDelay ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
+    });
+    this.inputControls = createBrowserInputControlOperations({
+      result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
+      getExistingTab: (profileId, targetId) => this.extensionTabStore.getTab(profileId, targetId) ?? undefined,
+      sendCommand: (attachment, command, payload, timeoutMs, onJournaled) => this.existingTabOperations.sendCommand(attachment, command, payload, timeoutMs, onJournaled),
+      recordFinalMutationFailure: (attachment, seq, reason) => this.existingTabOperations.recordFinalMutationFailure(attachment, seq, reason),
+      actionGuard: this.actionGuard,
+      effectVerifier: this.mutationEffectVerifier,
+      driver: this.driver,
     });
   }
 
@@ -1504,20 +1529,7 @@ export class BrowserGatewayService {
   async requireUserForMutatingAction(
     request: BrowserGatewayMutatingActionRequest,
   ): Promise<BrowserGatewayResult<null>> {
-    return this.result({
-      context: request,
-      profileId: request.profileId,
-      targetId: request.targetId,
-      action: request.action,
-      toolName: request.toolName,
-      actionClass: 'input',
-      decision: 'requires_user',
-      outcome: 'not_run',
-      requestId: `browser-${Date.now()}`,
-      reason: 'mutating_browser_action_requires_user',
-      summary: `${request.toolName} requires user approval and is not exposed in this milestone`,
-      data: null,
-    });
+    return requireUserForMutatingActionResult((input) => this.result(input), request);
   }
 
   async requestUserLogin(
@@ -1680,6 +1692,21 @@ export class BrowserGatewayService {
     } catch (error) {
       return this.actionGuard.mutationFailed(request, 'select', 'browser.select', prepared, error);
     }
+  }
+
+  /** Native keyboard press (Tab/Enter/arrows, modifiers) with focus read-back. */
+  async pressKey(request: BrowserGatewayContext & BrowserPressKeyRequest): Promise<BrowserGatewayResult<BrowserPressKeyResult | null>> {
+    return this.inputControls.pressKey(request);
+  }
+
+  /** Viewport control: tab-scoped emulation, optional real window resize, read/reset. */
+  async setViewport(request: BrowserGatewayContext & BrowserSetViewportRequest): Promise<BrowserGatewayResult<BrowserSetViewportResult | null>> {
+    return this.inputControls.setViewport(request);
+  }
+
+  /** Real Chrome zoom on shared tabs: set/read/reset with per-tab preservation. */
+  async setZoom(request: BrowserGatewayContext & BrowserSetZoomRequest): Promise<BrowserGatewayResult<BrowserSetZoomResult | null>> {
+    return this.inputControls.setZoom(request);
   }
 
   /**

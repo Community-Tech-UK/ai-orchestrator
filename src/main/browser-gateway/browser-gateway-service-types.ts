@@ -242,6 +242,8 @@ export interface BrowserGatewayServiceOptions {
     | 'type'
     | 'fillForm'
     | 'select'
+    | 'pressKey'
+    | 'viewport'
     | 'readControl'
     | 'setChecked'
     | 'uploadFile'

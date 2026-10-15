@@ -49,6 +49,10 @@ const SECRET_OBSERVATION_COMMANDS = new Set([
   'query_elements',
   'read_control',
   'wait_for',
+  // press_key reads back the focused element (identity + bounded visible text)
+  // after the key — page observation like read_control, so a secret-tainted tab
+  // is quarantined from it too.
+  'press_key',
 ]);
 
 // Last-resort self-heal ladder. An MV3 service worker with an open native
@@ -210,10 +214,18 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   // persist the filled value in same-origin storage and reveal it from a future
   // tab. There is no safe automatic origin declassification boundary.
   void clearSecretTaint(tabId).catch(() => undefined);
+  // Drop per-tab input-control state so it cannot leak across tab churn
+  // (press_key dedupe memory, zoom baselines).
+  pressKeyMemory.delete(String(tabId));
+  zoomBaselines.delete(tabId);
   if (!gatewayEnabled) {
     return;
   }
   void reportTabInventory();
+});
+
+chrome.windows.onRemoved.addListener((windowId) => {
+  viewportWindowBaselines.delete(windowId);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -2115,6 +2127,12 @@ async function executeBrowserCommand(command) {
         value,
       ]);
     }
+    case 'press_key':
+      return pressKeyCommand(command);
+    case 'set_viewport':
+      return setViewportCommand(command);
+    case 'set_zoom':
+      return setZoomCommand(command);
     case 'upload_file':
       return uploadFileInTargetTab(command);
     case 'accessibility_snapshot': {
@@ -2596,6 +2614,480 @@ async function typeBySelectorInTab(tabId, selector, value) {
     .map((entry) => entry?.result)
     .filter((entry) => entry != null);
   return mergeFrameResults('type', frameResults, [selector, value]);
+}
+
+// --- Native keyboard input (browser.press_key) --------------------------------
+// Keys are dispatched through CDP Input.dispatchKeyEvent, the browser's REAL
+// input mechanism: focus movement and default key behaviour (link activation,
+// form submission) occur exactly as with a physical keyboard. JavaScript
+// dispatchEvent is deliberately not used — it does not move focus or trigger
+// default actions. Printable letters/digits/punctuation are refused outright
+// (they stay on the `type` command, where the credential/identity hard stops
+// can see the field); Enter/Space may insert '\r'/' ' in an editable field as
+// part of their default behaviour but are activation-gated upstream.
+
+const PRESS_KEY_CODES = {
+  Tab: 9,
+  Enter: 13,
+  Escape: 27,
+  ArrowLeft: 37,
+  ArrowUp: 38,
+  ArrowRight: 39,
+  ArrowDown: 40,
+  Home: 36,
+  End: 35,
+  PageUp: 33,
+  PageDown: 34,
+  Space: 32,
+  Backspace: 8,
+  Delete: 46,
+};
+const PRESS_KEY_TEXT = {
+  Enter: '\r',
+  Space: ' ',
+};
+const PRESS_KEY_MODIFIER_CODES = { Alt: 18, Control: 17, Meta: 91, Shift: 16 };
+const PRESS_KEY_MODIFIER_BITS = { Alt: 1, Control: 2, Meta: 4, Shift: 8 };
+
+// Retry-dedupe memory: a repeat press carrying the same idempotencyKey never
+// presses again. Entries carry a state machine — 'started' before dispatch,
+// 'done' with the result after success, 'failed' after a failure — so a retry
+// after a failure (whose press may have partially run) cannot double-fire an
+// activation AND cannot claim the original succeeded. Bounded per tab and lost
+// on MV3 worker restart — the coordinator keeps its own copy too.
+const pressKeyMemory = new Map();
+const PRESS_KEY_MEMORY_MAX = 20;
+const PRESS_KEY_TAB_MEMORY_MAX = 50;
+
+function readPressKeyMemory(tabId, idempotencyKey) {
+  const entries = pressKeyMemory.get(String(tabId));
+  return entries ? entries.get(idempotencyKey) : undefined;
+}
+
+function rememberPressKey(tabId, idempotencyKey, entry) {
+  const key = String(tabId);
+  let entries = pressKeyMemory.get(key);
+  if (!entries) {
+    if (pressKeyMemory.size >= PRESS_KEY_TAB_MEMORY_MAX) {
+      pressKeyMemory.delete(pressKeyMemory.keys().next().value);
+    }
+    entries = new Map();
+    pressKeyMemory.set(key, entries);
+  }
+  entries.delete(idempotencyKey);
+  entries.set(idempotencyKey, entry);
+  while (entries.size > PRESS_KEY_MEMORY_MAX) {
+    entries.delete(entries.keys().next().value);
+  }
+}
+
+function deduplicatedPressKeyPayload(entry, key, modifiers) {
+  if (entry && entry.state === 'done' && entry.payload) {
+    return { ...entry.payload, deduplicated: true };
+  }
+  // Started-but-unfinished or failed: do not press again and do not claim
+  // success. A deliberate re-press needs a NEW idempotencyKey.
+  return { applied: false, key, modifiers, deduplicated: true };
+}
+
+function normalizePressKeyModifiers(raw) {
+  if (raw === undefined || raw === null) {
+    return [];
+  }
+  if (!Array.isArray(raw)) {
+    throw new Error('press_key modifiers must be an array of modifier names.');
+  }
+  const modifiers = [];
+  for (const entry of raw.slice(0, 3)) {
+    if (typeof entry !== 'string' || !PRESS_KEY_MODIFIER_CODES[entry]) {
+      throw new Error(`Unsupported press_key modifier: ${String(entry)}`);
+    }
+    if (!modifiers.includes(entry)) {
+      modifiers.push(entry);
+    }
+  }
+  return modifiers;
+}
+
+// Secret-free focused-element read-back: identity only, never element.value.
+// A password field reports tag/type and nothing else.
+const FOCUS_READ_EXPRESSION = `(() => {
+  const el = document.activeElement;
+  if (!el || !el.tagName) return { focus: { tagName: 'BODY' } };
+  const type = typeof el.type === 'string' ? el.type.toLowerCase() : undefined;
+  const secret = type === 'password';
+  const focus = { tagName: String(el.tagName).slice(0, 120) };
+  const role = el.getAttribute && el.getAttribute('role');
+  if (role) focus.role = String(role).slice(0, 120);
+  if (el.id) focus.id = String(el.id).slice(0, 200);
+  if (el.name) focus.name = String(el.name).slice(0, 200);
+  if (type) focus.type = String(type).slice(0, 120);
+  const aria = el.getAttribute && el.getAttribute('aria-label');
+  if (aria && !secret) focus.ariaLabel = String(aria).slice(0, 500);
+  if (secret) return { focus };
+  const text = (el.innerText || el.textContent || '').trim().slice(0, 300);
+  if (text) focus.text = text;
+  if (el.href) focus.href = String(el.href).slice(0, 2000);
+  if (el.isContentEditable) focus.editable = true;
+  return { focus };
+})()`;
+
+const VIEWPORT_READ_EXPRESSION = '(() => ({ innerWidth: window.innerWidth, innerHeight: window.innerHeight }))()';
+
+async function dispatchNamedKeyWithModifiers(debuggee, key, modifiers) {
+  const sendKey = (type, virtualKeyCode, text, modifiersMask) =>
+    chrome.debugger.sendCommand(debuggee, 'Input.dispatchKeyEvent', {
+      type,
+      windowsVirtualKeyCode: virtualKeyCode,
+      nativeVirtualKeyCode: virtualKeyCode,
+      modifiers: modifiersMask,
+      ...(text ? { text } : {}),
+    });
+  let mask = 0;
+  const pressed = [];
+  try {
+    for (const modifier of modifiers) {
+      mask |= PRESS_KEY_MODIFIER_BITS[modifier];
+      await sendKey('rawKeyDown', PRESS_KEY_MODIFIER_CODES[modifier], undefined, mask);
+      pressed.push(modifier);
+    }
+    const keyCode = PRESS_KEY_CODES[key];
+    const text = PRESS_KEY_TEXT[key];
+    await sendKey('rawKeyDown', keyCode, undefined, mask);
+    if (text) {
+      await sendKey('char', keyCode, text, mask);
+    }
+    await sendKey('keyUp', keyCode, text, mask);
+  } finally {
+    // Modifiers are real keyboard state: always released, including on
+    // cancellation or failure, so nothing is left "stuck" in the user's Chrome.
+    for (const modifier of pressed.reverse()) {
+      mask &= ~PRESS_KEY_MODIFIER_BITS[modifier];
+      await sendKey('keyUp', PRESS_KEY_MODIFIER_CODES[modifier], undefined, mask).catch(() => undefined);
+    }
+  }
+}
+
+async function pressKeyCommand(command) {
+  const tabId = requireTargetTabId(command);
+  const key = requirePayloadString(command, 'key');
+  if (!PRESS_KEY_CODES[key]) {
+    throw new Error(
+      `Unsupported press_key key: ${key}. Named keys only (Tab, Enter, Escape, arrows, Home, End, PageUp, PageDown, Space, Backspace, Delete); type text with the type command.`,
+    );
+  }
+  const modifiers = normalizePressKeyModifiers(command.payload?.modifiers);
+  const rawIdempotencyKey = command.payload?.idempotencyKey;
+  const idempotencyKey = typeof rawIdempotencyKey === 'string' && rawIdempotencyKey
+    ? rawIdempotencyKey.slice(0, 200)
+    : null;
+  if (idempotencyKey) {
+    const remembered = readPressKeyMemory(tabId, idempotencyKey);
+    if (remembered) {
+      return deduplicatedPressKeyPayload(remembered, key, modifiers);
+    }
+    rememberPressKey(tabId, idempotencyKey, { state: 'started' });
+  }
+  const controlToken = await startControlledTab(tabId);
+  try {
+    const focus = await withDebugger(tabId, async (debuggee) => {
+      await chrome.debugger.sendCommand(debuggee, 'DOM.enable').catch(() => undefined);
+      await dispatchNamedKeyWithModifiers(debuggee, key, modifiers);
+      const evaluation = await chrome.debugger.sendCommand(debuggee, 'Runtime.evaluate', {
+        expression: FOCUS_READ_EXPRESSION,
+        returnByValue: true,
+      });
+      return evaluation?.result?.value?.focus;
+    });
+    const tab = await chrome.tabs.get(tabId);
+    const payload = {
+      applied: true,
+      key,
+      modifiers,
+      ...(focus && typeof focus === 'object' ? { focus } : {}),
+      ...(typeof tab?.url === 'string' ? { url: tab.url } : {}),
+      ...(typeof tab?.title === 'string' ? { title: tab.title } : {}),
+    };
+    if (idempotencyKey) {
+      rememberPressKey(tabId, idempotencyKey, { state: 'done', payload });
+    }
+    await reportTab(tab);
+    return payload;
+  } catch (error) {
+    // The key is burned even on failure: the press may have partially
+    // dispatched (e.g. Enter's keyDown landed before the channel failed), so a
+    // same-key retry must not fire it again.
+    if (idempotencyKey) {
+      rememberPressKey(tabId, idempotencyKey, { state: 'failed' });
+    }
+    throw error;
+  } finally {
+    await stopControlledTab(tabId, controlToken);
+  }
+}
+
+// --- Viewport control (browser.set_viewport) ---------------------------------
+// Two distinct mechanisms, never conflated: per-tab viewport emulation
+// (Emulation.setDeviceMetricsOverride — the selected tab only) and real Chrome
+// window resize (chrome.windows.update — every tab in that window). Each
+// result names which one ran. Window baselines retain the original bounds and
+// window state for restoration.
+
+const viewportWindowBaselines = new Map();
+const VIEWPORT_WINDOW_BASELINE_MAX = 20;
+
+function rememberViewportWindowBaseline(windowId, baseline) {
+  if (!viewportWindowBaselines.has(windowId) && viewportWindowBaselines.size >= VIEWPORT_WINDOW_BASELINE_MAX) {
+    viewportWindowBaselines.delete(viewportWindowBaselines.keys().next().value);
+  }
+  viewportWindowBaselines.set(windowId, baseline);
+}
+
+async function readTabViewportMetrics(tabId) {
+  try {
+    const injectionResults = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => ({ innerWidth: window.innerWidth, innerHeight: window.innerHeight }),
+    });
+    const value = injectionResults?.[0]?.result;
+    return {
+      innerWidth: Number.isFinite(value?.innerWidth) ? value.innerWidth : 0,
+      innerHeight: Number.isFinite(value?.innerHeight) ? value.innerHeight : 0,
+    };
+  } catch {
+    return { innerWidth: 0, innerHeight: 0 };
+  }
+}
+
+async function readTabEmulation(debuggee) {
+  try {
+    const current = await chrome.debugger.sendCommand(debuggee, 'Emulation.getDeviceMetricsOverride');
+    const width = Number(current?.width ?? 0);
+    const height = Number(current?.height ?? 0);
+    return {
+      emulationActive: width > 0 && height > 0,
+      ...(width > 0 ? { emulationWidth: width } : {}),
+      ...(height > 0 ? { emulationHeight: height } : {}),
+    };
+  } catch {
+    return { emulationActive: false };
+  }
+}
+
+async function setTabViewportState(tabId, payload) {
+  const reset = payload.reset === true;
+  const hasSize = Number.isFinite(payload.width) && Number.isFinite(payload.height);
+  const controlToken = await startControlledTab(tabId);
+  try {
+    const result = await withDebugger(tabId, async (debuggee) => {
+      const previous = await readTabEmulation(debuggee);
+      let mode = 'read';
+      if (reset) {
+        await chrome.debugger.sendCommand(debuggee, 'Emulation.clearDeviceMetricsOverride');
+        mode = 'reset';
+      } else if (hasSize) {
+        await chrome.debugger.sendCommand(debuggee, 'Emulation.setDeviceMetricsOverride', {
+          width: payload.width,
+          height: payload.height,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        mode = 'tab_emulation';
+      }
+      const emulation = await readTabEmulation(debuggee);
+      return {
+        mode,
+        scope: 'tab',
+        ...(hasSize && mode === 'tab_emulation' ? { requested: { width: payload.width, height: payload.height } } : {}),
+        emulation: {
+          width: emulation.emulationWidth ?? 0,
+          height: emulation.emulationHeight ?? 0,
+          deviceScaleFactor: 1,
+        },
+        previous,
+      };
+    });
+    return { ...result, actual: await readTabViewportMetrics(tabId) };
+  } finally {
+    await stopControlledTab(tabId, controlToken);
+  }
+}
+
+async function setWindowViewportState(tabId, payload) {
+  const reset = payload.reset === true;
+  const hasSize = Number.isFinite(payload.width) && Number.isFinite(payload.height);
+  const tab = await chrome.tabs.get(tabId);
+  const windowId = tab?.windowId;
+  if (!Number.isInteger(windowId)) {
+    throw new Error('browser_window_viewport_window_unavailable');
+  }
+  const windowInfo = await chrome.windows.get(windowId);
+  const otherTabIds = (await chrome.tabs.query({ windowId }))
+    .map((entry) => entry?.id)
+    .filter((id) => Number.isInteger(id) && id !== tabId);
+  const currentBounds = {
+    left: windowInfo?.bounds?.left ?? 0,
+    top: windowInfo?.bounds?.top ?? 0,
+    width: windowInfo?.bounds?.width ?? 0,
+    height: windowInfo?.bounds?.height ?? 0,
+  };
+  let restorationFailed;
+  let mode = 'read';
+  if (reset) {
+    mode = 'reset';
+    const baseline = viewportWindowBaselines.get(windowId);
+    if (!baseline) {
+      restorationFailed = 'browser_window_bounds_baseline_lost';
+    } else {
+      try {
+        await chrome.windows.update(windowId, { state: baseline.state, ...baseline.bounds });
+        viewportWindowBaselines.delete(windowId);
+      } catch (error) {
+        restorationFailed = String((error && error.message) || error).slice(0, 500);
+      }
+    }
+  } else if (hasSize) {
+    if (!viewportWindowBaselines.has(windowId)) {
+      rememberViewportWindowBaseline(windowId, {
+        bounds: currentBounds,
+        state: windowInfo?.state ?? 'normal',
+      });
+    }
+    await chrome.windows.update(windowId, {
+      state: 'normal',
+      width: payload.width,
+      height: payload.height,
+    });
+    mode = 'window_resize';
+  }
+  const after = await chrome.windows.get(windowId).catch(() => windowInfo);
+  return {
+    mode,
+    scope: 'window',
+    ...(hasSize && mode === 'window_resize' ? { requested: { width: payload.width, height: payload.height } } : {}),
+    actual: await readTabViewportMetrics(tabId),
+    window: {
+      windowId,
+      otherTabIds,
+      bounds: {
+        left: after?.bounds?.left ?? 0,
+        top: after?.bounds?.top ?? 0,
+        width: after?.bounds?.width ?? 0,
+        height: after?.bounds?.height ?? 0,
+      },
+    },
+    previous: { emulationActive: false, windowBounds: currentBounds },
+    ...(restorationFailed ? { restorationFailed } : {}),
+  };
+}
+
+async function setViewportCommand(command) {
+  const tabId = requireTargetTabId(command);
+  const payload = command.payload ?? {};
+  const scope = payload.scope === 'window' ? 'window' : 'tab';
+  const reset = payload.reset === true;
+  const hasSize = Number.isFinite(payload.width) && Number.isFinite(payload.height);
+  if (!reset && !hasSize && scope === 'window') {
+    // Reading makes no sense for window scope beyond tab metrics; report which
+    // mechanism would run so nothing silently stands in for the other.
+    const tab = await chrome.tabs.get(tabId);
+    const windowInfo = await chrome.windows.get(tab.windowId);
+    return {
+      mode: 'read',
+      scope: 'window',
+      actual: await readTabViewportMetrics(tabId),
+      window: {
+        windowId: tab.windowId,
+        otherTabIds: (await chrome.tabs.query({ windowId: tab.windowId }))
+          .map((entry) => entry?.id)
+          .filter((id) => Number.isInteger(id) && id !== tabId),
+        bounds: {
+          left: windowInfo?.bounds?.left ?? 0,
+          top: windowInfo?.bounds?.top ?? 0,
+          width: windowInfo?.bounds?.width ?? 0,
+          height: windowInfo?.bounds?.height ?? 0,
+        },
+      },
+    };
+  }
+  if (scope === 'window') {
+    return setWindowViewportState(tabId, payload);
+  }
+  return setTabViewportState(tabId, payload);
+}
+
+// --- Real Chrome zoom (browser.set_zoom) -------------------------------------
+// chrome.tabs.setZoom is the browser's actual zoom (what Ctrl+= changes) — not
+// CSS zoom, a transform, or device-scale emulation. To keep the change scoped
+// to this tab the tab's zoom settings are switched to per-tab first; the
+// original factor AND settings are preserved per tab and restored by reset. A
+// lost baseline (MV3 worker restart) is reported explicitly, never faked.
+
+const zoomBaselines = new Map();
+const ZOOM_BASELINE_MAX = 50;
+
+function rememberZoomBaseline(tabId, baseline) {
+  if (!zoomBaselines.has(tabId) && zoomBaselines.size >= ZOOM_BASELINE_MAX) {
+    zoomBaselines.delete(zoomBaselines.keys().next().value);
+  }
+  zoomBaselines.set(tabId, baseline);
+}
+
+async function readZoomViewport(tabId) {
+  return readTabViewportMetrics(tabId);
+}
+
+async function setZoomCommand(command) {
+  const tabId = requireTargetTabId(command);
+  const payload = command.payload ?? {};
+  const reset = payload.reset === true;
+  const hasFactor = Number.isFinite(payload.zoomFactor);
+  const previousFactor = await chrome.tabs.getZoom(tabId);
+  const previousSettings = await chrome.tabs.getZoomSettings(tabId);
+  const mode = reset ? 'reset' : hasFactor ? 'set' : 'read';
+  let restorationFailed;
+
+  if (mode !== 'read') {
+    if (reset) {
+      const baseline = zoomBaselines.get(tabId);
+      if (!baseline) {
+        restorationFailed = 'browser_zoom_baseline_lost';
+      } else {
+        try {
+          if (baseline.settings) {
+            await chrome.tabs.setZoomSettings(tabId, baseline.settings);
+          }
+          await chrome.tabs.setZoom(tabId, baseline.zoomFactor);
+          zoomBaselines.delete(tabId);
+        } catch (error) {
+          restorationFailed = String((error && error.message) || error).slice(0, 500);
+        }
+      }
+    } else {
+      if (!zoomBaselines.has(tabId)) {
+        rememberZoomBaseline(tabId, { zoomFactor: previousFactor, settings: previousSettings });
+      }
+      // Per-tab scope so the zoom cannot spread to a whole origin behind the
+      // user's back; the original settings come back with reset.
+      if (previousSettings?.scope !== 'per-tab') {
+        await chrome.tabs.setZoomSettings(tabId, { scope: 'per-tab' });
+      }
+      await chrome.tabs.setZoom(tabId, payload.zoomFactor);
+    }
+  }
+
+  const afterFactor = await chrome.tabs.getZoom(tabId);
+  const afterSettings = await chrome.tabs.getZoomSettings(tabId);
+  return {
+    mode,
+    zoomFactor: afterFactor,
+    zoomPercent: Math.round(afterFactor * 100),
+    previousZoomFactor: previousFactor,
+    zoomScope: afterSettings?.scope,
+    previousZoomScope: previousSettings?.scope,
+    viewport: await readZoomViewport(tabId),
+    ...(restorationFailed ? { restorationFailed } : {}),
+  };
 }
 
 // fill_form supports per-field uid (robust, closed-shadow-safe) and per-field

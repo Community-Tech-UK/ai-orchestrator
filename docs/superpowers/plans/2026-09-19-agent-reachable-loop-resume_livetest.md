@@ -46,6 +46,14 @@ The mobile and automation tests were each confirmed to fail with their fix rever
 `npm run build:renderer` and `npm run build:aio-mcp-dist` all pass, and every spec listed above is
 green.
 
+## Status — 2026-10-04 (livetest campaign batch D)
+
+Closed: check 1 (2026-09-24), check 4 (2026-09-24, LT-642 fixed live 2026-09-24) · Check 2: PASS on a loop I created
+in a dev app (the real packaged-app parked loop `loop-1789608176316-f9af53a7` was **not** touched) · Check 3: PASS
+at the gateway-protocol level with a synthetic paired client (no physical device; the real mobile app's own UI was
+not observed). Not renamed: the real parked loop and a real device are the residuals. Full write-up: [Evidence run
+— 2026-10-04 (batch D)](#evidence-run--2026-10-04-batch-d).
+
 ## Status — 2026-09-24 (loops batch)
 
 Open: 1 (check 3, mobile — assessed, not attempted) · Closed: 1 (check 1) · Failed: 1 (check 4's
@@ -297,3 +305,68 @@ The loop-resume verification instance was terminated (`window.electronAPI.termin
 `window.electronAPI.listInstances()` returned `[]` at the end of the batch. The scratch repo and
 electron profile were removed. The dev app restart used only this batch's own recorded pid, confirmed
 against the pre-existing process snapshot before killing.
+
+## Evidence run — 2026-10-04 (batch D)
+
+Batch D, dev app from the working tree (HEAD `3d05e250e`), profile `/tmp/aio-lt-1004-d`, throwaway git repo
+`/tmp/aio-lt-1004-d-repos/lt1`. In the dev app `$AIO_MCP` talks to the dev app's own orchestrator-tools socket
+(`loop list` printed only my loops), so none of this touched James's packaged app or its real parked loops.
+Evidence in `_scratch/lt-2026-10-04/d/` (`lt1-*.json`, `loopresume-applog-slice.ndjson`, `mobile-*.txt`).
+
+### Check 2 — `loop resume` restarts a parked loop and an iteration begins · PASS on a substituted loop
+
+Why substituted: the doc's loop is the real one in the real repository; resuming it was ruled out of scope for this
+campaign. I used a loop I created instead, and **paused** (not provider-limit parked) it — the resume path
+(`resumeLoopRun`) accepts both. The provider-limit variant was not exercised live.
+
+1. Claude loop `loop-1791158223017-04b45e99` in `lt1` with `isolateLoopWorkspaces` + `autoIntegrateWorktree`, task:
+   create twelve files. After iteration 0 completed I paused it (`status paused`, 1 iteration).
+2. Before any restart, a Claude agent's `$AIO_MCP loop list` showed it as `paused (live)`.
+3. Dev app stopped gracefully and relaunched, so the coordinator no longer held the loop (checkpoint-only). A new
+   Claude agent then ran, verbatim:
+   - `$AIO_MCP loop list` → `Resumable loops: 1` … `loop-1791158223017-04b45e99 | paused | started … | 1
+     iteration(s)` … `resume: aio-mcp loop resume loop-1791158223017-04b45e99`, exit 0.
+   - `$AIO_MCP loop resume loop-1791158223017-04b45e99` → `Resumed loop-1791158223017-04b45e99 (re-hydrated from its
+     stored checkpoint): paused -> running`, exit 0 (matches the doc's expected sentence, with `paused` in place of
+     `provider-limit`).
+4. `app.log` (`loopresume-applog-slice.ndjson`): `1791158503586 LoopCoordinator: Loop restore: re-registered existing
+   worktree {worktreePath: …/lt1/.worktrees/task-in-the-workspace-create-twelve-muuhcy4e}`, `…598 Loop resumed`,
+   `…598 LoopCliOperations: Loop resumed via aio-mcp loop CLI {previousStatus: paused, restoredFromCheckpoint: true}`,
+   then iteration `::1` completed at `…514024` and the loop ended `completed` ("Converged after 1 consecutive clean
+   fresh-eyes reviews") at `…514186`.
+5. "An iteration starts in the existing worktree, not the repository root": the restore re-registered the existing
+   worktree path before the iteration ran (log above); I did not capture the iteration process's working directory
+   directly, so this part is inferred from that line and from the loop's isolation flow completing normally.
+6. "`loop list` no longer lists it as resumable": the loop finished 11 s after the resume; the mobile list afterwards
+   (below) shows it `completed`. I did not re-run the CLI `loop list` after it finished.
+
+### Check 3 — resuming a parked loop from the mobile client after a restart · PASS (gateway protocol, synthetic client)
+
+The mobile client path **can** be exercised without a device: the mobile gateway binds on loopback in a dev app
+(profile settings only: `mobileGatewayEnabled true`, `mobileGatewayBindInterface all`, `mobileGatewayPort 4892`; the
+packaged app owns 4879 and was not touched). A synthetic client was paired entirely from code
+(`mobileGatewayIssuePairing` → `POST /pair` → device token), which is what the app does.
+
+1. A second paused Claude loop `loop-1791158604709-b807c148` (iteration 1 done, `paused`), then a graceful dev-app
+   restart (checkpoint-only again).
+2. `GET /api/loops` (Bearer device token) listed it as `paused`.
+3. `POST /api/loops/loop-1791158604709-b807c148/resume` → `HTTP 200 {"ok":true,"run":{… "status":"running",
+   "iteration":1 …}}` (`mobile-resume-response.txt`). This route goes through `resumeLoopRun`
+   (`mobile-gateway-loop-source.ts:115-119`), the shared restore-then-resume sequence the doc describes.
+4. `app.log`: `1791158698660 Loop restore: re-registered existing worktree`, `…687 Loop resumed`; the loop ran and
+   ended `completed` at `…708309`. Before the fix this call would have returned `ok:false` for a loop the coordinator
+   no longer held.
+
+Not covered: the real iOS app's UI state ("the mobile UI state" the doc asks to record), and the separate thin-client
+WebSocket command `loop:resume` (`thin-client-command-executor.ts:151`), which calls the same `resumeLoopRun` but was
+not driven. The synthetic device was revoked, the gateway stopped and the settings left in the discarded profile.
+
+### Checks 1 and 4
+
+Not repeated (closed 2026-09-24). Side evidence: the dev app's `loop list` works both for a live paused loop
+(`paused (live)`) and for a checkpoint-only one (`paused`).
+
+### Cleanup
+
+Both loops ended `completed`; instances terminated; dev app stopped; profile and scratch repo removed; the
+real parked loop and its worktree (`.worktrees/task-please-work-through-all-the-li-mu4ui30h`) untouched.

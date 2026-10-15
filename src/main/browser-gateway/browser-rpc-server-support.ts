@@ -43,6 +43,9 @@ import {
   BrowserCreateAgentCredentialRequestSchema,
   BrowserTargetRequestSchema,
   BrowserTypeRequestSchema,
+  BrowserPressKeyRequestSchema,
+  BrowserSetViewportRequestSchema,
+  BrowserSetZoomRequestSchema,
   BrowserUploadFileRequestSchema,
   BrowserWaitForRequestSchema,
 } from '@contracts/schemas/browser';
@@ -82,6 +85,12 @@ const STRICT_NO_STRIP_METHODS: ReadonlySet<string> = new Set([
   'browser.checkpoint_resume',
   'browser.reload',
   'browser.recover_extension',
+  // Control primitives: a stripped idempotencyKey, reset or scope would
+  // silently change execution semantics (double-fired Enter, un-restored
+  // zoom), and both sides ship together because the methods are new.
+  'browser.press_key',
+  'browser.set_viewport',
+  'browser.set_zoom',
 ]);
 
 function schemaForBrowserRpcMethod(method: string): ZodType | null {
@@ -108,6 +117,12 @@ function schemaForBrowserRpcMethod(method: string): ZodType | null {
       return BrowserFillFormRequestSchema;
     case 'browser.select':
       return BrowserSelectRequestSchema;
+    case 'browser.press_key':
+      return BrowserPressKeyRequestSchema;
+    case 'browser.set_viewport':
+      return BrowserSetViewportRequestSchema;
+    case 'browser.set_zoom':
+      return BrowserSetZoomRequestSchema;
     case 'browser.execute_fill_plan':
       return BrowserExecuteFillPlanRequestSchema;
     case 'browser.fill_credential':

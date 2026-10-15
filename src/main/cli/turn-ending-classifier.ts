@@ -94,24 +94,38 @@ export function classifyTurnEnding(input: TurnEndingInput): TurnEndingClassifica
     });
   }
   if (native.some((reason) => ['tool_calls', 'tool_use', 'pause_turn', 'tool_deferred'].includes(reason))) return result('completed', 'provider_tool_boundary', { autoContinueSuppressed: true });
+  const transient = [502, 503, 504].includes(Number(status)) || /\b(?:overloaded|server_error|temporarily unavailable|retryable recovery|retrying)\b/i.test(failureText);
+  const failed = input.kind === 'error' || native.includes('error') || meta['is_error'] === true || Boolean(meta['error']) || meta['completionStatus'] === 'failed';
+  // A saturated cap explains an unanswered tool result: the reply step was cut off, not skipped.
+  if (!transient && !failed && outputBudgetSaturated(input, meta)) return result('max_output', 'budget_saturated');
   if (meta['danglingToolResult'] === true && meta['toolResultAwaitingReply'] === true && !input.hasOpenToolCall) return result('dangling_tool_result', 'explicit_unanswered_tool_result');
-  if ([502, 503, 504].includes(Number(status)) || /\b(?:overloaded|server_error|temporarily unavailable|retryable recovery|retrying)\b/i.test(failureText)) return result('retryable', 'provider_transient_error');
+  if (transient) return result('retryable', 'provider_transient_error');
   const userStopped = (meta['is_error'] === true || input.kind === 'error')
     && /\b(?:interrupted by (?:the )?user|user interrupted)\b/i.test(failureText);
   if (userStopped) return result('completed', 'client_cancelled', { autoContinueSuppressed: true });
-  if (outputBudgetSaturated(input)) return result('max_output', 'budget_saturated');
-  if (input.kind === 'error' || native.includes('error') || meta['is_error'] === true || meta['error'] || meta['completionStatus'] === 'failed') return result('unknown_error', 'provider_error');
+  if (failed) return result('unknown_error', 'provider_error');
   return result('completed', 'provider_completed');
 }
 
-/** A scoped cap was reached and the visible answer is not a finished sentence. */
-function outputBudgetSaturated(input: TurnEndingInput): boolean {
-  const cap = input.combinedOutputTokenCap;
-  if (cap === undefined || cap <= 0 || input.hasOpenToolCall) return false;
-  const used = (input.outputTokens ?? 0) + (input.reasoningTokens ?? 0);
+function finiteNumber(...values: unknown[]): number | undefined {
+  return values.find((value): value is number => typeof value === 'number' && Number.isFinite(value));
+}
+
+/**
+ * A successful completion reached a scoped cap and no finished answer came from the capped step.
+ * Usage covers only the final provider step, while text spans the whole turn,
+ * so a step that spent the cap on reasoning is cut off even after earlier narration.
+ */
+function outputBudgetSaturated(input: TurnEndingInput, meta: Record<string, unknown>): boolean {
+  const cap = finiteNumber(input.combinedOutputTokenCap, record(meta['generationBudget'])['combinedOutputTokens']);
+  if (cap === undefined || cap <= 0 || input.hasOpenToolCall || meta['hasOpenToolCall'] === true) return false;
+  const outputTokens = finiteNumber(input.outputTokens, meta['outputTokens']);
+  const used = (outputTokens ?? 0) + (finiteNumber(input.reasoningTokens, meta['reasoningTokens']) ?? 0);
   const tolerance = Math.min(64, Math.max(8, Math.floor(cap * 0.02)));
   if (used + tolerance < cap) return false;
+  // A near-empty capped step is treated as cut off even if earlier text looks finished; a
+  // rare false positive costs at most the bounded automatic continuations.
+  if (outputTokens !== undefined && outputTokens <= tolerance) return true;
   const text = (input.text ?? '').trim();
-  if (!text) return false;
-  return !/[.!?][\s"')\]]*$/.test(text);
+  return !text || !/[.!?][\s"')\]]*$/.test(text);
 }

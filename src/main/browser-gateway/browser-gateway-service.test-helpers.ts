@@ -9,6 +9,10 @@ import type {
   BrowserProfile,
   BrowserTarget,
 } from '@contracts/types/browser';
+import type {
+  BrowserPressKeyResult,
+  BrowserSetViewportResult,
+} from '@contracts/schemas/browser';
 import {
   BrowserGatewayService,
   type BrowserGatewayServiceOptions,
@@ -68,6 +72,17 @@ export function makeService(overrides: {
   snapshot?: () => Promise<{ title: string; url: string; text: string }>;
   inspectElement?: () => Promise<BrowserElementContext>;
   fingerprintElementText?: () => Promise<string | undefined>;
+  pressKey?: (
+    profileId: string,
+    targetId: string,
+    key: string,
+    modifiers?: string[],
+  ) => Promise<BrowserPressKeyResult>;
+  viewport?: (
+    profileId: string,
+    targetId: string,
+    command: { width?: number; height?: number; reset?: boolean },
+  ) => Promise<BrowserSetViewportResult>;
   listWedgedTargets?: () => string[];
   accessibilitySnapshot?: (
     profileId: string,
@@ -167,6 +182,33 @@ export function makeService(overrides: {
     type: vi.fn(async () => undefined),
     fillForm: vi.fn(async () => undefined),
     select: vi.fn(async () => undefined),
+    pressKey: vi.fn(overrides.pressKey ?? (async (
+      _profileId: string,
+      _targetId: string,
+      key: string,
+      modifiers: string[] = [],
+    ): Promise<BrowserPressKeyResult> => ({
+      applied: true,
+      key: key as BrowserPressKeyResult['key'],
+      modifiers: modifiers as BrowserPressKeyResult['modifiers'],
+      focus: { tagName: 'A', role: 'link', text: 'More information' },
+      url: 'http://localhost:4567',
+      title: 'Local',
+    }))),
+    viewport: vi.fn(overrides.viewport ?? (async (
+      _profileId: string,
+      _targetId: string,
+      command: { width?: number; height?: number; reset?: boolean },
+    ): Promise<BrowserSetViewportResult> => ({
+      mode: (command.reset === true ? 'reset' : command.width !== undefined ? 'tab_emulation' : 'read'),
+      scope: 'tab',
+      ...(command.width !== undefined && command.height !== undefined
+        ? { requested: { width: command.width, height: command.height } }
+        : {}),
+      actual: { innerWidth: command.width ?? 1024, innerHeight: command.height ?? 768 },
+      emulation: { width: command.width ?? 0, height: command.height ?? 0, deviceScaleFactor: 1 },
+      previous: { emulationActive: false },
+    }))),
     readControl: vi.fn(async () => ({ value: undefined, selectedLabel: undefined, checked: undefined })),
     setChecked: vi.fn(async () => undefined),
     uploadFile: vi.fn(async () => undefined),
@@ -454,6 +496,23 @@ export function makeService(overrides: {
           browserToolNames: ['browser_snapshot'],
           warnings: [],
           suggestions: [],
+        },
+        controls: {
+          press_key: {
+            sharedTabs: true,
+            managedProfiles: true,
+            mechanism: 'native keystrokes',
+          },
+          set_viewport: {
+            sharedTabs: true,
+            managedProfiles: true,
+            windowScope: 'shared-tab only',
+          },
+          set_zoom: {
+            sharedTabs: true,
+            managedProfiles: false,
+            mechanism: 'chrome.tabs.setZoom',
+          },
         },
         warnings: [],
       }),

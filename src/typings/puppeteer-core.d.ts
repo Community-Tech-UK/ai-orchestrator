@@ -41,9 +41,28 @@ declare module 'puppeteer-core' {
     uploadFile(...filePaths: string[]): Promise<void>;
   }
 
+  export interface Keyboard {
+    down(key: string): Promise<void>;
+    up(key: string): Promise<void>;
+    press(key: string): Promise<void>;
+    type(text: string, options?: { delay?: number }): Promise<void>;
+  }
+
+  export interface Viewport {
+    width: number;
+    height: number;
+    deviceScaleFactor?: number;
+    isMobile?: boolean;
+    hasTouch?: boolean;
+    isLandscape?: boolean;
+  }
+
   export interface Page {
     url(): string;
     title(): Promise<string>;
+    keyboard: Keyboard;
+    setViewport(viewport: Viewport | null): Promise<void>;
+    viewport(): Viewport | null;
     goto(
       url: string,
       options?: {

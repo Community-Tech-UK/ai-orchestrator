@@ -187,8 +187,8 @@ export class BrowserMutationEffectVerifier {
     attachment: BrowserExistingTabAttachment | undefined,
     expectation: BrowserRequestedMutationEffect | null,
     before: BrowserMutationEffectObservation | null,
-    action: 'click' | 'evaluate',
-    toolName: 'browser.click' | 'browser.evaluate',
+    action: 'click' | 'evaluate' | 'press_key',
+    toolName: 'browser.click' | 'browser.evaluate' | 'browser.press_key',
     prepared: BrowserGatewayPreparedMutation,
   ): Promise<BrowserGatewayResult<BrowserMutationNoEffectEvidence | null> | null> {
     if (!expectation || !before) return null;
@@ -216,8 +216,8 @@ export class BrowserMutationEffectVerifier {
 
   private unverifiedResult(
     request: BrowserGatewayContext & BrowserGatewayTargetRequest,
-    action: 'click' | 'evaluate',
-    toolName: 'browser.click' | 'browser.evaluate',
+    action: 'click' | 'evaluate' | 'press_key',
+    toolName: 'browser.click' | 'browser.evaluate' | 'browser.press_key',
     prepared: BrowserGatewayPreparedMutation,
     before: BrowserMutationEffectObservation,
     reason: typeof EFFECT_ORIGIN_ERROR | typeof EFFECT_UNVERIFIED_ERROR,
@@ -234,8 +234,8 @@ export class BrowserMutationEffectVerifier {
 
   noEffectResult(
     request: BrowserGatewayContext & BrowserGatewayTargetRequest,
-    action: 'click' | 'evaluate',
-    toolName: 'browser.click' | 'browser.evaluate',
+    action: 'click' | 'evaluate' | 'press_key',
+    toolName: 'browser.click' | 'browser.evaluate' | 'browser.press_key',
     prepared: BrowserGatewayPreparedMutation,
     before: BrowserMutationEffectState,
     after: BrowserMutationEffectState,

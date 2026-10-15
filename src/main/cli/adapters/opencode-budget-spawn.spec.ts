@@ -91,7 +91,7 @@ describe('OpenCode budget actual spawn preparation', () => {
     await config.acpConfig.prepareSpawn();
     expect(config.getConfig().command).toBe(mocks.launch.command);
     expect(JSON.parse(config.acpConfig.env['OPENCODE_CONFIG_CONTENT']!).providers['xiaomi-token-plan']
-      .models['mimo-v2.6-pro'].limit.output).toBe(16384);
+      .models['mimo-v2.6-pro'].limit.output).toBe(32000);
     expect(mocks.prepare).toHaveBeenCalledWith(expect.any(Array), expect.any(Object), { serveHttp: false });
   });
   it('does not prepare an ACP server when native limits cannot be resolved', async () => {

@@ -143,6 +143,21 @@ describe('provider turn-ending runtime contract', () => {
     expect(events.at(-1)).toMatchObject({ turnEnding: { reason: 'dangling_tool_result' } });
   });
 
+  it('keeps a capped reasoning step after a tool result as max_output, not an unanswered tool result', () => {
+    const adapter = new EventEmitter();
+    const events: unknown[] = [];
+    observeAdapterRuntimeEvents(adapter, ({ event }) => events.push(event));
+    adapter.emit('status', 'busy');
+    adapter.emit('output', { id: 'answer', type: 'assistant', content: 'I am reading.' });
+    adapter.emit('tool_use', { id: 'read-1', name: 'Read', arguments: {} });
+    adapter.emit('tool_result', { id: 'read-1', name: 'Read', result: 'fixture' });
+    adapter.emit('complete', { content: 'I am reading.', usage: { outputTokens: 0, reasoningTokens: 16_388 }, metadata: {
+      stopReason: 'end_turn', outputTokens: 0, reasoningTokens: 16_388,
+      generationBudget: { model: 'xiaomi-token-plan-ams/mimo-v2.6-pro', combinedOutputTokens: 16_384, reasoningBudgetSupported: false },
+    } });
+    expect(events.at(-1)).toMatchObject({ kind: 'complete', turnEnding: { reason: 'max_output', evidence: 'budget_saturated' } });
+  });
+
   it('keeps denied native doom-loop endings notice-only until actual progress resumes', () => {
     const adapter = new EventEmitter();
     const events: unknown[] = [];

@@ -2,6 +2,7 @@ import type {
   BrowserActionClass,
   BrowserElementContext,
 } from '@contracts/types/browser';
+import { ACTIVATION_KEYS, type BrowserPressKey, type BrowserPressKeyModifier } from '@contracts/schemas/browser';
 
 export interface BrowserActionClassificationInput {
   toolName: string;
@@ -48,6 +49,12 @@ export const LEGAL_DECLARATION_REASON = 'legal_declaration_requires_human_or_pre
  */
 export const FINANCIAL_IDENTITY_REASON = 'financial_identity_requires_secure_broker';
 export const SENSITIVE_IDENTITY_REASON = 'sensitive_identity_requires_secure_broker';
+/**
+ * Enter/Space with no evidence about what they will activate: gated like
+ * `browser.evaluate` (explicit user-approved grant required) so a keyboard
+ * activation can never run weaker than a click on the same control.
+ */
+export const PRESS_KEY_ACTIVATION_REASON = 'press_key_activation_requires_user';
 
 /**
  * CAPTCHA element evidence. Widget markers are matched against the inspected
@@ -318,6 +325,50 @@ export function classifyBrowserAction(
     hardStop: false,
     reason: 'unclassified_browser_action',
   };
+}
+
+/**
+ * Classify `browser.press_key`. Hint-based rules run first and always win, so
+ * submission, destructive, payment, credential and declaration rules are never
+ * weaker than for `browser.click` on the same described control. When the hint
+ * carries no evidence:
+ *  - activation keys (Enter/Space) hard-stop behind an explicit user-approved
+ *    grant (`PRESS_KEY_ACTIVATION_REASON`) — the default action of the focused
+ *    element is unknown and may submit, delete or pay;
+ *  - every other key (Tab, Shift+Tab, Escape, arrows, paging) is focus
+ *    movement and rides the existing input grants.
+ * Printable characters cannot reach this path at all: the request schema
+ * allowlists named keys only.
+ */
+export function classifyPressKeyAction(input: {
+  key: BrowserPressKey;
+  modifiers?: readonly BrowserPressKeyModifier[];
+  actionHint?: string;
+}): BrowserActionClassification {
+  const base = classifyBrowserAction({
+    toolName: 'browser.press_key',
+    actionHint: input.actionHint,
+    elementContext: {
+      visibleText: input.actionHint,
+      nearbyText: input.actionHint,
+    },
+    elementContextSource: 'agent_hint',
+  });
+  const hintFallThrough =
+    base.actionClass === 'unknown'
+    && !base.hardStop
+    && base.reason === 'unclassified_browser_action';
+  if (!hintFallThrough) {
+    return base;
+  }
+  if (ACTIVATION_KEYS.has(input.key)) {
+    return {
+      actionClass: 'unknown',
+      hardStop: true,
+      reason: PRESS_KEY_ACTIVATION_REASON,
+    };
+  }
+  return { actionClass: 'input', hardStop: false };
 }
 
 /** Page evidence from the challenge probe (see browser-page-challenge-probe.ts). */

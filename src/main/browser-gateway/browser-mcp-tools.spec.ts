@@ -16,6 +16,9 @@ const ALLOWED_TOOLS = [
   'browser.type',
   'browser.fill_form',
   'browser.select',
+  'browser.press_key',
+  'browser.set_viewport',
+  'browser.set_zoom',
   'browser.execute_fill_plan',
   'browser.fill_credential',
   'browser.request_credential_access',
@@ -280,5 +283,51 @@ describe('browser-mcp-tools', () => {
     expect(source).not.toContain('BrowserProfileStore');
     expect(source).not.toContain('PuppeteerBrowserDriver');
     expect(source).not.toContain('getBrowserGatewayService');
+  });
+
+  it('exposes keyboard, viewport and zoom controls with named-key and scope constraints', () => {
+    const tools = createBrowserMcpTools({ call: vi.fn() });
+    const pressKey = tools.find((tool) => tool.name === 'browser.press_key');
+    const setViewport = tools.find((tool) => tool.name === 'browser.set_viewport');
+    const setZoom = tools.find((tool) => tool.name === 'browser.set_zoom');
+
+    const keyEnum = (pressKey?.inputSchema['properties'] as Record<string, { enum?: string[] }>)['key']?.enum;
+    expect(keyEnum).toEqual([
+      'Tab', 'Enter', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+      'Home', 'End', 'PageUp', 'PageDown', 'Space', 'Backspace', 'Delete',
+    ]);
+    // Printable characters must never reach press_key: text entry stays on
+    // browser.type where the credential/identity hard stops can see the field.
+    expect(keyEnum).not.toContain('A');
+    expect(pressKey?.inputSchema).toMatchObject({
+      required: ['profileId', 'targetId', 'key'],
+      additionalProperties: false,
+    });
+    expect(pressKey?.description).toContain('real input mechanism');
+    expect(pressKey?.description).toContain('idempotencyKey');
+
+    expect(setViewport?.inputSchema).toMatchObject({
+      required: ['profileId', 'targetId'],
+      properties: {
+        width: { type: 'number' },
+        height: { type: 'number' },
+        scope: { type: 'string', enum: ['tab', 'window'] },
+        reset: { type: 'boolean' },
+      },
+      additionalProperties: false,
+    });
+    expect(setViewport?.description).toContain('tab_emulation');
+    expect(setViewport?.description).toContain('window_resize');
+
+    expect(setZoom?.inputSchema).toMatchObject({
+      required: ['profileId', 'targetId'],
+      properties: {
+        zoomFactor: { type: 'number' },
+        reset: { type: 'boolean' },
+      },
+      additionalProperties: false,
+    });
+    expect(setZoom?.description).toContain('200%');
+    expect(setZoom?.description).toContain('CSS zoom');
   });
 });

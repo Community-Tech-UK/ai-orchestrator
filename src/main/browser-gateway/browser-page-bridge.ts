@@ -88,6 +88,7 @@ interface PageBridgeDocument extends PageBridgeRoot {
   title: string;
   body?: PageBridgeElement;
   documentElement: PageBridgeElement;
+  activeElement?: PageBridgeElement | null;
   createRange?: () => PageBridgeRange;
   execCommand?: (commandId: string, showUI?: boolean, value?: string) => boolean;
 }
@@ -95,6 +96,8 @@ interface PageBridgeDocument extends PageBridgeRoot {
 interface PageBridgeGlobal {
   document: PageBridgeDocument;
   location?: { origin: string };
+  innerWidth?: number;
+  innerHeight?: number;
   CSS?: {
     escape?: (value: string) => string;
   };
@@ -188,6 +191,36 @@ function pageBridgeScript(input: PageBridgeInput): unknown {
       text: (element.innerText || element.textContent || '').slice(0, 1000),
       value: typeof element.value === 'string' ? element.value.slice(0, 1000) : undefined,
     };
+  }
+
+  // Secret-free focus read-back for browser.press_key: identity only — never
+  // `element.value`, and visible text only for non-secret fields (a password
+  // input reports tag/type and nothing else).
+  function readFocusDescriptor(): Record<string, unknown> {
+    const element = documentRef.activeElement;
+    if (!element || !element.tagName) {
+      return { focus: { tagName: 'BODY' } };
+    }
+    const type = typeof element.type === 'string' ? element.type.toLowerCase() : undefined;
+    const secretField = type === 'password';
+    const focus: Record<string, unknown> = {
+      tagName: element.tagName,
+    };
+    const role = element.getAttribute?.('role');
+    if (role) focus['role'] = role;
+    if (element.id) focus['id'] = String(element.id).slice(0, 200);
+    if (element.name) focus['name'] = String(element.name).slice(0, 200);
+    if (type) focus['type'] = String(type).slice(0, 120);
+    const ariaLabel = element.getAttribute?.('aria-label');
+    if (ariaLabel && !secretField) focus['ariaLabel'] = String(ariaLabel).slice(0, 500);
+    if (secretField) {
+      return { focus };
+    }
+    const text = (element.innerText || element.textContent || '').trim().slice(0, 300);
+    if (text) focus['text'] = text;
+    if (element.href) focus['href'] = String(element.href).slice(0, 2000);
+    if (element.isContentEditable) focus['editable'] = true;
+    return { focus };
   }
 
   // Rich-text editors (Slate/Lexical/ProseMirror-style) keep their own model
@@ -528,6 +561,17 @@ function pageBridgeScript(input: PageBridgeInput): unknown {
       value: state.value,
       selectedLabel: state.selectedOption,
       checked: state.checked,
+    };
+  }
+
+  if (action === 'read_focus') {
+    return readFocusDescriptor();
+  }
+
+  if (action === 'read_viewport') {
+    return {
+      innerWidth: typeof pageGlobal.innerWidth === 'number' ? pageGlobal.innerWidth : 0,
+      innerHeight: typeof pageGlobal.innerHeight === 'number' ? pageGlobal.innerHeight : 0,
     };
   }
 

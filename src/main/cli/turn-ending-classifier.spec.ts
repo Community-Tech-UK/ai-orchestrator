@@ -72,6 +72,83 @@ describe('turn-ending corpus', () => {
     })).toMatchObject({ reason: 'max_output', evidence: 'budget_saturated' });
   });
 
+  it('classifies a capped step spent entirely on reasoning as max_output even with no visible text', () => {
+    expect(classifyTurnEnding({
+      kind: 'complete',
+      text: '',
+      metadata: { stopReason: 'end_turn' },
+      outputTokens: 1,
+      reasoningTokens: 16_383,
+      combinedOutputTokenCap: 16_384,
+    })).toMatchObject({ reason: 'max_output', evidence: 'budget_saturated' });
+  });
+
+  it('classifies a reasoning-saturated final step as max_output after earlier finished narration', () => {
+    // Usage covers the final step only; the text is narration from earlier tool steps.
+    expect(classifyTurnEnding({
+      kind: 'complete',
+      text: 'I read the plan queue. Next I will check the first plan.',
+      metadata: { stopReason: 'end_turn' },
+      outputTokens: 0,
+      reasoningTokens: 16_388,
+      combinedOutputTokenCap: 16_384,
+    })).toMatchObject({ reason: 'max_output', evidence: 'budget_saturated' });
+  });
+
+  it('prefers budget saturation over an unanswered tool result and reads the cap from adapter metadata', () => {
+    expect(classifyTurnEnding({
+      kind: 'complete',
+      text: '',
+      metadata: {
+        stopReason: 'end_turn', danglingToolResult: true, toolResultAwaitingReply: true,
+        outputTokens: 0, reasoningTokens: 32_000,
+        generationBudget: { model: 'xiaomi-token-plan-ams/mimo-v2.6-pro', combinedOutputTokens: 32_000, reasoningBudgetSupported: false },
+      },
+    })).toMatchObject({ reason: 'max_output', evidence: 'budget_saturated' });
+  });
+
+  it('keeps a saturated step with a finished visible answer, an open tool call, or an error out of budget saturation', () => {
+    const saturated = { metadata: { stopReason: 'end_turn' }, reasoningTokens: 16_000, combinedOutputTokenCap: 16_384 } as const;
+    expect(classifyTurnEnding({ ...saturated, kind: 'complete', text: 'The plan is implemented.', outputTokens: 384 }))
+      .toMatchObject({ reason: 'completed', evidence: 'provider_completed' });
+    expect(classifyTurnEnding({ ...saturated, kind: 'complete', text: '', outputTokens: 384, hasOpenToolCall: true }))
+      .toMatchObject({ reason: 'completed' });
+    expect(classifyTurnEnding({ ...saturated, kind: 'error', outputTokens: 384, error: 'Interrupted by user' }))
+      .toMatchObject({ reason: 'completed', evidence: 'client_cancelled' });
+  });
+
+  it('reads saturation usage and open tool calls from adapter metadata when inputs omit them', () => {
+    const generationBudget = { model: 'xiaomi-token-plan-ams/mimo-v2.6-pro', combinedOutputTokens: 32_000, reasoningBudgetSupported: false };
+    const metadata = { stopReason: 'end_turn', outputTokens: 0, reasoningTokens: 32_000, generationBudget };
+    expect(classifyTurnEnding({ kind: 'complete', text: 'Done.', metadata }))
+      .toMatchObject({ reason: 'max_output', evidence: 'budget_saturated' });
+    expect(classifyTurnEnding({ kind: 'complete', text: 'Done.', metadata: { ...metadata, hasOpenToolCall: true } }).reason)
+      .toBe('completed');
+  });
+
+  it.each([
+    [{ stopReason: 'error' }, 'unknown_error'],
+    [{ stopReason: 'end_turn', error: 'provider failed' }, 'unknown_error'],
+    [{ stopReason: 'end_turn', completionStatus: 'failed' }, 'unknown_error'],
+    [{ stopReason: 'end_turn', is_error: true }, 'unknown_error'],
+    [{ stopReason: 'end_turn', statusCode: 503 }, 'retryable'],
+  ])('keeps a failed completion %o with saturated usage as %s', (metadata, reason) => {
+    expect(classifyTurnEnding({
+      kind: 'complete', text: '', metadata, outputTokens: 0, reasoningTokens: 32_000, combinedOutputTokenCap: 32_000,
+    }).reason).toBe(reason);
+  });
+
+  it('keeps an empty end_turn under the cap out of budget saturation', () => {
+    expect(classifyTurnEnding({
+      kind: 'complete',
+      text: '',
+      metadata: { stopReason: 'end_turn' },
+      outputTokens: 0,
+      reasoningTokens: 9_000,
+      combinedOutputTokenCap: 16_384,
+    })).toMatchObject({ reason: 'completed', evidence: 'provider_completed' });
+  });
+
   it('keeps an end_turn well under the cap as an ordinary completion', () => {
     expect(classifyTurnEnding({
       kind: 'complete',

@@ -4,6 +4,11 @@ import type { Browser, ConsoleMessage, HTTPRequest, Page } from 'puppeteer-core'
 import type { BrowserAccessibilityNode, BrowserElementContext, BrowserElementCandidate,
   BrowserEvaluateResult, BrowserDownloadFileResult, BrowserProfile, BrowserProfileMode,
   BrowserTarget } from '@contracts/types/browser';
+import type {
+  BrowserPressKey, BrowserPressKeyModifier, BrowserPressKeyResult,
+  BrowserSetViewportResult,
+} from '@contracts/schemas/browser';
+import { applyBrowserPressKey, applyBrowserViewport } from './browser-input-control-driver';
 import { BrowserProcessLauncher } from './browser-process-launcher';
 import { RoutingBrowserLauncher } from './routing-browser-launcher';
 import { normalizeAxTreeNodes, normalizeElementCandidates } from './puppeteer-browser-normalizers';
@@ -472,6 +477,19 @@ export class PuppeteerBrowserDriver {
     const page = this.getPage(profileId, targetId);
     await applyBrowserSelect(page, selector, value);
     await this.refreshPageTarget(profileId, targetId, page);
+  }
+
+  /** Native key press (CDP keyboard) with secret-free focus read-back. */
+  async pressKey(profileId: string, targetId: string, key: BrowserPressKey, modifiers: BrowserPressKeyModifier[] = []): Promise<BrowserPressKeyResult> {
+    const page = this.getPage(profileId, targetId);
+    const result = await applyBrowserPressKey(page, key, modifiers);
+    await this.refreshPageTarget(profileId, targetId, page);
+    return result;
+  }
+
+  /** Tab-scoped viewport emulation; window scope is shared-tab only. */
+  async viewport(profileId: string, targetId: string, command: { width?: number; height?: number; reset?: boolean }): Promise<BrowserSetViewportResult> {
+    return applyBrowserViewport(this.getPage(profileId, targetId), command);
   }
 
   /** Read a control's current state for read-back verification. */
