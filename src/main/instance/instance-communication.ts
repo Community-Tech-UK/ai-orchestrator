@@ -110,6 +110,7 @@ import { InstanceInputFailureScopes, type InstanceInputFailureScope } from './in
 import { OutputPublicationOrder, type OutputPublicationTicket } from './instance-communication-output-order';
 import { handleInstanceAdapterError } from './instance-adapter-error-handler';
 import { createInstanceAdapterInputDispatch, createInstanceInputReceipt } from './instance-adapter-input-dispatch';
+import { buildSpawnStallNotice } from './stall-notices';
 export type { CommunicationDependencies } from './instance-communication.types';
 
 const logger = getLogger('InstanceCommunication');
@@ -1776,6 +1777,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         const providerLimitSignal = detectCompletionProviderLimit(
           response,
           readAdapterRateLimitTelemetry(adapter),
+          { provider: this.deps.getInstance(instanceId)?.provider },
         );
         // A3: when the adapter-layer classifier tagged this turn as degraded
         // (only possible with `detectDegradedAdapterOutput` enabled), surface it
@@ -1850,6 +1852,7 @@ export class InstanceCommunicationManager extends EventEmitter {
             this.deps.onProviderLimitTurn({
               instanceId,
               resetAtHint: providerLimitSignal.resetAtHint,
+              quotaBlind: providerLimitSignal.quotaBlind,
               reason: providerLimitSignal.reason,
               resumePrompt: this.overflow.getResumePrompt(instanceId),
             });
@@ -1954,23 +1957,20 @@ export class InstanceCommunicationManager extends EventEmitter {
       this.deps.onOutput?.(instanceId);
     });
 
-    adapter.on('spawn:stall', ({ timeoutMs }: { timeoutMs: number }) => {
+    adapter.on('spawn:stall', async ({ timeoutMs }: { timeoutMs: number }) => {
       if (isStaleAdapterEvent('spawn:stall')) return;
       const instance = this.deps.getInstance(instanceId);
       if (!instance) return;
-      const secs = Math.round(timeoutMs / 1000);
       logger.warn('Adapter spawn stall — no output within watchdog window', {
         instanceId,
         timeoutMs,
       });
-      const stallMessage: OutputMessage = {
-        id: `spawn-stall-${Date.now()}`,
-        type: 'system',
-        content: `Instance started but produced no output for ${secs}s. It may be stuck. Will auto-restart if unresponsive.`,
-        timestamp: Date.now(),
-        metadata: { spawnStall: true, timeoutMs },
-      };
-      this.addToOutputBuffer(instance, stallMessage);
+      const activityAt = instance.lastActivity;
+      const stallMessage = await buildSpawnStallNotice({ timeoutMs, pid: adapter.getPid() });
+      if (isStaleAdapterEvent('spawn:stall') || instance.lastActivity !== activityAt) return;
+      const current = this.deps.getInstance(instanceId);
+      if (!current || current !== instance) return;
+      this.addToOutputBuffer(current, stallMessage);
       this.emit('output', { instanceId, message: stallMessage });
     });
 

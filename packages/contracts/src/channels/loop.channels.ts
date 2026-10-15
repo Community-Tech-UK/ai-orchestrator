@@ -19,6 +19,7 @@ export const LOOP_CHANNELS = {
    *  boot recovery stops retrying it. Deletes nothing. */
   LOOP_RESOLVE_BLOCKED_WORKTREE: 'loop:resolve-blocked-worktree',
   LOOP_GET_ITERATIONS: 'loop:get-iterations',
+  LOOP_GET_SCORECARD: 'loop:get-scorecard',
   /** Read the durable verification execution ledger for one loop or instance. */
   VERIFICATION_RUNS_LIST: 'verification-runs:list',
   /** LF-3a: preview the verify command the loop would auto-infer for a
@@ -33,6 +34,7 @@ export const LOOP_CHANNELS = {
   LOOP_LIST_OUTSTANDING: 'loop:list-outstanding',
   /** Set one outstanding item's resolution status (open / resolved / dismissed). */
   LOOP_SET_OUTSTANDING_STATUS: 'loop:set-outstanding-status',
+  LOOP_ANSWER_OUTSTANDING: 'loop:answer-outstanding',
   /** Export open outstanding items to a consolidated OUTSTANDING.md. */
   LOOP_EXPORT_OUTSTANDING: 'loop:export-outstanding',
   /** Start a fresh loop run that applies the human answers recorded on the open

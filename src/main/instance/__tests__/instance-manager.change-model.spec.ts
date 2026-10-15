@@ -252,6 +252,7 @@ function makeMockAdapter() {
     interrupt: () => ReturnType<typeof acceptedInterruptResult>;
     terminate: (graceful: boolean) => Promise<void>;
     getName: () => string;
+    getPid: () => number | null;
     getRuntimeCapabilities: () => {
       supportsResume: boolean;
       supportsForkSession: boolean;
@@ -267,6 +268,7 @@ function makeMockAdapter() {
   adapter.interrupt = mockAdapterInterrupt;
   adapter.terminate = mockAdapterTerminate;
   adapter.getName = () => mockAdapterName;
+  adapter.getPid = () => null;
   adapter.getRuntimeCapabilities = () => ({
     supportsResume: true,
     supportsForkSession: false,
@@ -1513,7 +1515,7 @@ describe('InstanceManager', () => {
         elapsedMs: 300_000,
       });
 
-      expect(handler).toHaveBeenCalledWith(expect.objectContaining({
+      await vi.waitFor(() => expect(handler).toHaveBeenCalledWith(expect.objectContaining({
         instanceId: instance.id,
         event: expect.objectContaining({
           kind: 'output',
@@ -1524,7 +1526,7 @@ describe('InstanceManager', () => {
             elapsedMs: 300_000,
           }),
         }),
-      }));
+      })));
     });
   });
 

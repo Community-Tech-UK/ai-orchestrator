@@ -1,7 +1,11 @@
 import type { LoopCapWrapUpIntent } from '../../shared/types/loop.types';
+import type { LoopCheckpointContext } from './loop-checkpoint';
 
 /** Owns transient completion/convergence hints that do not belong in LoopState. */
 export class LoopCompletionContextStore {
+  checkpointContext(loopRunId: string): LoopCheckpointContext {
+    return { convergenceNote: this.getConvergenceNote(loopRunId) ?? null, planRegenerationCount: this.getPlanRegenerationCount(loopRunId), pendingContextReset: this.peekContextReset(loopRunId) };
+  }
   private convergenceNotes = new Map<string, string>();
   private planRegenerations = new Map<string, number>();
   private pendingContextResets = new Set<string>();

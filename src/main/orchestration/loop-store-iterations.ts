@@ -35,6 +35,8 @@ interface LoopIterationRow {
   verify_output_excerpt: string;
   verify_failure_kind: string | null;
   final_audit_json: string | null;
+  finish_reason: string | null;
+  prompt_bytes: number | null;
 }
 
 function boundLoopIterationLimit(limit: number | undefined): number {
@@ -83,6 +85,8 @@ function rowToLoopIteration(row: LoopIterationRow): LoopIteration {
   if (row.final_audit_json) {
     iteration.finalAudit = JSON.parse(row.final_audit_json) as NonNullable<LoopIteration['finalAudit']>;
   }
+  if (row.finish_reason != null) iteration.finishReason = row.finish_reason;
+  if (row.prompt_bytes != null) iteration.promptBytes = row.prompt_bytes;
   return iteration;
 }
 
@@ -113,4 +117,50 @@ export function countLoopIterations(db: SqliteDriver, loopRunId: string): number
   const row = db.prepare('SELECT COUNT(*) AS count FROM loop_iterations WHERE loop_run_id = ?')
     .get<{ count: number }>(loopRunId);
   return row?.count ?? 0;
+}
+
+export function insertLoopIteration(db: SqliteDriver, iter: LoopIteration): void {
+    db.prepare(`
+      INSERT OR REPLACE INTO loop_iterations (
+        id, loop_run_id, seq, stage, started_at, ended_at, child_instance_id,
+        tokens, cost_cents, cache_read_tokens, cache_write_tokens, model, cost_known,
+        files_changed_json, tool_calls_json, errors_json,
+        test_pass_count, test_fail_count, work_hash, output_similarity_to_prev,
+        output_excerpt, output_full, progress_verdict, progress_signals_json,
+        completion_signals_fired_json, verify_status, verify_output_excerpt,
+        verify_failure_kind, final_audit_json, finish_reason, prompt_bytes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      iter.id,
+      iter.loopRunId,
+      iter.seq,
+      iter.stage,
+      iter.startedAt,
+      iter.endedAt,
+      iter.childInstanceId,
+      iter.tokens,
+      iter.costCents,
+      iter.cacheReadTokens ?? null,
+      iter.cacheWriteTokens ?? null,
+      iter.model ?? null,
+      iter.costKnown === undefined ? null : (iter.costKnown ? 1 : 0),
+      JSON.stringify(iter.filesChanged),
+      JSON.stringify(iter.toolCalls),
+      JSON.stringify(iter.errors),
+      iter.testPassCount,
+      iter.testFailCount,
+      iter.workHash,
+      iter.outputSimilarityToPrev,
+      iter.outputExcerpt,
+      iter.outputFull,
+      iter.progressVerdict,
+      JSON.stringify(iter.progressSignals),
+      JSON.stringify(iter.completionSignalsFired),
+      iter.verifyStatus,
+      iter.verifyOutputExcerpt,
+      iter.verifyFailureKind ?? null,
+      iter.finalAudit ? JSON.stringify(iter.finalAudit) : null,
+      iter.finishReason ?? null,
+      iter.promptBytes ?? null,
+    );
 }

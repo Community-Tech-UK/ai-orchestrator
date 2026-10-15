@@ -1,3 +1,4 @@
+import { spendProvenanceOf, type LoopSpendByPurpose } from '../../../../shared/types/loop-spend.types';
 /**
  * B5 — the loop-control panel's bridge to the causal timeline.
  *
@@ -9,13 +10,16 @@ import { buildLoopCausalTimeline, type LoopTimeline } from './loop-causal-timeli
 
 /** The subset of a run summary the timeline needs. */
 export interface LoopTimelineRun {
+  spendByPurpose?: LoopSpendByPurpose;
   status: string;
   endedAt: number | null;
   totalIterations: number;
   totalCostCents: number;
   endReason?: string | null;
   /** The last completed iteration, for the spend meter's cost provenance. */
-  lastIteration?: { costKnown?: boolean } | null;
+  lastIteration?: { costKnown?: boolean; verifyStatus?: string } | null;
+  config?: { completion: { verifyCommand?: string; crossModelReview?: { enabled?: boolean } }; caps: { maxIterations?: number | null; maxCostCents?: number | null } };
+  pausedForInput?: boolean;
 }
 
 export function loopTimelineForRun(run: LoopTimelineRun | undefined | null): LoopTimeline | null {
@@ -27,21 +31,19 @@ export function loopTimelineForRun(run: LoopTimelineRun | undefined | null): Loo
     spentCents: run.totalCostCents,
     // Absent provenance reads as an estimate, which is what the meter said
     // before any provider-reported cost was threaded through.
+    spendProvenance: run.spendByPurpose ? spendProvenanceOf(run.spendByPurpose) : undefined,
     spendIsProviderReported: run.lastIteration?.costKnown === true,
     endReason: run.endReason,
+    ...(run.config ? { hasVerifyCommand: Boolean(run.config.completion.verifyCommand?.trim()), hasIndependentReview: run.config.completion.crossModelReview?.enabled === true,
+      maxIterations: run.config.caps.maxIterations, maxCostCents: run.config.caps.maxCostCents } : {}),
+    pausedForInput: run.pausedForInput,
+    verifyStatus: run.lastIteration?.verifyStatus,
   });
 }
 
-/**
- * Which panel action a recovery button maps to. `null` means there is no
- * single automatic action to route to — `LoopCausalTimelineComponent` renders
- * that recovery as plain text, never a button, so this function is the ONE
- * place that decides both what gets wired AND what the widget can advertise.
- *
- * `wait-or-switch-provider` and `review-now` map to nothing on purpose: neither
- * has a single automatic action, and a button that half-did them would be worse
- * than the sentence explaining what to do.
- */
-export function timelineRecoveryTarget(id: string): 'resume' | null {
-  return id === 'resume' ? 'resume' : null;
+/** Each advertised recovery has a concrete panel action. */
+export function timelineRecoveryTarget(id: string): 'resume' | 'reattempt' | 'inspect' | null {
+  if (id === 'resume') return 'resume';
+  if (id === 'raise-cap' || id === 'wait-or-switch-provider' || id === 'retry-failed-step') return 'reattempt';
+  return id === 'review-now' ? 'inspect' : null;
 }

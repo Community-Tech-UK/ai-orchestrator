@@ -1,4 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({
+    getAll: () => ({ codexHelperAgentsChats: 'full', codexContextTuning: 'harness' }),
+  }),
+}));
+
 import { initializeCodexAppServer } from './app-server-initializer';
 import { validateGeneratedRequest } from './app-server-client-protocol';
 import { buildCodexTurnInputDispatch } from './turn-input-dispatch';
@@ -35,8 +42,12 @@ describe('Harness requests against the generated Codex manifest', () => {
     expect(() => validateGeneratedRequest('turn/start', turn)).not.toThrow();
     expect(requests.map(({ method }) => method)).toEqual(['thread/start', 'thread/resume']);
     expect(Object.keys(requests[0]!.params).sort()).toEqual([
-      'approvalPolicy', 'cwd', 'ephemeral', 'model', 'sandbox', 'serviceName', 'serviceTier',
+      'approvalPolicy', 'config', 'cwd', 'ephemeral', 'model', 'sandbox', 'serviceName', 'serviceTier',
     ]);
+    expect(requests[0]!.params['config']).toEqual({
+      tool_output_token_limit: 6000,
+      model_post_turn_compact_threshold_percent: 70,
+    });
     expect(requests[1]!.params['excludeTurns']).toBe(true);
     expect(turnParams).toEqual({ outputSchema: { type: 'object' }, effort: 'high', serviceTier: 'priority' });
   });

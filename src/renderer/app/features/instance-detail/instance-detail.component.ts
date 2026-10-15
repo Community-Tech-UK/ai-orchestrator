@@ -44,6 +44,7 @@ import { CheckpointTimelineComponent } from '../checkpoints/checkpoint-timeline.
 import { HistoryIpcService } from '../../core/services/ipc/history-ipc.service';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { OrchestrationHudComponent } from '../orchestration/orchestration-hud.component';
+import { LoopStopConfirmService } from '../loop/loop-stop-confirm.service';
 import { LoopControlComponent } from '../loop/loop-control.component';
 import { LoopOutstandingPanelComponent } from '../loop/loop-outstanding-panel.component';
 import { LoopStore } from '../../core/state/loop.store';
@@ -145,6 +146,7 @@ export class InstanceDetailComponent {
   private crossModelReviewService = inject(CrossModelReviewIpcService);
   private historyIpc = inject(HistoryIpcService);
   private quickActionDispatcher = inject(QuickActionDispatcherService);
+  private loopStopConfirm = inject(LoopStopConfirmService);
   private loopStore = inject(LoopStore);
   private loopPromptHistory = inject(LoopPromptHistoryService);
   private automationStore = inject(AutomationStore);
@@ -1360,7 +1362,7 @@ export class InstanceDetailComponent {
     const inst = this.store.selectedInstance();
     if (!inst) return;
     const a = this.loopStore.activeForChat(inst.id)();
-    if (a) await this.loopStore.cancel(a.id);
+    if (a) this.loopStopConfirm.request(a.id, a.config.isolateLoopWorkspaces === true, { chatId: a.chatId });
   }
 
   async onWelcomeStartSessionWithWorkflow(event: {

@@ -56,6 +56,11 @@ export interface ManagedWorktreeOwner {
   id: string;
   worktreeLifecycle?: LoopWorktreeLifecycle;
   config: Pick<LoopState['config'], 'autoIntegrateWorktree'>;
+  endEvidence?: Record<string, unknown>;
+}
+
+export function holdsMergeForReview(status: string, endEvidence?: Record<string, unknown>): boolean {
+  return status === 'completed-needs-review' && endEvidence?.['mergeHold'] === true;
 }
 
 export interface FinalizeLoopWorktreeArgs {
@@ -126,7 +131,7 @@ export async function finalizeLoopWorktree(args: FinalizeLoopWorktreeArgs): Prom
     transition('harvested', { sessionTip: harvest.hash });
 
     const isSuccess = status === 'completed' || status === 'completed-needs-review';
-    if (!isSuccess || state.config.autoIntegrateWorktree === false) {
+    if (!isSuccess || state.config.autoIntegrateWorktree === false || holdsMergeForReview(status, state.endEvidence)) {
       transition('preserved');
       if (!isSuccess) {
         await manager.abandonWorktree(worktreeSessionId, `loop-${status}`);

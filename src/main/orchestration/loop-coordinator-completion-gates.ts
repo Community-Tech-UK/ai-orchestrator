@@ -1,4 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { applyOutstandingCompletionGate } from './loop-outstanding-completion';
+import { reviewBudgetExceeded, type LoopReviewBudgetExceeded } from './loop-review-budget';
+import { resolveLoopReviewEffort } from './loop-review-effort';
+import { ownProductionChanges } from './loop-own-changes';
+import { foldFreshEyesSpend } from './loop-spend-ledger';
+import { classifyVerifyAgainstBaseline, inheritedVerifyFailureCount } from './loop-verify-baseline-compare';
+import { decideFinishOutcome, type FinishCheck, type ReviewDrivenTerminal } from './loop-finish-phase';
 import { getLogger } from '../logging/logger';
 import type {
   LoopIteration,
@@ -68,6 +75,7 @@ function shouldRunCleanReviewClassifier(
  * never run or whose infrastructure failed.
  */
 export interface FreshEyesGateResult {
+  budgetExceeded?: LoopReviewBudgetExceeded['status'];
   /** A blocking finding was raised - the loop must continue. */
   blocked: boolean;
   /** The reviewer was invoked (review enabled and attempted). */
@@ -120,7 +128,7 @@ export async function evaluateReviewDrivenCompletion(args: {
   ) => Promise<FreshEyesGateResult>;
   classifyCleanReview: LoopCleanReviewClassifier;
   emit: LoopEmit;
-}): Promise<{ status: 'completed' | 'completed-needs-review'; reason: string } | null> {
+}): Promise<ReviewDrivenTerminal | null> {
   const {
     state,
     iteration,
@@ -134,9 +142,9 @@ export async function evaluateReviewDrivenCompletion(args: {
     emit,
   } = args;
   const cfg = state.config.completion;
-  const required = Math.max(1, cfg.requiredCleanReviewPasses ?? 2);
+  const required = state.finishPhase ? 1 : Math.max(1, cfg.requiredCleanReviewPasses ?? 2);
 
-  const productionChanges = iteration.filesChanged.filter((f) => isReviewDrivenProductionChange(f.path));
+  const { productionChanges } = ownProductionChanges(state, iteration);
   const noProductionChanges = productionChanges.length === 0;
   const reviewVerdict = shouldRunCleanReviewClassifier(
     fullOutput ?? '',
@@ -152,68 +160,72 @@ export async function evaluateReviewDrivenCompletion(args: {
     })
     : UNCLEAR_CLEAN_REVIEW;
 
+  const spent = !!state.finishPhase && state.finishPhase.roundsUsed >= state.finishPhase.maxRounds;
+  const canEnd = !!state.finishPhase || (state.consecutiveCleanReviewPasses ?? 0) + 1 >= required;
+  const checks: FinishCheck[] = [{ check: 'self-review', result: reviewVerdict.clean && noProductionChanges ? 'passed' : 'skipped',
+    detail: reviewVerdict.clean && noProductionChanges ? 'The agent reported a clean review without production edits.' : 'No clean self-review was established.' }];
   let verifyOk = true;
-  if (reviewVerdict.clean && noProductionChanges && cfg.verifyCommand?.trim()) {
+  let verifyOutput = '';
+  if (((reviewVerdict.clean && noProductionChanges) || spent) && cfg.verifyCommand?.trim()) {
     const runVerifyOfKind = args.runRecordedVerify
       ?? ((kind: 'verify' | 'quick-verify') => (kind === 'quick-verify'
         ? completionDetector.runQuickVerify(state.config, state.id)
         : completionDetector.runVerify(state.config, state.id)));
-    const { final: v, verifyLabel } = await runLoopVerify({
-      runQuickVerify: () => runVerifyOfKind('quick-verify'),
-      runVerify: () => runVerifyOfKind('verify'),
-      runVerifyTwice: cfg.runVerifyTwice === true,
-      replay: args.verifyReplay,
-    });
+    // Intermediate claims run only a configured quick check. If no quick
+    // command exists, preserve the full-check authority rather than skipping it.
+    const quickOnly = !canEnd && !!cfg.quickVerifyCommand?.trim();
+    const { final: v, verifyLabel } = quickOnly
+      ? { final: await runVerifyOfKind('quick-verify'), verifyLabel: 'quick verify' }
+      : await runLoopVerify({ runQuickVerify: () => runVerifyOfKind('quick-verify'),
+        runVerify: () => runVerifyOfKind('verify'), runVerifyTwice: cfg.runVerifyTwice === true, replay: args.verifyReplay });
     applyVerifyOutcomeToIteration(iteration, v);
-    if (v.status === 'failed') {
+    verifyOutput = v.output;
+    // A full-command baseline cannot excuse failures from a different quick
+    // command, even if the diagnostic keys happen to match.
+    const classification = !quickOnly && verifyLabel !== 'quick verify' ? classifyVerifyAgainstBaseline(state, v) : 'unknown';
+    const inherited = typeof classification === 'object' && classification.kind === 'already-failing-only';
+    if (inherited) state.knownFailures = classification.keys.slice(0, 200);
+    else if (!quickOnly && v.status === 'passed') state.knownFailures = [];
+    checks.push({ check: 'verify', result: inherited ? 'already-failing' : v.status === 'passed' ? 'passed' : v.status === 'skipped' ? 'skipped' : 'failed',
+      detail: inherited ? 'Already failing before the loop started: ' + classification.keys.join(', ') : `${verifyLabel}: ${v.status}${v.status === 'failed' ? ` (${v.failureKind})` : ''}.` });
+    if (v.status === 'failed' && !inherited) {
       verifyOk = false;
-      state.pendingInterventions.push(
-        createLoopPendingInput(
-          verifyFailureIntervention(verifyLabel, v.output, v.failureKind),
-        ),
-      );
+      state.pendingInterventions.push(createLoopPendingInput(verifyFailureIntervention(verifyLabel, v.output, v.failureKind, classification,
+        inheritedVerifyFailureCount(v, classification))));
     }
+  } else if (canEnd) {
+    checks.push({ check: 'verify', result: 'skipped', detail: 'No full check was run.' });
   }
-
   const cleanPass = reviewVerdict.clean && noProductionChanges && verifyOk;
-
   if (cleanPass) {
     state.consecutiveCleanReviewPasses = (state.consecutiveCleanReviewPasses ?? 0) + 1;
-    const count = state.consecutiveCleanReviewPasses;
-    emit('loop:activity', {
-      loopRunId: state.id,
-      seq,
-      stage,
-      timestamp: Date.now(),
-      kind: 'status',
-      message: `Clean fresh-eyes review pass ${count}/${required}`,
-      detail: { consecutiveCleanReviewPasses: count, required, reason: reviewVerdict.reason },
-    });
-    if (count >= required) {
-      if (state.config.completion.crossModelReview?.enabled) {
-        const review = await runFreshEyesReviewGate('self-declared', iteration, '');
-        if (review.blocked) {
-          state.consecutiveCleanReviewPasses = 0;
-          return null;
-        }
-      }
-      state.lastCompletionOutcome = 'accepted';
-      const outstanding = await stageMachine.readOutstanding().catch(() => ({ raw: '', needsHuman: false }));
-      if (outstanding.needsHuman) {
-        return {
-          status: 'completed-needs-review',
-          reason:
-            `Converged after ${required} consecutive clean fresh-eyes reviews. The agent flagged ` +
-            `items that need a human in OUTSTANDING.md:\n\n${outstanding.raw.trim()}`,
-        };
-      }
-      return {
-        status: 'completed',
-        reason: `Converged after ${required} consecutive clean fresh-eyes reviews - no outstanding issues found.`,
-      };
-    }
-    return null;
+    emit('loop:activity', { loopRunId: state.id, seq, stage, timestamp: Date.now(), kind: 'status',
+      message: `Clean fresh-eyes review pass ${state.consecutiveCleanReviewPasses}/${required}`,
+      detail: { consecutiveCleanReviewPasses: state.consecutiveCleanReviewPasses, required, reason: reviewVerdict.reason } });
   }
+  if ((cleanPass && (state.consecutiveCleanReviewPasses ?? 0) >= required) || spent) {
+    if (cfg.crossModelReview?.enabled) {
+      const review = await runFreshEyesReviewGate('self-declared', iteration, verifyOutput);
+      if (review.budgetExceeded) return null;
+      checks.push({ check: 'second-opinion', result: review.blocked || review.errored ? 'failed' : review.ran ? 'passed' : 'skipped',
+        detail: review.blocked ? 'The reviewer found blocking issues.' : review.errored ? 'The reviewer could not produce a reliable verdict.' : review.ran ? 'Independent review passed.' : 'Independent review was not run.' });
+      if (review.blocked || (state.finishPhase && review.errored)) {
+        state.consecutiveCleanReviewPasses = 0;
+        if (!spent) return null;
+      }
+    }
+    const finish = decideFinishOutcome({ state, clean: cleanPass, checks });
+    if (state.finishPhase && !finish) return null;
+    if (finish) return applyOutstandingCompletionGate({ status: finish.kind === 'completed' ? 'completed' : finish.kind === 'needs-sign-off' ? 'needs-sign-off' : 'completed-needs-review', reason: finish.reason, checks: finish.checks }, stageMachine);
+    state.lastCompletionOutcome = 'accepted';
+    const outstanding = await stageMachine.readOutstanding().catch(() => ({ raw: '', needsHuman: false }));
+    if (outstanding.needsHuman || state.knownFailures?.length || state.followUps?.length) return {
+      status: 'completed-needs-review', reason: `Converged after ${required} consecutive clean fresh-eyes reviews.\n`
+        + [outstanding.raw.trim(), ...(state.knownFailures ?? []), ...(state.followUps ?? [])].filter(Boolean).join('\n'),
+    };
+    return { status: 'completed', reason: `Converged after ${required} consecutive clean fresh-eyes reviews - no outstanding issues found.` };
+  }
+  if (cleanPass) return null;
 
   const had = state.consecutiveCleanReviewPasses ?? 0;
   state.consecutiveCleanReviewPasses = 0;
@@ -294,6 +306,7 @@ export async function runFreshEyesReviewGate(args: {
   setConvergenceNote: (note: string) => void;
   /** WS6 Task 4: capture a lesson from a blocking verdict (best-effort). */
   captureReviewLesson?: (verdict: ReviewVerdictForLesson) => void;
+  stopForReviewBudget?: (status: LoopReviewBudgetExceeded['status'], reason: string) => void;
 }): Promise<FreshEyesGateResult> {
   const { state, signalId, iteration, verifyOutput, reviewer, emit, setConvergenceNote, captureReviewLesson } = args;
   const reviewCfg = state.config.completion.crossModelReview;
@@ -322,18 +335,20 @@ export async function runFreshEyesReviewGate(args: {
   // payload and is truncated to fit a prompt, so past its bounds an edit can
   // leave it byte-identical. The anchor reads its own unbounded git inputs.
   const workspaceDigest = workspaceAnchorDigest(diffCwd);
+  const effort = resolveLoopReviewEffort({ files: workspaceDiff.changedFiles,
+    changedLines: workspaceDiff.truncated || workspaceDiff.source !== 'git' || /binary/i.test(workspaceDiff.diff)
+      ? undefined : (workspaceDiff.diff.match(/^[+-](?![+-])/gm) ?? []).length });
+  if (state.reviewEffort !== 'standard' && state.reviewEffort !== effort.level) {
+    state.reviewEffort = effort.level;
+    emit('loop:activity', { loopRunId: state.id, seq: iteration.seq, stage: iteration.stage, timestamp: Date.now(), kind: 'status', message: `Review depth: ${effort.level} (${effort.reason})` });
+  }
+
 
   // D6 (#7) part 3: instant ALLOW for non-edit turns. A clean cross-model
   // verdict is cached on state and reused by a later completion attempt that
   // did not change the tree, instead of paying for another multi-minute
   // review. A contradiction-forced review always runs for real.
-  //
-  // **Decision 15(b), 2026-09-07: this rule alone is un-gated.** It ran behind
-  // `completion.antiSelfGrading` (default off), so it never fired and every
-  // repeat "done" claim on an unchanged tree bought another review. Caveat
-  // demotion, the verdict-discipline block and the stale-verify rung stay
-  // behind the flag.
-  //
+  // Decision 15(b): reuse is independent of antiSelfGrading.
   // **The reuse is anchored to the workspace, not to what we observed.** The
   // first version tested only `iteration.filesChanged`, which is the delta the
   // coordinator *saw* for this attempt — and a fresh-eyes gate pass found two
@@ -427,6 +442,7 @@ export async function runFreshEyesReviewGate(args: {
   try {
     reviewResult = await reviewer({
       loopRunId: state.id,
+      ...(state.reviewEffort === 'light' ? { maxReviewers: 1 } : {}),
       // The reviewer reads files and runs commands against the work product, so
       // it gets the same cwd the diff was collected from — matching ping-pong
       // (`loop-pingpong-completion.ts`). Passing the repo root here made the
@@ -452,6 +468,13 @@ export async function runFreshEyesReviewGate(args: {
       // WS-B9: bind the per-angle cache to THIS run's LoopState.
       reviewAngleCache: buildReviewAngleCacheHook(state),
     });
+    foldFreshEyesSpend(state, iteration.seq, reviewResult);
+    const budget = reviewBudgetExceeded(state);
+    if (budget) {
+      state.freshEyesCleanForWorkState = false;
+      args.stopForReviewBudget?.(budget.status, budget.reason);
+      return { blocked: true, ran: true, errored: false, budgetExceeded: budget.status };
+    }
   } catch (err) {
     logger.warn('Fresh-eyes reviewer threw - no clean review verdict produced', {
       loopRunId: state.id,
@@ -473,6 +496,9 @@ export async function runFreshEyesReviewGate(args: {
   // authoritative record of "the artifact for this review attempt".
   const diffArtifactContent = getReviewArtifact(state, reviewAttemptId, 'diff')?.content ?? '';
   const { blocking, demoted } = classifyFreshEyesBlocking(severityBlockingCandidates, diffArtifactContent);
+  const followUps = demoted.filter(finding => finding.demotedReason?.includes('filed as a follow-up'));
+  if (followUps.length > 0) state.followUps = [...new Set([...(state.followUps ?? []),
+    ...followUps.map(finding => `${finding.file ?? finding.anchor?.file ?? ''}: ${finding.title}: ${finding.body}`)])].slice(-20);
   if (demoted.length > 0) {
     logger.info(
       'Fresh-eyes review: severity-blocking finding(s) demoted to advisory - evidence not verified',

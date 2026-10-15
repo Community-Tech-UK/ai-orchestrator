@@ -24,7 +24,7 @@ import {
   isActiveLoopStatePayload,
   isTerminalLoopStatePayload,
 } from './loop-state-status';
-import { snapshotLastIteration } from './loop-store-summary';
+import { snapshotFinalSummaryContext, snapshotFinalSpend } from './loop-store-summary';
 import { loopStateToRunSummary, upsertRecentRun } from './loop-store-recent-runs';
 import { coverageSuffix, followUpDrainedActivity, steeringDowngradedActivity } from './loop-store-task18-activity';
 import { createBranchEpisodeStore } from './loop-store-branch-episodes';
@@ -664,15 +664,14 @@ export class LoopStore {
         reason: state.endReason ?? state.status,
         iterations: state.totalIterations,
         tokens: state.totalTokens,
-        costCents: state.totalCostCents,
+        ...snapshotFinalSpend(state),
         failedAttemptUsageUnavailable: state.endEvidence?.['attemptOutcome'] === 'failed'
           && state.totalTokens === 0,
         startedAt: state.startedAt,
         endedAt: state.endedAt ?? Date.now(),
         initialPrompt: state.config.initialPrompt,
         iterationPrompt: state.config.iterationPrompt,
-        lastIteration: snapshotLastIteration(state.lastIteration),
-        worktreeLifecycle: state.worktreeLifecycle,
+        ...snapshotFinalSummaryContext(state),
       });
       this.clearRunningIteration(state.id);
       this.clearActive(state.chatId);

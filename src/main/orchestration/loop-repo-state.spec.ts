@@ -2,6 +2,9 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { classifyVerifyAgainstBaseline } from './loop-verify-baseline-compare';
+import { extractVerifyFailureKeys } from './verify-failure-keys';
+import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   captureLoopRepoBaseline,
@@ -170,4 +173,24 @@ describe('compareLoopRepoState', () => {
     expect(comparison.changedFiles).toEqual([]);
     expect(comparison.untrackedFiles).toEqual([]);
   });
+});
+
+maybe('preserves Git paths that would otherwise be C-quoted, including nested untracked paths', () => {
+  initRepo();
+  const names = ['café.ts', 'quote".ts', 'tab\t.ts', 'slash\\.ts', ' leading.ts', 'trailing.ts '];
+  for (const name of names) write(`app/src/${name}`, 'before');
+  git('add', '-A'); git('commit', '-qm', 'unusual names');
+  for (const name of names) { write(`app/src/${name}`, 'dirty'); write(`app/src/new-${name}`, 'new'); }
+  const baseline = captureLoopRepoBaseline(join(workspace, 'app'));
+  expect(baseline.trackedDirtyAtStart).toEqual(names.map(name => `app/src/${name}`).sort());
+  expect(baseline.untrackedAtStart).toEqual(names.map(name => `app/src/new-${name}`).sort());
+  expect(compareLoopRepoState(join(workspace, 'app'), baseline).changedFiles).toEqual([]);
+  for (const name of names) {
+    const output = `src/${name}(1,1): error TS2322: wrong type`;
+    const config = defaultLoopConfig(join(workspace, 'app'), 'goal'); config.completion.verifyCommand = 'tsc';
+    const keys = extractVerifyFailureKeys(output, { failureKind: 'command', truncated: false });
+    const state = { config, repoBaseline: baseline, preflight: { commands: [{ label: 'verify', command: 'tsc' }],
+      baseline: { status: 'recorded', scope: 'committed-head', diagnosticPathPrefix: 'app', keys: [...keys.keys.keys()] } } } as LoopState;
+    expect(classifyVerifyAgainstBaseline(state, { status: 'failed', failureKind: 'command', output })).toMatchObject({ kind: 'new-failures' });
+  }
 });

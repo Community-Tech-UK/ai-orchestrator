@@ -7,6 +7,7 @@ import type {
   VerificationRunPayload,
   LoopOutstandingItemPayload,
   LoopTerminalIntentPayload,
+  LoopAnswerOutstandingPayload,
 } from '@contracts/schemas/loop';
 import type { AwayRecapPayload } from '@contracts/schemas/loop';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
@@ -455,6 +456,11 @@ export class LoopIpcService {
       return { success: false, error: { message: 'set-outstanding-status bridge unavailable' } };
     }
     return fn(id, status, response);
+  }
+
+  async answerOutstanding(payload: LoopAnswerOutstandingPayload): Promise<IpcResponse<{ ok: boolean; delivery: 'sent-to-loop' | 'saved-for-resume' | 'recorded' }>> {
+    if (!this.api) return notInElectron();
+    return this.api.loopAnswerOutstanding(payload) as Promise<IpcResponse<{ ok: boolean; delivery: 'sent-to-loop' | 'saved-for-resume' | 'recorded' }>>;
   }
 
   /** Export open outstanding items to a consolidated OUTSTANDING.md. */

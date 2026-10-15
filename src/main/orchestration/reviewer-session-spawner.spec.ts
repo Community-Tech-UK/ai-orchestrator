@@ -1,3 +1,4 @@
+import { recordCostAttribution } from '../core/system/cost-attribution';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { Instance } from '../../shared/types/instance.types';
@@ -49,7 +50,10 @@ describe('ReviewerSessionSpawner', () => {
   });
 
   it('spawns root-level, awaits settle, reads output, and always tears down', async () => {
-    const manager = makeManager();
+    const manager = makeManager({waitForInstanceSettled: vi.fn(async () => {
+      recordCostAttribution({source:'instance-turn',taskType:'review',instanceId:'rev-1',provider:'claude',usage:{inputTokens:600,outputTokens:400,cost:0.25}});
+      return mockInstance('rev-1', '{"verdict":"APPROVED"}') as Instance;
+    })});
     const spawner = getReviewerSessionSpawner();
     spawner.setInstanceManager(manager);
     const onSpawned = vi.fn();
@@ -65,6 +69,8 @@ describe('ReviewerSessionSpawner', () => {
     expect(result.outcome).toBe('settled');
     expect(result.finalOutput).toContain('APPROVED');
     expect(result.tokensUsed).toBe(1000);
+    expect(result.costCents).toBe(25);
+    expect(result.exactCostCents).toBe(25);
     expect(onSpawned).toHaveBeenCalledWith('rev-1');
     // Root-level: NO parentId passed to createInstance.
     const createArg = (manager.createInstance as ReturnType<typeof vi.fn>).mock.calls[0][0];
@@ -72,6 +78,49 @@ describe('ReviewerSessionSpawner', () => {
     expect(createArg.workingDirectory).toBe('/repo');
     // Disposable: terminated even on success.
     expect(manager.terminateInstance).toHaveBeenCalledWith('rev-1', false);
+  });
+
+  it('includes a final turn attribution arriving just after idle', async () => {
+    const manager=makeManager({waitForInstanceSettled:vi.fn(async()=>{
+      setImmediate(()=>recordCostAttribution({source:'instance-turn',taskType:'review',instanceId:'rev-1',provider:'claude',usage:{inputTokens:50,cost:0.3}}));
+      return mockInstance('rev-1','done') as Instance;
+    })});
+    const spawner=getReviewerSessionSpawner();spawner.setInstanceManager(manager);
+    const result=await spawner.runReviewSession({provider:'claude',workingDirectory:'/repo',prompt:'review',timeoutMs:1000});
+    expect(result.tokensUsed).toBe(50);expect(result.costCents).toBe(30);expect(result.costBasis).toBe('provider-reported');
+  });
+  it('marks unreported session spend as a legacy estimate',async()=>{
+    const spawner=getReviewerSessionSpawner();spawner.setInstanceManager(makeManager());
+    const result=await spawner.runReviewSession({provider:'codex',workingDirectory:'/repo',prompt:'review',timeoutMs:1000});
+    expect(result.costBasis).toBe('legacy-estimate'); expect(result.exactCostCents).toBe(0);
+  });
+
+  it.each(['settled', 'timeout', 'failed', 'cancelled'] as const)('retains unknown reviewer usage on %s', async outcome => {
+    let cancelled = false;
+    const manager = makeManager({ waitForInstanceSettled: vi.fn(async () => {
+      recordCostAttribution({ source: 'instance-turn', taskType: 'review', instanceId: 'rev-1', provider: 'opencode', model: 'unknown-model', usage: { inputTokens: 10 } });
+      if (outcome === 'settled') return mockInstance('rev-1', 'done') as Instance;
+      cancelled = outcome === 'cancelled';
+      throw new Error(outcome === 'timeout' ? 'Timed out waiting for instance rev-1 to settle' : 'review failed');
+    }) });
+    const spawner = getReviewerSessionSpawner();
+    spawner.setInstanceManager(manager);
+    const result = await spawner.runReviewSession({ provider: 'codex', workingDirectory: '/repo', prompt: 'review', timeoutMs: 1000, isCancelled: () => cancelled });
+    expect(result).toMatchObject({ outcome, tokensUsed: 10, costCents: 0, exactCostCents: 0, spendRecords: 1, costBasis: 'unknown', spendBreakdown: [{ tokens: 10, costCents: 0, basis: 'unknown' }] });
+    expect(manager.terminateInstance).toHaveBeenCalledWith('rev-1', false);
+  });
+
+  it('retains exact, rounded-zero computed, and unknown usage in a mixed review', async () => {
+    const manager = makeManager({ waitForInstanceSettled: vi.fn(async () => {
+      recordCostAttribution({ source: 'instance-turn', taskType: 'review', instanceId: 'rev-1', provider: 'claude', usage: { inputTokens: 10, cost: 0.101 } });
+      recordCostAttribution({ source: 'instance-turn', taskType: 'review', instanceId: 'rev-1', provider: 'codex', model: 'gpt-5.5', usage: { inputTokens: 1 } });
+      recordCostAttribution({ source: 'instance-turn', taskType: 'review', instanceId: 'rev-1', provider: 'opencode', model: 'unknown-model', usage: { inputTokens: 10 } });
+      return mockInstance('rev-1', 'done') as Instance;
+    }) });
+    const spawner = getReviewerSessionSpawner();
+    spawner.setInstanceManager(manager);
+    const result = await spawner.runReviewSession({ provider: 'codex', workingDirectory: '/repo', prompt: 'review', timeoutMs: 1000 });
+    expect(result).toMatchObject({ tokensUsed: 21, costCents: 11, exactCostCents: 11, spendRecords: 3, costBasis: 'unknown', spendBreakdown: [{ tokens: 10, costCents: 11, basis: 'provider-reported' }, { tokens: 1, costCents: 0, basis: 'computed' }, { tokens: 10, costCents: 0, basis: 'unknown' }] });
   });
 
   it('prefers settled output over a stale live instance snapshot', async () => {

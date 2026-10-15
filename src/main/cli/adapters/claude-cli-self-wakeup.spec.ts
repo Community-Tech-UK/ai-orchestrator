@@ -66,7 +66,7 @@ describe('self-wakeup completion capture privacy', () => {
     expect(sanitized.message.content[1]).toEqual(assistant.message.content[1]);
     expect(sanitized.session_id).toBe('stub-session');
     expect((response.raw as string).split('\n')[1]).toBe(JSON.stringify(result));
-    expect(response.usage).toMatchObject({ inputTokens: 12, outputTokens: 3, cost: 0.2 });
+    expect(response.usage).toMatchObject({ inputTokens: 12, outputTokens: 3, providerSessionTotalUsd: 0.2 });
   });
   it('handles top-level tool messages and drops unparseable wakeup captures without changing other raw lines', () => {
     const line = { type: 'tool_use', tool: { name: 'ScheduleWakeup', input: { prompt: 'PRIVATE_PROMPT_PLACEHOLDER', delaySeconds: 90, extra: 'keep' } } };

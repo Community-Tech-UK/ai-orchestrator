@@ -1,0 +1,8 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/app/keep-awake-service.spec.ts
+
+✗ 1 of 11 tests failed in 3.6s:
+
+  ✗ src/main/app/keep-awake-service.spec.ts › KeepAwakeService keeps polling when a renderer broadcast throws
+    AssertionError: expected [Function] to not throw an error but 'Error: renderer closed' was thrown

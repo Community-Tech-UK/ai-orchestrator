@@ -12,6 +12,11 @@ import type { LoopOutstandingItemPayload } from '@contracts/schemas/loop';
 import { LoopStore } from '../../core/state/loop.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
+import { LoopQuestionRowComponent } from './loop-question-row.component';
+import { LoopIpcService } from '../../core/services/ipc/loop-ipc.service';
+import { loopQuestionNeed } from '../../../../shared/attention/question-need';
+import type { LoopAnswerOutstandingPayload } from '@contracts/schemas/loop';
+import type { QuestionDelivery } from './loop-questions.store';
 import { loopStatusLabel, loopStatusTone, relativeTime, formatTimestamp } from './loop-formatters.util';
 
 /**
@@ -84,7 +89,7 @@ export function buildOutstandingQuery(
 @Component({
   selector: 'app-loop-outstanding-panel',
   standalone: true,
-  imports: [AioTooltipDirective],
+  imports: [AioTooltipDirective, LoopQuestionRowComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="outstanding">
@@ -130,8 +135,18 @@ export function buildOutstandingQuery(
       } @else if (items().length === 0) {
         <div class="o-empty">No outstanding items.</div>
       } @else {
+        @for (group of currentQuestionGroups(); track group.label) {
+          @if (group.items.length) {
+            <div class="o-section-label">{{ group.label }}</div>
+            <div class="o-list" role="list">
+              @for (item of group.items; track item.id) {
+                <app-loop-question-row [item]="item" [busy]="savingId() === item.id" [delivery]="delivery()[item.id] ?? null" (answerRequested)="answerLiveQuestion($event)" />
+              }
+            </div>
+          }
+        }
         @if (needsHuman().length > 0) {
-          <div class="o-section-label">Needs human</div>
+          <div class="o-section-label">Earlier questions</div>
           <div class="o-list" role="list">
             @for (item of needsHuman(); track item.id) {
               <div class="o-row" role="listitem" [attr.data-status]="item.status">
@@ -172,48 +187,7 @@ export function buildOutstandingQuery(
             }
           </div>
         }
-        @if (openQuestions().length > 0) {
-          <div class="o-section-label">Open questions</div>
-          <div class="o-list" role="list">
-            @for (item of openQuestions(); track item.id) {
-              <div class="o-row" role="listitem" [attr.data-status]="item.status">
-                <div class="o-row-main">
-                  <div class="o-text">{{ item.text }}</div>
-                  <div class="o-meta">
-                    <span class="o-loop-status" [attr.data-status]="item.loopStatus" [attr.data-tone]="statusTone(item.loopStatus)">{{ statusLabel(item.loopStatus) }}</span>
-                    <span class="o-time" [title]="absoluteTime(item.createdAt)">{{ relTime(item.createdAt) }}</span>
-                    @if (item.status !== 'open') {
-                      <span class="o-resolved">{{ item.status }}</span>
-                    }
-                  </div>
-                  @if (item.status === 'open') {
-                    @if (isShowingRecommendation(item)) {
-                      <div class="o-suggested" [appTooltip]="copy('loop.outstanding.suggested')">Suggested — review, then Save or Resolve to use</div>
-                    }
-                    <textarea
-                      class="o-answer-input"
-                      rows="2"
-                      placeholder="Your answer — saved with the item and fed back when you resume the loop"
-                      [value]="draftFor(item)"
-                      (input)="onDraftInput(item, $event)"
-                    ></textarea>
-                  } @else if (item.userResponse) {
-                    <div class="o-answer"><span class="o-answer-label">Answer</span>{{ item.userResponse }}</div>
-                  }
-                </div>
-                <div class="o-actions">
-                  @if (item.status === 'open') {
-                    <button type="button" class="o-act o-save" (click)="saveAnswer(item)" [disabled]="savingId() === item.id || !canSaveAnswer(item)" [appTooltip]="copy('loop.outstanding.save')">{{ savingId() === item.id ? 'Saving…' : 'Save answer' }}</button>
-                    <button type="button" class="o-act o-resolve" (click)="setStatus(item, 'resolved')" [appTooltip]="copy('loop.outstanding.answered')">Answered</button>
-                    <button type="button" class="o-act o-dismiss" (click)="setStatus(item, 'dismissed')" [appTooltip]="copy('loop.outstanding.dismiss')">Dismiss</button>
-                  } @else {
-                    <button type="button" class="o-act" (click)="setStatus(item, 'open')" [appTooltip]="copy('loop.outstanding.reopen')">Reopen</button>
-                  }
-                </div>
-              </div>
-            }
-          </div>
-        }
+
       }
     </div>
   `,
@@ -333,6 +307,16 @@ export class LoopOutstandingPanelComponent {
   nowOverride = input<number>(0);
 
   protected store = inject(LoopStore);
+  private readonly questionIpc = inject(LoopIpcService);
+  protected readonly delivery = signal<Record<string, QuestionDelivery>>({});
+  protected readonly currentQuestionGroups = computed(() => {
+    const items = this.items().filter(item => item.firstSeenRound != null);
+    return [
+      { label: 'Waiting for you', items: items.filter(item => loopQuestionNeed(item) === 'answer') },
+      { label: 'Decision applied, tell me if wrong', items: items.filter(item => loopQuestionNeed(item) === 'applied') },
+      { label: 'For information', items: items.filter(item => loopQuestionNeed(item) === 'fyi') },
+    ];
+  });
 
   protected showAll = signal(false);
   protected resolvingAll = signal(false);
@@ -354,8 +338,7 @@ export class LoopOutstandingPanelComponent {
     return this.store.outstanding().filter((i) => outstandingItemInScope(i, chatId, cwd));
   });
 
-  protected needsHuman = computed(() => this.items().filter((i) => i.kind === 'needs-human'));
-  protected openQuestions = computed(() => this.items().filter((i) => i.kind === 'open-question'));
+  protected needsHuman = computed(() => this.items().filter((i) => i.firstSeenRound == null));
   protected openCount = computed(() => this.items().filter((i) => i.status === 'open').length);
   /** Open items that carry an answer — what "Resume with answers" feeds back.
    *  Counts both a persisted `userResponse` AND a non-empty answer the user has
@@ -388,6 +371,19 @@ export class LoopOutstandingPanelComponent {
 
   protected toggleShowAll(): void {
     this.showAll.update((v) => !v);
+  }
+
+  protected async answerLiveQuestion(input: LoopAnswerOutstandingPayload): Promise<void> {
+    if (this.savingId()) return;
+    this.savingId.set(input.id); this.resumeError.set(null);
+    try {
+      const result = await this.questionIpc.answerOutstanding(input);
+      if (!result.success || !result.data?.ok) { this.resumeError.set(result.error?.message ?? 'Could not save this answer.'); return; }
+      this.delivery.update(current => ({ ...current, [input.id]: result.data!.delivery }));
+      const query = buildOutstandingQuery(this.chatId(), this.workspaceCwd(), this.showAll() ? 'all' : 'open');
+      if (query) await this.store.loadOutstanding(query);
+    } catch (error) { this.resumeError.set(error instanceof Error ? error.message : String(error)); }
+    finally { this.savingId.set(null); }
   }
 
   /** The text to show in the answer textarea, in priority order: the unsaved

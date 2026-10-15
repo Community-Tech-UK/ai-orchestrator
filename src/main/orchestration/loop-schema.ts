@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 20;
+export const LOOP_SCHEMA_VERSION = 22;
 
 interface LoopMigration {
   version: number;
@@ -416,6 +416,38 @@ const MIGRATIONS: LoopMigration[] = [
     version: 20,
     name: '020_plan_queue_runs_parent_thread',
     up: `ALTER TABLE plan_queue_runs ADD COLUMN parent_history_thread_id TEXT;`,
+  },
+  {
+    version: 21,
+    name: '021_loop_spend_and_round_telemetry',
+    up: `
+      ALTER TABLE loop_iterations ADD COLUMN finish_reason TEXT;
+      ALTER TABLE loop_iterations ADD COLUMN prompt_bytes INTEGER;
+      CREATE TABLE IF NOT EXISTS loop_run_spend (
+        id TEXT PRIMARY KEY,
+        loop_run_id TEXT NOT NULL REFERENCES loop_runs(id) ON DELETE CASCADE,
+        iteration_seq INTEGER, purpose TEXT NOT NULL, detail TEXT, provider TEXT, model TEXT,
+        tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER, cache_write_tokens INTEGER,
+        cost_cents INTEGER NOT NULL DEFAULT 0, basis TEXT NOT NULL, created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_loop_run_spend_run ON loop_run_spend(loop_run_id, created_at);
+      ALTER TABLE plan_queue_items ADD COLUMN tokens INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE plan_queue_items ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0;
+      ALTER TABLE plan_queue_items ADD COLUMN exact_cost_usd REAL NOT NULL DEFAULT 0;
+      ALTER TABLE plan_queue_runs ADD COLUMN tokens INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE plan_queue_runs ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0;
+      ALTER TABLE plan_queue_runs ADD COLUMN exact_cost_usd REAL NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 22,
+    name: '022_loop_live_questions',
+    up: `
+      ALTER TABLE loop_outstanding_items ADD COLUMN risk_class TEXT;
+      ALTER TABLE loop_outstanding_items ADD COLUMN first_seen_round INTEGER;
+      ALTER TABLE loop_outstanding_items ADD COLUMN outcome TEXT;
+      ALTER TABLE loop_outstanding_items ADD COLUMN answer_sent_at INTEGER;
+    `,
   },
 ];
 

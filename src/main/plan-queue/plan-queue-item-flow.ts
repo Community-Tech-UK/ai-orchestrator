@@ -1,3 +1,4 @@
+import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
 /**
  * Plan Queue item flow — the side effects of each item transition: prepare a
  * worktree, run the worker, verify, land, park.
@@ -15,7 +16,7 @@ import { AUTOMATION_FAILURE_STATUSES } from '../../shared/types/instance-status-
 import { getLogger } from '../logging/logger';
 import { holdFromReclaim, releaseReclaimHold } from '../process/reclaim-holds';
 import { gitExec } from '../workspace/git/git-exec';
-import { appendParkedNote } from './plan-queue-doc-close';
+import { appendParkedNote, removeParkedNote } from './plan-queue-doc-close';
 import {
   branchExists,
   commitsAhead,
@@ -215,7 +216,7 @@ export class PlanQueueItemFlow {
         void this.onWorkerOutcome(instance.id, { kind: 'failed', reason: `worker failed to start: ${errorMessage(error)}` });
       });
     } catch (error) {
-      await this.parkUnlocked(this.host.getItem(item.id), 'worker-error', `Could not start the worker: ${errorMessage(error)}`);
+      await this.parkUnlocked(this.host.getItem(item.id), error instanceof PlanQueueSpawnStoppedByUser ? 'cancelled' : 'worker-error', error instanceof PlanQueueSpawnStoppedByUser ? 'Stopped: you closed its session. Resume carries on from the same branch.' : `Could not start the worker: ${errorMessage(error)}`);
     }
   }
 
@@ -270,7 +271,8 @@ export class PlanQueueItemFlow {
           await this.parkUnlocked(item, 'provider-limit', outcome.notice);
           return;
         case 'failed':
-          await this.parkUnlocked(item, 'worker-error', outcome.reason);
+          if (this.host.consumeUserClose?.(instanceId)) await this.parkUnlocked(item, 'cancelled', 'Stopped: you closed its session. Resume carries on from the same branch.');
+          else await this.parkUnlocked(item, 'worker-error', outcome.reason);
           return;
       }
     });
@@ -292,6 +294,7 @@ export class PlanQueueItemFlow {
       this.host.getRun(saved.runId),
       `Plan Queue: the worker for ${documentStem(saved.documentPath)} is waiting for James.\n\n${text.slice(0, 1500)}\n\n`
         + `Ask James, then call plan_queue_answer with item_id "${saved.id}" and option_id "continue" or "park". James can also answer the worker directly in its session.`,
+      [saved],
     );
   }
 
@@ -396,7 +399,9 @@ export class PlanQueueItemFlow {
       });
     } catch (error) {
       this.snapshots.delete(item.id);
-      await this.erroredRound(this.host.getItem(item.id), `Could not start the verifier: ${errorMessage(error)}`);
+      if (error instanceof PlanQueueSpawnStoppedByUser) {
+        this.host.transition(this.host.getItem(item.id), 'awaiting-slot', { verifierInstanceId: null, detail: 'Its checker was closed; it will be checked again.' });
+      } else await this.erroredRound(this.host.getItem(item.id), `Could not start the verifier: ${errorMessage(error)}`);
     }
   }
 
@@ -435,6 +440,11 @@ export class PlanQueueItemFlow {
     }
 
     const verdict = reported?.verifierId === instanceId ? reported.verdict : null;
+    if (this.host.consumeUserClose?.(instanceId)) {
+      this.host.transition(item, 'awaiting-slot', { detail: 'Its checker was closed; it will be checked again.' });
+      this.host.requestPump();
+      return;
+    }
     if (outcome.kind !== 'turn-complete' || !verdict || treeChanged) {
       const reason = treeChanged
         ? 'the verifier changed the worktree, so its verdict was discarded and its changes reverted'
@@ -576,9 +586,33 @@ export class PlanQueueItemFlow {
     });
   }
 
+  /** Retry only a verified landing blockage; preserve its PASS, round and recorded commit. */
+  retryLanding(itemId: string): Promise<void> {
+    return this.withItemLock(itemId, async () => {
+      const item = this.host.getItem(itemId);
+      if (item.state !== 'parked' || item.parkReason !== 'land-blocked' || item.verdict?.verdict !== 'PASS' || !item.branchName) {
+        throw new Error('Only a land-blocked parked item with a verifier PASS can retry landing');
+      }
+      const run = this.host.getRun(item.runId);
+      const reattached = await this.host.worktrees.reattach(item, run.workspaceCwd);
+      await removeParkedNote(reattached.documentPath, reattached.branchName!);
+      this.host.transition(reattached, 'landing', { parkReason: null, detail: null });
+      void this.enqueueLanding(itemId);
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Instances
   // ---------------------------------------------------------------------------
+
+  /**
+   * The run's parent session, or undefined once it is gone (after a restart
+   * its id is not restored): a child of a missing parent could not be shown
+   * nested, so it is shown at the top of the rail instead.
+   */
+  liveParentId(run: PlanQueueRun): string | undefined {
+    return this.host.resolveRunParent(run);
+  }
 
   retireWorker(item: PlanQueueItem): void {
     if (item.workerInstanceId) this.retireInstance(item.workerInstanceId);

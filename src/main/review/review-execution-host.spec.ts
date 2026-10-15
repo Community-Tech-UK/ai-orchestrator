@@ -125,6 +125,17 @@ describe('ProviderReviewExecutionHost', () => {
     await expect(pending).rejects.toThrow('Review cancelled');
   });
 
+  it('reports actual reviewer usage and unknown failed calls exactly once', async () => {
+    const usage: unknown[] = [];
+    hostTestState.createAdapter.mockReturnValue({ sendMessage: async () => ({ content: '{}', usage: { inputTokens: 10, outputTokens: 20, cost: 0.4 } }), terminate: async () => undefined });
+    const host = new ProviderReviewExecutionHost();
+    await host.dispatchReviewerPrompt('claude', 'review', '/repo', new AbortController().signal, { onUsage: value => usage.push(value) });
+    expect(usage).toEqual([expect.objectContaining({ tokens: 30, costUsd: 0.4, costSource: 'provider' })]);
+    hostTestState.createAdapter.mockReturnValue({ sendMessage: async () => { throw new Error('transport'); }, terminate: async () => undefined });
+    await expect(host.dispatchReviewerPrompt('claude', 'review', '/repo', new AbortController().signal, { onUsage: value => usage.push(value) })).rejects.toThrow('transport');
+    expect(usage).toHaveLength(2); expect(usage[1]).toMatchObject({ tokens: 0, costUsd: null, costSource: 'unknown' });
+  });
+
   it('routes an exhausted Antigravity Gemini override to Sonnet', async () => {
     hostTestState.modelByProvider = { antigravity: 'Gemini 3.5 Flash (Medium)' };
     hostTestState.quotaSnapshot = {

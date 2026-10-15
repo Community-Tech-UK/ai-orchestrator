@@ -36,6 +36,10 @@ import { signalI_idempotentReadIdentity } from './loop-progress-idempotent-read'
 
 export { signalI_idempotentReadIdentity } from './loop-progress-idempotent-read';
 
+export function progressDetectorHistoryWindow(th: LoopProgressThresholds): number {
+  return Math.max(5, th.identicalHashCriticalWindow, th.testStagnationCriticalIterations, th.testStagnationWarnIterations);
+}
+
 // ============ helpers ============
 
 /** Combine OK/WARN/CRITICAL — CRITICAL wins, then WARN, else OK. */

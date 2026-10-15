@@ -122,6 +122,13 @@ describe('runLocalOnlyFreshEyesReview', () => {
 });
 
 describe('defaultFreshEyesReviewer', () => {
+  it('preserves each reviewer call and sums known costs without treating unknown calls as free', async () => {
+    const spend = [{provider:'claude',tokens:20,costUsd:0.201,costSource:'provider'},{provider:'codex',tokens:10,costUsd:null,costSource:'unknown'}];
+    runHeadlessReview.mockResolvedValue({reviewers:[],findings:[],summary:'review',infrastructureErrors:[],spend});
+    const result = await defaultFreshEyesReviewer(localInput());
+    expect(result.spend).toEqual(spend); expect(result.tokensUsed).toBe(30); expect(result.costCents).toBe(21);
+  });
+
   it('passes the builder provider so the headless resolver cannot self-review', async () => {
     runHeadlessReview.mockResolvedValue({
       reviewers: [], findings: [], summary: 'No reviewer.', infrastructureErrors: [],
@@ -133,4 +140,15 @@ describe('defaultFreshEyesReviewer', () => {
       primaryProvider: 'codex',
     }));
   });
+});
+
+it('describes check evidence honestly and requests anchored pre-existing findings', async () => {
+  runHeadlessReview.mockResolvedValue({ reviewers: [], findings: [], summary: '', infrastructureErrors: [] });
+  await defaultFreshEyesReviewer({ ...localInput(), verifyOutputExcerpt: '' });
+  const content = runHeadlessReview.mock.calls[0][0].content;
+  expect(content).toContain('## Check result (for context)');
+  expect(content).toContain('No check result was supplied.');
+  expect(content).toContain('[pre-existing]');
+  expect(content).not.toContain('already green');
+  expect(content).not.toContain('verify (build/test/lint) passed');
 });

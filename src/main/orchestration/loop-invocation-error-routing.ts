@@ -7,10 +7,11 @@ import { excerpt } from './loop-coordinator-utils';
 import { isProviderNotice } from '../cli/provider-notice';
 import { extractProviderErrorDiagnostics } from '../instance/instance-communication.diagnostics';
 import { LoopProviderLimitHandler } from './loop-provider-limit-handler';
+import { matchCopilotLimitNotice } from '../cli/copilot-limit-messages';
 
 const logger = getLogger('LoopInvocationErrorRouting');
 
-export type ClassifiedInvocationRoute = 'none' | 'retry-fresh' | 'do-not-retry' | 'parked' | 'terminated' | 'switched-account' | 'switched-provider';
+export type ClassifiedInvocationRoute = 'none' | 'retry-fresh' | 'do-not-retry' | 'parked' | 'terminated' | 'switched-account' | 'switched-provider' | 'recycled';
 
 export function routeClassifiedLoopInvocationFailure(params: {
   state: LoopState;
@@ -76,6 +77,16 @@ export function routeClassifiedLoopInvocationFailure(params: {
       },
     });
     return 'do-not-retry';
+  }
+
+  const copilot = state.config.provider === 'copilot' ? matchCopilotLimitNotice(classification.message) : null;
+  if (copilot) {
+    const outcome = params.providerLimitHandler.handleProviderLimit(state, {
+      reason: classification.message, source: 'notice', action: 'notice', mustStop: true,
+      resumeAt: copilot.resetAtHint ?? (copilot.quotaVisible ? params.providerLimitHandler.deriveProviderLimitResume(state).resumeAt : null),
+      earlyProbe: copilot.quotaVisible, recycle: copilot.action === 'recycle', accountFailover: true,
+    });
+    return outcome === 'skipped' ? 'none' : outcome;
   }
 
   if (classification.reason === 'rate_limit' && classification.retryAfterMs !== null) {

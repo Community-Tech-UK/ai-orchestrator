@@ -1,3 +1,4 @@
+import type { LoopSpendByPurpose } from './loop-spend.types';
 import type { LoopActivityKind as ContractLoopActivityKind } from '@contracts/schemas/loop';
 import type {
   CompletionSignalId,
@@ -37,6 +38,7 @@ export type LoopStreamEvent =
   | { type: 'error'; loopRunId: string; error: string };
 
 export type LoopStreamTerminalStatus =
+  | 'attempt-failed'
   | 'no-progress'
   | 'provider-limit'
   | 'cost-exceeded'
@@ -65,6 +67,7 @@ export interface LoopActivityEvent {
 // ============ Helpers ============
 
 export interface LoopRunSummary {
+  spendByPurpose?: LoopSpendByPurpose;
   id: string;
   chatId: string;
   status: LoopStatus;

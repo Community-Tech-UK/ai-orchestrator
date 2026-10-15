@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { queueItemSpendLabel } from './plan-queue-spend-label';
+import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
 import type {
   PlanQueueItemDto,
   PlanQueueItemState,
@@ -22,15 +23,16 @@ const STATE_LABELS: Record<PlanQueueItemState, string> = {
 };
 
 const PARK_REASON_LABELS: Record<PlanQueueParkReason, string> = {
-  'round-limit': 'Hit the round limit',
-  'verifier-unreliable': 'Verifier was unreliable',
-  'no-diverse-verifier': 'No sufficiently diverse verifier available',
-  'worker-error': 'Worker error',
-  'worktree-error': 'Worktree error',
-  'merge-conflict': 'Merge conflict',
-  'land-blocked': 'Landing blocked',
-  'provider-limit': 'Provider rate limit',
-  cancelled: 'Cancelled',
+  'round-limit': 'Still failing after the last check',
+  'verifier-unreliable': 'The checker kept failing',
+  'no-diverse-verifier': 'No second model free to check it',
+  'worker-error': 'The worker stopped with an error',
+  'triage-failed': "Couldn't check if it's ready",
+  'worktree-error': "Couldn't set up its working copy",
+  'merge-conflict': 'Merge clash to resolve',
+  'land-blocked': "Couldn't merge",
+  'provider-limit': 'Usage limit reached',
+  cancelled: 'Stopped',
 };
 
 /**
@@ -84,9 +86,12 @@ export function planQueueVerdictSummary(verdict: PlanQueueVerdict | null): strin
 })
 export class PlanQueueItemListComponent {
   items = input<PlanQueueItemDto[]>([]);
+  maxRounds = input.required<number>();
+  protected readonly confirmingSkip = signal<string | null>(null);
 
   skipItem = output<string>();
 
+  protected readonly spendLabel = queueItemSpendLabel;
   protected readonly documentBasename = planQueueDocumentBasename;
   protected readonly stateLabel = planQueueStateLabel;
   protected readonly parkReasonLabel = planQueueParkReasonLabel;
@@ -102,6 +107,18 @@ export class PlanQueueItemListComponent {
   }
 
   onSkip(itemId: string): void {
-    this.skipItem.emit(itemId);
+    this.confirmingSkip.set(itemId);
+  }
+
+  cancelSkip(): void {
+    this.confirmingSkip.set(null);
+  }
+
+  confirmSkip(itemId: string): void {
+    if (this.confirmingSkip() !== itemId) return;
+    this.confirmingSkip.set(null);
+    if (this.items().some(item => item.id === itemId && this.isSkippable(item.state))) {
+      this.skipItem.emit(itemId);
+    }
   }
 }

@@ -1,3 +1,5 @@
+import { matchCopilotLimitNotice } from '../copilot-limit-messages';
+
 /**
  * Marks a failed ACP prompt as a provider limit so instance recovery can park
  * and resume it instead of erroring the session.
@@ -54,7 +56,7 @@ export function parseAcpLimitResetIn(message: string, now: number): number | und
 }
 
 export function isAcpProviderLimitMessage(message: string): boolean {
-  return LIMIT_PATTERNS.some((pattern) => pattern.test(message));
+  return matchCopilotLimitNotice(message)?.action === 'park' || LIMIT_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 /** Adds `quota` diagnostics to a prompt failure that reads as a provider limit. */

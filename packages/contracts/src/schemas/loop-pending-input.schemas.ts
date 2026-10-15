@@ -15,6 +15,7 @@ export const LoopPendingInputSourceSchema = z.enum([
   'human', 'block-override', 'plan-regen', 'phase-recovery',
   'context-survival', 'announce-then-halt', 'subagent-result', 'wakeup',
   'cap-wrap-up', 'auto-unstick', 'idle-nudge',
+  'step-limit', 'finish-phase', 'verify-baseline', 'loop-question', 'failed-step',
 ]);
 
 export const LoopPendingInputSchema = z.object({

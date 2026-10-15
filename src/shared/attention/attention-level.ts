@@ -155,6 +155,7 @@ export function attentionLevelForLoopStatus(
     case 'failed':
     case 'error':
     case 'no-progress':
+    case 'attempt-failed':
     case 'cap-reached':
     case 'cost-exceeded':
     case 'needs-human-arbitration':

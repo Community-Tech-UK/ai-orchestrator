@@ -19,6 +19,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
+  evaluateReviewDrivenCompletion,
   runFreshEyesReviewGate,
   trackRepeatedCompletionEvidence,
   workspaceAnchorDigest,
@@ -100,7 +101,7 @@ function makeState(over: Partial<LoopState> = {}): LoopState {
     chatId: 'chat-1',
     config: cfg,
     status: 'running',
-    startedAt: 0,
+    startedAt: Date.now(),
     endedAt: null,
     totalIterations: 0,
     totalTokens: 0,
@@ -685,6 +686,34 @@ describe('runFreshEyesReviewGate (WS-B9 exact reviewer coverage + per-angle cach
   });
 });
 
+describe('fresh-eyes review budget', () => {
+  it('stops at the spend cap even if the reviewer approves', async () => {
+    const state = makeState(); state.totalCostCents = 5; state.config.caps.maxCostCents = 10;
+    const stopForReviewBudget = vi.fn();
+    const reviewer: FreshEyesReviewer = async () => ({ findings: [], reviewersUsed: ['stub'], summary: 'clean', costCents: 10, tokensUsed: 100 });
+    const result = await runFreshEyesReviewGate({ ...gateArgs(state, makeIteration(), reviewer), stopForReviewBudget });
+    expect(state.totalCostCents).toBe(15); expect(result).toMatchObject({ blocked: true, budgetExceeded: 'cost-exceeded' });
+    expect(stopForReviewBudget).toHaveBeenCalledWith('cost-exceeded', expect.stringContaining('spending limit'));
+    expect(state.freshEyesCleanForWorkState).not.toBe(true);
+  });
+});
+
+describe('fresh-eyes review effort', () => {
+  it('limits a small safe change to one reviewer and permanently escalates on sensitive code', async () => {
+    const state = makeState(); writeUnobservedFile(state, 'widget.ts', 'export const value = 1;\n');
+    const iteration = makeIteration({ filesChanged: [{ path: 'widget.ts', additions: 1, deletions: 0, contentHash: 'one' }] });
+    const reviewer = vi.fn(cleanReview);
+    await runFreshEyesReviewGate(gateArgs(state, iteration, reviewer));
+    expect(state.reviewEffort).toBe('light'); expect(reviewer.mock.calls[0][0].maxReviewers).toBe(1);
+    writeUnobservedFile(state, 'auth.ts', 'export const guard = true;\n');
+    await runFreshEyesReviewGate(gateArgs(state, iteration, reviewer));
+    expect(state.reviewEffort).toBe('standard'); expect(reviewer.mock.calls[1][0].maxReviewers).toBeUndefined();
+    fs.unlinkSync(path.join(state.config.workspaceCwd, 'auth.ts'));
+    await runFreshEyesReviewGate(gateArgs(state, iteration, reviewer));
+    expect(state.reviewEffort).toBe('standard'); expect(reviewer.mock.calls[2][0].maxReviewers).toBeUndefined();
+  });
+});
+
 describe('trackRepeatedCompletionEvidence', () => {
   function track(state: LoopState, notes: Map<string, string>, decision: 'continue' | 'stop' = 'continue') {
     trackRepeatedCompletionEvidence({
@@ -721,5 +750,34 @@ describe('trackRepeatedCompletionEvidence', () => {
     state.unresolvedReviewThreads = ['new-thread'];
     track(state, notes);
     expect(state.repeatedEvidenceCount).toBe(1);
+  });
+});
+
+describe('review-driven baseline and check cadence', () => {
+  function args(state: LoopState) {
+    return { state, iteration: makeIteration(), fullOutput: 'There are no outstanding issues', stageMachine: { readOutstanding: async () => ({ raw: '', needsHuman: false }) } as unknown as import('./loop-stage-machine').LoopStageMachine,
+      seq: 0, stage: 'IMPLEMENT' as const, completionDetector: {} as import('./loop-completion-detector').LoopCompletionDetector,
+      runRecordedVerify: vi.fn(async (_kind: 'verify' | 'quick-verify'): Promise<import('./loop-completion-detector').VerifyOutcome> => ({ status: 'passed', output: 'green', durationMs: 1 })),
+      runFreshEyesReviewGate: vi.fn(async () => ({ blocked: false, ran: true, errored: false })),
+      classifyCleanReview: vi.fn(async () => ({ clean: true, reason: 'clean', confidence: 1 })), emit: vi.fn() };
+  }
+  it('runs only quick verification on an intermediate clean claim then full on the final claim', async () => {
+    const state = makeState(); state.config.completion.verifyCommand = 'npm test'; state.config.completion.quickVerifyCommand = 'npm run typecheck';
+    const input = args(state);
+    expect(await evaluateReviewDrivenCompletion(input)).toBeNull();
+    expect(input.runRecordedVerify.mock.calls.map(call => call[0])).toEqual(['quick-verify']);
+    input.runRecordedVerify.mockClear();
+    expect(await evaluateReviewDrivenCompletion(input)).toMatchObject({ status: 'completed' });
+    expect(input.runRecordedVerify.mock.calls.map(call => call[0])).toEqual(['quick-verify', 'verify']);
+  });
+  it('accepts inherited failures without resetting the clean streak and ends with notes', async () => {
+    const { extractVerifyFailureKeys } = await import('./verify-failure-keys');
+    const output = 'src/a.ts(1,1): error TS2322: wrong';
+    const keys = [...extractVerifyFailureKeys(output, { truncated: false, failureKind: 'command' }).keys.keys()];
+    const state = makeState(); state.config.completion.verifyCommand = 'npm test'; state.config.completion.requiredCleanReviewPasses = 1;
+    state.preflight = { status: 'failed', ranAt: 1, commands: [{ label: 'verify', command: 'npm test', status: 'failed', durationMs: 1, outputExcerpt: output }], baseline: { status: 'recorded', keys, failingCount: 1, scope: 'start-tree' } };
+    const input = args(state); input.runRecordedVerify = vi.fn(async (kind) => kind === 'quick-verify' ? { status: 'skipped', output: '', durationMs: 0 } : { status: 'failed', failureKind: 'command', exitCode: 1, output, durationMs: 1 }) as typeof input.runRecordedVerify;
+    expect(await evaluateReviewDrivenCompletion(input)).toMatchObject({ status: 'completed-needs-review' });
+    expect(state.consecutiveCleanReviewPasses).toBe(1); expect(state.pendingInterventions).toHaveLength(0);
   });
 });

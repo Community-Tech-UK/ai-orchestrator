@@ -99,7 +99,10 @@ describe('failed-attempt usage accounting (coordinator)', () => {
       }));
     });
     const settled = new Promise<void>((resolve) => {
-      for (const event of ['loop:completed-needs-review', 'loop:cap-reached', 'loop:error', 'loop:failed']) {
+      coordinator.on('loop:state-changed', (payload: { state: { status: string } }) => {
+        if (payload.state.status === 'attempt-failed') resolve();
+      });
+      for (const event of ['loop:cap-reached', 'loop:error', 'loop:failed']) {
         coordinator.on(event, () => resolve());
       }
     });
@@ -118,8 +121,9 @@ describe('failed-attempt usage accounting (coordinator)', () => {
     // Charged, and past the 1,000-token cap — but not killed by the charge.
     expect(finalState?.totalTokens).toBe(5_000);
     expect(capReached).toHaveLength(0);
-    // Unchanged WS5 semantics: unprovable workspace state pauses for review.
-    expect(finalState?.status).toBe('completed-needs-review');
+    // Unattended failed steps have a truthful failure terminal, never a success.
+    expect(finalState?.status).toBe('attempt-failed');
+    expect(finalState?.endEvidence?.['workspaceEffect']).toBe('unknown');
   }, 30_000);
 
   it('leaves run totals untouched when the failed attempt reported nothing estimable', async () => {

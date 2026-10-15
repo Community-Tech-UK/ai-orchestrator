@@ -1,0 +1,20 @@
+> harness@0.1.0 test:quiet
+ ❯ |main| src/main/app/keep-awake-service.spec.ts (11 tests | 1 failed) 11ms
+   ✓ KeepAwakeService > while-working with no work starts nothing 2ms
+   ✓ KeepAwakeService > work appearing starts one system assertion and reports loop 1ms
+   ✓ KeepAwakeService > work ending releases the assertion by id 0ms
+   ✓ KeepAwakeService > always starts with no work and off releases immediately 0ms
+   ✓ KeepAwakeService > prioritizes loop, queue, automation then session without restarting the assertion 0ms
+   ✓ KeepAwakeService > broadcasts only active/reason changes and preserves activation time 1ms
+   ✓ KeepAwakeService > ignores a throwing probe and still uses healthy probes 3ms
+   × KeepAwakeService > keeps polling when a renderer broadcast throws 4ms
+     → expected [Function] to not throw an error but 'Error: renderer closed' was thrown
+     → renderer closed
+   ✓ KeepAwakeService > shutdown releases assertion and prevents later ticks 0ms
+   ✓ KeepAwakeService > reinitialization releases the previous assertion 0ms
+   ✓ sessionKeepAwakeReasons > ignores nonworking and two-hour silent sessions and classifies recent remote work 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |main| src/main/app/keep-awake-service.spec.ts > KeepAwakeService > keeps polling when a renderer broadcast throws
+AssertionError: expected [Function] to not throw an error but 'Error: renderer closed' was thrown

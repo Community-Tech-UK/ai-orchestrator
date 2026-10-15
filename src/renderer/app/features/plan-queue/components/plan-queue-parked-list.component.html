@@ -13,6 +13,10 @@
           <div class="pq-parked-reason">Parked: {{ parkReasonLabel(item.parkReason) }}</div>
         }
 
+        @if (item.detail) {
+          <div class="pq-parked-detail">{{ item.detail }}</div>
+        }
+
         @if (isConfirming(item.id, 'discard-item')) {
           <div class="pq-parked-confirm" role="group" aria-label="Confirm discard">
             Discard this item's work? This cannot be undone.
@@ -23,7 +27,11 @@
           </div>
         } @else if (isConfirming(item.id, 'land-anyway')) {
           <div class="pq-parked-confirm" role="group" aria-label="Confirm land anyway">
-            Land this branch even though it never passed verification?
+            @if (item.verdict?.verdict === 'PASS') {
+              Merge without the final checks? It passed verification, but its last merge was blocked.
+            } @else {
+              Land this branch even though it never passed verification?
+            }
             <button type="button" class="pq-confirm-yes" (click)="confirmAction(item.id, 'land-anyway')">
               Confirm land anyway
             </button>
@@ -31,9 +39,12 @@
           </div>
         } @else {
           <div class="pq-parked-actions">
-            <button type="button" (click)="onResume(item.id)">Resume</button>
-            <button type="button" (click)="requestConfirm(item.id, 'land-anyway')">Land anyway</button>
-            <button type="button" class="pq-discard" (click)="requestConfirm(item.id, 'discard-item')">Discard</button>
+            @if (canRetryLanding(item)) {
+              <button type="button" class="pq-retry-landing" [appTooltip]="copyFor('planQueue.retryLanding')" (click)="onRetryLanding(item)">Try merging again</button>
+            }
+            <button type="button" [appTooltip]="copyFor('planQueue.resumeItem')" (click)="onResume(item.id)">Resume</button>
+            <button type="button" [appTooltip]="copyFor('planQueue.landAnyway')" (click)="requestConfirm(item.id, 'land-anyway')">Land anyway</button>
+            <button type="button" class="pq-discard" [appTooltip]="copyFor('planQueue.discardItem')" (click)="requestConfirm(item.id, 'discard-item')">Discard</button>
           </div>
         }
       </div>

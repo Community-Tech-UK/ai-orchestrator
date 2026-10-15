@@ -105,3 +105,19 @@ describe('resolveClaudeDebugLogging', () => {
     expect(resolveClaudeDebugLogging(false)).toBe(false);
   });
 });
+
+ it('applies a ceiling but preserves explicit and inherited provider windows', () => {
+  const options = { contextCeilingTokens: 120_000 };
+  const env: Record<string, string> = {};
+  applyClaudeHygieneEnv(env, undefined, options);
+  expect(env['CLAUDE_CODE_AUTO_COMPACT_WINDOW']).toBe('120000');
+  const explicit = { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '180000' };
+  applyClaudeHygieneEnv(explicit, undefined, options);
+  expect(explicit.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe('180000');
+  vi.stubEnv('CLAUDE_CODE_AUTO_COMPACT_WINDOW', '190000');
+  try {
+    const inherited: Record<string, string> = {};
+    applyClaudeHygieneEnv(inherited, undefined, options);
+    expect(inherited['CLAUDE_CODE_AUTO_COMPACT_WINDOW']).toBeUndefined();
+  } finally { vi.unstubAllEnvs(); }
+ });

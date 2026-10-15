@@ -72,7 +72,7 @@ describe('PlanQueueParkedListComponent', () => {
     const text = fixture.nativeElement.textContent as string;
     expect(fixture.nativeElement.querySelector('.pq-parked-doc')?.textContent).toBe('foo_plan.md');
     expect(text).toContain('plan-queue/foo-plan');
-    expect(text).toContain('Hit the round limit');
+    expect(text).toContain('Still failing after the last check');
   });
 
   it('fetches and renders the diffstat for each item', async () => {
@@ -143,4 +143,30 @@ describe('PlanQueueParkedListComponent', () => {
     expect(emitted).toHaveLength(0);
     expect(fixture.nativeElement.querySelector('.pq-parked-actions')).toBeTruthy();
   });
+  it('shows a land-blocked PASS detail sentence and Try merging again without new worker rounds', () => {
+    fixture.componentRef.setInput('items', [makeItem({
+      parkReason: 'land-blocked',
+      detail: "Couldn't merge: you have uncommitted changes to docs/shared.md in your main checkout. Commit or set them aside, then Try merging again.",
+      verdict: { verdict: 'PASS', findings: [], gatesRun: [], documentComplete: true, needJames: [] },
+    })]); fixture.detectChanges();
+    const emitted: string[] = []; fixture.componentInstance.retryLanding.subscribe(id => emitted.push(id));
+    expect(fixture.nativeElement.textContent).toContain('uncommitted changes to docs/shared.md');
+    fixture.nativeElement.querySelector('.pq-retry-landing').click(); expect(emitted).toEqual(['item-1']);
+  });
+  it('Land anyway on a PASSed item says it passed verification', () => {
+    fixture.componentRef.setInput('items', [makeItem({ parkReason: 'land-blocked',
+      verdict: { verdict: 'PASS', findings: [], gatesRun: [], documentComplete: true, needJames: [] },
+    })]); fixture.detectChanges();
+    fixture.componentInstance.requestConfirm('item-1', 'land-anyway'); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('It passed verification, but its last merge was blocked.');
+    expect(fixture.nativeElement.textContent).not.toContain('never passed verification');
+  });
+  it.each([['land-blocked', 'FAIL'], ['round-limit', 'PASS'], ['merge-conflict', 'PASS']] as const)(
+    'offers no merge retry for %s with %s', (parkReason, verdict) => {
+      fixture.componentRef.setInput('items', [makeItem({ parkReason,
+        verdict: { verdict, findings: [], gatesRun: [], documentComplete: true, needJames: [] },
+      })]); fixture.detectChanges(); expect(fixture.nativeElement.querySelector('.pq-retry-landing')).toBeNull();
+    },
+  );
+
 });

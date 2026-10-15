@@ -1,9 +1,22 @@
+  @if (stopConfirm.pending(); as pendingStop) {
+    @if (pendingStop.loopId === controlLoopId()) {
+      <div #stopConfirmRow class="loop-stop-confirm" role="group" aria-label="Confirm stopping this loop" tabindex="-1" (keydown.escape)="stopConfirm.dismiss(); $event.stopPropagation()">
+        <span>Stop this loop? The step in progress is cut off.
+          @if (pendingStop.isolated) { Changes it already made stay on the loop's own branch, which is kept and not merged. }
+          @else { Changes it already made stay in your files. }
+        </span>
+        @if (stopConfirm.error(); as error) { <span role="alert">{{ error }}</span> }
+        <button type="button" [disabled]="stopConfirm.confirming()" (click)="stopConfirm.dismiss()">Keep running</button>
+        <button type="button" class="ls-stop" [disabled]="stopConfirm.confirming()" (click)="stopConfirm.confirm()">Stop loop</button>
+      </div>
+    }
+  }
   @if (banner(); as b) {
     <div
       class="loop-banner"
-      [class.warn]="b.kind === 'no-progress' && pauseKind() !== 'awaiting-review'"
+      [class.warn]="b.kind === 'no-progress' && pauseKind() !== 'awaiting-review' && pauseKind() !== 'step-failed'"
       [class.review]="pauseKind() === 'awaiting-review'"
-      [class.danger]="b.kind === 'claimed-failed' && pauseKind() !== 'awaiting-review'"
+      [class.danger]="(b.kind === 'claimed-failed' || pauseKind() === 'step-failed') && pauseKind() !== 'awaiting-review'"
     >
       @if (pauseKind() === 'awaiting-review') {
         <span class="loop-banner-title">Awaiting your review — loop thinks it's done</span>
@@ -67,7 +80,7 @@
     >
       <div class="loop-status">
         @if (statusPill(); as pill) {
-          <span class="ls-pill" [attr.data-pill]="pill.kind" [appTooltip]="copy('loop.statusPill')">{{ pill.label }}</span>
+          <span class="ls-pill" [attr.data-pill]="pill.kind" [appTooltip]="pill.kind === 'step-failed' ? copy('loop.statusPill.stepFailed') : copy('loop.statusPill')">{{ pill.label }}</span>
         }
         @if (latestVerdict(); as verdict) {
           <!-- No role and no aria-label ON PURPOSE: this span has visible text, so that text
@@ -89,6 +102,7 @@
           · total {{ duration(elapsed()) }}
           · {{ activeTokenUsage(a.totalTokens) }}
           · {{ activeCostUsage(a.totalCostCents) }}
+          @if (reviewerSpendCents() > 0) { · second opinion {{ cost(reviewerSpendCents()) }} }
         </span>
         <span class="ls-actions">
           @if (a.status === 'running') {
@@ -102,9 +116,11 @@
           <button type="button" (click)="onToggleInspector()" [appTooltip]="copy('loop.inspect')" aria-label="Inspect loop trace">{{ inspectorExpanded() ? 'Hide trace' : 'Inspect' }}</button>
           <button type="button" (click)="onInjectHint()" [appTooltip]="copy('loop.hint')" aria-label="Inject a hint into the next iteration">Hint</button>
           <button type="button" (click)="onQueueFollowUp()" [appTooltip]="copy('loop.followUp')" aria-label="Queue a follow-up before the loop finishes">Follow-up</button>
-          <button type="button" class="ls-stop" (click)="onStop()" aria-label="Stop loop">Stop</button>
+          <button type="button" class="ls-stop" (click)="onStop()" [appTooltip]="copy('loop.stop')" aria-label="Stop loop">Stop</button>
         </span>
       </div>
+
+      <app-loop-questions-chip [loopRunId]="a.id" [chatId]="a.chatId" />
 
       @if (showToolLoopHint()) {
         <!-- UX5: behaviour-gated, so it appears only for the configuration that
@@ -387,17 +403,19 @@
     <div class="loop-summary" [attr.data-status]="s.status">
       <div class="lsum-title">
         <span class="lsum-title-text">
-          Loop ended — <span class="lsum-status-pill" [attr.data-status]="s.status">{{ summaryStatusLabel(s.status) }}</span>
+          <span class="lsum-status-pill" [attr.data-status]="s.status">{{ endWording()?.headline }}</span>
+          · {{ s.status === 'completed' || s.status === 'completed-needs-review' ? 'Finished at' : 'Stopped at' }} {{ finishTime(s.endedAt) }}
         </span>
         <button type="button" class="lsum-close" (click)="onDismissSummary()" appTooltip="Hides this summary. The run and its record are kept." aria-label="Dismiss">×</button>
       </div>
       <div class="lsum-line">
-        {{ s.iterations }} iterations · {{ duration(s.endedAt - s.startedAt) }} · {{ s.failedAttemptUsageUnavailable ? 'recorded ' : '' }}{{ tokens(s.tokens) }} · {{ s.failedAttemptUsageUnavailable ? 'recorded ' : '' }}{{ cost(s.costCents) }}
+        Rounds finished: {{ s.iterations }} · {{ duration(s.endedAt - s.startedAt) }} · {{ s.failedAttemptUsageUnavailable ? 'recorded ' : '' }}{{ tokens(s.tokens) }} · {{ s.failedAttemptUsageUnavailable ? 'recorded ' : '' }}{{ cost(s.costCents) }}
       </div>
       @if (s.failedAttemptUsageUnavailable) {
         <div class="lsum-reason">Failed attempt usage is unavailable. Zero recorded usage does not mean no work occurred.</div>
       }
-      <div class="lsum-reason">Reason: {{ s.reason }}</div>
+      <div class="lsum-reason">{{ endWording()?.sentence }}</div>
+      <details class="lsum-details"><summary>Details</summary>{{ s.reason }}</details>
       <app-loop-causal-timeline
         [timeline]="causalTimeline()"
         [showSpend]="false"
@@ -461,7 +479,7 @@
           @if (li.outputFull || li.outputExcerpt) {
             <div class="lsum-recap-output">
               <div class="lsum-recap-output-head">
-                <div class="lsum-recap-label">Final response (iter {{ iterationNumber(li.seq) }} · {{ li.stage }})</div>
+                <div class="lsum-recap-label">Last round's reply (round {{ iterationNumber(li.seq) }})</div>
                 <button
                   type="button"
                   class="lsum-recap-copy"

@@ -31,6 +31,13 @@ describe('invokeLoopChildIteration timeout', () => {
     vi.useRealTimers();
   });
 
+  it('records UTF-8 bytes for the prompt actually dispatched', async () => {
+    const emitter = new EventEmitter();
+    emitter.on('loop:invoke-iteration', payload => payload.callback({childInstanceId:null,output:'ok',tokens:0,filesChanged:[],toolCalls:[],errors:[],testPassCount:null,testFailCount:null,exitedCleanly:true}));
+    const result = await invokeLoopChildIteration({emitter,state:makeState(),prompt:'你好',stage:'IMPLEMENT',forceContextReset:false,idempotencyKey:'bytes'});
+    expect(result.promptBytes).toBe(6);
+  });
+
   it('emits loop:iteration-timeout then rejects when the child stays silent', async () => {
     const emitter = new EventEmitter();
     const timeouts: unknown[] = [];

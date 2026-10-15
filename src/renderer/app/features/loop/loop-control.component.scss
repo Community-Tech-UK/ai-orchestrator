@@ -612,3 +612,14 @@ code { font-size: 11px; padding: 1px 4px; background: rgba(255,255,255,0.08); bo
   cursor: pointer;
 }
 .lp-actions button:hover { background: rgba(var(--info-rgb), 0.18); }
+
+.loop-stop-confirm {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px; margin: 6px 0; border: 1px solid var(--color-warning, #d98e00); border-radius: 6px;
+  font-size: 12px; line-height: 1.5;
+}
+.loop-stop-confirm span { flex: 1 1 100%; }
+.loop-stop-confirm button { padding: 4px 10px; cursor: pointer; }
+.loop-stop-confirm:focus-visible { outline: 2px solid var(--color-warning, #d98e00); outline-offset: 2px; }
+.ls-pill[data-pill="step-failed"] { color: #f78c7c; background: rgba(247,140,124,0.18); }
+.lsum-details { margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }

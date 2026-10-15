@@ -1,3 +1,4 @@
+import { maybeQueueStepLimitContinuation } from './loop-step-limit';
 /**
  * L1 — idle is not complete: nudge the same session instead of buying a turn.
  *
@@ -106,6 +107,7 @@ export function queueQuietTurnNudge(
   iteration: LoopIteration,
   ledger: IdleNudgeLedgerView,
 ): boolean {
+  if (maybeQueueStepLimitContinuation(state, iteration)) return true;
   if (maybeQueueAnnounceThenHaltContinuation(state, iteration)) return true;
   return maybeQueueIdleNotDoneNudge(state, iteration, ledger);
 }

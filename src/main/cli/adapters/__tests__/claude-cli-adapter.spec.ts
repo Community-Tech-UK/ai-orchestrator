@@ -252,7 +252,8 @@ describe('ClaudeCliAdapter', () => {
       expect(out.usage?.totalTokens).toBe(9); // input+output, not cache.
       expect(out.usage?.inputTokens).toBe(3);
       expect(out.usage?.outputTokens).toBe(6);
-      expect(out.usage?.cost).toBeCloseTo(0.0938);
+      expect(out.usage?.providerSessionTotalUsd).toBeCloseTo(0.0938);
+      expect(out.usage?.cost).toBeUndefined();
     });
 
     it('falls back to summed assistant.message.usage when no result message', () => {

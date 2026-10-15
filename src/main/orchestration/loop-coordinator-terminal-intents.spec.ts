@@ -599,15 +599,17 @@ describe('LoopCoordinator terminal intents', () => {
 
   it('uses iterationTimeoutMs for the child invocation backstop', async () => {
     // WS5: a timed-out attempt bypassed the invoker's workspace observers, so
-    // its effect is UNKNOWN — the loop pauses for review instead of erroring
-    // (an automatic replay over unprovable side effects is unsafe). The
+    // its effect is UNKNOWN — the unattended loop ends as attempt-failed,
+    // preserving the files for review. An automatic replay is unsafe. The
     // subject here is unchanged: the backstop fires at the PER-ITERATION
     // timeout (25ms), not the total wall cap.
-    const pausedForReview = waitForEvent<{ reason: string }>(
-      coordinator, 'loop:completed-needs-review', LOOP_EVENT_TIMEOUT_MS,
-    );
+    const completed = vi.fn();
+    coordinator.on('loop:completed', completed);
+    coordinator.on('loop:completed-needs-review', completed);
+    let invokeCount = 0;
     let callback: ((result: LoopChildResult | { error: string }) => void) | undefined;
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      invokeCount += 1;
       callback = (payload as {
         callback: (result: LoopChildResult | { error: string }) => void;
       }).callback;
@@ -619,16 +621,17 @@ describe('LoopCoordinator terminal intents', () => {
       callback?.({ error: 'interrupted at deadline' });
     });
 
-    await coordinator.startLoop('chat-iteration-timeout', {
+    const state = await coordinator.startLoop('chat-iteration-timeout', {
       initialPrompt: 'do thing',
       workspaceCwd: workspace,
       caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1, maxWallTimeMs: 250 },
       iterationTimeoutMs: 25,
     });
 
-    await expect(pausedForReview).resolves.toMatchObject({
-      reason: expect.stringContaining('timed out after 25ms'),
-    });
+    await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'attempt-failed', LOOP_EVENT_TIMEOUT_MS);
+    expect(coordinator.getLoop(state.id)?.endReason).toContain('timed out after 25ms');
+    expect(invokeCount).toBe(1);
+    expect(completed).not.toHaveBeenCalled();
   }, 20_000);
 
   it('extends the child invocation backstop while matching loop activity is recent', async () => {

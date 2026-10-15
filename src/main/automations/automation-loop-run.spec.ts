@@ -141,6 +141,29 @@ describe('AutomationLoopRunDispatcher.dispatch', () => {
 });
 
 describe('AutomationLoopRunDispatcher terminal resolution', () => {
+  it('a sign-off pause fails its automation once while an ordinary pause stays live', () => {
+    const deps = makeDeps();
+    const dispatcher = new AutomationLoopRunDispatcher(deps);
+    dispatcher.track('sign-off', 'run-1', 'auto-1');
+    dispatcher.handleLoopStateChanged({ loopRunId: 'sign-off', state: { status: 'paused' } });
+    expect(deps.onTerminal).not.toHaveBeenCalled();
+    dispatcher.handleLoopStateChanged({ loopRunId: 'sign-off', state: { status: 'paused', lastCompletionOutcome: 'unverifiable' } });
+    expect(deps.store.terminalizeRun).toHaveBeenCalledWith('run-1', 'failed', expect.stringContaining('Loop paused for sign-off'), undefined, 1000);
+    dispatcher.handleLoopStateChanged({ loopRunId: 'sign-off', state: { status: 'completed' } });
+    expect(deps.onTerminal).toHaveBeenCalledTimes(1);
+    expect(deps.onTerminal).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' }), { retryable: false });
+  });
+  it('failed steps and ended provider limits fail the automation, parked limits stay live', () => {
+    const deps = makeDeps(); const dispatcher = new AutomationLoopRunDispatcher(deps);
+    dispatcher.track('limit', 'run-1', 'auto-1');
+    dispatcher.handleLoopStateChanged({ loopRunId: 'limit', state: { status: 'provider-limit', endedAt: null } });
+    expect(deps.onTerminal).not.toHaveBeenCalled();
+    dispatcher.handleLoopStateChanged({ loopRunId: 'limit', state: { status: 'provider-limit', endedAt: 1000 } });
+    expect(deps.onTerminal).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' }), { retryable: false });
+    dispatcher.track('step', 'run-2', 'auto-1');
+    dispatcher.handleLoopStateChanged({ loopRunId: 'step', state: { status: 'attempt-failed' } });
+    expect(deps.onTerminal).toHaveBeenCalledTimes(2);
+  });
   async function startTracked(deps: ReturnType<typeof makeDeps>): Promise<AutomationLoopRunDispatcher> {
     const dispatcher = new AutomationLoopRunDispatcher(deps);
     await dispatcher.dispatch(makeClaimed());

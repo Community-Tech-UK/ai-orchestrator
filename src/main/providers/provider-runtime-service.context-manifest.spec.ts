@@ -61,7 +61,7 @@ describe('provider runtime context manifest', () => {
     });
 
     const adapter = service.createAdapter({
-      cliType: 'claude',
+      cliType: 'gemini',
       options: {
         instanceId: 'inst-worker',
         systemPrompt: 'Base instructions',
@@ -74,7 +74,7 @@ describe('provider runtime context manifest', () => {
       },
     });
 
-    expect(adapter.getName()).toBe('claude-cli');
+    expect(adapter.getName()).toBe('gemini-cli');
     expect(getLatestContextManifest('inst-worker')?.entries.find(
       (entry) => entry.kind === 'adapter-browser-gateway',
     )?.status).toBe('supplied');

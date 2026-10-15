@@ -91,3 +91,7 @@ describe('buildLoopPreflightSummary', () => {
       .toContain('no iteration or cost cap');
   });
 });
+
+it('states that a round cap is not a spending limit', () => {
+  expect(buildLoopPreflightSummary(input({ maxDollars: null }))).toContain('It has no spending limit.');
+});

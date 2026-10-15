@@ -89,6 +89,7 @@ describe('PlanQueueItemListComponent', () => {
       imports: [PlanQueueItemListComponent],
     }).compileComponents();
     fixture = TestBed.createComponent(PlanQueueItemListComponent);
+    fixture.componentRef.setInput('maxRounds', 3);
   });
 
   it('shows an empty message when there are no items', () => {
@@ -104,14 +105,19 @@ describe('PlanQueueItemListComponent', () => {
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('2026-09-18-thing_plan.md');
     expect(text).toContain('Working');
-    expect(text).toContain('Round 2');
+    expect(text).toContain('Round 2 of 3');
     expect(text).toContain('1 errored round(s)');
+  });
+
+  it('shows recorded cost beside the actual round cap', () => {
+    fixture.componentRef.setInput('items', [makeItem({ round:2,spend:{tokens:100,costUsd:3.1,exactUsd:2} })]);
+    fixture.detectChanges(); expect(fixture.nativeElement.textContent).toContain('Round 2 of 3 · $3.10');
   });
 
   it('shows the park reason when the item is parked', () => {
     fixture.componentRef.setInput('items', [makeItem({ state: 'parked', parkReason: 'round-limit' })]);
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Hit the round limit');
+    expect(fixture.nativeElement.textContent).toContain('Still failing after the last check');
   });
 
   it('shows free-text detail when present', () => {
@@ -158,7 +164,7 @@ describe('PlanQueueItemListComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.pq-item-awaiting-answer')).toHaveLength(1);
   });
 
-  it('emits skipItem with the item id', () => {
+  it('Skip asks first and emits only after Skip it', () => {
     fixture.componentRef.setInput('items', [makeItem({ id: 'item-skip', state: 'queued' })]);
     fixture.detectChanges();
 
@@ -166,6 +172,29 @@ describe('PlanQueueItemListComponent', () => {
     fixture.componentInstance.skipItem.subscribe((id) => emitted.push(id));
     (fixture.nativeElement.querySelector('.pq-item-skip') as HTMLButtonElement).click();
 
+    expect(emitted).toEqual([]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain("Skip 2026-09-18-thing_plan.md? It won't be worked in this run.");
+    (fixture.nativeElement.querySelector('.pq-skip-confirm-yes') as HTMLButtonElement).click();
     expect(emitted).toEqual(['item-skip']);
   });
+  it('Keep it cancels a pending Skip without emitting', () => {
+    fixture.componentRef.setInput('items', [makeItem({ state: 'queued' })]); fixture.detectChanges();
+    const emitted: string[] = []; fixture.componentInstance.skipItem.subscribe(id => emitted.push(id));
+    fixture.nativeElement.querySelector('.pq-item-skip').click(); fixture.detectChanges();
+    fixture.nativeElement.querySelector('.pq-skip-confirm-no').click(); fixture.detectChanges();
+    expect(emitted).toEqual([]); expect(fixture.nativeElement.querySelector('.pq-item-skip')).not.toBeNull();
+  });
+  it('refuses a confirmed Skip if the item started while confirmation was open', () => {
+    fixture.componentRef.setInput('items', [makeItem({ state: 'queued' })]); fixture.detectChanges();
+    const emitted: string[] = []; fixture.componentInstance.skipItem.subscribe(id => emitted.push(id));
+    fixture.nativeElement.querySelector('.pq-item-skip').click(); fixture.detectChanges();
+    fixture.componentRef.setInput('items', [makeItem({ state: 'working' })]); fixture.detectChanges();
+    fixture.componentInstance.confirmSkip('item-1'); expect(emitted).toEqual([]);
+  });
+  it('triage-failed has a plain label', () => {
+    fixture.componentRef.setInput('items', [makeItem({ state: 'parked', parkReason: 'triage-failed' })]); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain("Couldn't check if it's ready");
+  });
+
 });

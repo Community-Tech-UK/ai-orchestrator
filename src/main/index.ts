@@ -39,6 +39,7 @@ import { shutdownTracer } from './observability/otel-setup';
 import { shutdownMetrics } from './observability/otel-metrics';
 import { flushLifecycleTraces } from './observability/lifecycle-trace';
 import { getChatServiceIfInitialized } from './chats';
+import { getKeepAwakeService } from './app/keep-awake-service';
 import { getPlanQueueCoordinator } from './plan-queue/plan-queue-coordinator';
 import { shutdownCliSpawnWorkerGateway } from './cli/spawn-worker/cli-spawn-worker-gateway';
 import {
@@ -371,6 +372,7 @@ app.on('window-all-closed', () => {
 let cleanupDone = false;
 
 app.on('before-quit', (event) => {
+  getKeepAwakeService().shutdown();
   if (cleanupDone || !orchestratorApp) return;
 
   if (!shutdownTrigger) {

@@ -26,6 +26,7 @@ import {
   retireActiveDocuments,
   type PreparedDocuments,
 } from './plan-queue-doc-close';
+import { recoverDocumentMergeForItem } from './plan-queue-doc-merge';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
 import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt } from './plan-queue-prompts';
@@ -74,6 +75,17 @@ export class PlanQueueItemLanding {
     const baseBranch = requireBaseBranch(run);
     const closeDocuments = !options.operatorOverride && (item.verdict?.documentComplete ?? true);
 
+    // A recorded promotion is not complete until pending root edits are restored.
+    // This runs before the already-landed shortcut, outside any Git write thunk.
+    const recovered = await recoverDocumentMergeForItem(repoRoot, item.id);
+    if (!recovered.ok) {
+      await this.ctx.park(item, 'land-blocked', recovered.reason);
+      return;
+    }
+    if (recovered.mergedPaths.length) {
+      item = host.save({ ...item, detail: `Merged with your uncommitted edits to ${recovered.mergedPaths.join(', ')}; your edits are still uncommitted.` });
+    }
+
     if (item.worktreePath && item.branchName && existsSync(item.worktreePath)) {
       // A crash while the squash was being built leaves the worktree on a
       // detached HEAD; restore the item branch before anything checkpoints.
@@ -90,6 +102,7 @@ export class PlanQueueItemLanding {
     if (item.landingRefusals) item = host.save({ ...item, landingRefusals: 0 });
 
     const notes: string[] = [];
+    if (item.detail?.startsWith('Merged with your uncommitted edits to ')) notes.push(item.detail);
     if (options.operatorOverride) {
       notes.push('Landed by James without a verifier PASS; the document was left open.');
     } else if (closeDocuments) {
@@ -179,7 +192,8 @@ export class PlanQueueItemLanding {
     );
     switch (result.status) {
       case 'landed':
-        return host.save({ ...host.getItem(item.id), landedCommit: result.commit });
+        return host.save({ ...host.getItem(item.id), landedCommit: result.commit,
+          detail: result.mergedPaths?.length ? `Merged with your uncommitted edits to ${result.mergedPaths.join(', ')}; your edits are still uncommitted.` : null });
       case 'conflict': {
         // Base moved between the check above and the squash; bring it in so the
         // conflict is in the worker's tree, where it can be resolved.

@@ -34,3 +34,12 @@ function truncateForSummary(value: string, max: number): string {
   if (value.length <= max) return value;
   return `${value.slice(0, max - 18).trimEnd()}\n…(truncated)`;
 }
+
+export function snapshotFinalSpend(state: LoopStatePayload): { costCents: number; spendByPurpose?: LoopStatePayload['spendByPurpose'] } {
+  return { costCents: state.totalCostCents, ...(state.spendByPurpose ? { spendByPurpose: structuredClone(state.spendByPurpose) } : {}) };
+}
+
+export function snapshotFinalSummaryContext(state: LoopStatePayload) {
+  return { config: structuredClone(state.config), endEvidence: state.endEvidence ? structuredClone(state.endEvidence) : undefined,
+    lastIteration: snapshotLastIteration(state.lastIteration), worktreeLifecycle: state.worktreeLifecycle };
+}

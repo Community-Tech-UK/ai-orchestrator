@@ -20,6 +20,7 @@ export interface TryParkOnProviderLimitDeps {
   onProviderLimitTurn?: (params: {
     instanceId: string;
     resetAtHint: number | null;
+    quotaBlind?: boolean;
     reason: string;
     resumePrompt: string | null;
   }) => 'parked' | 'already-parked' | 'skipped' | 'switching-account';
@@ -46,12 +47,13 @@ export function tryParkOnProviderLimit(
 ): boolean {
   if (!deps.onProviderLimitTurn) return false;
 
-  const signal = detectErrorProviderLimit(error, errorMessage, readAdapterRateLimitTelemetry(adapter));
+  const signal = detectErrorProviderLimit(error, errorMessage, readAdapterRateLimitTelemetry(adapter), instance.provider);
   if (!signal) return false;
 
   const outcome = deps.onProviderLimitTurn({
     instanceId,
     resetAtHint: signal.resetAtHint,
+    quotaBlind: signal.quotaBlind,
     reason: signal.reason,
     resumePrompt: deps.getResumePrompt(instanceId),
   });
@@ -79,7 +81,9 @@ export function tryParkOnProviderLimit(
       id: generateId(),
       timestamp: Date.now(),
       type: 'system',
-      content: 'Provider limit reached. This session is parked and will auto-resume as soon as the limit lifts (re-checked every few minutes), or at the quota window reset at the latest.',
+      content: signal.quotaBlind
+        ? `Copilot rate limit reached. This session is paused and will try again at ${new Date(signal.resetAtHint ?? Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
+        : 'Provider limit reached. This session is parked and will auto-resume as soon as the limit lifts (re-checked every few minutes), or at the quota window reset at the latest.',
       metadata: { providerLimitParked: true },
     };
     deps.addToOutputBuffer(instance, parkMessage);

@@ -21,6 +21,10 @@ vi.mock('../../browser-gateway/browser-approval-store', () => ({
   }),
 }));
 
+vi.mock('../../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({ getAll: () => ({}) }),
+}));
+
 import { CodexCliAdapter, CodexTimeoutError } from './codex-cli-adapter';
 import { isRecoverableThreadResumeError } from './codex/exec-error-classifier';
 import { ActivityStateDetector } from '../../providers/activity-state-detector';

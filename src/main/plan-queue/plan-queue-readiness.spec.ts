@@ -72,6 +72,15 @@ afterEach(() => {
 });
 
 describe('automaticDecisionPatch', () => {
+  it.each([
+    'May the worker publish the release to the production store?',
+    'Should we upgrade the Vercel plan to Pro?',
+    'Can we skip an acceptance criterion?',
+    'May the worker delete the old database records?',
+  ])('keeps a risky technical question manual: %s', (question) => {
+    expect(automaticDecisionPatch({ ...technicalQuestion(), question })).toBeNull();
+  });
+
   it.each(['missing', 'skip'])('does not auto-answer an invalid %s recommendation', (recommendedOptionId) => {
     const question = technicalQuestion();
     expect(automaticDecisionPatch({ ...question, decision: { kind: 'technical', recommendedOptionId, reason: 'Routine choice.', evidence: 'AGENTS.md documents the runner.' } })).toBeNull();

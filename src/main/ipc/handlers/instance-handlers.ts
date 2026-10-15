@@ -55,6 +55,7 @@ import {
 import { getInstanceCreateIdempotencyCache } from './instance-create-idempotency';
 import type { ComputerUseAutonomyLevel } from '../../../shared/types/desktop-gateway-settings.types';
 import { registerInstanceComputerUseHandler } from './instance-computer-use-handler';
+import { prepareUserClose } from './instance-close-all';
 
 const logger = getLogger('InstanceHandlers');
 
@@ -308,6 +309,7 @@ export function registerInstanceHandlers(deps: {
           'INSTANCE_TERMINATE'
         );
 
+        await prepareUserClose([validatedPayload.instanceId], 'one');
         await instanceManager.terminateInstance(
           validatedPayload.instanceId,
           validatedPayload.graceful ?? true
@@ -654,6 +656,7 @@ export function registerInstanceHandlers(deps: {
     IPC_CHANNELS.INSTANCE_TERMINATE_ALL,
     async (): Promise<IpcResponse> => {
       try {
+        await prepareUserClose(instanceManager.getAllInstances().map(instance => instance.id), 'all');
         await instanceManager.terminateAllInstances();
 
         return { success: true };

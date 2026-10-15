@@ -1,5 +1,7 @@
 import type { CliRateLimitInfo } from '../../shared/types/cli.types';
 import { isProviderNotice } from '../cli/provider-notice';
+import { containsCopilotLimitNotice, matchCopilotLimitNotice } from '../cli/copilot-limit-messages';
+import type { InstanceProvider } from '../../shared/types/instance.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
 
@@ -14,6 +16,7 @@ import { extractProviderErrorDiagnostics } from './instance-communication.diagno
 export interface ProviderLimitTurnSignal {
   resetAtHint: number | null;
   reason: string;
+  quotaBlind?: boolean;
 }
 
 /**
@@ -45,7 +48,14 @@ export function detectErrorProviderLimit(
   error: unknown,
   errorMessage: string,
   telemetry?: CliRateLimitInfo | null,
+  provider?: InstanceProvider,
 ): ProviderLimitTurnSignal | null {
+  // ACP tagging also calls this detector without a resolved session provider.
+  const copilot = provider === 'copilot' || provider === undefined ? matchCopilotLimitNotice(errorMessage) : null;
+  if (copilot) return copilot.action === 'recycle' ? null : {
+    resetAtHint: copilot.resetAtHint, quotaBlind: !copilot.quotaVisible,
+    reason: `provider limit on turn: ${errorMessage.slice(0, 160)}`,
+  };
   const diagnostics = extractProviderErrorDiagnostics(error);
   const telemetryResetAt = telemetryResetAtMs(telemetry);
   // A live "rejected" window means the provider is actively refusing turns, so
@@ -55,7 +65,7 @@ export function detectErrorProviderLimit(
   const looksLikeLimit =
     diagnostics.rateLimit !== undefined
     || diagnostics.quota !== undefined
-    || isProviderNotice(errorMessage)
+    || (isProviderNotice(errorMessage) && !(provider !== undefined && containsCopilotLimitNotice(errorMessage)))
     || rejectedByTelemetry;
   if (!looksLikeLimit) return null;
   return {
@@ -122,14 +132,20 @@ function readSessionOverageOptIn(): boolean {
 export function detectCompletionProviderLimit(
   response: { content?: string; metadata?: unknown },
   telemetry?: CliRateLimitInfo | null,
-  opts: { allowOverage?: boolean } = {},
+  opts: { allowOverage?: boolean; provider?: InstanceProvider } = {},
 ): ProviderLimitTurnSignal | null {
+  const copilot = matchCopilotLimitNotice(response.content ?? '');
+  if (opts.provider === 'copilot' && copilot) return copilot.action === 'recycle' ? null : {
+    resetAtHint: copilot.resetAtHint, quotaBlind: !copilot.quotaVisible,
+    reason: `provider limit notice on completed turn: ${(response.content ?? '').slice(-160)}`,
+  };
   const diagnostics = extractProviderErrorDiagnostics(response.metadata);
   // Claude's plan 429 (`result.is_error` + `api_error_status: 429`) is a
   // structured signal: the adapter attaches `metadata.quota`, so the turn is a
   // limit stop even when the assistant content carries no notice text.
   const structuredLimit = diagnostics.quota?.exhausted === true;
-  const noticeLimit = structuredLimit || isProviderNotice(response.content);
+  const noticeLimit = structuredLimit || (isProviderNotice(response.content)
+    && !(opts.provider !== undefined && containsCopilotLimitNotice(response.content)));
   const overageStop = detectUsageOverageStop(telemetry, {
     ...opts,
     completionTime: true,

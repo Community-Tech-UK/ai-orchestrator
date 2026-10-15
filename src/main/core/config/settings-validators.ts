@@ -125,9 +125,16 @@ function validateIntInRange(
   };
 }
 
+function contextCeiling<K extends 'ownChatContextCeilingTokens' | 'machineContextCeilingTokens'>(): Validator<K> {
+  return value => typeof value === 'number' && Number.isInteger(value) && (value === 0 || (value >= 100_000 && value <= 1_000_000))
+    ? { ok:true, value:value as AppSettings[K] } : { ok:false,error:'Expected 0 or an integer from 100,000 to 1,000,000' };
+}
+
 export const PAUSE_SETTING_VALIDATORS: Partial<{
   [K in keyof AppSettings]: Validator<K>;
 }> = {
+  ownChatContextCeilingTokens: contextCeiling<'ownChatContextCeilingTokens'>(),
+  machineContextCeilingTokens: contextCeiling<'machineContextCeilingTokens'>(),
   pauseFeatureEnabled: asBoolean<'pauseFeatureEnabled'>(),
   pauseOnVpnEnabled: asBoolean<'pauseOnVpnEnabled'>(),
   pauseTreatExistingVpnAsActive: asBoolean<'pauseTreatExistingVpnAsActive'>(),

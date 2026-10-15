@@ -1,3 +1,4 @@
+import { registerLoopScorecardHandlers } from './handlers/loop-scorecard-handlers';
 /**
  * IPC Main Handler - Slim Coordinator
  * Registers all IPC handlers and manages event forwarding
@@ -349,6 +350,8 @@ export class IpcMainHandler {
       windowManager: this.windowManager,
       instanceManager: this.instanceManager,
     });
+
+    registerLoopScorecardHandlers();
 
     // VCS handlers (Git integration). windowManager is required for the
     // VCS_STATUS_CHANGED event push from GitStatusWatcher.

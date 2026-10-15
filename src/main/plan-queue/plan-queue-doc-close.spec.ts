@@ -10,6 +10,7 @@ import {
   documentsAreCommitted,
   prepareClosedDocuments,
   renameDocumentsInPlace,
+  removeParkedNote,
   retireActiveDocuments,
 } from './plan-queue-doc-close';
 
@@ -199,6 +200,14 @@ describe('retireActiveDocuments', () => {
 });
 
 describe('appendParkedNote', () => {
+  it('removes this branch parked note before rebuilding the completed copy', async () => {
+    const plan = write('docs/plans/retry_plan.md', '# Plan\n\nbody\n');
+    await appendParkedNote(plan, { branchName: 'queue/retry', reason: 'land-blocked', commitCount: 2 });
+    await removeParkedNote(plan, 'queue/retry');
+    const prepared = await prepareClosedDocuments(plan, repo);
+    expect(prepared.mode === 'commit' && prepared.documents[0].content).toBe('# Plan\n\nbody\n\n');
+    expect(readFileSync(plan, 'utf8')).not.toContain('Plan Queue parked work');
+  });
   it('adds one findable line and never duplicates it', async () => {
     const plan = write('docs/plans/x_plan.md', '# Plan\n\nbody\n');
     const note = { branchName: 'queue/x-abc123', reason: 'round-limit', commitCount: 4 };

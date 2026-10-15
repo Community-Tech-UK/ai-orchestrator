@@ -26,6 +26,8 @@ import { getLogger } from '../../logging/logger';
 import { getGitWriteQueue } from './git-write-queue';
 import { hermeticGitEnv } from './git-env';
 import { readGitStatusPaths } from './git-status-stream';
+import type { DirtyOverlapPreparation, DirtyOverlapResolver } from './dirty-overlap.types';
+export type { DirtyOverlapResolver } from './dirty-overlap.types';
 import type { MergeStrategy } from '../../../shared/types/worktree.types';
 
 const execFileAsync = promisify(execFile);
@@ -300,6 +302,7 @@ export type DirtyRootPolicy = 'block-any' | 'block-overlap';
 
 export interface PromoteIntegrationOptions {
   dirtyRootPolicy?: DirtyRootPolicy;
+  resolveDirtyOverlap?: DirtyOverlapResolver;
 }
 
 function pathsCollide(a: string, b: string): boolean {
@@ -309,9 +312,13 @@ function pathsCollide(a: string, b: string): boolean {
 }
 
 export type BasePromotionResult =
-  | { status: 'promoted'; method: 'checked-out-ff' | 'update-ref'; tip: string }
+  | {
+    status: 'promoted'; method: 'checked-out-ff' | 'update-ref'; tip: string; mergedPaths?: string[];
+    /** A resolver `finish()` failed AFTER the ff advanced HEAD: the promotion is real, undo is never valid, and its durable backup awaits recovery. Never blocked. */
+    documentMergeInterrupted?: string;
+  }
   | { status: 'already-promoted'; tip: string }
-  | { status: 'blocked'; reason: string };
+  | { status: 'blocked'; reason: string; overlaps?: string[] };
 
 const ZERO_OID = '0000000000000000000000000000000000000000';
 
@@ -413,6 +420,7 @@ export async function promoteIntegrationBranch(
         };
       }
       let hasRootChanges = false;
+      let resolution: Extract<DirtyOverlapPreparation, { ok: true }> | undefined;
       const nestedWorktrees = nestedWorktreePaths(checkouts, repoRoot);
       try {
         await readGitStatusPaths(repoRoot, (filePath, status) => {
@@ -430,48 +438,74 @@ export async function promoteIntegrationBranch(
         if (dirtyRootPolicy === 'block-any') {
           return { status: 'blocked', reason: 'root checkout has uncommitted changes' };
         }
-        let overlap: string | undefined;
+        const overlaps: { path: string; status: string }[] = [];
         try {
           const landing = (await gitRaw(['diff', '--name-only', '-z', baseTip, integrationTip], repoRoot))
             .split('\0')
             .filter(Boolean);
-          await readGitStatusPaths(repoRoot, (filePath) => {
-            if (overlap === undefined && landing.some((landingPath) => pathsCollide(filePath, landingPath))) {
-              overlap = filePath;
+          await readGitStatusPaths(repoRoot, (filePath, status) => {
+            if (landing.some((landingPath) => pathsCollide(filePath, landingPath))) {
+              overlaps.push({ path: filePath, status });
             }
           });
         } catch {
           return { status: 'blocked', reason: 'unable to compare root changes with the promotion' };
         }
-        if (overlap) {
-          return {
-            status: 'blocked',
-            reason: `root checkout has uncommitted changes to a promoted path: ${overlap}`,
-          };
+        if (overlaps.length) {
+          const result = await options.resolveDirtyOverlap?.prepare({ repoRoot, baseTip, integrationTip, overlaps });
+          if (!result?.ok) return { status: 'blocked',
+            ...(result || overlaps.length > 1 ? { overlaps: overlaps.map((entry) => entry.path) } : {}),
+            reason: result?.reason ?? `root checkout has uncommitted changes to ${overlaps.length === 1 ? 'a promoted path' : 'promoted paths'}: ${overlaps.map((entry) => entry.path).join(', ')}` };
+          resolution = result;
         }
       }
 
+      let mergedPaths: string[] | undefined;
       try {
         await git(['merge', '--ff-only', '--no-verify', integrationBranch], repoRoot);
-        logger.info('WorktreeIntegration: promoted integration branch at root', {
-          baseBranch,
-          integrationBranch,
-          to: integrationTip,
-        });
-        return {
-          status: 'promoted',
-          method: 'checked-out-ff',
-          tip: integrationTip,
-        };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        // The ff failed, so HEAD never moved: restore what the resolver set aside.
+        let message = err instanceof Error ? err.message : String(err);
+        if (resolution) {
+          try { await resolution.undo(); }
+          catch (undoError) { message += ` Rollback failed: ${undoError instanceof Error ? undoError.message : String(undoError)}`; }
+        }
         logger.warn('WorktreeIntegration: checked-out base promotion failed', {
           baseBranch,
           integrationBranch,
           message,
         });
-        return { status: 'blocked', reason: 'checked-out base promotion failed' };
+        return { status: 'blocked', reason: `checked-out base promotion failed${resolution ? `: ${message}` : ''}` };
       }
+      if (resolution) {
+        try {
+          mergedPaths = await resolution.finish();
+        } catch (err) {
+          // HEAD already advanced: only the document writes failed. Never undo
+          // (it restores at the pre-promotion tip); the backup stays for recovery.
+          const message = err instanceof Error ? err.message : String(err);
+          logger.warn('WorktreeIntegration: document merge finish failed after promotion; the backup is kept for recovery', {
+            baseBranch, integrationBranch, to: integrationTip, message,
+          });
+          return {
+            status: 'promoted',
+            method: 'checked-out-ff',
+            tip: integrationTip,
+            documentMergeInterrupted: message,
+          };
+        }
+      }
+      logger.info('WorktreeIntegration: promoted integration branch at root', {
+        baseBranch,
+        integrationBranch,
+        to: integrationTip,
+      });
+      return {
+        status: 'promoted',
+        method: 'checked-out-ff',
+        tip: integrationTip,
+        ...(mergedPaths?.length ? { mergedPaths } : {}),
+      };
     }
 
     try {

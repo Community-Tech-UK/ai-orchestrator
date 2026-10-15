@@ -86,6 +86,7 @@ import {
 } from './adapter-spawn-helpers';
 import { createGrokAdapter } from './grok-adapter-factory';
 import { createOpenCodeAdapter } from './opencode-adapter-factory';
+import { resolveContextCeilingTokens } from './context-ceiling';
 import { createPrivateCliJsonConfig } from './private-cli-json-config';
 
 const logger = getLogger('AdapterFactory');
@@ -216,6 +217,9 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
 
   const accountEnv = resolveClaudeAccountSpawnEnv(options);
   const claudeOptions: ClaudeCliSpawnOptions = {
+    machineSession: options.machineSession,
+    contextCeilingTokens: options.contextCeilingTokens ?? resolveContextCeilingTokens(Boolean(options.machineSession)),
+    readOnlyReview: options.readOnlyReview,
     sessionId: options.sessionId,
     workingDirectory: options.workingDirectory,
     systemPrompt: options.systemPrompt,
@@ -275,6 +279,7 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
   const codexEnv = mergeSpawnEnv(options);
   extendEnvWithRtk(codexEnv, options.rtk);
   const codexConfig: CodexCliConfig = {
+    sessionKind: options.sessionKind, trialKey: options.trialKey, trialArm: options.trialArm,
     // Harness owns its own session/history surface. Codex threads
     // created here should not leak into the standalone Codex desktop app
     // unless a caller explicitly opts out.
@@ -680,6 +685,19 @@ export function createCliAdapter(
   // BEFORE the cliType switch below, so the Copilot fail-closed check has to
   // run here too — otherwise a remote Copilot spawn would skip it entirely.
   if (executionLocation?.type === 'remote') {
+    // The remote RPC schema and worker mapping do not carry these Claude
+    // policies. Refuse protected requests before the transport can silently
+    // discard them; ordinary remote sessions remain supported.
+    if (cliType === 'claude' && (
+      effectiveOptions.readOnlyReview === true
+      || Boolean(effectiveOptions.machineSession)
+      || (effectiveOptions.contextCeilingTokens ?? 0) > 0
+      || (effectiveOptions.maxTurns ?? 0) > 0
+    )) {
+      throw new Error(
+        'Remote Claude execution cannot enforce read-only review, machine-session policy or turn/context limits yet. Use local execution for this session.',
+      );
+    }
     if (cliType === 'copilot') {
       requireCopilotAccountRoute(effectiveOptions, 'remote');
     }

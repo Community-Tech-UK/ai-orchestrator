@@ -6,6 +6,8 @@
  */
 
 import { app } from 'electron';
+import { cleanupStaleVerifyBaselines } from '../orchestration/loop-verify-baseline';
+import { initializeKeepAwakeRuntime } from './keep-awake-runtime';
 import { statSync } from 'node:fs';
 import { registerDefaultLoopInvoker } from '../orchestration/default-invokers';
 import { getLoopStoreService } from '../orchestration/loop-store';
@@ -122,6 +124,9 @@ export function createLateRuntimeInitializationSteps(
           // quit). Runs before the intent reconciler so it does not race it.
           // Logic lives in `loop-worktree-reconcile.ts` so it is unit-testable.
           await reconcileOrphanedWorktrees(service.store);
+          await cleanupStaleVerifyBaselines(app.getPath('userData'), [], new Set(
+            getLoopCoordinator().getActiveLoops().filter(loop => loop.status === 'running').map(loop => loop.id),
+          ));
 
           // NB2 reconciler: walk `<workspaceCwd>/.aio-loop-control/<loopRunId>/imported/`
           // for every resumable loop and import any intent files whose ids
@@ -201,6 +206,7 @@ export function createLateRuntimeInitializationSteps(
         }
       },
     },
+    { name: 'Keep awake', fn: () => initializeKeepAwakeRuntime(instanceManager) },
     { name: 'Loop invokers', fn: () => registerDefaultLoopInvoker(instanceManager) },
     {
       name: 'Child auto-announce',

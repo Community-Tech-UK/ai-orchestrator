@@ -1,3 +1,7 @@
+import { saveOutstandingItems, listOutstandingItems, setOutstandingItemStatus, countOpenOutstanding, upsertOutstandingSnapshot, recordOutstandingAnswer, getOutstandingItem } from './loop-store-outstanding';
+export { outstandingItemId } from './loop-store-outstanding';
+import { insertLoopSpend, listLoopSpend, summarizePersistedLoopSpend } from './loop-store-spend';
+import type { LoopSpendRow } from '../../shared/types/loop-spend.types';
 /**
  * Loop Mode Persistence (DAO + service singleton)
  *
@@ -8,14 +12,12 @@
  * Mirrors `ConversationLedgerService` shape (own DB file, own migrations).
  */
 
-import { createHash } from 'crypto';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { getLogger } from '../logging/logger';
 import type {
   LoopConfig,
   LoopIteration,
   LoopOutstandingItem,
-  LoopOutstandingItemKind,
   LoopOutstandingItemStatus,
   LoopRunSummary,
   LoopState,
@@ -29,7 +31,7 @@ import {
   listResumableLoopCheckpoints,
   upsertLoopCheckpoint,
 } from './loop-store-checkpoints';
-import { countLoopIterations, selectLoopIterations } from './loop-store-iterations';
+import { countLoopIterations, insertLoopIteration, selectLoopIterations } from './loop-store-iterations';
 import {
   getLoopWorktreeRecord,
   getPendingLoopWorktreeLifecycles,
@@ -37,17 +39,6 @@ import {
   reserveManagedLoopWorktree,
   updateLoopWorktreeLifecycle,
 } from './loop-store-worktrees';
-
-/** Deterministic id for an aggregated outstanding item: same (run, kind, text)
- *  always collapses to the same row so re-captures upsert (and keep the user's
- *  resolved/dismissed status) instead of duplicating. */
-export function outstandingItemId(
-  loopRunId: string,
-  kind: LoopOutstandingItemKind,
-  text: string,
-): string {
-  return createHash('sha256').update(`${loopRunId}\0${kind}\0${text}`).digest('hex').slice(0, 32);
-}
 
 const logger = getLogger('LoopStore');
 
@@ -159,40 +150,6 @@ interface LoopTerminalIntentRow {
   status_reason: string | null;
   file_path: string | null;
   resume_at: number | null;
-}
-
-interface LoopOutstandingItemRow {
-  id: string;
-  loop_run_id: string;
-  chat_id: string;
-  workspace_cwd: string;
-  kind: string;
-  text: string;
-  user_response: string | null;
-  recommended_answer: string | null;
-  status: string;
-  loop_status: string;
-  created_at: number;
-  updated_at: number;
-  resolved_at: number | null;
-}
-
-function rowToOutstandingItem(row: LoopOutstandingItemRow): LoopOutstandingItem {
-  return {
-    id: row.id,
-    loopRunId: row.loop_run_id,
-    chatId: row.chat_id,
-    workspaceCwd: row.workspace_cwd,
-    kind: row.kind as LoopOutstandingItemKind,
-    text: row.text,
-    userResponse: row.user_response ?? null,
-    recommendedAnswer: row.recommended_answer ?? null,
-    status: row.status as LoopOutstandingItemStatus,
-    loopStatus: row.loop_status as LoopStatus,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    resolvedAt: row.resolved_at,
-  };
 }
 
 export class LoopStore {
@@ -386,49 +343,12 @@ export class LoopStore {
     }
   }
 
+  insertSpend(row: LoopSpendRow): void { insertLoopSpend(this.db, row); }
+  listSpend(runId: string): LoopSpendRow[] { return listLoopSpend(this.db, runId); }
+
   /** Persist a single iteration. */
   insertIteration(iter: LoopIteration): void {
-    this.db.prepare(`
-      INSERT OR REPLACE INTO loop_iterations (
-        id, loop_run_id, seq, stage, started_at, ended_at, child_instance_id,
-        tokens, cost_cents, cache_read_tokens, cache_write_tokens, model, cost_known,
-        files_changed_json, tool_calls_json, errors_json,
-        test_pass_count, test_fail_count, work_hash, output_similarity_to_prev,
-        output_excerpt, output_full, progress_verdict, progress_signals_json,
-        completion_signals_fired_json, verify_status, verify_output_excerpt,
-        verify_failure_kind, final_audit_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      iter.id,
-      iter.loopRunId,
-      iter.seq,
-      iter.stage,
-      iter.startedAt,
-      iter.endedAt,
-      iter.childInstanceId,
-      iter.tokens,
-      iter.costCents,
-      iter.cacheReadTokens ?? null,
-      iter.cacheWriteTokens ?? null,
-      iter.model ?? null,
-      iter.costKnown === undefined ? null : (iter.costKnown ? 1 : 0),
-      JSON.stringify(iter.filesChanged),
-      JSON.stringify(iter.toolCalls),
-      JSON.stringify(iter.errors),
-      iter.testPassCount,
-      iter.testFailCount,
-      iter.workHash,
-      iter.outputSimilarityToPrev,
-      iter.outputExcerpt,
-      iter.outputFull,
-      iter.progressVerdict,
-      JSON.stringify(iter.progressSignals),
-      JSON.stringify(iter.completionSignalsFired),
-      iter.verifyStatus,
-      iter.verifyOutputExcerpt,
-      iter.verifyFailureKind ?? null,
-      iter.finalAudit ? JSON.stringify(iter.finalAudit) : null,
-    );
+    insertLoopIteration(this.db, iter);
   }
 
   /**
@@ -469,7 +389,10 @@ export class LoopStore {
         LIMIT ?
       `)
       .all<RunSummaryRow>(chatId, limit);
-    return rows.map(rowToRunSummary);
+    return rows.map(row => {
+      const spendByPurpose = summarizePersistedLoopSpend(this.db, row.id);
+      return { ...rowToRunSummary(row), ...(spendByPurpose ? { spendByPurpose } : {}) };
+    });
   }
 
   /**
@@ -489,7 +412,10 @@ export class LoopStore {
         LIMIT ?
       `)
       .all<RunSummaryRow>(limit);
-    return rows.map(rowToRunSummary);
+    return rows.map(row => {
+      const spendByPurpose = summarizePersistedLoopSpend(this.db, row.id);
+      return { ...rowToRunSummary(row), ...(spendByPurpose ? { spendByPurpose } : {}) };
+    });
   }
 
   /** Re-hydrate paused/running loops, plus parked provider-limit loops, at app startup. */
@@ -688,145 +614,14 @@ export class LoopStore {
     return new Set(rows.map((row) => row.id));
   }
 
-  // ────── outstanding items (Needs human / Open questions) ──────
+  upsertOutstandingSnapshot(input: Parameters<typeof upsertOutstandingSnapshot>[1]) { return upsertOutstandingSnapshot(this.db, input); }
+  recordOutstandingAnswer(id: string, input: Parameters<typeof recordOutstandingAnswer>[2]) { return recordOutstandingAnswer(this.db, id, input); }
+  getOutstandingItem(id: string) { return getOutstandingItem(this.db, id); }
+  saveOutstandingItems(state: LoopState): void { saveOutstandingItems(this.db, state); }
+  listOutstandingItems(opts: Parameters<typeof listOutstandingItems>[1] = {}): LoopOutstandingItem[] { return listOutstandingItems(this.db, opts); }
+  setOutstandingItemStatus(id: string, status: LoopOutstandingItemStatus, response?: string): boolean { return setOutstandingItemStatus(this.db, id, status, response); }
+  countOpenOutstanding(opts: Parameters<typeof countOpenOutstanding>[1] = {}): number { return countOpenOutstanding(this.db, opts); }
 
-  /**
-   * Persist a terminated loop's structured OUTSTANDING.md snapshot as individual
-   * rows. Idempotent: the deterministic {@link outstandingItemId} means a
-   * re-capture upserts the same rows and PRESERVES any user-set status
-   * (resolved/dismissed) — only `loop_status`/`updated_at` refresh. No-op when
-   * the state carries no outstanding snapshot.
-   */
-  saveOutstandingItems(state: LoopState): void {
-    const outstanding = state.outstanding;
-    if (!outstanding) return;
-    const now = Date.now();
-    const rows: { kind: LoopOutstandingItemKind; text: string; recommendation: string | null }[] = [
-      ...outstanding.needsHuman.map((e) => ({ kind: 'needs-human' as const, text: e.text, recommendation: e.recommendation })),
-      ...outstanding.openQuestions.map((e) => ({ kind: 'open-question' as const, text: e.text, recommendation: e.recommendation })),
-    ];
-    if (rows.length === 0) return;
-    // The deterministic id is keyed on (run, kind, text) — NOT the recommendation
-    // — so a re-capture upserts the same row. We refresh `recommended_answer` on
-    // conflict (the agent may have revised its suggestion); the user's
-    // `user_response`/`status` are intentionally left untouched so a saved answer
-    // always wins over the suggestion.
-    const stmt = this.db.prepare(`
-      INSERT INTO loop_outstanding_items (
-        id, loop_run_id, chat_id, workspace_cwd, kind, text, recommended_answer, status,
-        loop_status, created_at, updated_at, resolved_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, NULL)
-      ON CONFLICT(id) DO UPDATE SET
-        loop_status = excluded.loop_status,
-        recommended_answer = excluded.recommended_answer,
-        updated_at = excluded.updated_at
-    `);
-    const insertAll = this.db.transaction(() => {
-      for (const { kind, text, recommendation } of rows) {
-        stmt.run(
-          outstandingItemId(state.id, kind, text),
-          state.id,
-          state.chatId,
-          state.config.workspaceCwd,
-          kind,
-          text,
-          recommendation,
-          state.status,
-          outstanding.capturedAt || now,
-          now,
-        );
-      }
-    });
-    insertAll();
-  }
-
-  /**
-   * List aggregated outstanding items. Defaults to status `'open'` so the panel
-   * shows only un-resolved work; pass `status: 'all'` to include resolved/
-   * dismissed. Optionally scoped to a chat/session and/or workspace.
-   */
-  listOutstandingItems(opts: {
-    chatId?: string;
-    workspaceCwd?: string;
-    status?: LoopOutstandingItemStatus | 'all';
-    limit?: number;
-  } = {}): LoopOutstandingItem[] {
-    const where: string[] = [];
-    const args: unknown[] = [];
-    if (opts.chatId) {
-      where.push('chat_id = ?');
-      args.push(opts.chatId);
-    }
-    if (opts.workspaceCwd) {
-      where.push('workspace_cwd = ?');
-      args.push(opts.workspaceCwd);
-    }
-    const status = opts.status ?? 'open';
-    if (status !== 'all') {
-      where.push('status = ?');
-      args.push(status);
-    }
-    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    args.push(opts.limit ?? 200);
-    const rows = this.db
-      .prepare(`
-        SELECT id, loop_run_id, chat_id, workspace_cwd, kind, text, user_response,
-               recommended_answer, status, loop_status, created_at, updated_at, resolved_at
-        FROM loop_outstanding_items
-        ${whereSql}
-        ORDER BY created_at DESC
-        LIMIT ?
-      `)
-      .all<LoopOutstandingItemRow>(...args);
-    return rows.map(rowToOutstandingItem);
-  }
-
-  /**
-   * Set one item's resolution status, optionally persisting the human's
-   * answer/decision in the same write. Returns false when the id is unknown.
-   *
-   * `response` semantics: `undefined` leaves any existing answer untouched (so a
-   * plain resolve/dismiss/reopen preserves the rationale); a string (including
-   * `''` to clear) overwrites it.
-   */
-  setOutstandingItemStatus(
-    id: string,
-    status: LoopOutstandingItemStatus,
-    response?: string,
-  ): boolean {
-    const resolvedAt = status === 'open' ? null : Date.now();
-    const now = Date.now();
-    const res = response === undefined
-      ? this.db
-        .prepare('UPDATE loop_outstanding_items SET status = ?, resolved_at = ?, updated_at = ? WHERE id = ?')
-        .run(status, resolvedAt, now, id)
-      : this.db
-        .prepare('UPDATE loop_outstanding_items SET status = ?, resolved_at = ?, updated_at = ?, user_response = ? WHERE id = ?')
-        .run(status, resolvedAt, now, response, id);
-    return Number(res.changes ?? 0) > 0;
-  }
-
-  /** Count still-open items, optionally scoped to a chat, workspace, or single run. */
-  countOpenOutstanding(opts: { chatId?: string; workspaceCwd?: string; loopRunId?: string } = {}): number {
-    const where = ["status = 'open'"];
-    const args: unknown[] = [];
-    if (opts.chatId) {
-      where.push('chat_id = ?');
-      args.push(opts.chatId);
-    }
-    if (opts.workspaceCwd) {
-      where.push('workspace_cwd = ?');
-      args.push(opts.workspaceCwd);
-    }
-    if (opts.loopRunId) {
-      where.push('loop_run_id = ?');
-      args.push(opts.loopRunId);
-    }
-    const row = this.db
-      .prepare(`SELECT COUNT(*) AS n FROM loop_outstanding_items WHERE ${where.join(' AND ')}`)
-      .get<{ n: number }>(...args);
-    return row?.n ?? 0;
-  }
 }
 
 export {

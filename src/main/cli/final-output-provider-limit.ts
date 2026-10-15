@@ -28,6 +28,8 @@
  *   (automation-store-outcome-ops.ts); last_failure_at/reason are still set.
  */
 
+import { COPILOT_LIMIT_WHOLE_SOURCES } from './copilot-limit-messages';
+
 export const PROVIDER_LIMIT_ERROR_PREFIX = 'provider_limit:';
 
 /** Real provider notices are one line; a final report longer than this is not a notice. */
@@ -84,6 +86,7 @@ const WILL_RESET_TAIL = String.raw`\.\s*your\s+limit\s+will\s+reset\s+(?:at\s+)?
 const END = String.raw`\s*$`;
 
 const PROVIDER_LIMIT_NOTICE_RES: readonly RegExp[] = [
+  ...COPILOT_LIMIT_WHOLE_SOURCES.map((source) => new RegExp(`${LEAD_IN}${source}${END}`, 'iu')),
   // (a)/(e) "You've hit your session limit · resets 6:30pm", "You've hit your limit · resets 11pm",
   // the Claude monthly spend message, and Codex ". Visit … / Upgrade to Pro … / try again …".
   new RegExp(`${LEAD_IN}${HIT_YOUR_LIMIT}(?:${RESET_TAIL}|${RAISE_TAIL}|${CODEX_TAIL})${END}`, 'iu'),

@@ -19,6 +19,7 @@ import type { PlanQueueItemFlow } from './plan-queue-item-flow';
 import type { PlanQueueStore } from './plan-queue-store';
 import { readProvisionedPaths } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
+export { recoverInterruptedDocumentMerges } from './plan-queue-doc-merge';
 
 const logger = getLogger('PlanQueueRecovery');
 

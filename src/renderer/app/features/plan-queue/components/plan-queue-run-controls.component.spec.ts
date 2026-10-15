@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import type { PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { PlanQueueRunControlsComponent } from './plan-queue-run-controls.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -68,7 +68,7 @@ describe('PlanQueueRunControlsComponent', () => {
     await render(makeRun({ status: 'paused' }));
     expect(fixture.nativeElement.textContent).toContain('Resume');
     expect(fixture.nativeElement.textContent).toContain('Cancel');
-    expect(fixture.nativeElement.textContent).not.toContain('Pause');
+    expect(Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).map(button => button.textContent?.trim())).not.toContain('Pause');
   });
 
   it('shows no action buttons for a completed run', async () => {
@@ -111,4 +111,21 @@ describe('PlanQueueRunControlsComponent', () => {
     expect(emitted).toHaveLength(0);
     expect(fixture.nativeElement.textContent).toContain('Pause');
   });
+  it('shows Running with what it is working on and the next document', async () => {
+    const item: PlanQueueItemDto = {
+      id: 'item-1', runId: 'run-1', documentPath: '/repo/a_plan.md', state: 'verifying', round: 2,
+      erroredRounds: 0, branchName: null, worktreePath: null, baseCommit: null, checkpointCommit: null,
+      landedCommit: null, workerInstanceId: null, verifierInstanceId: null, question: null,
+      answer: null, parkReason: null, detail: null, verdict: null, createdAt: 1, updatedAt: 1,
+    };
+    await render(makeRun({ items: [item, { ...item, id: 'next', documentPath: '/repo/b_plan.md', state: 'queued' }] }));
+    expect(fixture.nativeElement.textContent).toContain('Running · working on a_plan.md; next b_plan.md');
+  });
+  it.each([['paused', 'Paused'], ['completed', 'Finished'], ['cancelled', 'Cancelled']] as const)(
+    'shows the %s status word before controls', async (status, label) => {
+      await render(makeRun({ status }));
+      expect(fixture.nativeElement.querySelector('.pq-run-status')?.textContent).toBe(label);
+    },
+  );
+
 });

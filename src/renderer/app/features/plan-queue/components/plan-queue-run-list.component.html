@@ -17,6 +17,7 @@
         <div class="pq-run-routing">{{ routingSummary(routing) }}</div>
       }
 
+      @if (run.spend) { <div class="pq-run-spend">{{ spendLabel(run) }}</div> }
       <details class="pq-run-documents">
         <summary>
           <span class="pq-run-item-count">{{ run.items.length }} document(s)</span>
@@ -24,7 +25,7 @@
             <span class="pq-run-state-counts">{{ stateCounts(run.items) }}</span>
           }
         </summary>
-        <app-plan-queue-item-list [items]="run.items" (skipItem)="skipItem.emit($event)" />
+        <app-plan-queue-item-list [items]="run.items" [maxRounds]="run.config.maxRounds" (skipItem)="skipItem.emit($event)" />
       </details>
     </div>
   }

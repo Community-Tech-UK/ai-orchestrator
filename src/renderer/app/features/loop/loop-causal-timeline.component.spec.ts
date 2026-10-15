@@ -83,12 +83,11 @@ describe('LoopCausalTimelineComponent (B5)', () => {
    * `timelineRecoveryTarget`) — clicking it would only resume the run without
    * raising anything — so it renders as informational text, not a button.
    */
-  it('renders the capped-run recovery as text, never a dead button', () => {
+  it('renders a capped-run recovery as a working Run again button', () => {
     seed('cap-reached');
-    expect(fixture.nativeElement.querySelector('.loop-timeline__recovery-btn')).toBeNull();
-    const label = fixture.nativeElement.querySelector('.loop-timeline__recovery-label--info');
-    expect(label?.getAttribute('data-recovery-id')).toBe('raise-cap');
-    expect(label?.tagName).toBe('SPAN');
+    const button = fixture.nativeElement.querySelector('.loop-timeline__recovery-btn') as HTMLButtonElement;
+    expect(button.textContent).toContain('Run again'); button.click();
+    expect(fixture.componentInstance.chosen).toEqual(['raise-cap']);
   });
 
   it('offers no recovery button while the run is progressing', () => {
@@ -144,17 +143,12 @@ describe('LoopCausalTimelineComponent (B5)', () => {
    * they still rendered `.loop-timeline__recovery-btn` — a button whose click
    * did nothing. They must render as plain, non-clickable text instead.
    */
-  it('renders the deliberate no-op recoveries as text, never a dead button', () => {
+  it('offers working inspect and provider-switch recovery buttons', () => {
     seed('provider-limit', { endedAt: null });
-    expect(fixture.nativeElement.querySelector('.loop-timeline__recovery-btn')).toBeNull();
-    const label = fixture.nativeElement.querySelector('.loop-timeline__recovery-label--info');
-    expect(label?.getAttribute('data-recovery-id')).toBe('wait-or-switch-provider');
-    expect(label?.tagName).toBe('SPAN');
-
+    (fixture.nativeElement.querySelector('.loop-timeline__recovery-btn') as HTMLButtonElement).click();
     seed('needs-human-arbitration');
-    expect(fixture.nativeElement.querySelector('.loop-timeline__recovery-btn')).toBeNull();
-    expect(fixture.nativeElement.querySelector('.loop-timeline__recovery-label--info')
-      ?.getAttribute('data-recovery-id')).toBe('review-now');
+    (fixture.nativeElement.querySelector('.loop-timeline__recovery-btn') as HTMLButtonElement).click();
+    expect(fixture.componentInstance.chosen).toEqual(['wait-or-switch-provider', 'review-now']);
   });
 
   it('renders an actionable recovery as a real, clickable button', () => {

@@ -1,0 +1,24 @@
+<div class="question" role="listitem">
+  <div class="label">{{ label() }} @if (item().firstSeenRound !== null && item().firstSeenRound !== undefined) { · asked in round {{ item().firstSeenRound! + 1 }} }</div>
+  <p>{{ item().text }}</p>
+  @if (item().recommendedAnswer) { <p class="suggestion">{{ need() === 'applied' ? 'Applied' : 'Suggestion' }}: {{ item().recommendedAnswer }}</p> }
+  @if (item().status === 'open') {
+    @if (need() !== 'fyi') {
+      <label [attr.for]="'answer-' + item().id">{{ need() === 'applied' ? 'Do this instead (optional)' : 'Your answer' }}</label>
+      <textarea [id]="'answer-' + item().id" rows="2" maxlength="4000" [value]="answerText()" (input)="edit($event)"></textarea>
+    }
+    <div class="actions">
+      @if (need() === 'answer') {
+        <button type="button" [disabled]="busy() || !item().recommendedAnswer" (click)="act('use-suggestion')" [appTooltip]="copy('loop.question.useSuggestion')">Use suggestion</button>
+        <button type="button" [disabled]="busy() || !answerText().trim()" (click)="act('answer')" [appTooltip]="copy('loop.question.sendAnswer')">Send answer</button>
+        <button type="button" [disabled]="busy()" (click)="act('dismiss')" [appTooltip]="copy('loop.question.notNeeded')">Not needed</button>
+      } @else if (need() === 'applied') {
+        <button type="button" [disabled]="busy()" (click)="act('keep')" [appTooltip]="copy('loop.question.looksRight')">Looks right</button>
+        <button type="button" [disabled]="busy()" (click)="act('undo')" [appTooltip]="copy('loop.question.undo')">Undo</button>
+      } @else {
+        <button type="button" [disabled]="busy()" (click)="act('dismiss')" [appTooltip]="copy('loop.question.gotIt')">Got it</button>
+      }
+    </div>
+  } @else { <p>{{ item().status }}</p> }
+  @if (deliveryText()) { <p role="status">{{ deliveryText() }}</p> }
+</div>

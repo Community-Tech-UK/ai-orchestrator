@@ -33,23 +33,30 @@ import { TerminateConfirmStore } from './terminate-confirm.store';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (confirmStore.pendingId()) {
+    @if (confirmStore.isOpen()) {
       <div
         class="confirm-overlay"
         role="dialog"
         aria-modal="true"
         aria-labelledby="terminate-confirm-title"
+        aria-describedby="terminate-confirm-body"
         (click)="onBackdropClick($event)"
         (keydown.escape)="confirmStore.cancel()"
       >
         <div #dialog class="confirm-dialog" tabindex="-1">
-          <h3 id="terminate-confirm-title">Close {{ confirmStore.pendingName() }}?</h3>
-          <p>
+          <h3 id="terminate-confirm-title">@if (confirmStore.isAll()) { Close {{ confirmStore.allCount() === 1 ? '1 session' : 'all ' + confirmStore.allCount() + ' sessions' }}? } @else { Close {{ confirmStore.pendingName() }}? }</h3>
+          <p id="terminate-confirm-body">
+            @if (confirmStore.isAll()) {
+              This stops every agent and closes every session. Work they have not saved to disk is lost. Conversations stay in history, except child sessions.
+            } @else {
             This stops the agent and closes the session. Any work it has not
             written to disk is lost.
             @if (confirmStore.pendingIsArchived()) {
               The conversation is kept in history.
             }
+            }
+            @if (confirmStore.runningLoopCount()) { {{ confirmStore.runningLoopCount() }} running loop(s) will be stopped too. }
+            @if (confirmStore.queueWillPause()) { Plan Queue runs will be paused. Resume them from the Plan Queue page. }
           </p>
           <div class="confirm-actions">
             <button
@@ -61,7 +68,7 @@ import { TerminateConfirmStore } from './terminate-confirm.store';
               type="button"
               class="btn-confirm danger"
               (click)="confirmStore.confirm()"
-            >Close session</button>
+            >{{ confirmStore.isAll() ? 'Close all sessions' : 'Close session' }}</button>
           </div>
         </div>
       </div>
@@ -79,9 +86,9 @@ export class TerminateConfirmDialogComponent implements OnDestroy {
     // Focus follows the prompt and remains inside it until the question is
     // resolved. The shared trap also restores the element that opened it.
     effect(() => {
-      const pendingId = this.confirmStore.pendingId();
+      const open = this.confirmStore.isOpen();
       const dialog = this.dialog()?.nativeElement ?? null;
-      if (pendingId === null || !dialog) {
+      if (!open || !dialog) {
         this.closeFocusTrap();
         return;
       }
@@ -111,7 +118,7 @@ export class TerminateConfirmDialogComponent implements OnDestroy {
   @HostListener('document:keydown', ['$event'])
   protected onDocumentKeyDown(event: KeyboardEvent): void {
     if (event.key !== 'Escape') return;
-    if (this.confirmStore.pendingId() === null) return;
+    if (!this.confirmStore.isOpen()) return;
     event.preventDefault();
     this.confirmStore.cancel();
   }

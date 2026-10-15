@@ -6,6 +6,8 @@ import { AppIpcService } from './app-ipc.service';
 describe('AppIpcService', () => {
   const api = {
     stateResync: vi.fn(),
+    getKeepAwakeState: vi.fn(),
+    onKeepAwakeState: vi.fn(),
   };
 
   beforeEach(() => {
@@ -43,5 +45,15 @@ describe('AppIpcService', () => {
     expect(api.stateResync).toHaveBeenCalledOnce();
     expect(response.success).toBe(true);
     expect(response.data?.seq).toBe(7);
+  });
+});
+
+describe('AppIpcService keep-awake', () => {
+  it('rejects a malformed state response', async () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [{ provide: ElectronIpcService, useValue: {
+      getApi: () => ({ getKeepAwakeState: async () => ({ success: true, data: { active: 'yes' } }) }),
+    } }] });
+    expect(await TestBed.inject(AppIpcService).getKeepAwakeState()).toBeNull();
   });
 });

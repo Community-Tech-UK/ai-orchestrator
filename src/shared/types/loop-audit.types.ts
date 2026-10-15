@@ -52,7 +52,20 @@ export interface LoopFinalAuditResult {
   reportPath?: string;
 }
 
+export interface LoopVerifyBaselineResult {
+  status: 'recorded' | 'unknown';
+  failingCount: number;
+  /** Duplicate entries retain multiset counts. */
+  keys: string[];
+  scope: 'start-tree' | 'committed-head';
+  reason?: string;
+  failedStep?: string;
+  /** Repository-relative prefix for diagnostic paths emitted from a nested cwd. */
+  diagnosticPathPrefix?: string;
+}
+
 export interface LoopPreflightResult {
+  baseline?: LoopVerifyBaselineResult;
   status: 'passed' | 'failed' | 'skipped';
   ranAt: number;
   commands: Array<{

@@ -7,6 +7,21 @@ import { GitWriteQueue } from '../workspace/git/git-write-queue';
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
 import type { PlanQueueItem } from './plan-queue.types';
 
+/** One-shot hook used to fail a document-merge write inside the real resolver. */
+const hook = vi.hoisted(() => ({ beforeWrite: null as (() => Promise<void>) | null, target: '' }));
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    open: async (...args: Parameters<typeof actual.open>) => {
+      if (String(args[0]) === hook.target && args[1] === 'w' && hook.beforeWrite) {
+        const run = hook.beforeWrite; hook.beforeWrite = null; await run();
+      }
+      return actual.open(...args);
+    },
+  };
+});
+
 // Every test drives real git through dozens of child processes. Alone each takes
 // about a second, but under the full suite's load one exceeded the 5s default
 // budget, so give the file the same generous budget as the other real-git specs.
@@ -64,6 +79,8 @@ function makeItemWithWork(files: Record<string, string>, id = 'item-abc123'): Pl
 
 beforeEach(() => {
   GitWriteQueue._resetForTesting();
+  hook.beforeWrite = null;
+  hook.target = '';
   repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-land-')));
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Plan Queue Test']);
@@ -184,7 +201,7 @@ describe('landItemBranch', () => {
 
     expect(result).toEqual({
       status: 'blocked',
-      reason: 'root checkout has uncommitted changes to a promoted path: clash.txt',
+      reason: "Couldn't merge clash.txt: only Markdown documents can be merged with your edits.",
     });
     expect(git(['rev-parse', 'main'])).toBe(mainBefore);
     expect(readFileSync(join(repo, 'clash.txt'), 'utf8')).toBe('operator copy\n');
@@ -329,6 +346,54 @@ describe('landItemBranch', () => {
 
       expect(result.status).toBe('landed');
       expect(checkoutState(item)).toEqual({ head: item.checkpointCommit, branch: item.branchName, status: '' });
+    });
+  });
+
+  describe('a document-merge finish failure after the fast-forward', () => {
+    function overlapDocs(): PlanQueueItem {
+      writeFileSync(join(repo, 'register.md'), 'base\n');
+      writeFileSync(join(repo, 'second.md'), 'second base\n');
+      git(['add', '-A']);
+      git(['commit', '-q', '-m', 'docs']);
+      const item = makeItemWithWork({
+        'register.md': 'base\n\n## Item\nWorker edits.\n',
+        'second.md': 'second base\n\n## Item\nWorker edits.\n',
+      }, 'item-merge1');
+      writeFileSync(join(repo, 'register.md'), 'base\n\n## Ours\nUser edits.\n');
+      writeFileSync(join(repo, 'second.md'), 'second base\n\n## Ours\nUser edits.\n');
+      hook.target = join(realpathSync(repo), 'register.md');
+      return item;
+    }
+
+    it('lands from the reconciled backup when the interrupted writes can be recovered', async () => {
+      const item = overlapDocs();
+      const mainBefore = git(['rev-parse', 'main']);
+      hook.beforeWrite = async () => { throw new Error('disk full'); };
+
+      const result = await landItemBranch(item, repo, 'main', 'feat: merge');
+
+      expect(result).toMatchObject({ status: 'landed', mergedPaths: ['register.md', 'second.md'] });
+      const landed = result.status === 'landed' ? result.commit : '';
+      expect(git(['rev-parse', 'main'])).toBe(landed);
+      expect(git(['rev-list', '--count', `${mainBefore}..main`])).toBe('1');
+      const register = readFileSync(join(repo, 'register.md'), 'utf8');
+      expect(register).toContain('## Ours'); expect(register).toContain('## Item');
+      expect(readFileSync(join(repo, 'second.md'), 'utf8')).toContain('## Ours');
+    });
+
+    it('holds with the backup reason when the interrupted writes cannot be reconciled', async () => {
+      const item = overlapDocs();
+      const mainBefore = git(['rev-parse', 'main']);
+      hook.beforeWrite = async () => { writeFileSync(join(repo, 'second.md'), 'Later human edit.\n'); };
+
+      const result = await landItemBranch(item, repo, 'main', 'feat: merge');
+
+      expect(result).toMatchObject({ status: 'blocked', reason: expect.stringContaining('second.md') });
+      expect(result.status === 'blocked' ? result.reason : '').toContain('doc-merge/item-merge1');
+      // The promotion itself is real; only the document merge is held.
+      expect(git(['rev-list', '--count', `${mainBefore}..main`])).toBe('1');
+      expect(git(['show', 'main:register.md'])).toContain('## Item');
+      expect(readFileSync(join(repo, 'second.md'), 'utf8')).toBe('Later human edit.\n');
     });
   });
 });

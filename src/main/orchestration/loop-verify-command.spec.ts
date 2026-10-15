@@ -293,3 +293,16 @@ describe('findContendedWorkspacePaths (T42)', () => {
     expect(findContendedWorkspacePaths('')).toEqual([]);
   });
 });
+
+describe('quick verify inference', () => {
+  it('chooses typecheck then lint, and never replaces explicit authority', async () => {
+    const { inferLoopQuickVerifyCommand } = await import('./loop-verify-command');
+    workspace = mkdtempSync(join(tmpdir(), 'loop-quick-infer-'));
+    const verification = { authority: 'inferred' as const, verifyCommand: 'npm run verify', inferredSource: 'package.json script "verify"' };
+    writePackageJson({ verify: 'npm test', typecheck: 'tsc', lint: 'eslint .' });
+    expect(await inferLoopQuickVerifyCommand(workspace, verification)).toBe('npm run typecheck');
+    writePackageJson({ verify: 'npm test', lint: 'eslint .' });
+    expect(await inferLoopQuickVerifyCommand(workspace, verification)).toBe('npm run lint');
+    expect(await inferLoopQuickVerifyCommand(workspace, { ...verification, authority: 'explicit' })).toBeUndefined();
+  });
+});

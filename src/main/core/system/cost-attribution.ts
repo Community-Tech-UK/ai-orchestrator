@@ -47,6 +47,10 @@ export interface CostAttributionUsage {
 }
 
 export interface CostAttributionRecord {
+  purpose?: string;
+  costSource?: 'provider' | 'priced' | 'unknown' | 'free';
+  costUsd?: number | null;
+  outcome?: 'success' | 'error' | 'cancelled';
   /** Which seam produced the record. */
   source: 'one-shot' | 'instance-turn' | 'auxiliary';
   /**
@@ -194,6 +198,7 @@ export function subscribeCostAttribution(
  * already-normalized token counts from `recordCompletionCost`.
  */
 export function recordInstanceTurnAttribution(args: {
+  purpose?: string;
   instanceId: string;
   parentId?: string | null;
   agentId?: string;
@@ -206,6 +211,7 @@ export function recordInstanceTurnAttribution(args: {
   const role = args.parentId ? 'child' : 'chat';
   recordCostAttribution({
     source: 'instance-turn',
+    purpose: args.purpose ?? role,
     taskType: `${role}:${args.agentId ?? 'unknown'}`,
     instanceId: args.instanceId,
     parentId: args.parentId ?? null,

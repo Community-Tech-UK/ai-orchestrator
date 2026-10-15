@@ -399,9 +399,11 @@ describe('reconcilePrivateCodexRolloutPaths', () => {
       const source = readFileSync(join(__dirname, 'app-server-initializer.ts'), 'utf-8');
 
       expect(source).toContain('repairPrivateCodexRolloutPath');
-      expect(source.indexOf('repairPrivateCodexRolloutPath(')).toBeLessThan(
-        source.indexOf('await resumeThreadWithRetry('),
-      );
+      const repair = source.indexOf('repairPrivateCodexRolloutPath(');
+      const resume = source.indexOf('await resumeCodexThread(');
+      expect(repair).toBeGreaterThanOrEqual(0);
+      expect(resume).toBeGreaterThanOrEqual(0);
+      expect(repair).toBeLessThan(resume);
     });
   });
 });

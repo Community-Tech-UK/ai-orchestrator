@@ -1,6 +1,7 @@
 import { IpcRenderer, IpcRendererEvent } from 'electron';
 import { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
+import type { KeepAwakeState } from '@contracts/schemas/observability';
 import type { UpdateStatus } from '../../shared/types/update.types';
 
 export function createInfrastructureDomain(
@@ -32,6 +33,14 @@ export function createInfrastructureDomain(
     },
     getStartupCapabilities: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.APP_GET_STARTUP_CAPABILITIES);
+    },
+    getKeepAwakeState: (): Promise<IpcResponse<KeepAwakeState>> => {
+      return ipcRenderer.invoke(ch.APP_GET_KEEP_AWAKE_STATE);
+    },
+    onKeepAwakeState: (callback: (data: KeepAwakeState) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: KeepAwakeState) => callback(data);
+      ipcRenderer.on(ch.APP_KEEP_AWAKE_STATE, handler);
+      return () => ipcRenderer.removeListener(ch.APP_KEEP_AWAKE_STATE, handler);
     },
     getScratchDirectory: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.APP_GET_SCRATCH_DIRECTORY);

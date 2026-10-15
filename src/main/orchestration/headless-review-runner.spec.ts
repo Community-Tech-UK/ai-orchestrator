@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runHeadlessReviewCommand, type HeadlessReviewRunnerDependencies } from './headless-review-runner';
-import type { HeadlessReviewAngleCacheHook, HeadlessReviewRequest, ReviewExecutionHost } from '../review/review-execution-host';
+import type { HeadlessReviewAngleCacheHook, HeadlessReviewRequest, ReviewExecutionHost, ReviewerDispatchOptions } from '../review/review-execution-host';
 import type { ReviewResult } from '../../shared/types/cross-model-review.types';
 import { angleForReviewer, promptVersionForAngle } from './review-prompts';
 import { NO_RULES_HASH } from './review-coverage';
@@ -56,6 +56,14 @@ function fakeCacheHook(hit?: { review: ReviewResult; activationReason: string })
 }
 
 describe('runHeadlessReviewCommand — WS-B9 coverage + cache', () => {
+  it('returns the usage of dispatched calls and never invents a cached call', async () => {
+    const host = {dispatchReviewerPrompt: async (_provider:string,_prompt:string,_cwd:string,_signal:AbortSignal,options?:ReviewerDispatchOptions) => {
+      options?.onUsage?.({provider:'gemini',tokens:30,costUsd:0.2,costSource:'provider'}); return reviewerJson('finding');
+    }} as unknown as ReviewExecutionHost;
+    const result = await runHeadlessReviewCommand(baseRequest(),baseDeps({host}));
+    expect(result.spend).toEqual([{provider:'gemini',tokens:30,costUsd:0.2,costSource:'provider'}]);
+  });
+
   it('assigns the deterministic angle-by-index and reports used status/model/findingCount', async () => {
     const dispatchReviewerPrompt = vi.fn(async () => reviewerJson('null check missing'));
     const deps = baseDeps({
@@ -139,6 +147,7 @@ describe('runHeadlessReviewCommand — WS-B9 coverage + cache', () => {
     const result = await runHeadlessReviewCommand(baseRequest({ reviewCache: hook }), deps);
 
     expect(dispatchReviewerPrompt).not.toHaveBeenCalled();
+    expect(result.spend).toEqual([]);
     expect(lookup).toHaveBeenCalledTimes(1);
     expect(result.reviewers).toEqual([
       expect.objectContaining({

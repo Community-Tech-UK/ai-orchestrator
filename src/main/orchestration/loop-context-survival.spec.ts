@@ -165,6 +165,15 @@ describe('defaultLoopContextSurvivalManager', () => {
   });
 
   describe('B4 (#14) idle cache-TTL trigger', () => {
+    it('never treats a long-run token total including reviewer spend as live occupancy', async () => {
+      const state = makeState('lifetime-is-not-occupancy');
+      state.totalTokens = 10_000_000;
+      state.config.caps.maxTokens = null;
+      await defaultLoopContextSurvivalManager.onIterationSealed({ state, iteration: makeTimedIteration(400, 0, 1000, 0), childResult: makeChildResult(400) });
+      const decision = await defaultLoopContextSurvivalManager.onIterationSealed({ state, iteration: makeTimedIteration(400, CONTEXT_CACHE_TTL_MS + 2000, CONTEXT_CACHE_TTL_MS + 3000, 1), childResult: makeChildResult(400) });
+      expect(decision.forceContextReset).toBe(false);
+      expect(decision.action).toBe('micro');
+    });
     it('does not trigger on a fresh iteration cadence (gap under the cache TTL)', async () => {
       const state = makeState('loop-b4-fresh');
       const t0 = 1_000_000;
@@ -213,7 +222,7 @@ describe('defaultLoopContextSurvivalManager', () => {
       expect(decision.reason).toContain('cache TTL');
     });
 
-    it('composes the stale-cache micro tier with forceContextReset when utilization also meets the LF-1 reset threshold', async () => {
+    it('keeps a stale-cache micro note separate from adapter-owned context recycling', async () => {
       const state = makeState('loop-b4-stale-over-budget');
       // Pin the threshold rather than inheriting the default: this test is about
       // COMPOSING the stale-cache micro tier with a full recycle, not about
@@ -239,8 +248,8 @@ describe('defaultLoopContextSurvivalManager', () => {
       });
 
       expect(decision.action).toBe('micro');
-      expect(decision.forceContextReset).toBe(true);
-      expect(decision.reason).toContain('composing with a full recycle');
+      expect(decision.forceContextReset).toBe(false);
+      expect(decision.reason).toContain('lifetime spend cannot force a recycle');
     });
 
     it('never drives a reset for a self-managing borrowed adapter, even when idle exceeds the cache TTL', async () => {

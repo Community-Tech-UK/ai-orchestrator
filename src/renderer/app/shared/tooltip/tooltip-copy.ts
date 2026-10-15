@@ -86,7 +86,29 @@ export const TOOLTIP_COPY = {
   'workFolders.refresh': {
     label: 'Refresh', meaning: 'Reads the folders and their current saved changes again.',
   },
+  keepAwakeChip: {
+    label: 'Keeping your Mac awake',
+    meaning: 'Harness is stopping your Mac from going to sleep on its own while work runs. The screen can still turn off, and closing the lid still puts the Mac to sleep. Click to change this in Settings.',
+  },
+  'planQueue.retryLanding': {
+    label: 'Try merging again',
+    meaning: 'Retries the blocked merge using the item’s passing verification result.',
+  },
+  'planQueue.resumeItem': {
+    label: 'Resume',
+    meaning: 'Puts this document back in the queue to start work on it again.',
+  },
+  'planQueue.landAnyway': {
+    label: 'Land anyway',
+    meaning: 'Opens the confirmation to merge this branch without the final checks.',
+  },
+  'planQueue.discardItem': {
+    label: 'Discard',
+    meaning: 'Opens the confirmation to discard this item’s work.',
+  },
+
   // ---- Loop HUD controls (UX3 rollout order: loop HUD first) ----
+  'loop.stop': { label: 'Stop', meaning: 'Stops the loop. Asks first.' },
   'loop.pause': {
     label: 'Pause',
     meaning: 'Stops the loop after the current iteration finishes.',
@@ -118,6 +140,7 @@ export const TOOLTIP_COPY = {
     label: 'Status',
     meaning: 'The loop run’s current state.',
   },
+  'loop.statusPill.stepFailed': { label: 'Paused: a step failed', meaning: 'A step failed and the loop paused. Check the files, then Resume or Stop.' },
   'loop.acceptCompletion': {
     label: 'Accept as complete',
     meaning: 'Signs off the work yourself and ends the run as complete.',
@@ -196,6 +219,10 @@ export const TOOLTIP_COPY = {
     label: 'Work in an isolated copy',
     meaning: 'The agent edits a separate worktree instead of your checkout.',
   },
+  'loop.verifyTimeout': {
+    label: 'Check time limit',
+    meaning: 'How long Harness lets the full check run. A check that runs out of time counts as failed, so the loop cannot finish on it.',
+  },
   'loop.verifyTwice': {
     label: 'Run verify twice',
     meaning: 'Re-runs the verify command to catch a flaky result.',
@@ -213,6 +240,13 @@ export const TOOLTIP_COPY = {
     label: 'Default',
     meaning: 'Fills the prompt with the canonical default directive.',
   },
+  'loop.question.chip': { label: 'Questions', meaning: 'Shows the loop’s current questions and decisions.' },
+  'loop.question.useSuggestion': { label: 'Use suggestion', meaning: 'Sends the suggested answer to the loop.' },
+  'loop.question.sendAnswer': { label: 'Send answer', meaning: 'Sends your typed answer to the loop.' },
+  'loop.question.notNeeded': { label: 'Not needed', meaning: 'Clears this question. Work that depends on it stays undone.' },
+  'loop.question.looksRight': { label: 'Looks right', meaning: 'Accepts this reversible decision.' },
+  'loop.question.undo': { label: 'Undo', meaning: 'Asks the loop to undo this decision.' },
+  'loop.question.gotIt': { label: 'Got it', meaning: 'Dismisses this information note.' },
   'loop.outstanding.filter': {
     label: 'Open only / All',
     meaning: 'Toggles whether resolved and dismissed items are shown.',

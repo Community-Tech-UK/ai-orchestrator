@@ -42,6 +42,7 @@ export async function createPersistentLoopAdapter(opts: {
   /** Agentic-turn backstop (`--max-turns`) for the persistent session. */
   maxTurns?: number;
   env?: Record<string, string>;
+  trialKey?: string;
 }): Promise<unknown> {
   const cliType = await resolveCliType(opts.provider as Parameters<typeof resolveCliType>[0], 'claude');
   const model = opts.model ?? resolveAutomationDefaultModel(cliType);
@@ -58,6 +59,7 @@ export async function createPersistentLoopAdapter(opts: {
       timeout: opts.timeoutMs ?? 30 * 60 * 1000,
       maxTurns: opts.maxTurns,
       env: opts.env,
+      trialKey: opts.trialKey,
     },
     'loop',
   );

@@ -16,6 +16,7 @@ export function createProviderLimitCommunicationCallbacks(
         provider: instance.provider,
         model: instance.currentModel ?? null,
         resetAtHint: params.resetAtHint,
+        quotaBlind: params.quotaBlind,
         reason: params.reason,
         resumePrompt: params.resumePrompt,
         accountProfileId: currentAccountProfileId(instance),

@@ -14,6 +14,8 @@ import {
   adapterHasActiveToolCalls,
   StuckProcessDetector,
 } from './stuck-process-detector';
+import { CodexCliAdapter } from '../cli/adapters/codex-cli-adapter';
+import type { CodexAppServerThreadRuntime } from '../cli/adapters/codex/app-server-thread-runtime';
 
 /** Private members of StuckProcessDetector that the sleep/wake tests drive directly. */
 interface DetectorInternals {
@@ -597,6 +599,50 @@ describe('StuckProcessDetector', () => {
       providerDetector.shutdown();
       activeTurns.clear();
       aliveProcesses.clear();
+    });
+
+    it('leaves a real Codex adapter silent for fourteen minutes, resumes escalation afterwards, and still detects death', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as { useAppServer: boolean; appServerRuntime: CodexAppServerThreadRuntime };
+      internals.useAppServer = true;
+      const active = vi.spyOn(internals.appServerRuntime, 'hasActiveTurn').mockReturnValue(true);
+      let alive = true;
+      const codexDetector = new StuckProcessDetector({
+        isProcessAlive: () => alive,
+        hasActiveProviderTurn: () => adapterHasActiveProviderTurn(adapter),
+        getTimeoutMultiplier: () => 1,
+      });
+      const soft = vi.fn();
+      const hard = vi.fn();
+      codexDetector.on('process:suspect-stuck', soft);
+      codexDetector.on('process:stuck', hard);
+      try {
+        codexDetector.startTracking('codex');
+        codexDetector.updateState('codex', 'generating');
+        vi.advanceTimersByTime(840_000);
+        expect(soft).not.toHaveBeenCalled();
+        expect(hard).not.toHaveBeenCalled();
+
+        active.mockReturnValue(false);
+        vi.advanceTimersByTime(70_000);
+        expect(soft).toHaveBeenCalledTimes(1);
+        expect(hard).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(410_000);
+        expect(hard).toHaveBeenCalledTimes(1);
+
+        soft.mockClear();
+        hard.mockClear();
+        active.mockReturnValue(true);
+        alive = false;
+        codexDetector.startTracking('codex-dead');
+        codexDetector.updateState('codex-dead', 'generating');
+        vi.advanceTimersByTime(60_000);
+        expect(soft).not.toHaveBeenCalled();
+        expect(hard).toHaveBeenCalledWith(expect.objectContaining({ instanceId: 'codex-dead' }));
+      } finally {
+        codexDetector.shutdown();
+        active.mockRestore();
+      }
     });
 
     it('leaves a live ACP prompt to the adapter timeout instead of killing it at eight minutes', () => {

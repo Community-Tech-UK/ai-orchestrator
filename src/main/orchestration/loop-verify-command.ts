@@ -344,3 +344,21 @@ async function readPackageJson(
 function isUsableScript(script: unknown): boolean {
   return typeof script === 'string' && script.trim().length > 0;
 }
+
+/** Infer fast checks only for the exact package whose full verify was adopted. */
+export async function inferLoopQuickVerifyCommand(
+  workspaceCwd: string,
+  verification: ResolvedLoopVerification,
+): Promise<string | undefined> {
+  if (verification.authority !== 'inferred' || verification.inferredSource !== 'package.json script "verify"') return undefined;
+  const inferred = await inferLoopVerifyCommand(workspaceCwd);
+  if (!inferred || inferred.scope === 'ancestor' || inferred.command !== verification.verifyCommand) return undefined;
+  const prefix = /^npm --prefix "((?:\\.|[^"\\])*)" run verify$/.exec(inferred.command);
+  const packageDir = prefix
+    ? path.resolve(workspaceCwd, prefix[1].replace(/\\(["\\$`])/g, '$1'))
+    : workspaceCwd;
+  const pkg = await readPackageJson(packageDir);
+  const script = isUsableScript(pkg?.scripts?.['typecheck']) ? 'typecheck'
+    : isUsableScript(pkg?.scripts?.['lint']) ? 'lint' : undefined;
+  return script ? npmRunCommand(script, packageDir, workspaceCwd, inferred.scope) : undefined;
+}

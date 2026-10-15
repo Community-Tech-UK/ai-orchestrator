@@ -76,11 +76,14 @@ export interface LoopChildResult {
   model?: string;
   filesChanged: LoopFileChange[];
   filesRead?: string[];
+  ownWritePaths?: string[];
+  ownWritesComplete?: boolean;
   toolCalls: LoopToolCallRecord[];
   errors: LoopErrorRecord[];
   testPassCount: number | null;
   testFailCount: number | null;
   finishReason?: string;
+  promptBytes?: number;
   unresolvedToolCalls?: boolean;
   exitedCleanly: boolean;
   contextCompacted?: { previousUtilization: number; newUtilization: number; reason: string };

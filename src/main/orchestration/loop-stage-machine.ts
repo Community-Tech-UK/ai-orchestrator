@@ -37,6 +37,7 @@ import {
   INVESTIGATION_REPORT_FILE,
   LOOP_TASKS_FILE,
   LOOP_TASKS_TEMPLATE,
+  OUTSTANDING_TEMPLATE,
 } from './loop-stage-files';
 import { renderPlanPacketInstructions } from './loop-plan-packet';
 import type { LoopStartupSnapshot } from './loop-stage-machine.types';
@@ -134,6 +135,9 @@ export class LoopStageMachine {
     // tasks — but its presence + instructions nudge per-item tracking.
     try { await fsp.access(tasksPath); } catch {
       await fsp.writeFile(tasksPath, LOOP_TASKS_TEMPLATE, 'utf8');
+    }
+    try { await fsp.access(this.paths.outstanding); } catch {
+      await fsp.writeFile(this.paths.outstanding, OUTSTANDING_TEMPLATE, 'utf8');
     }
 
     // Delete a done sentinel left inside this run's dir. Only reachable on
@@ -303,12 +307,14 @@ export class LoopStageMachine {
    * one real bullet (not a "(none)" placeholder). Drives the coordinator's
    * choice of terminal state (`completed` vs `completed-needs-review`).
    */
-  async readOutstanding(): Promise<{ raw: string; needsHuman: boolean }> {
+  async readOutstanding(): Promise<{ raw: string; needsHuman: boolean; unverifiable?: boolean }> {
     let raw = '';
     try {
-      raw = (await readUtf8FileHead(this.paths.outstanding, LOOP_ARTIFACT_HEAD_BYTES)).text;
+      const read = await readUtf8FileHead(this.paths.outstanding, LOOP_ARTIFACT_HEAD_BYTES);
+      raw = read.text;
+      if (read.truncated) return { raw, needsHuman: true, unverifiable: true };
     } catch {
-      return { raw: '', needsHuman: false };
+      return { raw: 'The outstanding questions file could not be read.', needsHuman: true, unverifiable: true };
     }
     return { raw, needsHuman: outstandingHasHumanItems(raw) };
   }

@@ -1,3 +1,4 @@
+import { recordLoopSpend } from './loop-spend-ledger';
 import type { LoopState } from '../../shared/types/loop.types';
 import type { LoopChildInvocationError, LoopChildUsage } from './loop-coordinator.types';
 import { resolveIterationCost } from './loop-iteration-cost';
@@ -29,13 +30,12 @@ export function chargeFailedAttemptUsage(
   // only the input/output/cache/reasoning breakdown — so a totals-only snapshot
   // would price a real token charge at $0.00. Withholding it falls back to the
   // legacy flat estimate, which is rough but not zero.
-  const { costCents } = resolveIterationCost({
+  const { costCents, basis } = resolveIterationCost({
     tokens,
     ...(hasPricedTokens(usage) ? { usage } : {}),
     model: shaped?.model,
-  });
-  state.totalTokens += tokens;
-  state.totalCostCents += costCents;
+  }, usage?.isEstimated === true || !hasPricedTokens(usage) ? undefined : state.config.provider);
+  recordLoopSpend(state, { purpose: 'builder', detail: 'failed-attempt', seq: state.totalIterations, provider: state.config.provider, model: shaped?.model, tokens, costCents, basis: usage?.isEstimated ? 'legacy-estimate' : basis });
   state.tokensSinceLastTestImprovement += tokens;
   return {
     tokens,

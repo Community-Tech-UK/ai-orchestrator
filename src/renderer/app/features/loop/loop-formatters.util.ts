@@ -145,6 +145,7 @@ export type TerminalLoopStatus =
   | 'completed-needs-review'
   | 'cancelled'
   | 'failed'
+  | 'attempt-failed'
   | 'cap-reached'
   | 'error'
   | 'no-progress'
@@ -161,6 +162,7 @@ export function terminalStatusLabel(status: TerminalLoopStatus): string {
     case 'completed-needs-review': return 'needs review';
     case 'cancelled':              return 'cancelled';
     case 'failed':                 return 'failed';
+    case 'attempt-failed':         return 'a step failed';
     case 'cap-reached':            return 'cap reached';
     case 'error':                  return 'error';
     case 'no-progress':            return 'no progress';
@@ -198,6 +200,7 @@ export function loopStatusTone(status: string): LoopStatusTone {
       return 'paused';
     case 'error':
     case 'failed':
+    case 'attempt-failed':
     case 'reviewer-unreliable':
     case 'reviewer-unavailable':
     case 'builder-unreliable':
@@ -226,6 +229,7 @@ export function loopStatusLabel(status: string): string {
     case 'completed-needs-review': return 'needs review';
     case 'cancelled':              return 'cancelled';
     case 'failed':                 return 'failed';
+    case 'attempt-failed':         return 'a step failed';
     case 'cap-reached':            return 'cap';
     case 'error':                  return 'error';
     case 'no-progress':            return 'no-progress';
@@ -254,6 +258,7 @@ export type LoopStatusPillKind =
   | 'awaiting-review'
   | 'no-progress'
   | 'blocked'
+  | 'step-failed'
   | 'paused'
   | 'done'
   | 'needs-review'
@@ -282,11 +287,12 @@ export function loopStatusPill(input: {
   switch (input.status) {
     case 'running':                return { kind: 'running', label: 'RUNNING' };
     case 'completed':              return { kind: 'done', label: 'DONE' };
-    case 'completed-needs-review': return { kind: 'needs-review', label: 'NEEDS REVIEW' };
+    case 'completed-needs-review': return { kind: 'needs-review', label: 'ENDED · SEE NOTES' };
     case 'paused': {
       const reason = loopPauseReason(input);
       switch (reason) {
-        case 'awaiting-review': return { kind: 'awaiting-review', label: 'NEEDS REVIEW' };
+        case 'awaiting-review': return { kind: 'awaiting-review', label: 'NEEDS YOUR SIGN-OFF' };
+        case 'step-failed': return { kind: 'step-failed', label: 'PAUSED · A STEP FAILED' };
         case 'blocked':         return { kind: 'blocked', label: 'BLOCKED' };
         case 'no-progress':     return { kind: 'no-progress', label: 'PAUSED · NO PROGRESS' };
         default:                return { kind: 'paused', label: 'PAUSED' };
@@ -294,6 +300,7 @@ export function loopStatusPill(input: {
     }
     case 'cancelled':   return { kind: 'stopped', label: 'STOPPED' };
     case 'failed':      return { kind: 'stopped', label: 'FAILED' };
+    case 'attempt-failed': return { kind: 'stopped', label: 'STOPPED · A STEP FAILED' };
     case 'error':       return { kind: 'stopped', label: 'ERROR' };
     case 'cap-reached': return { kind: 'stopped', label: 'CAP REACHED' };
     case 'no-progress': return { kind: 'no-progress', label: 'NO PROGRESS' };
@@ -310,7 +317,7 @@ export function loopStatusPill(input: {
   }
 }
 
-export type LoopPauseReason = 'awaiting-review' | 'no-progress' | 'blocked' | 'paused';
+export type LoopPauseReason = 'step-failed' | 'awaiting-review' | 'no-progress' | 'blocked' | 'paused';
 
 /**
  * Classify *why* a paused loop is paused, from data the store already has.
@@ -325,6 +332,7 @@ export function loopPauseReason(input: {
   bannerKind?: 'no-progress' | 'claimed-failed' | null;
   bannerSignalId?: string | null;
 }): LoopPauseReason {
+  if (input.bannerSignalId === 'STEP_FAILED') return 'step-failed';
   if (input.bannerKind === 'no-progress' && input.bannerSignalId === 'BLOCKED') return 'blocked';
   if (input.lastCompletionOutcome === 'unverifiable') return 'awaiting-review';
   if (input.bannerKind === 'no-progress') return 'no-progress';

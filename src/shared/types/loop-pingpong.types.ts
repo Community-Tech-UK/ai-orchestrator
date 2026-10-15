@@ -95,6 +95,7 @@ export interface PingPongIssue {
   lastSeenRound: number;
   /** The builder's most recent response (fix summary or rebuttal). */
   builderResponse?: string;
+  builderClaim?: 'fixed' | 'rebutted';
 }
 
 /**
@@ -227,6 +228,9 @@ export interface LoopPingPongState {
   /** Cumulative reviewer-side spend (folded into the loop budget). */
   reviewerTokensUsed: number;
   reviewerCostCents: number;
+  lastChangesRequestedDigest?: string;
+  skippedReviewForDigest?: string;
+  lastReviewedFiles?: { path: string; contentHash: string }[];
 }
 
 export function defaultPingPongState(): LoopPingPongState {

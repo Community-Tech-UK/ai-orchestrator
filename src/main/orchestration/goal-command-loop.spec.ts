@@ -3,6 +3,7 @@ import {
   GOAL_COMMAND_MAX_OBJECTIVE_CHARS,
   buildGoalLoopStartConfig,
   parseGoalCommandArgs,
+  resolveGoalCompletion,
 } from './goal-command-loop';
 
 describe('parseGoalCommandArgs', () => {
@@ -31,6 +32,17 @@ describe('parseGoalCommandArgs', () => {
 });
 
 describe('buildGoalLoopStartConfig', () => {
+  it('adopts a safe folder verifier as ordinary review-driven completion', async () => {
+    const completion = await resolveGoalCompletion({ workspaceCwd: '/repo', intent: 'implementation', resolve: async () => ({ authority: 'inferred', verifyCommand: 'npm run verify', inferredSource: 'package.json' }) });
+    expect(completion).toEqual({ kind: 'checks', verifyCommand: 'npm run verify', source: 'package.json' });
+    expect(buildGoalLoopStartConfig({ objective: 'Fix startup', workspaceCwd: '/repo', completion }).completion).toMatchObject({ mode: 'review-driven', verifyCommand: 'npm run verify', allowOperatorReviewedCompletion: false });
+  });
+
+  it('keeps sign-off for contended, missing and investigation checks', async () => {
+    expect(await resolveGoalCompletion({ workspaceCwd: '/repo', intent: 'implementation', resolve: async () => ({ authority: 'none', verifyCommand: '', contendedPaths: ['x.spec.ts'] }) })).toMatchObject({ kind: 'sign-off', reason: { kind: 'contended', paths: ['x.spec.ts'] } });
+    expect(await resolveGoalCompletion({ workspaceCwd: '/repo', intent: 'implementation', resolve: async () => ({ authority: 'none', verifyCommand: '' }) })).toMatchObject({ kind: 'sign-off', reason: { kind: 'no-command' } });
+    expect(await resolveGoalCompletion({ workspaceCwd: '/repo', intent: 'investigation', resolve: async () => { throw new Error('must not infer'); } })).toMatchObject({ kind: 'sign-off', reason: { kind: 'investigation' } });
+  });
   it('maps /goal objectives to gated Loop Mode with manual-review fallback', () => {
     const config = buildGoalLoopStartConfig({
       objective: 'Fix the renderer startup bug',

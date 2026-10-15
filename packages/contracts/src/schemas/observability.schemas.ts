@@ -82,6 +82,14 @@ export const MemoryAlertEventSchema = MemoryStatsEventSchema.extend({
   message: z.string().min(1).max(2_000),
 });
 
+export const KeepAwakeStateSchema = z.object({
+  mode: z.enum(['off', 'while-working', 'always']),
+  active: z.boolean(),
+  reason: z.enum(['loop', 'plan-queue', 'automation', 'session', 'always']).nullable(),
+  since: z.number().int().nonnegative().nullable(),
+}).strict();
+export type KeepAwakeState = z.infer<typeof KeepAwakeStateSchema>;
+
 export const StartupCapabilityReportEventSchema = z.object({
   status: z.enum(['ready', 'degraded', 'failed']),
   generatedAt: z.number().int().nonnegative(),

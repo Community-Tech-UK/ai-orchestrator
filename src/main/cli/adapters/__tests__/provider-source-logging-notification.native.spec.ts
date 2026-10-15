@@ -1,6 +1,11 @@
 // @vitest-environment node
 import type { ChildProcess } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({ getAll: () => ({}) }),
+}));
+
 import { captureFixtureSpawns, ProcessFixtureRegistry } from '../../../../tests/fixtures/process-fixture';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

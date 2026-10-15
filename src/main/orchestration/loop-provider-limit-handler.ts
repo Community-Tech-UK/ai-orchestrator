@@ -8,6 +8,8 @@ import type {
 import type { ProviderLimitLedger } from '../core/system/provider-limit-ledger';
 import { ASSUMED_ACCOUNT_LIMIT_MS } from '../instance/instance-provider-limit-handler';
 import { startLoopProviderLimitResumeProbe } from './loop-provider-limit-resume-probe';
+import { COPILOT_RATE_LIMIT_SOURCE } from '../cli/copilot-limit-messages';
+import { deriveCopilotLoopLimitResume, deriveLoopLimitSnapshotResume, recycleCopilotLimit, type LoopLimitResume } from './loop-copilot-limit';
 import { resolveLoopProviderLimitScope, type LoopProviderLimitScope } from './loop-provider-limit-scope';
 import {
   getLoopAccountFailover,
@@ -28,7 +30,7 @@ const logger = getLogger('LoopProviderLimitHandler');
 type LoopAccounts = Pick<LoopAccountFailover, 'currentProfileId' | 'trySwitch'>
   & Partial<Pick<LoopAccountFailover, 'currentModel' | 'hasAccountPool'>>;
 
-export type LoopProviderLimitOutcome = 'parked' | 'terminated' | 'skipped' | 'switched-account' | 'switched-provider';
+export type LoopProviderLimitOutcome = 'parked' | 'terminated' | 'skipped' | 'switched-account' | 'switched-provider' | 'recycled';
 
 export class LoopProviderLimitHandler {
   private quotaSnapshotProvider: (provider: ProviderId, accountProfileId?: string | null) => ProviderQuotaSnapshot | null = () => null;
@@ -294,13 +296,17 @@ export class LoopProviderLimitHandler {
       source: 'quota',
       action: 'throttle',
       recordLimit: false,
+      earlyProbe: !(state.config.provider === 'copilot' && knownLimit.source === COPILOT_RATE_LIMIT_SOURCE),
       limitScope: scope,
     });
   }
 
   async deriveProviderLimitResumeAfterRefresh(
     state: LoopState,
-  ): Promise<{ resumeAt: number | null; windowId?: string }> {
+    noticeText?: string,
+  ): Promise<LoopLimitResume> {
+    const copilot = deriveCopilotLoopLimitResume(state, noticeText);
+    if (copilot) return copilot;
     const provider = this.quotaIdForLoopProvider(state);
     if (!this.currentQuotaApplies(state)) return { resumeAt: null };
     if (this.quotaSnapshotRefresher) {
@@ -331,20 +337,7 @@ export class LoopProviderLimitHandler {
   private deriveResumeFromSnapshot(
     snapshot: ProviderQuotaSnapshot | null,
   ): { resumeAt: number | null; windowId?: string } {
-    if (!snapshot || !snapshot.ok) return { resumeAt: null };
-
-    const now = Date.now();
-    let best: { resetsAt: number; id: string } | null = null;
-    let bestPct = -1;
-    for (const w of snapshot.windows) {
-      if (w.resetsAt == null || w.resetsAt <= now || w.limit <= 0) continue;
-      const pct = (w.used / w.limit) * 100;
-      if (pct > bestPct) {
-        bestPct = pct;
-        best = { resetsAt: w.resetsAt, id: w.id };
-      }
-    }
-    return best ? { resumeAt: best.resetsAt, windowId: best.id } : { resumeAt: null };
+    return deriveLoopLimitSnapshotResume(snapshot);
   }
 
   handleProviderLimit(
@@ -356,6 +349,8 @@ export class LoopProviderLimitHandler {
       action: QuotaThrottleDecision['action'] | 'notice' | 'wakeup';
       windowId?: string;
       mustStop?: boolean;
+      earlyProbe?: boolean;
+      recycle?: boolean;
       /** False when parking from an existing durable gate rather than a new signal. */
       recordLimit?: boolean;
       /**
@@ -370,6 +365,7 @@ export class LoopProviderLimitHandler {
       limitScope?: LoopProviderLimitScope;
     },
   ): LoopProviderLimitOutcome {
+    if (opts.recycle) return recycleCopilotLimit(state, this.deps);
     const now = Date.now();
     const reset = opts.resumeAt;
 
@@ -395,7 +391,7 @@ export class LoopProviderLimitHandler {
           accountProfileId,
           detectedAt: now,
           resumeAt: reset as number,
-          source: `loop-${opts.source}`,
+          source: opts.earlyProbe === false ? COPILOT_RATE_LIMIT_SOURCE : `loop-${opts.source}`,
           instanceId: state.id,
         });
       } catch (err) {
@@ -431,6 +427,7 @@ export class LoopProviderLimitHandler {
         source: opts.source,
         action: opts.action,
         windowId: opts.windowId,
+        earlyProbe: opts.earlyProbe,
       }, scope);
       this.parkedScopes.set(state.id, { provider: state.config.provider, ...scope });
       this.deps.emit('loop:state-changed', {
@@ -575,6 +572,7 @@ export class LoopProviderLimitHandler {
       source: 'quota' | 'notice' | 'wakeup';
       action: QuotaThrottleDecision['action'] | 'notice' | 'wakeup';
       windowId?: string;
+      earlyProbe?: boolean;
     },
     scope = this.limitScope(state),
   ): void {
@@ -605,7 +603,7 @@ export class LoopProviderLimitHandler {
     // Quota parks additionally probe for an early lift (reset credit applied,
     // quota purchased) so the loop doesn't overstay a stale recorded reset.
     // Wakeup parks are scheduled sleeps, not limits — never probe those.
-    const stopEarlyResumeProbe = opts.source === 'wakeup'
+    const stopEarlyResumeProbe = opts.source === 'wakeup' || opts.earlyProbe === false
       ? () => { /* scheduled wakeup has no quota probe */ }
       : this.startEarlyResumeProbe(state, opts.resumeAt, scope);
     const cancelSchedule = cancel;

@@ -86,12 +86,14 @@ export function buildOutstandingMarkdown(
       '',
     );
     const needsHuman = runItems.filter((i) => i.kind === 'needs-human');
-    const openQuestions = runItems.filter((i) => i.kind === 'open-question');
+    const openQuestions = runItems.filter((i) => i.kind === 'open-question' || i.kind === 'for-information');
+    const decisions = runItems.filter(i => i.kind === 'decision-applied');
     if (needsHuman.length > 0) {
       lines.push('### Needs human', '', ...needsHuman.flatMap((i) => renderItem(i, '- [ ] ')), '');
     }
+    if (decisions.length > 0) lines.push('### Decisions applied', '', ...decisions.flatMap(i => renderItem(i, '- ')), '');
     if (openQuestions.length > 0) {
-      lines.push('### Open questions', '', ...openQuestions.flatMap((i) => renderItem(i, '- ')), '');
+      lines.push(openQuestions.some(item => item.kind === 'for-information') ? '### For information' : '### Open questions', '', ...openQuestions.flatMap((i) => renderItem(i, '- ')), '');
     }
   }
 

@@ -15,6 +15,18 @@ function buildDefaultModelOptions(): { value: string; label: string }[] {
 export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   { key: 'recordProviderEvents', label: 'Keep a detailed debug record of every AI message', description: 'Saves a full copy of each message the AI tools send. It is large (several GB a day when Harness is busy) and only developer scripts read it. Harness does not use it. Existing records are removed after 30 days as before.', type: 'boolean', category: 'memory' },
   {
+    key: 'keepAwakeMode',
+    label: 'Keep this Mac awake',
+    description: 'Stops the Mac from going to sleep on its own. While working: only while a session is replying, or a loop, the plan queue or an automation is running. Always: whenever Harness is open. The screen can still turn off, and closing the lid still puts the Mac to sleep. Work that is waiting for a usage limit to reset carries on when the Mac wakes; choose Always to keep the Mac awake for that too.',
+    type: 'select',
+    category: 'general',
+    options: [
+      { value: 'off', label: 'Off' },
+      { value: 'while-working', label: 'While working (recommended)' },
+      { value: 'always', label: 'Always' },
+    ],
+  },
+  {
     key: 'defaultYoloMode',
     label: 'Auto-approve actions by default',
     description: 'New instances skip the approval prompts and act on their own. Faster, but riskier — only turn this on for trusted, sandboxed work.',

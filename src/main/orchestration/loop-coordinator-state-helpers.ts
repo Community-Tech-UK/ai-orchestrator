@@ -385,11 +385,12 @@ export function captureLoopOutstanding(state: LoopState): void {
   try {
     const paths = resolveLoopArtifactPaths(state.config.workspaceCwd, state.id);
     const raw = readUtf8FileHeadSync(paths.outstanding, LOOP_TEXT_FILE_MAX_BYTES).text;
-    const { needsHuman, openQuestions } = parseOutstandingSections(raw);
-    if (needsHuman.length === 0 && openQuestions.length === 0) return;
+    const { needsHuman, openQuestions, decisionsApplied, forInformation } = parseOutstandingSections(raw);
     state.outstanding = {
       needsHuman,
       openQuestions,
+      decisionsApplied,
+      forInformation,
       raw,
       capturedAt: Date.now(),
     };

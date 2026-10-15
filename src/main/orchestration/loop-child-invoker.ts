@@ -236,7 +236,7 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
           return;
         }
         if ('error' in result) reject(toInvocationError(result));
-        else resolve(result);
+        else resolve({ ...result, promptBytes: Buffer.byteLength(input.prompt, 'utf8') });
       },
     });
   });

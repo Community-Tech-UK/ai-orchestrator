@@ -5,7 +5,7 @@
  * the session that runs a queue (the "parent"): answer and control are refused
  * from anyone else, and start is hidden from queue-spawned sessions. The one
  * exception is the stranded-run rescue in plan-queue-control-authority.ts:
- * once the parent no longer exists, another non-queue session may cancel the
+ * once the parent no longer exists, another non-queue session may adopt or cancel the
  * run or discard a parked item.
  * `plan_queue_status` is read-only and open to every session, including the
  * queue's own. `plan_queue_report_triage` and `plan_queue_report_verdict` are
@@ -142,12 +142,12 @@ export const PLAN_QUEUE_TOOL_SPECS = {
     },
   },
   plan_queue_control: {
-    description: 'Control a Plan Queue run or item: pause, resume or cancel a run (run_id); skip an item that has not started, resume a parked item, land a parked item without a verifier PASS, or discard a parked item\'s branch (item_id). Land anyway and discard change git state, so do them only when James asked. Only the session that started the run may use this, except for one rescue: if that session no longer exists, any session the queue did not spawn may cancel the stranded run or discard one of its parked items.',
+    description: 'Control a Plan Queue run or item: pause, resume or cancel a run (run_id); skip an item that has not started, resume a parked item, retry a blocked merge of a verified item, land a parked item without a verifier PASS, or discard a parked item\'s branch (item_id). Land anyway and discard change git state, so do them only when James asked. If the session that started a run no longer exists, any session the queue did not spawn may adopt the run (it then answers its questions and receives its summary), cancel it, or discard a parked item. Adopt when the work should continue; cancel only when James asked.',
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['pause', 'resume', 'cancel', 'skip-item', 'resume-item', 'land-anyway', 'discard-item'] },
-        run_id: { type: 'string', description: 'Required for pause, resume and cancel.' },
+        action: { type: 'string', enum: ['pause', 'resume', 'cancel', 'adopt', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item'] },
+        run_id: { type: 'string', description: 'Required for pause, resume, cancel and adopt.' },
         item_id: { type: 'string', description: 'Required for the item actions.' },
       },
       required: ['action'],

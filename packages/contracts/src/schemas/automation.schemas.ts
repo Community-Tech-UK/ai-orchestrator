@@ -103,6 +103,7 @@ export const AutomationActionSchema = z.object({
     z.object({
       type: z.literal('instanceProviderLimitResume'),
       instanceId: z.string().min(1).max(200),
+      quotaBlind: z.boolean().optional(),
       resumePrompt: z.string().max(500000).optional(),
     }),
   ]).optional(),

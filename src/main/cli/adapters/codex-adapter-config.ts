@@ -1,3 +1,5 @@
+import type { SessionKind } from '../../../shared/types/session-kind.types';
+import type { CodexTrialArm } from './codex/codex-thread-policy';
 import type { CodexReasoningEffort } from './codex/app-server-types';
 
 type CodexApprovalMode = 'suggest' | 'auto-edit' | 'full-auto';
@@ -5,6 +7,9 @@ type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
 
 /** Codex CLI and app-server configuration shared by every adapter layer. */
 export interface CodexCliConfig {
+  sessionKind?: SessionKind;
+  trialKey?: string;
+  trialArm?: CodexTrialArm;
   additionalWritableDirs?: string[];
   approvalMode?: CodexApprovalMode;
   /**

@@ -1,3 +1,5 @@
+import { machineSessionReasonForOrigin } from '../../../shared/utils/machine-session';
+import { sessionKindOf } from '../../../shared/types/session-kind.types';
 /**
  * Both account preflights in one call: GitHub Copilot account routing and
  * Claude/Codex account pools. Each is a no-op for providers it does not own, so
@@ -17,7 +19,9 @@ export async function attachProviderRoutes(
   origin: CopilotInvocationOrigin,
   copilotOptions: AttachCopilotRouteOptions = {},
 ): Promise<UnifiedSpawnOptions> {
-  const copilotRouted = await attachCopilotRoute(cliType, options, origin, copilotOptions);
+  const reason = machineSessionReasonForOrigin(origin);
+  const stamped = { ...options, machineSession: options.machineSession ?? reason ?? undefined, sessionKind: options.sessionKind ?? sessionKindOf(reason) };
+  const copilotRouted = await attachCopilotRoute(cliType, stamped, origin, copilotOptions);
   return attachAccountRoute(cliType, copilotRouted, origin, {
     ...(copilotOptions.executionNodeId ? { executionNodeId: copilotOptions.executionNodeId } : {}),
     ...(copilotOptions.instanceId ? { instanceId: copilotOptions.instanceId } : {}),

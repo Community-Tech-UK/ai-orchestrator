@@ -125,6 +125,7 @@ import {
   NotificationDeltaEventSchema,
   SkillActivationDeltaEventSchema,
   StartupCapabilityReportEventSchema,
+  KeepAwakeStateSchema,
   UpdateStatusEventSchema,
 } from '@contracts/schemas/observability';
 import { PromptHistoryDeltaPayloadSchema } from '@contracts/schemas/prompt-history';
@@ -207,6 +208,7 @@ const RENDERER_EVENT_SCHEMAS = new Map<string, ZodType>([
   [IPC_CHANNELS.CODEBASE_WATCHER_CHANGES, CodebaseWatcherChangesEventSchema],
   [IPC_CHANNELS.CODEBASE_AUTO_STATUS_CHANGED, CodebaseAutoStatusChangedEventSchema],
   [IPC_CHANNELS.APP_STARTUP_CAPABILITIES, StartupCapabilityReportEventSchema],
+  [IPC_CHANNELS.APP_KEEP_AWAKE_STATE, KeepAwakeStateSchema],
   [IPC_CHANNELS.CLI_UPDATE_PILL_DELTA, CliUpdatePillStateEventSchema],
   [IPC_CHANNELS.UPDATE_STATUS_CHANGED, UpdateStatusEventSchema],
   [IPC_CHANNELS.MENU_NEW_INSTANCE, EmptyRendererEventSchema],

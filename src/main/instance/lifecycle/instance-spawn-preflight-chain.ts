@@ -1,3 +1,4 @@
+import { machineSessionReasonOf } from '../../../shared/utils/machine-session';
 import type {
   CliAdapter,
   UnifiedSpawnOptions,
@@ -77,6 +78,7 @@ export class InstanceSpawnPreflightChain {
     // Its restrictions cannot be added to an already-running CLI process.
     const warmStartBlocked = Boolean(
       config.resume
+      || machineSessionReasonOf(config) !== null
       || config.hardened
       || config.forceNodeId
       || config.nodePlacement

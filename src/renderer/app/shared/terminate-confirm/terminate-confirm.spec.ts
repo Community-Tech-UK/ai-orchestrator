@@ -77,7 +77,7 @@ const ALLOWED_UNCONFIRMED: readonly { file: string; why: string }[] = [
 describe('every terminate path in the renderer is accounted for (Decision 16b)', () => {
   it('no call site outside the allowlist can end a session', () => {
     const offenders = sourceFiles(RENDERER)
-      .filter((file) => /\bterminateInstance\(/.test(readFileSync(file, 'utf8')))
+      .filter((file) => /\bterminate(?:Instance|AllInstances)\(/.test(readFileSync(file, 'utf8')))
       .map((file) => relative(RENDERER, file).split(/[\\/]/).join('/'))
       .filter((rel) => !ALLOWED_UNCONFIRMED.some((a) => a.file === rel));
 
@@ -87,7 +87,7 @@ describe('every terminate path in the renderer is accounted for (Decision 16b)',
   it('the allowlist has no stale entries', () => {
     const present = new Set(
       sourceFiles(RENDERER)
-        .filter((file) => /\bterminateInstance\(/.test(readFileSync(file, 'utf8')))
+        .filter((file) => /\bterminate(?:Instance|AllInstances)\(/.test(readFileSync(file, 'utf8')))
         .map((file) => relative(RENDERER, file).split(/[\\/]/).join('/')),
     );
     const stale = ALLOWED_UNCONFIRMED.filter((a) => !present.has(a.file)).map((a) => a.file);
@@ -137,7 +137,7 @@ describe('the confirmation itself', () => {
     expect(request).not.toContain('terminateInstance(');
 
     const confirm = STORE.slice(STORE.indexOf('confirm()'), STORE.indexOf('cancel()'));
-    expect(confirm).toContain('this.instances.terminateInstance(id)');
+    expect(confirm).toContain('this.instances.terminateInstance(pending.instanceId)');
   });
 
   it('renders a real modal, offers a way out, and says what is lost', () => {

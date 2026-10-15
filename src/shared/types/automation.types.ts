@@ -135,6 +135,8 @@ export interface AutomationAction {
          */
         type: 'instanceProviderLimitResume';
         instanceId: string;
+        /** Monthly credits cannot prove a Copilot rate limit has lifted. */
+        quotaBlind?: boolean;
         resumePrompt?: string;
       };
 }

@@ -1,3 +1,4 @@
+export interface PlanQueueSpend { tokens: number; costUsd: number; exactUsd: number }
 import type {
   PlanQueueItemState,
   PlanQueueKind,
@@ -14,6 +15,7 @@ export interface PlanQueueRelaxationSnapshot {
 }
 
 export interface PlanQueueRun {
+  spend?: PlanQueueSpend;
   id: string;
   parentInstanceId: string;
   /**
@@ -33,6 +35,7 @@ export interface PlanQueueRun {
 }
 
 export interface PlanQueueItem {
+  spend?: PlanQueueSpend;
   id: string;
   runId: string;
   /** Absolute path of the document in the ROOT checkout (never the worktree). */

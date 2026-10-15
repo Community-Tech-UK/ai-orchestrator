@@ -1,4 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({ getAll: () => ({}) }),
+}));
+
 import { initializeCodexAppServer } from './app-server-initializer';
 import type { AppServerClient } from './app-server-client';
 import type { CodexSessionScanner } from './session-scanner';

@@ -3,9 +3,22 @@ import {
   parseOutstandingSections,
   outstandingHasHumanItems,
   isPlanLikeMarkdown,
+  renderOutstandingFile,
 } from './loop-stage-markdown';
+import { OUTSTANDING_TEMPLATE } from './loop-stage-files';
 
 describe('parseOutstandingSections', () => {
+  it('joins wrapped item and recommendation lines and ignores comments and fenced examples', () => {
+    const parsed = parseOutstandingSections('<!--\n## Needs human\n- fake\n-->\n```md\n## Needs human\n- fake code\n```\n## Needs human\n- A wrapped\n  question?\n  - Recommendation: use\n    the helper.\n## Decisions applied\n- Date format?\n  - Applied: ISO.\n## For information\n- Checked locally.');
+    expect(parsed.needsHuman).toEqual([{ text: 'A wrapped question?', recommendation: 'use the helper.' }]);
+    expect(parsed.decisionsApplied).toEqual([{ text: 'Date format?', recommendation: 'ISO.' }]);
+    expect(parsed.forInformation).toEqual([{ text: 'Checked locally.', recommendation: null }]);
+    expect(parseOutstandingSections(renderOutstandingFile(parsed))).toEqual(parsed);
+  });
+  it('seeds a template with no real items and holds risky applied choices for review', () => {
+    expect(parseOutstandingSections(OUTSTANDING_TEMPLATE).needsHuman).toEqual([]);
+    expect(outstandingHasHumanItems('## Decisions applied\n- Buy a paid plan\n  - Applied: Pro.')).toBe(true);
+  });
   it('extracts needs-human and open-question bullets under their headings', () => {
     const raw = [
       '# Outstanding',
@@ -92,8 +105,8 @@ describe('parseOutstandingSections', () => {
   });
 
   it('returns empty sections for blank input', () => {
-    expect(parseOutstandingSections('')).toEqual({ needsHuman: [], openQuestions: [] });
-    expect(parseOutstandingSections('   \n  ')).toEqual({ needsHuman: [], openQuestions: [] });
+    expect(parseOutstandingSections('')).toEqual({ needsHuman: [], openQuestions: [], decisionsApplied: [], forInformation: [] });
+    expect(parseOutstandingSections('   \n  ')).toEqual({ needsHuman: [], openQuestions: [], decisionsApplied: [], forInformation: [] });
   });
 });
 

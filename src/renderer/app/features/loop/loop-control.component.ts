@@ -1,3 +1,7 @@
+import { LoopQuestionsChipComponent } from './loop-questions-chip.component';
+import { LoopStopConfirmService } from './loop-stop-confirm.service';
+import { LoopPanelOpenerService } from './loop-panel-opener.service';
+import { describeLoopEnd } from '../../../../shared/loop/loop-end-wording';
 import { SlicePipe } from '@angular/common';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
@@ -6,6 +10,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  ElementRef, viewChild,
   effect,
   inject,
   input,
@@ -43,7 +48,6 @@ import {
   shortTime,
   summaryHasDistinctIterationPrompt as hasDistinctIterationPrompt,
   summarizeToolDetail,
-  terminalStatusLabel,
 } from './loop-formatters.util';
 import { managedWorktreeStatus } from './managed-worktree-status.util';
 import { LoopInspectorProgressComponent } from './loop-inspector-progress.component';
@@ -53,7 +57,7 @@ import {
   buildLoopIssueView,
   progressVerdictHeaderWord,
 } from './loop-issue-diagnosis.util';
-import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
+import { LoopPastRunsPanelComponent, deriveReattemptSeed } from './loop-past-runs-panel.component';
 import { PromptModalComponent } from '../../shared/components/prompt-modal/prompt-modal.component';
 import { RlmStorageMaintenanceComponent } from './rlm-storage-maintenance.component';
 import { VerificationRunHistoryComponent } from './verification-run-history.component';
@@ -89,7 +93,7 @@ import { terminalSummaryRefreshKey } from './loop-terminal-summary-key';
 @Component({
   selector: 'app-loop-control',
   standalone: true,
-  imports: [InlineHintComponent, LoopBranchEpisodeCardComponent, LoopFreshEyesFindingsPanelComponent, LoopCausalTimelineComponent, AioTooltipDirective, SlicePipe, LoopInspectorProgressComponent, LoopIssueCardComponent, LoopIterationEvidenceComponent, LoopPastRunsPanelComponent, PromptModalComponent, RlmStorageMaintenanceComponent, VerificationRunHistoryComponent],
+  imports: [LoopQuestionsChipComponent, InlineHintComponent, LoopBranchEpisodeCardComponent, LoopFreshEyesFindingsPanelComponent, LoopCausalTimelineComponent, AioTooltipDirective, SlicePipe, LoopInspectorProgressComponent, LoopIssueCardComponent, LoopIterationEvidenceComponent, LoopPastRunsPanelComponent, PromptModalComponent, RlmStorageMaintenanceComponent, VerificationRunHistoryComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './loop-control.component.html',
   styleUrl: './loop-control.component.scss',
@@ -98,6 +102,9 @@ export class LoopControlComponent implements OnDestroy {
   chatId = input<string | null>(null);
 
   protected store = inject(LoopStore);
+  protected readonly stopConfirm = inject(LoopStopConfirmService);
+  private readonly panelOpener = inject(LoopPanelOpenerService);
+  private readonly stopConfirmElement = viewChild<ElementRef<HTMLElement>>('stopConfirmRow');
   private clipboard = inject(CLIPBOARD_SERVICE);
   private reactionIpc = inject(ReactionIpcService);
   private toast = inject(ToastService);
@@ -139,6 +146,8 @@ export class LoopControlComponent implements OnDestroy {
     return id ? this.store.activeForChat(id)() : undefined;
   });
 
+  protected readonly reviewerSpendCents = computed(() => this.active()?.spendByPurpose?.review?.costCents ?? 0);
+
   private readonly settingsForHints = inject(SettingsStore);
   private readonly toolLoopAlerts = inject(ToolLoopAlertStore);
 
@@ -159,11 +168,37 @@ export class LoopControlComponent implements OnDestroy {
       totalIterations: summary.iterations,
       totalCostCents: summary.costCents,
       endReason: summary.reason,
+      config: summary.config, lastIteration: summary.lastIteration, spendByPurpose: summary.spendByPurpose,
     }) : null;
   });
 
   onTimelineRecovery(id: string): void {
-    if (timelineRecoveryTarget(id) === 'resume') void this.onResumeAnyway();
+    const target = timelineRecoveryTarget(id);
+    if (target === 'resume') void this.onResumeAnyway();
+    else if (target === 'inspect') this.inspectorExpanded.set(true);
+    else if (target === 'reattempt') {
+      const active = this.active();
+      const summary = this.summary();
+      const chatId = this.chatId();
+      if (!chatId) return;
+      const seed = deriveReattemptSeed(active ? { initialPrompt: active.config.initialPrompt, iterationPrompt: active.config.iterationPrompt ?? null } : summary ? { initialPrompt: summary.initialPrompt, iterationPrompt: summary.iterationPrompt ?? null } : { initialPrompt: '', iterationPrompt: null });
+      if (!seed) return;
+      const open = () => this.panelOpener.open(chatId, { ...seed, source: 'reattempt-past-run' });
+      if (active) this.stopConfirm.request(active.id, active.config.isolateLoopWorkspaces === true, { chatId, afterStopped: open });
+      else open();
+    }
+  }
+
+  protected readonly endWording = computed(() => {
+    const summary = this.summary();
+    return summary ? describeLoopEnd({ status: summary.status, endReason: summary.reason, roundsFinished: summary.iterations, endedAt: summary.endedAt,
+      mergeHeld: summary.endEvidence?.['mergeHold'] === true, branch: summary.worktreeLifecycle?.sessionBranch }) : null;
+  });
+
+  protected finishTime(timestamp: number): string {
+    const date = new Date(timestamp);
+    const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return date.toDateString() === new Date().toDateString() ? time : `${date.toLocaleDateString()} ${time}`;
   }
 
   banner = computed(() => {
@@ -191,6 +226,11 @@ export class LoopControlComponent implements OnDestroy {
   );
 
   // ── LF-8: legible status model ─────────────────────────────────────────────
+  private readonly durableStepFailed = computed(() => {
+    const active = this.active();
+    return active?.status === 'paused' && active.config.onFailedStep === 'pause'
+      && active.endEvidence?.['attemptOutcome'] === 'failed';
+  });
   /** Always-on status pill (RUNNING / NEEDS REVIEW / PAUSED · NO PROGRESS / …). */
   statusPill = computed(() => {
     const a = this.active();
@@ -202,7 +242,7 @@ export class LoopControlComponent implements OnDestroy {
       manualReviewOnly: a.manualReviewOnly,
       lastCompletionOutcome: a.lastCompletionOutcome,
       bannerKind: b?.kind ?? null,
-      bannerSignalId: b?.kind === 'no-progress' ? b.signalId : null,
+      bannerSignalId: b?.kind === 'no-progress' ? b.signalId : this.durableStepFailed() ? 'STEP_FAILED' : null,
     });
   });
 
@@ -215,7 +255,7 @@ export class LoopControlComponent implements OnDestroy {
       manualReviewOnly: a.manualReviewOnly,
       lastCompletionOutcome: a.lastCompletionOutcome,
       bannerKind: b?.kind ?? null,
-      bannerSignalId: b?.kind === 'no-progress' ? b.signalId : null,
+      bannerSignalId: b?.kind === 'no-progress' ? b.signalId : this.durableStepFailed() ? 'STEP_FAILED' : null,
     });
   });
 
@@ -473,6 +513,7 @@ export class LoopControlComponent implements OnDestroy {
   });
 
   constructor() {
+    effect(() => { this.stopConfirmElement()?.nativeElement.focus(); });
     this.store.ensureWired();
     this.stopTick = this.pollScheduler.register(() => this.tick.update((t) => t + 1), 1000);
 
@@ -634,7 +675,7 @@ export class LoopControlComponent implements OnDestroy {
 
   async onStop(): Promise<void> {
     const loopId = this.controlLoopId(); if (!loopId) return;
-    await this.store.cancel(loopId);
+    this.stopConfirm.request(loopId, this.active()?.config.isolateLoopWorkspaces === true, { chatId: this.chatId() ?? undefined });
   }
 
   async onPingPongSkipRound(): Promise<void> {
@@ -744,7 +785,6 @@ export class LoopControlComponent implements OnDestroy {
   protected readonly iterationNumber = displayIterationNumber;
   protected readonly executionPath = effectiveLoopExecutionPath;
   protected readonly iterationCapLabel = iterationCapLabel;
-  protected readonly summaryStatusLabel = terminalStatusLabel;
   protected readonly managedStatus = managedWorktreeStatus;
   protected readonly verdictHeader = progressVerdictHeaderWord;
   protected readonly iterationDuration = loopIterationDuration;

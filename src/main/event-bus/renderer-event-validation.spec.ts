@@ -776,3 +776,16 @@ describe('renderer event validation', () => {
     })).toBe(true);
   });
 });
+
+describe('keep-awake push validation', () => {
+  it('passes a valid state and drops invalid states before renderer delivery', () => {
+    const sender = { send: vi.fn() };
+    expect(sendValidatedRendererEvent(sender, 'app:keep-awake-state', {
+      mode: 'while-working', active: true, reason: 'loop', since: 100,
+    })).toBe(true);
+    expect(sendValidatedRendererEvent(sender, 'app:keep-awake-state', {
+      mode: 'unknown', active: true, reason: 'loop', since: 100,
+    })).toBe(false);
+    expect(sender.send).toHaveBeenCalledTimes(1);
+  });
+});

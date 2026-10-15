@@ -1,3 +1,5 @@
+import type { LoopSpendPortion, LoopUsageProvenance } from '../../shared/types/loop-spend.types';
+import { collectInstanceSpend } from './loop-instance-spend';
 import { getLogger } from '../logging/logger';
 import { registerCleanup } from '../util/cleanup-registry';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -65,6 +67,10 @@ export interface ReviewSessionResult {
   tokensUsed: number;
   /** Estimated reviewer cost in cents (folded into the loop budget). */
   costCents: number;
+  exactCostCents?: number;
+  spendRecords?: number;
+  costBasis?: LoopUsageProvenance;
+  spendBreakdown?: LoopSpendPortion[];
   /** Populated for non-`settled` outcomes. */
   error?: string;
 }
@@ -156,7 +162,7 @@ export class ReviewerSessionSpawner {
         displayName: opts.displayName ?? `Ping-pong reviewer (${opts.provider})`,
         // Root-level (no parentId): a `parentId` child skips repo-map / memory
         // loading, which would gut the deep-dive (bigchange_pingpong_review R1).
-        metadata: { pingPongReviewer: true, spawnedAt: startTs, hideFromProjectRail: true },
+        metadata: { spendPurpose: 'review', pingPongReviewer: true, spawnedAt: startTs, hideFromProjectRail: true },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -172,6 +178,7 @@ export class ReviewerSessionSpawner {
     }
 
     const instanceId = instance.id;
+    const spendCollector = collectInstanceSpend(instanceId);
     try {
       opts.onSpawned?.(instanceId);
     } catch {
@@ -198,8 +205,10 @@ export class ReviewerSessionSpawner {
       );
 
       const live = settled ?? im.getInstance(instanceId) ?? instance;
-      const tokensUsed = Math.max(0, live.totalTokensUsed ?? 0);
-      const costCents = this.estimateCostCents(tokensUsed, opts.modelOverride ?? opts.provider);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      const spend = spendCollector.stop();
+      const tokensUsed = spend.records ? spend.tokens : Math.max(0, live.totalTokensUsed ?? 0);
+      const costCents = spend.records ? Math.ceil(spend.costUsd * 100) : this.estimateCostCents(tokensUsed, opts.modelOverride ?? opts.provider);
       const finalOutput = this.extractFinalOutput(im, instanceId, live);
       const failed = live.status === 'failed' || live.status === 'error';
 
@@ -209,20 +218,29 @@ export class ReviewerSessionSpawner {
         instanceId,
         tokensUsed,
         costCents,
+        exactCostCents: Math.ceil(spend.exactUsd * 100),
+        spendRecords: spend.records,
+        spendBreakdown: spend.records ? spend.spendBreakdown : [{ tokens: tokensUsed, costCents, basis: 'legacy-estimate' }],
+        costBasis: spend.records ? spend.basis : 'legacy-estimate',
         error: failed ? 'reviewer instance ended in a failed state' : undefined,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const cancelled = opts.signal?.aborted || opts.isCancelled?.() === true;
       const isTimeout = /timed out/i.test(message);
-      const live = im.getInstance(instanceId);
-      const tokensUsed = Math.max(0, live?.totalTokensUsed ?? 0);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      const spend = spendCollector.stop();
+      const tokensUsed = spend.records ? spend.tokens : Math.max(0, im.getInstance(instanceId)?.totalTokensUsed ?? 0);
       result = {
         outcome: cancelled ? 'cancelled' : isTimeout ? 'timeout' : 'failed',
         finalOutput: this.extractFinalOutput(im, instanceId),
         instanceId,
         tokensUsed,
-        costCents: this.estimateCostCents(tokensUsed, opts.modelOverride ?? opts.provider),
+        costCents: spend.records ? Math.ceil(spend.costUsd * 100) : this.estimateCostCents(tokensUsed, opts.modelOverride ?? opts.provider),
+        exactCostCents: Math.ceil(spend.exactUsd * 100),
+        spendRecords: spend.records,
+        spendBreakdown: spend.records ? spend.spendBreakdown : [{ tokens: tokensUsed, costCents: this.estimateCostCents(tokensUsed, opts.modelOverride ?? opts.provider), basis: 'legacy-estimate' }],
+        costBasis: spend.records ? spend.basis : 'legacy-estimate',
         error: message,
       };
       logger.warn('Ping-pong reviewer did not settle cleanly', {
@@ -231,6 +249,7 @@ export class ReviewerSessionSpawner {
         error: message,
       });
     } finally {
+      spendCollector.stop();
       // Fresh-eyes ⇒ disposable. Always tear down, even on timeout/cancel, so a
       // long-running reviewer cannot leak past its round (R5 / circuit-breaker
       // cleanup precedent). Non-graceful: we already have the output we need.
@@ -281,28 +300,18 @@ export class ReviewerSessionSpawner {
     }
   }
 
-  /**
-   * Estimate reviewer cost in cents from total tokens. We don't have an
-   * input/output split for a spawned instance, so we treat the spend as
-   * input-heavy (reviewers read a lot more than they write) — a deliberately
-   * conservative estimate so the loop's cost cap trips slightly early rather
-   * than late.
-   */
+
+  /** Labelled compatibility estimate only when no turn attribution exists. */
   private estimateCostCents(totalTokens: number, model: string): number {
-    if (totalTokens <= 0) return 0;
+    if (!Number.isFinite(totalTokens) || totalTokens <= 0) return 0;
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getTokenCounter } = require('../rlm/token-counter') as typeof import('../rlm/token-counter');
-      const usd = getTokenCounter().estimateCost(
-        Math.round(totalTokens * 0.85),
-        Math.round(totalTokens * 0.15),
-        model,
-      );
-      return Math.max(0, Math.ceil(usd * 100));
-    } catch {
-      return 0;
-    }
+      const usd = getTokenCounter().estimateCost(Math.round(totalTokens * 0.85), Math.round(totalTokens * 0.15), model);
+      return Number.isFinite(usd) ? Math.max(0, Math.ceil(usd * 100)) : 0;
+    } catch { return 0; }
   }
+
 }
 
 export function getReviewerSessionSpawner(): ReviewerSessionSpawner {

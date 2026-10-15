@@ -31,14 +31,14 @@ describe('loopTimelineForRun spend provenance', () => {
 });
 
 describe('timelineRecoveryTarget', () => {
-  it('maps only the live resume recovery to the resume action', () => {
+  it('maps resume and retry recovery to their live actions', () => {
     expect(timelineRecoveryTarget('resume')).toBe('resume');
-    expect(timelineRecoveryTarget('raise-cap')).toBeNull();
+    expect(timelineRecoveryTarget('raise-cap')).toBe('reattempt');
   });
 
-  it('leaves the deliberate no-ops unrouted', () => {
-    expect(timelineRecoveryTarget('review-now')).toBeNull();
-    expect(timelineRecoveryTarget('wait-or-switch-provider')).toBeNull();
+  it('routes review and provider-switch while leaving absent actions unrouted', () => {
+    expect(timelineRecoveryTarget('review-now')).toBe('inspect');
+    expect(timelineRecoveryTarget('wait-or-switch-provider')).toBe('reattempt');
     expect(timelineRecoveryTarget('none')).toBeNull();
   });
 });
@@ -53,6 +53,6 @@ describe('loopTimelineForRun for a provider-limit park', () => {
     });
     expect(timeline?.nextAutomaticAction).toContain('resumes on its own');
     expect(timeline?.recovery.id).toBe('wait-or-switch-provider');
-    expect(timelineRecoveryTarget(timeline!.recovery.id)).toBeNull();
+    expect(timelineRecoveryTarget(timeline!.recovery.id)).toBe('reattempt');
   });
 });

@@ -217,7 +217,7 @@ describe('loopStatusPill (LF-8)', () => {
   it('maps live + terminal statuses to legible pills', () => {
     expect(loopStatusPill({ status: 'running' })).toEqual({ kind: 'running', label: 'RUNNING' });
     expect(loopStatusPill({ status: 'completed' })).toEqual({ kind: 'done', label: 'DONE' });
-    expect(loopStatusPill({ status: 'completed-needs-review' })).toEqual({ kind: 'needs-review', label: 'NEEDS REVIEW' });
+    expect(loopStatusPill({ status: 'completed-needs-review' })).toEqual({ kind: 'needs-review', label: 'ENDED · SEE NOTES' });
     expect(loopStatusPill({ status: 'cancelled' }).kind).toBe('stopped');
     expect(loopStatusPill({ status: 'cap-reached' }).label).toBe('CAP REACHED');
   });
@@ -570,4 +570,9 @@ describe('completionGateSteps — state is in the text, not only the colour', ()
     expect(review?.state).toBe('skipped');
     expect(review?.text).toBe('review');
   });
+});
+
+it('names a failed-step pause separately from no progress and sign-off', () => {
+  expect(loopPauseReason({ bannerKind: 'no-progress', bannerSignalId: 'STEP_FAILED' })).toBe('step-failed');
+  expect(loopStatusPill({ status: 'paused', bannerKind: 'no-progress', bannerSignalId: 'STEP_FAILED' })).toEqual({ kind: 'step-failed', label: 'PAUSED · A STEP FAILED' });
 });

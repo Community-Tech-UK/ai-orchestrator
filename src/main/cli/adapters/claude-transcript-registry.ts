@@ -15,7 +15,7 @@
  * block an otherwise legitimate spawn.
  */
 
-import { existsSync, readdirSync, realpathSync } from 'fs';
+import { closeSync, existsSync, fstatSync, openSync, readSync, readdirSync, realpathSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -61,4 +61,29 @@ export function nativeSessionIdInUse(sessionId: string): boolean {
     // Can't tell — assume free, matching this module's permissive default.
     return false;
   }
+}
+
+/** Read only the bounded transcript tail. Unreadable/unknown shapes leave the resume cost unknown. */
+export function readLastClaudeCostState(cwd: string | undefined, sessionId: string): { totalCostUSD: number; modelUsage?: Record<string, unknown> } | undefined {
+  if (!cwd || !/^[a-zA-Z0-9_-]+$/.test(sessionId)) return undefined;
+  for (const dir of candidateProjectDirs(cwd)) {
+    let fd: number | undefined;
+    try {
+      fd = openSync(join(dir, `${sessionId}.jsonl`), 'r');
+      const size = fstatSync(fd).size;
+      const length = Math.min(size, 256 * 1024);
+      const bytes = Buffer.alloc(length); readSync(fd, bytes, 0, length, size - length);
+      const lines = bytes.toString('utf8').split('\n');
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          const row = JSON.parse(lines[i]) as Record<string, unknown>;
+          if (row['type'] === 'cost-state' && typeof row['totalCostUSD'] === 'number' && Number.isFinite(row['totalCostUSD']) && row['totalCostUSD'] >= 0) {
+            return { totalCostUSD: row['totalCostUSD'], ...(row['modelUsage'] && typeof row['modelUsage'] === 'object' ? { modelUsage: row['modelUsage'] as Record<string, unknown> } : {}) };
+          }
+        } catch { /* Partial or non-JSON lines are not cost records. */ }
+      }
+    } catch { /* Fail soft to token pricing. */ }
+    finally { if (fd !== undefined) { try { closeSync(fd); } catch { /* Seed lookup stays fail-soft. */ } } }
+  }
+  return undefined;
 }

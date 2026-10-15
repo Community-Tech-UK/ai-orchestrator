@@ -114,6 +114,7 @@ export interface ThreadStartResponse {
 }
 
 export interface ThreadResumeParams {
+  config?: Record<string, unknown> | null;
   threadId: string;
   cwd?: string | null;
   model?: string | null;

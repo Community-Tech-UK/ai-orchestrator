@@ -1,3 +1,4 @@
+import { resolveModelCallCost } from '../core/system/model-call-recorder';
 /**
  * Iteration cost resolution for Loop Mode.
  *
@@ -27,7 +28,8 @@ export type IterationCostBasis =
   /** Derived per-model from the usage breakdown via `computeTokenCost`. */
   | 'computed'
   /** Legacy flat $15/Mtok. No usage breakdown was available. */
-  | 'legacy-estimate';
+  | 'legacy-estimate'
+  | 'unknown';
 
 export interface IterationCost {
   costCents: number;
@@ -46,7 +48,12 @@ function hasUsageBreakdown(usage: LoopChildResult['usage']): boolean {
 
 export function resolveIterationCost(
   result: Pick<LoopChildResult, 'tokens' | 'costUsd' | 'usage' | 'model'>,
+  provider?: string,
 ): IterationCost {
+  if (provider) {
+    const resolved = resolveModelCallCost(provider, result.model, { ...result.usage, ...(result.costUsd !== undefined ? { cost: result.costUsd } : {}) });
+    return { costCents: resolved.costUsd === null ? 0 : Math.ceil(resolved.costUsd * 100), basis: resolved.costSource === 'provider' || resolved.costSource === 'free' ? 'provider-reported' : resolved.costSource === 'priced' ? 'computed' : 'unknown', costKnown: resolved.costSource === 'provider' || resolved.costSource === 'free' };
+  }
   if (typeof result.costUsd === 'number' && Number.isFinite(result.costUsd)) {
     return {
       costCents: Math.max(0, Math.ceil(result.costUsd * 100)),

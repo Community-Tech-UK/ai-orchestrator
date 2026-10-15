@@ -23,6 +23,8 @@ const hoisted = vi.hoisted(() => ({
     cancelLoop: vi.fn(),
     failLoop: vi.fn(),
     getLoop: vi.fn(),
+    getIterations: vi.fn(),
+    getCheckpointContext: vi.fn(),
   },
   store: {
     upsertRun: vi.fn(),
@@ -121,6 +123,8 @@ beforeEach(() => {
   }
   vi.clearAllMocks();
   hoisted.coordinator.getLoop.mockReturnValue(undefined);
+  hoisted.coordinator.getIterations.mockReturnValue([]);
+  hoisted.coordinator.getCheckpointContext.mockReturnValue({ convergenceNote: 'ledger stall: 2 open', planRegenerationCount: 2, pendingContextReset: true });
   hoisted.coordinator.failLoop.mockReturnValue(true);
   hoisted.loopCommitRatchetHook.mockResolvedValue(undefined);
   hoisted.store.getCheckpoint.mockReturnValue(null);
@@ -191,6 +195,7 @@ describe('registerLoopHandlers terminal summaries', () => {
     expect(hoisted.store.persistStateCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
       state,
       checkpoint: expect.objectContaining({
+        convergenceNote: 'ledger stall: 2 open', planRegenerationCount: 2, pendingContextReset: true,
         loopRunId: state.id,
         chatId: state.chatId,
         status: state.status,
@@ -216,6 +221,7 @@ describe('registerLoopHandlers terminal summaries', () => {
       state,
       iteration,
       checkpoint: expect.objectContaining({
+        convergenceNote: 'ledger stall: 2 open', planRegenerationCount: 2, pendingContextReset: true,
         loopRunId: state.id,
         historyTail: [iteration],
       }),
@@ -247,6 +253,7 @@ describe('registerLoopHandlers terminal summaries', () => {
     expect(hoisted.store.persistStateCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
       state,
       checkpoint: expect.objectContaining({
+        convergenceNote: 'ledger stall: 2 open', planRegenerationCount: 2, pendingContextReset: true,
         loopRunId: state.id,
         status: 'running',
         state: expect.objectContaining({
@@ -386,6 +393,7 @@ describe('registerLoopHandlers terminal summaries', () => {
     expect(hoisted.store.persistStateCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
       state,
       checkpoint: expect.objectContaining({
+        convergenceNote: 'ledger stall: 2 open', planRegenerationCount: 2, pendingContextReset: true,
         loopRunId: state.id,
         historyTail: [iteration],
       }),
@@ -474,7 +482,7 @@ describe('registerLoopHandlers terminal summaries', () => {
       expect.objectContaining({
         chatId: 'chat-1',
         nativeMessageId: 'loop-summary:loop-1',
-        content: expect.stringContaining('Loop ended - completed'),
+        content: expect.stringContaining('Finished\n'),
       }),
     );
     expect(windowManager.sendToRenderer).toHaveBeenCalledWith(
@@ -504,7 +512,7 @@ describe('registerLoopHandlers terminal summaries', () => {
       expect.objectContaining({
         chatId: 'chat-1',
         nativeMessageId: 'loop-summary:loop-1',
-        content: expect.stringContaining('Loop ended - provider-limit'),
+        content: expect.stringContaining("Stopped: the provider\'s usage limit"),
       }),
     );
   });
@@ -932,6 +940,8 @@ describe('LOOP_RESUME handler', () => {
     const windowManager = { sendToRenderer: vi.fn() };
     hoisted.coordinator.resumeLoop.mockReturnValue(false);
     hoisted.coordinator.getLoop.mockReturnValue(undefined);
+  hoisted.coordinator.getIterations.mockReturnValue([]);
+  hoisted.coordinator.getCheckpointContext.mockReturnValue({ convergenceNote: 'ledger stall: 2 open', planRegenerationCount: 2, pendingContextReset: true });
     hoisted.store.getCheckpoint.mockReturnValue(null);
     registerLoopHandlers({
       windowManager: windowManager as never,
@@ -951,6 +961,8 @@ describe('LOOP_RESUME handler', () => {
     const state = makeLoopState({ id: 'loop-noworktree', status: 'paused', endedAt: null });
     hoisted.coordinator.resumeLoop.mockReturnValue(false);
     hoisted.coordinator.getLoop.mockReturnValue(undefined);
+  hoisted.coordinator.getIterations.mockReturnValue([]);
+  hoisted.coordinator.getCheckpointContext.mockReturnValue({ convergenceNote: 'ledger stall: 2 open', planRegenerationCount: 2, pendingContextReset: true });
     hoisted.store.getCheckpoint.mockReturnValue({
       version: 1 as const,
       loopRunId: state.id,
@@ -1351,7 +1363,7 @@ describe('terminal summary instance-id fallback', () => {
     expect(hoisted.chatService.appendSystemEvent).not.toHaveBeenCalled();
     expect(emitSystemMessage).toHaveBeenCalledWith(
       state.chatId,
-      expect.stringContaining('Loop ended - completed'),
+      expect.stringContaining('Finished\n'),
       expect.objectContaining({ kind: 'loop-summary', loopRunId: 'loop-1' }),
     );
   });

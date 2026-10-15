@@ -9,7 +9,7 @@
  * `completed-needs-review`.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -198,5 +198,35 @@ describe('LoopCoordinator.acceptCompletion (LF-7)', () => {
     expect(liveState(state.id)?.pendingInterventions.at(-1)?.message).toContain('final audit');
     expect(existsSync(paths.audit)).toBe(true);
     expect(readFileSync(paths.audit, 'utf8')).toContain('ledger-open');
+  }, 15_000);
+
+  it.each(['resume', 'cancel', 'resume-then-pause'] as const)('does not accept after the operator chooses %s during verify', async (action) => {
+    const state = await startManualReviewLoop();
+    const completed = vi.fn();
+    coordinator.on('loop:completed', completed);
+    coordinator.on('loop:completed-needs-review', completed);
+    // Keep any resumed iteration in flight so only Accept can emit completion.
+    coordinator.removeAllListeners('loop:invoke-iteration');
+    coordinator.on('loop:invoke-iteration', () => { /* wait for cancellation */ });
+    writeFileSync(join(workspace, 'accept-verify.js'), [
+      "const fs = require('node:fs');",
+      "fs.writeFileSync('accept-verify-started', 'started');",
+      "const timer = setInterval(() => { if (fs.existsSync('release-verify')) { clearInterval(timer); process.exit(0); } }, 10);",
+    ].join('\n'));
+    liveState(state.id)!.config.completion.verifyCommand = `"${process.execPath}" accept-verify.js`;
+    const accepting = coordinator.acceptCompletion(state.id);
+    try {
+      await vi.waitFor(() => expect(existsSync(join(workspace, 'accept-verify-started'))).toBe(true));
+      if (action === 'cancel') expect(await coordinator.cancelLoop(state.id)).toBe(true);
+      else {
+        expect(coordinator.resumeLoop(state.id)).toBe(true);
+        if (action === 'resume-then-pause') expect(coordinator.pauseLoop(state.id)).toBe(true);
+      }
+    } finally {
+      writeFileSync(join(workspace, 'release-verify'), 'release');
+    }
+    expect(await accepting).toBe(false);
+    expect(liveState(state.id)?.status).toBe(action === 'resume' ? 'running' : action === 'cancel' ? 'cancelled' : 'paused');
+    expect(completed).not.toHaveBeenCalled();
   }, 15_000);
 });

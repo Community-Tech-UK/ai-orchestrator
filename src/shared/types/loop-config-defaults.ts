@@ -97,7 +97,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       doneSentinelFile: 'DONE.txt',
       verifyCommand: '',
       allowOperatorReviewedCompletion: false,
-      verifyTimeoutMs: 600_000,
+      verifyTimeoutMs: 1_200_000,
       // FU-6 quick-verify defaults: undefined command means the optimization
       // is opt-in. A 2-minute timeout reflects "should be fast or it isn't
       // a quick verify". Callers wanting the split set both fields.

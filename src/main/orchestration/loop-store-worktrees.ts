@@ -12,6 +12,7 @@ export interface PendingLoopWorktreeLifecycle {
   branchName: string | null;
   autoIntegrateWorktree: boolean;
   lifecycle: LoopWorktreeLifecycle;
+  endEvidence?: Record<string, unknown>;
 }
 
 export function parseWorktreeLifecycle(
@@ -85,10 +86,11 @@ export function getPendingLoopWorktreeLifecycles(
     branch_name: string | null;
     worktree_lifecycle_json: string;
     ended_at: number | null;
+    end_evidence_json: string | null;
   }
   const rows = db.prepare(`
     SELECT id, status, config_json, worktree_path, branch_name,
-           worktree_lifecycle_json, ended_at
+           worktree_lifecycle_json, ended_at, end_evidence_json
     FROM loop_runs
     WHERE worktree_lifecycle_json IS NOT NULL
       AND status NOT IN ('running', 'paused')
@@ -111,6 +113,7 @@ export function getPendingLoopWorktreeLifecycles(
         branchName: row.branch_name,
         autoIntegrateWorktree: config.autoIntegrateWorktree !== false,
         lifecycle,
+        ...(row.end_evidence_json ? { endEvidence: JSON.parse(row.end_evidence_json) as Record<string, unknown> } : {}),
       }];
     } catch {
       return [];

@@ -198,6 +198,14 @@ describe('LoopStore.getIterations pagination', () => {
     expect(store.countIterations('loop-paged')).toBe(3);
   });
 
+  it('round-trips stop reason and UTF-8 prompt size while leaving legacy values unrecorded', () => {
+    store.upsertRun(makeState());
+    store.insertIteration(makeLoopIteration({finishReason:'max_turns',promptBytes:Buffer.byteLength('你好','utf8')}));
+    expect(store.getIterations('loop-1')[0]).toMatchObject({finishReason:'max_turns',promptBytes:6});
+    store.insertIteration(makeLoopIteration({seq:1}));
+    const legacy = store.getIterations('loop-1')[1]; expect(legacy.finishReason).toBeUndefined(); expect(legacy.promptBytes).toBeUndefined();
+  });
+
   it('round-trips outputFull through persistence (migration 010) distinctly from the excerpt', () => {
     const state = makeState({ id: 'loop-full' });
     store.upsertRun(state);

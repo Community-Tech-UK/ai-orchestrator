@@ -121,6 +121,7 @@ export const DEFAULT_ORCHESTRATION_ROUTING_POLICY_JSON = JSON.stringify(
  */
 export const DEFAULT_SETTINGS: AppSettings = {
   // General
+  keepAwakeMode: 'while-working',
   defaultYoloMode: false,
   defaultWorkingDirectory: '',
   defaultCli: 'auto',
@@ -154,6 +155,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoTerminateOnMemoryPressure: true,
   recordProviderEvents: false,
   persistSessionContent: true,
+  ownChatContextCeilingTokens: 0, // Replay evidence is unavailable; ceiling remains disabled.
+  machineContextCeilingTokens: 0,
+  codexHelperAgentsChats: 'trial',
+  codexHelperAgentsHarnessWork: 'trial',
+  codexContextTuning: 'harness',
   cumulativeTokenCompactionTrigger: 0, // disabled by default (opt-in cost cap)
   compactionDecisionLogEnabled: false, // opt-in decision log on restart-with-summary compaction
   outputStyle: 'default', // no style directive injected unless changed

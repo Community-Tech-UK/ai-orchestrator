@@ -9,6 +9,8 @@ export const INFRASTRUCTURE_CHANNELS = {
   APP_GET_VERSION: 'app:get-version',
   APP_GET_STARTUP_CAPABILITIES: 'app:get-startup-capabilities',
   APP_STARTUP_CAPABILITIES: 'app:startup-capabilities',
+  APP_GET_KEEP_AWAKE_STATE: 'app:get-keep-awake-state',
+  APP_KEEP_AWAKE_STATE: 'app:keep-awake-state',
   APP_OPEN_DOCS: 'app:open-docs',
   APP_GET_SCRATCH_DIRECTORY: 'app:get-scratch-directory',
 

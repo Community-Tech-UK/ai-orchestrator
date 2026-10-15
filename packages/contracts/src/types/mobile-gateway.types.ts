@@ -442,7 +442,7 @@ export interface MobileLoopRunDto {
 
 export interface MobileLoopOutstandingItemDto {
   id: string;
-  kind: 'needs-human' | 'open-question';
+  kind: 'needs-human' | 'decision-applied' | 'for-information' | 'open-question';
   text: string;
   status: 'open' | 'resolved' | 'dismissed';
   userResponse: string | null;

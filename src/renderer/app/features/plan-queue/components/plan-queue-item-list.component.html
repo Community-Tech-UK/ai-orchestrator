@@ -7,7 +7,7 @@
         <div class="pq-item-head">
           <span class="pq-item-doc" [title]="item.documentPath">{{ documentBasename(item.documentPath) }}</span>
           <span class="pq-item-state" [attr.data-state]="item.state">{{ stateLabel(item.state) }}</span>
-          <span class="pq-item-round">Round {{ item.round }}</span>
+          <span class="pq-item-round">Round {{ item.round }} of {{ maxRounds() }}@if (item.spend) { · {{ spendLabel(item.spend.costUsd) }} }</span>
           @if (item.erroredRounds > 0) {
             <span class="pq-item-errored-rounds">{{ item.erroredRounds }} errored round(s)</span>
           }
@@ -15,6 +15,14 @@
             <button type="button" class="pq-item-skip" (click)="onSkip(item.id)">Skip</button>
           }
         </div>
+
+        @if (confirmingSkip() === item.id && isSkippable(item.state)) {
+          <div class="pq-item-skip-confirm" role="group" aria-label="Confirm skip document">
+            Skip {{ documentBasename(item.documentPath) }}? It won't be worked in this run.
+            <button type="button" class="pq-skip-confirm-yes" (click)="confirmSkip(item.id)">Skip it</button>
+            <button type="button" class="pq-skip-confirm-no" (click)="cancelSkip()">Keep it</button>
+          </div>
+        }
 
         @if (item.verdict) {
           <div class="pq-item-verdict">{{ verdictSummary(item.verdict) }}</div>

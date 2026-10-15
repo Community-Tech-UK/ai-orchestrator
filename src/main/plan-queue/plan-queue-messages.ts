@@ -19,6 +19,7 @@ import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
 export function itemToDto(item: PlanQueueItem): PlanQueueItemDto {
   return {
+    ...(item.spend ? { spend: item.spend } : {}),
     id: item.id,
     runId: item.runId,
     documentPath: item.documentPath,
@@ -43,7 +44,10 @@ export function itemToDto(item: PlanQueueItem): PlanQueueItemDto {
 }
 
 export function runToDto(run: PlanQueueRun, items: readonly PlanQueueItem[]): PlanQueueRunDto {
+  const spends = [run.spend, ...items.map(item => item.spend)].filter(spend => spend !== undefined);
+  const spend = spends.length ? spends.reduce((total, entry) => ({ tokens: total.tokens + entry.tokens, costUsd: total.costUsd + entry.costUsd, exactUsd: total.exactUsd + entry.exactUsd }), { tokens: 0, costUsd: 0, exactUsd: 0 }) : undefined;
   return {
+    ...(spend ? { spend } : {}),
     id: run.id,
     parentInstanceId: run.parentInstanceId,
     kind: run.kind,
@@ -119,9 +123,3 @@ export function buildRunSummaryMessage(run: PlanQueueRun, items: readonly PlanQu
   return lines.join('\n');
 }
 
-/** Why a document parked when triage never classified it: the start failure when there was one. */
-export function triageParkDetail(startError: string | undefined): string {
-  return startError
-    ? `Triage could not start (${startError.trim().replace(/[.\s]+$/, '')}). Resume after fixing that.`
-    : 'Triage could not classify this document after two attempts. No human decision or authority was inferred; resume to retry technical investigation.';
-}

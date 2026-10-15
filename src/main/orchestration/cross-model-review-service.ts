@@ -1,3 +1,4 @@
+import { CLAUDE_REVIEWER_MAX_TURNS } from '../cli/adapters/claude-machine-session-policy';
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -597,6 +598,7 @@ export class CrossModelReviewService extends EventEmitter {
               workingDirectory: request.workingDirectory,
               timeout: timeoutMs,
               yoloMode: false,
+              ...(resolvedCli === 'claude' ? { readOnlyReview: true, maxTurns: CLAUDE_REVIEWER_MAX_TURNS } : {}),
               ...(isCodex ? { reasoningEffort: 'low' as const } : {}),
               // When no override is configured, leave `model` unset so the
               // reviewer CLI uses its own default/auto routing.
@@ -773,7 +775,8 @@ export class CrossModelReviewService extends EventEmitter {
         blockedReason: plan.blockedReason,
       });
     }
-    return plan.candidates;
+    const max = request.maxReviewers;
+    return typeof max === 'number' && Number.isFinite(max) && max > 0 ? plan.candidates.slice(0, Math.floor(max)) : plan.candidates;
   }
 
   /**
@@ -787,13 +790,14 @@ export class CrossModelReviewService extends EventEmitter {
    * which for a Codex or Copilot session removed the single most useful checker.
    */
   private async resolveHeadlessProviders(request: HeadlessReviewRequest): Promise<string[]> {
+    const max = typeof request.maxReviewers === 'number' && Number.isFinite(request.maxReviewers) && request.maxReviewers > 0 ? Math.floor(request.maxReviewers) : undefined;
     const primaryProvider = request.primaryProvider
       ? normalizeReviewerCli(request.primaryProvider)
       : '';
 
     if (request.reviewers) {
       return normalizeAgenticReviewerCliList(request.reviewers)
-        .filter((reviewer) => reviewer !== primaryProvider);
+        .filter((reviewer) => reviewer !== primaryProvider).slice(0, max);
     }
 
     await this.refreshAvailability();
@@ -801,7 +805,7 @@ export class CrossModelReviewService extends EventEmitter {
     const preferredReviewers = normalizeReviewerCliList(settings.crossModelReviewProviders as string[]);
     return this.reviewerPool.selectReviewers(
       primaryProvider,
-      settings.crossModelReviewMaxReviewers,
+      max !== undefined ? Math.min(max, settings.crossModelReviewMaxReviewers) : settings.crossModelReviewMaxReviewers,
       [],
       preferredReviewers,
     );

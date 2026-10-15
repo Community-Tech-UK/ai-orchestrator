@@ -34,9 +34,17 @@ import {
 import type { LoopConfigInput } from '@contracts/schemas/loop';
 import { resolveLoopGoalIntent } from '../../shared/utils/loop-intent';
 import { createAuxiliaryNextObjectivePlanner } from './loop-next-objective-planner';
-import { resolveLoopVerification } from './loop-verify-command';
+import { resolveLoopVerification, inferLoopQuickVerifyCommand } from './loop-verify-command';
 
 const logger = getLogger('LoopStartConfig');
+
+/** /goal has no cap argument and pauses at its first completion claim for sign-off. */
+export interface PrepareLoopStartOptions { allowUncappedOperatorReview?: boolean }
+
+/** Interactive starts preserve their working copy and wait for Resume after an unknown failed step. */
+export function markInteractiveLoopStart<T extends Partial<LoopConfig>>(config: T): T & { onFailedStep: 'pause' } {
+  return { ...config, onFailedStep: 'pause' };
+}
 
 type LoopStartConfigLike =
   Omit<LoopConfigInput, 'completion'> & {
@@ -81,9 +89,9 @@ function finalizeStartConfig<
 
 export async function prepareLoopStartConfig(
   config: LoopStartConfigLike,
+  options: PrepareLoopStartOptions = {},
 ): Promise<Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }> {
   config = await normalizeManagedIsolation(config);
-  const audit = prepareUserStartedAuditConfig(config);
   // WS6: classify goal intent BEFORE validation — the verification policy
   // depends on it, and this seam runs before `startLoop` derives intent.
   // The shared resolver keeps both seams (and the renderer's submit gate)
@@ -93,7 +101,7 @@ export async function prepareLoopStartConfig(
   // resumed/re-attempted repeatedly, so require an explicit local usage cap.
   if (
     config.completion?.allowOperatorReviewedCompletion &&
-    config.caps?.maxCostCents === null
+    config.caps?.maxCostCents === null && !options.allowUncappedOperatorReview
   ) {
     throw new Error(
       'Operator-reviewed completion requires an estimated usage cap. ' +
@@ -154,6 +162,10 @@ export async function prepareLoopStartConfig(
     });
   }
   const verifyCommand = verification.verifyCommand;
+  const audit = prepareUserStartedAuditConfig(config);
+  if (config.audit?.preflightMode === undefined && goalIntent.intent === 'implementation' && verifyCommand) audit.preflightMode = 'record';
+  const quickVerifyCommand = config.completion?.quickVerifyCommand?.trim()
+    || await inferLoopQuickVerifyCommand(config.workspaceCwd, verification);
   const resolvedGoalIntent = goalIntent.intent;
   // Every return path writes the RESOLVED command back, so the engine runs it,
   // the persisted run config records what actually gated the run, and
@@ -167,6 +179,7 @@ export async function prepareLoopStartConfig(
     ...config.completion,
     ...extra,
     verifyCommand,
+    ...(quickVerifyCommand ? { quickVerifyCommand } : {}),
     mode,
   });
   // Completion mode. The default for user-started loops is 'review-driven':

@@ -539,6 +539,8 @@ export type NextObjectivePlanner = (context: {
 }) => Promise<string | null | undefined>;
 
 export interface LoopConfig {
+  /** Interactive starts may pause an unreplayable failed step; absent stays terminal. */
+  onFailedStep?: 'stop' | 'pause';
   /** The goal/ask. Sent on iteration 0 — anchors what the loop drives toward. */
   initialPrompt: string;
   /** Optional continuation directive used on iterations 1+. If omitted, the
@@ -708,6 +710,7 @@ export type LoopStatus =
    * (stopped without converging). NOT a failure state.
    */
   | 'completed-needs-review'
+  | 'attempt-failed'
   | 'cancelled'
   | 'failed'
   | 'error'

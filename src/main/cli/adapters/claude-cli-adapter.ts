@@ -1,3 +1,6 @@
+import { ClaudeSessionCostLedger } from './claude-session-cost-ledger';
+import { computeProviderTokenCost } from '../../../shared/data/model-pricing';
+import { parseClaudeOutput } from './claude-output-parser';
 /**
  * Claude CLI Adapter - Spawns and manages Claude Code CLI processes
  * Extends BaseCliAdapter for multi-CLI support
@@ -17,8 +20,6 @@ import {
   CliStatus,
   CliMessage,
   CliResponse,
-  CliToolCall,
-  CliUsage,
   ndjsonSafeStringify,
   type ContextUsageObservation,
   type InterruptResult,
@@ -27,8 +28,7 @@ import {
 } from './base-cli-adapter';
 import { NdjsonParser } from '../ndjson-parser';
 import { applyClaudeHygieneEnv, resolveClaudeDebugLogging, resolveClaudeFallbackModel } from './claude-env-pack';
-import { nativeTranscriptExists } from './claude-transcript-registry';
-import { parseNdjsonLine } from '../json-parse';
+import { nativeTranscriptExists, readLastClaudeCostState } from './claude-transcript-registry';
 import { createOutputMessage, isCliStderrFailureText } from './base-cli-adapter-utils';
 import { InputFormatter } from '../input-formatter';
 import { processAttachments, buildMessageWithFiles } from '../file-handler';
@@ -53,7 +53,6 @@ import { getErrorRecoveryManager } from '../../core/error-recovery';
 import {
   mergeInputRequiredMetadata,
   toRawCliPayload,
-  type RawCliPayload,
   type DeferredToolUse,
   type ClaudeCliSpawnOptions,
 } from './claude-cli-adapter.types';
@@ -72,7 +71,6 @@ import {
 } from './claude-cli-permission-details';
 import { emitClaudeSelfWakeup, emitClaudeSelfWakeupRefusal, sanitizeClaudeToolInput, sanitizeClaudeSelfWakeupRawNdjson } from './claude-cli-self-wakeup';
 import { probeVersionStatus } from './cli-status-probe';
-import { structuredOutputContent, type StructuredOutputCandidate } from './structured-output-content';
 import { parseClaudeStreamError } from './claude-stream-error';
 import { applyClaudeResultUsage, type ClaudeResultUsageHost } from './claude-result-usage';
 import {
@@ -106,6 +104,8 @@ const logger = getLogger('ClaudeCliAdapter');
  */
 export class ClaudeCliAdapter extends BaseCliAdapter {
   protected override readonly defersInputDispatch = true;
+  private readonly sessionCostLedger = new ClaudeSessionCostLedger();
+  private readonly settledResponses = new WeakSet<CliResponse>();
   private parser: NdjsonParser;
   private formatter: InputFormatter | null = null;
   private spawnOptions: ClaudeCliSpawnOptions;
@@ -180,7 +180,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     // script reads ORCHESTRATOR_RTK_ENABLED and ORCHESTRATOR_RTK_PATH from env,
     // so they need to be present in the CLI's environment, not the orchestrator's.
     const env: Record<string, string> = { ...options.env };
-    applyClaudeHygieneEnv(env, options.sessionId);
+    applyClaudeHygieneEnv(env, options.sessionId, options);
     if (options.rtk?.enabled && options.rtk.binaryPath) {
       env['ORCHESTRATOR_RTK_ENABLED'] = '1';
       env['ORCHESTRATOR_RTK_PATH'] = options.rtk.binaryPath;
@@ -850,140 +850,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   parseOutput(raw: string): CliResponse {
-    const id = this.generateResponseId();
-    const toolCalls: CliToolCall[] = [];
-    const structuredCandidates: StructuredOutputCandidate[] = [];
-    let content = '';
-    // We accumulate tokens across all assistant turns as a fallback. Some CLI
-    // versions emit the authoritative `result` message at the end with the
-    // final tally; older versions emit `system / context_usage` (kept here for
-    // backward compatibility); current 2.1.x versions place per-turn counts on
-    // each `assistant.message.usage`. We prefer `result.usage` when present
-    // because it's the final authoritative count after all turns settle.
-    let assistantInput = 0;
-    let assistantOutput = 0;
-    let assistantSawAny = false;
-    let resultUsage: CliUsage | null = null;
-    let legacySystemTotal: number | undefined;
-    let costUsd: number | undefined;
-    let planLimitNotice: string | undefined;
-
-    // Parse all NDJSON lines
-    const lines = raw.split('\n').filter((line) => line.trim());
-
-    for (const line of lines) {
-      const parsedLine = parseNdjsonLine<RawCliPayload>(line);
-      if (parsedLine.ok) {
-        const msg = parsedLine.value;
-
-        if (msg.type === 'assistant' && msg.message?.content) {
-          // Extract text content
-          const textContent = msg.message.content
-            .filter((block) => block.type === 'text' && block.text)
-            .map((block) => block.text)
-            .join('');
-          if (textContent) {
-            content += textContent;
-          }
-
-          // Extract tool uses
-          const toolUses = msg.message.content.filter(
-            (block) => block.type === 'tool_use'
-          );
-          for (const tool of toolUses) {
-            // LT-025: keep the subagent tag with the block. `parseOutput`
-            // flattens every assistant message — including subagent turns,
-            // which the CLI streams into the same NDJSON — so the structured
-            // answer has to be chosen with that provenance in hand.
-            structuredCandidates.push({
-              name: tool.name,
-              input: tool.input,
-              parentToolUseId: (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id,
-            });
-            toolCalls.push({
-              id: tool.id || generateId(),
-              name: tool.name || '',
-              arguments: sanitizeClaudeToolInput(tool.name || '', tool.input || {})
-            });
-          }
-
-          // Per-turn token usage (Claude CLI 2.1.x schema). Cache tokens are
-          // not double-counted: we only sum the new-generation portions
-          // (input_tokens + output_tokens) for our totalTokens metric.
-          if (msg.message.usage) {
-            assistantSawAny = true;
-            assistantInput += msg.message.usage.input_tokens ?? 0;
-            assistantOutput += msg.message.usage.output_tokens ?? 0;
-          }
-        }
-
-        // Authoritative final tally (Claude CLI 2.1.x). The CLI emits one
-        // `{type:"result", usage:{...}, total_cost_usd}` line at the end of
-        // each turn. Prefer this over per-assistant accumulation. Cache
-        // tokens are NOT folded into totalTokens — they reflect billing
-        // (cached reads are cheaper / writes are billed once) and would
-        // double-count actual generation if added here.
-        if (msg.type === 'result' && msg.usage) {
-          resultUsage = {
-            inputTokens: msg.usage.input_tokens,
-            outputTokens: msg.usage.output_tokens,
-            totalTokens:
-              (msg.usage.input_tokens ?? 0) + (msg.usage.output_tokens ?? 0),
-            // Surface cache tokens separately (they were previously discarded)
-            // so cost accounting can price cached reads/writes at their distinct
-            // rates. They are intentionally NOT folded into totalTokens — see the
-            // comment above on the generation-count metric.
-            ...(typeof msg.usage.cache_read_input_tokens === 'number'
-              ? { cacheReadTokens: msg.usage.cache_read_input_tokens }
-              : {}),
-            ...(typeof msg.usage.cache_creation_input_tokens === 'number'
-              ? { cacheWriteTokens: msg.usage.cache_creation_input_tokens }
-              : {}),
-          };
-        }
-        if (msg.type === 'result' && typeof msg.total_cost_usd === 'number') {
-          costUsd = msg.total_cost_usd;
-        }
-        if (msg.type === 'result' && msg.is_error === true && msg.api_error_status === 429) {
-          planLimitNotice = typeof msg.result === 'string' ? msg.result.trim() : '';
-        }
-
-        // Legacy schema (older Claude CLI). Kept for backward compatibility.
-        if (
-          msg.type === 'system' &&
-          msg.subtype === 'context_usage' &&
-          msg.usage
-        ) {
-          legacySystemTotal = msg.usage.total_tokens;
-        }
-      } else {
-        // Ignore non-JSON lines
-      }
-    }
-
-    const usage: CliUsage = resultUsage
-      ?? (assistantSawAny
-        ? {
-            inputTokens: assistantInput,
-            outputTokens: assistantOutput,
-            totalTokens: assistantInput + assistantOutput,
-          }
-        : (legacySystemTotal !== undefined
-          ? { totalTokens: legacySystemTotal }
-          : {}));
-    if (costUsd !== undefined) {
-      usage.cost = costUsd;
-    }
-
-    return {
-      id,
-      content: structuredOutputContent(structuredCandidates) ?? content.trim(),
-      role: 'assistant',
-      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-      usage,
-      raw: sanitizeClaudeSelfWakeupRawNdjson(raw),
-      ...(planLimitNotice !== undefined ? { metadata: { quota: this.planLimitQuota(planLimitNotice) } } : {}),
-    };
+    return parseClaudeOutput(raw, this.generateResponseId(), (notice) => this.planLimitQuota(notice));
   }
 
   /**
@@ -1010,7 +877,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
    * and hand them over.
    */
   protected buildArgs(_message: CliMessage): string[] {
-    return buildClaudeCliArgs({
+    const args = buildClaudeCliArgs({
       spawnOptions: this.spawnOptions,
       sessionId: this.sessionId,
       excludeDynamicSectionsSupported: this.excludeDynamicSectionsSupported,
@@ -1020,6 +887,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       shouldUsePermissionHook: this.shouldUsePermissionHook(),
       materializeInlineJsonArg: (value, forceFile) => this.materializeInlineJsonArg(value, forceFile),
     });
+    this.sessionCostLedger.onSpawn(args.includes('--fork-session') ? 'fork' : args.includes('--resume') ? 'resume' : 'fresh', readLastClaudeCostState(this.spawnOptions.workingDirectory, this.sessionId ?? '')?.totalCostUSD ?? this.sessionCostLedger.lastTotalUsd);
+    return args;
   }
 
   // ============ Legacy API Methods (Backward Compatibility) ============
@@ -1206,6 +1075,17 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   // ============ Private Helper Methods ============
+
+  protected override completeResponse(response: CliResponse, opts?: { cancelled?: boolean }): void {
+    if (!this.settledResponses.has(response)) {
+      this.settledResponses.add(response);
+      if (response.usage) {
+        const cost = this.sessionCostLedger.settle(response.usage.providerSessionTotalUsd, computeProviderTokenCost('claude', this.spawnOptions.model, response.usage));
+        if (cost !== undefined) response.usage.cost = cost;
+      }
+    }
+    super.completeResponse(response, opts);
+  }
 
   private resetResidentTurn(): void {
     this.residentTurnRawOutput = '';

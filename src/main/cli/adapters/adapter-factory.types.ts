@@ -1,3 +1,5 @@
+import type { MachineSessionReason } from '../../../shared/utils/machine-session';
+import type { SessionKind } from '../../../shared/types/session-kind.types';
 /**
  * Shared types for the CLI adapter factory.
  *
@@ -31,6 +33,12 @@ import type { ResolvedCopilotAccountRoute } from '../../../shared/types/copilot-
  * Unified spawn options that work across all adapters
  */
 export interface UnifiedSpawnOptions {
+  sessionKind?: SessionKind;
+  trialKey?: string;
+  trialArm?: 'control' | 'candidate' | 'unassigned';
+  machineSession?: MachineSessionReason;
+  contextCeilingTokens?: number;
+  readOnlyReview?: boolean;
   /** Run without persisting provider session/thread state (provider-specific). */
   ephemeral?: boolean;
   sessionId?: string;

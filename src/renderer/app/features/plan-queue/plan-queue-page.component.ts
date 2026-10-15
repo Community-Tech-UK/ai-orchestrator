@@ -82,6 +82,10 @@ export class PlanQueuePageComponent implements OnInit {
     void this.store.control({ action: 'resume-item', itemId });
   }
 
+  onRetryLanding(itemId: string): void {
+    void this.store.control({ action: 'retry-landing', itemId });
+  }
+
   onLandAnyway(itemId: string): void {
     void this.store.control({ action: 'land-anyway', itemId });
   }

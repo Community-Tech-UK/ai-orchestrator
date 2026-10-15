@@ -6,6 +6,7 @@ import type {
 } from '../../shared/types/loop.types';
 import { buildFinalAuditIntervention, runLoopFinalAudit } from './loop-audit-runtime';
 import { applyLoopPhaseRecovery } from './loop-phase-recovery';
+import { isParkedLoopRuntimeState, isTerminalLoopRuntimeState } from './loop-runtime-status';
 import type { LoopStageMachine } from './loop-stage-machine';
 
 type ClaimedDoneFailedPayload = {
@@ -26,6 +27,7 @@ export async function handleLoopFinalAuditBlockedCompletion(params: {
   finalAudit: LoopFinalAuditResult;
   stageMachine: LoopStageMachine;
   signal: string;
+  operatorAccept?: boolean;
   rejectPendingCompleteIntent: (state: LoopState, reason: string) => void;
   rejectCompletionAttempt: (state: LoopState, reason: string, intervention: string) => void;
   setConvergenceNote: (loopRunId: string, note: string) => void;
@@ -34,6 +36,17 @@ export async function handleLoopFinalAuditBlockedCompletion(params: {
   terminate: (state: LoopState, status: LoopState['status'], reason: string) => void;
 }): Promise<'continue' | 'terminal'> {
   const { state, iteration, finalAudit, stageMachine, signal } = params;
+  if (isTerminalLoopRuntimeState(state)) return 'terminal';
+  // Accept runs on an already-paused loop. Report the audit rejection without
+  // starting autonomous phase recovery or changing the operator's pause.
+  if (params.operatorAccept && state.status === 'paused') {
+    state.lastCompletionOutcome = 'review-blocked';
+    const intervention = buildFinalAuditIntervention(finalAudit);
+    params.rejectCompletionAttempt(state, 'final audit blocked completion', intervention);
+    params.emitClaimedDoneButFailed({ loopRunId: state.id, signal, failure: intervention });
+    return 'continue';
+  }
+  if (isParkedLoopRuntimeState(state)) return 'continue';
   state.lastCompletionOutcome = 'review-blocked';
   const recovery = await applyLoopPhaseRecovery({
     state,
@@ -42,6 +55,8 @@ export async function handleLoopFinalAuditBlockedCompletion(params: {
     stageMachine,
   });
 
+  if (isTerminalLoopRuntimeState(state)) return 'terminal';
+  if (isParkedLoopRuntimeState(state)) return 'continue';
   if (recovery.status === 'handoff') {
     const terminalStatus = recovery.terminalStatus ?? 'no-progress';
     const reason = recovery.reason ?? 'final audit blocked completion repeatedly';
@@ -97,6 +112,8 @@ export async function handleVerifiedNoChangeReviewDrivenCompletion(params: {
         : 'skipped',
     stageMachine,
   );
+  if (isTerminalLoopRuntimeState(state)) return 'terminal';
+  if (isParkedLoopRuntimeState(state)) return 'continue';
   if (state.config.audit.finalAuditMode === 'gate' && finalAudit.status === 'failed') {
     return params.handleBlockedCompletion({
       state,

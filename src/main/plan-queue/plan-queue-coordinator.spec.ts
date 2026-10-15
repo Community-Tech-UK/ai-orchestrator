@@ -16,6 +16,7 @@ import { GitWriteQueue } from '../workspace/git/git-write-queue';
 import { WorktreeManager } from '../workspace/git/worktree-manager';
 import { buildOrchestratorToolsMcpConfig } from '../mcp/orchestrator-tools-mcp-config';
 import { PlanQueueCoordinator } from './plan-queue-coordinator';
+import { PlanQueueItemFlow } from './plan-queue-item-flow';
 import type { PlanQueueInstanceRecord } from './plan-queue-host';
 import { findRestoredSessionId } from './plan-queue-parent';
 import { PlanQueueRelaxation } from './plan-queue-relaxation';
@@ -249,9 +250,10 @@ const pass: Script = (instance) => {
 const triageAllReady: Script = (instance) => {
   const runId = instance.config.metadata?.['planQueueRunId'] as string;
   const run = coordinator.getRunDto(runId)!;
+  const documents = instance.config.initialPrompt!.match(/<documents>\n([\s\S]*?)\n<\/documents>/)![1].split('\n');
   coordinator.reportTriage(instance.id, {
     run_id: runId,
-    records: run.items.filter((i) => i.state === 'discovered').map((i) => ({ documentPath: i.documentPath, disposition: 'ready' as const })),
+    records: run.items.filter((i) => i.state === 'discovered' && documents.includes(i.documentPath)).map((i) => ({ documentPath: i.documentPath, disposition: 'ready' as const })),
   });
 };
 
@@ -301,7 +303,7 @@ beforeEach(() => {
 function startCoordinator(
   instances: FakeInstances,
   relaxation: PlanQueueRelaxation | null = null,
-  extras: { whenOrchestratorToolsListening?: () => Promise<void> } = {},
+  extras: { whenOrchestratorToolsListening?: () => Promise<void>; now?: () => number } = {},
 ): PlanQueueCoordinator {
   const created = PlanQueueCoordinator.getInstance();
   created.initialize({
@@ -328,11 +330,244 @@ function startCoordinator(
     ...(extras.whenOrchestratorToolsListening
       ? { whenOrchestratorToolsListening: extras.whenOrchestratorToolsListening }
       : {}),
+    ...(extras.now ? { now: extras.now } : {}),
   });
   return created;
 }
 
 const never: Script = () => new Promise<void>(() => undefined);
+
+describe('PlanQueueCoordinator parent thread recovery and adoption', { timeout: 30_000 }, () => {
+  async function pendingRun() {
+    planDoc('2026-01-01-parent-recovery');
+    const parent = fake.addParent();
+    parent.historyThreadId = 'history-parent';
+    fake.scripts.triage = never;
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await coordinator._whenSettledForTesting();
+    return { parent, run };
+  }
+
+  it('records the parent history thread and rebinds summaries to its restored session', async () => {
+    const { parent, run } = await pendingRun();
+    expect(store.getRun(run.id)?.parentHistoryThreadId).toBe('history-parent');
+    fake.live.delete(parent.id);
+    const restored = fake.addParent();
+    restored.historyThreadId = 'history-parent';
+    coordinator.notifyParent(coordinator.getRun(run.id), 'Recovery summary');
+    expect(fake.inputs).toContainEqual({ instanceId: restored.id, message: 'Recovery summary', internalSource: 'plan-queue' });
+    expect(store.getRun(run.id)?.parentInstanceId).toBe(restored.id);
+  });
+
+  it('lets the restored thread owner answer and owns its new worker', async () => {
+    const { parent, run } = await pendingRun();
+    const item = store.getItem(run.items[0].id)!;
+    store.upsertItem({ ...item, state: 'needs-answer', question: {
+      question: 'Which account should this work use?', options: [{ id: 'continue', label: 'Account A' }, { id: 'skip', label: 'Leave it' }],
+    } });
+    fake.live.delete(parent.id);
+    const restored = fake.addParent(); restored.historyThreadId = 'history-parent';
+    await coordinator.answer(item.id, 'continue', restored.id);
+    await waitForState(0, run.id, 'working');
+    await vi.waitFor(() => expect(fake.created.some((instance) => instance.role === 'worker')).toBe(true));
+    expect(store.getRun(run.id)?.parentInstanceId).toBe(restored.id);
+    expect(fake.created.find((instance) => instance.role === 'worker')?.config.parentId).toBe(restored.id);
+  });
+
+  it.each(['scheduler', 'notification', 'control', 'answer', 'worker-nesting'] as const)(
+    'replays waiting questions once when %s first resolves the restored parent', async (entry) => {
+      const { parent, run } = await pendingRun();
+      const item = store.getItem(run.items[0].id)!;
+      store.upsertItem({ ...item, state: 'needs-answer', question: {
+        question: 'Which owner should approve this work?', options: [{ id: 'continue', label: 'Owner A' }, { id: 'skip', label: 'Leave it' }],
+      } });
+      fake.live.delete(parent.id);
+      const restored = fake.addParent(); restored.historyThreadId = 'history-parent';
+      if (entry === 'notification') coordinator.notifyParent(coordinator.getRun(run.id), 'Unrelated progress update');
+      else if (entry === 'control') await coordinator.control({ action: 'pause', runId: run.id }, restored.id);
+      else if (entry === 'answer') await expect(coordinator.answer(item.id, 'invalid-option', restored.id)).rejects.toThrow(/no open question/);
+      else if (entry === 'worker-nesting') expect(new PlanQueueItemFlow(coordinator).liveParentId(coordinator.getRun(run.id))).toBe(restored.id);
+      coordinator.requestPump();
+      await coordinator._whenSettledForTesting();
+      expect(store.getRun(run.id)?.parentInstanceId).toBe(restored.id);
+      expect(fake.inputs.filter((input) => input.instanceId === restored.id && input.message.includes('Which owner should approve this work?'))).toHaveLength(1);
+      const messages = fake.inputs.filter((input) => input.instanceId === restored.id).length;
+      coordinator.requestPump(); await coordinator._whenSettledForTesting();
+      expect(fake.inputs.filter((input) => input.instanceId === restored.id)).toHaveLength(messages);
+    });
+
+  it('replays a pending question once after authenticated adoption', async () => {
+    const { parent, run } = await pendingRun();
+    const item = store.getItem(run.items[0].id)!;
+    store.upsertItem({ ...item, state: 'needs-answer', question: {
+      question: 'May this work expand its scope?', options: [{ id: 'continue', label: 'Approve' }, { id: 'skip', label: 'Leave it' }],
+    } });
+    fake.live.delete(parent.id);
+    const adopter = fake.addParent();
+    await coordinator.control({ action: 'adopt', runId: run.id }, adopter.id);
+    await coordinator._whenSettledForTesting();
+    expect(fake.inputs.filter((input) => input.instanceId === adopter.id && input.message.includes('May this work expand its scope?'))).toHaveLength(1);
+    coordinator.requestPump(); await coordinator._whenSettledForTesting();
+    expect(fake.inputs.filter((input) => input.instanceId === adopter.id && input.message.includes('May this work expand its scope?'))).toHaveLength(1);
+  });
+
+  it('delivers a new readiness question once when its notification restores ownership', async () => {
+    const { parent, run } = await pendingRun();
+    const triage = fake.created.find((instance) => instance.role === 'triage')!;
+    fake.live.delete(parent.id);
+    const restored = fake.addParent(); restored.historyThreadId = 'history-parent';
+    coordinator.reportTriage(triage.id, { run_id: run.id, records: [{
+      documentPath: run.items[0].documentPath, disposition: 'needs-answer', question: {
+        question: 'May this work expand its scope?', options: [{ id: 'continue', label: 'Approve' }, { id: 'skip', label: 'Leave it' }],
+        decision: { kind: 'human-authority', reason: 'Scope requires human authority.' },
+      },
+    }] });
+    await coordinator._whenSettledForTesting();
+    expect(store.getRun(run.id)?.parentInstanceId).toBe(restored.id);
+    expect(fake.inputs.filter((input) => input.instanceId === restored.id && input.message.includes('May this work expand its scope?'))).toHaveLength(1);
+  });
+
+  it('retries a failed replay on the next scheduler pass without duplicating successful delivery', async () => {
+    const { parent, run } = await pendingRun();
+    const item = store.getItem(run.items[0].id)!;
+    store.upsertItem({ ...item, state: 'needs-answer', question: {
+      question: 'Which owner should approve this work?', options: [{ id: 'continue', label: 'Owner A' }],
+    } });
+    fake.live.delete(parent.id);
+    const restored = fake.addParent(); restored.historyThreadId = 'history-parent';
+    vi.spyOn(fake, 'sendInput').mockRejectedValueOnce(new Error('Parent temporarily unavailable'));
+    coordinator.notifyParent(coordinator.getRun(run.id), 'Unrelated progress update');
+    await coordinator._whenSettledForTesting();
+    expect(fake.inputs.filter((input) => input.message.includes('Which owner should approve this work?'))).toHaveLength(0);
+    coordinator.requestPump(); await coordinator._whenSettledForTesting();
+    expect(fake.inputs.filter((input) => input.instanceId === restored.id && input.message.includes('Which owner should approve this work?'))).toHaveLength(1);
+    coordinator.requestPump(); await coordinator._whenSettledForTesting();
+    expect(fake.inputs.filter((input) => input.message.includes('Which owner should approve this work?'))).toHaveLength(1);
+  });
+
+  it('keeps one replay in flight while multiple resolver paths inspect the restored owner', async () => {
+    const { parent, run } = await pendingRun();
+    const item = store.getItem(run.items[0].id)!;
+    store.upsertItem({ ...item, state: 'needs-answer', question: {
+      question: 'Which owner should approve this work?', options: [{ id: 'continue', label: 'Owner A' }],
+    } });
+    fake.live.delete(parent.id);
+    const restored = fake.addParent(); restored.historyThreadId = 'history-parent';
+    let release!: () => void;
+    const sending = new Promise<void>((resolve) => { release = resolve; });
+    const send = fake.sendInput.bind(fake);
+    let attempts = 0;
+    vi.spyOn(fake, 'sendInput').mockImplementation(async (...args) => {
+      if (args[1].includes('Which owner should approve this work?')) { attempts += 1; await sending; }
+      await send(...args);
+    });
+    coordinator.notifyParent(coordinator.getRun(run.id), 'Unrelated progress update');
+    await coordinator.control({ action: 'pause', runId: run.id }, restored.id);
+    coordinator.requestPump(); await coordinator._whenSettledForTesting();
+    expect(attempts).toBe(1);
+    release(); await coordinator._whenSettledForTesting();
+    coordinator.requestPump(); await coordinator._whenSettledForTesting();
+    expect(fake.inputs.filter((input) => input.message.includes('Which owner should approve this work?'))).toHaveLength(1);
+  });
+
+  it('does not let a failed old-owner send reset delivery to a newer restored owner', async () => {
+    const { parent, run } = await pendingRun();
+    const item = store.getItem(run.items[0].id)!;
+    store.upsertItem({ ...item, state: 'needs-answer', question: {
+      question: 'Which owner should approve this work?', options: [{ id: 'continue', label: 'Owner A' }],
+    } });
+    fake.live.delete(parent.id);
+    const first = fake.addParent(); first.historyThreadId = 'history-parent';
+    let reject!: (error: Error) => void;
+    const sending = new Promise<void>((_resolve, rejectSend) => { reject = rejectSend; });
+    const send = fake.sendInput.bind(fake);
+    vi.spyOn(fake, 'sendInput').mockImplementation(async (...args) => {
+      if (args[0] === first.id && args[1].includes('Which owner should approve this work?')) return sending;
+      await send(...args);
+    });
+    coordinator.resolveRunParent(coordinator.getRun(run.id));
+    fake.live.delete(first.id);
+    const second = fake.addParent(); second.historyThreadId = 'history-parent';
+    coordinator.resolveRunParent(coordinator.getRun(run.id));
+    await coordinator._whenSettledForTesting();
+    reject(new Error('Old owner disappeared')); await coordinator._whenSettledForTesting();
+    coordinator.requestPump(); await coordinator._whenSettledForTesting();
+    expect(fake.inputs.filter((input) => input.instanceId === second.id && input.message.includes('Which owner should approve this work?'))).toHaveLength(1);
+  });
+
+  it('delivers a new worker question once when its notification restores ownership', async () => {
+    planDoc('2026-01-01-worker-question-recovery');
+    const parent = fake.addParent(); parent.historyThreadId = 'history-parent';
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'working');
+    const worker = fake.created.find((instance) => instance.role === 'worker')!;
+    await vi.waitFor(() => expect(worker.status).toBe('busy'));
+    fake.live.delete(parent.id);
+    const restored = fake.addParent(); restored.historyThreadId = 'history-parent';
+    fake.say(worker, 'Which retention period has James approved?');
+    fake.setStatus(worker, 'waiting_for_input');
+    await coordinator._whenSettledForTesting();
+    expect(store.getItem(run.items[0].id)?.question?.question).toBe('Which retention period has James approved?');
+    const messages = fake.inputs.filter((input) => input.instanceId === restored.id && input.message.includes('Which retention period has James approved?'));
+    expect(messages).toHaveLength(1);
+    expect(messages[0].message).toContain('the worker for');
+    coordinator.requestPump(); await coordinator._whenSettledForTesting();
+    expect(fake.inputs.filter((input) => input.instanceId === restored.id && input.message.includes('Which retention period has James approved?'))).toHaveLength(1);
+  });
+
+  it('does not replay questions when an in-flight resolver discovers a restored parent after shutdown', async () => {
+    const { parent, run } = await pendingRun();
+    const item = store.getItem(run.items[0].id)!;
+    store.upsertItem({ ...item, state: 'needs-answer', question: {
+      question: 'Which owner should approve this work?', options: [{ id: 'continue', label: 'Owner A' }],
+    } });
+    coordinator.shutdown();
+    fake.live.delete(parent.id);
+    const restored = fake.addParent(); restored.historyThreadId = 'history-parent';
+    coordinator.resolveRunParent(coordinator.getRun(run.id));
+    coordinator.notifyParent(coordinator.getRun(run.id), 'Late progress update');
+    coordinator.requestPump(); await coordinator._whenSettledForTesting();
+    expect(fake.inputs.filter((input) => input.instanceId === restored.id)).toHaveLength(0);
+  });
+
+  it('adopts a stranded run and keeps its queued item moving', async () => {
+    const { parent, run } = await pendingRun();
+    const item = store.getItem(run.items[0].id)!;
+    fake.live.delete(parent.id);
+    const adopter = fake.addParent(); adopter.historyThreadId = 'adopter-thread';
+    await coordinator.control({ action: 'adopt', runId: run.id }, adopter.id);
+    expect(store.getRun(run.id)).toMatchObject({ parentInstanceId: adopter.id, parentHistoryThreadId: 'adopter-thread', status: 'running' });
+    expect(fake.inputs.some((input) => input.instanceId === adopter.id && input.message.includes('You now own Plan Queue run')
+      && input.message.includes('1 items waiting, 0 in progress'))).toBe(true);
+    store.upsertItem({ ...item, state: 'queued' });
+    coordinator.requestPump();
+    await waitForState(0, run.id, 'working');
+    await vi.waitFor(() => expect(fake.created.find((instance) => instance.role === 'worker')?.config.parentId).toBe(adopter.id));
+  });
+
+  it.each(['original', 'restored'] as const)('refuses adoption while the %s parent is live', async (kind) => {
+    const { parent, run } = await pendingRun();
+    const adopter = fake.addParent();
+    if (kind === 'restored') {
+      fake.live.delete(parent.id);
+      const restored = fake.addParent(); restored.historyThreadId = 'history-parent';
+    }
+    await expect(coordinator.control({ action: 'adopt', runId: run.id }, adopter.id)).rejects.toThrow(/live parent|still exists/);
+    expect(store.getRun(run.id)?.parentInstanceId).not.toBe(adopter.id);
+  });
+
+  it('refuses queue-spawned sessions and absent callers as adopters', async () => {
+    const { parent, run } = await pendingRun();
+    fake.live.delete(parent.id);
+    const worker = fake.addParent(); worker.metadata = { planQueueRole: 'worker' }; worker.historyThreadId = 'history-parent';
+    await expect(coordinator.control({ action: 'adopt', runId: run.id }, worker.id)).rejects.toThrow();
+    await expect(coordinator.control({ action: 'adopt', runId: run.id }, 'missing-caller')).rejects.toThrow();
+    await expect(coordinator.control({ action: 'adopt', runId: run.id })).rejects.toThrow();
+    expect(store.getRun(run.id)?.parentInstanceId).toBe(parent.id);
+  });
+});
 
 /**
  * Simulate an app restart: the old coordinator and every live instance are
@@ -395,6 +630,17 @@ function queueWorktrees(): string[] {
 }
 
 describe('PlanQueueCoordinator — autonomous readiness and current documents', { timeout: 30_000 }, () => {
+  it('classifies 29 documents in four batches while work on reported documents starts', async () => {
+    for (let index = 0; index < 29; index += 1) planDoc(`2026-01-01-${String(index).padStart(2, '0')}`);
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans', config: { workerSlots: 1 } });
+    await vi.waitFor(() => expect(store.listItems(run.id).some((item) => item.state === 'discovered')).toBe(false), { timeout: 10_000 });
+    const sessions = fake.created.filter((instance) => instance.role === 'triage');
+    expect(sessions).toHaveLength(4);
+    expect(sessions.map((instance) => instance.config.initialPrompt!.match(/<documents>\n([\s\S]*?)\n<\/documents>/)![1].split('\n').length)).toEqual([8, 8, 8, 5]);
+    await waitForState(0, run.id, 'working');
+  });
+
   const question = {
     question: 'Which existing service should implement this check?',
     options: [{ id: 'existing', label: 'Use the existing service' }, { id: 'skip', label: 'Leave this document' }],
@@ -479,7 +725,7 @@ describe('PlanQueueCoordinator — autonomous readiness and current documents', 
     const parent = fake.addParent();
     const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
     await waitForRun(run.id);
-    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: 'worker-error', question: null });
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: 'triage-failed', question: null });
     expect(fake.created.filter((i) => i.role === 'triage')).toHaveLength(2);
     expect(fake.created.some((i) => i.role === 'worker')).toBe(false);
     expect(fake.inputs.some((i) => i.instanceId === parent.id && i.message.includes('needs James to decide'))).toBe(false);
@@ -547,6 +793,89 @@ describe('PlanQueueCoordinator — autonomous readiness and current documents', 
 });
 
 describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30_000 }, () => {
+  it('does not spawn a readiness session when tools become ready after shutdown', async () => {
+    planDoc('2026-01-01-alpha');
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => { release = resolve; });
+    PlanQueueCoordinator._resetForTesting();
+    coordinator = startCoordinator(fake, null, { whenOrchestratorToolsListening: () => ready });
+    await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await coordinator._whenSettledForTesting();
+    coordinator.shutdown();
+    release();
+    await coordinator._whenSettledForTesting();
+    expect(fake.created.filter((instance) => instance.role === 'triage')).toHaveLength(0);
+  });
+
+  it('does not spawn triage when tools become ready after Close all', async () => {
+    planDoc('2026-01-01-alpha');
+    let release!: () => void;
+    const ready = new Promise<void>(resolve => { release = resolve; });
+    PlanQueueCoordinator._resetForTesting();
+    coordinator = startCoordinator(fake, null, { whenOrchestratorToolsListening: () => ready });
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await coordinator._whenSettledForTesting();
+    coordinator.noteUserClosing([], 'all');
+    release();
+    await coordinator._whenSettledForTesting();
+    expect(store.getRun(run.id)?.status).toBe('paused');
+    expect(fake.created.filter(instance => instance.role === 'triage')).toHaveLength(0);
+    expect(store.listItems(run.id)[0].state).toBe('discovered');
+  });
+
+  it('pauses every running run before a user close and parks the closed worker without refilling', async () => {
+    planDoc('2026-01-01-alpha'); planDoc('2026-01-02-beta');
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans', config: { workerSlots: 1 } });
+    await waitForState(0, run.id, 'working');
+    const worker = fake.created.find(instance => instance.role === 'worker')!;
+    expect(coordinator.noteUserClosing([worker.id], 'all')).toBe(1);
+    await fake.terminateInstance(worker.id);
+    await waitForState(0, run.id, 'parked');
+    await coordinator._whenSettledForTesting();
+    expect(store.getRun(run.id)?.status).toBe('paused');
+    expect(store.getItem(run.items[0].id)).toMatchObject({ parkReason: 'cancelled', detail: expect.stringContaining('you closed its session') });
+    expect(fake.created.filter(instance => instance.role === 'worker')).toHaveLength(1);
+  });
+
+  it('a single user close cancels that worker while the run continues', async () => {
+    planDoc('2026-01-01-alpha'); fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await waitForState(0, run.id, 'working');
+    const worker = fake.created.find(instance => instance.role === 'worker')!;
+    expect(coordinator.noteUserClosing([worker.id], 'one')).toBe(0);
+    expect(store.getRun(run.id)?.status).toBe('running');
+    await fake.terminateInstance(worker.id); await waitForState(0, run.id, 'parked');
+    expect(store.getItem(run.items[0].id)?.parkReason).toBe('cancelled');
+  });
+
+  it('a user-closed verifier consumes no errored round and waits for resume', async () => {
+    planDoc('2026-01-01-alpha'); fake.scripts.verifier = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await waitForState(0, run.id, 'verifying');
+    await vi.waitFor(() => expect(fake.created.some(instance => instance.role === 'verifier')).toBe(true));
+    const verifier = fake.created.find(instance => instance.role === 'verifier')!;
+    coordinator.noteUserClosing([verifier.id], 'all');
+    await fake.terminateInstance(verifier.id); await waitForState(0, run.id, 'awaiting-slot');
+    expect(store.getItem(run.items[0].id)).toMatchObject({ erroredRounds: 0, round: 0, detail: 'Its checker was closed; it will be checked again.' });
+  });
+
+  it('leaves a removed worker working during app shutdown and starts no further item', async () => {
+    planDoc('2026-01-01-alpha');
+    planDoc('2026-01-02-beta');
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans', config: { workerSlots: 1 } });
+    await waitForState(0, run.id, 'working');
+    await vi.waitFor(() => expect(fake.created.filter((instance) => instance.role === 'worker')).toHaveLength(1));
+    coordinator.shutdown();
+    await fake.terminateInstance(fake.created.find((instance) => instance.role === 'worker')!.id);
+    coordinator.requestPump();
+    await coordinator._whenSettledForTesting();
+    expect(store.getItem(run.items[0].id)?.state).toBe('working');
+    expect(store.getRun(run.id)?.status).toBe('running');
+    expect(fake.created.filter((instance) => instance.role === 'worker')).toHaveLength(1);
+  });
+
   it('lands one verified plan as a squash commit, closes its documents and leaves no worktree', async () => {
     planDoc('2026-01-01-alpha');
     const parent = fake.addParent();
@@ -1439,7 +1768,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     // A session the queue spawned can never rescue, and the rescue covers only cancel and discard.
     fake.live.set('worker-other-run', { ...rescuer, id: 'worker-other-run', metadata: { planQueueRole: 'worker' } });
     await expect(coordinator.control({ action: 'cancel', runId: run.id }, 'worker-other-run')).rejects.toThrow(/Only the session that started/);
-    await expect(coordinator.control({ action: 'pause', runId: run.id }, rescuer.id)).rejects.toThrow(/may only cancel the run or discard a parked item/);
+    await expect(coordinator.control({ action: 'pause', runId: run.id }, rescuer.id)).rejects.toThrow(/Use action "adopt" to take over/);
     await expect(coordinator.answer(run.items[0].id, 'proceed', rescuer.id)).rejects.toThrow(/Only the session that started/);
     expect(coordinator.getRunDto(run.id)!.status).toBe('running');
 
@@ -1462,8 +1791,8 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     const rescuer = fake.addParent();
     fake.live.delete(parentId);
 
-    await expect(coordinator.control({ action: 'resume-item', itemId }, rescuer.id)).rejects.toThrow(/may only cancel the run or discard a parked item/);
-    await expect(coordinator.control({ action: 'land-anyway', itemId }, rescuer.id)).rejects.toThrow(/may only cancel the run or discard a parked item/);
+    await expect(coordinator.control({ action: 'resume-item', itemId }, rescuer.id)).rejects.toThrow(/Use action "adopt" to take over/);
+    await expect(coordinator.control({ action: 'land-anyway', itemId }, rescuer.id)).rejects.toThrow(/Use action "adopt" to take over/);
     expect(git(['branch', '--list', branch])).not.toBe('');
 
     await coordinator.control({ action: 'discard-item', itemId }, rescuer.id);
@@ -1933,19 +2262,26 @@ describe('PlanQueueCoordinator — providers and accounts', { timeout: 30_000 },
     // Hold every spawn until the exclusion is in place, so the order is deterministic.
     let openTools!: () => void;
     const listening = new Promise<void>((resolve) => { openTools = resolve; });
+    let clock = 1_000_000;
     PlanQueueCoordinator._resetForTesting();
-    coordinator = startCoordinator(fake, null, { whenOrchestratorToolsListening: () => listening });
+    coordinator = startCoordinator(fake, null, { whenOrchestratorToolsListening: () => listening, now: () => clock });
     const parent = fake.addParent();
 
     const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
     excludedProviders = ['claude'];
     openTools();
-    await waitForRun(run.id);
+    // A refused start is retried no sooner than a minute later; three refusals park it.
+    await vi.waitFor(() => {
+      clock += 60_000;
+      coordinator.requestPump();
+      expect(coordinator.getRunDto(run.id)!.items[0]?.state).toBe('parked');
+    }, { timeout: 15_000, interval: 30 });
 
     expect(fake.created.some((i) => i.role === 'triage')).toBe(false);
     expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({
       state: 'parked',
-      detail: expect.stringContaining('Triage could not start (claude has been added to the "never auto-pick these providers" list since this run started, so the queue will not start another session on it). Resume'),
+      parkReason: 'triage-failed',
+      detail: expect.stringContaining('could not start after three tries: claude has been added to the "never auto-pick these providers" list since this run started, so the queue will not start another session on it'),
     });
   });
 

@@ -174,6 +174,7 @@ export async function* streamLoopEvents({
 function streamTerminalStatus(state: Pick<LoopState, 'status' | 'endedAt'>): LoopStreamTerminalStatus | null {
   switch (state.status) {
     case 'no-progress':
+    case 'attempt-failed':
     case 'cost-exceeded':
     case 'needs-human-arbitration':
     case 'reviewer-unreliable':

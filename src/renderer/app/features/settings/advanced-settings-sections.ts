@@ -46,6 +46,9 @@ export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] 
       'commandDiagnosticsAvailable',
       'claudeCliDebugLogging',
       'broadRootFileThreshold',
+      'codexHelperAgentsChats',
+      'codexHelperAgentsHarnessWork',
+      'codexContextTuning',
     ],
   },
   {

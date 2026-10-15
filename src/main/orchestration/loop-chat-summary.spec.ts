@@ -161,7 +161,7 @@ describe('buildLoopTerminalChatSummary', () => {
       nativeTurnId: 'loop:loop-1',
       phase: 'loop_summary',
       createdAt: 65_000,
-      content: expect.stringContaining('Loop ended - completed'),
+      content: expect.stringContaining('Finished\nThe agent said it was done and the checks passed.'),
       metadata: expect.objectContaining({
         kind: 'loop-summary',
         loopRunId: 'loop-1',

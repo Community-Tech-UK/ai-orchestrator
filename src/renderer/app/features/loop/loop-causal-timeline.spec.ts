@@ -134,7 +134,7 @@ describe('provider-limit', () => {
   it('treats a provider-limit run with an end time as finished', () => {
     const timeline = buildLoopCausalTimeline(state({ status: 'provider-limit', endedAt: 123 }));
     expect(timeline.blockingStepId).toBeNull();
-    expect(timeline.nextAutomaticAction).toContain('It continues');
+    expect(timeline.nextAutomaticAction).toContain('has finished');
   });
 
   /**
@@ -192,4 +192,8 @@ describe('announcement', () => {
     expect(buildLoopCausalTimeline(state({ status: 'paused' })).announcement)
       .toBe(buildLoopCausalTimeline(state({ status: 'paused' })).announcement);
   });
+});
+
+it('does not mark verification done on cancellation', () => {
+  expect(buildLoopCausalTimeline(state({ status: 'cancelled' })).steps.find(step => step.id === 'verify')?.state).toBe('pending');
 });

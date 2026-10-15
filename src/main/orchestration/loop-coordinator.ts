@@ -30,6 +30,7 @@ import {
   type LoopPendingInput,
   type LoopPendingInputKind,
   type LoopQueueDrainMode,
+  type LoopPendingInputSource,
 } from '../../shared/types/loop.types';
 import {
   LoopCompletionDetector,
@@ -44,7 +45,12 @@ import {
   resolveParkSignal,
 } from './loop-nonconvergence';
 import { rejectCompletionOnStaleArtifacts } from './loop-artifact-freshness';
-import { pauseIterationForAttemptReview } from './loop-attempt-review-pause';
+import { handleFailedAttempt } from './loop-attempt-review-pause';
+import { resetFinishBudget, updateFinishPhase, type ReviewDrivenTerminal } from './loop-finish-phase';
+import { applyReviewDrivenTerminal } from './loop-review-driven-terminal';
+import { noteBuilderSpend, foldPingPongSpend } from './loop-spend-ledger';
+import { reviewBudgetExceeded } from './loop-review-budget';
+import { applyOutstandingCompletionGate } from './loop-outstanding-completion';
 import { regenerateLoopPlanOnStall } from './loop-plan-regeneration-runtime';
 import { getLoopStore } from './loop-store';
 import { wireLoopCompletionWatcher } from './loop-completion-watcher-runtime';
@@ -152,7 +158,7 @@ import type {
   ProviderQuotaSnapshot,
 } from '../../shared/types/provider-quota.types';
 import type { ProviderLimitLedger } from '../core/system/provider-limit-ledger';
-import { isProviderNotice } from '../cli/provider-notice';
+import { isLoopProviderLimitOutput } from './loop-copilot-limit';
 import { transportOutagePauseReason } from './loop-transport-failure-output';
 import { resolveIterationCost } from './loop-iteration-cost';
 import { prepareLoopIterationPrompt } from './loop-iteration-prompt';
@@ -246,7 +252,7 @@ import {
 } from './loop-ledger-progress';
 import { lintTaskLedger } from './loop-ledger-lint';
 import { importTerminalIntentsForBoundary as importTerminalIntentsForBoundaryHelper } from './loop-terminal-intent-importer';
-import type { LoopCheckpoint } from './loop-checkpoint';
+import type { LoopCheckpoint, LoopCheckpointContext } from './loop-checkpoint';
 import type { LongRunResourceDecision } from '../runtime/long-run-resource-governor';
 import { createAuxiliaryNextObjectivePlanner } from './loop-next-objective-planner';
 import { LoopPingPongReviewAbortRegistry } from './loop-pingpong-review-abort';
@@ -257,6 +263,12 @@ import { LoopFailoverRunner } from './loop-failover';
 import { cleanupLoopWorktreeAfterTerminate } from './loop-worktree-termination-cleanup';
 import { evaluateReviewStall } from './loop-review-stall-policy';
 import { chargeFailedAttemptUsage } from './loop-failed-attempt-usage';
+import { ownProductionChanges } from './loop-own-changes';
+import { startVerifyBaseline } from './loop-verify-baseline';
+import { classifyVerifyAgainstBaseline } from './loop-verify-baseline-compare';
+import { getElectronUserDataPath } from '../logging/log-paths';
+import { tmpdir } from 'node:os';
+import { OUTSTANDING_INFO_HEADING } from './loop-stage-files';
 export { computeWorkHash } from './loop-work-hash';
 export type {
   FreshEyesFinding,
@@ -1412,6 +1424,7 @@ export class LoopCoordinator extends EventEmitter {
     state.status = 'running';
     // A3 (#29): no longer waiting on input once the operator resumes.
     state.pausedForInput = false;
+    resetFinishBudget(state);
     // D6 (#7) part 3: a paused or parked loop observes nothing for what can be
     // hours — the same exposure as a checkpoint restore, which already clears
     // this. The digest is the real guard; this keeps the documented list true.
@@ -1438,6 +1451,7 @@ export class LoopCoordinator extends EventEmitter {
     message: string,
     kind: LoopPendingInputKind = 'queue',
     drainMode?: LoopQueueDrainMode,
+    source: LoopPendingInputSource = 'human',
   ): boolean {
     const state = this.lifecycle.getState(loopRunId);
     if (!state) return false;
@@ -1462,7 +1476,7 @@ export class LoopCoordinator extends EventEmitter {
     // other kinds but only meaningful for `follow-up`.
     const intervention = createLoopPendingInput(message, {
       kind: effectiveKind,
-      source: 'human',
+      source,
       ...(drainMode ? { drainMode } : {}),
     });
     state.pendingInterventions.push(intervention);
@@ -1589,13 +1603,18 @@ export class LoopCoordinator extends EventEmitter {
       return false;
     }
 
+    const resumeVersion = this.lifecycle.resumeVersionFor(loopRunId);
+    const stillOwnsPause = (): boolean => state.status === 'paused'
+      && !this.lifecycle.isCancelled(loopRunId)
+      && this.lifecycle.resumeVersionFor(loopRunId) === resumeVersion;
     const hasVerifyCommand = !!state.config.completion.verifyCommand.trim();
     if (hasVerifyCommand) {
       const verify = await this.runRecordedVerify(state, state.lastIteration, 'verify');
-      // A re-entrant terminate (e.g. operator hit Stop while verify ran) means
-      // the loop is already gone — bail without overriding its terminal status.
-      if (isTerminalLoopRuntimeState(state)) return false;
-      if (verify.status === 'failed') {
+      // Resume or Stop supersedes this Accept, including Resume then Pause.
+      if (!stillOwnsPause()) return false;
+      const verificationClass = classifyVerifyAgainstBaseline(state, verify);
+      const inheritedOnly = typeof verificationClass === 'object' && verificationClass.kind === 'already-failing-only';
+      if (verify.status === 'failed' && !inheritedOnly) {
         state.lastCompletionOutcome = 'verify-failed';
         this.completionContext.setConvergenceNote(state.id, 'operator-accept verify failed');
         if (state.lastIteration) {
@@ -1613,9 +1632,10 @@ export class LoopCoordinator extends EventEmitter {
       const finalAudit = await runLoopFinalAudit(
         state,
         state.lastIteration,
-        verify.status,
+        inheritedOnly ? 'passed' : verify.status,
         new LoopStageMachine(loopStateCwd(state.config), state.id, loopExecutionCwd(state.config)),
       );
+      if (!stillOwnsPause()) return false;
       if (state.config.audit.finalAuditMode === 'gate' && finalAudit.status === 'failed') {
         const handled = await this.handleFinalAuditBlockedCompletion({
           state,
@@ -1623,6 +1643,7 @@ export class LoopCoordinator extends EventEmitter {
           finalAudit,
           stageMachine: new LoopStageMachine(loopStateCwd(state.config), state.id, loopExecutionCwd(state.config)),
           signal: 'declared-complete',
+          operatorAccept: true,
         });
         this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
         return handled === 'terminal';
@@ -1636,8 +1657,8 @@ export class LoopCoordinator extends EventEmitter {
       if (state.lastIteration) {
         applyVerifyOutcomeToIteration(state.lastIteration, verify);
       }
-      if (state.config.audit.finalAuditMode === 'gate' && finalAudit.status === 'needs-review') {
-        const reason = 'operator accepted completion; final audit requires review';
+      if (inheritedOnly || (state.config.audit.finalAuditMode === 'gate' && finalAudit.status === 'needs-review')) {
+        const reason = inheritedOnly ? `Operator accepted completion with checks already failing before this run:\n${verificationClass.keys.join('\n')}` : 'operator accepted completion; final audit requires review';
         this.emit('loop:completed-needs-review', {
           loopRunId: state.id,
           reason,
@@ -1716,6 +1737,8 @@ export class LoopCoordinator extends EventEmitter {
     const s = this.lifecycle.getState(loopRunId);
     return s ? this.cloneStateForBroadcast(s) : undefined;
   }
+
+  getCheckpointContext(loopRunId: string): LoopCheckpointContext { return this.completionContext.checkpointContext(loopRunId); }
 
   getActiveLoops(): LoopState[] {
     return this.lifecycle.listStates().map((s) => this.cloneStateForBroadcast(s));
@@ -1848,6 +1871,13 @@ export class LoopCoordinator extends EventEmitter {
         && state.config.audit.preflightMode !== 'off'
         && state.status === 'running'
       ) {
+        if (state.config.audit.preflightMode === 'record') {
+          void startVerifyBaseline(state, { dataDir: getElectronUserDataPath() ?? path.join(tmpdir(), 'harness-loop-baselines'),
+            runVerify: (config, runId) => this.completionDetector.runVerify(config, runId),
+            isActive: () => !isTerminalLoopRuntimeState(state) && !this.lifecycle.isCancelled(state.id),
+            emit: (_event, _payload) => this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) }),
+            informationHeading: OUTSTANDING_INFO_HEADING, outstandingPath: stageMachine.paths.outstanding });
+        } else {
         const preflight = await runLoopPreflight(state, this.completionDetector, (execution) => {
           this.verificationRunLedger.record(state, undefined, execution);
         });
@@ -1869,6 +1899,7 @@ export class LoopCoordinator extends EventEmitter {
           state.lastCompletionOutcome = 'unverifiable';
           this.pauseWithBlockedSignal(state, reason, preflightBlockedSignal(reason, preflight));
           continue;
+        }
         }
       }
 
@@ -2120,16 +2151,16 @@ export class LoopCoordinator extends EventEmitter {
               forceContextReset = true;
               continue;
             }
-            this.parkAttemptForReview(state, seq, attemptEvidence,
+            if (this.parkAttemptForReview(state, seq, attemptEvidence,
               'context-overflow recovery blocked: the failed attempt has '
               + (attemptEvidence.workspaceEffect === 'writes-observed'
                 ? 'already written into the workspace'
-                : 'an unprovable workspace state'));
+                : 'an unprovable workspace state')) === 'paused') break;
             return;
           }
           if (route === 'terminated') return;
           // Retry on the new account/provider now: a brand-new session, outside the degraded-retry budget.
-          if (route === 'switched-account' || route === 'switched-provider') { this.completionContext.consumeContextReset(state.id); forceContextReset = true; continue; }
+          if (route === 'switched-account' || route === 'switched-provider' || route === 'recycled') { this.completionContext.consumeContextReset(state.id); forceContextReset = true; continue; }
           if (route !== 'none') break;
         }
 
@@ -2177,7 +2208,7 @@ export class LoopCoordinator extends EventEmitter {
         if (!degraded) break;
         const retryDecision = decideDegradedRetry({ evidence: attemptEvidence, degradedReason: degraded, attemptsSoFar: degradedAttempts, maxRetries });
         if (retryDecision.action === 'pause-review') {
-          this.parkAttemptForReview(state, seq, attemptEvidence, retryDecision.reason);
+          if (this.parkAttemptForReview(state, seq, attemptEvidence, retryDecision.reason) === 'paused') { childResult = null; break; }
           return;
         }
         if (retryDecision.action !== 'retry') {
@@ -2253,14 +2284,13 @@ export class LoopCoordinator extends EventEmitter {
       // counting the turn: don't accumulate stats, don't run progress/completion
       // detection — park (auto-resume when we know the reset) or terminate with
       // a distinct `provider-limit` reason.
-      if (isProviderNotice(childResult.output) || childResult.providerQuotaExhausted === true) {
-        const derived = await this.providerLimitHandler.deriveProviderLimitResumeAfterRefresh(state);
+      if (isLoopProviderLimitOutput(state, childResult)) {
+        const derived = await this.providerLimitHandler.deriveProviderLimitResumeAfterRefresh(state, childResult.output);
         const outcome = this.providerLimitHandler.handleProviderLimit(state, {
           reason: `provider usage/limit notice in iteration output: "${excerpt(childResult.output).slice(0, 160)}"`,
-          resumeAt: derived.resumeAt,
+          ...derived,
           source: 'notice',
           action: 'notice',
-          windowId: derived.windowId,
           mustStop: true,
         });
         logger.warn('Loop hit a provider usage/limit notice', {
@@ -2269,7 +2299,7 @@ export class LoopCoordinator extends EventEmitter {
           outcome,
           resumeAt: derived.resumeAt,
         });
-        if (outcome === 'parked' || outcome === 'switched-account' || outcome === 'switched-provider') continue;
+        if (outcome === 'parked' || outcome === 'switched-account' || outcome === 'switched-provider' || outcome === 'recycled') continue;
         return;
       }
 
@@ -2330,7 +2360,7 @@ export class LoopCoordinator extends EventEmitter {
       // See loop-iteration-cost.ts: prefers provider-reported dollars, then a
       // per-model computeTokenCost over the usage breakdown, and only falls
       // back to the legacy flat $15/Mtok when no usage was reported at all.
-      const { costCents, costKnown } = resolveIterationCost(childResult);
+      const { costCents, costKnown, basis: costBasis } = resolveIterationCost(childResult, state.config.provider);
 
       const prevIter = history[history.length - 1];
       const outputExcerpt = excerpt(childResult.output);
@@ -2369,6 +2399,8 @@ export class LoopCoordinator extends EventEmitter {
         testPassCount: childResult.testPassCount,
         testFailCount: childResult.testFailCount,
         ...(childResult.finishReason ? { finishReason: childResult.finishReason } : {}),
+        ...(childResult.promptBytes !== undefined ? { promptBytes: childResult.promptBytes } : {}),
+        ownWritePaths: childResult.ownWritePaths, ownWritesComplete: childResult.ownWritesComplete,
         // WS7: first iteration after a provider switch records where it came from.
         ...(this.completionContext.peekPendingFailover(state.id)
           ? { failedOverFrom: this.completionContext.peekPendingFailover(state.id)! }
@@ -2397,6 +2429,7 @@ export class LoopCoordinator extends EventEmitter {
       state.totalIterations = seq + 1;
       state.totalTokens += tokens;
       state.totalCostCents += costCents;
+      noteBuilderSpend(state, { tokens, costCents, costKnown, basis: costBasis });
       state.iterationsOnCurrentStage += 1;
       // Token-burn-without-progress accounting:
       const previousHighestTestPassCount = state.highestTestPassCount;
@@ -2440,6 +2473,8 @@ export class LoopCoordinator extends EventEmitter {
           state.config.completion.maxLedgerStallIterations,
         );
       }
+
+      if (reviewDriven && !pingPongEnabled) updateFinishPhase(state, iteration, (event, payload) => this.emit(event, payload));
 
       // -- progress detection --
       const evaluation = this.progressDetector.evaluate(state, history, iteration, {
@@ -2500,14 +2535,15 @@ export class LoopCoordinator extends EventEmitter {
       let completionNeedsReviewReason: string | null = null;
       // review-driven terminal decision (computed below, acted on after the
       // iteration is logged so the converging iteration still lands in history).
-      let reviewDrivenTerminal: { status: 'completed' | 'completed-needs-review'; reason: string } | null = null;
+      let reviewDrivenTerminal: ReviewDrivenTerminal | null = null;
       // F2 (#22): the fresh-eyes gate outcome for THIS iteration, when a
       // completion attempt ran it. Feeds the REVIEW→PLAN back-edge veto below.
       let freshEyesGateForBackEdge: FreshEyesGateResult | null = null;
       // Ping-pong terminal decision (broad LoopStatus — can carry the new
       // arbitration / unreliable / cost-exceeded terminals).
       let pingPongTerminal: PingPongTerminal | null = null;
-      if (pingPongEnabled) {
+      const spendBeforeReview = { tokens: state.totalTokens, costCents: state.totalCostCents };
+      completionEvaluation: if (pingPongEnabled) {
         pingPongTerminal = await this.evaluatePingPongCompletion(
           state,
           iteration,
@@ -2577,6 +2613,7 @@ export class LoopCoordinator extends EventEmitter {
           // context and asks "is this really done?". Any blocking finding
           // becomes a user intervention and the loop continues.
           const review = await this.runFreshEyesReviewGate(state, candidate.id, iteration, verifyOutputForEmit);
+          if (review.budgetExceeded) break completionEvaluation;
           freshEyesRan = review.ran;
           freshEyesBlockingCount = review.blocked ? 1 : 0;
           freshEyesErrored = review.errored;
@@ -2772,6 +2809,9 @@ export class LoopCoordinator extends EventEmitter {
           }
         }
       }
+
+      const reviewSpent = state.totalTokens > spendBeforeReview.tokens || state.totalCostCents > spendBeforeReview.costCents;
+      if (reviewSpent) pingPongTerminal = reviewBudgetExceeded(state) ?? pingPongTerminal;
 
       // -- LF-1: context-discipline observability --
       // The invoker recycles the loop's persistent same-session adapter when
@@ -3046,6 +3086,8 @@ export class LoopCoordinator extends EventEmitter {
                 : 'skipped',
             stageMachine,
           );
+          if (isTerminalLoopRuntimeState(state) || this.lifecycle.isCancelled(state.id)) return;
+          if (isParkedLoopRuntimeState(state)) continue;
           if (state.config.audit.finalAuditMode === 'gate' && finalAudit.status === 'failed') {
             const handled = await this.handleFinalAuditBlockedCompletion({
               state,
@@ -3069,6 +3111,12 @@ export class LoopCoordinator extends EventEmitter {
           }
         }
         if (pingPongTerminal.status === 'completed') {
+          const questions = await applyOutstandingCompletionGate({ status: 'completed', reason: pingPongTerminal.reason }, stageMachine);
+          if (isTerminalLoopRuntimeState(state) || this.lifecycle.isCancelled(state.id)) return;
+          if (isParkedLoopRuntimeState(state)) continue;
+          pingPongTerminal = { ...pingPongTerminal, status: questions.status === 'completed' ? 'completed' : 'completed-needs-review', reason: questions.reason };
+        }
+        if (pingPongTerminal.status === 'completed') {
           this.emit('loop:completed', { loopRunId: state.id, signal: 'ping-pong', verifyOutput: '' });
         } else if (pingPongTerminal.status === 'completed-needs-review') {
           this.emit('loop:completed-needs-review', {
@@ -3084,72 +3132,15 @@ export class LoopCoordinator extends EventEmitter {
         return;
       }
 
-      // -- terminal: review-driven convergence --
-      // N consecutive clean fresh-eyes passes. `completed` when nothing was
-      // flagged for a human; `completed-needs-review` (a SUCCESS state) when the
-      // agent left items in OUTSTANDING.md's "Needs human" section.
-      if (
-        reviewDrivenTerminal
-        && activeCapIntent
-        && reviewDrivenTerminal.status !== 'completed'
-      ) {
-        logger.info('Cap wrap-up suppressed a secondary review terminal', {
-          loopRunId: state.id,
-          cap: activeCapIntent.cap,
-          suppressedStatus: reviewDrivenTerminal.status,
-          suppressedReason: reviewDrivenTerminal.reason,
-        });
-        reviewDrivenTerminal = null;
-      }
-      if (reviewDrivenTerminal) {
-        const finalAudit = await runLoopFinalAudit(
-          state,
-          iteration,
-          iteration.verifyStatus === 'passed'
-            ? 'passed'
-            : iteration.verifyStatus === 'failed'
-              ? 'failed'
-              : 'skipped',
-          stageMachine,
-        );
-        if (state.config.audit.finalAuditMode === 'gate' && finalAudit.status === 'failed') {
-          const handled = await this.handleFinalAuditBlockedCompletion({
-            state,
-            iteration,
-            finalAudit,
-            stageMachine,
-            signal: 'self-declared',
-          });
-          if (handled === 'terminal') return;
-          continue;
-        }
-        if (
-          reviewDrivenTerminal.status === 'completed'
-          && state.config.audit.finalAuditMode === 'gate'
-          && finalAudit.status === 'needs-review'
-        ) {
-          reviewDrivenTerminal = {
-            status: 'completed-needs-review',
-            reason: 'Final audit requires operator review before this loop can be considered cleanly complete.',
-          };
-        }
-        if (reviewDrivenTerminal.status === 'completed') {
-          this.emit('loop:completed', {
-            loopRunId: state.id,
-            signal: 'self-declared',
-            verifyOutput: '',
-          });
-          this.terminate(state, 'completed', reviewDrivenTerminal.reason);
-        } else {
-          this.emit('loop:completed-needs-review', {
-            loopRunId: state.id,
-            reason: reviewDrivenTerminal.reason,
-            acceptedByOperator: false,
-          });
-          this.terminate(state, 'completed-needs-review', reviewDrivenTerminal.reason);
-        }
-        return;
-      }
+      const reviewTerminalAction = await applyReviewDrivenTerminal({ state, iteration, stageMachine,
+        terminal: reviewDrivenTerminal, capWrapUpActive: Boolean(activeCapIntent),
+        emit: (event, payload) => this.emit(event, payload),
+        terminate: (status, reason) => this.terminate(state, status, reason),
+        pause: (reason) => this.pauseWithBlockedSignal(state, reason, { id: 'BLOCKED', verdict: 'CRITICAL', message: reason }),
+        handleAuditBlocked: (finalAudit) => this.handleFinalAuditBlockedCompletion({ state, iteration, finalAudit, stageMachine, signal: 'self-declared' }),
+      });
+      if (reviewTerminalAction === 'terminal') return;
+      if (reviewTerminalAction === 'continue') continue;
 
       // -- terminal: review-driven stall → clean stop --
       // review-driven loops are exempt from the structural no-progress *pause*
@@ -3226,9 +3217,7 @@ export class LoopCoordinator extends EventEmitter {
       }
 
       if (reviewDriven) {
-        const madeProductionChange = iteration.filesChanged.some(
-          (f) => isReviewDrivenProductionChange(f.path),
-        );
+        const madeProductionChange = ownProductionChanges(state, iteration).productionChanges.length > 0;
         const advancingConvergence = (state.consecutiveCleanReviewPasses ?? 0) > 0;
         if (
           evaluation.verdict === 'CRITICAL'
@@ -3547,7 +3536,7 @@ export class LoopCoordinator extends EventEmitter {
     stageMachine: LoopStageMachine,
     seq: number,
     stage: LoopStage,
-  ): Promise<{ status: 'completed' | 'completed-needs-review'; reason: string } | null> {
+  ): Promise<ReviewDrivenTerminal | null> {
     return evaluateReviewDrivenCompletionGate({
       state,
       iteration,
@@ -3585,8 +3574,8 @@ export class LoopCoordinator extends EventEmitter {
         emit: (eventName, payload) => this.emit(eventName, payload),
         isCancelled: () => this.lifecycle.isCancelled(state.id) || isParkedLoopRuntimeState(state),
         signal: reviewAbort.signal,
-        foldReviewerSpend: (tokens, costCents) => {
-          state.totalTokens += tokens; state.totalCostCents += costCents;
+        foldReviewerSpend: (tokens, costCents, exactCostCents, spendRecords, basis, spendBreakdown) => {
+          foldPingPongSpend(state, seq, tokens, costCents, basis, exactCostCents, spendRecords, undefined, spendBreakdown);
         },
         reviewer: this.pingPongReviewer,
         resolveSubject: this.pingPongSubjectResolver,
@@ -3738,12 +3727,13 @@ export class LoopCoordinator extends EventEmitter {
 
   private parkAttemptForReview(
     state: LoopState, seq: number, evidence: LoopInvocationAttemptEvidence, reason: string,
-  ): void {
+  ): 'stopped' | 'paused' {
     clearInFlightIteration(state, seq);
-    pauseIterationForAttemptReview({
+    return handleFailedAttempt({
       state, seq, evidence, reason,
       emit: (eventName, payload) => this.emit(eventName, payload),
       terminate: (status, fullReason) => this.terminate(state, status, fullReason),
+      pause: (fullReason, signal) => this.pauseWithBlockedSignal(state, fullReason, signal),
     });
   }
 
@@ -3822,6 +3812,7 @@ export class LoopCoordinator extends EventEmitter {
     finalAudit: LoopFinalAuditResult;
     stageMachine: LoopStageMachine;
     signal: string;
+    operatorAccept?: boolean;
   }): Promise<'continue' | 'terminal'> {
     const result = await handleLoopFinalAuditBlockedCompletion({
       ...params,

@@ -1,3 +1,4 @@
+import { recordLoopSpend } from './loop-spend-ledger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -537,6 +538,18 @@ describe('evaluatePingPongCompletion', () => {
     expect(reviewer).not.toHaveBeenCalled();
   });
 
+  it.each(['cost', 'tokens'] as const)('stops before approving when reviewer spend reaches the %s cap', async cap => {
+    const state = makeState(workspace);
+    if (cap === 'cost') { state.config.caps.maxCostCents = 10; state.totalCostCents = 5; }
+    else { state.config.caps.maxTokens = 100; }
+    const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(reviewResult({ verdict:'APPROVED' }));
+    const deps = { ...baseDeps(state,reviewer), foldReviewerSpend:(tokens:number,costCents:number)=>recordLoopSpend(state,{purpose:'review',tokens,costCents,basis:'provider-reported'},()=>undefined) };
+    const result = await evaluatePingPongCompletion(deps);
+    expect(result?.status).toBe('cost-exceeded'); expect(state.totalTokens).toBe(100);
+    expect(state.spendByPurpose?.review?.costCents).toBe(5);
+    expect(deps.emit).not.toHaveBeenCalledWith('loop:fresh-eyes-review-passed',expect.anything());
+  });
+
   it('does NOT converge when reviewer APPROVES but impl-mode verify fails', async () => {
     const state = makeState(workspace);
     const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(reviewResult({ verdict: 'APPROVED' }));
@@ -555,8 +568,8 @@ describe('evaluatePingPongCompletion', () => {
     const result = await evaluatePingPongCompletion(deps);
     expect(result).toBeNull();
     expect(state.pendingInterventions[0]?.message).toContain('verify command FAILED');
-    expect(state.pendingInterventions[0]?.message).toContain('Local advisory');
-    expect(state.pendingInterventions[0]?.message).toContain('not blocking');
+    expect(state.pendingInterventions[0]?.message).not.toContain('Local advisory');
+    expect(state.pendingInterventions[0]?.message).toContain('<verify_result>');
     expect(deps.emit).toHaveBeenCalledWith('loop:fresh-eyes-review-blocked', expect.objectContaining({
       advisoryFindings: [expect.objectContaining({ title: 'Local advisory', advisory: true })],
       localAdvisoryStatus: 'used',
@@ -641,7 +654,7 @@ describe('evaluatePingPongCompletion', () => {
     expect(result?.status).toBe('needs-human-arbitration');
   });
 
-  it('converges-or-arbitrates (completed-needs-review) after 2 low-only-churn rounds', async () => {
+  it('a nits-only review converges immediately and leaves the suggestions for James', async () => {
     const state = makeState(workspace);
     const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(
       reviewResult({
@@ -651,11 +664,11 @@ describe('evaluatePingPongCompletion', () => {
         ],
       }),
     );
-    let result: Awaited<ReturnType<typeof evaluatePingPongCompletion>> = null;
-    for (let i = 0; i < 2; i++) {
-      result = await evaluatePingPongCompletion(baseDeps(state, reviewer));
-    }
-    expect(result?.status).toBe('completed-needs-review');
-    expect(state.pingPong?.lowOnlyChurnRounds).toBe(2);
+    const deps = baseDeps(state, reviewer);
+    const result = await evaluatePingPongCompletion(deps);
+    expect(result?.status).toBe('completed');
+    expect(state.pendingInterventions).toEqual([]);
+    expect(state.pingPong?.ledger).toEqual([]);
+    expect(deps.emit).toHaveBeenCalledWith('loop:fresh-eyes-review-passed', expect.objectContaining({ advisoryFindings: [expect.objectContaining({ title: 'style nit' })] }));
   });
 });

@@ -58,6 +58,14 @@ export class CodexCliAdapter extends CodexAppServerTurnAdapter {
   }
 
   /**
+   * Codex owns an in-flight app-server turn's liveness through its 15-minute
+   * no-notification watchdog. Exec fallback keeps the generic silence clock.
+   */
+  hasActiveTurn(): boolean {
+    return this.useAppServer && this.appServerRuntime.hasActiveTurn();
+  }
+
+  /**
    * Resolves the context-window size. Prefers the value reported by Codex via
    * `thread/tokenUsage/updated` (authoritative), then falls back to the
    * model-capabilities registry, and finally to `CONTEXT_WINDOWS.CODEX_DEFAULT`.

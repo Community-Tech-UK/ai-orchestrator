@@ -19,7 +19,7 @@ import { resolveReviewWorkingDirectory } from './cross-model-review-service.help
 import { redactForEgress } from '../security/content-egress-gate';
 import { verifyAnchor } from './review-artifact-anchor';
 import { LOCAL_ADVISORY_ANGLE, NO_RULES_HASH } from './review-coverage';
-import { resolveReviewerModelOverride, type HeadlessReviewRequest, type ReviewExecutionHost } from '../review/review-execution-host';
+import { resolveReviewerModelOverride, type HeadlessReviewRequest, type ReviewExecutionHost, type ReviewerCallUsage } from '../review/review-execution-host';
 import type { CheckerCandidate } from '../review/checker-plan';
 import { learnFromCheckerFailure } from '../review/copilot-model-entitlements';
 
@@ -53,6 +53,8 @@ export async function runHeadlessReviewCommand(
   const abortFromExternal = (): void => abort.abort(externalSignal?.reason);
   const timeoutMs = Math.max(1, request.timeoutSeconds ?? 60) * 1000;
   const reviewerStatuses: HeadlessReviewReviewer[] = [];
+  const spend: ReviewerCallUsage[] = [];
+  const onUsage = (usage: ReviewerCallUsage): void => { spend.push(usage); };
   const egress = redactForEgress(request.content, { kind: 'diff', preserveDiffMarkers: true });
   const reviewContent = truncateForReview(egress.content);
   // WS-B9: the exact, redacted, size-bounded material every reviewer this
@@ -146,9 +148,9 @@ export async function runHeadlessReviewCommand(
                 || (reviewer === 'antigravity' && reviewerModel !== configuredModel);
               const rawResponse = needsModelOverride
                 ? await dependencies.host.dispatchReviewerPrompt(
-                    reviewer, prompt, cwd, abort.signal, { modelOverride: reviewerModel, jsonSchema },
+                    reviewer, prompt, cwd, abort.signal, { modelOverride: reviewerModel, jsonSchema, onUsage, purpose: request.target.startsWith('loop:') ? 'fresh-eyes-review' : 'review-cli', correlationId: request.target },
                   )
-                : await dependencies.host.dispatchReviewerPrompt(reviewer, prompt, cwd, abort.signal, { jsonSchema });
+                : await dependencies.host.dispatchReviewerPrompt(reviewer, prompt, cwd, abort.signal, { jsonSchema, onUsage, purpose: request.target.startsWith('loop:') ? 'fresh-eyes-review' : 'review-cli', correlationId: request.target });
               lastResponseLength = rawResponse?.length ?? 0;
               parsed = parseCrossModelReviewResponse(reviewer, rawResponse, reviewDepth, 0);
               if (parsed) {
@@ -303,6 +305,7 @@ export async function runHeadlessReviewCommand(
   const noReviewers = reviewers.length === 0 && batch.localOutcome.status === 'skipped';
 
   return {
+    spend,
     target: request.target,
     cwd,
     startedAt: startedAt.toISOString(),

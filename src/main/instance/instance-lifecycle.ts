@@ -161,7 +161,7 @@ import {
   deleteTurnSupervisor,
   getOrCreateTurnSupervisor,
 } from '../session/session-turn-supervisor';
-import { applyProviderSessionDurability } from './lifecycle/provider-session-durability';
+import { applyInstanceSpawnPolicy } from './lifecycle/instance-spawn-policy';
 import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
 import { assembleInstanceSystemPrompt } from './instance-system-prompt';
 import { restoreWokenOutputBuffer } from './lifecycle/wake-buffer-restore';
@@ -830,7 +830,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       options.instanceId,
       options.env,
     );
-    const durableOptions = applyProviderSessionDurability(cliType, instance, {
+    const durableOptions = applyInstanceSpawnPolicy(cliType, instance, {
       ...options,
       ...(harnessCliEnv ? { env: harnessCliEnv } : {}),
     });

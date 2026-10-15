@@ -1,3 +1,5 @@
+import { describeLoopEnd } from '../../../../shared/loop/loop-end-wording';
+import { LoopScorecardComponent } from './loop-scorecard.component';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -90,7 +92,7 @@ export function deriveReattemptSeed(
 @Component({
   selector: 'app-loop-past-runs-panel',
   standalone: true,
-  imports: [AioTooltipDirective],
+  imports: [AioTooltipDirective, LoopScorecardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (runs().length > 0) {
@@ -158,11 +160,13 @@ export function deriveReattemptSeed(
                     }
                   </span>
                 </div>
+                @if (run.endedAt !== null) { <div class="pr-end-line">{{ endLine(run) }}</div> }
                 @if (resolveError(); as failure) {
                   @if (failure.runId === run.id) {
                     <div class="pr-resolve-error" role="alert">{{ failure.message }}</div>
                   }
                 }
+                @if (isRowExpanded(run.id)) { <app-loop-scorecard [loopRunId]="run.id" /> }
                 @if (run.initialPrompt) {
                   <div class="pr-prompt-preview" [class.expanded]="isRowExpanded(run.id)">{{ run.initialPrompt }}</div>
                   @if (isRowExpanded(run.id) && hasDistinctIterationPrompt(run)) {
@@ -435,6 +439,12 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
   // ────── presentational helpers (delegate to pure utils) ──────
   // Methods (rather than direct util references) so the template can
   // bind cleanly without `import {…} from '…'` in the @Component decorator.
+
+  protected endLine(run: LoopRunSummaryPayload): string {
+    const wording = describeLoopEnd({ status: run.status, endReason: run.endReason, roundsFinished: run.totalIterations, endedAt: run.endedAt,
+      mergeHeld: run.worktreeLifecycle?.phase === 'preserved' && /check.*skipped|merge.*held/i.test(run.endReason ?? ''), branch: run.worktreeLifecycle?.sessionBranch });
+    return `${wording.headline}. ${wording.sentence}`;
+  }
 
   protected statusLabel(status: string): string {
     return loopStatusLabel(status);

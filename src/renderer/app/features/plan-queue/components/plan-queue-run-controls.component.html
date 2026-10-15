@@ -1,4 +1,5 @@
 <div class="pq-run-controls">
+  <span class="pq-run-status" role="status">{{ statusLabel() }}</span>
   @if (confirmingCancel()) {
     <span class="pq-cancel-confirm" role="group" aria-label="Confirm cancel run">
       Cancel this run? In-flight items will park.
@@ -12,8 +13,7 @@
     } @else if (run().status === 'paused') {
       <button type="button" class="pq-resume" (click)="onResume()">Resume</button>
       <button type="button" class="pq-cancel" (click)="onCancelClick()">Cancel</button>
-    } @else {
-      <span class="pq-run-terminal-status">{{ run().status }}</span>
+
     }
   }
 </div>

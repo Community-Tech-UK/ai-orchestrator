@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, effect, inject, input, output, signal } from '@angular/core';
 import type { PlanQueueItemDto } from '@contracts/schemas/plan-queue';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../../shared/tooltip/tooltip-copy';
 import { PlanQueueStore } from '../../../core/state/plan-queue.store';
 import { planQueueDocumentBasename, planQueueParkReasonLabel } from './plan-queue-item-list.component';
 
@@ -13,7 +15,7 @@ type ParkedAction = 'land-anyway' | 'discard-item';
 @Component({
   selector: 'app-plan-queue-parked-list',
   standalone: true,
-  imports: [],
+  imports: [AioTooltipDirective],
   templateUrl: './plan-queue-parked-list.component.html',
   styleUrl: './plan-queue-parked-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -25,6 +27,8 @@ export class PlanQueueParkedListComponent {
   items = input<PlanQueueItemDto[]>([]);
 
   resumeItem = output<string>();
+  retryLanding = output<string>();
+  protected readonly copyFor = copyFor;
   landAnyway = output<string>();
   discardItem = output<string>();
 
@@ -50,6 +54,14 @@ export class PlanQueueParkedListComponent {
     const cached = this.diffstats()[itemId];
     if (cached === undefined) return 'Loading diff…';
     return cached || 'No changes';
+  }
+
+  canRetryLanding(item: PlanQueueItemDto): boolean {
+    return item.state === 'parked' && item.parkReason === 'land-blocked' && item.verdict?.verdict === 'PASS';
+  }
+
+  onRetryLanding(item: PlanQueueItemDto): void {
+    if (this.canRetryLanding(item)) this.retryLanding.emit(item.id);
   }
 
   onResume(itemId: string): void {

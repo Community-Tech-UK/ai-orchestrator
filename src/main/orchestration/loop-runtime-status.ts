@@ -35,6 +35,7 @@ export function isTerminalLoopRuntimeStatus(status: LoopState['status']): boolea
     status === 'completed-needs-review' ||
     status === 'cancelled' ||
     status === 'failed' ||
+    status === 'attempt-failed' ||
     status === 'cap-reached' ||
     status === 'error' ||
     status === 'no-progress' ||

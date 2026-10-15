@@ -2,6 +2,7 @@ import type { InstanceProvider, InstanceWaitReason } from '../../shared/types/in
 import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import type { ProviderLimitLedger } from '../core/system/provider-limit-ledger';
 import { getLogger } from '../logging/logger';
+import { COPILOT_RATE_LIMIT_SOURCE } from '../cli/copilot-limit-messages';
 import { textDiagnostic } from '../logging/source-diagnostics';
 import type {
   AccountFailoverCoordinator,
@@ -131,6 +132,8 @@ export interface MaybeParkParams {
   model?: string | null;
   /** Reset time parsed from the provider error/notice, if any (epoch ms). */
   resetAtHint: number | null;
+  /** The monthly quota snapshot cannot observe this Copilot rate limit. */
+  quotaBlind?: boolean;
   reason: string;
   /** Provider text to re-send on resume (Harness turns keep their LT-657 envelope); null when unknown. */
   resumePrompt: string | null;
@@ -210,7 +213,7 @@ export class InstanceProviderLimitHandler {
       now,
     }) ?? null;
     const snapshotResumeAt = this.deriveResumeFromSnapshot(
-      scope.quotaApplies ? deps.getQuotaSnapshot(providerId, accountProfileId) : null,
+      scope.quotaApplies && !params.quotaBlind ? deps.getQuotaSnapshot(providerId, accountProfileId) : null,
     );
     const detectedResumeAt = resetAtHint ?? snapshotResumeAt;
     const resumeAt = detectedResumeAt ?? knownLimit?.resumeAt ?? null;
@@ -226,7 +229,7 @@ export class InstanceProviderLimitHandler {
         accountProfileId,
         detectedAt: now,
         resumeAt: detectedResumeAt,
-        source: resetAtHint !== null ? 'provider-limit-signal' : 'quota-snapshot',
+        source: params.quotaBlind ? COPILOT_RATE_LIMIT_SOURCE : resetAtHint !== null ? 'provider-limit-signal' : 'quota-snapshot',
         instanceId: params.instanceId,
       });
     } else if (scope.recordable && pooled && knownLimit === null) {
@@ -369,7 +372,8 @@ export class InstanceProviderLimitHandler {
       now: Date.now(),
     }) ?? null;
     if (!knownLimit) return this.maybeSwitchPreemptively(params, providerId, accountProfileId);
-    if (scope.quotaApplies && this.clearLimitLiftedSinceRecorded(params, providerId, accountProfileId)) {
+    const quotaBlind = params.quotaBlind || (providerId === 'copilot' && knownLimit.source === COPILOT_RATE_LIMIT_SOURCE);
+    if (scope.quotaApplies && !quotaBlind && this.clearLimitLiftedSinceRecorded(params, providerId, accountProfileId)) {
       return this.maybeSwitchPreemptively(params, providerId, accountProfileId);
     }
 
@@ -385,7 +389,7 @@ export class InstanceProviderLimitHandler {
     // turn even when the auto-resume feature is off (the hold is not the spend;
     // the unattended re-send is). Without it a restart mid-window dropped the
     // in-memory park and dispatched straight through a still-refused window.
-    const parked = this.park(params, providerId, knownLimit.resumeAt, { forceHold: true });
+    const parked = this.park({ ...params, quotaBlind }, providerId, knownLimit.resumeAt, { forceHold: true });
     if (failoverParams && plan?.kind === 'offer') deps.accountFailover?.offer(failoverParams, plan.toProfileId);
     return parked;
   }
@@ -547,6 +551,7 @@ export class InstanceProviderLimitHandler {
           provider: params.provider,
           resumeAt,
           reason: params.reason,
+          ...(params.quotaBlind ? { quotaBlind: true } : {}),
           resumePrompt: params.resumePrompt,
           historyThreadId: identifiers?.historyThreadId,
           sessionId: identifiers?.sessionId,
@@ -557,7 +562,7 @@ export class InstanceProviderLimitHandler {
       this.parked.set(params.instanceId, {
         cancel,
         resumePrompt: params.resumePrompt,
-        stopEarlyResumeProbe: this.startEarlyResumeProbe(params, providerId, resumeAt, params.accountProfileId ?? null),
+        stopEarlyResumeProbe: params.quotaBlind ? () => undefined : this.startEarlyResumeProbe(params, providerId, resumeAt, params.accountProfileId ?? null),
       });
     } else {
       // Hold-only park (auto-resume off): no unattended re-send and no

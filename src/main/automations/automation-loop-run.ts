@@ -39,6 +39,8 @@ const TERMINAL_STATUSES = new Set<LoopStatus>([
   'completed-needs-review',
   'cancelled',
   'failed',
+  'attempt-failed',
+  'provider-limit',
   'error',
   'no-progress',
   'cap-reached',
@@ -73,7 +75,7 @@ export interface AutomationLoopRunDeps {
   ) => Promise<Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }>;
   /** Injectable subscription to loop state changes. */
   subscribeLoopStateChanged?: (
-    listener: (payload: { loopRunId: string; state: { status: LoopStatus } }) => void,
+    listener: (payload: { loopRunId: string; state: { status: LoopStatus; endedAt?: number | null; lastCompletionOutcome?: string } }) => void,
   ) => void;
 }
 
@@ -213,9 +215,11 @@ export class AutomationLoopRunDispatcher {
   }
 
   /** Exposed for direct spec-driving; production flow uses the subscription. */
-  handleLoopStateChanged(payload: { loopRunId: string; state: { status: LoopStatus } }): void {
+  handleLoopStateChanged(payload: { loopRunId: string; state: { status: LoopStatus; endedAt?: number | null; lastCompletionOutcome?: string } }): void {
     const tracked = this.trackedByLoopRunId.get(payload.loopRunId);
-    if (!tracked || !TERMINAL_STATUSES.has(payload.state.status)) {
+    const signOff = payload.state.status === 'paused' && payload.state.lastCompletionOutcome === 'unverifiable';
+    if (!tracked || (!signOff && !TERMINAL_STATUSES.has(payload.state.status))
+      || (payload.state.status === 'provider-limit' && payload.state.endedAt == null)) {
       return;
     }
     this.trackedByLoopRunId.delete(payload.loopRunId);
@@ -225,7 +229,7 @@ export class AutomationLoopRunDispatcher {
     const run = this.deps.store.terminalizeRun(
       tracked.runId,
       succeeded ? 'succeeded' : 'failed',
-      succeeded ? undefined : `Loop ended ${status}`,
+      succeeded ? undefined : signOff ? 'Loop paused for sign-off: open the loop to Accept or Resume it' : `Loop ended ${status}`,
       status === 'completed-needs-review'
         ? 'Loop completed but flagged items for human review.'
         : succeeded ? 'Loop completed.' : undefined,

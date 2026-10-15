@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   agenticPingPongReviewer,
   parseReviewerJson,
+  type PingPongReviewerInput,
 } from './agentic-pingpong-reviewer';
+import { foldPingPongSpend } from './loop-spend-ledger';
+import { spendProvenanceOf, type LoopSpendRow } from '../../shared/types/loop-spend.types';
+import type { LoopState } from '../../shared/types/loop.types';
 import { classifyPingPongSubjectHeuristic } from './pingpong-intent-classifier';
 
 const runReviewSession = vi.hoisted(() => vi.fn());
@@ -113,6 +117,55 @@ describe('agenticPingPongReviewer', () => {
       { name: 'claude', installed: true },
       { name: 'codex', installed: true },
     ];
+  });
+
+  const accountingInput: PingPongReviewerInput = {
+    loopRunId: 'loop-1', workspaceCwd: '/repo', goal: 'review widget', subject: 'impl',
+    builderProvider: 'claude', reviewerProviderSetting: 'codex', triedReviewerProviders: [],
+    ledger: [], roundNumber: 1, maxRounds: 4, blockingSeverities: ['critical', 'high'], timeoutMs: 1000,
+  };
+  const approvedOutput = JSON.stringify({ verdict: 'APPROVED', completeness: { filesInspected: 1, scopeCovered: 'src/widget.ts' }, findings: [], ledger: [] });
+
+  it('reconstructs exact and zero-cent computed portions for older reviewer results', async () => {
+    runReviewSession.mockResolvedValueOnce({ outcome: 'settled', finalOutput: approvedOutput, instanceId: 'rev-1', tokensUsed: 30, costCents: 11, exactCostCents: 11, spendRecords: 2, costBasis: 'computed' });
+    const result = await agenticPingPongReviewer(accountingInput);
+    expect(result.spendBreakdown).toEqual([{ tokens: 30, costCents: 11, basis: 'provider-reported' }, { tokens: 0, costCents: 0, basis: 'computed' }]);
+  });
+
+  it.each(['settled', 'timeout', 'failed'] as const)('retains turn provenance through a %s reviewer result', async outcome => {
+    const portions = [
+      { tokens: 10, costCents: 11, basis: 'provider-reported' as const },
+      { tokens: 1, costCents: 0, basis: 'computed' as const },
+      { tokens: 10, costCents: 0, basis: 'unknown' as const },
+    ];
+    runReviewSession.mockResolvedValueOnce({ outcome, finalOutput: approvedOutput, instanceId: 'rev-1', tokensUsed: 21, costCents: 11, exactCostCents: 11, spendRecords: 3, costBasis: 'unknown', spendBreakdown: portions });
+    const result = await agenticPingPongReviewer(accountingInput);
+    expect(result).toMatchObject({ tokensUsed: 21, costCents: 11, exactCostCents: 11, costBasis: 'unknown', spendBreakdown: portions });
+    const state = { id: 'loop-1', totalTokens: 0, totalCostCents: 0 } as LoopState;
+    const rows: LoopSpendRow[] = [];
+    foldPingPongSpend(state, 2, result.tokensUsed, result.costCents, result.costBasis, result.exactCostCents, result.spendRecords, row => rows.push(row), result.spendBreakdown);
+    expect(rows.map(row => ({ tokens: row.tokens, costCents: row.costCents, basis: row.basis }))).toEqual(portions);
+    expect(state).toMatchObject({ totalTokens: 21, totalCostCents: 11, spendByPurpose: { review: { knownCents: 11, estimatedCalls: 1, unknownCalls: 1, calls: 3 } } });
+    expect(spendProvenanceOf(state.spendByPurpose).label).toBe('partly-estimated');
+  });
+
+  it.each([
+    { basis: 'unknown', outcome: 'settled' },
+    { basis: 'unknown', outcome: 'timeout' },
+    { basis: 'unknown', outcome: 'failed' },
+    { basis: 'computed', outcome: 'settled' },
+  ] as const)('preserves exact cost and $basis zero-cent usage during $outcome format repair', async ({ basis, outcome }) => {
+    runReviewSession.mockResolvedValueOnce({ outcome: 'settled', finalOutput: 'I reviewed src/widget.ts.', instanceId: 'rev-1', tokensUsed: 10, costCents: 11, exactCostCents: 11, spendRecords: 1, costBasis: 'provider-reported', spendBreakdown: [{ tokens: 10, costCents: 11, basis: 'provider-reported' }] });
+    runReviewSession.mockResolvedValueOnce({ outcome, finalOutput: approvedOutput, instanceId: 'repair', tokensUsed: 3, costCents: 0, exactCostCents: 0, spendRecords: 1, costBasis: basis, spendBreakdown: [{ tokens: 3, costCents: 0, basis }] });
+    const result = await agenticPingPongReviewer(accountingInput);
+    expect(result).toMatchObject({ tokensUsed: 13, costCents: 11, exactCostCents: 11, spendRecords: 2, costBasis: basis, spendBreakdown: [{ tokens: 10, costCents: 11, basis: 'provider-reported' }, { tokens: 3, costCents: 0, basis }] });
+    expect(result.verdict).toBe(outcome === 'settled' ? 'APPROVED' : 'UNRELIABLE');
+    const state = { id: 'loop-1', totalTokens: 0, totalCostCents: 0 } as LoopState;
+    foldPingPongSpend(state, 2, result.tokensUsed, result.costCents, result.costBasis, result.exactCostCents, result.spendRecords, () => undefined, result.spendBreakdown);
+    expect(state.totalCostCents).toBe(11);
+    expect(state.totalTokens).toBe(13);
+    expect(state.spendByPurpose?.review?.knownCents).toBe(11);
+    expect(spendProvenanceOf(state.spendByPurpose).label).toBe('partly-estimated');
   });
 
   it('uses Antigravity when a legacy Gemini ping-pong reviewer is configured and agy is detected', async () => {

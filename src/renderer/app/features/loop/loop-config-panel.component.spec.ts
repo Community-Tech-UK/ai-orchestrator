@@ -61,6 +61,25 @@ describe('LoopConfigPanelComponent', () => {
     fixture.detectChanges();
   });
 
+  it('sends the chosen check time limit in milliseconds and shows its timeout consequence', async () => {
+    component.showAdvanced.set(true); fixture.detectChanges(); await fixture.whenStable();
+    const input = fixture.nativeElement.querySelector('#loop-cfg-verify-timeout') as HTMLInputElement;
+    expect(input).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('A check that runs out of time counts as failed.');
+    input.value = '15'; input.dispatchEvent(new Event('input')); fixture.detectChanges(); await fixture.whenStable();
+    expect(component.buildConfig()?.completion?.verifyTimeoutMs).toBe(900_000);
+  });
+
+  it('allows twenty minutes for the full check by default', () => {
+    expect(component.buildConfig()?.completion?.verifyTimeoutMs).toBe(1_200_000);
+  });
+
+  it.each([0, 61, NaN, Infinity, 1.5])('refuses an invalid check time limit %s', value => {
+    component.verifyTimeoutMinutes.set(value);
+    expect(component.buildConfig()).toBeNull();
+    expect(component.validationError()).toBe('Check time limit must be a whole number between 1 and 60 minutes.');
+  });
+
   it('requires completed-plan renames whenever a plan file is configured on a gated loop', () => {
     component.onCompletionModeChange('gated');
     component.planFile.set('PLAN.md');
@@ -498,7 +517,7 @@ describe('LoopConfigPanelComponent', () => {
 
     expect(config?.audit).toEqual({
       finalAuditMode: 'observe',
-      preflightMode: 'off',
+      preflightMode: 'record',
       planPacketMode: 'off',
       cleanlinessScan: true,
     });

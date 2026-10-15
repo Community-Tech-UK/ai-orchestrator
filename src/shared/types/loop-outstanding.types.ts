@@ -32,6 +32,8 @@ export interface LoopOutstanding {
   needsHuman: LoopOutstandingEntry[];
   /** Items under the "Open questions" section. */
   openQuestions: LoopOutstandingEntry[];
+  decisionsApplied?: LoopOutstandingEntry[];
+  forInformation?: LoopOutstandingEntry[];
   /** Raw OUTSTANDING.md text (for export / inspection). */
   raw: string;
   /** Epoch ms when this snapshot was captured. */
@@ -42,7 +44,9 @@ export interface LoopOutstanding {
 export type LoopOutstandingItemStatus = 'open' | 'resolved' | 'dismissed';
 
 /** Which OUTSTANDING.md section an aggregated item came from. */
-export type LoopOutstandingItemKind = 'needs-human' | 'open-question';
+export type LoopOutstandingItemKind = 'needs-human' | 'decision-applied' | 'for-information' | 'open-question';
+export type LoopQuestionRiskClass = 'scope' | 'money' | 'deletion' | 'shared';
+export type LoopOutstandingOutcome = 'answered' | 'kept' | 'undone' | 'dismissed' | 'withdrawn' | 'superseded' | 'seen';
 
 /**
  * One aggregated, persisted outstanding item across loop runs. Stored in
@@ -58,6 +62,10 @@ export interface LoopOutstandingItem {
   /** Workspace the loop ran in — retained for export and optional filtering. */
   workspaceCwd: string;
   kind: LoopOutstandingItemKind;
+  riskClass?: LoopQuestionRiskClass | null;
+  firstSeenRound?: number | null;
+  outcome?: LoopOutstandingOutcome | null;
+  answerSentAt?: number | null;
   text: string;
   /**
    * The human's recorded decision/answer for this item, or null when none has

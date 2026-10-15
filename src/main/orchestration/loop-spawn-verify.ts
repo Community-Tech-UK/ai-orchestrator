@@ -63,6 +63,7 @@ export function spawnVerifyCommand(
         AIO_TEST_NO_CACHE: '1',
       },
     });
+    let outputTruncated = false;
     let stdout = '';
     let stderr = '';
     let settled = false;
@@ -72,16 +73,22 @@ export function spawnVerifyCommand(
       if (settled) return;
       settled = true;
       clearTimeout(to);
-      resolve(outcome);
+      resolve(outputTruncated ? { ...outcome, outputTruncated: true } : outcome);
     };
     const cap = (chunk: Buffer | string, target: 'stdout' | 'stderr') => {
       const s = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
       if (target === 'stdout') {
         stdout += s;
-        if (stdout.length > 200_000) stdout = stdout.slice(-200_000);
+        if (stdout.length > 200_000) {
+          outputTruncated = true;
+          stdout = stdout.slice(-200_000);
+        }
       } else {
         stderr += s;
-        if (stderr.length > 200_000) stderr = stderr.slice(-200_000);
+        if (stderr.length > 200_000) {
+          outputTruncated = true;
+          stderr = stderr.slice(-200_000);
+        }
       }
     };
     child.stdout?.on('data', (b) => cap(b, 'stdout'));

@@ -1,5 +1,6 @@
 import type { ChatSystemEventInput } from '../chats/chat-service';
 import type { LoopIteration, LoopState } from '../../shared/types/loop.types';
+import { describeLoopEnd } from '../../shared/loop/loop-end-wording';
 
 // The chat recap shows the agent's closing message inline. Sized to fit a
 // typical full final response (a few KB) so the common case is shown whole,
@@ -132,8 +133,10 @@ export function buildLoopIterationChatEvent(
 
 export function buildLoopTerminalChatSummary(state: LoopState): ChatSystemEventInput {
   const last = state.lastIteration;
+  const end = describeLoopEnd({ status: state.status, endReason: state.endReason, roundsFinished: state.totalIterations, endedAt: state.endedAt, mergeHeld: state.endEvidence?.['mergeHold'] === true, branch: state.worktreeLifecycle?.sessionBranch ?? state.config.worktreeBranch });
   const content = [
-    `Loop ended - ${state.status}`,
+    end.headline,
+    end.sentence,
     '',
     ...summaryLines(state, last),
     ...outstandingLines(state),
@@ -246,7 +249,7 @@ function summaryLines(state: LoopState, last: LoopIteration | undefined): string
 }
 
 /**
- * Render the captured OUTSTANDING.md sections (Needs human / Open questions)
+ * Render the captured OUTSTANDING.md sections and legacy question fallback
  * into the terminal summary so the human-gated work is visible in the chat
  * transcript itself — not just in the hidden per-run state dir or the
  * aggregated Outstanding panel. Empty when nothing was captured.
@@ -255,7 +258,9 @@ function outstandingLines(state: LoopState): string[] {
   const outstanding = state.outstanding;
   if (!outstanding) return [];
   const { needsHuman, openQuestions } = outstanding;
-  if (needsHuman.length === 0 && openQuestions.length === 0) return [];
+  const decisions = outstanding.decisionsApplied ?? [];
+  const information = outstanding.forInformation ?? openQuestions;
+  if (needsHuman.length === 0 && information.length === 0 && decisions.length === 0) return [];
   const renderEntry = (entry: { text: string; recommendation: string | null }): string[] => {
     const out = [`- ${entry.text}`];
     if (entry.recommendation) out.push(`  - Recommendation: ${entry.recommendation}`);
@@ -265,9 +270,8 @@ function outstandingLines(state: LoopState): string[] {
   if (needsHuman.length > 0) {
     lines.push('', 'Needs human:', ...needsHuman.flatMap(renderEntry));
   }
-  if (openQuestions.length > 0) {
-    lines.push('', 'Open questions:', ...openQuestions.flatMap(renderEntry));
-  }
+  if (decisions.length > 0) lines.push('', 'Decisions applied:', ...decisions.flatMap(renderEntry));
+  if (information.length > 0) lines.push('', 'For information:', ...information.flatMap(renderEntry));
   return lines;
 }
 

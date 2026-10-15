@@ -7,6 +7,8 @@ import { readCapturedToolArguments } from '../providers/tool-call-argument-mater
 export interface LoopInvocationCaptureSnapshot {
   toolCalls: LoopToolCallRecord[];
   filesRead: string[];
+  ownWritePaths: string[];
+  ownWritesComplete: boolean;
   unresolvedToolCalls: boolean;
   finishReason?: string;
   toolRwLockConflicts: LoopErrorRecord[];
@@ -37,6 +39,8 @@ const READ_FILE_TOOLS = new Set([
 
 const WRITE_FILE_TOOLS = new Set([
   'Edit',
+  'file_change',
+  'fileChange',
   'MultiEdit',
   'NotebookEdit',
   'Write',
@@ -64,6 +68,8 @@ export function createLoopInvocationCapture(options: {
   const toolCalls: LoopToolCallRecord[] = [];
   const pending = new Map<string, TrackedToolCall>();
   const filesRead: string[] = [];
+  const ownWritePaths = new Set<string>();
+  let ownWritesComplete = true;
   const filesReadSeen = new Set<string>();
   const pendingWrites = new Map<string, TrackedWriteLock>();
   const toolRwLockConflicts: LoopErrorRecord[] = [];
@@ -116,10 +122,22 @@ export function createLoopInvocationCapture(options: {
       pending.set(id, { id, startedAt, index });
 
       if (READ_FILE_TOOLS.has(toolName) && input) {
-        for (const key of ['file_path', 'path', 'filePath', 'filename', 'file']) {
+        for (const key of ['file_path', 'path', 'filePath', 'filename', 'file', 'notebook_path']) {
           rememberReadPath(input[key]);
         }
       }
+      const material = input ? readCapturedToolArguments(input) ?? input : undefined;
+      if (WRITE_FILE_TOOLS.has(toolName) || /edit|write|patch|create|delete|replace/i.test(toolName)) {
+        const paths = material ? extractWriteLockPaths(toolName, material, options.workspaceDir) : [];
+        if (paths.length === 0) ownWritesComplete = false;
+        for (const file of paths) ownWritePaths.add(file);
+      }
+      if (/^(?:Bash|Shell|shell|command_execution|commandExecution|exec_command|run_command|execute_command|execute)$/i.test(toolName)) {
+        const command = readString(material, 'command') ?? readString(material, 'cmd');
+        if (!command || />|\b(?:tee|mv|cp|rm|patch)\b|\bsed\s+-[^\s]*i|\bgit\s+apply\b|--(?:write|fix)\b/i.test(command)) ownWritesComplete = false;
+      }
+      // Delegated file mutations are not visible in this activity stream.
+      if (/^(?:Task|spawn_agent)$/i.test(toolName)) ownWritesComplete = false;
       if (options.rwLocksEnabled && input) {
         const writePaths = extractWriteLockPaths(toolName, input, options.workspaceDir);
         if (writePaths.length > 0) {
@@ -192,6 +210,8 @@ export function createLoopInvocationCapture(options: {
       return {
         toolCalls: [...toolCalls],
         filesRead: [...filesRead],
+        ownWritePaths: [...ownWritePaths],
+        ownWritesComplete,
         unresolvedToolCalls: pending.size > 0,
         toolRwLockConflicts: [...toolRwLockConflicts],
         ...(finalFinishReason ? { finishReason: finalFinishReason } : {}),
@@ -208,11 +228,18 @@ function extractWriteLockPaths(toolName: string, input: Record<string, unknown>,
       .filter((candidate): candidate is string => Boolean(candidate));
     if (fromLock.length > 0) return [...new Set(fromLock)];
   }
-  if (!WRITE_FILE_TOOLS.has(toolName)) return [];
+  if (!WRITE_FILE_TOOLS.has(toolName) && !/edit|write|patch|create|delete|replace/i.test(toolName)) return [];
   const paths: string[] = [];
-  for (const key of ['file_path', 'path', 'filePath', 'filename', 'file']) {
+  for (const key of ['file_path', 'path', 'filePath', 'filename', 'file', 'notebook_path']) {
     const normalized = normalizeReadPath(input[key], workspaceDir);
     if (normalized) paths.push(normalized);
+  }
+  const changes = input['changes'];
+  if (Array.isArray(changes)) for (const change of changes) {
+    const normalized = normalizeReadPath(readString(change, 'path'), workspaceDir);
+    if (normalized) paths.push(normalized);
+    const moved = normalizeReadPath(readString(readRecord(change, 'kind'), 'move_path'), workspaceDir);
+    if (moved) paths.push(moved);
   }
   return [...new Set(paths)];
 }
@@ -455,4 +482,8 @@ function readBoolean(value: unknown, key: string): boolean | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+export function captureFileEvidence(snapshot: LoopInvocationCaptureSnapshot): Pick<LoopInvocationCaptureSnapshot, 'filesRead' | 'ownWritePaths' | 'ownWritesComplete'> {
+  return { filesRead: snapshot.filesRead, ownWritePaths: snapshot.ownWritePaths, ownWritesComplete: snapshot.ownWritesComplete };
 }

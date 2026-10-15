@@ -193,7 +193,7 @@ describe('loop-schema v16 managed worktree lifecycle', () => {
 
     runLoopMigrations(driver);
 
-    expect(LOOP_SCHEMA_VERSION).toBe(20);
+    expect(appliedVersions()).toContain(LOOP_SCHEMA_VERSION);
     expect(appliedVersions()).toContain(16);
     expect(columnNames('loop_runs')).toContain('worktree_lifecycle_json');
     const row = driver
@@ -231,5 +231,31 @@ describe('loop-schema v18 plan queue landing refusals', () => {
       .prepare('SELECT state, landing_refusals FROM plan_queue_items WHERE id = ?')
       .get<{ state: string; landing_refusals: number }>('item-v17');
     expect(row).toEqual({ state: 'landing', landing_refusals: 0 });
+  });
+});
+
+
+describe('loop spend and round telemetry migration', () => {
+  it('upgrades existing rows with unrecorded telemetry and adds spend storage', () => {
+    runLoopMigrationsUpTo(driver, 20);
+    driver.prepare("INSERT INTO loop_runs (id, chat_id, config_json, status, started_at) VALUES ('legacy', 'chat', '{}', 'completed', 1)").run();
+    driver.prepare("INSERT INTO loop_iterations (id, loop_run_id, seq, stage, started_at, work_hash, progress_verdict, verify_status) VALUES ('round', 'legacy', 1, 'IMPLEMENT', 1, 'hash', 'OK', 'not-run')").run();
+    runLoopMigrations(driver);
+    expect(driver.prepare('SELECT finish_reason, prompt_bytes FROM loop_iterations WHERE id = ?').get('round')).toEqual({ finish_reason: null, prompt_bytes: null });
+    expect(columnNames('loop_run_spend')).toEqual(expect.arrayContaining(['purpose', 'basis', 'cost_cents']));
+    for (const table of ['plan_queue_items', 'plan_queue_runs']) expect(columnNames(table)).toEqual(expect.arrayContaining(['tokens', 'cost_usd', 'exact_cost_usd']));
+    expect(driver.prepare('SELECT name FROM loop_migrations WHERE version = 21').get()).toEqual({ name: '021_loop_spend_and_round_telemetry' });
+  });
+});
+
+describe('live question migration', () => {
+  it('keeps historical questions outside the live question population and upgrades idempotently', () => {
+    runLoopMigrationsUpTo(driver, 21);
+    driver.prepare("INSERT INTO loop_runs (id,chat_id,config_json,status,started_at) VALUES ('q-run','chat','{}','completed',1)").run();
+    driver.prepare("INSERT INTO loop_outstanding_items (id,loop_run_id,chat_id,workspace_cwd,kind,text,loop_status,created_at,updated_at) VALUES ('old-q','q-run','chat','/p','needs-human','Old question','completed',1,1)").run();
+    runLoopMigrations(driver);
+    expect(columnNames('loop_outstanding_items')).toEqual(expect.arrayContaining(['risk_class','first_seen_round','outcome','answer_sent_at']));
+    expect(driver.prepare('SELECT text, first_seen_round, risk_class, outcome, answer_sent_at FROM loop_outstanding_items WHERE id = ?').get('old-q')).toEqual({ text: 'Old question', first_seen_round: null, risk_class: null, outcome: null, answer_sent_at: null });
+    expect(() => runLoopMigrations(driver)).not.toThrow();
   });
 });

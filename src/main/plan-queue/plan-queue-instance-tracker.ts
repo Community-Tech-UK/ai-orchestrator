@@ -81,6 +81,10 @@ export class PlanQueueInstanceTracker {
     this.appShuttingDown = true;
   }
 
+  isShuttingDown(): boolean {
+    return this.appShuttingDown;
+  }
+
   isTracked(instanceId: string): boolean {
     return this.tracking.has(instanceId);
   }

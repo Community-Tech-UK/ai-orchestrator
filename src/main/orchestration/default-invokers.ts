@@ -140,6 +140,7 @@ async function invokeCliTextResponse(params: {
   /** Copilot account-routing origin for this call. Every automatic surface
    *  passes its own so per-profile automation policy can distinguish them. */
   copilotOrigin?: CopilotInvocationOrigin;
+  machineSessionTrialKey?: string;
   /**
    * Which orchestration gate this is, for the operator routing policy
    * (`orchestrationRoutingPolicyJson`). Finer-grained than `routingIntent`:
@@ -274,12 +275,12 @@ async function invokeCliTextResponse(params: {
     permissionHookPath: params.permissionHookPath,
     env: params.env,
     rtk: params.rtk,
+    trialKey: params.machineSessionTrialKey,
     timeout: params.timeoutMs ?? 300000,
     maxTurns: params.maxTurns,
     ...(params.routingIntent === 'loop' ? { concurrencyPriority: 'overflow' as const } : {}),
     ...(scaffoldingChoice?.endpoint ? { ollamaEndpoint: scaffoldingChoice.endpoint } : {}),
   };
-
   const breaker = getCircuitBreakerRegistry().getBreaker(params.breakerKey, {
     failureThreshold: 3,
     resetTimeoutMs: 60000,
@@ -292,7 +293,6 @@ async function invokeCliTextResponse(params: {
     // crashes, provider errors) should count toward opening it.
     trackSlowCalls: false,
   });
-
   // Copilot account routing. This is the shared entry point for multi-verify,
   // review, debate, workflow and loop invocations, so resolving here covers
   // all five; a reused adapter already carries the route it spawned with.
@@ -303,7 +303,6 @@ async function invokeCliTextResponse(params: {
         spawnOptions,
         params.copilotOrigin ?? copilotOriginForRoutingIntent(params.routingIntent),
       );
-
   const prompt = buildUserPrompt(params.prompt, params.context);
   const response = await breaker.execute(async () => {
     // Either reuse the caller's adapter (same-session loop) or create a
@@ -742,7 +741,7 @@ import { evaluateLoopContextDiscipline } from './loop-context-discipline-runtime
 import { attachInvocationActivity, boundActivityDetail, type LoopInvocationActivity, type LoopInvocationActivityKind } from './loop-invocation-activity';
 import { observeLoopProviderRuntimeEvents } from './loop-provider-event-capture';
 import {
-  createLoopInvocationCapture,
+  captureFileEvidence, createLoopInvocationCapture,
   createToolTimeoutWatchdogWidener,
   extractFinishReasonFromResponse,
 } from './loop-invoker-capture';
@@ -1366,6 +1365,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
           streamIdleTimeoutMs: loopActiveTimeoutMs,
           maxTurns: loopMaxTurns,
           env: p.loopControlEnv,
+          trialKey: p.loopRunId,
         }).catch((err: unknown) => {
           logger.warn('Failed to create same-session loop adapter, falling back to fresh-child', {
             loopRunId: p.loopRunId,
@@ -1405,6 +1405,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         // requested; otherwise the strong default is used as before.
         routingIntent: 'loop',
         routingPolicyKey: 'loop',
+        machineSessionTrialKey: p.loopRunId,
         systemPrompt: undefined,
         prompt: p.prompt,
         routingPrompt: p.routingPrompt ?? p.prompt,
@@ -1529,7 +1530,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         ...(result.usage ? { usage: result.usage } : {}),
         ...(result.model ? { model: result.model } : {}),
         filesChanged,
-        filesRead: captureSnapshot.filesRead,
+        ...captureFileEvidence(captureSnapshot),
         toolCalls: captureSnapshot.toolCalls,
         errors,
         testPassCount,

@@ -71,11 +71,12 @@
       <h2 id="pq-parked-heading">Parked work</h2>
       <p class="pq-purpose">
         Leftovers of a stopped or cancelled run. Discard is the safe clean-up: it deletes the leftover branch and touches
-        nothing else. Land anyway merges the code without a verifier pass. Resume puts the document back in the queue.
+        nothing else. Try merging again retries a blocked merge that passed verification. Land anyway merges without the final checks. Resume puts the document back in the queue.
       </p>
       <app-plan-queue-parked-list
         [items]="store.parkedItems()"
         (resumeItem)="onResumeItem($event)"
+        (retryLanding)="onRetryLanding($event)"
         (landAnyway)="onLandAnyway($event)"
         (discardItem)="onDiscardItem($event)"
       />

@@ -1,0 +1,21 @@
+import { TestBed } from '@angular/core/testing';
+import { expect, it, vi } from 'vitest';
+import { LoopQuestionsStore } from './loop-questions.store';
+import { LoopIpcService } from '../../core/services/ipc/loop-ipc.service';
+it('loads only its run and refreshes only matching pushes, then sends answers through IPC', async () => {
+  let push: (data: { loopRunId?: string }) => void = () => undefined;
+  const listOutstanding = vi.fn().mockResolvedValue({ success: true, data: { items: [{ id: 'own', loopRunId: 'run', kind: 'needs-human', status: 'open', firstSeenRound: 1 }, { id: 'other', loopRunId: 'other' }] } });
+  const answerOutstanding = vi.fn().mockResolvedValue({ success: true, data: { ok: true, delivery: 'sent-to-loop' } });
+  TestBed.configureTestingModule({ providers: [LoopQuestionsStore, { provide: LoopIpcService, useValue: { listOutstanding, answerOutstanding, onOutstandingChanged: (fn: typeof push) => { push = fn; return () => undefined; } } }] });
+  const store = TestBed.inject(LoopQuestionsStore);
+  await store.load('run', 'chat');
+  expect(store.items().map(item => item.id)).toEqual(['own']);
+  push({ loopRunId: 'other' }); expect(listOutstanding).toHaveBeenCalledOnce();
+  push({ loopRunId: 'run' }); await vi.waitFor(() => expect(listOutstanding).toHaveBeenCalledTimes(2));
+  await store.answer('own', 'answer', 'Yes');
+  expect(answerOutstanding).toHaveBeenCalledWith({ id: 'own', action: 'answer', response: 'Yes', expectedRecommendation: null });
+  expect(store.deliveryFor('own')).toBe('sent-to-loop');
+  listOutstanding.mockRejectedValueOnce(new Error('disconnected'));
+  await expect(store.load('run', 'chat')).resolves.toBeUndefined();
+  expect(store.error()).toBe('disconnected');
+});

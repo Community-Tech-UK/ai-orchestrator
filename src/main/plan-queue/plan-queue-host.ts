@@ -34,6 +34,7 @@ export interface PlanQueueSessionTreePort {
   getAllInstances(): PlanQueueInstanceRecord[];
   /** Refused while the child's current parent is live and not superseded. */
   adoptOrphanInstance(childId: string, parentId: string): boolean;
+
 }
 
 /** The slice of InstanceManager the queue drives. */
@@ -47,6 +48,7 @@ export interface PlanQueueInstancePort {
   ): Promise<void>;
   terminateInstance(instanceId: string, graceful?: boolean): Promise<void>;
   getInstance(instanceId: string): PlanQueueInstanceRecord | undefined;
+  getAllInstances(): PlanQueueInstanceRecord[];
 }
 
 export type PlanQueueRoleRecord =
@@ -68,8 +70,11 @@ export interface PlanQueueFlowHost {
   registerRole(instanceId: string, record: PlanQueueRoleRecord): void;
   unregisterRole(instanceId: string): void;
   roleOf(instanceId: string): PlanQueueRoleRecord | undefined;
-  notifyParent(run: PlanQueueRun, message: string): void;
+  notifyParent(run: PlanQueueRun, message: string, questions?: readonly PlanQueueItem[]): void;
   /** The run's parent session, followed across a restart; undefined while it is gone. */
   liveParentId(run: PlanQueueRun): string | undefined;
+  resolveRunParent(run: PlanQueueRun): string | undefined;
+
   requestPump(): void;
+  consumeUserClose?(instanceId: string): boolean;
 }

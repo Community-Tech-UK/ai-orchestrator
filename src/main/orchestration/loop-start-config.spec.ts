@@ -38,6 +38,16 @@ function mkConfig(overrides: Partial<LoopConfigInput> = {}): LoopConfigInput {
 }
 
 describe('prepareLoopStartConfig (LF-3a)', () => {
+  it('records an implementation baseline and infers its cheap declared precheck', async () => {
+    writeFileSync(join(workspace, 'package.json'), JSON.stringify({ scripts: { verify: 'npm test', typecheck: 'tsc --noEmit' } }));
+    const prepared = await prepareLoopStartConfig(mkConfig({ completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: '', mode: undefined } }));
+    expect(prepared.audit?.preflightMode).toBe('record');
+    expect(prepared.completion?.quickVerifyCommand).toBe('npm run typecheck');
+  });
+  it('allows an uncapped goal sign-off only with the explicit preparation option', async () => {
+    const config = mkConfig({ completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: '', allowOperatorReviewedCompletion: true } });
+    expect((await prepareLoopStartConfig(config, { allowUncappedOperatorReview: true })).completion?.allowOperatorReviewedCompletion).toBe(true);
+  });
   it('preserves managed isolation for a Git repository root', async () => {
     mkdirSync(join(workspace, '.git'));
 
@@ -212,12 +222,12 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
     expect(prepared.nextObjectivePlanner).toBeTypeOf('function');
   });
 
-  it('defaults user-started audit to observe / off / off, matching the engine', async () => {
+  it('defaults verified implementation audit to observe / record / off', async () => {
     const prepared = await prepareLoopStartConfig(mkConfig());
 
     expect(prepared.audit).toEqual({
       finalAuditMode: 'observe',
-      preflightMode: 'off',
+      preflightMode: 'record',
       planPacketMode: 'off',
       cleanlinessScan: true,
     });

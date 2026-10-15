@@ -1,4 +1,7 @@
+import { LoopPhase2StateFieldsSchema, LoopSpendByPurposeSchema } from './loop-spend.schemas';
 import { z } from 'zod';
+import { LoopOutstandingQuestionFieldsShape } from './loop-questions.schemas';
+export * from './loop-questions.schemas';
 import { LoopHealthStateFieldsSchema } from './loop-health.schemas';
 
 export { LoopHealthStateFieldsSchema } from './loop-health.schemas';
@@ -47,6 +50,7 @@ export const LoopStatusSchema = z.enum([
   'completed-needs-review',
   'cancelled',
   'failed',
+  'attempt-failed',
   'error',
   'no-progress',
   'cap-reached',
@@ -77,7 +81,7 @@ export const LoopVerdictSchema = z.enum(['OK', 'WARN', 'CRITICAL']);
 export const LoopVerifyFailureKindSchema = z.enum(['command', 'timeout', 'infra', 'environment', 'cancelled']);
 export const LoopProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']);
 export const LoopContextStrategySchema = z.enum(['fresh-child', 'hybrid', 'same-session']);
-export const ProgressSignalIdSchema = z.enum(['A', 'B', 'C', 'D', 'D-prime', 'E', 'F', 'G', 'H', 'I', 'BLOCKED']);
+export const ProgressSignalIdSchema = z.enum(['A', 'B', 'C', 'D', 'D-prime', 'E', 'F', 'G', 'H', 'I', 'BLOCKED', 'STEP_FAILED']);
 export const CompletionSignalIdSchema = z.enum([
   'completed-rename',
   'done-promise',
@@ -187,6 +191,7 @@ export const PingPongIssueSchema = z.object({
   raisedRound: z.number().int().nonnegative(),
   lastSeenRound: z.number().int().nonnegative(),
   builderResponse: z.string().optional(),
+  builderClaim: z.enum(['fixed', 'rebutted']).optional(),
 });
 
 /** Mutable ping-pong runtime state. Mirrors `LoopPingPongState`. */
@@ -205,6 +210,9 @@ export const LoopPingPongStateSchema = z.object({
   skipNextRound: z.boolean().optional(),
   forceArbitration: z.boolean().optional(),
   lastLedgerCompleteWorkHash: z.string().optional(),
+  lastChangesRequestedDigest: z.string().optional(),
+  skippedReviewForDigest: z.string().optional(),
+  lastReviewedFiles: z.array(z.object({ path: z.string(), contentHash: z.string() })).max(500).optional(),
   reviewerTokensUsed: z.number().int().nonnegative(),
   reviewerCostCents: z.number().int().nonnegative(),
 });
@@ -323,6 +331,7 @@ export const LoopNextObjectivePlanningConfigSchema = z.object({
 });
 
 export const LoopConfigSchema = z.object({
+  onFailedStep: z.enum(['stop', 'pause']).optional(),
   /** The goal/ask. Sent on iteration 0 and is what the loop drives toward. */
   initialPrompt: z.string().min(1, 'initialPrompt cannot be empty'),
   /** The continuation directive used on iterations 1+. If omitted, the loop
@@ -555,6 +564,7 @@ export const LoopIterationSchema = z.object({
   testPassCount: z.number().int().nullable(),
   testFailCount: z.number().int().nullable(),
   finishReason: z.string().optional(),
+  promptBytes: z.number().int().nonnegative().optional(),
   /** WS7: provider this iteration failed over FROM. */
   failedOverFrom: z.string().optional(),
   unresolvedToolCalls: z.boolean().default(false),
@@ -578,6 +588,7 @@ export const LoopIterationSchema = z.object({
 });
 
 export const LoopStateSchema = z.object({
+  ...LoopPhase2StateFieldsSchema.shape,
   id: z.string(),
   chatId: z.string(),
   config: LoopConfigSchema,
@@ -705,6 +716,7 @@ export const LoopStateSchema = z.object({
 });
 
 export const LoopRunSummarySchema = z.object({
+  spendByPurpose: LoopSpendByPurposeSchema.optional(),
   id: z.string(),
   chatId: z.string(),
   status: LoopStatusSchema,
@@ -749,10 +761,11 @@ export const VerificationRunPayloadSchema = z.object({
 
 // ============ Outstanding items ============
 
-export const LoopOutstandingItemKindSchema = z.enum(['needs-human', 'open-question']);
+export const LoopOutstandingItemKindSchema = z.enum(['needs-human', 'decision-applied', 'for-information', 'open-question']);
 export const LoopOutstandingItemStatusSchema = z.enum(['open', 'resolved', 'dismissed']);
 
 export const LoopOutstandingItemSchema = z.object({
+  ...LoopOutstandingQuestionFieldsShape,
   id: z.string(),
   loopRunId: z.string(),
   chatId: z.string(),

@@ -48,6 +48,19 @@ const call = (s: OrchestratorToolsRpcServer, instanceId: string, tool: string, p
   s.handleRequest({ jsonrpc: '2.0', id: 1, method: `orchestrator_tools.${tool}`, params: { instanceId, payload } });
 
 describe('plan queue MCP tools', () => {
+  it('advertises and accepts authenticated adoption of a stranded run', async () => {
+    const ops = fakeOps();
+    const tool = createPlanQueueToolDefinitions({ instanceId: PARENT, planQueueTools: ops }).find((tool) => tool.name === 'plan_queue_control')!;
+    expect(tool.description).toContain('Adopt when the work should continue; cancel only when James asked.');
+    expect(JSON.stringify(tool.inputSchema)).toContain('adopt');
+    await call(server(ops), PARENT, 'plan_queue_control', { action: 'adopt', run_id: 'run-1' });
+    expect(ops.calls).toEqual([['control', PARENT, { action: 'adopt', run_id: 'run-1' }]]);
+  });
+  it('accepts retry-landing as an authenticated item control action', async () => {
+    const ops = fakeOps();
+    await call(server(ops), PARENT, 'plan_queue_control', { action: 'retry-landing', item_id: 'item-1' });
+    expect(ops.calls).toEqual([['control', PARENT, { action: 'retry-landing', item_id: 'item-1' }]]);
+  });
   it('recognises exactly its own RPC methods', () => {
     expect(PLAN_QUEUE_TOOL_NAMES.every((name) => isPlanQueueRpcMethod(`orchestrator_tools.${name}`))).toBe(true);
     expect(isPlanQueueRpcMethod('orchestrator_tools.request_doc_review')).toBe(false);

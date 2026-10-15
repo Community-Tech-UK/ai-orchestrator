@@ -77,6 +77,7 @@ export function loopStatusToPhase(status: LoopStatus): WorkflowLifecyclePhase {
     case 'cancelled':
       return 'cancelled';
     case 'failed':
+    case 'attempt-failed':
     case 'error':
     case 'no-progress': // stalled without converging
     case 'cap-reached': // stopped without converging

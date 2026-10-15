@@ -1,3 +1,4 @@
+import type { LoopSpendByPurpose } from './loop-spend.types';
 import type { LoopOutstanding } from './loop-outstanding.types';
 import type { LoopInferredPhase, LoopNonConvergenceReason, LoopParkedLeaf } from './loop-health.types';
 import type { LoopPingPongState } from './loop-pingpong.types';
@@ -95,7 +96,9 @@ export type LoopPendingInputSource =
   | 'wakeup'
   | 'cap-wrap-up'
   | 'auto-unstick'
+  | 'finish-phase' | 'verify-baseline' | 'loop-question' | 'failed-step'
   /** L1: same-session "you are not done" nudge on a quiet turn. */
+  | 'step-limit'
   | 'idle-nudge';
 
 /** Last automatic change-of-approach nudge, if the coordinator injected one. */
@@ -198,12 +201,15 @@ export interface LoopIteration {
   filesChanged: LoopFileChange[];
   /** Workspace-relative paths read by this iteration when the invoker can observe them. */
   filesRead?: string[];
+  ownWritePaths?: string[];
+  ownWritesComplete?: boolean;
   toolCalls: LoopToolCallRecord[];
   errors: LoopErrorRecord[];
   testPassCount: number | null;
   testFailCount: number | null;
   /** Adapter/provider stop reason, e.g. `end_turn`, `tool_use`, or `max_tokens`. */
   finishReason?: string;
+  promptBytes?: number;
   /** WS7: provider this iteration failed over FROM (set on the first iteration after a switch). */
   failedOverFrom?: string;
   /** True when a tool_use was observed without a matching tool_result before the turn sealed. */
@@ -260,7 +266,7 @@ export interface LoopIteration {
 /**
  * Identifiers from `plan_loop_mode.md` § A. Aggressive no-progress detection.
  */
-export type ProgressSignalId = 'A' | 'B' | 'C' | 'D' | 'D-prime' | 'E' | 'F' | 'G' | 'H' | 'I' | 'BLOCKED';
+export type ProgressSignalId = 'A' | 'B' | 'C' | 'D' | 'D-prime' | 'E' | 'F' | 'G' | 'H' | 'I' | 'BLOCKED' | 'STEP_FAILED';
 
 export interface ProgressSignalEvidence {
   id: ProgressSignalId;
@@ -436,6 +442,7 @@ export interface LoopWorktreeLifecycle {
 }
 
 export interface LoopState {
+  spendByPurpose?: LoopSpendByPurpose;
   id: string;
   chatId: string;
   config: LoopConfig;
@@ -450,6 +457,11 @@ export interface LoopState {
   lastIteration?: LoopIteration;
   endReason?: string;
   endEvidence?: Record<string, unknown>;
+  finishPhase?: { enteredAtSeq: number; roundsUsed: number; maxRounds: number };
+  knownFailures?: string[];
+  followUps?: string[];
+  fullVerifyWorkHash?: string;
+  reviewEffort?: 'light' | 'standard';
   /** Durable AIO-owned worktree finalization state. */
   worktreeLifecycle?: LoopWorktreeLifecycle;
   /** Persisted cap terminal intent. A restored run terminalizes under this cap. */

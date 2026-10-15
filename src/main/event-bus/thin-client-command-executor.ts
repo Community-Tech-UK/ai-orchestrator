@@ -30,7 +30,7 @@ import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import { getLoopStore } from '../orchestration/loop-store';
 import type { LoopCheckpoint } from '../orchestration/loop-checkpoint';
 import { resumeLoopRun } from '../orchestration/loop-resume';
-import { prepareLoopStartConfig as prepareDefaultLoopStartConfig } from '../orchestration/loop-start-config';
+import { prepareLoopStartConfig as prepareDefaultLoopStartConfig, markInteractiveLoopStart } from '../orchestration/loop-start-config';
 import { buildReplayContinuityMessage } from '../session/replay-continuity';
 import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
 import {
@@ -303,7 +303,7 @@ async function startLoop(
   try {
     const validated = validateIpcPayload(LoopStartPayloadSchema, payload, 'THIN_CLIENT_LOOP_START');
     const prepareConfig = deps.prepareLoopStartConfig ?? prepareDefaultLoopStartConfig;
-    const startConfig = await prepareConfig(validated.config);
+    const startConfig = markInteractiveLoopStart(await prepareConfig(validated.config));
     const coordinator = deps.loopCoordinator ?? getLoopCoordinator();
     const state = await coordinator.startLoop(
       validated.chatId,

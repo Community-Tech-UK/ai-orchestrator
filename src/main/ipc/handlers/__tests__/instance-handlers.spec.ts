@@ -127,6 +127,7 @@ function makeMockInstanceManager(): InstanceManager {
     getInstance: vi.fn(),
     setComputerUseMode: vi.fn(),
     getAllInstancesForIpc: vi.fn(),
+    getAllInstances: vi.fn().mockReturnValue([]),
     terminateInstance: vi.fn(),
     terminateAllInstances: vi.fn(),
     sendInput: vi.fn(),

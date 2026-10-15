@@ -1,0 +1,28 @@
+import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { LoopQuestionRowComponent } from './loop-question-row.component';
+await resolveComponentResources(url => Promise.resolve(url.endsWith('.html') ? readFileSync(join(__dirname, 'loop-question-row.component.html'), 'utf8') : ''));
+it('renders waiting, applied and information actions without autofocus and reports delivery in text', () => {
+  TestBed.configureTestingModule({ imports: [LoopQuestionRowComponent] });
+  const fixture = TestBed.createComponent(LoopQuestionRowComponent);
+  fixture.componentRef.setInput('item', { id: 'q', text: 'Which helper?', kind: 'needs-human', status: 'open', firstSeenRound: 3, recommendedAnswer: 'existing helper' });
+  fixture.detectChanges();
+  expect(fixture.nativeElement.textContent).toContain('Waiting for you');
+  expect(fixture.nativeElement.textContent).toContain('Use suggestion');
+  expect(fixture.nativeElement.querySelector('textarea').value).toBe('existing helper');
+  expect(fixture.nativeElement.querySelector('[autofocus]')).toBeNull();
+  const requested = vi.fn(); fixture.componentInstance.answerRequested.subscribe(requested);
+  const button = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find(item => item.textContent?.includes('Use suggestion'))!;
+  button.click();
+  expect(requested).toHaveBeenCalledWith({ id: 'q', action: 'use-suggestion', expectedRecommendation: 'existing helper' });
+  fixture.componentRef.setInput('delivery', 'sent-to-loop'); fixture.detectChanges();
+  expect(fixture.nativeElement.textContent).toContain('Sent. The loop reads it');
+  fixture.componentRef.setInput('item', { id: 'q2', text: 'Naming?', kind: 'decision-applied', status: 'open', firstSeenRound: 4 }); fixture.detectChanges();
+  expect(fixture.nativeElement.textContent).toContain('Looks right');
+  expect(fixture.nativeElement.textContent).toContain('Undo');
+  fixture.componentRef.setInput('item', { id: 'q3', text: 'Checked.', kind: 'for-information', status: 'open', firstSeenRound: 4 }); fixture.detectChanges();
+  expect(fixture.nativeElement.textContent).toContain('Got it');
+});

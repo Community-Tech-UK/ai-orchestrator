@@ -753,10 +753,10 @@ describe('outstandingHasHumanItems (review-driven)', () => {
 });
 
 describe('LoopStageMachine.readOutstanding', () => {
-  it('returns needsHuman=false when OUTSTANDING.md is absent', async () => {
+  it('requires review when OUTSTANDING.md is absent rather than proving no human items exist', async () => {
     const m = new LoopStageMachine(tmpDir, RUN_ID);
     const r = await m.readOutstanding();
-    expect(r).toEqual({ raw: '', needsHuman: false });
+    expect(r).toEqual({ raw: 'The outstanding questions file could not be read.', needsHuman: true, unverifiable: true });
   });
 
   it('reads and classifies a real human item', async () => {

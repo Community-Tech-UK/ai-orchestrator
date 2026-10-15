@@ -28,7 +28,7 @@ import { LoopStore } from './loop.store';
         @if (detail.run.lastIteration; as last) { <p>{{ last.summary }}</p> }
         <ul>
           @for (item of detail.outstanding; track item.id) {
-            <li>{{ item.kind }} · {{ item.status }} · {{ item.text }}</li>
+            <li>{{ questionLabel(item.kind) }} · {{ item.status }} · {{ item.text }}</li>
           }
         </ul>
       } @else {
@@ -53,6 +53,10 @@ export class LoopDetailComponent {
 
   constructor() {
     effect(() => { void this.loops.open(this.id()); });
+  }
+
+  protected questionLabel(kind: string): string {
+    return kind === 'needs-human' ? 'Waiting for you' : kind === 'decision-applied' ? 'Decision applied, tell me if wrong' : 'For information';
   }
 
   protected busy(): boolean { return this.loops.pendingId() === this.id(); }

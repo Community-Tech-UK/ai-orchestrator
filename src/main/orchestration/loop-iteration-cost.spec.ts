@@ -21,6 +21,11 @@ beforeEach(() => {
 });
 
 describe('resolveIterationCost', () => {
+  it('uses the real provider namespace and leaves unpriced model charges unknown', () => {
+    expect(resolveIterationCost({tokens:1000,model:'claude-sonnet-4',usage:{inputTokens:1000}},'copilot')).toEqual({costCents:0,basis:'provider-reported',costKnown:true});
+    expect(resolveIterationCost({tokens:1000,model:'unknown',usage:{inputTokens:1000}},'claude')).toEqual({costCents:0,basis:'unknown',costKnown:false});
+  });
+
   it('prefers the provider-reported dollar cost above everything else', () => {
     const cost = resolveIterationCost({
       tokens: 1_000_000,

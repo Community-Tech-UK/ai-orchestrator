@@ -203,6 +203,7 @@ describe('createThinClientCommandExecutor', () => {
       .resolves.toEqual({ success: true, data: { ok: true, state } });
 
     expect(loopCoordinator.startLoop).toHaveBeenCalledOnce();
+    expect(loopCoordinator.startLoop).toHaveBeenCalledWith('chat-1', expect.objectContaining({ onFailedStep: 'pause' }), undefined, expect.any(Object));
     expect(loopCoordinator.pauseLoop).toHaveBeenCalledWith('loop-1');
     expect(loopCoordinator.resumeLoop).toHaveBeenCalledWith('loop-1');
     expect(loopCoordinator.intervene).toHaveBeenCalledWith('loop-1', 'nudge');

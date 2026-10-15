@@ -9,6 +9,7 @@ const LOOP_TERMINAL_STATUSES = new Set<LoopStatus>([
   'completed-needs-review',
   'cancelled',
   'failed',
+  'attempt-failed',
   'error',
   'no-progress',
   'cap-reached',
@@ -52,6 +53,7 @@ export function loopStatusToNodeStatus(
     case 'completed': return 'completed';
     case 'completed-needs-review': return 'completed-needs-review';
     case 'failed':
+    case 'attempt-failed':
     case 'error':
     case 'no-progress':
     case 'cap-reached':

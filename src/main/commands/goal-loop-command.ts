@@ -3,19 +3,25 @@ import type { ParsedCommand } from '../../shared/types/command.types';
 import type { Instance } from '../../shared/types/instance.types';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { LoopProvider, LoopState } from '../../shared/types/loop.types';
+import { LoopProviderSchema } from '@contracts/schemas/loop';
 import { getLogger } from '../logging/logger';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import { isActiveLoopRuntimeState } from '../orchestration/loop-runtime-status';
 import { getLoopStore } from '../orchestration/loop-store';
-import { prepareLoopStartConfig } from '../orchestration/loop-start-config';
+import { prepareLoopStartConfig, markInteractiveLoopStart } from '../orchestration/loop-start-config';
 import {
   buildGoalLoopStartConfig,
   parseGoalCommandArgs,
+  resolveGoalCompletion,
+  goalCompletionNote,
   type GoalCommandAction,
 } from '../orchestration/goal-command-loop';
 import { buildExistingSessionContext } from '../orchestration/loop-existing-session-context';
 import { getChatService } from '../chats';
 import { appendLoopStartPrompt } from '../ipc/handlers/loop-transcript-dispatch';
+import { resolveCliType } from '../cli/adapters/adapter-factory';
+import { getSettingsManager } from '../core/config/settings-manager';
+import { detectLoopGoalIntent } from '../orchestration/loop-intent';
 
 const logger = getLogger('GoalLoopCommand');
 
@@ -26,6 +32,12 @@ export async function executeGoalLoopCommand(input: {
   provider: string | undefined;
   executed: ParsedCommand;
 }): Promise<IpcResponse> {
+  const result = await executeGoalLoopCommandResult(input);
+  if (!result.success) input.instanceManager.emitSystemMessage(input.instanceId, result.error?.message ?? 'Goal command failed.', { source: 'goal-command', action: 'error', code: result.error?.code });
+  return result;
+}
+
+async function executeGoalLoopCommandResult(input: Parameters<typeof executeGoalLoopCommand>[0]): Promise<IpcResponse> {
   const action = parseGoalCommandArgs(input.executed.args);
   if (action.type === 'invalid') {
     return commandError('GOAL_INVALID', action.reason);
@@ -38,21 +50,26 @@ export async function executeGoalLoopCommand(input: {
   if (!input.workingDirectory) {
     return commandError('GOAL_REQUIRES_WORKSPACE', 'Goal mode requires a working directory.');
   }
-  const provider = asLoopProvider(input.provider);
+  const provider = await resolveGoalLoopProvider(input.provider);
   if (!provider) {
-    return commandError('GOAL_PROVIDER_UNSUPPORTED', 'Goal mode is not available for this provider.');
+    return commandError('GOAL_PROVIDER_UNSUPPORTED', `Goal mode is not available for ${input.provider ?? 'this kind of'} sessions in Harness.`);
   }
 
   const coordinator = getLoopCoordinator();
   const store = getLoopStore();
   const chatService = getChatService({ instanceManager: input.instanceManager });
+  let state: LoopState;
+  let completion: Awaited<ReturnType<typeof resolveGoalCompletion>>;
+  try {
+  completion = await resolveGoalCompletion({ workspaceCwd: input.workingDirectory, intent: detectLoopGoalIntent(action.objective).intent });
   const rawConfig = buildGoalLoopStartConfig({
     objective: action.objective,
     workspaceCwd: input.workingDirectory,
     provider,
+    completion,
   });
-  const config = await prepareLoopStartConfig(rawConfig);
-  const state = await coordinator.startLoop(
+  const config = markInteractiveLoopStart(await prepareLoopStartConfig(rawConfig, completion.kind === 'sign-off' ? { allowUncappedOperatorReview: true } : {}));
+  state = await coordinator.startLoop(
     input.instanceId,
     config,
     undefined,
@@ -63,6 +80,9 @@ export async function executeGoalLoopCommand(input: {
       ),
     },
   );
+  } catch (error) {
+    return commandError('GOAL_START_FAILED', error instanceof Error ? error.message : String(error));
+  }
 
   try {
     store.upsertRun(state);
@@ -78,11 +98,13 @@ export async function executeGoalLoopCommand(input: {
     });
   }
 
+  const note = goalCompletionNote(completion);
+  emitGoalSystemMessage(input.instanceManager, input.instanceId, note, 'info', state);
   return {
     success: true,
     data: {
       ...input.executed,
-      goal: { action: 'started', loopRunId: state.id },
+      goal: { action: 'started', loopRunId: state.id, completion: completion.kind, note },
     },
   };
 }
@@ -101,24 +123,13 @@ export async function executeGoalLoopCommandForInstanceInput(input: {
     return;
   }
 
-  const result = await executeGoalLoopCommand({
+  await executeGoalLoopCommand({
     instanceManager: input.instanceManager,
     instanceId: input.instanceId,
     workingDirectory: input.instance.workingDirectory,
     provider: input.instance.provider,
     executed: input.executed,
   });
-  if (!result.success) {
-    input.instanceManager.emitSystemMessage(
-      input.instanceId,
-      result.error?.message ?? 'Goal command failed.',
-      {
-        source: 'goal-command',
-        action: 'error',
-        code: result.error?.code,
-      },
-    );
-  }
 }
 
 async function executeGoalControl(input: {
@@ -202,18 +213,14 @@ function emitGoalSystemMessage(
   });
 }
 
-function asLoopProvider(provider: string | undefined): LoopProvider | undefined {
-  if (
-    provider === 'claude'
-    || provider === 'codex'
-    || provider === 'gemini'
-    || provider === 'antigravity'
-    || provider === 'copilot'
-    || provider === 'cursor'
-  ) {
-    return provider;
+async function resolveGoalLoopProvider(provider: string | undefined): Promise<LoopProvider | undefined> {
+  let concrete = provider;
+  if (provider === 'auto') {
+    try { concrete = await resolveCliType('auto', getSettingsManager().getAll().defaultCli); }
+    catch { return undefined; }
   }
-  return undefined;
+  const parsed = LoopProviderSchema.safeParse(concrete);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function commandError(code: string, message: string): IpcResponse {

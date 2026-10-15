@@ -144,7 +144,9 @@ describe('PlanQueueInstanceTracker', () => {
 
   it.each<Recorded>([
     { channel: 'provider', kind: 'error', message: 'Adapter stopped during shutdown' },
+    { channel: 'provider', kind: 'error', message: 'shutdown error', recoverable: false },
     { channel: 'provider', kind: 'exit', code: null, signal: 'SIGTERM' },
+    { channel: 'provider', kind: 'exit', code: 1, signal: null },
     { channel: 'removed' },
   ])('preserves tracked work during shutdown event %j', (event) => {
     tracker.track('w1');

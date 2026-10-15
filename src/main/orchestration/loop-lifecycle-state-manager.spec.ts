@@ -67,6 +67,20 @@ describe('LoopLifecycleStateManager', () => {
     expect(manager.isCancelled('loop-b')).toBe(false);
   });
 
+  it('invalidates paused actions on resume even without a runtime gate, independently per run', () => {
+    const manager = new LoopLifecycleStateManager();
+    manager.register(makeState('loop-a'), []);
+    manager.register(makeState('loop-b'), []);
+    const version = manager.resumeVersionFor('loop-a');
+
+    expect(manager.releasePause('loop-a')).toBe(false);
+
+    expect(manager.resumeVersionFor('loop-a')).not.toBe(version);
+    expect(manager.resumeVersionFor('loop-b')).toBe(0);
+    manager.reset();
+    expect(manager.resumeVersionFor('loop-a')).toBe(0);
+  });
+
   it('owns terminal-cleanup promises and only clears the matching generation', async () => {
     const manager = new LoopLifecycleStateManager();
     const first = Promise.resolve();

@@ -98,6 +98,17 @@ describe('CrossModelReviewService headless review', () => {
     localReviewState.quotaSnapshot = null;
   });
 
+  it('limits both explicit and pooled headless reviewers to the requested maximum', async () => {
+    const service=CrossModelReviewService.getInstance();
+    const dispatchReviewerPrompt=vi.fn(async()=>reviewerJson('finding'));
+    service.setReviewExecutionHost({getWorkingDirectory:()=>REPO_CWD,getTaskDescription:()=>'',dispatchReviewerPrompt});
+    for (const reviewers of [['gemini','codex'], undefined]) {
+      dispatchReviewerPrompt.mockClear();
+      await service.runHeadlessReview({target:'HEAD',cwd:REPO_CWD,content:'diff',taskDescription:'review',reviewers,maxReviewers:1});
+      expect(dispatchReviewerPrompt.mock.calls.length).toBeLessThanOrEqual(1);
+    }
+  });
+
   it('runs reviewers through a narrow host without an InstanceManager', async () => {
     const dispatchReviewerPrompt = vi.fn(async (provider: string) => {
       if (provider === 'codex') {

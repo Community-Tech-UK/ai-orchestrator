@@ -1,0 +1,6 @@
+
+> harness@0.1.0 typecheck:spec
+> node --max-old-space-size=8192 node_modules/typescript/bin/tsc --noEmit -p tsconfig.spec.json
+
+src/main/app/keep-awake-service.spec.ts(19,73): error TS2322: Type '(id: number) => void' is not assignable to type '(id: number) => boolean'.
+  Type 'void' is not assignable to type 'boolean'.

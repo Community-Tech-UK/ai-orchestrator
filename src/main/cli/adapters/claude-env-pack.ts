@@ -1,3 +1,4 @@
+import type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
 /**
  * WS14 — Claude CLI hygiene env/flag pack.
  *
@@ -51,7 +52,13 @@ export function _setSettingsReaderForTesting(reader: ((key: string) => unknown) 
 export function applyClaudeHygieneEnv(
   env: Record<string, string>,
   sessionId?: string,
+  options?: ClaudeCliSpawnOptions,
 ): void {
+  if (options?.contextCeilingTokens && !('CLAUDE_CODE_AUTO_COMPACT_WINDOW' in env)
+      && process.env['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] === undefined) {
+    env['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] = String(options.contextCeilingTokens);
+  }
+  if (options?.machineSession && !('SECURITY_GUIDANCE_DISABLE' in env)) env['SECURITY_GUIDANCE_DISABLE'] = '1';
   if (!('DISABLE_UPDATES' in env)) {
     env['DISABLE_UPDATES'] = '1';
   }

@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { LoopCompletionContextStore } from './loop-completion-context-store';
 
 describe('LoopCompletionContextStore', () => {
+  it('snapshots completion hints without consuming the scheduled reset', () => {
+    const store = new LoopCompletionContextStore();
+    expect(store.checkpointContext('missing')).toEqual({ convergenceNote: null, planRegenerationCount: 0, pendingContextReset: false });
+    store.setConvergenceNote('a', 'ledger stall');
+    store.setPlanRegenerationCount('a', 2);
+    store.requestContextReset('a');
+    expect(store.checkpointContext('a')).toEqual({ convergenceNote: 'ledger stall', planRegenerationCount: 2, pendingContextReset: true });
+    expect(store.peekContextReset('a')).toBe(true);
+  });
   it('stores convergence notes and plan-regeneration counts per run', () => {
     const store = new LoopCompletionContextStore();
 

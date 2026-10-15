@@ -190,6 +190,8 @@ function filesMatch(a: string, b: string): boolean {
 
 export interface AnchorVerificationResult {
   status: AnchorStatus;
+  /** Present only for a verified quote wholly within a unified-diff hunk. */
+  matchedLineKind?: 'added' | 'removed' | 'context';
   /** Set only when `status === 're-anchored'`: where the sole match actually is. */
   resolvedLineRange?: [number, number];
   resolvedFile?: string;
@@ -247,10 +249,20 @@ export function verifyAnchor(artifact: string, anchor: FindingAnchor): AnchorVer
     return true;
   })();
 
-  if (atStatedLocation) return { status: 'verified' };
+  const originalLines = artifact.split('\n');
+  const quotedLines = originalLines.slice(foundRange[0] - 1, foundRange[1]);
+  const prefixes = new Set(quotedLines.map(line => line[0]));
+  // Never classify metadata, mixed added/context quotes, or arbitrary output
+  // as unchanged code. The quote must occur after a hunk header in its file.
+  const inHunk = foundSegment && originalLines.slice(foundSegment.startLine - 1, startLine - 1).some(line => /^@@ /.test(line));
+  const matchedLineKind = inHunk && prefixes.size === 1
+    ? prefixes.has('+') ? 'added' as const : prefixes.has('-') ? 'removed' as const : prefixes.has(' ') ? 'context' as const : undefined
+    : undefined;
+  if (atStatedLocation) return { status: 'verified', ...(matchedLineKind ? { matchedLineKind } : {}) };
 
   return {
     status: 're-anchored',
+    ...(matchedLineKind ? { matchedLineKind } : {}),
     resolvedLineRange: foundRange,
     ...(foundSegment ? { resolvedFile: foundSegment.file } : {}),
   };
@@ -301,4 +313,11 @@ export function parseEvidenceTail(issueText: string): { text: string; anchor?: F
     text,
     anchor: { quote, ...(file ? { file } : {}), ...(lineRange ? { lineRange } : {}) },
   };
+}
+
+/** Absence can only be asserted from a complete, structured diff. */
+export function fileAbsentFromReviewedDiff(artifact: string, file: string): boolean {
+  if (!file || artifact.length >= MAX_REVIEW_PAYLOAD_CHARS || /truncated|redacted/i.test(artifact)) return false;
+  const segments = findFileSegments(artifact);
+  return segments.length > 0 && !segments.some(segment => filesMatch(segment.file, file));
 }

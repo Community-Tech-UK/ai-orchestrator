@@ -2,13 +2,18 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
 import { WorktreeManager } from '../workspace/git/worktree-manager';
 import { UnresolvedMergeError } from './plan-queue-git';
 import { landItemBranch } from './plan-queue-landing';
 import { PlanQueueWorktreeService, planQueueBranchName } from './plan-queue-worktree';
 import type { PlanQueueItem } from './plan-queue.types';
+
+// Every test drives real git through dozens of child processes. Alone each takes
+// about a second, but under the full suite's load one exceeded the 5s default
+// budget, so give the file the same generous budget as the other real-git specs.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 let repo: string;
 let saved: PlanQueueItem[];

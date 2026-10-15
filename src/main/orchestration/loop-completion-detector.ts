@@ -357,7 +357,7 @@ export interface CompletionObservationInput {
 
 export type VerifyFailureKind = 'command' | 'timeout' | 'infra' | 'environment' | 'cancelled';
 
-export type VerifyOutcome =
+export type VerifyOutcome = (
   | { status: 'passed'; output: string; durationMs: number }
   | { status: 'skipped'; output: string; durationMs: number }
   | {
@@ -368,7 +368,8 @@ export type VerifyOutcome =
       failureKind: VerifyFailureKind;
       /** Set on timeout after the spawn pid is known (L16 reap). */
       pid?: number;
-    };
+    }
+) & { outputTruncated?: boolean };
 
 /** Minimum trimmed length for an investigation REPORT.md to count as substantive. */
 const MIN_INVESTIGATION_REPORT_CHARS = 200;

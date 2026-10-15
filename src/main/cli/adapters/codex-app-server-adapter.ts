@@ -35,8 +35,8 @@ import type {
 } from './codex/app-server-types';
 import { buildMessageWithFiles, processAttachments } from '../file-handler';
 import { supportsCodexInlineImage } from './codex/attachments';
-import { startThreadWithRetry } from './codex/thread-start-retry';
-import { SERVICE_NAME } from './codex/app-server-types';
+import { startCodexThread, buildCodexThreadStartParams } from './codex/codex-thread-requests';
+import { codexThreadPolicyForConfig } from './codex/codex-thread-policy';
 import {
   buildCodexAppServerContextCapabilities,
   buildCodexExecContextCapabilities,
@@ -519,15 +519,9 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       throw new Error('Cannot reopen thread: app-server client is not connected');
     }
     const cwd = this.cliConfig.workingDir || process.cwd();
-    const startResult = await startThreadWithRetry(this.appServerClient, {
-      cwd,
-      model: this.cliConfig.model || null,
-      approvalPolicy: resolveCodexAppServerApprovalPolicy(this.cliConfig),
-      sandbox: this.mapSandboxMode(),
-      serviceName: SERVICE_NAME,
-      ephemeral: this.cliConfig.ephemeral ?? false,
-      serviceTier: this.cliConfig.fastMode ? 'priority' : null,
-    });
+    const startResult = await startCodexThread(this.appServerClient, buildCodexThreadStartParams(this.cliConfig, {
+      cwd, sandbox: this.mapSandboxMode(), approvalPolicy: resolveCodexAppServerApprovalPolicy(this.cliConfig),
+    }), codexThreadPolicyForConfig(this.cliConfig), this.cliConfig);
     const newThreadId = startResult.threadId || startResult.thread?.id || null;
     if (!newThreadId) {
       throw new Error('Thread reopen failed: app-server returned no thread id');

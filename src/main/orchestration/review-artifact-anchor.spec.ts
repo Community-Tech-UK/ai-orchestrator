@@ -43,7 +43,7 @@ describe('verifyAnchor', () => {
       file: 'src/a.ts',
       quote: 'console.log("added");',
     });
-    expect(result).toEqual({ status: 'verified' });
+    expect(result).toEqual({ status: 'verified', matchedLineKind: 'added' });
   });
 
   it('verifies when no location was stated at all and the quote is unique', () => {

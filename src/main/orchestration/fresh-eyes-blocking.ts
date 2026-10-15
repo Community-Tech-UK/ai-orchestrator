@@ -6,7 +6,7 @@
  */
 
 import type { FreshEyesFinding } from './loop-fresh-eyes-reviewer';
-import { verifyAnchor } from './review-artifact-anchor';
+import { verifyAnchor, fileAbsentFromReviewedDiff } from './review-artifact-anchor';
 
 /**
  * WS-A3: split a review's severity-blocking candidates into those that may
@@ -41,6 +41,13 @@ export function classifyFreshEyesBlocking(
 
     if (finding.anchor) {
       const result = verifyAnchor(diffArtifactContent, finding.anchor);
+      if (finding.severity !== 'critical' && /^\[pre-existing\]/i.test(finding.body.trim())
+        && ((result.matchedLineKind === 'context' && result.status !== 'evidence_unverified')
+          || (result.status === 'evidence_unverified' && fileAbsentFromReviewedDiff(diffArtifactContent, finding.anchor.file ?? finding.file ?? '')))) {
+        demoted.push({ ...finding, advisory: true, anchorStatus: result.status,
+          demotedReason: 'Already there before this loop’s changes; filed as a follow-up.' });
+        continue;
+      }
       if (result.status === 'verified') {
         blocking.push({ ...finding, anchorStatus: 'verified' });
         continue;

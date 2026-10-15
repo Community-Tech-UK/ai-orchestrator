@@ -20,6 +20,8 @@ vi.mock('../../browser-gateway/browser-approval-store', () => ({
 }));
 
 import { CodexCliAdapter } from './codex-cli-adapter';
+import type { CodexAppServerThreadRuntime } from './codex/app-server-thread-runtime';
+import { adapterHasActiveProviderTurn } from '../../instance/stuck-process-detector';
 import {
   collectStdin,
   queueCodexRun,
@@ -51,6 +53,36 @@ describe('CodexCliAdapter', () => {
       sandboxMode: 'workspace-write',
     });
     expect(fullAutoAdapter.getRuntimeCapabilities().supportsResume).toBe(true);
+  });
+
+  describe('provider-owned active turn', () => {
+    it('hasActiveTurn is true only while an app-server turn is in flight', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as { useAppServer: boolean; appServerRuntime: CodexAppServerThreadRuntime };
+      internals.useAppServer = true;
+      const active = vi.spyOn(internals.appServerRuntime, 'hasActiveTurn');
+      active.mockReturnValue(false);
+      expect(adapter.hasActiveTurn()).toBe(false);
+      active.mockReturnValue(true);
+      expect(adapter.hasActiveTurn()).toBe(true);
+      active.mockReturnValue(false);
+      expect(adapter.hasActiveTurn()).toBe(false);
+    });
+
+    it('hasActiveTurn is false in exec mode even if the runtime reports a turn', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as { appServerRuntime: CodexAppServerThreadRuntime };
+      vi.spyOn(internals.appServerRuntime, 'hasActiveTurn').mockReturnValue(true);
+      expect(adapter.hasActiveTurn()).toBe(false);
+    });
+
+    it('adapterHasActiveProviderTurn recognises the Codex adapter', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as { useAppServer: boolean; appServerRuntime: CodexAppServerThreadRuntime };
+      internals.useAppServer = true;
+      vi.spyOn(internals.appServerRuntime, 'hasActiveTurn').mockReturnValue(true);
+      expect(adapterHasActiveProviderTurn(adapter)).toBe(true);
+    });
   });
 
   it('parses structured command execution transcripts', () => {

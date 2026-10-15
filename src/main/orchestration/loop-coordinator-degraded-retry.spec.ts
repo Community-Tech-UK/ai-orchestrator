@@ -428,7 +428,7 @@ describe('LoopCoordinator degraded iteration retry', () => {
     }
   });
 
-  it('WS5: an evidence-less failure (hung-CLI timeout shape) has UNKNOWN workspace state and pauses for review', async () => {
+  it('WS5: an unattended evidence-less failure has UNKNOWN workspace state and stops as failed', async () => {
     let invokeCount = 0;
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
       const p = payload as { callback: (result: LoopChildResult | { error: string }) => void };
@@ -453,7 +453,7 @@ describe('LoopCoordinator degraded iteration retry', () => {
     });
 
     try {
-      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'completed-needs-review', 5000);
+      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'attempt-failed', 5000);
       expect(invokeCount).toBe(1);
       const final = coordinator.getLoop(state.id);
       expect(final?.endReason).toContain('UNPROVABLE');

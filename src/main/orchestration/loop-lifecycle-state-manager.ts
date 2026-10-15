@@ -11,6 +11,7 @@ export class LoopLifecycleStateManager {
   private histories = new Map<string, LoopIteration[]>();
   private cancellations = new Map<string, boolean>();
   private pauseGates = new Map<string, PauseGate>();
+  private resumeVersions = new Map<string, number>();
   private terminalCleanups = new Map<string, Promise<void>>();
   private worktreeSessions = new Map<string, string>();
 
@@ -18,6 +19,7 @@ export class LoopLifecycleStateManager {
     this.states.set(state.id, state);
     this.histories.set(state.id, history);
     this.cancellations.set(state.id, false);
+    this.resumeVersions.set(state.id, 0);
   }
 
   getState(loopRunId: string): LoopState | undefined {
@@ -46,7 +48,14 @@ export class LoopLifecycleStateManager {
     });
   }
 
+  /** Fences async operator actions even if Resume is followed by another Pause. */
+  resumeVersionFor(loopRunId: string): number {
+    return this.resumeVersions.get(loopRunId) ?? 0;
+  }
+
   releasePause(loopRunId: string): boolean {
+    // Restored loops may resume before a runtime pause gate is registered.
+    this.resumeVersions.set(loopRunId, this.resumeVersionFor(loopRunId) + 1);
     const gate = this.pauseGates.get(loopRunId);
     if (!gate) return false;
     this.pauseGates.delete(loopRunId);
@@ -93,6 +102,7 @@ export class LoopLifecycleStateManager {
     this.histories.clear();
     this.cancellations.clear();
     this.pauseGates.clear();
+    this.resumeVersions.clear();
     this.terminalCleanups.clear();
     this.worktreeSessions.clear();
   }

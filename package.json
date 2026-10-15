@@ -10,6 +10,7 @@
     "node": "^22.22.3 || ^24.15.0 || ^26.0.0"
   },
   "scripts": {
+    "audit:loop-scorecard": "node scripts/loop-scorecard-report.mjs",
     "ng": "ng",
     "prestart": "node scripts/check-node.js && node scripts/verify-native-abi.js && npm run generate:aliases && npm run generate:ipc && npm run verify:ipc && npm run verify:exports && npm run check:contracts",
     "prebuild": "node scripts/check-node.js && node scripts/verify-native-abi.js && npm run generate:aliases && npm run generate:ipc && npm run verify:ipc && npm run verify:exports && npm run check:contracts",

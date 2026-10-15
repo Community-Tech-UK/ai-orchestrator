@@ -1,3 +1,4 @@
+import { CLAUDE_READ_ONLY_REVIEW_TOOLS, MACHINE_SESSION_DISABLED_PLUGINS } from './claude-machine-session-policy';
 /**
  * Claude CLI argv construction — extracted from `ClaudeCliAdapter.buildArgs()`
  * (originally ~215 lines inline) so this self-contained "spawnOptions ->
@@ -58,7 +59,7 @@ export function mapClaudeReasoningEffort(
 /** The subset of spawn options `buildClaudeSettingsOverlay` reads. */
 export type ClaudeSettingsOverlaySpawnOptions = Pick<
   ClaudeCliSpawnOptions,
-  'reasoningEffort' | 'fastMode' | 'permissionHookPath'
+  'reasoningEffort' | 'fastMode' | 'permissionHookPath' | 'machineSession'
 >;
 
 export function buildClaudeSettingsOverlay(
@@ -66,6 +67,7 @@ export function buildClaudeSettingsOverlay(
   permissionHookEnabled: boolean
 ): string | undefined {
   const settings: {
+    enabledPlugins?: Record<string, boolean>;
     ultracode?: true;
     fastMode?: true;
     hooks?: {
@@ -78,6 +80,8 @@ export function buildClaudeSettingsOverlay(
       }[];
     };
   } = {};
+
+  if (spawnOptions.machineSession) settings.enabledPlugins = Object.fromEntries(MACHINE_SESSION_DISABLED_PLUGINS.map(id => [id, false]));
 
   if (spawnOptions.reasoningEffort === 'workflow') {
     settings.ultracode = true;
@@ -168,10 +172,12 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     logger.info('Claude CLI version unknown; skipping prompt-cache optimization');
   }
 
-  const permissionHookEnabled = !spawnOptions.yoloMode && input.shouldUsePermissionHook;
+  const permissionHookEnabled = !spawnOptions.readOnlyReview && !spawnOptions.yoloMode && input.shouldUsePermissionHook;
 
   // YOLO mode - auto-approve all permissions
-  if (spawnOptions.yoloMode) {
+  if (spawnOptions.readOnlyReview) {
+    args.push('--permission-mode', 'dontAsk', '--tools', CLAUDE_READ_ONLY_REVIEW_TOOLS.join(','));
+  } else if (spawnOptions.yoloMode) {
     logger.warn('YOLO mode enabled for Claude CLI instance', {
       sessionId,
       model: spawnOptions.model
@@ -269,7 +275,7 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
 
   // Only add user-specified allowedTools if in YOLO mode (already handled above for non-YOLO)
   if (
-    spawnOptions.yoloMode &&
+    !spawnOptions.readOnlyReview && spawnOptions.yoloMode &&
     spawnOptions.allowedTools &&
     spawnOptions.allowedTools.length > 0
   ) {
@@ -335,6 +341,7 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
   }
 
   logger.debug('buildArgs complete', {
+    readOnlyReview: spawnOptions.readOnlyReview ?? false,
     yoloMode: spawnOptions.yoloMode,
     argCount: args.length,
     resume: spawnOptions.resume ?? false,

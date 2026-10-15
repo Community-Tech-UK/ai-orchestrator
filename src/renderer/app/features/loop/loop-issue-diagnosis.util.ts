@@ -88,6 +88,12 @@ export const PROGRESS_SIGNAL_CATALOG: Record<string, ProgressSignalCatalogEntry>
   // (see `resourceGovernorPauseSignal` / `preflightBlockedSignal`). So the copy
   // must not claim the agent wrote anything — the specific reason arrives as
   // the signal's own message and is rendered next to this.
+  STEP_FAILED: {
+    title: 'A step failed',
+    meaning: 'It stopped without finishing and Harness cannot tell what it changed in the files.',
+    fixability: 'not-by-hint',
+    nextStep: 'Check the files, then Resume (the agent checks what changed first) or Stop.',
+  },
   BLOCKED: {
     title: 'The loop is blocked and needs you',
     meaning: 'The loop stopped on something it cannot clear by itself — a blocker the agent wrote, a resource-governor pause, or a failed preflight. The reason line says which.',
@@ -413,6 +419,7 @@ export function buildLoopIssueView(input: {
   const headline = headlineFor(worstSignals);
   const fixability = catalogForSignal(worstSignals[0]?.id ?? signals[0]?.id ?? '').fixability;
   const blocked = input.blocked === true;
+  const stepFailed = signals.some(signal => signal.id === 'STEP_FAILED');
   const autoUnstickInFlight = input.autoUnstickInFlight === true;
   const problem = worstSignals[0]?.message
     ?? signals[0]?.message
@@ -422,7 +429,7 @@ export function buildLoopIssueView(input: {
     chipLabel: progressVerdictWord(severity),
     headline,
     problem,
-    implication: implicationFor(
+    implication: stepFailed ? 'The loop is paused after a failed step. Check the files before resuming it.' : implicationFor(
       severity,
       input.running,
       input.paused,

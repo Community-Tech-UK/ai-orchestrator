@@ -1,3 +1,5 @@
+import { CLAUDE_REVIEWER_MAX_TURNS } from '../cli/adapters/claude-machine-session-policy';
+import { recordModelCall, resolveModelCallCost, type ModelCallCostSource } from '../core/system/model-call-recorder';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import type { ReviewResult } from '../../shared/types/cross-model-review.types';
@@ -15,6 +17,23 @@ import { resolveReviewerModelOverride } from './reviewer-model-override';
  */
 export { resolveReviewerModelOverride };
 
+export interface ReviewerCallUsage {
+  provider: string;
+  model?: string;
+  tokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  costUsd: number | null;
+  costSource: ModelCallCostSource;
+}
+export interface ReviewerDispatchOptions {
+  modelOverride?: string;
+  jsonSchema?: string;
+  onUsage?: (usage: ReviewerCallUsage) => void;
+  purpose?: string;
+  correlationId?: string;
+}
+
 export interface ReviewExecutionHost {
   getWorkingDirectory(instanceId: string): string | undefined;
   getTaskDescription(instanceId: string): string | undefined;
@@ -23,7 +42,7 @@ export interface ReviewExecutionHost {
     prompt: string,
     cwd: string,
     signal: AbortSignal,
-    options?: { modelOverride?: string; jsonSchema?: string },
+    options?: ReviewerDispatchOptions,
   ): Promise<string>;
 }
 
@@ -58,6 +77,7 @@ export interface HeadlessReviewAngleCacheHook {
 }
 
 export interface HeadlessReviewRequest {
+  maxReviewers?: number;
   target: string;
   cwd: string;
   content: string;
@@ -149,7 +169,7 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
     prompt: string,
     cwd: string,
     signal: AbortSignal,
-    options?: { modelOverride?: string; jsonSchema?: string },
+    options?: ReviewerDispatchOptions,
   ): Promise<string> {
     if (signal.aborted) {
       throw new Error('Review cancelled');
@@ -171,6 +191,7 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
       {
         workingDirectory: cwd,
         yoloMode: false,
+        ...(resolvedCli === 'claude' ? { readOnlyReview: true, maxTurns: CLAUDE_REVIEWER_MAX_TURNS } : {}),
         // When no override is configured, leave `model` unset so the reviewer
         // CLI uses its own default/auto routing.
         ...(reviewerModel ? { model: reviewerModel } : {}),
@@ -199,7 +220,15 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
         signal,
         () => { cancelled = true; },
       );
+      const model = reviewerModel ?? (typeof response.metadata?.['model'] === 'string' ? response.metadata['model'] : undefined);
+      const resolved = resolveModelCallCost(resolvedCli, model, response.usage);
+      recordModelCall({ purpose: options?.purpose ?? 'cross-model-review', provider: resolvedCli, model, usage: response.usage, correlationId: options?.correlationId });
+      try { options?.onUsage?.({ provider: resolvedCli, model, tokens: (response.usage?.inputTokens ?? 0) + (response.usage?.outputTokens ?? 0), cacheReadTokens: response.usage?.cacheReadTokens, cacheWriteTokens: response.usage?.cacheWriteTokens, ...resolved }); } catch { /* observer cannot fail a successful send */ }
       return response.content;
+    } catch (error) {
+      recordModelCall({ purpose: options?.purpose ?? 'cross-model-review', provider: resolvedCli, model: reviewerModel, correlationId: options?.correlationId, outcome: signal.aborted ? 'cancelled' : 'error' });
+      try { options?.onUsage?.({ provider: resolvedCli, model: reviewerModel, tokens: 0, costUsd: null, costSource: 'unknown' }); } catch { /* preserve provider failure */ }
+      throw error;
     } finally {
       if (!cancelled && isTerminableAdapter(adapter)) {
         await adapter.terminate(false);

@@ -35,6 +35,7 @@ export const PlanQueueParkReasonSchema = z.enum([
   'verifier-unreliable',
   'no-diverse-verifier',
   'worker-error',
+  'triage-failed',
   'worktree-error',
   'merge-conflict',
   'land-blocked',
@@ -192,7 +193,10 @@ export const PlanQueueRunConfigSchema = z.object({
 // DTOs (main → renderer)
 // -------------------------------------------------------------------------
 
+export const PlanQueueSpendSchema = z.object({ tokens: z.number().int().nonnegative(), costUsd: z.number().nonnegative().finite(), exactUsd: z.number().nonnegative().finite() });
+
 export const PlanQueueItemDtoSchema = z.object({
+  spend: PlanQueueSpendSchema.nullable().optional(),
   id: IdSchema,
   runId: IdSchema,
   documentPath: PathSchema,
@@ -216,6 +220,7 @@ export const PlanQueueItemDtoSchema = z.object({
 });
 
 export const PlanQueueRunDtoSchema = z.object({
+  spend: PlanQueueSpendSchema.nullable().optional(),
   id: IdSchema,
   parentInstanceId: IdSchema,
   kind: PlanQueueKindSchema,
@@ -266,9 +271,11 @@ export const PlanQueueControlPayloadSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('pause'), runId: IdSchema }),
   z.object({ action: z.literal('resume'), runId: IdSchema }),
   z.object({ action: z.literal('cancel'), runId: IdSchema }),
+  z.object({ action: z.literal('adopt'), runId: IdSchema }),
   z.object({ action: z.literal('skip-item'), itemId: IdSchema }),
   z.object({ action: z.literal('resume-item'), itemId: IdSchema }),
   z.object({ action: z.literal('land-anyway'), itemId: IdSchema }),
+  z.object({ action: z.literal('retry-landing'), itemId: IdSchema }),
   z.object({ action: z.literal('discard-item'), itemId: IdSchema }),
 ]);
 
@@ -318,7 +325,7 @@ export const PlanQueueAnswerArgsSchema = z.object({
 });
 
 export const PlanQueueControlArgsSchema = z.object({
-  action: z.enum(['pause', 'resume', 'cancel', 'skip-item', 'resume-item', 'land-anyway', 'discard-item']),
+  action: z.enum(['pause', 'resume', 'cancel', 'adopt', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item']),
   run_id: IdSchema.optional(),
   item_id: IdSchema.optional(),
 });

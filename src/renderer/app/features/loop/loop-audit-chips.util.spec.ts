@@ -172,3 +172,13 @@ describe('buildHonestyChips — L6 diagnosis and parked leaves', () => {
     })).toEqual(['unstick 2/2 · G', 'wrap-up · iterations cap', 'scope widened', '1 item parked']);
   });
 });
+
+describe('starting check baseline chips', () => {
+  it('labels pending, unknown, red and green baselines visibly', () => {
+    expect(buildLoopAuditChips({ audit: { preflightMode: 'record' } })?.preflightLabel).toBe('Recording starting checks...');
+    const base = { status: 'passed' as const, ranAt: 1, commands: [] };
+    expect(buildLoopAuditChips({ preflight: { ...base, baseline: { status: 'unknown', scope: 'start-tree', keys: [], failingCount: 0 } } })?.preflightLabel).toBe('Starting checks: not recorded');
+    expect(buildLoopAuditChips({ preflight: { ...base, baseline: { status: 'recorded', scope: 'start-tree', keys: ['test'], failingCount: 1 } } })?.preflightLabel).toBe('Started with 1 failing check (not the loop’s fault)');
+    expect(buildLoopAuditChips({ preflight: { ...base, baseline: { status: 'recorded', scope: 'start-tree', keys: [], failingCount: 0 } } })?.preflightLabel).toBe('Started with all checks passing');
+  });
+});

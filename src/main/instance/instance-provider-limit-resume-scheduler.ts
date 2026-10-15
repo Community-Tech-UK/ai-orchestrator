@@ -16,6 +16,7 @@ export interface InstanceProviderLimitResumeRequest {
   workspaceCwd: string;
   provider: InstanceProvider;
   resumeAt: number;
+  quotaBlind?: boolean;
   reason: string;
   /** The turn to re-send when the window resets (provider text; see LT-657); null when unknown. */
   resumePrompt: string | null;
@@ -123,6 +124,7 @@ export function scheduleInstanceProviderLimitResume(params: {
         systemAction: {
           type: 'instanceProviderLimitResume',
           instanceId: request.instanceId,
+          ...(request.quotaBlind ? { quotaBlind: true } : {}),
           ...(request.resumePrompt ? { resumePrompt: request.resumePrompt } : {}),
         },
         // Dispatch fallback: used only when the systemAction handler decides it

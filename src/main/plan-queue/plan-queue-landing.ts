@@ -22,6 +22,7 @@ import { CONFLICT_CODES } from './plan-queue-git';
 import { runInProcessGroup } from './plan-queue-process';
 import { buildLandingCommit, type LandingDocument } from './plan-queue-squash';
 import type { PlanQueueItem } from './plan-queue.types';
+import { createDocumentOverlapResolver, recoverDocumentMergeForItem } from './plan-queue-doc-merge';
 
 const logger = getLogger('PlanQueueLanding');
 
@@ -36,8 +37,15 @@ export type SyncResult =
 export type GateResult = { ok: true } | { ok: false; command: string; output: string };
 
 export type LandResult =
-  | { status: 'landed'; commit: string }
+  | { status: 'landed'; commit: string; mergedPaths?: string[] }
   | { status: 'conflict'; conflictFiles: string[] }
+  /**
+   * The landing is not finalizable yet. When this follows a promotion whose
+   * document merge was interrupted and could not be recovered, the commit IS
+   * already on the base branch; the item holds here with the backup reason
+   * until James restores his edits, exactly as a crash between the
+   * fast-forward and the document writes would.
+   */
   | { status: 'blocked'; reason: string }
   /** The repository's pre-commit hook refused the landing commit. */
   | { status: 'hook-failed'; output: string }
@@ -139,13 +147,30 @@ async function promote(
   await writeIntegrationRefs(repoRoot, integrationBranch, commit);
   const promotion = await promoteIntegrationBranch(repoRoot, baseBranch, integrationBranch, commit, {
     dirtyRootPolicy: 'block-overlap',
+    resolveDirtyOverlap: createDocumentOverlapResolver({ itemId: item.id }),
   });
   await deleteIntegrationRefs(repoRoot, integrationBranch);
   if (promotion.status === 'blocked') {
     logger.warn('Plan queue landing blocked', { itemId: item.id, reason: promotion.reason });
-    return { status: 'blocked', reason: promotion.reason };
+    return { status: 'blocked', reason: promotion.reason
+      + (promotion.overlaps && promotion.overlaps.length > 1 ? ` Overlapping paths: ${promotion.overlaps.join(', ')}.` : '') };
   }
-  return { status: 'landed', commit: promotion.tip };
+  if (promotion.status === 'promoted' && promotion.documentMergeInterrupted) {
+    // The fast-forward already moved the base; only the document-merge writes
+    // were interrupted. Reconcile the durable backup now — what the next
+    // landing attempt would do — so this attempt lands when the merge can
+    // complete, and holds the item in its designed land-blocked state with the
+    // backup visible when it cannot.
+    logger.warn('Plan queue landing: document merge finish failed after promotion; recovering from the backup', {
+      itemId: item.id,
+      message: promotion.documentMergeInterrupted,
+    });
+    const recovered = await recoverDocumentMergeForItem(repoRoot, item.id);
+    return recovered.ok
+      ? { status: 'landed', commit: promotion.tip, ...(recovered.mergedPaths.length ? { mergedPaths: recovered.mergedPaths } : {}) }
+      : { status: 'blocked', reason: recovered.reason };
+  }
+  return { status: 'landed', commit: promotion.tip, ...('mergedPaths' in promotion ? { mergedPaths: promotion.mergedPaths } : {}) };
 }
 
 /**

@@ -78,14 +78,24 @@ export function buildLoopAuditChips(input: LoopAuditChipInput | null | undefined
   const preflightTimedOut = preflightStatus === 'failed'
     && (input.preflight?.commands?.some((command) => command.failureKind === 'timeout') ?? false);
 
+  const baseline = input.preflight?.baseline;
+  const baselineLabel = baseline
+    ? baseline.status === 'unknown' ? 'Starting checks: not recorded'
+      : baseline.failingCount > 0 ? `Started with ${baseline.failingCount} failing check${baseline.failingCount === 1 ? '' : 's'} (not the loop’s fault)`
+        : 'Started with all checks passing'
+    : preflightMode === 'record' && !input.preflight ? 'Recording starting checks...' : undefined;
+  const baselineTitle = baseline
+    ? baseline.status === 'unknown' ? baseline.reason ?? 'The starting state could not be recorded.'
+      : `Before the loop changed anything, Harness ran ${input.preflight?.commands.find(command => command.label === 'verify')?.command ?? 'the checks'} on a copy of the starting files. These were already failing, so they do not hold the loop up.${baseline.scope === 'committed-head' ? ' Uncommitted starting files were not checked; their failures still count as new.' : ''}`
+    : undefined;
   return {
     preflightState: recordMode && (preflightTimedOut || preflightStatus === 'skipped')
       ? 'skipped'
       : preflightStatus,
     finalAuditState: finalAuditStatus,
-    preflightLabel: preflightChipLabel(preflightStatus, preflightTimedOut, recordMode),
+    preflightLabel: baselineLabel ?? preflightChipLabel(preflightStatus, preflightTimedOut, recordMode),
     finalAuditLabel: finalAuditChipLabel(finalAuditMode, finalAuditStatus),
-    preflightTitle: preflightChipTitle(preflightStatus, preflightTimedOut, recordMode),
+    preflightTitle: baselineTitle ?? preflightChipTitle(preflightStatus, preflightTimedOut, recordMode),
     finalAuditTitle: finalAuditChipTitle(finalAuditStatus),
     reportFile: input.latestFinalAudit?.reportPath
       ? basename(input.latestFinalAudit.reportPath)

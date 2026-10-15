@@ -46,6 +46,8 @@ export type * from './settings-primitives.types';
 /** Application settings that are persisted to disk. */
 export interface AppSettings extends DesktopComputerUseSettings {
   // General
+  /** Keep the system awake; the display may still sleep. */
+  keepAwakeMode: 'off' | 'while-working' | 'always';
   defaultYoloMode: boolean;
   defaultWorkingDirectory: string;
   defaultCli: CliType;
@@ -142,6 +144,11 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * 0 = disabled.
    */
   cumulativeTokenCompactionTrigger: number;
+  ownChatContextCeilingTokens: number;
+  machineContextCeilingTokens: number;
+  codexHelperAgentsChats: 'economy' | 'full' | 'off' | 'trial';
+  codexHelperAgentsHarnessWork: 'off' | 'full' | 'trial';
+  codexContextTuning: 'harness' | 'codex';
   /** Restart-with-summary compaction also records and injects a heuristic decision log. Default off. */
   compactionDecisionLogEnabled: boolean;
   /**

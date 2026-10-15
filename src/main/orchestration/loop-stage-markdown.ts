@@ -1,3 +1,5 @@
+import { classifyQuestionRisk } from '../../shared/attention/question-need';
+import { OUTSTANDING_TEMPLATE } from './loop-stage-files';
 import type { LoopOutstandingEntry } from '../../shared/types/loop-outstanding.types';
 
 /**
@@ -34,10 +36,12 @@ export interface OutstandingSections {
   needsHuman: LoopOutstandingEntry[];
   /** Real bullets under an "Open questions" heading. */
   openQuestions: LoopOutstandingEntry[];
+  decisionsApplied: LoopOutstandingEntry[];
+  forInformation: LoopOutstandingEntry[];
 }
 
 /** Section a heading maps to, or null when it's an unrelated heading. */
-type OutstandingSectionKind = 'needs-human' | 'open-questions' | null;
+type OutstandingSectionKind = 'needs-human' | 'open-questions' | 'decisions-applied' | 'for-information' | null;
 
 const NEEDS_HUMAN_HEADING =
   /needs?[-\s]*human|requires?[-\s]*human|human[-\s]*review|manual[-\s]*verif/i;
@@ -53,7 +57,7 @@ const OUTSTANDING_PLACEHOLDER = /^(none|n\/?a|nil|empty|tbd|—|-)\.?$/i;
  * "Recommendation from legal needed") is NOT swallowed. Capture group 1 is the
  * recommendation text (guaranteed non-empty by `(.+)`).
  */
-const RECOMMENDATION_BULLET = /^(?:recommendation|recommended|suggestion|suggested)\s*:\s*(.+)$/i;
+const RECOMMENDATION_BULLET = /^(?:recommendation|recommended|suggestion|suggested|applied)\s*:\s*(.+)$/i;
 
 /** Return the recommendation text if `text` is a `Recommendation:` bullet, else null. */
 function parseRecommendationBullet(text: string): string | null {
@@ -65,6 +69,8 @@ function classifyOutstandingHeading(title: string): OutstandingSectionKind {
   // Needs-human takes precedence so a "Needs human questions" heading (unlikely
   // but possible) lands in the higher-signal bucket.
   if (NEEDS_HUMAN_HEADING.test(title)) return 'needs-human';
+  if (/decisions?[-\s]*applied|applied[-\s]*decisions?/i.test(title)) return 'decisions-applied';
+  if (/for[-\s]*information|\bfyi\b/i.test(title)) return 'for-information';
   if (OPEN_QUESTIONS_HEADING.test(title)) return 'open-questions';
   return null;
 }
@@ -88,44 +94,55 @@ function normalizeOutstandingBullet(line: string): string | null {
  * structured capture persisted to `loop_outstanding_items` / surfaced in the UI.
  */
 export function parseOutstandingSections(raw: string): OutstandingSections {
-  const result: OutstandingSections = { needsHuman: [], openQuestions: [] };
-  if (!raw.trim()) return result;
+  const result: OutstandingSections = { needsHuman: [], decisionsApplied: [], forInformation: [], openQuestions: [] };
   let section: OutstandingSectionKind = null;
-  // The item a `Recommendation:` bullet attaches to (the most recent real item
-  // in the current section). Reset on every heading so a recommendation can't
-  // leak across sections.
   let lastEntry: LoopOutstandingEntry | null = null;
-  for (const line of raw.split(/\r?\n/)) {
-    const heading = line.match(/^#{1,6}\s+(.*)$/);
-    if (heading) {
-      section = classifyOutstandingHeading(heading[1].trim().toLowerCase());
-      lastEntry = null;
+  let recommendationContinuation = false;
+  let fence: { marker: string; length: number } | null = null;
+  for (const line of raw.replace(/<!--[\s\S]*?(?:-->|$)/g, '').split(/\r?\n/)) {
+    const marker = line.match(/^\s*(`{3,}|~{3,})/);
+    if (marker) {
+      if (!fence) fence = { marker: marker[1][0], length: marker[1].length };
+      else if (marker[1][0] === fence.marker && marker[1].length >= fence.length) fence = null;
       continue;
     }
+    if (fence) continue;
+    const heading = line.match(/^#{1,6}\s+(.*)$/);
+    if (heading) { section = classifyOutstandingHeading(heading[1]); lastEntry = null; recommendationContinuation = false; continue; }
     if (!section) continue;
     const text = normalizeOutstandingBullet(line);
-    if (text === null) continue;
+    if (text === null) {
+      if (lastEntry && /^\s+\S/.test(line) && !/^\s*(?:[-*+]|\d+\.)\s/.test(line)) {
+        if (recommendationContinuation) lastEntry.recommendation = `${lastEntry.recommendation ?? ''} ${line.trim()}`.trim();
+        else lastEntry.text += ` ${line.trim()}`;
+      }
+      continue;
+    }
     const recommendation = parseRecommendationBullet(text);
     if (recommendation !== null) {
-      // Attach to the preceding item (first recommendation wins); a stray
-      // recommendation with no item before it in the section is ignored.
-      if (lastEntry && lastEntry.recommendation === null) lastEntry.recommendation = recommendation;
+      if (lastEntry && lastEntry.recommendation === null) { lastEntry.recommendation = recommendation; recommendationContinuation = true; }
       continue;
     }
     const entry: LoopOutstandingEntry = { text, recommendation: null };
     if (section === 'needs-human') result.needsHuman.push(entry);
-    else result.openQuestions.push(entry);
+    else if (section === 'decisions-applied') result.decisionsApplied.push(entry);
+    else { result.forInformation.push(entry); result.openQuestions.push(entry); }
     lastEntry = entry;
+    recommendationContinuation = false;
   }
   return result;
 }
 
-/**
- * review-driven mode: does OUTSTANDING.md's "Needs human" section contain at
- * least one real item? Placeholders like "(none)", "none", "n/a", "-" don't count.
- */
+export function renderOutstandingFile(sections: OutstandingSections): string {
+  const header = OUTSTANDING_TEMPLATE.slice(0, OUTSTANDING_TEMPLATE.indexOf('## Needs human'));
+  const render = (heading: string, entries: LoopOutstandingEntry[], applied = false) => `## ${heading}\n` + (entries.length ? entries.map(entry => `- ${entry.text}` + (entry.recommendation ? `\n  - ${applied ? 'Applied' : 'Recommendation'}: ${entry.recommendation}` : '')).join('\n') : '- (none)');
+  return header + [render('Needs human', sections.needsHuman), render('Decisions applied', sections.decisionsApplied, true), render('For information', sections.forInformation)].join('\n\n') + '\n';
+}
+
+/** Risky decisions and information require the same sign-off as explicit human questions. */
 export function outstandingHasHumanItems(raw: string): boolean {
-  return parseOutstandingSections(raw).needsHuman.length > 0;
+  const sections = parseOutstandingSections(raw);
+  return sections.needsHuman.length > 0 || [...sections.decisionsApplied, ...sections.forInformation].some(entry => classifyQuestionRisk(entry.text, entry.recommendation ?? '') !== null);
 }
 
 /**

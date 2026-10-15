@@ -76,6 +76,7 @@ import type {
 import { WarmStartManager } from './warm-start-manager';
 import { stopProviderAutoContinuation } from './provider-auto-continuation';
 import { adapterHasActiveProviderTurn, adapterHasActiveToolCalls, StuckProcessDetector } from './stuck-process-detector';
+import { buildStuckNotice } from './stall-notices';
 import { shouldProbeAdapterProcess, StaleRuntimeReconciler } from './stale-runtime-reconciler';
 import { getClampedLoadWatchdogMultiplier } from '../runtime/system-load-monitor';
 import { computeInitWaitBudgetMs as resolveInitWaitBudgetMs } from './init-wait-budget';
@@ -635,23 +636,16 @@ export class InstanceManager extends EventEmitter {
     });
 
     // Wire stuck process detector event handlers
-    this.stuckDetector.on('process:suspect-stuck', ({ instanceId, elapsedMs }) => {
+    this.stuckDetector.on('process:suspect-stuck', async ({ instanceId, elapsedMs }) => {
+      const before = this.state.getInstance(instanceId);
+      if (!before) return;
+      const adapter = this.state.getAdapter(instanceId);
+      const activityAt = before.lastActivity;
+      const warningMessage = await buildStuckNotice({ elapsedMs, pid: adapter?.getPid() ?? null });
       const instance = this.state.getInstance(instanceId);
-      if (instance) {
-        const secs = Math.round(elapsedMs / 1000);
-        const warningMessage: OutputMessage = {
-          id: `stuck-warn-${Date.now()}`,
-          type: 'system',
-          content: `Instance may be stuck — no output for ${secs}s. Will auto-restart if unresponsive.`,
-          timestamp: Date.now(),
-          metadata: {
-            watchdogWarning: true,
-            elapsedMs,
-          },
-        };
-        this.communication.addToOutputBuffer(instance, warningMessage);
-        this.publishOutput(instanceId, warningMessage);
-      }
+      if (!instance || instance !== before || this.state.getAdapter(instanceId) !== adapter || instance.lastActivity !== activityAt) return;
+      this.communication.addToOutputBuffer(instance, warningMessage);
+      this.publishOutput(instanceId, warningMessage);
     });
     this.stuckDetector.on('process:stuck', ({ instanceId }) => {
       this.lifecycle.respawnAfterInterrupt(instanceId).catch(err => {

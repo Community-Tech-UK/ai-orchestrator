@@ -6,11 +6,12 @@ import type {
   LoopPhaseRecoveryState,
   LoopState,
 } from '../../shared/types/loop.types';
+import { isParkedLoopRuntimeState, isTerminalLoopRuntimeState } from './loop-runtime-status';
 import { createLoopPendingInput } from '../../shared/types/loop.types';
 import { isReviewDrivenProductionChange } from './loop-coordinator-completion-gates';
 import { readLoopPlanPacket } from './loop-plan-packet';
 import type { LoopStageMachine } from './loop-stage-machine';
-import { parseOutstandingSections } from './loop-stage-markdown';
+import { parseOutstandingSections, renderOutstandingFile } from './loop-stage-markdown';
 
 export interface LoopPhaseRecoveryDecision {
   status: 'continue' | 'handoff';
@@ -26,11 +27,13 @@ export async function applyLoopPhaseRecovery(params: {
   stageMachine: LoopStageMachine;
 }): Promise<LoopPhaseRecoveryDecision> {
   const { state, iteration, finalAudit, stageMachine } = params;
+  if (recoveryInterrupted(state)) return { status: 'continue' };
   if (finalAudit.status === 'passed' || finalAudit.status === 'skipped') {
     return { status: 'continue' };
   }
 
   const resolvedPhaseId = await resolveCurrentPhaseId(stageMachine);
+  if (recoveryInterrupted(state)) return { status: 'continue' };
   if (resolvedPhaseId === null && finalAudit.findings.every(isGlobalProgressFinding)) {
     return { status: 'continue' };
   }
@@ -53,7 +56,8 @@ export async function applyLoopPhaseRecovery(params: {
   phaseRecovery[phaseId] = next;
 
   if (next.consecutiveFailures === 2) {
-    const fixSpecPath = await writePhaseFixSpec(stageMachine, phaseId, finalAudit);
+    const fixSpecPath = await writePhaseFixSpec(stageMachine, phaseId, finalAudit, state);
+    if (!fixSpecPath || recoveryInterrupted(state)) return { status: 'continue' };
     state.pendingInterventions.push(createLoopPendingInput(
       `Phase recovery: ${phaseId} has failed the same completion audit twice. ` +
         `Work only from the narrow fix spec at ${fixSpecPath}, then rerun the required evidence and re-declare completion.`,
@@ -63,12 +67,14 @@ export async function applyLoopPhaseRecovery(params: {
   }
 
   if (next.consecutiveFailures >= 3) {
-    const fixSpecPath = await writePhaseFixSpec(stageMachine, phaseId, finalAudit);
+    const fixSpecPath = await writePhaseFixSpec(stageMachine, phaseId, finalAudit, state);
+    if (!fixSpecPath || recoveryInterrupted(state)) return { status: 'continue' };
     const terminalStatus = finalAudit.status === 'needs-review' ? 'completed-needs-review' : 'no-progress';
     const reason =
       `Phase recovery handoff for ${phaseId}: the same final-audit findings repeated ` +
       `${next.consecutiveFailures} times without new production changes. Fix spec: ${fixSpecPath}`;
-    await appendPhaseRecoveryOutstanding(stageMachine, phaseId, reason, fixSpecPath);
+    await appendPhaseRecoveryOutstanding(stageMachine, phaseId, reason, fixSpecPath, state);
+    if (recoveryInterrupted(state)) return { status: 'continue' };
     return { status: 'handoff', terminalStatus, reason, fixSpecPath };
   }
 
@@ -105,8 +111,10 @@ async function writePhaseFixSpec(
   stageMachine: LoopStageMachine,
   phaseId: string,
   finalAudit: LoopFinalAuditResult,
-): Promise<string> {
+  state: LoopState,
+): Promise<string | null> {
   await fsp.mkdir(stageMachine.paths.phasesDir, { recursive: true });
+  if (recoveryInterrupted(state)) return null;
   const fixSpecPath = path.join(stageMachine.paths.phasesDir, `${safePhaseId(phaseId)}.fix.md`);
   const findings = finalAudit.findings.length > 0
     ? finalAudit.findings
@@ -133,6 +141,7 @@ async function appendPhaseRecoveryOutstanding(
   phaseId: string,
   reason: string,
   fixSpecPath: string,
+  state: LoopState,
 ): Promise<void> {
   let existing = '';
   try {
@@ -140,33 +149,13 @@ async function appendPhaseRecoveryOutstanding(
   } catch {
     // Create the file below.
   }
+  if (recoveryInterrupted(state)) return;
   const sections = parseOutstandingSections(existing);
-  const needsHuman = [
-    ...sections.needsHuman.map((entry) => renderOutstandingEntry(entry.text, entry.recommendation)),
-    renderOutstandingEntry(
-      reason,
-      `Review ${fixSpecPath}, decide whether to narrow or defer ${phaseId}, then resume the loop with that decision.`,
-    ),
-  ];
-  const openQuestions = sections.openQuestions.map((entry) =>
-    renderOutstandingEntry(entry.text, entry.recommendation),
-  );
-  const next = [
-    '## Needs human',
-    ...needsHuman,
-    '',
-    '## Open questions',
-    ...(openQuestions.length > 0 ? openQuestions : ['- (none)']),
-    '',
-  ].join('\n');
+  sections.needsHuman.push({ text: reason, recommendation: `Review ${fixSpecPath}, decide whether to narrow or defer ${phaseId}, then resume the loop with that decision.` });
+  const next = renderOutstandingFile(sections);
   await fsp.mkdir(path.dirname(stageMachine.paths.outstanding), { recursive: true });
+  if (recoveryInterrupted(state)) return;
   await fsp.writeFile(stageMachine.paths.outstanding, next, 'utf8');
-}
-
-function renderOutstandingEntry(text: string, recommendation: string | null): string {
-  return recommendation
-    ? `- ${text}\n  - Recommendation: ${recommendation}`
-    : `- ${text}`;
 }
 
 function sameCodes(a: readonly string[], b: readonly string[]): boolean {
@@ -175,4 +164,8 @@ function sameCodes(a: readonly string[], b: readonly string[]): boolean {
 
 function safePhaseId(phaseId: string): string {
   return phaseId.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '') || 'unscoped';
+}
+
+function recoveryInterrupted(state: LoopState): boolean {
+  return isTerminalLoopRuntimeState(state) || isParkedLoopRuntimeState(state);
 }

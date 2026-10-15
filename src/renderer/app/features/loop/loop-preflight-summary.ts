@@ -31,7 +31,7 @@ function budgetClause(maxIterations: number | null, maxDollars: number | null): 
     // shipped default, but the operator should know that is what they have.
     return 'It has no iteration or cost cap, so it runs until it finishes or you stop it.';
   }
-  if (parts.length === 1) return `It stops after ${parts[0]}.`;
+  if (parts.length === 1) return `It stops after ${parts[0]}.${maxDollars === null ? ' It has no spending limit.' : ''}`;
   return `It stops after ${parts.join(' or ')}, whichever comes first.`;
 }
 

@@ -37,6 +37,8 @@ export interface CollectWorkspaceDiffOptions {
   maxChars?: number;
   /** Per-untracked-file content cap. Default 16 KB. */
   maxUntrackedFileChars?: number;
+  /** Repository-relative literal paths for a later review's delta packet. */
+  paths?: readonly string[];
 }
 
 /**
@@ -164,18 +166,19 @@ export function collectWorkspaceDiff(
 
   const sections: string[] = [];
   const changedFiles = new Set<string>();
+  const pathspec = options.paths ? ['--', ...options.paths.map((file) => `:(top,literal)${file}`)] : [];
 
   // Stat header — a compact overview the reviewer can scan first.
-  const stat = runner(['-c', 'core.pager=cat', 'diff', '--stat', 'HEAD'], workspaceCwd);
+  const stat = runner(['-c', 'core.pager=cat', 'diff', '--stat', 'HEAD', ...pathspec], workspaceCwd);
   if (stat.status === 0 && stat.stdout.trim()) {
     sections.push(`## Change summary (git diff --stat HEAD)\n${stat.stdout.trim()}`);
   }
 
   // Tracked changes vs HEAD (staged + unstaged).
-  const tracked = runner(['-c', 'core.pager=cat', 'diff', 'HEAD'], workspaceCwd);
+  const tracked = runner(['-c', 'core.pager=cat', 'diff', 'HEAD', ...pathspec], workspaceCwd);
   if (tracked.status === 0 && tracked.stdout.trim()) {
     sections.push(`## Tracked changes (git diff HEAD)\n${tracked.stdout.trimEnd()}`);
-    for (const m of tracked.stdout.matchAll(/^\+\+\+ b\/(.+)$/gm)) {
+    for (const m of tracked.stdout.matchAll(/^(?:\+\+\+ b|--- a)\/(.+)$/gm)) {
       if (m[1] && m[1] !== '/dev/null') changedFiles.add(m[1]);
     }
   }
@@ -186,6 +189,7 @@ export function collectWorkspaceDiff(
     const blocks: string[] = [];
     for (const rel of untracked.stdout.split('\n').map((l) => l.trim()).filter(Boolean)) {
       if (isIgnoredUntracked(rel)) continue;
+      if (options.paths && !options.paths.includes(rel)) continue;
       const head = readUntrackedHead(path.join(workspaceCwd, rel), maxUntrackedFileChars);
       if (!head) continue;
       changedFiles.add(rel);

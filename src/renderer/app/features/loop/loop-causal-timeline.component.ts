@@ -76,7 +76,7 @@ import { timelineRecoveryTarget } from './loop-control-timeline';
             }
             <!-- Always stated. An estimate shown as a measurement is how a cost
                  display stops being believed. -->
-            <span class="loop-timeline__spend-source">{{ t.spend.sourceLabel }}</span>
+            <span class="loop-timeline__spend-source">{{ t.spend.sourceLabel }}@if (t.spend.knownCents !== undefined) { · {{ dollars(t.spend.knownCents) }} exact of {{ dollars(t.spend.spentCents) }} }</span>
           </p>
         }
 
@@ -101,7 +101,7 @@ export class LoopCausalTimelineComponent {
       case 'active': return 'in progress';
       case 'blocked': return 'blocked';
       case 'skipped': return 'not used';
-      default: return 'not started';
+      default: return 'not reached';
     }
   }
 

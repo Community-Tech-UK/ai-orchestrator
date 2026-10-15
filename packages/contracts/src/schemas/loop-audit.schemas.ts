@@ -67,7 +67,18 @@ export const LoopFinalAuditResultSchema = z.object({
   reportPath: z.string().optional(),
 });
 
+export const LoopVerifyBaselineResultSchema = z.object({
+  status: z.enum(['recorded', 'unknown']),
+  failingCount: z.number().int().nonnegative(),
+  keys: z.array(z.string()).max(200),
+  scope: z.enum(['start-tree', 'committed-head']),
+  reason: z.string().optional(),
+  failedStep: z.string().optional(),
+  diagnosticPathPrefix: z.string().max(4096).optional(),
+});
+
 export const LoopPreflightResultSchema = z.object({
+  baseline: LoopVerifyBaselineResultSchema.optional(),
   status: z.enum(['passed', 'failed', 'skipped']),
   ranAt: z.number().int(),
   commands: z.array(z.object({

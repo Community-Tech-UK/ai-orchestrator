@@ -9,6 +9,7 @@
 
 import type { LoopConfig, LoopStage } from '../../shared/types/loop.types';
 import { CLEAN_REVIEW_SENTINEL } from './loop-terminal-sentinels';
+import { LOOP_FINISH_PHASE_MAX_ROUNDS } from './loop-finish-phase';
 import {
   renderPendingInput,
   renderSystemReminder,
@@ -54,6 +55,14 @@ export function clarifyingQuestionRule(strategy: LoopConfig['contextStrategy']):
   return strategy === 'same-session'
     ? '2. **Do not ask clarifying questions.** They will not be answered — this persistent session continues, but the operator is not in the loop.'
     : '2. **Do not ask clarifying questions.** They will not be answered — the next iteration is a fresh process and will not see them.';
+}
+
+function liveQuestionRule(outstandingPath: string): string {
+  return `Record questions in \`${outstandingPath}\`: Needs human is reserved for credentials, release or destructive authority, and genuine human choices. Make safe routine choices yourself under Decisions applied. Put inherited failures and useful context under For information. Include an indented Recommendation for every item. The Harness shows new items to James after each round; continue independent work while waiting.`;
+}
+
+function finishRule(): string {
+  return `Once the task ledger is closed, use at most ${LOOP_FINISH_PHASE_MAX_ROUNDS} finish rounds. One clean round with green required checks is enough. Do not invent additional scope or polishing work. At the finish budget, return an honest handoff with any failed, skipped, or inherited checks recorded.`;
 }
 
 export function renderLoopBoard(options: {
@@ -150,6 +159,9 @@ ${sameSessionContextLine(options.config.contextStrategy)}
 
 Schema unchanged — read \`${options.notesPath}\`, \`${options.outstandingPath}\`, and \`${options.tasksPath}\`. Advance the goal, re-review with fresh eyes, and use the same clean-review sentence and sentinel as iteration 0 when you are actually done.
 
+${liveQuestionRule(options.outstandingPath)}
+${finishRule()}
+
 Complete a coherent work slice, update the state files, and return control to the loop before this iteration's timeout. Leave a resumable handoff for remaining work; the next iteration can continue it.
 
 Clean-review sentence (unchanged): ${preferred}
@@ -182,7 +194,7 @@ export function renderReviewDrivenReanchorPrompt(options: {
   const preferred = (options.config.completion.noOutstandingPhrase ?? 'There are no outstanding issues').trim();
   const required = Math.max(1, options.config.completion.requiredCleanReviewPasses ?? 2);
   const verifyBlock = options.verifyCommand
-    ? `\n- A verify command is configured: \`${options.verifyCommand}\`. Run it as part of your review; if it fails, that is an outstanding issue — fix it and do NOT emit the completion line this round.`
+    ? `\n- Use focused checks for changed files${options.config.completion.quickVerifyCommand ? `, including \`${options.config.completion.quickVerifyCommand}\`` : ''}. The Harness runs the full verify command \`${options.verifyCommand}\` at the finish gate. New failures are actionable; inherited failures belong under For information and must remain visible.`
     : '';
   const directive = options.iterationSeq > 0
     ? directiveBlocks(options.iterationPrompt, options.config.initialPrompt, '## Continuation directive (later iterations)')
@@ -204,8 +216,8 @@ export function renderReviewDrivenReanchorPrompt(options: {
 
 ${sameSessionContextLine(options.config.contextStrategy)}
 
-There is no human in the loop. Make the decisions a senior engineer would defend.
-${clarifyingQuestionRule(options.config.contextStrategy)}
+James is not watching every iteration. Make the decisions a senior engineer would defend.
+${liveQuestionRule(options.outstandingPath)}
 
 ## Your job this iteration
 1. **Advance the goal when work remains.** Do the next concrete chunk of real work toward the goal below. Use maintainable architecture; no shortcuts, stubs, or placeholder/constant-return logic standing in for the real thing. If a genuine fresh-eyes review finds nothing actionable, do not invent work or gold-plate the result; proceed to the clean declaration below without changing production code.
@@ -219,7 +231,7 @@ Return control to the loop before this iteration's timeout. Finish a coherent sl
 
 ## State files (under \`${options.stateDir}/\` — read/write at these exact paths)
 - \`${options.notesPath}\` — append a terse one-paragraph summary each iteration: what you changed, what's left.
-- \`${options.outstandingPath}\` — keep this current. Two sections: Needs human and Open questions. Every item needs an indented Recommendation. Empty sections are \`- (none)\`. Read the file for the schema; do not wait for a restated template. The bar for Needs human is high — only genuinely human-required items.
+- \`${options.outstandingPath}\` — keep Needs human, Decisions applied, and For information current. Empty sections are \`- (none)\`. Read the file for the schema; do not wait for a restated template.
 - \`${options.blockedPath}\` — only if hard-blocked; write what you need, then exit.
 - \`${options.tasksPath}\` — keep the ledger current.${options.planPacketBlock ?? ''}
 ${directive.prefix}
@@ -227,6 +239,8 @@ ${directive.prefix}
 ${options.config.initialPrompt}
 
 ## How this loop stops
+${finishRule()}
+
 The loop ends after **${required} consecutive** iterations where, after a genuine fresh-eyes pass, you (a) made **no** code changes and (b) found nothing left to fix that you can act on.
 
 When — and ONLY when — that is true this iteration (you changed no production code, and everything remaining is either done or sits under "## Needs human" in \`${options.outstandingPath}\`), end your message with this human-readable statement:

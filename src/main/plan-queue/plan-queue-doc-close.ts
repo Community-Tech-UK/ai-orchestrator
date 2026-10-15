@@ -197,3 +197,12 @@ export async function appendParkedNote(
   const line = `\n\n> ${marker} — ${note.commitCount} commit(s), reason: ${note.reason}.\n`;
   await fs.writeFile(documentPath, content.replace(/\s*$/, '') + line, 'utf-8');
 }
+
+/** Remove only this item's parked-branch line before rebuilding a verified landing. */
+export async function removeParkedNote(documentPath: string, branchName: string): Promise<void> {
+  if (!(await exists(documentPath))) return;
+  const marker = `> Plan Queue parked work: \`${branchName}\``;
+  const content = await fs.readFile(documentPath, 'utf-8');
+  const updated = content.split('\n').filter((line) => !line.startsWith(marker)).join('\n');
+  if (updated !== content) await fs.writeFile(documentPath, updated, 'utf-8');
+}

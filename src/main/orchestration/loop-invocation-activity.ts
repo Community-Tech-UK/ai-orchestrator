@@ -11,6 +11,7 @@
 import type { LoopActivityKind } from '@contracts/schemas/loop';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliResponse, CliToolCall } from '../cli/adapters/base-cli-adapter.types';
+import { describeStallProcessFacts, isNotableStallFact, sampleStallProcessFacts } from '../instance/stall-process-facts';
 
 /**
  * Derived from the contracts package (LT-021) so the renderer-boundary
@@ -89,6 +90,7 @@ export function attachInvocationActivity(
   if (typeof emitter.on !== 'function') return () => { /* noop */ };
 
   const removers: (() => void)[] = [];
+  let detached = false;
   const listen = (event: string, handler: (...args: unknown[]) => void) => {
     emitter.on!(event, handler);
     removers.push(() => {
@@ -124,6 +126,12 @@ export function attachInvocationActivity(
         ? `No CLI output for ${seconds}s; still waiting for the iteration to finish`
         : 'No CLI output recently; still waiting for the iteration to finish',
       detail: { ...meta },
+    });
+    const pid = typeof meta['pid'] === 'number' ? meta['pid'] : null;
+    void sampleStallProcessFacts(pid, { silenceMs: timeoutMs ?? 0 }).then((facts) => {
+      if (!detached && facts && isNotableStallFact(facts)) {
+        sink({ kind: 'stream-idle', message: describeStallProcessFacts(facts), detail: { processFacts: facts } });
+      }
     });
   });
   listen('output', (output) => {
@@ -255,6 +263,7 @@ export function attachInvocationActivity(
   });
 
   return () => {
+    detached = true;
     for (const remove of removers.splice(0)) remove();
   };
 }

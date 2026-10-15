@@ -1,10 +1,10 @@
+import type { LoopSpendPortion, LoopUsageProvenance } from '../../shared/types/loop-spend.types';
 import { getLogger } from '../logging/logger';
 import type {
   LoopIteration,
   LoopStage,
   LoopState,
   LoopStatus,
-  PingPongIssue,
   PingPongReviewerFault,
   PingPongSubject,
 } from '../../shared/types/loop.types';
@@ -25,7 +25,6 @@ import type { LoopCleanReviewClassifier } from './loop-clean-review-classifier';
 import { emitBuilderDoneSignalActivity, resolvePingPongBuilderDone } from './loop-pingpong-builder-done';
 import {
   agenticPingPongReviewer,
-  type PingPongLedgerClassification,
   type PingPongReviewFinding,
   type PingPongReviewer,
   type PingPongReviewResult,
@@ -36,6 +35,12 @@ import {
   type LocalFreshEyesAdvisoryResult,
   type LocalFreshEyesAdvisoryReviewer,
 } from './loop-fresh-eyes-reviewer';
+import { applyLedgerUpdates, buildIntervention, issueId, summarizeOpen } from './pingpong-round-helpers';
+import { parseBuilderFindingReplies } from './pingpong-builder-replies';
+import { reviewDelta, snapshotReviewedFiles } from './pingpong-review-delta';
+import { resolveLoopReviewEffort } from './loop-review-effort';
+import { workspaceAnchorDigest } from './loop-review-reuse-anchor';
+import { dataBlock } from '../util/prompt-data';
 import { settlePromise, waitForSettlementOrAbort } from './abortable-promise-settlement';
 
 const logger = getLogger('LoopPingPong');
@@ -57,11 +62,9 @@ const MAX_UNRELIABLE_ROUNDS = 3;
  */
 const MAX_REVIEWER_UNAVAILABLE_ROUNDS = 6;
 /** Repeated genuine disagreement rounds → needs-human-arbitration. */
-const MAX_CONTRADICTORY_ROUNDS = 3;
+const MAX_CONTRADICTORY_ROUNDS = 2;
 /** Builder declares done but ignores blocking findings N rounds → builder-unreliable. */
 const MAX_UNADDRESSED_ROUNDS = 3;
-/** Consecutive low-only-churn rounds → converge-or-arbitrate (anti-nitpick). */
-const MAX_LOW_ONLY_ROUNDS = 2;
 
 export interface PingPongTerminal {
   status: LoopStatus;
@@ -81,7 +84,7 @@ export interface PingPongGateDeps {
   /** Abort signal tied to loop pause/cancel; aborts the in-flight reviewer. */
   signal: AbortSignal;
   /** Folds reviewer spend into the loop's budget accounting. */
-  foldReviewerSpend: (tokens: number, costCents: number) => void;
+  foldReviewerSpend: (tokens: number, costCents: number, exactCostCents?: number, spendRecords?: number, basis?: LoopUsageProvenance, spendBreakdown?: LoopSpendPortion[]) => void;
   /** Injectable reviewer (tests). Defaults to the real agentic reviewer. */
   reviewer?: PingPongReviewer;
   /** Additional local-only advisory pass; never replaces the remote reviewer. */
@@ -95,104 +98,6 @@ export interface PingPongGateDeps {
    * failure is injected as an intervention. Undefined ⇒ no verify gate.
    */
   runVerify?: () => Promise<{ ok: boolean; output: string }>;
-}
-
-/** Short stable id for a finding/issue, derived from its title. */
-function issueId(title: string): string {
-  let h = 0;
-  const s = title.toLowerCase().trim();
-  for (let i = 0; i < s.length; i++) {
-    h = (h * 31 + s.charCodeAt(i)) | 0;
-  }
-  return `pp-${(h >>> 0).toString(36)}`;
-}
-
-/** Reconcile the durable ledger with this round's classifications + findings. */
-function applyLedgerUpdates(
-  ledger: PingPongIssue[],
-  classifications: readonly PingPongLedgerClassification[],
-  findings: readonly PingPongReviewFinding[],
-  round: number,
-): void {
-  const byId = new Map(ledger.map((i) => [i.id, i]));
-
-  // 1) Apply explicit reviewer classifications of prior issues.
-  for (const c of classifications) {
-    const existing = byId.get(c.id);
-    if (existing) {
-      existing.status = c.status;
-      existing.lastSeenRound = round;
-    }
-  }
-
-  // 2) Fold this round's findings into the ledger.
-  for (const f of findings) {
-    const id = f.ledgerId && byId.has(f.ledgerId) ? f.ledgerId : issueId(f.title);
-    const existing = byId.get(id);
-    if (existing) {
-      existing.lastSeenRound = round;
-      existing.severity = f.severity;
-      existing.evidence = f.evidence;
-      existing.status = f.novelty === 'regression' ? 'regression' : 'open';
-    } else {
-      const issue: PingPongIssue = {
-        id,
-        title: f.title,
-        severity: f.severity,
-        status: f.novelty === 'regression' ? 'regression' : 'open',
-        evidence: f.evidence,
-        file: f.file,
-        raisedRound: round,
-        lastSeenRound: round,
-      };
-      ledger.push(issue);
-      byId.set(id, issue);
-    }
-  }
-}
-
-/** Build the intervention text injected into the builder's next prompt. */
-function buildIntervention(
-  review: PingPongReviewResult,
-  blocking: readonly PingPongReviewFinding[],
-  advisory: readonly PingPongReviewFinding[],
-  localAdvisory: readonly FreshEyesFinding[],
-): string {
-  const head =
-    `Ping-pong reviewer (${review.reviewerProvider}) did NOT approve. ` +
-    `${review.summary}\n`;
-  const blockingBlock =
-    blocking.length > 0
-      ? `\nBLOCKING — you must fix or rebut each before re-declaring done:\n` +
-        blocking
-          .map(
-            (f, i) =>
-              `${i + 1}. [${f.severity.toUpperCase()}] ${f.title}${f.file ? ` (${f.file})` : ''}\n` +
-              `   evidence: ${f.evidence}\n   ${f.body}`,
-          )
-          .join('\n')
-      : '';
-  const advisoryBlock =
-    advisory.length > 0
-      ? `\n\nNon-blocking suggestions (optional):\n` +
-        advisory.map((f, i) => `${i + 1}. [${f.severity}] ${f.title}${f.file ? ` (${f.file})` : ''}`).join('\n')
-      : '';
-  const localAdvisoryBlock = buildLocalAdvisoryBlock(localAdvisory);
-  const guidance =
-    `\n\nEvaluate each finding on its merits. Fix the valid ones. For ones you ` +
-    `disagree with, briefly justify and push back in your reply — do not capitulate ` +
-    `to be agreeable. Then declare done only when you genuinely believe the work is complete.`;
-  return head + blockingBlock + advisoryBlock + localAdvisoryBlock + guidance;
-}
-
-function buildLocalAdvisoryBlock(localAdvisory: readonly FreshEyesFinding[]): string {
-  return localAdvisory.length > 0
-    ? `\n\nLocal-model advisory evidence (visible for consideration, but not blocking unless a remote reviewer independently finds it):\n` +
-      localAdvisory.map((finding, index) =>
-        `${index + 1}. [${finding.severity}] ${finding.title}${finding.file ? ` (${finding.file})` : ''}\n` +
-        `   ${finding.body}`,
-      ).join('\n')
-    : '';
 }
 
 function localAdvisoryFailure(error: unknown): LocalFreshEyesAdvisoryResult {
@@ -251,7 +156,7 @@ export async function evaluatePingPongCompletion(
   if (!reviewCfg || !ppCfg?.enabled) return null;
 
   const pp = (state.pingPong ??= defaultPingPongState());
-  const maxRounds = clampPingPongMaxRounds(ppCfg.maxRounds);
+  let maxRounds = clampPingPongMaxRounds(ppCfg.maxRounds);
 
   // User control: force a jump to human arbitration.
   if (pp.forceArbitration) {
@@ -327,7 +232,38 @@ export async function evaluatePingPongCompletion(
   // When isolation is active the agent edits the worktree, not the repo root —
   // use the execution cwd so the ping-pong reviewer sees the actual changes.
   const diffCwd = loopExecutionCwd(state.config);
-  const workspaceDiff = collectWorkspaceDiff(diffCwd);
+  const fullDiff = collectWorkspaceDiff(diffCwd);
+  const effort = resolveLoopReviewEffort({ files: fullDiff.changedFiles, changedLines: fullDiff.truncated || fullDiff.source !== 'git' || /binary/i.test(fullDiff.diff) ? undefined : (fullDiff.diff.match(/^[+-](?![+-])/gm) ?? []).length });
+  if (state.reviewEffort !== 'standard' && state.reviewEffort !== effort.level) {
+    state.reviewEffort = effort.level;
+    const budget = effort.level === 'light' ? Math.min(maxRounds, Math.max(2, Math.ceil(maxRounds / 3))) : maxRounds;
+    emit('loop:activity', { loopRunId: state.id, seq, stage, timestamp: Date.now(), kind: 'status', message: `Review depth: ${effort.level} (${effort.reason}): ${effort.level === 'light' ? 'one reviewer and ' : ''}at most ${budget} review rounds.` });
+  }
+  if (state.reviewEffort === 'light') maxRounds = Math.min(maxRounds, Math.max(2, Math.ceil(maxRounds / 3)));
+  if (pp.roundCount >= maxRounds) {
+    return { status: 'cap-reached', reason: `Ping-pong hit its ${maxRounds}-round cap without mutual convergence. Open issues:\n${summarizeOpen(pp.ledger)}` };
+  }
+  const replies = parseBuilderFindingReplies(fullOutput, pp.ledger.filter(issue => issue.status !== 'resolved').map(issue => issue.id));
+  for (const reply of replies) {
+    const issue = pp.ledger.find(issue => issue.id === reply.id);
+    if (issue) { issue.builderClaim = reply.claim; issue.builderResponse = reply.response; }
+  }
+  const digest = workspaceAnchorDigest(diffCwd);
+  const mentionsOpen = pp.ledger.some(issue => issue.status !== 'resolved' && (fullOutput.includes(issue.id) || fullOutput.toLowerCase().includes(issue.title.toLowerCase())));
+  if (digest && pp.lastChangesRequestedDigest === digest && pp.skippedReviewForDigest !== digest && !mentionsOpen && !replies.some(reply => reply.claim === 'rebutted')) {
+    pp.skippedReviewForDigest = digest; pp.builderUnaddressedRounds += 1;
+    emit('loop:activity', { loopRunId: state.id, seq, stage, timestamp: Date.now(), kind: 'status', message: 'Review skipped: nothing changed since the last review.' });
+    state.pendingInterventions.push(createLoopPendingInput('Nothing changed since the last review, so the reviewer was not run again. These findings are still open; fix each one or rebut it by id, using the same reply form.\n' + dataBlock('review_findings', summarizeOpen(pp.ledger))));
+    return pp.builderUnaddressedRounds >= MAX_UNADDRESSED_ROUNDS ? { status: 'builder-unreliable', reason: 'The builder kept declaring done without addressing the open findings.' } : null;
+  }
+  const priorPaths = pp.lastReviewedFiles?.map(file => file.path) ?? [];
+  const currentFiles = snapshotReviewedFiles(diffCwd, [...new Set([...fullDiff.changedFiles, ...priorPaths])]);
+  const delta = reviewDelta(pp.lastReviewedFiles, currentFiles, pp.roundCount + 1);
+  // A reverted file disappears from the HEAD diff. Retain its hash in the
+  // comparison and use the full packet so a reviewer cannot miss the revert.
+  const allChangedInDiff = delta?.changed.every(file => fullDiff.changedFiles.includes(file));
+  const useDelta = pp.roundCount > 0 && pp.roundCount + 1 < maxRounds && !!delta?.changed.length && allChangedInDiff;
+  const workspaceDiff = useDelta ? collectWorkspaceDiff(diffCwd, { paths: delta!.changed }) : fullDiff;
   // WS3: the diff leaves the process for a different-provider reviewer session —
   // pass it through the egress gate (marker-preserving) before it reaches any
   // prompt. Idempotent, so downstream gates double-redacting is harmless.
@@ -372,6 +308,7 @@ export async function evaluatePingPongCompletion(
     maxRounds,
     diff: reviewDiff,
     diffSource: workspaceDiff.source,
+    ...(useDelta ? { deltaNote: delta!.note } : {}),
     changedFiles: workspaceDiff.changedFiles,
     blockingSeverities: reviewCfg.blockingSeverities,
     timeoutMs,
@@ -475,7 +412,9 @@ export async function evaluatePingPongCompletion(
   // Fold reviewer spend into the loop budget so the cost cap bounds ping-pong.
   pp.reviewerTokensUsed += review.tokensUsed;
   pp.reviewerCostCents += review.costCents;
-  deps.foldReviewerSpend(review.tokensUsed, review.costCents);
+  if (review.spendBreakdown) deps.foldReviewerSpend(review.tokensUsed, review.costCents, review.exactCostCents, review.spendRecords, review.costBasis, review.spendBreakdown);
+  else if (review.exactCostCents !== undefined || review.spendRecords !== undefined) deps.foldReviewerSpend(review.tokensUsed, review.costCents, review.exactCostCents, review.spendRecords, review.costBasis);
+  else deps.foldReviewerSpend(review.tokensUsed, review.costCents);
   if (review.reviewerProvider) pp.lastReviewerProvider = review.reviewerProvider;
 
   // Cancellation (pause/cancel) — NOT a round, NOT unreliable. Let the loop's
@@ -490,6 +429,12 @@ export async function evaluatePingPongCompletion(
       message: 'Ping-pong reviewer round aborted (loop paused/cancelled)',
     });
     return null;
+  }
+
+  // The reviewer can exhaust a cap while returning APPROVED. Spending limits
+  // remain authoritative before any completion or another retry is accepted.
+  if (costCapExceeded(state)) {
+    return { status: 'cost-exceeded', reason: `Ping-pong stopped at the spending limit after the reviewer call (${state.totalTokens} tokens; $${(state.totalCostCents / 100).toFixed(2)}). Open issues:\n${summarizeOpen(pp.ledger)}` };
   }
 
   // 4) Fail-closed UNRELIABLE handling. Crucially, split "the reviewer was
@@ -569,13 +514,25 @@ export async function evaluatePingPongCompletion(
     return null;
   }
 
+  // Reliable decisions follow blocking findings, including injected reviewers.
+  const blockingSet = new Set(reviewCfg.blockingSeverities);
+  const blocking = review.findings.filter(finding => blockingSet.has(finding.severity));
+  const optional = review.findings.filter(finding => !blockingSet.has(finding.severity));
+  advisoryFindings.push(...optional.map(finding => ({ ...finding, confidence: 1, advisory: true as const })));
+  review.verdict = blocking.length > 0 ? 'CHANGES_REQUESTED' : 'APPROVED';
+  if (currentFiles) pp.lastReviewedFiles = currentFiles;
+  if (review.verdict === 'CHANGES_REQUESTED') pp.lastChangesRequestedDigest = digest ?? undefined;
+  else { pp.lastChangesRequestedDigest = undefined; pp.skippedReviewForDigest = undefined; }
+  const reRaisedRebuttal = blocking.find(finding => pp.ledger.some(issue => (finding.ledgerId ?? issueId(finding.title)) === issue.id && issue.builderClaim === 'rebutted'));
+  if (reRaisedRebuttal) return { status: 'needs-human-arbitration', reason: `The reviewer raised the same finding again after the builder disputed it: ${reRaisedRebuttal.title}. Decide which is right.` };
+
   // Reliable round — reset unreliable tracking + provider rotation.
   pp.consecutiveUnreliableRounds = 0;
   pp.triedReviewerProviders = [];
   pp.roundCount += 1;
   const round = pp.roundCount;
 
-  applyLedgerUpdates(pp.ledger, review.ledgerClassifications, review.findings, round);
+  applyLedgerUpdates(pp.ledger, review.ledgerClassifications, blocking, round);
 
   // 5) Convergence — reviewer APPROVED AND builder declared done (both sides).
   if (review.verdict === 'APPROVED') {
@@ -591,8 +548,7 @@ export async function evaluatePingPongCompletion(
           createLoopPendingInput(
             'The ping-pong reviewer APPROVED, but the configured verify command FAILED. ' +
             'Treat this as a blocking issue and fix it before re-declaring done:\n\n' +
-            (excerptVerifyOutput(verify.output, 8192) || '(verify produced no output)') +
-            buildLocalAdvisoryBlock(advisoryFindings),
+            dataBlock('verify_result', excerptVerifyOutput(verify.output, 8192) || '(verify produced no output)'),
           ),
         );
         emit('loop:fresh-eyes-review-blocked', {
@@ -624,15 +580,12 @@ export async function evaluatePingPongCompletion(
       status: 'completed',
       reason:
         `Ping-pong converged after ${round} round(s): reviewer (${review.reviewerProvider}) ` +
-        `APPROVED and builder declared done.`,
+        `APPROVED and builder declared done. The reviewer left ${advisoryFindings.length} optional suggestions.`,
     };
   }
 
   // 6) CHANGES_REQUESTED — classify findings, inject, and decide whether to
   // continue or hit a deadlock/anti-nitpick backstop.
-  const blockingSet = new Set(reviewCfg.blockingSeverities);
-  const blocking = review.findings.filter((f) => blockingSet.has(f.severity));
-  const advisory = review.findings.filter((f) => !blockingSet.has(f.severity));
   const persistedBlocking = blocking.filter((f) => f.novelty !== 'new');
 
   emit('loop:fresh-eyes-review-blocked', {
@@ -647,25 +600,8 @@ export async function evaluatePingPongCompletion(
   });
 
   state.pendingInterventions.push(createLoopPendingInput(
-    buildIntervention(review, blocking, advisory, advisoryFindings),
+    buildIntervention(review, blocking),
   ));
-
-  if (blocking.length === 0) {
-    // Low-only churn round.
-    pp.lowOnlyChurnRounds += 1;
-    pp.builderUnaddressedRounds = 0;
-    pp.consecutiveContradictoryRounds = 0;
-    if (pp.lowOnlyChurnRounds >= MAX_LOW_ONLY_ROUNDS) {
-      return {
-        status: 'completed-needs-review',
-        reason:
-          `Ping-pong converged-or-arbitrated after ${round} rounds: only low-severity ` +
-          `suggestions remained for ${pp.lowOnlyChurnRounds} rounds (no blocking issues). ` +
-          `A human may glance at the remaining nits.`,
-      };
-    }
-    return null;
-  }
 
   // Blocking findings remain.
   pp.lowOnlyChurnRounds = 0;
@@ -708,12 +644,4 @@ export async function evaluatePingPongCompletion(
     persisted: persistedBlocking.length,
   });
   return null;
-}
-
-function summarizeOpen(ledger: readonly PingPongIssue[]): string {
-  const open = ledger.filter((i) => i.status === 'open' || i.status === 'regression');
-  if (open.length === 0) return '(no open issues recorded)';
-  return open
-    .map((i) => `- [${i.severity}] ${i.title}${i.file ? ` (${i.file})` : ''} — ${i.status}`)
-    .join('\n');
 }

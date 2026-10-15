@@ -606,7 +606,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   closeResumePicker(): void { this.resumePickerController.resetTransientFocus(); this.showResumePicker.set(false); }
 
   closeAllInstances(): void {
-    this.store.terminateAllInstances();
+    this.terminateConfirm.requestAll();
   }
 
   toggleControlPlane(): void {

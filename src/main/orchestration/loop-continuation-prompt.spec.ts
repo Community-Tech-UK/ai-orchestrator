@@ -181,6 +181,15 @@ describe('T50 review-driven reanchor prefix / volatile tail', () => {
     expect(splitLoopPromptPrefix(prompt).prefix).toContain('Goal (persistent across iterations)');
     expect(prompt).toContain('Ship the stable-prefix continuation card');
   });
+  it('teaches live questions and the bounded finish in the stable prefix', () => {
+    const prompt = reanchor({ iterationSeq: 0 }); const prefix = splitLoopPromptPrefix(prompt).prefix;
+    expect(prefix).toContain('at most 3 finish rounds');
+    expect(prefix).toContain('Decisions applied');
+    expect(prefix).toContain('For information');
+    expect(prefix).toContain('shows new items to James after each round');
+    expect(prefix).not.toContain('Open questions');
+    expect(prefix).not.toContain('Do not ask clarifying questions');
+  });
 
   it('starts with the goal and bounded work-slice guidance, then includes the continuation directive later', () => {
     const directive = 'Continue the saved checklist. '.repeat(30).trim();

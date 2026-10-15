@@ -287,4 +287,12 @@ describe('PlanQueuePageComponent', () => {
 
     expect(fixture.nativeElement.querySelector('.pq-need-james')).not.toBeNull();
   });
+  it('forwards Try merging again to the retry-landing control action', async () => {
+    store.parkedItems.set([{ ...PARKED_ITEM, parkReason: 'land-blocked',
+      verdict: { verdict: 'PASS', findings: [], gatesRun: [], documentComplete: true, needJames: [] },
+    }]); fixture.detectChanges(); await fixture.whenStable();
+    fixture.nativeElement.querySelector('.pq-retry-landing').click();
+    expect(store.control).toHaveBeenCalledWith({ action: 'retry-landing', itemId: 'item-parked' });
+  });
+
 });

@@ -43,6 +43,7 @@ import { ComputerUsePermissionChipComponent } from './core/state/computer-use-pe
 import { NotificationCenterComponent } from './features/title-bar/notification-center.component';
 import { RlmStorageMaintenanceComponent } from './features/loop/rlm-storage-maintenance.component';
 import { LocalAiGuardStore } from './core/state/local-ai-guard.store';
+import { KeepAwakeChipComponent } from './features/title-bar/keep-awake-chip.component';
 import { LocalAiStatusChipComponent } from './features/local-ai-guard/local-ai-status-chip.component';
 import { LocalAiFallbackBannerComponent } from './features/local-ai-guard/local-ai-fallback-banner.component';
 import { BrowserComputerOfflineBannerComponent } from './features/remote-nodes/browser-computer-offline-banner.component';
@@ -120,6 +121,7 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
     NotificationCenterComponent,
     RlmStorageMaintenanceComponent,
     LocalAiStatusChipComponent,
+    KeepAwakeChipComponent,
     LocalAiFallbackBannerComponent,
     BrowserComputerOfflineBannerComponent,
   ],

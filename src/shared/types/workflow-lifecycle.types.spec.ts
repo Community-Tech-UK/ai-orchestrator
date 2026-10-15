@@ -28,6 +28,7 @@ describe('workflow lifecycle projection', () => {
       'completed-needs-review': 'completed',
       cancelled: 'cancelled',
       failed: 'failed',
+      'attempt-failed': 'failed',
       error: 'failed',
       'no-progress': 'failed',
       'cap-reached': 'failed',

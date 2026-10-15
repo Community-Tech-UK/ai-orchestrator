@@ -1,5 +1,10 @@
-import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
-import type { PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import type { PlanQueueRunDto, PlanQueueRunStatus } from '@contracts/schemas/plan-queue';
+import { planQueueDocumentBasename } from './plan-queue-item-list.component';
+
+const STATUS_LABELS: Record<PlanQueueRunStatus, string> = {
+  running: 'Running', paused: 'Paused', completed: 'Finished', cancelled: 'Cancelled',
+};
 
 /**
  * Pause/resume/cancel controls for one run. Cancel is destructive (parks
@@ -22,6 +27,14 @@ export class PlanQueueRunControlsComponent {
   cancelRun = output<string>();
 
   protected readonly confirmingCancel = signal(false);
+  protected readonly statusLabel = computed(() => {
+    const run = this.run();
+    if (run.status !== 'running') return STATUS_LABELS[run.status];
+    const current = run.items.find(item => ['preparing', 'working', 'fixing', 'verifying', 'landing'].includes(item.state));
+    const next = run.items.find(item => item.state === 'queued');
+    return 'Running' + (current ? ` · working on ${planQueueDocumentBasename(current.documentPath)}` : '')
+      + (next ? `${current ? ';' : ' ·'} next ${planQueueDocumentBasename(next.documentPath)}` : '');
+  });
 
   onPause(): void {
     this.pauseRun.emit(this.run().id);

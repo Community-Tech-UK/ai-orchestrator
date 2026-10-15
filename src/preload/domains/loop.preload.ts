@@ -117,6 +117,7 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       ipcRenderer.invoke(ch.LOOP_GET_AWAY_RECAP, { awaySince }),
     loopResolveBlockedWorktree: (loopRunId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_RESOLVE_BLOCKED_WORKTREE, { loopRunId }),
+    getLoopScorecard: (loopRunId: string): Promise<IpcResponse> => ipcRenderer.invoke(ch.LOOP_GET_SCORECARD, { loopRunId }),
     loopGetIterations: (loopRunId: string, fromSeq?: number, toSeq?: number): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_GET_ITERATIONS, { loopRunId, fromSeq, toSeq }),
     verificationRunsList: (params: { loopRunId?: string; instanceId?: string }): Promise<IpcResponse> =>
@@ -144,6 +145,8 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       response?: string,
     ): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_SET_OUTSTANDING_STATUS, { id, status, response }),
+    loopAnswerOutstanding: (payload: { id: string; action: 'answer' | 'use-suggestion' | 'keep' | 'undo' | 'dismiss'; response?: string }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_ANSWER_OUTSTANDING, payload),
     loopExportOutstanding: (workspaceCwd: string, destPath?: string, chatId?: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_EXPORT_OUTSTANDING, { workspaceCwd, destPath, chatId }),
     loopResumeWithAnswers: (

@@ -420,7 +420,8 @@ vi.mock('../../orchestration/loop-store', () => ({
   getLoopStore: vi.fn(() => mockLoopStore),
 }));
 
-vi.mock('../../orchestration/loop-start-config', () => ({
+vi.mock('../../orchestration/loop-start-config', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../orchestration/loop-start-config')>(),
   prepareLoopStartConfig: mockPrepareLoopStartConfig,
 }));
 
@@ -1295,10 +1296,10 @@ describe('InstanceManager', () => {
           verifyCommand: '',
           allowOperatorReviewedCompletion: true,
         }),
-      }));
+      }), { allowUncappedOperatorReview: true });
       expect(mockLoopCoordinator.startLoop).toHaveBeenCalledWith(
         instance.id,
-        expect.objectContaining({ initialPrompt: 'ship settings', workspaceCwd: TEST_WORKING_DIR }),
+        expect.objectContaining({ initialPrompt: 'ship settings', workspaceCwd: TEST_WORKING_DIR, onFailedStep: 'pause' }),
         undefined,
         { existingSessionContext: undefined },
       );

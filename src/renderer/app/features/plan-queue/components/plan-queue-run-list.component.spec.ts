@@ -158,13 +158,17 @@ describe('PlanQueueRunListComponent', () => {
   });
 
   it('forwards a skip from the document list with the item id', () => {
-    fixture.componentRef.setInput('runs', [makeRun({ items: [makeItem({ id: 'item-q', state: 'queued' })] })]);
+    fixture.componentRef.setInput('runs', [makeRun({ config: { ...makeRun().config, maxRounds: 7 }, items: [makeItem({ id: 'item-q', state: 'queued', round: 2 })] })]);
     fixture.detectChanges();
 
+    expect(fixture.nativeElement.textContent).toContain('Round 2 of 7');
     const emitted: string[] = [];
     fixture.componentInstance.skipItem.subscribe((id) => emitted.push(id));
     (fixture.nativeElement.querySelector('.pq-item-skip') as HTMLButtonElement).click();
 
+    expect(emitted).toEqual([]);
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('.pq-skip-confirm-yes') as HTMLButtonElement).click();
     expect(emitted).toEqual(['item-q']);
   });
 });

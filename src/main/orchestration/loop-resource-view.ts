@@ -22,23 +22,8 @@
  * existing call sites onto them.
  */
 
-/** Where a number came from. Never let a local estimate masquerade as a bill. */
-export type LoopUsageProvenance =
-  /** The provider reported this figure for this call. */
-  | 'provider-reported'
-  /** Computed here from a provider-reported token breakdown and a price table. */
-  | 'computed'
-  /** A legacy flat-rate estimate with no usage breakdown behind it. */
-  | 'legacy-estimate';
-
-/** What a spend was for. */
-export type LoopSpendPurpose =
-  | 'builder'
-  | 'review'
-  | 'verify'
-  | 'context-action'
-  | 'classification'
-  | 'housekeeping';
+import type { LoopSpendPurpose, LoopUsageProvenance } from '../../shared/types/loop-spend.types';
+export type { LoopSpendPurpose, LoopUsageProvenance } from '../../shared/types/loop-spend.types';
 
 /** Token split. Every field is optional because providers report different subsets. */
 export interface LoopTokenBreakdown {

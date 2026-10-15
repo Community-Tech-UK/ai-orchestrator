@@ -44,6 +44,8 @@ describe('createLoopInvocationCapture', () => {
 
     expect(capture.finalize()).toEqual({
       filesRead: ['src/input.ts'],
+      ownWritePaths: [],
+      ownWritesComplete: true,
       finishReason: 'tool_use',
       toolRwLockConflicts: [],
       unresolvedToolCalls: true,
@@ -334,3 +336,30 @@ describe('createToolTimeoutWatchdogWidener', () => {
 function sha16(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 16);
 }
+
+describe('own write evidence', () => {
+  it.each([
+    ['Edit', { file_path: 'a.ts' }, ['a.ts']], ['Write', { path: 'a.ts' }, ['a.ts']],
+    ['MultiEdit', { file_path: 'a.ts' }, ['a.ts']], ['NotebookEdit', { notebook_path: 'book.ipynb' }, ['book.ipynb']],
+    ['Edit', { changes: [{ path: 'a.ts' }, { path: 'b.ts' }] }, ['a.ts', 'b.ts']],
+  ])('captures %s paths independently of rw locks', (name, input, paths) => {
+    const capture = createLoopInvocationCapture({ workspaceDir: '/repo' });
+    capture.recordActivity({ kind: 'tool_use', message: '', detail: { name, input } });
+    expect(capture.finalize()).toMatchObject({ ownWritePaths: paths, ownWritesComplete: true });
+  });
+  it.each(['sed -i s/a/b/ a.ts', 'prettier --write .', 'echo x > a.ts', 'git apply change.patch'])('falls back for shell writes %s', command => {
+    const capture = createLoopInvocationCapture({ workspaceDir: '/repo' });
+    capture.recordActivity({ kind: 'tool_use', message: '', detail: { name: 'Bash', input: { command } } });
+    expect(capture.finalize().ownWritesComplete).toBe(false);
+  });
+  it.each(['npm test', 'git status'])('retains complete evidence for read commands %s', command => {
+    const capture = createLoopInvocationCapture({ workspaceDir: '/repo' });
+    capture.recordActivity({ kind: 'tool_use', message: '', detail: { name: 'command_execution', input: { command } } });
+    expect(capture.finalize().ownWritesComplete).toBe(true);
+  });
+  it('fails closed for an edit-like call without readable paths', () => {
+    const capture = createLoopInvocationCapture({ workspaceDir: '/repo' });
+    capture.recordActivity({ kind: 'tool_use', message: '', detail: { name: 'apply_patch', input: {} } });
+    expect(capture.finalize().ownWritesComplete).toBe(false);
+  });
+});

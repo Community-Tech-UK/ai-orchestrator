@@ -14,6 +14,7 @@ function makeRun(overrides: Partial<PlanQueueRun> = {}): PlanQueueRun {
     id: 'run-1',
     parentInstanceId: 'parent-1',
     parentHistoryThreadId: 'thread-1',
+
     kind: 'plans',
     workspaceCwd: '/repo',
     status: 'running',
@@ -67,6 +68,41 @@ afterEach(() => {
 });
 
 describe('PlanQueueStore', () => {
+  it('round-trips parent thread and updates both ownership fields on rebind/adoption', () => {
+    store.upsertRun(makeRun({ parentHistoryThreadId: 'history-original' }));
+    expect(store.getRun('run-1')?.parentHistoryThreadId).toBe('history-original');
+    store.setRunParent('run-1', 'restored-parent', 'history-adopted');
+    expect(store.getRun('run-1')).toMatchObject({ parentInstanceId: 'restored-parent', parentHistoryThreadId: 'history-adopted' });
+  });
+  it('adds parent thread with null for pre-migration rows, retaining data and old ownership', () => {
+    const version = driver.prepare("SELECT version FROM loop_migrations WHERE name LIKE '%_plan_queue_runs_parent_thread'").get<{ version: number }>()?.version;
+    expect(version).toEqual(expect.any(Number));
+    const old = new Database(':memory:') as unknown as SqliteDriver;
+    try {
+      runLoopMigrationsUpTo(old, version! - 1);
+      old.prepare(`INSERT INTO plan_queue_runs (id, parent_instance_id, kind, workspace_cwd, status, config_json, started_at, updated_at)
+        VALUES ('old-run', 'old-parent', 'plans', '/repo', 'running', '{}', 1000, 1000)`).run();
+      runLoopMigrations(old);
+      expect(new PlanQueueStore(old).getRun('old-run')).toMatchObject({ parentInstanceId: 'old-parent', parentHistoryThreadId: null, startedAt: 1000 });
+      runLoopMigrations(old);
+      expect(old.prepare('SELECT COUNT(*) AS n FROM plan_queue_runs').get<{ n: number }>()?.n).toBe(1);
+    } finally { old.close(); }
+  });
+  it.each(['preparing', 'working', 'fixing', 'verifying', 'landing'] as const)(
+    'hasActiveWork counts %s only in a running run', state => {
+      store.upsertRun(makeRun()); store.upsertItem(makeItem({ state }));
+      expect(store.hasActiveWork()).toBe(true);
+      store.upsertRun(makeRun({ status: 'paused' }));
+      expect(store.hasActiveWork()).toBe(false);
+    },
+  );
+  it.each(['needs-answer', 'parked', 'queued', 'discovered', 'landed'] as const)(
+    'hasActiveWork ignores %s items', state => {
+      store.upsertRun(makeRun()); store.upsertItem(makeItem({ state }));
+      expect(store.hasActiveWork()).toBe(false);
+    },
+  );
+
   it('applies migration 17 on top of a version-16 database without touching existing rows', () => {
     const old = new Database(':memory:') as unknown as SqliteDriver;
     runLoopMigrationsUpTo(old, 16);

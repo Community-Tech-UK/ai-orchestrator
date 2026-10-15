@@ -74,7 +74,8 @@ vi.mock('../../../orchestration/loop-store', () => ({
   getLoopStore: () => mocks.loopStore,
 }));
 
-vi.mock('../../../orchestration/loop-start-config', () => ({
+vi.mock('../../../orchestration/loop-start-config', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../orchestration/loop-start-config')>(),
   prepareLoopStartConfig: mocks.prepareLoopStartConfig,
 }));
 
@@ -192,10 +193,10 @@ describe('registerCommandHandlers', () => {
         verifyCommand: '',
         allowOperatorReviewedCompletion: true,
       }),
-    }));
+    }), { allowUncappedOperatorReview: true });
     expect(mocks.loopCoordinator.startLoop).toHaveBeenCalledWith(
       'inst-1',
-      expect.objectContaining({ initialPrompt: 'ship settings', workspaceCwd: '/tmp/project' }),
+      expect.objectContaining({ initialPrompt: 'ship settings', workspaceCwd: '/tmp/project', onFailedStep: 'pause' }),
       undefined,
       { existingSessionContext: undefined },
     );
@@ -210,7 +211,10 @@ describe('registerCommandHandlers', () => {
     );
     expect(mocks.usageTracker.record).toHaveBeenCalledWith('command', 'builtin-goal', '/tmp/project');
     expect(response.data).toEqual(expect.objectContaining({
-      goal: { action: 'started', loopRunId: 'loop-goal-1' },
+      goal: {
+        action: 'started', loopRunId: 'loop-goal-1', completion: 'sign-off',
+        note: expect.stringContaining('no check command'),
+      },
     }));
   });
 

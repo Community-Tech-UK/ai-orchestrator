@@ -13,10 +13,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TerminateConfirmDialogComponent } from './terminate-confirm-dialog.component';
 import { TerminateConfirmStore } from './terminate-confirm.store';
 import { InstanceStore } from '../../core/state/instance.store';
+import { LoopStore } from '../../core/state/loop.store';
+import { PlanQueueStore } from '../../core/state/plan-queue.store';
 
 await resolveComponentResources(() => Promise.resolve(''));
 
 const terminateInstance = vi.fn();
+const terminateAllInstances = vi.fn();
+let queueRunning = false;
 
 const ROOT_SESSION = { id: 'i1', displayName: 'Refactor the parser' };
 
@@ -32,8 +36,11 @@ function mount(
         useValue: {
           instances: () => instances,
           terminateInstance,
+          terminateAllInstances,
         },
       },
+      { provide: LoopStore, useValue: { runningChatIds: () => new Set(['i1']) } },
+      { provide: PlanQueueStore, useValue: { allRuns: () => queueRunning ? [{ status: 'running' }] : [] } },
     ],
   });
   const fixture = TestBed.createComponent(TerminateConfirmDialogComponent);
@@ -62,7 +69,27 @@ function pressTab(target: HTMLElement): KeyboardEvent {
 }
 
 describe('TerminateConfirmDialogComponent (Decision 16b)', () => {
-  beforeEach(() => terminateInstance.mockClear());
+  beforeEach(() => { terminateInstance.mockClear(); terminateAllInstances.mockClear(); queueRunning = false; });
+
+  it('asks before closing all and explains paused queue runs only when running', () => {
+    const { fixture, store } = mount();
+    queueRunning = true;
+    store.requestAll(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Close 1 session?');
+    expect(fixture.nativeElement.textContent).toContain('Plan Queue runs will be paused');
+    expect(fixture.nativeElement.textContent).toContain('1 running loop');
+    expect(terminateAllInstances).not.toHaveBeenCalled();
+    button(fixture, '.btn-confirm').click(); fixture.detectChanges();
+    expect(terminateAllInstances).toHaveBeenCalledOnce();
+    expect(overlay(fixture)).toBeNull();
+  });
+
+  it('does not open close-all with no sessions or mention an idle queue', () => {
+    const empty = mount([]); empty.store.requestAll(); empty.fixture.detectChanges();
+    expect(overlay(empty.fixture)).toBeNull();
+    const { fixture, store } = mount(); store.requestAll(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Plan Queue runs will be paused');
+  });
 
   it('renders nothing until a terminate is requested', () => {
     expect(overlay(mount().fixture)).toBeNull();

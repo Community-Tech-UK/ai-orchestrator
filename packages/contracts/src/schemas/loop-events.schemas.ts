@@ -249,7 +249,9 @@ export const LoopErrorEventSchema = z.object({
 }).strict();
 
 export const LoopOutstandingChangedEventSchema = z.object({
-  loopRunId: z.string(),
-  chatId: z.string(),
-  workspaceCwd: z.string(),
+  loopRunId: z.string().optional(),
+  chatId: z.string().optional(),
+  workspaceCwd: z.string().optional(),
+  itemId: z.string().optional(),
+  newItemIds: z.array(z.string()).optional(),
 }).strict();

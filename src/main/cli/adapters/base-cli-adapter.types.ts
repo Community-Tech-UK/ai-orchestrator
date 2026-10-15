@@ -205,6 +205,8 @@ export interface CliToolCall {
  * Usage statistics from a CLI
  */
 export interface CliUsage {
+  /** Raw Claude session total; never a per-turn charge until settlement. */
+  providerSessionTotalUsd?: number;
   inputTokens?: number;
   outputTokens?: number;
   /**

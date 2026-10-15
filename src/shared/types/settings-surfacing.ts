@@ -36,6 +36,7 @@ import type { AppSettings } from './settings.types';
 export type SettingSurfacing = 'tab' | 'bespoke' | 'hidden' | 'internal';
 
 export const SETTING_SURFACING = {
+  keepAwakeMode: 'tab',
   defaultYoloMode: 'tab',
   defaultWorkingDirectory: 'tab',
   defaultCli: 'tab',
@@ -70,6 +71,11 @@ export const SETTING_SURFACING = {
   recordProviderEvents: 'tab',
   persistSessionContent: 'tab',
   cumulativeTokenCompactionTrigger: 'tab',
+  ownChatContextCeilingTokens: 'tab',
+  machineContextCeilingTokens: 'tab',
+  codexHelperAgentsChats: 'tab',
+  codexHelperAgentsHarnessWork: 'tab',
+  codexContextTuning: 'tab',
   compactionDecisionLogEnabled: 'tab',
   outputStyle: 'tab',
   fontSize: 'tab',

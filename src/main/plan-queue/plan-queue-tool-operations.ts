@@ -40,6 +40,7 @@ function toControlPayload(args: { action: PlanQueueControlPayload['action']; run
     case 'pause':
     case 'resume':
     case 'cancel':
+    case 'adopt':
       if (!args.run_id) throw new Error(`${args.action} needs run_id`);
       return { action: args.action, runId: args.run_id };
     default:
@@ -71,9 +72,10 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
       return {
         ...runSummary(run),
         excluded,
-        message: run.items.length === 0
+        message: (run.items.length === 0
           ? 'No matching documents were found.'
-          : 'The run has started. Workers appear nested under this session. Documents that need James will arrive as a message with questions to ask him; a summary arrives when the run ends. Use plan_queue_status to check progress.',
+          : 'The run has started. Workers appear nested under this session. Documents that need James will arrive as a message with questions to ask him; a summary arrives when the run ends. Use plan_queue_status to check progress.')
+          + (excluded.length ? ' Some documents belong to another active run. If its session no longer exists, adopt that run instead of starting again.' : ''),
       };
     },
     status(_callerInstanceId, runId) {

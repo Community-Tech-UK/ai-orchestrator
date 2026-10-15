@@ -1,5 +1,10 @@
 import { EventEmitter } from 'events';
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+vi.mock('../instance/stall-process-facts', async (original) => {
+  const actual = await original<typeof import('../instance/stall-process-facts')>();
+  return { ...actual, sampleStallProcessFacts: vi.fn() };
+});
+import { sampleStallProcessFacts, type StallProcessFacts } from '../instance/stall-process-facts';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import { createLoopInvocationCapture } from './loop-invoker-capture';
 import { attachInvocationActivity, boundActivityDetail } from './loop-invocation-activity';
@@ -74,6 +79,45 @@ describe('boundActivityDetail', () => {
 });
 
 describe('attachInvocationActivity', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const stopped: StallProcessFacts = { pid: 100, state: 'stopped', cpuPercent: 0, rssMb: 2, child: null, sampledAt: 1234 };
+  it('sends the base stream-idle line then a notable process observation', async () => {
+    vi.mocked(sampleStallProcessFacts).mockResolvedValue(stopped);
+    const emitter = new EventEmitter();
+    const sink = vi.fn();
+    const detach = attachInvocationActivity(emitter as unknown as CliAdapter, sink);
+    emitter.emit('stream:idle', { timeoutMs: 70_000, pid: 100 });
+    expect(sink.mock.calls[0][0]).toMatchObject({ kind: 'stream-idle', message: 'No CLI output for 70s; still waiting for the iteration to finish' });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(sink.mock.calls[1][0]).toMatchObject({ kind: 'stream-idle', message: expect.stringContaining('paused by the system'), detail: { processFacts: stopped } });
+    detach();
+  });
+
+  it('discards a process observation that resolves after the remover runs', async () => {
+    let resolve!: (facts: StallProcessFacts) => void;
+    vi.mocked(sampleStallProcessFacts).mockReturnValue(new Promise((r) => { resolve = r; }));
+    const emitter = new EventEmitter();
+    const sink = vi.fn();
+    const detach = attachInvocationActivity(emitter as unknown as CliAdapter, sink);
+    emitter.emit('stream:idle', { timeoutMs: 70_000, pid: 100 });
+    detach();
+    resolve(stopped);
+    await new Promise<void>((r) => setImmediate(r));
+    expect(sink).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([null, { ...stopped, state: 'sleeping' as const }])('adds no line for a missing or ordinary quiet observation', async (facts) => {
+    vi.mocked(sampleStallProcessFacts).mockResolvedValue(facts);
+    const emitter = new EventEmitter();
+    const sink = vi.fn();
+    const detach = attachInvocationActivity(emitter as unknown as CliAdapter, sink);
+    emitter.emit('stream:idle', { timeoutMs: 70_000, pid: 100 });
+    await new Promise<void>((r) => setImmediate(r));
+    expect(sink).toHaveBeenCalledTimes(1);
+    detach();
+  });
+
   it('preserves adapter tool identity so a matching result settles the capture', () => {
     const emitter = new EventEmitter();
     const capture = createLoopInvocationCapture({ workspaceDir: '/workspace/project' });

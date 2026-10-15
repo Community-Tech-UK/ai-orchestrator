@@ -1,3 +1,4 @@
+import { stepLimitNote } from './loop-step-limit';
 import type { LoopConfig, LoopState } from '../../shared/types/loop.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
@@ -23,8 +24,11 @@ export function assembleLoopIterationPrompt(input: {
   includeSessionReplay: boolean;
   appendLoopControlPrompt: (prompt: string) => string;
 }): string {
-  const withCli = (body: string): string =>
-    input.reanchorGoal ? input.appendLoopControlPrompt(body) : body;
+  const withCli = (body: string): string => {
+    const prompt = input.reanchorGoal ? input.appendLoopControlPrompt(body) : body;
+    const note = stepLimitNote(input.config);
+    return note ? `${prompt}\n\n${note}` : prompt;
+  };
   if (input.reviewDriven) {
     return withCli(input.stageMachine.buildReviewDrivenPrompt({
       config: input.config,

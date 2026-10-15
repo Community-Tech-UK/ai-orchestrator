@@ -14,6 +14,7 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { LoopIpcService, type LoopActivityPayload } from '../../core/services/ipc/loop-ipc.service';
 import { LoopStore } from '../../core/state/loop.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { LoopPanelOpenerService } from './loop-panel-opener.service';
 import { LoopControlComponent } from './loop-control.component';
 
 // Angular verifies standalone component resources before TestBed applies the
@@ -61,6 +62,7 @@ describe('LoopControlComponent', () => {
     resume: ReturnType<typeof vi.fn>;
     intervene: ReturnType<typeof vi.fn>;
     cancel: ReturnType<typeof vi.fn>;
+    listOutstanding: ReturnType<typeof vi.fn>;
     listRunsForChat: ReturnType<typeof vi.fn>;
     getIterations: ReturnType<typeof vi.fn>;
     onStateChanged: ReturnType<typeof vi.fn>;
@@ -102,6 +104,7 @@ describe('LoopControlComponent', () => {
       resume: vi.fn().mockResolvedValue({ success: true, data: { ok: true, state: { ...activeState(), status: 'running' } } }),
       intervene: vi.fn().mockResolvedValue({ success: true, data: { ok: true } }),
       cancel: vi.fn().mockResolvedValue({ success: true, data: { ok: true } }),
+      listOutstanding: vi.fn().mockResolvedValue({ success: true, data: { items: [] } }),
       listRunsForChat: vi.fn().mockResolvedValue({ success: true, data: { runs: [] } }),
       getIterations: vi.fn().mockResolvedValue({
         success: true,
@@ -191,6 +194,67 @@ describe('LoopControlComponent', () => {
     expect(text).not.toContain('A:WARN');
     expect(text).toContain('src/main/orchestration/loop-runner.ts (+12/-3)');
     expect(text).toContain('Read state files to orient, then edited the target service and ran focused tests.');
+  });
+
+  it('asks before stopping and keeps isolated work on its branch', async () => {
+    const state = activeState(); state.config.isolateLoopWorkspaces = true;
+    listeners.stateChanged.forEach(cb => cb({ loopRunId: state.id, state })); fixture.detectChanges();
+    (fixture.nativeElement.querySelector('.ls-actions .ls-stop') as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(ipc.cancel).not.toHaveBeenCalled();
+    const confirm = fixture.nativeElement.querySelector('.loop-stop-confirm') as HTMLElement;
+    expect(confirm.textContent).toContain('kept and not merged');
+    const buttons = Array.from(confirm.querySelectorAll('button'));
+    expect(buttons.map(button => button.textContent?.trim())).toEqual(['Keep running', 'Stop loop']);
+    buttons[0].click(); await settle(fixture); expect(ipc.cancel).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelector('.loop-stop-confirm')).toBeNull();
+    (fixture.nativeElement.querySelector('.ls-actions .ls-stop') as HTMLButtonElement).click(); await settle(fixture);
+    (fixture.nativeElement.querySelector('.loop-stop-confirm .ls-stop') as HTMLButtonElement).click(); await settle(fixture);
+    expect(ipc.cancel).toHaveBeenCalledWith('loop-1');
+  });
+
+  it('shows a plain end with the raw completion code only in closed Details', () => {
+    listeners.stateChanged.forEach(cb => cb({ loopRunId: 'loop-1', state: { ...activeState(), status: 'completed', endedAt: 1778310060000, endReason: 'signal=done-promise' } })); fixture.detectChanges();
+    const summary = fixture.nativeElement.querySelector('.loop-summary') as HTMLElement;
+    expect(summary.querySelector('.lsum-title')?.textContent).toContain('Finished at');
+    expect(summary.querySelector('.lsum-reason')?.textContent).toContain('checks passed');
+    expect(summary.querySelector('.lsum-line')?.textContent).toContain('Rounds finished: 1');
+    const details = summary.querySelector('.lsum-details') as HTMLDetailsElement;
+    expect(details.open).toBe(false); expect(details.textContent).toContain('signal=done-promise');
+  });
+
+  it('dismisses Stop confirmation with Escape without cancelling', async () => {
+    listeners.stateChanged.forEach(cb => cb({ loopRunId: 'loop-1', state: activeState() })); fixture.detectChanges();
+    (fixture.nativeElement.querySelector('.ls-actions .ls-stop') as HTMLButtonElement).click(); await settle(fixture);
+    const row = fixture.nativeElement.querySelector('.loop-stop-confirm') as HTMLElement;
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await settle(fixture);
+    expect(ipc.cancel).not.toHaveBeenCalled(); expect(fixture.nativeElement.querySelector('.loop-stop-confirm')).toBeNull();
+  });
+
+  it('opens a provider-switch reattempt only after confirming the old run stops', async () => {
+    listeners.stateChanged.forEach(cb => cb({ loopRunId: 'loop-1', state: { ...activeState(), status: 'provider-limit', endedAt: null } })); fixture.detectChanges();
+    fixture.componentInstance.onTimelineRecovery('wait-or-switch-provider'); await settle(fixture);
+    const opener = TestBed.inject(LoopPanelOpenerService);
+    expect(opener.pending()).toBeNull(); expect(ipc.cancel).not.toHaveBeenCalled();
+    (fixture.nativeElement.querySelector('.loop-stop-confirm .ls-stop') as HTMLButtonElement).click(); await settle(fixture);
+    expect(opener.pending()).toMatchObject({ chatId: 'chat-1', seedMessage: 'goal', seedPrompt: 'continue', source: 'reattempt-past-run' });
+  });
+
+  it('keeps merge-held check evidence and branch names visible on the end card', () => {
+    const state = { ...activeState(), status: 'completed-needs-review' as const, endedAt: 1778310060000, endEvidence: { mergeHold: true },
+      worktreeLifecycle: { managedByAio: true as const, phase: 'preserved' as const, baseBranch: 'main', sessionBranch: 'task-loop', updatedAt: 1778310060000 } };
+    listeners.stateChanged.forEach(cb => cb({ loopRunId: 'loop-1', state })); fixture.detectChanges();
+    const reason = fixture.nativeElement.querySelector('.lsum-reason')?.textContent;
+    expect(reason).toContain('Nothing was merged'); expect(reason).toContain('task-loop');
+  });
+
+  it('restores the failed-step pause label from checkpoint evidence without a live banner', () => {
+    const state = { ...activeState(), status: 'paused' as const, endEvidence: { attemptOutcome: 'failed' } };
+    state.config.onFailedStep = 'pause';
+    listeners.stateChanged.forEach(cb => cb({ loopRunId: state.id, state })); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.ls-pill')?.textContent).toContain('PAUSED · A STEP FAILED');
+    const pill = fixture.debugElement.query(By.css('.ls-pill'));
+    expect(pill.injector.get(AioTooltipDirective).appTooltip()).toContain('Check the files');
   });
 
   it('routes the status-strip pause button to the active loop', async () => {
@@ -502,7 +566,7 @@ describe('LoopControlComponent', () => {
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain('Final response (iter 2 · IMPLEMENT)');
+    expect(text).toContain("Last round's reply (round 2)");
     expect(text).toContain('First iteration prompt');
     expect(text).toContain('Later-iteration continuation');
     expect(text).not.toContain('Iteration 0 prompt');
@@ -688,6 +752,9 @@ describe('LoopControlComponent', () => {
     bannerButton('Stop').click();
     await settle(fixture);
 
+    expect(ipc.cancel).not.toHaveBeenCalled();
+    (fixture.nativeElement.querySelector('.loop-stop-confirm .ls-stop') as HTMLButtonElement).click();
+    await settle(fixture);
     expect(ipc.cancel).toHaveBeenCalledWith('loop-1');
     expect(fixture.nativeElement.textContent).not.toContain('Loop ·');
     expect(fixture.nativeElement.textContent).not.toContain('Loop paused — no progress');
@@ -844,7 +911,7 @@ describe('LoopControlComponent', () => {
     expect(timeline?.nextAutomaticAction).toContain('stays paused until you resume');
   });
 
-  it('keeps the causal timeline visible in the terminal summary without a dead cap action', () => {
+  it('keeps the causal timeline visible in the terminal summary with a working Run again action', () => {
     listeners.stateChanged.forEach((cb) => cb({
       loopRunId: 'loop-1',
       state: { ...activeState(), status: 'cap-reached', endedAt: 1778310600000, endReason: 'iteration cap reached' },
@@ -854,8 +921,8 @@ describe('LoopControlComponent', () => {
     const summary = fixture.nativeElement.querySelector('.loop-summary') as HTMLElement;
     expect(summary.querySelector('app-loop-causal-timeline .loop-timeline')).toBeTruthy();
     expect(summary.textContent).toContain('Blocked at Terminal decision');
-    expect(summary.querySelector('button[data-recovery-id="raise-cap"]')).toBeNull();
-    expect(summary.querySelector('.loop-timeline__recovery-label[data-recovery-id="raise-cap"]')).toBeTruthy();
+    expect(summary.querySelector('button[data-recovery-id="raise-cap"]')).toBeTruthy();
+    expect(summary.querySelector('.loop-timeline__recovery-label[data-recovery-id="raise-cap"]')).toBeNull();
     expect(ipc.resume).not.toHaveBeenCalled();
   });
 

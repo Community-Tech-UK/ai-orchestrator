@@ -143,7 +143,10 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
     if (input.options.launchMode === 'interactive') {
       return false;
     }
-    return input.cliType === 'claude' || input.cliType === 'gemini';
+    // Claude's worker argv/parser do not enforce the canonical adapter's
+    // review policy, turn/context limits or per-turn usage ledger. Keep all
+    // Claude sessions on that adapter path until the worker has parity.
+    return input.cliType === 'gemini';
   }
 
   private readSpawnWorkerSetting(): boolean {
@@ -159,7 +162,7 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
   }
 
   private createSpawnWorkerProxy(input: ProviderRuntimeStartInput): CliAdapter {
-    if (input.cliType !== 'claude' && input.cliType !== 'gemini') {
+    if (input.cliType !== 'gemini') {
       return this.createAdapterFn(input);
     }
     return new CliAdapterWorkerProxy({

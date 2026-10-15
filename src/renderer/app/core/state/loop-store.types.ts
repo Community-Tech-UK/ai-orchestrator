@@ -1,6 +1,8 @@
+import type { LoopSpendByPurpose } from '../../../../shared/types/loop-spend.types';
 // Presentational types for the renderer LoopStore. Split out of loop.store.ts
 // to keep that file under its LOC ceiling. Re-exported from loop.store.ts so
 // existing consumers can keep importing them from the store.
+import type { LoopStatePayload } from '@contracts/schemas/loop';
 import type { LoopWorktreeLifecycle } from '../../../../shared/types/loop.types';
 
 export interface LoopBannerNoProgress {
@@ -57,12 +59,16 @@ export interface LoopFinalSummaryLastIteration {
 }
 
 export interface LoopFinalSummary {
+  spendByPurpose?: LoopSpendByPurpose;
   loopRunId: string;
+  config?: LoopStatePayload['config'];
+  endEvidence?: LoopStatePayload['endEvidence'];
   status:
     | 'completed'
     | 'completed-needs-review'
     | 'cancelled'
     | 'failed'
+    | 'attempt-failed'
     | 'cap-reached'
     | 'error'
     | 'no-progress'

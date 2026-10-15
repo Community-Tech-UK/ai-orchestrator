@@ -4,11 +4,9 @@ import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getLogger } from '../logging/logger';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
 import { loopExecutionCwd, loopStateCwd } from './loop-cwd';
-import { loopContextUtilization } from './loop-context-discipline';
 import type { LoopChildResult } from './loop-coordinator.types';
 import {
   createLoopPendingInput,
-  defaultLoopContextConfig,
   type LoopIteration,
   type LoopState,
 } from '../../shared/types/loop.types';
@@ -307,31 +305,18 @@ class DefaultLoopContextSurvivalManager implements LoopContextSurvivalManager {
     // path — not something this per-loop manager can safely drive for an
     // arbitrary loop's persistent session. So `action:'micro'` is a logged
     // no-op (T4), not a compact: bookkeeping + a reason on the emitted
-    // event/log, plus `forceContextReset` composed in ONLY when LF-1's own
-    // recycle threshold is independently already met (never an extra reset
-    // LF-1 wouldn't already be about to trigger on its next occupancy check
-    // in `default-invokers.ts`) — i.e. "prefer the cheap tier, escalate only
-    // when it's insufficient" without duplicating or racing LF-1.
+    // event/log. It never forces a reset using lifetime token spend. The
+    // adapter's occupancy check owns recycling in `default-invokers.ts`.
     //
-    // Two triggers land here, both gated by the §9 `selfManagesAutoCompaction`
-    // opt-out (Claude CLI self-compacts on a borrowed instance): a stale
-    // prompt cache (idle > `CONTEXT_CACHE_TTL_MS`, claude-code's TTL rule —
-    // recommended even when utilization wouldn't trigger one) and micro-tier
-    // utilization pressure below LF-1's own reset threshold.
+    // A stale prompt cache lands here, gated by the §9
+    // `selfManagesAutoCompaction` opt-out for a borrowed Claude instance.
     if (cacheStale && !isBorrowedAdapterSelfManaged(state, childResult)) {
-      const resetAtUtilization = state.config.context?.compaction.resetAtUtilization
-        ?? defaultLoopContextConfig().compaction.resetAtUtilization;
-      const utilization = loopContextUtilization(state.totalTokens);
-      const alsoOverThreshold = utilization >= resetAtUtilization;
       const gapMinutes = Math.round((gap ?? 0) / 60_000);
       return withRehydrate({
         action: 'micro',
-        forceContextReset: alsoOverThreshold,
-        reason: alsoOverThreshold
-          ? `idle ${gapMinutes}m exceeds cache TTL and utilization ${Math.round(utilization * 100)}% ` +
-            `already meets the reset threshold — composing with a full recycle rather than a second reset`
-          : `idle ${gapMinutes}m exceeds cache TTL (~60min) — cache prefix will be rewritten on the next ` +
-            'call regardless; recording a cheap context note (no coordinator-owned turn list to prune)',
+        forceContextReset: false,
+        reason: `idle ${gapMinutes}m exceeds cache TTL (~60min) — cache prefix will be rewritten on the next `
+          + 'call regardless; recording a cheap context note. Live occupancy is owned by the adapter; lifetime spend cannot force a recycle.',
       });
     }
 

@@ -1,3 +1,4 @@
+import type { ReviewerCallUsage } from '../review/review-execution-host';
 import type { ReviewSeverity } from '../../shared/types/review-severity';
 import type { AnchorStatus, EvidenceClass, FindingAnchor } from '../../shared/types/review-evidence';
 
@@ -50,6 +51,7 @@ export interface HeadlessReviewFinding {
 }
 
 export interface HeadlessReviewResult {
+  spend?: ReviewerCallUsage[];
   target: string;
   cwd: string;
   startedAt: string;

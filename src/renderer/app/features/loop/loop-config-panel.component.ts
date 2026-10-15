@@ -24,75 +24,20 @@ import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
-// Defaults that match defaultLoopConfig() in src/shared/types/loop.types.ts.
-// We must include all sub-fields whenever caps/completion/progressThresholds
-// are sent — those strict blocks fail validation if they are present but empty.
-const DEFAULT_CAPS = {
-  maxIterations: 50,
-};
-/** WS6: finite per-iteration turn default (mirrors
- *  LOOP_DEFAULT_MAX_TURNS_PER_ITERATION = 30 in shared loop types). */
-const DEFAULT_MAX_TURNS_PER_ITERATION = 30;
-/** Lower bound for the optional token cap. Below this a single substantial
- *  iteration (file reads + a long turn) would trip it instantly, which is the
- *  exact foot-gun the old hidden 1M default caused on 1M-context models. */
-const MIN_MAX_TOKENS = 10_000;
-const MAX_MAX_TOKENS = 100_000_000;
-const DEFAULT_MAX_WALL_TIME_HOURS = 50;
-const MAX_WALL_TIME_HOURS = 7 * 24;
-const DEFAULT_COMPLETION = {
-  completedFilenamePattern: '*_[Cc]ompleted.md',
-  donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
-  doneSentinelFile: 'DONE.txt',
-  verifyTimeoutMs: 600_000,
-  quickVerifyTimeoutMs: 120_000,
-};
-/** Mirrors defaultLoopConfig().progressThresholds. We only ever ship this
- *  to the main process when the user opts into a non-default progress toggle,
- *  because Zod requires the full strict
- *  shape if the field is present at all. */
-const DEFAULT_PROGRESS_THRESHOLDS = {
-  identicalHashWarnConsecutive: 2,
-  identicalHashCriticalConsecutive: 3,
-  identicalHashCriticalWindow: 3,
-  similarityWarnMean: 0.85,
-  similarityCriticalMean: 0.92,
-  stageWarnIterations: { PLAN: 3, REVIEW: 2, IMPLEMENT: 8 },
-  stageCriticalIterations: { PLAN: 5, REVIEW: 3, IMPLEMENT: 12 },
-  errorRepeatWarnInWindow: 3,
-  errorRepeatCriticalInWindow: 4,
-  tokensWithoutProgressWarn: 25_000,
-  tokensWithoutProgressCritical: 60_000,
-  pauseOnTokenBurn: false,
-  toolRepeatWarnPerIteration: 5,
-  toolRepeatCriticalPerIteration: 8,
-  identicalToolCallConsecutiveCritical: 3,
-  idempotentReadRepeatWarn: 3,
-  testStagnationWarnIterations: 3,
-  testStagnationCriticalIterations: 5,
-  churnRatioWarn: 0.30,
-  churnRatioCritical: 0.50,
-  warnEscalationWindow: 5,
-  warnEscalationCount: 3,
-};
-const DEFAULT_SEMANTIC_PROGRESS = {
-  cadence: 5,
-  confidenceFloor: 0.6,
-};
-const DEFAULT_EXPLORATION = {
-  fanout: 3,
-  crossModel: false as const,
-  selector: 'verify+listwise' as const,
-};
-const DEFAULT_NEXT_OBJECTIVE_PLANNING = {
-  cadence: 1,
-};
-const DEFAULT_AUDIT = {
-  finalAuditMode: 'observe' as const,
-  preflightMode: 'off' as const,
-  planPacketMode: 'off' as const,
-  cleanlinessScan: true,
-};
+import {
+  DEFAULT_CAPS,
+  DEFAULT_MAX_TURNS_PER_ITERATION,
+  MIN_MAX_TOKENS,
+  MAX_MAX_TOKENS,
+  DEFAULT_MAX_WALL_TIME_HOURS,
+  MAX_WALL_TIME_HOURS,
+  DEFAULT_COMPLETION,
+  DEFAULT_PROGRESS_THRESHOLDS,
+  DEFAULT_SEMANTIC_PROGRESS,
+  DEFAULT_EXPLORATION,
+  DEFAULT_NEXT_OBJECTIVE_PLANNING,
+  DEFAULT_AUDIT,
+} from './loop-config-panel.defaults';
 type PlanPacketMode = 'off' | 'prompted';
 
 /**
@@ -182,6 +127,7 @@ export class LoopConfigPanelComponent {
   maxTokens = signal<number | null>(null);
   verifyCommand = signal('');
   quickVerifyCommand = signal('');
+  verifyTimeoutMinutes = signal(DEFAULT_COMPLETION.verifyTimeoutMs / 60_000);
   provider = signal<PickerProvider>('claude');
   contextStrategy = signal<'fresh-child' | 'hybrid' | 'same-session'>('same-session');
   initialStage = signal<'PLAN' | 'REVIEW' | 'IMPLEMENT'>('IMPLEMENT');
@@ -383,6 +329,10 @@ export class LoopConfigPanelComponent {
 
   validationError = computed(() => {
     if (!this.prompt().trim()) return 'Prompt is required.';
+    const verifyMinutes = this.verifyTimeoutMinutes();
+    if (!Number.isInteger(verifyMinutes) || verifyMinutes < 1 || verifyMinutes > 60) {
+      return 'Check time limit must be a whole number between 1 and 60 minutes.';
+    }
     const maxIterations = this.maxIterations();
     if (maxIterations !== null && maxIterations < 1) return 'Max iterations must be at least 1, or blank for no cap.';
     if (this.maxHours() < 1) return 'Max wall time must be at least 1 hour.';
@@ -595,7 +545,7 @@ export class LoopConfigPanelComponent {
         doneSentinelFile: DEFAULT_COMPLETION.doneSentinelFile,
         verifyCommand: this.verifyCommand().trim(),
         allowOperatorReviewedCompletion: this.operatorReviewedCompletion(),
-        verifyTimeoutMs: DEFAULT_COMPLETION.verifyTimeoutMs,
+        verifyTimeoutMs: this.verifyTimeoutMinutes() * 60_000,
         ...(quickVerifyCommand
           ? {
               quickVerifyCommand,

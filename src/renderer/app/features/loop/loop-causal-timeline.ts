@@ -49,7 +49,7 @@ export interface LoopRecoveryAction {
    * `LoopCausalTimelineComponent`), never for `wait-or-switch-provider` or
    * `review-now`.
    */
-  id: 'resume' | 'raise-cap' | 'wait-or-switch-provider' | 'review-now' | 'none';
+  id: 'resume' | 'raise-cap' | 'wait-or-switch-provider' | 'review-now' | 'retry-failed-step' | 'none';
   label: string;
   /** What pressing it does, in one sentence. */
   description: string;
@@ -57,6 +57,7 @@ export interface LoopRecoveryAction {
 
 export interface LoopTimelineInput {
   status: string;
+  verifyStatus?: string;
   /** `null` while a provider-limit park is resumable; set once it is terminal. */
   endedAt?: number | null;
   pausedForInput?: boolean;
@@ -75,6 +76,7 @@ export interface LoopTimelineInput {
    * as a measurement is how a cost display stops being trusted.
    */
   spendIsProviderReported?: boolean;
+  spendProvenance?: { label: 'provider-reported' | 'partly-estimated' | 'estimated' | 'unknown' | 'none'; knownCents: number; totalCents: number };
   /** Terminal reason. Used to distinguish a degraded replay-unsafe pause. */
   endReason?: string | null;
 }
@@ -95,13 +97,14 @@ export interface LoopSpendMeter {
   spentCents: number;
   maxCostCents: number | null;
   /** "provider-reported" or "estimated" — stated, not implied. */
-  sourceLabel: 'provider-reported' | 'estimated';
+  sourceLabel: 'provider-reported' | 'partly-estimated' | 'estimated' | 'unknown' | 'none';
+  knownCents?: number;
   /** 0..1 of the cap, or null when there is no cap to be a fraction of. */
   fractionOfCap: number | null;
 }
 
 const TERMINAL_STATUSES = new Set([
-  'completed', 'completed-needs-review', 'cancelled', 'failed', 'error',
+  'completed', 'completed-needs-review', 'cancelled', 'failed', 'error', 'attempt-failed',
   'no-progress', 'cap-reached', 'cost-exceeded', 'needs-human-arbitration',
   'reviewer-unreliable', 'reviewer-unavailable', 'builder-unreliable',
 ]);
@@ -118,7 +121,8 @@ function spendMeter(input: LoopTimelineInput): LoopSpendMeter {
   return {
     spentCents,
     maxCostCents,
-    sourceLabel: input.spendIsProviderReported ? 'provider-reported' : 'estimated',
+    sourceLabel: input.spendProvenance?.label ?? (input.spendIsProviderReported ? 'provider-reported' : 'estimated'),
+    ...(input.spendProvenance ? { knownCents: input.spendProvenance.knownCents } : {}),
     fractionOfCap: maxCostCents && maxCostCents > 0
       ? Math.min(1, spentCents / maxCostCents)
       : null,
@@ -140,7 +144,8 @@ function buildSteps(
   blocking: LoopTimelineStepId | null,
   detail: string,
 ): LoopTimelineStep[] {
-  const terminal = TERMINAL_STATUSES.has(input.status);
+  const terminal = TERMINAL_STATUSES.has(input.status) || (input.status === 'provider-limit' && !isProviderLimitParked(input));
+  const completed = input.status === 'completed';
   const step = (
     id: LoopTimelineStepId,
     label: string,
@@ -157,14 +162,14 @@ function buildSteps(
     step(
       'verify',
       'Verify',
-      input.hasVerifyCommand === false ? 'skipped' : terminal ? 'done' : 'pending',
+      input.hasVerifyCommand === false ? 'skipped' : completed || input.verifyStatus === 'passed' ? 'done' : 'pending',
     ),
     step(
       'review',
       'Independent review',
-      input.hasIndependentReview === false ? 'skipped' : terminal ? 'done' : 'pending',
+      input.hasIndependentReview === false ? 'skipped' : completed ? 'done' : 'pending',
     ),
-    step('decision', 'Terminal decision', terminal ? 'done' : 'pending'),
+    step('decision', 'Terminal decision', completed ? 'done' : 'pending'),
   ];
 }
 
@@ -210,8 +215,8 @@ export function buildLoopCausalTimeline(input: LoopTimelineInput): LoopTimeline 
     nextAutomaticAction = 'It resumes on its own once the provider window reopens.';
     recovery = {
       id: 'wait-or-switch-provider',
-      label: 'Switch provider',
-      description: 'Wait for the window to reopen, or move the run to another provider.',
+      label: 'Run again on another provider',
+      description: 'Stops this waiting run after confirmation, then opens a new loop with the same goal. Choose another provider before starting.',
     };
   } else if (input.status === 'cap-reached' || input.status === 'cost-exceeded') {
     blocking = 'decision';
@@ -221,8 +226,8 @@ export function buildLoopCausalTimeline(input: LoopTimelineInput): LoopTimeline 
     nextAutomaticAction = 'Nothing. The run has stopped.';
     recovery = {
       id: 'raise-cap',
-      label: 'Raise the cap and continue',
-      description: 'Give it more room and restart from where it stopped.',
+      label: 'Run again',
+      description: 'Opens a new loop with the same goal. Set a higher limit before you start.',
     };
   } else if (input.status === 'needs-human-arbitration') {
     blocking = 'review';
@@ -230,7 +235,7 @@ export function buildLoopCausalTimeline(input: LoopTimelineInput): LoopTimeline 
     nextAutomaticAction = 'Nothing. It needs your decision.';
     recovery = {
       id: 'review-now',
-      label: 'Review the disagreement',
+      label: 'Show the work',
       description: 'Read both positions and decide which one stands.',
     };
   } else if (input.status === 'completed-needs-review') {
@@ -244,10 +249,14 @@ export function buildLoopCausalTimeline(input: LoopTimelineInput): LoopTimeline 
     }
     recovery = {
       id: 'review-now',
-      label: 'Take a look',
+      label: 'Show the work',
       description: 'Read what it produced and close the run out.',
     };
-  } else if (TERMINAL_STATUSES.has(input.status)) {
+  } else if (input.status === 'attempt-failed') {
+    blocking = 'work'; detail = 'A step stopped without finishing.';
+    nextAutomaticAction = 'Nothing. The run has stopped.';
+    recovery = { id: 'retry-failed-step', label: 'Run again', description: 'Opens a new loop with the same goal. Check the files before starting.' };
+  } else if (TERMINAL_STATUSES.has(input.status) || (input.status === 'provider-limit' && !isProviderLimitParked(input))) {
     nextAutomaticAction = 'Nothing. The run has finished.';
   } else if (input.status === 'running') {
     const at = input.iteration;

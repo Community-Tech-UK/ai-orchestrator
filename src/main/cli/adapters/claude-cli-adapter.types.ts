@@ -1,3 +1,4 @@
+import type { MachineSessionReason } from '../../../shared/utils/machine-session';
 /**
  * Types for the Claude CLI Adapter.
  * Extracted from claude-cli-adapter.ts to keep that file under its line-count ceiling.
@@ -76,6 +77,9 @@ export interface RawCliPayload {
   heartbeat?: boolean;
   /** Present on result messages — indicates why the turn ended. */
   stop_reason?: string;
+  terminal_reason?: string;
+  num_turns?: number;
+  errors?: string[];
   /**
    * Present on result messages that ended on an API error. A plan usage limit
    * arrives as `subtype: 'success'` with `is_error: true` and status 429, so
@@ -112,6 +116,9 @@ export type UnifiedReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'hi
  * Claude CLI specific spawn options
  */
 export interface ClaudeCliSpawnOptions {
+  machineSession?: MachineSessionReason;
+  contextCeilingTokens?: number;
+  readOnlyReview?: boolean;
   sessionId?: string;
   workingDirectory?: string;
   model?: string;

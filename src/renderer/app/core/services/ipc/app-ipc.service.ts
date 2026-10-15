@@ -2,6 +2,7 @@
  * App IPC Service - Application-level operations
  */
 
+import { KeepAwakeStateSchema, type KeepAwakeState } from '@contracts/schemas/observability';
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 import type { StartupCapabilityReport } from '../../../../../shared/types/startup-capability.types';
@@ -46,6 +47,21 @@ export class AppIpcService {
     if (!this.api) return null;
     const response = await this.api.getStartupCapabilities();
     return response.success ? (response.data as StartupCapabilityReport) : null;
+  }
+
+  async getKeepAwakeState(): Promise<KeepAwakeState | null> {
+    if (!this.api) return null;
+    const response = await this.api.getKeepAwakeState();
+    const parsed = response.success ? KeepAwakeStateSchema.safeParse(response.data) : null;
+    return parsed?.success ? parsed.data : null;
+  }
+
+  onKeepAwakeState(callback: (state: KeepAwakeState) => void): () => void {
+    if (!this.api) return () => void 0;
+    return this.api.onKeepAwakeState(state => {
+      const parsed = KeepAwakeStateSchema.safeParse(state);
+      if (parsed.success) callback(parsed.data);
+    });
   }
 
   async stateResync(): Promise<IpcResponse<StateSyncSnapshot>> {

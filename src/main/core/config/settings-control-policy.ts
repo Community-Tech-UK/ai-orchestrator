@@ -317,6 +317,7 @@ const secret = (restartRequired = false): ClosedSettingsToolPolicy => ({
 // is added. This object is the canonical CLI settings exposure policy for both
 // safe MCP tools and the privileged `aio-mcp settings` repair surface.
 export const SETTINGS_TOOL_POLICY = {
+  keepAwakeMode: open(z.enum(['off', 'while-working', 'always'])),
   defaultYoloMode: readOnly(),
   defaultWorkingDirectory: open(settingStringSchema),
   defaultCli: open(cliSchema),
@@ -352,6 +353,11 @@ export const SETTINGS_TOOL_POLICY = {
   recordProviderEvents: open(z.boolean()),
   persistSessionContent: open(z.boolean()),
   cumulativeTokenCompactionTrigger: open(numberSettingSchema('cumulativeTokenCompactionTrigger')),
+  ownChatContextCeilingTokens: open(z.number().int().refine(n => n === 0 || (n >= 100_000 && n <= 1_000_000)), true),
+  machineContextCeilingTokens: open(z.number().int().refine(n => n === 0 || (n >= 100_000 && n <= 1_000_000)), true),
+  codexHelperAgentsChats: open(z.enum(['economy','full','off','trial']), true),
+  codexHelperAgentsHarnessWork: open(z.enum(['off','full','trial']), true),
+  codexContextTuning: open(z.enum(['harness','codex']), true),
   compactionDecisionLogEnabled: open(z.boolean()),
   outputStyle: open(outputStyleSchema),
   fontSize: open(numberSettingSchema('fontSize')),

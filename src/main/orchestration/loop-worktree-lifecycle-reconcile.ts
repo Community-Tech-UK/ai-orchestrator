@@ -11,7 +11,7 @@ import { deleteLocalBranchIfPresent } from '../workspace/git/worktree-cleanup';
 import { verifyManagedWorktreeOwnership } from '../workspace/git/worktree-cleanup';
 import { listActivePlanDocuments } from '../workspace/git/active-plan-documents';
 import { LOOP_DIRTY_ROOT_POLICY } from '../workspace/git/loop-landing-policy';
-import { ACTIVE_PLAN_DOCUMENTS_BLOCK_REASON } from './loop-worktree-lifecycle';
+import { ACTIVE_PLAN_DOCUMENTS_BLOCK_REASON, holdsMergeForReview } from './loop-worktree-lifecycle';
 import { removeOrphanWorktree } from './loop-worktree-reconcile';
 
 const logger = getLogger('LoopWorktreeLifecycleReconcile');
@@ -27,6 +27,7 @@ export interface PendingManagedWorktreeLifecycle {
   branchName: string | null;
   autoIntegrateWorktree: boolean;
   lifecycle: LoopWorktreeLifecycle;
+  endEvidence?: Record<string, unknown>;
 }
 
 export interface ManagedLifecycleReconcileStore {
@@ -227,7 +228,7 @@ export async function reconcileManagedWorktreeLifecycles(
         }
       }
 
-      if (!isSuccessfulStatus(row.status) || !row.autoIntegrateWorktree) {
+      if (!isSuccessfulStatus(row.status) || !row.autoIntegrateWorktree || holdsMergeForReview(row.status, row.endEvidence)) {
         transition('preserved', { lastError: undefined });
         if (worktreeExists && row.worktreePath) {
           if (!(await removeOrphanWorktree(

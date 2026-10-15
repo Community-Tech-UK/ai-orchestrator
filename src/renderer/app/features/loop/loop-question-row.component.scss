@@ -1,0 +1,10 @@
+:host { display: block; }
+.question { padding: 8px; margin: 6px 0; border: 1px solid var(--border-color); border-radius: 5px; }
+.label { font-weight: 600; }
+p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; }
+.suggestion { opacity: .8; }
+textarea { display: block; width: 100%; box-sizing: border-box; font: inherit; color: inherit; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 4px; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+button { padding: 4px 8px; color: inherit; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 4px; }
+button:disabled { opacity: .5; }
+button:focus-visible, textarea:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }

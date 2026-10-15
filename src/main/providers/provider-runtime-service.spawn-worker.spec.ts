@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ProviderRuntimeService } from './provider-runtime-service';
-import type { CliAdapter } from '../cli/adapters/adapter-factory';
+import { ProviderRuntimeService, type ProviderRuntimeAdapterCreator } from './provider-runtime-service';
+import type { CliAdapter, UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
+import { CliAdapterWorkerProxy } from '../cli/spawn-worker/cli-adapter-worker-proxy';
 import type { CliCapabilities, CliStatus } from '../cli/adapters/base-cli-adapter';
 import type { AppSettings } from '../../shared/types/settings.types';
 import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
@@ -75,32 +76,65 @@ describe('ProviderRuntimeService spawn worker offload gate', () => {
     expect(adapter).toBe(normal);
   });
 
-  it('returns a worker proxy for local Claude and Gemini when enabled', () => {
+  it.each<{ name: string; options: UnifiedSpawnOptions }>([
+    { name: 'ordinary Claude', options: { workingDirectory: '/repo', instanceId: 'inst-1' } },
+    {
+      name: 'read-only Claude review with yolo enabled',
+      options: {
+        workingDirectory: '/repo',
+        instanceId: 'review-1',
+        readOnlyReview: true,
+        yoloMode: true,
+        machineSession: 'review',
+        maxTurns: 8,
+        contextCeilingTokens: 32_000,
+      },
+    },
+  ])('keeps $name on the canonical adapter path when offload is enabled', ({ options }) => {
+    const normal = makeAdapter('normal');
+    const createAdapter = vi.fn<ProviderRuntimeAdapterCreator>(() => normal);
     const service = new ProviderRuntimeService({
       registry: {
         recordAvailable: vi.fn(),
         recordUnavailable: vi.fn(),
       } as never,
-      createAdapter: vi.fn(() => makeAdapter('normal')),
+      createAdapter,
+      settings: {
+        get: <K extends keyof AppSettings>(key: K): AppSettings[K] =>
+          ({ ...DEFAULT_SETTINGS, enableSpawnWorkerOffload: true })[key],
+      },
+    });
+    const input = { cliType: 'claude' as const, options };
+
+    expect(service.createAdapter(input)).toBe(normal);
+    expect(createAdapter).toHaveBeenCalledExactlyOnceWith(input);
+    expect(createAdapter.mock.calls[0][0]).toBe(input);
+    expect(createAdapter.mock.calls[0][0].options).toBe(options);
+  });
+
+  it('returns a worker proxy for local Gemini when enabled', () => {
+    const createAdapter = vi.fn(() => makeAdapter('normal'));
+    const service = new ProviderRuntimeService({
+      registry: {
+        recordAvailable: vi.fn(),
+        recordUnavailable: vi.fn(),
+      } as never,
+      createAdapter,
       settings: {
         get: <K extends keyof AppSettings>(key: K): AppSettings[K] =>
           ({ ...DEFAULT_SETTINGS, enableSpawnWorkerOffload: true })[key],
       },
     });
 
-    const claude = service.createAdapter({
-      cliType: 'claude',
-      options: { workingDirectory: '/repo', instanceId: 'inst-1' },
-    });
     const gemini = service.createAdapter({
       cliType: 'gemini',
       options: { workingDirectory: '/repo', instanceId: 'inst-2' },
     });
 
-    expect(claude.getName()).toBe('claude-cli');
+    expect(gemini).toBeInstanceOf(CliAdapterWorkerProxy);
     expect(gemini.getName()).toBe('gemini-cli');
-    expect(claude.getSpawnMode()).toBe('subprocess-stream');
     expect(gemini.getSpawnMode()).toBe('subprocess-exec');
+    expect(createAdapter).not.toHaveBeenCalled();
   });
 
   it('does not proxy remote execution locations', () => {
@@ -118,7 +152,7 @@ describe('ProviderRuntimeService spawn worker offload gate', () => {
     });
 
     const adapter = service.createAdapter({
-      cliType: 'claude',
+      cliType: 'gemini',
       options: { workingDirectory: '/repo' },
       executionLocation: { type: 'remote', nodeId: 'node-1' },
     });

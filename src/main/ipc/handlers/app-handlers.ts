@@ -25,6 +25,7 @@ import {
 } from '@contracts/schemas/file-operations';
 import { getCapabilityProbe } from '../../bootstrap/capability-probe';
 import { sendValidatedRendererEvent } from '../../event-bus/renderer-event-validation';
+import { getKeepAwakeService } from '../../app/keep-awake-service';
 import { ensureScratchDirectory } from '../../util/scratch-directory';
 import { openTerminalAtDirectory } from './app-terminal';
 
@@ -153,6 +154,11 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
       }
     },
   );
+
+  ipcMain.handle(IPC_CHANNELS.APP_GET_KEEP_AWAKE_STATE, async (): Promise<IpcResponse> => ({
+    success: true,
+    data: getKeepAwakeService().getState(),
+  }));
 
   // Resolve (and lazily create) the scratch directory used by general chats —
   // sessions that aren't tied to a project workspace. No payload.

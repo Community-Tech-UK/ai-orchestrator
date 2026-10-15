@@ -232,6 +232,22 @@
         />
       </section>
 
+      <section class="row">
+        <label for="loop-cfg-verify-timeout">Check time limit (minutes)</label>
+        <input
+          id="loop-cfg-verify-timeout"
+          type="number"
+          min="1"
+          max="60"
+          step="1"
+          [ngModel]="verifyTimeoutMinutes()"
+          (ngModelChange)="verifyTimeoutMinutes.set($event)"
+          [appTooltip]="copy('loop.verifyTimeout')"
+          aria-describedby="loop-cfg-verify-timeout-hint"
+        />
+        <span id="loop-cfg-verify-timeout-hint" class="hint">A check that runs out of time counts as failed.</span>
+      </section>
+
       <section class="row split audit-config">
         <div>
           <label for="loop-cfg-preflight">Preflight <span class="hint">(observe = log only; record never blocks)</span></label>

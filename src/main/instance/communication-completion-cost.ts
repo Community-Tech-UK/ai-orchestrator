@@ -1,3 +1,5 @@
+import { machineSessionReasonOf } from '../../shared/utils/machine-session';
+import { resolveModelCallCost } from '../core/system/model-call-recorder';
 /**
  * Per-turn cost recording and estimate-vs-actual telemetry.
  *
@@ -23,19 +25,20 @@ export function recordCompletionCost(
 ): void {
   try {
     const usage = normalizeUsage(response.usage as UsageLike | undefined);
-    if (!usage) {
+    if (!usage && typeof response.usage?.cost !== 'number') {
       return;
     }
-    const input = usage.input ?? 0;
-    const output = usage.output ?? 0;
-    const cacheRead = usage.cacheRead ?? 0;
-    const cacheWrite = usage.cacheWrite ?? 0;
-    const reasoning = usage.reasoning ?? 0;
-    if (input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0 && reasoning === 0) {
+    const input = usage?.input ?? 0;
+    const output = usage?.output ?? 0;
+    const cacheRead = usage?.cacheRead ?? 0;
+    const cacheWrite = usage?.cacheWrite ?? 0;
+    const reasoning = usage?.reasoning ?? 0;
+    if (input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0 && reasoning === 0 && typeof response.usage?.cost !== 'number') {
       return;
     }
     const model = instance.currentModel || instance.provider;
-    const providerCost = response.usage?.cost;
+    const resolvedCost = resolveModelCallCost(instance.provider, model, response.usage);
+    const providerCost = resolvedCost.costUsd ?? undefined;
     const isEstimated = response.usage?.isEstimated === true;
     getCostTracker().recordUsage(
       instanceId,
@@ -50,13 +53,14 @@ export function recordCompletionCost(
       isEstimated,
     );
     recordInstanceTurnAttribution({
+      purpose: machineSessionReasonOf(instance) === 'plan-queue' ? 'plan-queue' : typeof instance.metadata?.['spendPurpose'] === 'string' ? instance.metadata['spendPurpose'] : undefined,
       instanceId,
       parentId: instance.parentId,
       agentId: instance.agentId,
       provider: instance.provider,
       model,
-      usage: { inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, reasoningTokens: reasoning, cost: typeof providerCost === 'number' ? providerCost : undefined },
-      costKnown: typeof providerCost === 'number',
+      usage: { inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, reasoningTokens: reasoning, cost: response.usage?.cost },
+      costKnown: resolvedCost.costSource === 'provider' || resolvedCost.costSource === 'free',
       isEstimated,
     });
     if (!isEstimated) {

@@ -1,6 +1,7 @@
 /** Readiness decisions and lifecycle reconciliation before any work starts. */
 import { lstat } from 'fs/promises';
 import * as path from 'path';
+import { classifyQuestionRisk } from '../../shared/attention/question-need';
 import {
   PlanQueueQuestionSchema,
   type PlanQueueItemState,
@@ -23,6 +24,7 @@ export function automaticDecisionPatch(question: PlanQueueQuestion): Partial<Pla
   if (!parsed.success || parsed.data.decision?.kind !== 'technical') return null;
   const decision = parsed.data.decision;
   const option = parsed.data.options.find((candidate) => candidate.id === decision.recommendedOptionId)!;
+  if (classifyQuestionRisk(parsed.data.question, option.label, decision.reason)) return null;
   const answer = `Automatic technical decision: ${option.id} — ${option.label}\nQuestion: ${parsed.data.question.slice(0, 400)}\nReason: ${decision.reason.slice(0, 450)}\nEvidence: ${decision.evidence.slice(0, 450)}`;
   return {
     question: null,
@@ -60,7 +62,7 @@ export function applyTriageRecords(host: ReadinessHost, run: PlanQueueRun, args:
   }
   if (asked) {
     const questions = host.store.listItems(run.id).filter((item) => item.state === 'needs-answer' && item.question);
-    host.notifyParent(host.getRun(run.id), buildQuestionsMessage(questions));
+    host.notifyParent(host.getRun(run.id), buildQuestionsMessage(questions), questions);
   }
   return { applied, unmatched };
 }

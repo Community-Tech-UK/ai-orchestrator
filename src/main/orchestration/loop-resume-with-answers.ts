@@ -20,7 +20,7 @@ export interface ResumeWithAnswersInput {
 }
 
 function kindLabel(kind: LoopOutstandingItem['kind']): string {
-  return kind === 'needs-human' ? 'Needs human' : 'Open question';
+  return kind === 'needs-human' ? 'Needs human' : kind === 'decision-applied' ? 'Decision applied' : kind === 'for-information' ? 'For information' : 'Open question';
 }
 
 /** Indent every line of a (possibly multi-line) value by two spaces. */

@@ -189,6 +189,7 @@ describe('source-status → lane policy (exhaustive)', () => {
     'provider-limit': 'waiting', // active/resumable when endedAt is null (asserted below)
     completed: 'done',
     'completed-needs-review': 'needs-you',
+    'attempt-failed': 'needs-you',
     cancelled: 'done',
     failed: 'needs-you',
     error: 'needs-you',

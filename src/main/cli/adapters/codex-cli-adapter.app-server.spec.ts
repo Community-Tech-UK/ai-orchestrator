@@ -15,6 +15,10 @@ vi.mock('../../browser-gateway/browser-approval-store', () => ({
   }),
 }));
 
+vi.mock('../../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({ getAll: () => ({}) }),
+}));
+
 import { CodexCliAdapter } from './codex-cli-adapter';
 import * as codexCliAdapterModule from './codex-cli-adapter';
 import { CodexHomeManager } from './codex/codex-home-manager';

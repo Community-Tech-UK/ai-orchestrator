@@ -103,6 +103,7 @@ export interface CommunicationDependencies {
   onProviderLimitTurn?: (params: {
     instanceId: string;
     resetAtHint: number | null;
+    quotaBlind?: boolean;
     reason: string;
     resumePrompt: string | null;
   }) => 'parked' | 'already-parked' | 'skipped' | 'switching-account';

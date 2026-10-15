@@ -237,6 +237,7 @@ export function buildTriagePrompt(runId: string, documents: readonly string[]): 
     '',
     `Task: call the \`${TRIAGE_TOOL}\` tool once with \`run_id\` "${runId}" and one record per document, then stop. Example call arguments:`,
     '',
+    'If time runs short, report the documents you have classified; Harness checks the rest again in a later batch.',
     JSON.stringify({
       run_id: runId,
       records: [

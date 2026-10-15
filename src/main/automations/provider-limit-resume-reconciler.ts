@@ -118,6 +118,7 @@ function isPendingResumeAutomation(automation: Automation, now: number): boolean
     && automation.schedule.type === 'oneTime'
     && automation.schedule.runAt - now > IMMINENT_FIRE_MS
     && automation.action.systemAction?.type === 'instanceProviderLimitResume'
+    && automation.action.systemAction.quotaBlind !== true
   );
 }
 

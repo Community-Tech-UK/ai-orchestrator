@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildLoopCheckpoint, LOOP_CHECKPOINT_HISTORY_TAIL } from './loop-checkpoint';
+import { buildLoopCheckpoint, buildRunCheckpoint, checkpointHistory, LOOP_CHECKPOINT_HISTORY_TAIL } from './loop-checkpoint';
 import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 
 function state(): LoopState {
@@ -58,12 +58,31 @@ function iteration(seq: number): LoopIteration {
 }
 
 describe('buildLoopCheckpoint', () => {
+  it('keeps five detector rounds, replaces the latest sealed round and snapshots completion hints', () => {
+    const history = Array.from({ length: 8 }, (_, index) => iteration(index));
+    const last = { ...iteration(7), outputExcerpt: 'sealed' };
+    expect(checkpointHistory(history, last).map(row => row.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    const checkpoint = buildRunCheckpoint({ getIterations: () => history, getCheckpointContext: () => ({ convergenceNote: 'ledger stall', planRegenerationCount: 2, pendingContextReset: true }) }, state(), last);
+    expect(checkpoint.historyTail.at(-1)?.outputExcerpt).toBe('sealed');
+    expect(checkpoint).toMatchObject({ convergenceNote: 'ledger stall', planRegenerationCount: 2, pendingContextReset: true });
+  });
   it('keeps only a bounded history tail in checkpoints', () => {
     const history = Array.from({ length: LOOP_CHECKPOINT_HISTORY_TAIL + 3 }, (_, index) => iteration(index));
     const checkpoint = buildLoopCheckpoint({ state: state(), history, now: 500 });
-    expect(checkpoint.historyTail).toHaveLength(LOOP_CHECKPOINT_HISTORY_TAIL);
-    expect(checkpoint.historyTail[0]?.seq).toBe(3);
+    expect(checkpoint.historyTail).toHaveLength(5);
+    expect(checkpoint.historyTail[0]?.seq).toBe(LOOP_CHECKPOINT_HISTORY_TAIL - 2);
     expect(checkpoint.updatedAt).toBe(500);
+  });
+
+  it('expands the detector window and caps it at twenty-five rounds', () => {
+    const current = state();
+    const history = Array.from({ length: 30 }, (_, index) => iteration(index));
+    current.config.progressThresholds.identicalHashCriticalWindow = 12;
+    expect(buildLoopCheckpoint({ state: current, history }).historyTail).toHaveLength(12);
+    current.config.progressThresholds.identicalHashCriticalWindow = 40;
+    expect(buildLoopCheckpoint({ state: current, history }).historyTail).toHaveLength(25);
+    const fallback = buildRunCheckpoint({ getIterations: () => [], getCheckpointContext: () => ({ convergenceNote: null, planRegenerationCount: 0, pendingContextReset: false }) }, current, iteration(29));
+    expect(fallback.historyTail.map(row => row.seq)).toEqual([29]);
   });
 
   it('WS3: persists the ledgerConvergence tracker with the state', () => {

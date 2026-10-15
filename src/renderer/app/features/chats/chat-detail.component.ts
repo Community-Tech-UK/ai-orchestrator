@@ -21,6 +21,7 @@ import { ActivityStatusComponent } from '../instance-detail/activity-status.comp
 import { FileAttachmentService } from '../instance-detail/file-attachment.service';
 import { DropZoneComponent } from '../file-drop/drop-zone.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
+import { LoopStopConfirmService } from '../loop/loop-stop-confirm.service';
 import { LoopControlComponent } from '../loop/loop-control.component';
 import { SessionArtifactsStripComponent } from './session-artifacts-strip.component';
 import { ContextEvidencePanelComponent } from '../../shared/components/context-evidence-panel/context-evidence-panel.component';
@@ -63,6 +64,7 @@ export class ChatDetailComponent {
   private readonly fileAttachment = inject(FileAttachmentService);
   private readonly fileIpc = inject(FileIpcService);
   private readonly operatorIpc = inject(OperatorIpcService);
+  private readonly loopStopConfirm = inject(LoopStopConfirmService);
   private readonly loopStore = inject(LoopStore);
   private readonly loopPromptHistory = inject(LoopPromptHistoryService);
 
@@ -502,7 +504,7 @@ export class ChatDetailComponent {
     const chatId = this.detail()?.chat.id;
     if (!chatId) return;
     const a = this.loopStore.activeForChat(chatId)();
-    if (a) await this.loopStore.cancel(a.id);
+    if (a) this.loopStopConfirm.request(a.id, a.config.isolateLoopWorkspaces === true, { chatId: a.chatId });
   }
 
   private async loadRunsForThread(threadId: string | null): Promise<void> {

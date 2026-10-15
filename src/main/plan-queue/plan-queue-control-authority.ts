@@ -7,7 +7,7 @@
  * Stranded-run rescue: session ids are not kept across restarts, so once the
  * parent is gone no MCP caller could stop the run, which would keep its
  * documents locked indefinitely. Any session that the queue did not spawn may
- * then cancel the run or discard a parked item. The audit trail records the
+ * then adopt or cancel the run, or discard a parked item. The audit trail records the
  * rescuer in each affected item's detail and in the log. "Gone" means absent
  * from the instance manager: a parent that still exists, even in a failed
  * state, keeps the run until it is removed.
@@ -25,6 +25,7 @@ type PlanQueueControlAction = PlanQueueControlPayload['action'];
 
 /** Control actions another session may take once a run's parent session is gone. */
 export const STRANDED_RESCUE_ACTIONS: ReadonlySet<PlanQueueControlAction> = new Set<PlanQueueControlAction>([
+  'adopt',
   'cancel',
   'discard-item',
 ]);
@@ -51,6 +52,12 @@ export function authorizePlanQueueControl(
   callerInstanceId: string | undefined,
   lookup: PlanQueueCallerLookup,
 ): string {
+  if (action === 'adopt') {
+    if (lookup.instanceExists(run.parentInstanceId)) throw new Error('This run still has a live parent; it cannot be adopted');
+    if (!callerInstanceId || !lookup.instanceExists(callerInstanceId) || lookup.isQueueInstance(callerInstanceId)) {
+      throw new Error('Adopt requires a live session that the queue did not spawn');
+    }
+  }
   if (callerInstanceId === undefined || callerInstanceId === run.parentInstanceId) return 'James';
   const strandedRescuer = !lookup.instanceExists(run.parentInstanceId) && !lookup.isQueueInstance(callerInstanceId);
   if (strandedRescuer && STRANDED_RESCUE_ACTIONS.has(action)) {
@@ -63,6 +70,6 @@ export function authorizePlanQueueControl(
     return `session ${callerInstanceId}, because the session that started the run (${run.parentInstanceId}) no longer exists`;
   }
   throw new Error(strandedRescuer
-    ? `${NOT_PARENT}. That session no longer exists, so another session may only cancel the run or discard a parked item.`
+    ? `${NOT_PARENT}. That session no longer exists. Use action "adopt" to take over the run so its items keep going; cancel only if James asked you to stop it.`
     : NOT_PARENT);
 }

@@ -71,6 +71,12 @@ describe('buildClaudeSettingsOverlay', () => {
 });
 
 describe('buildClaudeCliArgs', () => {
+  it('makes the Claude reviewer read-only even when caller requests auto-approve', () => {
+    const args=buildClaudeCliArgs(baseInput({spawnOptions:{readOnlyReview:true,yoloMode:true,allowedTools:['Bash','Write'],permissionHookPath:'/hook'},shouldUsePermissionHook:true}));
+    expect(args).toContain('dontAsk');expect(args).toContain('--tools');expect(args).toContain('Read,Grep,Glob,ToolSearch,Skill');
+    expect(args).not.toContain('--dangerously-skip-permissions');expect(args).not.toContain('--allowedTools');expect(args).not.toContain('acceptEdits');expect(args).not.toContain('--settings');
+  });
+
   it('always includes the fixed stream-json flags', () => {
     const args = buildClaudeCliArgs(baseInput());
     expect(args.slice(0, 6)).toEqual([

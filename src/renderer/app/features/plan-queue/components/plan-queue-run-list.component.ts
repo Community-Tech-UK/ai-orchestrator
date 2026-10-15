@@ -1,3 +1,4 @@
+import { queueRunSpendLabel } from './plan-queue-spend-label';
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import type {
   PlanQueueItemDto,
@@ -77,6 +78,7 @@ export class PlanQueueRunListComponent {
   cancelRun = output<string>();
   skipItem = output<string>();
 
+  protected readonly spendLabel = queueRunSpendLabel;
   protected readonly formatStartedAt = formatStartedAt;
   protected readonly stateCounts = planQueueStateCounts;
   protected readonly routingSummary = planQueueRoutingSummary;

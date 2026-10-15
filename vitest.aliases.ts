@@ -39,6 +39,7 @@ export const aliases = {
   '@contracts/schemas/mcp-multi-provider': resolve(configDir, './packages/contracts/src/schemas/mcp-multi-provider.schemas'),
   '@contracts/schemas/provider-runtime-events': resolve(configDir, './packages/contracts/src/schemas/provider-runtime-events.schemas'),
   '@contracts/schemas/loop': resolve(configDir, './packages/contracts/src/schemas/loop.schemas'),
+  '@contracts/schemas/loop-spend': resolve(configDir, './packages/contracts/src/schemas/loop-spend.schemas'),
   '@contracts/schemas/loop-events': resolve(configDir, './packages/contracts/src/schemas/loop-events.schemas'),
   '@contracts/schemas/campaign': resolve(configDir, './packages/contracts/src/schemas/campaign.schemas'),
   '@contracts/schemas/plan-queue': resolve(configDir, './packages/contracts/src/schemas/plan-queue.schemas'),

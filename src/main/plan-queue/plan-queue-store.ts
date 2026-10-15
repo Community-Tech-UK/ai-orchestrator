@@ -23,6 +23,7 @@ import type {
 import type { PlanQueueItem, PlanQueueRelaxationSnapshot, PlanQueueRun } from './plan-queue.types';
 
 interface RunRow {
+  tokens: number; cost_usd: number; exact_cost_usd: number;
   id: string;
   parent_instance_id: string;
   parent_history_thread_id: string | null;
@@ -38,6 +39,7 @@ interface RunRow {
 }
 
 interface ItemRow {
+  tokens: number; cost_usd: number; exact_cost_usd: number;
   id: string;
   run_id: string;
   document_path: string;
@@ -70,6 +72,16 @@ export class PlanQueueStore {
     private readonly now: () => number = Date.now,
   ) {}
 
+  addSpend(target: { itemId: string; runId?: string } | { runId: string }, delta: { tokens: number; costUsd: number; exactUsd: number }): void {
+    const clean = (value: number) => Number.isFinite(value) && value >= 0 ? value : 0;
+    const item = 'itemId' in target;
+    const table = item ? 'plan_queue_items' : 'plan_queue_runs';
+    const fence = item && target.runId ? ' AND run_id = ?' : '';
+    const args: unknown[] = [Math.floor(clean(delta.tokens)), clean(delta.costUsd), Math.min(clean(delta.exactUsd), clean(delta.costUsd)), item ? target.itemId : target.runId];
+    if (item && target.runId) args.push(target.runId);
+    this.db.prepare(`UPDATE ${table} SET tokens = tokens + ?, cost_usd = cost_usd + ?, exact_cost_usd = exact_cost_usd + ? WHERE id = ?${fence}`).run(...args);
+  }
+
   upsertRun(run: PlanQueueRun): void {
     this.db.prepare(`
       INSERT INTO plan_queue_runs (
@@ -87,7 +99,7 @@ export class PlanQueueStore {
     `).run(
       run.id,
       run.parentInstanceId,
-      run.parentHistoryThreadId,
+      run.parentHistoryThreadId ?? null,
       run.kind,
       run.workspaceCwd,
       run.status,
@@ -125,6 +137,16 @@ export class PlanQueueStore {
       .prepare(`SELECT * FROM plan_queue_runs WHERE status IN ${ACTIVE_RUN_STATUSES} ORDER BY started_at`)
       .all<RunRow>()
       .map(rowToRun);
+  }
+
+  /** Verification and landing remain work even when no session is replying. */
+  hasActiveWork(): boolean {
+    return this.db.prepare(`
+      SELECT 1 FROM plan_queue_runs r JOIN plan_queue_items i ON i.run_id = r.id
+      WHERE r.status = 'running'
+        AND i.state IN ('preparing', 'working', 'fixing', 'verifying', 'landing')
+      LIMIT 1
+    `).get() !== undefined;
   }
 
   listRuns(limit = 50): PlanQueueRun[] {
@@ -241,6 +263,7 @@ export class PlanQueueStore {
 
 function rowToRun(row: RunRow): PlanQueueRun {
   return {
+    ...(row.tokens || row.cost_usd || row.exact_cost_usd ? { spend: { tokens: row.tokens, costUsd: row.cost_usd, exactUsd: row.exact_cost_usd } } : {}),
     id: row.id,
     parentInstanceId: row.parent_instance_id,
     parentHistoryThreadId: row.parent_history_thread_id ?? null,
@@ -264,6 +287,7 @@ function rowToRun(row: RunRow): PlanQueueRun {
 
 function rowToItem(row: ItemRow): PlanQueueItem {
   return {
+    ...(row.tokens || row.cost_usd || row.exact_cost_usd ? { spend: { tokens: row.tokens, costUsd: row.cost_usd, exactUsd: row.exact_cost_usd } } : {}),
     id: row.id,
     runId: row.run_id,
     documentPath: row.document_path,

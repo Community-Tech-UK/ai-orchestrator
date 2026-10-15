@@ -137,3 +137,12 @@ export function notifyLoopTerminal(
     // Deliberately swallowed: see above.
   }
 }
+
+export function notifyLoopFailedStepPause(state: LoopState, reason: string): void {
+  try {
+    if (getSettingsManager().get('notifyOnLoopTerminal') === false) return;
+    getNotificationService().notify({ kind: 'loop-needs-you', title: 'Loop paused: a step failed',
+      body: clip(reason, MAX_REASON_CHARS), urgency: 'critical',
+      fingerprintFields: { loopRunId: state.id, seq: state.totalIterations, cause: 'step-failed' } });
+  } catch { /* Notifications cannot alter runtime state. */ }
+}

@@ -22,15 +22,27 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 
 import { InstanceStore } from '../../core/state/instance.store';
+import { LoopStore } from '../../core/state/loop.store';
+import { PlanQueueStore } from '../../core/state/plan-queue.store';
 
 @Injectable({ providedIn: 'root' })
 export class TerminateConfirmStore {
   private readonly instances = inject(InstanceStore);
+  private readonly loops = inject(LoopStore);
+  private readonly queue = inject(PlanQueueStore);
 
-  private readonly pending = signal<string | null>(null);
+  private readonly pending = signal<{ kind: 'one'; instanceId: string } | { kind: 'all' } | null>(null);
+  readonly isOpen = computed(() => this.pending() !== null);
+  readonly isAll = computed(() => this.pending()?.kind === 'all');
+  readonly allCount = computed(() => this.instances.instances().length);
+  readonly queueWillPause = computed(() => this.isAll() && this.queue.allRuns().some(run => run.status === 'running'));
+  readonly runningLoopCount = computed(() => {
+    const ids = this.loops.runningChatIds();
+    return this.isAll() ? this.instances.instances().filter(instance => ids.has(instance.id)).length : Number(ids.has(this.pendingId() ?? ''));
+  });
 
   /** The session awaiting confirmation, or null when nothing is pending. */
-  readonly pendingId = this.pending.asReadonly();
+  readonly pendingId = computed(() => { const pending = this.pending(); return pending?.kind === 'one' ? pending.instanceId : null; });
 
   /**
    * Name for the prompt. Falls back to "this session" rather than showing a raw
@@ -38,7 +50,7 @@ export class TerminateConfirmStore {
    * are about to lose.
    */
   readonly pendingName = computed(() => {
-    const id = this.pending();
+    const id = this.pendingId();
     if (!id) return '';
     return this.instances.instances().find((i) => i.id === id)?.displayName ?? 'this session';
   });
@@ -53,7 +65,7 @@ export class TerminateConfirmStore {
    * cautious answer: the prompt may under-promise, never over-promise.
    */
   readonly pendingIsArchived = computed(() => {
-    const id = this.pending();
+    const id = this.pendingId();
     if (!id) return false;
     const instance = this.instances.instances().find((i) => i.id === id);
     return instance ? !instance.parentId : false;
@@ -61,14 +73,19 @@ export class TerminateConfirmStore {
 
   /** Ask before terminating. Every entry point goes through here. */
   request(instanceId: string): void {
-    this.pending.set(instanceId);
+    this.pending.set({ kind: 'one', instanceId });
+  }
+
+  requestAll(): void {
+    if (this.allCount() > 0) this.pending.set({ kind: 'all' });
   }
 
   confirm(): void {
-    const id = this.pending();
-    if (!id) return;
+    const pending = this.pending();
+    if (!pending) return;
     this.pending.set(null);
-    void this.instances.terminateInstance(id);
+    if (pending.kind === 'all') void this.instances.terminateAllInstances();
+    else void this.instances.terminateInstance(pending.instanceId);
   }
 
   cancel(): void {

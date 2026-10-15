@@ -6,8 +6,8 @@ import { errorDiagnostic } from '../../../logging/source-diagnostics';
 import type { AppServerClient } from './app-server-client';
 import { repairPrivateCodexRolloutPath } from './codex-private-rollout-reconcile';
 import { isRecoverableThreadResumeError } from './exec-error-classifier';
-import { resumeThreadWithRetry } from './thread-resume-retry';
-import { startThreadWithRetry } from './thread-start-retry';
+import { startCodexThread, resumeCodexThread } from './codex-thread-requests';
+import { codexThreadPolicyForConfig } from './codex-thread-policy';
 import { SERVICE_NAME } from './app-server-types';
 import type { CodexAskForApproval } from './app-server-types';
 import { warnOnceIfCodexSnapshotBehind } from './codex-protocol-snapshot-check';
@@ -71,6 +71,7 @@ export async function initializeCodexAppServer(
     shouldResume,
   } = options;
   const approvalPolicy = resolveCodexAppServerApprovalPolicy(config);
+  const policy = codexThreadPolicyForConfig(config);
   const requestedResumeSessionId = shouldResume ? sessionId ?? undefined : undefined;
   const resumeRequested = shouldResume;
   const hasSpecificResumeTarget = Boolean(requestedResumeSessionId);
@@ -98,13 +99,13 @@ export async function initializeCodexAppServer(
       // thread even though the rollout file is safe in the persistent store.
       repairPrivateCodexRolloutPath(requestedResumeSessionId);
       try {
-        const resumeResult = await resumeThreadWithRetry(client, {
+        const resumeResult = await resumeCodexThread(client, {
           threadId: requestedResumeSessionId,
           cwd,
           model: config.model || null,
           approvalPolicy,
           sandbox,
-        });
+        }, policy, config);
         const resumedThreadId = resumeResult.threadId || resumeResult.thread?.id || null;
         effectiveServiceTier = resumeResult.serviceTier ?? null;
         if (resumedThreadId === requestedResumeSessionId) {
@@ -157,13 +158,13 @@ export async function initializeCodexAppServer(
         const candidate = listResult.data?.[0];
         if (candidate?.id) {
           try {
-            const resumeResult = await resumeThreadWithRetry(client, {
+            const resumeResult = await resumeCodexThread(client, {
               threadId: candidate.id,
               cwd,
               model: config.model || null,
               approvalPolicy,
               sandbox,
-            });
+            }, policy, config);
             threadId = resumeResult.threadId || resumeResult.thread?.id || null;
             effectiveServiceTier = resumeResult.serviceTier ?? null;
             resumeSource = 'thread-list';
@@ -196,13 +197,13 @@ export async function initializeCodexAppServer(
       const scanResult = await sessionScanner.findSessionForWorkspace(cwd);
       if (scanResult) {
         try {
-          const resumeResult = await resumeThreadWithRetry(client, {
+          const resumeResult = await resumeCodexThread(client, {
             threadId: scanResult.threadId,
             cwd,
             model: config.model || null,
             approvalPolicy,
             sandbox,
-          });
+          }, policy, config);
           threadId = resumeResult.threadId || resumeResult.thread?.id || null;
           effectiveServiceTier = resumeResult.serviceTier ?? null;
           resumeSource = 'jsonl-scan';
@@ -240,7 +241,7 @@ export async function initializeCodexAppServer(
     }
 
     if (!threadId) {
-      const startResult = await startThreadWithRetry(client, {
+      const startResult = await startCodexThread(client, {
         cwd,
         model: config.model || null,
         approvalPolicy,
@@ -248,7 +249,7 @@ export async function initializeCodexAppServer(
         serviceName: SERVICE_NAME,
         ephemeral: config.ephemeral ?? false,
         serviceTier: config.fastMode ? 'priority' : null,
-      });
+      }, policy, config);
       threadId = startResult.threadId || startResult.thread?.id || null;
       effectiveServiceTier = startResult.serviceTier ?? null;
       resumeSource = null;
