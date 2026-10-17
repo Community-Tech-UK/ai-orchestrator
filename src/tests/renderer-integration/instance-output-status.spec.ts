@@ -1,13 +1,13 @@
 import { NgZone } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Instance, OutputMessage } from './instance.types';
-import { InstanceStateService } from './instance-state.service';
-import { InstanceOutputStore } from './instance-output.store';
-import { ImageAttachmentService } from '../../../features/instance-detail/image-attachment.service';
-import { OpenCodeAcpUpdates } from '../../../../../main/cli/adapters/opencode-acp-updates';
-import { buildRetryRecoveredMessage, buildRetryStateMessage } from '../../../../../main/cli/adapters/acp-retry-state';
-import { encodeJsonChunks } from '../../../../../shared/utils/json-chunks';
+import type { Instance, OutputMessage } from '../../renderer/app/core/state/instance/instance.types';
+import { InstanceStateService } from '../../renderer/app/core/state/instance/instance-state.service';
+import { InstanceOutputStore } from '../../renderer/app/core/state/instance/instance-output.store';
+import { ImageAttachmentService } from '../../renderer/app/features/instance-detail/image-attachment.service';
+import { OpenCodeAcpUpdates } from '../../main/cli/adapters/opencode-acp-updates';
+import { buildRetryRecoveredMessage, buildRetryStateMessage } from '../../main/cli/adapters/acp-retry-state';
+import { encodeJsonChunks } from '../../shared/utils/json-chunks';
 
 function statusSequence(phase: string): OutputMessage[] {
   if (phase === 'completed' || phase === 'failed') {
