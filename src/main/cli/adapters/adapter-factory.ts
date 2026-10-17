@@ -34,6 +34,8 @@ import { getLogger } from '../../logging/logger';
 import { configureHardenedAdapter } from './hardened-adapter-config';
 import { hardenedModeUnsupportedMessage, isHardenedModeSupported } from '../../../shared/hardened-mode-support';
 import { isInstanceHardened } from '../../instance/lifecycle/hardened-mode-scoping';
+import { isInstanceSignalFenceDisabled } from '../../instance/lifecycle/signal-fence-scoping';
+import { BaseCliAdapter } from './base-cli-adapter';
 import { isInstanceContainedExecution } from '../../instance/lifecycle/contained-execution-scoping';
 import { getPermissionRegistry } from '../../orchestration/permission-registry';
 import { getProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
@@ -757,6 +759,10 @@ export function createCliAdapter(
   // WS13 hardened mode: per-instance registry keyed by instance id (browser-tool-scoping
   // precedent) — every create/respawn path inherits it with no threading.
   if (hardenedModeApplies) configureHardenedAdapter(adapter, cliType, effectiveOptions);
+  // Per-session signal-fence override, read back by instance id like hardened mode.
+  if (adapter instanceof BaseCliAdapter && isInstanceSignalFenceDisabled(effectiveOptions.instanceId)) {
+    adapter.disableSessionSignalFence();
+  }
   return adapter;
 }
 

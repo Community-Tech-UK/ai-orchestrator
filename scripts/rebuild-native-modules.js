@@ -8,6 +8,7 @@
  * the postinstall script.
  *
  * Strategy:
+ * 0. Materialize Electron's executable once before parallel consumers can import it
  * 1. Wipe the module's build/ dir to defeat cache-skew (see note below)
  * 2. Try prebuild-install to download a prebuilt binary for Electron (no compiler needed)
  * 3. Fall back to @electron/rebuild (needs Python + C++ build tools)
@@ -35,6 +36,15 @@ function getElectronVersion() {
     return JSON.parse(fs.readFileSync(electronPkgPath, 'utf8')).version;
   }
   throw new Error('Could not determine Electron version — is electron installed?');
+}
+
+function prepareElectronExecutable() {
+  // Electron 42 downloads lazily on first require. Do this serially during
+  // postinstall/rebuild so parallel test workers cannot race its extraction.
+  const executable = require('electron');
+  if (typeof executable !== 'string' || !fs.statSync(executable).isFile()) {
+    throw new Error('Electron executable is unavailable after preparation.');
+  }
 }
 
 function moduleExists(moduleName) {
@@ -180,19 +190,26 @@ function main() {
   console.log('╚════════════════════════════════════════════════════════════╝');
   console.log('');
 
-  const present = NATIVE_MODULES.filter(m => moduleExists(m));
-
-  if (present.length === 0) {
-    console.log('No native modules to rebuild.');
-    process.exit(0);
-  }
-
   let electronVersion;
   try {
     electronVersion = getElectronVersion();
   } catch (error) {
     console.log('Electron not yet installed — skipping native module rebuild.');
     console.log('(This is normal during initial npm install; postinstall will re-run.)');
+    process.exit(0);
+  }
+
+  try {
+    console.log('Preparing Electron executable...');
+    prepareElectronExecutable();
+  } catch (error) {
+    console.error(`✗ Electron executable preparation failed: ${error.message}`);
+    process.exit(1);
+  }
+
+  const present = NATIVE_MODULES.filter(m => moduleExists(m));
+  if (present.length === 0) {
+    console.log('No native modules to rebuild.');
     process.exit(0);
   }
 

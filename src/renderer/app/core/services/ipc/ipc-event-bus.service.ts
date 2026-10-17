@@ -126,6 +126,9 @@ export class IpcEventBusService {
   readonly instanceRemoved$ = this.createStream<string>((next) =>
     this.instanceIpc.onInstanceRemoved(next),
   );
+  readonly instanceTranscriptChunk$ = this.createStream<unknown>((next) =>
+    this.instanceIpc.onInstanceTranscriptChunk(next),
+  );
 
   readonly instanceStateUpdate$ = this.createStream<StateUpdate>((next) =>
     this.instanceIpc.onInstanceStateUpdate((data) => next(data as StateUpdate)),

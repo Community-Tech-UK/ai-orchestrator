@@ -156,6 +156,20 @@ describe('CliUpdateService', () => {
     expect(CLI_UPDATE_SPECS.opencode?.npmPackage).toBe('opencode-ai');
   });
 
+  it('updates the selected OpenCode 2 install even when v1 is first in a scan', async () => {
+    const selected = '/opt/opencode2';
+    const detection = makeDetection({ one: { opencode: makeInfo('opencode', selected, '2.0.30') },
+      installs: { opencode: [{ path: '/opt/opencode', version: '1.19.1' }, { path: selected, version: '2.0.30' }] } });
+    const service = new CliUpdateService({ detection, exists: () => true, resolveOpenCodeLatestVersion: async () => '2.0.31' });
+    await expect(service.getUpdatePlan('opencode')).resolves.toMatchObject({ command: selected, currentVersion: '2.0.30', args: ['upgrade', '2.0.31'] });
+  });
+
+  it('does not self-update an app-managed OpenCode binary', async () => {
+    const path = '/Applications/OpenCode.app/Contents/Resources/opencode-cli';
+    const service = new CliUpdateService({ detection: makeDetection({ one: { opencode: makeInfo('opencode', path, '2.0.30') } }), exists: () => true });
+    await expect(service.getUpdatePlan('opencode')).resolves.toMatchObject({ supported: false, reason: expect.stringMatching(/desktop app/) });
+  });
+
   it('uses the GitHub CLI extension updater when Copilot is provided by gh', async () => {
     const detection = makeDetection({
       one: {
@@ -287,5 +301,73 @@ describe('CliUpdateService', () => {
       beforeVersion: '0.123.0',
       afterVersion: '0.124.0',
     });
+  });
+});
+
+
+describe('OpenCode updates stay on the installed major', () => {
+  const selected = '/opt/opencode2';
+  it.each([null, '3.0.0', '1.19.1', '2.1', '2.0.31-preview', '2.0.31+build', '2.01.31', ' 2.0.31', '2.0.31\n', '2.0.31; echo unsafe'])('skips updates when the next stable 2.x target is not confirmed: %j', async (latest) => {
+    const execute = vi.fn(async () => ({ stdout: '', stderr: '' }));
+    const service = new CliUpdateService({ detection: makeDetection({ one: { opencode: makeInfo('opencode', selected, '2.0.30') } }),
+      exists: () => true, resolveOpenCodeLatestVersion: async () => latest, execFileAsync: execute });
+    await expect(service.updateOne('opencode')).resolves.toMatchObject({ status: 'skipped', message: expect.stringMatching(/2\.x|same major/i) });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, '', 'unknown', '2', '2.0', '2.0.30-preview', '3.0.0', '01.0.0'])('refuses an unknown or unsupported installed version: %j', async (current) => {
+    const info = { ...makeInfo('opencode', selected), version: current };
+    const service = new CliUpdateService({ detection: makeDetection({ one: { opencode: info } }), exists: () => true,
+      resolveOpenCodeLatestVersion: async () => '2.0.31' });
+    await expect(service.getUpdatePlan('opencode')).resolves.toMatchObject({ supported: false, reason: expect.stringMatching(/installed version|version.*confirm/i) });
+  });
+
+  it.each([
+    ['/opt/homebrew/Cellar/opencode-v2/2.0.30/bin/opencode', '/opt/homebrew/Cellar/opencode-v2/2.0.30/bin/opencode'],
+    ['/opt/homebrew/bin/opencode2', '/opt/homebrew/Cellar/opencode-v2/2.0.30/bin/opencode'],
+    ['/usr/local/bin/opencode', '/usr/local/Cellar/opencode/2.0.30/bin/opencode'],
+  ])('skips Homebrew OpenCode 2 because its native updater ignores a pinned target: %s', async (path, resolved) => {
+    const service = new CliUpdateService({ detection: makeDetection({ one: { opencode: makeInfo('opencode', path, '2.0.30') } }),
+      exists: () => true, realpath: () => resolved, resolveOpenCodeLatestVersion: async () => '2.0.31' });
+    await expect(service.getUpdatePlan('opencode')).resolves.toMatchObject({ supported: false, reason: expect.stringMatching(/Homebrew.*major|major.*Homebrew/i) });
+  });
+
+  it('resolves symlinks before deciding whether the desktop app owns the binary', async () => {
+    const service = new CliUpdateService({ detection: makeDetection({ one: { opencode: makeInfo('opencode', selected, '2.0.30') } }),
+      exists: () => true, realpath: () => '/Applications/OpenCode.app/Contents/Resources/opencode-cli', resolveOpenCodeLatestVersion: async () => '2.0.31' });
+    await expect(service.getUpdatePlan('opencode')).resolves.toMatchObject({ supported: false, reason: expect.stringMatching(/desktop app/i) });
+  });
+
+  it('uses the selected install with a validated pinned version when running the update', async () => {
+    const execute = vi.fn(async (_file: string, args: string[]) => ({ stdout: args[0] === '--version' ? 'opencode v2.0.30\n' : 'updated', stderr: '' }));
+    const detection = makeDetection({ one: { opencode: makeInfo('opencode', selected, '2.0.30') }, installs: { opencode: [{ path: '/opt/opencode', version: '1.19.1' }] } });
+    const service = new CliUpdateService({ detection, exists: () => true, realpath: path => path, resolveOpenCodeLatestVersion: async () => 'v2.0.31', execFileAsync: execute });
+    await expect(service.updateOne('opencode')).resolves.toMatchObject({ status: 'updated', beforeVersion: '2.0.30' });
+    expect(execute).toHaveBeenCalledWith(selected, ['upgrade', '2.0.31'], expect.any(Number), expect.any(Object), expect.any(String));
+    expect(execute.mock.calls.map(([file, args]) => [file, args])).toEqual([[selected, ['--version']], [selected, ['upgrade', '2.0.31']]]);
+  });
+
+  it('fails closed during update all when the version lookup fails', async () => {
+    const execute = vi.fn(async () => ({ stdout: '', stderr: '' }));
+    const service = new CliUpdateService({ detection: makeDetection({ one: { opencode: makeInfo('opencode', selected, '2.0.30') } }), exists: () => true,
+      resolveOpenCodeLatestVersion: async () => { throw new Error('registry unavailable'); }, execFileAsync: execute });
+    await expect(service.updateAllInstalled()).resolves.toEqual([expect.objectContaining({ cli: 'opencode', status: 'skipped' })]);
+    expect(execute).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('OpenCode 2 updates do not downgrade the active install', () => {
+  it.each([['2.0.30', '2.0.29'], ['2.1.0', '2.0.40']])('skips an older target %s -> %s', async (current, latest) => {
+    const execute = vi.fn(async () => ({ stdout: '', stderr: '' }));
+    const service = new CliUpdateService({ detection: makeDetection({ one: { opencode: makeInfo('opencode', '/opt/opencode2', current) } }),
+      exists: () => true, resolveOpenCodeLatestVersion: async () => latest, execFileAsync: execute });
+    await expect(service.updateOne('opencode')).resolves.toMatchObject({ status: 'skipped', message: expect.stringMatching(/older|downgrade/i) });
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it('compares numeric version parts rather than text ordering', async () => {
+    const service = new CliUpdateService({ detection: makeDetection({ one: { opencode: makeInfo('opencode', '/opt/opencode2', '2.0.99') } }),
+      exists: () => true, resolveOpenCodeLatestVersion: async () => '2.0.100' });
+    await expect(service.getUpdatePlan('opencode')).resolves.toMatchObject({ supported: true, args: ['upgrade', '2.0.100'] });
   });
 });

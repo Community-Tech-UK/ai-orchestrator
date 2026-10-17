@@ -65,6 +65,8 @@ import { createDefaultLoopCliOperations } from '../orchestration/default-loop-cl
 import { createDefaultCopilotAccountCliOperations } from '../mcp/copilot-account-cli-operations';
 import { getCrossSessionMessagingService } from '../instance/cross-session-messaging';
 import { flushChatTranscriptSource } from '../chats/chat-transcript-bridge';
+import { createDefaultHostProcessRuntime, listHostProcesses, stopLeftoverProcesses } from '../process/host-process-inspector';
+import { createInstanceManagerHostProcessHooks } from '../process/host-process-instance-hooks';
 
 const logger = getLogger('AppInitialization');
 const nodeControl = () => ({ server: getWorkerNodeConnectionServer(), registry: getWorkerNodeRegistry() });
@@ -215,6 +217,7 @@ export function createOrchestratorToolsStep(
           error: error instanceof Error ? error.message : String(error),
         });
       });
+      const hostProcessRuntime = createDefaultHostProcessRuntime(createInstanceManagerHostProcessHooks(instanceManager));
       await initializeOrchestratorToolsRpcServer({
         operatorDbPath: defaultOperatorDbPath(),
         isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
@@ -638,6 +641,9 @@ export function createOrchestratorToolsStep(
         },
         resetNodeConnection: async (args) =>
           resetWorkerNodeConnection(nodeControl(), args.node, 'Agent reset_node_connection'),
+        // Host process tools run here, unsandboxed, because a session's own sandbox cannot exec ps/top.
+        listHostProcesses: (args) => listHostProcesses(hostProcessRuntime, args),
+        stopLeftoverProcesses: (args) => stopLeftoverProcesses(hostProcessRuntime, args),
         // Automation MCP tools (create/list/delete/update/postpone) — logic
         // lives in ../automations/automation-tool-impl.ts (integration-tested).
         createAutomation: automationTools.createAutomation,

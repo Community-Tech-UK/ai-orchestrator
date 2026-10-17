@@ -3,6 +3,7 @@ import {
   browserExtensionQueueKeyForNode,
   type BrowserExtensionCommandStore,
 } from './browser-extension-command-store';
+import { sendCommandToEachExtensionInstance } from './browser-extension-instance-routing';
 import type { BrowserGatewayListTargetsRequest } from './browser-gateway-service-types';
 import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
 
@@ -44,28 +45,35 @@ export interface BrowserExtensionInventoryRefreshOutcome {
  */
 export async function refreshBrowserExtensionInventory(input: {
   request: BrowserGatewayListTargetsRequest;
-  commandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
+  commandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>
+    & Partial<Pick<BrowserExtensionCommandStore, 'listRecentExtensionInstances'>>;
   localOnly?: boolean;
 }): Promise<BrowserExtensionInventoryRefreshOutcome[]> {
   const targets = extensionInventoryRefreshTargets(input.request, input.localOnly === true);
   return Promise.all(targets.map(async ({ queueKey, nodeId }) => {
-    try {
-      await input.commandStore.sendCommand({
-        queueKey,
-        command: 'report_inventory',
-        timeoutMs: EXTENSION_INVENTORY_REFRESH_TIMEOUT_MS,
-        executionTimeoutMs: EXTENSION_INVENTORY_REFRESH_EXECUTION_MS,
-        undeliveredWaitMs: BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
-      });
+    // Every Chrome profile on the machine re-reports. The machine counts as
+    // refreshed when any profile answered: one that closed a moment ago still
+    // keeps its cached tabs until the superseded sweep, as before.
+    const settled = await sendCommandToEachExtensionInstance(input.commandStore, {
+      queueKey,
+      command: 'report_inventory',
+      timeoutMs: EXTENSION_INVENTORY_REFRESH_TIMEOUT_MS,
+      executionTimeoutMs: EXTENSION_INVENTORY_REFRESH_EXECUTION_MS,
+      undeliveredWaitMs: BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
+    });
+    const failure = settled.find(
+      (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+    );
+    if (!failure || settled.some((outcome) => outcome.status === 'fulfilled')) {
       return { queueKey, ...(nodeId ? { nodeId } : {}), ok: true };
-    } catch (error) {
-      return {
-        queueKey,
-        ...(nodeId ? { nodeId } : {}),
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
     }
+    const error: unknown = failure.reason;
+    return {
+      queueKey,
+      ...(nodeId ? { nodeId } : {}),
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }));
 }
 

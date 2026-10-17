@@ -2,8 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { BrowserTargetRegistry } from './browser-target-registry';
 import {
   BrowserExtensionTabStore,
+  extensionCommandTargetForAttachment,
+  makeExistingTabProfileId,
   SUSPENDED_ATTACHMENT_GRACE_MS,
 } from './browser-extension-tab-store';
+import { existingTabGrantNodeId } from './browser-grant-scope';
 
 describe('BrowserExtensionTabStore', () => {
   it('registers a selected Chrome tab as an existing-tab browser target', () => {
@@ -356,5 +359,104 @@ describe('BrowserExtensionTabStore', () => {
         textUnavailableReason: 'host_permission_denied',
       }),
     ]);
+  });
+});
+
+describe('BrowserExtensionTabStore with several Chrome profiles on one node', () => {
+  const PROFILE_A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+  const PROFILE_B = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+  const tab = (tabId: number, url = 'https://example.test/page') => ({ tabId, windowId: 7, url, title: 'Page' });
+
+  function makeStore() {
+    let now = 10_000;
+    const reliabilityEvents = { record: vi.fn() };
+    const store = new BrowserExtensionTabStore({
+      targetRegistry: new BrowserTargetRegistry(),
+      reliabilityEvents,
+      now: () => now,
+    });
+    return { store, reliabilityEvents, advance: (ms: number) => { now += ms; } };
+  }
+
+  it('keeps same-numbered tabs from two profiles apart and still scopes grants per machine', () => {
+    const { store } = makeStore();
+    const fromA = store.attachTab(tab(42), { nodeId: 'windows-pc', extensionInstanceId: PROFILE_A });
+    const fromB = store.attachTab(tab(42), { nodeId: 'windows-pc', extensionInstanceId: PROFILE_B });
+
+    expect(fromA.profileId).toBe(`existing-tab:n.windows-pc:p.${PROFILE_A}:7:42`);
+    expect(fromB.profileId).toBe(`existing-tab:n.windows-pc:p.${PROFILE_B}:7:42`);
+    expect(store.listTabs()).toHaveLength(2);
+    expect(existingTabGrantNodeId(fromA.profileId)).toBe('windows-pc');
+    expect(existingTabGrantNodeId(
+      makeExistingTabProfileId(undefined, 7, 42, PROFILE_A),
+    )).toBe('local');
+    expect(extensionCommandTargetForAttachment(fromA)).toEqual({
+      profileId: fromA.profileId,
+      targetId: fromA.targetId,
+      tabId: 42,
+      windowId: 7,
+      extensionInstanceId: PROFILE_A,
+    });
+  });
+
+  it('replaces a tab attached before the extension reported its profile', () => {
+    const { store, reliabilityEvents } = makeStore();
+    const legacy = store.attachTab(tab(42), { nodeId: 'windows-pc' });
+
+    const upgraded = store.attachTab(tab(42), { nodeId: 'windows-pc', extensionInstanceId: PROFILE_A });
+
+    expect(store.listTabs().map((attachment) => attachment.targetId)).toEqual([upgraded.targetId]);
+    expect(upgraded.reboundFromTargetId).toBe(legacy.targetId);
+    expect(reliabilityEvents.record).toHaveBeenCalledWith('attachment_rebound', {
+      nodeId: 'windows-pc',
+      detail: { fromTargetId: legacy.targetId, toTargetId: upgraded.targetId },
+    });
+  });
+
+  it('suspends and restores only the named profile\'s tabs', () => {
+    const { store } = makeStore();
+    store.attachTab(tab(1), { nodeId: 'windows-pc', extensionInstanceId: PROFILE_A });
+    store.attachTab(tab(2), { nodeId: 'windows-pc', extensionInstanceId: PROFILE_B });
+
+    expect(store.suspendNode('windows-pc', PROFILE_B)).toBe(1);
+    const suspended = (id: number) => store.listTabs().find((attachment) => attachment.tabId === id)?.suspendedAt;
+    expect(suspended(1)).toBeUndefined();
+    expect(suspended(2)).toBeDefined();
+
+    expect(store.restoreNode('windows-pc', PROFILE_A)).toBe(0);
+    expect(store.restoreNode('windows-pc', PROFILE_B)).toBe(1);
+    expect(suspended(2)).toBeUndefined();
+
+    // A node-wide drop still suspends every profile.
+    expect(store.suspendNode('windows-pc')).toBe(2);
+  });
+
+  it('suspends and restores only id-less tabs when asked for null', () => {
+    const { store } = makeStore();
+    store.attachTab(tab(1), { nodeId: 'windows-pc', extensionInstanceId: PROFILE_A });
+    store.attachTab(tab(2), { nodeId: 'windows-pc' });
+    const suspended = (id: number) => store.listTabs().find((attachment) => attachment.tabId === id)?.suspendedAt;
+
+    expect(store.suspendNode('windows-pc', null)).toBe(1);
+    expect(suspended(1)).toBeUndefined();
+    expect(suspended(2)).toBeDefined();
+
+    store.suspendNode('windows-pc');
+    expect(store.restoreNode('windows-pc', null)).toBe(1);
+    expect(suspended(1)).toBeDefined();
+    expect(suspended(2)).toBeUndefined();
+  });
+
+  it('never rebinds a suspended tab to the same URL in another profile', () => {
+    const { store } = makeStore();
+    const fromA = store.attachTab(tab(1), { nodeId: 'windows-pc', extensionInstanceId: PROFILE_A });
+    store.suspendNode('windows-pc', PROFILE_A);
+
+    const fromB = store.attachTab(tab(9), { nodeId: 'windows-pc', extensionInstanceId: PROFILE_B });
+    expect(fromB.reboundFromTargetId).toBeUndefined();
+    expect(store.listTabs().map((attachment) => attachment.targetId)).toContain(fromA.targetId);
+
+    const reopenedInA = store.attachTab(tab(5), { nodeId: 'windows-pc', extensionInstanceId: PROFILE_A });
+    expect(reopenedInA.reboundFromTargetId).toBe(fromA.targetId);
   });
 });

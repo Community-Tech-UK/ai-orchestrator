@@ -116,7 +116,7 @@ function requireTarget(profileId: string, targetId: string): Omit<CredentialTarg
     if (getSettingsManager().getAll().browserAllowSharedTabCredentialFill !== true) {
       throw new CredentialVaultError('Saved login access on shared tabs is disabled', 'shared_tab_credential_fill_not_allowed');
     }
-    if (!supportsSecureBrowserExtensionCredentialFill(getBrowserExtensionContactState(), computerId)) {
+    if (!supportsSecureBrowserExtensionCredentialFill(getBrowserExtensionContactState(), computerId, attachment!.extensionInstanceId)) {
       throw new CredentialVaultError('A current secure browser extension is required', 'shared_tab_secure_credential_fill_unavailable');
     }
   }

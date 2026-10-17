@@ -85,6 +85,25 @@ describe('isolated app-server spawn output limit', () => {
     }
   });
 
+  it('spawns its own raw app-server for a fence-off session even when a broker is advertised', async () => {
+    spawnMock.mockImplementation(() => makeFakeProc());
+    const previous = process.env['CODEX_COMPANION_APP_SERVER_ENDPOINT'];
+    process.env['CODEX_COMPANION_APP_SERVER_ENDPOINT'] = 'unix:/tmp/not-a-real-broker.sock';
+    try {
+      const client = await connectToAppServer('/tmp/project', { signalFence: false });
+      try {
+        expect(spawnMock).toHaveBeenCalledTimes(1);
+        expect(spawnMock.mock.calls[0]?.[0]).toBe('codex');
+        expect(spawnMock.mock.calls[0]?.[1]).toEqual(['-c', 'tool_output_token_limit=6000', 'app-server']);
+      } finally {
+        await client.close();
+      }
+    } finally {
+      if (previous === undefined) delete process.env['CODEX_COMPANION_APP_SERVER_ENDPOINT'];
+      else process.env['CODEX_COMPANION_APP_SERVER_ENDPOINT'] = previous;
+    }
+  });
+
   it('retries once without the override when Codex rejects it', async () => {
     spawnMock
       .mockImplementationOnce(() => makeFakeProc({

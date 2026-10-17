@@ -12,21 +12,52 @@ import type {
   FileAttachment,
 } from '../../../../../shared/types/instance.types';
 import { LIMITS } from '../../../../../shared/constants/limits';
-import { stabilizeThinkingBlocks } from '../../../../../shared/utils/thinking-extractor';
-import { nextMonotonicStreamingContent } from '../../../../../shared/utils/streaming-content';
 import { trimBufferRetainingPrompts } from '../../../../../shared/utils/prompt-retention';
 import { ImageAttachmentService, type ImageAttachmentSink } from '../../../features/instance-detail/image-attachment.service';
-
-function getAccumulatedStreamingContent(message: OutputMessage): string {
-  const accumulated = message.metadata?.['accumulatedContent'];
-  return typeof accumulated === 'string' ? accumulated : message.content;
-}
+import { InstanceTranscriptReplayAssembler } from './instance-transcript-replay';
+import { appendInstanceOutputMessage } from './instance-output-message-merge';
+import { TranscriptReplayIdentitySchema } from '../../../../../shared/utils/instance-transcript-replay';
+import { ToastService } from '../../services/toast.service';
 
 @Injectable({ providedIn: 'root' })
 export class InstanceOutputStore implements ImageAttachmentSink {
   private stateService = inject(InstanceStateService);
   private ngZone = inject(NgZone);
   private imageAttachmentService = inject(ImageAttachmentService);
+  private readonly toast = inject(ToastService);
+  private readonly transcriptReplay = new InstanceTranscriptReplayAssembler(Date.now, () => this.reportReplayFailure());
+  reportReplayFailure(): void {
+    const message = 'Unable to restore the full conversation history. Reload the session to try again.';
+    this.stateService.setError(message);
+    this.toast.show(message, 'error');
+  }
+
+  /** Install repaired history without replaying tools, notifications, stats or image extraction. */
+  acceptTranscriptChunk(payload: unknown): void {
+    const instanceId = (payload as { instanceId?: unknown } | null)?.instanceId;
+    if (typeof instanceId !== 'string') return;
+    const instance = this.stateService.getInstance(instanceId);
+    if (!instance) return;
+    try {
+      if ((payload as { kind?: unknown }).kind === 'history-replay-error') {
+        const identity = TranscriptReplayIdentitySchema.parse({ ...payload as object, kind: 'history-replay' });
+        if (identity.createdAt !== instance.createdAt || identity.adapterGeneration < (instance.adapterGeneration ?? 0)
+          || identity.restartEpoch < instance.restartEpoch) return;
+        throw new Error('History replay transfer failed.');
+      }
+      const snapshot = this.transcriptReplay.accept(payload, instance);
+      if (!snapshot) return;
+      const timer = this.stateService.outputThrottleTimers.get(instanceId);
+      if (timer) clearTimeout(timer);
+      this.stateService.outputThrottleTimers.delete(instanceId);
+      this.stateService.pendingOutputMessages.delete(instanceId);
+      this.stateService.updateInstance(instanceId, { outputBuffer: snapshot.messages,
+        adapterGeneration: snapshot.adapterGeneration, restartEpoch: snapshot.restartEpoch });
+      this.stateService.recordTranscriptReplay(instanceId);
+    } catch {
+      this.reportReplayFailure();
+    }
+  }
 
   // ============================================
   // Output Throttling
@@ -46,6 +77,7 @@ export class InstanceOutputStore implements ImageAttachmentSink {
     }
 
     const { outputThrottleTimers, pendingOutputMessages } = this.stateService;
+    this.transcriptReplay.noteLive(instanceId, message);
 
     // Add to pending messages
     const pending = pendingOutputMessages.get(instanceId) || [];
@@ -95,45 +127,7 @@ export class InstanceOutputStore implements ImageAttachmentSink {
           if (msg.type === 'assistant') {
             candidateMessageIds.add(msg.id);
           }
-          const streamingState = msg.metadata && 'streaming' in msg.metadata
-            ? msg.metadata['streaming']
-            : undefined;
-
-          if (streamingState === true || streamingState === false) {
-            // For streaming messages, update existing or add new
-            const existingIdx = outputBuffer.findIndex((m) => m.id === msg.id);
-            if (existingIdx >= 0) {
-              const accumulatedContent = getAccumulatedStreamingContent(msg);
-              const previousContent = outputBuffer[existingIdx].content ?? '';
-              const nextContent = nextMonotonicStreamingContent(previousContent, accumulatedContent);
-              outputBuffer[existingIdx] = {
-                ...outputBuffer[existingIdx],
-                content: nextContent,
-                metadata: msg.metadata,
-                thinking: msg.thinking
-                  ? stabilizeThinkingBlocks(outputBuffer[existingIdx].thinking, msg.thinking)
-                  : outputBuffer[existingIdx].thinking,
-                thinkingExtracted: msg.thinkingExtracted ?? outputBuffer[existingIdx].thinkingExtracted,
-              };
-            } else {
-              // First chunk of this streaming message
-              outputBuffer.push({
-                ...msg,
-                content: getAccumulatedStreamingContent(msg),
-              });
-            }
-          } else {
-            // The creation snapshot can already contain the user message
-            // published by its canonical output event. Reconcile by ID at
-            // flush time, including repeats in this batch and snapshot races.
-            // Assistant/tool parts retain their existing append semantics.
-            if (msg.type === 'user') {
-              if (userMessageIds.has(msg.id)) continue;
-              userMessageIds.add(msg.id);
-            }
-            // Regular message - just append
-            outputBuffer.push(msg);
-          }
+          appendInstanceOutputMessage(outputBuffer, msg, userMessageIds);
         }
 
         // Keep buffer trimmed to the shared cap. The renderer previously
@@ -348,6 +342,7 @@ export class InstanceOutputStore implements ImageAttachmentSink {
    * Clean up timers for an instance (call on remove/destroy)
    */
   cleanupInstance(instanceId: string): void {
+    this.transcriptReplay.clear(instanceId);
     const timer = this.stateService.outputThrottleTimers.get(instanceId);
     if (timer) {
       clearTimeout(timer);
@@ -360,6 +355,7 @@ export class InstanceOutputStore implements ImageAttachmentSink {
    * Clean up all timers (call on destroy)
    */
   cleanupAll(): void {
+    this.transcriptReplay.clear();
     for (const timer of this.stateService.outputThrottleTimers.values()) {
       clearTimeout(timer);
     }

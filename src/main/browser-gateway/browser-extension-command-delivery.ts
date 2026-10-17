@@ -12,18 +12,40 @@ export interface PendingCommand {
   undeliveredDeadlineAt: number;
   /** Set when a poller takes the command; undefined while still queued. */
   dequeuedAt?: number;
+  /** The install (Chrome profile) whose poll took the command, when it reported one. */
+  deliveredToInstanceId?: string;
   /** Set when the extension acknowledges receiving the command. */
   receivedAt?: number;
   describeChannelState?: () => BrowserExtensionCommandChannelState;
   beforeDelivery?: () => void;
+  onDelivered?: (delivery: BrowserExtensionCommandDelivery) => void;
+}
+
+/** Which extension install (Chrome profile) a poll handed a command to. */
+export interface BrowserExtensionCommandDelivery {
+  extensionInstanceId?: string;
 }
 
 export interface CommandPoller {
+  /** The polling extension install; absent for builds before instance ids. */
+  extensionInstanceId?: string;
   deferHandoffConfirmation: boolean;
   allowBrowserCommands: boolean;
   denyBrowserCommandsReason?: string;
   allowSecureCredentialCommands: boolean;
   resolve: (command: BrowserExtensionQueuedCommand | null) => void;
+}
+
+/**
+ * A command bound to one extension install (it targets that profile's tab)
+ * may only go to a poll from that install. Unbound commands go to any poll.
+ */
+export function pollerServesCommandInstance(
+  poller: Pick<CommandPoller, 'extensionInstanceId'>,
+  command: BrowserExtensionQueuedCommand,
+): boolean {
+  const wanted = command.target?.extensionInstanceId;
+  return !wanted || poller.extensionInstanceId === wanted;
 }
 
 export function isOriginBoundCredentialCommand(command: BrowserExtensionQueuedCommand): boolean {

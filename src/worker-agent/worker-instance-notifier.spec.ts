@@ -88,6 +88,28 @@ describe('WorkerInstanceNotifier oversized-frame protection', () => {
 });
 
 describe('WorkerInstanceNotifier registration ordering', () => {
+  it('retains every native history chunk separately while offline', () => {
+    const socket = new FakeSocket(); socket.readyState = 3;
+    const notifier = new WorkerInstanceNotifier({ getSocket: () => socket as never, getToken: () => undefined });
+    for (let index = 0; index < 3; index++) notifier.sendStateChange('instance', 'history_replay', { interactionId: 'incarnation', payload: { transferId: 'history', index, total: 3, text: `part${index}` } });
+    notifier.sendStateChange('instance', 'idle');
+    socket.readyState = 1; notifier.flushCriticalQueue();
+    const frames = socket.sent.map(value => JSON.parse(value));
+    expect(frames.filter(frame => frame.params.state === 'history_replay').map(frame => frame.params.info.payload.index)).toEqual([0, 1, 2]);
+  });
+  it('retains catalog, provider identity and each resolved question alongside lifecycle state while offline', () => {
+    const socket = new FakeSocket(); socket.readyState = 3;
+    const notifier = new WorkerInstanceNotifier({ getSocket: () => socket as never, getToken: () => undefined });
+    notifier.sendStateChange('instance', 'available_commands', [{ name: 'compact' }]);
+    notifier.sendStateChange('instance', 'provider_session', { sessionId: 'native-session' });
+    notifier.sendStateChange('instance', 'input_required_resolved', { id: 'one', reason: 'cancelled' });
+    notifier.sendStateChange('instance', 'input_required_resolved', { id: 'two', reason: 'cancelled' });
+    notifier.sendStateChange('instance', 'busy');
+    notifier.sendStateChange('instance', 'idle');
+    socket.readyState = 1; notifier.flushCriticalQueue();
+    const frames = socket.sent.map(value => JSON.parse(value));
+    expect(frames.map(frame => frame.params.state)).toEqual(['available_commands', 'provider_session', 'input_required_resolved', 'input_required_resolved', 'idle']);
+  });
   // Reproduces the reconnect wedge: a worker with an in-flight instance queues
   // `instance.stateChange` frames while the socket is down. On reconnect the
   // registration frame must be FIRST — a queued state-change jumping ahead gets

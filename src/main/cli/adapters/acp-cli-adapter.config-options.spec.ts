@@ -1,4 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { ChildProcess } from 'child_process';
+import { Writable } from 'stream';
+
+vi.mock('./base-cli-process-utils', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./base-cli-process-utils')>(),
+  killProcessGroup: vi.fn(() => true),
+}));
 
 vi.mock('../../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }),
@@ -46,6 +53,12 @@ function systemLines(adapter: TestAcpCliAdapter): string[] {
     if (message.type === 'system') lines.push(message.content);
   });
   return lines;
+}
+
+function holdPreparation(): { promise: Promise<void>; resolve: () => void } {
+  let release: () => void = () => undefined;
+  const promise = new Promise<void>((resolve) => { release = resolve; });
+  return { promise, resolve: release };
 }
 
 /** Harness whose `session/new` advertises the free model and answers config writes like OpenCode. */
@@ -190,6 +203,32 @@ describe('AcpCliAdapter session config options', () => {
 });
 
 describe('AcpCliAdapter live account switch (MiMo multi-account)', () => {
+  it('retains a separately confirmed effort while an earlier model write is still pending', async () => {
+    const proc = createInitializedAgentHarness();
+    const target = 'aio-mimo-max-b-1a2b/mimo-v2.6-pro';
+    let model = MODEL_OPTION.currentValue;
+    let effort = 'low';
+    const options = () => [{ ...MODEL_OPTION, currentValue: model }, { ...EFFORT_OPTION, currentValue: effort }];
+    proc.onRequest('session/new', (request) => proc.respond(request.id, { sessionId: 'sess-acp-1', configOptions: options() }));
+    const pendingModel = holdPreparation();
+    proc.onRequest('session/set_config_option', async (request) => {
+      const params = request.params as { configId: string; value: string };
+      if (params.configId === 'model') { await pendingModel.promise; model = params.value; }
+      else effort = params.value;
+      proc.respond(request.id, { configOptions: options() });
+    });
+    const adapter = new TestAcpCliAdapter(proc, { workingDirectory: '/tmp' });
+    await adapter.spawn();
+    const switching = adapter.applyLiveSessionConfig({ model: target });
+    try {
+      await adapter.applyLiveSessionConfig({ effort: 'high' });
+      pendingModel.resolve();
+      await switching;
+      expect((adapter as unknown as { acpConfig: { sessionConfig: unknown } }).acpConfig.sessionConfig)
+        .toEqual({ model: target, effort: 'high' });
+    } finally { pendingModel.resolve(); await switching; proc.exit(); }
+  });
+
   it('applies a new model to the open session without a restart', async () => {
     const proc = openCodeLikeHarness();
     const adapter = new TestAcpCliAdapter(proc, {
@@ -397,6 +436,149 @@ describe('AcpCliAdapter live account switch (MiMo multi-account)', () => {
     await expect(adapter.applyLiveSessionConfig({ model: 'aio-mimo-max-b-1a2b/mimo-v2.6-pro' }))
       .rejects.toThrow(/did not switch the session model/);
     proc.exit();
+  });
+
+  it('refuses a live account switch during prompt preparation before writing configuration', async () => {
+    const proc = openCodeLikeHarness();
+    const preparation = holdPreparation();
+    const adapter = new TestAcpCliAdapter(proc, {
+      workingDirectory: '/tmp', beforeProviderPrompt: () => preparation.promise,
+    });
+    proc.onRequest('session/prompt', (request) => proc.respond(request.id, { stopReason: 'end_turn' }));
+    await adapter.spawn();
+    const turn = adapter.sendMessage({ role: 'user', content: 'prepared work' });
+    try {
+      await expect(adapter.applyLiveSessionConfig({ model: 'aio-mimo-max-b-1a2b/mimo-v2.6-pro' }))
+        .rejects.toThrow(/prompt.*prepar/i);
+      expect(configWrites(proc)).toEqual([]);
+      expect(proc.receivedMessages.some((message) => 'method' in message && message.method === 'session/prompt')).toBe(false);
+    } finally {
+      preparation.resolve();
+      await turn;
+      proc.exit();
+    }
+  });
+
+  it.each(['exit', 'terminate'] as const)('prevents a held prompt from dispatching after %s', async (retirement) => {
+    const proc = openCodeLikeHarness();
+    const preparation = holdPreparation();
+    const adapter = new TestAcpCliAdapter(proc, {
+      workingDirectory: '/tmp', beforeProviderPrompt: () => preparation.promise,
+    });
+    proc.onRequest('session/prompt', (request) => proc.respond(request.id, { stopReason: 'end_turn' }));
+    await adapter.spawn();
+    const turn = adapter.sendMessage({ role: 'user', content: 'retired work' });
+    void turn.catch(() => undefined);
+    const retiring = retirement === 'terminate' ? adapter.terminate(false) : proc.exit(1);
+    preparation.resolve();
+    await retiring;
+    await expect(turn).rejects.toMatchObject({ name: 'AbortError' });
+    expect(proc.receivedMessages.some((message) => 'method' in message && message.method === 'session/prompt')).toBe(false);
+    proc.exit();
+  });
+
+  it('retains a second-turn write crash and sends first-turn instructions once on its replacement', async () => {
+    const proc = openCodeLikeHarness();
+    const replacement = openCodeLikeHarness();
+    const adapter = new TestAcpCliAdapter(proc, { workingDirectory: '/tmp', model: 'fixture-model',
+      systemPrompt: 'Crash recovery instructions', rtkEnabled: true });
+    const outputs: OutputMessage[] = [];
+    adapter.on('output', (message: OutputMessage) => outputs.push(message));
+    proc.onRequest('session/prompt', (request) => proc.respond(request.id, { stopReason: 'end_turn' }));
+    replacement.onRequest('session/prompt', (request) => replacement.respond(request.id, { stopReason: 'end_turn' }));
+    await adapter.spawn();
+    await adapter.sendMessage({ role: 'user', content: 'successful first turn' });
+    const firstPrompt = proc.receivedMessages.find((message) => 'method' in message && message.method === 'session/prompt');
+    expect(JSON.stringify(firstPrompt)).toContain('Crash recovery instructions');
+    expect(JSON.stringify(firstPrompt)).toContain('[RTK AWARENESS]');
+    const writes: unknown[] = [];
+    const stdin = new Writable({ write(_chunk, _encoding, callback) {
+      writes.push(JSON.parse(_chunk.toString()));
+      proc.notify('session/update', { sessionId: 'sess-acp-1', update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Observed partial work.' },
+      } });
+      proc.notify('session/update', { sessionId: 'sess-acp-1', update: {
+        sessionUpdate: 'tool_call', toolCallId: 'pending-tool', title: 'Read fixture', kind: 'read', status: 'in_progress',
+      } });
+      proc.notify('session/update', { sessionId: 'sess-acp-1', update: {
+        sessionUpdate: 'tool_call_update', toolCallId: 'pending-tool', status: 'in_progress',
+        content: [{ type: 'content', content: { type: 'text', text: 'Observed partial tool output.' } }],
+      } });
+      queueMicrotask(() => { proc.exit(1); callback(); });
+    } });
+    (proc as unknown as { stdin: Writable }).stdin = stdin;
+    const writePhase = { accepted: false, cancelledByClient: false };
+    try {
+      const failure = await adapter.sendMessage({ role: 'user', content: 'do work' }, undefined, writePhase)
+        .then(() => null, (error: unknown) => error);
+      expect(writePhase.accepted).toBe(false);
+      expect(outputs).toContainEqual(expect.objectContaining({ type: 'assistant', content: 'Observed partial work.',
+        metadata: expect.objectContaining({ streaming: true }) }));
+      expect(failure).toMatchObject({ code: 'EPIPE', partialModel: 'fixture-model',
+        partialUsage: { totalTokens: expect.any(Number), isEstimated: true } });
+      expect(outputs).toContainEqual(expect.objectContaining({ type: 'assistant', content: 'Observed partial work.',
+        metadata: expect.objectContaining({ streaming: false }) }));
+      expect(outputs).toContainEqual(expect.objectContaining({ type: 'tool_result', content: 'Observed partial tool output.' }));
+      expect(writes).toHaveLength(1);
+      expect(JSON.stringify(writes[0])).not.toContain('Crash recovery instructions');
+      expect(JSON.stringify(writes[0])).not.toContain('[RTK AWARENESS]');
+      vi.spyOn(adapter as unknown as { spawnProcess: (args: string[]) => ChildProcess }, 'spawnProcess')
+        .mockReturnValue(replacement as unknown as ChildProcess);
+      await adapter.sendMessage({ role: 'user', content: 'first replacement turn' });
+      await adapter.sendMessage({ role: 'user', content: 'following replacement turn' });
+      const replacementPrompts = replacement.receivedMessages.filter((message) => 'method' in message && message.method === 'session/prompt');
+      expect(replacementPrompts).toHaveLength(2);
+      expect(JSON.stringify(replacementPrompts[0])).toContain('Crash recovery instructions');
+      expect(JSON.stringify(replacementPrompts[0])).toContain('[RTK AWARENESS]');
+      expect(JSON.stringify(replacementPrompts[1])).not.toContain('Crash recovery instructions');
+      expect(JSON.stringify(replacementPrompts[1])).not.toContain('[RTK AWARENESS]');
+    } finally { proc.exit(); replacement.exit(); }
+  });
+
+  it('keeps a replacement turn and its prompt flags when retired preparation resumes on the same adapter', async () => {
+    const oldProcess = openCodeLikeHarness();
+    const replacement = openCodeLikeHarness();
+    const preparation = holdPreparation();
+    let preparations = 0;
+    const adapter = new TestAcpCliAdapter(oldProcess, {
+      workingDirectory: '/tmp', systemPrompt: 'Fixture instructions',
+      beforeProviderPrompt: () => ++preparations === 1 ? preparation.promise : Promise.resolve(),
+    });
+    replacement.onRequest('session/prompt', (request) => {
+      const params = request.params as { prompt: { text?: string }[] };
+      if (params.prompt.some((block) => block.text === 'retired work')) {
+        replacement.respond(request.id, { stopReason: 'end_turn' });
+      }
+    });
+    await adapter.spawn();
+    const oldTurn = adapter.sendMessage({ role: 'user', content: 'retired work' });
+    void oldTurn.catch(() => undefined);
+    await adapter.terminate(false);
+    vi.spyOn(adapter as unknown as { spawnProcess: (args: string[]) => ChildProcess }, 'spawnProcess')
+      .mockReturnValue(replacement as unknown as ChildProcess);
+    await adapter.spawn();
+    const newTurn = adapter.sendMessage({ role: 'user', content: 'replacement work' });
+    const request = await replacement.waitForMessage((message) => 'method' in message && message.method === 'session/prompt');
+    const statuses: string[] = [];
+    adapter.on('status', (status: string) => statuses.push(status));
+    try {
+      preparation.resolve();
+      await expect(oldTurn).rejects.toMatchObject({ name: 'AbortError' });
+      expect(oldProcess.receivedMessages.some((message) => 'method' in message && message.method === 'session/prompt')).toBe(false);
+      expect(replacement.receivedMessages.filter((message) => 'method' in message && message.method === 'session/prompt')).toHaveLength(1);
+      expect(statuses).toEqual([]);
+      expect(adapter.hasActiveTurn()).toBe(true);
+      await expect(adapter.sendMessage({ role: 'user', content: 'racing input' })).rejects.toThrow(/previous turn is still running/);
+    } finally {
+      if ('id' in request && request.id !== null) replacement.respond(request.id, { stopReason: 'end_turn' });
+      await newTurn;
+      replacement.onRequest('session/prompt', (message) => replacement.respond(message.id, { stopReason: 'end_turn' }));
+      await adapter.sendMessage({ role: 'user', content: 'next work' });
+      const prompts = replacement.receivedMessages.filter((message): message is AcpJsonRpcRequest =>
+        'method' in message && message.method === 'session/prompt');
+      expect(prompts.at(-1)?.params).toEqual({ sessionId: 'sess-acp-1', prompt: [{ type: 'text', text: 'next work' }] });
+      replacement.exit();
+    }
   });
 
   it('rejects a late configuration notification that supersedes a model-write acknowledgment', async () => {

@@ -99,10 +99,26 @@ describe('createInstanceWithMessage', () => {
     expect(args.attachments).toBe(attachments);
     expect(args.provider).toBe('claude');
     expect(args.yoloMode).toBe(true);
+    expect(args).not.toHaveProperty('signalFence', false);
     // The first user turn must carry the images, or the transcript shows a
     // prompt with no screenshots attached.
     expect(args.initialOutputBuffer).toHaveLength(1);
     expect(args.initialOutputBuffer[0].attachments).toEqual(attachments);
+  });
+
+  it('forwards a per-session fence-off choice', async () => {
+    const manager = makeManager();
+
+    await createInstanceWithMessage(
+      manager,
+      { message: 'clean up', provider: 'claude', signalFence: false },
+      '/Users/suas/work/communitytech',
+      attachments,
+    );
+
+    const args = (manager as unknown as { createInstance: ReturnType<typeof vi.fn> })
+      .createInstance.mock.calls[0][0];
+    expect(args.signalFence).toBe(false);
   });
 
   it('propagates a creation failure rather than reporting success', async () => {

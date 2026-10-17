@@ -204,6 +204,7 @@ describe('InputPanelComponent composer autocomplete integration', () => {
   let codebaseSearch: ReturnType<typeof createCodebaseSearchMock>;
   let draftService: ReturnType<typeof createDraftServiceMock>;
   let newSessionDraft: ReturnType<typeof createNewSessionDraftMock>;
+  const appSettings = signal({ providerSignalFenceEnabled: true });
   let providerState: ReturnType<typeof createProviderStateMock>;
   let animationFrameCallbacks: FrameRequestCallback[];
 
@@ -248,7 +249,7 @@ describe('InputPanelComponent composer autocomplete integration', () => {
         { provide: PerfInstrumentationService, useValue: { markComposerLatency: vi.fn(() => vi.fn()) } },
         { provide: ProviderStateService, useValue: providerState },
         { provide: NewSessionDraftService, useValue: newSessionDraft },
-        { provide: SettingsStore, useValue: { defaultYoloMode: signal(false) } },
+        { provide: SettingsStore, useValue: { defaultYoloMode: signal(false), settings: appSettings } },
         { provide: ActionDispatchService, useValue: { dispatch: vi.fn() } },
         { provide: InstanceStore,
           useValue: { getInstance: vi.fn(() => undefined), isQueueParked: () => false },
@@ -579,6 +580,41 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     expect((fixture.nativeElement.querySelector('.hardened-toggle') as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it('toggles the per-session signal fence and explains when it is locked', () => {
+    fixture.componentRef.setInput('instanceId', 'new');
+    newSessionDraft.provider.set('claude');
+    fixture.detectChanges();
+    const fenceButton = () => fixture.nativeElement.querySelector('.fence-toggle') as HTMLButtonElement;
+    expect(fenceButton().textContent).toContain('Fence ON');
+    expect(fenceButton().disabled).toBe(false);
+    fenceButton().click();
+    expect(newSessionDraft.setSignalFenceOff).toHaveBeenCalledWith(true);
+
+    newSessionDraft.signalFenceOff.set(true);
+    fixture.detectChanges();
+    expect(fenceButton().textContent).toContain('Fence OFF');
+    expect(fenceButton().title).toContain('can stop any program you own');
+
+    // A hardened jail always blocks cross-session signals.
+    newSessionDraft.hardened.set(true);
+    fixture.detectChanges();
+    expect(fenceButton().textContent).toContain('Fence ON');
+    expect(fenceButton().disabled).toBe(true);
+    newSessionDraft.hardened.set(null);
+
+    // The Settings switch turns it off for every session.
+    newSessionDraft.signalFenceOff.set(false);
+    appSettings.set({ providerSignalFenceEnabled: false });
+    fixture.detectChanges();
+    try {
+      expect(fenceButton().textContent).toContain('Fence OFF');
+      expect(fenceButton().disabled).toBe(true);
+      expect(fenceButton().title).toContain('Settings');
+    } finally {
+      appSettings.set({ providerSignalFenceEnabled: true });
+    }
+  });
+
   it('explains that a queued Codex message will send after provider compaction', () => {
     fixture.componentRef.setInput('provider', 'codex');
     fixture.componentRef.setInput('isBusy', true);
@@ -723,6 +759,8 @@ function createNewSessionDraftMock() {
     nodeId: signal<string | null>(null),
     yoloMode: signal<boolean | null>(null),
     hardened: signal<boolean | null>(null),
+    signalFenceOff: signal(false),
+    setSignalFenceOff: vi.fn(),
     launchMode: signal(null),
     agentId: signal('build'),
     accountProfileId: signal<string | null>(null),

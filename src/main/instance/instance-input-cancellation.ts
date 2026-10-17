@@ -27,6 +27,8 @@ export interface InstanceSendInputOptions {
    * resolution, and wrapped so the provider cannot read it as the user's words.
    */
   internalSource?: InternalInputSource;
+  /** Selected provider catalog command; must be revalidated at native dispatch. */
+  providerNativeCommandId?: string;
 }
 
 export function throwIfInstanceInputAborted(signal?: AbortSignal): void {

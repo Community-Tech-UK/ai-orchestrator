@@ -281,8 +281,12 @@ function collectSetCookies(
     const eq = pair.indexOf('=');
     if (eq <= 0) continue;
     const name = pair.slice(0, eq).trim();
-    const value = pair.slice(eq + 1).trim();
-    if (!name || !value) continue;
+    const rawValue = pair.slice(eq + 1).trim();
+    // Xiaomi quotes the re-minted console cookies. Match login capture and
+    // Chrome reads: persist bare cookie octets, never their wire quotes.
+    const value = rawValue.startsWith('"') && rawValue.endsWith('"')
+      ? rawValue.slice(1, -1) : rawValue;
+    if (!name || value.length > 8192 || !/^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]+$/.test(value)) continue;
     const domain = /;\s*domain=([^;]+)/i.exec(entry)?.[1]?.trim() ?? null;
     if (isPlatformHost(url, domain)) {
       into.set(name, value);

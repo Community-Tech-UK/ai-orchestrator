@@ -52,9 +52,11 @@ export interface InstanceProviderLimitResumeRequest {
  * `InstanceProviderLimitHandler.resumeNow` so both halves of the feature resume
  * a promptless park identically.
  */
-export function buildProviderLimitContinuationPrompt(): string {
+export function buildProviderLimitContinuationPrompt(reason: 'reset' | 'account-switch' = 'reset'): string {
   return [
-    'The provider usage limit that stopped your previous turn has reset, so this session can continue.',
+    reason === 'account-switch'
+      ? 'Harness moved this session to another account with available usage after the previous account reached its usage limit. Continue the interrupted task.'
+      : 'The provider usage limit that stopped your previous turn has reset, so this session can continue.',
     '',
     'Pick the task back up from where that turn stopped. The conversation above is the record of what is already done: keep those results and do not repeat completed steps. If the task was already finished, say so in one line instead of redoing it.',
   ].join('\n');
@@ -65,8 +67,8 @@ export function buildProviderLimitContinuationPrompt(): string {
  * the internal-input envelope and is re-sent as Harness input, never as a user
  * message (LT-657).
  */
-export function buildProviderLimitContinuationTurn(): string {
-  return formatInternalInputForProvider('provider-limit-resume', buildProviderLimitContinuationPrompt());
+export function buildProviderLimitContinuationTurn(reason: 'reset' | 'account-switch' = 'reset'): string {
+  return formatInternalInputForProvider('provider-limit-resume', buildProviderLimitContinuationPrompt(reason));
 }
 
 /**

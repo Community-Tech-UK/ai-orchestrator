@@ -19,7 +19,6 @@ import { getSafeEnvForTrustedProcess } from '../../../security/env-filter';
 import { getClampedLoadWatchdogMultiplier } from '../../../runtime/system-load-monitor';
 import { CODEX_TIMEOUTS } from '../../../../shared/constants/limits';
 import { buildCliSpawnOptions } from '../../cli-environment';
-import { applySignalFence } from '../../../sandbox/signal-fence';
 import { parseNdjsonLine } from '../../json-parse';
 import { CliStreamLineParser } from '../cli-stream-line-parser';
 import {
@@ -57,7 +56,7 @@ import {
 } from './app-server-client-protocol';
 import { archiveCodexCommandOutputNotification } from './codex-command-output-archive';
 import {
-  buildIsolatedAppServerArgs,
+  buildIsolatedAppServerSpawn,
   type CodexOutputLimitState,
   shouldRetryIsolatedAppServerWithoutOutputLimit,
 } from './codex-app-server-spawn-policy';
@@ -423,10 +422,7 @@ class SpawnedAppServerClient extends AppServerClientBase {
   async connect(options: CodexAppServerClientOptions = {}, applyOutputLimit = true): Promise<void> {
     const spawnOptions = buildCliSpawnOptions(options.env || getSafeEnvForTrustedProcess());
     // Isolated AIO spawn only: `-c tool_output_token_limit=6000`. Never ~/.codex/config.toml.
-    const fenced = applySignalFence({
-      command: 'codex',
-      args: buildIsolatedAppServerArgs(applyOutputLimit, options.configOverrides),
-    });
+    const fenced = buildIsolatedAppServerSpawn(applyOutputLimit, options);
     this.proc = spawn(fenced.command, fenced.args, {
       cwd: this.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -603,8 +599,8 @@ export async function connectToAppServer(
   cwd: string,
   options: CodexAppServerClientOptions = {}
 ): Promise<AppServerClient> {
-  // Try broker first (unless disabled)
-  if (!options.disableBroker) {
+  // Try broker first (unless disabled; the shared broker is always fenced)
+  if (!options.disableBroker && options.signalFence !== false) {
     const brokerEndpoint = options.brokerEndpoint || process.env[BROKER_ENDPOINT_ENV];
     if (brokerEndpoint) {
       try {

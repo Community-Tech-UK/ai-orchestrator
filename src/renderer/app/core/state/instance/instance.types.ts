@@ -154,6 +154,8 @@ export interface Instance {
   recoveryMethod?: InstanceRecoveryMethod;
   archivedUpToMessageId?: string;
   workingDirectory: string;
+  /** OpenCode workspace folders retained alongside the primary folder. */
+  additionalDirectories?: string[];
   yoloMode: boolean;
   /** Process-local Computer Use policy override for this live session. */
   computerUseMode?: ComputerUseAutonomyLevel;
@@ -276,6 +278,7 @@ export interface QueuedMessage {
 
 export interface CreateInstanceConfig {
   workingDirectory?: string;
+  additionalDirectories?: string[];
   displayName?: string;
   parentId?: string;
   yoloMode?: boolean;
@@ -294,6 +297,8 @@ export interface CreateInstanceConfig {
   browserToolsMode?: 'eager' | 'deferred' | 'off';
   /** WS13 — spawn the CLI inside the macOS Seatbelt jail. */
   hardened?: boolean;
+  /** `false` = macOS signal fence off for this session only (lets it stop any program you own). */
+  signalFence?: boolean;
   /** Explicit GitHub Copilot account for this session (validated safe slug). */
   copilotAccountProfileId?: string;
   /** The user confirmed an override that leaves a protected Copilot scope. */
@@ -320,3 +325,38 @@ export const FILE_LIMITS = {
    */
   MAX_ATTACHMENTS: 10,
 } as const;
+
+export interface CreateInstanceWithMessageOptions {
+  message: string;
+  files?: File[];
+  workingDirectory?: string;
+  additionalDirectories?: string[];
+  agentId?: string;
+  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode' | 'auto';
+  model?: string;
+  /** Omitted = spawn path applies the app-level per-provider default. */
+  reasoningEffort?: ReasoningEffort | null;
+  modelRuntimeTarget?: ModelRuntimeTarget;
+  yoloMode?: boolean;
+  bareMode?: boolean;
+  fastMode?: boolean;
+  /** WS13 — run the CLI inside the macOS Seatbelt jail. */
+  hardened?: boolean;
+  /** `false` = macOS signal fence off for this session only (lets it stop any program you own). */
+  signalFence?: boolean;
+  /** Explicit GitHub Copilot account for this session (validated safe slug). */
+  copilotAccountProfileId?: string;
+  /** Explicit Claude/Codex account-pool profile (safe slug). */
+  accountProfileId?: string;
+  /** The user confirmed an override that leaves a protected Copilot scope. */
+  copilotConfirmProtectedOverride?: boolean;
+
+  launchMode?: Instance['launchMode'];
+  forceNodeId?: string;
+  /**
+   * Stable per-submission key from `ComposerSubmissionService`. Sent to the
+   * main process so a retry after a slow acknowledgement returns the original
+   * instance instead of spawning a duplicate session.
+   */
+  idempotencyKey?: string;
+}

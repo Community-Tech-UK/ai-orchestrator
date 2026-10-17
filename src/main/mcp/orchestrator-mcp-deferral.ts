@@ -81,7 +81,7 @@ export function createDeferredOrchestratorTools(
     description:
       `Search the ${deferredCount} deferred Harness tools (file transfer, settings writes, `
       + 'automations, calendar, app-store release, evidence, node config, git_batch_pull, '
-      + 'exec_on_node, doc review) and load their schemas. Matched tools become callable '
+      + 'exec_on_node, doc review, host process CPU/memory listing and leftover-process cleanup) and load their schemas. Matched tools become callable '
       + 'immediately and are added to the visible tool list.',
     inputSchema: {
       type: 'object',

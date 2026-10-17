@@ -19,7 +19,8 @@ export function shouldClearInputRequiredForYolo(
   request: InputRequiredRequestLike,
 ): boolean {
   return request.requestType === 'input_required'
-    && !isPermissionDenialRequest(request);
+    && !isPermissionDenialRequest(request)
+    && !['ask_user_question', 'acp_elicitation'].includes(request.permissionMetadata?.type ?? '');
 }
 
 export function shouldClearRequestAfterYoloEnabled(
@@ -33,8 +34,7 @@ export function shouldClearRequestAfterYoloEnabled(
 export function canResolveInputRequiredWithYolo(
   request: InputRequiredRequestLike,
 ): boolean {
-  return request.requestType === 'input_required'
-    && !isPermissionDenialRequest(request);
+  return shouldClearInputRequiredForYolo(request);
 }
 
 export function defaultInputRequiredScope(

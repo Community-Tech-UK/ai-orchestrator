@@ -1,3 +1,5 @@
+import { resolveWindowsSpawn } from '../cli/adapters/windows-cli-spawn';
+import { openCodeLoginSpawnTarget } from '../../shared/utils/opencode-account-login-command';
 /**
  * OpenCode CLI model discovery.
  *
@@ -17,7 +19,9 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { getLogger } from '../logging/logger';
 import { buildCliSpawnOptions } from '../cli/cli-environment';
-import { PosixSpawnCommandResolver } from '../cli/adapters/posix-spawn-command-resolver';
+import { selectOpenCodeLaunch } from '../cli/adapters/opencode-cli-launch';
+import { parseOpenCodeV2ModelMetadata } from './opencode-v2-model-metadata';
+export { parseOpenCodeV2ModelMetadata } from './opencode-v2-model-metadata';
 import { captureOpenCodeModelList } from './opencode-model-lister-process';
 import { withOpenCodeProcessGate } from '../cli/adapters/opencode-process-gate';
 import { parseOpenCodeModelMetadataBlocks, type OpenCodeModelMetadataBlock } from '../cli/adapters/opencode-account-provider-config';
@@ -170,20 +174,38 @@ export interface OpenCodeCliDiscoveryServiceOptions {
   lister?: () => Promise<ModelDisplayInfo[]>;
 }
 
-/** Packaged apps start with a stripped PATH; resolve `opencode` against the CLI PATH first. */
-const commandResolver = new PosixSpawnCommandResolver();
-
+/** Resolve once inside the gate, so listing and metadata use the session's install. */
 function defaultLister(): Promise<ModelDisplayInfo[]> {
-  // `opencode models` opens OpenCode's database too, so it takes the same gate
-  // as session startups (see opencode-process-gate.ts).
-  return withOpenCodeProcessGate(() => discoverOpenCodeModels(() =>
-    spawn(commandResolver.resolve('opencode'), ['models', '--verbose'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      ...buildCliSpawnOptions(),
-      detached: process.platform !== 'win32',
-    }),
-  cacheOpenCodeRegionModelMetadata,
-  ));
+  return withOpenCodeProcessGate(async () => {
+    const selected = await selectOpenCodeLaunch({ workingDirectory: process.cwd(), env: process.env });
+    const spawnLister = (args: string[]) => {
+      const options = buildCliSpawnOptions();
+      const target = resolveWindowsSpawn(selected.command, args, Boolean(options.shell), options.env ?? {});
+      const fallback = openCodeLoginSpawnTarget(target.command, target.shell ? process.platform : 'posix');
+      return spawn(fallback.command, target.args, {
+        stdio: ['ignore', 'pipe', 'pipe'], ...options, shell: target.shell, detached: target.detached,
+      });
+    };
+    if (selected.major < 2) return discoverOpenCodeModels(() => spawnLister(['models', '--verbose']), cacheOpenCodeRegionModelMetadata);
+    const names = await captureOpenCodeModelList(() => spawnLister(['models', '--standalone']), {
+      timeout: 'Timeout fetching OpenCode model list', process: 'Failed fetching OpenCode model list',
+    });
+    const metadata = await captureOpenCodeModelList(() => spawnLister(['api', '--standalone', 'GET', '/api/model']), {
+      timeout: 'Timeout fetching OpenCode model metadata', process: 'Failed fetching OpenCode model metadata',
+    });
+    const blocks = parseOpenCodeV2ModelMetadata(metadata.output);
+    if (blocks.length === 0) throw new Error('OpenCode model metadata was empty or unparseable');
+    const byId = new Map(blocks.map((block) => [`${block.providerId}/${block.modelId}`, block.metadata]));
+    const entries = parseOpenCodeModelList(names.output).map((entry) => {
+      const details = byId.get(entry.id);
+      return { ...entry, ...(typeof details?.['name'] === 'string' ? { name: details['name'] } : {}),
+        isChatModel: details !== undefined && classifyChatModel(entry.id, details) };
+    });
+    const models = toOpenCodeModelDisplayInfos(entries);
+    if (models.length === 0) throw new Error('OpenCode model list was empty or unparseable');
+    cacheOpenCodeRegionModelMetadata(blocks);
+    return models;
+  });
 }
 
 export class OpenCodeCliDiscoveryService {

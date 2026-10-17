@@ -15,6 +15,10 @@ vi.mock('../main/logging/logger', () => ({
 }));
 const mocks = vi.hoisted(() => ({ createAdapter: vi.fn() }));
 vi.mock('../main/cli/adapters/adapter-factory', () => ({ createCliAdapter: mocks.createAdapter }));
+// The auth-list fixture is OpenCode 1 text; host install discovery is covered separately.
+vi.mock('../main/cli/adapters/opencode-cli-launch', () => ({
+  selectOpenCodeLaunch: vi.fn(async () => ({ command: 'opencode', major: 1 })),
+}));
 
 import { WorkerRpcDispatcher } from './worker-rpc-dispatcher';
 import { LocalInstanceManager } from './local-instance-manager';
@@ -92,6 +96,8 @@ describe('actual instance.spawn executing-worker account ingress', () => {
     expect(sendError).not.toHaveBeenCalled();
     expect(sendResult).toHaveBeenCalledTimes(2);
     expect(mockExecFile).toHaveBeenCalledTimes(2);
+    expect(mockExecFile).toHaveBeenCalledWith('opencode', ['auth', 'list'],
+      expect.objectContaining({ timeout: 8_000, maxBuffer: 256 * 1024 }), expect.any(Function));
     expect(adapterSpawn).toHaveBeenCalledTimes(2);
     expect(mocks.createAdapter.mock.calls.map((call) => call[1].accountRoute)).toEqual(['synthetic-b', 'legacy'].map((profileId) => ({ provider: 'opencode', profileId, region, source: 'persisted', executionNodeId: 'worker' })));
   });

@@ -341,6 +341,7 @@ export interface AcpClientCapabilities {
     form?: Record<string, never>;
     url?: Record<string, never>;
   };
+  session?: { compaction?: Record<string, never> };
   _meta?: Record<string, unknown>;
 }
 
@@ -360,6 +361,8 @@ export interface AcpAgentCapabilities {
     delete?: Record<string, never>;
     close?: Record<string, never>;
     fork?: Record<string, never>;
+    resume?: Record<string, never>;
+    additionalDirectories?: Record<string, never>;
   };
   _meta?: Record<string, unknown>;
 }
@@ -424,6 +427,7 @@ export interface AcpSessionModels {
 export interface AcpSessionNewParams {
   cwd: string;
   mcpServers?: AcpMcpServerConfig[];
+  additionalDirectories?: string[];
 }
 
 export interface AcpSessionNewResult {
@@ -486,7 +490,6 @@ export interface AcpPromptUsage {
   cachedWriteTokens?: number;
   costUsd?: number;
 }
-
 
 export interface AcpSessionPromptResult {
   stopReason: AcpStopReason;
@@ -605,7 +608,6 @@ export interface AcpRetryStateUpdate {
   attempts?: number;
   reason?: string;
 }
-
 
 export type AcpSessionUpdate =
   | AcpAgentMessageChunkUpdate

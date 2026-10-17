@@ -72,7 +72,7 @@ describe('OpenCode account factory and ACP startup with a cold metadata cache', 
     await vi.waitFor(() => expect(events).toContain('metadata-start'), { timeout: 1000 });
     const competing = withOpenCodeProcessGate(async () => { events.push('other-reader'); });
     await Promise.resolve();
-    expect(events).toEqual(['metadata-start']);
+    expect(events).toEqual(['config-launch', 'metadata-start']);
     finishMetadata();
     await vi.waitFor(() => expect(events).toContain('initialize'), { timeout: 1000 });
     const afterStart = openCodeProcessGate().then((release) => { events.push('after-start'); release(); });
@@ -82,7 +82,7 @@ describe('OpenCode account factory and ACP startup with a cold metadata cache', 
     await spawning;
     await competing;
     await afterStart;
-    expect(events).toEqual(['metadata-start', 'metadata-end', 'other-reader', 'config-launch', 'initialize', 'after-start']);
+    expect(events).toEqual(['config-launch', 'metadata-start', 'metadata-end', 'other-reader', 'config-launch', 'initialize', 'after-start']);
     expect(getCachedOpenCodeRegionModelMetadata('ams')).toHaveLength(1);
     proc.exit();
     const warm = adapter();
@@ -129,11 +129,11 @@ describe('OpenCode account factory and ACP startup with a cold metadata cache', 
     const competing = withOpenCodeProcessGate(async () => { competingEntered = true; });
     try {
       await vi.advanceTimersByTimeAsync(20_000);
-      expect(mocks.launch).not.toHaveBeenCalled();
+      expect(mocks.launch).toHaveBeenCalledTimes(1);
       expect(competingEntered).toBe(false);
       await vi.advanceTimersByTimeAsync(3_000);
       expect(lister.kill).toHaveBeenCalledWith('SIGKILL');
-      expect(mocks.launch).not.toHaveBeenCalled();
+      expect(mocks.launch).toHaveBeenCalledTimes(1);
     } finally {
       lister.emit('close', null);
       expect(await spawning).toMatchObject({ message: expect.stringContaining('no model metadata') });

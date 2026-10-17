@@ -241,29 +241,38 @@ async function pressKey(
     // a coordinator restart) carries the same guarantee as the coordinator
     // dedupe branch: no press happened, and an unfinished/failed original must
     // never be reported as success.
-    if (data.deduplicated === true && data.applied !== true) {
-      rememberPressKeyOutcome(dedupeKey, { state: 'failed' });
-      deps.actionGuard.recordMutationSucceeded(prepared);
-      return deps.result<BrowserPressKeyResult>({
-        context: request,
-        profileId: request.profileId,
-        targetId: request.targetId,
-        action: 'press_key',
-        toolName: 'browser.press_key',
-        actionClass: prepared.actionClass,
-        decision: 'allowed',
-        outcome: 'failed',
-        reason: 'press_key_prior_attempt_outcome_unknown',
-        summary:
-          'browser.press_key duplicate suppressed by idempotencyKey; the original attempt has '
-          + 'no confirmed success (failed or never completed) — this call pressed NOTHING and '
-          + 'does not claim it succeeded. Use a NEW idempotencyKey to deliberately press again.',
-        origin: prepared.origin,
-        url: prepared.url,
-        grantId: prepared.grant.id,
-        autonomous: prepared.grant.autonomous,
-        data,
-      });
+    if (data.deduplicated === true) {
+      // This dispatch fired no key: its journal row must not claim a second
+      // write (or a write at all) — the write journal is recovery evidence.
+      if (existingTab) {
+        deps.recordFinalMutationFailure(
+          existingTab, journalSeq, 'press_key_deduplicated_no_op',
+        );
+      }
+      if (data.applied !== true) {
+        rememberPressKeyOutcome(dedupeKey, { state: 'failed' });
+        deps.actionGuard.recordMutationSucceeded(prepared);
+        return deps.result<BrowserPressKeyResult>({
+          context: request,
+          profileId: request.profileId,
+          targetId: request.targetId,
+          action: 'press_key',
+          toolName: 'browser.press_key',
+          actionClass: prepared.actionClass,
+          decision: 'allowed',
+          outcome: 'failed',
+          reason: 'press_key_prior_attempt_outcome_unknown',
+          summary:
+            'browser.press_key duplicate suppressed by idempotencyKey; the original attempt has '
+            + 'no confirmed success (failed or never completed) — this call pressed NOTHING and '
+            + 'does not claim it succeeded. Use a NEW idempotencyKey to deliberately press again.',
+          origin: prepared.origin,
+          url: prepared.url,
+          grantId: prepared.grant.id,
+          autonomous: prepared.grant.autonomous,
+          data,
+        });
+      }
     }
     rememberPressKeyOutcome(dedupeKey, { state: 'done', payload: data });
     const noEffect = await deps.effectVerifier.failureIfMissing(

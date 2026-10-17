@@ -3,8 +3,10 @@
  * Includes built-in commands and skills from the skill registry
  */
 
-import { Injectable, computed, effect, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommandIpcService } from '../services/ipc';
+import { IpcEventBusService } from '../services/ipc/ipc-event-bus.service';
 import { SkillStore } from './skill.store';
 import { InstanceStore } from './instance.store';
 import { evaluateApplicability } from '../../../../shared/utils/command-applicability';
@@ -23,11 +25,18 @@ export interface ExtendedCommand extends CommandTemplate {
   trigger?: string;
 }
 
+const UNAVAILABLE_NATIVE_STATUSES = new Set([
+  'initializing', 'respawning', 'hibernating', 'hibernated', 'waking',
+  'terminated', 'failed', 'error', 'cancelled', 'superseded',
+]);
+
 @Injectable({ providedIn: 'root' })
 export class CommandStore {
   private ipcService = inject(CommandIpcService);
   private skillStore = inject(SkillStore);
   private instanceStore = inject(InstanceStore);
+  private eventBus = inject(IpcEventBusService);
+  private destroyRef = inject(DestroyRef);
 
   // State
   private _commands = signal<CommandTemplate[]>([]);
@@ -36,11 +45,21 @@ export class CommandStore {
   private _error = signal<string | null>(null);
   private _searchQuery = signal('');
   private lastLoadedWorkingDirectory: string | null = null;
+  private lastLoadedContextKey: string | null = null;
+  private catalogContextKey = signal<string | null>(null);
   private loadSequence = 0;
   private skillsLoaded = false;
+  private lastNativeSessionKey = '';
 
   // Selectors - raw commands without skills
-  rawCommands = this._commands.asReadonly();
+  rawCommands = computed(() => {
+    const selected = this.instanceStore.selectedInstance();
+    const ownsNativeCatalog = selected?.provider === 'opencode'
+      && !UNAVAILABLE_NATIVE_STATUSES.has(selected.status)
+      && this.catalogContextKey() === this.selectedContextKey();
+    return ownsNativeCatalog ? this._commands()
+      : this._commands().filter(command => !command.id.startsWith('acp:opencode:'));
+  });
   diagnostics = this._diagnostics.asReadonly();
   loading = this._loading.asReadonly();
   error = this._error.asReadonly();
@@ -50,7 +69,7 @@ export class CommandStore {
    * Combined commands: built-in commands + skill triggers
    */
   commands = computed((): ExtendedCommand[] => {
-    const cmds = this._commands();
+    const cmds = this.rawCommands();
     const skillCmds = this.skillStore.skillCommands();
 
     // Convert skill commands to CommandTemplate format
@@ -75,11 +94,11 @@ export class CommandStore {
   });
 
   builtInCommands = computed(() =>
-    this._commands().filter(cmd => cmd.builtIn)
+    this.rawCommands().filter(cmd => cmd.builtIn)
   );
 
   customCommands = computed(() =>
-    this._commands().filter(cmd => !cmd.builtIn)
+    this.rawCommands().filter(cmd => !cmd.builtIn)
   );
 
   skillCommands = computed(() =>
@@ -103,35 +122,60 @@ export class CommandStore {
    * Load all commands from main process (including skills)
    */
   constructor() {
-    effect(() => {
-      const workingDirectory = this.instanceStore.selectedInstance()?.workingDirectory ?? null;
-      void this.loadCommands(workingDirectory);
+    this.eventBus.instanceStateUpdate$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(update => {
+      const selected = this.instanceStore.selectedInstance();
+      if (update.commandsChanged !== true || selected?.provider !== 'opencode' || selected.id !== update.instanceId) return;
+      this.lastLoadedContextKey = null;
+      this.catalogContextKey.set(null);
+      void this.loadCommands(undefined, true);
     });
+    effect(() => {
+      const selected = this.instanceStore.selectedInstance();
+      const workingDirectory = selected?.workingDirectory ?? null;
+      const nativeKey = selected?.provider === 'opencode'
+        ? JSON.stringify([this.selectedContextKey(), selected.status]) : '';
+      const refresh = nativeKey !== this.lastNativeSessionKey;
+      this.lastNativeSessionKey = nativeKey;
+      if (nativeKey && !refresh) return;
+      untracked(() => { void this.loadCommands(workingDirectory, refresh); });
+    });
+  }
+
+  private selectedContextKey(): string {
+    const selected = this.instanceStore.selectedInstance();
+    return JSON.stringify([selected?.id, selected?.provider, selected?.workingDirectory,
+      ...(selected?.provider === 'opencode'
+        ? [selected.restartEpoch, selected.adapterGeneration, selected.providerSessionId] : [])]);
   }
 
   async loadCommands(
     workingDirectory: string | null = this.instanceStore.selectedInstance()?.workingDirectory ?? null,
+    force = false,
   ): Promise<void> {
     const normalizedWorkingDirectory = workingDirectory ?? null;
+    const contextKey = this.selectedContextKey();
     if (
-      this.lastLoadedWorkingDirectory === normalizedWorkingDirectory &&
+      !force && this.lastLoadedWorkingDirectory === normalizedWorkingDirectory &&
+      this.lastLoadedContextKey === contextKey &&
       this._commands().length > 0
     ) {
       return;
     }
 
     const requestId = ++this.loadSequence;
+    const isCurrent = () => !this.destroyRef.destroyed && requestId === this.loadSequence
+      && contextKey === this.selectedContextKey();
     this._loading.set(true);
     this._error.set(null);
 
     try {
       const pendingWork: [Promise<IpcResponse>, Promise<unknown>] = [
-        this.ipcService.listCommands(normalizedWorkingDirectory ?? undefined),
+        this.ipcService.listCommands(normalizedWorkingDirectory ?? undefined, this.instanceStore.selectedInstance()?.id),
         this.skillsLoaded ? Promise.resolve() : this.skillStore.discoverSkills(),
       ];
       const [commandResponse] = await Promise.all(pendingWork);
 
-      if (requestId !== this.loadSequence) {
+      if (!isCurrent()) {
         return;
       }
 
@@ -145,15 +189,17 @@ export class CommandStore {
           this._diagnostics.set(data.diagnostics);
         }
         this.lastLoadedWorkingDirectory = normalizedWorkingDirectory;
+        this.lastLoadedContextKey = contextKey;
+        this.catalogContextKey.set(contextKey);
         this.skillsLoaded = true;
       } else {
         const errorMsg = 'error' in commandResponse ? commandResponse.error?.message : 'Failed to load commands';
         this._error.set(errorMsg || 'Failed to load commands');
       }
     } catch (err) {
-      this._error.set((err as Error).message);
+      if (isCurrent()) this._error.set((err as Error).message);
     } finally {
-      this._loading.set(false);
+      if (isCurrent()) this._loading.set(false);
     }
   }
 
@@ -187,6 +233,9 @@ export class CommandStore {
     input: string,
     workingDirectory = this.instanceStore.selectedInstance()?.workingDirectory,
   ): Promise<CommandResolutionResult | null> {
+    const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(input);
+    const native = match ? this.rawCommands().find((command) => command.id.startsWith('acp:opencode:') && command.name === match[1]) : undefined;
+    if (native) return { kind: 'exact', command: native, args: match?.[2] ? [match[2]] : [], matchedBy: 'name' };
     const response = await this.ipcService.resolveCommand(input, workingDirectory);
     if (!response.success || !response.data) return null;
     return response.data as CommandResolutionResult;
@@ -267,7 +316,7 @@ export class CommandStore {
    */
   getCommandByName(name: string): CommandTemplate | undefined {
     const query = name.toLowerCase();
-    return this._commands().find(cmd =>
+    return this.rawCommands().find(cmd =>
       cmd.name.toLowerCase() === query ||
       (cmd.aliases ?? []).some((alias) => alias.toLowerCase() === query)
     );

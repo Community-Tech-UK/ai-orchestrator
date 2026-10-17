@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as path from 'node:path';
 import { NODE_TO_COORDINATOR } from '../main/remote-node/worker-node-rpc';
+import { normalizeBrowserExtensionInstanceId } from '../main/browser-gateway/browser-extension-contact-state';
 import {
   defaultExtensionRelaySocketPath,
   type WorkerExtensionRelayConfig,
@@ -85,6 +86,8 @@ export class WorkerExtensionRelay {
   private lastExtensionContactAt: number | undefined;
   private extensionVersion: string | undefined;
   private extensionReloadedAt: number | undefined;
+  /** Service-worker start time last seen from each extension install (Chrome profile). */
+  private readonly extensionStartedAtByInstance = new Map<string, number>();
   private extensionContactState: 'never' | 'active' | 'lost' = 'never';
   private authenticatedPollCount = 0;
   private lastCommandActivityAt = 0;
@@ -365,9 +368,14 @@ export class WorkerExtensionRelay {
 
   private async forwardDisconnected(params: AuthorizedExtensionParams): Promise<unknown> {
     const reason = params.payload['reason'];
+    const extensionInstanceId = normalizeBrowserExtensionInstanceId(
+      params.payload['extensionInstanceId'],
+    );
     const payload = {
       ...(params.extensionOrigin ? { extensionOrigin: params.extensionOrigin } : {}),
       ...(typeof reason === 'string' && reason ? { reason } : {}),
+      // Lets the coordinator drop trust for only the Chrome profile that closed.
+      ...(extensionInstanceId ? { extensionInstanceId } : {}),
     };
     try {
       return await this.sendRequest(NODE_TO_COORDINATOR.BROWSER_EXT_DISCONNECTED, payload);
@@ -440,16 +448,30 @@ export class WorkerExtensionRelay {
 
   private recordExtensionRuntimeEvidence(payload: Record<string, unknown>): void {
     const evidence = this.extensionRuntimeEvidence(payload);
-    this.extensionVersion = evidence.extensionVersion as string | undefined;
-    this.extensionReloadedAt = evidence.extensionStartedAt as number | undefined;
+    const instanceId = evidence.extensionInstanceId;
+    const startedAt = evidence.extensionStartedAt;
+    if (!instanceId) {
+      this.extensionVersion = evidence.extensionVersion;
+      this.extensionReloadedAt = startedAt;
+      return;
+    }
+    // Health counts each change as a restart: only a profile restart or a new profile moves it.
+    if (startedAt === undefined) return;
+    this.extensionVersion = evidence.extensionVersion;
+    if (this.extensionStartedAtByInstance.get(instanceId) !== startedAt || this.extensionReloadedAt === undefined) {
+      this.extensionStartedAtByInstance.set(instanceId, startedAt);
+      this.extensionReloadedAt = startedAt;
+    }
   }
 
   private extensionRuntimeEvidence(payload: Record<string, unknown>): {
     extensionVersion?: string;
     extensionStartedAt?: number;
+    extensionInstanceId?: string;
   } {
     const version = payload['extensionVersion'];
     const startedAt = payload['extensionStartedAt'];
+    const instanceId = normalizeBrowserExtensionInstanceId(payload['extensionInstanceId']);
     return {
       ...(typeof version === 'string' && version.length > 0
         ? { extensionVersion: version }
@@ -457,6 +479,7 @@ export class WorkerExtensionRelay {
       ...(typeof startedAt === 'number' && Number.isInteger(startedAt) && startedAt >= 0
         ? { extensionStartedAt: startedAt }
         : {}),
+      ...(instanceId ? { extensionInstanceId: instanceId } : {}),
     };
   }
 
@@ -466,6 +489,7 @@ export class WorkerExtensionRelay {
     const {
       extensionVersion: _extensionVersion,
       extensionStartedAt: _extensionStartedAt,
+      extensionInstanceId: _extensionInstanceId,
       ...rest
     } = payload;
     return rest;

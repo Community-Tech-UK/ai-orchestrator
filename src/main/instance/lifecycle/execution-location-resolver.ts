@@ -2,6 +2,8 @@ import type { InstanceCreateConfig } from '../../../shared/types/instance.types'
 import { decodeLocalModelSelector } from '../../../shared/utils/local-model-selector';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import { isPooledProvider } from '../../../shared/types/provider-account.types';
+import { normalizeOpenCodeAdditionalDirectories } from '../../../shared/utils/opencode-additional-directories';
+import type { WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('InstanceLifecycle');
@@ -11,7 +13,14 @@ const logger = getLogger('InstanceLifecycle');
  * Returns local by default. Remote is selected only for an explicit forced node
  * or when placement preferences match an available worker.
  */
-export function resolveExecutionLocation(config: InstanceCreateConfig): ExecutionLocation {
+export function resolveExecutionLocation(config: InstanceCreateConfig, registryOverride?: Pick<WorkerNodeRegistry, 'getNode' | 'selectNode'>): ExecutionLocation {
+  const directories = normalizeOpenCodeAdditionalDirectories(config.additionalDirectories,
+    config.modelRuntimeTarget?.kind === 'local-model' ? 'local-model' : config.provider);
+  if (directories?.length && config.nodePlacement?.requiresOpenCodeMajor === 1) throw new Error('Additional directories require OpenCode 2; version 1 placement conflicts with this request.');
+  if (directories?.length && config.nodePlacement?.requiresCli && config.nodePlacement.requiresCli !== 'opencode') throw new Error('Additional directories require OpenCode; the requested worker CLI conflicts with this request.');
+  const nodePlacement = config.nodePlacement && directories?.length
+    ? { ...config.nodePlacement, requiresCli: 'opencode' as const, requiresOpenCodeMajor: 2 as const }
+    : config.nodePlacement;
   const runtimeTarget = config.modelRuntimeTarget;
   if (runtimeTarget?.kind === 'local-model') {
     const decodedSelector = decodeLocalModelSelector(runtimeTarget.selectorId);
@@ -51,16 +60,16 @@ export function resolveExecutionLocation(config: InstanceCreateConfig): Executio
   }
 
   if (config.forceNodeId) {
-    let registry: ReturnType<typeof import('../../remote-node').getWorkerNodeRegistry>;
+    let registry: Pick<WorkerNodeRegistry, 'getNode' | 'selectNode'>;
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { getWorkerNodeRegistry } = require('../../remote-node');
-      registry = getWorkerNodeRegistry();
+      registry = registryOverride ?? require('../../remote-node').getWorkerNodeRegistry();
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       throw new Error(`Forced worker node "${config.forceNodeId}" is unavailable: ${detail}`);
     }
     const node = registry.getNode(config.forceNodeId);
+    if (directories?.length && node?.capabilities.openCodeMajor !== 2) throw new Error('Additional directories require a worker with OpenCode 2.');
     if (node?.status === 'connected' || node?.status === 'degraded') {
       logger.info('Resolved execution location', {
         type: 'remote',
@@ -75,17 +84,16 @@ export function resolveExecutionLocation(config: InstanceCreateConfig): Executio
     );
   }
 
-  if (config.nodePlacement) {
+  if (nodePlacement) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { getWorkerNodeRegistry } = require('../../remote-node');
-      const registry = getWorkerNodeRegistry();
+      const registry = registryOverride ?? require('../../remote-node').getWorkerNodeRegistry();
       // An explicitly chosen Claude/Codex account prefers a node that has that
       // profile. Never the other way round: placement does not change the account.
       const node = registry.selectNode(
         config.accountProfileId && isPooledProvider(config.provider)
-          ? { ...config.nodePlacement, prefersAccountProfile: { provider: config.provider, profileId: config.accountProfileId } }
-          : config.nodePlacement,
+          ? { ...nodePlacement, prefersAccountProfile: { provider: config.provider, profileId: config.accountProfileId } }
+          : nodePlacement,
       );
       if (node) {
         logger.info('Resolved execution location', {

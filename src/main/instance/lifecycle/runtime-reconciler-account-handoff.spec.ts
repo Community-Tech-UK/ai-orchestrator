@@ -10,6 +10,10 @@ import { ProviderAccountRoutingService, _resetProviderAccountRoutingServiceForTe
 vi.mock('../../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
+// Install discovery has its own tests; keep this integration on a known selected binary.
+vi.mock('../../cli/adapters/opencode-cli-launch', () => ({
+  selectOpenCodeLaunch: vi.fn(async () => ({ command: '/fixture/selected-opencode', major: 1 })),
+}));
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
   const execFile = vi.fn();
@@ -145,7 +149,7 @@ describe('tryAccountSwitchInPlace (MiMo multi-account live switch)', () => {
   it.each([{ code: 7 }, { killed: true, signal: 'SIGTERM' as const }])('refuses actual failed auth-list output %j before live mutation', async (properties) => {
     mocks.profiles = [mimoProfile('max-b-2b3c')];
     vi.mocked(execFile).mockImplementation((file, args, options, callback) => {
-      expect(file).toBe('opencode');
+      expect(file).toBe('/fixture/selected-opencode');
       expect(args).toEqual(['auth', 'list']);
       expect(options).toMatchObject({ timeout: 8_000, maxBuffer: 256 * 1024 });
       if (!callback) throw new Error('Missing auth-list callback');
@@ -161,7 +165,7 @@ describe('tryAccountSwitchInPlace (MiMo multi-account live switch)', () => {
       .rejects.toMatchObject({ name: 'AccountRoutingError', code: 'profile-not-bound-on-node',
         message: expect.stringContaining('auth-list-unreadable') });
     expect(execFile).toHaveBeenCalledOnce();
-    expect(execFile).toHaveBeenCalledWith('opencode', ['auth', 'list'],
+    expect(execFile).toHaveBeenCalledWith('/fixture/selected-opencode', ['auth', 'list'],
       expect.objectContaining({ timeout: 8_000, maxBuffer: 256 * 1024 }), expect.any(Function));
     expect(target).toMatchObject({ accountProfileId: 'max-a-1a2b', accountRoutingSource: 'failover', accountSwitches: 0, status: 'idle' });
     expect(adapter.applyLiveSessionConfig).not.toHaveBeenCalled();

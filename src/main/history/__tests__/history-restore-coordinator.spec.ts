@@ -497,6 +497,52 @@ describe('HistoryRestoreCoordinator', () => {
     });
   });
 
+  describe('durable OpenCode major-only placement', () => {
+    it.each([false, true])('preserves validated independent placement and original worker on native/replay restore (%s)', async (forceFallback) => {
+      const nodePlacement = { requiresOpenCodeMajor: 2 as const, preferNodeId: 'other-worker' };
+      loadConversation.mockResolvedValue(conversation({ provider: 'opencode', nodePlacement, executionLocation: { type: 'remote', nodeId: 'original-worker' } }));
+      const live = makeInstance({ id: 'native-instance', status: 'idle' }); getInstance.mockReturnValue(live);
+      (manager as unknown as Record<string, unknown>)['getAdapter'] = () => ({ getResumeAttemptResult: () => ({ source: 'native', confirmed: true }) });
+      createInstance.mockImplementation(async () => live);
+      await coordinator.restore(manager, 'entry-1', { forceFallback });
+      const config = createInstance.mock.calls[0][0];
+      expect(config).toMatchObject({ nodePlacement, forceNodeId: 'original-worker' });
+      expect(config.nodePlacement).not.toBe(nodePlacement);
+    });
+    it('refuses an unavailable original worker rather than relocating version-constrained recovery', async () => {
+      loadConversation.mockResolvedValue(conversation({ provider: 'opencode', nodePlacement: { requiresOpenCodeMajor: 2 }, executionLocation: { type: 'remote', nodeId: 'original-worker' } }));
+      coordinator = new HistoryRestoreCoordinator({ history: () => ({ loadConversation, markNativeResumeFailed }), isRemoteNodeReachable: () => false });
+      await expect(coordinator.restore(manager, 'entry-1')).rejects.toMatchObject({ code: 'OPENCODE_NODE_UNAVAILABLE' });
+      expect(createInstance).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('OpenCode additional folder restore', () => {
+    it.each([false, true])('restores the exact roots for native and replay sessions (fallback=%s)', async (forceFallback) => {
+      const directories = ['/repo/second', 'C:\\repo\\third'];
+      loadConversation.mockResolvedValue(conversation({ provider: 'opencode', additionalDirectories: directories }));
+      const live = makeInstance({ id: 'native-instance', status: 'idle' });
+      getInstance.mockReturnValue(live);
+      (manager as unknown as Record<string, unknown>)['getAdapter'] = () => ({ getResumeAttemptResult: () => ({ source: 'native', confirmed: true }) });
+      createInstance.mockImplementation(async () => live);
+      await coordinator.restore(manager, 'entry-1', { forceFallback });
+      const config = createInstance.mock.calls[0][0];
+      expect(config).toMatchObject({ provider: 'opencode', additionalDirectories: directories });
+      expect(config.additionalDirectories).not.toBe(directories);
+    });
+    it('refuses to apply remote directory roots on the local computer when that worker is unavailable', async () => {
+      loadConversation.mockResolvedValue(conversation({ provider: 'opencode', additionalDirectories: ['C:\\work\\second'], executionLocation: { type: 'remote', nodeId: 'windows-pc' } }));
+      coordinator = new HistoryRestoreCoordinator({ history: () => ({ loadConversation, markNativeResumeFailed }), isRemoteNodeReachable: () => false });
+      await expect(coordinator.restore(manager, 'entry-1')).rejects.toMatchObject({ code: 'ADDITIONAL_DIRECTORIES_NODE_UNAVAILABLE' });
+      expect(createInstance).not.toHaveBeenCalled();
+    });
+    it('refuses corrupt persisted roots before attempting either restore rung', async () => {
+      loadConversation.mockResolvedValue(conversation({ provider: 'opencode', additionalDirectories: ['relative-root'] }));
+      await expect(coordinator.restore(manager, 'entry-1')).rejects.toThrow();
+      expect(createInstance).not.toHaveBeenCalled();
+    });
+  });
+
   describe('resume proof: definitive answers settle the probe (LT-014)', () => {
     /** Same deps as the outer suite, but with a post-spawn window worth waiting out. */
     function makeSlowProbeCoordinator(): HistoryRestoreCoordinator {

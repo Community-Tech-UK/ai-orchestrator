@@ -97,7 +97,7 @@ function parseProcessTable(table: string): Map<number, ProcessSample> {
     const pid = Number(rawPid);
     // Only the sanitized label survives parsing; raw command lines are never retained.
     rows.set(pid, { pid, ppid: Number(rawPpid), state: processState(stat), cpuSeconds,
-      runningSeconds, rssMb: Number(rss) / 1024, label: commandLabel(command) });
+      runningSeconds, rssMb: Number(rss) / 1024, label: sanitizeProcessLabel(command) });
   }
   return rows;
 }
@@ -124,7 +124,7 @@ function cpuPercent(first: ProcessSample | undefined, second: ProcessSample | un
   return Math.round((second.cpuSeconds - first.cpuSeconds) / wallSeconds * 100);
 }
 
-function commandLabel(command: string): string {
+export function sanitizeProcessLabel(command: string): string {
   const tokens = (command.match(/"[^"\n]*"|'[^'\n]*'|\S+/g) ?? []).map((token) => token.replace(/^['"]|['"]$/g, ''));
   const program = basename(tokens.shift() ?? '').replace(/^-/, '');
   if (SHELLS.has(program)) return 'a shell command';

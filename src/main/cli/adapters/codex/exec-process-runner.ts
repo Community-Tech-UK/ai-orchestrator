@@ -17,6 +17,7 @@ import type { AdapterInputDispatch } from '../base-cli-adapter.types';
 import { assertAdapterInputCurrent } from '../adapter-input-dispatch';
 import { writeChildStdin } from '../child-stdin-write';
 import { cancelCodexExecInputFailure, markCodexExecInputFailure, type CodexExecInputWritePhase } from './exec-input-write';
+import { CodexExecOutput } from './exec-output';
 
 const logger = getLogger('CodexCliAdapter');
 
@@ -28,6 +29,7 @@ export interface CodexExecProcessResult {
 }
 
 interface CodexExecProcessState {
+  output: CodexExecOutput;
   diagnostics: CodexDiagnostic[];
   emittedDiagnosticKeys: Set<string>;
   partialStderr: string;
@@ -65,6 +67,7 @@ export function runCodexExecProcess(
     assertAdapterInputCurrent(options.dispatch);
     const childProcess = options.spawn();
     const state: CodexExecProcessState = {
+      output: new CodexExecOutput(options.emitOutput),
       diagnostics: [],
       emittedDiagnosticKeys: new Set<string>(),
       partialStderr: '',
@@ -171,6 +174,13 @@ export function runCodexExecProcess(
           options.generateResponseId(),
         );
         if (partial.hasMeaningfulOutput) {
+          // A final item need not have a newline. Publish the same tail that
+          // the partial transcript includes before marking output streamed.
+          if (state.partialStdout.trim()) {
+            processStdoutLine(state.partialStdout, state, options);
+            state.partialStdout = '';
+          }
+          state.output.flush();
           if (partial.threadId) options.onThreadId(partial.threadId);
           const raw = [state.rawStdout.trim(), state.rawStderr.trim()].filter(Boolean).join('\n');
           logger.warn('Codex exec timed out after partial output — returning partial transcript', {
@@ -189,6 +199,7 @@ export function runCodexExecProcess(
               metadata: {
                 ...partial.response.metadata,
                 diagnostics: state.diagnostics,
+                execOutputStreamed: true,
                 timedOut: true,
                 timeoutKind: kind,
                 partial: true,
@@ -291,6 +302,7 @@ export function runCodexExecProcess(
         return;
       }
       if (state.partialStdout.trim()) processStdoutLine(state.partialStdout, state, options);
+      state.output.flush();
       if (state.partialStderr.trim()) {
         for (const line of state.partialStderr.split('\n')) {
           if (line.trim()) state.diagnostics.push(classifyCodexDiagnostic(line));
@@ -326,6 +338,7 @@ export function runCodexExecProcess(
           metadata: {
             ...parsed.response.metadata,
             diagnostics: state.diagnostics,
+            execOutputStreamed: true,
           },
           raw,
         },
@@ -373,6 +386,7 @@ function processStdoutLine(
     if (trimmed.startsWith('{')) {
       logger.warn('Failed to parse Codex exec JSONL line', textDiagnostic(trimmed));
     }
+    state.output.accept(trimmed);
     return;
   }
 
@@ -389,18 +403,7 @@ function processStdoutLine(
     }
   }
 
-  if (eventType === 'item.created' && event['item'] && typeof event['item'] === 'object') {
-    const item = event['item'] as Record<string, unknown>;
-    if (item['type'] === 'command_execution' && typeof item['command'] === 'string') {
-      options.emitOutput({
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'tool_use',
-        content: `Running command: ${item['command']}`,
-        metadata: { streaming: true },
-      });
-    }
-  }
+  state.output.accept(trimmed, event);
 }
 
 function processStderrLine(

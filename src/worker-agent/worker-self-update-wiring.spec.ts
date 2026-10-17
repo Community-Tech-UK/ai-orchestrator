@@ -1,19 +1,37 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reportCapabilities, setWorkerBuildStatusProvider } from './capability-reporter';
 import { WorkerActivity } from './worker-activity';
 import type { WorkerConfig } from './worker-config';
 import { runWorkerSelfCheck, startWorkerSelfUpdate } from './worker-self-update-wiring';
 import { WORKER_SUPERVISED_ENV } from './worker-self-update';
 
+// Keep heartbeat status projection real while isolating unrelated host inventory.
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return { ...actual, execFileSync: vi.fn(() => { throw new Error('Fixture CLI unavailable'); }) };
+});
+vi.mock('./opencode-worker-capability', () => ({
+  readWorkerOpenCodeMajor: vi.fn(async () => undefined),
+}));
+vi.mock('./worker-account-route', () => ({
+  listWorkerAccountProfileIds: vi.fn(() => ({})),
+  listWorkerOpenCodeAccountProfileIds: vi.fn(async () => []),
+}));
+
 const COMMIT = 'd'.repeat(40);
 
 describe('worker self-update wiring', () => {
   const tempDirs: string[] = [];
 
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')));
+  });
+
   afterEach(() => {
+    vi.unstubAllGlobals();
     setWorkerBuildStatusProvider(null);
     vi.restoreAllMocks();
     for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });

@@ -21,6 +21,7 @@ import type {
 
 export interface CreateInstanceConfig {
   workingDirectory: string;
+  additionalDirectories?: string[];
   displayName?: string;
   parentInstanceId?: string;
   initialPrompt?: string;
@@ -39,6 +40,8 @@ export interface CreateInstanceConfig {
   browserToolsMode?: 'eager' | 'deferred' | 'off';
   /** WS13 — spawn the CLI inside the macOS Seatbelt jail. */
   hardened?: boolean;
+  /** `false` = macOS signal fence off for this session only (lets it stop any program you own). */
+  signalFence?: boolean;
   /** Explicit GitHub Copilot account for this session (validated safe slug). */
   copilotAccountProfileId?: string;
   /** The user confirmed an override that leaves a protected Copilot scope. */
@@ -50,6 +53,7 @@ export interface CreateInstanceConfig {
 
 export interface CreateInstanceWithMessageConfig {
   workingDirectory: string;
+  additionalDirectories?: string[];
   message: string;
   attachments?: FileAttachment[];
   launchMode?: InstanceLaunchMode;
@@ -65,6 +69,8 @@ export interface CreateInstanceWithMessageConfig {
   forceNodeId?: string;
   /** WS13 — spawn the CLI inside the macOS Seatbelt jail. */
   hardened?: boolean;
+  /** `false` = macOS signal fence off for this session only (lets it stop any program you own). */
+  signalFence?: boolean;
   /** Explicit GitHub Copilot account for this session (validated safe slug). */
   copilotAccountProfileId?: string;
   /** The user confirmed an override that leaves a protected Copilot scope. */
@@ -343,6 +349,10 @@ export class InstanceIpcService {
   // ============================================
   // Event Subscriptions
   // ============================================
+
+  onInstanceTranscriptChunk(callback: (chunk: unknown) => void): () => void {
+    return this.base.on('instance:transcript-chunk', callback);
+  }
 
   /**
    * Subscribe to instance created events

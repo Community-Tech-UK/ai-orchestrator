@@ -26,6 +26,7 @@ import { getTaskManager } from '../orchestration/task-manager';
 import { removeInstanceBrowserToolsMode } from './lifecycle/browser-tool-scoping';
 import { removeInstanceComputerUseMode } from './lifecycle/computer-use-scoping';
 import { removeInstanceHardened } from './lifecycle/hardened-mode-scoping';
+import { removeInstanceSignalFence } from './lifecycle/signal-fence-scoping';
 import { removeInstanceContainedExecution } from './lifecycle/contained-execution-scoping';
 import { getHandoffStateService } from '../session/handoff-state-service';
 import { getNotificationService } from '../notifications/notification-service';
@@ -67,6 +68,7 @@ import type { InstanceEventEnvelope } from '@contracts/types/instance-events';
 import { InstanceOrchestrationManager } from './instance-orchestration';
 import { adoptInstance } from './instance-adoption';
 import { InstancePersistenceManager } from './instance-persistence';
+import { forkNativeAdapterSession } from './instance-native-fork';
 import { InstanceSettledTracker } from './instance-settled-tracker';
 import { InstanceChildCompletionHandler } from './instance-child-completion-handler';
 import type {
@@ -158,6 +160,10 @@ import {
 } from './instance-input-cancellation';
 import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-logging';
 import { automatedResendInput, formatInternalInputForProvider, internalInputMetadata } from './internal-input-provenance';
+import { resolveNativeOpenCodeCommandInput } from '../commands/provider-native-commands';
+import { dispatchNativeOpenCodeCommand } from './instance-native-command-input';
+import { parseSwitchModeApprovalReply } from './instance-switch-mode-reply';
+import { bindInstanceNativeCommandForwarding } from './instance-native-command-catalog';
 const logger = getLogger('InstanceManager');
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
 const INPUT_PREFLIGHT_DEADLINE_MS = 5_000;
@@ -632,7 +638,9 @@ export class InstanceManager extends EventEmitter {
     // Persistence manager needs dependencies
     this.persistence = new InstancePersistenceManager({
       getInstance: (id) => this.state.getInstance(id),
-      createInstance: (config) => this.createInstance(config)
+      createInstance: (config) => this.createInstance(config),
+      supportsNativeFork: (id) => this.state.getAdapter(id)?.getRuntimeCapabilities?.().supportsForkSession === true,
+      forkNativeSession: (id) => forkNativeAdapterSession(this.state.getAdapter(id)),
     });
 
     // Wire stuck process detector event handlers
@@ -712,7 +720,11 @@ export class InstanceManager extends EventEmitter {
     this.state.on('batch-update', (payload) => this.emit('instance:batch-update', payload));
 
     // Communication events
+    bindInstanceNativeCommandForwarding(this.communication, this);
     this.communication.on('output', (payload) => this.publishOutput(payload.instanceId, payload.message, payload.raw));
+    this.communication.on('history-replayed', (payload) => {
+      if (this.state.isInstancePending?.(payload.instanceId) !== true) this.emit('history-replayed', payload);
+    });
     this.communication.on('input-required', (payload) => {
       if (this.state.isInstancePending?.(payload.instanceId) === true) return;
       logger.info('Input-required event received', summarizeInputRequiredPayload(payload));
@@ -743,6 +755,7 @@ export class InstanceManager extends EventEmitter {
       removeInstanceBrowserToolsMode(instanceId);
       removeInstanceComputerUseMode(instanceId);
       removeInstanceHardened(instanceId);
+      removeInstanceSignalFence(instanceId);
       removeInstanceContainedExecution(instanceId);
       getHandoffStateService().removeInstance(instanceId);
       this.emitObserversSafely('instance:event', this.lifecycleEvents.recordRemoved(instanceId, instance?.status));
@@ -797,20 +810,6 @@ export class InstanceManager extends EventEmitter {
     return pending.sort((a, b) => b.createdAt - a.createdAt)[0];
   }
 
-  private isAffirmativeApprovalReply(message: string): boolean {
-    const normalized = message.trim().toLowerCase().replace(/\s+/g, ' ');
-    if (!normalized) return false;
-
-    return /^(yes|y|yeah|yep|sure|ok|okay|approved|approve|proceed|continue|go ahead|go for it|do it|sounds good|let'?s do it|switch)$/.test(normalized);
-  }
-
-  private isNegativeApprovalReply(message: string): boolean {
-    const normalized = message.trim().toLowerCase().replace(/\s+/g, ' ');
-    if (!normalized) return false;
-
-    return /^(no|n|nope|nah|don'?t|do not|stop|cancel|reject|not now)$/.test(normalized);
-  }
-
   private async maybeHandleSwitchModeReply(
     instanceId: string,
     message: string
@@ -818,9 +817,8 @@ export class InstanceManager extends EventEmitter {
     const pendingRequest = this.getLatestPendingSwitchModeRequest(instanceId);
     if (!pendingRequest) return false;
 
-    const approved = this.isAffirmativeApprovalReply(message);
-    const rejected = !approved && this.isNegativeApprovalReply(message);
-    if (!approved && !rejected) return false;
+    const approved = parseSwitchModeApprovalReply(message);
+    if (approved === undefined) return false;
 
     const orchestration = this.orchestrationMgr.getOrchestrationHandler();
     orchestration.respondToUserAction(pendingRequest.id, approved);
@@ -1571,7 +1569,10 @@ export class InstanceManager extends EventEmitter {
       uiActionId?: string;
     } | undefined;
     const isSlashCommandInput = message.trim().startsWith('/');
-    const resolvedCommand = internalSource ? null : await runInputPreflight({
+    const nativeCommand = options?.providerNativeCommandId ? resolveNativeOpenCodeCommandInput(instance.provider,
+      this.state.getAdapter(instanceId), options.providerNativeCommandId, message) : undefined;
+    if (options?.providerNativeCommandId && !nativeCommand) throw new Error('The selected native command is no longer available in this session.');
+    const resolvedCommand = nativeCommand ?? (internalSource ? null : await runInputPreflight({
       instanceId,
       phase: 'command-resolution',
       timeoutMs: INPUT_PREFLIGHT_DEADLINE_MS,
@@ -1581,7 +1582,7 @@ export class InstanceManager extends EventEmitter {
       ),
       onTimeout: isSlashCommandInput ? undefined : () => null,
       timeoutMessage: `Slash command resolution timed out after ${INPUT_PREFLIGHT_DEADLINE_MS}ms`,
-    });
+    }));
     throwIfInstanceInputAborted(options?.signal);
     if (resolvedCommand) {
       resolvedCommandName = resolvedCommand.command.name;
@@ -1650,6 +1651,11 @@ export class InstanceManager extends EventEmitter {
       instance.requestCount++;
       instance.lastActivity = Date.now();
     }
+    if (nativeCommand) return await dispatchNativeOpenCodeCommand({ instance, command: nativeCommand, originalInput: message, options,
+      deferredCommit: deferInputCommitUntilDispatch, getAdapter: () => this.state.getAdapter(instanceId), recordPromptHistory,
+      emitUser: (output) => this.emitOutputMessage(instanceId, output),
+      send: (prompt, nativeOptions) => this.communication.sendInput(instanceId, prompt, attachments, null, nativeOptions),
+    });
 
     // Calculate context budget and build contexts. Context retrieval improves
     // answer quality, but it must not hold the renderer's send acknowledgement.

@@ -130,6 +130,8 @@ export interface BrowserGatewayAttachExistingTabRequest
     BrowserAttachExistingTabRequest {
   nodeId?: string;
   nodeName?: string;
+  /** Reporting extension install (Chrome profile); set by the channel, never by the tab payload. */
+  extensionInstanceId?: string;
 }
 
 export interface BrowserGatewayUpdateProfileRequest

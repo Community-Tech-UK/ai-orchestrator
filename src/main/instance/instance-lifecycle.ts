@@ -110,6 +110,7 @@ import {
   removeInstanceContainedExecution,
   setInstanceContainedExecution,
 } from './lifecycle/contained-execution-scoping';
+import { removeInstanceSignalFence, setInstanceSignalFence } from './lifecycle/signal-fence-scoping';
 import { attemptInstanceFailover } from './instance-failover';
 import { classifyLoopError } from '../core/loop-error-classification';
 import { getFailoverManager } from '../providers/failover-manager';
@@ -162,6 +163,7 @@ import {
   getOrCreateTurnSupervisor,
 } from '../session/session-turn-supervisor';
 import { applyInstanceSpawnPolicy } from './lifecycle/instance-spawn-policy';
+import { normalizeOpenCodeAdditionalDirectories } from '../../shared/utils/opencode-additional-directories';
 import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
 import { assembleInstanceSystemPrompt } from './instance-system-prompt';
 import { restoreWokenOutputBuffer } from './lifecycle/wake-buffer-restore';
@@ -1310,6 +1312,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     setInstanceComputerUseMode(instance.id, instance.computerUseMode);
     // WS13: register hardened mode before the first adapter build reads it.
     setInstanceHardened(instance.id, instance.hardened);
+    setInstanceSignalFence(instance.id, instance.signalFence);
     // WS-C7: register the contained execution profile before the first
     // adapter build reads it (same registry-lookup shape as hardened mode).
     setInstanceContainedExecution(instance.id, instance.containedExecution);
@@ -1323,6 +1326,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       removeInstanceBrowserToolsMode(instance.id);
       removeInstanceComputerUseMode(instance.id);
       removeInstanceHardened(instance.id);
+      removeInstanceSignalFence(instance.id);
       removeInstanceContainedExecution(instance.id);
       this.activityDetectors.delete(instance.id);
       this.lateEnricherPreambles.delete(instance.id);
@@ -1645,9 +1649,10 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         // Create CLI adapter - use resolved model
         const modelOverride = resolvedModel;
+        const forkSessionId = resolvedCliType === 'opencode' && typeof config.metadata?.['openCodeForkSessionId'] === 'string' ? config.metadata['openCodeForkSessionId'] : undefined;
         let spawnOptions: UnifiedSpawnOptions = {
           instanceId: instance.id,
-          sessionId: instance.sessionId,
+          sessionId: forkSessionId ?? instance.sessionId,
           workingDirectory: instance.workingDirectory,
           systemPrompt: systemPrompt,
           model: modelOverride,
@@ -1659,7 +1664,8 @@ export class InstanceLifecycleManager extends EventEmitter {
           residentClaude: this.residentClaudeForSpawn(instance),
           allowedTools: toolPermissions.allowedTools,
           disallowedTools: toolPermissions.disallowedToolsForSpawn,
-          resume: config.resume,
+          resume: Boolean(forkSessionId) || config.resume,
+          transcriptKnown: isCrashRecoveryCreation && config.metadata?.['transcriptKnown'] === true,
           mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, resolvedCliType, instance.workingDirectory),
           chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
           browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
@@ -2089,7 +2095,6 @@ export class InstanceLifecycleManager extends EventEmitter {
       try {
         if (signal.aborted) return;
 
-        // Load saved session state from disk.
         const continuity = getSessionContinuityManager();
         const sessionState = await continuity.resumeSession(instanceId, {
           restoreMessages: true,
@@ -2112,6 +2117,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         if (sessionState?.provider) {
           instance.provider = sessionState.provider;
         }
+        instance.additionalDirectories = normalizeOpenCodeAdditionalDirectories(sessionState?.additionalDirectories ?? instance.additionalDirectories, instance.provider);
         if (sessionState?.modelId) {
           instance.currentModel = sessionState.modelId;
         }
@@ -2121,7 +2127,6 @@ export class InstanceLifecycleManager extends EventEmitter {
           instance.contextUsage = restoreContextUsage(sessionState.contextUsage);
         }
         if (sessionState?.copilotAccountProfileId) {
-          // A woken session keeps the GitHub account it was created under.
           // States written before this field existed restore as undefined,
           // which routing resolves to the migration-created legacy profile.
           instance.copilotAccountProfileId = sessionState.copilotAccountProfileId;

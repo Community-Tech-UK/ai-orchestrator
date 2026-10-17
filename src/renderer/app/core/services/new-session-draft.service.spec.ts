@@ -156,6 +156,20 @@ describe('NewSessionDraftService', () => {
     expect(service.model()).toBe('gpt-5-codex');  // unchanged
   });
 
+  it('keeps fence-off per draft and clears it after a create', () => {
+    service.open('/Users/suas/work/project-a');
+    service.setSignalFenceOff(true);
+    expect(service.signalFenceOff()).toBe(true);
+
+    service.open('/Users/suas/work/project-b');
+    expect(service.signalFenceOff()).toBe(false);
+    service.open('/Users/suas/work/project-a');
+    expect(service.signalFenceOff()).toBe(true);
+
+    service.clearActiveComposer();
+    expect(service.signalFenceOff()).toBe(false);
+  });
+
   it('reports saved drafts for project-scoped pending files', () => {
     service.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
     service.addPendingFiles([new File(['a'], 'draft.txt', { type: 'text/plain' })]);

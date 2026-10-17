@@ -1,3 +1,4 @@
+import type { ExecutionLocation, NodePlacementPrefs } from '../../shared/types/worker-node.types';
 import type { AccountInvocationOrigin, AccountRouteSource } from '../../shared/types/provider-account.types';
 import type { InstanceProvider, ThinkingContent } from '../../shared/types/instance.types';
 import type { CopilotRouteSource } from '../../shared/types/copilot-account.types';
@@ -59,10 +60,20 @@ export interface SessionState {
   modelId: string;
   provider?: InstanceProvider;
   workingDirectory: string;
+  /** Explicit additional workspace roots; preserved across restart and recovery. */
+  additionalDirectories?: string[];
+  executionLocation?: ExecutionLocation;
+  nodePlacement?: NodePlacementPrefs;
   systemPrompt?: string;
   temperature?: number;
   maxTokens?: number;
   conversationHistory: ConversationEntry[];
+  /** Full origin was captured and no entry has ever been lost; never inferred from retained length. */
+  conversationHistoryOriginKnown?: boolean;
+  /** First prompt binding is explicit, never inferred from an empty or short transcript. */
+  conversationHistoryTurnStarted?: boolean;
+  /** A settled, durably saved checkpoint; invalidated on disk before the next provider prompt. */
+  conversationHistoryComplete?: boolean;
   contextUsage: {
     used: number;
     total: number;

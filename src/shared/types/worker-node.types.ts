@@ -194,6 +194,8 @@ export interface WorkerNodeCapabilities {
   gpuName?: string;
   gpuMemoryMB?: number;
   supportedClis: CanonicalCliType[];
+  /** Selected supported OpenCode generation; absent on older workers. */
+  openCodeMajor?: 1 | 2;
   /**
    * GitHub Copilot account profiles this node is signed in to.
    *
@@ -361,6 +363,7 @@ export interface NodePlacementPrefs {
   preferPlatform?: NodePlatform;
   preferNodeId?: string;
   requiresCli?: CanonicalCliType;
+  requiresOpenCodeMajor?: 1 | 2;
   requiresWorkingDirectory?: string;
   /**
    * Prefer a node already signed in to this GitHub Copilot account.

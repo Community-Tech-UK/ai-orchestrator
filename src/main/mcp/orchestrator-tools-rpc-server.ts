@@ -44,6 +44,7 @@ import {
 import type { GetDocReviewResultFn, RequestDocReviewFn } from './doc-review-tools';
 import { isPlanQueueRpcMethod, PLAN_QUEUE_TOOL_NAMES, type PlanQueueToolOperations } from './plan-queue-tools';
 import { ResetNodeConnectionArgsSchema, type NodeConnectionToolContext, type ResetNodeConnectionFn } from './orchestrator-node-connection-tools';
+import type { HostProcessToolContext } from './orchestrator-host-process-tools';
 import {
   ListMessageableSessionsArgsSchema,
   SendSessionMessageArgsSchema,
@@ -133,7 +134,7 @@ export interface CalendarMutationAuthorizationRequest {
   payload: Record<string, unknown>;
 }
 
-export interface OrchestratorToolsRpcServerOptions extends FileTransferToolContext, NodeConnectionToolContext {
+export interface OrchestratorToolsRpcServerOptions extends FileTransferToolContext, NodeConnectionToolContext, Omit<HostProcessToolContext, 'instanceId'> {
   operatorDbPath?: string;
   userDataPath?: string;
   isKnownLocalInstance?: (instanceId: string) => boolean;
@@ -213,6 +214,7 @@ export class OrchestratorToolsRpcServer {
   private readonly readInstanceOutput: ReadInstanceOutputFn | null;
   private readonly terminateNodeInstances: TerminateNodeInstancesFn | null;
   private readonly resetNodeConnection: ResetNodeConnectionFn | null;
+  private readonly hostProcessTools: Omit<HostProcessToolContext, 'instanceId'>;
   private readonly settingsManager: SettingsManagerForTools | null;
   private readonly broadcastSettingsChange: SettingsChangeBroadcaster | null;
   private readonly updateNodeConfig: UpdateNodeConfigFn | null;
@@ -274,6 +276,7 @@ export class OrchestratorToolsRpcServer {
     this.readInstanceOutput = options.readInstanceOutput ?? null;
     this.terminateNodeInstances = options.terminateNodeInstances ?? null;
     this.resetNodeConnection = options.resetNodeConnection ?? null;
+    this.hostProcessTools = { listHostProcesses: options.listHostProcesses ?? null, stopLeftoverProcesses: options.stopLeftoverProcesses ?? null };
     this.settingsManager = options.settingsManager ?? null;
     this.broadcastSettingsChange = options.broadcastSettingsChange ?? null;
     this.updateNodeConfig = options.updateNodeConfig ?? null;
@@ -435,6 +438,9 @@ export class OrchestratorToolsRpcServer {
         if (!tool) throw new Error('reset_node_connection tool unavailable');
         return tool.handler(validated);
       }
+      case 'orchestrator_tools.list_host_processes':
+      case 'orchestrator_tools.stop_leftover_processes':
+        return this.dispatchSameNameTool(request.method, params, abortSignal);
       case 'orchestrator_tools.send_session_message': {
         const validated = SendSessionMessageArgsSchema.parse(params.payload);
         const tool = this.getToolsForInstance(params.instanceId, abortSignal).find((t) => t.name === 'send_session_message');
@@ -723,6 +729,7 @@ export class OrchestratorToolsRpcServer {
         readInstanceOutput: this.readInstanceOutput,
         terminateNodeInstances: this.terminateNodeInstances,
         resetNodeConnection: this.resetNodeConnection,
+        ...this.hostProcessTools,
         settingsManager: this.settingsManager,
         broadcastSettingsChange: this.broadcastSettingsChange,
         updateNodeConfig: this.updateNodeConfig,
@@ -757,6 +764,7 @@ export class OrchestratorToolsRpcServer {
       readInstanceOutput: this.readInstanceOutput,
       terminateNodeInstances: this.terminateNodeInstances,
       resetNodeConnection: this.resetNodeConnection,
+      ...this.hostProcessTools,
       settingsManager: this.settingsManager,
       broadcastSettingsChange: this.broadcastSettingsChange,
       updateNodeConfig: this.updateNodeConfig,

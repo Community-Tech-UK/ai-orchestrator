@@ -22,8 +22,8 @@ export function reduceAcpSessionConfigResponse(
   result: unknown,
 ): AcpSessionConfigResponseState {
   const response = isRecord(result) ? result : undefined;
-  if (request.method === 'session/new' || request.method === 'session/load') {
-    const sessionId = request.method === 'session/load' ? request.loadSessionId
+  if (['session/new', 'session/load', 'session/resume', 'session/fork'].includes(request.method)) {
+    const sessionId = request.method === 'session/load' || request.method === 'session/resume' ? request.loadSessionId
       : typeof response?.['sessionId'] === 'string' ? response['sessionId'] : undefined;
     if (!sessionId?.trim()) throw new Error(`ACP ${request.method} response requires a sessionId.`);
     return { sessionId, configOptions: response?.['configOptions'] };

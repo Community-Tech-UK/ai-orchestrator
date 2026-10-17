@@ -11,6 +11,7 @@ vi.mock('../cli/adapters/base-cli-adapter-utils', () => ({
 }));
 
 import { WarmStartManager, type WarmStartDeps } from './warm-start-manager';
+import { _setSignalFenceSettingForTesting } from '../sandbox/signal-fence-setting';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -44,6 +45,28 @@ describe('WarmStartManager', () => {
   // -------------------------------------------------------------------------
 
   describe('preWarm', () => {
+    it('does not prewarm OpenCode without a main-instance transcript checkpoint owner', async () => {
+      const deps = makeDeps();
+      const manager = new WarmStartManager(deps);
+      await manager.preWarm('opencode', '/project');
+      expect(deps.spawnAdapter).not.toHaveBeenCalled();
+      expect(manager.hasWarm('opencode')).toBe(false);
+    });
+    it('skips pre-warming while the signal fence is switched off', async () => {
+      _setSignalFenceSettingForTesting(false);
+      try {
+        const deps = makeDeps();
+        const manager = new WarmStartManager(deps);
+
+        await manager.preWarm('claude', '/project');
+
+        expect(deps.spawnAdapter).not.toHaveBeenCalled();
+        expect(manager.hasWarm('claude')).toBe(false);
+      } finally {
+        _setSignalFenceSettingForTesting(null);
+      }
+    });
+
     it('spawns a process with the correct provider and workingDirectory', async () => {
       const deps = makeDeps();
       const manager = new WarmStartManager(deps);

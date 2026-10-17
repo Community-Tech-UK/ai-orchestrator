@@ -1117,6 +1117,56 @@ describe('RuntimeReconciler.applyRuntimeChange — account-pool handoff', () => 
     expect(instance.accountProfileId).toBeUndefined();
   });
 
+  it('respawns a preparing MiMo session without writing its model or dispatching its retired prompt', async () => {
+    const modelA = 'aio-mimo-a/mimo-v2.6-pro';
+    const modelB = 'aio-mimo-b/mimo-v2.6-pro';
+    const options = (currentValue: string) => [{ id: 'model', category: 'model', currentValue,
+      options: [{ value: modelA }, { value: modelB }] }];
+    const liveProc = createInitializedAgentHarness();
+    liveProc.onRequest('session/new', (request) => liveProc.respond(request.id, {
+      sessionId: LIVE_SESSION_ID, configOptions: options(modelA),
+    }));
+    liveProc.onRequest('session/set_config_option', (request) => liveProc.respond(request.id, { configOptions: options(modelB) }));
+    liveProc.onRequest('session/prompt', (request) => liveProc.respond(request.id, { stopReason: 'end_turn' }));
+    let release: () => void = () => undefined;
+    const preparation = new Promise<void>((resolve) => { release = resolve; });
+    const live = new TestAcpCliAdapter(liveProc, { workingDirectory: '/tmp', beforeProviderPrompt: () => preparation });
+    const replacementProc = createInitializedAgentHarness();
+    replacementProc.onRequest('session/load', (request) => replacementProc.respond(request.id, { configOptions: options(modelB) }));
+    replacementProc.onRequest('session/prompt', (request) => replacementProc.respond(request.id, { stopReason: 'end_turn' }));
+    const replacement = new TestAcpCliAdapter(replacementProc, { workingDirectory: '/tmp',
+      resume: true, sessionId: LIVE_SESSION_ID, sessionConfig: { model: modelB }, requireSessionModelConfirmation: true });
+    const { reconciler, instance, createCalls, deleteAdapter, deps } = makeHarness(mimoInstance(), [replacement], { getAdapter: () => live });
+    const terminate = vi.spyOn(live, 'terminate');
+    await live.spawn();
+    const retiredTurn = live.sendMessage({ role: 'user', content: 'retired work' });
+    void retiredTurn.catch(() => undefined);
+    mockProcessKill.mockImplementationOnce(() => { queueMicrotask(() => liveProc.exit()); return true; });
+    try {
+      await reconciler.applyRuntimeChange(instance.id, mimoHandoff());
+      expect(terminate).toHaveBeenCalledWith(true);
+      expect(deleteAdapter).toHaveBeenCalledOnce();
+      expect(createCalls).toHaveLength(1);
+      expect(createCalls[0].options).toMatchObject({ resume: true, sessionId: LIVE_SESSION_ID });
+      expect(instance).toMatchObject({ accountProfileId: 'b', accountSwitches: 1, status: 'idle' });
+      release();
+      await expect(retiredTurn).rejects.toMatchObject({ name: 'AbortError' });
+      expect(liveProc.receivedMessages.filter((message) => 'method' in message
+        && ['session/set_config_option', 'session/prompt'].includes(message.method))).toEqual([]);
+      expect(replacementProc.receivedMessages.filter((message) => 'method' in message && message.method === 'session/prompt')).toEqual([]);
+      await replacement.sendMessage({ role: 'user', content: 'replacement work' });
+      const prompts = replacementProc.receivedMessages.filter((message) => 'method' in message && message.method === 'session/prompt');
+      expect(prompts).toHaveLength(1);
+      expect(JSON.stringify(prompts[0])).toContain('replacement work');
+      expect(JSON.stringify(prompts[0])).not.toContain('retired work');
+      expect(deps.emitSystemNotice.mock.calls.filter((call) => String(call[1]).includes('Account switched'))).toHaveLength(1);
+    } finally {
+      release();
+      await retiredTurn.catch(() => undefined);
+      liveProc.exit(); replacementProc.exit();
+    }
+  });
+
   it.each(['accepted', 'refused', 'unsupported', 'mismatched', 'superseded'] as const)(
     'confirms real live MiMo effort or respawns with the visible startup default warning when %s', async (mode) => {
       const modelA = 'aio-mimo-a/mimo-v2.5';

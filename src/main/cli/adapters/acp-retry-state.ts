@@ -50,8 +50,8 @@ export function buildRetryStateMessage(update: AcpRetryStateUpdate, messageId: s
  * to succeed — otherwise it would read "retrying (attempt N/15)…" forever
  * next to a completed answer.
  */
-export function buildRetryRecoveredMessage(messageId: string): OutputMessage {
-  const content = 'Provider recovered after retrying.';
+export function buildRetryRecoveredMessage(messageId: string, recovered = true): OutputMessage {
+  const content = recovered ? 'Provider recovered after retrying.' : 'Provider request ended after retrying.';
   return {
     id: messageId,
     timestamp: Date.now(),
@@ -61,7 +61,7 @@ export function buildRetryRecoveredMessage(messageId: string): OutputMessage {
       transport: 'acp',
       source: 'acp-retry-state',
       sessionUpdate: 'retry_state',
-      phase: 'recovered',
+      phase: recovered ? 'recovered' : 'ended',
       streaming: false,
       accumulatedContent: content,
     },

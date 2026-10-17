@@ -128,6 +128,13 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'advanced',
   },
   {
+    key: 'providerSignalFenceEnabled',
+    label: 'Stop sessions from closing each other\'s programs (macOS)',
+    description: 'When on (default), each session can only stop programs it started itself, so one agent cannot kill another live session. Turning this off lets sessions started afterwards stop any program you own, including other sessions. You can also turn it off for a single new session from the composer. Agents can always clean up their own leftovers through Harness\'s process tools. Operator-only; agents cannot change this.',
+    type: 'boolean',
+    category: 'advanced',
+  },
+  {
     key: 'browserAllowSharedTabCredentialFill',
     label: 'Allow autonomous sign-in on your shared browser tabs',
     description: 'Let the agent fill saved credentials (and login/registration forms) on your OWN shared Chrome tabs, not just its managed profiles — for portals where your registered accounts live in your real browser. Only origins you have granted a standing credential authorization can be filled; the password is typed straight into the page and never shown to the agent or logged. Off by default. CHANGED 29 Aug 2026 on your instruction: an agent can now turn this on itself through the privileged aio-mcp settings CLI, and can also grant itself the standing authorization above via aio-mcp browser-credentials. Turning it on means unattended sign-in on your real browser with no human step remaining.',

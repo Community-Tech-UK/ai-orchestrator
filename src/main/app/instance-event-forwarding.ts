@@ -22,7 +22,6 @@ import {
   outputMessageToContinuityEntry,
   providerRuntimeEnvelopeToContinuityEntry,
 } from '../session/continuity-message-projection';
-import type { ConversationEntry } from '../session/session-continuity.types';
 import { ContinuityToolEntryMerger } from '../session/continuity-tool-entry-merger';
 import {
   getAppStore,
@@ -33,7 +32,8 @@ import { getWorkflowManager } from '../workflows/workflow-manager';
 import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
 import { recordProviderRuntimeEventSpan } from '../observability/otel-spans';
 import { getProviderRuntimeTraceSink } from '../observability/provider-runtime-trace-sink';
-import { BoundedAsyncQueue } from '../runtime/bounded-async-queue';
+import { createContinuityForwardingQueue } from './continuity-forwarding-queue';
+import { setupInstanceTranscriptReplayForwarding } from './instance-transcript-replay-forwarding';
 import { recordProviderThreadCompactionMarker } from './compaction-runtime';
 import type { StatelessExecProviderPredicate } from './stateless-exec-provider';
 import { IPC_CHANNELS } from '@contracts/channels';
@@ -68,18 +68,6 @@ function providerCompactionStatus(message: OutputMessage): 'started' | 'complete
   return status === 'started' || status === 'completed' ? status : null;
 }
 
-type ContinuityTask =
-  | { kind: 'state'; instanceId: string; update: Record<string, unknown> }
-  | { kind: 'entry'; instanceId: string; entry: ConversationEntry }
-  | {
-      kind: 'patch';
-      instanceId: string;
-      entryId: string;
-      patch: Partial<Omit<ConversationEntry, 'id'>>;
-      /** Added instead when the entry to patch was never stored (e.g. its add was dropped). */
-      fallback?: ConversationEntry;
-    };
-
 const ACTIVE_STATUSES = new Set(['running', 'busy', 'waiting', 'waiting_for_input']);
 
 export function setupInstanceEventForwarding(options: InstanceEventForwardingOptions): void {
@@ -96,42 +84,8 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   const providerCompactionLifecycle = new ProviderCompactionLifecycleRecorder();
   const toolEntryMerger = new ContinuityToolEntryMerger();
 
-  // Continuity updates run off the hot event path. State updates coalesce per
-  // instance (bounded queue, drop when full); entry ordering is preserved.
-  const continuityQueue = new BoundedAsyncQueue<ContinuityTask>({
-    name: 'session-continuity',
-    maxSize: 2_000,
-    concurrency: 1,
-    process: async (task) => {
-      try {
-        const continuity = getSessionContinuityManager();
-        // C2: await the async continuity writes so the queue serializes them
-        // correctly and errors surface instead of being silently dropped.
-        if (task.kind === 'state') {
-          await continuity.updateState(task.instanceId, task.update as Parameters<typeof continuity.updateState>[1]);
-        } else if (task.kind === 'entry') {
-          await continuity.addConversationEntry(task.instanceId, task.entry);
-        } else {
-          if (task.fallback) {
-            await continuity.patchConversationEntry(task.instanceId, task.entryId, task.patch, task.fallback);
-          } else {
-            await continuity.patchConversationEntry(task.instanceId, task.entryId, task.patch);
-          }
-        }
-      } catch (err) {
-        logger.warn('Continuity queue task failed', {
-          kind: task.kind,
-          instanceId: task.instanceId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    },
-    onDrop: (_, reason) => {
-      if (reason === 'capacity') {
-        logger.debug('Continuity queue dropped task (capacity)');
-      }
-    },
-  });
+  const continuityQueue = createContinuityForwardingQueue();
+  setupInstanceTranscriptReplayForwarding({ instanceManager, windowManager, continuityQueue });
 
   instanceManager.on('instance:created', (instance) => {
     windowManager.sendToRenderer('instance:created', instance);
@@ -143,7 +97,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     });
     if (instance.metadata?.reason !== 'crash-recovery') {
       try {
-        void getSessionContinuityManager().startTracking(instance).catch((error) => {
+        void getSessionContinuityManager().startTracking(instanceManager.getInstance(instance.id) ?? instance).catch((error) => {
           logger.warn('Failed to start session tracking', {
             instanceId: instance.id,
             error: error instanceof Error ? error.message : String(error),
@@ -362,6 +316,10 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
             ...(Object.keys(tokenUsage).length === 0 ? {} : { tokenUsage }),
           },
         });
+      }
+      if (enrichedEnvelope.provider === 'opencode') {
+        const epoch = getSessionContinuityManager().captureConversationCheckpoint(envelope.instanceId);
+        continuityQueue.enqueue({ kind: 'checkpoint', instanceId: envelope.instanceId, epoch });
       }
     }
 

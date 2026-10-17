@@ -62,6 +62,30 @@ describe('BrowserExistingTabOperations mutation guards', () => {
     expect(sendCommand).toHaveBeenCalledTimes(1);
   });
 
+  it('checks the channel of the tab\'s own Chrome profile and routes the command there', async () => {
+    const profile = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+    const sendCommand = vi.fn().mockResolvedValue({ ok: true });
+    const isRemoteExtensionContactFresh = vi.fn(() => true);
+    const ops = new BrowserExistingTabOperations({
+      extensionCommandStore: { sendCommand },
+      extensionTabStore: { attachTab: vi.fn(), detachTab: vi.fn() } as never,
+      isRemoteExtensionContactFresh,
+      describeRemoteExtensionContact: () => 'fresh',
+      grantStore: { listGrants: vi.fn(() => []), consumeGrant: vi.fn() },
+      approvalStore: { createRequest: vi.fn() } as never,
+      result: vi.fn((params) => params) as never,
+      autoApproveApproval: () => null,
+    });
+
+    await ops.sendCommand(makeAttachment({ extensionInstanceId: profile }), 'click', { uid: '1' });
+
+    expect(isRemoteExtensionContactFresh).toHaveBeenCalledWith('node-1', profile);
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      queueKey: 'node:node-1',
+      target: expect.objectContaining({ tabId: 2, extensionInstanceId: profile }),
+    }));
+  });
+
   it('never reports a timed-out origin-bound secret write as definitely unapplied', async () => {
     const sendCommand = vi.fn().mockRejectedValue(
       new Error('browser_extension_command_timeout'),

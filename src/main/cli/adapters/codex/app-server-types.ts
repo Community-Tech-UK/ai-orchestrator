@@ -645,6 +645,8 @@ export interface CodexAppServerClientOptions {
   disableBroker?: boolean;
   /** `-c key=value` overrides for an isolated spawn (never sent to a broker). */
   configOverrides?: readonly string[];
+  /** `false` spawns the isolated app-server outside the macOS signal fence. */
+  signalFence?: boolean;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────

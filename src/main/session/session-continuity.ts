@@ -13,8 +13,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
 import { registerCleanup } from '../util/cleanup-registry';
+import { normalizeOpenCodeAdditionalDirectories } from '../../shared/utils/opencode-additional-directories';
 import type { Instance } from '../../shared/types/instance.types';
-import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { SnapshotIndex } from './snapshot-index';
@@ -38,13 +38,12 @@ import {
   getStateLookupKeys,
   migrateSessionState,
   normalizeConversationEntryForPersistence,
-  normalizeConversationHistory,
   normalizeLookupIdentifier,
   normalizeStateForContinuity,
   shouldRewriteNormalizedState,
+  updateContinuityCaptureIdentity,
 } from './session-continuity-state';
-import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
-import { outputMessagesToContinuityEntries } from './continuity-message-projection';
+import { instanceToContinuityState } from './session-continuity-instance-state';
 import type {
   ContinuityConfig,
   ConversationEntry,
@@ -117,7 +116,7 @@ const DEFAULT_CONFIG: ContinuityConfig = {
 interface InstanceManagerForContinuity {
   getAdapter(instanceId: string): unknown;
   /** Optional to preserve pre-v2 test/runtime injection compatibility. */
-  getInstance?(instanceId: string): Pick<Instance, 'status'> | undefined;
+  getInstance?(instanceId: string): Pick<Instance, 'status'> & Partial<Pick<Instance, 'provider' | 'accountProfileId' | 'copilotAccountProfileId'>> | undefined;
 }
 
 /** Identity fields written through to the persisted session state. */
@@ -136,6 +135,7 @@ export class SessionContinuityManager extends EventEmitter {
   private config: ContinuityConfig;
   private sessionStates = new Map<string, SessionState>();
   private dirty = new Set<string>();
+  private incompleteTranscriptIds = new Set<string>();
   private dehydratedStateIds = new Set<string>();
   private stateActivityTimestamps = new Map<string, number>();
   private stateRecoveryMetadata = new Map<string, { messageCount: number; hasAssistantOutput: boolean }>();
@@ -299,6 +299,7 @@ export class SessionContinuityManager extends EventEmitter {
     });
     return {
       ...normalized,
+      conversationHistoryComplete: false, // Proof requires the material discarded from this in-memory stub.
       conversationHistory: [],
     };
   }
@@ -309,12 +310,10 @@ export class SessionContinuityManager extends EventEmitter {
     }
 
     const loaded = await this.loadStateFromDiskByIdentifier(instanceId);
-    if (!loaded) {
-      this.dehydratedStateIds.delete(instanceId);
-      return state;
-    }
+    if (!loaded) throw new Error('Session continuity transcript is unavailable; recovery was not started.');
 
     const normalized = normalizeStateForContinuity(loaded, this.config.redactToolOutputs);
+    if (this.incompleteTranscriptIds?.has(instanceId)) { normalized.conversationHistoryOriginKnown = false; normalized.conversationHistoryComplete = false; }
 
     this.sessionStates.delete(instanceId);
     this.sessionStates.set(normalized.instanceId, normalized);
@@ -447,7 +446,11 @@ export class SessionContinuityManager extends EventEmitter {
       const filePath = path.join(this.stateDir, file);
       const data = await this.readPayload<SessionState>(filePath);
       if (data) {
-        const normalized = normalizeStateForContinuity(data, this.config.redactToolOutputs);
+        let normalized: SessionState;
+        try { normalized = normalizeStateForContinuity(data, this.config.redactToolOutputs); }
+        catch {
+          failed++; logger.warn('Skipped session state with invalid settings', { file }); continue;
+        }
         if (shouldRewriteNormalizedState(data, normalized)) {
           await this.writePayload(filePath, normalized);
           try {
@@ -536,6 +539,7 @@ export class SessionContinuityManager extends EventEmitter {
     await this.readyPromise;
     if (this.sessionStates.has(instance.id) && !this.dehydratedStateIds.has(instance.id)) return;
     const state = this.instanceToState(instance);
+    if (this.incompleteTranscriptIds?.has(instance.id)) state.conversationHistoryOriginKnown = false;
     this.sessionStates.set(instance.id, state);
     this.stateActivityTimestamps.set(instance.id, Math.max(instance.lastActivity, getLastConversationTimestamp(state)));
     this.dirty.add(instance.id);
@@ -554,7 +558,7 @@ export class SessionContinuityManager extends EventEmitter {
   async discardTracking(instanceId: string): Promise<void> {
     await this.readyPromise;
     this.autoSave.clearPendingAutoSaveTimer(instanceId);
-    await discardContinuityTracking(instanceId, [this.sessionStates, this.dehydratedStateIds, this.stateActivityTimestamps, this.stateRecoveryMetadata, this.dirty],
+    await discardContinuityTracking(instanceId, [this.sessionStates, this.dehydratedStateIds, this.stateActivityTimestamps, this.stateRecoveryMetadata, this.dirty, this.incompleteTranscriptIds],
     [this.stateDir, this.recoveryMetadataDir]);
   }
 
@@ -631,6 +635,7 @@ export class SessionContinuityManager extends EventEmitter {
       this.dehydratedStateIds.delete(instanceId);
       this.stateActivityTimestamps.delete(instanceId);
       this.stateRecoveryMetadata.delete(instanceId);
+      this.incompleteTranscriptIds?.delete(instanceId);
     }
 
     this.emit('tracking:stopped', { instanceId, archived: archive });
@@ -708,6 +713,9 @@ export class SessionContinuityManager extends EventEmitter {
     const state = await this.hydrateTrackedState(instanceId, trackedState);
 
     const normalizedUpdates: Partial<SessionState> = { ...updates };
+    if ('additionalDirectories' in updates || updates.provider !== undefined) {
+      normalizedUpdates.additionalDirectories = normalizeOpenCodeAdditionalDirectories('additionalDirectories' in updates ? updates.additionalDirectories : state.additionalDirectories, updates.provider ?? state.provider);
+    }
     const nextSessionId = normalizeLookupIdentifier(normalizedUpdates.sessionId);
     if (normalizedUpdates.sessionId !== undefined) {
       normalizedUpdates.sessionId = nextSessionId ?? undefined;
@@ -726,11 +734,52 @@ export class SessionContinuityManager extends EventEmitter {
         normalizeLookupIdentifier(normalizedUpdates.historyThreadId) ?? undefined;
     }
 
+    if ('conversationHistory' in updates || ['provider', 'accountProfileId', 'copilotAccountProfileId'].some((key) => key in updates && updates[key as keyof SessionState] !== state[key as keyof SessionState])) this.markConversationIncomplete(instanceId);
+    if ('conversationHistoryComplete' in normalizedUpdates) normalizedUpdates.conversationHistoryComplete = state.conversationHistoryComplete === true && normalizedUpdates.conversationHistoryComplete === true;
+    if ('conversationHistoryOriginKnown' in normalizedUpdates) normalizedUpdates.conversationHistoryOriginKnown = state.conversationHistoryOriginKnown === true && normalizedUpdates.conversationHistoryOriginKnown === true;
     Object.assign(state, normalizedUpdates);
     this.dirty.add(instanceId);
     this.appendSessionEvent(instanceId, 'state_updated', normalizedUpdates as Record<string, unknown>);
 
     this.emit('state:updated', { instanceId, updates: normalizedUpdates });
+  }
+
+  /** Content loss is permanent for this capture; a shorter retained tail cannot prove completeness. */
+  markConversationIncomplete(instanceId: string): void {
+    (this.incompleteTranscriptIds ??= new Set<string>()).add(instanceId); this.persistenceEpochs?.advance(instanceId);
+    const state = this.sessionStates.get(instanceId);
+    if (state) { state.conversationHistoryOriginKnown = false; state.conversationHistoryComplete = false; this.dirty.add(instanceId); }
+  }
+  captureConversationCheckpoint(instanceId: string): number { return this.persistenceEpochs.capture(instanceId); }
+  /** Must succeed durably before any provider prompt can advance the native transcript. */
+  async prepareForProviderTurn(instanceId: string): Promise<void> {
+    await this.readyPromise;
+    const tracked = this.sessionStates.get(instanceId);
+    if (!tracked) return;
+    const state = await this.hydrateTrackedState(instanceId, tracked);
+    if (updateContinuityCaptureIdentity(state, this.instanceManager?.getInstance?.(instanceId))) this.markConversationIncomplete(instanceId);
+    this.persistenceEpochs.advance(instanceId);
+    state.conversationHistoryTurnStarted = true; state.conversationHistoryComplete = false;
+    this.dirty.add(instanceId);
+    if (!await this.persistState(instanceId)) throw new Error('Unable to save incomplete transcript barrier; provider input was not sent.');
+  }
+
+  /** Called by the ordered continuity queue after the turn's content tasks have drained. */
+  async checkpointCompleteConversation(instanceId: string, epoch: number): Promise<void> {
+    await this.readyPromise;
+    if (!this.persistenceEpochs.isCurrent(instanceId, epoch)) return;
+    const tracked = this.sessionStates.get(instanceId);
+    if (!tracked) return;
+    const state = await this.hydrateTrackedState(instanceId, tracked);
+    if (!this.persistenceEpochs.isCurrent(instanceId, epoch)) return;
+    state.conversationHistoryComplete = this.config.persistSessionContent && state.conversationHistoryOriginKnown === true && !this.incompleteTranscriptIds?.has(instanceId);
+    this.dirty.add(instanceId);
+    if (!await this.persistState(instanceId, epoch) && this.persistenceEpochs.isCurrent(instanceId, epoch)) {
+      const current = this.sessionStates.get(instanceId);
+      if (current) current.conversationHistoryComplete = false;
+      this.dirty.add(instanceId);
+      throw new Error('Unable to save settled transcript checkpoint.');
+    }
   }
 
   handleSystemSuspend(): void {
@@ -758,7 +807,7 @@ export class SessionContinuityManager extends EventEmitter {
    */
   async addConversationEntry(instanceId: string, entry: ConversationEntry): Promise<boolean> {
     await this.readyPromise;
-    if (!this.config.persistSessionContent) return false;
+    if (!this.config.persistSessionContent) { this.markConversationIncomplete(instanceId); return false; }
     const trackedState = this.sessionStates.get(instanceId);
     if (!trackedState) return false;
     const state = await this.hydrateTrackedState(instanceId, trackedState);
@@ -772,7 +821,8 @@ export class SessionContinuityManager extends EventEmitter {
       entry,
       this.config.redactToolOutputs,
     );
-    if (!normalizedEntry) return false;
+    if (!normalizedEntry) { this.markConversationIncomplete(instanceId); return false; }
+    state.conversationHistoryComplete = false;
     const history = state.conversationHistory;
     const duplicateIndex = normalizedEntry.id
       ? findLastIndexById(history, normalizedEntry.id)
@@ -799,6 +849,7 @@ export class SessionContinuityManager extends EventEmitter {
       // splice, not slice: at steady state this runs on every message, and
       // slice would allocate a fresh `maxEntries`-length array each time.
       history.splice(0, history.length - maxEntries);
+      this.markConversationIncomplete(instanceId);
     }
 
     this.stateRecoveryMetadata.delete(instanceId);
@@ -820,7 +871,7 @@ export class SessionContinuityManager extends EventEmitter {
     fallback?: ConversationEntry,
   ): Promise<boolean> {
     await this.readyPromise;
-    if (!this.config.persistSessionContent) return false;
+    if (!this.config.persistSessionContent) { this.markConversationIncomplete(instanceId); return false; }
     const trackedState = this.sessionStates.get(instanceId);
     if (!trackedState) return false;
     const state = await this.hydrateTrackedState(instanceId, trackedState);
@@ -831,6 +882,7 @@ export class SessionContinuityManager extends EventEmitter {
       return this.addConversationEntry(instanceId, fallback);
     }
     Object.assign(entry, structuredClone(patch));
+    state.conversationHistoryComplete = false;
     this.stateRecoveryMetadata.delete(instanceId);
     this.dirty.add(instanceId);
     return true;
@@ -916,6 +968,7 @@ export class SessionContinuityManager extends EventEmitter {
       const repairResult = validateTranscript(state.conversationHistory);
       if (repairResult.status === 'repaired') {
         state.conversationHistory = repairResult.entries;
+        this.markConversationIncomplete(state.instanceId);
         // Persist the repair, or it is redone on every resume. A snapshot's
         // state is not the tracked record, so only the tracked one is saved.
         if (this.sessionStates.get(state.instanceId) === state) {
@@ -930,10 +983,12 @@ export class SessionContinuityManager extends EventEmitter {
     }
 
     // Apply resume options
-    const resumedState: SessionState = { ...state };
+    const resumedState = normalizeStateForContinuity(state, this.config.redactToolOutputs);
 
     if (options.restoreMessages === false) {
       resumedState.conversationHistory = [];
+      resumedState.conversationHistoryComplete = false;
+      resumedState.conversationHistoryOriginKnown = false;
     }
 
     if (options.restoreContext === false) {
@@ -1032,6 +1087,8 @@ export class SessionContinuityManager extends EventEmitter {
     if (!trackedState) return false;
     const state = await this.hydrateTrackedState(instanceId, trackedState);
 
+    if (state.resumeCursor && (identity.sessionId !== undefined && identity.sessionId !== state.resumeCursor.threadId
+      || 'resumeCursor' in identity && identity.resumeCursor?.threadId !== state.resumeCursor.threadId)) this.markConversationIncomplete(instanceId);
     if (identity.sessionId !== undefined) {
       const normalized = normalizeLookupIdentifier(identity.sessionId);
       state.sessionId = normalized ?? undefined;
@@ -1149,7 +1206,7 @@ export class SessionContinuityManager extends EventEmitter {
   ): Promise<string> {
     await this.readyPromise;
     const instanceId = newInstanceId || data.state.instanceId;
-    const state = { ...data.state, instanceId };
+    const state = normalizeStateForContinuity({ ...data.state, instanceId, conversationHistoryOriginKnown: false, conversationHistoryComplete: false }, this.config.redactToolOutputs);
 
     this.sessionStates.set(instanceId, state);
     await this.saveStateAsync(instanceId);
@@ -1159,6 +1216,7 @@ export class SessionContinuityManager extends EventEmitter {
       for (const snapshot of data.snapshots) {
         const updatedSnapshot: SessionSnapshot = {
           ...snapshot,
+          state: { ...snapshot.state, conversationHistoryOriginKnown: false, conversationHistoryComplete: false },
           instanceId,
           historyThreadId: snapshot.historyThreadId || state.historyThreadId,
           sessionId: snapshot.sessionId || state.sessionId,
@@ -1186,70 +1244,9 @@ export class SessionContinuityManager extends EventEmitter {
     return instanceId;
   }
 
-  /**
-   * Convert Instance to SessionState
-   */
+  /** Capture durable state through the shared pure projection. */
   private instanceToState(instance: Instance): SessionState {
-    const persistContent = this.config.persistSessionContent;
-
-    const state: SessionState = {
-      instanceId: instance.id,
-      sessionId: instance.sessionId,
-      historyThreadId: instance.historyThreadId,
-      parentId: instance.parentId ?? null,
-      nativeResumeFailedAt: null,
-      displayName: instance.displayName,
-      isRenamed: instance.isRenamed,
-      agentId: instance.agentId,
-      modelId: instance.currentModel || CLAUDE_MODELS.OPUS_1M,
-      provider: instance.provider,
-      workingDirectory: instance.workingDirectory,
-      systemPrompt: undefined,
-      temperature: undefined,
-      maxTokens: undefined,
-      conversationHistory: persistContent
-        // Prompts a trim already evicted are still part of the conversation.
-        // Without them a hibernate/wake round trip loses the original request
-        // for good — the live buffer is all this ever captured.
-        ? normalizeConversationHistory(outputMessagesToContinuityEntries([
-            ...retainedPromptsMissingFrom(instance.retainedPrompts, instance.outputBuffer),
-            ...instance.outputBuffer,
-          ]), this.config.redactToolOutputs)
-        : [],
-      contextUsage: {
-        used: instance.contextUsage.used,
-        total: instance.contextUsage.total,
-        costEstimate: instance.contextUsage.costEstimate,
-        // LT-018: carry the "these numbers are real" flag across hibernate/wake.
-        occupancyReported: instance.contextUsage.occupancyReported,
-        // LT-034: and the "these numbers are spend, not occupancy" flag, or the
-        // woken session renders a fabricated window percentage.
-        occupancyIsAggregate: instance.contextUsage.occupancyIsAggregate
-      },
-      pendingTasks: [],
-      environmentVariables: {},
-      activeFiles: [],
-      gitBranch: undefined,
-      customInstructions: undefined,
-      skillsLoaded: [],
-      hooksActive: [],
-      // Copied EXPLICITLY, like every other field here. This function is the
-      // reason the profile is a first-class field rather than a `metadata`
-      // entry: `instance.metadata` is not copied, so a profile stamped there
-      // would be silently dropped on hibernate and the woken session could
-      // resume under a different GitHub account.
-      copilotAccountProfileId: instance.copilotAccountProfileId,
-      copilotRoutingSource: instance.copilotRoutingSource,
-      copilotRoutingRuleId: instance.copilotRoutingRuleId,
-      // Provider account pools: copied explicitly for the same reason.
-      accountProfileId: instance.accountProfileId,
-      accountRoutingSource: instance.accountRoutingSource,
-      accountSwitches: instance.accountSwitches,
-      accountRouteOrigin: instance.accountRouteOrigin,
-      allowedAccountProfileIds: instance.allowedAccountProfileIds,
-    };
-
-    return state;
+    return instanceToContinuityState(instance, this.config);
   }
 
   /**
@@ -1284,12 +1281,7 @@ export class SessionContinuityManager extends EventEmitter {
    * and {@link writeThroughIdentityLocked} (invoked by operations that already
    * hold the lock). Keeping a single core avoids drift between the two paths.
    */
-  private async saveStateLocked(instanceId: string, epoch = this.persistenceEpochs.capture(instanceId)): Promise<void> {
-    const trackedState = this.sessionStates.get(instanceId);
-    if (!trackedState) return;
-    const state = await this.hydrateTrackedState(instanceId, trackedState);
-    if (!this.persistenceEpochs.isCurrent(instanceId, epoch)) return;
-
+  private async saveStateLocked(instanceId: string, epoch = this.persistenceEpochs.capture(instanceId)): Promise<boolean> {
     // Cheap misuse guard: a *Locked write with no holder means a caller skipped
     // the lock (would reintroduce torn-cursor races). isLocked can't tell which
     // op holds it, but `false` is unambiguous misuse.
@@ -1297,9 +1289,19 @@ export class SessionContinuityManager extends EventEmitter {
       logger.warn('saveStateLocked invoked without the session lock held', { instanceId });
     }
 
+    return this.persistState(instanceId, epoch);
+  }
+
+  /** Atomic file locking plus epoch checks also fence prompt barriers against older saves. */
+  private async persistState(instanceId: string, epoch = this.persistenceEpochs.capture(instanceId)): Promise<boolean> {
+    const trackedState = this.sessionStates.get(instanceId);
+    if (!trackedState) return false;
+    const state = await this.hydrateTrackedState(instanceId, trackedState);
+    if (!this.persistenceEpochs.isCurrent(instanceId, epoch)) return false;
+
     try {
       // Capture resume cursor from adapter if available
-      this.captureResumeCursor(instanceId, state);
+      this.captureResumeCursor(instanceId, state); epoch = this.persistenceEpochs.capture(instanceId);
       state.lastWriteTimestamp = Date.now();
       state.lastWriteSource = 'auto-save';
 
@@ -1311,24 +1313,26 @@ export class SessionContinuityManager extends EventEmitter {
         this.persistenceOperations.writePayloadAtomic(
           stateFile, this.serializePayload(normalizedState), isCurrent,
         ));
-      if (!stateCommitted || !isCurrent()) return;
+      if (!stateCommitted || !isCurrent()) return false;
       const stateStat = await this.persistenceOperations.statStateFile(stateFile);
-      if (!isCurrent()) return;
+      if (!isCurrent()) return false;
       const metadataCommitted = await this.persistenceOperations.writePayloadAtomic(
         path.join(this.recoveryMetadataDir, `${instanceId}.json`),
         this.serializePayload(buildBoundContinuityRecoveryMetadata(normalizedState, stateStat)),
         isCurrent,
       );
-      if (!metadataCommitted || !isCurrent()) return;
+      if (!metadataCommitted || !isCurrent()) return false;
       this.dirty.delete(instanceId);
       this.appendSessionEvent(instanceId, 'state_saved', {
         source: state.lastWriteSource ?? 'unknown',
         timestamp: state.lastWriteTimestamp ?? Date.now(),
       });
       this.emit('state:saved', { instanceId });
+      return true;
     } catch (error) {
       logger.error('Failed to save session state', error instanceof Error ? error : undefined, { instanceId });
       this.emit('state:save-error', { instanceId, error });
+      return false;
     }
   }
 
@@ -1672,7 +1676,7 @@ export class SessionContinuityManager extends EventEmitter {
   forgetRetainedSession(instanceId: string): void {
     this.persistenceEpochs.advance(instanceId);
     this.autoSave.clearPendingAutoSaveTimer(instanceId);
-    for (const cache of [this.sessionStates, this.dehydratedStateIds, this.stateActivityTimestamps, this.stateRecoveryMetadata, this.dirty]) cache.delete(instanceId);
+    for (const cache of [this.sessionStates, this.dehydratedStateIds, this.stateActivityTimestamps, this.stateRecoveryMetadata, this.dirty, this.incompleteTranscriptIds]) cache.delete(instanceId);
   }
 
   getSessionState(instanceId: string): SessionState | null {
@@ -1711,12 +1715,14 @@ export class SessionContinuityManager extends EventEmitter {
   /** Capture the adapter's resume cursor into the persisted session state. */
   private captureResumeCursor(instanceId: string, state: SessionState): void {
     if (!this.instanceManager) return; // Not wired yet — best effort only
+    const previousThreadId = state.resumeCursor?.threadId;
     try {
       captureResumeCursorForState({
         adapter: this.instanceManager.getAdapter(instanceId),
         instanceId, state,
         warn: (message, metadata) => logger.warn(message, metadata),
       });
+      if (previousThreadId && state.resumeCursor?.threadId !== previousThreadId) this.markConversationIncomplete(instanceId);
     } catch {
       // Best effort — don't let cursor capture fail the save
     }

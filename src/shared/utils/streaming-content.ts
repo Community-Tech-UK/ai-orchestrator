@@ -1,3 +1,15 @@
+import type { OutputMessage } from '../types/instance.types';
+
+/** ACP notices replace prose only within their own source; an ID collision must not claim another message. */
+export function getStreamingStatusMergePolicy(
+  previous: Pick<OutputMessage, 'type' | 'metadata'>,
+  incoming: Pick<OutputMessage, 'type' | 'metadata'>,
+): 'replace' | 'ignore' | undefined {
+  const source = incoming.metadata?.['source'];
+  if (incoming.type !== 'system' || (source !== 'acp-compaction' && source !== 'acp-retry-state')) return undefined;
+  return previous.type === 'system' && previous.metadata?.['source'] === source ? 'replace' : 'ignore';
+}
+
 /**
  * Monotonic merge for streaming assistant bubbles.
  *

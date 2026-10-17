@@ -1,0 +1,219 @@
+{
+  "source": "OpenCode2.0.30 real isolated ACP against localhost simulated model, actual protocol responses; identifiers replaced.",
+  "continuation": [
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "fixture-1",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "messageId": "fixture-2",
+          "content": {
+            "type": "text",
+            "text": "First part "
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "fixture-1",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "messageId": "fixture-3",
+          "content": {
+            "type": "text",
+            "text": "Continued answer."
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "fixture-1",
+        "update": {
+          "sessionUpdate": "usage_update",
+          "used": 24,
+          "size": 4096,
+          "cost": {
+            "amount": 0,
+            "currency": "USD"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "result": {
+        "stopReason": "end_turn",
+        "usage": {
+          "inputTokens": 40,
+          "outputTokens": 36,
+          "totalTokens": 76
+        },
+        "_meta": {}
+      }
+    }
+  ],
+  "child": [
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "fixture-4",
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "fixture-task-call",
+          "name": "subagent",
+          "title": "subagent",
+          "kind": "think",
+          "status": "pending",
+          "locations": [],
+          "rawInput": {}
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "fixture-4",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "fixture-task-call",
+          "status": "in_progress",
+          "kind": "think",
+          "title": "subagent",
+          "locations": [],
+          "rawInput": {
+            "agent": "general",
+            "description": "Fixture child",
+            "prompt": "Return hello"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "fixture-4",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "fixture-task-call",
+          "status": "in_progress",
+          "kind": "think",
+          "title": "subagent",
+          "locations": [],
+          "rawInput": {
+            "agent": "general",
+            "description": "Fixture child",
+            "prompt": "Return hello"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "fixture-4",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "messageId": "fixture-5",
+          "content": {
+            "type": "text",
+            "text": "Continued answer."
+          },
+          "_meta": {
+            "opencode/child-session": {
+              "id": "fixture-6",
+              "parentID": "fixture-4",
+              "depth": 1,
+              "title": "Fixture child"
+            }
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "fixture-4",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "fixture-task-call",
+          "status": "completed",
+          "locations": [],
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "<subagent sessionID=\"fixture-6\" state=\"completed\">\nContinued answer.\n</subagent>"
+              }
+            }
+          ],
+          "rawOutput": {
+            "metadata": {
+              "sessionID": "fixture-6",
+              "status": "completed",
+              "truncated": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "fixture-4",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "messageId": "fixture-7",
+          "content": {
+            "type": "text",
+            "text": "Continued answer."
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "fixture-4",
+        "update": {
+          "sessionUpdate": "usage_update",
+          "used": 24,
+          "size": 4096,
+          "cost": {
+            "amount": 0,
+            "currency": "USD"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "result": {
+        "stopReason": "end_turn",
+        "usage": {
+          "inputTokens": 40,
+          "outputTokens": 36,
+          "totalTokens": 76
+        },
+        "_meta": {}
+      }
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+vi.mock('../cli/adapters/opencode-cli-launch', () => ({ selectOpenCodeLaunch: vi.fn(async () => ({ command: 'opencode', major: 1 })) }));
+import { selectOpenCodeLaunch } from '../cli/adapters/opencode-cli-launch';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 import type { ChildProcess } from 'child_process';
@@ -22,6 +24,7 @@ import {
   cacheOpenCodeRegionModelMetadata,
   OpenCodeCliDiscoveryService,
   parseOpenCodeModelList,
+  parseOpenCodeV2ModelMetadata,
   toOpenCodeModelDisplayInfos,
 } from './opencode-cli-discovery-service';
 import { withOpenCodeProcessGate } from '../cli/adapters/opencode-process-gate';
@@ -200,4 +203,42 @@ describe('OpenCodeCliDiscoveryService', () => {
     await expect(service.refreshOnce()).resolves.toBeUndefined();
     expect(catalog.onCliDiscoveryRefreshed).not.toHaveBeenCalled();
   });
+});
+
+// OpenCode 2.0.30 model.list response: native capabilities and variants.
+describe('OpenCode 2 model metadata', () => {
+  it('keeps model limits and variants while classifying native tool capabilities', () => {
+    const blocks = parseOpenCodeV2ModelMetadata(JSON.stringify({ location: { directory: '/fixture' }, data: [{
+      id: 'xiaomi-token-plan-ams/mimo-v2.6-pro', modelID: 'mimo-v2.6-pro', providerID: 'xiaomi-token-plan-ams',
+      name: 'MiMo Pro', capabilities: { tools: true, input: ['text', 'image'], output: ['text'] },
+      limit: { context: 1048576, output: 98304 }, variants: [{ id: 'thinking', body: { enable_thinking: true } }],
+      settings: {}, body: { max_completion_tokens: 98304 }, enabled: true,
+    }] }));
+    expect(blocks).toEqual([expect.objectContaining({
+      providerId: 'xiaomi-token-plan-ams', modelId: 'mimo-v2.6-pro',
+      metadata: expect.objectContaining({ limit: { context: 1048576, output: 98304 },
+        capabilities: expect.objectContaining({ toolcall: true, input: { text: true, image: true }, output: { text: true } }),
+        variants: { thinking: { enable_thinking: true } }, options: { max_completion_tokens: 98304 } }),
+    })]);
+  });
+  it('rejects unknown response shapes and ignores disabled or malformed models', () => {
+    expect(parseOpenCodeV2ModelMetadata('{"data":{}}')).toEqual([]);
+    expect(parseOpenCodeV2ModelMetadata('{"data":[{"enabled":false}]}')).toEqual([]);
+  });
+});
+
+it('uses the selected OpenCode 2 install for standalone names and metadata before updating the catalog', async () => {
+  vi.mocked(selectOpenCodeLaunch).mockResolvedValueOnce({ command: '/fixture/opencode2', major: 2 });
+  lifecycle.spawn.mockImplementationOnce(() => fakeProcess('xiaomi-token-plan-ams/mimo-v2.6-pro\naio-mimo-account-b/mimo-v2.6-pro\n', 0));
+  lifecycle.spawn.mockImplementationOnce(() => fakeProcess(JSON.stringify({ data: [
+    { providerID: 'xiaomi-token-plan-ams', modelID: 'mimo-v2.6-pro', name: 'MiMo Pro', capabilities: { tools: true, input: ['text'], output: ['text'] }, limit: { context: 1000000, output: 98304 } },
+    { providerID: 'aio-mimo-account-b', modelID: 'mimo-v2.6-pro', name: 'Alias', capabilities: { tools: true, input: ['text'], output: ['text'] }, limit: { context: 1000000, output: 98304 } },
+  ] }), 0));
+  const catalog = { onCliDiscoveryRefreshed: vi.fn() };
+  await new OpenCodeCliDiscoveryService({ catalog }).refreshOnce();
+  expect(lifecycle.spawn.mock.calls.map(([command, args]) => [command, args])).toEqual([
+    ['/fixture/opencode2', ['models', '--standalone']], ['/fixture/opencode2', ['api', '--standalone', 'GET', '/api/model']],
+  ]);
+  expect(catalog.onCliDiscoveryRefreshed).toHaveBeenCalledWith('opencode', [expect.objectContaining({ id: 'xiaomi-token-plan-ams/mimo-v2.6-pro', name: 'MiMo Pro' })]);
+  expect(getCachedOpenCodeRegionModelMetadata('ams')?.[0]?.metadata['limit']).toEqual({ context: 1000000, output: 98304 });
 });

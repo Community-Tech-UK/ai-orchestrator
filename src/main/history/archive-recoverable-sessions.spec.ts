@@ -151,6 +151,93 @@ describe('archiveRecoverableSessionsToHistory', () => {
     expect(await service.listCandidates()).toEqual([]);
   });
 
+  it('retains extra folders in the archived metadata and compressed conversation', async () => {
+    const { history } = await setup([]);
+    const { createInstance } = await import('../../shared/types/instance.types');
+    const directories = ['/workspace/second-project'];
+    const instance = Object.assign(createInstance({ workingDirectory: '/workspace/project', provider: 'opencode' }), {
+      additionalDirectories: directories,
+      status: 'idle' as const,
+      outputBuffer: [message('folders-user', 'user', 'inspect both projects', NOW)],
+    });
+
+    await history.archiveInstance(instance);
+    directories.push('/workspace/later-change');
+
+    const [archived] = history.getEntries();
+    expect(archived?.additionalDirectories).toEqual(['/workspace/second-project']);
+    expect((await history.loadConversation(archived!.id))?.entry.additionalDirectories)
+      .toEqual(['/workspace/second-project']);
+  });
+
+  it('carries major-only placement and the original worker through startup archival into compressed History', async () => {
+    const nodePlacement = { requiresOpenCodeMajor: 2 as const, preferNodeId: 'other-worker' };
+    const state = continuityState('major-only', { provider: 'opencode', nodePlacement, executionLocation: { type: 'remote', nodeId: 'original-worker' } });
+    const { history, run, archiveInstance } = await setup([JSON.parse(JSON.stringify(state)) as SessionState]);
+    expect(await run()).toMatchObject({ archived: 1, failed: [] });
+    expect(archiveInstance.mock.calls[0]?.[0]).toMatchObject({ nodePlacement, executionLocation: { type: 'remote', nodeId: 'original-worker' } });
+    const [archived] = history.getEntries();
+    expect((await history.loadConversation(archived!.id))?.entry.nodePlacement).toEqual(nodePlacement);
+  });
+
+  it('carries autosaved OpenCode folders through recovery into History', async () => {
+    const state = continuityState('folders', {
+      provider: 'opencode',
+      additionalDirectories: ['/workspace/second-project'],
+    });
+    const { history, run, archiveInstance } = await setup([state]);
+
+    expect(await run()).toEqual({ archived: 1, declined: 0, skipped: 0, failed: [] });
+
+    expect(archiveInstance).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'opencode', additionalDirectories: ['/workspace/second-project'],
+    }), expect.any(Object));
+    const [archived] = history.getEntries();
+    expect((await history.loadConversation(archived!.id))?.entry.additionalDirectories)
+      .toEqual(['/workspace/second-project']);
+  });
+
+  it('retains the original worker through startup archival and refuses an offline folder restore', async () => {
+    const state = Object.assign(continuityState('remote-folders', {
+      provider: 'opencode', additionalDirectories: ['/workspace/second-project'],
+    }), { executionLocation: { type: 'remote' as const, nodeId: 'worker-placeholder' } });
+    const { history, run, archiveInstance } = await setup([JSON.parse(JSON.stringify(state)) as SessionState]);
+
+    expect(await run()).toEqual({ archived: 1, declined: 0, skipped: 0, failed: [] });
+    const archivedInstance = archiveInstance.mock.calls[0]![0];
+    expect(archivedInstance.executionLocation).toEqual({ type: 'remote', nodeId: 'worker-placeholder' });
+    const [archived] = history.getEntries();
+    expect(archived?.executionLocation).toEqual({ type: 'remote', nodeId: 'worker-placeholder' });
+    expect((await history.loadConversation(archived!.id))?.entry.executionLocation)
+      .toEqual({ type: 'remote', nodeId: 'worker-placeholder' });
+
+    const { HistoryRestoreCoordinator } = await import('./history-restore-coordinator');
+    const restore = new HistoryRestoreCoordinator({ history: () => history, isRemoteNodeReachable: () => false });
+    const createInstance = vi.fn();
+    await expect(restore.restore({ createInstance } as never, archived!.id))
+      .rejects.toMatchObject({ code: 'ADDITIONAL_DIRECTORIES_NODE_UNAVAILABLE' });
+    expect(createInstance).not.toHaveBeenCalled();
+  });
+
+  it('clones the worker descriptor rather than sharing the saved state object', async () => {
+    const { buildArchiveInstanceFromRecovery } = await import('./archive-recoverable-sessions');
+    const state = Object.assign(continuityState('remote-clone', { provider: 'opencode' }), {
+      executionLocation: { type: 'remote' as const, nodeId: 'worker-placeholder' },
+    });
+    const prepared = buildArchiveInstanceFromRecovery({ candidate: { ...metadataFor(state), recoveredMessageCount: 2, reason: 'unarchived' }, continuityState: state, historyConversation: null });
+    state.executionLocation.nodeId = 'changed-placeholder';
+    expect(prepared?.instance.executionLocation).toEqual({ type: 'remote', nodeId: 'worker-placeholder' });
+  });
+
+  it('does not archive malformed worker provenance as a local folder session', async () => {
+    const state = Object.assign(continuityState('bad-worker', {
+      provider: 'opencode', additionalDirectories: ['/workspace/second-project'],
+    }), { executionLocation: { type: 'remote' as const, nodeId: '' } });
+    const { history, run } = await setup([state]);
+    expect(await run()).toMatchObject({ archived: 0, failed: [{ instanceId: 'bad-worker' }] });
+    expect(history.getEntries()).toEqual([]);
+  });
+
   it('merges a newer autosave with the existing History entry instead of replacing it', async () => {
     // The session kept going after its History archive was written, then crashed.
     const later = Date.now() + 60_000;

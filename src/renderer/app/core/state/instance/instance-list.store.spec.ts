@@ -615,6 +615,18 @@ describe('InstanceListStore', () => {
     expect(stateService.state().selectedInstanceId).toBe('created-instance');
   });
 
+  it('forwards only an explicit fence-off choice on both create paths', async () => {
+    await store.createInstanceAndReturnId({ workingDirectory: '/tmp/project', signalFence: false });
+    expect(ipc.createInstance.mock.lastCall?.[0]).toMatchObject({ signalFence: false });
+    await store.createInstanceAndReturnId({ workingDirectory: '/tmp/project', signalFence: true });
+    expect(ipc.createInstance.mock.lastCall?.[0]).not.toHaveProperty('signalFence');
+
+    await store.createInstanceWithMessageResult({ workingDirectory: '/tmp/project', message: 'hi', signalFence: false });
+    expect(ipc.createInstanceWithMessage.mock.lastCall?.[0]).toMatchObject({ signalFence: false });
+    await store.createInstanceWithMessageResult({ workingDirectory: '/tmp/project', message: 'hi' });
+    expect(ipc.createInstanceWithMessage.mock.lastCall?.[0]).not.toHaveProperty('signalFence');
+  });
+
   it('forwards modelRuntimeTarget when creating a blank instance', async () => {
     const modelRuntimeTarget = {
       kind: 'local-model' as const,

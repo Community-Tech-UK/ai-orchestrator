@@ -22,9 +22,9 @@ export class CommandIpcService {
   /**
    * List all commands (built-in + custom)
    */
-  async listCommands(workingDirectory?: string): Promise<IpcResponse> {
+  async listCommands(workingDirectory?: string, instanceId?: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.listCommands({ workingDirectory });
+    return this.api.listCommands({ workingDirectory, instanceId });
   }
 
   async resolveCommand(input: string, workingDirectory?: string): Promise<IpcResponse> {

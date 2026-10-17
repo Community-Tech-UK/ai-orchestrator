@@ -9,6 +9,7 @@
  */
 
 import { existsSync } from 'fs';
+import { isAbsolute } from 'node:path';
 import { spawnSync } from 'child_process';
 import {
   BaseCliAdapter,
@@ -18,7 +19,6 @@ import {
   type CliAttachment as AdapterCliAttachment,
   type CliCapabilities,
   type InterruptResult,
-  type TurnInterruptCompletion,
   type CliMessage,
   type CliResponse,
   type CliSpawnMode,
@@ -30,10 +30,11 @@ import {
 import { StderrTailBuffer } from './acp-stderr-tail';
 import { AcpNdjsonFramer } from './acp-ndjson-framer';
 import { acpTextDiagnostic, safeAcpProtocolDetails } from './acp-protocol-diagnostics';
-import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
+import { assertAdapterInputCurrent } from './adapter-input-dispatch';
+import { createAcpInputLifecycle, createAcpInterruptResult, createAcpLifecycleDispatch } from './acp-prompt-lifecycle';
 import { isStdinWriteProcessError } from './child-stdin-write';
-import { assertAcpGenerationBudgetSelection, isAcpSessionModelConfirmed } from './acp-generation-budget-selection';
-import { reduceAcpSessionConfigResponse, type AcpSessionResponseRequest } from './acp-session-config-response';
+import { applyAcpStartupSessionConfig } from './acp-startup-session-config';
+import { reduceAcpSessionConfigResponse } from './acp-session-config-response';
 import { ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE, isAcpPromptRequestTimeout, isAcpPromptCancelledByClient,
   isAcpActiveTurnCollision, isAcpAgentExitRejection, isAcpInputWriteFailure, markAcpInputWriteFailure, normalizeAcpInputWriteError } from './acp-prompt-errors';
 import { AcpDelegatedTaskLiveness, type AcpChildProgressSource } from './acp-delegated-task-liveness';
@@ -124,8 +125,9 @@ import {
 import { classifyMissingUsage } from './acp-transport-failure';
 import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
 import { buildAcpElicitationResponse } from './acp-elicitation-response';
-import { applyAcpSessionConfig, type AcpSessionConfigRequest } from './acp-session-config-options';
-import { confirmAcpLiveSessionConfig, isAcpSessionConfigSelected } from './acp-session-config-confirmation';
+import { cancelAcpElicitations } from './acp-elicitation-cleanup';
+import type { AcpSessionConfigRequest } from './acp-session-config-options';
+import { applyConfirmedAcpLiveSessionConfig, assertAcpLiveSessionConfigReady } from './acp-session-config-confirmation';
 import { AcpSessionCostLedger, buildAcpMeasuredContextEvent, parseAcpUsageUpdate } from './acp-usage-update';
 import { appendAcpThoughtDelta, buildAcpTurnThinking } from './acp-thought-stream';
 import { buildAcpTurnCompletion } from './acp-turn-completion';
@@ -134,6 +136,11 @@ import { settleAcpErrorResponse } from './acp-jsonrpc-errors';
 import type { AcpStartupGate } from './acp-startup-gate';
 import { tagAcpProviderLimit } from './acp-provider-limit';
 import { normalizeAcpAvailableCommands, renderAcpPlan } from './acp-session-update-normalizers';
+import { OpenCodeAcpUpdates } from './opencode-acp-updates';
+import { acpElicitationQuestions } from './acp-elicitation-questions';
+import type { AcpPendingRequest } from './acp-pending-request.types';
+import { forkAcpSession } from './acp-session-fork';
+import { AcpSessionReplay, acpResumeCursor } from './acp-session-replay';
 import {
   buildAcpMinableInput, buildAcpToolCallArguments, buildAcpToolOutcomeFallback, buildAcpToolResultMessage,
   isAcpTerminalToolStatus, renderAcpRawOutput,
@@ -218,15 +225,6 @@ const ACP_CAPABILITIES: CliCapabilities = {
   outputFormats: ['jsonrpc', 'text'],
 };
 
-interface AcpPendingRequest extends AcpSessionResponseRequest {
-  resolve: (value: unknown) => void;
-  reject: (error: Error) => void;
-  /** Timer that rejects the pending promise if the agent never replies.
-   *  Cleared on any settle path (resolve, reject, cancel, terminate). */
-  timer: ReturnType<typeof setTimeout>;
-  timeoutMs: number;
-}
-
 interface AcpObservedToolCall {
   id: string;
   title: string;
@@ -269,6 +267,8 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
    *  authenticate handshake leave this unset. */
   authMethodId?: string;
   command?: string;
+  /** Resolve provider-selected installs before every availability check. */
+  resolveCommand?: () => Promise<string>;
   model?: string;
   systemPrompt?: string;
   /** When true, prepend the RTK awareness prompt on the first turn so the
@@ -279,6 +279,9 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
   workingDirectory: string;
   sessionId?: string;
   resume?: boolean;
+  preferSessionResume?: boolean;
+  forkSessionId?: string;
+  additionalDirectories?: string[];
   mcpServers?: AcpMcpServerConfig[];
   clientCapabilities?: AcpClientCapabilities;
   clientInfo?: AcpImplementationInfo;
@@ -335,6 +338,7 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
   reportedCostOnly?: boolean;
   /** Materialize provider-specific private launch files and return that spawn's cleanup. */
   prepareSpawn?: () => (() => void) | Promise<() => void>;
+  beforeProviderPrompt?: () => Promise<void>;
   prepareContentFilterRecovery?: (sessionId: string, toolCallId: string, signal?: AbortSignal) => Promise<boolean>;
   generationBudget?: { model: string; combinedOutputTokens: number; reasoningBudgetSupported: false };
   /** Keep a durable copy of each inline image and send its file:// URI. For
@@ -414,6 +418,12 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private readonly delegatedLiveness: AcpDelegatedTaskLiveness;
   private outputBlockedNoticed = false;
   private recentReadToolCallId: string | null = null;
+  private openCodeV2 = false;
+  private nativeForkInProgress = false;
+  private readonly openCodeUpdates = new OpenCodeAcpUpdates();
+  private availableCommands: { name: string; description?: string }[] = [];
+  private openingReplay: AcpSessionReplay | null = null;
+  private promptLifecycleEpoch = 0;
 
   constructor(config: AcpCliAdapterConfig) {
     super({
@@ -449,12 +459,21 @@ export class AcpCliAdapter extends BaseCliAdapter {
     return this.acpConfig.adapterName?.trim() || 'ACP';
   }
 
+  configureOpenCodeV2(enabled: boolean): void { this.openCodeV2 = enabled; }
+  getAvailableCommands(): readonly { name: string; description?: string }[] { return this.availableCommands; }
+
+  async forkNativeSession(): Promise<string> {
+    return forkAcpSession({ ready: this.initialized, active: Boolean(this.currentPrompt || this.nativeForkInProgress), supported: this.openCodeV2 && Boolean(this.agentCapabilities?.sessionCapabilities?.fork), sessionId: this.sessionId,
+      params: { cwd: this.acpConfig.workingDirectory, mcpServers: this.sessionMcpServers(), additionalDirectories: this.acpConfig.additionalDirectories } },
+    (active) => { this.nativeForkInProgress = active; if (this.initialized) this.emit('status', active ? 'busy' : 'idle'); },
+    (params) => this.sendRequest('session/fork', params));
+  }
+
   async prepareContentFilterRecovery(signal?: AbortSignal): Promise<boolean> {
     return !signal?.aborted && this.sessionId !== null && this.currentPrompt === null && this.recentReadToolCallId !== null
       && await this.acpConfig.prepareContentFilterRecovery?.(this.sessionId, this.recentReadToolCallId, signal) === true;
   }
 
-  /** Bounded stderr tail — for tests and exit-context diagnostics. */
   getStderrTail(): string | undefined {
     return this.stderrTail.dump();
   }
@@ -466,7 +485,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   override getRuntimeCapabilities(): AdapterRuntimeCapabilities {
     return {
       supportsResume: this.agentCapabilities?.loadSession === true,
-      supportsForkSession: false,
+      supportsForkSession: this.openCodeV2 && Boolean(this.agentCapabilities?.sessionCapabilities?.fork),
       supportsNativeCompaction: false,
       supportsPermissionPrompts: true,
       supportsDeferPermission: false,
@@ -495,7 +514,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   async checkStatus(): Promise<CliStatus> {
-    const command = this.acpConfig.command ?? this.getConfig().command;
+    let command = this.getConfig().command;
+    if (this.acpConfig.resolveCommand) {
+      try { command = await this.acpConfig.resolveCommand(); this.setSpawnCommand(command); }
+      catch (error) { return { available: false, error: error instanceof Error ? error.message : 'Unable to resolve ACP agent command.' }; }
+    }
     if (!command) {
       return {
         available: false,
@@ -582,7 +605,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
     try {
       const initializeParams: AcpInitializeParams = {
         protocolVersion: ACP_PROTOCOL_VERSION,
-        clientCapabilities: this.acpConfig.clientCapabilities ?? DEFAULT_CLIENT_CAPABILITIES,
+        clientCapabilities: this.openCodeV2 ? {
+          ...this.acpConfig.clientCapabilities,
+          elicitation: { ...this.acpConfig.clientCapabilities?.elicitation, form: {} }, session: { compaction: {} },
+        } : this.acpConfig.clientCapabilities ?? DEFAULT_CLIENT_CAPABILITIES,
         clientInfo: this.acpConfig.clientInfo ?? DEFAULT_CLIENT_INFO,
       };
       const initializeResult = await this.sendRequest<AcpInitializeResult>('initialize', initializeParams)
@@ -636,6 +662,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   protected override async sendInputImpl(message: string, attachments?: FileAttachment[], _metadata?: CliMessage['metadata'], dispatch?: AdapterInputDispatch): Promise<void> {
+    const lifecycle = createAcpInputLifecycle(dispatch, () => this.promptLifecycleEpoch, () => this.clearStreamIdleWatchdog());
     const writePhase = { accepted: false, cancelledByClient: false };
     const cliAttachments: AdapterCliAttachment[] | undefined = attachments?.map((attachment) => ({
       type: attachment.type.startsWith('image/') ? 'image' : 'file',
@@ -649,7 +676,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
         role: 'user',
         content: message,
         attachments: cliAttachments,
-      }, dispatch, writePhase);
+      }, lifecycle.admission, writePhase);
     } catch (error) {
       // Surface provider/runtime failures as an `error` OutputMessage plus
       // `status: error` (matching the CopilotCliAdapter contract). Scheduling
@@ -657,19 +684,19 @@ export class AcpCliAdapter extends BaseCliAdapter {
       // by the adapter and the renderer can park the follow-up message.
       const err = error instanceof Error ? error : new Error(String(error));
       if (!writePhase.accepted && writePhase.cancelledByClient && isAcpInputWriteFailure(err)) {
-        this.clearStreamIdleWatchdog();
+        lifecycle.clearWatchdog();
         throw Object.assign(new Error(ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE, { cause: err }), { name: 'AbortError' });
       }
       if (!writePhase.accepted) {
         try { assertAdapterInputCurrent(dispatch); }
-        catch (cancelled) { this.clearStreamIdleWatchdog(); throw cancelled; }
+        catch (cancelled) { lifecycle.clearWatchdog(); throw cancelled; }
       }
       if (err.name === 'AbortError' || isStdinWriteProcessError(err) || (isAcpInputWriteFailure(err) && (err as NodeJS.ErrnoException).code === 'EPIPE')) {
-        this.clearStreamIdleWatchdog(); throw err;
+        lifecycle.clearWatchdog(); throw err;
       }
       if (!isAcpInputWriteFailure(err) && isAcpPromptCancelledByClient(err)) {
-        this.clearStreamIdleWatchdog();
-        this.emit('status', 'idle');
+        lifecycle.clearWatchdog();
+        if (lifecycle.isCurrent()) this.emit('status', 'idle');
         return;
       }
       // The process already exited — its `exit` event owns the aftermath
@@ -678,7 +705,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       // EPIPE case guarded in instance-communication.ts, marking the instance
       // unrecoverable before auto-respawn's abort check runs (plan 2026-09-26).
       if (!isAcpInputWriteFailure(err) && isAcpAgentExitRejection(err)) {
-        this.clearStreamIdleWatchdog();
+        lifecycle.clearWatchdog();
         logger.info('ACP prompt rejected by agent exit — deferring to exit recovery', { adapter: this.getName(), ...safeAcpProtocolDetails({ error: err }) });
         if (!writePhase.accepted) throw err;
         return;
@@ -689,6 +716,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       if (isAcpActiveTurnCollision(err)) {
         throw err;
       }
+      if (!lifecycle.isCurrent() && (writePhase.accepted || isAcpInputWriteFailure(err))) throw err;
       const isRecoverablePromptTimeout = isAcpPromptRequestTimeout(err);
       const errorMessage: OutputMessage = {
         id: generateId(),
@@ -715,7 +743,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   async sendMessage(message: CliMessage, dispatch?: AdapterInputDispatch, writePhase = { accepted: false, cancelledByClient: false }): Promise<CliResponse> {
-    const admission = createAdapterInputDispatch(dispatch);
+    const admission = createAcpLifecycleDispatch(dispatch, () => this.promptLifecycleEpoch);
     assertAdapterInputCurrent(admission);
     if (message.role !== 'user') {
       throw new Error('ACP adapter only supports user-initiated prompt turns.');
@@ -730,8 +758,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       throw new Error('ACP session has not been initialized.');
     }
 
-    // Awaited before the busy guard so the guard and the turn setup below stay
-    // synchronous with each other.
+    // Persist before synchronous busy/turn setup; admission fences retirement across this await.
     if (this.acpConfig.persistImageAttachments && message.attachments?.length) {
       message = {
         ...message,
@@ -740,38 +767,45 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
 
     assertAdapterInputCurrent(admission);
-    if (this.currentPrompt || this.currentPromptRequestId) {
+    if (this.currentPrompt || this.currentPromptRequestId || this.nativeForkInProgress) {
       throw new Error(
         'Cannot send message: the previous turn is still running. ' +
         'Wait for it to finish, or cancel/interrupt the current turn first.',
       );
     }
 
-    const queuedContext = this.nextPromptContext.slice();
+    const commandName = /^\/([^\s]+)(?:\s|$)/.exec(message.content)?.[1];
+    const nativeCommand = this.openCodeV2 && this.availableCommands.some((command) => command.name === commandName);
+    const queuedContext = nativeCommand ? [] : this.nextPromptContext.slice();
     const previousPromptFlags = { system: this.systemPromptSent, rtk: this.rtkAwarenessSent };
     const promptParams: AcpSessionPromptParams = {
       sessionId: this.sessionId,
-      prompt: [...queuedContext.map((text) => ({ type: 'text' as const, text })), ...this.toPromptBlocks(message)],
+      prompt: nativeCommand ? [{ type: 'text', text: message.content }] : [...queuedContext.map((text) => ({ type: 'text' as const, text })), ...this.toPromptBlocks(message)],
     };
 
     const responseId = this.generateResponseId();
     this.toolCalls.clear();
     this.delegatedLiveness.clear();
+    this.openCodeUpdates.clear();
     this.outputBlockedNoticed = false;
     this.stallKindsNoticed.clear();
-    // Hold the turn in a local. The process `'exit'` handler nulls
-    // `this.currentPrompt` synchronously *before* it rejects the pending
-    // request, and that rejection only resumes this await a microtask later —
-    // so re-reading the field after the await loses a crashed turn's buffered
-    // output and its partial-usage estimate entirely.
+    // Keep the local turn: exit clears currentPrompt before rejecting its RPC.
+    // The resumed microtask still needs the crashed turn's buffered usage.
     const turn: AcpPendingPromptTurn = createAcpAssistantTurn(responseId);
     turn.writePhase = writePhase;
     this.currentPrompt = turn;
+    const promptProcess = this.process;
+    let preparing = true;
 
     try {
       this.emit('status', 'busy');
       assertAdapterInputCurrent(admission);
       this.armStallWatchdog();
+      if (this.acpConfig.beforeProviderPrompt) await this.acpConfig.beforeProviderPrompt();
+      assertAdapterInputCurrent(admission);
+      if (this.currentPrompt !== turn) throw Object.assign(new Error(ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE), { name: 'AbortError' });
+      if (nativeCommand && !this.availableCommands.some((command) => command.name === commandName)) throw new Error('The selected native command is no longer available in this session.');
+      preparing = false;
       const result = await this.sendRequest<AcpSessionPromptResult>('session/prompt', promptParams, admission, writePhase);
       const duration = Date.now() - turn.startedAt;
       const responseText = turn.chunks.join('');
@@ -792,7 +826,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       const { response, truncated, logFields } = buildAcpTurnCompletion({
         result, turn, usage, toolCalls: this.toolCalls.values(), adapter: this.getName(),
         model: this.acpConfig.model, providerUsageReported, generationBudget: this.acpConfig.generationBudget,
-        leaseMs: turn.leaseMs ?? this.acpConfig.promptTimeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS,
+        leaseMs: turn.leaseMs ?? this.acpConfig.promptTimeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS, usageIsAggregate: this.openCodeV2,
       });
       logger.info('ACP turn completed', logFields);
 
@@ -807,18 +841,24 @@ export class AcpCliAdapter extends BaseCliAdapter {
       this.completeResponse(response);
       return response;
     } catch (error) {
+      if (this.currentPrompt !== turn && preparing) {
+        assertAdapterInputCurrent(admission);
+        throw error;
+      }
+      this.resolveRetryNotice(turn, false);
       if (error instanceof Error && error.name === 'AbortError') {
+        if (this.currentPrompt !== turn) throw error;
         this.systemPromptSent = previousPromptFlags.system; this.rtkAwarenessSent = previousPromptFlags.rtk;
         this.emit('status', 'idle'); throw error;
       }
       const failure = tagAcpProviderLimit(toError(error, 'ACP prompt turn failed.'));
-      if (!writePhase.accepted || isAcpInputWriteFailure(failure)) {
+      if (this.currentPrompt === turn && (!writePhase.accepted || isAcpInputWriteFailure(failure))) {
         this.systemPromptSent = previousPromptFlags.system;
         this.rtkAwarenessSent = previousPromptFlags.rtk;
       }
       Object.assign(failure, { turnEnding: classifyTurnEnding({ kind: 'error', error: failure, metadata: failure }) });
       this.emitFinalAssistantFlushes(turn);
-      this.flushUnsettledToolResults();
+      if (this.currentPrompt === turn || (!this.currentPrompt && this.process === promptProcess)) this.flushUnsettledToolResults();
       const partialText = turn.chunks.join('');
       const partialToolActivity = turn.toolActivityChunks.join('\n');
       // The prompt alone is not "partial material". `estimateAcpCliUsage()`
@@ -851,14 +891,16 @@ export class AcpCliAdapter extends BaseCliAdapter {
       throw failure;
     } finally {
       if (writePhase.accepted) this.nextPromptContext.splice(0, queuedContext.length);
-      this.recentAssistantTurn = this.currentPrompt ?? this.recentAssistantTurn;
-      const lastTool = [...this.toolCalls.values()].at(-1);
-      this.recentReadToolCallId = lastTool?.kind === 'read' && lastTool.status === 'completed' ? lastTool.id : null;
-      this.currentPrompt = null;
-      this.currentPromptRequestId = null;
-      this.toolCalls.clear();
-      this.delegatedLiveness.clear();
-      this.clearStallWatchdog();
+      if (this.currentPrompt === turn || (!this.currentPrompt && this.process === promptProcess)) {
+        this.recentAssistantTurn = this.currentPrompt ?? this.recentAssistantTurn;
+        const lastTool = [...this.toolCalls.values()].at(-1);
+        this.recentReadToolCallId = lastTool?.kind === 'read' && lastTool.status === 'completed' ? lastTool.id : null;
+        this.currentPrompt = null;
+        this.currentPromptRequestId = null;
+        this.toolCalls.clear();
+        this.delegatedLiveness.clear();
+        this.clearStallWatchdog();
+      }
     }
   }
 
@@ -890,6 +932,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   override async terminate(graceful = true): Promise<void> {
+    this.promptLifecycleEpoch++;
+    // Retire preparation before cleanup yields; no prompt RPC exists to cancel yet.
+    if (!this.currentPromptRequestId) this.currentPrompt = null;
     if (this.sessionId && this.currentPromptRequestId) {
       await this.cancelCurrentPrompt();
     }
@@ -916,6 +961,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     this.toolCalls.clear();
     this.delegatedLiveness.clear();
     this.stdoutFramer.clear();
+    this.availableCommands = [];
     try {
       await super.terminate(graceful);
     } finally {
@@ -928,10 +974,6 @@ export class AcpCliAdapter extends BaseCliAdapter {
     this.releaseConcurrencySlot();
   }
 
-  /**
-   * Release the provider concurrency slot held by this adapter, if any.
-   * Idempotent — callable from any exit path without double-release risk.
-   */
   private releaseConcurrencySlot(): void {
     if (!this.concurrencyRelease) return;
     try {
@@ -944,8 +986,6 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
     this.concurrencyRelease = null;
   }
-
-  // ============ Stall Watchdog ============
 
   /** Start the stall watchdog for the current turn. No-op when `stallWarningMs`
    *  is 0 (opt-out) or no prompt is in flight. Timer mechanics live in
@@ -1008,24 +1048,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       return { status: 'no-active-turn', reason: 'No ACP prompt is in flight' };
     }
 
-    const turnId = String(this.currentPromptRequestId);
-    const completion: Promise<TurnInterruptCompletion> = this.cancelCurrentPrompt()
-      .then(() => ({
-        status: 'interrupted' as const,
-        turnId,
-      }))
-      .catch((error) => ({
-        status: 'rejected' as const,
-        turnId,
-        reason: error instanceof Error ? error.message : String(error),
-      }));
-
-    const result: InterruptResult = { status: 'accepted', turnId };
-    Object.defineProperty(result, 'completion', {
-      value: completion,
-      enumerable: false,
-    });
-    return result;
+    return createAcpInterruptResult(String(this.currentPromptRequestId), () => this.cancelCurrentPrompt());
   }
 
   async sendRaw(response: string, permissionKey?: string): Promise<void> {
@@ -1062,6 +1085,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     if (!this.process) {
       return;
     }
+    const proc = this.process;
 
     this.process.stdout?.setEncoding('utf8');
     this.process.stderr?.setEncoding('utf8');
@@ -1087,9 +1111,14 @@ export class AcpCliAdapter extends BaseCliAdapter {
     });
 
     this.process.on('exit', (code, signal) => {
+      if (this.process !== proc) return;
+      this.promptLifecycleEpoch++;
       logger.info('ACP process exited', { adapter: this.getName(), code, signal, ...acpTextDiagnostic(this.stderrTail.dump() ?? '') });
       this.stdoutFramer.clear();
       this.initialized = false;
+      this.systemPromptSent = false;
+      this.rtkAwarenessSent = false;
+      this.availableCommands = [];
       this.currentPromptRequestId = null;
       this.currentPrompt = null;
       this.delegatedLiveness.clear();
@@ -1123,6 +1152,16 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   private async openSession(): Promise<string> {
+    if (this.openCodeV2 && !isAbsolute(this.acpConfig.workingDirectory)) throw new Error('OpenCode requires an absolute working directory.');
+    const additionalDirectories = this.openCodeV2 ? this.acpConfig.additionalDirectories : undefined;
+    if (additionalDirectories?.some((directory) => !isAbsolute(directory) || /[*?]/.test(directory))) throw new Error('OpenCode additional directories must be absolute paths without wildcards.');
+    const sessionParams = { cwd: this.acpConfig.workingDirectory, mcpServers: this.sessionMcpServers(), ...(additionalDirectories ? { additionalDirectories } : {}) };
+    if (this.acpConfig.forkSessionId) {
+      if (!this.agentCapabilities?.sessionCapabilities?.fork) throw new Error('ACP agent does not advertise session/fork support.');
+      const fork = await this.sendRequest<AcpSessionNewResult>('session/fork', { ...sessionParams, sessionId: this.acpConfig.forkSessionId });
+      this.costLedger.reset(false);
+      return fork.sessionId;
+    }
     if (this.acpConfig.resume) {
       if (!this.acpConfig.sessionId) {
         this.lastResumeAttemptResult = {
@@ -1144,13 +1183,23 @@ export class AcpCliAdapter extends BaseCliAdapter {
       }
       const loadParams: AcpSessionLoadParams = {
         sessionId: this.acpConfig.sessionId,
-        cwd: this.acpConfig.workingDirectory,
-        mcpServers: this.sessionMcpServers(),
+        ...sessionParams,
       };
+      const priorSessionId = this.sessionId;
+      const priorConfigOptions = this.sessionConfigOptions;
       try {
-        await this.sendRequest<{ configOptions?: unknown } | null>('session/load', loadParams);
+        const method = this.openCodeV2 && this.acpConfig.preferSessionResume && this.agentCapabilities?.sessionCapabilities?.resume ? 'session/resume' : 'session/load';
+        this.openingReplay = this.openCodeV2 ? new AcpSessionReplay(this.acpConfig.sessionId, method === 'session/load') : null;
+        await this.sendRequest<{ configOptions?: unknown } | null>(method, loadParams);
         this.costLedger.reset(false);
+        const replay = this.openingReplay?.finish();
+        this.openingReplay = null;
+        if (replay?.history) this.emit('history_replay', replay.history);
+        for (const update of replay?.metadata ?? []) this.handleSessionUpdate({ sessionId: this.acpConfig.sessionId, update: update as unknown as AcpSessionUpdate });
       } catch (error) {
+        this.openingReplay = null;
+        this.sessionId = priorSessionId;
+        this.sessionConfigOptions = priorConfigOptions;
         this.lastResumeAttemptResult = {
           source: 'native',
           confirmed: false,
@@ -1172,8 +1221,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
 
     const newParams: AcpSessionNewParams = {
-      cwd: this.acpConfig.workingDirectory,
-      mcpServers: this.sessionMcpServers(),
+      ...sessionParams,
     };
     const result = await this.sendRequest<AcpSessionNewResult>('session/new', newParams);
     this.costLedger.reset(true);
@@ -1184,30 +1232,14 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   /** Apply startup settings; routed accounts must confirm their native model selection. */
   private async applySessionConfig(sessionId: string): Promise<void> {
-    const requested = this.acpConfig.sessionConfig;
-    if (!requested?.model && !requested?.effort) {
-      assertAcpGenerationBudgetSelection(this.acpConfig.generationBudget, requested, this.sessionConfigOptions);
-      if (this.acpConfig.requireSessionModelConfirmation) {
-        throw new Error('Unable to confirm the selected model for the routed account; refusing startup.');
-      }
-      return;
-    }
-    const modelWasSelected = requested.model ? isAcpSessionConfigSelected(this.sessionConfigOptions, 'model', requested.model) : false;
-    const outcome = await applyAcpSessionConfig(
+    const warnings = await applyAcpStartupSessionConfig(this.acpConfig.sessionConfig,
+      this.acpConfig.generationBudget, this.acpConfig.requireSessionModelConfirmation,
       (configId, value) => this.sendRequest('session/set_config_option', { sessionId, configId, value }),
-      this.sessionConfigOptions,
-      requested,
       () => this.sessionConfigOptions,
     );
-    assertAcpGenerationBudgetSelection(this.acpConfig.generationBudget, requested, this.sessionConfigOptions, outcome);
-    if (this.acpConfig.requireSessionModelConfirmation
-      && (!(modelWasSelected || outcome.applied.some((entry) => entry.key === 'model' && entry.value === requested.model?.trim()))
-        || !isAcpSessionModelConfirmed(requested.model, this.sessionConfigOptions, outcome))) {
-      throw new Error('Unable to confirm the selected model for the routed account; refusing startup.');
-    }
-    if (outcome.warnings.length === 0) return;
-    logger.warn('ACP session config not fully applied', { adapter: this.getName(), warningCount: outcome.warnings.length });
-    this.emitStructuredOutput('system', `${outcome.warnings.join(' ')} The agent's own default is used instead.`, {
+    if (warnings.length === 0) return;
+    logger.warn('ACP session config not fully applied', { adapter: this.getName(), warningCount: warnings.length });
+    this.emitStructuredOutput('system', `${warnings.join(' ')} The agent's own default is used instead.`, {
       source: 'acp-session-config',
     });
   }
@@ -1224,36 +1256,20 @@ export class AcpCliAdapter extends BaseCliAdapter {
    * remains best effort; routed-account startup requires model confirmation.
    */
   async applyLiveSessionConfig(request: AcpSessionConfigRequest): Promise<void> {
-    if (!this.process || !this.initialized || !this.sessionId) {
-      throw new Error('ACP session is not running.');
-    }
+    assertAcpLiveSessionConfigReady(Boolean(this.process && this.initialized && this.sessionId),
+      Boolean(this.currentPrompt && !this.currentPromptRequestId));
     if (this.currentPromptRequestId) {
       await this.cancelCurrentPrompt();
     }
-    const outcome = await applyAcpSessionConfig(
+    this.acpConfig.sessionConfig = await applyConfirmedAcpLiveSessionConfig(
+      () => this.acpConfig.sessionConfig, request,
       (configId, value) => this.sendRequest('session/set_config_option', { sessionId: this.sessionId!, configId, value }),
-      this.sessionConfigOptions,
-      request,
       () => this.sessionConfigOptions,
+      this.getName(),
     );
-    this.acpConfig.sessionConfig = confirmAcpLiveSessionConfig(
-      this.acpConfig.sessionConfig, request, this.sessionConfigOptions, outcome,
-    );
-    if (outcome.warnings.length > 0) {
-      logger.warn('ACP live session config not fully applied', {
-        adapter: this.getName(),
-        warningCount: outcome.warnings.length,
-      });
-    }
   }
 
-  /**
-   * Surface the model the agent actually bound to the session (from
-   * `session/new`), so the UI can reconcile a chip that doesn't know the
-   * concrete model (e.g. the `auto` sentinel). Emitted as a `'model'` event;
-   * consumers decide whether/how to apply it. No-op when the agent reports
-   * nothing parseable.
-   */
+  /** Report the native model to reconcile the UI model chip. */
   private reportResolvedModel(rawModelId: string | undefined): void {
     const normalized = normalizeAcpModelId(rawModelId);
     if (!normalized) return;
@@ -1261,12 +1277,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   private buildResumeCursor(sessionId: string): Record<string, unknown> {
-    return {
-      transport: 'acp',
-      provider: this.getName(),
-      sessionId,
-      workspacePath: this.acpConfig.workingDirectory,
-    };
+    return acpResumeCursor(sessionId, this.getName(), this.acpConfig.workingDirectory);
   }
 
   private async cancelCurrentPrompt(): Promise<void> {
@@ -1324,20 +1335,17 @@ export class AcpCliAdapter extends BaseCliAdapter {
     for (const key of stillOpen) this.withdrawInputRequired(key, 'cancelled');
   }
 
-  private async cancelPendingElicitationRequests(): Promise<void> {
-    const pending = [...this.pendingElicitationRequests.values()];
-    await Promise.all(
-      pending.map(async (request) => {
+  private async cancelPendingElicitationRequests(retireBeforeWrite = false): Promise<void> {
+    await cancelAcpElicitations(this.pendingElicitationRequests,
+      async (request) => {
         try {
           await this.sendResponse(request.rpcId, { action: 'cancel' });
         } catch (error) {
           logger.debug('Failed to cancel ACP elicitation request during cleanup', safeAcpProtocolDetails({ key: request.key, error }));
         }
-      }),
+      },
+      (key) => this.emitInputRequiredResolved(key, retireBeforeWrite ? 'timeout' : 'cancelled'), retireBeforeWrite,
     );
-    const stillOpen = [...this.pendingElicitationRequests.keys()];
-    this.pendingElicitationRequests.clear();
-    for (const key of stillOpen) this.emitInputRequiredResolved(key, 'cancelled');
   }
 
   private rejectPendingRequests(error: Error): void {
@@ -1414,7 +1422,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     clearTimeout(pending.timer);
     this.pendingRequests.delete(key);
     try {
-      const state = reduceAcpSessionConfigResponse(this.sessionConfigOptions, pending, response.result);
+      const state = pending.preserveSessionIdentity ? { configOptions: this.sessionConfigOptions } : reduceAcpSessionConfigResponse(this.sessionConfigOptions, pending, response.result);
       if (state.sessionId !== undefined) this.setSessionId(state.sessionId);
       this.sessionConfigOptions = state.configOptions;
     } catch (error) {
@@ -1468,6 +1476,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
 
     const sessionId = optionalString(params['sessionId']);
+    if (this.openingReplay?.observe(params)) return;
     if (!this.sessionId || sessionId !== this.sessionId) {
       return;
     }
@@ -1500,6 +1509,20 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
 
     const update = rawUpdate as unknown as AcpSessionUpdate;
+    if (this.openCodeV2) {
+      const child = this.openCodeUpdates.child(rawUpdate, sessionId);
+      if (child !== undefined) {
+        if (child && this.currentPrompt) this.delegatedLiveness.observeNativeChild(child);
+        return;
+      }
+      const retry = this.openCodeUpdates.retry(rawUpdate);
+      if (retry) this.handleRetryState(retry);
+      else if (retry === null && this.currentPrompt?.retryNoticeId) {
+        this.emitStructuredOutput('system', 'Provider is trying the request again.', { source: 'acp-retry-state', phase: 'attempting' });
+      }
+      const compact = this.openCodeUpdates.compaction(rawUpdate, generateId);
+      if (compact) this.emit('output', compact);
+    }
     switch (sessionUpdate) {
       case 'agent_message_chunk':
       case 'user_message_chunk':
@@ -1522,12 +1545,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
         break;
       case 'available_commands_update':
         {
-          // Slash-command discovery (cursor-agent advertises ~25; copilot
-          // varies). This is metadata about what the agent knows how to do,
-          // not conversation content — surfacing it as a chat bubble was
-          // pure noise. Parse it for diagnostics; if the agent ever exposes
-          // a command palette in the UI, this is the hook to wire up.
+          // The command IPC reads this silent metadata catalog.
           const commands = normalizeAcpAvailableCommands(rawUpdate);
+          this.availableCommands = commands;
+          this.emit('available_commands', commands);
           logger.debug('ACP available_commands_update', { ...safeAcpProtocolDetails({ sessionId }), commandCount: commands.length });
         }
         break;
@@ -1548,13 +1569,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
         if (Array.isArray(rawUpdate['configOptions'])) this.sessionConfigOptions = rawUpdate['configOptions'];
         break;
       case 'session_info_update':
-        // Session metadata (auto-generated title, summary, mode/model
-        // defaults). Older code dumped raw JSON into the chat — e.g.
-        // `{"sessionUpdate":"session_info_update","title":"Orchestrator
-        // Optimizer"}` showed up as a system bubble while the user was
-        // trying to follow a real conversation. Suppress; future work can
-        // route `title`/`summary` to a dedicated event so the UI can
-        // rename the instance tab.
+        // Titles and summaries remain silent metadata.
         logger.debug('ACP session metadata update', safeAcpProtocolDetails({ sessionId, sessionUpdate }));
         break;
       default:
@@ -1616,6 +1631,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     const turn = this.currentPrompt;
     const messageId = turn ? (turn.retryNoticeId ??= generateId()) : generateId();
     this.emit('output', buildRetryStateMessage(update, messageId));
+    if (turn && update.type === 'exhausted') turn.retryNoticeId = undefined;
   }
   private handleUsageUpdate(rawUpdate: Record<string, unknown>): void {
     const update = parseAcpUsageUpdate(rawUpdate);
@@ -1625,8 +1641,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
     this.measuredOccupancy = true;
     this.emit('context', event);
   }
-  private resolveRetryNotice(turn: AcpPendingPromptTurn): void {
-    if (turn.retryNoticeId) this.emit('output', buildRetryRecoveredMessage(turn.retryNoticeId));
+  private resolveRetryNotice(turn: AcpPendingPromptTurn, recovered = true): void {
+    if (turn.retryNoticeId) this.emit('output', buildRetryRecoveredMessage(turn.retryNoticeId, recovered));
   }
   private emitFinalAssistantFlushes(turn: AcpPendingPromptTurn): void {
     const thinking = buildAcpTurnThinking(turn);
@@ -1880,6 +1896,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   private handleElicitationRequest(request: AcpJsonRpcRequest<AcpElicitationCreateParams>): void {
     const params = request.params;
+    const questions = this.openCodeV2 && params ? acpElicitationQuestions(params) : undefined;
     const key = this.buildElicitationKey(request.id);
     this.pendingElicitationRequests.set(key, {
       key,
@@ -1891,7 +1908,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       params?.title,
       params?.description,
       params?.url ? `Open in browser: ${params.url}` : undefined,
-      params?.requestedSchema || params?.schema
+      !questions && (params?.requestedSchema || params?.schema)
         ? `Schema: ${JSON.stringify(params.requestedSchema ?? params.schema)}`
         : undefined,
     ].filter(Boolean).join('\n\n');
@@ -1901,7 +1918,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       prompt: prompt || 'ACP elicitation request received.',
       timestamp: Date.now(),
       metadata: {
-        type: 'acp_elicitation',
+        type: 'acp_elicitation', ...(questions ? { questions } : {}),
         transport: 'acp',
         mode: params?.mode,
         schema: params?.requestedSchema ?? params?.schema,
@@ -2122,6 +2139,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       if (this.pendingPermissionRequests.has(derived)) {
         return this.pendingPermissionRequests.get(derived);
       }
+      return undefined;
     }
 
     if (this.pendingPermissionRequests.size === 1) {
@@ -2211,6 +2229,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       if (this.pendingElicitationRequests.has(derived)) {
         return this.pendingElicitationRequests.get(derived);
       }
+      return undefined;
     }
 
     if (this.pendingElicitationRequests.size === 1) {
@@ -2253,10 +2272,6 @@ export class AcpCliAdapter extends BaseCliAdapter {
     return prompt;
   }
 
-  /**
-   * Running total of provider-reported tokens for this ACP session (LT-018).
-   * ACP reports per-turn usage only, so the aggregate is accumulated here.
-   */
   private cumulativeTokens = 0;
 
   /** One "no usage reported" log line per session, not one per turn (LT-018). */
@@ -2362,7 +2377,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
     const responsePromise = new Promise<TResult>((resolve, reject) => {
       this.pendingRequests.set(id, {
         method,
-        ...(method === 'session/load' && isRecord(params) && typeof params['sessionId'] === 'string'
+        ...(method === 'session/fork' && this.nativeForkInProgress ? { preserveSessionIdentity: true } : {}),
+        ...(['session/load', 'session/resume'].includes(method) && isRecord(params) && typeof params['sessionId'] === 'string'
           ? { loadSessionId: params['sessionId'] } : {}),
         ...(method === 'session/set_config_option' && isRecord(params)
           && typeof params['configId'] === 'string' && typeof params['value'] === 'string'
@@ -2497,6 +2513,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   private cancelTimedOutPrompt(id: string, timeoutMs: number): void {
+    // Retire forms synchronously before either cancellation write can yield or fail.
+    void this.cancelPendingElicitationRequests(true).catch((error) => {
+      logger.debug('ACP elicitation cancellation after prompt timeout failed; continuing recovery', safeAcpProtocolDetails({ error }));
+    });
     if (!this.sessionId || !this.process) {
       return;
     }

@@ -4,6 +4,16 @@ import { createAcpAssistantTurn } from './acp-assistant-stream';
 import { buildAcpTurnCompletion } from './acp-turn-completion';
 
 describe('ACP completion diagnostics', () => {
+  it('keeps continued OpenCode 2 aggregate usage out of the single-step saturation heuristic', () => {
+    const turn = createAcpAssistantTurn('continued');
+    turn.chunks.push('A continued answer without final punctuation');
+    const input = { turn, toolCalls: [], adapter: 'OpenCode', providerUsageReported: true, usage: undefined, leaseMs: 100,
+      usageIsAggregate: true, generationBudget: { model: 'fixture', combinedOutputTokens: 32000, reasoningBudgetSupported: false as const } };
+    expect(buildAcpTurnCompletion({ ...input, result: { stopReason: 'end_turn', usage: { outputTokens: 64000, thoughtTokens: 32000 } } }).response.metadata?.['turnEnding'])
+      .toMatchObject({ reason: 'completed' });
+    expect(buildAcpTurnCompletion({ ...input, result: { stopReason: 'max_tokens', usage: { outputTokens: 64000, thoughtTokens: 32000 } } }).response.metadata?.['turnEnding'])
+      .toMatchObject({ reason: 'max_output', evidence: 'native_max_output' });
+  });
   it.each(['LOCAL_TEST_SOURCE_PLACEHOLDER', { source: 'LOCAL_TEST_SOURCE_PLACEHOLDER' }])('excludes unvalidated native stop metadata from diagnostics', (stopReason) => {
     const completion = buildAcpTurnCompletion({
       result: { stopReason, finish: 'LOCAL_TEST_SOURCE_PLACEHOLDER' } as unknown as AcpSessionPromptResult,

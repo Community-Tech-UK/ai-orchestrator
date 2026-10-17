@@ -122,7 +122,9 @@ export class CliUpdatePollService {
           // null when the provider has no npm package (Cursor/Ollama) or the
           // registry was unreachable — treated as "unknown", never as an update.
           const latestVersion =
-            (await getCliLatestVersionService().resolveLatestVersion(cli)) ?? undefined;
+            (await (cli === 'opencode'
+              ? getCliLatestVersionService().resolveLatestVersion(cli, false, currentVersion)
+              : getCliLatestVersionService().resolveLatestVersion(cli))) ?? undefined;
           const updateAvailable = isUpdateAvailable(currentVersion, latestVersion);
 
           return {

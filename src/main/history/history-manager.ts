@@ -39,6 +39,7 @@ import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 import { getSessionRecoveryCandidateServiceIfInitialized, type HistoryRecoverySuppressionQuery,
   type RecoveryHistoryIdentity } from '../session/session-recovery-candidate-service';
 import { resolveHistoryRecoveryCoverage } from './history-recovery-coverage';
+import { normalizeRecoveryNodePlacement } from '../session/session-recovery-node-placement';
 import { repairArchivedMessageIdentity } from './archived-message-repair';
 import { memoizeConversationLoads, mergePreviouslyArchivedMessages } from './archive-message-merge';
 import { createArchiveInstanceSummary, getArchiveHistoryIdentity, redactArchiveIdentifier, shouldArchiveInstance,
@@ -90,7 +91,6 @@ export class HistoryManager {
 
   // Serializing queue for index saves — properly handles 3+ concurrent callers
   private saveQueue: Promise<void> = Promise.resolve();
-
   private archiveQueue = new KeyedSerialTaskQueue();
 
   /**
@@ -255,6 +255,8 @@ export class HistoryManager {
         endedAt: Date.now(),
         historyThreadId: instance.historyThreadId,
         workingDirectory,
+        additionalDirectories: (isLocalFallbackOverRemote ? previousRemoteEntry.additionalDirectories : instance.additionalDirectories)?.slice(),
+        nodePlacement: normalizeRecoveryNodePlacement(isLocalFallbackOverRemote ? previousRemoteEntry.nodePlacement : instance.nodePlacement),
         messageCount: archived.length,
         firstUserMessage: this.truncatePreview(firstUserMessage),
         lastUserMessage: this.truncatePreview(lastUserMessage),

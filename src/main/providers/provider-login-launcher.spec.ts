@@ -171,12 +171,18 @@ describe('buildOpenCodeProfileLoginCommand', () => {
 
   it('pins the region provider for the legacy account', () => {
     const built = buildOpenCodeProfileLoginCommand('legacy', 'darwin', 'ams');
-    expect(built.command).toBe('opencode auth login -p xiaomi-token-plan-ams');
+    const script = atob(built.command.match(/Buffer.from\('([^']+)'/)![1]);
+    expect(script).toContain('xiaomi-token-plan-ams');
+    expect(script).toContain("['--version']");
+    expect(script).toContain("['auth','import','--standalone']");
     expect(built.hint).toMatch(/Xiaomi Token Plan \(Europe\)/);
   });
 
   it('falls back to the picker when the legacy account region is unknown', () => {
-    expect(buildOpenCodeProfileLoginCommand('legacy').command).toBe('opencode auth login');
+    const command = buildOpenCodeProfileLoginCommand('legacy').command;
+    const script = atob(command.match(/Buffer.from\('([^']+)'/)![1]);
+    expect(script).toContain("['--version']");
+    expect(script).toContain("chosen.major===2?['auth','login','--standalone']:['auth','login']");
   });
 
   it('rejects an invalid profile ID before any command is built', () => {

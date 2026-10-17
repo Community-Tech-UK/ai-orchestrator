@@ -172,7 +172,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
       if (metadata?.type !== 'permission_denial' && metadata?.type !== 'secret_required') {
         const instance = this.instanceStore.getInstance(payload.instanceId);
-        if (instance?.yoloMode) {
+        if (instance?.yoloMode && shouldClearInputRequiredForYolo({ instanceId: payload.instanceId, requestType: 'input_required', permissionMetadata: metadata })) {
           console.log('[APPROVAL_TRACE][renderer:user-action] skipped_yolo_enabled', {
             approvalTraceId,
             currentInstanceId,
@@ -188,7 +188,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         || metadata?.type === 'deferred_permission'
         || metadata?.type === 'codex_mcp_approval';
       const askQuestions =
-        metadata?.type === 'ask_user_question'
+        metadata?.type === 'ask_user_question' || metadata?.type === 'acp_elicitation'
           ? coerceAskQuestions((payload.metadata as Record<string, unknown> | undefined)?.['questions'])
           : undefined;
       const secretRequest = metadata?.type === 'secret_required'
@@ -201,7 +201,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         title: secretRequest
           ? (secretRequest.label || 'Secure secret required')
           : askQuestions?.length
-            ? 'Claude has a question'
+            ? 'Agent has a question'
             : isPermissionPrompt
               ? 'Permission Required'
               : 'Input Required',
@@ -607,7 +607,8 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       return `${heading}: ${answer}`;
     });
 
-    const responseText = lines.join('\n').trim();
+    const responseText = isAcpInputRequired(request) ? JSON.stringify(Object.fromEntries(questions.map((entry, index) => [entry.header || entry.question,
+      entry.options.length ? (entry.multiSelect ? [...(this.askSelections.get(request.id)?.get(index) ?? [])] : [...(this.askSelections.get(request.id)?.get(index) ?? [])][0]) : this.askTextValue(request.id, index).trim()]))) : lines.join('\n').trim();
     if (!responseText) {
       return;
     }
@@ -625,7 +626,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     await this.respond(
       request,
       true,
-      'No preference — please proceed with your own recommendation.'
+      isAcpInputRequired(request) ? 'cancel' : 'No preference — please proceed with your own recommendation.'
     );
     this.askSelections.delete(request.id);
     this.askTextAnswers.delete(request.id);

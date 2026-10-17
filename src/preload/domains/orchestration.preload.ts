@@ -13,6 +13,7 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
      */
     listCommands: (payload?: {
       workingDirectory?: string;
+      instanceId?: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.COMMAND_LIST, payload);
     },

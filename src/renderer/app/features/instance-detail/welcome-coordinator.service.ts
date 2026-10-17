@@ -40,6 +40,8 @@ interface WelcomeLaunchConfig {
   yoloMode?: boolean;
   /** WS13 — run the CLI inside the macOS Seatbelt jail. */
   hardened?: boolean;
+  /** `false` = signal fence off for this session only. */
+  signalFence?: boolean;
   copilotAccountProfileId?: string;
   accountProfileId?: string;
   launchMode?: InstanceLaunchMode;
@@ -246,6 +248,7 @@ export class WelcomeCoordinatorService {
       ...(plan.config.modelRuntimeTarget ? { modelRuntimeTarget: plan.config.modelRuntimeTarget } : {}),
       ...(typeof plan.config.yoloMode === 'boolean' ? { yoloMode: plan.config.yoloMode } : {}),
       ...(plan.config.hardened ? { hardened: true } : {}),
+      ...(plan.config.signalFence === false ? { signalFence: false } : {}),
       launchMode: plan.config.launchMode,
       forceNodeId: plan.forceNodeId,
     });
@@ -423,6 +426,7 @@ export class WelcomeCoordinatorService {
         ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
         ...(typeof yoloMode === 'boolean' ? { yoloMode } : {}),
         ...(hardened ? { hardened: true } : {}),
+        ...(!hardened && this.newSessionDraft.signalFenceOff() ? { signalFence: false } : {}),
         ...(copilotAccountProfileId ? { copilotAccountProfileId } : {}),
         ...(accountProfileId ? { accountProfileId } : {}),
         launchMode,

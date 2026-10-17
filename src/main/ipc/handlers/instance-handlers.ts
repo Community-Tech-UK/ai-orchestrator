@@ -98,6 +98,7 @@ export function registerInstanceHandlers(deps: {
 
         const instance = await instanceManager.createInstance({
           workingDirectory,
+          additionalDirectories: validatedPayload.additionalDirectories ? [...validatedPayload.additionalDirectories] : undefined,
           sessionId: validatedPayload.sessionId,
           parentId: validatedPayload.parentInstanceId,
           displayName: validatedPayload.displayName,
@@ -116,6 +117,7 @@ export function registerInstanceHandlers(deps: {
           nodePlacement: validatedPayload.nodePlacement,
           browserToolsMode: validatedPayload.browserToolsMode,
           hardened: validatedPayload.hardened,
+          signalFence: validatedPayload.signalFence,
           // Explicit Copilot account for this session, from the composer's
           // account chip. A validated safe slug, never a path.
           copilotAccountProfileId: validatedPayload.copilotAccountProfileId,

@@ -25,7 +25,7 @@ export interface RemoteExtensionContactDeps {
    * defaulted to the real store, so existing callers and lightweight fakes are
    * unaffected while every caller still classifies the channel identically.
    */
-  deliveryHealth?: (nodeId: string) => BrowserDeliveryHealth;
+  deliveryHealth?: (nodeId: string, extensionInstanceId?: string) => BrowserDeliveryHealth;
   now?: () => number;
 }
 
@@ -107,19 +107,26 @@ export function classifyRemoteExtensionContact(input: {
   };
 }
 
+/**
+ * With `extensionInstanceId`, answered-ness is judged on that Chrome profile
+ * alone: a wedged profile on the same machine must not block this one's tabs.
+ */
 export function readRemoteExtensionContactClocks(
   nodeId: string,
   deps: RemoteExtensionContactDeps,
+  extensionInstanceId?: string,
 ): RemoteExtensionContactClocks {
   const node = (deps.workerNodeRegistry ?? getWorkerNodeRegistry()).getNode(nodeId);
   const readDeliveryHealth = deps.deliveryHealth
-    ?? ((id: string) => getBrowserExtensionCommandStore()
-      .describeDeliveryHealth(browserExtensionQueueKeyForNode(id)));
+    ?? ((id: string, instanceId?: string) => getBrowserExtensionCommandStore()
+      .describeDeliveryHealth(browserExtensionQueueKeyForNode(id), instanceId));
   return classifyRemoteExtensionContact({
     coordinatorPollAt: deps.extensionContactState.getLastExtensionContactAt(nodeId),
     relayContactAt: node?.capabilities.extensionRelay?.lastExtensionContactAt,
     nodeConnectedAt: node?.connectedAt,
-    commandsAnswered: readDeliveryHealth(nodeId).commandsAnswered,
+    commandsAnswered: (extensionInstanceId === undefined
+      ? readDeliveryHealth(nodeId)
+      : readDeliveryHealth(nodeId, extensionInstanceId)).commandsAnswered,
     now: now(deps),
   });
 }
@@ -134,8 +141,9 @@ export function readRemoteExtensionContactClocks(
 export function isRemoteExtensionContactFresh(
   nodeId: string,
   deps: RemoteExtensionContactDeps,
+  extensionInstanceId?: string,
 ): boolean {
-  return readRemoteExtensionContactClocks(nodeId, deps).state === 'fresh';
+  return readRemoteExtensionContactClocks(nodeId, deps, extensionInstanceId).state === 'fresh';
 }
 
 export function withRemoteExtensionStaleFlag(

@@ -391,6 +391,23 @@ describe('instance-handlers', () => {
       );
     });
 
+    it('forwards a per-session fence-off choice from INSTANCE_CREATE payloads', async () => {
+      const fakeInstance = { id: 'inst-unfenced', communicationTokens: undefined };
+      vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+        fakeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+      );
+
+      await invoke(IPC_CHANNELS.INSTANCE_CREATE, {
+        workingDirectory: '/projects/my-app',
+        provider: 'claude',
+        signalFence: false,
+      });
+
+      expect(mockInstanceManager.createInstance).toHaveBeenCalledWith(
+        expect.objectContaining({ signalFence: false }),
+      );
+    });
+
     it('forwards reasoning effort from INSTANCE_CREATE payloads', async () => {
       // This hop was the bug: the payload schema had no `reasoningEffort`, so
       // the picker's choice could never reach a new session.

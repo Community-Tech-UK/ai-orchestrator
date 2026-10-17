@@ -362,7 +362,11 @@ export class BrowserTargetDiscoveryOperations {
   ): BrowserGatewayResult<AgentSafeTarget | null> | null {
     if (
       !existing.nodeId ||
-      isRemoteExtensionContactFresh(existing.nodeId, { extensionContactState: this.deps.extensionContactState })
+      isRemoteExtensionContactFresh(
+        existing.nodeId,
+        { extensionContactState: this.deps.extensionContactState },
+        existing.extensionInstanceId,
+      )
     ) {
       return null;
     }
@@ -492,18 +496,26 @@ export class BrowserTargetDiscoveryOperations {
     }
 
     try {
+      // open_tab is not bound to a Chrome profile, so any connected profile on
+      // the machine may run it. Record the tab under whichever one did, the
+      // same id that profile's own tab reports will use.
+      let openedByInstanceId: string | undefined;
       const result = await this.deps.extensionCommandStore.sendCommand({
         ...(target.nodeId ? { queueKey: browserExtensionQueueKeyForNode(target.nodeId) } : {}),
         command: 'open_tab',
         payload: { url },
         timeoutMs: 30_000,
         undeliveredWaitMs: BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
+        onDelivered: (delivery) => {
+          openedByInstanceId = delivery.extensionInstanceId;
+        },
       });
       const tab = extractTabPayload(result);
       const node = target.nodeId ? this.deps.getWorkerNode(target.nodeId) : undefined;
       const attachment = this.deps.extensionTabStore.attachTab(tab, {
         ...(target.nodeId ? { nodeId: target.nodeId } : {}),
         ...(node?.name || target.nodeName ? { nodeName: node?.name ?? target.nodeName } : {}),
+        ...(openedByInstanceId ? { extensionInstanceId: openedByInstanceId } : {}),
       });
       return this.deps.result({
         context: request,

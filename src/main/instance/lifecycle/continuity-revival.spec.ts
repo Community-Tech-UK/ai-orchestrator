@@ -272,6 +272,7 @@ describe('reviveContinuitySession crash recovery', () => {
       sessionId: 'native-thread-1',
       resume: true,
       isRestoredSession: true,
+      metadata: { transcriptKnown: false },
     });
     expect(config.initialPrompt).toBeUndefined();
     expect(config.initialOutputBuffer?.map((message) => message.id)).toEqual([
@@ -451,5 +452,80 @@ describe('reviveContinuitySession crash recovery', () => {
         id: 'legacy-tool-result', type: 'tool_result', content: 'legacy fixture result',
       }),
     ]);
+  });
+});
+
+
+describe('continuity revival OpenCode extra folders', () => {
+  it.each([false, true])('retains cloned roots during crash recovery (replay=%s)', async (replay) => {
+    const directories = ['/repo/second', 'C:\\repo\\third'];
+    const resolved = resolvedCandidate({ state: { provider: 'opencode', additionalDirectories: directories, resumeCursor: null } });
+    resolved.candidate.provider = 'opencode';
+    resolved.historyConversation = null;
+    const { deps, createRecoveryInstance } = makeCrashDeps();
+    if (!replay) resolved.continuityState.resumeCursor = { provider: 'opencode', threadId: 'oc-session', workspacePath: '/repo', capturedAt: NOW - 100, scanSource: 'native' };
+    await reviveContinuitySession(deps, { sourceInstanceId: 'source-1', reason: 'crash-recovery', resolvedCandidate: resolved });
+    const config = createRecoveryInstance.mock.calls[0][0];
+    expect(config).toMatchObject({ provider: 'opencode', additionalDirectories: directories });
+    expect(config.additionalDirectories).not.toBe(directories);
+  });
+  it('retains folder roots for document-review revival', async () => {
+    const { deps, createInstance } = makeDeps(0);
+    deps.resumeSession.mockResolvedValueOnce({ provider: 'opencode', workingDirectory: '/repo', additionalDirectories: ['/repo/second'], conversationHistory: [] } as unknown as SessionState);
+    await reviveContinuitySession(deps, { sourceInstanceId: 'src-1', initialPrompt: 'continue', reason: 'doc-review-submission' });
+    expect(createInstance.mock.calls[0][0]).toMatchObject({ provider: 'opencode', additionalDirectories: ['/repo/second'] });
+  });
+  it('refuses a corrupted folder list before starting recovery', async () => {
+    const resolved = resolvedCandidate({ state: { provider: 'opencode', additionalDirectories: ['relative-root'] } });
+    resolved.candidate.provider = 'opencode';
+    resolved.historyConversation = null;
+    const { deps, createRecoveryInstance } = makeCrashDeps();
+    await expect(reviveContinuitySession(deps, { sourceInstanceId: 'source-1', reason: 'crash-recovery', resolvedCandidate: resolved })).rejects.toThrow('validation');
+    expect(createRecoveryInstance).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('recovery transcript completeness proof', () => {
+  it.each([undefined, false])('uses history loading for an old or incomplete transcript (%s)', async (complete) => {
+    const resolved = resolvedCandidate({ state: { conversationHistoryComplete: complete } });
+    resolved.historyConversation = null;
+    const { deps, createRecoveryInstance } = makeCrashDeps();
+    await reviveContinuitySession(deps, { sourceInstanceId: 'source-1', reason: 'crash-recovery', resolvedCandidate: resolved });
+    expect(createRecoveryInstance.mock.calls[0][0]).toMatchObject({ resume: true, metadata: { transcriptKnown: false } });
+  });
+  it('permits no-replay resume only for an explicitly complete checkpoint whose entries are all restored', async () => {
+    const resolved = resolvedCandidate({ state: { conversationHistoryComplete: true } });
+    resolved.historyConversation = null;
+    const { deps, createRecoveryInstance } = makeCrashDeps();
+    await reviveContinuitySession(deps, { sourceInstanceId: 'source-1', reason: 'crash-recovery', resolvedCandidate: resolved });
+    expect(createRecoveryInstance.mock.calls[0][0]).toMatchObject({ resume: true, metadata: { transcriptKnown: true } });
+  });
+  it('does not claim completeness when reconciliation discards an unrepresented checkpoint entry', async () => {
+    const resolved = resolvedCandidate({ state: { conversationHistoryComplete: true } });
+    const { deps, createRecoveryInstance } = makeCrashDeps();
+    await reviveContinuitySession(deps, { sourceInstanceId: 'source-1', reason: 'crash-recovery', resolvedCandidate: resolved });
+    expect(createRecoveryInstance.mock.calls[0][0].metadata?.['transcriptKnown']).toBe(false);
+  });
+  it('requires the restored checkpoint content to match, not just its message IDs', async () => {
+    const resolved = resolvedCandidate({ state: { conversationHistoryComplete: true,
+      conversationHistory: [{ id: 'same-id', role: 'user', content: 'fresh full request', timestamp: NOW - 8000 }] },
+      historyMessages: [{ id: 'same-id', type: 'user', content: 'older partial request', timestamp: NOW - 8000 }] });
+    const { deps, createRecoveryInstance } = makeCrashDeps();
+    await reviveContinuitySession(deps, { sourceInstanceId: 'source-1', reason: 'crash-recovery', resolvedCandidate: resolved });
+    expect(createRecoveryInstance.mock.calls[0][0].metadata?.['transcriptKnown']).toBe(false);
+  });
+  it.each(['crash-recovery', 'doc-review-submission'] as const)('keeps the original worker for %s', async (reason) => {
+    if (reason === 'doc-review-submission') {
+      const { deps, createInstance } = makeDeps(0);
+      deps.resumeSession.mockResolvedValueOnce({ workingDirectory: '/repo', conversationHistory: [], executionLocation: { type: 'remote', nodeId: 'worker-placeholder' } } as unknown as SessionState);
+      await reviveContinuitySession(deps, { sourceInstanceId: 'source-1', reason, initialPrompt: 'continue' });
+      expect(createInstance.mock.calls[0][0].forceNodeId).toBe('worker-placeholder');
+    } else {
+      const resolved = resolvedCandidate({ state: { executionLocation: { type: 'remote', nodeId: 'worker-placeholder' } } });
+      const { deps, createRecoveryInstance } = makeCrashDeps();
+      await reviveContinuitySession(deps, { sourceInstanceId: 'source-1', reason, resolvedCandidate: resolved });
+      expect(createRecoveryInstance.mock.calls[0][0].forceNodeId).toBe('worker-placeholder');
+    }
   });
 });

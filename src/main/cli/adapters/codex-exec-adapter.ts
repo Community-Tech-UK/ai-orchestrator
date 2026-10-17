@@ -339,42 +339,46 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
     };
 
     this.emitDiagnostics(response.metadata?.diagnostics);
-    for (const tool of response.toolCalls ?? []) {
-      this.emit('output', {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'tool_use',
-        content: tool.name === 'command_execution' && typeof tool.arguments['command'] === 'string'
-          ? `Running command: ${tool.arguments['command'] as string}`
-          : `Using tool: ${tool.name}`,
-        metadata: { ...tool } as Record<string, unknown>,
-      });
-      if (typeof tool.result === 'string' && tool.result.trim()) {
+    // Native stdout already published each item while the process was alive.
+    // Keep the full response for callers/usage without replaying the transcript.
+    if (response.metadata?.['execOutputStreamed'] !== true) {
+      for (const tool of response.toolCalls ?? []) {
         this.emit('output', {
           id: generateId(),
           timestamp: Date.now(),
-          type: 'tool_result',
-          content: tool.result,
-          metadata: { ...tool, is_error: false } as Record<string, unknown>,
+          type: 'tool_use',
+          content: tool.name === 'command_execution' && typeof tool.arguments['command'] === 'string'
+            ? `Running command: ${tool.arguments['command'] as string}`
+            : `Using tool: ${tool.name}`,
+          metadata: { ...tool } as Record<string, unknown>,
+        });
+        if (typeof tool.result === 'string' && tool.result.trim()) {
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_result',
+            content: tool.result,
+            metadata: { ...tool, is_error: false } as Record<string, unknown>,
+          });
+        }
+      }
+
+      if (response.content || response.thinking?.length) {
+        const thinking: ThinkingContent[] | undefined = response.thinking?.map((block) => ({
+          id: block.id,
+          content: block.content,
+          format: block.format,
+          timestamp: block.timestamp || Date.now(),
+        }));
+        this.emit('output', {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'assistant',
+          content: response.content,
+          thinking,
+          metadata: { thinkingExtracted: true, metadata: response.metadata },
         });
       }
-    }
-
-    if (response.content || response.thinking?.length) {
-      const thinking: ThinkingContent[] | undefined = response.thinking?.map((block) => ({
-        id: block.id,
-        content: block.content,
-        format: block.format,
-        timestamp: block.timestamp || Date.now(),
-      }));
-      this.emit('output', {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'assistant',
-        content: response.content,
-        thinking,
-        metadata: { thinkingExtracted: true, metadata: response.metadata },
-      });
     }
 
     if (response.usage) {

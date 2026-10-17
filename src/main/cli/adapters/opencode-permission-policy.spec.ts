@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { normalizeOpenCodeNativeConfig } from './opencode-v2-config';
+import { projectOpenCodeConfig } from './opencode-config-shapes';
 import { applyOpenCodePermissionPolicy, assertOpenCodePermissionPolicy } from './opencode-permission-policy';
 
 describe('native OpenCode doom-loop permission precedence', () => {
@@ -32,4 +34,77 @@ describe('native OpenCode doom-loop permission precedence', () => {
     agents['build']!.permission['doom_*'] = 'allow';
     expect(() => assertOpenCodePermissionPolicy(base)).toThrow('doom-loop permission');
   });
+});
+
+
+describe('OpenCode 2 permission verification', () => {
+  const rules = ['edit', 'shell', 'subagent', 'external_directory', 'webfetch', 'websearch', 'question', 'doom_loop'].map((action) => ({ action, resource: '*', effect: 'ask' }));
+  it('rejects an action-specific resource override that silently permits writes', () => {
+    expect(() => assertOpenCodePermissionPolicy({ permissionRules: [...rules, { action: 'shell', resource: 'git push *', effect: 'allow' }] }, false, 2)).toThrow('permission');
+  });
+  it('accepts scoped deny rules while preserving the universal ask brake', () => {
+    expect(() => assertOpenCodePermissionPolicy({ permissionRules: [...rules, { action: 'shell', resource: 'git push *', effect: 'deny' }] }, false, 2)).not.toThrow();
+  });
+  it('rejects custom agents that defeat global ask permissions', () => {
+    expect(() => assertOpenCodePermissionPolicy({ permissionRules: rules, agent: { custom: { permissionRules: [{ action: '*', resource: '*', effect: 'allow' }] } } }, false, 2)).toThrow('permission');
+  });
+});
+
+
+describe('native action namespace permission verification', () => {
+  const nativeRules = ['edit', 'shell', 'subagent', 'external_directory', 'webfetch', 'websearch', 'question', 'doom_loop']
+    .map((action) => ({ action, resource: '*', effect: 'ask' }));
+  const project = (rules: typeof nativeRules, agents?: Record<string, unknown>) => projectOpenCodeConfig(normalizeOpenCodeNativeConfig([
+    { type: 'document', info: { permissions: rules, agents } },
+  ]));
+
+  it.each(['shell*', 'she?l', 'subagent*', 'subage?t'])(
+    'rejects a later native %s allow for universal and scoped resources, globally and per agent', (action) => {
+      for (const resource of ['*', 'git push *']) {
+        const allow = { action, resource, effect: 'allow' };
+        expect(() => assertOpenCodePermissionPolicy(project([...nativeRules, allow]), false, 2)).toThrow('ask permission');
+        expect(() => assertOpenCodePermissionPolicy(project(nativeRules, { custom: { permissions: [allow] } }), false, 2)).toThrow('ask permission');
+      }
+    },
+  );
+
+  it.each(['bash', 'bash*', 'bas?', 'task', 'task*', 'tas?'])(
+    'does not treat native %s as the legacy alias for shell or subagent', (action) => {
+      const allow = { action, resource: '*', effect: 'allow' };
+      expect(() => assertOpenCodePermissionPolicy(project([...nativeRules, allow]), false, 2)).not.toThrow();
+      expect(() => assertOpenCodePermissionPolicy(project(nativeRules, { custom: { permissions: [allow] } }), false, 2)).not.toThrow();
+    },
+  );
+
+  it('honors native rule order, scoped denies, disabled agents and the YOLO exception', () => {
+    const allow = { action: 'shell*', resource: '*', effect: 'allow' };
+    expect(() => assertOpenCodePermissionPolicy(project([allow, ...nativeRules]), false, 2)).not.toThrow();
+    expect(() => assertOpenCodePermissionPolicy(project([...nativeRules, { ...allow, resource: 'git push *', effect: 'deny' }]), false, 2)).not.toThrow();
+    expect(() => assertOpenCodePermissionPolicy(project(nativeRules, { custom: { disabled: true, permissions: [allow] } }), false, 2)).not.toThrow();
+    expect(() => assertOpenCodePermissionPolicy(project([...nativeRules, allow]), true, 2)).not.toThrow();
+    expect(() => assertOpenCodePermissionPolicy(project([...nativeRules, { action: 'doom_loo?', resource: '*', effect: 'allow' }]), true, 2)).toThrow('doom-loop permission');
+  });
+});
+
+
+describe('Windows native permission case uncertainty', () => {
+  function onWindows(check: () => void): void {
+    const original = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try { check(); } finally { Object.defineProperty(process, 'platform', original); }
+  }
+  const ask = { action: '*', resource: '*', effect: 'ask' };
+  it('rejects a policy safe only under insensitive matching, globally and for agents', () => onWindows(() => {
+    const unsafe = [{ action: 'shell', resource: '*', effect: 'allow' }, { action: 'Shell*', resource: '*', effect: 'ask' }];
+    expect(() => assertOpenCodePermissionPolicy({ permissionRules: [ask, ...unsafe] }, false, 2)).toThrow('ask permission');
+    expect(() => assertOpenCodePermissionPolicy({ permissionRules: [ask], agent: { custom: { permissionRules: unsafe } } }, false, 2)).toThrow('ask permission');
+  }));
+  it('rejects a policy safe only under sensitive matching and accepts policies safe under both', () => onWindows(() => {
+    expect(() => assertOpenCodePermissionPolicy({ permissionRules: [ask, { action: 'Shell*', resource: '*', effect: 'allow' }] }, false, 2)).toThrow('ask permission');
+    expect(() => assertOpenCodePermissionPolicy({ permissionRules: [ask] }, false, 2)).not.toThrow();
+    expect(() => assertOpenCodePermissionPolicy({ permissionRules: [ask, { action: 'Shell*', resource: 'harmless-placeholder', effect: 'deny' }] }, false, 2)).not.toThrow();
+  }));
+  it('preserves the existing legacy Windows case-insensitive doom-loop check', () => onWindows(() => {
+    expect(() => assertOpenCodePermissionPolicy({ permission: { DOOM_LOOP: 'ask' } }, true, 1)).not.toThrow();
+  }));
 });

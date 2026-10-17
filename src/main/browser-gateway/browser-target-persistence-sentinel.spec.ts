@@ -75,6 +75,19 @@ describe('BrowserTargetPersistenceSentinel', () => {
     expect(sentinel.needsPreWriteCheck(attachment, 150)).toBe(true);
   });
 
+  it('scans the tab in the Chrome profile that owns it', async () => {
+    const profile = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+    const sentinel = new BrowserTargetPersistenceSentinel({ now: () => 100 });
+    const sendCommand = vi.fn().mockResolvedValue({ s: 'ok' });
+
+    await sentinel.scan(makeAttachment({ extensionInstanceId: profile }), sendCommand);
+
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'evaluate',
+      target: expect.objectContaining({ tabId: 2, extensionInstanceId: profile }),
+    }));
+  });
+
   it('reports save_failed with the matched built-in pattern only', async () => {
     const sentinel = new BrowserTargetPersistenceSentinel({ now: () => 100 });
     const scan = await sentinel.scan(

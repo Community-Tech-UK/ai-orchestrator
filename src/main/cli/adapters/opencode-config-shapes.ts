@@ -28,6 +28,14 @@ function permissionKeys(value: unknown): Record<string, unknown> {
   ]));
 }
 
+function safeRules(value: unknown): Record<string, unknown> {
+  if (!Array.isArray(value)) return {};
+  return { permissionRules: value.map((raw: unknown) => {
+    const rule = openCodeRecord(raw);
+    return { action: rule['action'], resource: rule['resource'] === '*' ? '*' : '<pattern>', effect: rule['effect'] };
+  }) };
+}
+
 export function projectOpenCodeConfig(config: unknown, model?: string): Record<string, unknown> {
   if (typeof config !== 'object' || config === null || Array.isArray(config)) throw new Error('Invalid native configuration');
   const native = openCodeRecord(config);
@@ -39,10 +47,10 @@ export function projectOpenCodeConfig(config: unknown, model?: string): Record<s
     if (agent['mode'] !== undefined && !['primary', 'subagent', 'all'].includes(String(agent['mode']))) throw new Error('Unsupported native agent mode');
     return [name, { model: identifier(agent['model']), mode: agent['mode'], hidden: agent['hidden'] === true,
       disable: agent['disable'] === true, ...(Object.hasOwn(agent, 'max_completion_tokens') ? { max_completion_tokens: cap } : {}),
-      options: { max_completion_tokens: cap }, permission: permissionKeys(agent['permission']) }];
+      options: { max_completion_tokens: cap }, permission: permissionKeys(agent['permission']), ...safeRules(agent['permissionRules']) }];
   }));
   const result: Record<string, unknown> = {
-    agent: agents, permission: permissionKeys(native['permission']),
+    agent: agents, permission: permissionKeys(native['permission']), ...safeRules(native['permissionRules']),
     // A boolean marker, never plugin paths, arguments, or configuration values.
     ...(Array.isArray(native['plugin']) && native['plugin'].length ? { plugin: [true] } : {}),
     ...(native['small_model'] ? { small_model: identifier(native['small_model']) } : {}),

@@ -29,6 +29,7 @@ import {
   type ProviderRuntimeRegistry,
 } from './provider-runtime-registry';
 import { isInstanceHardened } from '../instance/lifecycle/hardened-mode-scoping';
+import { isInstanceSignalFenceDisabled } from '../instance/lifecycle/signal-fence-scoping';
 
 export interface ProviderRuntimeStartInput {
   cliType: CliType;
@@ -137,6 +138,11 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
     if (isInstanceHardened(input.options.instanceId)) {
       return false;
     }
+    // The worker always applies the default signal fence; a fence-off session
+    // must take the adapter path, which honours both fence switches.
+    if (isInstanceSignalFenceDisabled(input.options.instanceId) || this.isSignalFenceSwitchedOff()) {
+      return false;
+    }
     if (input.executionLocation?.type === 'remote') {
       return false;
     }
@@ -147,6 +153,15 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
     // review policy, turn/context limits or per-turn usage ledger. Keep all
     // Claude sessions on that adapter path until the worker has parity.
     return input.cliType === 'gemini';
+  }
+
+  private isSignalFenceSwitchedOff(): boolean {
+    try {
+      const settings = this.settings ?? getSettingsManager();
+      return settings.get?.('providerSignalFenceEnabled') === false;
+    } catch {
+      return false;
+    }
   }
 
   private readSpawnWorkerSetting(): boolean {

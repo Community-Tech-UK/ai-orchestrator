@@ -9,6 +9,10 @@ import {
   _resetHardenedModeScopingForTesting,
   setInstanceHardened,
 } from '../instance/lifecycle/hardened-mode-scoping';
+import {
+  _resetSignalFenceScopingForTesting,
+  setInstanceSignalFence,
+} from '../instance/lifecycle/signal-fence-scoping';
 
 function makeAdapter(name: string): CliAdapter {
   return {
@@ -198,5 +202,43 @@ describe('ProviderRuntimeService spawn worker offload gate', () => {
       cliType: 'gemini',
       options: { workingDirectory: '/repo', instanceId: 'hardened-gemini' },
     })).toThrow('Hardened mode is not supported for Gemini yet');
+  });
+
+  describe('signal fence off', () => {
+    afterEach(() => _resetSignalFenceScopingForTesting());
+
+    const offloadingService = (createAdapter: ProviderRuntimeAdapterCreator, fenceSetting = true) =>
+      new ProviderRuntimeService({
+        registry: { recordAvailable: vi.fn(), recordUnavailable: vi.fn() } as never,
+        createAdapter,
+        settings: {
+          get: <K extends keyof AppSettings>(key: K): AppSettings[K] => ({
+            ...DEFAULT_SETTINGS,
+            enableSpawnWorkerOffload: true,
+            providerSignalFenceEnabled: fenceSetting,
+          })[key],
+        },
+      });
+
+    it('keeps a fence-off Gemini session on the adapter path, which honours the override', () => {
+      setInstanceSignalFence('unfenced-gemini', false);
+      const normal = makeAdapter('normal');
+      const service = offloadingService(vi.fn(() => normal));
+
+      expect(service.createAdapter({
+        cliType: 'gemini',
+        options: { workingDirectory: '/repo', instanceId: 'unfenced-gemini' },
+      })).toBe(normal);
+    });
+
+    it('keeps Gemini on the adapter path while the operator switch is off', () => {
+      const normal = makeAdapter('normal');
+      const service = offloadingService(vi.fn(() => normal), false);
+
+      expect(service.createAdapter({
+        cliType: 'gemini',
+        options: { workingDirectory: '/repo', instanceId: 'any-gemini' },
+      })).toBe(normal);
+    });
   });
 });

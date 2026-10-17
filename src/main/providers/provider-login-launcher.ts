@@ -31,6 +31,7 @@ import {
   type OpenCodeAccountRegion,
   type PooledProvider,
 } from '../../shared/types/provider-account.types';
+import { resolveOpenCodeLaunch, type OpenCodeLaunch } from '../cli/adapters/opencode-cli-launch';
 import { openCodeAccountLoginCommand } from '../../shared/utils/opencode-account-login-command';
 import { OPENCODE_REGION_AUTH_LABELS } from './opencode-auth-status';
 import { getProviderAccountStore } from './account-pool/provider-account-store';
@@ -317,28 +318,29 @@ export function buildCodexProfileLoginCommand(
  * OpenCode keeps one key store for every account and keys it by provider name,
  * so the account's isolation IS the derived provider name: the legacy profile
  * signs in to `xiaomi-token-plan-<region>`, every other account to
- * `aio-mimo-<profileId>` (Decision 2). `-p <id>` skips OpenCode's provider
- * picker after registering the custom name in a temporary catalog; Node is
- * required on that machine. The key is pasted into the terminal — AIO never reads,
- * stores or passes it. With no region known for the legacy profile, fall back
- * to the plain picker command.
+ * `aio-mimo-<profileId>` (Decision 2). Version 1 uses `-p <id>` with a temporary
+ * catalog; version 2 imports hidden terminal input through stdin and activates
+ * the exact credential. The main process never receives the key. Node is
+ * required on that machine. A legacy profile without a known region uses the
+ * native provider picker. Every generated route rechecks its selected version.
  */
 export function buildOpenCodeProfileLoginCommand(
   profileId: string,
   _platform: NodeJS.Platform = process.platform,
   region?: OpenCodeAccountRegion,
+  selected?: OpenCodeLaunch,
 ): ProviderLoginCommand {
   assertSafeAccountProfileId(profileId);
   const isLegacy = profileId === LEGACY_ACCOUNT_PROFILE_ID;
   if (isLegacy && !region) {
     return {
       provider: 'opencode',
-      command: 'opencode auth login',
+      command: openCodeAccountLoginCommand({ id: profileId, isLegacy, region }, selected),
       hint: 'Pick the Xiaomi Token Plan region that matches the base URL in the MiMo console (Europe is token-plan-ams), then paste the key. OpenCode stores it; Harness never sees it.',
     };
   }
   const providerName = opencodeAccountProviderName({ id: profileId, isLegacy, region });
-  const command = openCodeAccountLoginCommand({ id: profileId, isLegacy, region });
+  const command = openCodeAccountLoginCommand({ id: profileId, isLegacy, region }, selected);
   return {
     provider: 'opencode',
     command,
@@ -393,11 +395,13 @@ export function buildAccountProfileLoginCommand(
  * derived home, so it must never cross IPC; the caller supplies the clipboard
  * write (main's `clipboard.writeText`).
  */
-export function copyAccountProfileLoginCommand(
+export async function copyAccountProfileLoginCommand(
   request: AccountProfileLoginRequest,
   writeText: (text: string) => void,
-): { hint?: string } {
-  const login = buildAccountProfileLoginCommand(request);
+): Promise<{ hint?: string }> {
+  const login = request.provider === 'opencode'
+    ? buildOpenCodeProfileLoginCommand(request.profileId, process.platform, lookupOpenCodeLoginRegion(request.profileId), await resolveOpenCodeLaunch())
+    : buildAccountProfileLoginCommand(request);
   writeText(login.command);
   emitProviderAccountEvent({
     event: 'account_login_command_copied',
@@ -498,20 +502,27 @@ export async function launchProviderLogin(
   // the browser session happens to be. Build that command here so it clears
   // CLAUDE_CONFIG_DIR and pins --email; the fixed table cannot carry either.
   const legacyClaude = !copilotProfile && !accountProfile && canonical === 'claude';
-  const login = copilotProfile
+  const selectedOpenCode = canonical === 'opencode' ? await resolveOpenCodeLaunch() : undefined;
+  const selectedAccountLogin = accountProfile?.provider === 'opencode'
+    ? buildOpenCodeProfileLoginCommand(accountProfile.profileId, process.platform, lookupOpenCodeLoginRegion(accountProfile.profileId), selectedOpenCode)
+    : undefined;
+  const login = selectedAccountLogin ?? (copilotProfile
     ? buildCopilotProfileLoginCommand(copilotProfile)
     : accountProfile
       ? buildAccountProfileLoginCommand(accountProfile)
       : legacyClaude
         ? buildClaudeProfileLoginCommand('legacy', process.platform, 'shared-store', lookupClaudeLoginEmail('legacy'))
-        : getProviderLoginCommand(provider);
+        : (() => { const fixed = getProviderLoginCommand(provider); return fixed ? { ...fixed } : null; })());
+  if (login && selectedOpenCode && !accountProfile) {
+    login.command = openCodeAccountLoginCommand({ id: LEGACY_ACCOUNT_PROFILE_ID, isLegacy: true }, selectedOpenCode);
+  }
   if (!login) {
     throw new Error(`No known sign-in command for provider "${provider}".`);
   }
   // The Copilot profile command legitimately carries quotes and `=` from the
   // audited quoting helper, so it is exempt from the fixed-table character
   // allowlist — its own inputs were validated above.
-  if (!copilotProfile && !accountProfile && !legacyClaude && !SAFE_COMMAND.test(login.command)) {
+  if (!copilotProfile && !accountProfile && !legacyClaude && !selectedOpenCode && !SAFE_COMMAND.test(login.command)) {
     // Unreachable with the table above; guards future edits from smuggling
     // shell metacharacters into the AppleScript/cmd wrappers.
     throw new Error(`Refusing to run an unsafe login command for "${provider}".`);

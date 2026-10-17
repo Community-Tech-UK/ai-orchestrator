@@ -62,6 +62,7 @@ const mockWriteThroughIdentity = vi.fn().mockResolvedValue(undefined);
 vi.mock('../session/session-continuity', () => ({
   getSessionContinuityManagerIfInitialized: () => ({
     writeThroughIdentity: mockWriteThroughIdentity,
+    markConversationIncomplete: vi.fn(),
   }),
 }));
 

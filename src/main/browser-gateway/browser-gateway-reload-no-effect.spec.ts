@@ -88,6 +88,30 @@ describe('browser.reload and effect verification', () => {
     expect(sendCommand).not.toHaveBeenCalled();
   });
 
+  it('reloads a Chrome profile\'s tab in that profile and keeps it recorded there', async () => {
+    const profile = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+    const sendCommand = vi.fn(async () => ({
+      tabId: 42, windowId: 7, url: existingTab.url, title: 'After', text: 'After text', inspectionState: 'readable',
+    }));
+    const { service, extensionTabStore } = makeService({
+      existingTab: { ...existingTab, extensionInstanceId: profile },
+      grants: [navigationGrant()],
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.reload(context);
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'reload',
+      target: expect.objectContaining({ extensionInstanceId: profile }),
+    }));
+    expect(extensionTabStore.attachTab).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: 42 }),
+      expect.objectContaining({ extensionInstanceId: profile }),
+    );
+  });
+
   it('reloads the existing tab in place and returns refreshed bounded evidence', async () => {
     const sendCommand = vi.fn(async () => ({
       tabId: 42,

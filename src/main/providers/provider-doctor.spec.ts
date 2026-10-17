@@ -256,7 +256,9 @@ describe('buildRepairActions', () => {
     const actions = buildRepairActions(makeDiagnosis('opencode', [probe]));
     expect(actions[0].kind).toBe('cli_not_found');
     expect(actions[0].command).toContain('npm install -g opencode-ai');
-    expect(actions[0].command).toContain('https://opencode.ai/install');
+    expect(actions[0].command).toContain('npm install -g @opencode/cli@2');
+    expect(actions[0].command).toContain('opencode-ai@1');
+    expect(actions[0].description).toContain('replaces the OpenCode 1');
   });
 
   it('reinstalls rather than removes for a report-less shadow failure on grok', () => {

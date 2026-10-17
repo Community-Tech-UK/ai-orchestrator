@@ -28,6 +28,9 @@ const {
   mockRecordSpan: vi.fn(),
   mockContinuity: {
     startTracking: vi.fn(),
+    markConversationIncomplete: vi.fn(),
+    captureConversationCheckpoint: vi.fn(() => 7),
+    checkpointCompleteConversation: vi.fn(async () => undefined),
     stopTracking: vi.fn(),
     updateState: vi.fn(),
     addConversationEntry: vi.fn(),
@@ -1231,4 +1234,52 @@ describe('mid-turn context usage forwarding with the real stateless-exec predica
     expect(forward({ id: 'inst-1', provider: 'gemini' }, codexAdapter('current'))).not.toHaveBeenCalled();
     expect(forward({ id: 'inst-1', provider: 'claude' }, undefined)).toHaveBeenCalledOnce();
   });
+});
+
+
+describe('OpenCode continuity checkpoint forwarding', () => {
+  beforeEach(() => vi.clearAllMocks());
+  it('invalidates completeness when a queued content write fails', async () => {
+    mockContinuity.addConversationEntry.mockRejectedValueOnce(new Error('placeholder failure'));
+    const mgr = buildManager();
+    setupInstanceEventForwarding({ instanceManager: mgr, windowManager: mockWindowManager, isStatelessExecProvider: () => false, getNodeLatencyForInstance: () => undefined });
+    mgr.emit('provider:normalized-event', { ...makeEnvelope('output'), provider: 'opencode' });
+    await vi.waitFor(() => expect(mockContinuity.markConversationIncomplete).toHaveBeenCalledWith('inst-1'));
+  });
+  it('captures the completion epoch immediately but waits for prior transcript entries before checkpointing', async () => {
+    let release!: () => void;
+    mockContinuity.addConversationEntry.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
+    const mgr = buildManager();
+    setupInstanceEventForwarding({ instanceManager: mgr, windowManager: mockWindowManager, isStatelessExecProvider: () => false, getNodeLatencyForInstance: () => undefined });
+    mgr.emit('provider:normalized-event', { ...makeEnvelope('output'), provider: 'opencode' });
+    mgr.emit('provider:normalized-event', { ...makeEnvelope('output'), provider: 'opencode', event: { kind: 'complete' } } as ProviderRuntimeEventEnvelope);
+    expect(mockContinuity.captureConversationCheckpoint).toHaveBeenCalledWith('inst-1');
+    expect(mockContinuity.checkpointCompleteConversation).not.toHaveBeenCalled();
+    release();
+    await vi.waitFor(() => expect(mockContinuity.checkpointCompleteConversation).toHaveBeenCalledWith('inst-1', 7));
+  });
+});
+
+
+it('registers the native replay snapshot bridge alongside the ordered continuity queue', async () => {
+  const instance = { id: 'inst-1', createdAt: 1, adapterGeneration: 2, restartEpoch: 3, provider: 'opencode' };
+  const mgr = buildManager({ 'inst-1': instance });
+  setupInstanceEventForwarding({ instanceManager: mgr, windowManager: mockWindowManager, isStatelessExecProvider: () => false, getNodeLatencyForInstance: () => undefined });
+  mgr.emit('history-replayed', { instanceId: 'inst-1', adapterGeneration: 2, restartEpoch: 3,
+    messages: [{ id: 'restored-user', type: 'user', content: 'placeholder earlier request', timestamp: 1 }] });
+  expect(mockSendToRenderer).toHaveBeenCalledWith(IPC_CHANNELS.INSTANCE_TRANSCRIPT_CHUNK, expect.objectContaining({ kind: 'history-replay', instanceId: 'inst-1' }));
+  await vi.waitFor(() => expect(mockContinuity.updateState).toHaveBeenCalledWith('inst-1', expect.objectContaining({
+    conversationHistory: [expect.objectContaining({ id: 'restored-user', role: 'user' })],
+    conversationHistoryComplete: false, conversationHistoryOriginKnown: false,
+  })));
+});
+
+
+it('captures the actual live instance when created observers receive an IPC serialization clone', async () => {
+  const live = { id: 'live-seed', provider: 'opencode', status: 'initializing' };
+  const manager = buildManager({ 'live-seed': live });
+  setupInstanceEventForwarding({ instanceManager: manager, windowManager: mockWindowManager, isStatelessExecProvider: () => false, getNodeLatencyForInstance: () => undefined });
+  manager.emit('instance:created', { ...live });
+  expect(mockContinuity.startTracking).toHaveBeenCalledWith(live);
+  expect(mockContinuity.startTracking.mock.calls.at(-1)?.[0]).toBe(live);
 });

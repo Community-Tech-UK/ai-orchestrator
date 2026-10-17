@@ -6,6 +6,7 @@ import { BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
   browserExtensionQueueKeyForNode } from './browser-extension-command-store';
 import type { BrowserExtensionTabAttachOptions,
   BrowserExtensionTabStore } from './browser-extension-tab-store';
+import { extensionCommandTargetForAttachment } from './browser-extension-tab-store';
 import type { BrowserGrantStore } from './browser-grant-store';
 import type { BrowserApprovalStore } from './browser-approval-store';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
@@ -45,7 +46,8 @@ const SHORT_EXTENSION_COMMAND_RESULT_GRACE_MS = 500;
 interface BrowserExistingTabOperationsDeps {
   extensionCommandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   extensionTabStore: Pick<BrowserExtensionTabStore, 'attachTab' | 'detachTab'>;
-  isRemoteExtensionContactFresh: (nodeId: string) => boolean;
+  /** With the tab's Chrome profile, a wedged other profile on the node does not count. */
+  isRemoteExtensionContactFresh: (nodeId: string, extensionInstanceId?: string) => boolean;
   describeRemoteExtensionContact: (nodeId: string) => string;
   grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant'>;
   approvalStore: Pick<BrowserApprovalStore, 'createRequest'>;
@@ -283,7 +285,7 @@ export class BrowserExistingTabOperations {
   ): Promise<unknown> => this.deps.extensionCommandStore.sendCommand(request);
 
   private ensureChannelReachable(attachment: BrowserExistingTabAttachment): void {
-    if (attachment.nodeId && !this.deps.isRemoteExtensionContactFresh(attachment.nodeId)) {
+    if (attachment.nodeId && !this.deps.isRemoteExtensionContactFresh(attachment.nodeId, attachment.extensionInstanceId)) {
       throw new Error(
         `browser_extension_unreachable (${this.describeChannel(attachment.nodeId)})`,
       );
@@ -315,19 +317,16 @@ export class BrowserExistingTabOperations {
     return this.deps.extensionCommandStore.sendCommand({
       ...(attachment.nodeId ? { queueKey: browserExtensionQueueKeyForNode(attachment.nodeId) } : {}),
       command,
-      target: {
-        profileId: attachment.profileId,
-        targetId: attachment.targetId,
-        tabId: attachment.tabId,
-        windowId: attachment.windowId,
-      },
+      target: extensionCommandTargetForAttachment(attachment),
       ...(payload ? { payload } : {}),
       timeoutMs: callerTimeoutMs,
       executionTimeoutMs: timeoutMs,
       undeliveredWaitMs,
       ...(beforeDispatch ? { beforeDelivery: beforeDispatch } : {}),
       describeChannelState: () => ({
-        active: attachment.nodeId ? this.deps.isRemoteExtensionContactFresh(attachment.nodeId) : true,
+        active: attachment.nodeId
+          ? this.deps.isRemoteExtensionContactFresh(attachment.nodeId, attachment.extensionInstanceId)
+          : true,
         summary: this.describeChannel(attachment.nodeId),
       }),
     }).catch(async (error: unknown) => {
@@ -631,22 +630,26 @@ export class BrowserExistingTabOperations {
     input: Parameters<BrowserExtensionTabStore['attachTab']>[0],
     source: BrowserExistingTabAttachment,
   ): BrowserExistingTabAttachment {
-    const options = remoteTabAttachOptions(source);
+    const options = refreshTabAttachOptions(source);
     return options
       ? this.deps.extensionTabStore.attachTab(input, options)
       : this.deps.extensionTabStore.attachTab(input);
   }
 }
 
-function remoteTabAttachOptions(
+/** Re-attach under the same node and Chrome profile as the tab being refreshed. */
+function refreshTabAttachOptions(
   attachment: BrowserExistingTabAttachment,
 ): BrowserExtensionTabAttachOptions | undefined {
-  if (!attachment.nodeId && !attachment.nodeName) {
+  if (!attachment.nodeId && !attachment.nodeName && !attachment.extensionInstanceId) {
     return undefined;
   }
   return {
     ...(attachment.nodeId ? { nodeId: attachment.nodeId } : {}),
     ...(attachment.nodeName ? { nodeName: attachment.nodeName } : {}),
+    ...(attachment.extensionInstanceId
+      ? { extensionInstanceId: attachment.extensionInstanceId }
+      : {}),
   };
 }
 

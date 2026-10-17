@@ -65,6 +65,7 @@ describe('RemoteCliAdapter', () => {
 
       expect(connection.sendRpc).toHaveBeenCalledWith(TARGET_NODE_ID, 'instance.spawn', {
         instanceId: 'session-123',
+        interactionId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f-]{27}$/),
         cliType: 'claude',
         workingDirectory: '/tmp/work',
         systemPrompt: 'Be helpful',

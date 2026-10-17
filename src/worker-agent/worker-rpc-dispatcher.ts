@@ -92,6 +92,7 @@ import { parseBoundedServiceRpcResponse } from '../main/remote-node/worker-node-
 import { NodeExecInvalidParamsError, WorkerNodeExecutor } from './worker-node-executor';
 import { configuredNodeExecRoots } from './worker-node-exec-policy';
 import { validateWorkerAccountRoute } from './worker-account-route';
+import { InstanceSendRawParamsSchema } from '../main/remote-node/instance-interaction-schemas';
 
 type AudioTranscribeParams = z.infer<typeof AudioTranscribeParamsSchema>;
 
@@ -194,6 +195,12 @@ export class WorkerRpcDispatcher {
           result = { instanceId: validated.instanceId };
           break;
         }
+        case COORDINATOR_TO_NODE.INSTANCE_SEND_RAW: {
+          const validated = InstanceSendRawParamsSchema.parse(params);
+          await this.deps.instanceManager.sendRaw(validated.instanceId, validated.response, validated.permissionKey);
+          result = { ok: true };
+          break;
+        }
         case COORDINATOR_TO_NODE.INSTANCE_SEND_INPUT: {
           const attachments = params['attachments'] as
             | FileAttachment[]
@@ -201,7 +208,8 @@ export class WorkerRpcDispatcher {
           await this.deps.instanceManager.sendInput(
             params['instanceId'] as string,
             params['message'] as string,
-            attachments
+            attachments,
+            params['nativeCommandId'] as string | undefined,
           );
           result = { ok: true };
           break;
@@ -644,6 +652,7 @@ export class WorkerRpcDispatcher {
   }
 
   private getRpcErrorCode(method: string | undefined, err: unknown): number {
+    if (err instanceof Error && 'code' in err && err.code === 'INPUT_REQUIRED_NOT_PENDING') return RPC_ERROR_CODES.INPUT_REQUIRED_NOT_PENDING;
     if (err instanceof FsRpcError) {
       return RPC_ERROR_CODES.FILESYSTEM_ERROR;
     }

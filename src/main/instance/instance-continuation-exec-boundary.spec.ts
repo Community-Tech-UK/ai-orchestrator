@@ -10,8 +10,8 @@ vi.mock('../cli/adapters/codex/app-server-client', async (importOriginal) => ({ 
 vi.mock('../logging/logger', () => ({ getLogger: () => ({info:vi.fn(),warn:vi.fn(),debug:vi.fn(),error:vi.fn()}) }));
 
 vi.mock('../hooks/hook-manager', () => ({ getHookManager: () => ({triggerHooks:vi.fn(),triggerLifecycleHooks:vi.fn().mockResolvedValue({blocked:false})}) }));
-const receipts=vi.hoisted(()=>({delivered:vi.fn(),failed:vi.fn()}));
-vi.mock('../session/session-admission-service', () => ({getSessionAdmissionService:()=>({recordUserSend:()=>({admissionId:'disposable-admission'}),markDelivered:receipts.delivered,markFailed:receipts.failed})}));
+const receipts=vi.hoisted(()=>({record:vi.fn(()=>({admissionId:'disposable-admission'})),delivered:vi.fn(),failed:vi.fn()}));
+vi.mock('../session/session-admission-service', () => ({getSessionAdmissionService:()=>({recordUserSend:receipts.record,markDelivered:receipts.delivered,markFailed:receipts.failed})}));
 vi.mock('../core/config/settings-manager', () => ({getSettingsManager:()=>({getAll:()=>({outputBufferSize:100,enableDiskStorage:false})})}));
 
 vi.mock('../memory/output-storage',()=>({getOutputStorageManager:()=>({storeMessages:vi.fn(),deleteInstance:vi.fn()})}));
@@ -21,7 +21,7 @@ import { PassThrough } from 'node:stream';
 
 describe('actual Codex exec continuation cancellation boundary', () => {
   it.each(['stop','manual-input','admission-stop','written-stop','success'] as const)('keeps native writes and receipts honest for %s', async (mode) => {
-    receipts.delivered.mockClear();receipts.failed.mockClear();
+    receipts.record.mockClear();receipts.delivered.mockClear();receipts.failed.mockClear();
     const adapter = new CodexCliAdapter({timeout:2000});
     Object.assign(adapter,{useAppServer:false,isSpawned:true});
     const instance={id:'root-exec',parentId:null,launchMode:'orchestrated',provider:'codex',sessionId:'exec-1',adapterGeneration:1,status:'idle',requestCount:3,lastActivity:0,outputBuffer:[]} as unknown as Instance;
@@ -66,6 +66,7 @@ describe('actual Codex exec continuation cancellation boundary', () => {
       expect(spawns).toBe(mode==='stop'||mode==='manual-input'?0:1);
       expect(nativeWrites).toHaveLength(written?1:0);
       expect(admitted).toBe(mode==='stop'||mode==='manual-input'?0:1);
+      expect(receipts.record).toHaveBeenCalledTimes(mode==='stop'||mode==='manual-input'?0:1);
       expect(receipts.delivered).toHaveBeenCalledTimes(mode==='success'?1:0);
       expect(receipts.failed).toHaveBeenCalledTimes(mode==='admission-stop'||mode==='written-stop'?1:0);
       expect(completed).toHaveBeenCalledTimes(mode==='success'?1:0);

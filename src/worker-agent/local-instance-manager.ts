@@ -14,12 +14,17 @@ import type { WorkerAndroidManager, WorkerAndroidAttach } from './android/worker
 import type { NodePlacementPrefs } from '../shared/types/worker-node.types';
 import type { ResolvedAccountRoute } from '../shared/types/provider-account.types';
 import { materializeWorkerAccountRoute, type WorkerAccountRouteParams } from './worker-account-route';
+import { wireWorkerInteraction } from './worker-instance-interaction';
+import { InstanceSendRawParamsSchema, remoteContextDetails } from '../main/remote-node/instance-interaction-schemas';
+import { resolveNativeOpenCodeCommandInput } from '../main/commands/provider-native-commands';
 
 const ACTIVITY_WATCHDOG_INTERVAL_MS = 5_000;
 type MobileMcpSpawnAttach = Omit<WorkerAndroidAttach, 'mobileMcpVersion'> & { version?: string };
 
 export interface SpawnParams {
   instanceId: string;
+  sessionId?: string;
+  interactionId?: string;
   cliType: CliType;
   workingDirectory: string;
   systemPrompt?: string;
@@ -30,6 +35,8 @@ export interface SpawnParams {
   disallowedTools?: string[];
   resume?: boolean;
   forkSession?: boolean;
+  transcriptKnown?: boolean;
+  additionalDirectories?: string[];
   mcpConfig?: string[];
   nodePlacement?: NodePlacementPrefs;
   /**
@@ -55,6 +62,11 @@ type WorkerManagedAdapter = EventEmitter & {
   sendInput: (message: string, attachments?: FileAttachment[]) => Promise<void>;
   terminate: (graceful?: boolean) => Promise<void>;
   interrupt: () => InterruptResult | Promise<void>;
+  sendRaw?: (response: string, permissionKey?: string) => Promise<void>;
+  getAvailableCommands?: () => unknown;
+  getSessionId?: () => string | null;
+  hasActiveTurn?: () => boolean;
+  hasActiveToolCalls?: () => boolean;
 };
 
 interface DeferredCompletion {
@@ -88,6 +100,7 @@ export class LocalInstanceManager extends EventEmitter {
   private readonly hibernatedInstances = new Map<string, SpawnParams>();
   /** Last resume proof relayed to the coordinator, per instance (P2.9 dedup). */
   private readonly relayedResumeProof = new Map<string, string>();
+  private readonly interactions = new Map<string, ReturnType<typeof wireWorkerInteraction>>();
   private readonly allowedDirs: string[];
   private readonly maxInstances: number;
   private readonly browserManager: WorkerBrowserManager | null;
@@ -211,6 +224,7 @@ export class LocalInstanceManager extends EventEmitter {
 
     inst.watchdogTimer = setInterval(() => {
       if (this.instances.has(instanceId)) {
+        this.interactions.get(instanceId)?.lease();
         this.emit('instance:stateChange', instanceId, 'processing');
       }
     }, ACTIVITY_WATCHDOG_INTERVAL_MS);
@@ -284,6 +298,16 @@ export class LocalInstanceManager extends EventEmitter {
       );
     }
 
+    for (const directory of params.additionalDirectories ?? []) {
+      const insideRoot = path.isAbsolute(directory) && this.allowedDirs.some((allowed) => {
+        try { return isPathInsideAllowedDirectory(fs.realpathSync(directory), fs.realpathSync(allowed)); }
+        catch { return false; }
+      });
+      if (!insideRoot) {
+        throw new Error('Additional working directory is not in allowed working directories.');
+      }
+    }
+
     this.assertSpawnNotShuttingDown(params.instanceId);
 
     if (this.instances.has(params.instanceId) || this.pendingSpawns.has(params.instanceId)) {
@@ -340,7 +364,7 @@ export class LocalInstanceManager extends EventEmitter {
         : null;
       this.assertSpawnNotShuttingDown(params.instanceId);
       const adapter: WorkerManagedAdapter = createCliAdapter(params.cliType, {
-        sessionId: params.instanceId,
+        sessionId: params.sessionId ?? params.instanceId,
         workingDirectory: params.workingDirectory,
         systemPrompt: this.appendAndroidLeasePrompt(params.systemPrompt, mobileMcp),
         model: params.model,
@@ -350,6 +374,8 @@ export class LocalInstanceManager extends EventEmitter {
         disallowedTools: params.disallowedTools,
         resume: params.resume,
         forkSession: params.forkSession,
+        transcriptKnown: params.transcriptKnown,
+        additionalDirectories: params.additionalDirectories,
         mcpConfig: params.mcpConfig,
         env: Object.keys(env).length > 0 ? env : undefined,
         nodePlacement: params.nodePlacement,
@@ -371,6 +397,11 @@ export class LocalInstanceManager extends EventEmitter {
         ...(mobileMcp ? { mobileMcp } : {}),
       });
       this.pendingSpawnAdapters.set(params.instanceId, adapter);
+      const interaction = wireWorkerInteraction(adapter,
+        () => this.pendingSpawnAdapters.get(params.instanceId) === adapter || this.instances.get(params.instanceId)?.adapter === adapter,
+        payload => this.emit('instance:permissionRequest', params.instanceId, payload),
+        (state, info) => this.emit('instance:stateChange', params.instanceId, state, info), params.interactionId);
+      this.interactions.set(params.instanceId, interaction);
 
       runtimeObserverCleanup = observeAdapterRuntimeEvents(adapter, ({ event, eventId, rawPayload, timestamp }) => {
         switch (event.kind) {
@@ -394,6 +425,7 @@ export class LocalInstanceManager extends EventEmitter {
             break;
           }
           case 'exit':
+            this.interactions.get(params.instanceId)?.cleanup(); this.interactions.delete(params.instanceId);
             runtimeObserverCleanup();
             this.clearWatchdog(params.instanceId);
             this.instances.delete(params.instanceId);
@@ -419,6 +451,7 @@ export class LocalInstanceManager extends EventEmitter {
               used: event.used,
               total: event.total,
               percentage: event.percentage,
+              ...remoteContextDetails(rawPayload),
             });
             break;
           case 'complete':
@@ -442,9 +475,6 @@ export class LocalInstanceManager extends EventEmitter {
         this.releaseAndroidLease(params.instanceId);
       });
 
-      adapter.on('input_required', (permission: unknown) => {
-        this.emit('instance:permissionRequest', params.instanceId, permission);
-      });
       adapter.on('stream:idle', () => {
         const inst = this.instances.get(params.instanceId);
         // Only emit thinking_deeply if the instance is actually busy.
@@ -458,6 +488,7 @@ export class LocalInstanceManager extends EventEmitter {
 
       // Spawn the process
       await adapter.spawn();
+      interaction.catalog();
       if (this.terminateAllInProgress || this.cancelledSpawns.has(params.instanceId)) {
         runtimeObserverCleanup();
         await adapter.terminate().catch((error: unknown) => {
@@ -488,6 +519,7 @@ export class LocalInstanceManager extends EventEmitter {
 
       this.startWatchdog(params.instanceId);
     } catch (error) {
+      this.interactions.get(params.instanceId)?.cleanup(); this.interactions.delete(params.instanceId);
       runtimeObserverCleanup();
       this.releaseAndroidLease(params.instanceId);
       throw error;
@@ -509,13 +541,24 @@ export class LocalInstanceManager extends EventEmitter {
     }
   }
 
-  async sendInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<void> {
+  async sendInput(instanceId: string, message: string, attachments?: FileAttachment[], nativeCommandId?: string): Promise<void> {
     const inst = this.instances.get(instanceId);
     if (!inst) throw new Error(`Instance not found: ${instanceId}`);
+    if (nativeCommandId && !resolveNativeOpenCodeCommandInput(inst.cliType, inst.adapter, nativeCommandId, message)) throw new Error('The selected native command is no longer available in this session.');
     await inst.adapter.sendInput(message, attachments);
   }
 
+  async sendRaw(instanceId: string, response: string, permissionKey: string): Promise<void> {
+    InstanceSendRawParamsSchema.parse({ instanceId, response, permissionKey });
+    const adapter = this.instances.get(instanceId)?.adapter ?? this.pendingSpawnAdapters.get(instanceId);
+    if (!adapter) throw new Error(`Instance not found: ${instanceId}`);
+    const interaction = this.interactions.get(instanceId);
+    if (!interaction || !adapter.sendRaw) throw new Error('Interactive responses are not supported by this adapter.');
+    await interaction.interaction.answer(permissionKey, nativeKey => adapter.sendRaw!(response, nativeKey), interaction.resolved);
+  }
+
   async terminate(instanceId: string): Promise<void> {
+    this.interactions.get(instanceId)?.cleanup(); this.interactions.delete(instanceId);
     if (this.pendingSpawns.has(instanceId)) {
       this.cancelledSpawns.add(instanceId);
       const adapter = this.pendingSpawnAdapters.get(instanceId);
@@ -568,6 +611,7 @@ export class LocalInstanceManager extends EventEmitter {
     if (!inst) throw new Error(`Instance not found: ${instanceId}`);
     this.hibernatedInstances.set(instanceId, {
       ...inst.spawnParams,
+      sessionId: inst.adapter.getSessionId?.() ?? inst.spawnParams.sessionId ?? instanceId,
       resume: true,
     });
     await this.terminate(instanceId);

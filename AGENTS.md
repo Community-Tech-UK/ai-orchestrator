@@ -1,6 +1,6 @@
 # AI Orchestrator Agent Instructions
 
-AI Orchestrator is an Electron 40 + Angular 22 desktop app that coordinates Claude, Gemini, Codex, and Copilot CLIs. The main process is TypeScript/Node, the renderer is zoneless Angular with signals, persistence uses better-sqlite3, IPC payloads use Zod 4, and tests use Vitest.
+AI Orchestrator is an Electron 42 + Angular 22 desktop app that coordinates Claude, Gemini, Codex, and Copilot CLIs. The main process is TypeScript/Node, the renderer is zoneless Angular with signals, persistence uses better-sqlite3, IPC payloads use Zod 4, and tests use Vitest.
 
 ## Critical Rules
 

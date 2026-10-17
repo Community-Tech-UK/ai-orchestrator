@@ -10,6 +10,7 @@ import { getLogger } from '../../logging/logger';
 import { errorDiagnostic } from '../../logging/source-diagnostics';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { resolveHardenedSpawn } from '../../sandbox/seatbelt';
+import { isSignalFenceSettingEnabled } from '../../sandbox/signal-fence-setting';
 import { getOutputPersistenceManager } from '../../context/output-persistence';
 import { buildCliSpawnOptions } from '../cli-environment';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
@@ -544,6 +545,16 @@ export abstract class BaseCliAdapter extends EventEmitter {
     this.hardenedMode = { writableRoots: [...params.writableRoots] };
   }
 
+  /** Per-session signal-fence override — set post-construction by the adapter factory. */
+  private sessionSignalFenceDisabled = false;
+  disableSessionSignalFence(): void {
+    this.sessionSignalFenceDisabled = true;
+  }
+  /** False when the operator switch or this session's override lifts the macOS signal fence. */
+  isSignalFenceWanted(): boolean {
+    return !this.sessionSignalFenceDisabled && isSignalFenceSettingEnabled();
+  }
+
   /** Whether this adapter will jail its spawns (subclasses gate mode choices on it). */
   isHardenedModeConfigured(): boolean {
     return this.hardenedMode !== null;
@@ -620,6 +631,8 @@ export abstract class BaseCliAdapter extends EventEmitter {
       args: fullArgs,
       writableRoots: this.hardenedMode?.writableRoots ?? [],
       ...(this.config.command === 'claude' ? { claudeConfigDir: mergedEnv['CLAUDE_CONFIG_DIR'] } : {}),
+      // `false` only: `undefined` keeps the platform availability check.
+      ...(this.isSignalFenceWanted() ? {} : { signalFence: false }),
     });
     if (this.hardenedMode) {
       // LT-027: log the roots the jail was actually GRANTED, not the ones we

@@ -333,6 +333,7 @@ vi.mock('../lifecycle/memory-pressure-monitor', () => ({
 import { InstanceLifecycleManager } from '../instance-lifecycle';
 import { getDefaultAgent } from '../../../shared/types/agent.types';
 import { createInstanceWithMessage } from '../../ipc/handlers/instance-create-with-message';
+import { InstanceCreatePayloadSchema, InstanceCreateWithMessagePayloadSchema } from '@contracts/schemas/instance';
 
 interface FakeAdapter {
   spawn: ReturnType<typeof vi.fn>;
@@ -529,6 +530,37 @@ describe('createInstance spawn transaction rollback', () => {
     // No adapter was ever created.
     expect(mocks.createAdapter).not.toHaveBeenCalled();
     expect(harness.adapters.size).toBe(0);
+  });
+
+  it.each(['ordinary', 'with-message'] as const)('carries validated OpenCode folders through %s creation and restart without warm reuse', async (route) => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.resolveCliType.mockResolvedValue('opencode');
+    mocks.createAdapter.mockReturnValue(adapter);
+    const consume = vi.fn(() => makeFakeAdapter());
+    harness.deps.warmStartManager = { consume, preWarm: vi.fn() } as unknown as LifecycleDependencies['warmStartManager'];
+    const payload = { workingDirectory: '/tmp/project', provider: 'opencode', additionalDirectories: ['/tmp/shared'] };
+    try {
+      if (route === 'with-message') {
+        const parsed = InstanceCreateWithMessagePayloadSchema.parse({ ...payload, message: 'Read both folders' });
+        await createInstanceWithMessage(harness.manager as never, parsed, parsed.workingDirectory!, undefined);
+      } else {
+        await harness.manager.createInstance({ ...InstanceCreatePayloadSchema.parse(payload), attachments: undefined });
+      }
+      const instance = [...harness.instances.values()][0];
+      await instance.readyPromise;
+      expect(instance.additionalDirectories).toEqual(payload.additionalDirectories);
+      expect(consume).not.toHaveBeenCalled();
+      expect(mocks.createAdapter).toHaveBeenLastCalledWith(expect.objectContaining({ cliType: 'opencode',
+        options: expect.objectContaining({ additionalDirectories: ['/tmp/shared'] }) }));
+      await harness.manager.restartInstance(instance.id);
+      expect(instance.additionalDirectories).toEqual(['/tmp/shared']);
+      expect(mocks.createAdapter).toHaveBeenLastCalledWith(expect.objectContaining({
+        options: expect.objectContaining({ additionalDirectories: ['/tmp/shared'] }) }));
+      await expect(harness.manager.changeModel(instance.id, 'sonnet', undefined, undefined, 'claude')).rejects.toThrow(/OpenCode/);
+      expect(instance.provider).toBe('opencode');
+      expect(harness.adapters.get(instance.id)).toBe(adapter);
+    } finally { harness.manager.destroy(); }
   });
 
   it('keeps a failed child linked to its parent so the parent sees it fail', async () => {

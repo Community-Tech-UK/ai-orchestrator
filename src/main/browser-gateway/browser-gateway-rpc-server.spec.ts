@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrowserGatewayRpcServer } from './browser-gateway-rpc-server';
-import type { BrowserGatewayNavigateRequest } from './browser-gateway-service-types';
+import type { BrowserGatewayAttachExistingTabRequest, BrowserGatewayNavigateRequest } from './browser-gateway-service-types';
 import type { BrowserGatewayResult } from '@contracts/types/browser';
 import { createBrowserMcpTools } from './browser-mcp-tools';
 import { BrowserReliabilityEvents, getBrowserReliabilityEvents } from './browser-reliability-events';
@@ -821,6 +821,191 @@ describe('BrowserGatewayRpcServer', () => {
       }),
     ).resolves.toEqual({ ok: true });
     expect(onExtensionDisconnected).toHaveBeenCalledWith('native_host_stdin_eof');
+  });
+
+  it('routes local polls, tab reports and disconnects by Chrome profile', async () => {
+    const PROFILE_A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+    const PROFILE_B = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+    const extensionCommandStore = {
+      pollCommand: vi.fn(async () => null),
+      validateCommandHandoff: vi.fn(() => true),
+      resolveCommand: vi.fn(),
+      markReceived: vi.fn(),
+    };
+    const attachExistingTab = vi.fn(async (_request: BrowserGatewayAttachExistingTabRequest) => ({ ok: true }) as never);
+    const extensionContactState = new BrowserExtensionContactState();
+    const server = new BrowserGatewayRpcServer({
+      service: { attachExistingTab },
+      userDataPath: '/tmp',
+      extensionToken: 'native-token',
+      extensionCommandStore,
+      extensionContactState,
+      registerCleanup: vi.fn(),
+    });
+    const evidence = (extensionInstanceId: string, extensionStartedAt: number) => ({
+      extensionVersion: '0.2.42',
+      extensionStartedAt,
+      extensionInstanceId,
+    });
+    const call = (method: string, payload: Record<string, unknown>) => server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method,
+      params: { extensionToken: 'native-token', payload },
+    });
+
+    await call('browser.extension_poll_command', { timeoutMs: 1, ...evidence(PROFILE_A, 100) });
+    await call('browser.extension_poll_command', { timeoutMs: 1, ...evidence(PROFILE_B, 200) });
+    await call('browser.extension_attach_tab', {
+      tabId: 42,
+      windowId: 7,
+      url: 'https://example.com/',
+      ...evidence(PROFILE_A, 100),
+    });
+    await call('browser.extension_disconnected', {
+      reason: 'native_host_stdin_eof',
+      extensionInstanceId: PROFILE_B,
+    });
+    await call('browser.extension_poll_command', { timeoutMs: 1, ...evidence(PROFILE_A, 100) });
+
+    expect(extensionCommandStore.pollCommand).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      extensionInstanceId: PROFILE_A,
+      allowBrowserCommands: true,
+    }));
+    expect(extensionCommandStore.pollCommand).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      extensionInstanceId: PROFILE_B,
+    }));
+    // Profile B closing does not cost profile A its trust.
+    expect(extensionCommandStore.pollCommand).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      extensionInstanceId: PROFILE_A,
+      allowBrowserCommands: true,
+    }));
+    expect(attachExistingTab).toHaveBeenCalledWith(expect.objectContaining({
+      tabId: 42,
+      extensionInstanceId: PROFILE_A,
+    }));
+    expect(attachExistingTab.mock.calls[0]![0]).not.toHaveProperty('extensionStartedAt');
+  });
+
+  it('keeps the command channel open while Chrome profiles report many tabs', async () => {
+    const PROFILE_A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+    const PROFILE_B = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+    const extensionCommandStore = {
+      pollCommand: vi.fn(async () => null),
+      validateCommandHandoff: vi.fn(() => true),
+      resolveCommand: vi.fn(),
+      markReceived: vi.fn(),
+    };
+    const attachExistingTab = vi.fn(async (_request: BrowserGatewayAttachExistingTabRequest) => ({ ok: true }) as never);
+    const server = new BrowserGatewayRpcServer({
+      service: { attachExistingTab },
+      userDataPath: '/tmp',
+      extensionToken: 'native-token',
+      extensionCommandStore,
+      extensionContactState: new BrowserExtensionContactState(),
+      registerCleanup: vi.fn(),
+    });
+    const call = (method: string, payload: Record<string, unknown>) => server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method,
+      params: { extensionToken: 'native-token', extensionOrigin: 'chrome-extension://harness/', payload },
+    });
+    const evidence = (extensionInstanceId: string) => ({
+      extensionVersion: '0.2.42',
+      extensionStartedAt: 100,
+      extensionInstanceId,
+    });
+
+    // The extension reports up to 40 tabs per inventory, one RPC per tab.
+    for (const profile of [PROFILE_A, PROFILE_B]) {
+      for (let tabId = 1; tabId <= 40; tabId += 1) {
+        await call('browser.extension_attach_tab', {
+          tabId,
+          windowId: 7,
+          url: `https://example.test/${tabId}`,
+          ...evidence(profile),
+        });
+      }
+    }
+
+    // Polls and results must still get through in the same window.
+    await expect(call('browser.extension_poll_command', { timeoutMs: 1, ...evidence(PROFILE_A) })).resolves.toBeNull();
+    await expect(call('browser.extension_poll_command', { timeoutMs: 1, ...evidence(PROFILE_B) })).resolves.toBeNull();
+    expect(attachExistingTab).toHaveBeenCalledTimes(80);
+
+    // Still a limit: a runaway profile is stopped, and only that profile.
+    for (let poll = 1; poll < 30; poll += 1) {
+      await call('browser.extension_poll_command', { timeoutMs: 1, ...evidence(PROFILE_A) });
+    }
+    await expect(call('browser.extension_poll_command', { timeoutMs: 1, ...evidence(PROFILE_A) }))
+      .rejects.toThrow('Browser Gateway RPC rate limit exceeded');
+    await expect(call('browser.extension_poll_command', { timeoutMs: 1, ...evidence(PROFILE_B) })).resolves.toBeNull();
+  });
+
+  it('still bounds tab reports per profile and the number of rate buckets', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000_000);
+      const extensionCommandStore = {
+        pollCommand: vi.fn(async () => null),
+        validateCommandHandoff: vi.fn(() => true),
+        resolveCommand: vi.fn(),
+        markReceived: vi.fn(),
+      };
+      const server = new BrowserGatewayRpcServer({
+        service: { attachExistingTab: vi.fn(async () => ({ ok: true }) as never) },
+        userDataPath: '/tmp',
+        extensionToken: 'native-token',
+        extensionCommandStore,
+        extensionContactState: new BrowserExtensionContactState(),
+        registerCleanup: vi.fn(),
+      });
+      const call = (method: string, payload: Record<string, unknown>) => server.handleRequest({
+        jsonrpc: '2.0',
+        id: 1,
+        method,
+        params: { extensionToken: 'native-token', extensionOrigin: 'chrome-extension://harness/', payload },
+      });
+      const evidence = (extensionInstanceId: string) => ({
+        extensionVersion: '0.2.42',
+        extensionStartedAt: 100,
+        extensionInstanceId,
+      });
+      const attach = (profile: string, tabId: number) => call('browser.extension_attach_tab', {
+        tabId,
+        windowId: 7,
+        url: `https://example.test/${tabId}`,
+        ...evidence(profile),
+      });
+
+      for (let tabId = 1; tabId <= 120; tabId += 1) {
+        await attach('aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', tabId);
+      }
+      await expect(attach('aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', 121))
+        .rejects.toThrow('Browser Gateway RPC rate limit exceeded');
+
+      // A caller minting a fresh profile id per request cannot grow the map without bound.
+      const minted = (index: number) => `minted-profile-${String(index).padStart(6, '0')}`;
+      let refusedAt: number | undefined;
+      for (let index = 0; index < 400 && refusedAt === undefined; index += 1) {
+        try {
+          await call('browser.extension_poll_command', { timeoutMs: 1, ...evidence(minted(index)) });
+        } catch (error) {
+          expect(String(error)).toContain('rate limit exceeded');
+          refusedAt = index;
+        }
+      }
+      expect(refusedAt).toBeDefined();
+      expect(refusedAt!).toBeLessThan(300);
+
+      // Once the window passes, idle buckets are swept and new callers get through.
+      vi.setSystemTime(1_000_000 + 11_000);
+      await expect(call('browser.extension_poll_command', { timeoutMs: 1, ...evidence(minted(999)) }))
+        .resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('records local extension contact and build evidence on every authenticated message', async () => {

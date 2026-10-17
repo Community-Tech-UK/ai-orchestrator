@@ -43,6 +43,7 @@ import {
 import { withStatusTimeline } from './instance-status-timeline';
 import { withAutomationRevealed } from './instance-automation-metadata';
 import { RespawnWatchdog } from './instance-respawn-watchdog';
+import { InstanceTranscriptResync } from './instance-transcript-resync';
 
 @Injectable({ providedIn: 'root' })
 export class InstanceStore implements OnDestroy {
@@ -75,6 +76,8 @@ export class InstanceStore implements OnDestroy {
 
   // Respawn timeout watchdog: force-terminates instances stuck in 'respawning'
   private readonly respawnWatchdog = new RespawnWatchdog(this.stateService, this.listStore);
+  private readonly transcriptResync = new InstanceTranscriptResync(this.stateService,
+    incarnations => this.listStore.loadInitialInstances(incarnations), () => this.outputStore.reportReplayFailure());
 
   // ============================================
   // Re-export Queries for backwards compatibility
@@ -112,6 +115,7 @@ export class InstanceStore implements OnDestroy {
     }
     this.batcher.destroy();
     this.outputStore.cleanupAll();
+    this.transcriptResync.clear();
 
     // Clean up respawn watchdog timers
     this.respawnWatchdog.clearAll();
@@ -136,11 +140,21 @@ export class InstanceStore implements OnDestroy {
     );
     this.addSubscription(
       this.eventBus.instanceRemoved$.subscribe((instanceId) => {
+        this.transcriptResync.remove(instanceId);
         this.activityDebouncer.clearActivity(instanceId);
         this.outputStore.cleanupInstance(instanceId);
         this.listStore.removeInstance(instanceId);
       })
     );
+    this.addSubscription(this.eventBus.instanceTranscriptChunk$.subscribe((payload) => {
+      this.batcher.forceFlush();
+      const id = (payload as { instanceId?: unknown } | null)?.instanceId;
+      if (typeof id === 'string' && !this.stateService.getInstance(id)) {
+        this.transcriptResync.request(payload);
+        return;
+      }
+      this.outputStore.acceptTranscriptChunk(payload);
+    }));
     this.addSubscription(
       this.eventBus.instanceStateUpdate$.subscribe((update) => {
         if (update.status === 'error' || update.status === 'terminated') {

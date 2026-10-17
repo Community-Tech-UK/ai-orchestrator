@@ -81,7 +81,11 @@ export function createBrowserPageChallengeProbe(deps: BrowserPageChallengeProbeD
       }
       if (
         attachment.nodeId
-        && !isRemoteExtensionContactFresh(attachment.nodeId, { extensionContactState: deps.extensionContactState })
+        && !isRemoteExtensionContactFresh(
+          attachment.nodeId,
+          { extensionContactState: deps.extensionContactState },
+          attachment.extensionInstanceId,
+        )
       ) {
         return { detected: false, unavailable: 'extension_channel_not_fresh' };
       }

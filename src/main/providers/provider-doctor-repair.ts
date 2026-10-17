@@ -38,7 +38,7 @@ export const INSTALL_COMMANDS: Record<string, string> = {
   // Its postinstall also refreshes the ~/.grok/bin copy, which is why a grok
   // version conflict is fixed by reinstalling rather than deleting a copy.
   'grok': 'npm install -g @xai-official/grok',
-  'opencode': 'npm install -g opencode-ai  # or: curl -fsSL https://opencode.ai/install | bash',
+  'opencode': 'npm install -g @opencode/cli@2  # OpenCode 1 fallback: npm install -g opencode-ai@1',
   'anthropic-api': 'npm install -g @anthropic-ai/claude-code',
 };
 
@@ -110,7 +110,9 @@ export function buildRepairActions(diagnosis: DiagnosisForRepair): RepairAction[
           // Not having a provider CLI is an optional, non-blocking state — the
           // user may have no subscription for it. Surface it as informational
           // guidance, not a critical fault that demands resolution.
-          description: `Optional — install the ${provider} CLI only if you want to use this provider. The orchestrator runs fine without it.`,
+          description: provider === 'opencode'
+            ? 'Optional — install OpenCode 2. This replaces the OpenCode 1 opencode command; opencode2 also becomes available. Run this command only when you choose to switch.'
+            : `Optional — install the ${provider} CLI only if you want to use this provider. The orchestrator runs fine without it.`,
           severity: 'info',
         });
         break;

@@ -186,6 +186,9 @@ describe('browser extension assets', () => {
     // idempotent-activation dedupe; tab/window viewport control; real Chrome
     // zoom with per-tab baseline restore.
     '0.2.41': 'b137eaa54663',
+    // Per-install (Chrome profile) id on every native message, and refusal of
+    // a command addressed to another profile's tab.
+    '0.2.42': '28f8d2a7e1de',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -866,6 +869,144 @@ describe('browser extension assets', () => {
     expect(response).toEqual(expect.objectContaining({ gatewayEnabled: true }));
     expect(await waitForActionIconColor(harness, 8, 5)).toEqual([37, 99, 235, 255]);
     expect(await waitForActionIconColor(harness, 8, 8)).toEqual([255, 255, 255, 255]);
+  });
+
+  describe('Chrome profile identity', () => {
+    const INSTANCE_KEY = 'browserGatewayInstanceId';
+    const STORED_ID = 'stored-profile-id-0001';
+
+    function postedMessages(harness: BrowserExtensionBackgroundHarness): Record<string, unknown>[] {
+      return [...harness.ports.values()].flatMap((port) =>
+        port.postMessage.mock.calls.map(([message]) => message as Record<string, unknown>));
+    }
+
+    it('mints one id for this profile, saves it, and stamps it on every native message', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+
+      const saved = harness.chrome.storage.local.set.mock.calls
+        .map(([values]) => (values as Record<string, unknown>)[INSTANCE_KEY])
+        .filter((value) => value !== undefined);
+      expect(saved).toHaveLength(1);
+      expect(saved[0]).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+      const messages = postedMessages(harness);
+      expect(messages.length).toBeGreaterThan(0);
+      for (const message of messages) {
+        expect(message).toMatchObject({ extensionInstanceId: saved[0] });
+      }
+    });
+
+    it('reuses the id this profile saved earlier', async () => {
+      const harness = loadBackgroundHarnessForTest({ initialLocalStorage: { [INSTANCE_KEY]: STORED_ID } });
+      await flushPromises();
+
+      expect(harness.chrome.storage.local.set).not.toHaveBeenCalledWith(
+        expect.objectContaining({ [INSTANCE_KEY]: expect.anything() }),
+      );
+      expect(postedMessages(harness)).toContainEqual(expect.objectContaining({
+        type: 'poll_command',
+        extensionInstanceId: STORED_ID,
+      }));
+    });
+
+    it('refuses a command addressed to another profile without touching any tab', async () => {
+      const harness = loadBackgroundHarnessForTest({ initialLocalStorage: { [INSTANCE_KEY]: STORED_ID } });
+      await flushPromises();
+      const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+      relayPort.postMessage.mockClear();
+
+      relayPort.emitMessage({
+        type: 'browser_command',
+        command: {
+          id: 'foreign-command',
+          command: 'close_tab',
+          target: { tabId: 42, extensionInstanceId: 'other-profile-id-0002' },
+        },
+      });
+      await flushPromises();
+
+      expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'command_result',
+        commandId: 'foreign-command',
+        ok: false,
+        error: 'browser_extension_wrong_profile',
+      }));
+      expect(harness.chrome.tabs.remove).not.toHaveBeenCalled();
+      expect(harness.tabState(42)).toBeDefined();
+    });
+
+    it.each([
+      ['a page read', { command: 'snapshot' }],
+      ['an origin-bound credential write', {
+        command: 'type',
+        payload: { selector: '#password', value: 'TEST_ONLY_PLACEHOLDER', credentialOrigin: 'https://example.test', credentialProtection: 'password' },
+      }],
+    ])('reports the wrong-profile code for %s on a tab this profile does not have', async (_label, shape) => {
+      const harness = loadBackgroundHarnessForTest({ initialLocalStorage: { [INSTANCE_KEY]: STORED_ID } });
+      await flushPromises();
+      // Real Chrome rejects tabs.get for a tab id from another profile.
+      harness.chrome.tabs.get.mockImplementation(async (tabId: number) => {
+        const tab = harness.tabState(tabId);
+        if (!tab) throw new Error(`No tab with id: ${tabId}`);
+        return tab;
+      });
+      const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+      relayPort.postMessage.mockClear();
+
+      relayPort.emitMessage({
+        type: 'browser_command',
+        command: { id: 'foreign-missing-tab', ...shape, target: { tabId: 999, extensionInstanceId: 'other-profile-id-0002' } },
+      });
+      await flushPromises();
+
+      expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'command_result',
+        commandId: 'foreign-missing-tab',
+        ok: false,
+        error: 'browser_extension_wrong_profile',
+      }));
+      expect(harness.chrome.tabs.get).not.toHaveBeenCalledWith(999);
+    });
+
+    it('keeps a saved id when reading storage fails, rather than overwriting it', async () => {
+      const harness = loadBackgroundHarnessForTest({
+        initialLocalStorage: { [INSTANCE_KEY]: STORED_ID },
+        failStorageReadKeys: new Set([INSTANCE_KEY]),
+      });
+      await flushPromises();
+
+      expect(harness.chrome.storage.local.set).not.toHaveBeenCalledWith(
+        expect.objectContaining({ [INSTANCE_KEY]: expect.anything() }),
+      );
+      // It still runs under a session-only id rather than none.
+      expect(postedMessages(harness)).toContainEqual(expect.objectContaining({
+        type: 'poll_command',
+        extensionInstanceId: expect.stringMatching(/^[A-Za-z0-9_-]{8,64}$/),
+      }));
+    });
+
+    it('runs a command addressed to this profile', async () => {
+      const harness = loadBackgroundHarnessForTest({ initialLocalStorage: { [INSTANCE_KEY]: STORED_ID } });
+      await flushPromises();
+      const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+      relayPort.postMessage.mockClear();
+
+      relayPort.emitMessage({
+        type: 'browser_command',
+        command: {
+          id: 'own-command',
+          command: 'snapshot',
+          target: { tabId: 42, extensionInstanceId: STORED_ID },
+        },
+      });
+      await flushPromises();
+
+      expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'command_result',
+        commandId: 'own-command',
+        ok: true,
+      }));
+    });
   });
 
   it('routes command results back through the bridge that delivered the command', async () => {
@@ -3177,12 +3318,16 @@ function loadBackgroundHarnessForTest(options: {
   initialTabGroupId?: number;
   /** chrome.management.getSelf().installType; omit for no management API at all. */
   installType?: string;
+  /** chrome.storage.local contents present before the service worker starts. */
+  initialLocalStorage?: Record<string, unknown>;
+  /** chrome.storage.local.get rejects when asked for one of these keys. */
+  failStorageReadKeys?: Set<string>;
 } = {}): BrowserExtensionBackgroundHarness {
   const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
   const deletedGroupIds = options.deletedGroupIds ?? new Set<number>();
   const failConnectHosts = options.failConnectHosts ?? new Set<string>();
   const ports = new Map<string, NativePortHarness>();
-  const localStore: Record<string, unknown> = {};
+  const localStore: Record<string, unknown> = { ...options.initialLocalStorage };
   const alarmEvent = createChromeEvent<[unknown]>();
   const messageEvent = createChromeEvent<[unknown, unknown, (response: unknown) => void]>();
   let nowMs = 1_000_000;
@@ -3273,6 +3418,9 @@ function loadBackgroundHarnessForTest(options: {
       storage: {
         local: {
           get: vi.fn(async (keys: string | string[] | Record<string, unknown>) => {
+            if (typeof keys === 'string' && options.failStorageReadKeys?.has(keys)) {
+              throw new Error(`storage read failed: ${keys}`);
+            }
             if (
               keys === 'browserGatewayEnabled'
               || (Array.isArray(keys) && keys.includes('browserGatewayEnabled'))

@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { stdin, stdout } from 'node:process';
 import type { BrowserAttachExistingTabRequest } from '@contracts/types/browser';
 import type { BrowserExtensionNativeRuntimeConfig } from './browser-extension-native-runtime';
+import { normalizeBrowserExtensionInstanceId } from './browser-extension-contact-state';
 
 const NATIVE_HOST_ERROR_LOG_NAME = 'native-host-error.log';
 const NATIVE_HOST_ERROR_LOG_MAX_BYTES = 64 * 1024;
@@ -39,6 +40,8 @@ interface BrowserExtensionCommandReceivedMessage {
 interface BrowserExtensionRuntimeEvidence {
   extensionVersion?: string;
   extensionStartedAt?: number;
+  /** The extension install, i.e. the Chrome profile that launched this host. */
+  extensionInstanceId?: string;
 }
 
 type BrowserExtensionNativeMessage =
@@ -352,7 +355,8 @@ function parseBrowserExtensionNativeMessage(
   throw new Error('unsupported_browser_extension_message');
 }
 
-function runNativeMessageLoop(options: {
+/** Exported for tests; the entrypoint is runBrowserExtensionNativeHost. */
+export function runNativeMessageLoop(options: {
   runtimeConfig: BrowserExtensionNativeRuntimeConfig;
   configPath?: string;
   extensionOrigin?: string;
@@ -363,6 +367,10 @@ function runNativeMessageLoop(options: {
     let buffer = Buffer.alloc(0);
     let pending = Promise.resolve();
     let loggedTransportFailure = false;
+    // Chrome starts one host process per extension port, so every frame on
+    // this stdin comes from one Chrome profile. Remembered so the disconnect
+    // signal, which has no frame of its own, can still name that profile.
+    let extensionInstanceId: string | undefined;
 
     options.input.on('data', (chunk: Buffer) => {
       buffer = Buffer.concat([buffer, chunk]);
@@ -385,6 +393,9 @@ function runNativeMessageLoop(options: {
             if (message && typeof message === 'object') {
               const type = (message as Record<string, unknown>)['type'];
               frameType = typeof type === 'string' ? type : undefined;
+              extensionInstanceId = normalizeBrowserExtensionInstanceId(
+                (message as Record<string, unknown>)['extensionInstanceId'],
+              ) ?? extensionInstanceId;
             }
             const response = await handleBrowserExtensionNativeMessage({
               message,
@@ -421,6 +432,7 @@ function runNativeMessageLoop(options: {
             runtimeConfig: options.runtimeConfig,
             extensionOrigin: options.extensionOrigin,
             reason: 'native_host_stdin_eof',
+            ...(extensionInstanceId ? { extensionInstanceId } : {}),
           }))
         .then(() => resolve(), reject);
     });
@@ -431,6 +443,8 @@ export async function sendBrowserExtensionDisconnected(input: {
   runtimeConfig: BrowserExtensionNativeRuntimeConfig;
   extensionOrigin?: string;
   reason: string;
+  /** Lets the coordinator scope the disconnect to this Chrome profile. */
+  extensionInstanceId?: string;
   send?: (rpc: ExtensionRpcSendInput) => Promise<unknown>;
 }): Promise<void> {
   const send = input.send ?? sendExtensionRpc;
@@ -441,7 +455,10 @@ export async function sendBrowserExtensionDisconnected(input: {
         runtimeConfig: input.runtimeConfig,
       }),
       method: 'browser.extension_disconnected',
-      payload: { reason: input.reason },
+      payload: {
+        reason: input.reason,
+        ...(input.extensionInstanceId ? { extensionInstanceId: input.extensionInstanceId } : {}),
+      },
       timeoutMs: 3_000,
     });
   } catch {
@@ -492,6 +509,7 @@ function commandResultPayload(
 function extensionRuntimeEvidence(message: Record<string, unknown>): BrowserExtensionRuntimeEvidence {
   const extensionVersion = message['extensionVersion'];
   const extensionStartedAt = message['extensionStartedAt'];
+  const extensionInstanceId = normalizeBrowserExtensionInstanceId(message['extensionInstanceId']);
   return {
     ...(typeof extensionVersion === 'string' && extensionVersion
       ? { extensionVersion }
@@ -501,6 +519,7 @@ function extensionRuntimeEvidence(message: Record<string, unknown>): BrowserExte
       && extensionStartedAt >= 0
       ? { extensionStartedAt }
       : {}),
+    ...(extensionInstanceId ? { extensionInstanceId } : {}),
   };
 }
 
@@ -514,6 +533,7 @@ function withExtensionRuntimeEvidence(
     ...(message.extensionStartedAt !== undefined
       ? { extensionStartedAt: message.extensionStartedAt }
       : {}),
+    ...(message.extensionInstanceId ? { extensionInstanceId: message.extensionInstanceId } : {}),
   };
 }
 

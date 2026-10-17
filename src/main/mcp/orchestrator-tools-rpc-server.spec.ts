@@ -470,6 +470,36 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     expect(result).toMatchObject({ exitCode: 0 });
   });
 
+  it('dispatches host process tools and injects the configured operations', async () => {
+    const listHostProcesses = vi.fn(async () => ({ processes: [] }));
+    const stopLeftoverProcesses = vi.fn(async () => ({ results: [], summary: 'ok' }));
+    const seen: Array<Record<string, unknown>> = [];
+    const { server } = makeServer({
+      listHostProcesses: listHostProcesses as never,
+      stopLeftoverProcesses: stopLeftoverProcesses as never,
+      toolFactory: (deps) => {
+        seen.push(deps as unknown as Record<string, unknown>);
+        return ['list_host_processes', 'stop_leftover_processes'].map((name) => ({
+          name, description: 'test tool', inputSchema: { type: 'object' },
+          handler: vi.fn(async (args: unknown) => ({ name, args })),
+        }));
+      },
+    });
+
+    const listed = await server.handleRequest({
+      jsonrpc: '2.0', id: 21, method: 'orchestrator_tools.list_host_processes',
+      params: { instanceId: KNOWN_INSTANCE, payload: { limit: 3 } },
+    });
+    const stopped = await server.handleRequest({
+      jsonrpc: '2.0', id: 22, method: 'orchestrator_tools.stop_leftover_processes',
+      params: { instanceId: KNOWN_INSTANCE, payload: { pids: [4242] } },
+    });
+
+    expect(listed).toEqual({ name: 'list_host_processes', args: { limit: 3 } });
+    expect(stopped).toEqual({ name: 'stop_leftover_processes', args: { pids: [4242] } });
+    expect(seen[0]).toMatchObject({ instanceId: KNOWN_INSTANCE, listHostProcesses, stopLeftoverProcesses });
+  });
+
   it('dispatches release tool methods to the matching tool with validated payload', async () => {
     const releaseHandler = vi.fn(async (args: unknown) => ({ release: { committed: true }, echoed: args }));
     const authorizeReleaseMutation = vi.fn(async () => true);
@@ -1555,6 +1585,24 @@ describe('OrchestratorToolsRpcServer spawn-eligibility scoping (#18a/#19)', () =
       params: { instanceId: KNOWN_INSTANCE, payload: { instanceId: 'remote-1' } },
     });
     expect(result).toMatchObject({ name: 'read_node_output' });
+  });
+
+  it('keeps the host process tools for an ineligible (leaf) instance', async () => {
+    const server = new OrchestratorToolsRpcServer({
+      userDataPath: fs.mkdtempSync(path.join(os.tmpdir(), 'ot-rpc-scope-')),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      toolFactory: () => ['list_host_processes', 'stop_leftover_processes', 'run_on_node'].map((name) => ({
+        name, description: `test ${name}`, inputSchema: { type: 'object' }, handler: vi.fn(async () => ({ name })),
+      })),
+      registerCleanup: () => undefined,
+      resolveSpawnEligibility: () => false,
+    });
+    const call = (method: string, payload: Record<string, unknown>) => server.handleRequest({
+      jsonrpc: '2.0', id: 31, method, params: { instanceId: KNOWN_INSTANCE, payload },
+    });
+    await expect(call('orchestrator_tools.list_host_processes', {})).resolves.toEqual({ name: 'list_host_processes' });
+    await expect(call('orchestrator_tools.stop_leftover_processes', { pids: [42] })).resolves.toEqual({ name: 'stop_leftover_processes' });
+    await expect(call('orchestrator_tools.run_on_node', { prompt: 'x' })).rejects.toThrow(/run_on_node tool unavailable/);
   });
 
   it('still exposes list_remote_nodes to an ineligible instance', async () => {

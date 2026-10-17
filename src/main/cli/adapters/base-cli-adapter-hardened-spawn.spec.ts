@@ -34,6 +34,7 @@ import type {
 } from './base-cli-adapter';
 import { SANDBOX_EXEC_PATH } from '../../sandbox/seatbelt';
 import { unwrapSignalFence } from '../../sandbox/signal-fence';
+import { _setSignalFenceSettingForTesting } from '../../sandbox/signal-fence-setting';
 import type { ChildProcess } from 'child_process';
 
 function makeFakeProc(): ChildProcess {
@@ -90,7 +91,50 @@ describe('BaseCliAdapter hardened spawn wrap', () => {
   });
   afterEach(() => {
     spawnMock.mockReset();
+    _setSignalFenceSettingForTesting(null);
   });
+
+  it('spawns the raw command when this session has the fence turned off', () => {
+    spawnMock.mockReturnValue(makeFakeProc());
+    const adapter = new TestAdapter({ command: 'fake-cli', cwd: tmpdir() });
+    expect(adapter.isSignalFenceWanted()).toBe(true);
+    adapter.disableSessionSignalFence();
+    expect(adapter.isSignalFenceWanted()).toBe(false);
+
+    adapter.spawnForTest(['--print']);
+
+    expect(spawnMock.mock.calls[0][0]).toBe('fake-cli');
+    expect(spawnMock.mock.calls[0][1]).toEqual(['--print']);
+  });
+
+  it('spawns the raw command when the operator switch is off for every session', () => {
+    _setSignalFenceSettingForTesting(false);
+    spawnMock.mockReturnValue(makeFakeProc());
+    const adapter = new TestAdapter({ command: 'fake-cli', cwd: tmpdir() });
+    expect(adapter.isSignalFenceWanted()).toBe(false);
+
+    adapter.spawnForTest(['--print']);
+
+    expect(spawnMock.mock.calls[0][0]).toBe('fake-cli');
+    expect(spawnMock.mock.calls[0][1]).toEqual(['--print']);
+  });
+
+  it.runIf(process.platform === 'darwin')(
+    'keeps the hardened jail when the fence is turned off',
+    () => {
+      _setSignalFenceSettingForTesting(false);
+      spawnMock.mockReturnValue(makeFakeProc());
+      const adapter = new TestAdapter({ command: 'fake-cli', cwd: tmpdir() });
+      adapter.disableSessionSignalFence();
+      adapter.configureHardenedMode({ writableRoots: [tmpdir()] });
+
+      adapter.spawnForTest(['--print']);
+
+      expect(spawnMock.mock.calls[0][0]).toBe(SANDBOX_EXEC_PATH);
+      const args = spawnMock.mock.calls[0][1] as string[];
+      expect(args[args.indexOf('-p') + 1]).toContain('(deny default)');
+    },
+  );
 
   it('signal-fences a non-hardened spawn on macOS and leaves other platforms raw', () => {
     spawnMock.mockReturnValue(makeFakeProc());

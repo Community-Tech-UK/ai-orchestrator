@@ -48,6 +48,19 @@ describe('isTrustedLoginUrl', () => {
 });
 
 describe('MimoConsoleSessionRenewer', () => {
+  it.each(['""', '"PLACEHOLDER', 'PLACEHOLDER"', '"PLACEHOLDER"TAIL', 'PLACEHOLDER\r\nINJECTED', 'X'.repeat(8193)])(
+    'rejects malformed renewal cookie values (case %#)', async (value) => {
+      const { fetch } = scriptFetch([response(200, { setCookies: [
+        `api-platform_serviceToken=${value}; Domain=.platform.xiaomimimo.com`,
+        `passToken=${value}; Domain=account.xiaomi.com`,
+      ] })]);
+      const renewer = new MimoConsoleSessionRenewer({ fetchImpl: fetch });
+      const result = await renewer.renew('https://account.xiaomi.com/pass/serviceLogin', SSO);
+      expect([...result.setCookies]).toEqual([]);
+      expect(result.ssoCookies).toEqual([]);
+    },
+  );
+
   it('completes the walk and captures platform Set-Cookies', async () => {
     const { fetch, calls } = scriptFetch([
       response(302, {

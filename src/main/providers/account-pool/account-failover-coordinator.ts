@@ -16,9 +16,8 @@
  *    re-sends the throttled turn once. With no candidate it hands back to the
  *    caller's park.
  *
- * A target must have usage left, and purchased credits count: a session is
- * only ever moved by the user's own choice or an acknowledged automatic pool,
- * and the CLI would spend the credits on the next turn anyway.
+ * A target must have usage left. Purchased credits count by default; callers
+ * preventing overage charges can require included usage instead.
  *
  * Guardrails: failover mode, the ownership acknowledgement, a per-turn switch
  * cap (also bounded by profile count - 1), the switch cooldown, one decision
@@ -69,6 +68,8 @@ export interface AccountFailoverParams {
   /** The throttled turn (provider text, possibly a Harness-authored envelope) to re-send after the switch. */
   resumePrompt: string | null;
   reason: string;
+  /** Whether a target may run only on purchased credits. Defaults to true. */
+  allowCredits?: boolean;
   handoffKind?: Extract<AccountHandoffKind, 'failover' | 'preemptive'>;
 }
 
@@ -94,7 +95,7 @@ export type AccountFailoverOutcome =
   | { outcome: 'already-moved'; toProfileId: string; turnNotSent: boolean }
   | {
       outcome: 'not-switched';
-      reason: 'no-pool' | 'mode-off' | 'cap-reached' | 'cooldown' | 'no-candidate' | 'busy' | 'apply-failed';
+      reason: 'no-pool' | 'mode-off' | 'cap-reached' | 'cooldown' | 'no-candidate' | 'busy' | 'apply-failed' | 'cancelled';
       considered: ConsideredAccount[];
     };
 
@@ -125,6 +126,7 @@ interface TurnSwitchState {
 
 export class AccountFailoverCoordinator {
   private readonly locks = new Map<PooledProvider, Promise<void>>();
+  private readonly activeOperations = new Map<string, Set<AbortController>>();
   private readonly turnState = new Map<string, TurnSwitchState>();
   /** Recent target selections per `provider:profileId`, for the storm ramp. */
   private readonly recentTargets = new Map<string, number[]>();
@@ -132,6 +134,12 @@ export class AccountFailoverCoordinator {
   private readonly deliveredPrompts = new Map<string, Array<{ prompt: string; at: number }>>();
 
   constructor(private readonly deps: AccountFailoverDeps) {}
+
+  /** A different input starts a new turn's switch allowance; the cooldown still applies. */
+  observeInput(instanceId: string, prompt: string | null): void {
+    const turn = this.turnState.get(instanceId);
+    if (turn && turn.prompt !== prompt) this.turnState.set(instanceId, { ...turn, prompt, count: 0 });
+  }
 
   private now(): number {
     return this.deps.now?.() ?? Date.now();
@@ -200,9 +208,27 @@ export class AccountFailoverCoordinator {
 
   /**
    * Full failover: lock, re-select with verified bindings, apply the handoff,
-   * re-send the turn. Never throws.
+   * re-send the turn. Callers handle unexpected binding or usage errors.
    */
   async perform(params: AccountFailoverParams): Promise<AccountFailoverOutcome> {
+    const controller = new AbortController();
+    const operations = this.activeOperations.get(params.instanceId) ?? new Set<AbortController>();
+    operations.add(controller);
+    this.activeOperations.set(params.instanceId, operations);
+    try {
+      return await this.performActive(params, controller.signal);
+    } catch (error) {
+      if (controller.signal.aborted) return { outcome: 'not-switched', reason: 'cancelled', considered: [] };
+      throw error;
+    } finally {
+      operations.delete(controller);
+      if (operations.size === 0 && this.activeOperations.get(params.instanceId) === operations) {
+        this.activeOperations.delete(params.instanceId);
+      }
+    }
+  }
+
+  private async performActive(params: AccountFailoverParams, signal: AbortSignal): Promise<AccountFailoverOutcome> {
     if (params.provider === 'opencode' && !isLogicalMiMoModel(params.model)) {
       return { outcome: 'not-switched', reason: 'no-pool', considered: [] };
     }
@@ -211,7 +237,7 @@ export class AccountFailoverCoordinator {
     // the caller would turn into a park on the old profile's reset time.
     if (this.isMovedOff(params)) {
       // Through the lock, so a switch still finishing (and its own re-send) lands first.
-      return this.withProviderLock(params.provider, () => this.performLocked(params));
+      return this.withProviderLock(params.provider, () => this.performLocked(params, signal));
     }
     const plan = this.plan(params);
     if (plan.kind === 'none') {
@@ -222,7 +248,7 @@ export class AccountFailoverCoordinator {
       this.offer(params, plan.toProfileId);
       return { outcome: 'offered', toProfileId: plan.toProfileId };
     }
-    return this.withProviderLock(params.provider, () => this.performLocked(params));
+    return this.withProviderLock(params.provider, () => this.performLocked(params, signal));
   }
 
   /** Tell the user another account is available (mode `ask`). */
@@ -247,7 +273,8 @@ export class AccountFailoverCoordinator {
     });
   }
 
-  private async performLocked(params: AccountFailoverParams): Promise<AccountFailoverOutcome> {
+  private async performLocked(params: AccountFailoverParams, signal: AbortSignal): Promise<AccountFailoverOutcome> {
+    if (signal.aborted) return { outcome: 'not-switched', reason: 'cancelled', considered: [] };
     const store = this.deps.store();
     const profiles = store.listProfiles(params.provider);
     // Another failure for this instance may have moved it off the exhausted
@@ -273,7 +300,9 @@ export class AccountFailoverCoordinator {
           bindingStates.set(profile.id, (await this.deps.bindings().checkBinding(profile)).state);
         }));
     }
+    if (signal.aborted) return { outcome: 'not-switched', reason: 'cancelled', considered: [] };
     const cachedQuota = await this.refreshCandidateQuota(params, profiles, bindingStates, remote);
+    if (signal.aborted) return { outcome: 'not-switched', reason: 'cancelled', considered: [] };
     const selection = this.select(params, profiles, { bindingStates, cachedQuota });
     if (selection.profileId === null) {
       this.emitExhausted(params);
@@ -281,11 +310,12 @@ export class AccountFailoverCoordinator {
     }
     const toProfileId = selection.profileId;
 
-    if (!(await this.waitForSwitchableInstance(params.instanceId))) {
-      return { outcome: 'not-switched', reason: 'busy', considered: selection.considered };
+    if (!(await this.waitForSwitchableInstance(params.instanceId, signal))) {
+      return { outcome: 'not-switched', reason: signal.aborted ? 'cancelled' : 'busy', considered: selection.considered };
     }
 
     await this.stormRamp(params.provider, toProfileId);
+    if (signal.aborted) return { outcome: 'not-switched', reason: 'cancelled', considered: selection.considered };
 
     const from = store.getProfile(params.provider, params.exhaustedProfileId);
     const to = store.getProfile(params.provider, toProfileId);
@@ -302,6 +332,7 @@ export class AccountFailoverCoordinator {
         accountHandoffReason: handoffKind === 'failover' ? `usage limit${resetText}` : 'approaching usage limit',
       });
     } catch (error) {
+      if (signal.aborted) return { outcome: 'not-switched', reason: 'cancelled', considered: selection.considered };
       logger.warn('Account failover could not be applied', {
         instanceId: params.instanceId,
         provider: params.provider,
@@ -311,6 +342,7 @@ export class AccountFailoverCoordinator {
       return { outcome: 'not-switched', reason: 'apply-failed', considered: selection.considered };
     }
 
+    if (signal.aborted) return { outcome: 'not-switched', reason: 'cancelled', considered: selection.considered };
     const turn = this.turnState.get(params.instanceId);
     const sameTurn = turn !== undefined && turn.prompt === params.resumePrompt;
     this.turnState.set(params.instanceId, {
@@ -338,6 +370,7 @@ export class AccountFailoverCoordinator {
       body: `${from?.label ?? params.exhaustedProfileId} → ${to?.label ?? toProfileId} (${handoffKind === 'failover' ? `usage limit${resetText}` : 'approaching usage limit'}).`,
     });
 
+    if (signal.aborted) return { outcome: 'not-switched', reason: 'cancelled', considered: selection.considered };
     if (params.resumePrompt) {
       this.rememberDelivered(params.instanceId, params.resumePrompt);
       try {
@@ -491,7 +524,7 @@ export class AccountFailoverCoordinator {
       exclude: [params.exhaustedProfileId, ...outsideFence],
       parkedProfileIds: parked,
       parkedSince,
-      allowCredits: true,
+      allowCredits: params.allowCredits ?? true,
       bindings: bindingStates,
       ignoreBindings: remote,
       quotaByProfile,
@@ -501,9 +534,10 @@ export class AccountFailoverCoordinator {
     });
   }
 
-  private async waitForSwitchableInstance(instanceId: string): Promise<boolean> {
+  private async waitForSwitchableInstance(instanceId: string, signal: AbortSignal): Promise<boolean> {
     const deadline = this.now() + IDLE_WAIT_MS;
     for (;;) {
+      if (signal.aborted) return false;
       const instance = this.deps.getInstance(instanceId);
       if (!instance || instance.status === 'terminated' || instance.status === 'failed') return false;
       if (isModelSwitchAllowedStatus(instance.status)) return true;
@@ -557,6 +591,8 @@ export class AccountFailoverCoordinator {
 
   /** Drop per-instance switch bookkeeping (instance teardown). */
   release(instanceId: string): void {
+    for (const operation of this.activeOperations.get(instanceId) ?? []) operation.abort();
+    this.activeOperations.delete(instanceId);
     this.turnState.delete(instanceId);
     this.deliveredPrompts.delete(instanceId);
   }

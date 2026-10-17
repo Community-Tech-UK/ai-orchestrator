@@ -4,6 +4,7 @@ import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
 import type { CliAsyncWorkEvent } from '../cli/adapters/claude-cli-async-work';
 import { mapAdapterRuntimeEvent } from '../providers/adapter-runtime-event-bridge';
 import { toJsonSafeProviderEventPayload } from '../providers/provider-event-raw-payload';
+import { nativeOpenCodeCommands } from '../commands/provider-native-commands';
 import type {
   ProviderName,
   ProviderRuntimeEvent,
@@ -20,10 +21,23 @@ interface BindRawAdapterProviderEventsInput {
   captureToolResult?: (toolCall: CliToolCall) => void;
   observeSelfWakeup?: (event: ClaudeSelfWakeupEvent) => void;
   observeAsyncWork?: (event: CliAsyncWorkEvent) => void;
+  observeAvailableCommands?: () => void;
 }
 
 /** Bind canonical capture for adapter events not otherwise handled by the UI. */
 export function bindRawAdapterProviderEvents(input: BindRawAdapterProviderEventsInput): void {
+  // Compare the effective menu projection, not the provider's unbounded payload.
+  // Undefined deliberately makes the first empty catalog observable too.
+  let lastCatalog: string | undefined;
+  input.adapter.on('available_commands', () => {
+    if (input.isStale('available_commands')) return;
+    const catalog = JSON.stringify(nativeOpenCodeCommands('opencode', input.adapter)
+      .map(({ id, name, description }) => ({ id, name, description })));
+    if (catalog === lastCatalog) return;
+    lastCatalog = catalog;
+    input.observeAvailableCommands?.();
+  });
+
   // Terminal provider turn failure is distinct from a broken adapter. The
   // send rejection still owns overflow/limit/auth recovery; this records the
   // canonical ending synchronously without teardown, hooks or a second notice.

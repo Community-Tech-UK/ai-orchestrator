@@ -18,7 +18,10 @@
  * text, values, or URLs.
  */
 
-import type { BrowserExistingTabAttachment } from './browser-extension-tab-store';
+import {
+  extensionCommandTargetForAttachment,
+  type BrowserExistingTabAttachment,
+} from './browser-extension-tab-store';
 import type { BrowserExtensionSendCommandRequest } from './browser-extension-command-store';
 import { browserExtensionQueueKeyForNode } from './browser-extension-command-store';
 
@@ -198,12 +201,7 @@ export class BrowserTargetPersistenceSentinel {
           ? { queueKey: browserExtensionQueueKeyForNode(attachment.nodeId) }
           : {}),
         command: 'evaluate',
-        target: {
-          profileId: attachment.profileId,
-          targetId: attachment.targetId,
-          tabId: attachment.tabId,
-          windowId: attachment.windowId,
-        },
+        target: extensionCommandTargetForAttachment(attachment),
         payload: {
           expression: buildPersistenceScanExpression(attachment.origin),
           awaitPromise: false,

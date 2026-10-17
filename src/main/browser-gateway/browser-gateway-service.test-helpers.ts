@@ -105,6 +105,7 @@ export function makeService(overrides: {
     windowId?: number;
     nodeId?: string;
     nodeName?: string;
+    extensionInstanceId?: string;
     title: string;
     url: string;
     origin: string;

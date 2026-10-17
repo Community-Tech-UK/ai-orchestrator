@@ -112,6 +112,21 @@ describe('remote extension contact clocks', () => {
     expect(summary).toContain('browser.recover_extension');
   });
 
+  it('judges a tab\'s channel on its own Chrome profile when one is named', () => {
+    const healthy = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+    const wedged = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+    const twoProfiles: RemoteExtensionContactDeps = {
+      ...deps({ coordinatorPollAt: NOW - 1_000, relayContactAt: NOW - 1_000 }),
+      deliveryHealth: (_nodeId, instanceId) => ({
+        commandsAnswered: instanceId === healthy,
+        consecutiveUnanswered: instanceId === healthy ? 0 : 3,
+      }),
+    };
+
+    expect(isRemoteExtensionContactFresh('node-1', twoProfiles, healthy)).toBe(true);
+    expect(isRemoteExtensionContactFresh('node-1', twoProfiles, wedged)).toBe(false);
+  });
+
   it('does not treat a fresh relay clock as delivery freshness', () => {
     const incident = deps({ coordinatorPollAt: NOW - 67 * MINUTE, relayContactAt: NOW - 15_000 });
     expect(isRemoteExtensionContactFresh('node-1', incident)).toBe(false);

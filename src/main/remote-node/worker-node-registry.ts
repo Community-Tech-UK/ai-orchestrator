@@ -144,6 +144,7 @@ export class WorkerNodeRegistry extends EventEmitter {
     }
     if (prefs.requiresGpu && !caps.gpuName) return -Infinity;
     if (prefs.requiresCli && !caps.supportedClis.includes(prefs.requiresCli)) return -Infinity;
+    if (prefs.requiresOpenCodeMajor && caps.openCodeMajor !== prefs.requiresOpenCodeMajor) return -Infinity;
     if (
       prefs.requiresWorkingDirectory &&
       !caps.workingDirectories.includes(prefs.requiresWorkingDirectory)

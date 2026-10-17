@@ -342,6 +342,7 @@ describe('WorkerRpcDispatcher instance input', () => {
         'inst-1',
         'contains user text',
         [{ name: 'private-file.txt', path: '/tmp/private-file.txt' }],
+        undefined,
       );
       expect(consoleLog).not.toHaveBeenCalled();
       expect(sendResult).toHaveBeenCalledWith(10, { ok: true });

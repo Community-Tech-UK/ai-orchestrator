@@ -13,6 +13,8 @@ import type {
   WorkerNodeFileTransferSummary,
   WorkerAgentBuildSummary,
 } from '../shared/types/worker-node.types';
+import { readWorkerOpenCodeMajor } from './opencode-worker-capability';
+import { CLI_REGISTRY, getCliCandidatePaths } from '../main/cli/cli-registry';
 import { AUXILIARY_DISCOVERY_MAX_MODELS } from '../shared/types/auxiliary-llm.types';
 import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../shared/types/local-ai-guard.types';
 
@@ -70,6 +72,7 @@ export async function reportCapabilities(
   fileTransfer?: WorkerNodeFileTransferSummary,
 ): Promise<WorkerNodeCapabilities> {
   const supportedClis = detectClis();
+  const openCodeMajor = supportedClis.includes('opencode') ? await readWorkerOpenCodeMajor() : undefined;
   const gpu = detectGpu();
 
   const projects = await sharedProjectDiscovery.scan(workingDirectories);
@@ -101,6 +104,7 @@ export async function reportCapabilities(
     gpuName: gpu.name,
     gpuMemoryMB: gpu.memoryMB,
     supportedClis,
+    ...(openCodeMajor ? { openCodeMajor } : {}),
     hasBrowserRuntime,
     // True only when browser automation is explicitly enabled in worker config
     // AND a Chrome/Chromium executable is resolvable — i.e. the worker can
@@ -366,7 +370,7 @@ function detectClis(): CanonicalCliType[] {
 
   const found: CanonicalCliType[] = [];
   for (const cli of clis) {
-    if (isCommandAvailable(cli.command)) {
+    if (isCommandAvailable(cli.command) || (cli.name === 'opencode' && (isCommandAvailable('opencode2') || getCliCandidatePaths(CLI_REGISTRY.opencode).some((candidate) => fs.existsSync(candidate))))) {
       // ollama is detectable but not yet in CanonicalCliType; skip it for now
       if (cli.name !== 'ollama') {
         found.push(cli.name as CanonicalCliType);

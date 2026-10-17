@@ -244,6 +244,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   browserSecretObservationProtectionEnabled: true,
   workspaceSecretsEnabled: true,
   workspaceSecretsAllowAgentRequests: true,
+  providerSignalFenceEnabled: true,
 
   // Regular-session provider-limit auto-resume (default OFF — see interface doc)
   instanceProviderLimitResumeEnabled: false,

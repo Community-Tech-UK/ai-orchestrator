@@ -1,5 +1,6 @@
 import { compareSemverVersions, parseSemver } from '../cli/semver';
 import {
+  normalizeBrowserExtensionInstanceId,
   type BrowserExtensionContactState,
   type BrowserExtensionContactStateReader,
   type BrowserExtensionRuntimeRecord,
@@ -14,6 +15,7 @@ export function browserExtensionRuntimeFromPayload(
 ): BrowserExtensionRuntimeRecord {
   const extensionVersion = payload['extensionVersion'];
   const extensionStartedAt = payload['extensionStartedAt'];
+  const extensionInstanceId = normalizeBrowserExtensionInstanceId(payload['extensionInstanceId']);
   return {
     ...(typeof extensionVersion === 'string' && extensionVersion ? { extensionVersion } : {}),
     ...(typeof extensionStartedAt === 'number'
@@ -21,6 +23,7 @@ export function browserExtensionRuntimeFromPayload(
       && extensionStartedAt >= 0
       ? { extensionStartedAt }
       : {}),
+    ...(extensionInstanceId ? { extensionInstanceId } : {}),
   };
 }
 
@@ -35,7 +38,11 @@ export function recordCompatibleBrowserExtensionRuntime(
   contactState.markExtensionRuntime(channelId, runtime);
   onContact(runtime);
   return isSecureBrowserExtensionRuntimeEvidence(runtime)
-    && supportsSecureBrowserExtensionCredentialFill(contactState, channelId);
+    && supportsSecureBrowserExtensionCredentialFill(
+      contactState,
+      channelId,
+      runtime.extensionInstanceId,
+    );
 }
 
 export function browserExtensionCommandId(payload: Record<string, unknown>): string {
@@ -52,6 +59,7 @@ export function withoutBrowserExtensionRuntimeEvidence(
   const {
     extensionVersion: _extensionVersion,
     extensionStartedAt: _extensionStartedAt,
+    extensionInstanceId: _extensionInstanceId,
     ...content
   } = payload;
   return content;
@@ -63,16 +71,20 @@ export function withoutBrowserExtensionRuntimeEvidence(
  * trusted with a vault value. The check is repeated immediately before every
  * sensitive extension write; the earlier operation-level check prevents even
  * vault resolution when the loaded extension is already known to be unsafe.
+ *
+ * Pass the extension instance (Chrome profile) that will run the write when it
+ * is known; each profile's install is judged on its own evidence.
  */
 export function supportsSecureBrowserExtensionCredentialFill(
   contactState: BrowserExtensionContactStateReader,
   channelId: string,
+  extensionInstanceId?: string,
 ): boolean {
   if (!contactState.isExtensionContactFresh(channelId)) {
     return false;
   }
   return isSecureBrowserExtensionRuntimeEvidence(
-    contactState.getExtensionRuntime?.(channelId),
+    contactState.getExtensionRuntime?.(channelId, extensionInstanceId),
   );
 }
 

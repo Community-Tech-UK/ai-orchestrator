@@ -34,7 +34,7 @@ import { opencodeAccountProviderName } from '../../../shared/types/provider-acco
 import { buildCliSpawnOptions } from '../../cli/cli-environment';
 import { resolveAccountProfileHome, type AccountProfileHome } from '../../cli/adapters/account-pool/provider-account-home-resolver';
 import { CLAUDE_STRIPPED_AUTH_ENV_VARS } from '../../cli/adapters/adapter-spawn-helpers';
-import { withOpenCodeProcessGate } from '../../cli/adapters/opencode-process-gate';
+import { readSelectedOpenCodeAuthList } from '../opencode-auth-command';
 import { parseOpenCodeAuthCredentialNames, parseOpenCodeAuthList, openCodeAuthNamesFor } from '../opencode-auth-status';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { getLogger } from '../../logging/logger';
@@ -45,7 +45,6 @@ const logger = getLogger('ProviderAccountBinding');
 export const LOCAL_ACCOUNT_NODE_ID = 'local';
 const BINDING_CACHE_TTL_MS = 30_000;
 const CLAUDE_AUTH_STATUS_TIMEOUT_MS = 8_000;
-const OPENCODE_AUTH_LIST_TIMEOUT_MS = 8_000;
 export const MAX_CODEX_AUTH_BYTES = 64 * 1024;
 
 export interface ObservedAccountIdentity {
@@ -114,23 +113,6 @@ async function defaultReadCodexAuthHead(home: string): Promise<string | null> {
  * `opencode auth list` through the shared process gate (it opens OpenCode's
  * database). The output lists provider names/labels and counts only.
  */
-function defaultReadOpenCodeAuthList(): Promise<string | null> {
-  return withOpenCodeProcessGate(() => new Promise<string | null>((resolve) => {
-    execFile(
-      'opencode',
-      ['auth', 'list'],
-      { timeout: OPENCODE_AUTH_LIST_TIMEOUT_MS, maxBuffer: 256 * 1024, ...buildCliSpawnOptions() },
-      (error, stdout) => {
-        // Partial output from a failed process is not sign-in evidence.
-        if (error) {
-          resolve(null);
-          return;
-        }
-        resolve(typeof stdout === 'string' ? stdout : String(stdout ?? ''));
-      },
-    );
-  }));
-}
 
 export class ProviderAccountBindingService {
   private readonly cache = new Map<string, CacheEntry>();
@@ -270,7 +252,7 @@ export class ProviderAccountBindingService {
    * the user's label and a mismatch is undetectable here.
    */
   private async checkOpenCode(profile: ProviderAccountProfile, nodeId: string): Promise<AccountBindingStatus> {
-    const output = await (this.deps.readOpenCodeAuthList ?? defaultReadOpenCodeAuthList)();
+    const output = await (this.deps.readOpenCodeAuthList ?? readSelectedOpenCodeAuthList)();
     if (output === null) {
       return this.build(profile, nodeId, 'unavailable', { errorCode: 'auth-list-unreadable' });
     }

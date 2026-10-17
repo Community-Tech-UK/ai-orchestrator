@@ -34,6 +34,29 @@ const UNREAD_COMPLETIONS_FIELD: StorageField<string[]> = {
 @Injectable({ providedIn: 'root' })
 export class InstanceStateService {
   private readonly unreadThreadIds = new Set<string>(readStorage(UNREAD_COMPLETIONS_FIELD));
+  private transcriptRevision = 0;
+  private readonly repairedTranscripts = new Map<string, { revision: number; createdAt: number }>();
+
+  captureTranscriptRevision(): number { return this.transcriptRevision; }
+
+  recordTranscriptReplay(instanceId: string): void {
+    const instance = this.getInstance(instanceId);
+    if (instance) this.repairedTranscripts.set(instanceId, {
+      revision: ++this.transcriptRevision, createdAt: instance.createdAt,
+    });
+  }
+
+  /** Only a repair newer than the requested snapshot outranks that snapshot. */
+  private preserveRepairedTranscript(incoming: Instance, requestedRevision: number): Instance {
+    const repair = this.repairedTranscripts.get(incoming.id);
+    const live = this.getInstance(incoming.id);
+    if (!repair || !live || repair.revision <= requestedRevision
+      || repair.createdAt !== incoming.createdAt || live.createdAt !== incoming.createdAt
+      || (incoming.adapterGeneration ?? 0) > (live.adapterGeneration ?? 0)
+      || incoming.restartEpoch > live.restartEpoch) return incoming;
+    return { ...incoming, outputBuffer: live.outputBuffer, retainedPrompts: live.retainedPrompts,
+      adapterGeneration: live.adapterGeneration, restartEpoch: live.restartEpoch };
+  }
 
   // ============================================
   // Main State Signal
@@ -160,6 +183,7 @@ export class InstanceStateService {
    * themselves. Background-created sessions must not steal focus.
    */
   addInstance(instance: Instance): void {
+    instance = this.preserveRepairedTranscript(instance, -1);
     this.state.update((current) => {
       const newMap = new Map(current.instances);
       newMap.set(instance.id, {
@@ -185,6 +209,7 @@ export class InstanceStateService {
    * restart — the thread survives as history and the marker must survive with it.
    */
   removeInstance(instanceId: string): void {
+    this.repairedTranscripts.delete(instanceId);
     this.state.update((current) => {
       const newMap = new Map(current.instances);
       newMap.delete(instanceId);
@@ -214,14 +239,22 @@ export class InstanceStateService {
   /**
    * Set all instances (for initial load)
    */
-  setInstances(instances: Map<string, Instance>): void {
+  setInstances(instances: Map<string, Instance>, requestedRevision = this.transcriptRevision): void {
     const restored = new Map<string, Instance>();
-    for (const [id, instance] of instances) {
+    for (const [id, incoming] of instances) {
+      const instance = this.preserveRepairedTranscript(incoming, requestedRevision);
       restored.set(id, {
         ...instance,
         hasUnreadCompletion:
           instance.hasUnreadCompletion || this.isThreadUnread(getInstanceThreadId(instance)),
       });
+    }
+    // A newly published and repaired instance can be absent from an older snapshot.
+    for (const [id, repair] of this.repairedTranscripts) {
+      const live = this.getInstance(id);
+      if (!restored.has(id) && live && repair.revision > requestedRevision
+        && repair.createdAt === live.createdAt) restored.set(id, live);
+      if (!restored.has(id)) this.repairedTranscripts.delete(id);
     }
     this.state.update((s) => ({
       ...s,

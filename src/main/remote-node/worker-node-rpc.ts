@@ -38,6 +38,7 @@ export const NODE_TO_COORDINATOR = {
 export const COORDINATOR_TO_NODE = {
   INSTANCE_SPAWN: 'instance.spawn',
   INSTANCE_SEND_INPUT: 'instance.sendInput',
+  INSTANCE_SEND_RAW: 'instance.sendRaw',
   INSTANCE_TERMINATE: 'instance.terminate',
   INSTANCE_INTERRUPT: 'instance.interrupt',
   INSTANCE_HIBERNATE: 'instance.hibernate',
@@ -149,7 +150,8 @@ export const RPC_ERROR_CODES = {
   NODE_NOT_FOUND: -32001,
   INSTANCE_NOT_FOUND: -32002,
   SPAWN_FAILED: -32003,
-  FILESYSTEM_ERROR: -32004
+  FILESYSTEM_ERROR: -32004,
+  INPUT_REQUIRED_NOT_PENDING: -32005
 } as const;
 
 // -- Helpers --

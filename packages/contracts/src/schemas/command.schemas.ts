@@ -5,6 +5,7 @@ export const CommandIdSchema = z.string().min(1).max(200);
 
 export const CommandListPayloadSchema = z.object({
   workingDirectory: z.string().min(1).max(10000).optional(),
+  instanceId: InstanceIdSchema.optional(),
 });
 
 export const CommandResolvePayloadSchema = z.object({

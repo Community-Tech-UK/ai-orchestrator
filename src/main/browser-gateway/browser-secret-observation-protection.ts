@@ -4,6 +4,7 @@ import {
   browserExtensionQueueKeyForNode,
   type BrowserExtensionCommandStore,
 } from './browser-extension-command-store';
+import { sendCommandToEachExtensionInstance } from './browser-extension-instance-routing';
 import { getBrowserExtensionTabStore } from './browser-extension-tab-store';
 import {
   bindSecretObservationProtectionReader,
@@ -59,12 +60,24 @@ function queueKeysForApply(commandStore: BrowserExtensionCommandStore): string[]
 export function applySecretObservationProtectionToQueues(
   commandStore: BrowserExtensionCommandStore,
 ): void {
-  // The command store stamps the current setting onto every command.
+  // The command store stamps the current setting onto every command. One copy
+  // per Chrome profile: each profile's extension holds its own protection state.
   for (const queueKey of queueKeysForApply(commandStore)) {
-    void commandStore.sendCommand({
+    void sendCommandToEachExtensionInstance(commandStore, {
       queueKey,
       command: 'report_inventory',
       timeoutMs: 5_000,
+    }).then((settled) => {
+      for (const outcome of settled) {
+        if (outcome.status !== 'rejected') {
+          continue;
+        }
+        const error: unknown = outcome.reason;
+        logger.warn('Could not push secret-observation protection to an extension queue', {
+          queueKey,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }).catch((error: unknown) => {
       logger.warn('Could not push secret-observation protection to an extension queue', {
         queueKey,

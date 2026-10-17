@@ -8,6 +8,7 @@ import { EventEmitter } from 'events';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliMcpServerStatus } from '../../shared/types/cli.types';
 import type { DeferredToolUse } from '../cli/adapters/claude-cli-adapter.types';
+import { RemoteCliAdapter } from '../cli/adapters/remote-cli-adapter';
 import { BaseCliAdapter, type CliResponse } from '../cli/adapters/base-cli-adapter';
 // History archiving moved exclusively to instance-lifecycle.ts terminateInstance()
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -86,7 +87,7 @@ import {
 import { getSessionContinuityManagerIfInitialized } from '../session/session-continuity';
 import { getOrCreateTurnSupervisor } from '../session/session-turn-supervisor';
 import { stabilizeThinkingBlocks } from '../../shared/utils/thinking-extractor';
-import { nextMonotonicStreamingContent } from '../../shared/utils/streaming-content';
+import { getStreamingStatusMergePolicy, nextMonotonicStreamingContent } from '../../shared/utils/streaming-content';
 import {
   ACTIVE_CHILD_TURN_STATUSES,
   CHILD_TURN_COMPLETE_STATUSES,
@@ -111,10 +112,9 @@ import { OutputPublicationOrder, type OutputPublicationTicket } from './instance
 import { handleInstanceAdapterError } from './instance-adapter-error-handler';
 import { createInstanceAdapterInputDispatch, createInstanceInputReceipt } from './instance-adapter-input-dispatch';
 import { buildSpawnStallNotice } from './stall-notices';
+import { bindInstanceAcpHistoryReplay } from './instance-acp-history-replay';
 export type { CommunicationDependencies } from './instance-communication.types';
-
 const logger = getLogger('InstanceCommunication');
-
 export class InstanceCommunicationManager extends EventEmitter {
   private settings = getSettingsManager();
   private outputStorage = getOutputStorageManager();
@@ -634,7 +634,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     message: string,
     attachments?: FileAttachment[],
     contextBlock?: string | null,
-    options?: Pick<InstanceSendInputOptions, 'autoContinuation' | 'automatedInput' | 'signal' | 'beforeProviderDispatch' | 'assertProviderDispatchCurrent' | 'internalSource'>,
+    options?: Pick<InstanceSendInputOptions, 'autoContinuation' | 'automatedInput' | 'signal' | 'beforeProviderDispatch' | 'assertProviderDispatchCurrent' | 'internalSource' | 'providerNativeCommandId'>,
   ): Promise<void> {
     throwIfInstanceInputAborted(options?.signal);
     const dispatch = () => deferredDispatch
@@ -755,12 +755,12 @@ export class InstanceCommunicationManager extends EventEmitter {
       logger.info('Skipped adapter dispatch because the provider has an active known limit', { instanceId });
       return;
     }
-    const preparedContext = this.continuityInputQueue.prepare(instanceId, contextBlock);
+    const preparedContext = options?.providerNativeCommandId ? { contextBlock: null, commit: () => undefined } : this.continuityInputQueue.prepare(instanceId, contextBlock);
     const finalContextBlock = preparedContext.contextBlock;
 
     const isAutoContinuation = options?.autoContinuation === true;
     const finalMessageBase = finalContextBlock ? `${finalContextBlock}\n\n${message}` : message;
-    const finalMessage = applyPlanModeTurnHint(instance, finalMessageBase, isAutoContinuation);
+    const finalMessage = options?.providerNativeCommandId ? message : applyPlanModeTurnHint(instance, finalMessageBase, isAutoContinuation);
     await assertInstanceLifecycleHookAllowed(
       'PreSampling',
       instance,
@@ -883,19 +883,21 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
 
     logger.info('Sending message to adapter');
-    // Commit watchdog, receipt and context only when the local adapter actually dispatches.
+    // Observe admitted sends; commit context and watchdog state only while dispatch remains eligible.
     const receipt = createInstanceInputReceipt(instanceId, () => ({ message: finalMessage, attachments, contextBlock: finalContextBlock }));
     let committed = false;
-    const deferredDispatch = adapter instanceof BaseCliAdapter && Boolean(options?.signal || options?.beforeProviderDispatch);
+    const deferredDispatch = (adapter instanceof BaseCliAdapter || adapter instanceof RemoteCliAdapter) && Boolean(options?.signal || options?.beforeProviderDispatch || options?.assertProviderDispatchCurrent);
     const commitDispatch = (): void => {
       throwIfInstanceInputAborted(options?.signal);
       if (committed) return;
       options?.beforeProviderDispatch?.();
+      receipt.record();
+      throwIfInstanceInputAborted(options?.signal);
       committed = true;
       preparedContext.commit();
       this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource }, !options?.autoContinuation && !options?.automatedInput && options?.internalSource === undefined ? instance.requestCount : undefined);
       this.overflow.rememberDispatch(instanceId, inputDispatch, finalMessage);
-      // Only admitted sends create context, checkpoint, watchdog and receipt state.
+      // Cancelled admissions keep a failed receipt without consuming context or starting watchdog state.
       if (this.deps.createSnapshot) {
         const name = `Before: ${message.slice(0, 50)}`;
         try {
@@ -906,7 +908,6 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
       this.toolResultProcessor.resetAutonomousCount(instanceId);
       this.deps.onToolStateChange?.(instanceId, 'generating');
-      receipt.record();
     };
     const failureScope = this.inputFailureScopes.open(instance, adapter, options?.signal);
     const inputDispatch = createInstanceAdapterInputDispatch(instance, adapter, options, () => {
@@ -1442,9 +1443,16 @@ export class InstanceCommunicationManager extends EventEmitter {
         }
       }
     };
-    // Publication follows emit order; see OutputPublicationOrder. The stale and
-    // failure-scope checks stay synchronous so they judge the emitting moment.
+    // Publication follows emit order; stale and failure-scope checks judge the emitting moment.
     const outputOrder = new OutputPublicationOrder();
+    bindInstanceAcpHistoryReplay(adapter, {
+        isStale: () => isStaleAdapterEvent('history_replay'),
+        getInstance: () => this.deps.getInstance(instanceId),
+        limit: () => this.settings.getAll().outputBufferSize,
+        markIncomplete: () => getSessionContinuityManagerIfInitialized()?.markConversationIncomplete(instanceId),
+        storeOverflow: (messages) => { if (this.settings.getAll().enableDiskStorage) void this.outputStorage.storeMessages(instanceId, messages).catch((error) => logger.warn('Replayed history overflow storage failed', { instanceId, ...errorDiagnostic(error) })); },
+        publish: (messages) => this.emit('history-replayed', { instanceId, messages, adapterGeneration: adapterGenerationAtSubscribe, restartEpoch: epochAtSubscribe }),
+    });
     adapter.on('output', (message: OutputMessage) => {
       if (isStaleAdapterEvent('output')) {
         return;
@@ -1454,11 +1462,11 @@ export class InstanceCommunicationManager extends EventEmitter {
       const ticket = outputOrder.enter();
       void handleOutput(message, failureScope, ticket).finally(ticket.release);
     });
-
     bindRawAdapterProviderEvents({
       adapter,
       isStale: isStaleAdapterEvent,
       emit: emitProviderRuntimeEvent,
+      observeAvailableCommands: () => this.emit('commands-changed', { instanceId }),
       captureToolResult: (toolCall) => {
         const instance = this.deps.getInstance(instanceId);
         if (!instance) return;
@@ -2309,8 +2317,12 @@ export class InstanceCommunicationManager extends EventEmitter {
       const existingIndex = instance.outputBuffer.findIndex(m => m.id === message.id);
       if (existingIndex >= 0) {
         const accumulatedContent = getAccumulatedStreamingContent(message);
-        const previousContent = instance.outputBuffer[existingIndex].content ?? '';
-        if (streamingState === true && accumulatedContent.length < previousContent.length) {
+        const previous = instance.outputBuffer[existingIndex];
+        const previousContent = previous.content ?? '';
+        const statusPolicy = getStreamingStatusMergePolicy(previous, message);
+        if (statusPolicy === 'ignore') return;
+        const replaceStatus = statusPolicy === 'replace';
+        if (!replaceStatus && streamingState === true && accumulatedContent.length < previousContent.length) {
           logger.warn('[STREAMING_DROP] streaming update shrank content', {
             instanceId: instance.id,
             messageId: message.id,
@@ -2319,22 +2331,17 @@ export class InstanceCommunicationManager extends EventEmitter {
             hasAccumulatedContentMeta: !!(message.metadata && 'accumulatedContent' in message.metadata),
           });
         }
-        // Guard: a streaming update must never rewind already-committed text.
-        // Providers stream monotonically; empty or shorter accumulated payloads
-        // (Cursor ACP snapshot reset, per-segment restart) would erase visible
-        // assistant text. Keep the committed text; metadata/thinking still update.
-        const nextContent = nextMonotonicStreamingContent(previousContent, accumulatedContent);
+        // Assistant snapshots must not rewind committed text after a provider reset.
+        // ACP status notices replace their prose; metadata/thinking still update.
+        const nextContent = replaceStatus ? accumulatedContent : nextMonotonicStreamingContent(previousContent, accumulatedContent);
         instance.outputBuffer[existingIndex] = {
-          ...instance.outputBuffer[existingIndex],
+          ...previous,
           content: nextContent,
           metadata: message.metadata,
           thinking: message.thinking
-            ? stabilizeThinkingBlocks(
-                instance.outputBuffer[existingIndex].thinking,
-                message.thinking,
-              )
-            : instance.outputBuffer[existingIndex].thinking,
-          thinkingExtracted: message.thinkingExtracted ?? instance.outputBuffer[existingIndex].thinkingExtracted,
+            ? stabilizeThinkingBlocks(previous.thinking, message.thinking)
+            : previous.thinking,
+          thinkingExtracted: message.thinkingExtracted ?? previous.thinkingExtracted,
         };
         this.emit('output', {
           instanceId: instance.id,
@@ -2377,6 +2384,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     const bufferSize = settings.outputBufferSize;
 
     if (instance.outputBuffer.length > bufferSize) {
+      getSessionContinuityManagerIfInitialized()?.markConversationIncomplete(instance.id);
       const overflow = instance.outputBuffer.slice(
         0,
         instance.outputBuffer.length - bufferSize

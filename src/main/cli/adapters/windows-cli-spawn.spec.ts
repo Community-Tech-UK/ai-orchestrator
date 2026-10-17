@@ -218,6 +218,43 @@ describe('resolveWindowsSpawn (one-shot, used by the offload worker)', () => {
     });
   });
 
+  it.each(['D:\\v2\\opencode.cmd', 'D:/v2/opencode.ps1', '\\\\worker\\tools\\opencode.bat', '.\\selected\\opencode.cmd'])('keeps the selected qualified launcher %s ahead of an older install on PATH', (selected) => {
+    setPlatform('win32');
+    const target = 'D:\\v2\\opencode.exe';
+    files.set(normalize(selected), `"${target}" %*`);
+    files.set(normalize(target), 'binary');
+    files.set(normalize(`${DIR}\\opencode.exe`), 'older binary');
+    const args = ['auth', 'list', '--standalone', '--format', 'json', 'line one\nline two & echo unsafe', '"quoted" %PATH%'];
+    expect(resolveWindowsSpawn(selected, args, true, {})).toEqual({ command: target, args, shell: false, detached: false });
+  });
+
+  it.each(['D:\\v2\\opencode.cmd', 'D:\\v2\\opencode.exe'])('never substitutes PATH for a missing selected launcher %s', (selected) => {
+    setPlatform('win32');
+    files.set(normalize(`${DIR}\\opencode.exe`), 'older binary');
+    expect(resolveWindowsSpawn(selected, ['auth', 'list'], true, {})).toEqual({ command: selected, args: ['auth', 'list'], shell: true, detached: false });
+  });
+
+  it('keeps a broken selected shim instead of running a different installation', () => {
+    setPlatform('win32');
+    const selected = 'D:\\v2\\opencode.cmd';
+    files.set(normalize(selected), '"D:\\v2\\missing.exe" %*');
+    files.set(normalize(`${DIR}\\opencode.exe`), 'older binary');
+    expect(resolveWindowsSpawn(selected, ['auth', 'list'], true, {})).toEqual({ command: selected, args: ['auth', 'list'], shell: true, detached: false });
+  });
+
+  it('resolves a selected node-script shim using its own script and local runtime with complete arguments', () => {
+    setPlatform('win32');
+    const selected = 'D:\\v2\\opencode.cmd';
+    const script = 'D:\\v2\\node_modules\\@openai\\codex\\bin\\codex.js';
+    const node = 'D:\\v2\\node.exe';
+    files.set(normalize(selected), CODEX_CMD);
+    files.set(normalize(script), 'selected script');
+    files.set(normalize(node), 'selected runtime');
+    files.set(normalize(`${DIR}\\opencode.exe`), 'older binary');
+    const args = ['acp', '--cwd', 'D:\\project with spaces', 'first\nsecond & | > < ^ %'];
+    expect(resolveWindowsSpawn(selected, args, true, {})).toEqual({ command: node, args: [script, ...args], shell: false, detached: false });
+  });
+
   it('on win32, falls back to the shell shim (shell:true, detached:false) when unresolved', () => {
     setPlatform('win32');
     expect(resolveWindowsSpawn('codex', ['--foo'], true, {})).toEqual({

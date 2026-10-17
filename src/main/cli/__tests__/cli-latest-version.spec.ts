@@ -19,6 +19,20 @@ describe('CliLatestVersionService', () => {
     fetchNpmLatestVersion = vi.fn().mockResolvedValue('2.0.0');
   });
 
+  it.each([['1.19.1', 'opencode-ai', '1.19.2'], ['2.0.30', '@opencode/cli', '2.0.31']])('uses the matching OpenCode package for %s', async (installed, expectedPackage, latest) => {
+    fetchNpmLatestVersion.mockResolvedValue(latest);
+    const service = new CliLatestVersionService({ fetchNpmLatestVersion });
+    expect(await service.resolveLatestVersion('opencode', false, installed)).toBe(latest);
+    expect(fetchNpmLatestVersion).toHaveBeenCalledWith(expectedPackage, expect.any(Number));
+  });
+
+  it('does not offer a cross-major OpenCode update or guess when the installed version is unknown', async () => {
+    fetchNpmLatestVersion.mockResolvedValue('3.0.0');
+    const service = new CliLatestVersionService({ fetchNpmLatestVersion });
+    expect(await service.resolveLatestVersion('opencode', false, '2.0.30')).toBeNull();
+    expect(await service.resolveLatestVersion('opencode')).toBeNull();
+  });
+
   it('returns null without fetching when the CLI has no npm package', async () => {
     const service = makeService(() => undefined);
 

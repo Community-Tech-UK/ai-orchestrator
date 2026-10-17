@@ -6,6 +6,10 @@ import { getOutputStorageManager } from '../memory/output-storage';
 import { getLogger } from '../logging/logger';
 import { buildReplayContinuityMessage } from '../session/replay-continuity';
 import { retainedPromptsForFork, retainedPromptsMissingFrom } from './prompt-retention';
+import { normalizeOpenCodeAdditionalDirectories } from '../../shared/utils/opencode-additional-directories';
+import { normalizeRecoveryNodePlacement } from '../session/session-recovery-node-placement';
+import { normalizeRecoveryExecutionLocation } from '../session/session-recovery-execution-location';
+import { requireOpenCodeNativeForkPlacement } from './lifecycle/opencode-native-fork-placement';
 import type {
   Instance,
   InstanceCreateConfig,
@@ -20,6 +24,8 @@ import type {
 export interface PersistenceDependencies {
   getInstance: (id: string) => Instance | undefined;
   createInstance: (config: InstanceCreateConfig) => Promise<Instance>;
+  supportsNativeFork?: (instanceId: string) => boolean;
+  forkNativeSession?: (instanceId: string) => Promise<string | undefined>;
 }
 
 const logger = getLogger('InstancePersistence');
@@ -111,8 +117,13 @@ export class InstancePersistenceManager {
       config,
       inheritedPrompts,
     );
-    const forkedInstance = await this.deps.createInstance({
+    const executionLocation = config.preserveRuntimeSettings === false ? undefined
+      : normalizeRecoveryExecutionLocation(sourceInstance.executionLocation);
+    const createConfig: InstanceCreateConfig = {
       workingDirectory: sourceInstance.workingDirectory,
+      nodePlacement: config.preserveRuntimeSettings === false ? undefined : normalizeRecoveryNodePlacement(sourceInstance.nodePlacement),
+      additionalDirectories: config.preserveRuntimeSettings === false ? undefined
+        : normalizeOpenCodeAdditionalDirectories(sourceInstance.additionalDirectories, sourceInstance.provider),
       displayName:
         config.displayName || `Fork of ${sourceInstance.displayName}`,
       historyThreadId: config.supersedeSource === true
@@ -129,9 +140,7 @@ export class InstancePersistenceManager {
         ? undefined
         : sourceInstance.reasoningEffort ?? null,
       provider: config.preserveRuntimeSettings === false ? undefined : sourceInstance.provider,
-      forceNodeId: config.preserveRuntimeSettings === false || sourceInstance.executionLocation?.type !== 'remote'
-        ? undefined
-        : sourceInstance.executionLocation.nodeId,
+      forceNodeId: executionLocation?.type === 'remote' ? executionLocation.nodeId : undefined,
       // A fork is a new branch, never a crash revival. The revival marker lets
       // re-archiving restore a trimmed transcript (archive-message-merge.ts),
       // which would resurrect the branch an edit-and-resend discarded.
@@ -143,7 +152,20 @@ export class InstancePersistenceManager {
       initialPrompt: config.initialPrompt,
       initialContextBlock,
       attachments: config.attachments ?? sourceMessage?.attachments,
-    });
+    };
+    const nativeForkEligible = sourceInstance.provider === 'opencode' && sourceInstance.status === 'idle'
+      && config.preserveRuntimeSettings !== false && config.supersedeSource !== true && forkIndex === forkSourceMessages.length
+      && this.deps.supportsNativeFork?.(sourceInstance.id) === true;
+    if (nativeForkEligible) {
+      const nativePlacement = requireOpenCodeNativeForkPlacement(createConfig.nodePlacement);
+      const clonedSessionId = await this.deps.forkNativeSession?.(sourceInstance.id);
+      if (clonedSessionId) {
+        createConfig.nodePlacement = nativePlacement;
+        createConfig.metadata = { ...createConfig.metadata, openCodeForkSessionId: clonedSessionId };
+        createConfig.initialContextBlock = undefined;
+      }
+    }
+    const forkedInstance = await this.deps.createInstance(createConfig);
 
     logger.info('Instance forked', {
       sourceId: sourceInstance.id,
@@ -372,6 +394,6 @@ export class InstancePersistenceManager {
 }
 
 function withoutContinuityRevivalMarker(metadata: Record<string, unknown>): Record<string, unknown> {
-  const { continuityRevival: _continuityRevival, ...rest } = metadata;
+  const { continuityRevival: _continuityRevival, openCodeForkSessionId: _forkSessionId, transcriptKnown: _transcriptKnown, ...rest } = metadata;
   return rest;
 }

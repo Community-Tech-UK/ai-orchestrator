@@ -51,6 +51,9 @@ export class NewSessionDraftService {
   readonly pendingFolders = computed(() => this.activeDraft().pendingFolders);
   readonly yoloMode = computed(() => this.activeDraft().yoloMode);
   readonly hardened = computed(() => this.activeDraft().hardened);
+  /** Fence-off is never persisted: it resets after each create and on reload. */
+  private readonly signalFenceOffKeys = signal<ReadonlySet<string>>(new Set<string>());
+  readonly signalFenceOff = computed(() => this.signalFenceOffKeys().has(this.activeKey()));
   /** The Copilot account the composer's chip resolved to for this draft. */
   readonly copilotAccountProfileId = computed(
     () => this.activeDraft().copilotAccountProfileId,
@@ -341,6 +344,15 @@ export class NewSessionDraftService {
     }));
   }
 
+  setSignalFenceOff(off: boolean): void {
+    const key = this.activeKey();
+    this.signalFenceOffKeys.update((keys) => {
+      const next = new Set(keys);
+      if (off) next.add(key); else next.delete(key);
+      return next;
+    });
+  }
+
   setCopilotAccountProfileId(copilotAccountProfileId: string | null): void {
     this.updateActiveDraft((draft) => ({
       ...draft,
@@ -477,6 +489,7 @@ export class NewSessionDraftService {
 
   clearActiveComposer(): void {
     const activeKey = this.state().activeKey;
+    this.setSignalFenceOff(false);
     this.updateActiveDraft((draft) => ({
       ...draft,
       prompt: '',

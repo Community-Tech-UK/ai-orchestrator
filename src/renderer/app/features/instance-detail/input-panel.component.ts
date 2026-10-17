@@ -1809,6 +1809,20 @@ export class InputPanelComponent implements OnDestroy {
     this.newSessionDraft.setHardened(this.draftHardened() ? null : true);
   }
 
+  /** macOS signal fence: shown with Hardened; a hardened jail already blocks cross-session signals. */
+  readonly fenceOffInSettings = computed(() => this.settingsStore.settings().providerSignalFenceEnabled === false);
+  readonly draftFenceOff = computed(() => this.fenceOffInSettings() || this.newSessionDraft.signalFenceOff());
+  readonly fenceTitle = computed(() => {
+    if (this.fenceOffInSettings()) return 'Fence OFF for every session (Settings > Advanced > Security)';
+    if (this.draftHardened()) return 'Hardened sessions always keep the fence';
+    return this.draftFenceOff()
+      ? 'Fence OFF — this session can stop any program you own, including other sessions. Click to turn the fence back on'
+      : 'Fence ON — this session can only stop programs it started. Click to let it stop any program you own';
+  });
+  onToggleFence(): void {
+    this.newSessionDraft.setSignalFenceOff(!this.newSessionDraft.signalFenceOff());
+  }
+
   private persistComposerText(value: string): void {
     if (this.isDraftComposer()) {
       this.newSessionDraft.setPrompt(value);

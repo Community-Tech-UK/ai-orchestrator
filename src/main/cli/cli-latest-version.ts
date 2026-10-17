@@ -73,8 +73,10 @@ export class CliLatestVersionService {
    * Latest published version for a CLI, or `null` when unknown (no npm package
    * configured, or the registry could not be reached). Cached per package.
    */
-  async resolveLatestVersion(cli: CliType, force = false): Promise<string | null> {
-    const npmPackage = this.npmPackageFor(cli);
+  async resolveLatestVersion(cli: CliType, force = false, currentVersion?: string): Promise<string | null> {
+    const major = currentVersion?.match(/^(?:v)?(\d+)\./)?.[1];
+    if (cli === 'opencode' && major !== '1' && major !== '2') return null;
+    const npmPackage = cli === 'opencode' ? (major === '2' ? '@opencode/cli' : 'opencode-ai') : this.npmPackageFor(cli);
     if (!npmPackage) {
       return null;
     }
@@ -97,6 +99,7 @@ export class CliLatestVersionService {
       version = null;
     }
 
+    if (cli === 'opencode' && version?.match(/^(?:v)?(\d+)\./)?.[1] !== major) version = null;
     this.cache.set(npmPackage, { expiresAt: now + this.cacheTtlMs, version });
     return version;
   }

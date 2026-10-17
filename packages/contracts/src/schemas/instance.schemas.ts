@@ -45,6 +45,7 @@ const NodePlacementPrefsSchema = z.object({
   preferPlatform: z.enum(['darwin', 'win32', 'linux']).optional(),
   preferNodeId: z.string().optional(),
   requiresCli: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']).optional(),
+  requiresOpenCodeMajor: z.union([z.literal(1), z.literal(2)]).optional(),
   requiresWorkingDirectory: z.string().min(1).max(4096).optional(),
 });
 export const ModelRuntimeTargetSchema = z.discriminatedUnion('kind', [
@@ -162,8 +163,20 @@ function parseLocalModelEndpointProvider(
 
 // ============ Instance Creation ============
 
+/** Keep in sync with the runtime OpenCode additional-directory validator. */
+const AdditionalDirectoriesSchema = z.array(z.string().min(1).max(4096).refine((value) => {
+  if (value.includes('\0') || /[*?]/.test(value)) return false;
+  return value.startsWith('/') || /^[a-z]:[\\/]/i.test(value) || /^\\\\[^\\/]+[\\/][^\\/]+(?:[\\/]|$)/.test(value);
+}, 'Additional directories must be absolute paths without wildcards')).max(64);
+const openCodeAdditionalDirectoriesOnly = (payload: { provider?: string; additionalDirectories?: string[] }): boolean =>
+  !payload.additionalDirectories?.length || payload.provider === 'opencode';
+const additionalDirectoriesProviderError = {
+  message: 'Additional directories require the OpenCode provider', path: ['additionalDirectories'],
+};
+
 export const InstanceCreatePayloadSchema = z.object({
   workingDirectory: WorkingDirectorySchema,
+  additionalDirectories: AdditionalDirectoriesSchema.optional(),
   sessionId: SessionIdSchema.optional(),
   parentInstanceId: InstanceIdSchema.optional(),
   displayName: DisplayNameSchema.optional(),
@@ -188,6 +201,8 @@ export const InstanceCreatePayloadSchema = z.object({
   nodePlacement: NodePlacementPrefsSchema.optional(),
   browserToolsMode: z.enum(['eager', 'deferred', 'off']).optional(),
   hardened: z.boolean().optional(),
+  /** `false` turns the macOS signal fence off for this session only. */
+  signalFence: z.boolean().optional(),
   /**
    * Explicit GitHub Copilot account for this session. A validated safe slug,
    * never a path — main derives that profile's Copilot home itself.
@@ -197,12 +212,13 @@ export const InstanceCreatePayloadSchema = z.object({
   copilotConfirmProtectedOverride: z.boolean().optional(),
   /** Explicit Claude/Codex account-pool profile for this session. A safe slug, never a path. */
   accountProfileId: ProviderAccountProfileIdSchema.optional(),
-});
+}).refine(openCodeAdditionalDirectoriesOnly, additionalDirectoriesProviderError);
 
 export type ValidatedInstanceCreatePayload = z.infer<typeof InstanceCreatePayloadSchema>;
 
 export const InstanceCreateWithMessagePayloadSchema = z.object({
   workingDirectory: WorkingDirectorySchema,
+  additionalDirectories: AdditionalDirectoriesSchema.optional(),
   message: z.string().min(0).max(500000),
   attachments: z.array(FileAttachmentSchema).max(10).optional(),
   launchMode: InstanceLaunchModeSchema.optional(),
@@ -219,6 +235,8 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   nodePlacement: NodePlacementPrefsSchema.optional(),
   browserToolsMode: z.enum(['eager', 'deferred', 'off']).optional(),
   hardened: z.boolean().optional(),
+  /** `false` turns the macOS signal fence off for this session only. */
+  signalFence: z.boolean().optional(),
   /**
    * Explicit GitHub Copilot account for this session. A validated safe slug,
    * never a path — main derives that profile's Copilot home itself.
@@ -234,7 +252,7 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
    * `instance-create-idempotency.ts`.
    */
   idempotencyKey: z.string().min(1).max(200).optional(),
-});
+}).refine(openCodeAdditionalDirectoriesOnly, additionalDirectoriesProviderError);
 
 // ============ Instance Input ============
 

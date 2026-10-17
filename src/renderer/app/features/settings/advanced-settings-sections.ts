@@ -200,6 +200,16 @@ export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] 
     ],
   },
   {
+    id: 'session-process-fence-heading',
+    title: 'Session process fence',
+    description: 'Whether a session may stop programs it did not start, such as another session. Applies to sessions started or restarted after the change.',
+    group: 'security',
+    dangerous: true,
+    keys: [
+      'providerSignalFenceEnabled',
+    ],
+  },
+  {
     id: 'shared-tab-credentials-heading',
     title: 'Shared browser tab credentials',
     description: 'Whether an agent may fill saved credentials on your own shared Chrome tabs (not just its managed profiles), and whether a filled tab locks itself until you clear protection in the Harness extension.',

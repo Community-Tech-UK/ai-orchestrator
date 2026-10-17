@@ -14,6 +14,8 @@ import {
   type BrowserReliabilityEvents,
 } from './browser-reliability-events';
 import { deriveBrowserTargetInspectionState } from './browser-target-inspection';
+import type { BrowserExtensionCommandTarget } from './browser-extension-command-store';
+import { normalizeBrowserExtensionInstanceId } from './browser-extension-contact-state';
 
 /**
  * How long a node's attachments survive a channel drop (reliability
@@ -48,6 +50,8 @@ export interface BrowserExistingTabAttachment {
   windowId: number;
   nodeId?: string;
   nodeName?: string;
+  /** The extension install (Chrome profile) that reported this tab. */
+  extensionInstanceId?: string;
   title?: string;
   url: string;
   origin: string;
@@ -81,6 +85,7 @@ export interface BrowserExtensionTabStoreOptions {
 export interface BrowserExtensionTabAttachOptions {
   nodeId?: string;
   nodeName?: string;
+  extensionInstanceId?: string;
 }
 
 export class BrowserExtensionTabStore {
@@ -119,14 +124,20 @@ export class BrowserExtensionTabStore {
     }
 
     this.sweepExpiredSuspensions();
-    const profileId = makeExistingTabProfileId(options.nodeId, input.windowId, input.tabId);
+    // Normalized here too, so no caller can put a `:` into a profile id.
+    const instanceId = normalizeBrowserExtensionInstanceId(options.extensionInstanceId);
+    const profileId = makeExistingTabProfileId(
+      options.nodeId,
+      input.windowId,
+      input.tabId,
+      instanceId,
+    );
     const targetId = this.targetIdFor(profileId);
     const current = this.attachments.get(targetId);
-    const reboundFromTargetId = current ? undefined : this.findReboundSource(
-      options.nodeId,
-      input.url,
-      targetId,
-    );
+    const reboundFromTargetId = current
+      ? undefined
+      : this.replaceLegacyAttachment(options.nodeId, input, instanceId, targetId)
+        ?? this.findReboundSource(options.nodeId, instanceId, input.url, targetId);
     const now = this.now();
     const attachment: BrowserExistingTabAttachment = {
       profileId,
@@ -135,6 +146,7 @@ export class BrowserExtensionTabStore {
       windowId: input.windowId,
       ...(options.nodeId ? { nodeId: options.nodeId } : {}),
       ...(options.nodeName ? { nodeName: options.nodeName } : {}),
+      ...(instanceId ? { extensionInstanceId: instanceId } : {}),
       title: input.title,
       url: input.url,
       origin: parsed.origin,
@@ -190,13 +202,20 @@ export class BrowserExtensionTabStore {
    * in the target registry) instead of deleted: on reconnect the same
    * deterministic ids re-derive, so callers' handles and per-profile grants
    * survive the blip. Deleted for real after the grace window.
+   *
+   * With `extensionInstanceId`, only that Chrome profile's attachments are
+   * suspended; another profile on the same node is unaffected. `null` means
+   * the id-less (pre-0.2.42) profile's attachments only; omitted means all.
    */
-  suspendNode(nodeId: string): number {
+  suspendNode(nodeId: string, extensionInstanceId?: string | null): number {
     this.sweepExpiredSuspensions();
     const now = this.now();
     let suspended = 0;
     for (const [targetId, attachment] of this.attachments.entries()) {
-      if (attachment.nodeId !== nodeId || attachment.suspendedAt !== undefined) {
+      if (
+        !attachmentInScope(attachment, nodeId, extensionInstanceId)
+        || attachment.suspendedAt !== undefined
+      ) {
         continue;
       }
       const next = { ...attachment, suspendedAt: now, updatedAt: now };
@@ -213,13 +232,20 @@ export class BrowserExtensionTabStore {
     return suspended;
   }
 
-  /** The node's channel is back: lift suspension on its attachments. */
-  restoreNode(nodeId: string): number {
+  /**
+   * The node's channel is back: lift suspension on its attachments, or only on
+   * one Chrome profile's when `extensionInstanceId` is given (`null`: the
+   * id-less profile's only).
+   */
+  restoreNode(nodeId: string, extensionInstanceId?: string | null): number {
     this.sweepExpiredSuspensions();
     const now = this.now();
     let restored = 0;
     for (const [targetId, attachment] of this.attachments.entries()) {
-      if (attachment.nodeId !== nodeId || attachment.suspendedAt === undefined) {
+      if (
+        !attachmentInScope(attachment, nodeId, extensionInstanceId)
+        || attachment.suspendedAt === undefined
+      ) {
         continue;
       }
       const { suspendedAt: _suspendedAt, ...rest } = attachment;
@@ -257,6 +283,9 @@ export class BrowserExtensionTabStore {
    * (`nodeId`, or the local extension) and relative to that channel's newest
    * non-suspended report, so a channel that has gone quiet keeps everything
    * (that case is the suspension flow's job, not evidence its tabs closed).
+   * Deliberately per node, not per Chrome profile: a profile closed while
+   * another on the same node keeps reporting has its tabs aged out after the
+   * lag, instead of being listed as live indefinitely.
    */
   private sweepSupersededAttachments(): void {
     const newestByChannel = new Map<string, number>();
@@ -296,9 +325,12 @@ export class BrowserExtensionTabStore {
    * same node + URL is almost certainly the same logical tab re-created after
    * a drop (Chrome restarted → new tabId). Report the remap to callers via
    * `reboundFromTargetId` instead of leaving them to hunt for the tab.
+   * Never across Chrome profiles: the same URL open in another profile is a
+   * different tab with a different login.
    */
   private findReboundSource(
     nodeId: string | undefined,
+    extensionInstanceId: string | undefined,
     url: string,
     newTargetId: string,
   ): string | undefined {
@@ -307,6 +339,7 @@ export class BrowserExtensionTabStore {
         targetId !== newTargetId
         && attachment.suspendedAt !== undefined
         && attachment.nodeId === nodeId
+        && attachment.extensionInstanceId === extensionInstanceId
         && attachment.url === url
       ) {
         this.attachments.delete(targetId);
@@ -319,6 +352,37 @@ export class BrowserExtensionTabStore {
       }
     }
     return undefined;
+  }
+
+  /**
+   * One-time upgrade path: an extension that starts reporting its install id
+   * re-reports tabs that are already attached under the id-less profile id.
+   * Replace that entry (and tell callers via `reboundFromTargetId`) instead of
+   * listing the same tab twice until the superseded sweep catches up.
+   */
+  private replaceLegacyAttachment(
+    nodeId: string | undefined,
+    input: Pick<BrowserAttachExistingTabRequest, 'windowId' | 'tabId'>,
+    extensionInstanceId: string | undefined,
+    newTargetId: string,
+  ): string | undefined {
+    if (!extensionInstanceId) {
+      return undefined;
+    }
+    const legacyTargetId = this.targetIdFor(
+      makeExistingTabProfileId(nodeId, input.windowId, input.tabId),
+    );
+    const legacy = this.attachments.get(legacyTargetId);
+    if (!legacy || legacyTargetId === newTargetId || legacy.extensionInstanceId) {
+      return undefined;
+    }
+    this.attachments.delete(legacyTargetId);
+    this.targetRegistry.markClosed(legacyTargetId);
+    this.reliabilityEvents.record('attachment_rebound', {
+      ...(nodeId ? { nodeId } : {}),
+      detail: { fromTargetId: legacyTargetId, toTargetId: newTargetId },
+    });
+    return legacyTargetId;
   }
 
   private toTarget(attachment: BrowserExistingTabAttachment): BrowserTarget {
@@ -390,13 +454,52 @@ export function getBrowserExtensionTabStore(): BrowserExtensionTabStore {
   return BrowserExtensionTabStore.getInstance();
 }
 
+/**
+ * Deterministic id for a shared tab. The Chrome profile segment (`p.<id>`)
+ * keeps tabs from two profiles on one machine apart; it sits after the node
+ * segment so `existingTabGrantNodeId` still reads the node, which keeps grants
+ * and credential scopes per machine.
+ */
 export function makeExistingTabProfileId(
   nodeId: string | null | undefined,
   windowId: number,
   tabId: number,
+  extensionInstanceId?: string,
 ): string {
+  const instance = extensionInstanceId ? `p.${extensionInstanceId}:` : '';
   if (!nodeId) {
-    return `existing-tab:${windowId}:${tabId}`;
+    return `existing-tab:${instance}${windowId}:${tabId}`;
   }
-  return `existing-tab:n.${nodeId}:${windowId}:${tabId}`;
+  return `existing-tab:n.${nodeId}:${instance}${windowId}:${tabId}`;
+}
+
+/**
+ * The command target for a shared tab. Carries the reporting Chrome profile
+ * so the command is only handed to that profile's extension.
+ */
+export function extensionCommandTargetForAttachment(
+  attachment: Pick<
+    BrowserExistingTabAttachment,
+    'profileId' | 'targetId' | 'tabId' | 'windowId' | 'extensionInstanceId'
+  >,
+): BrowserExtensionCommandTarget {
+  return {
+    profileId: attachment.profileId,
+    targetId: attachment.targetId,
+    tabId: attachment.tabId,
+    windowId: attachment.windowId,
+    ...(attachment.extensionInstanceId
+      ? { extensionInstanceId: attachment.extensionInstanceId }
+      : {}),
+  };
+}
+
+function attachmentInScope(
+  attachment: BrowserExistingTabAttachment,
+  nodeId: string,
+  extensionInstanceId: string | null | undefined,
+): boolean {
+  return attachment.nodeId === nodeId
+    && (extensionInstanceId === undefined
+      || attachment.extensionInstanceId === (extensionInstanceId ?? undefined));
 }

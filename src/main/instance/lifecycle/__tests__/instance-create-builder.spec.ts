@@ -27,6 +27,14 @@ const buildConfig = (overrides: Partial<InstanceCreateConfig> = {}): InstanceCre
 });
 
 describe('buildInstanceRecord', () => {
+  it('validates and retains explicit OpenCode folders without sharing caller ownership', () => {
+    const additionalDirectories = ['/repo/shared', 'C:\\shared'];
+    const deps = { defaultYoloMode: false, getParent: () => undefined };
+    const instance = buildInstanceRecord(buildConfig({ provider: 'opencode', additionalDirectories }), buildAgent(), deps);
+    expect(instance.additionalDirectories).toEqual(additionalDirectories);
+    expect(instance.additionalDirectories).not.toBe(additionalDirectories);
+    expect(() => buildInstanceRecord(buildConfig({ provider: 'claude', additionalDirectories }), buildAgent(), deps)).toThrow(/OpenCode/);
+  });
   it('builds a new initializing root instance with default lifecycle state', () => {
     const instance = buildInstanceRecord(buildConfig({ provider: 'claude' }), buildAgent(), {
       defaultYoloMode: false,
@@ -81,6 +89,13 @@ describe('buildInstanceRecord', () => {
 
     expect(instance.outputBuffer).toHaveLength(2);
     expect(seeded).toHaveLength(1);
+  });
+
+  it('records only an explicit fence-off choice on the instance', () => {
+    const deps = { defaultYoloMode: false, getParent: () => undefined };
+    expect(buildInstanceRecord(buildConfig({ signalFence: false }), buildAgent(), deps).signalFence).toBe(false);
+    expect('signalFence' in buildInstanceRecord(buildConfig({ signalFence: true }), buildAgent(), deps)).toBe(false);
+    expect('signalFence' in buildInstanceRecord(buildConfig(), buildAgent(), deps)).toBe(false);
   });
 
   it('marks a brand-new session as not-yet-persisted to block premature resume', () => {
@@ -253,4 +268,22 @@ describe('buildInstanceRecord', () => {
     expect(instance.agentId).toBe('parent-agent');
     expect(instance.yoloMode).toBe(true);
   });
+});
+
+
+it.each([
+ { isRestoredSession: true }, { sessionId: 'native-existing' }, { historyThreadId: 'prior-history' },
+ { metadata: { openCodeForkSessionId: 'native-parent' } }, { initialRetainedPrompts: [{ id: 'old', content: 'older request', timestamp: 1 }] },
+])('does not stamp existing-history creation as a fresh provider origin: %j', (overrides) => {
+ const instance = buildInstanceRecord(buildConfig({ provider: 'opencode', ...overrides } as InstanceCreateConfig), buildAgent(), { defaultYoloMode: false, getParent: () => undefined });
+ expect(instance.providerSessionPersisted).not.toBe(false);
+});
+
+it('retains independent immutable placement constraints for actual spawn', () => {
+ const nodePlacement = { requiresOpenCodeMajor: 2 as const, preferNodeId: 'worker-placeholder' };
+ const instance = buildInstanceRecord(buildConfig({ provider: 'opencode', nodePlacement }), buildAgent(), { defaultYoloMode: false, getParent: () => undefined });
+ expect(instance.nodePlacement).toEqual(nodePlacement);
+ expect(instance.nodePlacement).not.toBe(nodePlacement);
+ nodePlacement.preferNodeId = 'changed-worker';
+ expect(instance.nodePlacement?.preferNodeId).toBe('worker-placeholder');
 });

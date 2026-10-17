@@ -21,6 +21,7 @@ import type {
 import {
   describeBrowserExtensionContact,
   getBrowserExtensionContactState,
+  normalizeBrowserExtensionInstanceId,
   type BrowserExtensionContactSnapshot,
   type BrowserExtensionContactState,
 } from './browser-extension-contact-state';
@@ -63,9 +64,15 @@ interface RemoteExtensionCommandStore {
 }
 
 interface RemoteExtensionTabStore {
-  suspendNode(nodeId: string): number;
-  restoreNode(nodeId: string): number;
+  suspendNode(nodeId: string, extensionInstanceId?: string | null): number;
+  restoreNode(nodeId: string, extensionInstanceId?: string | null): number;
 }
+
+type ExtensionRuntimeParams = {
+  extensionVersion?: string;
+  extensionStartedAt?: number;
+  extensionInstanceId?: string;
+};
 
 export interface RemoteBrowserExtensionBridgeOptions {
   service?: RemoteExtensionBridgeService;
@@ -173,15 +180,19 @@ export class RemoteBrowserExtensionBridge {
     const {
       allowedOrigins: _allowedOrigins,
       extensionOrigin: payloadExtensionOrigin,
+      // Only the relay's top-level id routes; see BrowserExtAttachTabParamsSchema.
+      extensionInstanceId: _nestedExtensionInstanceId,
       ...payload
-    } = params.payload;
+    } = params.payload as typeof params.payload & { extensionInstanceId?: unknown };
     const extensionOrigin = params.extensionOrigin ?? payloadExtensionOrigin;
+    const extensionInstanceId = normalizeBrowserExtensionInstanceId(params.extensionInstanceId);
     return this.service.attachExistingTab({
       ...payload,
       ...(extensionOrigin ? { extensionOrigin } : {}),
       provider: 'orchestrator',
       nodeId,
       ...(node.name ? { nodeName: node.name } : {}),
+      ...(extensionInstanceId ? { extensionInstanceId } : {}),
     });
   }
 
@@ -191,10 +202,12 @@ export class RemoteBrowserExtensionBridge {
   ): ReturnType<RemoteExtensionCommandStore['pollCommand']> {
     this.consumeRateLimit(nodeId, 'control');
     const allowBrowserCommands = this.recordExtensionContact(nodeId, params);
+    const extensionInstanceId = normalizeBrowserExtensionInstanceId(params.extensionInstanceId);
     return this.commandStore.pollCommand(
       browserExtensionQueueKeyForNode(nodeId),
       {
         timeoutMs: params.timeoutMs,
+        ...(extensionInstanceId ? { extensionInstanceId } : {}),
         deferHandoffConfirmation: true,
         allowBrowserCommands,
         allowSecureCredentialCommands: allowBrowserCommands,
@@ -265,15 +278,26 @@ export class RemoteBrowserExtensionBridge {
   extensionDisconnected(nodeId: string, params: BrowserExtDisconnectedParams): { ok: true } {
     this.consumeRateLimit(nodeId, 'control');
     const reason = params.reason ?? 'unknown';
-    this.contactState.markExtensionDisconnect(nodeId, reason);
-    this.logger.info('Remote browser extension channel disconnected', { nodeId, reason });
+    const extensionInstanceId = normalizeBrowserExtensionInstanceId(params.extensionInstanceId);
+    // Scoped to the closing Chrome profile when the native host names it, so
+    // another profile on this node keeps its trust.
+    this.contactState.markExtensionDisconnect(nodeId, reason, undefined, extensionInstanceId);
+    this.logger.info('Remote browser extension channel disconnected', {
+      nodeId,
+      reason,
+      ...(extensionInstanceId ? { extensionInstanceId } : {}),
+    });
     return { ok: true };
   }
 
   expireNode(nodeId: string): void {
     this.rateBuckets.delete(nodeId);
     this.contactTransitions.delete(nodeId);
-    this.lastIncompatibilityReason.delete(nodeId);
+    for (const key of this.lastIncompatibilityReason.keys()) {
+      if (key === nodeId || key.startsWith(`${nodeId}\u0000`)) {
+        this.lastIncompatibilityReason.delete(key);
+      }
+    }
     this.contactState.forgetNode(nodeId, { preserveRuntimeWatermark: true });
     // forgetNode wiped the disconnect record — re-record it so post-reconnect
     // writes trigger the persistence sentinel's pre-write session check.
@@ -330,23 +354,36 @@ export class RemoteBrowserExtensionBridge {
 
   private recordExtensionContact(
     nodeId: string,
-    runtime: { extensionVersion?: string; extensionStartedAt?: number },
+    params: ExtensionRuntimeParams,
   ): boolean {
     const contactedAt = this.now();
     this.observeExtensionContact(nodeId, contactedAt);
     const previousState = this.contactTransitions.get(nodeId) ?? 'never';
+    const extensionInstanceId = normalizeBrowserExtensionInstanceId(params.extensionInstanceId);
+    const runtime = {
+      ...(params.extensionVersion !== undefined ? { extensionVersion: params.extensionVersion } : {}),
+      ...(params.extensionStartedAt !== undefined
+        ? { extensionStartedAt: params.extensionStartedAt }
+        : {}),
+      ...(extensionInstanceId ? { extensionInstanceId } : {}),
+    };
     this.contactState.markExtensionContact(nodeId, contactedAt);
     this.contactState.markExtensionRuntime(nodeId, runtime);
+    // Judged on this Chrome profile's own install. With several profiles on
+    // one node, one profile's old or restarting extension must neither block
+    // nor suspend the others.
     const allowBrowserCommands = isSecureBrowserExtensionRuntimeEvidence(runtime)
-      && supportsSecureBrowserExtensionCredentialFill(this.contactState, nodeId);
+      && supportsSecureBrowserExtensionCredentialFill(this.contactState, nodeId, extensionInstanceId);
     this.recordIncompatibilityTransition(nodeId, runtime, allowBrowserCommands);
+    // An id-less (pre-0.2.42) poll speaks only for id-less attachments (`null`),
+    // never for another profile's; only expireNode acts on the whole node.
     if (!allowBrowserCommands) {
-      this.tabStore.suspendNode(nodeId);
+      this.tabStore.suspendNode(nodeId, extensionInstanceId ?? null);
     } else {
       // 'lost' → the poll resumed; 'never' → first contact after a node
       // (re)registration. Either way the channel is live again: lift any
       // suspension so callers' pre-blip handles keep working.
-      const restored = this.tabStore.restoreNode(nodeId);
+      const restored = this.tabStore.restoreNode(nodeId, extensionInstanceId ?? null);
       if (previousState === 'lost' || restored > 0) {
         this.reliabilityEvents.record('node_reconnect', {
           nodeId,
@@ -380,22 +417,28 @@ export class RemoteBrowserExtensionBridge {
 
   private recordIncompatibilityTransition(
     nodeId: string,
-    runtime: { extensionVersion?: string; extensionStartedAt?: number },
+    runtime: ExtensionRuntimeParams,
     allowBrowserCommands: boolean,
   ): void {
+    // Per install, so two profiles in different states do not log a
+    // blocked/unblocked pair on every alternating poll.
+    const key = runtime.extensionInstanceId ? `${nodeId}\u0000${runtime.extensionInstanceId}` : nodeId;
+    const instance = runtime.extensionInstanceId
+      ? { extensionInstanceId: runtime.extensionInstanceId }
+      : {};
     if (allowBrowserCommands) {
-      if (this.lastIncompatibilityReason.has(nodeId)) {
-        this.lastIncompatibilityReason.delete(nodeId);
-        this.logger.info('Remote browser extension commands unblocked', { nodeId });
+      if (this.lastIncompatibilityReason.has(key)) {
+        this.lastIncompatibilityReason.delete(key);
+        this.logger.info('Remote browser extension commands unblocked', { nodeId, ...instance });
       }
       return;
     }
     const reason = this.denyBrowserCommandsReason(nodeId, runtime);
-    if (this.lastIncompatibilityReason.get(nodeId) === reason) {
+    if (this.lastIncompatibilityReason.get(key) === reason) {
       return;
     }
-    this.lastIncompatibilityReason.set(nodeId, reason);
-    this.logger.warn('Remote browser extension commands blocked', { nodeId, reason });
+    this.lastIncompatibilityReason.set(key, reason);
+    this.logger.warn('Remote browser extension commands blocked', { nodeId, reason, ...instance });
   }
 
   private observeExtensionContact(

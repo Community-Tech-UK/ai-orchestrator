@@ -13,7 +13,8 @@
  *
  * On the signal the guard:
  *   1. interrupts any in-flight turn (its remaining requests are overage), and
- *   2. holds the session on a provider-limit park until the window resets.
+ *   2. honours the account pool's switch policy using included usage only,
+ *      falling back to a provider-limit park when no switch can run.
  *
  * The hold is unconditional — a silent money burn must stop even when the
  * (spend-oriented) auto-resume feature `instanceProviderLimitResumeEnabled` is

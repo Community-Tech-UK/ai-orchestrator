@@ -10,6 +10,14 @@ import { SAFE_CREDENTIAL_CODES } from './browser-credential-fill-targeting';
 const background = readFileSync('resources/browser-extension/background.js', 'utf8');
 const SECRET = 'TEST_ONLY_ORIGIN_BOUND_SECRET';
 const AUTHORIZED_ORIGIN = 'https://www.instagram.com';
+// runBrowserCommand's first step is the real Chrome-profile guard. These
+// commands carry no target install, so it passes them through unchanged.
+const PROFILE_GUARD_SOURCE = `
+const WRONG_PROFILE_ERROR = 'browser_extension_wrong_profile';
+let extensionInstanceId = null;
+${extractFunctionSource(background, 'assertCommandForThisProfile')}
+${extractFunctionSource(background, 'isWrongProfileRefusal')}
+`;
 const SECRET_OBSERVATION_PROTECTION_STUBS = `
 let secretObservationProtectionEnabled = true;
 let secretObservationProtectionLoaded = true;
@@ -427,6 +435,7 @@ return markSecretTaint;`,
       `const secretObservationGuardErrors = new WeakSet();
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
+${PROFILE_GUARD_SOURCE}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
     );
@@ -529,6 +538,7 @@ return runBrowserCommand;`,
       `const secretObservationGuardErrors = new WeakSet();
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
+${PROFILE_GUARD_SOURCE}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
     );
@@ -578,6 +588,7 @@ return runBrowserCommand;`,
       `const secretObservationGuardErrors = new WeakSet();
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
+${PROFILE_GUARD_SOURCE}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
     );
@@ -625,6 +636,7 @@ return runBrowserCommand;`,
       `const secretObservationGuardErrors = new WeakSet();
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
+${PROFILE_GUARD_SOURCE}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
     );
@@ -677,6 +689,7 @@ return runBrowserCommand;`,
       `const secretObservationGuardErrors = new WeakSet();
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
+${PROFILE_GUARD_SOURCE}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
     );
@@ -731,6 +744,7 @@ return runBrowserCommand;`,
       `const secretObservationGuardErrors = new WeakSet();
 ${SECRET_OBSERVATION_PROTECTION_STUBS.replace('= true;', '= false;')}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
+${PROFILE_GUARD_SOURCE}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
     );
@@ -1320,6 +1334,7 @@ describe('extension credential writes into embedded cross-origin forms', () => {
       `const secretObservationGuardErrors = new WeakSet();
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
+${PROFILE_GUARD_SOURCE}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
     );

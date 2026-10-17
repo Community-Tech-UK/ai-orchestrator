@@ -9,6 +9,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { randomUUID } from 'node:crypto';
 import { getLogger } from '../../logging/logger';
 import type { WorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
 import { getWorkerNodeRegistry } from '../../remote-node/worker-node-registry';
@@ -18,6 +19,11 @@ import type { AdapterInputOptions, AdapterRuntimeCapabilities, CliResponse, CliS
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
+import { RPC_ERROR_CODES } from '../../remote-node/worker-node-rpc';
+import { InstanceSendRawParamsSchema, InputRequiredResolvedSchema, ProviderSessionSchema, ProviderTurnSchema, NativeHistoryReplaySchema, RemoteInputRequiredSchema, boundedRemoteCommands, inputNotPending, interactionPayload, type RemoteNativeCommand } from '../../remote-node/instance-interaction-schemas';
+import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
+import { JsonChunkAssembler } from '../../../shared/utils/json-chunks';
+import type { AcpHistoryReplay } from './acp-session-replay';
 
 const logger = getLogger('RemoteCliAdapter');
 
@@ -70,8 +76,17 @@ interface RemoteCompleteEvent {
 
 export class RemoteCliAdapter extends EventEmitter {
   private remoteInstanceId: string | null = null;
+  private interactionId = randomUUID();
+  private availableCommands: RemoteNativeCommand[] = [];
+  private providerSessionId: string | null = null;
+  private providerTurn: { active: boolean; activeToolCalls: boolean; at: number } | null = null;
+  private readonly pendingInputs = new Set<string>();
   private readonly nextPromptContexts: string[] = [];
-  private contextDispatchPending = false;
+  private contextDispatchPending: object | null = null;
+  private readonly historyChunks = new JsonChunkAssembler({ maxCharacters: 40 * 1024 * 1024, maxTransfers: 1 });
+  private pendingHistoryReplay: AcpHistoryReplay | null = null;
+  private historyReplayFailure: Error | null = null;
+  private spawnPending = false;
   /** Latest resume proof relayed from the worker adapter (P2.9). */
   private lastResumeAttemptResult: ResumeAttemptResult | null = null;
   /**
@@ -100,6 +115,40 @@ export class RemoteCliAdapter extends EventEmitter {
       if (event.info && typeof event.info === 'object') {
         this.lastResumeAttemptResult = event.info as ResumeAttemptResult;
       }
+      return;
+    }
+    if (event.state === 'provider_turn') {
+      const value = ProviderTurnSchema.safeParse(interactionPayload(event.info, this.interactionId));
+      if (value.success) { this.providerTurn = { ...value.data, at: Date.now() }; this.markActivity(); }
+      return;
+    }
+    if (event.state === 'history_replay') {
+      if (!this.spawnPending) return;
+      const payload = interactionPayload(event.info, this.interactionId);
+      if (payload === undefined) return;
+      try {
+        const complete = this.historyChunks.accept(payload);
+        if (complete) {
+          const history = NativeHistoryReplaySchema.parse(complete.value);
+          if (history.sessionId !== this.providerSessionId) throw new Error('Remote history session identity changed.');
+          this.pendingHistoryReplay = history;
+        }
+      } catch {
+        this.historyChunks.clear();
+        this.historyReplayFailure = new Error('Remote session history could not be restored completely.');
+      }
+      return;
+    }
+    if (event.state === 'provider_session') {
+      const value = ProviderSessionSchema.safeParse(interactionPayload(event.info, this.interactionId)); if (value.success) this.providerSessionId = value.data.sessionId; return;
+    }
+    if (event.state === 'available_commands') {
+      const payload = interactionPayload(event.info, this.interactionId); if (payload === undefined) return;
+      this.availableCommands = boundedRemoteCommands(payload); this.emit('available_commands', this.getAvailableCommands()); return;
+    }
+    if (event.state === 'input_required_resolved') {
+      const value = InputRequiredResolvedSchema.safeParse(interactionPayload(event.info, this.interactionId));
+      if (value.success && this.pendingInputs.delete(value.data.id)) this.emit('input_required_resolved', value.data);
       return;
     }
     if (event.state === 'exited') {
@@ -167,18 +216,30 @@ export class RemoteCliAdapter extends EventEmitter {
       throw new Error('RemoteCliAdapter requires spawnOptions.workingDirectory for remote execution');
     }
 
+    if (this.requestedCliType === 'opencode') {
+      const requiresV2 = this.spawnOptions.forkSession || Boolean(this.spawnOptions.additionalDirectories?.length)
+        || this.spawnOptions.nodePlacement?.requiresOpenCodeMajor === 2;
+      if (requiresV2 && this.registry.getNode(this.targetNodeId)?.capabilities.openCodeMajor !== 2) {
+        throw new Error('This OpenCode operation needs a worker running OpenCode 2.0.30 or newer. Update OpenCode on that worker or choose another worker.');
+      }
+    }
+
     // Set the expected remote instance ID and attach registry listeners BEFORE
     // sending the spawn RPC. This eliminates the window where early output from
     // the remote instance could be missed because listeners weren't registered yet.
     this.remoteInstanceId = this.spawnOptions.sessionId;
+    this.interactionId = randomUUID();
+    this.spawnPending = true;
     this.attachRegistryListeners();
 
+    let acknowledged = false;
     try {
       const response = await this.nodeConnection.sendRpc<SpawnResponse>(
         this.targetNodeId,
         'instance.spawn',
         {
           instanceId: this.spawnOptions.sessionId,
+          interactionId: this.interactionId,
           cliType: this.requestedCliType,
           workingDirectory: this.spawnOptions.workingDirectory,
           systemPrompt: this.spawnOptions.systemPrompt,
@@ -189,6 +250,8 @@ export class RemoteCliAdapter extends EventEmitter {
           disallowedTools: this.spawnOptions.disallowedTools,
           resume: this.spawnOptions.resume,
           forkSession: this.spawnOptions.forkSession,
+          transcriptKnown: this.spawnOptions.transcriptKnown,
+          additionalDirectories: this.spawnOptions.additionalDirectories,
           mcpConfig: this.spawnOptions.mcpConfig,
           nodePlacement: this.spawnOptions.nodePlacement,
           // Copilot account routing: profile ID, expected identity, host, and
@@ -224,6 +287,10 @@ export class RemoteCliAdapter extends EventEmitter {
             : {}),
         },
       );
+      acknowledged = true;
+      const expectsHistory = this.requestedCliType === 'opencode' && this.spawnOptions.resume
+        && !this.spawnOptions.transcriptKnown && this.registry.getNode?.(this.targetNodeId)?.capabilities.openCodeMajor === 2;
+      if (this.historyReplayFailure || expectsHistory && !this.pendingHistoryReplay) throw this.historyReplayFailure ?? new Error('The OpenCode 2 worker did not deliver the loaded session history.');
 
       // Update with the actual remote instance ID (should match sessionId)
       this.remoteInstanceId = response.instanceId;
@@ -233,12 +300,15 @@ export class RemoteCliAdapter extends EventEmitter {
       });
       this.markActivity();
     } catch (err) {
+      if (acknowledged) await this.terminate(false);
       // The spawn RPC itself failed — the worker never acknowledged the child,
       // so reset the adapter and rethrow. A later rollback terminate() is then a
       // no-op (correct: there is no remote child to kill).
       this.remoteInstanceId = null;
       this.detachRegistryListeners();
       throw err;
+    } finally {
+      this.spawnPending = false;
     }
 
     // Fix C: emit OUTSIDE the try/catch. Once the worker has acknowledged the
@@ -248,6 +318,9 @@ export class RemoteCliAdapter extends EventEmitter {
     // the remote pid=-1 sentinel) previously landed in the catch above, nulled
     // `remoteInstanceId`, and orphaned the still-running remote child. Keeping
     // the emit here means a throwing listener no longer resets the adapter.
+    const history = this.pendingHistoryReplay;
+    this.pendingHistoryReplay = null;
+    if (history) this.emit('history_replay', history);
     this.emit('spawned', -1);
     return -1; // No local PID for remote instances
   }
@@ -257,8 +330,8 @@ export class RemoteCliAdapter extends EventEmitter {
     if (text.trim()) this.nextPromptContexts.push(text);
   }
 
-  /** Remote nodes receive the Harness envelope in the text; `_options` is not forwarded. */
-  async sendInput(message: string, attachments?: FileAttachment[], _options?: AdapterInputOptions): Promise<void> {
+  /** Remote nodes receive the Harness envelope in the text; admission controls stay in-process. */
+  async sendInput(message: string, attachments?: FileAttachment[], options?: AdapterInputOptions): Promise<void> {
     if (!this.remoteInstanceId) {
       throw new Error('RemoteCliAdapter: not spawned — call spawn() before sendInput()');
     }
@@ -269,16 +342,27 @@ export class RemoteCliAdapter extends EventEmitter {
     if (this.contextDispatchPending) {
       throw new Error('Cannot send message: the previous turn is still running.');
     }
-    const contextCount = this.nextPromptContexts.length;
+    const commandName = /^\/([^\s]+)(?:\s|$)/.exec(message)?.[1];
+    const nativeCommand = this.requestedCliType === 'opencode' && this.availableCommands.some((command) => command.name === commandName);
+    const contextCount = nativeCommand ? 0 : this.nextPromptContexts.length;
     const prompt = contextCount > 0 ? [...this.nextPromptContexts, message].join('\n\n') : message;
-    this.contextDispatchPending = contextCount > 0;
+    const owner = this.contextDispatchPending = {};
+    const interactionId = this.interactionId;
+    const instanceId = this.remoteInstanceId;
+    const dispatch = createAdapterInputDispatch(options?.dispatch);
+    const assertCurrent = (): void => {
+      assertAdapterInputCurrent(dispatch);
+      if (this.remoteInstanceId !== instanceId || this.interactionId !== interactionId || this.contextDispatchPending !== owner) throw new Error('Remote instance changed before provider dispatch.');
+      if (getPauseCoordinator().isPaused()) throw new OrchestratorPausedError('Remote input refused while orchestrator is paused');
+      if (nativeCommand && !this.availableCommands.some((command) => command.name === commandName)) throw new Error('The selected native command is no longer available in this session.');
+    };
     try {
-      // No RPC timeout: some worker-side adapters (notably the Codex app-server)
-      // block inside sendInput() for the ENTIRE turn before responding, and turns
-      // are unbounded in length. A fixed timeout would falsely fail healthy turns
-      // that run longer than it — even though output streams back over separate
-      // notifications meanwhile. Stuck turns are handled by the coordinator's own
-      // stuck-process watchdog; a node disconnect rejects this RPC promptly.
+      assertCurrent();
+      if (this.spawnOptions.beforeProviderPrompt) await this.spawnOptions.beforeProviderPrompt();
+      assertCurrent();
+      dispatch?.beforeProviderDispatch?.();
+      assertCurrent();
+      // Worker sends may span an unbounded turn; disconnects reject the RPC.
       await this.nodeConnection.sendRpc(
         this.targetNodeId,
         'instance.sendInput',
@@ -286,12 +370,13 @@ export class RemoteCliAdapter extends EventEmitter {
           instanceId: this.remoteInstanceId,
           message: prompt,
           attachments,
+          ...(nativeCommand ? { nativeCommandId: `acp:opencode:${commandName}` } : {}),
         },
         0,
       );
-      this.nextPromptContexts.splice(0, contextCount);
+      if (this.contextDispatchPending === owner) this.nextPromptContexts.splice(0, contextCount);
     } finally {
-      this.contextDispatchPending = false;
+      if (this.contextDispatchPending === owner) this.contextDispatchPending = null;
     }
   }
 
@@ -302,6 +387,25 @@ export class RemoteCliAdapter extends EventEmitter {
    */
   getResumeAttemptResult(): ResumeAttemptResult | null {
     return this.lastResumeAttemptResult;
+  }
+  getAvailableCommands(): readonly RemoteNativeCommand[] { return this.availableCommands.map(command => ({ ...command })); }
+  hasActiveTurn(): boolean {
+    return Boolean(this.remoteInstanceId && this.providerTurn?.active && Date.now() - this.providerTurn.at < 15_000
+      && this.nodeConnection.isNodeConnected(this.targetNodeId));
+  }
+  hasActiveToolCalls(): boolean { return this.hasActiveTurn() && this.providerTurn?.activeToolCalls === true; }
+
+  async sendRaw(response: string, permissionKey?: string): Promise<void> {
+    const params = InstanceSendRawParamsSchema.parse({ instanceId: this.remoteInstanceId, response, permissionKey });
+    if (!this.pendingInputs.has(params.permissionKey)) throw inputNotPending();
+    if (getPauseCoordinator().isPaused()) throw new OrchestratorPausedError('Permission response refused while orchestrator is paused');
+    try { await this.nodeConnection.sendRpc(this.targetNodeId, 'instance.sendRaw', params); }
+    catch (error) {
+      if (error instanceof Error && (('code' in error && error.code === RPC_ERROR_CODES.INPUT_REQUIRED_NOT_PENDING)
+        || error.message.startsWith(`RPC error ${RPC_ERROR_CODES.INPUT_REQUIRED_NOT_PENDING}:`))) { this.pendingInputs.delete(params.permissionKey); throw inputNotPending(); }
+      throw error;
+    }
+    if (this.pendingInputs.delete(params.permissionKey)) this.emit('input_required_resolved', { id: params.permissionKey, reason: 'decided' });
   }
 
   /**
@@ -391,10 +495,7 @@ export class RemoteCliAdapter extends EventEmitter {
     }
   }
 
-  /**
-   * Force cleanup of registry listeners. Call this if the adapter may not
-   * be properly terminated (e.g., error recovery paths).
-   */
+  /** Force cleanup after interrupted termination or error recovery. */
   forceCleanup(): void {
     this.remoteInstanceId = null;
     this.detachRegistryListeners();
@@ -418,7 +519,7 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   getSessionId(): string | null {
-    return this.remoteInstanceId;
+    return this.providerSessionId ?? this.remoteInstanceId;
   }
 
   getPid(): number | null {
@@ -444,6 +545,16 @@ export class RemoteCliAdapter extends EventEmitter {
           supportsNativeCompaction: false,
           supportsPermissionPrompts: true,
           supportsDeferPermission: false, // Remote doesn't run local hooks
+          selfManagedAutoCompaction: true,
+        };
+      case 'opencode':
+        return {
+          supportsResume: true,
+          // Remote source-clone RPC is not available; preserve snapshot replay.
+          supportsForkSession: false,
+          supportsNativeCompaction: false,
+          supportsPermissionPrompts: true,
+          supportsDeferPermission: false,
           selfManagedAutoCompaction: true,
         };
       case 'codex':
@@ -513,6 +624,7 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   handleRemoteStateChange(status: string): void {
+    if (status === 'idle' || status === 'ready') this.providerTurn = null;
     this.markActivity();
     this.emit('stateChange', status);
     this.emit('status', status);
@@ -524,6 +636,9 @@ export class RemoteCliAdapter extends EventEmitter {
 
   handleRemotePermissionRequest(payload: unknown): void {
     this.markActivity();
+    const request = RemoteInputRequiredSchema.safeParse(payload);
+    if (request.success && request.data.metadata?.['remoteInteractionId'] !== undefined && request.data.metadata['remoteInteractionId'] !== this.interactionId) return;
+    if (request.success && this.pendingInputs.size < 64) this.pendingInputs.add(request.data.id);
     this.emit('input_required', payload);
   }
 
@@ -538,6 +653,7 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   handleRemoteComplete(response: CliResponse): void {
+    this.providerTurn = null;
     this.markActivity();
     this.emit('complete', response);
   }
@@ -565,6 +681,9 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   private detachRegistryListeners(): void {
+    this.contextDispatchPending = null;
+    this.historyChunks.clear(); this.pendingHistoryReplay = null; this.historyReplayFailure = null;
+    this.availableCommands = []; this.pendingInputs.clear(); this.providerSessionId = null; this.providerTurn = null;
     if (!this.registryListenersAttached) {
       return;
     }

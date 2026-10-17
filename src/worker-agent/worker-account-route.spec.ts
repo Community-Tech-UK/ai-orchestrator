@@ -1,3 +1,4 @@
+vi.mock('../main/cli/adapters/opencode-cli-launch', () => ({ selectOpenCodeLaunch: vi.fn(async () => ({ command: 'opencode', major: 1 })) }));
 import { execFile, type ChildProcess } from 'child_process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

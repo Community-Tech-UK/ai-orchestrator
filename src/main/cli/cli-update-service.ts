@@ -16,6 +16,9 @@ import {
   resetCopilotCliLaunchCache,
   type CopilotCliLaunchConfig,
 } from './copilot-cli-launch';
+import { resolveOpenCodeUpdateArgs, type OpenCodeLatestVersionResolver } from './opencode-update-policy';
+import { validateOpenCodeUpdateExecution } from './opencode-update-execution';
+import { withOpenCodeProcessGate } from './adapters/opencode-process-gate';
 import type { CliUpdateStrategy } from '../../shared/types/diagnostics.types';
 
 const logger = getLogger('CliUpdateService');
@@ -69,8 +72,6 @@ export const CLI_UPDATE_SPECS: Partial<Record<CliType, CliUpdateSpec>> = {
     npmPackage: '@xai-official/grok',
     selfUpdateArgs: ['update'],
   },
-  // OpenCode ships as npm `opencode-ai` (or the opencode.ai/install binary)
-  // and self-updates with `opencode upgrade`, whichever way it was installed.
   opencode: {
     npmPackage: 'opencode-ai',
     selfUpdateArgs: ['upgrade'],
@@ -146,6 +147,7 @@ interface CliUpdateDetection {
 }
 
 export interface CliUpdateServiceDeps {
+  resolveOpenCodeLatestVersion?: OpenCodeLatestVersionResolver;
   detection?: CliUpdateDetection;
   env?: NodeJS.ProcessEnv;
   execFileAsync?: (
@@ -236,6 +238,7 @@ function defaultExecFileAsync(
 export class CliUpdateService {
   private static instance: CliUpdateService | null = null;
 
+  private readonly resolveOpenCodeLatestVersion?: OpenCodeLatestVersionResolver;
   private readonly detection: CliUpdateDetection;
   private readonly env: NodeJS.ProcessEnv;
   private readonly execFileAsync: NonNullable<CliUpdateServiceDeps['execFileAsync']>;
@@ -258,6 +261,7 @@ export class CliUpdateService {
   }
 
   constructor(deps: CliUpdateServiceDeps = {}) {
+    this.resolveOpenCodeLatestVersion = deps.resolveOpenCodeLatestVersion;
     this.detection = deps.detection ?? CliDetectionService.getInstance();
     this.env = deps.env ?? process.env;
     this.execFileAsync = deps.execFileAsync ?? defaultExecFileAsync;
@@ -310,13 +314,12 @@ export class CliUpdateService {
     const args = plan.args;
     return this.runExclusive(plan.lockKey ?? `cli:${type}`, async () => {
       try {
-        const output = await this.execFileAsync(
-          command,
-          args,
-          DEFAULT_UPDATE_TIMEOUT_MS,
-          this.env,
-          this.platform,
-        );
+        const execute = async () => {
+          if (type === 'opencode') await validateOpenCodeUpdateExecution({ plan, exists: this.exists, realpath: this.realpath,
+            version: async selected => (await this.execFileAsync(selected, ['--version'], 5_000, this.env, this.platform)).stdout });
+          return this.execFileAsync(command, args, DEFAULT_UPDATE_TIMEOUT_MS, this.env, this.platform);
+        };
+        const output = await (type === 'opencode' ? withOpenCodeProcessGate(execute) : execute());
 
         this.detection.clearCache();
         // An update can move the CLI (a `gh` extension install, or a first npm
@@ -346,6 +349,7 @@ export class CliUpdateService {
           durationMs: Date.now() - startedAt,
         };
       } catch (error) {
+        if (type === 'opencode') this.detection.clearCache();
         const err = error as Error & { stdout?: string; stderr?: string };
         logger.warn('CLI update failed', {
           cli: type,
@@ -397,7 +401,11 @@ export class CliUpdateService {
   private async buildPlan(type: CliType, info: CliInfo): Promise<CliUpdatePlan> {
     const displayName = CLI_REGISTRY[type]?.displayName ?? type;
     const installs = await this.detection.scanAllCliInstalls(type).catch(() => []);
-    const activeInstall = installs[0];
+    // OpenCode sessions prefer a supported v2 over PATH order. Detection uses
+    // that same resolver; do not update an unrelated v1 from the scan instead.
+    const activeInstall = type === 'opencode'
+      ? (info.path ? { path: info.path, version: info.version } : undefined)
+      : installs[0];
     const activePath = activeInstall?.path ?? info.path;
     const currentVersion = activeInstall
       ? activeInstall.version ?? (this.pathEquals(activeInstall.path, info.path) ? info.version : undefined)
@@ -415,6 +423,15 @@ export class CliUpdateService {
         ...base,
         reason: `${displayName} is not installed.`,
       };
+    }
+
+    if (type === 'opencode') {
+      if (!activePath || !this.path.isAbsolute(activePath) || !this.exists(activePath)) {
+        return { ...base, reason: 'The selected OpenCode install path is missing or could not be confirmed. Check the install before updating.' };
+      }
+      const update = await resolveOpenCodeUpdateArgs({ activePath, currentVersion, realpath: (path) => this.resolveRealPath(path), resolveLatestVersion: this.resolveOpenCodeLatestVersion });
+      if (!update.args) return { ...base, reason: update.reason };
+      return this.withCommand(base, activePath, update.args, 'self-update');
     }
 
     if (type === 'copilot') {

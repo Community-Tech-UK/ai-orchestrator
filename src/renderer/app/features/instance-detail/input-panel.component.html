@@ -200,6 +200,15 @@
             >
               <span class="yolo-label">Hardened {{ hardenedLabel() }}</span>
             </button>
+            <button
+              class="yolo-toggle fence-toggle"
+              [class.active]="draftFenceOff() && !draftHardened()"
+              [disabled]="fenceOffInSettings() || draftHardened()"
+              (click)="onToggleFence()"
+              [title]="fenceTitle()"
+            >
+              <span class="yolo-label">Fence {{ draftFenceOff() && !draftHardened() ? 'OFF' : 'ON' }}</span>
+            </button>
           }
         </div>
       </div>

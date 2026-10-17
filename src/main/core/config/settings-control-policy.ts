@@ -107,6 +107,7 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   'workspaceSecretsEnabled',
   'workspaceSecretsAllowAgentRequests',
   'browserSecretObservationProtectionEnabled',
+  'providerSignalFenceEnabled',
   'computerUseRequireApprovalForInput',
   'computerUseStoreScreenshotsForEscalations',
   'computerUseAutonomyLevel',
@@ -431,6 +432,8 @@ export const SETTINGS_TOOL_POLICY = {
   browserSecretObservationProtectionEnabled: readOnly(),
   workspaceSecretsEnabled: readOnly(),
   workspaceSecretsAllowAgentRequests: readOnly(),
+  // An agent that could turn the fence off could kill sibling sessions.
+  providerSignalFenceEnabled: readOnly(),
   codebaseAutoIndexEnabled: open(z.boolean()),
   instanceProviderLimitResumeEnabled: open(z.boolean()),
   loopAllowProviderOverage: open(z.boolean()),

@@ -59,7 +59,8 @@ describe('browser extension credential compatibility', () => {
   it('reads runtime evidence from the exact remote contact channel', () => {
     const state = contactState('0.2.18');
     expect(supportsSecureBrowserExtensionCredentialFill(state, 'windows-pc')).toBe(true);
-    expect(state.getExtensionRuntime).toHaveBeenCalledWith('windows-pc');
+    // No Chrome-profile id in this evidence: the channel's latest install is read.
+    expect(state.getExtensionRuntime).toHaveBeenCalledWith('windows-pc', undefined);
   });
 
   it('accepts only the exact fixed two-field taint completion', () => {

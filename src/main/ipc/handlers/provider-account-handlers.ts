@@ -309,7 +309,7 @@ export function registerProviderAccountHandlers(deps: RegisterProviderAccountHan
       requireProfile(payload.provider, payload.profileId);
       const accountProfile = { provider: payload.provider, profileId: payload.profileId };
       // The command embeds the derived home; only copied / hint / terminal name cross IPC.
-      const copied = copyAccountProfileLoginCommand(accountProfile, (text) => clipboard.writeText(text));
+      const copied = await copyAccountProfileLoginCommand(accountProfile, (text) => clipboard.writeText(text));
       bindings.invalidate(payload.provider, payload.profileId);
       if (!payload.openTerminal) {
         return { success: true, data: { copied: true, openedTerminal: false, ...(copied.hint ? { hint: copied.hint } : {}) } };

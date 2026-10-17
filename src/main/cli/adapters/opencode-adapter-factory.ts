@@ -11,15 +11,17 @@
  * never native credential values.
  */
 
+import { isAbsolute } from 'node:path';
+import { normalizeOpenCodeAdditionalDirectories } from '../../../shared/utils/opencode-additional-directories';
 import { AcpCliAdapter } from './acp-cli-adapter';
 import { resolveAcpStallWarningMs } from './acp-prompt-timeout-policy';
-import { openCodeProcessGate } from './opencode-process-gate';
+import { openCodeProcessGate, withOpenCodeProcessGate } from './opencode-process-gate';
 import { createOpenCodeChildProgressSource } from './opencode-child-progress-source';
 import { sanitizeOpenCodeContentFilterSource } from './opencode-content-filter-recovery';
 import { applyOpenCodeGenerationBudget, assertOpenCodeGenerationBudget } from './opencode-generation-budget';
 import { selectOpenCodeLaunch } from './opencode-cli-launch';
 import { readOpenCodeEffectiveBudgetConfig } from './opencode-effective-budget-config';
-import { mirrorOpenCodeProviderForV2 } from './opencode-v2-config';
+import { serializeOpenCodeConfigForV2 } from './opencode-v2-config';
 import { applyOpenCodePermissionPolicy, assertOpenCodePermissionPolicy } from './opencode-permission-policy';
 export { buildOpenCodePermissionBlock } from './opencode-permission-policy';
 import {
@@ -103,7 +105,13 @@ export function resolveOpenCodePromptTimeoutMs(model: string | undefined): numbe
 }
 
 export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
+  const additionalDirectories = normalizeOpenCodeAdditionalDirectories(options.additionalDirectories, 'opencode');
+  const explicitRequiredMajor = options.nodePlacement?.requiresOpenCodeMajor;
+  const requiresNativeV2 = Boolean(options.forkSession || additionalDirectories?.length);
+  if (explicitRequiredMajor === 1 && requiresNativeV2) throw new Error('Native session forks and additional directories require OpenCode 2; this session explicitly requires OpenCode 1.');
+  const requiredMajor = explicitRequiredMajor ?? (requiresNativeV2 ? 2 : undefined);
   const workingDirectory = options.workingDirectory ?? process.cwd();
+  if (!isAbsolute(workingDirectory)) throw new Error('OpenCode requires an absolute working directory.');
   const accountSpawn = resolveOpenCodeAccountSpawnConfig(options);
   const accountRegions = [...new Set(accountSpawn.accounts.map((account) => account.region))];
   const accountBlocksFor = (): Record<string, unknown> => {
@@ -142,28 +150,40 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
   const effort = mapAcpEffort(options.reasoningEffort);
   const args = ['acp', '--cwd', workingDirectory];
   const childProgress = createOpenCodeChildProgressSource(workingDirectory);
-  const adapter = new AcpCliAdapter({
+  const adapter: AcpCliAdapter = new AcpCliAdapter({
     adapterName: 'opencode-acp',
     command: 'opencode',
+    resolveCommand: async () => (await withOpenCodeProcessGate(() => selectOpenCodeLaunch({
+      workingDirectory, env, writableRoots: adapter.getHardenedWritableRoots(), requiredMajor,
+    }))).command,
     args,
     // Metadata owns its own gated subprocess read. Resolve it before spawn
     // takes that same non-reentrant gate for config probes and ACP initialize.
     beforeStartupGate: async () => {
-      if (accountSpawn.accounts.length > 0) await ensureOpenCodeRegionModelMetadata(accountRegions);
+      if (accountSpawn.accounts.length > 0) {
+        if (requiredMajor === undefined) await ensureOpenCodeRegionModelMetadata(accountRegions);
+        else await ensureOpenCodeRegionModelMetadata(accountRegions, { requiredMajor });
+      }
     },
     prepareSpawn: async () => {
       const writableRoots = adapter.getHardenedWritableRoots();
-      // Only supported majors are returned, so the `major >= 2` branches below
-      // stay inactive while MAX_SUPPORTED_OPENCODE_MAJOR is 1.
-      const launch = await selectOpenCodeLaunch({ workingDirectory, env, writableRoots });
+      const launch = await selectOpenCodeLaunch({ workingDirectory, env, writableRoots, requiredMajor });
+      if (explicitRequiredMajor !== undefined && launch.major !== explicitRequiredMajor) {
+        throw new Error(`This session requires OpenCode ${explicitRequiredMajor}, but the selected install is OpenCode ${launch.major}. Choose an install with the required version.`);
+      }
+      if (options.forkSession && launch.major < 2) throw new Error('Native session forks require OpenCode 2.');
+      if (additionalDirectories?.length && launch.major < 2) throw new Error('Additional directories require OpenCode 2.');
       adapter.setSpawnCommand(launch.command);
+      adapter.configureOpenCodeV2(launch.major >= 2);
       const probe = (content: string) => readOpenCodeEffectiveBudgetConfig({ workingDirectory,
         command: launch.command,
         cliMajor: launch.major,
         ...(generationBudget && model ? { model } : {}),
         env: { ...env, [OPENCODE_CONFIG_CONTENT_ENV]: content }, writableRoots,
       });
-      const effectiveConfig = await probe(originalConfigContent);
+      const probeConfig = JSON.parse(originalConfigContent) as Record<string, unknown>;
+      if (launch.major >= 2) serializeOpenCodeConfigForV2(probeConfig);
+      const effectiveConfig = await probe(JSON.stringify(probeConfig));
       const currentConfig = JSON.parse(originalConfigContent) as Record<string, unknown>;
       const accountBlocks = accountBlocksFor();
       const routedAccount = accountSpawn.accounts.find(
@@ -191,10 +211,10 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
       applyOpenCodeAccountProviderBlocks(currentConfig, accountBlocks);
       applyOpenCodePermissionPolicy(currentConfig, yoloMode, effectiveConfig);
       if (generationBudget && model) Object.assign(generationBudget, applyOpenCodeGenerationBudget(currentConfig, model, effectiveConfig));
-      if (launch.major >= 2) mirrorOpenCodeProviderForV2(currentConfig);
+      if (launch.major >= 2) serializeOpenCodeConfigForV2(currentConfig);
       const preparedContent = JSON.stringify(currentConfig);
       const verified = await probe(preparedContent);
-      assertOpenCodePermissionPolicy(verified);
+      assertOpenCodePermissionPolicy(verified, yoloMode, launch.major);
       if (generationBudget) assertOpenCodeGenerationBudget(verified, generationBudget);
       env[OPENCODE_CONFIG_CONTENT_ENV] = preparedContent;
       return childProgress.prepareSpawn(args, env, { serveHttp: launch.major < 2 });
@@ -204,6 +224,9 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
     workingDirectory,
     sessionId: options.sessionId,
     resume: options.resume,
+    preferSessionResume: options.transcriptKnown === true,
+    forkSessionId: options.forkSession ? options.sessionId : undefined,
+    additionalDirectories,
     env,
     mcpServers: mergeAcpMcpServers(
       options.mcpServers,
@@ -218,6 +241,7 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
     ...(accountSpawn.route ? { requireSessionModelConfirmation: true } : {}),
     startupGate: openCodeProcessGate,
     reportedCostOnly: true,
+    beforeProviderPrompt: options.beforeProviderPrompt,
     generationBudget,
     systemPrompt: options.systemPrompt,
     rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),

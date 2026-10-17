@@ -6,8 +6,12 @@
  * Behaviour matches the previous in-class helpers.
  */
 
+import { normalizeOpenCodeAdditionalDirectories } from '../../shared/utils/opencode-additional-directories';
+import { normalizeRecoveryNodePlacement } from './session-recovery-node-placement';
+import { normalizeRecoveryExecutionLocation } from './session-recovery-execution-location';
 import { getLogger } from '../logging/logger';
 import { isLegacyRedactedToolOutput } from './redacted-tool-output';
+import type { Instance } from '../../shared/types/instance.types';
 import type { ConversationEntry, SessionState } from './session-continuity.types';
 
 const logger = getLogger('SessionContinuity');
@@ -139,9 +143,16 @@ export function normalizeStateForContinuity(
   state: SessionState,
   redactToolOutputs: boolean,
 ): SessionState {
+  const history = normalizeConversationHistory(state.conversationHistory, redactToolOutputs);
+  const unchanged = history.length === state.conversationHistory.length;
   return {
     ...state,
-    conversationHistory: normalizeConversationHistory(state.conversationHistory, redactToolOutputs),
+    executionLocation: normalizeRecoveryExecutionLocation(state.executionLocation),
+    nodePlacement: normalizeRecoveryNodePlacement(state.nodePlacement),
+    conversationHistoryOriginKnown: state.conversationHistoryOriginKnown === true && unchanged,
+    conversationHistoryComplete: state.conversationHistoryComplete === true && unchanged,
+    ...(state.additionalDirectories !== undefined ? { additionalDirectories: normalizeOpenCodeAdditionalDirectories(state.additionalDirectories, state.provider) } : {}),
+    conversationHistory: history,
   };
 }
 
@@ -149,7 +160,9 @@ export function shouldRewriteNormalizedState(
   original: SessionState,
   normalized: SessionState,
 ): boolean {
-  if (original.conversationHistory.length !== normalized.conversationHistory.length) {
+  if (original.conversationHistoryComplete === true && normalized.conversationHistoryComplete !== true
+    || original.conversationHistoryOriginKnown === true && normalized.conversationHistoryOriginKnown !== true
+    || original.conversationHistory.length !== normalized.conversationHistory.length) {
     return true;
   }
 
@@ -169,4 +182,18 @@ export function shouldRewriteNormalizedState(
   }
 
   return false;
+}
+
+
+/** Return whether provider/account identity changed after this capture was already established. */
+export function updateContinuityCaptureIdentity(
+  state: SessionState,
+  live: Partial<Pick<Instance, 'provider' | 'accountProfileId' | 'copilotAccountProfileId'>> | undefined,
+): boolean {
+  if (!live || live.provider === undefined) return false;
+  const keys = ['provider', 'accountProfileId', 'copilotAccountProfileId'] as const;
+  const firstBinding = state.conversationHistoryOriginKnown === true && state.conversationHistoryTurnStarted === false;
+  const changed = !firstBinding && keys.some((key) => live[key] !== state[key]);
+  for (const key of keys) Object.assign(state, { [key]: live[key] });
+  return changed;
 }

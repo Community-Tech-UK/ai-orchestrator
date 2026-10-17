@@ -79,7 +79,7 @@ export async function fillSecretOperation(
       `${toolName} runs on agent-owned managed profiles only, not shared tabs`,
     );
   }
-  if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
+  if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId, request.targetId)) {
     return deny(
       'shared_tab_secure_credential_fill_unavailable',
       `${toolName} requires a current secure Browser Gateway extension on this shared tab`,
@@ -94,7 +94,7 @@ export async function fillSecretOperation(
   if (!origin) {
     return deny('origin_unknown', `${toolName} could not determine the live page origin`);
   }
-  if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
+  if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId, request.targetId)) {
     return deny(
       'shared_tab_secure_credential_fill_unavailable',
       `${toolName} requires a current secure Browser Gateway extension on this shared tab`,
@@ -163,7 +163,7 @@ export async function fillSecretOperation(
       // worker replacement during origin/authorization work must prevent the
       // vault resolver from being called for the now-untrusted generation.
       step = 'secure_extension';
-      if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
+      if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId, request.targetId)) {
         return deny(
           'shared_tab_secure_credential_fill_unavailable',
           `${toolName} requires a current secure Browser Gateway extension on this shared tab`,
@@ -220,7 +220,7 @@ export async function fillSecretOperation(
           );
         }
       }
-      if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
+      if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId, request.targetId)) {
         return deny(
           'shared_tab_secure_credential_fill_unavailable',
           `${toolName} aborted because the secure Browser Gateway extension changed before filling`,

@@ -21,6 +21,7 @@
 
 import { getLogger } from '../../logging/logger';
 import { generateId } from '../../../shared/utils/id-generator';
+import { normalizeOpenCodeAdditionalDirectories } from '../../../shared/utils/opencode-additional-directories';
 import { getModelSwitchUnavailableReason } from '../../../shared/types/instance-status-policy';
 import { getSessionMutex } from '../../session/session-mutex';
 import { getSessionAdmissionService } from '../../session/session-admission-service';
@@ -93,6 +94,7 @@ export class RuntimeReconciler {
     let fallbackPreamble: string | undefined;
     try {
       assertCurrent();
+      normalizeOpenCodeAdditionalDirectories(instance.additionalDirectories, desired.modelRuntimeTarget?.kind === 'local-model' ? 'local-model' : desired.provider);
       const unavailableReason = getModelSwitchUnavailableReason(instance.status);
       if (unavailableReason) {
         throw new Error(unavailableReason);

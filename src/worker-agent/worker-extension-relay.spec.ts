@@ -220,6 +220,92 @@ describe('WorkerExtensionRelay', () => {
     );
   });
 
+  describe('with several Chrome profiles', () => {
+    const PROFILE_A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+    const PROFILE_B = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+
+    function poll(relay: WorkerExtensionRelay, extensionInstanceId: string, extensionStartedAt: number) {
+      return relay.handleExtensionRpcRequest({
+        method: 'browser.extension_poll_command',
+        params: {
+          extensionToken: 'extension-token',
+          payload: { timeoutMs: 1000, extensionVersion: '0.2.42', extensionStartedAt, extensionInstanceId },
+        },
+      });
+    }
+
+    it('forwards the profile id on polls and strips it from the tab payload', async () => {
+      const { relay, sendRequest } = makeRelay();
+
+      await poll(relay, PROFILE_A, 100);
+      expect(sendRequest).toHaveBeenLastCalledWith(
+        NODE_TO_COORDINATOR.BROWSER_EXT_POLL_COMMAND,
+        { timeoutMs: 1000, extensionVersion: '0.2.42', extensionStartedAt: 100, extensionInstanceId: PROFILE_A },
+        11_000,
+      );
+
+      await relay.handleExtensionRpcRequest({
+        method: 'browser.extension_attach_tab',
+        params: {
+          extensionToken: 'extension-token',
+          payload: { tabId: 1, windowId: 2, url: 'https://example.com', extensionInstanceId: PROFILE_A },
+        },
+      });
+      // The coordinator's tab schema is strict: the id must travel beside the
+      // payload, never inside it.
+      expect(sendRequest).toHaveBeenLastCalledWith(
+        NODE_TO_COORDINATOR.BROWSER_EXT_ATTACH_TAB,
+        { extensionInstanceId: PROFILE_A, payload: { tabId: 1, windowId: 2, url: 'https://example.com' } },
+      );
+
+      await relay.handleExtensionRpcRequest({
+        method: 'browser.extension_disconnected',
+        params: {
+          extensionToken: 'extension-token',
+          payload: { reason: 'native_host_stdin_eof', extensionInstanceId: PROFILE_A },
+        },
+      });
+      expect(sendRequest).toHaveBeenLastCalledWith(
+        NODE_TO_COORDINATOR.BROWSER_EXT_DISCONNECTED,
+        { reason: 'native_host_stdin_eof', extensionInstanceId: PROFILE_A },
+      );
+    });
+
+    it('moves the reload time only when one profile restarts, not on every alternating poll', async () => {
+      const { relay } = makeRelay();
+
+      await poll(relay, PROFILE_A, 100);
+      await poll(relay, PROFILE_B, 200);
+      expect(relay.getSummary()).toMatchObject({ extensionReloadedAt: 200 });
+
+      await poll(relay, PROFILE_A, 100);
+      await poll(relay, PROFILE_B, 200);
+      expect(relay.getSummary()).toMatchObject({ extensionReloadedAt: 200 });
+
+      // Profile A's service worker restarts.
+      await poll(relay, PROFILE_A, 300);
+      await poll(relay, PROFILE_B, 200);
+      expect(relay.getSummary()).toMatchObject({ extensionReloadedAt: 300 });
+    });
+
+    it('keeps the reload time through a disconnect notice and the next poll', async () => {
+      const { relay } = makeRelay();
+      await poll(relay, PROFILE_A, 100);
+
+      await relay.handleExtensionRpcRequest({
+        method: 'browser.extension_disconnected',
+        params: {
+          extensionToken: 'extension-token',
+          payload: { reason: 'native_host_stdin_eof', extensionInstanceId: PROFILE_A },
+        },
+      });
+      expect(relay.getSummary()).toMatchObject({ extensionReloadedAt: 100, extensionVersion: '0.2.42' });
+
+      await poll(relay, PROFILE_A, 100);
+      expect(relay.getSummary()).toMatchObject({ extensionReloadedAt: 100 });
+    });
+  });
+
   it.each([-1, 1.5])(
     'does not normalize malformed extension start evidence at %s',
     async (extensionStartedAt) => {

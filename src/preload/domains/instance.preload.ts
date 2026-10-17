@@ -14,11 +14,10 @@ export function createInstanceDomain(
     // Instance Management
     // ============================================
 
-    /**
-     * Create a new Claude instance
-     */
+    /** Create a new instance. */
     createInstance: (payload: {
       workingDirectory: string;
+      additionalDirectories?: string[];
       sessionId?: string;
       parentInstanceId?: string;
       displayName?: string;
@@ -35,7 +34,7 @@ export function createInstanceDomain(
       fastMode?: boolean;
       forceNodeId?: string;
       browserToolsMode?: 'eager' | 'deferred' | 'off';
-      hardened?: boolean;
+      hardened?: boolean; signalFence?: boolean;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_CREATE, payload);
     },
@@ -45,6 +44,7 @@ export function createInstanceDomain(
      */
     createInstanceWithMessage: (payload: {
       workingDirectory: string;
+      additionalDirectories?: string[];
       message: string;
       attachments?: unknown[];
       launchMode?: 'orchestrated' | 'interactive';
@@ -58,7 +58,7 @@ export function createInstanceDomain(
       fastMode?: boolean;
       forceNodeId?: string;
       browserToolsMode?: 'eager' | 'deferred' | 'off';
-      hardened?: boolean;
+      hardened?: boolean; signalFence?: boolean;
       /** Stable per-submission key; a retry with the same key is deduplicated. */
       idempotencyKey?: string;
     }): Promise<IpcResponse> => {

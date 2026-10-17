@@ -79,6 +79,12 @@ export interface UnifiedSpawnOptions {
   allowedTools?: string[];
   disallowedTools?: string[];
   resume?: boolean;  // Resume an existing session (requires sessionId)
+  /** True only when Harness retains the full transcript; allows ACP no-replay resume. */
+  transcriptKnown?: boolean;
+  /** Main-process durable transcript barrier. Never serialize this callback to a worker. */
+  beforeProviderPrompt?: () => Promise<void>;
+  /** Extra workspace roots passed through ACP, with ordinary tool permissions unchanged. */
+  additionalDirectories?: string[];
   forkSession?: boolean; // Fork a resumed session into a new session ID (Claude CLI)
   mcpConfig?: string[];  // MCP server config file paths or inline JSON strings
   /** ACP-native MCP server configs supplied by the caller. */

@@ -1,3 +1,5 @@
+vi.mock('../cli/adapters/opencode-cli-launch', () => ({ selectOpenCodeLaunch: vi.fn(async () => ({ command: 'opencode', major: 1 })) }));
+import { selectOpenCodeLaunch } from '../cli/adapters/opencode-cli-launch';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -51,12 +53,14 @@ function fakeLister(output: string, code: number | null = 0, delayMs = 20) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(selectOpenCodeLaunch).mockReset().mockResolvedValue({ command: 'opencode', major: 1 });
   mocks.killGroup.mockReset().mockReturnValue(false);
   _resetOpenCodeRegionModelMetadataForTesting();
 });
 
 afterEach(() => {
   _resetOpenCodeRegionModelMetadataForTesting();
+  vi.unstubAllEnvs();
   vi.useRealTimers();
 });
 
@@ -317,4 +321,43 @@ describe('ensureOpenCodeRegionModelMetadata', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+});
+
+it('reads region metadata from the selected version 2 standalone model operation', async () => {
+  vi.stubEnv('OPENCODE_CONFIG_CONTENT', JSON.stringify({ providers: {
+    'xiaomi-token-plan-ams': { activation: 'disabled', body: { temperature: 0.3 }, models: { 'fixture-model': { limit: { output: 123 }, body: { top_p: 0.8 } } } },
+    'unrelated-provider': { activation: 'disabled' },
+  }, customInstruction: 'preserve-inline-config' }));
+  vi.mocked(selectOpenCodeLaunch).mockResolvedValueOnce({ command: '/fixture/opencode2', major: 2 });
+  mocks.spawn.mockImplementationOnce(() => fakeLister(JSON.stringify({ data: [{ providerID: 'xiaomi-token-plan-ams', modelID: 'mimo-v2.6-pro',
+    name: 'MiMo Pro', capabilities: { tools: true, input: ['text'], output: ['text'] }, limit: { context: 1000000, output: 98304 } }] })));
+  await readOpenCodeRegionModelMetadata('ams');
+  expect(mocks.spawn).toHaveBeenCalledWith('/fixture/opencode2', ['api', '--standalone', 'GET', '/api/model'], expect.any(Object));
+  const options = mocks.spawn.mock.calls[0]![2] as { env: NodeJS.ProcessEnv };
+  expect(JSON.parse(options.env['OPENCODE_CONFIG_CONTENT']!)).toEqual({ providers: {
+    'xiaomi-token-plan-ams': { activation: 'enabled', body: { temperature: 0.3 }, models: { 'fixture-model': { limit: { output: 123 }, body: { top_p: 0.8 } } } },
+    'unrelated-provider': { activation: 'disabled' },
+  }, customInstruction: 'preserve-inline-config' });
+  expect(JSON.parse(process.env['OPENCODE_CONFIG_CONTENT']!)['providers']['xiaomi-token-plan-ams']['activation']).toBe('disabled');
+  expect(getCachedOpenCodeRegionModelMetadata('ams')?.[0]?.metadata['limit']).toEqual({ context: 1000000, output: 98304 });
+});
+
+it('forwards the required major through cold region ensure/read/selection', async () => {
+  vi.mocked(selectOpenCodeLaunch).mockRejectedValueOnce(new Error('This session requires OpenCode 2.'));
+  await ensureOpenCodeRegionModelMetadata(['ams'], { requiredMajor: 2 });
+  expect(vi.mocked(selectOpenCodeLaunch).mock.calls[0]?.[0].requiredMajor).toBe(2);
+  expect(mocks.spawn).not.toHaveBeenCalled(); expect(getCachedOpenCodeRegionModelMetadata('ams')).toBeNull();
+});
+
+it('does not share an unrestricted pending region read with a major-constrained caller', async () => {
+  vi.mocked(selectOpenCodeLaunch).mockResolvedValueOnce({ command: 'opencode', major: 1 })
+    .mockRejectedValueOnce(new Error('This session requires OpenCode 2.'));
+  mocks.spawn.mockImplementationOnce(() => fakeLister(VERBOSE, 0, 30));
+  const unrestricted = readOpenCodeRegionModelMetadata('ams');
+  const required = readOpenCodeRegionModelMetadata('ams', { requiredMajor: 2 });
+  await expect(required).rejects.toThrow('requires OpenCode 2');
+  await expect(unrestricted).resolves.toHaveLength(1);
+  expect(selectOpenCodeLaunch).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(selectOpenCodeLaunch).mock.calls.at(-1)?.[0].requiredMajor).toBe(2);
+  expect(mocks.spawn).toHaveBeenCalledOnce();
 });

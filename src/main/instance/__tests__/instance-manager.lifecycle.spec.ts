@@ -1694,6 +1694,40 @@ describe('InstanceManager', () => {
   });
 
   describe('forkInstance', () => {
+    it.each([true, false])('uses the live OpenCode native-fork capability (%s)', async (supportsForkSession) => {
+      const source = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await source.readyPromise;
+      source.provider = 'opencode';
+      source.providerSessionId = 'opencode-source-session';
+      source.outputBuffer.push({ id: 'fork-request', type: 'user', content: 'Original request', timestamp: 1 });
+      const adapter = manager.getAdapter(source.id) as unknown as ReturnType<typeof makeMockAdapter> & {
+        forkNativeSession?: () => Promise<string | undefined>;
+      };
+      adapter.getRuntimeCapabilities = () => ({
+        supportsResume: true,
+        supportsForkSession,
+        supportsNativeCompaction: false,
+        supportsPermissionPrompts: false,
+        supportsDeferPermission: false,
+        selfManagedAutoCompaction: false,
+      });
+      const forkNativeSession = vi.fn().mockResolvedValue('opencode-forked-session');
+      adapter.forkNativeSession = forkNativeSession;
+      const createFork = vi.spyOn(manager, 'createInstance').mockResolvedValue({ ...source, id: 'forked-instance' });
+
+      await manager.forkInstance({ instanceId: source.id, initialPrompt: 'Continue in this branch' });
+
+      const config = createFork.mock.calls[0]![0];
+      expect(config.metadata?.['openCodeForkSessionId']).toBe(supportsForkSession ? 'opencode-forked-session' : undefined);
+      if (supportsForkSession) {
+        expect(forkNativeSession).toHaveBeenCalledOnce();
+        expect(config.initialContextBlock).toBeUndefined();
+      } else {
+        expect(forkNativeSession).not.toHaveBeenCalled();
+        expect(config.initialContextBlock).toContain('Original request');
+      }
+    });
+
     it('keeps the source alive for prompted forks unless supersession is explicit', async () => {
       const source = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,

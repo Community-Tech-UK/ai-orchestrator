@@ -14,6 +14,7 @@ import { crossPlatformPathsEqual } from '../../shared/utils/cross-platform-path'
 import { directoryExists } from '../cli/adapters/base-cli-adapter-utils';
 import { getProviderConcurrencyLimiter } from '../cli/provider-concurrency-limiter';
 import { isAccountPoolActive } from '../providers/account-pool/provider-account-store';
+import { isSignalFenceSettingEnabled } from '../sandbox/signal-fence-setting';
 
 const logger = getLogger('WarmStartManager');
 
@@ -65,6 +66,10 @@ export class WarmStartManager {
       return;
     }
 
+    // A tracked OpenCode turn must invalidate its own durable transcript checkpoint.
+    // A spare process has no main instance identity to bind that input barrier.
+    if (provider === 'opencode') return;
+
     // Copilot is never pre-warmed. A warm process is spawned before the next
     // create exists, so it cannot know which GitHub account that create will
     // resolve to — and a Copilot child is pinned to one account's state
@@ -83,6 +88,15 @@ export class WarmStartManager {
     // such a warm adapter, so do not burn a process on one.
     if (isAccountPoolActive(provider)) {
       logger.debug('preWarm skipped — provider has an account pool', { provider });
+      return;
+    }
+
+    // Keep every warm process fenced. With the operator switch off, a spare
+    // spawned now would be unfenced, and could be handed to a session created
+    // after the switch is turned back on. The preflight chain refuses to
+    // consume a warm adapter while the switch is off, so nothing is lost.
+    if (!isSignalFenceSettingEnabled()) {
+      logger.debug('preWarm skipped — signal fence is switched off', { provider });
       return;
     }
 

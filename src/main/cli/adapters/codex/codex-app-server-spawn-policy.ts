@@ -7,6 +7,8 @@
  * passed to the shared broker process.
  */
 
+import { applySignalFence, type FencedSpawn } from '../../../sandbox/signal-fence';
+
 export const CODEX_TOOL_OUTPUT_TOKEN_LIMIT = 6000;
 
 export const CODEX_TOOL_OUTPUT_TOKEN_LIMIT_OVERRIDE =
@@ -28,6 +30,21 @@ export function buildIsolatedAppServerArgs(
     return [...overrides, 'app-server'];
   }
   return [...overrides, '-c', CODEX_TOOL_OUTPUT_TOKEN_LIMIT_OVERRIDE, 'app-server'];
+}
+
+/**
+ * The isolated app-server spawn, inside the macOS signal fence unless this
+ * session turned the fence off (`signalFence: false`).
+ */
+export function buildIsolatedAppServerSpawn(
+  applyOutputLimit: boolean,
+  options: { configOverrides?: readonly string[]; signalFence?: boolean } = {},
+): FencedSpawn {
+  return applySignalFence({
+    command: 'codex',
+    args: buildIsolatedAppServerArgs(applyOutputLimit, options.configOverrides),
+    ...(options.signalFence === false ? { enabled: false } : {}),
+  });
 }
 
 /** Retry without the override only when the CLI may have rejected `-c`. */

@@ -16,6 +16,7 @@ export function buildCreateWithMessagePayload(
 ): CreateInstanceWithMessageConfig {
   return {
     workingDirectory: options.workingDirectory || '.',
+    ...(options.additionalDirectories ? { additionalDirectories: [...options.additionalDirectories] } : {}),
     message: options.message,
     attachments,
     launchMode: options.launchMode,
@@ -28,6 +29,7 @@ export function buildCreateWithMessagePayload(
     bareMode: options.bareMode,
     fastMode,
     ...(options.hardened ? { hardened: true } : {}),
+    ...(options.signalFence === false ? { signalFence: false } : {}),
     // The Copilot account the composer's chip resolved to. Sent as an explicit
     // choice so the session is stamped with the account the user was actually
     // shown, rather than whatever the rules resolve to a moment later.

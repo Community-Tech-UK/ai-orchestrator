@@ -194,6 +194,11 @@ export function resolveWindowsCliLauncher(
  * OS would otherwise resolve it.
  */
 function findLauncher(command: string, env: NodeJS.ProcessEnv): string | null {
+  // A selected path identifies one install. Never replace it with a PATH match,
+  // including when that selected shim is missing or cannot be resolved.
+  if (pathWin32.isAbsolute(command) || pathWin32.basename(command) !== command) {
+    return existsSync(command) ? command : null;
+  }
   const base = pathWin32.basename(command).replace(/\.(exe|cmd|ps1|bat)$/i, '');
   if (!base) {
     return null;

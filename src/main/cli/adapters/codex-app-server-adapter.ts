@@ -362,8 +362,9 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     const status = await this.checkStatus();
     if (!status.available) throw new Error(status.error || 'Codex CLI is unavailable');
 
+    const hardenedMode = this.isHardenedModeConfigured();
     const appServerAvailable =
-      Boolean(status.metadata?.['appServerAvailable']) && !this.isHardenedModeConfigured();
+      Boolean(status.metadata?.['appServerAvailable']) && !hardenedMode;
     if (this.cliConfig.mcpServersConfigToml) {
       this.prepareCodexHome('exec');
     } else if (!this.config.env?.['CODEX_HOME']) {
@@ -412,7 +413,9 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
         this.prepareCodexHome('exec');
       }
       this.setSpawnMode('subprocess-exec');
-      logger.info('Codex adapter using exec mode (app-server not available)');
+      logger.info(hardenedMode
+        ? 'Codex adapter using exec mode (hardened mode requires subprocess isolation)'
+        : 'Codex adapter using exec mode (app-server not available)');
     }
 
     this.isSpawned = true;
@@ -473,13 +476,15 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
 
   protected async connectAppServer(cwd: string): Promise<AppServerClient> {
     const { connectToAppServer } = await import('./codex/app-server-client');
+    const signalFence = this.isSignalFenceWanted() ? {} : { signalFence: false };
     return connectToAppServer(cwd, this.config.env?.['CODEX_HOME']
       ? {
           env: this.buildChildEnv(),
           disableBroker: true,
           ...(this.cliConfig.configOverrides?.length ? { configOverrides: this.cliConfig.configOverrides } : {}),
+          ...signalFence,
         }
-      : {});
+      : signalFence);
   }
 
   protected mapSandboxMode(): 'read-only' | 'workspace-write' | 'danger-full-access' {

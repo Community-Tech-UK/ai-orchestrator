@@ -1,4 +1,9 @@
+vi.mock('../cli/adapters/opencode-cli-launch', () => ({ resolveOpenCodeLaunch: vi.fn(async () => ({ command: 'opencode', major: 1 })) }));
 import { EventEmitter } from 'events';
+import { DatabaseSync } from 'node:sqlite';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const probeVersionStatus = vi.hoisted(() => vi.fn());
@@ -65,6 +70,24 @@ describe('OpenCodeCliProvider', () => {
       throw new Error('spawn opencode ENOENT');
     });
     await expect(provider.checkStatus()).resolves.toMatchObject({ available: true, authenticated: false });
+  });
+
+  it('reports an unreadable credential store explicitly without claiming keys are absent or offering a copy', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'aio-status-unknown-')); mkdirSync(join(root, 'opencode'));
+    const file = join(root, 'opencode', 'opencode.db'); const database = new DatabaseSync(file);
+    database.exec('CREATE TABLE credential (integration_id TEXT, active INTEGER)');
+    writeFileSync(join(root, 'opencode', 'auth.json'), JSON.stringify({ 'aio-mimo-account-b': { type: 'api', key: 'placeholder-legacy-key' } }));
+    vi.stubEnv('OPENCODE_DB', file); vi.stubEnv('XDG_DATA_HOME', root); database.exec('BEGIN EXCLUSIVE');
+    try {
+      probeVersionStatus.mockResolvedValue({ available: true });
+      const provider = new OpenCodeCliProvider({ ...DEFAULT_OPENCODE_CONFIG, defaultModel: 'aio-mimo-account-b/paid-placeholder' }, async () => '[]',
+        async () => ({ command: 'opencode', major: 2, version: '2.0.30', source: 'path' }));
+      const status = await provider.checkStatus();
+      expect(status).toMatchObject({ available: true, authenticated: false });
+      expect(status.error).toContain('Unable to check OpenCode 2 credentials');
+      expect(status.error).not.toContain('no credential');
+      expect(status.error).not.toContain('Legacy credentials can be copied');
+    } finally { database.exec('ROLLBACK'); database.close(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); }
   });
 
   it('accumulates measured tokens and the reported cost per turn', async () => {

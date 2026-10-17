@@ -8,8 +8,10 @@ import {
   createNativeMessageFrame,
   parseNativeMessageFrame,
   handleBrowserExtensionNativeMessage,
+  runNativeMessageLoop,
   sendBrowserExtensionDisconnected,
 } from './browser-extension-native-host';
+import { PassThrough } from 'node:stream';
 
 describe('browser extension native host', () => {
   const tempDirs: string[] = [];
@@ -391,6 +393,82 @@ describe('browser extension native host', () => {
       ok: true,
       ackType: 'command_received',
       commandId: 'command-9',
+    });
+  });
+
+  it('forwards the Chrome profile id with every message', async () => {
+    const send = vi.fn().mockResolvedValue(null);
+    const profileId = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+
+    await handleBrowserExtensionNativeMessage({
+      message: {
+        type: 'poll_command',
+        timeoutMs: 25,
+        extensionVersion: '0.2.42',
+        extensionStartedAt: 1_700_000_000_000,
+        extensionInstanceId: profileId,
+      },
+      runtimeConfig: { socketPath: '/tmp/browser.sock', extensionToken: 'native-token', updatedAt: 1 },
+      send,
+    });
+    await handleBrowserExtensionNativeMessage({
+      message: {
+        type: 'attach_tab',
+        tab: { tabId: 42, windowId: 7, url: 'https://example.com/' },
+        extensionInstanceId: 'not:a valid id',
+      },
+      runtimeConfig: { socketPath: '/tmp/browser.sock', extensionToken: 'native-token', updatedAt: 1 },
+      send,
+    });
+
+    expect(send.mock.calls[0]![0].payload).toMatchObject({ extensionInstanceId: profileId });
+    // A malformed id is dropped rather than forwarded into the tab payload.
+    expect(send.mock.calls[1]![0].payload).not.toHaveProperty('extensionInstanceId');
+  });
+
+  it('names its Chrome profile in the disconnect it sends when Chrome closes the port', async () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-native-host-'));
+    tempDirs.push(dir);
+    const socketPath = path.join(dir, 'gateway.sock');
+    const requests: { method: string; params: { payload: Record<string, unknown> } }[] = [];
+    const server = net.createServer((socket) => {
+      socket.once('data', (chunk) => {
+        requests.push(JSON.parse(chunk.toString('utf-8').split('\n')[0]!));
+        socket.end(`${JSON.stringify({ jsonrpc: '2.0', id: 1, result: null })}\n`);
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(socketPath, () => resolve()));
+    const input = new PassThrough();
+    const output = new PassThrough();
+    try {
+      const loop = runNativeMessageLoop({
+        runtimeConfig: { socketPath, extensionToken: 'native-token', updatedAt: 1 },
+        input,
+        output,
+      });
+      input.write(createNativeMessageFrame({
+        type: 'poll_command',
+        timeoutMs: 0,
+        extensionVersion: '0.2.42',
+        extensionStartedAt: 1,
+        extensionInstanceId: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa',
+      }));
+      input.end();
+      await loop;
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+
+    expect(requests.map((request) => request.method)).toEqual([
+      'browser.extension_poll_command',
+      'browser.extension_disconnected',
+    ]);
+    expect(requests[1]!.params.payload).toEqual({
+      reason: 'native_host_stdin_eof',
+      extensionInstanceId: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa',
     });
   });
 

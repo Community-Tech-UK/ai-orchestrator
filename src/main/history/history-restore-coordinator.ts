@@ -5,6 +5,8 @@ import {
 } from '../../shared/types/history.types';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import { isToolOutcomeMessage } from '../../shared/types/tool-outcome';
+import { normalizeRecoveryNodePlacement } from '../session/session-recovery-node-placement';
+import { normalizeOpenCodeAdditionalDirectories } from '../../shared/utils/opencode-additional-directories';
 import { generateId } from '../../shared/utils/id-generator';
 import type { InstanceManager } from '../instance/instance-manager';
 import { recordToolOutcome } from '../learning/tool-outcome-store';
@@ -283,6 +285,8 @@ export class HistoryRestoreCoordinator {
       );
     }
     const restoreProvider = inferConversationHistoryProvider(data.entry);
+    const restoreAdditionalDirectories = normalizeOpenCodeAdditionalDirectories(data.entry.additionalDirectories, restoreProvider);
+    const restoreNodePlacement = normalizeRecoveryNodePlacement(data.entry.nodePlacement);
     const restoreModel = data.entry.currentModel?.trim() || undefined;
     const restoreRuntimeSummary = data.entry.runtimeSummary;
     const restoreBrowserToolsMode = data.entry.browserToolsMode;
@@ -306,6 +310,11 @@ export class HistoryRestoreCoordinator {
       ? this.isRemoteNodeReachable(restoreNodeId)
       : true;
 
+    if (!remoteNodeAvailable && restoreAdditionalDirectories?.length) {
+      throw new HistoryRestoreError('ADDITIONAL_DIRECTORIES_NODE_UNAVAILABLE', 'This session has additional folders on an unavailable worker. Restore it when that worker is available.');
+    }
+
+    if (!remoteNodeAvailable && restoreNodePlacement?.requiresOpenCodeMajor) throw new HistoryRestoreError('OPENCODE_NODE_UNAVAILABLE', 'Restore this version-constrained session when its original worker is available.');
     const recoveryPlan = planSessionRecovery({
       instanceId: entryId,
       reason: 'history-restore',
@@ -340,6 +349,7 @@ export class HistoryRestoreCoordinator {
         nativeResumeSessionId,
         restoreTranscriptMessages,
         restoreProvider,
+        restoreAdditionalDirectories, restoreNodePlacement,
         restoreModel,
         restoreRuntimeSummary,
         restoreBrowserToolsMode,
@@ -383,6 +393,7 @@ export class HistoryRestoreCoordinator {
       forkSessionId: opts.forkAs?.sessionId,
       restoreTranscriptMessages,
       restoreProvider,
+      restoreAdditionalDirectories, restoreNodePlacement,
       restoreModel,
       restoreRuntimeSummary,
       restoreBrowserToolsMode,
@@ -424,6 +435,8 @@ export class HistoryRestoreCoordinator {
     nativeResumeSessionId: string;
     restoreTranscriptMessages: OutputMessage[];
     restoreProvider: Instance['provider'];
+    restoreAdditionalDirectories?: string[];
+    restoreNodePlacement?: Instance['nodePlacement'];
     restoreModel?: string;
     restoreRuntimeSummary?: Instance['runtimeSummary'];
     restoreBrowserToolsMode?: Instance['browserToolsMode'];
@@ -446,6 +459,8 @@ export class HistoryRestoreCoordinator {
         resume: true,
         initialOutputBuffer: params.restoreTranscriptMessages,
         provider: params.restoreProvider,
+        additionalDirectories: normalizeOpenCodeAdditionalDirectories(params.restoreAdditionalDirectories, params.restoreProvider),
+        nodePlacement: normalizeRecoveryNodePlacement(params.restoreNodePlacement),
         modelOverride: params.restoreModel,
         runtimeSummary: params.restoreRuntimeSummary,
         browserToolsMode: params.restoreBrowserToolsMode,
@@ -619,6 +634,8 @@ export class HistoryRestoreCoordinator {
     forkSessionId?: string;
     restoreTranscriptMessages: OutputMessage[];
     restoreProvider: Instance['provider'];
+    restoreAdditionalDirectories?: string[];
+    restoreNodePlacement?: Instance['nodePlacement'];
     restoreModel?: string;
     restoreRuntimeSummary?: Instance['runtimeSummary'];
     restoreBrowserToolsMode?: Instance['browserToolsMode'];
@@ -651,6 +668,8 @@ export class HistoryRestoreCoordinator {
       // one array showed the notice twice in the renderer.
       initialOutputBuffer: [...displayMessages],
       provider: params.restoreProvider,
+      additionalDirectories: normalizeOpenCodeAdditionalDirectories(params.restoreAdditionalDirectories, params.restoreProvider),
+      nodePlacement: normalizeRecoveryNodePlacement(params.restoreNodePlacement),
       modelOverride: params.restoreModel,
       runtimeSummary: params.restoreRuntimeSummary,
       browserToolsMode: params.restoreBrowserToolsMode,

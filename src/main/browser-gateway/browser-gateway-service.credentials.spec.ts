@@ -1308,7 +1308,7 @@ describe('BrowserGatewayService credentials', () => {
     expect(vault.getSecretForFill).not.toHaveBeenCalled();
     expect(authorizations.check).not.toHaveBeenCalled();
     expect(extensionCommandStore.sendCommand).not.toHaveBeenCalled();
-    expect(contactState.getExtensionRuntime).toHaveBeenCalledWith('windows-pc');
+    expect(contactState.getExtensionRuntime).toHaveBeenCalledWith('windows-pc', undefined);
     expect(JSON.stringify({ result, audits })).not.toContain(SECRET);
   });
 
@@ -1410,8 +1410,80 @@ describe('BrowserGatewayService credentials', () => {
       data: { filled: 1 },
     });
     expect(vault.getSecretForFill).toHaveBeenCalledTimes(1);
-    expect(contactState.getExtensionRuntime).toHaveBeenCalledWith('windows-pc');
+    expect(contactState.getExtensionRuntime).toHaveBeenCalledWith('windows-pc', undefined);
     expect(JSON.stringify({ result, audits })).not.toContain(SECRET);
+  });
+
+  describe('with two Chrome profiles on the machine', () => {
+    const TRUSTED = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+    const OUTDATED = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+
+    // The outdated profile polled last, so an instance-less read sees it.
+    function twoProfileContactState() {
+      const state = extensionContactState('0.2.2');
+      state.getExtensionRuntime.mockImplementation(((_nodeId: string, instanceId?: string) => (
+        instanceId === TRUSTED
+          ? { extensionVersion: '0.2.42', extensionStartedAt: 1_000 }
+          : { extensionVersion: '0.2.2', extensionStartedAt: 2_000 }
+      )) as never);
+      return state;
+    }
+
+    async function fillOnProfile(instanceId: string) {
+      const SECRET = 'TEST_ONLY_TWO_PROFILE_SECRET';
+      const vault = {
+        getSecretForFill: vi.fn(async () => SECRET),
+        createAgentCredential: vi.fn(),
+        getGenericSecretForFill: vi.fn(),
+      };
+      const contactState = twoProfileContactState();
+      const existingTab = {
+        ...sharedPortalTab(),
+        profileId: `existing-tab:n.windows-pc:p.${instanceId}:7:42`,
+        targetId: `existing-tab:n.windows-pc:p.${instanceId}:7:42:target`,
+        nodeId: 'windows-pc',
+        nodeName: 'Windows PC',
+        extensionInstanceId: instanceId,
+      };
+      const { service, audits } = makeService({
+        credentialVault: vault,
+        credentialAuthorizations: { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) },
+        extensionCommandStore: portalExtensionCommandStore(),
+        extensionContactState: contactState,
+        allowSharedTabCredentialFill: () => true,
+        existingTab,
+      });
+      const result = await service.fillCredential({
+        profileId: existingTab.profileId,
+        targetId: existingTab.targetId,
+        instanceId: 'instance-1',
+        provider: 'codex',
+        vaultItemRef: 'item-1',
+        fields: [{ selector: '#pass', kind: 'password' }],
+      });
+      expect(JSON.stringify({ result, audits })).not.toContain(SECRET);
+      return { result, vault, contactState };
+    }
+
+    it('fills a trusted profile\'s tab even when an outdated profile polled last', async () => {
+      const { result, vault, contactState } = await fillOnProfile(TRUSTED);
+
+      expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded', data: { filled: 1 } });
+      expect(vault.getSecretForFill).toHaveBeenCalledTimes(1);
+      // Every check on the way judged the tab's own profile.
+      expect(contactState.getExtensionRuntime).not.toHaveBeenCalledWith('windows-pc', undefined);
+      expect(contactState.getExtensionRuntime).toHaveBeenCalledWith('windows-pc', TRUSTED);
+    });
+
+    it('refuses an outdated profile\'s tab before resolving any secret', async () => {
+      const { result, vault } = await fillOnProfile(OUTDATED);
+
+      expect(result).toMatchObject({
+        decision: 'denied',
+        reason: 'shared_tab_secure_credential_fill_unavailable',
+      });
+      expect(vault.getSecretForFill).not.toHaveBeenCalled();
+    });
   });
 
   it('rejects a legacy page-derived valueApplied response for a sensitive shared-tab write', async () => {

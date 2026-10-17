@@ -6,6 +6,8 @@ import { LIMITS } from '../../../../../shared/constants/limits';
 import { InstanceStateService } from './instance-state.service';
 import { InstanceOutputStore } from './instance-output.store';
 import { ImageAttachmentService } from '../../../features/instance-detail/image-attachment.service';
+import { encodeJsonChunks } from '../../../../../shared/utils/json-chunks';
+import { ToastService } from '../../services/toast.service';
 
 describe('InstanceOutputStore', () => {
   let stateService: InstanceStateService;
@@ -53,6 +55,94 @@ describe('InstanceOutputStore', () => {
     store.cleanupAll();
     vi.useRealTimers();
     TestBed.resetTestingModule();
+  });
+
+  describe('authoritative native history replay', () => {
+    const envelope = (messages: OutputMessage[], revision = 1) => {
+      const identity = { kind: 'history-replay', instanceId: 'inst-1', createdAt: 0,
+        adapterGeneration: 0, restartEpoch: 0, revision };
+      return encodeJsonChunks({ ...identity, messages }, `replay-${revision}`, { chunkSize: 256 })
+        .map(chunk => ({ ...identity, chunk }));
+    };
+    const accept = (chunk: unknown): void => {
+      const apply = Reflect.get(store, 'acceptTranscriptChunk');
+      expect(apply).toBeTypeOf('function');
+      apply.call(store, chunk);
+    };
+    it('replaces stale and queued output while retaining a complete large attachment', () => {
+      vi.useFakeTimers();
+      store.queueOutput('inst-1', { id: 'old-queued', timestamp: 1, type: 'assistant', content: 'stale' });
+      const attachment = { name: 'placeholder.txt', type: 'text/plain', size: 70000, data: 'a'.repeat(70000) };
+      for (const chunk of envelope([{ id: 'native', timestamp: 2, type: 'user', content: 'restored', attachments: [attachment] }])) accept(chunk);
+      vi.advanceTimersByTime(LIMITS.TEXT_THROTTLE_MS * 2);
+      expect(stateService.getInstance('inst-1')?.outputBuffer).toEqual([
+        { id: 'native', timestamp: 2, type: 'user', content: 'restored', attachments: [attachment] },
+      ]);
+      expect(imageAttachmentService.processMessage).not.toHaveBeenCalled();
+    });
+    it('keeps ordinary live buffer bounds after automatic replay without pinning unseen history', () => {
+      const messages: OutputMessage[] = Array.from({ length: LIMITS.OUTPUT_BUFFER_MAX_SIZE }, (_, index) => ({
+        id: `native-${index}`, type: 'assistant', timestamp: index, content: 'restored',
+      }));
+      const identity = { kind: 'history-replay', instanceId: 'inst-1', createdAt: 0,
+        adapterGeneration: 0, restartEpoch: 0, revision: 1 };
+      for (const chunk of encodeJsonChunks({ ...identity, messages }, 'bounded-replay')) accept({ ...identity, chunk });
+      store.queueOutput('inst-1', { id: 'live', type: 'assistant', timestamp: 3000, content: 'new answer' });
+      store.flushOutput('inst-1', false);
+      expect(stateService.getInstance('inst-1')?.outputBuffer).toHaveLength(LIMITS.OUTPUT_BUFFER_MAX_SIZE);
+      expect(stateService.getInstance('inst-1')?.outputBuffer.at(-1)?.id).toBe('live');
+    });
+    it('preserves live output received during chunk assembly without duplicating snapshot messages', () => {
+      const chunks = envelope([{ id: 'native', timestamp: 2, type: 'assistant', content: 'restored '.repeat(100) }]);
+      accept(chunks[0]);
+      store.queueOutput('inst-1', { id: 'live', timestamp: 3, type: 'assistant', content: 'live response' });
+      store.flushInstanceOutput('inst-1');
+      for (const chunk of chunks.slice(1)) accept(chunk);
+      expect(stateService.getInstance('inst-1')?.outputBuffer.map(message => message.id)).toEqual(['native', 'live']);
+      for (const chunk of chunks) accept(chunk);
+      expect(stateService.getInstance('inst-1')?.outputBuffer.map(message => message.id)).toEqual(['native', 'live']);
+    });
+    it('merges accumulated streaming text, thinking and retained attachments exactly like ordinary live output', () => {
+      const snapshot: OutputMessage = { id: 'streamed', timestamp: 2, type: 'assistant', content: 'Original prefix',
+        attachments: [{ name: 'placeholder.txt', type: 'text/plain', size: 1, data: 'x' }],
+        thinking: [{ id: 'thought', content: 'Original reasoning', format: 'structured' }] };
+      const chunks = envelope([snapshot]);
+      accept(chunks[0]);
+      store.queueOutput('inst-1', { id: 'streamed', timestamp: 3, type: 'assistant', content: ' extended',
+        metadata: { streaming: true, accumulatedContent: 'Original prefix extended' },
+        thinking: [{ id: 'thought', content: 'Original reasoning extended', format: 'structured' }] });
+      store.flushInstanceOutput('inst-1');
+      for (const chunk of chunks.slice(1)) accept(chunk);
+      const message = stateService.getInstance('inst-1')?.outputBuffer[0];
+      expect(message?.content).toBe('Original prefix extended');
+      expect(message?.attachments).toEqual([{ name: 'placeholder.txt', type: 'text/plain', size: 1, data: 'x' }]);
+      expect(message?.thinking).toEqual([{ id: 'thought', content: 'Original reasoning extended', format: 'structured' }]);
+    });
+    it('discards an old adapter transfer completed after replacement or removal', () => {
+      const chunks = envelope([{ id: 'native', timestamp: 2, type: 'assistant', content: 'old '.repeat(100) }]);
+      accept(chunks[0]);
+      stateService.updateInstance('inst-1', { adapterGeneration: 1 });
+      for (const chunk of chunks.slice(1)) accept(chunk);
+      expect(stateService.getInstance('inst-1')?.outputBuffer[0].id).toBe('msg-1');
+      store.cleanupInstance('inst-1');
+      stateService.removeInstance('inst-1');
+      for (const chunk of chunks) accept(chunk);
+      expect(stateService.getInstance('inst-1')).toBeUndefined();
+    });
+    it('reports abandoned history visibly while continuing to retain new live output', () => {
+      vi.useFakeTimers();
+      const chunks = envelope([{ id: 'native', timestamp: 2, type: 'assistant', content: 'restored '.repeat(100) }]);
+      accept(chunks[0]);
+      vi.advanceTimersByTime(30001);
+      expect(stateService.state().error).toContain('Unable to restore the full conversation history');
+      expect(TestBed.inject(ToastService).toasts()).toEqual([
+        expect.objectContaining({ type: 'error', text: expect.stringContaining('Unable to restore the full conversation history') }),
+      ]);
+      store.queueOutput('inst-1', { id: 'live-after-timeout', timestamp: 3, type: 'assistant', content: 'keep working' });
+      store.flushInstanceOutput('inst-1');
+      for (const chunk of chunks.slice(1)) accept(chunk);
+      expect(stateService.getInstance('inst-1')?.outputBuffer.map(message => message.id)).toEqual(['msg-1', 'live-after-timeout']);
+    });
   });
 
   describe('user message publication', () => {

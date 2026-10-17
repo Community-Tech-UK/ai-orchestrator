@@ -1,3 +1,5 @@
+import { resolveWindowsSpawn } from '../cli/adapters/windows-cli-spawn';
+import { openCodeLoginSpawnTarget } from '../../shared/utils/opencode-account-login-command';
 /**
  * OpenCode CLI Provider - drives the `opencode` binary over ACP
  * (`opencode acp`). OpenCode fronts many backends (MiMo Token Plan, its free
@@ -26,6 +28,10 @@ import { generateId } from '../../shared/utils/id-generator';
 import { probeVersionStatus } from '../cli/adapters/cli-status-probe';
 import { readOpenCodeAuthStatus } from './opencode-auth-status';
 import { withOpenCodeProcessGate } from '../cli/adapters/opencode-process-gate';
+import { resolveOpenCodeLaunch, type OpenCodeLaunch } from '../cli/adapters/opencode-cli-launch';
+import { listOpenCodeCredentialRepairNames } from './opencode-credential-names';
+import { readSelectedOpenCodeAuthList } from './opencode-auth-command';
+import { buildCliSpawnOptions } from '../cli/cli-environment';
 
 const AUTH_COMMAND_TIMEOUT_MS = 10_000;
 
@@ -52,9 +58,12 @@ export const OPENCODE_DESCRIPTOR: ProviderAdapterDescriptor = {
 };
 
 /** `auth list` and `debug config` open OpenCode's database, so they share the process gate. */
-function runOpenCode(args: string[]): Promise<string> {
+function runOpenCode(command: string, args: string[]): Promise<string> {
   return withOpenCodeProcessGate(() => new Promise<string>((resolve, reject) => {
-    execFile('opencode', args, { timeout: AUTH_COMMAND_TIMEOUT_MS, encoding: 'utf8' }, (error, stdout) => {
+    const options = buildCliSpawnOptions();
+    const target = resolveWindowsSpawn(command, args, Boolean(options.shell), options.env ?? {});
+    const fallback = openCodeLoginSpawnTarget(target.command, target.shell ? process.platform : 'posix');
+    execFile(fallback.command, target.args, { timeout: AUTH_COMMAND_TIMEOUT_MS, encoding: 'utf8', ...options, shell: target.shell }, (error, stdout) => {
       if (error) {
         reject(error);
         return;
@@ -71,7 +80,8 @@ export class OpenCodeCliProvider extends BaseProvider {
   private adapter: AcpCliAdapter | null = null;
   private currentUsage: ProviderUsage | null = null;
 
-  constructor(config: ProviderConfig, private readonly runCommand: (args: string[]) => Promise<string> = runOpenCode) {
+  constructor(config: ProviderConfig, private readonly runCommand?: (args: string[]) => Promise<string>,
+    private readonly resolveLaunch: () => Promise<OpenCodeLaunch> = resolveOpenCodeLaunch) {
     super(config);
   }
 
@@ -93,9 +103,13 @@ export class OpenCodeCliProvider extends BaseProvider {
 
   async checkStatus(): Promise<ProviderStatus> {
     try {
+      const selected = await this.resolveLaunch();
+      const options = buildCliSpawnOptions();
+      const target = resolveWindowsSpawn(selected.command, ['--version'], Boolean(options.shell), options.env ?? {});
+      const fallback = openCodeLoginSpawnTarget(target.command, target.shell ? process.platform : 'posix');
       const cliStatus = await probeVersionStatus({
-        spawn: () => spawn('opencode', ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] }),
-        path: 'opencode',
+        spawn: () => spawn(fallback.command, target.args, { stdio: ['ignore', 'pipe', 'pipe'], ...options, shell: target.shell }),
+        path: selected.command,
         timeoutError: 'Timeout checking OpenCode CLI',
         spawnError: (err) => `Failed to launch opencode: ${err.message}`,
         unavailableError: ({ code, output }) =>
@@ -112,13 +126,18 @@ export class OpenCodeCliProvider extends BaseProvider {
           error: cliStatus.error || 'OpenCode CLI not available',
         };
       }
-      const auth = await readOpenCodeAuthStatus(this.runCommand, this.config.defaultModel)
+      const auth = await readOpenCodeAuthStatus(this.runCommand ?? ((args) => args[0] === 'auth' ? readSelectedOpenCodeAuthList().then((value) => value ?? '') : runOpenCode(selected.command, args)), this.config.defaultModel, selected.major)
         .catch(() => ({ authenticated: false, counts: null }));
+      const repairNames = selected.major >= 2 ? listOpenCodeCredentialRepairNames() : [];
       return {
         type: 'opencode',
         available: true,
         authenticated: auth.authenticated,
-        ...(auth.authenticated ? {} : { error: 'OpenCode has no credential for the selected model. Run `opencode auth login`.' }),
+        ...(auth.authenticated ? {} : { error: repairNames === null
+          ? 'Unable to check OpenCode 2 credentials. Retry when its credential store is available; no legacy repair was offered.'
+          : repairNames.length > 0
+          ? `OpenCode 2 has no credential for the selected model. Legacy credentials can be copied: ${repairNames.join(', ')}. Use the account Sign in action to review and copy one.`
+          : 'OpenCode has no credential for the selected model. Run `opencode auth login`.' }),
       };
     } catch (error) {
       return {

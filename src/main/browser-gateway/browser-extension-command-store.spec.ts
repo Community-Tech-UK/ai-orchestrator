@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BrowserExtensionCommandStore } from './browser-extension-command-store';
+import { BROWSER_EXTENSION_RECEIPT_WINDOW_MS, BrowserExtensionCommandStore } from './browser-extension-command-store';
+import { sendCommandToEachExtensionInstance } from './browser-extension-instance-routing';
 
 describe('BrowserExtensionCommandStore', () => {
   afterEach(() => {
@@ -991,5 +992,323 @@ describe('BrowserExtensionCommandStore', () => {
         consecutiveUnanswered: 0,
       });
     });
+  });
+});
+
+describe('BrowserExtensionCommandStore with several Chrome profiles on one queue', () => {
+  const PROFILE_A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+  const PROFILE_B = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+  const QUEUE = 'node:windows-pc';
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function tabTarget(tabId: number, extensionInstanceId?: string) {
+    return {
+      profileId: `existing-tab:n.windows-pc:${tabId}`,
+      targetId: `existing-tab:n.windows-pc:${tabId}:target`,
+      tabId,
+      windowId: 7,
+      ...(extensionInstanceId ? { extensionInstanceId } : {}),
+    };
+  }
+
+  it('hands a command for one profile\'s tab only to that profile\'s poll', async () => {
+    // Regression: the queue used to give any command to whichever profile
+    // polled first, so profile B ran (and failed) clicks meant for profile A.
+    const store = new BrowserExtensionCommandStore();
+    const pollB = store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_B });
+    const sent = store.sendCommand({
+      queueKey: QUEUE,
+      command: 'click',
+      target: tabTarget(11, PROFILE_A),
+      timeoutMs: 1_000,
+    });
+
+    expect(await pollB).toBeNull();
+    const commandForA = await store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_A });
+    expect(commandForA?.target).toMatchObject({ tabId: 11, extensionInstanceId: PROFILE_A });
+
+    store.resolveCommand({ queueKey: QUEUE, commandId: commandForA!.id, ok: true, result: 'clicked' });
+    await expect(sent).resolves.toBe('clicked');
+  });
+
+  it('does not let a command waiting for one profile hold up the other profile\'s commands', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const forA = store.sendCommand({ queueKey: QUEUE, command: 'click', target: tabTarget(11, PROFILE_A), timeoutMs: 1_000 });
+    const forB = store.sendCommand({ queueKey: QUEUE, command: 'click', target: tabTarget(22, PROFILE_B), timeoutMs: 1_000 });
+
+    const commandForB = await store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_B });
+    expect(commandForB?.target?.tabId).toBe(22);
+    expect(store.describeQueue(QUEUE).queuedCount).toBe(1);
+
+    const commandForA = await store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_A });
+    expect(commandForA?.target?.tabId).toBe(11);
+    store.resolveCommand({ queueKey: QUEUE, commandId: commandForA!.id, ok: true });
+    store.resolveCommand({ queueKey: QUEUE, commandId: commandForB!.id, ok: true });
+    await Promise.all([forA, forB]);
+  });
+
+  it('refuses a command through its own profile\'s incompatible poll, never another profile\'s', async () => {
+    const store = new BrowserExtensionCommandStore();
+    // Profile B runs an extension too old for browser commands.
+    const pollB = store.pollCommand(QUEUE, {
+      timeoutMs: 50,
+      extensionInstanceId: PROFILE_B,
+      allowBrowserCommands: false,
+      denyBrowserCommandsReason: 'browser_extension_runtime_incompatible',
+    });
+    const forA = store.sendCommand({ queueKey: QUEUE, command: 'click', target: tabTarget(11, PROFILE_A), timeoutMs: 1_000 });
+    const forB = store.sendCommand({ queueKey: QUEUE, command: 'click', target: tabTarget(22, PROFILE_B), timeoutMs: 1_000 });
+
+    await expect(forB).rejects.toThrow('browser_extension_runtime_incompatible');
+    expect(await pollB).toBeNull();
+    const commandForA = await store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_A });
+    expect(commandForA?.target?.tabId).toBe(11);
+    store.resolveCommand({ queueKey: QUEUE, commandId: commandForA!.id, ok: true });
+    await forA;
+  });
+
+  it('holds an unbound command for a working profile rather than refusing it through an outdated one', async () => {
+    const store = new BrowserExtensionCommandStore();
+    // Profile A polled moments ago and could take commands; it is between polls now.
+    await store.pollCommand(QUEUE, { timeoutMs: 0, extensionInstanceId: PROFILE_A });
+    const pollB = store.pollCommand(QUEUE, {
+      timeoutMs: 50,
+      extensionInstanceId: PROFILE_B,
+      allowBrowserCommands: false,
+      denyBrowserCommandsReason: 'browser_extension_runtime_incompatible',
+    });
+    const opened = store.sendCommand({
+      queueKey: QUEUE,
+      command: 'open_tab',
+      payload: { url: 'https://example.test/' },
+      timeoutMs: 1_000,
+    });
+
+    expect(await pollB).toBeNull();
+    const command = await store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_A });
+    expect(command?.command).toBe('open_tab');
+    store.resolveCommand({ queueKey: QUEUE, commandId: command!.id, ok: true, result: 'opened' });
+    await expect(opened).resolves.toBe('opened');
+  });
+
+  it('still refuses an unbound command when no profile on the machine can take it', async () => {
+    const store = new BrowserExtensionCommandStore();
+    void store.pollCommand(QUEUE, {
+      timeoutMs: 50,
+      extensionInstanceId: PROFILE_B,
+      allowBrowserCommands: false,
+      denyBrowserCommandsReason: 'browser_extension_runtime_incompatible',
+    });
+
+    await expect(store.sendCommand({
+      queueKey: QUEUE,
+      command: 'open_tab',
+      payload: { url: 'https://example.test/' },
+      timeoutMs: 1_000,
+    })).rejects.toThrow('browser_extension_runtime_incompatible');
+  });
+
+  it('serialises remote hand-offs across profiles without losing either command', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const pollA = store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_A, deferHandoffConfirmation: true });
+    const pollB = store.pollCommand(QUEUE, { timeoutMs: 1_000, extensionInstanceId: PROFILE_B, deferHandoffConfirmation: true });
+    const forA = store.sendCommand({ queueKey: QUEUE, command: 'click', target: tabTarget(11, PROFILE_A), timeoutMs: 1_000 });
+    const forB = store.sendCommand({ queueKey: QUEUE, command: 'click', target: tabTarget(22, PROFILE_B), timeoutMs: 1_000 });
+
+    const commandForA = await pollA;
+    expect(commandForA?.target?.tabId).toBe(11);
+    // B's command waits while A's hand-off is unconfirmed, then goes to B.
+    expect(store.describeQueue(QUEUE).queuedCount).toBe(1);
+    expect(store.confirmCommandHandoff(QUEUE, commandForA!.id)).toBe(true);
+    const commandForB = await pollB;
+    expect(commandForB?.target?.tabId).toBe(22);
+
+    store.resolveCommand({ queueKey: QUEUE, commandId: commandForA!.id, ok: true });
+    store.confirmCommandHandoff(QUEUE, commandForB!.id);
+    store.resolveCommand({ queueKey: QUEUE, commandId: commandForB!.id, ok: true });
+    await Promise.all([forA, forB]);
+  });
+
+  it('never hands a credential write for one profile to another profile\'s trusted poll', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const pollTrustedB = store.pollCommand(QUEUE, {
+      timeoutMs: 50,
+      extensionInstanceId: PROFILE_B,
+      allowSecureCredentialCommands: true,
+    });
+    const pollOutdatedA = store.pollCommand(QUEUE, {
+      timeoutMs: 50,
+      extensionInstanceId: PROFILE_A,
+      allowSecureCredentialCommands: false,
+    });
+    const write = store.sendCommand({
+      queueKey: QUEUE,
+      command: 'type',
+      target: tabTarget(11, PROFILE_A),
+      payload: { selector: '#password', credentialOrigin: 'https://example.test', credentialProtection: 'password' },
+      timeoutMs: 1_000,
+    });
+
+    await expect(write).rejects.toThrow('shared_tab_secure_credential_fill_unavailable');
+    expect(await pollOutdatedA).toBeNull();
+    expect(await pollTrustedB).toBeNull();
+  });
+
+  it('keeps a requeued command bound to its profile', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const forA = store.sendCommand({ queueKey: QUEUE, command: 'click', target: tabTarget(11, PROFILE_A), timeoutMs: 1_000 });
+    const first = await store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_A, deferHandoffConfirmation: true });
+    // The poll reply never reached the extension: safe to hand out again.
+    expect(store.requeueUndeliveredCommand(QUEUE, first!.id)).toBe(true);
+
+    expect(await store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_B })).toBeNull();
+    const again = await store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_A });
+    expect(again?.id).toBe(first!.id);
+    store.resolveCommand({ queueKey: QUEUE, commandId: again!.id, ok: true });
+    await forA;
+  });
+
+  it('keeps unanswered-command history per profile', async () => {
+    const store = new BrowserExtensionCommandStore();
+    // Profile B's service worker polls but only ever times out.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const sent = store.sendCommand({ queueKey: QUEUE, command: 'click', target: tabTarget(22, PROFILE_B), timeoutMs: 1_000 });
+      const command = await store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_B });
+      store.resolveCommand({ queueKey: QUEUE, commandId: command!.id, ok: false, error: 'browser_extension_command_timeout' });
+      await expect(sent).rejects.toThrow();
+    }
+
+    expect(store.describeDeliveryHealth(QUEUE, PROFILE_B).commandsAnswered).toBe(false);
+    expect(store.describeDeliveryHealth(QUEUE, PROFILE_A).commandsAnswered).toBe(true);
+    // Only B has history, so the machine as a whole reads unanswered...
+    expect(store.describeDeliveryHealth(QUEUE).commandsAnswered).toBe(false);
+
+    const sent = store.sendCommand({ queueKey: QUEUE, command: 'click', target: tabTarget(11, PROFILE_A), timeoutMs: 1_000 });
+    const command = await store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_A });
+    store.resolveCommand({ queueKey: QUEUE, commandId: command!.id, ok: true });
+    await sent;
+    // ...until a profile answers.
+    expect(store.describeDeliveryHealth(QUEUE).commandsAnswered).toBe(true);
+  });
+
+  it('charges a wedged profile\'s own execution timeouts to that profile only', async () => {
+    vi.useFakeTimers();
+    const store = new BrowserExtensionCommandStore();
+    // Profile B polls but never replies, so the coordinator's own timer fires.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const sent = store.sendCommand({ queueKey: QUEUE, command: 'click', target: tabTarget(22, PROFILE_B), timeoutMs: 1_000 });
+      sent.catch(() => undefined);
+      await store.pollCommand(QUEUE, { timeoutMs: 1, extensionInstanceId: PROFILE_B });
+      await vi.advanceTimersByTimeAsync(1_001);
+      await expect(sent).rejects.toThrow(/browser_extension_command_timeout/u);
+    }
+
+    expect(store.describeDeliveryHealth(QUEUE, PROFILE_B).commandsAnswered).toBe(false);
+    expect(store.describeDeliveryHealth(QUEUE, PROFILE_A).commandsAnswered).toBe(true);
+  });
+
+  it('charges a profile\'s missing receipts to that profile only', async () => {
+    vi.useFakeTimers();
+    const store = new BrowserExtensionCommandStore();
+    // One acknowledged command makes the queue receipt-enforcing.
+    const first = store.sendCommand({ queueKey: QUEUE, command: 'click', target: tabTarget(22, PROFILE_B), timeoutMs: 30_000 });
+    const firstCommand = await store.pollCommand(QUEUE, { timeoutMs: 1, extensionInstanceId: PROFILE_B });
+    store.markReceived(QUEUE, firstCommand!.id);
+    store.resolveCommand({ queueKey: QUEUE, commandId: firstCommand!.id, ok: true });
+    await first;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const sent = store.sendCommand({ queueKey: QUEUE, command: 'click', target: tabTarget(22, PROFILE_B), timeoutMs: 30_000 });
+      sent.catch(() => undefined);
+      await store.pollCommand(QUEUE, { timeoutMs: 1, extensionInstanceId: PROFILE_B });
+      await vi.advanceTimersByTimeAsync(BROWSER_EXTENSION_RECEIPT_WINDOW_MS + 1);
+      await expect(sent).rejects.toThrow('browser_extension_command_receipt_missing');
+    }
+
+    expect(store.describeDeliveryHealth(QUEUE, PROFILE_B).commandsAnswered).toBe(false);
+    expect(store.describeDeliveryHealth(QUEUE, PROFILE_A).commandsAnswered).toBe(true);
+  });
+
+  it('gives an unbound command to any profile and reports which one took it', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const onDelivered = vi.fn();
+    const opened = store.sendCommand({
+      queueKey: QUEUE,
+      command: 'open_tab',
+      payload: { url: 'https://example.test/' },
+      timeoutMs: 1_000,
+      onDelivered,
+    });
+
+    const command = await store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_B });
+    expect(command?.command).toBe('open_tab');
+    expect(onDelivered).toHaveBeenCalledWith({ extensionInstanceId: PROFILE_B });
+    store.resolveCommand({ queueKey: QUEUE, commandId: command!.id, ok: true });
+    await opened;
+  });
+
+  it('a bound command waits for its own profile and then fails as not delivered', async () => {
+    vi.useFakeTimers();
+    const store = new BrowserExtensionCommandStore();
+    void store.pollCommand(QUEUE, { timeoutMs: 25_000, extensionInstanceId: PROFILE_B });
+    const forA = store.sendCommand({ queueKey: QUEUE, command: 'click', target: tabTarget(11, PROFILE_A), timeoutMs: 1_000 });
+    const assertion = expect(forA).rejects.toThrow('browser_extension_command_not_delivered');
+
+    await vi.advanceTimersByTimeAsync(1_001);
+    await assertion;
+    expect(store.describeQueue(QUEUE)).toMatchObject({ queuedCount: 0, waitingPollerCount: 1 });
+  });
+
+  it('lists the profiles that polled recently and forgets them on queue rejection', async () => {
+    vi.useFakeTimers();
+    const store = new BrowserExtensionCommandStore();
+    // A poll is recorded when it arrives; whether it ends empty does not matter.
+    void store.pollCommand(QUEUE, { timeoutMs: 0, extensionInstanceId: PROFILE_A });
+    await vi.advanceTimersByTimeAsync(20_000);
+    void store.pollCommand(QUEUE, { timeoutMs: 0, extensionInstanceId: PROFILE_B });
+    void store.pollCommand(QUEUE, { timeoutMs: 0 });
+
+    expect(store.listRecentExtensionInstances(QUEUE).sort()).toEqual([PROFILE_A, PROFILE_B]);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(store.listRecentExtensionInstances(QUEUE)).toEqual([PROFILE_B]);
+
+    store.rejectQueue(QUEUE, 'node disconnected');
+    expect(store.listRecentExtensionInstances(QUEUE)).toEqual([]);
+  });
+
+  it('sends a profile-wide command once per recent profile', async () => {
+    const store = new BrowserExtensionCommandStore();
+    await store.pollCommand(QUEUE, { timeoutMs: 0, extensionInstanceId: PROFILE_A });
+    await store.pollCommand(QUEUE, { timeoutMs: 0, extensionInstanceId: PROFILE_B });
+
+    const fanOut = sendCommandToEachExtensionInstance(store, {
+      queueKey: QUEUE,
+      command: 'report_inventory',
+      timeoutMs: 1_000,
+    });
+    const first = await store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_A });
+    const second = await store.pollCommand(QUEUE, { timeoutMs: 50, extensionInstanceId: PROFILE_B });
+    expect(first?.target?.extensionInstanceId).toBe(PROFILE_A);
+    expect(second?.target?.extensionInstanceId).toBe(PROFILE_B);
+    store.resolveCommand({ queueKey: QUEUE, commandId: first!.id, ok: true });
+    store.resolveCommand({ queueKey: QUEUE, commandId: second!.id, ok: true });
+
+    const settled = await fanOut;
+    expect(settled.map((outcome) => outcome.status)).toEqual(['fulfilled', 'fulfilled']);
+  });
+
+  it('sends a profile-wide command once, unbound, when only one profile is known', async () => {
+    const send = vi.fn(async () => 'ok');
+    const settled = await sendCommandToEachExtensionInstance(
+      { sendCommand: send, listRecentExtensionInstances: () => [PROFILE_A] },
+      { queueKey: QUEUE, command: 'report_inventory', timeoutMs: 1_000 },
+    );
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({ queueKey: QUEUE, command: 'report_inventory', timeoutMs: 1_000 });
+    expect(settled).toEqual([{ status: 'fulfilled', value: 'ok' }]);
   });
 });

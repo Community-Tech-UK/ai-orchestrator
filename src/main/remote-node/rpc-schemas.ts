@@ -1,4 +1,5 @@
 import { z } from 'zod/v4';
+import { InstanceSendRawParamsSchema } from './instance-interaction-schemas';
 import { REASONING_EFFORTS } from '../../shared/types/provider.types';
 import {
   FsReadDirectoryParamsSchema,
@@ -12,6 +13,7 @@ import {
 } from '../../shared/validation/remote-fs-schemas';
 import { FileAttachmentSchema } from '@contracts/schemas/common';
 import { BrowserAttachExistingTabRequestSchema } from '@contracts/schemas/browser';
+import { withoutNestedExtensionInstanceId } from '../browser-gateway/browser-extension-rpc-payloads';
 import { WorkerAgentBuildSummarySchema } from './worker-agent-build-schema';
 import {
   LocalAiDiagnosticReportSchema,
@@ -28,7 +30,6 @@ import {
 } from './node-control-rpc-schemas';
 
 export * from './node-control-rpc-schemas';
-
 export { FsReadFileParamsSchema, FsWriteFileParamsSchema };
 
 export const BROWSER_CDP_MAX_FRAME_BYTES = 64 * 1024 * 1024;
@@ -96,6 +97,7 @@ const WorkerNodeCapabilitiesSchema = z.object({
   gpuName: z.string().optional(),
   gpuMemoryMB: z.number().int().optional(),
   supportedClis: z.array(z.string()),
+  openCodeMajor: z.union([z.literal(1), z.literal(2)]).optional(),
   hasBrowserRuntime: z.boolean(),
   hasBrowserMcp: z.boolean(),
   browserAutomation: z.object({
@@ -132,8 +134,7 @@ const WorkerNodeCapabilitiesSchema = z.object({
     mobileMcpVersion: z.string().optional(),
   }).optional(),
   hasDocker: z.boolean(),
-  // A placement hint only: a malformed advertisement is dropped rather than
-  // rejecting the whole heartbeat (and with it the node's liveness update).
+  // Drop a malformed placement hint without rejecting worker liveness.
   accountProfileIds: z.object({
     claude: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)).max(16).optional(),
     codex: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)).max(16).optional(),
@@ -172,7 +173,6 @@ const WorkerNodeCapabilitiesSchema = z.object({
 });
 
 // -- Node -> Coordinator schemas -----------------------------------------------
-
 export const NodeRegisterParamsSchema = z.object({
   nodeId: z.string().uuid(),
   name: z.string().min(1).max(100),
@@ -219,9 +219,8 @@ export const InstancePermissionRequestParamsSchema = z.object({
 });
 
 // -- Coordinator -> Node schemas -----------------------------------------------
-
 export const InstanceSpawnParamsSchema = z.object({
-  instanceId: z.string().min(1),
+  instanceId: z.string().min(1), sessionId: z.string().min(1).max(512).optional(), interactionId: z.string().uuid().optional(),
   cliType: z.string().min(1),
   workingDirectory: z.string().min(1),
   systemPrompt: z.string().optional(),
@@ -237,6 +236,7 @@ export const InstanceSpawnParamsSchema = z.object({
   disallowedTools: z.array(z.string()).optional(),
   resume: z.boolean().optional(),
   forkSession: z.boolean().optional(),
+  transcriptKnown: z.boolean().optional(), additionalDirectories: z.array(z.string().min(1).max(4096)).max(64).optional(),
   mcpConfig: z.array(z.string()).optional(),
   nodePlacement: z.object({
     requiresBrowser: z.boolean().optional(),
@@ -246,6 +246,7 @@ export const InstanceSpawnParamsSchema = z.object({
     preferPlatform: z.enum(['darwin', 'win32', 'linux']).optional(),
     preferNodeId: z.string().optional(),
     requiresCli: z.string().optional(),
+    requiresOpenCodeMajor: z.union([z.literal(1), z.literal(2)]).optional(),
     requiresWorkingDirectory: z.string().optional(),
   }).optional(),
   /**
@@ -287,6 +288,7 @@ export const InstanceSendInputParamsSchema = z.object({
   instanceId: z.string().min(1),
   message: z.string().min(1),
   attachments: z.array(FileAttachmentSchema).max(10).optional(),
+  nativeCommandId: z.string().regex(/^acp:opencode:[a-zA-Z0-9][a-zA-Z0-9_:.-]{0,100}$/).optional(),
 });
 
 export const InstanceIdParamsSchema = z.object({
@@ -437,13 +439,16 @@ export const BrowserCdpCloseParamsSchema = z.object({
 const BrowserExtensionRuntimeEvidenceSchema = {
   extensionVersion: z.string().min(1).max(128).optional(),
   extensionStartedAt: z.number().int().nonnegative().optional(),
+  // One install = one Chrome profile. Bounded here; format checked where used (bad format → no id).
+  extensionInstanceId: z.string().min(1).max(128).optional(),
 } as const;
 
 export const BrowserExtAttachTabParamsSchema = z.object({
   ...BrowserExtensionRuntimeEvidenceSchema,
   token: z.string().optional(),
   extensionOrigin: z.string().min(1).max(200).optional(),
-  payload: BrowserAttachExistingTabRequestSchema,
+  // Tolerates an install id nested by an older relay (see the helper).
+  payload: z.preprocess(withoutNestedExtensionInstanceId, BrowserAttachExistingTabRequestSchema),
 });
 
 export const BrowserExtPollCommandParamsSchema = z.object({
@@ -680,7 +685,7 @@ export const RPC_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'browser.ext.commandReceived': BrowserExtCommandReceivedParamsSchema,
   'browser.ext.disconnected': BrowserExtDisconnectedParamsSchema,
   'instance.spawn': InstanceSpawnParamsSchema,
-  'instance.sendInput': InstanceSendInputParamsSchema,
+  'instance.sendInput': InstanceSendInputParamsSchema, 'instance.sendRaw': InstanceSendRawParamsSchema,
   'instance.terminate': InstanceIdParamsSchema,
   'instance.interrupt': InstanceIdParamsSchema,
   'instance.hibernate': InstanceIdParamsSchema,
@@ -708,7 +713,7 @@ export const RPC_PARAM_SCHEMAS: Record<string, z.ZodType> = {
  */
 export const COORDINATOR_TO_NODE_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'instance.spawn': InstanceSpawnParamsSchema,
-  'instance.sendInput': InstanceSendInputParamsSchema,
+  'instance.sendInput': InstanceSendInputParamsSchema, 'instance.sendRaw': InstanceSendRawParamsSchema,
   'instance.terminate': InstanceIdParamsSchema,
   'instance.interrupt': InstanceIdParamsSchema,
   'instance.hibernate': InstanceIdParamsSchema,

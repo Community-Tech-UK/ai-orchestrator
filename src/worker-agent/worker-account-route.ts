@@ -13,7 +13,6 @@
  * module load time, and these modules sit in the main-process tree.
  */
 
-import { execFile } from 'child_process';
 import { readdirSync } from 'fs';
 import type {
   AccountBindingStatus,
@@ -32,7 +31,7 @@ import {
   pooledProviderLabel,
 } from '../shared/types/provider-account.types';
 import { openCodeAuthNamesFor, parseOpenCodeAuthCredentialNames, parseOpenCodeAuthList } from '../main/providers/opencode-auth-status';
-import { withOpenCodeProcessGate } from '../main/cli/adapters/opencode-process-gate';
+import { readSelectedOpenCodeAuthList } from '../main/providers/opencode-auth-command';
 
 /** The binding node ID a worker checks and stamps under. */
 export const WORKER_ACCOUNT_NODE_ID = 'worker';
@@ -175,17 +174,6 @@ const OPENCODE_AUTH_CACHE_MS = 60_000;
 let openCodeAuthCache: { at: number; ids: string[] } | null = null;
 let openCodeAuthInFlight: Promise<string[]> | null = null;
 
-function defaultReadOpenCodeAuthList(): Promise<string | null> {
-  // `opencode auth list` opens OpenCode's shared database, so it takes the same
-  // gate as every other OpenCode process AIO starts (probe 0.3).
-  return withOpenCodeProcessGate(() => new Promise<string | null>((resolve) => {
-    execFile('opencode', ['auth', 'list'], { timeout: 8_000, maxBuffer: 256 * 1024 }, (error, stdout) => {
-      // Partial output from a failed process cannot advertise a sign-in.
-      resolve(error ? null : typeof stdout === 'string' ? stdout : String(stdout ?? ''));
-    });
-  }));
-}
-
 /**
  * MiMo accounts logged in on this node, derived from `opencode auth list`
  * (names only — the `aio-mimo-*` credential names are the profile ids). OpenCode
@@ -195,7 +183,7 @@ function defaultReadOpenCodeAuthList(): Promise<string | null> {
  * `opencode auth list` opens OpenCode's database.
  */
 export async function listWorkerOpenCodeAccountProfileIds(
-  readAuthList: () => Promise<string | null> = defaultReadOpenCodeAuthList,
+  readAuthList: () => Promise<string | null> = readSelectedOpenCodeAuthList,
   now: () => number = Date.now,
 ): Promise<string[]> {
   if (openCodeAuthCache && now() - openCodeAuthCache.at < OPENCODE_AUTH_CACHE_MS) {

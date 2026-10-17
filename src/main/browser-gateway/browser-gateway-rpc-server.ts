@@ -17,9 +17,7 @@ import {
 } from './browser-gateway-service';
 import {
   getBrowserExtensionCommandStore,
-  type BrowserExtensionCommandResult,
   type BrowserExtensionCommandStore,
-  type BrowserExtensionPollRequest,
   type BrowserExtensionQueuedCommand,
 } from './browser-extension-command-store';
 import {
@@ -28,6 +26,11 @@ import {
   type BrowserExtensionContactState,
   type BrowserExtensionRuntimeRecord,
 } from './browser-extension-contact-state';
+import {
+  browserExtensionInstanceIdFromPayload,
+  validateExtensionCommandResultPayload,
+  validateExtensionPollPayload,
+} from './browser-extension-rpc-payloads';
 import {
   browserExtensionCommandId,
   recordCompatibleBrowserExtensionRuntime,
@@ -108,6 +111,11 @@ export interface BrowserGatewayRpcServerOptions {
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024;
 const MAX_RPC_ENVELOPE_BYTES = 16 * 1024;
 const MAX_UNIX_SOCKET_PATH_BYTES = 100;
+// Per profile per window: three full 40-tab inventories, so tab-event reports
+// on top of the 30s inventory alarm never lose a tab. Bytes are still capped.
+const LOCAL_EXTENSION_BULK_MAX_REQUESTS = 120;
+// Live rate buckets (per instance, per Chrome profile and class): far above real use.
+const MAX_RATE_BUCKETS = 256;
 const EXTENSION_RPC_METHODS = new Set([
   'browser.extension_attach_tab',
   'browser.extension_poll_command',
@@ -420,7 +428,7 @@ export class BrowserGatewayRpcServer {
   }
 
   private handleExtensionAttachTab(request: BrowserGatewayRpcRequest): unknown {
-    const params = this.parseAuthorizedExtensionParams(request.params);
+    const params = this.parseAuthorizedExtensionParams(request.params, 'bulk');
     if (!this.recordLocalExtensionContact(params.payload)) {
       throw new Error('browser_extension_runtime_incompatible');
     }
@@ -430,10 +438,12 @@ export class BrowserGatewayRpcServer {
     if (!result.success) {
       throw new Error('Invalid browser gateway RPC payload');
     }
+    const extensionInstanceId = browserExtensionInstanceIdFromPayload(params.payload);
     return this.requireMethod('attachExistingTab')({
       ...result.data,
       provider: 'orchestrator',
       ...(params.extensionOrigin ? { extensionOrigin: params.extensionOrigin } : {}),
+      ...(extensionInstanceId ? { extensionInstanceId } : {}),
     });
   }
 
@@ -442,9 +452,11 @@ export class BrowserGatewayRpcServer {
   ): Promise<BrowserExtensionQueuedCommand | null> {
     const params = this.parseAuthorizedExtensionParams(request.params);
     const allowBrowserCommands = this.recordLocalExtensionContact(params.payload);
+    const extensionInstanceId = browserExtensionInstanceIdFromPayload(params.payload);
     return this.extensionCommandStore.pollCommand(
       {
-        ...this.validateExtensionPollPayload(params.payload),
+        ...validateExtensionPollPayload(params.payload),
+        ...(extensionInstanceId ? { extensionInstanceId } : {}),
         allowBrowserCommands,
         allowSecureCredentialCommands: allowBrowserCommands,
       },
@@ -462,7 +474,7 @@ export class BrowserGatewayRpcServer {
       return { ok: true };
     }
     this.extensionCommandStore.resolveCommand(
-      this.validateExtensionCommandResultPayload(params.payload),
+      validateExtensionCommandResultPayload(params.payload),
     );
     return { ok: true };
   }
@@ -484,6 +496,8 @@ export class BrowserGatewayRpcServer {
     this.extensionContactState.markExtensionDisconnect(
       BROWSER_LOCAL_EXTENSION_CHANNEL_ID,
       normalizedReason,
+      undefined,
+      browserExtensionInstanceIdFromPayload(params.payload),
     );
     this.onExtensionDisconnected(normalizedReason);
     return { ok: true };
@@ -608,15 +622,27 @@ export class BrowserGatewayRpcServer {
     };
   }
 
-  private parseAuthorizedExtensionParams(params: unknown): BrowserGatewayExtensionRpcParams {
+  /**
+   * Budgets are per Chrome profile (every profile shares one extension origin)
+   * and per traffic class: tab reports arrive one RPC per tab, up to 40 per
+   * inventory, and must never spend the budget polls and results need.
+   */
+  private parseAuthorizedExtensionParams(
+    params: unknown,
+    trafficClass: 'control' | 'bulk' = 'control',
+  ): BrowserGatewayExtensionRpcParams {
     const parsed = this.parseExtensionParams(params);
     if (parsed.extensionToken !== this.extensionToken) {
       throw new Error('invalid browser extension host token');
     }
     const payloadBytes = this.enforcePayloadSize(parsed.payload);
+    const instanceId = browserExtensionInstanceIdFromPayload(parsed.payload) ?? 'unknown';
     this.enforceRateLimit(
-      `extension:${parsed.extensionOrigin ?? 'unknown'}`,
+      `extension:${(parsed.extensionOrigin ?? 'unknown').slice(0, 200)}:${instanceId}:${trafficClass}`,
       payloadBytes,
+      trafficClass === 'bulk'
+        ? Math.max(this.rateLimit.maxRequests, LOCAL_EXTENSION_BULK_MAX_REQUESTS)
+        : this.rateLimit.maxRequests,
     );
     return parsed;
   }
@@ -629,12 +655,24 @@ export class BrowserGatewayRpcServer {
     return payloadBytes;
   }
 
-  private enforceRateLimit(instanceId: string, payloadBytes: number): void {
+  private enforceRateLimit(
+    instanceId: string,
+    payloadBytes: number,
+    maxRequests = this.rateLimit.maxRequests,
+  ): void {
     const now = Date.now();
+    if (!this.buckets.has(instanceId) && this.buckets.size >= MAX_RATE_BUCKETS) {
+      // Keys are per caller, per Chrome profile and per traffic class. Drop the
+      // idle ones; if a caller is still minting keys, refuse rather than grow.
+      for (const [key, entries] of this.buckets) {
+        if (!entries.some((entry) => now - entry.timestamp < this.rateLimit.windowMs)) this.buckets.delete(key);
+      }
+      if (this.buckets.size >= MAX_RATE_BUCKETS) throw new Error('Browser Gateway RPC rate limit exceeded');
+    }
     const bucket = (this.buckets.get(instanceId) ?? []).filter(
       (entry) => now - entry.timestamp < this.rateLimit.windowMs,
     );
-    if (bucket.length >= this.rateLimit.maxRequests) {
+    if (bucket.length >= maxRequests) {
       throw new Error('Browser Gateway RPC rate limit exceeded');
     }
     const bytesInWindow = bucket.reduce((total, entry) => total + entry.bytes, 0);
@@ -668,52 +706,6 @@ export class BrowserGatewayRpcServer {
 
   private validatePayload(method: string, payload: Record<string, unknown>): Record<string, unknown> {
     return validateBrowserRpcPayload(method, payload);
-  }
-
-  private validateExtensionPollPayload(
-    payload: Record<string, unknown>,
-  ): BrowserExtensionPollRequest {
-    const timeoutMs = payload['timeoutMs'];
-    if (timeoutMs === undefined) {
-      return {};
-    }
-    if (
-      typeof timeoutMs !== 'number'
-      || !Number.isInteger(timeoutMs)
-      || timeoutMs < 0
-      || timeoutMs > 25_000
-    ) {
-      throw new Error('Invalid browser gateway extension command payload');
-    }
-    return { timeoutMs };
-  }
-
-  private validateExtensionCommandResultPayload(
-    payload: Record<string, unknown>,
-  ): BrowserExtensionCommandResult {
-    const commandId = payload['commandId'];
-    const ok = payload['ok'];
-    if (typeof commandId !== 'string' || !commandId) {
-      throw new Error('Invalid browser gateway extension command payload');
-    }
-    if (typeof ok !== 'boolean') {
-      throw new Error('Invalid browser gateway extension command payload');
-    }
-    const result: BrowserExtensionCommandResult = {
-      commandId,
-      ok,
-    };
-    if ('result' in payload) {
-      result.result = payload['result'];
-    }
-    const error = payload['error'];
-    if (error !== undefined) {
-      if (typeof error !== 'string' || !error) {
-        throw new Error('Invalid browser gateway extension command payload');
-      }
-      result.error = error;
-    }
-    return result;
   }
 
   private requireMethod(name: keyof BrowserGatewayService): (payload: Record<string, unknown>) => unknown {

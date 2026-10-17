@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { reportCapabilities } from '../capability-reporter';
 
+// Selected-install process probing has its own tests; heartbeats must not open the developer's real OpenCode database.
+vi.mock('../opencode-worker-capability', () => ({ readWorkerOpenCodeMajor: vi.fn().mockResolvedValue(2) }));
+
 // Mock child_process
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();

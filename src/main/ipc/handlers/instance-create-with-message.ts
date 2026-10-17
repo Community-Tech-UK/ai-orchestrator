@@ -14,6 +14,7 @@ import { createInitialUserMessage, serializeInstance } from './instance-handler-
 /** Shape actually consumed here; kept structural so the Zod type stays the source of truth. */
 export interface CreateWithMessageInput {
   message: string;
+  additionalDirectories?: string[];
   launchMode?: 'orchestrated' | 'interactive';
   agentId?: string;
   provider?: string;
@@ -27,6 +28,7 @@ export interface CreateWithMessageInput {
   nodePlacement?: unknown;
   browserToolsMode?: 'eager' | 'deferred' | 'off';
   hardened?: boolean;
+  signalFence?: boolean;
   copilotAccountProfileId?: string;
   copilotConfirmProtectedOverride?: boolean;
   accountProfileId?: string;
@@ -61,6 +63,7 @@ export async function createInstanceWithMessage(
 ): Promise<IpcResponse> {
   const instance = await manager.createInstance({
     workingDirectory,
+    additionalDirectories: validated.additionalDirectories ? [...validated.additionalDirectories] : undefined,
     initialPrompt: validated.message,
     initialUserMessageSource: 'current-submission',
     attachments,
@@ -78,6 +81,7 @@ export async function createInstanceWithMessage(
     nodePlacement: validated.nodePlacement as never,
     browserToolsMode: validated.browserToolsMode,
     hardened: validated.hardened,
+    signalFence: validated.signalFence,
     copilotAccountProfileId: validated.copilotAccountProfileId,
     copilotConfirmProtectedOverride: validated.copilotConfirmProtectedOverride,
     accountProfileId: validated.accountProfileId,

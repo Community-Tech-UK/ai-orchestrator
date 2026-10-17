@@ -133,6 +133,38 @@ describe('InstancePersistenceManager', () => {
     ]);
   });
 
+  it('uses a native OpenCode fork only at an idle supported session tail', async () => {
+    sourceInstance.provider = 'opencode';
+    loadMessagesMock.mockResolvedValue([]);
+    manager = new InstancePersistenceManager({ getInstance: () => sourceInstance, createInstance: createInstanceMock,
+      supportsNativeFork: () => true, forkNativeSession: async () => 'immutable-clone' });
+    await manager.forkInstance({ instanceId: sourceInstance.id, initialPrompt: 'Continue differently' });
+    expect(createInstanceMock).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ openCodeForkSessionId: 'immutable-clone' }), initialContextBlock: undefined,
+    }));
+  });
+
+  it('copies extra folders into preserved forks and drops them for an explicit runtime reset', async () => {
+    sourceInstance.provider = 'opencode';
+    sourceInstance.additionalDirectories = ['/tmp/shared'];
+    loadMessagesMock.mockResolvedValue([]);
+    await manager.forkInstance({ instanceId: sourceInstance.id });
+    const preserved = createInstanceMock.mock.calls[0][0] as InstanceCreateConfig;
+    expect(preserved.additionalDirectories).toEqual(['/tmp/shared']);
+    expect(preserved.additionalDirectories).not.toBe(sourceInstance.additionalDirectories);
+    await manager.forkInstance({ instanceId: sourceInstance.id, preserveRuntimeSettings: false });
+    expect(createInstanceMock.mock.calls[1][0].additionalDirectories).toBeUndefined();
+  });
+
+  it.each([{ atMessageIndex: 1 }, { supersedeSource: true }, { preserveRuntimeSettings: false }])('keeps historical/edit/runtime-reset forks on replay: %o', async (request) => {
+    sourceInstance.provider = 'opencode';
+    loadMessagesMock.mockResolvedValue([]);
+    manager = new InstancePersistenceManager({ getInstance: () => sourceInstance, createInstance: createInstanceMock,
+      supportsNativeFork: () => true });
+    await manager.forkInstance({ instanceId: sourceInstance.id, ...request });
+    expect(createInstanceMock.mock.calls[0][0].metadata?.['openCodeForkSessionId']).toBeUndefined();
+  });
+
   it('deduplicates overlap between disk history and the live buffer', async () => {
     loadMessagesMock.mockResolvedValue([message('older-1'), message('live-1')]);
 

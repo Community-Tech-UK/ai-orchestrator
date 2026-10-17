@@ -5,6 +5,7 @@
  */
 
 import type { AcpElicitationCreateParams } from '../../../shared/types/cli.types';
+import { acpQuestionAnswer } from './acp-elicitation-questions';
 
 export type AcpElicitationResponse =
   | { action: 'accept'; content?: Record<string, unknown> }
@@ -37,6 +38,8 @@ function buildElicitationContent(
   params: AcpElicitationCreateParams | undefined,
   responseText: string,
 ): Record<string, unknown> {
+  const answer = params ? acpQuestionAnswer(params, responseText) : undefined;
+  if (answer) return answer;
   const trimmed = responseText.trim();
   if (trimmed.startsWith('{')) {
     try {

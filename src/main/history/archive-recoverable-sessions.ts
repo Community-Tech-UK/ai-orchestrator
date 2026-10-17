@@ -1,6 +1,8 @@
 import { createInstance } from '../../shared/types/instance.types';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import { buildVerifiedRecoveryBuffer } from '../instance/lifecycle/continuity-revival';
+import { normalizeRecoveryNodePlacement } from '../session/session-recovery-node-placement';
+import { normalizeRecoveryExecutionLocation } from '../session/session-recovery-execution-location';
 import type { ArchiveInstanceOptions, ArchiveInstanceOutcome } from './should-archive-instance';
 import type {
   ResolvedRecoveryCandidate,
@@ -50,10 +52,12 @@ export function buildArchiveInstanceFromRecovery(
 
   const sessionId = state.sessionId?.trim() || undefined;
   const modelId = state.modelId?.trim() || undefined;
+  const executionLocation = normalizeRecoveryExecutionLocation(state.executionLocation);
   const instance = createInstance({
     displayName: state.displayName,
     isRenamed: state.isRenamed,
     workingDirectory: state.workingDirectory,
+    additionalDirectories: state.additionalDirectories,
     provider: state.provider ?? resolved.candidate.provider,
     modelOverride: modelId,
     agentId: state.agentId,
@@ -64,6 +68,8 @@ export function buildArchiveInstanceFromRecovery(
   // Keep the original runtime id: History records it as the source, and the
   // archive folds in any output that runtime spilled to disk before it died.
   instance.id = state.instanceId;
+  instance.executionLocation = executionLocation ?? { type: 'local' };
+  instance.nodePlacement = normalizeRecoveryNodePlacement(state.nodePlacement);
   instance.status = 'idle';
   instance.outputBuffer = initialOutputBuffer;
   instance.createdAt = initialOutputBuffer.reduce(

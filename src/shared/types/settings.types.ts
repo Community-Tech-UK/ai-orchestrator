@@ -348,6 +348,14 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * secrets remain usable by main-process consumers. Operator-only.
    */
   workspaceSecretsAllowAgentRequests: boolean;
+  /**
+   * macOS signal fence for provider CLIs (`src/main/sandbox/signal-fence.ts`).
+   * When true (default), a session can only stop programs it started itself.
+   * When false, sessions started afterwards can stop any program the user
+   * owns, including other live sessions. Read at spawn time. Operator-only:
+   * agents cannot change this via MCP or the privileged settings CLI.
+   */
+  providerSignalFenceEnabled: boolean;
 
   // Codebase auto-index (separate, heavier pipeline from codemem: BM25 +
   // vector embeddings + Merkle change detection + hybrid search). Auto-runs

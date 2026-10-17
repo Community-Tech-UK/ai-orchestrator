@@ -21,7 +21,7 @@ import {
 // Re-exported so the many existing importers of these two keep working; they
 // live in `title-derivation.ts` with the rest of the title logic.
 export { deriveRailTitle, frontLoadTitle } from './title-derivation';
-import type { ExecutionLocation } from './worker-node.types';
+import type { ExecutionLocation, NodePlacementPrefs } from './worker-node.types';
 
 /**
  * Status when the conversation ended
@@ -102,6 +102,10 @@ export interface ConversationHistoryEntry {
 
   /** Working directory the instance was running in */
   workingDirectory: string;
+
+  /** Extra OpenCode workspace folders to retain when restoring the conversation. */
+  additionalDirectories?: string[];
+  nodePlacement?: NodePlacementPrefs;
 
   /** Total number of messages in the conversation */
   messageCount: number;

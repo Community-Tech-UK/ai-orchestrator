@@ -1489,6 +1489,67 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     }));
   });
 
+  it('sends a tab command only to the Chrome profile that reported the tab', async () => {
+    const PROFILE_A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+    const sendCommand = vi.fn(async () => ({
+      tab: { tabId: 42, windowId: 7, title: 'Remote Example', url: 'https://example.com/page', text: 'hello' },
+    }));
+    const existingTab = {
+      profileId: `existing-tab:n.node-1:p.${PROFILE_A}:7:42`,
+      targetId: `existing-tab:n.node-1:p.${PROFILE_A}:7:42:target`,
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+      extensionInstanceId: PROFILE_A,
+      tabId: 42,
+      windowId: 7,
+      title: 'Remote Example',
+      url: 'https://example.com/page',
+      origin: 'https://example.com',
+      allowedOrigins: [{ scheme: 'https' as const, hostPattern: 'example.com', includeSubdomains: false }],
+    };
+    const { service, extensionTabStore } = makeService({ existingTab, extensionCommandStore: { sendCommand } });
+
+    await service.snapshot({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+    });
+
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      queueKey: 'node:node-1',
+      command: 'snapshot',
+      target: expect.objectContaining({ tabId: 42, extensionInstanceId: PROFILE_A }),
+    }));
+    // The refreshed copy is recorded under the same profile, not a legacy id.
+    expect(extensionTabStore.attachTab).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: 42 }),
+      expect.objectContaining({ nodeId: 'node-1', extensionInstanceId: PROFILE_A }),
+    );
+  });
+
+  it('records a newly opened tab under the Chrome profile that opened it', async () => {
+    const PROFILE_B = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+    const sendCommand = vi.fn(async (request: { onDelivered?: (delivery: { extensionInstanceId?: string }) => void }) => {
+      request.onDelivered?.({ extensionInstanceId: PROFILE_B });
+      return { tab: { tabId: 44, windowId: 8, title: 'New', url: 'https://example.com/new' } };
+    });
+    const { extensionTabStore, service } = makeService({ extensionCommandStore: { sendCommand } });
+
+    await service.findOrOpen({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      url: 'https://example.com/new',
+      nodeId: 'node-1',
+    });
+
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({ command: 'open_tab' }));
+    expect(extensionTabStore.attachTab).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: 44 }),
+      expect.objectContaining({ nodeId: 'node-1', extensionInstanceId: PROFILE_B }),
+    );
+  });
+
   it('detaches a stale existing-tab handle when the extension no longer has that tab id', async () => {
     const sendCommand = vi.fn(async () => {
       throw new Error('No tab with id: 42');

@@ -323,7 +323,7 @@ export class BrowserGatewayService {
     this.existingTabOperations = new BrowserExistingTabOperations({
       extensionCommandStore: this.extensionCommandStore,
       extensionTabStore: this.extensionTabStore,
-      isRemoteExtensionContactFresh: (nodeId) => isRemoteExtensionContactFresh(nodeId, { extensionContactState: this.extensionContactState }),
+      isRemoteExtensionContactFresh: (nodeId, instanceId) => isRemoteExtensionContactFresh(nodeId, { extensionContactState: this.extensionContactState }, instanceId),
       describeRemoteExtensionContact: (nodeId) =>
         remoteExtensionContactSummary(nodeId, { extensionContactState: this.extensionContactState }),
       grantStore: this.grantStore,
@@ -506,9 +506,9 @@ export class BrowserGatewayService {
   async attachExistingTab(
     request: BrowserGatewayAttachExistingTabRequest,
   ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeTarget> | null>> {
-    const { instanceId, provider, nodeId, nodeName, ...input } = request;
+    const { instanceId, provider, nodeId, nodeName, extensionInstanceId, ...input } = request;
     try {
-      const attachment = this.extensionTabStore.attachTab(input, { nodeId, nodeName });
+      const attachment = this.extensionTabStore.attachTab(input, { nodeId, nodeName, extensionInstanceId });
       return this.result({
         context: { instanceId, provider: provider ?? 'orchestrator' },
         profileId: attachment.profileId,
@@ -1734,11 +1734,10 @@ export class BrowserGatewayService {
       // reader resolves correctly. The global-flag reader ignores the argument.
       sharedTabCredentialFillAllowed: (profileId) =>
         this.allowSharedTabCredentialFill(credentialScopeForProfile(profileId)),
-      sharedTabSecureCredentialFillSupported: (profileId) =>
-        supportsSecureBrowserExtensionCredentialFill(
-          this.extensionContactState,
-          credentialScopeForProfile(profileId),
-        ),
+      sharedTabSecureCredentialFillSupported: (profileId, targetId) => {
+        const tab = this.extensionTabStore.getTab(profileId, targetId); // gone: no evidence to judge
+        return Boolean(tab) && supportsSecureBrowserExtensionCredentialFill(this.extensionContactState, credentialScopeForProfile(profileId), tab?.extensionInstanceId);
+      },
       resolveCredentialProfileScope: (profileId) => credentialScopeForProfile(profileId),
       type: (req) => this.type(req as BrowserGatewayContext & BrowserTypeRequest),
       select: (req) => this.select(req as BrowserGatewayContext & BrowserSelectRequest),
@@ -1816,6 +1815,7 @@ export class BrowserGatewayService {
       if (!supportsSecureBrowserExtensionCredentialFill(
         this.extensionContactState,
         credentialScopeForProfile(profileId),
+        existingTab.extensionInstanceId,
       )) {
         throw new Error('shared_tab_secure_credential_fill_unavailable');
       }

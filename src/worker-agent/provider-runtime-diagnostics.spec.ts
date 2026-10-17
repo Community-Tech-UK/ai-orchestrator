@@ -721,6 +721,119 @@ describe('diagnoseProviderRuntime', () => {
     expect(result.provider.authenticated).toBe(false);
   });
 
+  it('probes Windows npm shims through their resolved launchers', async () => {
+    const claudeExe = 'C:\\nvm4w\\nodejs\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe';
+    const nodeExe = 'C:\\nvm4w\\nodejs\\node.exe';
+    const codexJs = 'C:\\nvm4w\\nodejs\\node_modules\\@openai\\codex\\bin\\codex.js';
+    const resolveWindowsLauncher = (command: string) => {
+      if (command === 'claude') return { command: claudeExe, prefixArgs: [] };
+      if (command === 'codex') return { command: nodeExe, prefixArgs: [codexJs] };
+      return null;
+    };
+
+    const claude = await diagnoseProviderRuntime('claude', {
+      platform: 'win32',
+      env: { USERPROFILE: 'C:\\Users\\worker' },
+      resolveWindowsLauncher,
+      exec: makeExec({
+        'whoami': { stdout: '9950x3d\\shutu\r\n' },
+        [`${claudeExe} --version`]: { stdout: '2.3.4 (Claude Code)\r\n' },
+        [`${claudeExe} auth status`]: { stdout: '{"loggedIn":true}\r\n' },
+      }),
+    });
+    const codex = await diagnoseProviderRuntime('codex', {
+      platform: 'win32',
+      env: { USERPROFILE: 'C:\\Users\\worker' },
+      resolveWindowsLauncher,
+      exec: makeExec({
+        'whoami': { stdout: '9950x3d\\shutu\r\n' },
+        [`${nodeExe} ${codexJs} --version`]: { stdout: 'codex-cli 5.6.7\r\n' },
+        [`${nodeExe} ${codexJs} login status`]: { stdout: 'Logged in using ChatGPT\r\n' },
+      }),
+    });
+
+    expect(claude.ok).toBe(true);
+    expect(claude.provider).toMatchObject({ available: true, authenticated: true, version: '2.3.4' });
+    expect(codex.ok).toBe(true);
+    expect(codex.provider).toMatchObject({ available: true, authenticated: true, version: '5.6.7' });
+  });
+
+  it('passes the probe environment to the Windows launcher resolver', async () => {
+    const seen: (string | undefined)[] = [];
+    await diagnoseProviderRuntime('claude', {
+      platform: 'win32',
+      env: { USERPROFILE: 'C:\\Users\\worker', PATH: 'C:\\base' },
+      resolveWindowsLauncher: (command, env) => {
+        seen.push(`${command}|${env['PATH']}|${env['NO_OPEN_BROWSER'] ?? ''}`);
+        return null;
+      },
+      exec: makeExec({
+        'whoami': { stdout: 'worker\r\n' },
+        'claude --version': { stdout: '2.3.4\r\n' },
+        'claude auth status': { stdout: '{"loggedIn":true}\r\n' },
+      }),
+    });
+
+    expect(seen).toEqual([
+      'whoami|C:\\base|',
+      'claude|C:\\base|',
+      'claude|C:\\base|1',
+    ]);
+  });
+
+  it('fails closed when a resolved Windows launcher auth probe times out', async () => {
+    const claudeExe = 'C:\\tools\\claude.exe';
+    const timeoutError = new Error('provider_probe_timeout');
+    const result = await diagnoseProviderRuntime('claude', {
+      platform: 'win32',
+      env: { USERPROFILE: 'C:\\Users\\worker' },
+      resolveWindowsLauncher: (command) => (
+        command === 'claude' ? { command: claudeExe, prefixArgs: [] } : null
+      ),
+      exec: makeExec({
+        'whoami': { stdout: 'worker\r\n' },
+        [`${claudeExe} --version`]: { stdout: '2.3.4\r\n' },
+        [`${claudeExe} auth status`]: { stdout: '{"loggedIn":true}\r\n', error: timeoutError },
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.provider).toMatchObject({ available: true, authenticated: false });
+  });
+
+  it('keeps the bare command when a Windows launcher cannot be resolved', async () => {
+    const result = await diagnoseProviderRuntime('claude', {
+      platform: 'win32',
+      env: { USERPROFILE: 'C:\\Users\\worker' },
+      resolveWindowsLauncher: () => null,
+      exec: makeExec({
+        'whoami': { stdout: 'worker\r\n' },
+        'claude --version': { stdout: '2.3.4\r\n' },
+        'claude auth status': { stdout: '{"loggedIn":true}\r\n' },
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.provider.authenticated).toBe(true);
+  });
+
+  it('does not resolve Windows launchers on other platforms', async () => {
+    const resolveWindowsLauncher = vi.fn(() => ({ command: 'C:\\never.exe', prefixArgs: [] }));
+    const result = await diagnoseProviderRuntime('codex', {
+      platform: 'linux',
+      env: { HOME: '/tmp/worker-home' },
+      resolveWindowsLauncher,
+      exec: makeExec({
+        'whoami': { stdout: 'worker\n' },
+        'codex --version': { stdout: 'codex-cli 5.6.7\n' },
+        'codex login status': { stdout: 'Logged in using ChatGPT\n' },
+      }),
+    });
+
+    expect(resolveWindowsLauncher).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+  });
+
   it('bounds worker identity strings before returning diagnostics', async () => {
     const result = await diagnoseProviderRuntime('antigravity', {
       env: { HOME: `/tmp/${'h'.repeat(5_000)}` },
@@ -745,6 +858,7 @@ describe('diagnoseProviderRuntime', () => {
         'copilot --version': { stdout: 'GitHub Copilot CLI 1.0.56\r\n' },
       }),
       readFile: async () => JSON.stringify({ loggedInUsers: [] }),
+      resolveWindowsLauncher: () => null,
     });
 
     expect(result.ok).toBe(false);

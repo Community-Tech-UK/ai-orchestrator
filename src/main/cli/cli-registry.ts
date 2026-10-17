@@ -5,6 +5,8 @@
  * inflate cli-detection.ts.
  */
 
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { getCliAdditionalPaths } from './cli-environment';
 
 /**
@@ -227,6 +229,15 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
       'mcp-servers',
     ],
     alternativePaths: [
+      '/Applications/OpenCode.app/Contents/Resources/opencode-cli',
+      '~/.opencode/bin/opencode2',
+      '~/.local/bin/opencode2',
+      '/opt/homebrew/bin/opencode2',
+      '/usr/local/bin/opencode2',
+      '%APPDATA%\\npm\\opencode2.cmd',
+      '%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\opencode.exe',
+      '%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\opencode2.exe',
+      '%USERPROFILE%\\.opencode\\bin\\opencode2.exe',
       // opencode.ai/install writes the binary to `$HOME/.opencode/bin`.
       '~/.opencode/bin/opencode',
       '/opt/homebrew/bin/opencode',
@@ -314,10 +325,25 @@ export function getCliCandidatePaths(
     if (expanded) candidates.push(expanded);
   }
 
+  if (config.name === 'opencode' && platform === 'darwin') {
+    const home = env['HOME'] || env['USERPROFILE'];
+    if (home) {
+      const root = join(home, 'Library', 'Application Support', 'ai.opencode.desktop', 'cli');
+      try {
+        const versions = readdirSync(root, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory() && /^\d+\.\d+\.\d+$/.test(entry.name))
+          .map((entry) => entry.name)
+          .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }));
+        candidates.push(...versions.map((version) => join(root, version, 'opencode-cli')));
+      } catch { /* Desktop CLI is optional. */ }
+    }
+  }
+
   if (platform === 'win32') {
     for (const dir of getCliAdditionalPaths(env, platform)) {
       for (const ext of WINDOWS_EXECUTABLE_EXTENSIONS) {
         candidates.push(`${dir}\\${config.command}${ext}`);
+        if (config.name === 'opencode') candidates.push(`${dir}\\opencode2${ext}`);
       }
     }
   }

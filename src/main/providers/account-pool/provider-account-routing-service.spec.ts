@@ -12,6 +12,10 @@ vi.mock('./account-quota-evidence', async (importOriginal) => ({
   ...await importOriginal<typeof import('./account-quota-evidence')>(),
   readAccountQuotaEvidence: vi.fn(() => null),
 }));
+// Install discovery has its own tests; keep this integration on a known selected binary.
+vi.mock('../../cli/adapters/opencode-cli-launch', () => ({
+  selectOpenCodeLaunch: vi.fn(async () => ({ command: '/fixture/selected-opencode', major: 1 })),
+}));
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
   const execFile = vi.fn();
@@ -106,7 +110,7 @@ describe('ProviderAccountRoutingService', () => {
   it.each([{ code: 7 }, { killed: true, signal: 'SIGTERM' as const }])('fresh admission rejects failed auth-list output %j', async (properties) => {
     const target = profile('max-b', 1, { provider: 'opencode', region: 'ams' });
     vi.mocked(execFile).mockImplementation((file, args, options, callback) => {
-      expect(file).toBe('opencode');
+      expect(file).toBe('/fixture/selected-opencode');
       expect(args).toEqual(['auth', 'list']);
       expect(options).toMatchObject({ timeout: 8_000, maxBuffer: 256 * 1024 });
       if (!callback) throw new Error('Missing auth-list callback');
@@ -118,7 +122,7 @@ describe('ProviderAccountRoutingService', () => {
     expect(await routing.admit(target, 'explicit', 'local', { force: true }))
       .toMatchObject({ ok: false, code: 'profile-not-bound-on-node', detail: expect.stringContaining('auth-list-unreadable') });
     expect(execFile).toHaveBeenCalledOnce();
-    expect(execFile).toHaveBeenCalledWith('opencode', ['auth', 'list'],
+    expect(execFile).toHaveBeenCalledWith('/fixture/selected-opencode', ['auth', 'list'],
       expect.objectContaining({ timeout: 8_000, maxBuffer: 256 * 1024 }), expect.any(Function));
   });
 

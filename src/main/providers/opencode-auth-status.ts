@@ -1,3 +1,4 @@
+import { normalizeOpenCodeNativeConfig } from '../cli/adapters/opencode-v2-config';
 /**
  * OpenCode sign-in status without touching credential values.
  *
@@ -22,7 +23,26 @@ export interface OpenCodeAuthCounts {
 // eslint-disable-next-line no-control-regex -- intentional: strips ANSI SGR escape sequences (ESC char)
 const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
 
+interface OpenCodeAuthIntegration { id: string; connections: Record<string, unknown>[] }
+function jsonAuthIntegrations(output: string): OpenCodeAuthIntegration[] | null {
+  if (!output.trim().startsWith('[')) return null;
+  try {
+    const parsed: unknown = JSON.parse(output);
+    if (!Array.isArray(parsed) || !parsed.every((row) => isRecord(row) && typeof row['id'] === 'string'
+      && Array.isArray(row['connections']) && row['connections'].every((item: unknown) => isRecord(item) && typeof item['type'] === 'string'))) return null;
+    return parsed as OpenCodeAuthIntegration[];
+  } catch { return null; }
+}
+export function openCodeAuthListArgs(major = 1): string[] {
+  return major >= 2 ? ['auth', 'list', '--standalone', '--format', 'json'] : ['auth', 'list'];
+}
+
 export function parseOpenCodeAuthList(output: string): OpenCodeAuthCounts | null {
+  const integrations = jsonAuthIntegrations(output);
+  if (integrations) return {
+    credentials: integrations.reduce((count, row) => count + row.connections.filter((item) => item['type'] === 'credential').length, 0),
+    environmentVariables: integrations.reduce((count, row) => count + row.connections.filter((item) => item['type'] === 'env').length, 0),
+  };
   const text = output.replace(ANSI_PATTERN, '');
   const credentials = /(\d+)\s+credentials?\b/i.exec(text);
   if (!credentials) return null;
@@ -41,6 +61,8 @@ export function parseOpenCodeAuthList(output: string): OpenCodeAuthCounts | null
  * rows, not stored credentials.
  */
 export function parseOpenCodeAuthCredentialNames(output: string): string[] {
+  const integrations = jsonAuthIntegrations(output);
+  if (integrations) return integrations.filter((row) => row.connections.some((item) => item['type'] === 'credential')).map((row) => row.id);
   const text = output.replace(ANSI_PATTERN, '');
   const counts = parseOpenCodeAuthList(text);
   if (!counts || counts.credentials === 0) return [];
@@ -110,16 +132,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function parseOpenCodeConfig(output: string): OpenCodeConfigSummary {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(output);
+    parsed = normalizeOpenCodeNativeConfig(JSON.parse(output));
   } catch {
     // Not JSON (older CLI or an error banner): treat as no configuration.
     return { providersWithConfigKey: [] };
   }
   if (!isRecord(parsed)) return { providersWithConfigKey: [] };
-  const providers = isRecord(parsed['provider']) ? parsed['provider'] : {};
+  if (isRecord(parsed['data'])) parsed = parsed['data'];
+  if (!isRecord(parsed)) return { providersWithConfigKey: [] };
+  const providers = isRecord(parsed['providers']) ? parsed['providers'] : isRecord(parsed['provider']) ? parsed['provider'] : {};
   const providersWithConfigKey = Object.entries(providers)
     .filter(([, config]) => {
-      const options = isRecord(config) ? config['options'] : undefined;
+      const options = isRecord(config) ? config['settings'] ?? config['options'] : undefined;
       const apiKey = isRecord(options) ? options['apiKey'] : undefined;
       return typeof apiKey === 'string' && apiKey.trim().length > 0;
     })
@@ -150,15 +174,16 @@ export interface OpenCodeAuthStatus {
 export async function readOpenCodeAuthStatus(
   run: OpenCodeCommandRunner,
   aioModel: string | undefined,
+  cliMajor = 1,
 ): Promise<OpenCodeAuthStatus> {
-  const counts = parseOpenCodeAuthList(await run(['auth', 'list']));
+  const counts = parseOpenCodeAuthList(await run(openCodeAuthListArgs(cliMajor)));
   if (!counts) {
     return { authenticated: false, counts: null };
   }
   if (counts.credentials + counts.environmentVariables > 0) {
     return { authenticated: true, counts };
   }
-  const config = parseOpenCodeConfig(await run(['debug', 'config']));
+  const config = parseOpenCodeConfig(await run(cliMajor >= 2 ? ['api', '--standalone', 'GET', '/api/config'] : ['debug', 'config']));
   const effectiveModel = aioModel?.trim() || config.model;
   const backend = modelProviderId(effectiveModel);
   const keyInConfig = backend !== undefined && config.providersWithConfigKey.includes(backend);

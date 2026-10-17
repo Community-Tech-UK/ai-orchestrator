@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   BROWSER_EXTENSION_CONTACT_GAP_THRESHOLD_MS,
   BrowserExtensionContactState,
+  normalizeBrowserExtensionInstanceId,
 } from './browser-extension-contact-state';
+import { supportsSecureBrowserExtensionCredentialFill } from './browser-extension-credential-compatibility';
 
 describe('BrowserExtensionContactState gap telemetry', () => {
   it('starts with empty gap stats', () => {
@@ -168,5 +170,99 @@ describe('BrowserExtensionContactState gap telemetry', () => {
       extensionVersion: '0.2.17',
       extensionStartedAt: 1_000,
     });
+  });
+});
+
+describe('BrowserExtensionContactState with several Chrome profiles on one node', () => {
+  const PROFILE_A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+  const PROFILE_B = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+  const a = { extensionVersion: '0.2.42', extensionStartedAt: 100, extensionInstanceId: PROFILE_A };
+  const b = { extensionVersion: '0.2.42', extensionStartedAt: 200, extensionInstanceId: PROFILE_B };
+
+  function poll(state: BrowserExtensionContactState, runtime: typeof a): void {
+    state.markExtensionContact('windows-pc');
+    state.markExtensionRuntime('windows-pc', runtime);
+  }
+
+  it('keeps the earlier-started profile trusted after the later one polls', () => {
+    const state = new BrowserExtensionContactState();
+    poll(state, a);
+    poll(state, b);
+    poll(state, a);
+
+    expect(supportsSecureBrowserExtensionCredentialFill(state, 'windows-pc', PROFILE_A)).toBe(true);
+    expect(supportsSecureBrowserExtensionCredentialFill(state, 'windows-pc', PROFILE_B)).toBe(true);
+  });
+
+  it('only blocks the profile whose native host disconnected', () => {
+    // Regression: before instance ids, profile B disconnecting tombstoned the
+    // node's single generation and profile A was refused until B came back.
+    const state = new BrowserExtensionContactState();
+    poll(state, a);
+    poll(state, b);
+
+    state.markExtensionDisconnect('windows-pc', 'native_host_stdin_eof', undefined, PROFILE_B);
+    poll(state, a);
+
+    expect(supportsSecureBrowserExtensionCredentialFill(state, 'windows-pc', PROFILE_A)).toBe(true);
+    expect(supportsSecureBrowserExtensionCredentialFill(state, 'windows-pc', PROFILE_B)).toBe(false);
+
+    // B's own reconnect restores it.
+    poll(state, b);
+    expect(supportsSecureBrowserExtensionCredentialFill(state, 'windows-pc', PROFILE_B)).toBe(true);
+  });
+
+  it('blocks every profile when the disconnect names none (node link dropped)', () => {
+    const state = new BrowserExtensionContactState();
+    poll(state, a);
+    poll(state, b);
+
+    state.markExtensionDisconnect('windows-pc', 'node_ws_disconnected');
+
+    expect(supportsSecureBrowserExtensionCredentialFill(state, 'windows-pc', PROFILE_A)).toBe(false);
+    expect(supportsSecureBrowserExtensionCredentialFill(state, 'windows-pc', PROFILE_B)).toBe(false);
+  });
+
+  it('judges an old extension in one profile without affecting the other', () => {
+    const state = new BrowserExtensionContactState();
+    poll(state, a);
+    poll(state, { ...b, extensionVersion: '0.2.17' });
+
+    expect(supportsSecureBrowserExtensionCredentialFill(state, 'windows-pc', PROFILE_A)).toBe(true);
+    expect(supportsSecureBrowserExtensionCredentialFill(state, 'windows-pc', PROFILE_B)).toBe(false);
+  });
+
+  it('answers an instance-less read with the profile that polled last', () => {
+    const state = new BrowserExtensionContactState();
+    poll(state, a);
+    poll(state, b);
+    expect(state.getExtensionRuntime('windows-pc')).toEqual(b);
+    poll(state, a);
+    expect(state.getExtensionRuntime('windows-pc')).toEqual(a);
+    expect(state.getExtensionRuntime('windows-pc', PROFILE_B)).toEqual(b);
+  });
+
+  it('forgets every profile with the node', () => {
+    const state = new BrowserExtensionContactState();
+    poll(state, a);
+    poll(state, b);
+
+    state.forgetNode('windows-pc');
+
+    expect(state.getExtensionRuntime('windows-pc')).toBeUndefined();
+    expect(state.getExtensionRuntime('windows-pc', PROFILE_A)).toBeUndefined();
+    expect(state.getExtensionRuntime('windows-pc', PROFILE_B)).toBeUndefined();
+  });
+
+  it('treats a malformed profile id as no profile id', () => {
+    const state = new BrowserExtensionContactState();
+    poll(state, { ...a, extensionInstanceId: 'bad:id' });
+
+    expect(state.getExtensionRuntime('windows-pc')).toEqual({
+      extensionVersion: '0.2.42',
+      extensionStartedAt: 100,
+    });
+    expect(normalizeBrowserExtensionInstanceId('bad:id')).toBeUndefined();
+    expect(normalizeBrowserExtensionInstanceId(PROFILE_A)).toBe(PROFILE_A);
   });
 });

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'events';
+import type { WorkerNodeConnectionServer } from '../../../remote-node/worker-node-connection';
 import { IPC_CHANNELS, type IpcResponse } from '../../../../shared/types/ipc.types';
 import type { CommandTemplate, ParsedCommand } from '../../../../shared/types/command.types';
 import type { Instance } from '../../../../shared/types/instance.types';
@@ -36,7 +38,9 @@ const mocks = vi.hoisted(() => ({
   },
   emitPluginHook: vi.fn(),
   isGitRepository: vi.fn(),
+  registry: undefined as unknown,
 }));
+vi.mock('../../../remote-node/worker-node-registry', () => ({ getWorkerNodeRegistry: () => mocks.registry }));
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -88,6 +92,7 @@ vi.mock('../../../chats', () => ({
 }));
 
 import { registerCommandHandlers } from '../command-handlers';
+import { RemoteCliAdapter } from '../../../cli/adapters/remote-cli-adapter';
 
 const goalCommand: CommandTemplate = {
   id: 'builtin-goal',
@@ -168,6 +173,37 @@ describe('registerCommandHandlers', () => {
     mocks.loopCoordinator.resumeLoop.mockReturnValue(true);
     mocks.loopCoordinator.cancelLoop.mockResolvedValue(true);
     mocks.loopCoordinator.getLoop.mockReturnValue(undefined);
+  });
+
+  it('lists the selected OpenCode session commands and executes compact through its ACP turn', async () => {
+    const instanceManager = { ...makeInstanceManager(makeInstance('opencode')), getAdapter: () => ({ getAvailableCommands: () => [{ name: 'compact', description: 'Native compact' }] }) };
+    registerCommandHandlers(instanceManager as never);
+    const listed = await invoke(IPC_CHANNELS.COMMAND_LIST, { instanceId: 'inst-1', workingDirectory: '/tmp/project' });
+    expect(listed.data).toMatchObject({ commands: expect.arrayContaining([expect.objectContaining({ id: 'acp:opencode:compact' })]) });
+    const executed = await invoke(IPC_CHANNELS.COMMAND_EXECUTE, { instanceId: 'inst-1', commandId: 'acp:opencode:compact' });
+    expect(executed.success).toBe(true);
+    expect(instanceManager.sendInput).toHaveBeenCalledWith('inst-1', '/compact', undefined, { providerNativeCommandId: 'acp:opencode:compact' });
+    expect(mocks.contextEngine.compactInstance).not.toHaveBeenCalled();
+  });
+
+  it('lists and executes a real remote catalog through IPC and refuses a command removed from that live session', async () => {
+    const registry = new EventEmitter(); mocks.registry = registry;
+    const sendRpc = vi.fn(async (_node: string, _method: string, _params: unknown) => ({ instanceId: 'remote-session' }));
+    const remote = new RemoteCliAdapter({ sendRpc } as unknown as WorkerNodeConnectionServer, 'worker', 'opencode', { sessionId: 'remote-session', workingDirectory: '/tmp/project' });
+    await remote.spawn();
+    const instanceManager = { ...makeInstanceManager(makeInstance('opencode')), getAdapter: () => remote,
+      sendInput: vi.fn(async (_id: string, prompt: string) => remote.sendInput(prompt)) };
+    const interactionId = (sendRpc.mock.calls[0][2] as { interactionId: string }).interactionId;
+    const update = (commands: { name: string }[]) => registry.emit('remote:instance-state-change', { nodeId: 'worker', instanceId: 'remote-session', state: 'available_commands', info: { interactionId, payload: commands } });
+    try {
+      registerCommandHandlers(instanceManager as never); update([{ name: 'compact' }]);
+      expect((await invoke(IPC_CHANNELS.COMMAND_LIST, { instanceId: 'inst-1' })).data).toMatchObject({ commands: expect.arrayContaining([expect.objectContaining({ id: 'acp:opencode:compact' })]) });
+      expect((await invoke(IPC_CHANNELS.COMMAND_EXECUTE, { instanceId: 'inst-1', commandId: 'acp:opencode:compact' })).success).toBe(true);
+      expect(sendRpc).toHaveBeenLastCalledWith('worker', 'instance.sendInput', { instanceId: 'remote-session', message: '/compact', attachments: undefined, nativeCommandId: 'acp:opencode:compact' }, 0);
+      update([]); mocks.commandManager.executeCommand.mockResolvedValue(undefined);
+      expect((await invoke(IPC_CHANNELS.COMMAND_EXECUTE, { instanceId: 'inst-1', commandId: 'acp:opencode:compact' })).error?.code).toBe('COMMAND_NOT_FOUND');
+      expect(instanceManager.sendInput).toHaveBeenCalledOnce();
+    } finally { remote.forceCleanup(); }
   });
 
   it('starts Loop Mode for /goal objectives instead of forwarding a provider slash command', async () => {

@@ -36,6 +36,9 @@ export class AcpDelegatedTaskLiveness {
 
   constructor(private readonly source?: AcpChildProgressSource, private readonly onProgress?: () => void) {}
 
+  /** OpenCode 2 delivers the same child-work evidence over ACP instead of HTTP. */
+  observeNativeChild(child: AcpChildActivity): void { this.progress(child); }
+
   observe(id: string, call: { status: AcpToolCallStatus; kind?: string; title?: string; rawInput?: Record<string, unknown> }, parentId: string | null): void {
     if (!isActiveAcpToolCallStatus(call.status) || isBackgroundAcpTask(call.rawInput)) {
       this.tasks.delete(id);

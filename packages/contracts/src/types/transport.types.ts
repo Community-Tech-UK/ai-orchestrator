@@ -59,6 +59,8 @@ export interface OrchestrationActivityPayload {
 
 export interface InstanceCreatePayload {
   workingDirectory: string;
+  /** OpenCode session folders, validated at creation. */
+  additionalDirectories?: string[];
   sessionId?: string;
   parentInstanceId?: string;
   displayName?: string;

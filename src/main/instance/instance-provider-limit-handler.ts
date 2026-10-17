@@ -7,11 +7,13 @@ import { textDiagnostic } from '../logging/source-diagnostics';
 import type {
   AccountFailoverCoordinator,
   AccountFailoverParams,
+  AccountFailoverPlan,
 } from '../providers/account-pool/account-failover-coordinator';
 import { accountFailoverNote, type AccountFailoverNote } from './account-failover-notes';
 import { isPooledProvider } from '../../shared/types/provider-account.types';
 import { clearLimitLiftedSinceRecorded, snapshotShowsLimitLifted } from './provider-limit-lift';
 import { instanceProviderLimitScope } from './instance-provider-limit-scope';
+import { deriveProviderLimitResumeFromSnapshot, resolveUsageLimitStop, type UsageLimitStopParams } from './instance-usage-limit-stop';
 import {
   buildProviderLimitContinuationTurn,
   scheduleInstanceProviderLimitResume,
@@ -77,7 +79,8 @@ export interface InstanceProviderLimitHandlerDeps {
    * Account-pool failover (spec §8.2). Consulted after the ledger row is recorded for
    * the exhausted profile and before `park()`: a switch leaves no park state.
    */
-  accountFailover?: Pick<AccountFailoverCoordinator, 'plan' | 'perform' | 'offer' | 'shouldSwitchPreemptively' | 'release'>;
+  accountFailover?: Pick<AccountFailoverCoordinator, 'plan' | 'perform' | 'offer' | 'shouldSwitchPreemptively' | 'release'>
+    & Partial<Pick<AccountFailoverCoordinator, 'observeInput'>>;
   /** Transcript note when an attempted account switch could not happen. */
   emitSystemMessage?: (instanceId: string, content: string, metadata: Record<string, unknown>) => void;
   /** Working directory for the instance (needed by the durable automation). */
@@ -142,6 +145,8 @@ export interface MaybeParkParams {
    * Claude/Codex session); null/undefined for providers without pools.
    */
   accountProfileId?: string | null;
+  /** Safety stops forbid continuing on purchased credits, including after a park. */
+  allowCredits?: boolean;
 }
 
 export type MaybeParkKnownParams = Omit<MaybeParkParams, 'resetAtHint'>;
@@ -166,14 +171,15 @@ interface ParkEntry {
  *
  * On a throttled turn the instance is parked with a `quota-park` waitReason and
  * a durable one-time resume is scheduled (mirrors the loop path); when the
- * window resets the throttled turn is re-sent. Everything is gated behind the
- * `instanceProviderLimitResumeEnabled` setting, so nothing changes unless the
- * user opts in.
+ * window resets the throttled turn is re-sent. Automatic reset resends require
+ * `instanceProviderLimitResumeEnabled`. Account switching follows the pool
+ * policy; safety holds stop paid overage even when automatic reset resends are off.
  */
 export class InstanceProviderLimitHandler {
   private deps: InstanceProviderLimitHandlerDeps | null = null;
   private readonly parked = new Map<string, ParkEntry>();
   private readonly lastResumeAt = new Map<string, number>();
+  private readonly switching = new Map<string, { token: symbol; exhaustedProfileId: string; resumePrompt: string | null }>();
   /** Instances whose next send must not attempt another pre-emptive switch. */
   private readonly skipPreemptiveOnce = new Set<string>();
 
@@ -194,6 +200,7 @@ export class InstanceProviderLimitHandler {
   maybePark(params: MaybeParkParams): ProviderLimitTurnOutcome {
     const deps = this.deps;
     if (!deps) return 'skipped';
+    if (this.isSwitchingAccount(params.instanceId, params.accountProfileId)) return 'switching-account';
     if (this.parked.has(params.instanceId)) return 'already-parked';
 
     const providerId = toProviderId(params.provider);
@@ -212,13 +219,14 @@ export class InstanceProviderLimitHandler {
       ...scope.ledgerOptions,
       now,
     }) ?? null;
-    const snapshotResumeAt = this.deriveResumeFromSnapshot(
+    const effectiveParams = knownLimit?.source === 'usage-overage' ? { ...params, allowCredits: false } : params;
+    const snapshotResumeAt = deriveProviderLimitResumeFromSnapshot(
       scope.quotaApplies && !params.quotaBlind ? deps.getQuotaSnapshot(providerId, accountProfileId) : null,
     );
     const detectedResumeAt = resetAtHint ?? snapshotResumeAt;
     const resumeAt = detectedResumeAt ?? knownLimit?.resumeAt ?? null;
 
-    const failoverParams = this.failoverParams(params, accountProfileId, resumeAt);
+    const failoverParams = this.failoverParams(effectiveParams, accountProfileId, resumeAt);
     const failoverPlan = failoverParams ? deps.accountFailover?.plan(failoverParams) : undefined;
     const pooled = failoverPlan !== undefined && !(failoverPlan.kind === 'none' && failoverPlan.reason === 'no-pool');
 
@@ -229,7 +237,8 @@ export class InstanceProviderLimitHandler {
         accountProfileId,
         detectedAt: now,
         resumeAt: detectedResumeAt,
-        source: params.quotaBlind ? COPILOT_RATE_LIMIT_SOURCE : resetAtHint !== null ? 'provider-limit-signal' : 'quota-snapshot',
+        source: effectiveParams.allowCredits === false ? 'usage-overage'
+          : params.quotaBlind ? COPILOT_RATE_LIMIT_SOURCE : resetAtHint !== null ? 'provider-limit-signal' : 'quota-snapshot',
         instanceId: params.instanceId,
       });
     } else if (scope.recordable && pooled && knownLimit === null) {
@@ -245,11 +254,11 @@ export class InstanceProviderLimitHandler {
     }
 
     if (failoverParams && failoverPlan?.kind === 'switch') {
-      this.startAccountFailover(failoverParams, params, providerId, resumeAt);
+      this.startAccountFailover(failoverParams, effectiveParams, providerId, resumeAt, { forceHold: effectiveParams.allowCredits === false });
       return 'switching-account';
     }
     if (failoverParams && failoverPlan?.kind === 'offer') {
-      const parked = resumeAt === null ? 'skipped' : this.park(params, providerId, resumeAt);
+      const parked = resumeAt === null ? 'skipped' : this.park(effectiveParams, providerId, resumeAt, { forceHold: effectiveParams.allowCredits === false });
       deps.accountFailover?.offer(failoverParams, failoverPlan.toProfileId);
       return parked;
     }
@@ -262,92 +271,41 @@ export class InstanceProviderLimitHandler {
       return 'skipped';
     }
 
-    return this.park(params, providerId, resumeAt);
+    return this.park(effectiveParams, providerId, resumeAt, { forceHold: effectiveParams.allowCredits === false });
   }
 
-  /**
-   * Usage-overage stop entry point ({@link
-   * ../instance/instance-usage-overage-wiring.attachUsageOverageStopGuard}).
-   *
-   * Live telemetry said the subscription window is refused or paid overage is
-   * being consumed, so every further request is billed at API prices. Unlike
-   * the error-path {@link maybePark} this holds the session regardless of the
-   * auto-resume opt-in (the money-burn stop must not sit behind a setting
-   * whose documented risk is unattended re-sending) and does not auto-switch
-   * accounts — the point is to stop the spend, not to continue it on another
-   * profile. The existing send-path preflight may still offer/perform an
-   * account switch when the user resumes.
-   *
-   * `resumePrompt` is intentionally unset from the wiring: the interrupted
-   * turn had already done part of its work, so a resume sends the standard
-   * continuation turn (see {@link resumeNow}) instead of replaying the user's
-   * message from the top.
-   */
-  maybeParkOnUsageLimit(params: {
-    instanceId: string;
-    resetAtHint: number | null;
-    reason: string;
-    resumePrompt?: string | null;
-  }): ProviderLimitTurnOutcome {
+  /** Stop paid overage first, then honour the pool policy using included usage only. */
+  maybeParkOnUsageLimit(params: UsageLimitStopParams): ProviderLimitTurnOutcome {
     const deps = this.deps;
     if (!deps) return 'skipped';
+    if (this.isSwitchingAccount(params.instanceId)) return 'switching-account';
     if (this.parked.has(params.instanceId)) return 'already-parked';
-
-    const info = deps.getProviderModel?.(params.instanceId) ?? null;
-    if (!info) return 'skipped';
-    const providerId = toProviderId(info.provider);
-    if (!providerId) return 'skipped';
-    const scope = instanceProviderLimitScope(providerId, info.model, info.accountProfileId);
-    const accountProfileId = scope.accountProfileId;
-    const model = scope.model;
-
-    const now = Date.now();
-    const resetAtHint = typeof params.resetAtHint === 'number' && params.resetAtHint > now
-      ? params.resetAtHint
-      : null;
-    const snapshotResumeAt = this.deriveResumeFromSnapshot(
-      scope.quotaApplies ? deps.getQuotaSnapshot(providerId, accountProfileId) : null,
-    );
-    const knownLimit = deps.providerLimitLedger?.getActive({
-      provider: providerId,
-      model,
-      accountProfileId,
-      ...scope.ledgerOptions,
-      now,
-    }) ?? null;
-    // A stop with no reset hint anywhere still needs a hold horizon; the
-    // assumed-window clamp matches the account-failover path's.
-    const resumeAt = resetAtHint ?? snapshotResumeAt ?? knownLimit?.resumeAt ?? now + ASSUMED_ACCOUNT_LIMIT_MS;
-
-    // Always durable: the in-memory hold dies with the process, and a restart
-    // mid-window must not let the next send walk past a still-refused window.
+    const stop = resolveUsageLimitStop(deps, params, ASSUMED_ACCOUNT_LIMIT_MS);
+    if (!stop) return 'skipped';
+    const failoverParams = this.failoverParams(stop.params, stop.params.accountProfileId ?? null, stop.resumeAt);
+    const continuation = failoverParams ? {
+      ...failoverParams,
+      resumePrompt: params.resumePrompt || buildProviderLimitContinuationTurn('account-switch'),
+    } : null;
+    let plan: AccountFailoverPlan | undefined;
     try {
-      if (scope.recordable) deps.providerLimitLedger?.record({
-        provider: providerId,
-        model: scope.recordModel,
-        accountProfileId,
-        detectedAt: now,
-        resumeAt,
-        source: 'usage-overage',
+      plan = continuation ? deps.accountFailover?.plan(continuation) : undefined;
+    } catch (error) {
+      logger.warn('Could not plan usage-limit account switch; holding the session', {
         instanceId: params.instanceId,
-      });
-    } catch (err) {
-      // A durability failure must not turn a valid limit signal into a paid retry.
-      logger.warn('Failed to record usage-overage stop in durable ledger', {
-        instanceId: params.instanceId,
-        provider: providerId,
-        error: err instanceof Error ? err.message : String(err),
+        error: error instanceof Error ? error.message : String(error),
       });
     }
-
-    return this.park({
-      instanceId: params.instanceId,
-      provider: info.provider,
-      model,
-      reason: params.reason,
-      resumePrompt: params.resumePrompt ?? null,
-      accountProfileId,
-    }, providerId, resumeAt, { forceHold: true });
+    if (continuation && plan?.kind === 'switch') {
+      this.startAccountFailover(continuation, stop.params, stop.providerId, stop.resumeAt, { forceHold: true });
+      deps.emitSystemMessage?.(params.instanceId,
+        'This account reached its usage limit. Moving the conversation to another account with available usage to continue the interrupted task.',
+        { accountFailover: true });
+      return 'switching-account';
+    }
+    const parked = this.park(stop.params, stop.providerId, stop.resumeAt, { forceHold: true });
+    if (continuation && plan?.kind === 'offer') deps.accountFailover?.offer(continuation, plan.toProfileId);
+    return parked;
   }
 
   /**
@@ -358,7 +316,17 @@ export class InstanceProviderLimitHandler {
   maybeParkKnown(params: MaybeParkKnownParams): ProviderLimitTurnOutcome {
     const deps = this.deps;
     if (!deps) return 'skipped';
+    if (this.isSwitchingAccount(params.instanceId, params.accountProfileId)) {
+      if (this.switching.get(params.instanceId)?.resumePrompt !== params.resumePrompt) {
+        this.emitFailoverNote(params.instanceId, {
+          content: 'This message was not sent because the session is moving to another account. Send it again after the switch.',
+          metadata: { accountFailover: true, accountFailoverOutcome: 'turn-not-sent' },
+        });
+      }
+      return 'switching-account';
+    }
     if (this.parked.has(params.instanceId)) return 'already-parked';
+    deps.accountFailover?.observeInput?.(params.instanceId, params.resumePrompt);
 
     const providerId = toProviderId(params.provider);
     if (!providerId) return 'skipped';
@@ -372,24 +340,25 @@ export class InstanceProviderLimitHandler {
       now: Date.now(),
     }) ?? null;
     if (!knownLimit) return this.maybeSwitchPreemptively(params, providerId, accountProfileId);
+    const effectiveParams = knownLimit.source === 'usage-overage' ? { ...params, allowCredits: false } : params;
     const quotaBlind = params.quotaBlind || (providerId === 'copilot' && knownLimit.source === COPILOT_RATE_LIMIT_SOURCE);
-    if (scope.quotaApplies && !quotaBlind && this.clearLimitLiftedSinceRecorded(params, providerId, accountProfileId)) {
-      return this.maybeSwitchPreemptively(params, providerId, accountProfileId);
+    if (scope.quotaApplies && !quotaBlind && this.clearLimitLiftedSinceRecorded(effectiveParams, providerId, accountProfileId)) {
+      return this.maybeSwitchPreemptively(effectiveParams, providerId, accountProfileId);
     }
 
     // This session's account is known-limited but another account of the pool
     // may not be: switch before sending instead of holding the turn.
-    const failoverParams = this.failoverParams(params, accountProfileId, knownLimit.resumeAt);
+    const failoverParams = this.failoverParams(effectiveParams, accountProfileId, knownLimit.resumeAt);
     const plan = failoverParams ? deps.accountFailover?.plan(failoverParams) : undefined;
     if (failoverParams && plan?.kind === 'switch') {
-      this.startAccountFailover(failoverParams, params, providerId, knownLimit.resumeAt);
+      this.startAccountFailover(failoverParams, effectiveParams, providerId, knownLimit.resumeAt, { forceHold: true });
       return 'switching-account';
     }
     // forceHold: this is the pre-send gate — a known active limit must hold the
     // turn even when the auto-resume feature is off (the hold is not the spend;
     // the unattended re-send is). Without it a restart mid-window dropped the
     // in-memory park and dispatched straight through a still-refused window.
-    const parked = this.park({ ...params, quotaBlind }, providerId, knownLimit.resumeAt, { forceHold: true });
+    const parked = this.park({ ...effectiveParams, quotaBlind }, providerId, knownLimit.resumeAt, { forceHold: true });
     if (failoverParams && plan?.kind === 'offer') deps.accountFailover?.offer(failoverParams, plan.toProfileId);
     return parked;
   }
@@ -405,6 +374,7 @@ export class InstanceProviderLimitHandler {
         provider,
         model: params.model ?? null,
         accountProfileId,
+        allowCredits: params.allowCredits,
       });
       if (!lifted) return false;
       logger.info('Provider reports usage available since the recorded limit; cleared the stale gate and sending', {
@@ -440,7 +410,7 @@ export class InstanceProviderLimitHandler {
       this.deps?.resendInput(params.instanceId, params.resumePrompt);
     };
     void coordinator.perform(preemptive).then((outcome) => {
-      if (outcome.outcome === 'not-switched' || outcome.outcome === 'offered') sendOnCurrentAccount();
+      if ((outcome.outcome === 'not-switched' && outcome.reason !== 'cancelled') || outcome.outcome === 'offered') sendOnCurrentAccount();
       if (outcome.outcome === 'already-moved') this.emitFailoverNote(params.instanceId, accountFailoverNote(outcome, false));
     }).catch(sendOnCurrentAccount);
     logger.info('Switching a live session to another account before it reaches its limit', {
@@ -465,6 +435,7 @@ export class InstanceProviderLimitHandler {
       resumeAt,
       resumePrompt: params.resumePrompt,
       reason: params.reason,
+      ...(params.allowCredits === false ? { allowCredits: false } : {}),
     };
   }
 
@@ -478,23 +449,47 @@ export class InstanceProviderLimitHandler {
     params: MaybeParkKnownParams,
     providerId: ProviderId,
     resumeAt: number | null,
+    opts?: { forceHold?: boolean },
   ): void {
     const coordinator = this.deps?.accountFailover;
-    if (!coordinator) return;
-    void coordinator.perform(failoverParams)
+    if (!coordinator || this.isSwitchingAccount(params.instanceId, failoverParams.exhaustedProfileId)) return;
+    const token = Symbol();
+    this.switching.set(params.instanceId, { token, exhaustedProfileId: failoverParams.exhaustedProfileId, resumePrompt: failoverParams.resumePrompt });
+    const parkAfterFailure = (): boolean => resumeAt !== null && !this.parked.has(params.instanceId)
+      && this.park(params, providerId, resumeAt, opts) === 'parked';
+    const noteAfterFailure = (outcome: Parameters<typeof accountFailoverNote>[0], parked: boolean): void => {
+      const autoResuming = parked && this.deps?.isEnabled() === true
+        && Boolean(this.deps?.getWorkspaceCwd(params.instanceId));
+      this.emitFailoverNote(params.instanceId, accountFailoverNote(outcome, autoResuming));
+    };
+    void Promise.resolve().then(() => this.switching.get(params.instanceId)?.token === token
+      ? coordinator.perform(failoverParams) : null)
       .then((outcome) => {
-        // `offered` can arrive here when the pool switched to asking while this waited for the lock.
+        if (!outcome || this.switching.get(params.instanceId)?.token !== token) return;
         const waits = outcome.outcome === 'not-switched' || outcome.outcome === 'offered';
-        const parked = waits && resumeAt !== null && !this.parked.has(params.instanceId)
-          && this.park(params, providerId, resumeAt) === 'parked';
-        this.emitFailoverNote(params.instanceId, accountFailoverNote(outcome, parked));
+        noteAfterFailure(outcome, waits && parkAfterFailure());
       })
       .catch((error: unknown) => {
+        if (this.switching.get(params.instanceId)?.token !== token) return;
         logger.warn('Account failover failed unexpectedly', {
           instanceId: params.instanceId,
           error: error instanceof Error ? error.message : String(error),
         });
+        noteAfterFailure({
+          outcome: 'not-switched', reason: 'apply-failed', considered: [],
+        }, parkAfterFailure());
+      })
+      .finally(() => {
+        if (this.switching.get(params.instanceId)?.token === token) this.switching.delete(params.instanceId);
       });
+  }
+
+  /** The coordinator re-sends on the new account before perform() resolves. */
+  private isSwitchingAccount(instanceId: string, accountProfileId?: string | null): boolean {
+    const pending = this.switching.get(instanceId);
+    if (!pending) return false;
+    const current = accountProfileId ?? this.deps?.getProviderModel?.(instanceId)?.accountProfileId;
+    return current == null || current === pending.exhaustedProfileId;
   }
 
   private emitFailoverNote(instanceId: string, note: AccountFailoverNote | null): void {
@@ -772,6 +767,7 @@ export class InstanceProviderLimitHandler {
     this.parked.delete(instanceId);
     this.lastResumeAt.delete(instanceId);
     this.skipPreemptiveOnce.delete(instanceId);
+    this.switching.delete(instanceId);
     this.deps?.accountFailover?.release(instanceId);
     if (!entry) return;
     entry.stopEarlyResumeProbe();
@@ -859,18 +855,22 @@ export class InstanceProviderLimitHandler {
       inFlight = true;
 
       const failoverParams = this.failoverParams(params, accountProfileId, resumeAt);
+      if (failoverParams && params.allowCredits === false && !failoverParams.resumePrompt) {
+        failoverParams.resumePrompt = buildProviderLimitContinuationTurn('account-switch');
+      }
       const plan = failoverParams ? deps.accountFailover?.plan(failoverParams) : undefined;
       if (failoverParams && plan?.kind === 'switch') {
         const entry = this.parked.get(instanceId);
         this.parked.delete(instanceId);
         entry?.cancel();
+        deps.setWaitReason(instanceId, null);
         disposed = true;
         clearInterval(timer); // this probe is superseded by startAccountFailover's own re-park (if needed)
         logger.info('Sibling pool account became available while parked; switching instead of waiting for the own window reset', {
           instanceId,
           provider: providerId,
         });
-        this.startAccountFailover(failoverParams, params, providerId, resumeAt);
+        this.startAccountFailover(failoverParams, params, providerId, resumeAt, { forceHold: params.allowCredits === false });
         inFlight = false;
         return;
       }
@@ -878,7 +878,7 @@ export class InstanceProviderLimitHandler {
       void probe(providerId, accountProfileId)
         .then((snapshot) => {
           // An interactive session may continue on purchased credits: the user bought them to keep going.
-          if (disposed || !this.parked.has(instanceId) || !snapshotShowsLimitLifted(snapshot, { acceptCredits: true })) return;
+          if (disposed || !this.parked.has(instanceId) || !snapshotShowsLimitLifted(snapshot, { acceptCredits: params.allowCredits !== false })) return;
           logger.info('Provider limit lifted early per fresh quota probe; resuming parked session now', {
             instanceId,
             provider: providerId,
@@ -900,26 +900,6 @@ export class InstanceProviderLimitHandler {
     };
   }
 
-  /**
-   * Pick the reset time of the most-constrained active quota window. Mirrors
-   * {@link ../orchestration/loop-provider-limit-handler.LoopProviderLimitHandler.deriveResumeFromSnapshot}.
-   */
-  private deriveResumeFromSnapshot(snapshot: ProviderQuotaSnapshot | null): number | null {
-    if (!snapshot || !snapshot.ok) return null;
-    const now = Date.now();
-    let bestResetsAt: number | null = null;
-    let bestPct = -1;
-    for (const w of snapshot.windows) {
-      if (w.resetsAt == null || w.resetsAt <= now || w.limit <= 0) continue;
-      const pct = (w.used / w.limit) * 100;
-      if (pct > bestPct) {
-        bestPct = pct;
-        bestResetsAt = w.resetsAt;
-      }
-    }
-    return bestResetsAt;
-  }
-
   /** Test seam — drop all in-memory park state. */
   _resetForTesting(): void {
     for (const entry of this.parked.values()) {
@@ -933,6 +913,7 @@ export class InstanceProviderLimitHandler {
     this.parked.clear();
     this.lastResumeAt.clear();
     this.skipPreemptiveOnce.clear();
+    this.switching.clear();
     this.deps = null;
   }
 }

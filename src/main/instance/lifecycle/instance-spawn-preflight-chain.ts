@@ -16,6 +16,7 @@ import { attachCopilotRoute } from './copilot-route-preflight';
 import { attachAccountRoute } from './account-route-preflight';
 import { isAccountPoolActive } from '../../providers/account-pool/provider-account-store';
 import { attachUsageOverageStopGuard } from '../instance-usage-overage-wiring';
+import { isSignalFenceSettingEnabled } from '../../sandbox/signal-fence-setting';
 
 export interface InstanceSpawnPreflightDeps {
   consumeWarmAdapter: (provider: CliType, workingDirectory: string) => CliAdapter | null;
@@ -76,10 +77,18 @@ export class InstanceSpawnPreflightChain {
     const warmYoloMismatch = spawnOptions.yoloMode === true;
     // Warm adapters are also spawned without the per-instance Seatbelt wrapper.
     // Its restrictions cannot be added to an already-running CLI process.
+    // Equally, a warm adapter carries the default signal fence, which cannot
+    // be lifted from a running process for a fence-off session.
     const warmStartBlocked = Boolean(
       config.resume
+      // OpenCode's durable transcript barrier belongs to the eventual main instance.
+      || provider === 'opencode'
+      || config.additionalDirectories?.length
+      || spawnOptions.additionalDirectories?.length
       || machineSessionReasonOf(config) !== null
       || config.hardened
+      || config.signalFence === false
+      || !isSignalFenceSettingEnabled()
       || config.forceNodeId
       || config.nodePlacement
       || config.modelRuntimeTarget

@@ -39,7 +39,7 @@ export function snapshotShowsLimitLifted(
 /**
  * Clear the recorded limits holding a send for this account when the
  * provider has said, after the newest of them was recorded, that the account
- * can run (usage allowed, or purchased credits available). Returns null when
+ * can run (usage allowed, or purchased credits when the caller permits them). Returns null when
  * the limit still holds or the ledger cannot tell when it was recorded. If
  * the account is in fact still limited, the rejected turn records a fresh one.
  */
@@ -49,13 +49,15 @@ export function clearLimitLiftedSinceRecorded(params: {
   provider: ProviderId;
   model: string | null;
   accountProfileId: string | null;
+  /** A durable usage-overage stop still forbids purchased-credit recovery. */
+  allowCredits?: boolean;
 }): { cleared: number; creditsOnly: boolean } | null {
   const { ledger, provider, model, accountProfileId } = params;
   if (!ledger.getParkedSince) return null;
   // Judge against every limit the clear below removes: for a null model that is all of the account's models.
   const since = ledger.getParkedSince({ provider, model, anyModel: model === null }).get(accountProfileId ?? LEGACY_ACCOUNT_PROFILE_ID);
   const evidence = quotaEvidenceFromSnapshot(params.snapshot);
-  if (!evidenceLiftsPark(evidence, since, { allowCredits: true })) return null;
+  if (!evidenceLiftsPark(evidence, since, { allowCredits: params.allowCredits ?? true })) return null;
   return {
     cleared: ledger.clearActive({ provider, model, accountProfileId }),
     creditsOnly: evidence?.creditsOnly === true,

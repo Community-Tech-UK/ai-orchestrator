@@ -121,6 +121,22 @@ describe('instance.schemas', () => {
     }).bareMode).toBe(true);
   });
 
+  it('accepts a per-session signal fence choice on both create payloads', () => {
+    expect(InstanceCreatePayloadSchema.parse({
+      workingDirectory: '/repo',
+      signalFence: false,
+    }).signalFence).toBe(false);
+    expect(InstanceCreateWithMessagePayloadSchema.parse({
+      workingDirectory: '/repo',
+      message: 'clean up',
+      signalFence: false,
+    }).signalFence).toBe(false);
+    expect(() => InstanceCreatePayloadSchema.parse({
+      workingDirectory: '/repo',
+      signalFence: 'off',
+    })).toThrow();
+  });
+
   it('accepts yolo mode on create-with-message payloads', () => {
     expect(InstanceCreateWithMessagePayloadSchema.parse({
       workingDirectory: '/repo',

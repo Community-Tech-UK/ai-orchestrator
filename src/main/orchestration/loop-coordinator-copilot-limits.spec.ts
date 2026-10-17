@@ -6,6 +6,7 @@ import { LoopCoordinator, type LoopChildInvocationCallbackResult, type LoopChild
 import { CompletedFileWatcher } from './loop-completion-detector';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 import { COPILOT_LIMIT_FIXTURES } from '../cli/copilot-limit-fixtures.test-helpers';
+import { CliDetectionService, type DetectionResult } from '../cli/cli-detection';
 
 vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ get: () => undefined,
   getAll: () => ({ providerAccountProfiles: [], providerAccountPools: {}, auxiliaryLlmRoutingClassificationEnabled: false }) }) }));
@@ -14,6 +15,11 @@ describe('Copilot limits through the real loop coordinator', () => {
   let workspace: string;
   let coordinator: LoopCoordinator;
   beforeEach(() => {
+    // Model routing precedes our injected reply. Keep these limit-handling
+    // tests independent of CLI installs and version probes on the host.
+    const available = [{ name: 'copilot', command: 'copilot', displayName: 'Copilot', installed: true }];
+    const detection: DetectionResult = { detected: available, available, unavailable: [], timestamp: new Date() };
+    vi.spyOn(CliDetectionService.prototype, 'detectAll').mockResolvedValue(detection);
     workspace = mkdtempSync(join(tmpdir(), 'copilot-limits-'));
     vi.spyOn(CompletedFileWatcher.prototype, 'start').mockImplementation(() => undefined);
     vi.spyOn(CompletedFileWatcher.prototype, 'stop').mockResolvedValue();

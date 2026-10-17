@@ -1,3 +1,6 @@
+import { normalizeRecoveryNodePlacement } from '../../session/session-recovery-node-placement';
+import { normalizeRecoveryExecutionLocation } from '../../session/session-recovery-execution-location';
+import { normalizeOpenCodeAdditionalDirectories } from '../../../shared/utils/opencode-additional-directories';
 import type { Instance, InstanceCreateConfig, OutputMessage } from '../../../shared/types/instance.types';
 import type { ResolvedRecoveryCandidate } from '../../session/session-recovery-candidate-service';
 import { buildReplayContinuityMessage } from '../../session/replay-continuity';
@@ -137,6 +140,12 @@ function validateResolvedCandidate(
     throw recoveryValidationError();
   }
   const stateWorkspace = requireNonEmptyString(resolved.continuityState.workingDirectory);
+  try {
+    normalizeOpenCodeAdditionalDirectories(resolved.continuityState.additionalDirectories, resolved.continuityState.provider ?? resolved.candidate.provider);
+    normalizeRecoveryExecutionLocation(resolved.continuityState.executionLocation);
+    normalizeRecoveryNodePlacement(resolved.continuityState.nodePlacement);
+  }
+  catch { throw recoveryValidationError(); }
   if (!Number.isFinite(resolved.candidate.lastActivityAt)
       || !Number.isInteger(resolved.candidate.recoveredMessageCount)
       || resolved.candidate.recoveredMessageCount < 0) {
@@ -231,6 +240,15 @@ export function buildVerifiedRecoveryBuffer(
   }
 }
 
+/** A saved proof only applies when reconciliation retained the same full message material. */
+function hasCompleteCheckpoint(state: SessionState, output: readonly OutputMessage[], knownRecoveredMessages: number): boolean {
+  if (state.conversationHistoryComplete !== true
+    || state.conversationHistory.length === 0 && (knownRecoveredMessages > 0 || output.length > 0)) return false;
+  const actual = new Map(outputMessagesToContinuityEntries(output).map((entry) => [entry.id, JSON.stringify(entry)]));
+  const expected = outputMessagesToContinuityEntries(state.conversationHistory.map(continuityEntryToOutputMessage));
+  return expected.every((entry) => actual.get(entry.id) === JSON.stringify(entry));
+}
+
 function isValidNativeCursor(
   resolved: ResolvedRecoveryCandidate,
   cursor: ResumeCursor | null | undefined,
@@ -276,6 +294,7 @@ async function reviveCrashRecovery(
   if (!deps.createRecoveryInstance) throw recoveryValidationError();
   const resolved = request.resolvedCandidate;
   const state = resolved.continuityState;
+  const executionLocation = normalizeRecoveryExecutionLocation(state.executionLocation);
   let recoveryBuffer: ReturnType<typeof buildRecoveryBuffer>;
   try {
     recoveryBuffer = buildRecoveryBuffer(resolved);
@@ -296,6 +315,9 @@ async function reviveCrashRecovery(
   try {
     creation = await deps.createRecoveryInstance({
       workingDirectory: state.workingDirectory,
+      nodePlacement: normalizeRecoveryNodePlacement(state.nodePlacement),
+      ...(executionLocation?.type === 'remote' ? { forceNodeId: executionLocation.nodeId } : {}),
+      additionalDirectories: normalizeOpenCodeAdditionalDirectories(state.additionalDirectories, state.provider ?? resolved.candidate.provider),
       displayName: state.displayName,
       isRenamed: state.isRenamed,
       isRestoredSession: true,
@@ -309,6 +331,7 @@ async function reviveCrashRecovery(
       metadata: {
         continuityRevival: true,
         reason: request.reason,
+        transcriptKnown: hasCompleteCheckpoint(state, initialOutputBuffer, resolved.candidate.recoveredMessageCount),
       },
     });
     replacement = creation.instance;
@@ -367,8 +390,12 @@ async function reviveDocReview(
   // the revived thread cannot state what it was originally asked to do.
   const initialRetainedPrompts = promptsFromDiscardedEntries(dropped, 'continuity-prompt-');
   const nativeSessionId = !state.nativeResumeFailedAt ? state.sessionId?.trim() : undefined;
+  const executionLocation = normalizeRecoveryExecutionLocation(state.executionLocation);
   const instance = await deps.createInstance({
+    ...(executionLocation?.type === 'remote' ? { forceNodeId: executionLocation.nodeId } : {}),
     workingDirectory: state.workingDirectory,
+    nodePlacement: normalizeRecoveryNodePlacement(state.nodePlacement),
+    additionalDirectories: normalizeOpenCodeAdditionalDirectories(state.additionalDirectories, state.provider),
     displayName: state.displayName,
     isRenamed: state.isRenamed,
     isRestoredSession: true,

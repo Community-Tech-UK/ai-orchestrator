@@ -19,6 +19,7 @@ import type { InstanceRuntimeSummary, ModelRuntimeTarget } from './local-model-r
 import { createDefaultContextInheritance } from './supervision.types';
 import { getProviderModelContextWindow, type ReasoningEffort } from './provider.types';
 import type { ComputerUseAutonomyLevel } from './desktop-gateway-settings.types';
+import { normalizeOpenCodeAdditionalDirectories } from '../utils/opencode-additional-directories';
 
 /**
  * CLI provider type for instances
@@ -531,6 +532,7 @@ export interface Instance {
    */
   autoRespawnSuppressedUntil?: number;
   workingDirectory: string;
+  additionalDirectories?: string[];
   yoloMode: boolean; // Auto-approve all permissions
   /** Effective tool-permission override inherited from a parent sidechat policy. */
   toolPermissionsOverride?: import('./agent.types').AgentToolPermissions;
@@ -538,6 +540,7 @@ export interface Instance {
   computerUseMode?: ComputerUseAutonomyLevel;
   browserToolsMode?: BrowserToolsMode; // WS9 per-instance browser tool surface; undefined = global setting decides
   hardened?: boolean; // WS13 — spawn the CLI inside the macOS Seatbelt jail (fail-closed when unavailable)
+  signalFence?: boolean; // false = this session may signal programs outside its sandbox; see signal-fence-scoping.ts
   containedExecution?: boolean; // WS-C7 — see the matching field on InstanceCreateConfig below
   /**
    * The GitHub Copilot account profile this session was created under.
@@ -681,6 +684,8 @@ export interface InstanceCreateConfig {
   sessionId?: string;
   resume?: boolean; // Resume a previous session (requires sessionId)
   workingDirectory: string;
+  /** Explicit native OpenCode 2 workspace context; existing sandbox and worker-root policies still apply. */
+  additionalDirectories?: string[];
   initialPrompt?: string;
   /** Trusted create-time ingress only; never restored or inferred from transcript buffers. */
   initialUserMessageSource?: 'current-submission';
@@ -738,6 +743,7 @@ export interface InstanceCreateConfig {
   toolPermissionsOverride?: import('./agent.types').AgentToolPermissions;
   browserToolsMode?: BrowserToolsMode; // WS9 per-instance browser tool surface; undefined = global setting decides
   hardened?: boolean; // WS13 — spawn the CLI inside the macOS Seatbelt jail (fail-closed when unavailable)
+  signalFence?: boolean; // false = turn the macOS signal fence off for this session (in-memory; restart restores it)
   containedExecution?: boolean; // WS-C7 — filtered spawn env via getSafeEnv(); see contained-execution-scoping.ts
   /** Explicit Copilot account profile for this session (user override). */
   copilotAccountProfileId?: string;
@@ -842,6 +848,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     sessionId,
     restartEpoch: 0,
     workingDirectory: config.workingDirectory,
+    additionalDirectories: normalizeOpenCodeAdditionalDirectories(config.additionalDirectories, config.modelRuntimeTarget?.kind === 'local-model' ? 'local-model' : provider),
     yoloMode: config.yoloMode ?? false, // Default to YOLO mode disabled
     launchMode: config.launchMode ?? 'orchestrated',
     provider, // Default to auto (resolved by instance manager)

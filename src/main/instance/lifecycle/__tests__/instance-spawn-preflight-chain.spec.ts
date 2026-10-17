@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { CliAdapter, UnifiedSpawnOptions } from '../../../cli/adapters/adapter-factory';
 import { InstanceSpawnPreflightChain } from '../instance-spawn-preflight-chain';
+import { _setSignalFenceSettingForTesting } from '../../../sandbox/signal-fence-setting';
 
 function makeSpawnOptions(overrides: Partial<UnifiedSpawnOptions> = {}): UnifiedSpawnOptions {
   return {
@@ -30,6 +31,18 @@ function makeDeps() {
 }
 
 describe('InstanceSpawnPreflightChain', () => {
+  it('refuses an OpenCode warm adapter without the tracked session checkpoint hook', async () => {
+    const deps = makeDeps();
+    deps.consumeWarmAdapter.mockReturnValue({ getName: () => 'opencode' } as CliAdapter);
+    const result = await new InstanceSpawnPreflightChain(deps).prepare({
+      config: { workingDirectory: '/tmp/project', provider: 'opencode' },
+      instance: { workingDirectory: '/tmp/project', bareMode: false },
+      provider: 'opencode',
+      spawnOptions: makeSpawnOptions({ browserGatewayMcp: undefined, reasoningEffort: undefined }),
+    });
+    expect(result.kind).toBe('fresh');
+    expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
+  });
   it('returns an eligible warm adapter without running fresh-spawn preparation', async () => {
     const deps = makeDeps();
     const adapter = { getName: () => 'claude' } as CliAdapter;
@@ -114,6 +127,30 @@ describe('InstanceSpawnPreflightChain', () => {
 
     expect(result.kind).toBe('fresh');
     expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { name: 'this session turns the fence off', signalFence: false, setting: true },
+    { name: 'the operator switch is off', signalFence: undefined, setting: false },
+  ])('refuses a fenced warm adapter when $name', async ({ signalFence, setting }) => {
+    _setSignalFenceSettingForTesting(setting);
+    try {
+      const deps = makeDeps();
+      deps.consumeWarmAdapter.mockReturnValue({ getName: () => 'claude' } as CliAdapter);
+      const chain = new InstanceSpawnPreflightChain(deps);
+
+      const result = await chain.prepare({
+        config: { workingDirectory: '/tmp/project', provider: 'claude', signalFence },
+        instance: { workingDirectory: '/tmp/project', bareMode: false },
+        provider: 'claude',
+        spawnOptions: makeSpawnOptions({ browserGatewayMcp: undefined }),
+      });
+
+      expect(result.kind).toBe('fresh');
+      expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
+    } finally {
+      _setSignalFenceSettingForTesting(null);
+    }
   });
 
   it('forces a fresh local preflight for resume and warms the workspace', async () => {

@@ -3,6 +3,10 @@ import { readFile as fsReadFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import type { CanonicalCliType } from '../shared/types/settings.types';
+import {
+  resolveWindowsCliLauncher,
+  type WindowsCliLauncher,
+} from '../main/cli/adapters/windows-cli-spawn';
 
 export type DiagnosableProvider = Exclude<CanonicalCliType, 'auto'>;
 
@@ -13,6 +17,11 @@ export type ProviderDiagnosticExec = (
 ) => Promise<{ stdout: string; stderr: string }>;
 
 type ProviderDiagnosticReadFile = (filePath: string) => Promise<string>;
+
+type ProviderDiagnosticLauncherResolver = (
+  command: string,
+  env: NodeJS.ProcessEnv,
+) => WindowsCliLauncher | null;
 
 export interface ProviderRuntimeDiagnosticIdentity {
   username: string | null;
@@ -42,6 +51,8 @@ interface DiagnoseOptions {
   env?: NodeJS.ProcessEnv;
   exec?: ProviderDiagnosticExec;
   readFile?: ProviderDiagnosticReadFile;
+  /** Test seam; production uses the adapters' Windows shim resolver. */
+  resolveWindowsLauncher?: ProviderDiagnosticLauncherResolver;
   /** Test seam; production auth probes retain the 5-second deadline. */
   authProbeTimeoutMs?: number;
 }
@@ -56,7 +67,12 @@ export async function diagnoseProviderRuntime(
 ): Promise<ProviderRuntimeDiagnostic> {
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
-  const run = options.exec ?? defaultExec;
+  const run = withWindowsLauncherResolution(
+    options.exec ?? defaultExec,
+    platform,
+    env,
+    options.resolveWindowsLauncher ?? resolveWindowsCliLauncher,
+  );
   const readFile = options.readFile ?? defaultReadFile;
   const identity = await diagnoseIdentity(platform, env, run);
 
@@ -81,6 +97,30 @@ export async function diagnoseProviderRuntime(
     platform,
     identity,
     provider: providerResult,
+  };
+}
+
+/**
+ * On Windows, npm-installed CLIs (claude, codex, copilot, ...) are `.cmd` /
+ * `.ps1` shims with no `.exe` on PATH, and `execFile` without a shell can only
+ * start real executables. Probing the bare name therefore fails with ENOENT and
+ * a signed-in provider is reported as unavailable. Map each probe to the
+ * launcher the adapters spawn; keep the bare command when it cannot be resolved.
+ */
+function withWindowsLauncherResolution(
+  run: ProviderDiagnosticExec,
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+  resolveLauncher: ProviderDiagnosticLauncherResolver,
+): ProviderDiagnosticExec {
+  if (platform !== 'win32') {
+    return run;
+  }
+  return (file, args, options) => {
+    const launcher = resolveLauncher(file, options?.env ?? env);
+    return launcher
+      ? run(launcher.command, [...launcher.prefixArgs, ...args], options)
+      : run(file, args, options);
   };
 }
 
@@ -548,6 +588,7 @@ const defaultExec: ProviderDiagnosticExec = (file, args, options) => {
     const child = execFile(file, args, {
       encoding: 'utf8',
       env: options?.env,
+      windowsHide: true,
     }, (error, stdout, stderr) => {
       if (deadlineExpired) {
         finish(timeoutError());

@@ -62,7 +62,7 @@ export interface FillOperationDeps {
    * above the secure credential protocol floor. Default absent = false for a
    * shared tab. Checked before a vault secret or one-time code is resolved.
    */
-  sharedTabSecureCredentialFillSupported?: (profileId: string) => boolean;
+  sharedTabSecureCredentialFillSupported?: (profileId: string, targetId: string) => boolean;
   /**
    * Map a live target profileId to the profile scope the credential
    * authorization is keyed by. Identity for managed profiles; for a shared
@@ -281,7 +281,7 @@ export async function fillCredentialOperation(
   if (request.fields.length === 0) {
     return deny('no_fields', `${toolName} requires at least one field`);
   }
-  if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
+  if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId, request.targetId)) {
     return deny(
       'shared_tab_secure_credential_fill_unavailable',
       `${toolName} requires a current secure Browser Gateway extension on this shared tab`,
@@ -297,7 +297,7 @@ export async function fillCredentialOperation(
   if (!pageOrigin) {
     return deny('origin_unknown', `${toolName} could not determine the live page origin`);
   }
-  if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
+  if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId, request.targetId)) {
     return deny(
       'shared_tab_secure_credential_fill_unavailable',
       `${toolName} requires a current secure Browser Gateway extension on this shared tab`,
@@ -400,7 +400,7 @@ export async function fillCredentialOperation(
       // asking the vault or mailbox to resolve anything, so a disconnect/reload
       // during those checks cannot cause an unsafe generation to trigger a read.
       step = 'secure_extension';
-      if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
+      if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId, request.targetId)) {
         return deny(
           'shared_tab_secure_credential_fill_unavailable',
           `${toolName} requires a current secure Browser Gateway extension on this shared tab`,
@@ -444,7 +444,7 @@ export async function fillCredentialOperation(
         }
       }
       step = 'secure_extension';
-      if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
+      if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId, request.targetId)) {
         return deny(
           'shared_tab_secure_credential_fill_unavailable',
           `${toolName} aborted because the secure Browser Gateway extension changed before filling`,
@@ -471,7 +471,7 @@ export async function fillCredentialOperation(
           step = 'pre_dispatch_guard';
           assertFillUnlocked?.();
           if (!checkField(purpose, field.selector).authorized) throw new Error('credential_authorization_changed');
-          if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) throw new Error('shared_tab_secure_credential_fill_unavailable');
+          if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId, request.targetId)) throw new Error('shared_tab_secure_credential_fill_unavailable');
           step = 'dispatch';
         },
         pageOrigin,

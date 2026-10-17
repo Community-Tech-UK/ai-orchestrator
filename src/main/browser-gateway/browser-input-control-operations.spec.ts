@@ -301,10 +301,23 @@ describe('browser input control operations', () => {
         modifiers: [],
         deduplicated: true,
       }));
+      const journalOutcomes: { outcome?: string; reason?: string }[] = [];
       const { service } = makeService({
         existingTab: fixtureTab,
         extensionCommandStore: { sendCommand },
         autoApproveRequests: () => true,
+        persistenceSentinel: {
+          needsPreWriteCheck: () => false,
+          scan: async () => ({ state: 'ok' as const, checkedAt: 1 }),
+          forgetTarget: () => undefined,
+        },
+        writeJournal: {
+          recordIntent: vi.fn(async () => 7),
+          recordOutcome: vi.fn(async (entry: { outcome?: string; reason?: string }) => {
+            journalOutcomes.push(entry);
+          }),
+          list: vi.fn(async () => []),
+        },
       });
 
       const result = await service.pressKey({
@@ -321,6 +334,11 @@ describe('browser input control operations', () => {
         reason: 'press_key_prior_attempt_outcome_unknown',
       });
       expect(result.data).toMatchObject({ applied: false, deduplicated: true });
+      // The write journal must not claim this dispatch fired a write.
+      expect(journalOutcomes[journalOutcomes.length - 1]).toMatchObject({
+        outcome: 'failed',
+        reason: 'press_key_deduplicated_no_op',
+      });
     });
 
     it('does not upgrade an effect-verified failure to success on a same-key retry', async () => {
@@ -364,6 +382,109 @@ describe('browser input control operations', () => {
         reason: 'press_key_prior_attempt_outcome_unknown',
       });
       expect(retry.data).toMatchObject({ applied: false, deduplicated: true });
+    });
+
+    it('journals an executing-side applied-true replay as no new write', async () => {
+      // Coordinator state lost (e.g. restart) but the extension remembers the
+      // original press: it returns the original result marked deduplicated.
+      // This dispatch pressed nothing, so its journal row must not claim a
+      // second successful write.
+      const sendCommand = vi.fn(async () => ({
+        applied: true,
+        key: 'Enter',
+        modifiers: [],
+        deduplicated: true,
+        url: 'https://fixture.test/next',
+        title: 'Next',
+      }));
+      const journalRows = new Map<number, { outcome?: string; reason?: string }>();
+      let seqCounter = 0;
+      const { service } = makeService({
+        existingTab: fixtureTab,
+        extensionCommandStore: { sendCommand },
+        autoApproveRequests: () => true,
+        persistenceSentinel: {
+          needsPreWriteCheck: () => false,
+          scan: async () => ({ state: 'ok' as const, checkedAt: 1 }),
+          forgetTarget: () => undefined,
+        },
+        writeJournal: {
+          recordIntent: vi.fn(async () => ++seqCounter),
+          recordOutcome: vi.fn(async (entry: { seq?: number; outcome?: string; reason?: string }) => {
+            journalRows.set(entry.seq ?? 0, entry);
+          }),
+          list: vi.fn(async () => []),
+        },
+      });
+
+      const result = await service.pressKey({
+        instanceId: 'instance-1',
+        provider: 'copilot',
+        profileId: fixtureTab.profileId,
+        targetId: fixtureTab.targetId,
+        key: 'Enter',
+        idempotencyKey: 'ext-replay-applied-1',
+      });
+
+      // The original press really did succeed, so the tool may report success...
+      expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+      expect(result.data).toMatchObject({ applied: true, deduplicated: true });
+      // ...but THIS dispatch fired no key and its journal row must say so.
+      expect(journalRows.get(1)).toMatchObject({
+        outcome: 'failed',
+        reason: 'press_key_deduplicated_no_op',
+      });
+    });
+
+    it('keeps the real press\'s journal row succeeded when later same-key calls are suppressed', async () => {
+      const sendCommand = vi.fn(async () => ({
+        applied: true,
+        key: 'Enter',
+        modifiers: [],
+        url: 'https://fixture.test/next',
+        title: 'Next',
+      }));
+      const journalRows = new Map<number, { outcome?: string; reason?: string }>();
+      const journalIntents: number[] = [];
+      let seqCounter = 0;
+      const { service } = makeService({
+        existingTab: fixtureTab,
+        extensionCommandStore: { sendCommand },
+        autoApproveRequests: () => true,
+        persistenceSentinel: {
+          needsPreWriteCheck: () => false,
+          scan: async () => ({ state: 'ok' as const, checkedAt: 1 }),
+          forgetTarget: () => undefined,
+        },
+        writeJournal: {
+          recordIntent: vi.fn(async () => {
+            const seq = ++seqCounter;
+            journalIntents.push(seq);
+            return seq;
+          }),
+          recordOutcome: vi.fn(async (entry: { seq?: number; outcome?: string; reason?: string }) => {
+            journalRows.set(entry.seq ?? 0, entry);
+          }),
+          list: vi.fn(async () => []),
+        },
+      });
+      const request = {
+        instanceId: 'instance-1',
+        provider: 'copilot' as const,
+        profileId: fixtureTab.profileId,
+        targetId: fixtureTab.targetId,
+        key: 'Enter' as const,
+        idempotencyKey: 'journal-keep-original-1',
+      };
+
+      await service.pressKey(request);
+      const retry = await service.pressKey(request);
+
+      expect(retry.data).toMatchObject({ applied: true, deduplicated: true });
+      // Exactly one dispatch, one journal row — the real press's row.
+      expect(sendCommand).toHaveBeenCalledTimes(1);
+      expect(journalIntents).toEqual([1]);
+      expect(journalRows.get(1)).toMatchObject({ outcome: 'succeeded' });
     });
   });
 

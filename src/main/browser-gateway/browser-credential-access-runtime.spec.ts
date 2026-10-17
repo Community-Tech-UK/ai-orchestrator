@@ -69,6 +69,23 @@ describe('credential request live runtime checks', () => {
     expect(mocks.snapshot).not.toHaveBeenCalled();
   });
 
+  it('judges the extension of the Chrome profile that owns the tab', async () => {
+    const trusted = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+    // An outdated profile polled last; only an id-scoped read sees the trusted one.
+    mocks.runtime.mockImplementation((_nodeId: string, instanceId?: string) => (instanceId === trusted
+      ? { extensionVersion: '0.2.42', extensionStartedAt: 10 }
+      : { extensionVersion: '0.2.17', extensionStartedAt: 20 }));
+    mocks.getTab.mockReturnValue({ ...attachment, extensionInstanceId: trusted });
+
+    await expect(createCredentialAccessDependencies().readTarget(profileId, targetId))
+      .resolves.toMatchObject({ computerId: 'node-1' });
+    expect(mocks.runtime).toHaveBeenCalledWith('node-1', trusted);
+
+    mocks.getTab.mockReturnValue({ ...attachment, extensionInstanceId: 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb' });
+    await expect(createCredentialAccessDependencies().readTarget(profileId, targetId))
+      .rejects.toMatchObject({ code: 'shared_tab_secure_credential_fill_unavailable' });
+  });
+
   it('refuses a disconnected worker', async () => {
     mocks.getNode.mockReturnValue({ id: 'node-1', name: 'windows-pc', connected: false, status: 'disconnected' });
     await expect(createCredentialAccessDependencies().readTarget(profileId, targetId)).rejects.toMatchObject({ code: 'target_unavailable' });

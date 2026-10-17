@@ -78,9 +78,13 @@ export class BrowserReloadOperation {
           autonomous: prepared.grant.autonomous, data: null,
         });
       }
-      const attachOptions = attachment.nodeId || attachment.nodeName ? {
+      const attachOptions = attachment.nodeId || attachment.nodeName || attachment.extensionInstanceId ? {
         ...(attachment.nodeId ? { nodeId: attachment.nodeId } : {}),
         ...(attachment.nodeName ? { nodeName: attachment.nodeName } : {}),
+        // Same Chrome profile: a reload never moves a tab between profiles.
+        ...(attachment.extensionInstanceId
+          ? { extensionInstanceId: attachment.extensionInstanceId }
+          : {}),
       } : undefined;
       const refreshed = this.deps.extensionTabStore.attachTab(
         { ...tab, allowedOrigins: attachment.allowedOrigins },

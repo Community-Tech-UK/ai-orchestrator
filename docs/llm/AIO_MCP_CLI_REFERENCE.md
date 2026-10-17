@@ -134,8 +134,9 @@ Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRu
 the two account-pool keys (`providerAccountProfiles`,
 `providerAccountPools`, covering Claude, Codex and MiMo), the Plan Queue
 provider-and-account choice (`planQueueRouting`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
-`workspaceSecretsAllowAgentRequests`), and the post-fill observation lock
-(`browserSecretObservationProtectionEnabled`).
+`workspaceSecretsAllowAgentRequests`), the post-fill observation lock
+(`browserSecretObservationProtectionEnabled`), and the macOS session signal
+fence (`providerSignalFenceEnabled`).
 `PRIVILEGED_CLI_OPERATOR_ONLY_KEYS` in
 `src/main/core/config/settings-control-policy.ts` is the authoritative list.
 

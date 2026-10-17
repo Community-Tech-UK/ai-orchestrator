@@ -33,6 +33,7 @@ import { InstanceManager } from '../../instance/instance-manager';
 import { getUsageTracker } from '../../usage/usage-tracker';
 import { evaluateApplicability } from '../../../shared/utils/command-applicability';
 import { executeGoalCommand } from './goal-command-handler';
+import { nativeOpenCodeCommands, resolveNativeOpenCodeCommand } from '../../commands/provider-native-commands';
 
 export function registerCommandHandlers(
   instanceManager: InstanceManager
@@ -57,9 +58,11 @@ export function registerCommandHandlers(
           'COMMAND_LIST'
         );
         const allCommands = await commands.getAllCommandsSnapshot(validated.workingDirectory);
+        const instance = validated.instanceId ? instanceManager.getInstance(validated.instanceId) : undefined;
+        const native = nativeOpenCodeCommands(instance?.provider, validated.instanceId ? instanceManager.getAdapter?.(validated.instanceId) : undefined);
         return {
           success: true,
-          data: allCommands
+          data: { ...allCommands, commands: [...native, ...allCommands.commands.filter((command) => !native.some((entry) => entry.name === command.name))] }
         };
       } catch (error) {
         return {
@@ -116,7 +119,9 @@ export function registerCommandHandlers(
         );
         const instance = instanceManager.getInstance(validated.instanceId);
         const workingDirectory = instance?.workingDirectory;
-        const resolved = commands.executeCommand(
+        const native = validated.commandId.startsWith('acp:opencode:')
+          ? resolveNativeOpenCodeCommand(instance?.provider, instanceManager.getAdapter?.(validated.instanceId), validated.commandId, validated.args ?? []) : undefined;
+        const resolved = native ?? commands.executeCommand(
           validated.commandId,
           validated.args || [],
           workingDirectory,
@@ -212,7 +217,9 @@ export function registerCommandHandlers(
         // Send the resolved prompt to the instance
         await instanceManager.sendInput(
           validated.instanceId,
-          executed.resolvedPrompt
+          executed.resolvedPrompt,
+          undefined,
+          native ? { providerNativeCommandId: native.command.id } : undefined,
         );
         getUsageTracker().record('command', executed.command.id, workingDirectory);
 

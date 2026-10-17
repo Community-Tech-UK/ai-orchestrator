@@ -1,5 +1,8 @@
 import type { BrowserControlVerifyExpectation } from '@contracts/types/browser';
-import type { BrowserExistingTabAttachment } from './browser-extension-tab-store';
+import {
+  extensionCommandTargetForAttachment,
+  type BrowserExistingTabAttachment,
+} from './browser-extension-tab-store';
 import type {
   BrowserExtensionCommandName,
   BrowserExtensionSendCommandRequest,
@@ -59,12 +62,7 @@ async function readTimeoutMutationStatus(
       const readback = normalizeControlReadback(await sendCommand({
         ...(attachment.nodeId ? { queueKey: browserExtensionQueueKeyForNode(attachment.nodeId) } : {}),
         command: 'read_control',
-        target: {
-          profileId: attachment.profileId,
-          targetId: attachment.targetId,
-          tabId: attachment.tabId,
-          windowId: attachment.windowId,
-        },
+        target: extensionCommandTargetForAttachment(attachment),
         payload: { selector: probe.selector },
         timeoutMs: POST_TIMEOUT_PROBE_TIMEOUT_MS,
         executionTimeoutMs: POST_TIMEOUT_PROBE_EXECUTION_MS,
@@ -95,12 +93,7 @@ async function postTimeoutSnapshotSuffix(
     const result = await sendCommand({
       ...(attachment.nodeId ? { queueKey: browserExtensionQueueKeyForNode(attachment.nodeId) } : {}),
       command: 'snapshot',
-      target: {
-        profileId: attachment.profileId,
-        targetId: attachment.targetId,
-        tabId: attachment.tabId,
-        windowId: attachment.windowId,
-      },
+      target: extensionCommandTargetForAttachment(attachment),
       timeoutMs: POST_TIMEOUT_PROBE_TIMEOUT_MS,
       executionTimeoutMs: POST_TIMEOUT_PROBE_EXECUTION_MS,
       undeliveredWaitMs: POST_TIMEOUT_PROBE_TIMEOUT_MS,

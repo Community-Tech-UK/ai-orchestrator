@@ -18,6 +18,7 @@ interface AcpTurnCompletionInput {
   providerUsageReported: boolean;
   leaseMs: number;
   generationBudget?: { combinedOutputTokens: number; reasoningBudgetSupported: false; model: string };
+  usageIsAggregate?: boolean;
 }
 
 /** Finish classification and safe observability live outside the capped adapter. */
@@ -29,7 +30,7 @@ export function buildAcpTurnCompletion(input: AcpTurnCompletionInput) {
   const thinking = buildAcpTurnThinking(input.turn);
   const native = readTurnEndingMetadata(input.result);
   const turnEnding = classifyTurnEnding({
-    kind: 'complete', text: content, metadata: native, thinking,
+    kind: 'complete', text: content, metadata: { ...native, ...(input.usageIsAggregate ? { usageIsAggregate: true } : {}) }, thinking,
     outputTokens: input.result.usage?.outputTokens,
     reasoningTokens: input.result.usage?.thoughtTokens,
     hasOpenToolCall: Boolean(activeTool), lastToolReadLike: lastTool?.kind === 'read',
@@ -40,6 +41,7 @@ export function buildAcpTurnCompletion(input: AcpTurnCompletionInput) {
     id: input.turn.responseId, role: 'assistant', content, usage: input.usage,
     metadata: {
       stopReason: input.result.stopReason,
+      ...(input.usageIsAggregate ? { usageIsAggregate: true } : {}),
       ...(typeof native['finish'] === 'string' ? { finish: native['finish'] } : {}),
       ...(typeof native['finish_reason'] === 'string' ? { finish: native['finish_reason'] } : {}),
       ...(typeof native['finishReason'] === 'string' ? { finish: native['finishReason'] } : {}),

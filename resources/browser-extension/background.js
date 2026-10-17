@@ -72,6 +72,16 @@ const SELF_HEAL_RELOAD_MS = 10 * 60000;
 const SELF_HEAL_RELOAD_MIN_INTERVAL_MS = 30 * 60000;
 const SELF_RELOAD_STORAGE_KEY = 'browserGatewayLastSelfReloadAt';
 const SW_STARTED_AT = Date.now();
+// One random id per extension install. chrome.storage.local is separate for
+// each Chrome profile, so this tells the gateway which profile a message came
+// from. Without it, several profiles on one machine shared one command queue
+// (commands for one profile's tab ran in another) and one trust record (one
+// profile disconnecting blocked the others).
+const INSTANCE_ID_STORAGE_KEY = 'browserGatewayInstanceId';
+const INSTANCE_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
+const WRONG_PROFILE_ERROR = 'browser_extension_wrong_profile';
+let extensionInstanceId = null;
+let extensionInstanceIdPromise = null;
 let lastSelfHealRecycleAt = 0;
 
 // Version follow. On a worker node this extension is loaded unpacked from the
@@ -315,6 +325,7 @@ function setBridgeState(bridge, state) {
 }
 
 async function initializeGateway() {
+  await loadExtensionInstanceId();
   await loadGatewayEnabled();
   await loadSecretObservationProtection();
   if (!gatewayEnabled) {
@@ -323,6 +334,75 @@ async function initializeGateway() {
     return;
   }
   await startAllBridges();
+}
+
+// Memoized: module load and onStartup both initialize, and two concurrent
+// first runs must not mint two different ids.
+function loadExtensionInstanceId() {
+  if (extensionInstanceId) {
+    return Promise.resolve(extensionInstanceId);
+  }
+  if (!extensionInstanceIdPromise) {
+    extensionInstanceIdPromise = (async () => {
+      let readFailed = false;
+      try {
+        const values = await chrome.storage?.local?.get?.(INSTANCE_ID_STORAGE_KEY);
+        const stored = values?.[INSTANCE_ID_STORAGE_KEY];
+        if (typeof stored === 'string' && INSTANCE_ID_PATTERN.test(stored)) {
+          extensionInstanceId = stored;
+          return extensionInstanceId;
+        }
+      } catch {
+        // An id for this service-worker lifetime still keeps this profile's
+        // commands apart from another profile's.
+        readFailed = true;
+      }
+      const minted = newExtensionInstanceId();
+      // After a failed read a valid id may still be saved: never overwrite it.
+      if (!readFailed) {
+        try {
+          await chrome.storage?.local?.set?.({ [INSTANCE_ID_STORAGE_KEY]: minted });
+        } catch {
+          // Not persisted; the next service worker mints a fresh id and the
+          // gateway re-attaches this profile's tabs under it.
+        }
+      }
+      extensionInstanceId = minted;
+      return extensionInstanceId;
+    })().finally(() => {
+      extensionInstanceIdPromise = null;
+    });
+  }
+  return extensionInstanceIdPromise;
+}
+
+function newExtensionInstanceId() {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (typeof uuid === 'string' && INSTANCE_ID_PATTERN.test(uuid)) {
+    return uuid;
+  }
+  let id = '';
+  while (id.length < 32) {
+    id += Math.floor(Math.random() * 16).toString(16);
+  }
+  return id;
+}
+
+// A command bound to another install's tab must never run here: a tab id
+// from another Chrome profile can name an unrelated tab in this one. The
+// error is registered as an extension-owned guard error (a page cannot forge
+// that), so its fixed code crosses the native boundary unchanged.
+function assertCommandForThisProfile(command) {
+  const wanted = command?.target?.extensionInstanceId;
+  if (typeof wanted === 'string' && wanted && wanted !== extensionInstanceId) {
+    const error = new Error(WRONG_PROFILE_ERROR);
+    secretObservationGuardErrors.add(error);
+    throw error;
+  }
+}
+
+function isWrongProfileRefusal(error) {
+  return secretObservationGuardErrors.has(error) && error.message === WRONG_PROFILE_ERROR;
 }
 
 async function loadGatewayEnabled() {
@@ -400,6 +480,8 @@ async function startAllBridges() {
     persistBridgeStatus();
     return;
   }
+  // Every entry point (popup toggle included) stamps this profile's id.
+  await loadExtensionInstanceId();
   for (const bridge of bridges) {
     startBridge(bridge);
   }
@@ -882,6 +964,7 @@ function extensionRuntimeEvidence() {
   return {
     extensionVersion: chrome.runtime.getManifest?.().version ?? 'unknown',
     extensionStartedAt: SW_STARTED_AT,
+    ...(extensionInstanceId ? { extensionInstanceId } : {}),
   };
 }
 
@@ -900,6 +983,7 @@ async function reconnectAllBridges() {
     persistBridgeStatus();
     return getStatusPayload();
   }
+  await loadExtensionInstanceId();
   for (const bridge of bridges) {
     recycleBridge(bridge);
   }
@@ -1647,6 +1731,8 @@ async function runBrowserCommand(command, bridge) {
     ? command.payload.credentialOrigin
     : null;
   try {
+    // First, before anything reads or touches a tab.
+    assertCommandForThisProfile(command);
     // Reload has a dedicated post-dispatch protection path. Awaiting the shared
     // observation boundary here would let an older wedged inventory prevent the
     // browser-process recovery action from ever starting.
@@ -1696,7 +1782,9 @@ async function runBrowserCommand(command, bridge) {
       result: safeResult,
     });
   } catch (error) {
-    if (secretTaintOrigin === null && !reloadCommand) {
+    // A wrong-profile refusal ran nothing, and its tab id names no tab here,
+    // so a taint lookup would only fail closed and mislabel the refusal.
+    if (secretTaintOrigin === null && !reloadCommand && !isWrongProfileRefusal(error)) {
       secretTaintOrigin = await targetSecretTaintOrigin(command);
     }
     postNativeMessage(bridge, {

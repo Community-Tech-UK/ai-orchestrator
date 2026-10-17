@@ -14,6 +14,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { readOpenCodeV2CredentialNames } from '../../providers/opencode-credential-names';
 import type { SettingsMigrationStore } from './settings-migrations';
 import {
   LEGACY_ACCOUNT_PROFILE_ID,
@@ -87,17 +88,22 @@ export interface OpenCodeLegacyMigrationDeps {
  * key NAMES are read (bounded); key values are never retained or logged.
  */
 export function readOpenCodeAuthCredentialNames(): string[] {
+  const names = new Set<string>();
+  try { for (const name of readOpenCodeV2CredentialNames()) names.add(name); } catch { /* Retry native discovery on the next startup. */ }
   try {
     const dataHome = process.env['XDG_DATA_HOME']?.trim() || path.join(os.homedir(), '.local', 'share');
     const authPath = path.join(dataHome, 'opencode', 'auth.json');
     const stats = fs.statSync(authPath);
-    if (stats.size > 256 * 1024) return [];
-    const parsed: unknown = JSON.parse(fs.readFileSync(authPath, 'utf8'));
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return [];
-    return Object.keys(parsed).filter((name) => /^xiaomi-token-plan-(ams|sgp|cn)$/.test(name));
+    if (stats.size <= 256 * 1024) {
+      const parsed: unknown = JSON.parse(fs.readFileSync(authPath, 'utf8'));
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        for (const name of Object.keys(parsed)) names.add(name);
+      }
+    }
   } catch {
-    return [];
+    // A missing or invalid legacy file cannot hide valid version 2 identities.
   }
+  return [...names].filter((name) => /^xiaomi-token-plan-(ams|sgp|cn)$/.test(name));
 }
 
 /**

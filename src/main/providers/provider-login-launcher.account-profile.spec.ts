@@ -1,3 +1,4 @@
+vi.mock('../cli/adapters/opencode-cli-launch', () => ({ resolveOpenCodeLaunch: vi.fn(async () => ({ command: '/fixture/opencode2', major: 2 })) }));
 import { mkdtempSync, realpathSync, rmSync, writeFileSync, existsSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -90,9 +91,9 @@ describe('account-profile login commands', () => {
     expect(() => buildCodexProfileLoginCommand('pro-b', 'linux')).toThrow(/remove this account and add it again/);
   });
 
-  it('copies the derived Claude command without opening a terminal', () => {
+  it('copies the derived Claude command without opening a terminal', async () => {
     const written: string[] = [];
-    const result = copyAccountProfileLoginCommand({ provider: 'claude', profileId: 'max-b' }, (text) => written.push(text));
+    const result = await copyAccountProfileLoginCommand({ provider: 'claude', profileId: 'max-b' }, (text) => written.push(text));
     const home = realpathSync(join(stateRoot.current, 'claude-cli-profiles', 'max-b'));
     expect(written).toEqual([`CLAUDE_CONFIG_DIR='${home}' claude auth login`]);
     expect(result.hint).toMatch(/never sees the token/i);
@@ -101,4 +102,12 @@ describe('account-profile login commands', () => {
   it('rejects unsafe profile ids before any path is built', () => {
     expect(() => buildClaudeProfileLoginCommand('../x', 'darwin')).toThrow(/Invalid account profile ID/);
   });
+});
+
+it('copies the selected OpenCode 2 account import command', async () => {
+  const written: string[] = [];
+  await copyAccountProfileLoginCommand({ provider: 'opencode', profileId: 'max-b' }, (text) => written.push(text));
+  const script = atob(written[0].match(/Buffer.from\('([^']+)'/)![1]);
+  expect(script).toContain('/fixture/opencode2');
+  expect(script).toContain("['auth','import','--standalone']");
 });

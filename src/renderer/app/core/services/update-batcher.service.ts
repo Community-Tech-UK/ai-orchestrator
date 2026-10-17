@@ -13,6 +13,8 @@ import type { AccountRouteSource } from '../../../../shared/types/provider-accou
 
 export interface StateUpdate {
   instanceId: string;
+  /** Transient catalog invalidation; consumed by CommandStore, never persisted. */
+  commandsChanged?: true;
   status?: string;
   activityState?: ActivityState;
   // LT-018: the full ContextUsage, not a hand-rolled subset. A narrowed local

@@ -9,6 +9,13 @@ import {
 } from './user-action-request.rules';
 
 describe('user action request rules', () => {
+  it('keeps questions and forms visible when tool permissions are automatic', () => {
+    for (const type of ['ask_user_question', 'acp_elicitation']) {
+      const request = { instanceId: 'inst-1', requestType: 'input_required', permissionMetadata: { type } };
+      expect(shouldClearInputRequiredForYolo(request)).toBe(false);
+      expect(canResolveInputRequiredWithYolo(request)).toBe(false);
+    }
+  });
   it('keeps Claude permission-denial prompts visible while YOLO is enabled', () => {
     const request = {
       instanceId: 'inst-1',

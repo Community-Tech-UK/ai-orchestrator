@@ -5,6 +5,10 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Install discovery has its own tests; keep this integration on a known selected binary.
+vi.mock('../../cli/adapters/opencode-cli-launch', () => ({
+  selectOpenCodeLaunch: vi.fn(async () => ({ command: '/fixture/selected-opencode', major: 1 })),
+}));
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
   const execFile = vi.fn();
@@ -65,7 +69,7 @@ const WORKER_AUTH_LIST = '┌  Credentials\n●  aio-mimo-max-b-1a2b api\n●  X
 
 function workerAuthListReply(error: ExecFileException | null, stdout: string): void {
   mockExecFile.mockImplementation((file, args, options, callback) => {
-    expect(file).toBe('opencode');
+    expect(file).toBe('/fixture/selected-opencode');
     expect(args).toEqual(['auth', 'list']);
     expect(options).toMatchObject({ timeout: 8_000, maxBuffer: 256 * 1024 });
     if (!callback) throw new Error('Missing auth-list callback');
@@ -94,7 +98,7 @@ describe('default worker OpenCode account advertisement', () => {
     workerAuthListReply(Object.assign(new Error('error-placeholder'), properties), WORKER_AUTH_LIST);
     expect(await listWorkerOpenCodeAccountProfileIds()).toEqual([]);
     expect(mockExecFile).toHaveBeenCalledOnce();
-    expect(mockExecFile).toHaveBeenCalledWith('opencode', ['auth', 'list'],
+    expect(mockExecFile).toHaveBeenCalledWith('/fixture/selected-opencode', ['auth', 'list'],
       expect.objectContaining({ timeout: 8_000, maxBuffer: 256 * 1024 }), expect.any(Function));
   });
 

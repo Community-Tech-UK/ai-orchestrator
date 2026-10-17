@@ -591,10 +591,15 @@ describe('ProviderAccountsTabComponent — MiMo accounts', () => {
     expect(script).toContain('aio-mimo-max-b-1a2b');
     expect(script).toContain('OPENCODE_MODELS_PATH:file');
     // The legacy account pins its region provider; no region falls back to the picker.
-    expect(fixture.componentInstance.nodeLoginCommand(mimoAccount({ id: 'legacy', isLegacy: true })))
-      .toBe('opencode auth login -p xiaomi-token-plan-ams');
-    expect(fixture.componentInstance.nodeLoginCommand(mimoAccount({ id: 'legacy', isLegacy: true, region: undefined })))
-      .toBe('opencode auth login');
+    const legacy = fixture.componentInstance.nodeLoginCommand(mimoAccount({ id: 'legacy', isLegacy: true }));
+    const legacyScript = atob(legacy.match(/Buffer.from\('([^']+)'/)![1]);
+    expect(legacyScript).toContain('xiaomi-token-plan-ams');
+    expect(legacyScript).toContain("['--version']");
+    expect(legacyScript).toContain("['auth','import','--standalone']");
+    const picker = fixture.componentInstance.nodeLoginCommand(mimoAccount({ id: 'legacy', isLegacy: true, region: undefined }));
+    const pickerScript = atob(picker.match(/Buffer.from\('([^']+)'/)![1]);
+    expect(pickerScript).toContain("['--version']");
+    expect(pickerScript).toContain("chosen.major===2?['auth','login','--standalone']:['auth','login']");
     fixture.destroy();
   });
 });

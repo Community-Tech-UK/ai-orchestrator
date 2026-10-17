@@ -39,6 +39,11 @@ interface TestableManager {
   readyPromise: Promise<void>;
   instanceToState(instance: Instance): SessionState;
   shutdown(): void;
+  importSession(data: { state: SessionState }): Promise<string>;
+  resumeSession(instanceId: string): Promise<SessionState | null>;
+  updateState(instanceId: string, update: Partial<SessionState>): Promise<void>;
+  getRetentionContext(): { stateDir: string };
+  getResumableSessions(): Promise<SessionState[]>;
 }
 
 function makeInstance(overrides: Partial<Instance> = {}): Instance {
@@ -80,9 +85,9 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
 const tempDirs: string[] = [];
 const managers: TestableManager[] = [];
 
-function createManager(): TestableManager {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'copilot-continuity-'));
-  tempDirs.push(dir);
+function createManager(existingDirectory?: string): TestableManager {
+  const dir = existingDirectory ?? fs.mkdtempSync(path.join(os.tmpdir(), 'copilot-continuity-'));
+  if (!existingDirectory) tempDirs.push(dir);
   mockState.userDataDir = dir;
   const manager = new SessionContinuityManager({
     autoSaveEnabled: false,
@@ -198,4 +203,47 @@ describe('instanceToState — retained prompts survive hibernation', () => {
 
     expect(state.conversationHistory).toHaveLength(1);
   });
+});
+
+
+describe('instanceToState — OpenCode extra folders', () => {
+  it('persists a separate copy of the exact additional roots', () => {
+    const directories = ['/work/second', 'C:\\work\\third'];
+    const saved = createManager().instanceToState(makeInstance({ provider: 'opencode', additionalDirectories: directories }));
+    expect(saved.additionalDirectories).toEqual(directories);
+    expect(saved.additionalDirectories).not.toBe(directories);
+    directories.push('/work/later');
+    expect(saved.additionalDirectories).toEqual(['/work/second', 'C:\\work\\third']);
+  });
+});
+
+
+it('keeps extra folder roots across disk persistence and a fresh continuity manager', async () => {
+  const manager = createManager();
+  const directory = mockState.userDataDir;
+  const saved = manager.instanceToState(makeInstance({ provider: 'opencode', additionalDirectories: ['/work/second'] }));
+  await manager.importSession({ state: saved });
+  manager.shutdown();
+  const replacement = createManager(directory);
+  const resumed = await replacement.resumeSession('inst-1');
+  expect(resumed?.additionalDirectories).toEqual(['/work/second']);
+  const nextRoots = ['/work/third'];
+  await replacement.updateState('inst-1', { additionalDirectories: nextRoots });
+  nextRoots.push('/work/unrequested');
+  expect((await replacement.resumeSession('inst-1'))?.additionalDirectories).toEqual(['/work/third']);
+  await expect(replacement.updateState('inst-1', { provider: 'claude' })).rejects.toThrow('OpenCode');
+  expect((await replacement.resumeSession('inst-1'))?.provider).toBe('opencode');
+});
+
+
+it('skips one corrupt saved folder list while loading other resumable sessions', async () => {
+  const manager = createManager();
+  const directory = mockState.userDataDir;
+  const valid = manager.instanceToState(makeInstance({ provider: 'opencode', additionalDirectories: ['/work/second'] }));
+  await manager.importSession({ state: valid });
+  fs.writeFileSync(path.join(manager.getRetentionContext().stateDir, 'bad.json'), JSON.stringify({ ...valid, instanceId: 'bad', additionalDirectories: ['relative-root'] }));
+  const replacement = createManager(directory);
+  const sessions = await replacement.getResumableSessions();
+  expect(sessions.map((session) => session.instanceId)).toContain('inst-1');
+  expect(sessions.map((session) => session.instanceId)).not.toContain('bad');
 });

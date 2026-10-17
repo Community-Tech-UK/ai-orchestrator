@@ -21,6 +21,7 @@ import { CALENDAR_TOOL_SPECS } from './orchestrator-calendar-tools';
 import { PLAN_QUEUE_TOOL_SPECS } from './plan-queue-tools';
 import { createNodeExecForwarderTool } from './orchestrator-node-exec-forwarder-tool';
 import { createNodeConnectionForwarderTool } from './orchestrator-node-connection-tools';
+import { createHostProcessForwarderTools } from './orchestrator-host-process-tools';
 import {
   createSessionMessagingForwarderTools,
   resolveSessionMessagingEnabledFromEnv,
@@ -175,6 +176,7 @@ export function createOrchestratorToolsForwarderTools(
     },
     createNodeExecForwarderTool(client),
     createNodeConnectionForwarderTool(client),
+    ...createHostProcessForwarderTools(client),
     ...createSessionMessagingForwarderTools(client, sessionMessagingEnabled),
     {
       name: 'read_node_output',

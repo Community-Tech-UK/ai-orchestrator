@@ -117,6 +117,9 @@ function finiteNumber(...values: unknown[]): number | undefined {
  * so a step that spent the cap on reasoning is cut off even after earlier narration.
  */
 function outputBudgetSaturated(input: TurnEndingInput, meta: Record<string, unknown>): boolean {
+  // OpenCode 2 sums all model calls, including automatic output-limit continuations.
+  // A turn aggregate reaching one call's cap cannot establish final-call truncation.
+  if (meta['usageIsAggregate'] === true) return false;
   const cap = finiteNumber(input.combinedOutputTokenCap, record(meta['generationBudget'])['combinedOutputTokens']);
   if (cap === undefined || cap <= 0 || input.hasOpenToolCall || meta['hasOpenToolCall'] === true) return false;
   const outputTokens = finiteNumber(input.outputTokens, meta['outputTokens']);

@@ -4,8 +4,11 @@ import { BrowserExtensionContactState } from './browser-extension-contact-state'
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { BrowserExtensionCommandStore } from './browser-extension-command-store';
 import { workerAgentTooOldReason } from './browser-worker-agent-skew';
+import { BrowserExtensionTabStore } from './browser-extension-tab-store';
+import { BrowserTargetRegistry } from './browser-target-registry';
+import { BrowserExtAttachTabParamsSchema, validateRpcParams } from '../remote-node/rpc-schemas';
 
-function makeBridge() {
+function makeBridge(overrides: { tabStore?: BrowserExtensionTabStore } = {}) {
   let now = 1_000;
   const logger = {
     info: vi.fn(),
@@ -32,6 +35,7 @@ function makeBridge() {
     suspendNode: vi.fn(() => 2),
     restoreNode: vi.fn(() => 0),
   };
+  const bridgeTabStore = overrides.tabStore ?? tabStore;
   const reliabilityEvents = {
     record: vi.fn(),
   };
@@ -46,7 +50,7 @@ function makeBridge() {
   const bridge = new RemoteBrowserExtensionBridge({
     service,
     commandStore,
-    tabStore,
+    tabStore: bridgeTabStore,
     registry,
     contactState,
     reliabilityEvents,
@@ -442,7 +446,8 @@ describe('RemoteBrowserExtensionBridge', () => {
     setNow(92_000);
     await bridge.pollCommand('node-1', { timeoutMs: 500 });
 
-    expect(tabStore.restoreNode).toHaveBeenCalledWith('node-1');
+    // An id-less poll restores only id-less attachments.
+    expect(tabStore.restoreNode).toHaveBeenCalledWith('node-1', null);
     expect(reliabilityEvents.record).toHaveBeenCalledWith(
       'node_reconnect',
       expect.objectContaining({
@@ -660,5 +665,124 @@ describe('RemoteBrowserExtensionBridge', () => {
       ...runtime,
       commandId: 'cmd-1',
     })).toThrow('browser_extension_relay_rate_limited:node-1:control');
+  });
+
+  describe('with several Chrome profiles on the node', () => {
+    const PROFILE_A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+    const PROFILE_B = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+    const runtimeA = { extensionVersion: '0.2.42', extensionStartedAt: 1_000, extensionInstanceId: PROFILE_A };
+    const runtimeB = { extensionVersion: '0.2.42', extensionStartedAt: 2_000, extensionInstanceId: PROFILE_B };
+
+    it('attaches and polls under the reporting profile', async () => {
+      const { bridge, service, commandStore } = makeBridge();
+
+      await bridge.attachTab('node-1', {
+        ...runtimeA,
+        payload: { tabId: 42, windowId: 7, url: 'https://example.com/page', title: 'Example' },
+      });
+      await bridge.pollCommand('node-1', { ...runtimeA, timeoutMs: 1_000 });
+
+      expect(service.attachExistingTab).toHaveBeenCalledWith(expect.objectContaining({
+        nodeId: 'node-1',
+        tabId: 42,
+        extensionInstanceId: PROFILE_A,
+      }));
+      expect(commandStore.pollCommand).toHaveBeenCalledWith('node:node-1', expect.objectContaining({
+        extensionInstanceId: PROFILE_A,
+        allowBrowserCommands: true,
+      }));
+    });
+
+    it('keeps one profile working after the other profile\'s native host disconnects', async () => {
+      const { bridge, commandStore, contactState } = makeBridge();
+      await bridge.pollCommand('node-1', { ...runtimeA, timeoutMs: 1_000 });
+      await bridge.pollCommand('node-1', { ...runtimeB, timeoutMs: 1_000 });
+
+      bridge.extensionDisconnected('node-1', { reason: 'native_host_stdin_eof', extensionInstanceId: PROFILE_B });
+      commandStore.pollCommand.mockClear();
+      await bridge.pollCommand('node-1', { ...runtimeA, timeoutMs: 1_000 });
+
+      expect(commandStore.pollCommand).toHaveBeenCalledWith('node:node-1', expect.objectContaining({
+        extensionInstanceId: PROFILE_A,
+        allowBrowserCommands: true,
+        allowSecureCredentialCommands: true,
+      }));
+      expect(contactState.getLastDisconnect('node-1')?.reason).toBe('native_host_stdin_eof');
+    });
+
+    it('keeps a node on pre-id behaviour while a new native host runs behind an old relay', async () => {
+      const { bridge, service } = makeBridge();
+      // An old relay forwards the id inside the tab payload and not beside it.
+      const params = {
+        extensionVersion: '0.2.42',
+        extensionStartedAt: 1_000,
+        payload: { tabId: 42, windowId: 7, url: 'https://example.com/page', extensionInstanceId: PROFILE_A },
+      };
+
+      expect(() => validateRpcParams(BrowserExtAttachTabParamsSchema, params)).not.toThrow();
+      await bridge.attachTab('node-1', params as never);
+
+      const request = service.attachExistingTab.mock.calls[0]![0] as Record<string, unknown>;
+      expect(request).not.toHaveProperty('extensionInstanceId');
+      expect(request).toMatchObject({ tabId: 42, nodeId: 'node-1' });
+    });
+
+    it('does not let an old id-less profile suspend a current profile\'s tabs', async () => {
+      const tabStore = new BrowserExtensionTabStore({
+        targetRegistry: new BrowserTargetRegistry(),
+        reliabilityEvents: { record: vi.fn() },
+      });
+      const current = tabStore.attachTab(
+        { tabId: 42, windowId: 7, url: 'https://example.com/current' },
+        { nodeId: 'node-1', extensionInstanceId: PROFILE_A },
+      );
+      const legacy = tabStore.attachTab({ tabId: 9, windowId: 3, url: 'https://example.com/legacy' }, { nodeId: 'node-1' });
+      const { bridge } = makeBridge({ tabStore });
+
+      // A profile still on an extension too old to report a profile id (or be trusted).
+      await bridge.pollCommand('node-1', { extensionVersion: '0.2.17', extensionStartedAt: 5_000, timeoutMs: 1_000 });
+
+      const suspended = (targetId: string) =>
+        tabStore.listTabs().find((attachment) => attachment.targetId === targetId)?.suspendedAt;
+      expect(suspended(current.targetId)).toBeUndefined();
+      expect(suspended(legacy.targetId)).toBeDefined();
+    });
+
+    it('after a node drop, each profile\'s own poll restores only its own tabs', async () => {
+      const tabStore = new BrowserExtensionTabStore({
+        targetRegistry: new BrowserTargetRegistry(),
+        reliabilityEvents: { record: vi.fn() },
+      });
+      const tabA = tabStore.attachTab({ tabId: 1, windowId: 7, url: 'https://example.com/a' }, { nodeId: 'node-1', extensionInstanceId: PROFILE_A });
+      const tabB = tabStore.attachTab({ tabId: 2, windowId: 7, url: 'https://example.com/b' }, { nodeId: 'node-1', extensionInstanceId: PROFILE_B });
+      const legacy = tabStore.attachTab({ tabId: 3, windowId: 7, url: 'https://example.com/legacy' }, { nodeId: 'node-1' });
+      const { bridge } = makeBridge({ tabStore });
+      const suspended = (targetId: string) =>
+        tabStore.listTabs().find((attachment) => attachment.targetId === targetId)?.suspendedAt !== undefined;
+
+      bridge.expireNode('node-1');
+      expect([suspended(tabA.targetId), suspended(tabB.targetId), suspended(legacy.targetId)]).toEqual([true, true, true]);
+
+      await bridge.pollCommand('node-1', { ...runtimeA, extensionStartedAt: 3_000, timeoutMs: 1_000 });
+      expect([suspended(tabA.targetId), suspended(tabB.targetId), suspended(legacy.targetId)]).toEqual([false, true, true]);
+
+      // A compatible id-less (pre-0.2.42) poll restores only id-less tabs.
+      await bridge.pollCommand('node-1', { extensionVersion: '0.2.41', extensionStartedAt: 4_000, timeoutMs: 1_000 });
+      expect([suspended(tabB.targetId), suspended(legacy.targetId)]).toEqual([true, false]);
+
+      await bridge.pollCommand('node-1', { ...runtimeB, extensionStartedAt: 5_000, timeoutMs: 1_000 });
+      expect(suspended(tabB.targetId)).toBe(false);
+    });
+
+    it('suspends only the profile running an incompatible extension', async () => {
+      const { bridge, tabStore } = makeBridge();
+
+      await bridge.pollCommand('node-1', { ...runtimeB, extensionVersion: '0.2.17', timeoutMs: 1_000 });
+      await bridge.pollCommand('node-1', { ...runtimeA, timeoutMs: 1_000 });
+
+      expect(tabStore.suspendNode).toHaveBeenCalledWith('node-1', PROFILE_B);
+      expect(tabStore.suspendNode).not.toHaveBeenCalledWith('node-1', PROFILE_A);
+      expect(tabStore.restoreNode).toHaveBeenCalledWith('node-1', PROFILE_A);
+    });
   });
 });

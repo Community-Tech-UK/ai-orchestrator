@@ -454,7 +454,7 @@ export class WorkerInstanceNotifier {
           return false;
         }
         const qp = queued.params as Record<string, unknown> | undefined;
-        return qp?.['instanceId'] === msgInstanceId;
+        return qp?.['instanceId'] === msgInstanceId && stateQueueKey(qp) === stateQueueKey(msgParams);
       });
       if (idx !== -1) {
         const superseded = this.criticalMessageQueue[idx];
@@ -480,4 +480,18 @@ export class WorkerInstanceNotifier {
     }
     this.criticalMessageQueue.push(msg);
   }
+}
+
+function stateQueueKey(params: Record<string, unknown> | undefined): string {
+  const state = params?.['state'];
+  if (state === 'history_replay') {
+    const info = params?.['info'] as { payload?: { transferId?: string; index?: number } } | undefined;
+    return `${state}:${info?.payload?.transferId}:${info?.payload?.index}`;
+  }
+  if (state === 'input_required_resolved') {
+    const envelope = params?.['info'] as { payload?: unknown } | undefined;
+    const info = (envelope?.payload ?? envelope) as { id?: unknown } | undefined;
+    return `${state}:${typeof info?.id === 'string' ? info.id : ''}`;
+  }
+  return state === 'available_commands' || state === 'provider_session' || state === 'provider_turn' || state === 'resume_proof' ? state : 'lifecycle';
 }

@@ -77,6 +77,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     agentId: ReturnType<typeof signal<string>>;
     yoloMode: ReturnType<typeof signal<boolean | null>>;
     hardened: ReturnType<typeof signal<boolean | null>>;
+    signalFenceOff: ReturnType<typeof signal<boolean>>;
     copilotAccountProfileId: ReturnType<typeof signal<string | null>>;
     accountProfileId: ReturnType<typeof signal<string | null>>;
     launchMode: ReturnType<typeof signal<'orchestrated' | 'interactive' | null>>;
@@ -122,6 +123,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       agentId: signal('build'),
       yoloMode: signal<boolean | null>(null),
       hardened: signal<boolean | null>(null),
+      signalFenceOff: signal(false),
       copilotAccountProfileId: signal<string | null>(null),
       accountProfileId: signal<string | null>(null),
       launchMode: signal<'orchestrated' | 'interactive' | null>('orchestrated'),
@@ -300,6 +302,23 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       workingDirectory: '/repo',
       hardened: true,
     }));
+  });
+
+  it('sends signalFence false only for an unhardened fence-off draft', async () => {
+    newSessionDraft.signalFenceOff.set(true);
+    await service.submitWelcomeMessage('Clean up', vi.fn());
+    expect(store.createInstanceWithMessageResult).toHaveBeenLastCalledWith(expect.objectContaining({
+      signalFence: false,
+    }));
+
+    newSessionDraft.hardened.set(true);
+    await service.submitWelcomeMessage('Clean up again', vi.fn());
+    expect(store.createInstanceWithMessageResult.mock.lastCall?.[0]).not.toHaveProperty('signalFence');
+
+    newSessionDraft.hardened.set(null);
+    newSessionDraft.signalFenceOff.set(false);
+    await service.submitWelcomeMessage('And again', vi.fn());
+    expect(store.createInstanceWithMessageResult.mock.lastCall?.[0]).not.toHaveProperty('signalFence');
   });
 
   it('refuses a hardened launch for a provider with no jail evidence, keeping the draft', async () => {

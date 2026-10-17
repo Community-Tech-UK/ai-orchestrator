@@ -155,3 +155,21 @@ describe('readOpenCodeAuthStatus', () => {
     });
   });
 });
+
+describe('OpenCode 2 standalone auth status', () => {
+  const output = JSON.stringify([{ id: 'aio-mimo-account-b', name: 'Account B', connections: [
+    { type: 'credential', id: 'credential-fixture', label: 'API key', method: 'key' },
+  ] }, { id: 'openrouter', name: 'OpenRouter', connections: [{ type: 'env', name: 'OPENROUTER_API_KEY' }] }]);
+  it('reads provider identities and counts without confusing connection labels with providers', () => {
+    expect(parseOpenCodeAuthList(output)).toEqual({ credentials: 1, environmentVariables: 1 });
+    expect(parseOpenCodeAuthCredentialNames(output)).toEqual(['aio-mimo-account-b']);
+    expect(parseOpenCodeAuthList('[]')).toEqual({ credentials: 0, environmentVariables: 0 });
+    expect(parseOpenCodeAuthList('[{}]')).toBeNull();
+  });
+  it('requests standalone JSON and native config for version 2', async () => {
+    const run = vi.fn(async (args: string[]) => args[0] === 'auth' ? '[]' : '{"data":{"model":"openrouter/test","providers":{}}}');
+    await expect(readOpenCodeAuthStatus(run, undefined, 2)).resolves.toMatchObject({ authenticated: false, effectiveModel: 'openrouter/test' });
+    expect(run).toHaveBeenCalledWith(['auth', 'list', '--standalone', '--format', 'json']);
+    expect(run).toHaveBeenCalledWith(['api', '--standalone', 'GET', '/api/config']);
+  });
+});

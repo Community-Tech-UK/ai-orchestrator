@@ -9,7 +9,10 @@ import {
   createDefaultContextInheritance,
   type ContextInheritanceConfig,
 } from '../../../shared/types/supervision.types';
+import { getSeededInitialUserMessage } from './initial-user-message';
+import { markFreshInitialSubmission } from './initial-submission-capture';
 import { crossPlatformBasename } from '../../../shared/utils/cross-platform-path';
+import { normalizeOpenCodeAdditionalDirectories } from '../../../shared/utils/opencode-additional-directories';
 import {
   generateId,
   generateInstanceId,
@@ -38,8 +41,12 @@ export function buildInstanceRecord(
   // attempting a doomed `--resume` that the CLI rejects with "No conversation
   // found with session ID". Restored/resumed sessions stay `undefined`
   // (resume allowed) because they demonstrably existed in a prior run.
+  const currentSubmission = config.provider === 'opencode' && config.initialUserMessageSource === 'current-submission'
+    && config.initialOutputBuffer?.length === 1 ? getSeededInitialUserMessage(config) : undefined;
   const isFreshSession =
-    !config.resume && !(config.initialOutputBuffer && config.initialOutputBuffer.length > 0);
+    !config.resume && (!(config.initialOutputBuffer && config.initialOutputBuffer.length > 0) || Boolean(currentSubmission))
+    && (config.provider !== 'opencode' || (!config.isRestoredSession && !config.sessionId && !config.historyThreadId
+      && !config.metadata?.['openCodeForkSessionId'] && !config.initialRetainedPrompts?.length));
   const contextInheritance = resolveContextInheritance(config);
   const parentContext = resolveParentContext(config, resolvedAgent, contextInheritance, options);
   const now = options.now?.() ?? Date.now();
@@ -51,7 +58,7 @@ export function buildInstanceRecord(
     ? buildLocalModelRuntimeSummary(localModelTarget)
     : config.runtimeSummary;
 
-  return {
+  const instance: Instance = {
     id: generateInstanceId(providerKey),
     displayName: config.displayName
       || crossPlatformBasename(parentContext.workingDirectory)
@@ -93,6 +100,7 @@ export function buildInstanceRecord(
     restartEpoch: 0,
     adapterGeneration: 0,
     workingDirectory: parentContext.workingDirectory,
+    additionalDirectories: normalizeOpenCodeAdditionalDirectories(config.additionalDirectories, localModelTarget ? 'local-model' : config.provider),
     yoloMode: parentContext.yoloMode,
     ...(config.toolPermissionsOverride ? { toolPermissionsOverride: config.toolPermissionsOverride } : {}),
     ...(config.computerUseMode ? { computerUseMode: config.computerUseMode } : {}),
@@ -101,6 +109,7 @@ export function buildInstanceRecord(
     bareMode: config.bareMode ?? false,
     ...(config.browserToolsMode ? { browserToolsMode: config.browserToolsMode } : {}),
     ...(config.hardened ? { hardened: true } : {}),
+    ...(config.signalFence === false ? { signalFence: false } : {}),
     ...(config.containedExecution ? { containedExecution: true } : {}),
     // Copilot account profile carried from the create config. This is the
     // pre-spawn seed (a user override, or the profile a restore was archived
@@ -134,6 +143,7 @@ export function buildInstanceRecord(
       ? { fastMode: config.fastModeOverride }
       : {}),
     executionLocation: { type: 'local' },
+    ...(config.nodePlacement ? { nodePlacement: structuredClone(config.nodePlacement) } : {}),
     diffStats: undefined,
 
     // Copy: the instance owns its buffer from here on. Aliasing the caller's
@@ -156,6 +166,8 @@ export function buildInstanceRecord(
     restartCount: 0,
     metadata: config.metadata,
   };
+  if (isFreshSession && currentSubmission) markFreshInitialSubmission(instance, currentSubmission);
+  return instance;
 }
 
 function getLocalModelRuntimeTarget(

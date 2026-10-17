@@ -15,10 +15,12 @@ import type {
   InstanceStatus,
   OutputMessage,
   CreateInstanceConfig,
+  CreateInstanceWithMessageOptions,
 } from './instance.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
+import { normalizeOpenCodeAdditionalDirectories } from '../../../../../shared/utils/opencode-additional-directories';
 import { toAvailableLaunchMode } from '../../../../../shared/types/instance.types';
 import { buildCreateWithMessagePayload } from './instance-create-payload';
 import {
@@ -29,37 +31,7 @@ import {
 } from './instance-attachments';
 import { deserializeInstanceProvider } from './instance-list-provider-helpers';
 
-export interface CreateInstanceWithMessageOptions {
-  message: string;
-  files?: File[];
-  workingDirectory?: string;
-  agentId?: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode' | 'auto';
-  model?: string;
-  /** Omitted = spawn path applies the app-level per-provider default. */
-  reasoningEffort?: ReasoningEffort | null;
-  modelRuntimeTarget?: ModelRuntimeTarget;
-  yoloMode?: boolean;
-  bareMode?: boolean;
-  fastMode?: boolean;
-  /** WS13 — run the CLI inside the macOS Seatbelt jail. */
-  hardened?: boolean;
-  /** Explicit GitHub Copilot account for this session (validated safe slug). */
-  copilotAccountProfileId?: string;
-  /** Explicit Claude/Codex account-pool profile (safe slug). */
-  accountProfileId?: string;
-  /** The user confirmed an override that leaves a protected Copilot scope. */
-  copilotConfirmProtectedOverride?: boolean;
-
-  launchMode?: Instance['launchMode'];
-  forceNodeId?: string;
-  /**
-   * Stable per-submission key from `ComposerSubmissionService`. Sent to the
-   * main process so a retry after a slow acknowledgement returns the original
-   * instance instead of spawning a duplicate session.
-   */
-  idempotencyKey?: string;
-}
+export type { CreateInstanceWithMessageOptions };
 
 /**
  * Outcome of a create-with-message attempt.
@@ -126,7 +98,8 @@ export class InstanceListStore {
     this.stateService.removeInstance(instanceId);
   }
 
-  async loadInitialInstances(): Promise<void> {
+  async loadInitialInstances(repairedIncarnations?: ReadonlyMap<string, number>): Promise<void> {
+    const requestedRevision = this.stateService.captureTranscriptRevision();
     this.stateService.setLoading(true);
     try {
       interface Resync { success: boolean; error?: string; data?: { instances?: unknown[] } }
@@ -142,7 +115,10 @@ export class InstanceListStore {
           const item = data as Record<string, unknown>;
           instances.set(item['id'] as string, this.deserializeInstance(item));
         }
-        this.stateService.setInstances(instances);
+        this.stateService.setInstances(instances, requestedRevision);
+        for (const [id, createdAt] of repairedIncarnations ?? []) {
+          if (this.stateService.getInstance(id)?.createdAt === createdAt) this.stateService.recordTranscriptReplay(id);
+        }
         return;
       }
       this.stateService.setLoading(false);
@@ -173,6 +149,7 @@ export class InstanceListStore {
     try {
       const payload = {
         workingDirectory: config.workingDirectory || '.',
+        ...(config.additionalDirectories ? { additionalDirectories: [...config.additionalDirectories] } : {}),
         displayName: config.displayName,
         parentInstanceId: config.parentId,
         yoloMode: config.yoloMode,
@@ -189,6 +166,7 @@ export class InstanceListStore {
         forceNodeId: config.forceNodeId,
         ...(config.browserToolsMode ? { browserToolsMode: config.browserToolsMode } : {}),
         ...(config.hardened ? { hardened: true } : {}),
+        ...(config.signalFence === false ? { signalFence: false } : {}),
         ...(config.accountProfileId ? { accountProfileId: config.accountProfileId } : {}),
         ...(config.copilotAccountProfileId
           ? { copilotAccountProfileId: config.copilotAccountProfileId }
@@ -707,6 +685,7 @@ export class InstanceListStore {
     // Crash-recovery payloads omit all three identities (InstanceStateManager.serializeForIpc);
     // '' keeps the `string` contract, so getInstanceThreadId() falls back to the id, not a throw.
     const sessionId = typeof d['sessionId'] === 'string' ? d['sessionId'] : '';
+    const providerDetails = deserializeInstanceProvider(d);
 
     return {
       id: d['id'] as string,
@@ -721,7 +700,7 @@ export class InstanceListStore {
       // Older restores and some legacy payloads can arrive without provider.
       // Recover it from model/session identifiers instead of silently
       // repainting Gemini/Codex threads as Claude.
-      ...deserializeInstanceProvider(d),
+      ...providerDetails,
       status: d['status'] as InstanceStatus,
       contextUsage: (d['contextUsage'] as Instance['contextUsage']) || {
         used: 0,
@@ -785,6 +764,7 @@ export class InstanceListStore {
           ? d['selfManagesAutoCompaction']
           : undefined,
       workingDirectory: d['workingDirectory'] as string,
+      additionalDirectories: normalizeOpenCodeAdditionalDirectories(d['additionalDirectories'], providerDetails.provider),
       yoloMode: (d['yoloMode'] as boolean) ?? false,
       // LT-161: without this, `canOfferFailover()` (composer-banners.component.ts)
       // can never see a configured fallback list, so the WS7 Phase B "Switch

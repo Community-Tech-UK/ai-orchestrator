@@ -1,7 +1,24 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
 import { resolveExecutionLocation } from '../execution-location-resolver';
 
 describe('resolveExecutionLocation', () => {
+  it('adds the native OpenCode 2 requirement before automatic worker selection', () => {
+    const selectNode = vi.fn(() => ({ id: 'v2-worker' } as WorkerNodeInfo));
+    expect(resolveExecutionLocation({ workingDirectory: '/repo', provider: 'opencode',
+      additionalDirectories: ['C:\\shared'], nodePlacement: { preferPlatform: 'win32' } },
+    { getNode: vi.fn(), selectNode })).toEqual({ type: 'remote', nodeId: 'v2-worker' });
+    expect(selectNode).toHaveBeenCalledWith({ preferPlatform: 'win32', requiresCli: 'opencode', requiresOpenCodeMajor: 2 });
+  });
+  it('rejects an explicit v1 requirement rather than replacing it', () => {
+    expect(() => resolveExecutionLocation({ workingDirectory: '/repo', provider: 'opencode',
+      additionalDirectories: ['/shared'], nodePlacement: { requiresOpenCodeMajor: 1 } })).toThrow(/conflicts/);
+  });
+  it.each([undefined, 1])('rejects a forced worker with unknown/v1 OpenCode (%s) before routing', major => {
+    expect(() => resolveExecutionLocation({ workingDirectory: '/repo', provider: 'opencode',
+      additionalDirectories: ['/shared'], forceNodeId: 'old-worker' },
+    { getNode: () => ({ status: 'connected', capabilities: { openCodeMajor: major } } as WorkerNodeInfo), selectNode: vi.fn() })).toThrow(/OpenCode 2/);
+  });
   it('forces worker-node local-model targets onto their selected node', () => {
     expect(resolveExecutionLocation({
       workingDirectory: '/tmp/project',

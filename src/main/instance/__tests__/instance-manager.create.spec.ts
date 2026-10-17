@@ -856,6 +856,7 @@ import {
   getInstanceComputerUseMode,
   setInstanceComputerUseMode,
 } from '../lifecycle/computer-use-scoping';
+import { isInstanceSignalFenceDisabled } from '../lifecycle/signal-fence-scoping';
 import { WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 
 // ---------------------------------------------------------------------------
@@ -1110,6 +1111,24 @@ describe('InstanceManager', () => {
 
       expect(reused.id).toBe(instance.id);
       expect(getInstanceComputerUseMode(reused.id)).toBeUndefined();
+    });
+
+    it('registers a fence-off session before its first adapter build and clears it on terminate', async () => {
+      let registeredAtAdapterBuild: boolean | undefined;
+      mockCreateCliAdapter.mockImplementationOnce((_cliType, options) => {
+        registeredAtAdapterBuild = isInstanceSignalFenceDisabled((options as { instanceId?: string }).instanceId);
+        return makeMockAdapter();
+      });
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        signalFence: false,
+      });
+      await instance.readyPromise;
+
+      expect(registeredAtAdapterBuild).toBe(true);
+      expect(instance.signalFence).toBe(false);
+      await manager.terminateInstance(instance.id);
+      expect(isInstanceSignalFenceDisabled(instance.id)).toBe(false);
     });
 
     it('assigns a unique ID to each instance', async () => {

@@ -551,12 +551,14 @@ describe('privileged settings CLI writability reporting', () => {
     // `providerAccountPools`, taking it to 23: they decide which subscription a
     // conversation runs under, like the Copilot pair. On 2026-10-13
     // `planQueueRouting` became the 24th: it decides which of those accounts
-    // unattended Plan Queue sessions may spend.
-    // Fail here if a 25th is added, or one is removed, without updating the
+    // unattended Plan Queue sessions may spend. On 2026-10-16
+    // `providerSignalFenceEnabled` became the 25th: an agent that could turn
+    // the macOS signal fence off could kill sibling sessions.
+    // Fail here if a 26th is added, or one is removed, without updating the
     // prose.
     const anchors = [...privilegedList().values()].filter((setting) => !setting.cliWritable);
 
-    expect(anchors).toHaveLength(24);
+    expect(anchors).toHaveLength(25);
   });
 
   it('refuses an operator-only key before parsing the supplied value', () => {

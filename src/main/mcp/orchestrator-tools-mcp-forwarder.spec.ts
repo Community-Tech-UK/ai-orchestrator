@@ -15,6 +15,8 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'run_on_node',
       'exec_on_node',
       'reset_node_connection',
+      'list_host_processes',
+      'stop_leftover_processes',
       'read_node_output',
       'terminate_node_instance',
       'list_node_files',
@@ -536,6 +538,20 @@ describe('createOrchestratorToolsForwarderTools', () => {
     expect(call).toHaveBeenCalledWith('orchestrator_tools.reset_node_connection', { node: 'windows-pc' });
     expect(result).toEqual({ nodeId: 'node-1', nodeName: 'windows-pc', reset: true });
     await expect(tool!.handler([] as unknown as Record<string, unknown>)).rejects.toThrow('must be an object');
+  });
+
+  it('forwards host process tools with the canonical method names', async () => {
+    const call = vi.fn(async () => ({ ok: true }));
+    const tools = createOrchestratorToolsForwarderTools(stubClient(call));
+    const list = tools.find((t) => t.name === 'list_host_processes');
+    const stop = tools.find((t) => t.name === 'stop_leftover_processes');
+
+    await list!.handler({ limit: 5 });
+    await stop!.handler({ pids: [4242], force: true });
+
+    expect(call).toHaveBeenNthCalledWith(1, 'orchestrator_tools.list_host_processes', { limit: 5 });
+    expect(call).toHaveBeenNthCalledWith(2, 'orchestrator_tools.stop_leftover_processes', { pids: [4242], force: true });
+    await expect(stop!.handler([] as unknown as Record<string, unknown>)).rejects.toThrow('must be an object');
   });
 
   it('forwards download_from_node invocations with the canonical method name', async () => {
