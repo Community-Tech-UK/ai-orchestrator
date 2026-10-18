@@ -6242,7 +6242,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2468
+      "lines": 2473
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
@@ -6253,20 +6253,20 @@
       "lines": 2339
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
+      "lines": 2329
+    },
+    {
       "path": "src/main/history/history-manager.spec.ts",
       "lines": 2301
     },
     {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 2299
+      "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
+      "lines": 2250
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
       "lines": 2241
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
-      "lines": 2229
     },
     {
       "path": "docs/plans/2026-10-10-oct-housekeeping_plan_completed.md",
@@ -6326,7 +6326,7 @@
     },
     {
       "path": "src/main/session/session-continuity.spec.ts",
-      "lines": 1974
+      "lines": 1976
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-session-restart-preserve-history_completed.md",
@@ -6389,12 +6389,12 @@
       "lines": 1694
     },
     {
-      "path": "src/main/local-ai-guard/local-ai-health-repository.spec.ts",
-      "lines": 1660
+      "path": "src/main/mcp/orchestrator-tools-rpc-server.spec.ts",
+      "lines": 1675
     },
     {
-      "path": "src/main/mcp/orchestrator-tools-rpc-server.spec.ts",
-      "lines": 1653
+      "path": "src/main/local-ai-guard/local-ai-health-repository.spec.ts",
+      "lines": 1660
     },
     {
       "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
@@ -7166,7 +7166,7 @@
     },
     {
       "path": "src/main/mcp/orchestrator-tools-rpc-server.ts",
-      "lines": 871
+      "lines": 876
     },
     {
       "path": "src/main/instance/lifecycle/__tests__/interrupt-respawn-handler.spec.ts",

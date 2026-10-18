@@ -9,6 +9,7 @@ import { UnresolvedMergeError } from './plan-queue-git';
 import { landItemBranch } from './plan-queue-landing';
 import { PlanQueueWorktreeService, planQueueBranchName } from './plan-queue-worktree';
 import type { PlanQueueItem } from './plan-queue.types';
+import * as gitCommands from '../workspace/git/git-exec';
 
 // Every test drives real git through dozens of child processes. Alone each takes
 // about a second, but under the full suite's load one exceeded the 5s default
@@ -88,6 +89,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   rmSync(repo, { recursive: true, force: true });
   WorktreeManager._resetForTesting();
   GitWriteQueue._resetForTesting();
@@ -330,8 +332,13 @@ describe('PlanQueueWorktreeService', () => {
     // A fresh manager, as after a restart: WorktreeManager.createWorktree would
     // run `worktree add -b` and, failing on the existing branch, delete it.
     WorktreeManager._resetForTesting();
+    const gitSpy = vi.spyOn(gitCommands, 'gitExec');
     const reattached = await service.reattach(item, repo);
 
+    expect(gitSpy).toHaveBeenCalledWith(
+      ['worktree', 'add', reattached.worktreePath, item.branchName], repo, 300_000,
+    );
+    expect(gitSpy).toHaveBeenCalledWith(['rev-parse', 'HEAD'], reattached.worktreePath);
     expect(reattached.worktreePath).toBe(join(repo, '.worktrees', item.branchName ?? ''));
     expect(saved.some((s) => s.worktreePath === reattached.worktreePath && s.checkpointCommit === tip)).toBe(true);
     expect(reattached.checkpointCommit).toBe(tip);
@@ -339,6 +346,29 @@ describe('PlanQueueWorktreeService', () => {
     expect(git(['rev-parse', item.branchName ?? ''])).toBe(tip);
     // Idempotent: a second call finds the checkout and changes nothing.
     expect((await service.reattach(reattached, repo)).checkpointCommit).toBe(tip);
+  });
+
+  it('preserves branch ownership and its work when reattachment times out', async () => {
+    let item = await service.prepare(makeItem(), repo);
+    writeFileSync(join(item.worktreePath ?? '', 'work.txt'), 'parked work\n');
+    item = await service.checkpoint(item, 'park');
+    await service.removeWithProof(item, repo);
+    item = { ...saved.at(-1)!, state: 'preparing' };
+    const timeout = Object.assign(new Error('checkout timed out'), { killed: true, signal: 'SIGTERM' });
+    const runGit = gitCommands.gitExec;
+    vi.spyOn(gitCommands, 'gitExec').mockImplementation((args, cwd, deadline) =>
+      args[0] === 'worktree' && args[1] === 'add'
+        ? Promise.reject(timeout)
+        : runGit(args, cwd, deadline),
+    );
+
+    await expect(service.reattach(item, repo)).rejects.toBe(timeout);
+    await GitWriteQueue.getInstance().enqueue('after-reattach-failure', async () => undefined);
+
+    expect(saved.at(-1)?.branchName).toBe(item.branchName);
+    expect(saved.at(-1)?.worktreePath).toBe(join(repo, '.worktrees', item.branchName ?? ''));
+    expect(git(['rev-parse', item.branchName ?? ''])).toBe(item.checkpointCommit);
+    expect(git(['show', `${item.branchName}:work.txt`])).toBe('parked work');
   });
 
   describe('with a merge of main in progress', () => {

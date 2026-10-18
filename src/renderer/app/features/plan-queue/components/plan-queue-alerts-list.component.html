@@ -18,6 +18,12 @@
           @if (alert.itemId) {
             <span class="pq-alert-item">item {{ alert.itemId }}</span>
           }
+          @if (alert.reason) {
+            <span class="pq-alert-reason">{{ alert.reason }}</span>
+          }
+          @if (alert.suggestedAction) {
+            <span class="pq-alert-action">{{ alert.suggestedAction }}</span>
+          }
         </li>
       }
     </ul>

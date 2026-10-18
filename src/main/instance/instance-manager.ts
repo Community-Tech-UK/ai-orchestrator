@@ -979,6 +979,11 @@ export class InstanceManager extends EventEmitter {
     return this.state.getInstance(id);
   }
 
+  /** Published or still-private crash-recovery instance; for spawn-time capability minting only. */
+  hasRuntimeInstance(id: string): boolean {
+    return this.state.getInstance(id) !== undefined || this.state.isInstancePending(id);
+  }
+
   getAllInstances(): Instance[] {
     return this.state.getAllInstances();
   }

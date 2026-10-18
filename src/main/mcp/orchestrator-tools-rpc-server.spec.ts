@@ -1327,6 +1327,28 @@ describe('OrchestratorToolsRpcServer.getInstanceCapability', () => {
     const { server } = makeServer({ isKnownLocalInstance: () => true });
     expect(server.getInstanceCapability('instance-a')).not.toBe(server.getInstanceCapability('instance-b'));
   });
+
+  it('mints for an instance still being recovered but serves it only once published', async () => {
+    let published = false;
+    const { server, toolHandler } = makeServer({
+      isKnownLocalInstance: (id) => published && id === 'instance-pending',
+      canMintInstanceCapability: (id) => id === 'instance-pending',
+    });
+    expect(server.getInstanceCapability('instance-pending')).toBeTruthy();
+    expect(server.getInstanceCapability('instance-unknown')).toBeNull();
+    const request = {
+      jsonrpc: '2.0' as const,
+      id: 1,
+      method: 'orchestrator_tools.git_batch_pull' as const,
+      params: { instanceId: 'instance-pending', payload: { root: '/repo' } },
+    };
+    await expect(server.handleRequest(request)).rejects.toThrow('unknown orchestrator-tools instance');
+    expect(toolHandler).not.toHaveBeenCalled();
+
+    published = true;
+    await expect(server.handleRequest(request)).resolves.toBeDefined();
+    expect(toolHandler).toHaveBeenCalledOnce();
+  });
 });
 
 describe('OrchestratorToolsRpcServer abort-signal plumbing', () => {

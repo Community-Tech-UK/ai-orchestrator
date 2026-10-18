@@ -94,6 +94,9 @@ export interface BrowserGatewayRpcServerOptions {
   extensionContactState?: BrowserExtensionContactState;
   userDataPath?: string;
   isKnownLocalInstance?: (instanceId: string) => boolean;
+  /** Mint-time check (default `isKnownLocalInstance`). Must also accept unpublished
+   *  crash-recovery instances, whose CLI spawns first; requests still use `isKnownLocalInstance`. */
+  canMintInstanceCapability?: (instanceId: string) => boolean;
   extensionToken?: string;
   registerCleanup?: (cleanup: () => void | Promise<void>) => void | (() => void);
   maxPayloadBytes?: number;
@@ -143,6 +146,7 @@ export class BrowserGatewayRpcServer {
   private readonly extensionContactState: BrowserExtensionContactState;
   private readonly userDataPath: string;
   private readonly isKnownLocalInstance: (instanceId: string) => boolean;
+  private readonly canMintInstanceCapability: (instanceId: string) => boolean;
   private readonly extensionToken: string;
   private readonly maxPayloadBytes: number;
   private readonly rateLimit: { maxRequests: number; maxBytes: number; windowMs: number };
@@ -171,6 +175,7 @@ export class BrowserGatewayRpcServer {
     this.onExtensionContact = options.onExtensionContact ?? (() => undefined);
     this.userDataPath = options.userDataPath ?? app.getPath('userData');
     this.isKnownLocalInstance = options.isKnownLocalInstance ?? (() => false);
+    this.canMintInstanceCapability = options.canMintInstanceCapability ?? this.isKnownLocalInstance;
     this.extensionToken = options.extensionToken ?? crypto.randomBytes(32).toString('hex');
     this.maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
     this.rateLimit = {
@@ -226,7 +231,7 @@ export class BrowserGatewayRpcServer {
   }
 
   getInstanceCapability(instanceId: string): string | null {
-    return this.instanceCapabilities.mint(instanceId, this.isKnownLocalInstance);
+    return this.instanceCapabilities.mint(instanceId, this.canMintInstanceCapability);
   }
 
   async handleRequest(request: BrowserGatewayRpcRequest): Promise<unknown> {

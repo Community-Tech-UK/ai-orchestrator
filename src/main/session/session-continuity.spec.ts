@@ -54,7 +54,7 @@ vi.mock('../core/config/settings-manager', () => ({
 import { LEGACY_REDACTED_TOOL_OUTPUT } from './redacted-tool-output';
 import { SessionContinuityManager as ImportedSessionContinuityManager } from './session-continuity';
 import { getSessionMutex, _resetSessionMutexForTesting } from './session-mutex';
-import { _resetSessionPersistenceQueueForTesting } from './session-persistence-queue';
+import { getSessionPersistenceQueue, _resetSessionPersistenceQueueForTesting } from './session-persistence-queue';
 import {
   RECOVERY_FALLBACK_WINDOW_MS,
   SessionRecoveryCandidateService,
@@ -1193,6 +1193,8 @@ describe('SessionContinuityManager logging', () => {
     for (const manager of managers.splice(0, managers.length)) {
       manager.shutdown();
     }
+
+    await getSessionPersistenceQueue().shutdown({ drain: true });
 
     for (const dir of tempDirs.splice(0, tempDirs.length)) {
       await fs.promises.rm(dir, { recursive: true, force: true });

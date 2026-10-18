@@ -326,7 +326,7 @@ export class SpawnConfigBuilder {
         : null;
       if (!builtInToolsConfig) {
         logger.warn(
-          'Orchestrator-tools MCP not configured — aio-mcp SEA binary or orchestrator-tools RPC socket missing',
+          'Orchestrator-tools MCP not configured — aio-mcp SEA binary, RPC socket or instance capability missing',
           { provider, instanceId, isPackaged: app.isPackaged },
         );
       }
@@ -420,7 +420,12 @@ export class SpawnConfigBuilder {
       return null;
     }
     const capabilityToken = getBrowserGatewayRpcInstanceCapability(instanceId);
-    if (!capabilityToken) return null;
+    if (!capabilityToken) {
+      logger.warn('Browser Gateway MCP not configured — no capability could be minted for this instance', {
+        instanceId,
+      });
+      return null;
+    }
     // Some clients do not install callable wrappers after tools/list_changed.
     // Log and return the effective mode, not the requested UI mode.
     const toolMode = resolveBrowserGatewayToolMode(provider, mode === 'deferred');

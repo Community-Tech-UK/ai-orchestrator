@@ -70,6 +70,53 @@ afterEach(() => {
 });
 
 describe('PlanQueueStore', () => {
+  it('keeps recovery locations across stale status writes and a fresh store', () => {
+    store.upsertRun(makeRun());
+    const stale = makeItem({ state: 'parked' });
+    store.upsertItem(stale);
+    const receipt = 'Orphan checkout retained at /repo/.worktrees/queue-quarantine/owned/checkout\n';
+    store.upsertItem({ ...stale, detail: receipt });
+    store.upsertItem({ ...stale, state: 'queued', detail: null });
+    expect(new PlanQueueStore(driver).getItem(stale.id)?.detail).toBe(receipt);
+    store.upsertItem({ ...stale, state: 'verifying', detail: 'A new checker status' });
+    expect(store.getItem(stale.id)?.detail).toBe(receipt + 'A new checker status');
+  });
+
+  it('retains every distinct location and never downgrades a confirmed move to planned', () => {
+    store.upsertRun(makeRun());
+    const item = makeItem();
+    const first = '/repo/.worktrees/queue-quarantine/one/checkout';
+    const second = '/repo/.worktrees/queue-quarantine/two/checkout';
+    store.upsertItem({ ...item, detail: `Orphan checkout recovery location: ${first}\n` });
+    store.upsertItem({ ...item, detail: `Orphan checkout retained at ${first}\n` });
+    store.upsertItem({ ...item, detail: `Orphan checkout recovery location: ${first}\nOrphan checkout retained at ${second}\n` });
+    expect(store.getItem(item.id)?.detail).toBe(
+      `Orphan checkout retained at ${first}\nOrphan checkout retained at ${second}\n`,
+    );
+  });
+
+  it('bounds replaceable status text while preserving complete recovery evidence', () => {
+    store.upsertRun(makeRun());
+    const item = makeItem();
+    const receipt = 'Orphan checkout retained at /repo/.worktrees/queue-quarantine/owned/checkout\n';
+    store.upsertItem({ ...item, detail: receipt });
+    store.upsertItem({ ...item, detail: 'x'.repeat(8000) });
+    const detail = store.getItem(item.id)!.detail!;
+    expect(detail).toHaveLength(8000);
+    expect(detail).toBe(receipt + 'x'.repeat(8000 - receipt.length));
+  });
+
+  it('rolls back state and evidence when an additional location exceeds the bounded field', () => {
+    store.upsertRun(makeRun());
+    const item = makeItem({ state: 'parked' });
+    const first = `Orphan checkout retained at /${'a'.repeat(3970)}\n`;
+    const second = `Orphan checkout retained at /${'b'.repeat(3970)}\n`;
+    store.upsertItem({ ...item, detail: first + second });
+    const before = store.getItem(item.id);
+    expect(() => store.upsertItem({ ...item, state: 'queued', detail: 'Orphan checkout recovery location: /another/checkout\n' })).toThrow('Recovery receipts exceed');
+    expect(store.getItem(item.id)).toEqual(before);
+  });
+
   it('round-trips parent thread and updates both ownership fields on rebind/adoption', () => {
     store.upsertRun(makeRun({ parentHistoryThreadId: 'history-original' }));
     expect(store.getRun('run-1')?.parentHistoryThreadId).toBe('history-original');

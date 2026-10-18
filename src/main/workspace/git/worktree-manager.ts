@@ -28,7 +28,7 @@ import {
 } from '../../../shared/types/worktree.types';
 import { getLogger } from '../../logging/logger';
 import { getGitWriteQueue } from './git-write-queue';
-import { gitExec, gitExecSafe } from './git-exec';
+import { gitExec, gitExecSafe, WORKTREE_CHECKOUT_TIMEOUT_MS } from './git-exec';
 import { listActivePlanDocuments } from './active-plan-documents';
 import { LOOP_DIRTY_ROOT_POLICY } from './loop-landing-policy';
 import { provisionWorktreeDependencies } from './worktree-deps';
@@ -157,7 +157,7 @@ export class WorktreeManager extends EventEmitter {
       await fs.mkdir(path.dirname(worktreePath), { recursive: true });
 
       await getGitWriteQueue().enqueue('worktree-add', () =>
-        gitExec(['worktree', 'add', '-b', branchName, worktreePath, baseBranch], repoRoot)
+        gitExec(['worktree', 'add', '-b', branchName, worktreePath, baseBranch], repoRoot, WORKTREE_CHECKOUT_TIMEOUT_MS)
       );
 
       // P6: suppress auto-gc so agent git reads can't trigger an unserialized gc

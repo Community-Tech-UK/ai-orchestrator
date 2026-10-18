@@ -536,6 +536,7 @@ export function createLateRuntimeInitializationSteps(
       fn: () =>
         initializeBrowserGatewayRuntime({
           isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
+          canMintInstanceCapability: (instanceId) => instanceManager.hasRuntimeInstance(instanceId),
           resolveCheckpointOwner: (instanceId) => {
             const workingDirectory = instanceManager.getInstance(instanceId)?.workingDirectory;
             return workingDirectory

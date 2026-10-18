@@ -222,9 +222,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   }
   /** Tests only: wait for in-flight item operations, landings and scheduler passes. */
   async _whenSettledForTesting(): Promise<void> {
-    for (let pass = 0; pass < 20; pass += 1) {
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
       await this.flow?.whenSettled();
-      await new Promise((resolve) => setImmediate(resolve));
       if (!this.pumping) return;
     }
   }
@@ -458,8 +458,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         this.transition(item, 'skipped', { question: null, detail: 'Skipped by James.' });
         break;
       case 'resume-item':
-        this.transition(item, 'queued', { parkReason: null, detail: null, heldAt: null, round: 0, erroredRounds: 0, landingRefusals: 0, question: null, landedCommit: null, verdict: null, verifiedMainCommit: null });
-        this.reopen(run);
+        await flow.resume(item.id);
+        this.reopen(this.getRun(run.id));
         break;
       case 'land-anyway':
         // Landing can send the item back to a worker (a conflict or a failed

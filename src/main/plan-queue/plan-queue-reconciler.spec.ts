@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -120,6 +120,71 @@ describe('reconcilePlanQueueWorktrees', () => {
     );
 
     expect(alerts).toEqual([]);
+  });
+
+  it.each(['working', 'parked'] as const)('reports an owned %s checkout whose Git metadata has vanished without touching its files', async (state) => {
+    const branchName = 'queue/broken-abc123';
+    const worktreePath = addWorktree(branchName);
+    const gitfilePath = join(worktreePath, '.git');
+    const gitfile = readFileSync(gitfilePath, 'utf8');
+    const metadata = gitfile.trim().slice('gitdir: '.length);
+    writeFileSync(join(worktreePath, 'stranded.txt'), 'preserve my uncommitted work\n');
+    rmSync(metadata, { recursive: true });
+    expect(git(['worktree', 'list', '--porcelain'])).not.toContain(worktreePath);
+    const beforeRefs = git(['for-each-ref']);
+
+    const alerts = await reconcilePlanQueueWorktrees([repo], [makeItem({
+      state, parkReason: state === 'parked' ? 'worktree-error' : null, branchName, worktreePath,
+    })]);
+
+    expect(alerts).toEqual([{
+      kind: 'invalid-worktree', path: worktreePath, branchName, itemId: 'item-1',
+      reason: 'The saved checkout is unusable or does not match its queue item.',
+      suggestedAction: expect.stringContaining('explicitly approved Discard'),
+    }]);
+    expect(alerts[0].suggestedAction).toContain('foreign or still-registered checkouts are refused');
+    expect(readFileSync(join(worktreePath, 'stranded.txt'), 'utf8')).toBe('preserve my uncommitted work\n');
+    expect(readFileSync(gitfilePath, 'utf8')).toBe(gitfile);
+    expect(existsSync(metadata)).toBe(false);
+    expect(git(['for-each-ref'])).toBe(beforeRefs);
+  });
+
+  it('accepts a valid retained parked worktree, including a worktree-error row', async () => {
+    const branchName = 'queue/retained-abc123';
+    const worktreePath = addWorktree(branchName);
+    expect(await reconcilePlanQueueWorktrees([repo], [makeItem({
+      state: 'parked', parkReason: 'worktree-error', branchName, worktreePath,
+    })])).toEqual([]);
+  });
+
+  it('reports a parked checkout with a broken gitfile even when Git still lists it', async () => {
+    const branchName = 'queue/retained-abc123';
+    const worktreePath = addWorktree(branchName);
+    writeFileSync(join(worktreePath, '.git'), 'gitdir: /nonexistent/foreign-metadata\n');
+    expect(git(['worktree', 'list', '--porcelain'])).toContain(worktreePath);
+
+    expect(await reconcilePlanQueueWorktrees([repo], [makeItem({
+      state: 'parked', parkReason: 'worktree-error', branchName, worktreePath,
+    })])).toEqual([expect.objectContaining({ kind: 'invalid-worktree', itemId: 'item-1' })]);
+    expect(readFileSync(join(worktreePath, '.git'), 'utf8')).toBe('gitdir: /nonexistent/foreign-metadata\n');
+  });
+
+  it('reports a foreign branch at the owned path without treating it as unowned or changing it', async () => {
+    const branchName = 'queue/expected-abc123';
+    const worktreePath = addWorktree(branchName);
+    git(['checkout', '-q', '-b', 'feature/foreign'], worktreePath);
+
+    expect(await reconcilePlanQueueWorktrees([repo], [makeItem({ branchName, worktreePath })]))
+      .toEqual([expect.objectContaining({ kind: 'invalid-worktree', itemId: 'item-1' })]);
+    expect(git(['branch', '--show-current'], worktreePath)).toBe('feature/foreign');
+  });
+
+  it('does not diagnose an incomplete checkout while its item is preparing', async () => {
+    const worktreePath = join(repo, '.worktrees', 'queue', 'preparing-abc123');
+    mkdirSync(worktreePath, { recursive: true });
+    expect(await reconcilePlanQueueWorktrees([repo], [makeItem({
+      state: 'preparing', branchName: 'queue/preparing-abc123', worktreePath,
+    })])).toEqual([]);
   });
 
   it('resolves a workspace that is a subdirectory, and skips one that no longer exists', async () => {

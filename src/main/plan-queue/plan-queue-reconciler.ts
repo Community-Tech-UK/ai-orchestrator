@@ -14,12 +14,14 @@ import { gitExec } from '../workspace/git/git-exec';
 import { isInsideOrEqual } from '../util/path-helpers';
 import { pathCompareKey } from '../workspace/git/worktree-cleanup';
 import { itemHoldsWorktree } from './plan-queue-state';
+import { assertQueueCheckout } from './plan-queue-orphan-checkout';
 import { PLAN_QUEUE_BRANCH_PREFIX, PLAN_QUEUE_WORKTREE_BASE_DIR } from './plan-queue-worktree';
 import type { PlanQueueItem } from './plan-queue.types';
 
 interface ListedWorktree {
   path: string;
   branch?: string;
+  repoRoot?: string;
 }
 
 function parseWorktreeList(porcelain: string): ListedWorktree[] {
@@ -61,6 +63,7 @@ export async function reconcilePlanQueueWorktrees(
   const ownedBranches = new Set(items.flatMap((i) => (i.branchName ? [i.branchName] : [])));
 
   const repoRoots = new Set<string>();
+  const listedByPath = new Map<string, ListedWorktree>();
   for (const workspace of workspaceRoots) {
     if (!existsSync(workspace)) continue;
     try {
@@ -73,6 +76,7 @@ export async function reconcilePlanQueueWorktrees(
   for (const repoRoot of repoRoots) {
     const listed = parseWorktreeList(await gitExec(['worktree', 'list', '--porcelain'], repoRoot));
     for (const worktree of listed) {
+      listedByPath.set(pathCompareKey(worktree.path), { ...worktree, repoRoot });
       if (!isQueueWorktreePath(repoRoot, worktree.path)) continue;
       if (!ownedPaths.has(pathCompareKey(worktree.path))) {
         alerts.push({ kind: 'unowned-worktree', path: worktree.path, branchName: worktree.branch });
@@ -91,12 +95,37 @@ export async function reconcilePlanQueueWorktrees(
   }
 
   for (const item of items) {
-    if (item.worktreePath && itemHoldsWorktree(item.state) && !existsSync(item.worktreePath)) {
+    if (!item.worktreePath) continue;
+    if (!existsSync(item.worktreePath)) {
+      if (!itemHoldsWorktree(item.state)) continue;
       alerts.push({
         kind: 'missing-worktree',
         path: item.worktreePath,
         branchName: item.branchName ?? undefined,
         itemId: item.id,
+      });
+      continue;
+    }
+    // Preparing persists ownership before Git creates the checkout. Diagnose
+    // stable active rows and retained parked copies, not that expected gap.
+    if (item.state === 'preparing' || (!itemHoldsWorktree(item.state) && item.state !== 'parked')) continue;
+    const listed = listedByPath.get(pathCompareKey(item.worktreePath));
+    let valid = !!item.branchName && listed?.branch === item.branchName;
+    // Normal active rows need no extra Git processes. Parked copies are rare
+    // and may retain broken gitfiles even while Git still lists their path.
+    if (valid && item.state === 'parked' && item.branchName && listed?.repoRoot) {
+      try {
+        await assertQueueCheckout(item.worktreePath, item.branchName, listed.repoRoot);
+      } catch {
+        valid = false;
+      }
+    }
+    if (!valid) {
+      alerts.push({
+        kind: 'invalid-worktree', path: item.worktreePath,
+        branchName: item.branchName ?? undefined, itemId: item.id,
+        reason: 'The saved checkout is unusable or does not match its queue item.',
+        suggestedAction: 'Review the item details before retrying. For a parked item, explicitly approved Discard can preserve an item-owned orphan checkout; foreign or still-registered checkouts are refused.',
       });
     }
   }

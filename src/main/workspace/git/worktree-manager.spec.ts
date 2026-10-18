@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { WorktreeManager, _resetWorktreeManagerForTesting } from './worktree-manager';
 import { GitWriteQueue } from './git-write-queue';
 import { hermeticGitEnv } from './git-env';
+import * as gitCommands from './git-exec';
 
 const execFileAsync = promisify(execFile);
 async function git(args: string[], cwd: string): Promise<string> {
@@ -156,6 +157,7 @@ describe('WorktreeManager.integrateWorktree — auto-integration (real git)', ()
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     _resetWorktreeManagerForTesting();
     try {
       rmSync(repo, { recursive: true, force: true });
@@ -233,6 +235,7 @@ describe('WorktreeManager.integrateWorktree — auto-integration (real git)', ()
 
   it('durably prepares ownership before creating the Git worktree or branch', async () => {
     const mgr = WorktreeManager.getInstance();
+    const gitSpy = vi.spyOn(gitCommands, 'gitExec');
     let prepared = false;
     const session = await mgr.createWorktree('loop-prepared', 'reserved first', {
       repoRoot: repo,
@@ -246,10 +249,42 @@ describe('WorktreeManager.integrateWorktree — auto-integration (real git)', ()
     });
 
     expect(prepared).toBe(true);
+    expect(gitSpy).toHaveBeenCalledWith(
+      ['worktree', 'add', '-b', session.branchName, session.worktreePath, 'main'],
+      repo,
+      300_000,
+    );
+    expect(gitSpy).toHaveBeenCalledWith(['rev-parse', 'HEAD'], repo);
     expect(existsSync(session.worktreePath)).toBe(true);
     expect(await git(['branch', '--list', session.branchName], repo)).toContain(
       session.branchName,
     );
+  });
+
+  it('propagates a checkout timeout and cleans up the failed session', async () => {
+    const mgr = WorktreeManager.getInstance();
+    const timeout = Object.assign(new Error('checkout timed out'), { killed: true, signal: 'SIGTERM' });
+    const runGit = gitCommands.gitExec;
+    vi.spyOn(gitCommands, 'gitExec').mockImplementation((args, cwd, deadline) =>
+      args[0] === 'worktree' && args[1] === 'add'
+        ? Promise.reject(timeout)
+        : runGit(args, cwd, deadline),
+    );
+    const cleanup = vi.spyOn(mgr, 'cleanupWorktree').mockResolvedValue();
+    let ownedSessionId: string | undefined;
+
+    await expect(mgr.createWorktree('failed-checkout', 'checkout failure', {
+      repoRoot: repo,
+      baseBranch: 'main',
+      skipInstall: true,
+      onPrepared: (session) => { ownedSessionId = session.id; },
+    })).rejects.toBe(timeout);
+    // Settle the write queue's rejected tail before this test leaves the turn.
+    await GitWriteQueue.getInstance().enqueue('after-checkout-failure', async () => undefined);
+
+    expect(ownedSessionId).toBeDefined();
+    expect(mgr.getSession(ownedSessionId!)?.status).toBe('abandoned');
+    expect(cleanup).toHaveBeenCalledWith(ownedSessionId, { force: true, deleteBranch: true });
   });
 
   it('can clean a merged worktree while retaining its session branch', async () => {

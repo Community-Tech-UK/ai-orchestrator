@@ -17,7 +17,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { sanitizeBranchName, type WorktreeSession } from '../../shared/types/worktree.types';
 import { getLogger } from '../logging/logger';
-import { gitExec, gitExecSafe } from '../workspace/git/git-exec';
+import { gitExec, WORKTREE_CHECKOUT_TIMEOUT_MS } from '../workspace/git/git-exec';
 import { getGitWriteQueue } from '../workspace/git/git-write-queue';
 import { provisionWorktreeDependencies } from '../workspace/git/worktree-deps';
 import {
@@ -26,6 +26,7 @@ import {
   removeManagedWorktreeDirectory,
 } from '../workspace/git/worktree-cleanup';
 import { UnresolvedMergeError, unresolvedMergeFiles } from './plan-queue-git';
+import { assertQueueCheckout, retainedQueuePathExists } from './plan-queue-orphan-checkout';
 import type { PlanQueueItem } from './plan-queue.types';
 
 const logger = getLogger('PlanQueueWorktree');
@@ -123,11 +124,12 @@ export class PlanQueueWorktreeService {
     const worktreePath = path.join(repoRoot, PLAN_QUEUE_WORKTREE_BASE_DIR, branchName);
     const withPath = { ...item, worktreePath };
     this.deps.saveItem(withPath);
-    const alreadyThere = await fs.stat(path.join(worktreePath, '.git')).then(() => true, () => false);
+    const alreadyThere = await retainedQueuePathExists(worktreePath);
+    if (alreadyThere) await assertQueueCheckout(worktreePath, branchName, repoRoot);
     if (!alreadyThere) {
       await fs.mkdir(path.dirname(worktreePath), { recursive: true });
       await getGitWriteQueue().enqueue('plan-queue-reattach', () =>
-        gitExec(['worktree', 'add', worktreePath, branchName], repoRoot),
+        gitExec(['worktree', 'add', worktreePath, branchName], repoRoot, WORKTREE_CHECKOUT_TIMEOUT_MS),
       );
       if (!this.deps.skipInstall) {
         await provisionWorktreeDependencies(repoRoot, worktreePath).catch((error: unknown) => {
@@ -243,13 +245,19 @@ export class PlanQueueWorktreeService {
     if (item.worktreePath) {
       throw new Error(`Refusing to delete ${branchName}: its worktree still exists`);
     }
-    const tip = await gitExecSafe(['rev-parse', '--verify', '--quiet', `refs/heads/${branchName}`], repoRoot);
-    if (tip) {
-      // A squash-landed branch is never an ancestor of main, so identity (the
-      // recorded tip) is the safety check rather than mergedness.
-      await deleteLocalBranchIfPresent(repoRoot, branchName, { allowUnmerged: true, expectedTip: tip });
-    }
-    this.deps.saveItem({ ...item, branchName: null });
+    await getGitWriteQueue().enqueue('plan-queue-delete-branch', async () => {
+      const listed = await gitExec(['worktree', 'list', '--porcelain'], repoRoot);
+      if (listed.split('\n').includes(`branch refs/heads/${branchName}`)) {
+        throw new Error(`Refusing to delete ${branchName}: it is still checked out`);
+      }
+      const tip = await gitExec(['for-each-ref', '--format=%(objectname)', `refs/heads/${branchName}`], repoRoot);
+      if (tip) {
+        // A squash-landed branch is not an ancestor of main. Check the exact
+        // tip and registration while holding the shared Git mutation lock.
+        await deleteLocalBranchIfPresent(repoRoot, branchName, { allowUnmerged: true, expectedTip: tip }, true);
+      }
+      this.deps.saveItem({ ...item, branchName: null });
+    });
   }
 }
 

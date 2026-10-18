@@ -278,7 +278,9 @@ const ALLOWLIST: Record<string, number> = {
   // uncommitted work already in this file.
   // Tightened 2720 -> 2417 after extracting input-required permission flow to
   // instance-permission-request-flow.ts (architecture-quality 2.1).
-  'src/main/instance/instance-manager.ts': 2417,
+  // Raised 2417 -> 2472: earlier creep up to the slack edge plus hasRuntimeInstance()
+  // for minting MCP capabilities while crash recovery is unpublished (2026-10-18).
+  'src/main/instance/instance-manager.ts': 2472,
   // Raised 1068 -> 1105 (2026-07-17 loop-issue fixes).
   'src/main/instance/instance-orchestration.ts': 1105,
   // Raised 715 -> 935 for the session usage-overage stop (maybeParkOnUsageLimit,
@@ -325,7 +327,9 @@ const ALLOWLIST: Record<string, number> = {
   // Crossed 700 by two lines of sync_to_node/sync_from_node context wiring.
   // Raised 766 -> 821: createSessionMessagesTables() wiring for the
   // cross-session messaging audit table (2026-09-16).
-  'src/main/mcp/orchestrator-tools-rpc-server.ts': 821,
+  // Raised 821 -> 875: earlier creep up to the slack edge plus the mint-time
+  // canMintInstanceCapability option for crash-recovery spawns (2026-10-18).
+  'src/main/mcp/orchestrator-tools-rpc-server.ts': 875,
   // Crossed 700 registering send_session_message / list_messageable_sessions
   // in the stdio forwarder's settings-gated tool list (2026-09-16).
   'src/main/mcp/orchestrator-tools-mcp-forwarder.ts': 707,

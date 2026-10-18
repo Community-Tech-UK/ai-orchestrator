@@ -221,6 +221,7 @@ export function createOrchestratorToolsStep(
       await initializeOrchestratorToolsRpcServer({
         operatorDbPath: defaultOperatorDbPath(),
         isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
+        canMintInstanceCapability: (instanceId) => instanceManager.hasRuntimeInstance(instanceId),
         localAiGuardOperations: createDefaultLocalAiPublicOperations(),
         copilotAccountOperations: createDefaultCopilotAccountCliOperations(),
         loopOperations: createDefaultLoopCliOperations(),

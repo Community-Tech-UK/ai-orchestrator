@@ -245,10 +245,13 @@ export const PlanQueueRunDtoSchema = z.object({
 });
 
 export const PlanQueueAlertSchema = z.object({
-  kind: z.enum(['unowned-worktree', 'missing-worktree', 'unowned-branch']),
+  kind: z.enum(['unowned-worktree', 'missing-worktree', 'invalid-worktree', 'unowned-branch']),
   path: z.string().max(4000).optional(),
   branchName: z.string().max(500).optional(),
   itemId: z.string().max(200).optional(),
+  reason: z.string().min(1).max(1000).optional(),
+  /** Advice only; never grants permission to discard or recover a checkout. */
+  suggestedAction: z.string().min(1).max(1000).optional(),
 });
 
 // -------------------------------------------------------------------------

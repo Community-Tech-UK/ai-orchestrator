@@ -34,6 +34,8 @@ import { relaxedSettingsFor } from './plan-queue-relaxation';
 import type { PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
 import { hasPendingLandingCleanup, PlanQueueItemLanding } from './plan-queue-item-landing';
 import { syncItemWithBase } from './plan-queue-landing';
+import { quarantineOrphanCheckout, retainedQueuePathExists } from './plan-queue-orphan-checkout';
+import { planQueueBranchName } from './plan-queue-worktree';
 import {
   buildConflictPrompt,
   buildFixPrompt,
@@ -78,12 +80,7 @@ export class PlanQueueItemFlow {
     });
   }
 
-  /**
-   * Run `fn` after every earlier operation on this item has settled. Every
-   * public entry point takes the lock and re-reads the item inside it, so an
-   * operation never saves over a newer state (a cancel landing while a worktree
-   * is being prepared, for example). Internal helpers assume the lock is held.
-   */
+  /** Serialize operations; read current state inside the lock before saving. */
   private withItemLock<T>(itemId: string, fn: () => Promise<T>): Promise<T> {
     const previous = this.locks.get(itemId) ?? Promise.resolve();
     const result = previous.then(fn);
@@ -562,6 +559,13 @@ export class PlanQueueItemFlow {
   // Parking and operator actions
   // ---------------------------------------------------------------------------
 
+  /** Operator Resume must wait for retained-checkout recovery and other writers. */
+  resume(itemId: string): Promise<void> {
+    return this.withItemLock(itemId, async () => {
+      this.host.transition(this.host.getItem(itemId), 'queued', { parkReason: null, detail: null, heldAt: null, round: 0, erroredRounds: 0, landingRefusals: 0, question: null, landedCommit: null, verdict: null, verifiedMainCommit: null });
+    });
+  }
+
   /** Park from outside the flow (cancel, operator). Waits for any running operation. */
   park(itemId: string, reason: PlanQueueParkReason, detail: string): Promise<void> {
     return this.withItemLock(itemId, () => this.parkUnlocked(this.host.getItem(itemId), reason, detail));
@@ -610,23 +614,22 @@ export class PlanQueueItemFlow {
     this.host.requestPump();
   }
 
-  /**
-   * Delete a parked item's branch. Only on James's explicit Discard, or a
-   * stranded-run rescue; `actor` names who asked, for the item's detail.
-   */
+  /** Explicit Discard: preserve an item-owned orphan copy before deleting its branch. */
   discard(itemId: string, actor = 'James'): Promise<void> {
     return this.withItemLock(itemId, async () => {
-      const item = this.host.getItem(itemId);
+      let item = this.host.getItem(itemId);
       if (item.state !== 'parked') throw new Error('Only a parked item can be discarded');
-      if (item.worktreePath && existsSync(item.worktreePath)) {
-        throw new Error('This item still has a worktree on disk; resolve the reconciler alert first');
+      await Promise.all([item.workerInstanceId, item.verifierInstanceId].filter((id): id is string => Boolean(id)).map((id) => this.stopInstance(id)));
+      if (item.worktreePath && await retainedQueuePathExists(item.worktreePath)) {
+        item = await quarantineOrphanCheckout(item, this.host.getRun(item.runId).workspaceCwd, planQueueBranchName(item), (next) => { this.host.save(next); });
       }
       const cleared = item.worktreePath ? this.host.save({ ...item, worktreePath: null }) : item;
       if (cleared.branchName) {
         await this.host.worktrees.deleteBranchWithProof(cleared, this.host.getRun(item.runId).workspaceCwd, { discardRequested: true });
       }
       const current = this.host.getItem(itemId);
-      this.host.save({ ...current, detail: `${current.detail ?? ''} Discarded by ${actor}.`.trim() });
+      const receipt = ` Discarded by ${actor}.`;
+      this.host.save({ ...current, detail: `${(current.detail ?? '').slice(0, 8000 - receipt.length)}${receipt}`.trim() });
     });
   }
 
@@ -661,11 +664,7 @@ export class PlanQueueItemFlow {
   // Instances
   // ---------------------------------------------------------------------------
 
-  /**
-   * The run's parent session, or undefined once it is gone (after a restart
-   * its id is not restored): a child of a missing parent could not be shown
-   * nested, so it is shown at the top of the rail instead.
-   */
+  /** Resolve the live parent; missing parents leave children at the rail's top. */
   liveParentId(run: PlanQueueRun): string | undefined {
     return this.host.resolveRunParent(run);
   }

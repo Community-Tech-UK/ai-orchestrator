@@ -138,6 +138,9 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
   operatorDbPath?: string;
   userDataPath?: string;
   isKnownLocalInstance?: (instanceId: string) => boolean;
+  /** Mint-time check (default `isKnownLocalInstance`). Must also accept unpublished
+   *  crash-recovery instances, whose CLI spawns first; requests still use `isKnownLocalInstance`. */
+  canMintInstanceCapability?: (instanceId: string) => boolean;
   registerCleanup?: (cleanup: () => void | Promise<void>) => void | (() => void);
   maxPayloadBytes?: number;
   rateLimit?: {
@@ -205,6 +208,7 @@ export class OrchestratorToolsRpcServer {
   private readonly operatorDbPath: string;
   private readonly userDataPath: string;
   private readonly isKnownLocalInstance: (instanceId: string) => boolean;
+  private readonly canMintInstanceCapability: (instanceId: string) => boolean;
   private readonly maxPayloadBytes: number;
   private readonly rateLimit: { maxRequests: number; windowMs: number };
   private readonly listRemoteNodes: ListRemoteNodesFn | null;
@@ -258,6 +262,7 @@ export class OrchestratorToolsRpcServer {
     this.operatorDbPath = options.operatorDbPath ?? defaultOperatorDbPath();
     this.userDataPath = options.userDataPath ?? app.getPath('userData');
     this.isKnownLocalInstance = options.isKnownLocalInstance ?? (() => false);
+    this.canMintInstanceCapability = options.canMintInstanceCapability ?? this.isKnownLocalInstance;
     this.maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
     this.rateLimit = options.rateLimit ?? { maxRequests: 30, windowMs: 10_000 };
     this.listRemoteNodes = options.listRemoteNodes ?? null;
@@ -661,9 +666,9 @@ export class OrchestratorToolsRpcServer {
     }
   }
 
-  /** Mints the capability token for a spawned instance, or null if it is not a known local instance. */
+  /** Mints the capability token for a spawned instance, or null if `canMintInstanceCapability` rejects it. */
   getInstanceCapability(instanceId: string): string | null {
-    return this.instanceCapabilities.mint(instanceId, this.isKnownLocalInstance);
+    return this.instanceCapabilities.mint(instanceId, this.canMintInstanceCapability);
   }
 
   private parseParams(params: unknown): OrchestratorToolsRpcParams {

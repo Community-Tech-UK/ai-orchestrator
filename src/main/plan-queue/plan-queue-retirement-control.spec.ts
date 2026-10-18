@@ -379,6 +379,12 @@ it.each(['pause', 'cancel'] as const)('%s cannot overtake cleanup initiated by t
 });
 
 async function normalPassLanding(withSibling = true) {
+  const retirementStarted = deferred();
+  const retire = instances.terminateInstance.getMockImplementation()!;
+  instances.terminateInstance.mockImplementation((...args) => {
+    if (args[0] === 'worker') retirementStarted.release();
+    return retire(...args);
+  });
   if (withSibling) {
     const waiting = join(repo, 'waiting_plan.md');
     writeFileSync(waiting, '# Waiting for James\n');
@@ -393,7 +399,8 @@ async function normalPassLanding(withSibling = true) {
   coordinator.reportVerdict(checker, { item_id: item.id, verdict: 'PASS', findings: [], gates_run: [], document_complete: false, need_james: [] });
   instances.emit('provider:normalized-event', { instanceId: checker, event: { kind: 'output', messageType: 'assistant', content: 'Verified PASS.' } });
   instances.emit('instance:event', { instanceId: checker, event: { kind: 'status_changed', status: 'idle' } });
-  await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith('worker', true));
+  await retirementStarted.promise;
+  expect(instances.terminateInstance).toHaveBeenCalledWith('worker', true);
   expect(store.getItem(item.id)).toMatchObject({ state: 'landed', verdict: { verdict: 'PASS' }, workerInstanceId: 'worker' });
   expect(git(['show', 'main:feature.txt'])).toBe('worker completed work');
   return git(['rev-parse', 'main']);

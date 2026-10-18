@@ -1386,6 +1386,27 @@ describe('InstanceManager', () => {
       expect(resolved).toEqual(original);
     });
 
+    it('reports the private recovery instance as a runtime instance while its CLI spawns', async () => {
+      let finishSpawn: (() => void) | undefined;
+      mockAdapterSpawn.mockImplementationOnce(() => new Promise<number>((resolve) => {
+        finishSpawn = () => resolve(12345);
+      }));
+
+      const pending = manager.recoverFromContinuity(makeResolvedRecoveryCandidate());
+      await vi.waitFor(() => expect(mockAdapterSpawn).toHaveBeenCalledOnce());
+      const state = manager as unknown as { state: { pendingInstances: Map<string, unknown> } };
+      const pendingInstanceId = Array.from(state.state.pendingInstances.keys())[0]!;
+      expect(pendingInstanceId).toBeDefined();
+      expect(manager.getInstance(pendingInstanceId)).toBeUndefined();
+      expect(manager.hasRuntimeInstance(pendingInstanceId)).toBe(true);
+      expect(manager.hasRuntimeInstance('instance-unknown')).toBe(false);
+
+      finishSpawn?.();
+      const recovered = await pending;
+      expect(recovered.instanceId).toBe(pendingInstanceId);
+      expect(manager.hasRuntimeInstance(recovered.instanceId)).toBe(true);
+    });
+
     it('fails and rolls back the private transaction when its pending adapter exits', async () => {
       const resolved = makeResolvedRecoveryCandidate();
       const original = structuredClone(resolved);

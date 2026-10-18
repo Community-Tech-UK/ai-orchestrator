@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PlanQueueQuestionSchema, PlanQueueReportTriageArgsSchema, PlanQueueControlPayloadSchema, PlanQueueControlArgsSchema } from '../plan-queue.schemas';
+import { PlanQueueAlertSchema, PlanQueueQuestionSchema, PlanQueueReportTriageArgsSchema, PlanQueueControlPayloadSchema, PlanQueueControlArgsSchema } from '../plan-queue.schemas';
 
 const question = {
   question: 'Which existing verification command should the worker use?',
@@ -8,6 +8,21 @@ const question = {
 const technical = {
   kind: 'technical', recommendedOptionId: 'quiet', reason: 'The project requires this runner.', evidence: 'AGENTS.md documents npm run test:quiet.',
 };
+
+describe('Plan Queue checkout alerts', () => {
+  it('preserves bounded invalid-checkout advice and keeps legacy alerts valid', () => {
+    const alert = {
+      kind: 'invalid-worktree', path: '/repo/.worktrees/queue/item', itemId: 'item',
+      reason: 'Saved checkout is unusable.', suggestedAction: 'Review the item details before explicitly approving Discard.',
+    };
+    expect(PlanQueueAlertSchema.parse(alert)).toEqual(alert);
+    expect(PlanQueueAlertSchema.parse({ kind: 'missing-worktree', itemId: 'item' })).toEqual({ kind: 'missing-worktree', itemId: 'item' });
+  });
+
+  it.each(['reason', 'suggestedAction'])('rejects oversized %s instead of exposing raw diagnostics', (field) => {
+    expect(PlanQueueAlertSchema.safeParse({ kind: 'invalid-worktree', [field]: 'x'.repeat(1001) }).success).toBe(false);
+  });
+});
 
 describe('Plan Queue readiness decisions', () => {
   it('preserves evidence-backed technical metadata through triage parsing', () => {

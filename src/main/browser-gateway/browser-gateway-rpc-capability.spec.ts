@@ -124,6 +124,36 @@ describe('Browser Gateway socket session ownership', () => {
     expect(server.getInstanceCapability('PLACEHOLDER_UNKNOWN')).toBeNull();
   });
 
+  it('mints for a session still being recovered but serves it only once published', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'aio-browser-ownership-'));
+    directories.push(directory);
+    const publishedInstances = new Set<string>();
+    const server = new BrowserGatewayRpcServer({
+      service: {}, userDataPath: directory,
+      isKnownLocalInstance: (id) => publishedInstances.has(id),
+      canMintInstanceCapability: (id) => id === 'PLACEHOLDER_PENDING',
+      registerCleanup: () => undefined,
+      routeBrowserRequest: (_method, payload) => payload,
+      extensionToken: 'PLACEHOLDER_EXTENSION_TOKEN',
+    });
+    servers.push(server);
+    await server.start();
+
+    const capabilityToken = server.getInstanceCapability('PLACEHOLDER_PENDING');
+    expect(capabilityToken).toBeTruthy();
+    expect(server.getInstanceCapability('PLACEHOLDER_UNKNOWN')).toBeNull();
+    const request = {
+      instanceId: 'PLACEHOLDER_PENDING', capabilityToken, payload: { requestId: 'PLACEHOLDER_REQUEST' },
+    };
+    expect((await call(server, 'browser.cancel_credential_access', request)).error?.message)
+      .toBe('unknown browser gateway instance');
+    expect(access.cancel).not.toHaveBeenCalled();
+
+    publishedInstances.add('PLACEHOLDER_PENDING');
+    expect((await call(server, 'browser.cancel_credential_access', request)).error).toBeUndefined();
+    expect(access.cancel).toHaveBeenCalledOnce();
+  });
+
   it('rejects a valid capability once its session is removed', async () => {
     const { server, knownInstances } = await startServer();
     const capabilityToken = server.getInstanceCapability('PLACEHOLDER_B')!;

@@ -4,6 +4,7 @@ import type { PlanQueueAlert } from '@contracts/schemas/plan-queue';
 const ALERT_LABELS: Record<PlanQueueAlert['kind'], string> = {
   'unowned-worktree': 'Unowned worktree',
   'missing-worktree': 'Missing worktree',
+  'invalid-worktree': 'Invalid worktree',
   'unowned-branch': 'Unowned branch',
 };
 
@@ -12,8 +13,8 @@ export function planQueueAlertLabel(kind: PlanQueueAlert['kind']): string {
 }
 
 /**
- * Worktree reconciler findings: worktrees or branches the coordinator no
- * longer recognises as belonging to a live item. Re-runs on demand — the
+ * Worktree reconciler findings: missing/invalid owned checkouts and unowned
+ * worktrees or branches. Re-runs on demand — the
  * coordinator does not push these on every change.
  */
 @Component({

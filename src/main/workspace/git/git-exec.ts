@@ -4,6 +4,9 @@ import { hermeticGitEnv } from './git-env';
 
 const execFileAsync = promisify(execFile);
 
+/** Large checkouts can exceed the ordinary Git deadline while still making progress. */
+export const WORKTREE_CHECKOUT_TIMEOUT_MS = 5 * 60_000;
+
 /** Run a git command safely — array args, no shell interpolation. */
 export async function gitExec(args: string[], cwd: string, timeoutMs = 30_000): Promise<string> {
   const { stdout } = await execFileAsync('git', args, {

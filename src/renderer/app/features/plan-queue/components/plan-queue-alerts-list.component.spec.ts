@@ -58,4 +58,21 @@ describe('PlanQueueAlertsListComponent', () => {
 
     expect(count).toBe(1);
   });
+
+  it('shows an invalid checkout diagnosis and recovery advice without offering an automatic discard', () => {
+    fixture.componentRef.setInput('alerts', [{
+      kind: 'invalid-worktree', path: '/repo/.worktrees/queue/item', branchName: 'queue/item', itemId: 'item-1',
+      reason: 'The saved checkout is unusable or does not match its queue item.',
+      suggestedAction: 'Review the item details. Explicitly approved Discard can preserve an item-owned orphan checkout; foreign or still-registered checkouts are refused.',
+    } satisfies PlanQueueAlert]);
+    fixture.detectChanges();
+
+    const alert = fixture.nativeElement.querySelector('.pq-alert') as HTMLElement;
+    expect(alert.textContent).toContain('Invalid worktree');
+    expect(alert.textContent).toContain('item item-1');
+    expect(alert.querySelector('.pq-alert-reason')?.textContent).toContain('unusable');
+    expect(alert.querySelector('.pq-alert-action')?.textContent).toContain('Explicitly approved Discard');
+    expect(alert.querySelector('.pq-alert-action')?.textContent).toContain('foreign or still-registered checkouts are refused');
+    expect(alert.querySelector('button')).toBeNull();
+  });
 });

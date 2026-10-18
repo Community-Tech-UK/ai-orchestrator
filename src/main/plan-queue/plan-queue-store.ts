@@ -201,6 +201,17 @@ export class PlanQueueStore {
   }
 
   upsertItem(item: PlanQueueItem): void {
+    // Reasons change at every transition; recovery locations must outlive them.
+    // Read the durable row, not a caller's possibly stale item snapshot, in the
+    // same transaction as the write so another save cannot lose a receipt.
+    this.db.transaction(() => {
+      const previous = this.db.prepare('SELECT detail FROM plan_queue_items WHERE id = ?')
+        .get<{ detail: string | null }>(item.id);
+      this.writeItem({ ...item, detail: preserveRecoveryReceipts(previous?.detail ?? null, item.detail) });
+    })();
+  }
+
+  private writeItem(item: PlanQueueItem): void {
     this.db.prepare(`
       INSERT INTO plan_queue_items (
         id, run_id, document_path, state, round, errored_rounds, landing_refusals, branch_name, worktree_path,
@@ -291,6 +302,26 @@ export class PlanQueueStore {
       .get<ItemRow>(instanceId, instanceId);
     return row ? rowToItem(row) : null;
   }
+}
+
+/** Keep bounded, monotonic recovery evidence using the existing persisted field. */
+function preserveRecoveryReceipts(previous: string | null, next: string | null): string | null {
+  const receiptPattern = /^Orphan checkout (retained at|recovery location:) ([^\r\n]+)$/;
+  const locations = new Map<string, boolean>();
+  for (const detail of [previous, next]) {
+    for (const line of (detail ?? '').split('\n')) {
+      const receipt = receiptPattern.exec(line);
+      if (receipt) locations.set(receipt[2]!, locations.get(receipt[2]!) === true || receipt[1] === 'retained at');
+    }
+  }
+  if (!locations.size) return next;
+  const receipts = [...locations].map(([location, retained]) =>
+    `Orphan checkout ${retained ? 'retained at' : 'recovery location:'} ${location}\n`).join('');
+  // Refuse before any quarantine move if evidence itself no longer fits the
+  // DTO's limit; never silently trim a location to make another save succeed.
+  if (receipts.length > 8000) throw new Error('Recovery receipts exceed the queue detail limit; retained locations were not changed');
+  const notes = (next ?? '').split('\n').filter((line) => !receiptPattern.test(line)).join('\n');
+  return receipts + notes.slice(0, 8000 - receipts.length);
 }
 
 function rowToRun(row: RunRow): PlanQueueRun {

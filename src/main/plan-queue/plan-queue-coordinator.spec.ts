@@ -20,6 +20,7 @@ import { PlanQueueItemFlow } from './plan-queue-item-flow';
 import type { PlanQueueInstanceRecord } from './plan-queue-host';
 import { findRestoredSessionId } from './plan-queue-parent';
 import { PlanQueueRelaxation } from './plan-queue-relaxation';
+import * as readiness from './plan-queue-readiness';
 import { PlanQueueStore } from './plan-queue-store';
 import type { VerifierSelectInput } from './plan-queue-verifier-select';
 
@@ -630,6 +631,35 @@ function queueWorktrees(): string[] {
 }
 
 describe('PlanQueueCoordinator — autonomous readiness and current documents', { timeout: 30_000 }, () => {
+  it('does not report settlement while a filesystem-backed scheduler pass is pending', async () => {
+    planDoc('2026-01-01-alpha');
+    fake.scripts.triage = never;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const reconcile = readiness.reconcileWaitingDocuments;
+    const inspection = vi.spyOn(readiness, 'reconcileWaitingDocuments').mockImplementationOnce(async (...args) => {
+      await gate;
+      await reconcile(...args);
+    });
+    let settled = false;
+    let settling: Promise<void> | undefined;
+    try {
+      await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+      settling = coordinator._whenSettledForTesting().then(() => { settled = true; });
+      // A pending disk operation can outlive any fixed number of event-loop turns.
+      for (let turn = 0; turn < 50; turn += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      expect(settled).toBe(false);
+    } finally {
+      release();
+      await settling;
+      inspection.mockRestore();
+      await coordinator._whenSettledForTesting();
+    }
+    expect(settled).toBe(true);
+  });
+
   it('classifies 29 documents in four batches while work on reported documents starts', async () => {
     for (let index = 0; index < 29; index += 1) planDoc(`2026-01-01-${String(index).padStart(2, '0')}`);
     fake.scripts.worker = never;
