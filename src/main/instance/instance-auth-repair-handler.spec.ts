@@ -366,4 +366,164 @@ describe('InstanceAuthRepairHandler', () => {
     });
   });
 
+  describe('moving a signed-out session to another account', () => {
+    const switchAccount = vi.fn(async () => true);
+
+    function configureWithSwitch(): InstanceAuthRepairHandler {
+      const handler = getInstanceAuthRepairHandler();
+      handler.configure({
+        setWaitReason: (id, wr) => { waitReasons.set(id, wr); },
+        revive,
+        resendInput,
+        probeAuth,
+        switchAccount,
+      });
+      return handler;
+    }
+
+    beforeEach(() => {
+      switchAccount.mockReset();
+      switchAccount.mockResolvedValue(true);
+    });
+
+    it('switches instead of blocking when this account is confirmed signed out', async () => {
+      const handler = configureWithSwitch();
+
+      await expect(block(handler)).resolves.toBe('switched');
+
+      expect(switchAccount).toHaveBeenCalledWith({
+        instanceId: 'i1',
+        provider: 'claude',
+        reason: 'provider auth failure on turn: OAuth session expired',
+        resumeTurn: lostTurn,
+      });
+      expect(handler.isBlocked('i1')).toBe(false);
+      expect(waitReasons.has('i1')).toBe(false);
+      // No sign-in watcher is left polling for a session that already moved.
+      probeAuth.mockClear();
+      await vi.advanceTimersByTimeAsync(AUTH_RECHECK_INTERVAL_MS * 2);
+      expect(probeAuth).not.toHaveBeenCalled();
+    });
+
+    it('probes the account of the failing instance, not the provider default', async () => {
+      const handler = configureWithSwitch();
+
+      await block(handler, 'comtech-session');
+
+      expect(probeAuth).toHaveBeenCalledWith('claude', 'comtech-session');
+    });
+
+    it('falls back to the sign-in banner when no account can take the session', async () => {
+      switchAccount.mockResolvedValue(false);
+      const handler = configureWithSwitch();
+
+      await expect(block(handler)).resolves.toBe('blocked');
+
+      expect(waitReasons.get('i1')).toMatchObject({ kind: 'auth-required', provider: 'claude' });
+    });
+
+    it('falls back to the banner when the switch throws', async () => {
+      switchAccount.mockRejectedValue(new Error('binding check failed'));
+      const handler = configureWithSwitch();
+
+      await expect(block(handler)).resolves.toBe('blocked');
+    });
+
+    it('does not switch when the account is still signed in (an expired hand-in token), it restarts instead', async () => {
+      probeAuth.mockResolvedValue('authenticated');
+      const handler = configureWithSwitch();
+
+      await expect(handler.maybeBlockOnAuth({
+        instanceId: 'i1',
+        provider: 'claude',
+        reason: 'provider protocol reported auth failure: OAuth token has expired',
+        resumeTurn: lostTurn,
+        authoritative: true,
+      })).resolves.toBe('blocked');
+      expect(switchAccount).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(AUTH_RECHECK_INTERVAL_MS + 1);
+      expect(revive).toHaveBeenCalledWith('i1');
+      expect(resendInput).toHaveBeenCalledWith('i1', lostTurn);
+    });
+
+    it('switches on a provider-reported revoke even while the stored login still looks signed in', async () => {
+      probeAuth.mockResolvedValue('authenticated');
+      const handler = configureWithSwitch();
+
+      await expect(handler.maybeBlockOnAuth({
+        instanceId: 'i1',
+        provider: 'claude',
+        reason: 'provider protocol reported auth failure: Failed to authenticate: OAuth token revoked. Please log in again or contact your administrator.',
+        resumeTurn: lostTurn,
+        authoritative: true,
+      })).resolves.toBe('switched');
+    });
+
+    it('ignores a late report once the session has already moved to another account', async () => {
+      const handler = configureWithSwitch();
+
+      await expect(handler.maybeBlockOnAuth({
+        instanceId: 'i1',
+        provider: 'claude',
+        reason: 'provider protocol reported auth failure: OAuth token revoked',
+        resumeTurn: lostTurn,
+        authoritative: true,
+        stillCurrent: () => false,
+      })).resolves.toBe('skipped');
+
+      expect(switchAccount).not.toHaveBeenCalled();
+      expect(waitReasons.has('i1')).toBe(false);
+    });
+
+    it('does not switch on an unreadable probe', async () => {
+      probeAuth.mockResolvedValue('unknown');
+      const handler = configureWithSwitch();
+
+      await expect(block(handler)).resolves.toBe('blocked');
+      expect(switchAccount).not.toHaveBeenCalled();
+    });
+
+    it('lets a duplicate report of the same failure join the running switch instead of blocking', async () => {
+      let finish!: (switched: boolean) => void;
+      switchAccount.mockImplementation(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+      const handler = configureWithSwitch();
+
+      const first = block(handler);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(switchAccount).toHaveBeenCalledTimes(1);
+      probeAuth.mockResolvedValueOnce('unknown');
+      await expect(block(handler)).resolves.toBe('already-blocked');
+      finish(true);
+
+      await expect(first).resolves.toBe('switched');
+      expect(switchAccount).toHaveBeenCalledTimes(1);
+      expect(waitReasons.has('i1')).toBe(false);
+    });
+
+    it('blocks exactly once when the running switch fails', async () => {
+      let finish!: (switched: boolean) => void;
+      switchAccount.mockImplementation(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+      const handler = configureWithSwitch();
+
+      const first = block(handler);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(switchAccount).toHaveBeenCalledTimes(1);
+      await expect(block(handler)).resolves.toBe('already-blocked');
+      finish(false);
+
+      await expect(first).resolves.toBe('blocked');
+      expect(handler.isBlocked('i1')).toBe(true);
+    });
+
+    it('does not switch again while the session is already blocked', async () => {
+      switchAccount.mockResolvedValue(false);
+      const handler = configureWithSwitch();
+      await block(handler);
+      switchAccount.mockClear();
+
+      await expect(block(handler)).resolves.toBe('already-blocked');
+      expect(switchAccount).not.toHaveBeenCalled();
+    });
+  });
 });

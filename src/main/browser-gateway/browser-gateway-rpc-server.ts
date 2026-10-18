@@ -337,6 +337,8 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('executeFillPlan')(withContext);
       case 'browser.fill_credential':
         return this.requireMethod('fillCredential')(withContext);
+      case 'browser.fill_http_auth':
+        return this.requireMethod('fillHttpAuth')(withContext);
       case 'browser.fill_secret':
         return this.requireMethod('fillSecret')(withContext);
       case 'browser.create_agent_credential':

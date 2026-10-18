@@ -9,10 +9,12 @@ import {
 } from '../../../instance/lifecycle/hardened-mode-scoping';
 
 describe('adapter factory — hardened remote execution', () => {
+  const logFixtures: string[] = [];
   beforeEach(() => _resetHardenedModeScopingForTesting());
   afterEach(() => {
     _resetHardenedModeScopingForTesting();
     vi.unstubAllEnvs();
+    for (const directory of logFixtures.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
   });
 
   it('fails closed before constructing a remote adapter for a hardened instance', () => {
@@ -108,5 +110,43 @@ describe('adapter factory — hardened remote execution', () => {
       instanceId: 'plain-codex',
       workingDirectory: '/tmp',
     })).not.toThrow();
+  });
+
+  it.each(['codex', 'claude'] as const)('prepares and grants only the %s session browser log directory', (cliType) => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'hardened-browser-logs-'));
+    logFixtures.push(fixture);
+    const userData = path.join(fixture, 'user-data');
+    const logRoot = path.join(userData, 'browser-forwarders');
+    const logDirectory = path.join(logRoot, 'current-session');
+    setInstanceHardened('current-session', true);
+
+    const adapter = createCliAdapter(cliType, {
+      instanceId: 'current-session',
+      workingDirectory: '/tmp/hardened-ws',
+      browserGatewayMcp: {
+        instanceId: 'current-session',
+        aioMcpCliPath: '/placeholder/aio-mcp',
+        socketPath: '/placeholder/browser.sock',
+        logDirectory,
+        exists: () => true,
+      },
+    }) as unknown as { hardenedMode: { writableRoots: string[] } | null };
+
+    expect(fs.statSync(logDirectory).isDirectory()).toBe(true);
+    const roots = adapter.hardenedMode?.writableRoots ?? [];
+    expect(roots).toContain(logDirectory);
+    expect(roots).not.toContain(logRoot);
+    expect(roots).not.toContain(userData);
+    expect(roots).not.toContain(path.join(logRoot, 'another-session'));
+  });
+
+  it('does not add a browser log grant when no bridge is configured', () => {
+    setInstanceHardened('no-browser', true);
+    const adapter = createCliAdapter('codex', {
+      instanceId: 'no-browser',
+      workingDirectory: '/tmp/hardened-ws',
+    }) as unknown as { hardenedMode: { writableRoots: string[] } | null };
+
+    expect(adapter.hardenedMode?.writableRoots).not.toContainEqual(expect.stringContaining('browser-forwarders'));
   });
 });

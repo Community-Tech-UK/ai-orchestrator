@@ -74,6 +74,13 @@ class TestAdapter extends BaseCliAdapter {
   }
 }
 
+/** Hands a login to hardened spawns only, the way ClaudeCliAdapter does. */
+class HandOffAdapter extends TestAdapter {
+  protected override hardenedSpawnEnv(): Record<string, string> {
+    return { CLAUDE_CODE_OAUTH_TOKEN: 'handed-in-placeholder' };
+  }
+}
+
 describe('BaseCliAdapter hardened spawn wrap', () => {
   it('returns a defensive configured jail-root copy and distinguishes an empty configured jail', () => {
     const adapter = new TestAdapter({ command: 'fake-cli' });
@@ -225,6 +232,24 @@ describe('BaseCliAdapter hardened spawn wrap', () => {
 
       expect(() => adapter.spawnForTest(['--print'])).toThrow(/refusing to spawn unsandboxed/);
       expect(spawnMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.runIf(process.platform === 'darwin')(
+    'adds the hardened hand-off after the ambient auth strip, and only to a hardened spawn',
+    () => {
+      spawnMock.mockReturnValue(makeFakeProc());
+      const config = { command: 'fake-cli', cwd: tmpdir(), envRemove: ['CLAUDE_CODE_OAUTH_TOKEN'] };
+      const hardened = new HandOffAdapter(config);
+      hardened.configureHardenedMode({ writableRoots: [tmpdir()] });
+      const plain = new HandOffAdapter(config);
+
+      hardened.spawnForTest(['--print']);
+      plain.spawnForTest(['--print']);
+
+      const envOf = (call: number) => (spawnMock.mock.calls[call][2] as { env: NodeJS.ProcessEnv }).env;
+      expect(envOf(0)['CLAUDE_CODE_OAUTH_TOKEN']).toBe('handed-in-placeholder');
+      expect(envOf(1)['CLAUDE_CODE_OAUTH_TOKEN']).toBeUndefined();
     },
   );
 });

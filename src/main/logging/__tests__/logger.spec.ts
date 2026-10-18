@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach } from 'vitest';
+import { describe, expect, it, afterEach, vi } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -69,6 +69,7 @@ describe('LogManager', () => {
     let logDir: string;
 
     afterEach(() => {
+      vi.restoreAllMocks();
       if (logDir) {
         fs.rmSync(logDir, { recursive: true, force: true });
       }
@@ -165,6 +166,28 @@ describe('LogManager', () => {
       } finally {
         delete process.env['AI_ORCHESTRATOR_BROWSER_FORWARDER_LOG_DIR'];
       }
+    });
+
+    it('keeps buffering logs when the file sink cannot initialise', () => {
+      logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'denied-logtest-'));
+      const blockedRoot = path.join(logDir, 'not-a-directory');
+      fs.writeFileSync(blockedRoot, 'placeholder');
+      const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+      const stdout = vi.spyOn(process.stdout, 'write');
+
+      const manager = new LogManager({
+        enableConsole: false,
+        logDirectory: path.join(blockedRoot, 'forwarder'),
+      });
+      manager.log('info', 'LoggerTest', 'still running');
+
+      expect(manager.getConfig()).toMatchObject({ enableFile: false, enableConsole: false });
+      expect(manager.getRecentLogs()).toMatchObject([{ message: 'still running' }]);
+      expect(stdout).not.toHaveBeenCalled();
+      expect(stderr).toHaveBeenCalledExactlyOnceWith(
+        'Harness file logging could not be initialised; continuing without file output.\n',
+      );
+      expect(stderr.mock.calls.flat().join('')).not.toContain(blockedRoot);
     });
   });
 

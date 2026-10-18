@@ -21,6 +21,7 @@ const ALLOWED_TOOLS = [
   'browser.set_zoom',
   'browser.execute_fill_plan',
   'browser.fill_credential',
+  'browser.fill_http_auth',
   'browser.request_credential_access',
   'browser.get_credential_access_status',
   'browser.cancel_credential_access',

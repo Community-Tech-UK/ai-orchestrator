@@ -3,7 +3,7 @@
  * RPC-authenticated instance id, never a tool argument.
  */
 
-import type { PlanQueueControlPayload, PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import type { PlanQueueControlArgs, PlanQueueControlPayload, PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import type { PlanQueueToolOperations } from '../mcp/plan-queue-tools';
 import type { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { describeRouting, routeChoiceFromArgs } from './plan-queue-routing';
@@ -35,8 +35,13 @@ function runSummary(run: PlanQueueRunDto) {
   };
 }
 
-function toControlPayload(args: { action: PlanQueueControlPayload['action']; run_id?: string; item_id?: string }): PlanQueueControlPayload {
+function toControlPayload(args: PlanQueueControlArgs): PlanQueueControlPayload {
   switch (args.action) {
+    case 'set-routing':
+      return { action: 'set-routing', runId: args.run_id, routing: {
+        worker: args.routing.worker ? routeChoiceFromArgs(args.routing.worker) : null,
+        verifiers: args.routing.verifiers.map(routeChoiceFromArgs),
+      }, ...(args.move_in_progress !== undefined ? { moveInProgress: args.move_in_progress } : {}) };
     case 'pause':
     case 'resume':
     case 'cancel':

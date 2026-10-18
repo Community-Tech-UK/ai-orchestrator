@@ -269,6 +269,30 @@ describe('routeQueueSpawn', () => {
     expect(routeQueueSpawn(spawn('worker', { provider: 'claude' }), () => run())).toMatchObject({ accountRouteOrigin: 'automation' });
     expect(routeQueueSpawn(spawn('worker'), () => null).allowedAccountProfileIds).toBeUndefined();
   });
+
+  it('uses one current run snapshot for the worker provider, model and account fence after a change', () => {
+    let reads = 0;
+    const current = run({ worker: { provider: 'claude', model: 'new-model', accountProfileIds: ['new-account'] }, verifiers: [] });
+    const result = routeQueueSpawn(spawn('worker', { provider: 'codex', modelOverride: 'old-model', allowedAccountProfileIds: ['old-account'], copilotAccountProfileId: 'old-seat' }), () => { reads += 1; return current; }, () => false);
+    expect(reads).toBe(1);
+    expect(result).toMatchObject({ provider: 'claude', modelOverride: 'new-model', allowedAccountProfileIds: ['new-account'] });
+    expect(result.copilotAccountProfileId).toBeUndefined();
+  });
+
+  it('clears a stale explicit provider and model when the run now routes automatically', () => {
+    const current = run({ worker: null, verifiers: [] });
+    current.workerProvider = null;
+    const result = routeQueueSpawn(spawn('worker', { provider: 'codex', modelOverride: 'old' }), () => current);
+    expect(result.provider).toBeUndefined();
+    expect(result.modelOverride).toBeUndefined();
+  });
+
+  it('keeps a triage retry on the selected checker accounts rather than worker accounts', () => {
+    const config = spawn('triage', { provider: 'claude', allowedAccountProfileIds: ['checker-account'] });
+    config.metadata = { ...config.metadata, planQueueTriageRetry: true };
+    expect(routeQueueSpawn(config, () => run({ worker: { provider: 'codex', accountProfileIds: ['worker-account'] }, verifiers: [] }))).toMatchObject({ provider: 'claude', allowedAccountProfileIds: ['checker-account'] });
+  });
+
 });
 
 describe('helpers', () => {

@@ -591,6 +591,24 @@ export abstract class BaseCliAdapter extends EventEmitter {
       : { command, args, shell: true };
   }
 
+  /** The child's env before platform options: filtered ambient + `config.env` − `config.envRemove`. */
+  protected buildSpawnEnv(): NodeJS.ProcessEnv {
+    // getSafeEnv() strips API keys, secrets and credentials (blocklist, patterns, secret
+    // detection) against cross-provider leakage; CLAUDECODE causes "nested session" errors.
+    const safeEnv = getSafeEnvForTrustedProcess();
+    delete safeEnv['CLAUDECODE'];
+    const mergedEnv: NodeJS.ProcessEnv = { ...safeEnv, ...this.config.env };
+    // Applied AFTER the merge: `config.env` can only add, and the generic
+    // filter above does not catch every provider-specific auth variable.
+    for (const key of this.config.envRemove ?? []) delete mergedEnv[key];
+    return mergedEnv;
+  }
+
+  /** Variables a hardened (Seatbelt) spawn adds after the strip. Default: none. */
+  protected hardenedSpawnEnv(_env: NodeJS.ProcessEnv): Record<string, string> | undefined {
+    return undefined;
+  }
+
   /**
    * Spawn a CLI process with given arguments
    */
@@ -606,20 +624,9 @@ export abstract class BaseCliAdapter extends EventEmitter {
 
     const fullArgs = [...(this.config.args || []), ...args];
 
-    // Extend PATH to include common CLI installation directories
-    // This is needed for packaged Electron apps where PATH may be limited
-    // Build safe environment: strip API keys, secrets, and sensitive credentials
-    // from child processes to prevent cross-provider credential leakage.
-    // Uses getSafeEnv() which filters via blocklist (24 vars), block patterns (9 regexes),
-    // and secret detection. Also removes CLAUDECODE to prevent "nested session" errors.
-    const safeEnv = getSafeEnvForTrustedProcess();
-    delete safeEnv['CLAUDECODE'];
-    const mergedEnv = { ...safeEnv, ...this.config.env };
-    // Applied AFTER the merge: `config.env` can only add, and the generic
-    // filter above does not catch every provider-specific auth variable.
-    for (const key of this.config.envRemove ?? []) {
-      delete mergedEnv[key];
-    }
+    const mergedEnv = this.buildSpawnEnv();
+    // After the strip: the jail's own credential hand-off (claude-hardened-login).
+    if (this.hardenedMode) Object.assign(mergedEnv, this.hardenedSpawnEnv(mergedEnv));
     const spawnOptions = buildCliSpawnOptions(mergedEnv);
 
     // WS13 hardened mode: wrap the CLI in the macOS Seatbelt jail. Fail-closed

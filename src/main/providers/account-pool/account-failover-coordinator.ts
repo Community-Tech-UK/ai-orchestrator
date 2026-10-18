@@ -71,6 +71,8 @@ export interface AccountFailoverParams {
   /** Whether a target may run only on purchased credits. Defaults to true. */
   allowCredits?: boolean;
   handoffKind?: Extract<AccountHandoffKind, 'failover' | 'preemptive'>;
+  /** What took the account out of service. Defaults to a usage limit; only the wording differs. */
+  trigger?: 'usage-limit' | 'signed-out';
 }
 
 /** Effective MiMo allowance or five-hour usage at which a live session approaches its limit. */
@@ -268,7 +270,7 @@ export class AccountFailoverCoordinator {
     this.safeNotify({
       kind: 'account-failover-offer',
       instanceId: params.instanceId,
-      title: `${from?.label ?? label} hit its usage limit`,
+      title: params.trigger === 'signed-out' ? `${from?.label ?? label} is signed out` : `${from?.label ?? label} hit its usage limit`,
       body: `${to?.label ?? 'Another account'} is available. Switch this session's account from the session header to continue now.`,
     });
   }
@@ -321,6 +323,9 @@ export class AccountFailoverCoordinator {
     const to = store.getProfile(params.provider, toProfileId);
     const resetText = params.resumeAt ? `; resets ${new Date(params.resumeAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '';
     const handoffKind = params.handoffKind ?? 'failover';
+    const handoffReason = handoffKind === 'preemptive'
+      ? 'approaching usage limit'
+      : params.trigger === 'signed-out' ? 'signed out' : `usage limit${resetText}`;
     const instance = this.deps.getInstance(params.instanceId);
     if (!instance) return { outcome: 'not-switched', reason: 'apply-failed', considered: selection.considered };
 
@@ -329,7 +334,7 @@ export class AccountFailoverCoordinator {
         provider: instance.provider,
         accountProfileId: toProfileId,
         accountHandoffKind: handoffKind,
-        accountHandoffReason: handoffKind === 'failover' ? `usage limit${resetText}` : 'approaching usage limit',
+        accountHandoffReason: handoffReason,
       });
     } catch (error) {
       if (signal.aborted) return { outcome: 'not-switched', reason: 'cancelled', considered: selection.considered };
@@ -367,7 +372,7 @@ export class AccountFailoverCoordinator {
       kind: 'account-switched',
       instanceId: params.instanceId,
       title: 'Account switched',
-      body: `${from?.label ?? params.exhaustedProfileId} → ${to?.label ?? toProfileId} (${handoffKind === 'failover' ? `usage limit${resetText}` : 'approaching usage limit'}).`,
+      body: `${from?.label ?? params.exhaustedProfileId} → ${to?.label ?? toProfileId} (${handoffReason}).`,
     });
 
     if (signal.aborted) return { outcome: 'not-switched', reason: 'cancelled', considered: selection.considered };

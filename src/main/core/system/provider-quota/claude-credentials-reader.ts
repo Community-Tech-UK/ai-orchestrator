@@ -3,7 +3,8 @@
  *
  * Reads the Claude Code OAuth access token that already lives on the machine
  * so the quota poller can call the undocumented `GET /api/oauth/usage`
- * endpoint with `Authorization: Bearer …`.
+ * endpoint with `Authorization: Bearer …`, and so a hardened (jailed) Claude
+ * session can be handed a token it cannot refresh (see claude-hardened-login).
  *
  * CRITICAL — read only
  * ─────────────────────
@@ -63,6 +64,22 @@ export interface CredentialResult {
   reason?: CredentialFailureReason;
 }
 
+/**
+ * The stored login as Claude Code wrote it, with no expiry veto. Used to hand
+ * a hardened (jailed) session a token it can use but cannot refresh. Holds a
+ * secret: never log it or put it in an error.
+ */
+export interface StoredClaudeLogin {
+  accessToken: string;
+  /** Epoch ms when the access token expires. 0 when the field is absent. */
+  expiresAt: number;
+  scopes: string[];
+  subscriptionType?: string;
+  rateLimitTier?: string;
+  /** Whether a refresh token is stored; false after a rejected refresh. */
+  hasRefreshToken: boolean;
+}
+
 /** Pluggable keychain exec — tests inject a fake; production wraps `security`. */
 export type SecurityExec = (
   args: string[],
@@ -93,8 +110,11 @@ export interface ClaudeCredentialsReaderOptions {
 interface StoredCredentialsJson {
   claudeAiOauth?: {
     accessToken?: string;
+    refreshToken?: string | null;
     expiresAt?: number;
+    scopes?: unknown;
     subscriptionType?: string;
+    rateLimitTier?: string;
   };
 }
 
@@ -125,22 +145,47 @@ export class ClaudeCredentialsReader {
     return this.readOnce();
   }
 
-  private async readOnce(): Promise<CredentialResult> {
-    let raw: string | null = null;
-    if (this.platform === 'darwin') {
-      raw = await this.readFromKeychain();
-      // Fall through to the file on a miss — some setups (e.g. headless) keep
-      // the JSON file even on macOS.
-      if (raw === null) raw = await this.readFromFileSafe();
-    } else {
-      raw = await this.readFromFileSafe();
+  /**
+   * The stored login including an expired or nearly expired token, from the
+   * same store Claude Code reads first. Null when there is no usable access
+   * token (missing, blanked by a rejected refresh, or unparseable).
+   */
+  async readStoredLogin(): Promise<StoredClaudeLogin | null> {
+    const raw = await this.readRaw();
+    if (raw === null) return null;
+    let oauth: StoredCredentialsJson['claudeAiOauth'];
+    try {
+      oauth = (JSON.parse(raw) as StoredCredentialsJson).claudeAiOauth;
+    } catch {
+      return null;
     }
+    if (!oauth || typeof oauth.accessToken !== 'string' || oauth.accessToken === '') return null;
+    return {
+      accessToken: oauth.accessToken,
+      expiresAt: typeof oauth.expiresAt === 'number' ? oauth.expiresAt : 0,
+      scopes: Array.isArray(oauth.scopes) ? oauth.scopes.filter((scope): scope is string => typeof scope === 'string') : [],
+      ...(typeof oauth.subscriptionType === 'string' ? { subscriptionType: oauth.subscriptionType } : {}),
+      ...(typeof oauth.rateLimitTier === 'string' ? { rateLimitTier: oauth.rateLimitTier } : {}),
+      hasRefreshToken: typeof oauth.refreshToken === 'string' && oauth.refreshToken !== '',
+    };
+  }
 
+  private async readOnce(): Promise<CredentialResult> {
+    const raw = await this.readRaw();
     if (raw === null) {
       return { credential: null, reason: 'not-found' };
     }
 
     return this.parse(raw);
+  }
+
+  private async readRaw(): Promise<string | null> {
+    if (this.platform === 'darwin') {
+      // Fall through to the file on a miss — some setups (e.g. headless) keep
+      // the JSON file even on macOS.
+      return (await this.readFromKeychain()) ?? await this.readFromFileSafe();
+    }
+    return this.readFromFileSafe();
   }
 
   // ─── internals ─────────────────────────────────────────────────────────

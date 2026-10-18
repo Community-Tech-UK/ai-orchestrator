@@ -10,4 +10,13 @@ describe('BROWSER_GATEWAY_SYSTEM_PROMPT', () => {
     expect(BROWSER_GATEWAY_SYSTEM_PROMPT).toContain('ask whether to use this computer instead, wait, or skip the browser step');
     expect(BROWSER_GATEWAY_SYSTEM_PROMPT).toContain('Retry with computer: "local" only after the user agrees');
   });
+
+  // Chrome's HTTP Basic/Digest prompt is browser UI no form fill can reach;
+  // without this line agents told James to type the password by hand.
+  it('routes Chrome\'s own username/password prompt to browser.fill_http_auth, never a manual handoff', () => {
+    expect(BROWSER_GATEWAY_SYSTEM_PROMPT).toContain('browser.fill_http_auth');
+    expect(BROWSER_GATEWAY_SYSTEM_PROMPT).toContain('reported as `httpAuthChallenge`');
+    expect(BROWSER_GATEWAY_SYSTEM_PROMPT).toContain('Do not ask the user to type it in Chrome');
+    expect(BROWSER_GATEWAY_SYSTEM_PROMPT).toContain('browser.request_credential_access');
+  });
 });

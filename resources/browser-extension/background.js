@@ -121,6 +121,24 @@ let activeBrowserCommandCount = 0;
 let secretRecoveryInProgress = false;
 let secretRecoveryRequest = null;
 
+// HTTP authentication prompts (Chrome's own Basic/Digest sign-in box, not a
+// page form). Two in-memory maps, never chrome.storage:
+//
+//  - httpAuthStages: the credential staged INSIDE the one command that
+//    navigates into a challenge (`http_auth_navigate`). Keyed by tabId and
+//    capped at the command timeout, it exists only while that command runs, so
+//    the answer can be given from inside the request that needs it without a
+//    queued command deadlocking behind the blocked navigate.
+//  - httpAuthChallenges: observe-only record (no credentials) that a challenge
+//    is WAITING on a tab the gateway controls or has shared, so navigate /
+//    open_tab / reload / snapshot payloads can tell the caller to answer it.
+const httpAuthStages = new Map();
+const httpAuthChallenges = new Map();
+// Server-supplied realm text is page/server-controlled: keep it bounded and
+// never treat it as anything but metadata.
+const HTTP_AUTH_REALM_MAX_LENGTH = 200;
+const HTTP_AUTH_ANSWERABLE_SCHEMES = new Set(['basic', 'digest']);
+
 chrome.runtime.onInstalled.addListener(() => {
   // 0.5 = 30s, the MV3 minimum (Chrome ≥120). This alarm is the recovery path
   // after a service-worker suspension — halving it halves the worst-case
@@ -205,6 +223,11 @@ async function selfHealIfWedged() {
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // A load that completed is not held by an HTTP auth prompt: the dialog was
+  // answered or cancelled and the request finished either way.
+  if (changeInfo.status === 'complete') {
+    clearHttpAuthChallenge(tabId);
+  }
   // A page that has received a vault value can mirror it into a navigation
   // URL, response body, title, control, or later mutation result. A document
   // load is therefore NOT a safe declassification boundary. Keep the tab
@@ -228,6 +251,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   // (press_key dedupe memory, zoom baselines).
   pressKeyMemory.delete(String(tabId));
   zoomBaselines.delete(tabId);
+  // A destroyed tab can neither show nor answer an HTTP auth prompt.
+  clearHttpAuthChallenge(tabId);
+  clearHttpAuthStage(tabId);
   if (!gatewayEnabled) {
     return;
   }
@@ -237,6 +263,163 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 chrome.windows.onRemoved.addListener((windowId) => {
   viewportWindowBaselines.delete(windowId);
 });
+
+/**
+ * Top-level named listener (source-extraction test harness binds to it) for
+ * Chrome's own HTTP Basic/Digest sign-in box. Three possible answers per
+ * challenge:
+ *
+ *  - `{ authCredentials }` when a live `http_auth_navigate` stage covers this
+ *    exact tab, origin and challenger (never proxy, never another origin);
+ *  - `{ cancel: true }` when the same requestId challenges AGAIN after it was
+ *    already answered — the saved password was refused, and answering again
+ *    would loop the prompt forever;
+ *  - `{}` (take no action) otherwise, so Chrome shows its own dialog exactly
+ *    as before. For tabs the gateway controls or has shared, the waiting
+ *    challenge is recorded (no credentials) so tab payloads can report it.
+ *
+ * Registered with 'asyncBlocking', the only mode MV3 allows for this event.
+ */
+function handleHttpAuthRequired(details, asyncCallback) {
+  const response = resolveHttpAuthRequiredResponse(details);
+  if (typeof asyncCallback === 'function') {
+    asyncCallback(response);
+    return undefined;
+  }
+  return response;
+}
+
+function resolveHttpAuthRequiredResponse(details) {
+  // Proxy authentication is never answered and never recorded.
+  if (details?.isProxy === true) {
+    return {};
+  }
+  const requestId = typeof details?.requestId === 'string' ? details.requestId : '';
+  const tabId = typeof details?.tabId === 'number' ? details.tabId : -1;
+  const stage = tabId >= 0 ? httpAuthStages.get(tabId) : undefined;
+  if (stage && stage.expiresAt > Date.now()) {
+    if (requestId && stage.answeredRequestIds.has(requestId)) {
+      // A second challenge for a request we already answered means the
+      // credential was refused (Chrome re-fires this event on bad credentials).
+      // Cancel rather than answer again so a wrong saved password cannot loop.
+      stage.rejected = true;
+      clearHttpAuthChallenge(tabId);
+      return { cancel: true };
+    }
+    const scheme = typeof details?.scheme === 'string' ? details.scheme.toLowerCase() : '';
+    if (
+      // Once the saved password has been refused it is never offered again —
+      // not for a new request either: one try per command, then Chrome's own
+      // dialog is the only route.
+      !stage.rejected
+      // Answer only a request we can track. A repeat of an untrackable (empty)
+      // requestId would re-offer the credential forever — the loop the plan
+      // forbids — so an untrackable challenge is left to Chrome's dialog.
+      && requestId
+      && HTTP_AUTH_ANSWERABLE_SCHEMES.has(scheme)
+      && httpAuthChallengeMatchesStage(details, stage)
+    ) {
+      stage.answeredRequestIds.add(requestId);
+      stage.answeredCount += 1;
+      // The prompt this stage answered is no longer waiting on the tab.
+      clearHttpAuthChallenge(tabId);
+      return { authCredentials: { username: stage.username, password: stage.password } };
+    }
+  }
+  recordHttpAuthChallenge(details);
+  return {};
+}
+
+/**
+ * The challenge must name the staged origin exactly (scheme, host, port) and
+ * the challenger must agree with it. Anything else is left to Chrome's dialog:
+ * a credential bound to one origin is never offered to another host, port or
+ * scheme, and never to a proxy.
+ */
+function httpAuthChallengeMatchesStage(details, stage) {
+  const challengeOrigin = httpAuthRequestOrigin(details);
+  if (!challengeOrigin || challengeOrigin !== stage.origin) {
+    return false;
+  }
+  const challengerHost = typeof details?.challenger?.host === 'string'
+    ? details.challenger.host.toLowerCase()
+    : '';
+  const challengerPort = typeof details?.challenger?.port === 'number'
+    ? details.challenger.port
+    : -1;
+  try {
+    const stageUrl = new URL(stage.origin);
+    return challengerHost === stageUrl.hostname.toLowerCase()
+      && challengerPort === effectiveOriginPort(stageUrl);
+  } catch {
+    return false;
+  }
+}
+
+function effectiveOriginPort(parsedUrl) {
+  if (parsedUrl.port) {
+    return Number(parsedUrl.port);
+  }
+  return parsedUrl.protocol === 'https:' ? 443 : 80;
+}
+
+function httpAuthRequestOrigin(details) {
+  try {
+    return new URL(String(details?.url ?? '')).origin;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Observe-only record that a challenge is WAITING on a tab the gateway
+ * controls or has shared. No credential is stored, and unshared tabs (the
+ * user's own browsing) are never recorded.
+ */
+function recordHttpAuthChallenge(details) {
+  const tabId = typeof details?.tabId === 'number' ? details.tabId : -1;
+  if (tabId < 0 || details?.isProxy === true || !isGatewayObservedTab(tabId)) {
+    return;
+  }
+  const origin = httpAuthRequestOrigin(details);
+  if (!origin) {
+    return;
+  }
+  const scheme = typeof details?.scheme === 'string' ? details.scheme.slice(0, 40) : '';
+  // Server-supplied text: bounded metadata only.
+  const realm = typeof details?.realm === 'string'
+    ? details.realm.trim().slice(0, HTTP_AUTH_REALM_MAX_LENGTH)
+    : '';
+  httpAuthChallenges.set(tabId, {
+    origin,
+    scheme,
+    ...(realm ? { realm } : {}),
+    at: Date.now(),
+  });
+}
+
+function isGatewayObservedTab(tabId) {
+  return controlledTabLeases.has(tabId)
+    || sharedTabs.some((entry) => entry && entry.tabId === tabId);
+}
+
+function httpAuthChallengeForTab(tabId) {
+  return httpAuthChallenges.get(tabId);
+}
+
+function clearHttpAuthChallenge(tabId) {
+  httpAuthChallenges.delete(tabId);
+}
+
+function clearHttpAuthStage(tabId) {
+  httpAuthStages.delete(tabId);
+}
+
+chrome.webRequest.onAuthRequired.addListener(
+  handleHttpAuthRequired,
+  { urls: ['<all_urls>'] },
+  ['asyncBlocking'],
+);
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== 'string') {
@@ -1671,6 +1854,25 @@ function browserCommandErrorMessage(command, error, targetSecretTainted = false)
     // blind retry of an action that may already have completed.
     return 'browser_reload_failed_or_may_have_applied';
   }
+  if (command?.command === 'http_auth_navigate') {
+    // A vault credential is staged inside this trusted process from the moment
+    // the payload is parsed. Never let an exception produced after that point
+    // cross the native-command boundary unfiltered: Chrome/page errors may
+    // quote their arguments. The fixed codes below are the only exceptions —
+    // compile-time constants with no page text and no value. (The list lives
+    // here rather than at module scope so this function stays self-contained
+    // for the source-extraction test harness.)
+    const safeHttpAuthErrors = [
+      'invalid_credential_origin',
+      'invalid_credential_protection',
+      'http_auth_insecure_origin',
+      'http_auth_payload_invalid',
+    ];
+    const httpAuthMessage = error instanceof Error ? error.message : String(error);
+    return safeHttpAuthErrors.includes(httpAuthMessage)
+      ? httpAuthMessage
+      : 'http_auth_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state';
+  }
   if (
     command?.command === 'type'
     && typeof command?.payload?.credentialOrigin === 'string'
@@ -1765,11 +1967,23 @@ async function runBrowserCommand(command, bridge) {
     // including selector and UID click/type/select results. Preserve the fact
     // that a resolved command completed, but discard its entire page-controlled
     // payload at the one native-channel boundary shared by every command.
+    // The httpAuth check is inlined (like the fixed lists in
+    // browserCommandErrorMessage) so this function stays self-contained for
+    // the source-extraction test harness. Fixed vocabulary, never page-derived:
+    // an HTTP auth answer must still report its outcome even when this tab was
+    // already observation-locked by an earlier secret fill.
+    const httpAuthOutcome = result && typeof result === 'object'
+      && (result.httpAuth === 'answered'
+        || result.httpAuth === 'rejected'
+        || result.httpAuth === 'not_challenged')
+      ? result.httpAuth
+      : undefined;
     const safeResult = !reloadCommand
       && (typeof secretTaintOrigin === 'string' || sensitiveOriginBoundType)
       ? {
           completed: true,
           observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin',
+          ...(httpAuthOutcome ? { httpAuth: httpAuthOutcome } : {}),
         }
       : result;
     if (isTabPayload(safeResult)) {
@@ -1868,6 +2082,9 @@ async function forceReleaseCommandResources(command) {
   if (typeof tabId !== 'number') {
     return;
   }
+  // The watchdog path is one of the "command ended" cases: a killed
+  // http_auth_navigate must never leave its staged credential behind.
+  clearHttpAuthStage(tabId);
   tabDebuggerChains.delete(tabId);
   const controlledTabCleanup = stopControlledTab(tabId).catch(() => undefined);
   const debuggerCleanup = chrome.debugger?.detach
@@ -2169,6 +2386,8 @@ async function executeBrowserCommand(command) {
         await stopControlledTab(tabId, controlToken);
       }
     }
+    case 'http_auth_navigate':
+      return executeHttpAuthNavigate(command);
     case 'click': {
       const uid = optionalUidValue(command.payload?.uid);
       if (uid !== null) {
@@ -3987,6 +4206,126 @@ function normalizeCredentialOrigin(value) {
   }
 }
 
+/**
+ * Navigate a tab into an HTTP Basic/Digest challenge, answering Chrome's own
+ * sign-in box from a vault credential staged INSIDE this command. The staging
+ * must happen here rather than as a separate queued command: commands run
+ * strictly one-at-a-time on `commandChain`, so an answer sent after the
+ * navigate would sit queued behind the very navigate the prompt is blocking.
+ *
+ * The credential lives only in service-worker memory for the lifetime of this
+ * command (capped at its timeout), is keyed to exactly one tab, and is offered
+ * only to challenges on its own origin from the matching challenger. It never
+ * enters the page DOM, so the tab is deliberately NOT secret-tainted: the
+ * caller must be able to go on reading the protected site it just entered.
+ */
+async function executeHttpAuthNavigate(command) {
+  assertGatewayEnabled();
+  const tabId = typeof command.target?.tabId === 'number' ? command.target.tabId : -1;
+  const url = requireHttpAuthString(command, 'url');
+  const username = requireHttpAuthString(command, 'username');
+  const password = requireHttpAuthString(command, 'password');
+  const credentialProtection = command.payload?.protection;
+  if (tabId < 0) {
+    throw new Error('http_auth_payload_invalid');
+  }
+  if (
+    credentialProtection !== undefined
+    && !['public', 'password', 'secret'].includes(credentialProtection)
+  ) {
+    throw new Error('invalid_credential_protection');
+  }
+  const expectedOrigin = normalizeCredentialOrigin(
+    requireHttpAuthString(command, 'credentialOrigin'),
+  );
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    throw new Error('invalid_credential_origin');
+  }
+  // The staged credential answers ONLY its own origin, so the navigation must
+  // target that origin too — otherwise the challenge this command waits for
+  // would be one the stage refuses to answer.
+  if (!expectedOrigin || parsedUrl.origin !== expectedOrigin) {
+    throw new Error('invalid_credential_origin');
+  }
+  assertHttpAuthSecureTransport(parsedUrl);
+  const stage = {
+    tabId,
+    origin: expectedOrigin,
+    username,
+    password,
+    expiresAt: Date.now() + commandExecutionTimeoutMs(command),
+    answeredRequestIds: new Set(),
+    answeredCount: 0,
+    rejected: false,
+  };
+  // Whatever prompt was waiting before this command is being answered now.
+  clearHttpAuthChallenge(tabId);
+  // Stage ONLY once the control lease exists: if startControlledTab rejects,
+  // no credential is ever staged on this tab at all. The finally below clears
+  // the stage on every later end-state (success, failure, watchdog release).
+  const controlToken = await startControlledTab(tabId);
+  try {
+    httpAuthStages.set(tabId, stage);
+    const tab = await chrome.tabs.update(tabId, { url, active: true });
+    await waitForTabComplete(tabId);
+    await installControlGlow(tabId);
+    await installConsoleNetworkCapture(tabId);
+    const payload = await buildTabPayload(tab || await chrome.tabs.get(tabId), {
+      includeText: true,
+      includeScreenshot: true,
+    });
+    return { ...payload, completed: true, httpAuth: httpAuthStageOutcome(stage) };
+  } finally {
+    // Command end (success, failure, or watchdog release) always clears the
+    // staged credential — it must never outlive the command that owns it.
+    clearHttpAuthStage(tabId);
+    await stopControlledTab(tabId, controlToken);
+  }
+}
+
+/**
+ * Payload-shape refusals use ONE fixed code (they run before anything is
+ * staged, so nothing can have been applied) and must survive the native
+ * boundary unchanged: like the codes below, this is a compile-time constant
+ * with no page text and no value.
+ */
+function requireHttpAuthString(command, key) {
+  const value = command.payload?.[key];
+  if (typeof value !== 'string' || value === '') {
+    throw new Error('http_auth_payload_invalid');
+  }
+  return value;
+}
+
+/**
+ * Basic Auth over plain http sends the password unencrypted. Only https, or
+ * the machine talking to itself (loopback), may carry it.
+ */
+function assertHttpAuthSecureTransport(parsedUrl) {
+  if (parsedUrl.protocol === 'https:') {
+    return;
+  }
+  const host = parsedUrl.hostname.toLowerCase();
+  const loopback = host === 'localhost'
+    || host === '[::1]'
+    || host === '::1'
+    || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+  if (parsedUrl.protocol === 'http:' && loopback) {
+    return;
+  }
+  throw new Error('http_auth_insecure_origin');
+}
+
+function httpAuthStageOutcome(stage) {
+  if (stage.rejected) {
+    return 'rejected';
+  }
+  return stage.answeredCount > 0 ? 'answered' : 'not_challenged';
+}
+
 /** Secret-free discovery pass. Chrome supplies the authoritative frameId. */
 function credentialFrameOriginProbe() {
   return { origin: location.origin };
@@ -4542,6 +4881,10 @@ async function buildTabPayloadLocked(tab, options = {}) {
         ? { textUnavailableReason: page.textUnavailableReason }
         : {}),
     ...(screenshotBase64 ? { screenshotBase64 } : {}),
+    // Optional: a Chrome HTTP auth prompt waiting on this tab. Recorded only
+    // for tabs the gateway controls or has shared, and never with credentials —
+    // just enough to tell the caller to answer it with fill_http_auth.
+    ...(httpAuthChallengeForTab(tab.id) ? { httpAuthChallenge: httpAuthChallengeForTab(tab.id) } : {}),
     capturedAt: Date.now(),
   };
 }

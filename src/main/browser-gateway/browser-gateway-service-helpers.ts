@@ -5,6 +5,7 @@ import type {
   BrowserAllowedOrigin,
   BrowserAttachExistingTabRequest,
   BrowserGrantMode,
+  BrowserHttpAuthChallenge,
   BrowserManualStepRequest,
   BrowserTarget,
 } from '@contracts/types/browser';
@@ -96,6 +97,31 @@ export function extractTabPayload(result: unknown): BrowserAttachExistingTabRequ
       ? { screenshotBase64: value['screenshotBase64'] }
       : {}),
     ...(typeof value['capturedAt'] === 'number' ? { capturedAt: value['capturedAt'] } : {}),
+    ...(normalizeHttpAuthChallenge(value['httpAuthChallenge'])
+      ? { httpAuthChallenge: normalizeHttpAuthChallenge(value['httpAuthChallenge']) }
+      : {}),
+  };
+}
+
+/** Bounded, non-secret observation that a Chrome HTTP auth prompt is waiting. */
+function normalizeHttpAuthChallenge(value: unknown): BrowserHttpAuthChallenge | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const origin = value['origin'];
+  const scheme = value['scheme'];
+  const realm = value['realm'];
+  const at = value['at'];
+  if (typeof origin !== 'string' || !origin || typeof scheme !== 'string' || typeof at !== 'number') {
+    return undefined;
+  }
+  return {
+    origin: origin.slice(0, 2_000),
+    scheme: scheme.slice(0, 40),
+    ...(typeof realm === 'string' && realm.trim()
+      ? { realm: realm.trim().slice(0, 200) }
+      : {}),
+    at,
   };
 }
 
@@ -120,6 +146,9 @@ export function safeTargetFromExistingTab(
     ...(attachment.inspectionState ? { inspectionState: attachment.inspectionState } : {}),
     ...(attachment.textUnavailableReason
       ? { textUnavailableReason: attachment.textUnavailableReason }
+      : {}),
+    ...(attachment.httpAuthChallenge
+      ? { httpAuthChallenge: attachment.httpAuthChallenge }
       : {}),
     windowId: attachment.windowId,
     ...(attachment.tabIndex !== undefined ? { tabIndex: attachment.tabIndex } : {}),

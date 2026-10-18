@@ -9,7 +9,9 @@
  *
  * Mirrors the shape of {@link ./instance-provider-limit-handler} (park →
  * external condition clears → revive + re-send), but keyed on a live auth probe
- * instead of a quota reset time.
+ * instead of a quota reset time. Like a usage limit, a confirmed sign-out first
+ * tries to move the session to another signed-in account of the same provider;
+ * the banner is the fallback when no account can take it.
  */
 
 import type {
@@ -52,8 +54,22 @@ export interface InstanceAuthRepairDeps {
   revive: (instanceId: string) => Promise<string | null>;
   /** Re-send the interrupted user turn. */
   resendInput: (instanceId: string, turn: AuthRepairTurn) => void | Promise<void>;
-  /** Injectable for tests; defaults to the real CLI probe. */
-  probeAuth?: (provider: InstanceProvider) => Promise<ProviderAuthState>;
+  /**
+   * Auth state of the account this instance runs on. Defaults to the
+   * provider's default sign-in, which is wrong for a pooled profile.
+   */
+  probeAuth?: (provider: InstanceProvider, instanceId: string) => Promise<ProviderAuthState>;
+  /**
+   * Move a confirmed signed-out session to another signed-in account and
+   * re-send its turn. Resolves true when the session no longer needs the
+   * repair banner. Never expected to throw; a throw counts as false.
+   */
+  switchAccount?: (params: {
+    instanceId: string;
+    provider: InstanceProvider;
+    reason: string;
+    resumeTurn: AuthRepairTurn | null;
+  }) => Promise<boolean>;
   /** Injectable timers for tests. */
   setInterval?: (handler: () => void, ms: number) => ReturnType<typeof setInterval>;
   clearInterval?: (handle: ReturnType<typeof setInterval>) => void;
@@ -67,7 +83,15 @@ export interface MaybeBlockOnAuthParams {
   resumeTurn: AuthRepairTurn | null;
   /** True when the provider protocol, rather than text matching, identified auth failure. */
   authoritative: boolean;
+  /**
+   * False once the session has left the account the failure was reported for
+   * (an account switch already moved it). Checked after the slow probe.
+   */
+  stillCurrent?: () => boolean;
 }
+
+/** The provider cancelled the login itself; the stored copy may not be blanked yet. */
+const REVOKED_LOGIN_PATTERN = /\boauth token (?:has been )?revoked\b/i;
 
 export type AuthRetryOutcome =
   | { status: 'resumed' }
@@ -92,6 +116,8 @@ export class InstanceAuthRepairHandler {
   private readonly blocked = new Map<string, BlockedEntry>();
   /** Guards against two concurrent resumes of the same instance. */
   private readonly resuming = new Set<string>();
+  /** Instances whose sign-out is being handed to an account switch right now. */
+  private readonly switching = new Set<string>();
 
   static getInstance(): InstanceAuthRepairHandler {
     if (!this.instance) {
@@ -120,7 +146,7 @@ export class InstanceAuthRepairHandler {
    */
   async maybeBlockOnAuth(
     params: MaybeBlockOnAuthParams,
-  ): Promise<'blocked' | 'already-blocked' | 'skipped'> {
+  ): Promise<'blocked' | 'already-blocked' | 'skipped' | 'switched'> {
     const deps = this.deps;
     if (!deps) return 'skipped';
 
@@ -138,8 +164,16 @@ export class InstanceAuthRepairHandler {
       return 'already-blocked';
     }
 
+    let state: ProviderAuthState = 'unknown';
     if (canProbeProviderAuth(params.provider)) {
-      const state = await this.probe(params.provider);
+      state = await this.probe(params.provider, params.instanceId);
+      if (params.stillCurrent && !params.stillCurrent()) {
+        logger.info('Ignoring a late auth failure for an account this session has already left', {
+          instanceId: params.instanceId,
+          provider: params.provider,
+        });
+        return 'skipped';
+      }
       // `unknown` (probe could not run) is not proof of a sign-out, but the
       // turn already failed with auth-shaped text, so trust the text. Only a
       // positive "still authenticated" vetoes the block.
@@ -170,6 +204,24 @@ export class InstanceAuthRepairHandler {
       }
       // Keep the earliest prompt: it is the turn the user actually lost.
       return 'already-blocked';
+    }
+
+    // A second report of the same failure joins the switch already running.
+    if (this.switching.has(params.instanceId)) return 'already-blocked';
+    // Only a sign-out of this account moves the session: confirmed by the
+    // probe, or a provider-reported revoke (the whole login is gone even while
+    // the stored copy still looks valid). An expired token handed to a hardened
+    // session leaves the account signed in; a restart (the watch below) repairs that.
+    const revoked = params.authoritative && REVOKED_LOGIN_PATTERN.test(params.reason);
+    if (state === 'unauthenticated' || revoked) {
+      this.switching.add(params.instanceId);
+      try {
+        if (await this.trySwitchAccount(params)) return 'switched';
+      } finally {
+        this.switching.delete(params.instanceId);
+      }
+      // A report that arrived during the switch may have blocked already.
+      if (this.blocked.has(params.instanceId)) return 'already-blocked';
     }
 
     const since = Date.now();
@@ -204,7 +256,7 @@ export class InstanceAuthRepairHandler {
     const entry = this.blocked.get(instanceId);
     if (!entry) return { status: 'not-blocked' };
 
-    const state = await this.probe(entry.provider);
+    const state = await this.probe(entry.provider, instanceId);
     if (state === 'authenticated') {
       if (await this.resume(instanceId)) {
         return { status: 'resumed' };
@@ -269,14 +321,41 @@ export class InstanceAuthRepairHandler {
     }
     this.blocked.clear();
     this.resuming.clear();
+    this.switching.clear();
   }
 
-  private async probe(provider: InstanceProvider): Promise<ProviderAuthState> {
+  private async probe(provider: InstanceProvider, instanceId: string): Promise<ProviderAuthState> {
     const probeAuth = this.deps?.probeAuth ?? probeProviderAuth;
     try {
-      return await probeAuth(provider);
+      return await probeAuth(provider, instanceId);
     } catch {
       return 'unknown';
+    }
+  }
+
+  private async trySwitchAccount(params: MaybeBlockOnAuthParams): Promise<boolean> {
+    const switchAccount = this.deps?.switchAccount;
+    if (!switchAccount) return false;
+    try {
+      const switched = await switchAccount({
+        instanceId: params.instanceId,
+        provider: params.provider,
+        reason: params.reason,
+        resumeTurn: params.resumeTurn,
+      });
+      if (switched) {
+        logger.info('Signed-out session moved to another account instead of blocking', {
+          instanceId: params.instanceId,
+          provider: params.provider,
+        });
+      }
+      return switched;
+    } catch (error) {
+      logger.warn('Account switch after sign-out failed; showing the sign-in banner', {
+        instanceId: params.instanceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
     }
   }
 
@@ -313,7 +392,7 @@ export class InstanceAuthRepairHandler {
             entry
             && !entry.autoResumeAttempted
             && !entry.awaitingReplayOutcome
-            && await this.probe(provider) === 'authenticated'
+            && await this.probe(provider, instanceId) === 'authenticated'
           ) {
             entry.autoResumeAttempted = true;
             await this.resume(instanceId);

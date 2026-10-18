@@ -6,7 +6,9 @@
  * roots the jail grants.
  */
 
+import { mkdirSync } from 'node:fs';
 import { isLegacyAccountProfileId } from '../../../shared/types/provider-account.types';
+import { getLogger } from '../../logging/logger';
 import { getInstanceExtraWritableRoots } from '../../instance/lifecycle/hardened-mode-scoping';
 import { defaultHardenedWritableRoots, providerHardenedWritableRoots } from '../../sandbox/seatbelt';
 import type { CliAdapter, UnifiedSpawnOptions } from './adapter-factory.types';
@@ -40,12 +42,25 @@ export function configureHardenedAdapter(
   // home (resolveCopilotProfileHome). An unrouted one uses ~/.copilot, which
   // is already a default root.
   const copilotHome = cliType === 'copilot' ? adapter.getConfig().env?.['COPILOT_HOME'] : undefined;
+  const browserLogDirectory = options.browserGatewayMcp?.logDirectory;
+  if (browserLogDirectory) {
+    try {
+      // Create ancestors in the parent before the jail is applied: a subpath
+      // grant alone cannot create the browser-forwarders parent on first use.
+      mkdirSync(browserLogDirectory, { recursive: true, mode: 0o700 });
+    } catch {
+      getLogger('HardenedAdapterConfig').warn('Could not prepare the browser forwarder log directory');
+    }
+  }
   adapter.configureHardenedMode({
     writableRoots: [
       ...defaultHardenedWritableRoots(options.workingDirectory),
       ...providerHardenedWritableRoots(cliType),
       ...(derivedClaudeHome ? [derivedClaudeHome] : []),
       ...(copilotHome ? [copilotHome] : []),
+      // The bridge inherits the CLI jail. Its persistent log sink lives under
+      // userData, outside the default roots; grant only this session's folder.
+      ...(browserLogDirectory ? [browserLogDirectory] : []),
       // Session-scoped allow-and-retry grants (WS13 slice 3).
       ...getInstanceExtraWritableRoots(options.instanceId),
     ],

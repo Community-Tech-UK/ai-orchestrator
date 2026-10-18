@@ -123,3 +123,24 @@ export const BrowserCreateAgentCredentialRequestSchema = z
 export type BrowserCreateAgentCredentialRequest = z.infer<
   typeof BrowserCreateAgentCredentialRequestSchema
 >;
+
+/**
+ * browser.fill_http_auth — answer Chrome's own HTTP Basic/Digest prompt for a
+ * page waiting on it. Deliberately carries NO origin field: the origin comes
+ * only from `url` (defaulting server-side to the tab's current URL) and is
+ * checked against the live tab before the vault is read, matching
+ * fill_credential. Strict, so a caller cannot smuggle one in.
+ */
+export const BrowserFillHttpAuthRequestSchema = z
+  .object({
+    profileId: idSchema,
+    targetId: idSchema,
+    // A vault item reference, never a secret. Bounded like an id.
+    vaultItemRef: z.string().min(1).max(200),
+    // Optional http(s) URL being signed into. Same-origin with the live tab
+    // (or the authorised origin when the tab sits on Chrome's error/blank
+    // page); defaults to the tab's current URL.
+    url: z.url().max(2_000).optional(),
+  })
+  .strict();
+export type BrowserFillHttpAuthRequest = z.infer<typeof BrowserFillHttpAuthRequestSchema>;

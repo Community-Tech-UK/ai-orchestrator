@@ -19,8 +19,14 @@
 
   <section class="pq-section pq-section-runs" aria-labelledby="pq-runs-heading">
     <h2 id="pq-runs-heading">Runs</h2>
+    @if (runningCount() > 0) {
+      <button type="button" class="pq-pause-all" (click)="onPauseAll()">Pause all ({{ runningCount() }} running)</button>
+    }
+    @if (pausedCount() > 0) {
+      <button type="button" class="pq-resume-all" (click)="onResumeAll()">Resume all ({{ pausedCount() }} paused)</button>
+    }
     <p class="pq-purpose">
-      Each run works through a set of documents. Pause stops new work from starting. Cancel ends the run: documents that
+      Each run works through a set of documents. Pause stops the run's sessions now; work so far is saved on each document's branch and Resume carries on from there. Cancel ends the run: documents that
       have not started are skipped, and work in progress moves to Parked work with its branch kept. Open a run's
       document list to see each document.
     </p>

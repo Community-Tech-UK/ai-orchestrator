@@ -7,6 +7,7 @@ import type {
   BrowserApprovalRequestLookup,
   BrowserApprovalStatusRequest,
   BrowserApproveRequestPayload,
+  BrowserAttachExistingTabRequest,
   BrowserAuditEntry,
   BrowserClickRequest,
   BrowserControlVerifyExpectation,
@@ -20,7 +21,9 @@ import type {
   BrowserMutationNoEffectEvidence, BrowserReloadResult, BrowserRecoverExtensionResult,
   BrowserAssertPersistedRequest,
   BrowserFillFormRequest,
+  BrowserFillHttpAuthResult,
   BrowserGatewayResult,
+  BrowserHttpAuthChallenge,
   BrowserWriteJournalRequest,
   BrowserListApprovalRequestsRequest,
   BrowserListGrantsRequest,
@@ -94,7 +97,9 @@ import {
 } from './browser-extension-contact-state';
 import {
   confirmBrowserExtensionCredentialWrite,
+  readHttpAuthCompletion,
   supportsSecureBrowserExtensionCredentialFill,
+  supportsSecureBrowserExtensionHttpAuth,
 } from './browser-extension-credential-compatibility';
 import {
   getBrowserLocalExtensionHealth,
@@ -143,6 +148,7 @@ import type {
   BrowserGatewayCreateAgentCredentialRequest,
   BrowserGatewayExecuteFillPlanRequest,
   BrowserGatewayFillCredentialRequest,
+  BrowserGatewayFillHttpAuthRequest,
   BrowserGatewayFillSecretRequest,
   BrowserGatewayFindOrOpenRequest,
   BrowserGatewayCloseMatchingRequest,
@@ -166,6 +172,7 @@ import {
   createAgentCredentialOperation,
   type FillOperationDeps,
 } from './browser-form-fill-operations';
+import { fillHttpAuthOperation } from './browser-http-auth-fill-operation';
 import { fillSecretOperation } from './browser-secret-fill-operation';
 import {
   normalizeExistingTabControlReadback,
@@ -816,7 +823,7 @@ export class BrowserGatewayService {
 
   async navigate(
     request: BrowserGatewayNavigateRequest,
-  ): Promise<BrowserGatewayResult<null>> {
+  ): Promise<BrowserGatewayResult<{ httpAuthChallenge?: BrowserHttpAuthChallenge } | null>> {
     const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
     if (existingTab) {
       return this.existingTabOperations.navigate(request, existingTab);
@@ -905,7 +912,11 @@ export class BrowserGatewayService {
     return this.extensionRecoveryOperation.run(request); }
 
   async snapshot(request: BrowserGatewaySnapshotRequest): Promise<
-    BrowserGatewayResult<(BrowserSnapshot & { text: string; textUnavailableReason?: string }) | null>
+    BrowserGatewayResult<(BrowserSnapshot & {
+      text: string;
+      textUnavailableReason?: string;
+      httpAuthChallenge?: BrowserHttpAuthChallenge;
+    }) | null>
   > {
     const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
     if (existingTab) {
@@ -1738,6 +1749,10 @@ export class BrowserGatewayService {
         const tab = this.extensionTabStore.getTab(profileId, targetId); // gone: no evidence to judge
         return Boolean(tab) && supportsSecureBrowserExtensionCredentialFill(this.extensionContactState, credentialScopeForProfile(profileId), tab?.extensionInstanceId);
       },
+      sharedTabSecureHttpAuthSupported: (profileId, targetId) => {
+        const tab = this.extensionTabStore.getTab(profileId, targetId); // gone: no evidence to judge
+        return Boolean(tab) && supportsSecureBrowserExtensionHttpAuth(this.extensionContactState, credentialScopeForProfile(profileId), tab?.extensionInstanceId);
+      },
       resolveCredentialProfileScope: (profileId) => credentialScopeForProfile(profileId),
       type: (req) => this.type(req as BrowserGatewayContext & BrowserTypeRequest),
       select: (req) => this.select(req as BrowserGatewayContext & BrowserSelectRequest),
@@ -1762,6 +1777,9 @@ export class BrowserGatewayService {
           pageOrigin,
         ),
       refreshTargetOrigin: (profileId, targetId) => this.refreshTargetOrigin(profileId, targetId),
+      readTargetUrl: (profileId, targetId) => this.readTargetUrl(profileId, targetId),
+      httpAuthNavigate: (profileId, targetId, input, beforeDispatch) =>
+        this.httpAuthNavigateForTarget(profileId, targetId, input, beforeDispatch),
       ...(this.credentialVault ? { credentialVault: this.credentialVault } : {}),
       ...(this.credentialAuthorizations ? { credentialAuthorizations: this.credentialAuthorizations } : {}),
       ...(this.emailCodeReader ? { emailCodeReader: this.emailCodeReader } : {}),
@@ -1857,6 +1875,79 @@ export class BrowserGatewayService {
   }
 
   /**
+   * The tab's current LIVE url (including non-http forms like chrome-error://),
+   * for fill_http_auth's `url` default. Returns '' when the tab is gone.
+   */
+  private async readTargetUrl(profileId: string, targetId: string): Promise<string> {
+    const existingTab = this.extensionTabStore.getTab(profileId, targetId);
+    if (existingTab) {
+      const raw = await this.existingTabOperations.sendCommand(
+        existingTab,
+        'snapshot',
+        undefined,
+        HEAVY_DOM_COMMAND_TIMEOUT_MS,
+      );
+      return extractTabPayload(raw).url;
+    }
+    const target = await this.driver.refreshTarget(profileId, targetId);
+    return target.url ?? '';
+  }
+
+  /**
+   * Dispatch the extension's `http_auth_navigate`: navigate this shared tab to
+   * `input.url` with the vault credential staged inside the extension for
+   * exactly this navigation, so Chrome's own Basic/Digest prompt is answered
+   * from it. Accepts ONLY the extension's fixed completion shape
+   * (`completed` + `httpAuth`); a legacy or page-derived response fails closed
+   * with `shared_tab_http_auth_write_not_confirmed`. The tab payload is the
+   * normal non-secret read; it is withheld only in the race where a concurrent
+   * secret fill taints the tab between the pre-dispatch read and this dispatch
+   * (then just the fixed outcome crosses the boundary). A tab already tainted
+   * before the call never reaches here: its masked reads refuse the operation
+   * before the vault is touched.
+   */
+  private async httpAuthNavigateForTarget(
+    profileId: string,
+    targetId: string,
+    input: {
+      url: string;
+      credentialOrigin: string;
+      username: string;
+      password: string;
+      protection: 'public' | 'password' | 'secret';
+    },
+    beforeDispatch?: () => void,
+  ): Promise<{ httpAuth: 'answered' | 'rejected' | 'not_challenged'; tab: BrowserAttachExistingTabRequest | null }> {
+    const existingTab = this.extensionTabStore.getTab(profileId, targetId);
+    if (!existingTab) {
+      throw new Error('http_auth_managed_profiles_unsupported');
+    }
+    if (!supportsSecureBrowserExtensionHttpAuth(
+      this.extensionContactState,
+      credentialScopeForProfile(profileId),
+      existingTab.extensionInstanceId,
+    )) {
+      throw new Error('shared_tab_http_auth_unavailable');
+    }
+    const raw = await this.existingTabOperations.sendCommand(existingTab, 'http_auth_navigate', {
+      url: input.url,
+      credentialOrigin: input.credentialOrigin,
+      username: input.username,
+      password: input.password,
+      protection: input.protection,
+    }, undefined, undefined, beforeDispatch);
+    const completion = readHttpAuthCompletion(raw);
+    if (completion.observationBlocked) {
+      // An earlier secret fill already locked this tab; only the fixed outcome
+      // may cross the boundary.
+      return { httpAuth: completion.httpAuth, tab: null };
+    }
+    const tab = extractTabPayload(raw);
+    this.existingTabOperations.attachRefreshedTab(tab, existingTab);
+    return { httpAuth: completion.httpAuth, tab };
+  }
+
+  /**
    * Fill credential fields from the agent credential vault WITHOUT the secret
    * ever entering model context: the request carries only a vault item
    * reference; the secret is resolved in-process (folder- + origin-jailed) and
@@ -1871,6 +1962,21 @@ export class BrowserGatewayService {
     request: BrowserGatewayFillCredentialRequest,
   ): Promise<BrowserGatewayResult<{ filled: number } | null>> {
     return fillCredentialOperation(this.fillOperationDeps(), request);
+  }
+
+  /**
+   * Answer Chrome's OWN HTTP Basic/Digest sign-in prompt (the browser pop-up,
+   * not a page form) for a shared existing tab waiting on one, using the saved
+   * login the standing `login` authorization covers — the same approval as
+   * fill_credential. The credential is staged inside the extension for exactly
+   * this navigation and never enters the page DOM, so the tab stays
+   * observable. The tool result carries only the fixed `httpAuth` outcome and
+   * the non-secret tab payload.
+   */
+  async fillHttpAuth(
+    request: BrowserGatewayFillHttpAuthRequest,
+  ): Promise<BrowserGatewayResult<BrowserFillHttpAuthResult | null>> {
+    return fillHttpAuthOperation(this.fillOperationDeps(), request);
   }
 
   /**

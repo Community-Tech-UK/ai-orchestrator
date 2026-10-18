@@ -10,7 +10,8 @@
  *   3. build the squash commit with hooks (a refusal goes back to the worker
  *      once, then parks) and record it before promoting, so a crash in between
  *      re-promotes instead of rebuilding;
- *   4. fast-forward the base, then retire the superseded root documents.
+ *   4. fast-forward the base, then retire the superseded root documents;
+ *   5. stop retained sessions before proof cleanup, keeping IDs until it succeeds.
  *
  * Runs under the item lock and the single landing chain (PlanQueueItemFlow).
  */
@@ -45,9 +46,9 @@ export interface PlanQueueLandingContext {
   readonly host: PlanQueueFlowHost;
   /** Back to the worker with a prompt; `detail` tells the panel why. Lock held. */
   toFixing(item: PlanQueueItem, prompt: string, detail: string): Promise<void>;
-  /** Park, checkpointing first. Lock held. */
+  /** Park, stopping writers before checkpointing. Lock held. */
   park(item: PlanQueueItem, reason: PlanQueueParkReason, detail: string): Promise<void>;
-  retireWorker(item: PlanQueueItem): void;
+  stopInstance(instanceId: string): Promise<void>;
 }
 
 function errorMessage(error: unknown): string {
@@ -61,6 +62,11 @@ function requireBaseBranch(run: PlanQueueRun): string {
 
 async function isAncestor(commit: string, of: string, repoRoot: string): Promise<boolean> {
   return gitExec(['merge-base', '--is-ancestor', commit, of], repoRoot).then(() => true, () => false);
+}
+
+/** Landed rows retain session IDs until their post-promotion cleanup has completed. */
+export function hasPendingLandingCleanup(item: PlanQueueItem): boolean {
+  return item.state === 'landed' && Boolean(item.workerInstanceId || item.verifierInstanceId);
 }
 
 export class PlanQueueItemLanding {
@@ -109,9 +115,19 @@ export class PlanQueueItemLanding {
       notes.push(...(await this.finishDocuments(item, repoRoot, baseBranch)));
     }
 
+    item = host.transition(item, 'landed', { detail: notes.join(' ') || null, question: null, parkReason: null });
+    await this.finishCleanup(item);
+  }
+
+  /** Retry only session/proof cleanup; promoted code is never checkpointed or landed again. Lock held. */
+  async finishCleanup(item: PlanQueueItem): Promise<void> {
+    const { host } = this.ctx;
+    const repoRoot = host.getRun(item.runId).workspaceCwd;
+    await Promise.all([item.workerInstanceId, item.verifierInstanceId]
+      .filter((id): id is string => Boolean(id)).map(id => this.ctx.stopInstance(id)));
+    const notes = item.detail ? [item.detail] : [];
     if (item.worktreePath && existsSync(item.worktreePath)) {
-      // No checkpoint here: anything new in the tree after landing is unlanded
-      // work, and the proof below refuses to remove a dirty tree.
+      // A stopped worker's late edits are unlanded work. Proof must preserve a dirty tree.
       const removal = await host.worktrees.removeWithProof(item, repoRoot);
       if (removal.removed) item = host.getItem(item.id);
       else notes.push(`Worktree kept (${removal.reason}: ${removal.detail}).`);
@@ -119,7 +135,6 @@ export class PlanQueueItemLanding {
       item = host.save({ ...item, worktreePath: null });
     }
 
-    item = host.transition(item, 'landed', { detail: notes.join(' ') || null, question: null, parkReason: null });
     if (!item.worktreePath && item.branchName) {
       try {
         await host.worktrees.deleteBranchWithProof(item, repoRoot);
@@ -127,7 +142,8 @@ export class PlanQueueItemLanding {
         logger.warn('Plan queue: landed branch was not deleted', { itemId: item.id, error: errorMessage(error) });
       }
     }
-    this.ctx.retireWorker(host.getItem(item.id));
+    // Proof services persist ownership changes themselves; never restore their stale input row.
+    host.save({ ...host.getItem(item.id), workerInstanceId: null, verifierInstanceId: null, detail: notes.join(' ') || null });
     host.requestPump();
   }
 

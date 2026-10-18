@@ -88,6 +88,27 @@ describe('PlanQueueStore', () => {
     expect(store.lastError()).toBeNull();
   });
 
+  it('keeps active and parked-work runs returned beyond the requested recent-history limit', async () => {
+    const history = Array.from({ length: 50 }, (_, index) => makeRun({ id: `finished-${index}`, status: 'completed', startedAt: 100 + index }));
+    const active = [makeRun({ id: 'old-paused', status: 'paused', startedAt: 2 }), makeRun({ id: 'old-running', startedAt: 1 })];
+    const parked = [
+      makeRun({ id: 'old-completed', status: 'completed', items: [makeItem({ state: 'parked', branchName: 'queue/saved' })] }),
+      makeRun({ id: 'old-cancelled', status: 'cancelled', items: [makeItem({ state: 'parked', branchName: null, parkReason: 'triage-failed' })] }),
+    ];
+    ipc.list.mockResolvedValue({ success: true, data: { runs: [...history, ...active, ...parked], alerts: [] } });
+    const store = TestBed.inject(PlanQueueStore);
+    await store.load(50);
+    expect(ipc.list).toHaveBeenCalledWith(50);
+    expect(store.allRuns()).toHaveLength(54);
+    expect(store.allRuns().filter(run => run.items.some(item => item.state === 'parked'))).toEqual(parked);
+    expect(store.allRuns().filter(run => run.status === 'running' || run.status === 'paused')).toEqual(active);
+    ipc.control.mockResolvedValue({ success: true, data: null });
+    await store.control({ action: 'pause-all' });
+    await store.control({ action: 'resume-all' });
+    expect(ipc.control).toHaveBeenCalledWith({ action: 'pause-all' });
+    expect(ipc.control).toHaveBeenCalledWith({ action: 'resume-all' });
+  });
+
   it('surfaces an error when the list call fails', async () => {
     ipc.list.mockResolvedValue({ success: false, error: { message: 'boom' } });
     const store = TestBed.inject(PlanQueueStore);
@@ -309,6 +330,17 @@ describe('PlanQueueStore', () => {
     await store.control({ action: 'cancel', runId: 'run-1' });
 
     expect(ipc.control).toHaveBeenCalledWith({ action: 'cancel', runId: 'run-1' });
+  });
+
+  it('returns control refusals to the inline editor and clears the error after a successful retry', async () => {
+    const refusal = { success: false, error: { message: 'Provider is unavailable' } };
+    ipc.control.mockResolvedValueOnce(refusal).mockResolvedValueOnce({ success: true, data: null });
+    const store = TestBed.inject(PlanQueueStore);
+    const payload = { action: 'set-routing' as const, runId: 'run-1', routing: { worker: { provider: 'codex' }, verifiers: [] } };
+    expect(await store.control(payload)).toEqual(refusal);
+    expect(store.lastError()).toBe('Provider is unavailable');
+    expect((await store.control(payload)).success).toBe(true);
+    expect(store.lastError()).toBeNull();
   });
 
   it('returns the diffstat text on success', async () => {

@@ -63,6 +63,15 @@ export const SAFE_CREDENTIAL_CODES: ReadonlySet<string> = new Set([
   'shared_tab_public_credential_write_not_confirmed',
   'credential_authorization_changed',
   'browser_verify_readback_invalid',
+  // HTTP Basic/Digest answering (browser.fill_http_auth): main-process gate
+  // refusals plus the extension's fixed http_auth_* vocabulary.
+  'shared_tab_http_auth_unavailable',
+  'shared_tab_http_auth_write_not_confirmed',
+  'http_auth_insecure_origin',
+  'http_auth_managed_profiles_unsupported',
+  'http_auth_payload_invalid',
+  'http_auth_rejected',
+  'http_auth_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state',
 ]);
 
 export function credentialFailureCode(error: unknown, fallback: string): string {

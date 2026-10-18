@@ -103,7 +103,7 @@ import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
 import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
 import { createProviderLimitCommunicationCallbacks } from './instance-provider-limit-runtime';
-import { createAuthRepairCommunicationCallbacks } from './instance-auth-repair-runtime';
+import { createAuthRepairAccountDeps, createAuthRepairCommunicationCallbacks } from './instance-auth-repair-runtime';
 import { getInstanceAuthRepairHandler } from './instance-auth-repair-handler';
 import {
   assertInstanceLifecycleHookAllowed,
@@ -524,10 +524,11 @@ export class InstanceManager extends EventEmitter {
       isResumable: (id) => { const inst = this.state.getInstance(id); return !!inst && inst.status !== 'terminated' && inst.status !== 'failed'; },
     });
 
-    // In-session auth repair: a turn that failed because the provider signed us
-    // out gets a repair banner and resumes itself once the user signs back in.
+    // In-session auth repair: a signed-out turn moves to another signed-in account
+    // when the pool has one; otherwise a banner, resuming once the user signs in.
     getInstanceAuthRepairHandler().configure({
       setWaitReason: (id, waitReason) => this.queueInstanceUpdate(id, { waitReason }),
+      ...createAuthRepairAccountDeps((id) => this.state.getInstance(id), (id, text, meta) => this.emitSystemMessage(id, text, meta)),
       revive: async (id) => {
         // Auth failure leaves a live Instance record but force-cleans its
         // adapter. Archive revival cannot find that shape (LT-168); the normal

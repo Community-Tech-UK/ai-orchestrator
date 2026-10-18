@@ -295,4 +295,79 @@ describe('PlanQueuePageComponent', () => {
     expect(store.control).toHaveBeenCalledWith({ action: 'retry-landing', itemId: 'item-parked' });
   });
 
+  it('shows counted global controls only for running and paused runs and dispatches them', () => {
+    expect(fixture.nativeElement.querySelector('.pq-pause-all')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.pq-resume-all')).toBeNull();
+    store.allRuns.set([makeRun(), makeRun({ id: 'paused', status: 'paused' }), makeRun({ id: 'done', status: 'completed' })]);
+    fixture.detectChanges();
+    const pause = fixture.nativeElement.querySelector('.pq-pause-all') as HTMLButtonElement;
+    const resume = fixture.nativeElement.querySelector('.pq-resume-all') as HTMLButtonElement;
+    expect(pause.textContent).toContain('Pause all (1 running)');
+    expect(resume.textContent).toContain('Resume all (1 paused)');
+    pause.click(); resume.click();
+    expect(store.control).toHaveBeenCalledWith({ action: 'pause-all' });
+    expect(store.control).toHaveBeenCalledWith({ action: 'resume-all' });
+    expect(fixture.nativeElement.querySelector('.pq-section-runs .pq-purpose').textContent).toContain("Pause stops the run's sessions now");
+  });
+
+  it('counts and controls active runs older than fifty recent finished runs', () => {
+    const history = Array.from({ length: 50 }, (_, index) => makeRun({ id: `finished-${index}`, status: 'completed', startedAt: 100 + index }));
+    store.allRuns.set([...history,
+      makeRun({ id: 'old-running', startedAt: 1 }),
+      makeRun({ id: 'old-paused', status: 'paused', startedAt: 2, kind: 'livetests' }),
+    ]);
+    fixture.detectChanges();
+    const pause = fixture.nativeElement.querySelector('.pq-pause-all') as HTMLButtonElement;
+    const resume = fixture.nativeElement.querySelector('.pq-resume-all') as HTMLButtonElement;
+    expect(pause.textContent).toContain('Pause all (1 running)');
+    expect(resume.textContent).toContain('Resume all (1 paused)');
+    expect(fixture.nativeElement.querySelectorAll('.pq-run')).toHaveLength(52);
+    pause.click(); resume.click();
+    expect(store.control).toHaveBeenCalledWith({ action: 'pause-all' });
+    expect(store.control).toHaveBeenCalledWith({ action: 'resume-all' });
+  });
+
+  it('offers Change immediately for old completed and cancelled parked runs while bulk counts stay active-only', async () => {
+    const history = Array.from({ length: 50 }, (_, index) => makeRun({ id: `inert-${index}`, status: 'completed', startedAt: 100 + index }));
+    const completed = makeRun({ id: 'old-completed', status: 'completed', startedAt: 2,
+      items: [{ ...PARKED_ITEM, runId: 'old-completed' }] });
+    const cancelled = makeRun({ id: 'old-cancelled', status: 'cancelled', kind: 'livetests', startedAt: 1,
+      items: [{ ...PARKED_ITEM, runId: 'old-cancelled', branchName: null, parkReason: 'triage-failed' }] });
+    store.allRuns.set([...history, completed, cancelled,
+      makeRun({ id: 'running' }), makeRun({ id: 'paused', status: 'paused' }),
+    ]);
+    fixture.detectChanges(); await fixture.whenStable();
+    const cards = Array.from(fixture.nativeElement.querySelectorAll('.pq-run') as NodeListOf<HTMLElement>);
+    expect(cards).toHaveLength(54);
+    expect(cards.slice(0, 50).every(card => card.querySelector('.pq-run-change') === null)).toBe(true);
+    expect(fixture.nativeElement.querySelector('.pq-pause-all').textContent).toContain('Pause all (1 running)');
+    expect(fixture.nativeElement.querySelector('.pq-resume-all').textContent).toContain('Resume all (1 paused)');
+    for (const card of cards.slice(50, 52)) {
+      const change = card.querySelector('.pq-run-change') as HTMLButtonElement;
+      expect(change.textContent?.trim()).toBe('Change');
+      change.click(); fixture.detectChanges(); await fixture.whenStable();
+      expect(card.querySelector('app-plan-queue-routing-panel')).not.toBeNull();
+      expect(card.querySelector('.pq-routing-move-progress')).toBeNull();
+    }
+    expect(store.control).not.toHaveBeenCalled();
+  });
+
+  it('opens Change for the selected run, saves its routing, and keeps saved defaults separate', async () => {
+    store.control.mockResolvedValue({ success: true, data: null });
+    store.allRuns.set([makeRun({ id: 'edit-me', status: 'paused', config: { ...makeRun().config, routing: { worker: { provider: 'claude', model: 'opus' }, verifiers: [] } } })]);
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('.pq-run-change') as HTMLButtonElement).click();
+    fixture.detectChanges(); await fixture.whenStable();
+    const editor = fixture.nativeElement.querySelector('.pq-run app-plan-queue-routing-panel') as HTMLElement;
+    const model = editor.querySelector('.pq-routing-workers input[type="text"]') as HTMLInputElement;
+    expect(model.value).toBe('opus');
+    model.value = 'sonnet'; model.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    (editor.querySelector('.pq-routing-save') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    expect(store.control).toHaveBeenCalledWith({ action: 'set-routing', runId: 'edit-me', routing: { worker: { provider: 'claude', model: 'sonnet' }, verifiers: [] } });
+    expect(fixture.nativeElement.querySelectorAll('app-plan-queue-routing-panel')).toHaveLength(2);
+    expect(editor.querySelector('.pq-routing-move-progress')).toBeNull();
+  });
+
 });

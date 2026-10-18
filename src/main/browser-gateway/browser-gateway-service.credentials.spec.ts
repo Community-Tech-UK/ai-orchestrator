@@ -1210,6 +1210,252 @@ describe('BrowserGatewayService credentials', () => {
     expect(JSON.stringify(audits)).not.toContain(SECRET);
   });
 
+  it('fillHttpAuth answers Chrome\'s own sign-in prompt over the extension without leaking the secret', async () => {
+    const SECRET = 'Http-Auth-S3cret!';
+    const vault = {
+      getSecretForFill: vi.fn(async ({ kind }: { kind: string }) =>
+        kind === 'username' ? 'test-only-user' : SECRET),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const extensionCommandStore = {
+      sendCommand: vi.fn(async (request: { command: string; payload?: Record<string, unknown> }) => {
+        if (request.command === 'snapshot') {
+          return { tab: { tabId: 42, windowId: 7, url: 'https://portal.example.gov.uk/admin/report' } };
+        }
+        if (request.command === 'http_auth_navigate') {
+          return {
+            tabId: 42,
+            windowId: 7,
+            url: 'https://portal.example.gov.uk/admin/report',
+            completed: true,
+            httpAuth: 'answered',
+          };
+        }
+        return {};
+      }),
+    };
+    const { service, audits } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      extensionCommandStore,
+      extensionContactState: extensionContactState('0.2.43'),
+      allowSharedTabCredentialFill: () => true,
+      existingTab: sharedPortalTab(),
+    });
+
+    const result = await service.fillHttpAuth({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+    });
+
+    // The extension staged the credential for this navigation only, on the
+    // exact authorised origin.
+    expect(extensionCommandStore.sendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'http_auth_navigate',
+        payload: expect.objectContaining({
+          credentialOrigin: 'https://portal.example.gov.uk',
+          username: 'test-only-user',
+          password: SECRET,
+          protection: 'password',
+        }),
+      }),
+    );
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: {
+        httpAuth: 'answered',
+        tab: expect.objectContaining({ tabId: 42, url: 'https://portal.example.gov.uk/admin/report' }),
+      },
+    });
+    // ...but never leaks into the model-visible result or the audit log.
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+    expect(JSON.stringify(audits)).not.toContain(SECRET);
+    expect(JSON.stringify(audits)).not.toContain('test-only-user');
+  });
+
+  it('fillHttpAuth refuses an old extension before the vault read', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(async () => 'TEST_ONLY_SECRET'),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const extensionCommandStore = portalExtensionCommandStore();
+    const { service } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: { check: vi.fn(() => ({ authorized: true })) },
+      extensionCommandStore,
+      // 0.2.42 has no webRequest answering; the HTTP auth floor is 0.2.43.
+      extensionContactState: extensionContactState('0.2.42'),
+      allowSharedTabCredentialFill: () => true,
+      existingTab: sharedPortalTab(),
+    });
+
+    const result = await service.fillHttpAuth({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'shared_tab_http_auth_unavailable',
+    });
+    expect(vault.getSecretForFill).not.toHaveBeenCalled();
+    expect(extensionCommandStore.sendCommand).not.toHaveBeenCalled();
+  });
+
+  it('fillHttpAuth fails closed when the extension response is not the fixed completion shape', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(async () => 'TEST_ONLY_SECRET'),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const extensionCommandStore = {
+      sendCommand: vi.fn(async (request: { command: string }) =>
+        request.command === 'snapshot'
+          ? { tab: { tabId: 42, windowId: 7, url: 'https://portal.example.gov.uk/admin/report' } }
+          // A legacy page-derived shape — never a trusted acknowledgement.
+          : { valueApplied: true, url: 'https://portal.example.gov.uk/admin/report' }),
+    };
+    const { service } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: { check: vi.fn(() => ({ authorized: true })) },
+      extensionCommandStore,
+      extensionContactState: extensionContactState('0.2.43'),
+      allowSharedTabCredentialFill: () => true,
+      existingTab: sharedPortalTab(),
+    });
+
+    const result = await service.fillHttpAuth({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'failed',
+      reason: 'dispatch:shared_tab_http_auth_write_not_confirmed',
+    });
+    expect(JSON.stringify(result)).not.toContain('TEST_ONLY_SECRET');
+  });
+
+  it('fillHttpAuth keeps only the fixed outcome when a concurrent fill taints the tab mid-dispatch', async () => {
+    // The already-tainted case is refused BEFORE the vault read (its snapshot
+    // reads are masked — see the test below). This is the other race: the tab
+    // is clean at the pre-dispatch read and a concurrent secret fill locks it
+    // while `http_auth_navigate` is in flight, so only the fixed outcome of
+    // the (still-answered) prompt may cross the boundary.
+    const vault = {
+      getSecretForFill: vi.fn(async () => 'TEST_ONLY_SECRET'),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const extensionCommandStore = {
+      sendCommand: vi.fn(async (request: { command: string }) =>
+        request.command === 'snapshot'
+          ? { tab: { tabId: 42, windowId: 7, url: 'https://portal.example.gov.uk/admin/report' } }
+          : {
+              completed: true,
+              observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin',
+              httpAuth: 'answered',
+            }),
+    };
+    const { service } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: { check: vi.fn(() => ({ authorized: true })) },
+      extensionCommandStore,
+      extensionContactState: extensionContactState('0.2.43'),
+      allowSharedTabCredentialFill: () => true,
+      existingTab: sharedPortalTab(),
+    });
+
+    const result = await service.fillHttpAuth({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: { httpAuth: 'answered' },
+    });
+    expect(result.data).not.toHaveProperty('tab');
+    expect(JSON.stringify(result)).not.toContain('TEST_ONLY_SECRET');
+  });
+
+  it('fillHttpAuth refuses a tab that is already observation-locked before the vault read', async () => {
+    // Production reality: a tainted tab's reads are masked at the native
+    // boundary (the exact `observationBlocked` sentinel), so the live URL and
+    // origin cannot be confirmed and the operation must fail closed here —
+    // before any vault read — rather than walk a credential into a page whose
+    // identity it cannot verify.
+    const vault = {
+      getSecretForFill: vi.fn(async () => 'TEST_ONLY_SECRET'),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const extensionCommandStore = {
+      sendCommand: vi.fn(async () => ({
+        completed: true,
+        observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin',
+      })),
+    };
+    const { service } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: { check: vi.fn(() => ({ authorized: true })) },
+      extensionCommandStore,
+      extensionContactState: extensionContactState('0.2.43'),
+      allowSharedTabCredentialFill: () => true,
+      existingTab: sharedPortalTab(),
+    });
+
+    const withUrl = await service.fillHttpAuth({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      url: 'https://portal.example.gov.uk/admin/report',
+    });
+    expect(withUrl).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'target_unavailable',
+    });
+
+    const withoutUrl = await service.fillHttpAuth({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+    });
+    expect(withoutUrl).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'invalid_url',
+    });
+
+    expect(vault.getSecretForFill).not.toHaveBeenCalled();
+    expect(JSON.stringify([withUrl, withoutUrl])).not.toContain('TEST_ONLY_SECRET');
+  });
+
   it('accepts the fixed taint sentinel for a public username written after a password', async () => {
     const vault = {
       getSecretForFill: vi.fn(async ({ kind }: { kind: string }) =>

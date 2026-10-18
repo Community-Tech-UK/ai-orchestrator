@@ -148,7 +148,9 @@ export const PLAN_QUEUE_HELP: HelpEntry = {
       heading: 'Key panels, top to bottom',
       items: [
         'Needs your answer: every open question across all runs, grouped by run and labelled with its document.',
-        'Runs: Pause, Resume and Cancel for each run, with its document list (state, rounds, verdict) folded behind a count summary.',
+        "Runs: Pause saves work on each document's branch and stops its sessions now; Resume continues from there. Pause all and Resume all control every active run. Cancel ends a run. Open its document list for states, rounds and verdicts.",
+        "Change beside a run's providers edits its workers, checkers and accounts. Pause, Change, Resume switches its documents together. On a running run, tick Move documents in progress now to restart them immediately.",
+        'Providers and accounts: save the defaults for new runs.',
         'Start a run: pick the parent session and the document kind.',
         'Needs James (livetests): open checks a livetest verdict genuinely could not resolve itself.',
         'Parked work: document, branch and diffstat for items stuck on a round limit, an unreliable verifier, an error or a cancelled run.',

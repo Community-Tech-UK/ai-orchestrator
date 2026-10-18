@@ -176,9 +176,11 @@ export class PlanQueueStore {
     if (!res.success) this.error.set(res.error?.message ?? 'Failed to submit answer');
   }
 
-  async control(payload: PlanQueueControlPayload): Promise<void> {
+  async control(payload: PlanQueueControlPayload): Promise<IpcResponse<null>> {
     const res = await this.ipc.control(payload);
     if (!res.success) this.error.set(res.error?.message ?? 'Failed to send control action');
+    else this.error.set(null);
+    return res;
   }
 
   /** `git diff --shortstat` of a parked item's branch, fetched on demand. */

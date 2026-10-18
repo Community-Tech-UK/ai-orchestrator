@@ -40,12 +40,23 @@ interface BrowserExtensionBackgroundHarness {
   }) => Promise<void>;
   markSecretTaint: (tabId: number, origin: string) => Promise<void>;
   reportTabInventory: () => Promise<void>;
+  clearHttpAuthChallenge: (tabId: number) => void;
+  clearHttpAuthStage: (tabId: number) => void;
+  handleHttpAuthRequired: (
+    details: Record<string, unknown>,
+    asyncCallback?: (response: unknown) => void,
+  ) => unknown;
+  httpAuthChallengeForTab: (tabId: number) => Record<string, unknown> | undefined;
+  httpAuthChallenges: Map<number, Record<string, unknown>>;
+  httpAuthStages: Map<number, Record<string, unknown>>;
+  recordHttpAuthChallenge: (details: Record<string, unknown>) => void;
   runPageBridgeSnapshot: (
     html: string,
     selector: string,
     options?: { innerText?: string; subtleCrypto?: boolean },
   ) => Promise<Record<string, unknown>>;
   selfHealIfWedged: () => Promise<void>;
+  setGatewayEnabled: (enabled: boolean) => Promise<unknown>;
   startControlledTab: (tabId: number) => Promise<unknown>;
   stopControlledTab: (tabId: number, token?: unknown) => Promise<void>;
   waitForTabComplete: (tabId: number, timeoutMs?: number) => Promise<void>;
@@ -91,12 +102,23 @@ interface BrowserExtensionChromeHarness {
   scripting: {
     executeScript: ReturnType<typeof vi.fn>;
   };
+  webRequest: {
+    onAuthRequired: {
+      addListener: ReturnType<typeof vi.fn>;
+      removeListener: ReturnType<typeof vi.fn>;
+      emit: (details: unknown, respond: (response: unknown) => void) => void;
+    };
+  };
   tabs: {
     get: ReturnType<typeof vi.fn>;
     group: ReturnType<typeof vi.fn>;
     query: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
     reload: ReturnType<typeof vi.fn>;
+    onRemoved: { emit: (tabId: number) => void };
+    onUpdated: {
+      emit: (tabId: number, changeInfo: Record<string, unknown>, tab: unknown) => void;
+    };
     ungroup: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     getZoom: ReturnType<typeof vi.fn>;
@@ -189,6 +211,11 @@ describe('browser extension assets', () => {
     // Per-install (Chrome profile) id on every native message, and refusal of
     // a command addressed to another profile's tab.
     '0.2.42': '28f8d2a7e1de',
+    // HTTP Basic/Digest prompts: webRequest.onAuthRequired answers Chrome's
+    // own sign-in box from a stage scoped to one command's tab+origin, an
+    // observe-only httpAuthChallenge report on tab payloads, and the
+    // http_auth_navigate command.
+    '0.2.43': 'f48f2476e9f5',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -238,6 +265,10 @@ describe('browser extension assets', () => {
     expect(manifest.permissions).toContain('alarms');
     expect(manifest.permissions).toContain('storage');
     expect(manifest.permissions).toContain('tabGroups');
+    // HTTP auth answering (Chrome's own Basic/Digest prompt) runs through the
+    // webRequest API; MV3 requires both permissions for onAuthRequired.
+    expect(manifest.permissions).toContain('webRequest');
+    expect(manifest.permissions).toContain('webRequestAuthProvider');
     expect(manifest.host_permissions).toEqual(['http://*/*', 'https://*/*']);
   });
 
@@ -3261,6 +3292,652 @@ describe('browser extension assets', () => {
       });
     });
   });
+
+  describe('HTTP authentication prompts (Chrome\'s own sign-in box)', () => {
+    interface AuthChallengeDetails {
+      tabId: number;
+      url: string;
+      scheme: string;
+      realm?: string;
+      requestId: string;
+      challenger: { host: string; port: number };
+      isProxy?: boolean;
+      type?: string;
+      timeStamp?: number;
+    }
+
+    function emitAuthChallenge(
+      harness: BrowserExtensionBackgroundHarness,
+      details: AuthChallengeDetails,
+    ): { responded: boolean; response: unknown } {
+      let responded = false;
+      let response: unknown;
+      harness.chrome.webRequest.onAuthRequired.emit(
+        {
+          method: 'GET',
+          type: 'main_frame',
+          timeStamp: 1_000_000,
+          isProxy: false,
+          ...details,
+        },
+        (value: unknown) => {
+          responded = true;
+          response = value;
+        },
+      );
+      return { responded, response };
+    }
+
+    function commandResultFor(
+      relayPort: NativePortHarness,
+      commandId: string,
+    ): Record<string, unknown> | undefined {
+      return relayPort.postMessage.mock.calls
+        .map(([message]) => message as Record<string, unknown>)
+        .find((message) => message['type'] === 'command_result'
+          && message['commandId'] === commandId);
+    }
+
+    async function dispatchExtensionCommand(
+      harness: BrowserExtensionBackgroundHarness,
+      command: Record<string, unknown>,
+    ): Promise<Record<string, unknown> | undefined> {
+      const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+      relayPort.postMessage.mockClear();
+      relayPort.emitMessage({ type: 'browser_command', command });
+      await flushPromises();
+      return commandResultFor(
+        relayPort,
+        command['id'] as string,
+      );
+    }
+
+    it('reports a challenge waiting on a tab instead of a silent success (step-0 reproduction)', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      // Chrome is holding the tab on its Basic Auth dialog while navigate runs:
+      // today's build reports a normal payload and nothing about the prompt.
+      harness.chrome.tabs.update.mockImplementation(async (tabId: number, update?: { url?: string }) => {
+        if (update?.url) {
+          emitAuthChallenge(harness, {
+            tabId,
+            url: 'https://example.test/protected',
+            scheme: 'Basic',
+            realm: 'Members',
+            requestId: 'auth-req-1',
+            challenger: { host: 'example.test', port: 443 },
+          });
+        }
+        return harness.tabState(tabId);
+      });
+
+      const message = await dispatchExtensionCommand(harness, {
+        id: 'navigate-into-challenge',
+        command: 'navigate',
+        target: { tabId: 42 },
+        payload: { url: 'https://example.test/protected' },
+      });
+
+      expect(message?.['ok']).toBe(true);
+      expect(message?.['result']).toMatchObject({
+        httpAuthChallenge: {
+          origin: 'https://example.test',
+          scheme: 'Basic',
+          realm: 'Members',
+        },
+      });
+    });
+
+    it('drops the waiting-challenge report once the load completes', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      harness.chrome.tabs.update.mockImplementation(async (tabId: number, update?: { url?: string }) => {
+        if (update?.url) {
+          emitAuthChallenge(harness, {
+            tabId,
+            url: 'https://example.test/protected',
+            scheme: 'Basic',
+            requestId: 'auth-req-1',
+            challenger: { host: 'example.test', port: 443 },
+          });
+        }
+        return harness.tabState(tabId);
+      });
+      await dispatchExtensionCommand(harness, {
+        id: 'navigate-record-challenge',
+        command: 'navigate',
+        target: { tabId: 42 },
+        payload: { url: 'https://example.test/protected' },
+      });
+      expect(harness.httpAuthChallengeForTab(42)).toMatchObject({
+        origin: 'https://example.test',
+      });
+
+      // The user answered (or cancelled) Chrome's dialog and the load finished.
+      harness.chrome.tabs.onUpdated.emit(42, { status: 'complete' }, harness.tabState(42));
+
+      expect(harness.httpAuthChallengeForTab(42)).toBeUndefined();
+    });
+
+    it('never records a challenge on a tab the gateway does not control or share', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+
+      const { responded, response } = emitAuthChallenge(harness, {
+        tabId: 999,
+        url: 'https://stranger.example/login',
+        scheme: 'Basic',
+        requestId: 'stranger-req',
+        challenger: { host: 'stranger.example', port: 443 },
+      });
+
+      // No stage anywhere: Chrome shows its own dialog (take no action).
+      expect(responded).toBe(true);
+      expect(response).toEqual({});
+      expect(harness.httpAuthChallengeForTab(999)).toBeUndefined();
+    });
+
+    it('answers the exact-origin Basic challenge of the staged tab from the staged credential', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      let answer: unknown;
+      harness.chrome.tabs.update.mockImplementation(async (tabId: number, update?: { url?: string }) => {
+        if (update?.url) {
+          ({ response: answer } = emitAuthChallenge(harness, {
+            tabId,
+            url: 'https://example.test/protected',
+            scheme: 'Basic',
+            realm: 'Members',
+            requestId: 'stage-req-1',
+            challenger: { host: 'example.test', port: 443 },
+          }));
+        }
+        return harness.tabState(tabId);
+      });
+
+      const message = await dispatchExtensionCommand(harness, {
+        id: 'http-auth-answered',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'https://example.test/protected',
+          credentialOrigin: 'https://example.test',
+          username: 'alice',
+          password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+          protection: 'password',
+        },
+      });
+
+      expect(answer).toEqual({
+        authCredentials: { username: 'alice', password: 'TEST_ONLY_HTTP_AUTH_PASSWORD' },
+      });
+      expect(message?.['ok']).toBe(true);
+      expect(message?.['result']).toMatchObject({
+        completed: true,
+        httpAuth: 'answered',
+        tabId: 42,
+        inspectionState: 'readable',
+      });
+      // The password never enters the page DOM, so the tab stays observable
+      // and is deliberately NOT marked secret-tainted.
+      const storageWrites = harness.chrome.storage.local.set.mock.calls
+        .map(([values]) => JSON.stringify(values));
+      expect(storageWrites.join('\n')).not.toContain('TEST_ONLY_HTTP_AUTH_PASSWORD');
+      expect(storageWrites.join('\n')).not.toContain('browserGatewaySecretTaints');
+    });
+
+    it('answers a Digest challenge on the staged origin as well', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      let answer: unknown;
+      harness.chrome.tabs.update.mockImplementation(async (tabId: number, update?: { url?: string }) => {
+        if (update?.url) {
+          ({ response: answer } = emitAuthChallenge(harness, {
+            tabId,
+            url: 'https://example.test/digest-area',
+            scheme: 'Digest',
+            requestId: 'digest-req-1',
+            challenger: { host: 'example.test', port: 443 },
+          }));
+        }
+        return harness.tabState(tabId);
+      });
+
+      const message = await dispatchExtensionCommand(harness, {
+        id: 'http-auth-digest',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'https://example.test/digest-area',
+          credentialOrigin: 'https://example.test',
+          username: 'alice',
+          password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+          protection: 'password',
+        },
+      });
+
+      expect(answer).toEqual({
+        authCredentials: { username: 'alice', password: 'TEST_ONLY_HTTP_AUTH_PASSWORD' },
+      });
+      expect(message?.['result']).toMatchObject({ httpAuth: 'answered' });
+    });
+
+    it('takes no action for another tab, another origin, a proxy, an expired stage, or no stage', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      harness.httpAuthStages.set(42, {
+        tabId: 42,
+        origin: 'https://example.test',
+        username: 'alice',
+        password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+        expiresAt: Date.now() + 60_000,
+        answeredRequestIds: new Set<string>(),
+        answeredCount: 0,
+        rejected: false,
+      });
+
+      const otherTab = emitAuthChallenge(harness, {
+        tabId: 77,
+        url: 'https://example.test/protected',
+        scheme: 'Basic',
+        requestId: 'other-tab',
+        challenger: { host: 'example.test', port: 443 },
+      });
+      const otherOrigin = emitAuthChallenge(harness, {
+        tabId: 42,
+        url: 'https://evil.example/protected',
+        scheme: 'Basic',
+        requestId: 'other-origin',
+        challenger: { host: 'evil.example', port: 443 },
+      });
+      const otherPort = emitAuthChallenge(harness, {
+        tabId: 42,
+        url: 'https://example.test:8443/protected',
+        scheme: 'Basic',
+        requestId: 'other-port',
+        challenger: { host: 'example.test', port: 8443 },
+      });
+      const proxy = emitAuthChallenge(harness, {
+        tabId: 42,
+        url: 'https://example.test/protected',
+        scheme: 'Basic',
+        requestId: 'proxy-req',
+        isProxy: true,
+        challenger: { host: 'proxy.local', port: 3128 },
+      });
+      const wrongScheme = emitAuthChallenge(harness, {
+        tabId: 42,
+        url: 'https://example.test/protected',
+        scheme: 'NTLM',
+        requestId: 'ntlm-req',
+        challenger: { host: 'example.test', port: 443 },
+      });
+
+      for (const outcome of [otherTab, otherOrigin, otherPort, proxy, wrongScheme]) {
+        expect(outcome.responded).toBe(true);
+        expect(outcome.response).toEqual({});
+      }
+
+      // Expired stage: the same challenge is again left to Chrome. (The stage
+      // expiry is compared against the harness's own clock.)
+      const stage = harness.httpAuthStages.get(42)!;
+      stage['expiresAt'] = 1;
+      const expired = emitAuthChallenge(harness, {
+        tabId: 42,
+        url: 'https://example.test/protected',
+        scheme: 'Basic',
+        requestId: 'expired-req',
+        challenger: { host: 'example.test', port: 443 },
+      });
+      expect(expired.response).toEqual({});
+
+      // And no stage at all.
+      harness.httpAuthStages.delete(42);
+      const noStage = emitAuthChallenge(harness, {
+        tabId: 42,
+        url: 'https://example.test/protected',
+        scheme: 'Basic',
+        requestId: 'no-stage-req',
+        challenger: { host: 'example.test', port: 443 },
+      });
+      expect(noStage.response).toEqual({});
+    });
+
+    it('cancels a second challenge for an answered requestId and reports rejected, never answering again', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      const answers: unknown[] = [];
+      harness.chrome.tabs.update.mockImplementation(async (tabId: number, update?: { url?: string }) => {
+        if (update?.url) {
+          // A repeat of the answered request (bad credentials), then a FRESH
+          // request: once refused, the saved password is never offered again.
+          for (const requestId of ['retry-req-1', 'retry-req-1', 'retry-req-1', 'retry-req-2']) {
+            answers.push(emitAuthChallenge(harness, {
+              tabId,
+              url: 'https://example.test/protected',
+              scheme: 'Basic',
+              requestId,
+              challenger: { host: 'example.test', port: 443 },
+            }).response);
+          }
+        }
+        return harness.tabState(tabId);
+      });
+
+      const message = await dispatchExtensionCommand(harness, {
+        id: 'http-auth-rejected',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'https://example.test/protected',
+          credentialOrigin: 'https://example.test',
+          username: 'alice',
+          password: 'TEST_ONLY_WRONG_PASSWORD',
+          protection: 'password',
+        },
+      });
+
+      // First challenge answered; every re-challenge is cancelled or ignored so
+      // a wrong saved password cannot loop the prompt — one try per command.
+      expect(answers).toEqual([
+        { authCredentials: { username: 'alice', password: 'TEST_ONLY_WRONG_PASSWORD' } },
+        { cancel: true },
+        { cancel: true },
+        {},
+      ]);
+      expect(message?.['ok']).toBe(true);
+      expect(message?.['result']).toMatchObject({ completed: true, httpAuth: 'rejected' });
+    });
+
+    it('never answers a challenge whose requestId cannot be tracked', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      let answer: unknown;
+      harness.chrome.tabs.update.mockImplementation(async (tabId: number, update?: { url?: string }) => {
+        if (update?.url) {
+          // An untrackable (empty) requestId would re-offer the credential on
+          // every re-fire — exactly the loop the anti-repeat rule exists for.
+          ({ response: answer } = emitAuthChallenge(harness, {
+            tabId,
+            url: 'https://example.test/protected',
+            scheme: 'Basic',
+            requestId: '',
+            challenger: { host: 'example.test', port: 443 },
+          }));
+        }
+        return harness.tabState(tabId);
+      });
+
+      const message = await dispatchExtensionCommand(harness, {
+        id: 'http-auth-untrackable',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'https://example.test/protected',
+          credentialOrigin: 'https://example.test',
+          username: 'alice',
+          password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+          protection: 'password',
+        },
+      });
+
+      expect(answer).toEqual({});
+      expect(message?.['result']).toMatchObject({ completed: true, httpAuth: 'not_challenged' });
+    });
+
+    it('reports not_challenged when the navigation never meets a prompt', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+
+      const message = await dispatchExtensionCommand(harness, {
+        id: 'http-auth-silent',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'https://example.test/open',
+          credentialOrigin: 'https://example.test',
+          username: 'alice',
+          password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+          protection: 'password',
+        },
+      });
+
+      expect(message?.['result']).toMatchObject({ completed: true, httpAuth: 'not_challenged' });
+    });
+
+    it('clears the staged credential on success, on failure, and on watchdog release', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+
+      const ok = await dispatchExtensionCommand(harness, {
+        id: 'stage-clear-ok',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'https://example.test/open',
+          credentialOrigin: 'https://example.test',
+          username: 'alice',
+          password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+          protection: 'password',
+        },
+      });
+      expect(ok?.['ok']).toBe(true);
+      expect(harness.httpAuthStages.size).toBe(0);
+
+      let failNavigation = false;
+      harness.chrome.tabs.update.mockImplementation(async (tabId: number, update?: { url?: string }) => {
+        if (update?.url && failNavigation) {
+          throw new Error('tabs.update exploded');
+        }
+        return harness.tabState(tabId);
+      });
+      failNavigation = true;
+      const failed = await dispatchExtensionCommand(harness, {
+        id: 'stage-clear-fail',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'https://example.test/open',
+          credentialOrigin: 'https://example.test',
+          username: 'alice',
+          password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+          protection: 'password',
+        },
+      });
+      expect(failed?.['ok']).toBe(false);
+      expect(harness.httpAuthStages.size).toBe(0);
+
+      // Watchdog timeout path: forceReleaseCommandResources is exactly what
+      // runCommandWithWatchdog invokes when a command outlives its window.
+      harness.httpAuthStages.set(42, {
+        tabId: 42,
+        origin: 'https://example.test',
+        username: 'alice',
+        password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+        expiresAt: Date.now() + 60_000,
+        answeredRequestIds: new Set<string>(),
+        answeredCount: 0,
+        rejected: false,
+      });
+      await harness.forceReleaseCommandResources({ target: { tabId: 42 } });
+      expect(harness.httpAuthStages.size).toBe(0);
+    });
+
+    it('stages no credential at all when the control lease cannot be established', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      // startControlledTab rejects inside its lease setup (here: the operator
+      // switches the gateway off while the lease is being established, so the
+      // instrumentation's assertGatewayEnabled throws) — BEFORE this command
+      // stages anything on the tab. The credential must never be armed here.
+      harness.chrome.tabs.get.mockImplementationOnce(async (tabId: number) => {
+        await harness.setGatewayEnabled(false);
+        return harness.tabState(tabId);
+      });
+
+      const message = await dispatchExtensionCommand(harness, {
+        id: 'http-auth-no-lease',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'https://example.test/protected',
+          credentialOrigin: 'https://example.test',
+          username: 'alice',
+          password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+          protection: 'password',
+        },
+      });
+
+      expect(message?.['ok']).not.toBe(true);
+      // The contract: no credential is ever armed on this tab — the stage map
+      // stays empty regardless of whether the (torn-down) channel could still
+      // deliver a failure result.
+      expect(harness.httpAuthStages.size).toBe(0);
+    });
+
+    it('reports pre-staging validation refusals with their fixed codes', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+
+      const missingField = await dispatchExtensionCommand(harness, {
+        id: 'http-auth-missing-field',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'https://example.test/protected',
+          credentialOrigin: 'https://example.test',
+          username: 'alice',
+          protection: 'password',
+        },
+      });
+      expect(missingField?.['ok']).toBe(false);
+      expect(missingField?.['error']).toBe('http_auth_payload_invalid');
+      expect(harness.httpAuthStages.size).toBe(0);
+
+      const badProtection = await dispatchExtensionCommand(harness, {
+        id: 'http-auth-bad-protection',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'https://example.test/protected',
+          credentialOrigin: 'https://example.test',
+          username: 'alice',
+          password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+          protection: 'guess',
+        },
+      });
+      expect(badProtection?.['error']).toBe('invalid_credential_protection');
+      expect(harness.httpAuthStages.size).toBe(0);
+    });
+
+    it('never lets the username or password reach a result payload or an error', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      // A Chrome/page error that quotes its arguments must be collapsed to the
+      // fixed code before it can cross the native boundary.
+      let failNavigation = false;
+      harness.chrome.tabs.update.mockImplementation(async (tabId: number, update?: { url?: string }) => {
+        if (update?.url && failNavigation) {
+          throw new Error('tabs.update exploded for TEST_ONLY_HTTP_AUTH_PASSWORD');
+        }
+        return harness.tabState(tabId);
+      });
+
+      failNavigation = true;
+      const failed = await dispatchExtensionCommand(harness, {
+        id: 'http-auth-error-text',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'https://example.test/open',
+          credentialOrigin: 'https://example.test',
+          username: 'alice',
+          password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+          protection: 'password',
+        },
+      });
+
+      expect(failed?.['ok']).toBe(false);
+      expect(failed?.['error']).toBe(
+        'http_auth_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state',
+      );
+
+      failNavigation = false;
+      const ok = await dispatchExtensionCommand(harness, {
+        id: 'http-auth-result-text',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'https://example.test/open',
+          credentialOrigin: 'https://example.test',
+          username: 'alice',
+          password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+          protection: 'password',
+        },
+      });
+
+      const serialized = JSON.stringify(ok);
+      expect(serialized).not.toContain('TEST_ONLY_HTTP_AUTH_PASSWORD');
+      expect(serialized).not.toContain('alice');
+    });
+
+    it('refuses a plain-http origin except loopback, before staging anything', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+
+      const insecure = await dispatchExtensionCommand(harness, {
+        id: 'http-auth-insecure',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'http://plain.example/protected',
+          credentialOrigin: 'http://plain.example',
+          username: 'alice',
+          password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+          protection: 'password',
+        },
+      });
+      expect(insecure?.['ok']).toBe(false);
+      expect(insecure?.['error']).toBe('http_auth_insecure_origin');
+      expect(harness.httpAuthStages.size).toBe(0);
+
+      const loopback = await dispatchExtensionCommand(harness, {
+        id: 'http-auth-loopback',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'http://localhost:4567/protected',
+          credentialOrigin: 'http://localhost:4567',
+          username: 'alice',
+          password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+          protection: 'password',
+        },
+      });
+      expect(loopback?.['ok']).toBe(true);
+    });
+
+    it('refuses a navigation whose origin is not the staged credential origin', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+
+      const message = await dispatchExtensionCommand(harness, {
+        id: 'http-auth-cross-origin',
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'https://evil.example/protected',
+          credentialOrigin: 'https://example.test',
+          username: 'alice',
+          password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+          protection: 'password',
+        },
+      });
+
+      expect(message?.['ok']).toBe(false);
+      expect(message?.['error']).toBe('invalid_credential_origin');
+      expect(harness.httpAuthStages.size).toBe(0);
+    });
+  });
 });
 
 async function captureSnapshotAcrossRedirect(marker: string): Promise<Record<string, unknown>> {
@@ -3330,6 +4007,7 @@ function loadBackgroundHarnessForTest(options: {
   const localStore: Record<string, unknown> = { ...options.initialLocalStorage };
   const alarmEvent = createChromeEvent<[unknown]>();
   const messageEvent = createChromeEvent<[unknown, unknown, (response: unknown) => void]>();
+  const authRequiredEvent = createChromeEvent<[unknown, (response: unknown) => void]>();
   let nowMs = 1_000_000;
   let browserGatewayEnabled = options.initialGatewayEnabled;
   const initialTab = makeWebTab(42);
@@ -3414,6 +4092,9 @@ function loadBackgroundHarnessForTest(options: {
             text: 'Example page',
           },
         }]),
+      },
+      webRequest: {
+        onAuthRequired: authRequiredEvent,
       },
       storage: {
         local: {
@@ -3556,7 +4237,7 @@ function loadBackgroundHarnessForTest(options: {
     }) | undefined,
   };
   runInNewContext(
-    `${background}\n;globalThis.__backgroundHarness = { applySecretObservationProtectionEnabled, bridges, captureAccessibilitySnapshot, captureTabScreenshot, deriveToolbarBadgeState, forceReleaseCommandResources, markSecretTaint, pageBridgeScript, reportTabInventory, selfHealIfWedged, startControlledTab, stopControlledTab, tabDebuggerChains, waitForTabComplete };`,
+    `${background}\n;globalThis.__backgroundHarness = { applySecretObservationProtectionEnabled, bridges, captureAccessibilitySnapshot, captureTabScreenshot, clearHttpAuthChallenge, clearHttpAuthStage, deriveToolbarBadgeState, forceReleaseCommandResources, handleHttpAuthRequired, httpAuthChallengeForTab, httpAuthChallenges, httpAuthStages, markSecretTaint, pageBridgeScript, recordHttpAuthChallenge, reportTabInventory, selfHealIfWedged, setGatewayEnabled, startControlledTab, stopControlledTab, tabDebuggerChains, waitForTabComplete };`,
     context,
     { filename: 'resources/browser-extension/background.js' },
   );

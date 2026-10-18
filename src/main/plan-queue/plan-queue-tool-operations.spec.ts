@@ -22,3 +22,13 @@ describe('Plan Queue tool operation adoption routing', () => {
     expect(result).toMatchObject({ excluded: ['/repo/owned_plan.md'], message: expect.stringContaining('adopt that run instead of starting again') });
   });
 });
+
+
+it('maps nested snake_case routing and preserves authenticated identity', async () => {
+  const coordinator = new PlanQueueCoordinator();
+  const control = vi.spyOn(coordinator, 'control').mockResolvedValue();
+  await createPlanQueueToolOperations(() => coordinator).control('parent', {
+    action: 'set-routing', run_id: 'run', routing: { worker: { provider: 'codex', account_ids: ['account'] }, verifiers: [{ provider: 'claude' }] }, move_in_progress: true,
+  });
+  expect(control).toHaveBeenCalledWith({ action: 'set-routing', runId: 'run', routing: { worker: { provider: 'codex', accountProfileIds: ['account'] }, verifiers: [{ provider: 'claude' }] }, moveInProgress: true }, 'parent');
+});

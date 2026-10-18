@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 22;
+export const LOOP_SCHEMA_VERSION = 23;
 
 interface LoopMigration {
   version: number;
@@ -447,6 +447,14 @@ const MIGRATIONS: LoopMigration[] = [
       ALTER TABLE loop_outstanding_items ADD COLUMN first_seen_round INTEGER;
       ALTER TABLE loop_outstanding_items ADD COLUMN outcome TEXT;
       ALTER TABLE loop_outstanding_items ADD COLUMN answer_sent_at INTEGER;
+    `,
+  },
+  {
+    version: 23,
+    name: '023_plan_queue_holds',
+    up: `
+      ALTER TABLE plan_queue_items ADD COLUMN held_at INTEGER;
+      ALTER TABLE plan_queue_items ADD COLUMN pending_instruction TEXT;
     `,
   },
 ];

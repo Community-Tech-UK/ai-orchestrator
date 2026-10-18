@@ -4,7 +4,7 @@ import type {
   BrowserGatewayFillCredentialRequest,
   BrowserGatewayCreateAgentCredentialRequest,
 } from './browser-gateway-service-types';
-import type { BrowserGatewayResult } from '@contracts/types/browser';
+import type { BrowserAttachExistingTabRequest, BrowserGatewayResult } from '@contracts/types/browser';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import type { CredentialPurpose } from './browser-credential-authorization-store';
 import {
@@ -64,6 +64,15 @@ export interface FillOperationDeps {
    */
   sharedTabSecureCredentialFillSupported?: (profileId: string, targetId: string) => boolean;
   /**
+   * Whether the exact local/remote extension channel can answer Chrome's own
+   * HTTP Basic/Digest prompt (fill_http_auth; needs the build that registers
+   * webRequest.onAuthRequired). Default absent = false. Checked before a vault
+   * secret is resolved and again immediately before dispatch.
+   */
+  sharedTabSecureHttpAuthSupported?: (profileId: string, targetId: string) => boolean;
+  /** The tab's current LIVE url, including non-http forms (chrome-error, blank). */
+  readTargetUrl?: (profileId: string, targetId: string) => Promise<string>;
+  /**
    * Map a live target profileId to the profile scope the credential
    * authorization is keyed by. Identity for managed profiles; for a shared
    * existing tab it returns the stable node scope (nodeId, or 'local') because
@@ -117,6 +126,29 @@ export interface FillOperationDeps {
     pageOrigin?: string,
   ) => Promise<{ valueApplied?: boolean } | void>;
   refreshTargetOrigin: (profileId: string, targetId: string) => Promise<string>;
+  /**
+   * Raw `http_auth_navigate` dispatch — stages the resolved credential inside
+   * the extension for exactly this navigation and answers Chrome's own HTTP
+   * Basic/Digest prompt. Used ONLY by fill_http_auth, authorized by a standing
+   * credential authorization instead of per-action approval. The credential
+   * never enters the page DOM, so the returned tab payload stays observable
+   * unless an EARLIER secret fill already tainted the tab.
+   */
+  httpAuthNavigate: (
+    profileId: string,
+    targetId: string,
+    input: {
+      url: string;
+      credentialOrigin: string;
+      username: string;
+      password: string;
+      protection: 'public' | 'password' | 'secret';
+    },
+    beforeDispatch?: () => void,
+  ) => Promise<{
+    httpAuth: 'answered' | 'rejected' | 'not_challenged';
+    tab: BrowserAttachExistingTabRequest | null;
+  }>;
   credentialVault?: Pick<
     CredentialVault,
     'getSecretForFill' | 'createAgentCredential' | 'getGenericSecretForFill'

@@ -38,6 +38,7 @@ const TOOL_NAMES = [
   'browser.set_zoom',
   'browser.execute_fill_plan',
   'browser.fill_credential',
+  'browser.fill_http_auth',
   'browser.request_credential_access',
   'browser.get_credential_access_status',
   'browser.cancel_credential_access',
@@ -439,6 +440,28 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
       },
     }),
   }, ['profileId', 'targetId', 'vaultItemRef', 'fields']),
+  'browser.fill_http_auth': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    vaultItemRef: {
+      ...stringProp,
+      description:
+        'Opaque credential vault item reference (NOT a secret). The username and '
+        + "password are resolved in the main process and answered into Chrome's own "
+        + 'HTTP Basic/Digest prompt — never sent to or returned from the model, and '
+        + 'never entered into the page, so the tab stays readable afterwards. Requires '
+        + 'the same standing credential authorization as browser.fill_credential; call '
+        + 'browser.request_credential_access first if it is not approved.',
+    },
+    url: {
+      ...stringProp,
+      description:
+        "Optional http(s) URL being signed into; defaults to the tab's current URL. "
+        + 'Must be same-origin with the live tab (or with the authorised origin when the '
+        + "tab sits on Chrome's error or blank page). Refused over plain http except "
+        + 'loopback.',
+    },
+  }, ['profileId', 'targetId', 'vaultItemRef']),
   'browser.fill_secret': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,
@@ -804,6 +827,9 @@ function toolDescription(name: BrowserMcpToolName): string {
       + 'Returns a real requestId, status and non-secret vaultItemRef. Retry browser.fill_credential only after approved. Does not require shell CLI connection.';
   }
   if (name === 'browser.get_credential_access_status') return 'Read this task’s saved-login request status: pending, approved, denied or expired. Only approved means credential authorisation; a manual handoff never does.';
+  if (name === 'browser.fill_http_auth') {
+    return `${UNTRUSTED_WARNING} Answer Chrome's own HTTP Basic/Digest sign-in prompt (the browser pop-up, not a page form) for a shared tab waiting on one — e.g. when navigate/snapshot/find_or_open report an httpAuthChallenge — using a saved login already approved for this website and computer. The password never reaches the model and never enters the page, so the tab stays readable afterwards. If the site refuses the saved password the result reports httpAuth "rejected": do not ask the user to type it in Chrome — the saved password is wrong.`;
+  }
   if (name === 'browser.cancel_credential_access') return 'Cancel this task’s pending saved-login request. No credential enrolment or access is granted.';
   if (name === 'browser.reload') {
     return `${UNTRUSTED_WARNING} Reload the selected shared existing Chrome tab in place. Requires a navigate-class grant and accepts no URL.`;

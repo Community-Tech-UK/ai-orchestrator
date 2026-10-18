@@ -93,6 +93,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     click: vi.fn(),
     readControl,
     driverType,
+    httpAuthNavigate: vi.fn(),
     refreshTargetOrigin,
     credentialVault: {
       getGenericSecretForFill: vi.fn(async () => opts.vaultValue ?? SECRET),

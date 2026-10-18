@@ -112,6 +112,11 @@ export class BrowserReloadOperation {
             ).slice(0, 200) }
             : {}),
           ...(liveness.clockText ? { clockText: liveness.clockText } : {}),
+          // A Chrome HTTP auth prompt waiting on this tab (no credentials):
+          // the caller answers it with browser.fill_http_auth.
+          ...(refreshed.httpAuthChallenge
+            ? { httpAuthChallenge: refreshed.httpAuthChallenge }
+            : {}),
         },
       });
     } catch (error) {

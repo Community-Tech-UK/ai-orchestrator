@@ -33,6 +33,7 @@ describe('vault locks between secret resolution and browser dispatch', () => {
       resolveCredentialProfileScope: () => 'local', resolveCredentialComputerId: () => 'local',
       credentialVault: vault, credentialAuthorizations: auth,
       type: vi.fn(), select: vi.fn(), click: vi.fn(), readControl: vi.fn(), driverType,
+      httpAuthNavigate: vi.fn(),
       refreshTargetOrigin: async () => { if (++snapshots === 2) { started(); await release; } return origin; },
     };
     const filling = fillCredentialOperation(deps, { profileId: 'existing-tab:test', targetId: 'test-target', vaultItemRef: 'test-item', fields: [{ selector: '#password', kind: 'password' }] });

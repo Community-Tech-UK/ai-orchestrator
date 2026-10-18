@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PlanQueueQuestionSchema, PlanQueueReportTriageArgsSchema } from '../plan-queue.schemas';
+import { PlanQueueQuestionSchema, PlanQueueReportTriageArgsSchema, PlanQueueControlPayloadSchema, PlanQueueControlArgsSchema } from '../plan-queue.schemas';
 
 const question = {
   question: 'Which existing verification command should the worker use?',
@@ -46,5 +46,19 @@ describe('Plan Queue readiness decisions', () => {
     expect(PlanQueueQuestionSchema.safeParse({
       ...question, options: [{ id: 'quiet', label: 'First' }, { id: 'quiet', label: 'Second' }], decision: technical,
     }).success).toBe(false);
+  });
+});
+
+
+describe('Plan Queue routing controls', () => {
+  it('accepts panel-only bulk actions and a complete per-run routing change', () => {
+    expect(PlanQueueControlPayloadSchema.parse({ action: 'pause-all' })).toEqual({ action: 'pause-all' });
+    expect(PlanQueueControlPayloadSchema.parse({ action: 'resume-all' })).toEqual({ action: 'resume-all' });
+    expect(PlanQueueControlPayloadSchema.parse({ action: 'set-routing', runId: 'run', routing: { worker: null, verifiers: [] }, moveInProgress: true })).toMatchObject({ moveInProgress: true });
+  });
+  it('uses snake_case routing choices over MCP and refuses bulk actions', () => {
+    expect(PlanQueueControlArgsSchema.parse({ action: 'set-routing', run_id: 'run', routing: { worker: { provider: 'codex', account_ids: ['account'] }, verifiers: [] }, move_in_progress: true })).toMatchObject({ move_in_progress: true });
+    expect(PlanQueueControlArgsSchema.safeParse({ action: 'pause-all' }).success).toBe(false);
+    expect(PlanQueueControlArgsSchema.safeParse({ action: 'set-routing', run_id: 'run' }).success).toBe(false);
   });
 });

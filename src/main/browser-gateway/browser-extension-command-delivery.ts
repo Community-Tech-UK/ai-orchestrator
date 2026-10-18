@@ -49,6 +49,12 @@ export function pollerServesCommandInstance(
 }
 
 export function isOriginBoundCredentialCommand(command: BrowserExtensionQueuedCommand): boolean {
+  // http_auth_navigate always carries a vault credential (username + password
+  // staged for Chrome's HTTP auth prompt), so it needs the same secure-runtime
+  // poller capability as an origin-bound credential write.
+  if (command.command === 'http_auth_navigate') {
+    return true;
+  }
   if (command.command !== 'type') {
     return false;
   }

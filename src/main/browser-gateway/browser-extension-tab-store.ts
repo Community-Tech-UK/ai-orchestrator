@@ -1,6 +1,7 @@
 import type {
   BrowserAllowedOrigin,
   BrowserAttachExistingTabRequest,
+  BrowserHttpAuthChallenge,
   BrowserTarget,
   BrowserTargetInspectionState,
 } from '@contracts/types/browser';
@@ -68,6 +69,8 @@ export interface BrowserExistingTabAttachment {
   allowedOrigins: BrowserAllowedOrigin[];
   extensionOrigin?: string;
   capturedAt?: number;
+  /** A Chrome HTTP auth prompt waiting on this tab (no credentials). */
+  httpAuthChallenge?: BrowserHttpAuthChallenge;
   attachedAt: number;
   updatedAt: number;
   /** Set while the attachment's node channel is down (grace window). */
@@ -160,6 +163,9 @@ export class BrowserExtensionTabStore {
       allowedOrigins,
       extensionOrigin: input.extensionOrigin,
       capturedAt: input.capturedAt,
+      // A freshly attached payload carries the CURRENT challenge observation;
+      // absent means no prompt is waiting, so never inherit a stale one.
+      ...(input.httpAuthChallenge ? { httpAuthChallenge: input.httpAuthChallenge } : {}),
       attachedAt: current?.attachedAt ?? now,
       updatedAt: now,
       // A fresh attach means the tab is live again: never inherit suspension.
@@ -405,6 +411,9 @@ export class BrowserExtensionTabStore {
       ...(attachment.inspectionState ? { inspectionState: attachment.inspectionState } : {}),
       ...(attachment.textUnavailableReason
         ? { textUnavailableReason: attachment.textUnavailableReason }
+        : {}),
+      ...(attachment.httpAuthChallenge
+        ? { httpAuthChallenge: attachment.httpAuthChallenge }
         : {}),
       windowId: attachment.windowId,
       ...(attachment.tabIndex !== undefined ? { tabIndex: attachment.tabIndex } : {}),

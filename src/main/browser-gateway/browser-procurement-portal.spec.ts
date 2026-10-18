@@ -132,6 +132,7 @@ function makeDomDeps(vault: CredentialVault): FillOperationDeps {
     driverType: async (_p, _t, selector, value) => {
       (el(selector) as HTMLInputElement).value = value;
     },
+    httpAuthNavigate: vi.fn() as FillOperationDeps['httpAuthNavigate'],
     readControl: async (_p, _t, selector) => ({ value: (el(selector) as HTMLInputElement).value }),
     refreshTargetOrigin: async () => ORIGIN,
     credentialVault: vault,

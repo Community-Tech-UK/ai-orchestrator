@@ -13,6 +13,7 @@ import {
   launchProviderLogin,
   quotePathForTerminal,
 } from './provider-login-launcher';
+import type { ProviderId } from '../../shared/types/provider-quota.types';
 
 // These tests never exercise the spawn path: `launchProviderLogin` is only
 // called for providers it must reject *before* touching child_process, and the
@@ -27,6 +28,7 @@ describe('provider-login-launcher', () => {
     expect(getProviderLoginCommand('codex-cli')?.command).toBe('codex login');
     expect(getProviderLoginCommand('copilot')?.command).toBe('copilot login');
     expect(getProviderLoginCommand('cursor')?.command).toBe('cursor-agent login');
+    expect(getProviderLoginCommand('grok')?.command).toBe('grok login');
     expect(getProviderLoginCommand('opencode')?.command).toBe('opencode auth login');
   });
 
@@ -75,10 +77,21 @@ describe('provider-login-launcher', () => {
 
   it('every login command stays within the shell-safe character set', () => {
     const safe = /^[A-Za-z0-9 ._-]+$/;
-    for (const provider of ['claude', 'codex', 'copilot', 'cursor', 'opencode', 'antigravity', 'gemini']) {
+    for (const provider of ['claude', 'codex', 'copilot', 'cursor', 'grok', 'opencode', 'antigravity', 'gemini']) {
       const login = getProviderLoginCommand(provider);
       expect(login, provider).not.toBeNull();
       expect(safe.test(login!.command), `${provider}: ${login!.command}`).toBe(true);
+    }
+  });
+
+  it('has a sign-in command for every provider that can be flagged for reauth', () => {
+    // Grok was missing here, so its Accounts "Sign in" button had nothing to
+    // launch. Keep this list in step with ProviderId so the gap cannot recur.
+    const providers: ProviderId[] = [
+      'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode',
+    ];
+    for (const provider of providers) {
+      expect(getProviderLoginCommand(provider), provider).not.toBeNull();
     }
   });
 

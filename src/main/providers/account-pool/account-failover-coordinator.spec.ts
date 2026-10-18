@@ -127,6 +127,21 @@ describe('AccountFailoverCoordinator', () => {
     expect(events.map((event) => event.event)).toContain('account_failover_performed');
   });
 
+  it('describes a sign-out as a sign-out, not a usage limit, in the handoff and its notices', async () => {
+    const h = harness();
+    addInstance(h, 'i1');
+    const outcome = await h.coordinator.perform(params('i1', { trigger: 'signed-out', resumeAt: null }));
+    expect(outcome).toMatchObject({ outcome: 'switched', toProfileId: 'max-b' });
+    expect(h.applied[0]?.desired).toMatchObject({ accountHandoffKind: 'failover', accountHandoffReason: 'signed out' });
+    expect(h.notified).toEqual([expect.objectContaining({ kind: 'account-switched', body: 'Label legacy → Label max-b (signed out).' })]);
+    expect(h.resent).toEqual([{ id: 'i1', prompt: 'keep going' }]);
+
+    const ask = harness({ failoverMode: 'ask' });
+    addInstance(ask, 'i1');
+    await ask.coordinator.perform(params('i1', { trigger: 'signed-out' }));
+    expect(ask.notified).toEqual([expect.objectContaining({ kind: 'account-failover-offer', title: 'Label legacy is signed out' })]);
+  });
+
   it('moves a fenced session only to an account inside its fence', async () => {
     const h = harness();
     addInstance(h, 'i1', 'legacy');

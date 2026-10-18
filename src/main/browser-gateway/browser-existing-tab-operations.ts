@@ -1,4 +1,4 @@
-import type { BrowserApprovalRequest, BrowserGatewayResult, BrowserPermissionGrant } from '@contracts/types/browser';
+import type { BrowserApprovalRequest, BrowserGatewayResult, BrowserHttpAuthChallenge, BrowserPermissionGrant } from '@contracts/types/browser';
 import type { BrowserExistingTabAttachment } from './browser-extension-tab-store';
 import type { BrowserExtensionCommandName,
   BrowserExtensionCommandStore } from './browser-extension-command-store';
@@ -72,7 +72,7 @@ export class BrowserExistingTabOperations {
   async navigate(
     request: BrowserGatewayNavigateRequest,
     attachment: BrowserExistingTabAttachment,
-  ): Promise<BrowserGatewayResult<null>> {
+  ): Promise<BrowserGatewayResult<{ httpAuthChallenge?: BrowserHttpAuthChallenge } | null>> {
     const originDecision = isOriginAllowed(request.url, attachment.allowedOrigins);
     let grant: BrowserPermissionGrant | undefined;
     let origin = originDecision.origin;
@@ -177,10 +177,12 @@ export class BrowserExistingTabOperations {
       const result = await this.sendCommand(attachment, 'navigate', {
         url: request.url,
       });
+      let httpAuthChallenge: BrowserHttpAuthChallenge | undefined;
       if (result) {
         try {
           const tab = extractTabPayload(result);
           this.attachRefreshedTab(tab, attachment);
+          httpAuthChallenge = tab.httpAuthChallenge;
         } catch {
           // Navigation succeeded; stale metadata is less important than
           // preserving the audited command result.
@@ -199,14 +201,16 @@ export class BrowserExistingTabOperations {
         actionClass: 'navigate',
         decision: 'allowed',
         outcome: 'succeeded',
-        summary: grant
-          ? 'Navigated existing Chrome tab using an approved cross-origin grant'
-          : 'Navigated existing Chrome tab within allowed origin',
+        summary: httpAuthChallenge
+          ? `Navigated existing Chrome tab, but Chrome is waiting on a sign-in prompt for ${httpAuthChallenge.origin} — answer it with browser.fill_http_auth`
+          : grant
+            ? 'Navigated existing Chrome tab using an approved cross-origin grant'
+            : 'Navigated existing Chrome tab within allowed origin',
         origin,
         url: request.url,
         grantId: grant?.id,
         autonomous: grant?.autonomous,
-        data: null,
+        data: httpAuthChallenge ? { httpAuthChallenge } : null,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -400,7 +404,11 @@ export class BrowserExistingTabOperations {
   async snapshot(
     request: BrowserGatewayTargetRequest & { requireLive?: boolean },
     attachment: BrowserExistingTabAttachment,
-  ): Promise<BrowserGatewayResult<(BrowserSnapshot & { text: string; textUnavailableReason?: string }) | null>> {
+  ): Promise<BrowserGatewayResult<(BrowserSnapshot & {
+    text: string;
+    textUnavailableReason?: string;
+    httpAuthChallenge?: BrowserHttpAuthChallenge;
+  }) | null>> {
     const originDecision = isOriginAllowed(attachment.url, attachment.allowedOrigins);
     if (!originDecision.allowed) {
       return this.deps.result({
@@ -469,6 +477,9 @@ export class BrowserExistingTabOperations {
           url: fresh.url,
           text: boundBrowserText(fresh.text ?? ''),
           ...(fresh.textUnavailableReason ? { textUnavailableReason: fresh.textUnavailableReason } : {}),
+          // A Chrome HTTP auth prompt waiting on this tab (no credentials):
+          // the caller answers it with browser.fill_http_auth.
+          ...(fresh.httpAuthChallenge ? { httpAuthChallenge: fresh.httpAuthChallenge } : {}),
         },
       });
     } catch (error) {
@@ -626,7 +637,8 @@ export class BrowserExistingTabOperations {
     });
   }
 
-  private attachRefreshedTab(
+  /** Re-attach a refreshed extension tab payload under the same channel identity. */
+  attachRefreshedTab(
     input: Parameters<BrowserExtensionTabStore['attachTab']>[0],
     source: BrowserExistingTabAttachment,
   ): BrowserExistingTabAttachment {

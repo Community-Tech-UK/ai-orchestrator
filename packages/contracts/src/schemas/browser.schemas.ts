@@ -680,7 +680,7 @@ export const BrowserSelectRequestSchema = BrowserTargetRequestSchema.extend({
 }).strict().superRefine(requireSelectorOrUid);
 export type BrowserSelectRequest = z.infer<typeof BrowserSelectRequestSchema>;
 
-export { BrowserFillPlanStepSchema, BrowserExecuteFillPlanRequestSchema, BrowserFillCredentialRequestSchema, BrowserFillSecretRequestSchema, BrowserCreateAgentCredentialRequestSchema, type BrowserFillPlanStep, type BrowserExecuteFillPlanRequest, type BrowserFillCredentialRequest, type BrowserFillSecretRequest, type BrowserCreateAgentCredentialRequest } from './browser-form-fill.schemas';
+export { BrowserFillPlanStepSchema, BrowserExecuteFillPlanRequestSchema, BrowserFillCredentialRequestSchema, BrowserFillSecretRequestSchema, BrowserCreateAgentCredentialRequestSchema, BrowserFillHttpAuthRequestSchema, type BrowserFillPlanStep, type BrowserExecuteFillPlanRequest, type BrowserFillCredentialRequest, type BrowserFillSecretRequest, type BrowserCreateAgentCredentialRequest, type BrowserFillHttpAuthRequest } from './browser-form-fill.schemas';
 
 export * from './browser-input-controls.schemas';
 

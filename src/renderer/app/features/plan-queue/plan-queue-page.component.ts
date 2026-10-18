@@ -58,6 +58,12 @@ export class PlanQueuePageComponent implements OnInit {
     void this.store.refreshAlerts();
   }
 
+  protected readonly runningCount = computed(() => this.store.allRuns().filter(run => run.status === 'running').length);
+  protected readonly pausedCount = computed(() => this.store.allRuns().filter(run => run.status === 'paused').length);
+
+  onPauseAll(): void { void this.store.control({ action: 'pause-all' }); }
+  onResumeAll(): void { void this.store.control({ action: 'resume-all' }); }
+
   onPauseRun(runId: string): void {
     void this.store.control({ action: 'pause', runId });
   }

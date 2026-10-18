@@ -72,6 +72,7 @@ import {
 import { emitClaudeSelfWakeup, emitClaudeSelfWakeupRefusal, sanitizeClaudeToolInput, sanitizeClaudeSelfWakeupRawNdjson } from './claude-cli-self-wakeup';
 import { probeVersionStatus } from './cli-status-probe';
 import { parseClaudeStreamError } from './claude-stream-error';
+import { prepareHardenedClaudeLoginEnv } from './claude-hardened-login';
 import { applyClaudeResultUsage, type ClaudeResultUsageHost } from './claude-result-usage';
 import {
   processClaudeAssistantMessage,
@@ -436,6 +437,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
   /** Private temp dir holding inline-JSON arguments. */
   private inlineArgTempDir: string | null = null;
+  /** Login handed to a hardened spawn, keyed to the config dir it was read for. */
+  private handedInLogin: { configDir: string | undefined; env: Record<string, string> } | null = null;
   /** Dedup map: inline-JSON content → temp file path (stable across buildArgs calls). */
   private readonly inlineArgFiles = new Map<string, string>();
   private inlineArgTempUsers = 0;
@@ -558,6 +561,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     this.outputBuffer = '';
     this.awaitingOneShotCompletion = true; // LT-047: this close handler owns completeResponse()
     await this.primeCliVersion();
+    await this.prepareHardenedLogin();
 
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -813,6 +817,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
     await this.primeCliVersion();
+    await this.prepareHardenedLogin();
     const args = this.buildArgs(message);
     this.process = this.spawnWithInlineArgCleanup(args);
 
@@ -903,6 +908,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
     this.resetResidentTurn(); // LT-047: fresh process, no in-flight turn
     await this.primeCliVersion();
+    await this.prepareHardenedLogin();
     this.lastResumeAttemptResult = this.shouldUseNativeResume()
       ? {
           source: 'native',
@@ -1969,6 +1975,22 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         sessionId: this.sessionId,
       });
     }
+  }
+
+  /** A jailed CLI must not refresh the shared login (claude-hardened-login). */
+  private async prepareHardenedLogin(): Promise<void> {
+    if (!this.isHardenedModeConfigured()) {
+      this.handedInLogin = null;
+      return;
+    }
+    const configDir = this.buildSpawnEnv()['CLAUDE_CONFIG_DIR'];
+    const env = await prepareHardenedClaudeLoginEnv(configDir);
+    this.handedInLogin = env ? { configDir, env } : null;
+  }
+
+  protected override hardenedSpawnEnv(env: NodeJS.ProcessEnv): Record<string, string> | undefined {
+    const login = this.handedInLogin;
+    return login && login.configDir === env['CLAUDE_CONFIG_DIR'] ? login.env : undefined;
   }
 
   private shouldUsePermissionHook(): boolean {

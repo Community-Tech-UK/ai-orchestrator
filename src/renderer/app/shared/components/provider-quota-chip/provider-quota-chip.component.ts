@@ -169,20 +169,13 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
                     </span>
                   }
                   @if (section.needsReauth) {
-                    @if (provider.provider === 'opencode') {
-                      <button
-                        type="button"
-                        class="reauth-row reauth-action"
-                        [attr.data-testid]="section.id === 'legacy' ? 'quota-reauth-' + provider.provider : 'quota-reauth-' + provider.provider + '-' + section.id"
-                        title="Open Accounts to sign in to MiMo usage"
-                        (click)="openAccounts()"
-                      >⚠ Reauth needed — {{ section.reauthHint }}</button>
-                    } @else {
-                      <span
-                        class="reauth-row"
-                        [attr.data-testid]="section.id === 'legacy' ? 'quota-reauth-' + provider.provider : 'quota-reauth-' + provider.provider + '-' + section.id"
-                      >⚠ Reauth needed — {{ section.reauthHint }}</span>
-                    }
+                    <button
+                      type="button"
+                      class="reauth-row reauth-action"
+                      [attr.data-testid]="section.id === 'legacy' ? 'quota-reauth-' + provider.provider : 'quota-reauth-' + provider.provider + '-' + section.id"
+                      [title]="reauthActionTitle(provider.provider)"
+                      (click)="openAccounts(provider.provider)"
+                    >⚠ Reauth needed — {{ section.reauthHint }}</button>
                   }
                   @for (window of section.windows; track window.id) {
                     <span class="window-row">
@@ -287,7 +280,8 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   private readonly accountProfiles = signal<QuotaAccountProfile[] | null>(null);
   private nowTimer: ReturnType<typeof setInterval> | null = null;
   readonly popoverOpen = signal(false);
-  readonly accountsRequested = output<void>();
+  /** Emitted when a "Reauth needed" banner is clicked; the app opens that provider's accounts page. */
+  readonly accountsRequested = output<ProviderId>();
 
   constructor() {
     effect(() => {
@@ -465,9 +459,20 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     if (this.popoverOpen() && this.store.accountSnapshots().length > 0) void this.loadAccountProfiles();
   }
 
-  openAccounts(): void {
+  /**
+   * Every reauth banner is the entry point to sign in again: it closes the
+   * popover and asks the app to open the accounts page that owns this
+   * provider's sign-in.
+   */
+  openAccounts(provider: ProviderId): void {
     this.popoverOpen.set(false);
-    this.accountsRequested.emit();
+    this.accountsRequested.emit(provider);
+  }
+
+  reauthActionTitle(provider: ProviderId): string {
+    return provider === 'copilot'
+      ? 'Open Copilot Accounts to sign in'
+      : 'Open Accounts to sign in';
   }
 
   private async loadAccountProfiles(): Promise<void> {

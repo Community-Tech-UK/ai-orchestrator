@@ -595,6 +595,50 @@ describe('ProviderQuotaChipComponent', () => {
     });
   });
 
+  describe('reauth banner routing', () => {
+    it.each([
+      ['claude', 'Open Accounts to sign in'],
+      ['opencode', 'Open Accounts to sign in'],
+      ['copilot', 'Open Copilot Accounts to sign in'],
+    ] as [ProviderId, string][])(
+      'turns the %s banner into a button that requests its accounts page',
+      async (provider, title) => {
+        store.setSnapshot(provider, {
+          provider,
+          takenAt: Date.now(),
+          source: 'cli-result',
+          ok: false,
+          error: 'Sign in again to keep checking usage',
+          needsReauth: true,
+          windows: [],
+        });
+        fixture.detectChanges();
+        const requested: ProviderId[] = [];
+        component.accountsRequested.subscribe((id) => requested.push(id));
+        const host = fixture.nativeElement as HTMLElement;
+        host.querySelector<HTMLButtonElement>('[data-testid="quota-toggle"]')!.click();
+        fixture.detectChanges();
+
+        const warning = host.querySelector<HTMLButtonElement>(`[data-testid="quota-reauth-${provider}"]`)!;
+        expect(warning.tagName).toBe('BUTTON');
+        expect(warning.type).toBe('button');
+        expect(warning.title).toBe(title);
+        expect(warning.textContent).toContain('Sign in again to keep checking usage');
+
+        // Refresh must not navigate; only the banner does.
+        host.querySelector<HTMLButtonElement>(`[data-testid="quota-refresh-${provider}"]`)!.click();
+        fixture.detectChanges();
+        expect(requested).toEqual([]);
+
+        warning.click();
+        fixture.detectChanges();
+
+        expect(requested).toEqual([provider]);
+        expect(host.querySelector('[data-testid="quota-popover"]')).toBeNull();
+      },
+    );
+  });
+
   describe('account-pool rows', () => {
     const claudeWeekly = (used: number) => ({ ...makeWindow(used, 100), id: 'claude.weekly', label: 'Weekly (all models)' });
     const accountSnap = (id: string, used: number, provider: ProviderId = 'claude'): ProviderQuotaSnapshot => ({

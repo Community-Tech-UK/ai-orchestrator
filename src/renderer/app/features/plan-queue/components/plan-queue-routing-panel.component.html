@@ -1,7 +1,11 @@
 <div class="pq-routing">
   <p class="pq-routing-purpose">
+    @if (mode() === 'run') {
+      Change the providers and accounts for new sessions in this run. Pause, change, then Resume to switch all its documents.
+    } @else {
     Choose which providers and accounts Plan Queue workers and checkers may use. Runs started from chat can still
     override this.
+    }
   </p>
 
   @if (accountsError(); as accountsProblem) {
@@ -79,12 +83,12 @@
     <label class="pq-routing-radio">
       <input
         type="radio"
-        name="pqRoutingWorkerMode"
+        [name]="'pqRoutingWorkerMode' + radioSuffix()"
         value="same"
         [checked]="!isWorkerAlways()"
         (change)="setWorkerMode('same')"
       />
-      Same as the session that starts the run
+      {{ mode() === 'run' ? 'Same as the session that started the run' : 'Same as the session that starts the run' }}
     </label>
     @if (!isWorkerAlways()) {
       <p class="pq-routing-note">
@@ -96,7 +100,7 @@
     <label class="pq-routing-radio">
       <input
         type="radio"
-        name="pqRoutingWorkerMode"
+        [name]="'pqRoutingWorkerMode' + radioSuffix()"
         value="always"
         [checked]="isWorkerAlways()"
         (change)="setWorkerMode('always')"
@@ -113,7 +117,7 @@
     <label class="pq-routing-radio">
       <input
         type="radio"
-        name="pqRoutingCheckerMode"
+        [name]="'pqRoutingCheckerMode' + radioSuffix()"
         value="auto"
         [checked]="!isCheckerManual()"
         (change)="setCheckerMode('auto')"
@@ -123,7 +127,7 @@
     <label class="pq-routing-radio">
       <input
         type="radio"
-        name="pqRoutingCheckerMode"
+        [name]="'pqRoutingCheckerMode' + radioSuffix()"
         value="manual"
         [checked]="isCheckerManual()"
         (change)="setCheckerMode('manual')"
@@ -188,10 +192,17 @@
     }
   </fieldset>
 
+  @if (canMoveInProgress()) {
+    <label class="pq-routing-radio pq-routing-move-progress">
+      <input type="checkbox" [checked]="moveInProgress()" (change)="moveInProgress.set(inputChecked($event))" />
+      Move documents in progress now?
+    </label>
+  }
+
   <div class="pq-routing-actions">
     <button type="button" class="pq-routing-save" [disabled]="!canSave()" (click)="save()">Save</button>
     <button type="button" class="pq-routing-reset" [disabled]="!dirty() || saving()" (click)="resetToSaved()">
-      Reset to saved
+      {{ mode() === 'run' ? 'Reset to current choice' : 'Reset to saved' }}
     </button>
     @if (status(); as line) {
       @if (line.kind === 'success') {

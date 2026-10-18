@@ -185,7 +185,12 @@ export const PlanQueueRunConfigSchema = z.object({
   relaxSettings: z.boolean(),
   /** Branch verified work lands on; fixed when the run starts. */
   baseBranch: z.string().min(1).max(500).optional(),
-  /** Effective providers and accounts, fixed when the run starts. Absent on older runs. */
+  /** The starting session's route, retained when its session is gone or the run changes routing. */
+  startingSessionRoute: z.object({
+    provider: z.string().optional(), currentModel: z.string().optional(),
+    accountProfileId: z.string().optional(), copilotAccountProfileId: z.string().optional(),
+  }).optional(),
+  /** Effective providers and accounts for future sessions. Absent on older runs. */
   routing: PlanQueueRoutingSchema.optional(),
 });
 
@@ -214,6 +219,8 @@ export const PlanQueueItemDtoSchema = z.object({
   answer: z.string().max(2000).nullable(),
   parkReason: PlanQueueParkReasonSchema.nullable(),
   detail: z.string().max(8000).nullable(),
+  heldAt: z.number().int().nullable().optional(),
+  pendingInstruction: z.string().nullable().optional(),
   verdict: PlanQueueVerdictSchema.nullable(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
@@ -228,6 +235,8 @@ export const PlanQueueRunDtoSchema = z.object({
   status: PlanQueueRunStatusSchema,
   config: PlanQueueRunConfigSchema,
   workerProvider: z.string().max(100).nullable(),
+  /** The effective worker model, including older runs without config.routing. */
+  workerModel: z.string().max(200).nullable().optional(),
   /** Settings this run relaxed, while they are in force. */
   relaxedSettings: z.array(z.string().max(200)),
   startedAt: z.number().int(),
@@ -268,6 +277,9 @@ export const PlanQueueAnswerPayloadSchema = z.object({
 });
 
 export const PlanQueueControlPayloadSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('pause-all') }),
+  z.object({ action: z.literal('resume-all') }),
+  z.object({ action: z.literal('set-routing'), runId: IdSchema, routing: PlanQueueRoutingSchema, moveInProgress: z.boolean().optional() }),
   z.object({ action: z.literal('pause'), runId: IdSchema }),
   z.object({ action: z.literal('resume'), runId: IdSchema }),
   z.object({ action: z.literal('cancel'), runId: IdSchema }),
@@ -324,11 +336,16 @@ export const PlanQueueAnswerArgsSchema = z.object({
   option_id: z.string().min(1).max(50),
 });
 
-export const PlanQueueControlArgsSchema = z.object({
+export const PlanQueueControlArgsSchema = z.discriminatedUnion('action', [z.object({
   action: z.enum(['pause', 'resume', 'cancel', 'adopt', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item']),
   run_id: IdSchema.optional(),
   item_id: IdSchema.optional(),
-});
+}), z.object({
+  action: z.literal('set-routing'),
+  run_id: IdSchema,
+  routing: z.object({ worker: PlanQueueRouteChoiceArgsSchema.nullable(), verifiers: z.array(PlanQueueRouteChoiceArgsSchema).max(10) }).strict(),
+  move_in_progress: z.boolean().optional(),
+})]);
 
 export const PlanQueueStateChangedEventSchema = z.object({
   runId: IdSchema,

@@ -122,7 +122,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
     },
   },
   plan_queue_status: {
-    description: 'Show a Plan Queue run: each document\'s state, verification round, open question, park reason and verdict findings. Without run_id, lists recent runs.',
+    description: 'Show a Plan Queue run: each document\'s state, verification round, open question, park reason and verdict findings. Without run_id, lists every running or paused run and every finished run with parked documents, plus the ten most recent runs, deduplicated and newest first. The recent window caps only ordinary history.',
     inputSchema: {
       type: 'object',
       properties: { run_id: { type: 'string', description: 'Run id returned by plan_queue_start.' } },
@@ -142,13 +142,19 @@ export const PLAN_QUEUE_TOOL_SPECS = {
     },
   },
   plan_queue_control: {
-    description: 'Control a Plan Queue run or item: pause, resume or cancel a run (run_id); skip an item that has not started, resume a parked item, retry a blocked merge of a verified item, land a parked item without a verifier PASS, or discard a parked item\'s branch (item_id). Land anyway and discard change git state, so do them only when James asked. If the session that started a run no longer exists, any session the queue did not spawn may adopt the run (it then answers its questions and receives its summary), cancel it, or discard a parked item. Adopt when the work should continue; cancel only when James asked.',
+    description: 'Control a Plan Queue run or item: pause stops its workers, triage and checkers now and saves work on document branches; resume continues with fresh sessions. Cancel ends a run (run_id); set-routing changes its worker/checker providers and accounts for future sessions (run_id and routing, optional move_in_progress); skip an item that has not started, resume a parked item, retry a blocked merge of a verified item, land a parked item without a verifier PASS, or discard a parked item\'s branch (item_id). Land anyway and discard change git state, so do them only when James asked. If the session that started a run no longer exists, any session the queue did not spawn may adopt the run (it then answers its questions and receives its summary), cancel it, or discard a parked item. Adopt when the work should continue; cancel only when James asked.',
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['pause', 'resume', 'cancel', 'adopt', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item'] },
-        run_id: { type: 'string', description: 'Required for pause, resume, cancel and adopt.' },
+        action: { type: 'string', enum: ['pause', 'resume', 'cancel', 'adopt', 'set-routing', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item'] },
+        run_id: { type: 'string', description: 'Required for pause, resume, cancel, adopt and set-routing.' },
         item_id: { type: 'string', description: 'Required for the item actions.' },
+        routing: {
+          type: 'object', description: "Required for set-routing. Replaces this run's routing for future sessions; worker:null inherits the starting session. Does not change saved defaults. Parent only; an agent checker list cannot replace a protected work Copilot seat.",
+          properties: { worker: { anyOf: [ROUTE_CHOICE_SCHEMA, { type: 'null' }] }, verifiers: { type: 'array', items: ROUTE_CHOICE_SCHEMA, maxItems: 10 } },
+          required: ['worker', 'verifiers'], additionalProperties: false,
+        },
+        move_in_progress: { type: 'boolean', description: 'set-routing only. Stop, checkpoint and restart in-progress sessions using the new choice now. Defaults to false.' },
       },
       required: ['action'],
       additionalProperties: false,

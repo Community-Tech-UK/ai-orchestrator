@@ -4,9 +4,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlanQueueRouting } from '@contracts/schemas/plan-queue';
+import { DEFAULT_PLAN_QUEUE_CONFIG, PlanQueueRunDtoSchema } from '@contracts/schemas/plan-queue';
+import type { PlanQueueItemState, PlanQueueRouting, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { CopilotAccountIpcService, type CopilotAccountView } from '../../../core/services/ipc/copilot-account-ipc.service';
 import { ProviderAccountIpcService, type ProviderAccountView } from '../../../core/services/ipc/provider-account-ipc.service';
+import { PlanQueueStore } from '../../../core/state/plan-queue.store';
 import { SettingsStore } from '../../../core/state/settings.store';
 import { PlanQueueRoutingPanelComponent } from './plan-queue-routing-panel.component';
 
@@ -73,6 +75,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
   let setSetting: ReturnType<typeof vi.fn>;
   let listProfiles: ReturnType<typeof vi.fn>;
   let listCopilot: ReturnType<typeof vi.fn>;
+  let control: ReturnType<typeof vi.fn>;
 
   async function flush(): Promise<void> {
     await new Promise((done) => setTimeout(done, 0));
@@ -124,6 +127,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
 
   beforeEach(async () => {
     settings = signal({ planQueueRouting: { worker: null, verifiers: [] } as PlanQueueRouting, providersExcludedFromAutomation: [] as string[] });
+    control = vi.fn().mockResolvedValue({ success: true, data: null });
     storeError = signal<string | null>(null);
     setSetting = vi.fn().mockImplementation(async (_key: string, value: PlanQueueRouting) => {
       settings.update((current) => ({ ...current, planQueueRouting: value }));
@@ -134,6 +138,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await TestBed.configureTestingModule({
       imports: [PlanQueueRoutingPanelComponent],
       providers: [
+        { provide: PlanQueueStore, useValue: { control: (...args: unknown[]) => control(...args) } },
         {
           provide: SettingsStore,
           useValue: { settings, error: storeError, clearError: vi.fn(() => storeError.set(null)), set: setSetting },
@@ -483,4 +488,102 @@ describe('PlanQueueRoutingPanelComponent', () => {
       verifiers: [],
     });
   });
+  async function mountRun(status: PlanQueueRunDto['status'] = 'running', states: readonly PlanQueueItemState[] = ['working'], relaxSettings = false): Promise<void> {
+    fixture = TestBed.createComponent(PlanQueueRoutingPanelComponent);
+    fixture.componentRef.setInput('mode', 'run');
+    const run: PlanQueueRunDto = {
+      id: 'run-edit', status,
+      parentInstanceId: 'parent-edit', kind: 'plans', workspaceCwd: '/repo',
+      workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null,
+      config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, relaxSettings, routing: { worker: { provider: 'claude', model: 'opus' }, verifiers: [] } },
+      items: states.map((state, index) => ({
+        id: `item-${index}`, runId: 'run-edit', documentPath: `/repo/${index}_plan.md`, state,
+        round: 0, erroredRounds: 0, branchName: null, worktreePath: null,
+        baseCommit: null, checkpointCommit: null, landedCommit: null,
+        workerInstanceId: null, verifierInstanceId: null, question: null, answer: null,
+        parkReason: null, detail: null, verdict: null, createdAt: 1, updatedAt: 1,
+      })),
+    };
+    fixture.componentRef.setInput('run', run);
+    fixture.detectChanges();
+    await flush();
+  }
+
+  it('edits run routing with the shared validation and keeps edits after a refusal', async () => {
+    await mountRun();
+    expect(q<HTMLInputElement>('.pq-routing-workers input[type="text"]').value).toBe('opus');
+    expect(root().textContent).toContain('Same as the session that started the run');
+    await choose(q<HTMLSelectElement>('.pq-routing-workers select'), 'codex');
+    control.mockResolvedValueOnce({ success: false, error: { message: 'Codex CLI is not installed' } });
+    await click(saveButton());
+    expect(control).toHaveBeenCalledWith({
+      action: 'set-routing', runId: 'run-edit', routing: { worker: { provider: 'codex', model: 'opus' }, verifiers: [] },
+    });
+    expect(root().textContent).toContain('Codex CLI is not installed');
+    expect(q<HTMLSelectElement>('.pq-routing-workers select').value).toBe('codex');
+    expect(saveButton().disabled).toBe(false);
+    expect(setSetting).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])('honours run relaxSettings=%s for excluded worker and checker choices', async (relaxSettings) => {
+    settings.update(current => ({ ...current, providersExcludedFromAutomation: ['codex', 'grok'] }));
+    await mountRun('paused', [], relaxSettings);
+    const workerSelect = q<HTMLSelectElement>('.pq-routing-workers select');
+    expect(qa<HTMLOptionElement>('option', workerSelect).find(option => option.value === 'codex')?.disabled).toBe(!relaxSettings);
+    await choose(workerSelect, 'codex');
+    fixture.componentInstance.setCheckerMode('manual');
+    await flush();
+    const checkerSelect = q<HTMLSelectElement>('.pq-routing-checker select');
+    expect(qa<HTMLOptionElement>('option', checkerSelect).find(option => option.value === 'grok')?.disabled).toBe(!relaxSettings);
+    await choose(checkerSelect, 'grok');
+    expect(saveButton().disabled).toBe(!relaxSettings);
+    await click(saveButton());
+    if (relaxSettings) {
+      expect(control).toHaveBeenCalledWith({
+        action: 'set-routing', runId: 'run-edit',
+        routing: { worker: { provider: 'codex', model: 'opus' }, verifiers: [{ provider: 'grok' }] },
+      });
+    } else {
+      expect(control).not.toHaveBeenCalled();
+    }
+    expect(setSetting).not.toHaveBeenCalled();
+  });
+
+  it('keeps a legacy run worker model when only its checker choice changes', async () => {
+    await mountRun('paused', []);
+    const legacy = PlanQueueRunDtoSchema.parse({
+      ...fixture.componentInstance.run(),
+      workerModel: 'opus-legacy',
+      config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans },
+    });
+    fixture.componentRef.setInput('run', legacy);
+    await flush();
+    expect(q<HTMLInputElement>('.pq-routing-workers input[type="text"]').value).toBe('opus-legacy');
+    fixture.componentInstance.setCheckerMode('manual');
+    await flush();
+    await choose(q<HTMLSelectElement>('.pq-routing-checker select'), 'codex');
+    await click(saveButton());
+    expect(control).toHaveBeenCalledWith({
+      action: 'set-routing', runId: 'run-edit',
+      routing: { worker: { provider: 'claude', model: 'opus-legacy' }, verifiers: [{ provider: 'codex' }] },
+    });
+  });
+
+  it('moves current documents only when explicitly ticked on a running run', async () => {
+    await mountRun();
+    const move = q<HTMLInputElement>('.pq-routing-move-progress input');
+    expect(move.checked).toBe(false);
+    await tick(move, true);
+    await choose(q<HTMLSelectElement>('.pq-routing-workers select'), 'codex');
+    await click(saveButton());
+    expect(control.mock.calls[0][0].moveInProgress).toBe(true);
+  });
+
+  it.each([['paused', ['queued']], ['running', []]] as const)(
+    'does not offer moving documents for %s without work in progress', async (status, items) => {
+      await mountRun(status, items);
+      expect(q('.pq-routing-move-progress')).toBeNull();
+    },
+  );
+
 });

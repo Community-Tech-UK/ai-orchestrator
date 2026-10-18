@@ -16,5 +16,5 @@ export class PlanQueueUserClose {
 
 /** A spawn already queued before Close all must not create a replacement session. */
 export class PlanQueueSpawnStoppedByUser extends Error {
-  constructor() { super('Plan Queue session creation stopped by Close all'); }
+  constructor(readonly instanceId?: string, options?: ErrorOptions) { super('Plan Queue session creation stopped by Close all', options); }
 }

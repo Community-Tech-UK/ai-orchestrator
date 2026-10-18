@@ -197,4 +197,35 @@ describe('PlanQueueItemListComponent', () => {
     expect(fixture.nativeElement.textContent).toContain("Couldn't check if it's ready");
   });
 
+  it('labels held queued and checker documents Paused', () => {
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', state: 'queued', heldAt: 123 }), makeItem({ id: 'b', state: 'awaiting-slot', heldAt: 123 })]);
+    fixture.detectChanges();
+    expect(Array.from(fixture.nativeElement.querySelectorAll('.pq-item-state') as NodeListOf<HTMLElement>).map(el => el.textContent?.trim())).toEqual(['Paused', 'Paused']);
+  });
+
+  it('hides Skip for queued work that is held or already owns a branch or worktree', () => {
+    fixture.componentRef.setInput('items', [
+      makeItem({ id: 'held', state: 'queued', heldAt: 123 }),
+      makeItem({ id: 'branch', state: 'queued', branchName: 'queue/saved-work' }),
+      makeItem({ id: 'worktree', state: 'queued', worktreePath: '/repo/.worktrees/saved-work' }),
+      makeItem({ id: 'new', state: 'queued' }),
+    ]);
+    fixture.detectChanges();
+    const rows = Array.from(fixture.nativeElement.querySelectorAll('.pq-item') as NodeListOf<HTMLElement>);
+    expect(rows.map(row => row.querySelector('.pq-item-skip') !== null)).toEqual([false, false, false, true]);
+  });
+
+  it('refuses a confirmed Skip if queued work acquired a branch before confirmation', () => {
+    fixture.componentRef.setInput('items', [makeItem({ state: 'queued' })]);
+    fixture.detectChanges();
+    const emitted: string[] = [];
+    fixture.componentInstance.skipItem.subscribe(id => emitted.push(id));
+    fixture.nativeElement.querySelector('.pq-item-skip').click(); fixture.detectChanges();
+    fixture.componentRef.setInput('items', [makeItem({ state: 'queued', branchName: 'queue/saved-work' })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-item-skip-confirm')).toBeNull();
+    fixture.componentInstance.confirmSkip('item-1');
+    expect(emitted).toEqual([]);
+  });
+
 });

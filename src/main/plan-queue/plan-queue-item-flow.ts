@@ -1,10 +1,12 @@
+import { PlanQueueSpawnRoutingChanged, selectCurrentQueueVerifier } from './plan-queue-checker-routing';
+import { holdItem, PlanQueueSpawnRunPaused, restoreCheckpointAfterVerification } from './plan-queue-run-hold';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
 /**
  * Plan Queue item flow — the side effects of each item transition: prepare a
  * worktree, run the worker, verify, land, park.
  *
  * Ordering rule throughout: the item row is written BEFORE the side effect it
- * authorises, and every teardown checkpoints first. The coordinator owns
+ * authorises. Holds stop writers before checkpointing. The coordinator owns
  * scheduling (which item runs next) and routes instance outcomes here.
  */
 
@@ -30,7 +32,7 @@ import {
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { relaxedSettingsFor } from './plan-queue-relaxation';
 import type { PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
-import { PlanQueueItemLanding } from './plan-queue-item-landing';
+import { hasPendingLandingCleanup, PlanQueueItemLanding } from './plan-queue-item-landing';
 import { syncItemWithBase } from './plan-queue-landing';
 import {
   buildConflictPrompt,
@@ -63,6 +65,7 @@ export class PlanQueueItemFlow {
   private readonly pendingVerdicts = new Map<string, { verifierId: string; verdict: PlanQueueVerdict }>();
   /** Per-item operation chain: one side-effecting operation per item at a time. */
   private readonly locks = new Map<string, Promise<void>>();
+  private readonly stopping = new Map<string, Promise<void>>();
   private landingChain: Promise<void> = Promise.resolve();
   private readonly landing: PlanQueueItemLanding;
 
@@ -71,7 +74,7 @@ export class PlanQueueItemFlow {
       host,
       toFixing: (item, prompt, detail) => this.toFixing(item, prompt, detail),
       park: (item, reason, detail) => this.parkUnlocked(item, reason, detail),
-      retireWorker: (item) => this.retireWorker(item),
+      stopInstance: (id) => this.stopInstance(id),
     });
   }
 
@@ -127,7 +130,7 @@ export class PlanQueueItemFlow {
       }
       const ctx = this.promptContext(run, item);
       const prompt = resuming
-        ? buildResumePrompt(ctx, 'James resumed this parked item') + (await this.conflictAddendum(item, run))
+        ? buildResumePrompt(ctx, item.heldAt ? 'James resumed this paused item' : 'James resumed this parked item') + (await this.conflictAddendum(item, run))
         : buildWorkerPrompt(ctx);
       await this.spawnWorker(item, prompt, 'working');
     });
@@ -164,6 +167,22 @@ export class PlanQueueItemFlow {
     });
   }
 
+  /** Public holds serialize with preparation, checkpointing, verification and landing. */
+  hold(itemId: string, reason = 'Paused'): Promise<void> {
+    return this.withItemLock(itemId, () => this.holdUnlocked(this.host.getItem(itemId), reason));
+  }
+
+  private async holdUnlocked(item: PlanQueueItem, reason = 'Paused'): Promise<void> {
+    if (hasPendingLandingCleanup(item)) return this.landing.finishCleanup(item);
+    await holdItem(this.host, item, (id) => this.stopInstance(id), async (checking) => {
+      const before = this.snapshots.get(checking.id);
+      if (before && checking.worktreePath) await revertToSnapshot(checking.worktreePath, before);
+      else await restoreCheckpointAfterVerification(checking);
+      this.snapshots.delete(checking.id);
+      this.pendingVerdicts.delete(checking.id);
+    }, reason);
+  }
+
   private promptContext(run: PlanQueueRun, item: PlanQueueItem) {
     return {
       item,
@@ -188,6 +207,7 @@ export class PlanQueueItemFlow {
     nextState: 'working' | 'fixing' | null,
   ): Promise<void> {
     const run = this.host.getRun(item.runId);
+    if (run.status === 'paused') { await this.holdUnlocked(item); return; }
     try {
       const instance = await this.host.instances.createInstance({
         displayName: `Queue · ${documentStem(item.documentPath)}`,
@@ -208,7 +228,7 @@ export class PlanQueueItemFlow {
         logger.info('Plan queue worker runs under relaxed settings', { itemId: item.id, runId: run.id, settings: relaxed });
       }
       const current = this.host.getItem(item.id);
-      const patch = { workerInstanceId: instance.id, question: null };
+      const patch = { workerInstanceId: instance.id, question: null, heldAt: null, pendingInstruction: null, detail: current.detail === 'Paused' ? null : current.detail };
       if (nextState && current.state !== nextState) this.host.transition(current, nextState, patch);
       else this.host.save({ ...current, ...patch });
       this.host.tracker.track(instance.id);
@@ -216,12 +236,22 @@ export class PlanQueueItemFlow {
         void this.onWorkerOutcome(instance.id, { kind: 'failed', reason: `worker failed to start: ${errorMessage(error)}` });
       });
     } catch (error) {
+      if (error instanceof PlanQueueSpawnRunPaused) {
+        const current = this.host.getItem(item.id);
+        await this.holdUnlocked(error.instanceId ? this.host.save({ ...current, workerInstanceId: error.instanceId }) : current); return;
+      }
+      if (error instanceof PlanQueueSpawnStoppedByUser && error.instanceId) {
+        this.host.save({ ...this.host.getItem(item.id), workerInstanceId: error.instanceId });
+        await this.stopInstance(error.instanceId);
+      }
       await this.parkUnlocked(this.host.getItem(item.id), error instanceof PlanQueueSpawnStoppedByUser ? 'cancelled' : 'worker-error', error instanceof PlanQueueSpawnStoppedByUser ? 'Stopped: you closed its session. Resume carries on from the same branch.' : `Could not start the worker: ${errorMessage(error)}`);
     }
   }
 
   /** Send the worker its next turn, respawning it with a resume prompt if its session is gone. */
   private async runWorkerTurn(item: PlanQueueItem, prompt: string): Promise<void> {
+    item = this.host.save({ ...item, pendingInstruction: prompt });
+    if (this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(item); return; }
     const workerId = item.workerInstanceId;
     const worker = workerId ? this.host.instances.getInstance(workerId) : undefined;
     if (workerId && worker && !AUTOMATION_FAILURE_STATUSES.has(worker.status)) {
@@ -229,12 +259,13 @@ export class PlanQueueItemFlow {
       this.host.tracker.beginTurn(workerId);
       try {
         await this.host.instances.sendInput(workerId, prompt, undefined, { automatedInput: true, internalSource: 'plan-queue' });
+        this.host.save({ ...this.host.getItem(item.id), pendingInstruction: null });
         return;
       } catch (error) {
         logger.warn('Plan queue: worker send failed; starting a fresh worker', { itemId: item.id, error: errorMessage(error) });
-        this.retireInstance(workerId);
       }
     }
+    if (workerId) await this.stopInstance(workerId);
     const run = this.host.getRun(item.runId);
     const resume = buildResumePrompt(this.promptContext(run, item), 'the previous worker session ended');
     await this.spawnWorker(item, `${resume}\n\n${prompt}`, null);
@@ -243,18 +274,22 @@ export class PlanQueueItemFlow {
   onWorkerOutcome(instanceId: string, outcome: PlanQueueTurnOutcome): Promise<void> {
     const role = this.host.roleOf(instanceId);
     if (role?.role !== 'worker') return Promise.resolve();
-    if (outcome.kind === 'failed') this.retireInstance(instanceId);
     return this.withItemLock(role.itemId, async () => {
       const item = this.host.getItem(role.itemId);
       // Only the item's current worker drives it; and a turn James started by
       // talking to an idle worker is not a work round.
       if (item.workerInstanceId !== instanceId) return;
+      if (outcome.kind === 'failed') await this.stopInstance(instanceId);
       if (item.state !== 'working' && item.state !== 'fixing') return;
+      if (outcome.kind === 'failed' && this.host.consumeUserClose?.(instanceId)) {
+        await this.parkUnlocked(item, 'cancelled', 'Stopped: you closed its session. Resume carries on from the same branch.'); return;
+      }
+      if (this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(item); return; }
       switch (outcome.kind) {
         case 'turn-complete':
           try {
             const checkpointed = await this.host.worktrees.checkpoint(item, `round ${item.round + 1} work`);
-            this.host.transition(checkpointed, 'awaiting-slot', { question: null });
+            this.host.transition(checkpointed, 'awaiting-slot', { question: null, detail: null, pendingInstruction: null });
             this.host.requestPump();
           } catch (error) {
             if (error instanceof UnresolvedMergeError) {
@@ -322,6 +357,7 @@ export class PlanQueueItemFlow {
     return this.withItemLock(waiting.id, async () => {
       let item = this.host.getItem(waiting.id);
       if (item.state !== 'verifying' || item.verifierInstanceId) return;
+      if (this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(item); return; }
       const run = this.host.getRun(item.runId);
       const baseBranch = requireBaseBranch(run);
       if (!item.worktreePath || !existsSync(item.worktreePath)) {
@@ -341,22 +377,19 @@ export class PlanQueueItemFlow {
         return;
       }
 
-      // The live worker's resolved provider and model beat the run's record,
-      // which is empty when the parent session used the default CLI.
-      const worker = item.workerInstanceId ? this.host.instances.getInstance(item.workerInstanceId) : undefined;
-      const selection = await this.host.selectVerifier({
-        workerProvider: worker?.provider ?? run.workerProvider ?? 'claude',
-        workerModel: worker?.currentModel ?? run.workerModel,
-        workingDirectory: item.worktreePath ?? run.workspaceCwd,
-        choices: run.config.routing?.verifiers,
-        choicesOverrideLicence: run.config.routing?.checkersChosenBy === 'saved',
-      });
-      if (!selection.ok) {
-        await this.parkUnlocked(item, 'no-diverse-verifier', selection.reason);
-        return;
-      }
-      await this.spawnVerifier(item, run, baseBranch, selection.choice);
+      await this.selectAndSpawnVerifier(item, baseBranch);
     });
+  }
+
+  private async selectAndSpawnVerifier(item: PlanQueueItem, baseBranch: string): Promise<void> {
+    try {
+      const { run, selection } = await selectCurrentQueueVerifier(this.host, item);
+      if (!selection.ok) { await this.parkUnlocked(item, 'no-diverse-verifier', selection.reason); return; }
+      await this.spawnVerifier(item, run, baseBranch, selection.choice);
+    } catch (error) {
+      if (error instanceof PlanQueueSpawnRunPaused) await this.holdUnlocked(this.host.getItem(item.id));
+      else throw error;
+    }
   }
 
   private async spawnVerifier(
@@ -389,15 +422,29 @@ export class PlanQueueItemFlow {
         ...(choice.copilotProfileId ? { copilotAccountProfileId: choice.copilotProfileId } : {}),
         ...(choice.accountProfileIds?.length ? { allowedAccountProfileIds: choice.accountProfileIds } : {}),
         yoloMode: true,
-        metadata: { planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'verifier' },
+        metadata: { planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'verifier', planQueueRouting: JSON.stringify(run.config.routing) },
       });
       this.host.registerRole(instance.id, { role: 'verifier', runId: run.id, itemId: item.id });
-      this.host.save({ ...this.host.getItem(item.id), verifierInstanceId: instance.id });
+      this.host.save({ ...this.host.getItem(item.id), verifierInstanceId: instance.id, heldAt: null, detail: null });
       this.host.tracker.track(instance.id);
       instance.readyPromise?.catch((error: unknown) => {
         void this.onVerifierOutcome(instance.id, { kind: 'failed', reason: `verifier failed to start: ${errorMessage(error)}` });
       });
     } catch (error) {
+      if (error instanceof PlanQueueSpawnRunPaused) {
+        const current = this.host.getItem(item.id);
+        await this.holdUnlocked(error.instanceId ? this.host.save({ ...current, verifierInstanceId: error.instanceId }) : current); return;
+      }
+      if (error instanceof PlanQueueSpawnRoutingChanged) { await this.selectAndSpawnVerifier(this.host.getItem(item.id), baseBranch); return; }
+      if (error instanceof PlanQueueSpawnStoppedByUser) {
+        if (error.instanceId) {
+          item = this.host.save({ ...this.host.getItem(item.id), verifierInstanceId: error.instanceId });
+          await this.stopInstance(error.instanceId);
+        }
+        const before = this.snapshots.get(item.id);
+        if (before && item.worktreePath) await revertToSnapshot(item.worktreePath, before);
+        else await restoreCheckpointAfterVerification(item);
+      }
       this.snapshots.delete(item.id);
       if (error instanceof PlanQueueSpawnStoppedByUser) {
         this.host.transition(this.host.getItem(item.id), 'awaiting-slot', { verifierInstanceId: null, detail: 'Its checker was closed; it will be checked again.' });
@@ -412,16 +459,20 @@ export class PlanQueueItemFlow {
 
   onVerifierOutcome(instanceId: string, outcome: PlanQueueTurnOutcome): Promise<void> {
     const role = this.host.roleOf(instanceId);
-    this.retireInstance(instanceId);
     if (role?.role !== 'verifier') return Promise.resolve();
     return this.withItemLock(role.itemId, () => this.finishVerification(role.itemId, instanceId, outcome));
   }
 
   private async finishVerification(itemId: string, instanceId: string, outcome: PlanQueueTurnOutcome): Promise<void> {
-    const reported = this.pendingVerdicts.get(itemId);
-    this.pendingVerdicts.delete(itemId);
     let item = this.host.getItem(itemId);
     if (item.state !== 'verifying' || item.verifierInstanceId !== instanceId) return;
+    // Keep ownership, verdict and snapshot until the checker can no longer write.
+    // A rejected lock tail is settled, so a later hold must still find its ID.
+    await this.stopInstance(instanceId);
+    const reported = this.pendingVerdicts.get(itemId);
+    this.pendingVerdicts.delete(itemId);
+    const closedByUser = this.host.consumeUserClose?.(instanceId);
+    if (!closedByUser && this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(item); return; }
     item = this.host.save({ ...item, verifierInstanceId: null });
 
     const before = this.snapshots.get(item.id);
@@ -440,7 +491,7 @@ export class PlanQueueItemFlow {
     }
 
     const verdict = reported?.verifierId === instanceId ? reported.verdict : null;
-    if (this.host.consumeUserClose?.(instanceId)) {
+    if (closedByUser) {
       this.host.transition(item, 'awaiting-slot', { detail: 'Its checker was closed; it will be checked again.' });
       this.host.requestPump();
       return;
@@ -501,6 +552,7 @@ export class PlanQueueItemFlow {
       .then(() => this.withItemLock(itemId, () => this.landing.land(itemId, options)))
       .catch((error: unknown) => {
         logger.error('Plan queue landing failed unexpectedly', error instanceof Error ? error : undefined, { itemId });
+        if (this.host.getItem(itemId).state === 'landed') return;
         void this.park(itemId, 'land-blocked', `Landing failed: ${errorMessage(error)}`).catch(() => undefined);
       });
     return this.landingChain;
@@ -515,13 +567,18 @@ export class PlanQueueItemFlow {
     return this.withItemLock(itemId, () => this.parkUnlocked(this.host.getItem(itemId), reason, detail));
   }
 
-  /** Any non-terminal state → parked. Checkpoints first; never deletes the branch. */
+  /** Any non-terminal state → parked. Stops writers before checkpointing; never deletes the branch. */
   private async parkUnlocked(item: PlanQueueItem, reason: PlanQueueParkReason, detail: string): Promise<void> {
+    if (hasPendingLandingCleanup(item)) return this.landing.finishCleanup(item);
     if (item.state === 'landed' || item.state === 'parked' || item.state === 'skipped') return;
     const run = this.host.getRun(item.runId);
     const notes = [detail];
+    await Promise.all([item.workerInstanceId, item.verifierInstanceId]
+      .filter((id): id is string => Boolean(id)).map(id => this.stopInstance(id)));
     if (item.verifierInstanceId) {
-      this.retireInstance(item.verifierInstanceId);
+      const before = this.snapshots.get(item.id);
+      if (before && item.worktreePath) await revertToSnapshot(item.worktreePath, before);
+      else await restoreCheckpointAfterVerification(item);
       this.snapshots.delete(item.id);
       this.pendingVerdicts.delete(item.id);
       item = this.host.save({ ...item, verifierInstanceId: null });
@@ -549,8 +606,7 @@ export class PlanQueueItemFlow {
       }
     }
 
-    this.host.transition(item, 'parked', { parkReason: reason, detail: notes.join(' ').slice(0, 8000) });
-    this.retireWorker(this.host.getItem(item.id));
+    this.host.transition(item, 'parked', { heldAt: null, parkReason: reason, detail: notes.join(' ').slice(0, 8000) });
     this.host.requestPump();
   }
 
@@ -614,20 +670,25 @@ export class PlanQueueItemFlow {
     return this.host.resolveRunParent(run);
   }
 
-  retireWorker(item: PlanQueueItem): void {
-    if (item.workerInstanceId) this.retireInstance(item.workerInstanceId);
-  }
-
   /** Stop tracking and terminate one queue instance. Its transcript is archived by termination. */
   retireInstance(instanceId: string): void {
+    void this.stopInstance(instanceId).catch((error: unknown) => {
+      logger.warn('Plan queue: terminating an instance failed', { instanceId, error: errorMessage(error) });
+    });
+  }
+
+  /** Await termination before checkpointing or reverting a writer's worktree. */
+  stopInstance(instanceId: string): Promise<void> {
+    const pending = this.stopping.get(instanceId);
+    if (pending) return pending;
     this.host.tracker.untrack(instanceId);
     this.host.unregisterRole(instanceId);
     releaseReclaimHold(instanceId);
-    if (this.host.instances.getInstance(instanceId)) {
-      void this.host.instances.terminateInstance(instanceId, true).catch((error: unknown) => {
-        logger.warn('Plan queue: terminating an instance failed', { instanceId, error: errorMessage(error) });
-      });
-    }
+    const stopped = this.host.instances.getInstance(instanceId)
+      ? this.host.instances.terminateInstance(instanceId, true) : Promise.resolve();
+    this.stopping.set(instanceId, stopped);
+    void stopped.finally(() => { this.stopping.delete(instanceId); }).catch(() => undefined);
+    return stopped;
   }
 }
 

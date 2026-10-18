@@ -39,6 +39,8 @@ interface RunRow {
 }
 
 interface ItemRow {
+  held_at: number | null;
+  pending_instruction: string | null;
   tokens: number; cost_usd: number; exact_cost_usd: number;
   id: string;
   run_id: string;
@@ -156,6 +158,32 @@ export class PlanQueueStore {
       .map(rowToRun);
   }
 
+  /**
+   * Panel/status snapshot: all active runs and runs with parked work, plus the
+   * latest `limit` runs. Only inert terminal history is bounded.
+   * Both bulk reads share a SQLite snapshot, with no per-run item queries or
+   * per-active-run bound parameters. The ordinary listRuns limit is unchanged.
+   */
+  listRunSnapshots(limit = 50): { run: PlanQueueRun; items: PlanQueueItem[] }[] {
+    const selectedIds = `SELECT id FROM plan_queue_runs
+      WHERE status IN ${ACTIVE_RUN_STATUSES}
+        OR id IN (SELECT run_id FROM plan_queue_items WHERE state = 'parked')
+        OR id IN (SELECT id FROM plan_queue_runs ORDER BY started_at DESC, id DESC LIMIT ?)`;
+    return this.db.transaction(() => {
+      const runs = this.db.prepare(`SELECT * FROM plan_queue_runs WHERE id IN (${selectedIds})
+        ORDER BY started_at DESC, id DESC`).all<RunRow>(limit);
+      const items = this.db.prepare(`SELECT * FROM plan_queue_items WHERE run_id IN (${selectedIds})
+        ORDER BY created_at, id`).all<ItemRow>(limit);
+      const itemsByRun = new Map<string, PlanQueueItem[]>();
+      for (const row of items) {
+        const group = itemsByRun.get(row.run_id) ?? [];
+        group.push(rowToItem(row));
+        itemsByRun.set(row.run_id, group);
+      }
+      return runs.map(row => ({ run: rowToRun(row), items: itemsByRun.get(row.id) ?? [] }));
+    })();
+  }
+
   /** Every workspace a run has ever used; the reconciler's search scope. */
   listWorkspaceRoots(): string[] {
     return this.db
@@ -178,8 +206,8 @@ export class PlanQueueStore {
         id, run_id, document_path, state, round, errored_rounds, landing_refusals, branch_name, worktree_path,
         base_commit, checkpoint_commit, verified_main_commit, landed_commit,
         worker_instance_id, verifier_instance_id, question_json, answer, park_reason, detail,
-        verdict_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        verdict_json, created_at, updated_at, held_at, pending_instruction
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         state                = excluded.state,
         round                = excluded.round,
@@ -198,6 +226,8 @@ export class PlanQueueStore {
         park_reason          = excluded.park_reason,
         detail               = excluded.detail,
         verdict_json         = excluded.verdict_json,
+        held_at              = excluded.held_at,
+        pending_instruction  = excluded.pending_instruction,
         updated_at           = excluded.updated_at
     `).run(
       item.id,
@@ -222,6 +252,8 @@ export class PlanQueueStore {
       item.verdict ? JSON.stringify(item.verdict) : null,
       item.createdAt,
       this.now(),
+      item.heldAt ?? null,
+      item.pendingInstruction ?? null,
     );
   }
 
@@ -291,6 +323,8 @@ function rowToItem(row: ItemRow): PlanQueueItem {
     id: row.id,
     runId: row.run_id,
     documentPath: row.document_path,
+    heldAt: row.held_at ?? null,
+    pendingInstruction: row.pending_instruction ?? null,
     state: row.state as PlanQueueItemState,
     round: row.round,
     erroredRounds: row.errored_rounds,

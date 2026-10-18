@@ -13,8 +13,19 @@
         />
       </div>
 
-      @if (run.config.routing; as routing) {
-        <div class="pq-run-routing">{{ routingSummary(routing) }}</div>
+      <div class="pq-run-routing-row">
+        @if (run.config.routing; as routing) {
+          <span class="pq-run-routing">{{ routingSummary(routing) }}</span>
+        } @else {
+          <span class="pq-run-routing">Workers: {{ run.workerProvider }} · Checkers: automatic</span>
+        }
+        @if (canChange(run)) {
+          <button type="button" class="pq-run-change" [attr.aria-expanded]="editingRun() === run.id"
+            (click)="editingRun.set(editingRun() === run.id ? null : run.id)">{{ editingRun() === run.id ? 'Close' : 'Change' }}</button>
+        }
+      </div>
+      @if (editingRun() === run.id && canChange(run)) {
+        <app-plan-queue-routing-panel mode="run" [run]="run" />
       }
 
       @if (run.spend) { <div class="pq-run-spend">{{ spendLabel(run) }}</div> }

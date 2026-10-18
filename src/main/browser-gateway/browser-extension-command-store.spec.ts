@@ -695,6 +695,52 @@ describe('BrowserExtensionCommandStore', () => {
     expect(store.describeQueue('local')).toMatchObject({ queuedCount: 0, inFlightCount: 0 });
   });
 
+  it('rejects a queued http_auth_navigate without returning it to a poller without the capability', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const pending = store.sendCommand({
+      command: 'http_auth_navigate',
+      payload: {
+        url: 'https://www.instagram.com/admin',
+        credentialOrigin: 'https://www.instagram.com',
+        username: 'test-only-user',
+        password: 'TEST_ONLY_SECRET_VALUE',
+        protection: 'password',
+      },
+      timeoutMs: 1_000,
+    });
+
+    await expect(store.pollCommand({
+      timeoutMs: 1,
+      allowSecureCredentialCommands: false,
+    })).resolves.toBeNull();
+    await expect(pending).rejects.toThrow('shared_tab_secure_credential_fill_unavailable');
+    expect(store.describeQueue('local')).toMatchObject({ queuedCount: 0, inFlightCount: 0 });
+  });
+
+  it('delivers http_auth_navigate to a poller that has the secure credential capability', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const pending = store.sendCommand({
+      command: 'http_auth_navigate',
+      payload: {
+        url: 'https://www.instagram.com/admin',
+        credentialOrigin: 'https://www.instagram.com',
+        username: 'test-only-user',
+        password: 'TEST_ONLY_SECRET_VALUE',
+        protection: 'password',
+      },
+      timeoutMs: 1_000,
+    });
+
+    const command = await store.pollCommand({ timeoutMs: 1, allowSecureCredentialCommands: true });
+    expect(command?.command).toBe('http_auth_navigate');
+    store.resolveCommand({
+      commandId: command!.id,
+      ok: true,
+      result: { completed: true, httpAuth: 'not_challenged' },
+    });
+    await expect(pending).resolves.toMatchObject({ httpAuth: 'not_challenged' });
+  });
+
   it('rejects an origin-bound public credential write from an incompatible poller', async () => {
     const store = new BrowserExtensionCommandStore();
     const pending = store.sendCommand({

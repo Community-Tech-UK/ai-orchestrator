@@ -10,6 +10,9 @@ import {
 const ALL_STATES = PlanQueueItemStateSchema.options;
 
 describe('plan queue item state machine', () => {
+  it.each(['preparing', 'working', 'fixing'] as const)('can hold %s work for a fresh worker', (state) => {
+    expect(canTransitionItem(state, 'queued')).toBe(true);
+  });
   it('walks the happy path from discovery to landed', () => {
     const path: PlanQueueItemState[] = [
       'discovered',

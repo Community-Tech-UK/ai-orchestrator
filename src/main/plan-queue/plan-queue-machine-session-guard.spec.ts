@@ -16,7 +16,7 @@ describe('plan queue machine session call-site guard', () => {
       const visit = (node: ts.Node): void => {
         if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'createInstance') {
           const options = node.arguments[0];
-          if (file === 'plan-queue-coordinator.ts') {
+          if (file === 'plan-queue-spawn.ts') {
             // The close fence forwards the already-tagged options without rebuilding
             // them, optionally through the routing wrapper (which spreads them and
             // keeps the queue tags).
@@ -37,7 +37,7 @@ describe('plan queue machine session call-site guard', () => {
       visit(source);
     }
     expect(calls.sort((a, b) => a.role.localeCompare(b.role))).toEqual([
-      { file: 'plan-queue-coordinator.ts', role: 'forwarded', hasRun: true },
+      { file: 'plan-queue-spawn.ts', role: 'forwarded', hasRun: true },
       { file: 'plan-queue-triage.ts', role: 'triage', hasRun: true },
       { file: 'plan-queue-item-flow.ts', role: 'verifier', hasRun: true },
       { file: 'plan-queue-item-flow.ts', role: 'worker', hasRun: true },

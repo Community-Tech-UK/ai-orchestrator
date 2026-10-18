@@ -131,7 +131,7 @@ describe('PlanQueueRunListComponent', () => {
     expect(fixture.nativeElement.querySelector('.pq-run-head .pq-run-controls')).not.toBeNull();
   });
 
-  it('shows each run\'s fixed providers and accounts on a muted line, and nothing for older runs', () => {
+  it('shows current providers and accounts, falling back to the stored worker for older runs', () => {
     const base = makeRun().config;
     fixture.componentRef.setInput('runs', [
       makeRun({ id: 'run-default', config: { ...base, routing: { worker: null, verifiers: [] } } }),
@@ -154,7 +154,23 @@ describe('PlanQueueRunListComponent', () => {
     expect(lines).toEqual([
       'Workers: default provider · Checkers: automatic',
       'Workers: claude/opus (accounts: acc-a, acc-b) · Checkers: codex, copilot/gpt (account: cp-1)',
+      'Workers: claude · Checkers: automatic',
     ]);
+  });
+
+  it('offers Change for active runs and terminal runs with resumable parked work', () => {
+    const parked = makeItem({ state: 'parked', branchName: 'queue/kept' });
+    fixture.componentRef.setInput('runs', [
+      makeRun({ id: 'running' }),
+      makeRun({ id: 'paused', status: 'paused' }),
+      makeRun({ id: 'completed-resumable', status: 'completed', items: [parked] }),
+      makeRun({ id: 'cancelled-resumable', status: 'cancelled', items: [parked] }),
+      makeRun({ id: 'completed-empty', status: 'completed' }),
+      makeRun({ id: 'cancelled-triage-failed', status: 'cancelled', items: [{ ...parked, branchName: null, parkReason: 'triage-failed' }] }),
+    ]);
+    fixture.detectChanges();
+    const cards = Array.from(fixture.nativeElement.querySelectorAll('.pq-run') as NodeListOf<HTMLElement>);
+    expect(cards.map(card => card.querySelector('.pq-run-change') !== null)).toEqual([true, true, true, true, false, true]);
   });
 
   it('forwards a skip from the document list with the item id', () => {
@@ -181,6 +197,14 @@ describe('planQueueStateCounts', () => {
       makeItem({ state: 'needs-answer' }),
       makeItem({ state: 'working' }),
     ])).toBe('1 Needs your answer, 2 Working, 1 Skipped');
+  });
+
+  it('counts held documents separately from queued and awaiting a slot', () => {
+    expect(planQueueStateCounts([
+      makeItem({ state: 'queued', heldAt: 123 }),
+      makeItem({ state: 'awaiting-slot', heldAt: 123 }),
+      makeItem({ state: 'queued' }),
+    ])).toBe('2 Paused, 1 Queued');
   });
 
   it('is empty for a run with no documents', () => {

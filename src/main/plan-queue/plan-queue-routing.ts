@@ -23,12 +23,14 @@ import { AUTOMATION_PROVIDER_IDS } from '../../shared/types/automation-provider.
 import { REMOTE_REVIEWER_PROVIDER_IDS } from '../../shared/types/reviewer-provider.types';
 import { sameFamily } from '../../shared/models/model-family';
 import { sameProviderCheckerCanDiffer } from '../../shared/models/multi-maker-providers';
+import { detectAvailableClis } from '../cli/cli-detection';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
 import { classifyCheckerScope } from '../review/checker-plan';
 import type { PlanQueueRun } from './plan-queue.types';
 
 export interface PlanQueueRoutingDeps {
+  listInstalledProviders?: () => Promise<string[]>;
   readSaved: () => PlanQueueRouting;
   poolProfiles: () => readonly ProviderAccountProfile[];
   copilotProfiles: () => readonly CopilotAccountProfile[];
@@ -41,6 +43,7 @@ export interface PlanQueueRoutingDeps {
 
 export function defaultPlanQueueRoutingDeps(): PlanQueueRoutingDeps {
   return {
+    listInstalledProviders: async () => (await detectAvailableClis()).filter((cli) => cli.installed).map((cli) => cli.name),
     readSaved: () => getSettingsManager().getAll().planQueueRouting ?? { worker: null, verifiers: [] },
     poolProfiles: () => getSettingsManager().getAll().providerAccountProfiles ?? [],
     copilotProfiles: () => getSettingsManager().getAll().copilotAccountProfiles ?? [],
@@ -276,20 +279,41 @@ export function routeQueueSpawn(
   // Queue sessions never hop to another provider after failures: that would leave James's choice.
   if (role === 'verifier') return { ...config, accountRouteOrigin: 'verification', failoverProviders: [] };
   const run = getRun(runId);
-  // The list may have changed since the run started; a new worker obeys it (the verifier re-checks at selection).
-  const given = config.provider?.trim().toLowerCase();
+  // Workers and first triage use the current route atomically. A triage retry has
+  // already selected a checker (and its account fence), so retain that choice.
+  const retry = role === 'triage' && config.metadata?.['planQueueTriageRetry'] === true;
+  const worker = run?.config.routing?.worker;
+  const providerChoice = retry ? config.provider : run?.config.routing
+    ? worker?.provider ?? run.workerProvider ?? undefined
+    : run?.workerProvider ?? config.provider;
+  const given = providerChoice?.trim().toLowerCase();
   const provider = given ? canonicalProvider(given) : null;
   if (given && provider && !run?.config.relaxSettings && (isExcluded(provider) || isExcluded(given))) {
     throw new PlanQueueRoutingError(`${provider} has been added to the "never auto-pick these providers" list since this run started, so the queue will not start another session on it.`);
   }
-  const worker = run?.config.routing?.worker;
-  return {
-    ...config,
-    accountRouteOrigin: 'automation',
-    failoverProviders: [],
-    ...(worker?.accountProfileIds?.length ? { allowedAccountProfileIds: [...worker.accountProfileIds] } : {}),
-    ...(worker?.copilotProfileId && !config.copilotAccountProfileId ? { copilotAccountProfileId: worker.copilotProfileId } : {}),
-  };
+  const routed: InstanceCreateConfig = { ...config, accountRouteOrigin: 'automation', failoverProviders: [] };
+  if (retry) return routed;
+  // Remove a stale caller snapshot before filling every route field from this read.
+  delete routed.provider;
+  delete routed.modelOverride;
+  delete routed.allowedAccountProfileIds;
+  delete routed.copilotAccountProfileId;
+  if (provider) routed.provider = provider as InstanceCreateConfig['provider'];
+  const model = worker?.model ?? (run?.config.routing ? undefined : run?.workerModel ?? config.modelOverride);
+  if (model) routed.modelOverride = model;
+  if (worker?.accountProfileIds?.length) routed.allowedAccountProfileIds = [...worker.accountProfileIds];
+  if (worker?.copilotProfileId) routed.copilotAccountProfileId = worker.copilotProfileId;
+  return routed;
+}
+
+/** Validate installed CLIs before saving a changed route, using the same canonical IDs. */
+export async function assertRoutingInstalled(routing: PlanQueueRouting, deps: PlanQueueRoutingDeps): Promise<void> {
+  const installed = new Set((await (deps.listInstalledProviders ?? defaultPlanQueueRoutingDeps().listInstalledProviders!)()).map(canonicalProvider));
+  for (const choice of [routing.worker, ...routing.verifiers]) {
+    if (choice && !installed.has(canonicalProvider(choice.provider))) {
+      throw new PlanQueueRoutingError(`Plan Queue: ${choice.provider} is not installed. Install its CLI or choose another provider.`);
+    }
+  }
 }
 
 /** One line per role, for status output and logs. */

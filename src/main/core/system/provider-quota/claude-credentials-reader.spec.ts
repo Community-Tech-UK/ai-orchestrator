@@ -180,4 +180,68 @@ describe('ClaudeCredentialsReader', () => {
       expect(reason).toBe('not-found');
     });
   });
+
+  describe('readStoredLogin (hardened hand-in)', () => {
+    it('returns the stored login even when expired, without the refresh token itself', async () => {
+      const reader = new ClaudeCredentialsReader({
+        platform: 'darwin',
+        securityExec: keychainExec({ stdout: payload({ expiresAt: PAST, rateLimitTier: 'default_claude_max_20x' }) }),
+      });
+
+      const login = await reader.readStoredLogin();
+
+      expect(login).toEqual({
+        accessToken: 'sk-ant-oat01-test',
+        expiresAt: PAST,
+        scopes: ['user:inference'],
+        subscriptionType: 'max',
+        rateLimitTier: 'default_claude_max_20x',
+        hasRefreshToken: true,
+      });
+      expect(JSON.stringify(login)).not.toContain('sk-ant-ort01-secret');
+    });
+
+    it('reads the profile item keyed on the config dir', async () => {
+      const calls: string[][] = [];
+      const reader = new ClaudeCredentialsReader({
+        platform: 'darwin',
+        configDir: '/profiles/comtech',
+        securityExec: async (args) => {
+          calls.push(args);
+          return { stdout: payload(), stderr: '', exitCode: 0 };
+        },
+      });
+
+      await reader.readStoredLogin();
+
+      expect(calls[0]?.[2]).toMatch(/^Claude Code-credentials-[0-9a-f]{8}$/);
+    });
+
+    it('returns null for a login Claude Code blanked after a rejected refresh', async () => {
+      const reader = new ClaudeCredentialsReader({
+        platform: 'darwin',
+        securityExec: keychainExec({ stdout: payload({ accessToken: '', refreshToken: '', expiresAt: 0 }) }),
+      });
+
+      await expect(reader.readStoredLogin()).resolves.toBeNull();
+    });
+
+    it('reports a missing refresh token', async () => {
+      const reader = new ClaudeCredentialsReader({
+        platform: 'darwin',
+        securityExec: keychainExec({ stdout: payload({ refreshToken: null }) }),
+      });
+
+      await expect(reader.readStoredLogin()).resolves.toMatchObject({ hasRefreshToken: false });
+    });
+
+    it('returns null for unparseable or missing payloads', async () => {
+      const garbled = new ClaudeCredentialsReader({ platform: 'darwin', securityExec: keychainExec({ stdout: 'not json' }) });
+      const enoent: CredentialsFileReader = async () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); };
+      const missing = new ClaudeCredentialsReader({ platform: 'darwin', securityExec: keychainExec({ exitCode: 44 }), readFile: enoent });
+
+      await expect(garbled.readStoredLogin()).resolves.toBeNull();
+      await expect(missing.readStoredLogin()).resolves.toBeNull();
+    });
+  });
 });

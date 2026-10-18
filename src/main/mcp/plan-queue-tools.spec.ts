@@ -129,3 +129,16 @@ describe('plan queue MCP tools', () => {
     expect(ops.calls).toEqual([]);
   });
 });
+
+
+it('advertises routing edits, validates them, and keeps bulk controls off MCP', async () => {
+  const ops = fakeOps();
+  const tool = createPlanQueueToolDefinitions({ instanceId: PARENT, planQueueTools: ops }).find((tool) => tool.name === 'plan_queue_control')!;
+  expect(JSON.stringify(tool.inputSchema)).toContain('set-routing');
+  expect(JSON.stringify(tool.inputSchema)).toContain('move_in_progress');
+  await tool.handler({ action: 'set-routing', run_id: 'run', routing: { worker: { provider: 'claude', account_ids: ['account'] }, verifiers: [] }, move_in_progress: false });
+  expect(ops.calls[0]).toMatchObject(['control', PARENT, { action: 'set-routing', move_in_progress: false }]);
+  await expect(tool.handler({ action: 'pause-all' })).rejects.toThrow();
+  await expect(tool.handler({ action: 'set-routing', run_id: 'run', routing: { worker: { provider: 'claude', accountIds: ['typo'] }, verifiers: [] } })).rejects.toThrow();
+  expect(ops.calls).toHaveLength(1);
+});

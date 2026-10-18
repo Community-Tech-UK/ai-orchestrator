@@ -9,6 +9,7 @@ import {
   type ProviderAccountDoctorView,
   type ProviderAccountView,
 } from '../../core/services/ipc/provider-account-ipc.service';
+import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import { defaultProviderAccountPools, type ProviderAccountPools } from '../../../../shared/types/provider-account.types';
 import { ProviderAccountsTabComponent } from './provider-accounts-tab.component';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
@@ -64,6 +65,14 @@ const ipc = {
   acknowledgeOwnership: vi.fn(async (): Promise<MutationResult> => ({ success: true })),
 };
 
+/** Sign-in for providers that have no account list on this page. */
+const providerIpc = {
+  runProviderLogin: vi.fn(async (): Promise<MutationResult> => ({
+    success: true,
+    data: { terminal: 'Terminal', command: 'grok login' },
+  })),
+};
+
 async function settle(fixture: ComponentFixture<ProviderAccountsTabComponent>): Promise<void> {
   for (let tick = 0; tick < 5; tick += 1) {
     await Promise.resolve();
@@ -87,10 +96,13 @@ beforeEach(async () => {
   pools = defaultProviderAccountPools();
   connectedNodesValue = [];
   for (const spy of Object.values(ipc)) spy.mockClear();
+  providerIpc.runProviderLogin.mockClear();
+  providerIpc.runProviderLogin.mockResolvedValue({ success: true, data: { terminal: 'Terminal', command: 'grok login' } });
   await TestBed.configureTestingModule({
     imports: [ProviderAccountsTabComponent],
     providers: [
       { provide: ProviderAccountIpcService, useValue: ipc },
+      { provide: ProviderIpcService, useValue: providerIpc },
       // Deterministic worker roster: the per-machine MiMo rows read it.
       { provide: RemoteNodeStore, useValue: { connectedNodes: () => connectedNodesValue } },
     ],
@@ -217,12 +229,15 @@ describe('ProviderAccountsTabComponent', () => {
     expect(toggles.map((toggle) => toggle.disabled)).toEqual([true, false]);
   });
 
-  it('leads with the sign-in command only for an account that is not signed in', async () => {
+  it('leads with the Sign in button only for an account that is not signed in', async () => {
     const section = claudeSection(await render());
-    const primaries = Array.from(section.querySelectorAll('.account-card')).map(
+    const cards = Array.from(section.querySelectorAll('.account-card'));
+    const primaries = cards.map(
       (card) => card.querySelector('.btn-primary')?.textContent?.trim() ?? null,
     );
-    expect(primaries).toEqual([null, 'Copy sign-in command']);
+    expect(primaries).toEqual([null, 'Sign in']);
+    // The copy-to-clipboard command stays available, just not as the lead action.
+    expect(cards[1]!.textContent).toContain('Copy sign-in command');
   });
 
   it('still names the expected email on an account that is signed out', async () => {
@@ -601,5 +616,53 @@ describe('ProviderAccountsTabComponent — MiMo accounts', () => {
     expect(pickerScript).toContain("['--version']");
     expect(pickerScript).toContain("chosen.major===2?['auth','login','--standalone']:['auth','login']");
     fixture.destroy();
+  });
+
+  describe('providers with no account list', () => {
+    it('offers a Sign in button for each of them so a reauth banner always lands somewhere useful', async () => {
+      const fixture = await render();
+      const root = fixture.nativeElement as HTMLElement;
+      const rows = Array.from(root.querySelectorAll<HTMLElement>('.sign-in-row'));
+      expect(rows.map((row) => row.getAttribute('data-provider'))).toEqual(['gemini', 'antigravity', 'cursor', 'grok']);
+      expect(rows.map((row) => row.querySelector('strong')?.textContent?.trim())).toEqual([
+        'Gemini', 'Antigravity', 'Cursor', 'Grok',
+      ]);
+      expect(rows.every((row) => row.querySelector('button')?.textContent?.trim() === 'Sign in')).toBe(true);
+      fixture.destroy();
+    });
+
+    it('opens a terminal running that provider’s sign-in command and reports where it landed', async () => {
+      const fixture = await render();
+      const root = fixture.nativeElement as HTMLElement;
+      try {
+        root.querySelector<HTMLButtonElement>('[data-testid="sign-in-grok"]')!.click();
+        await settle(fixture);
+        expect(providerIpc.runProviderLogin).toHaveBeenCalledExactlyOnceWith('grok');
+        expect(fixture.componentInstance.notice()).toContain('Terminal');
+        expect(fixture.componentInstance.notice()).toContain('grok login');
+        // No account card owns this, so the feedback shows at the top of the page.
+        expect(root.querySelector('.provider-accounts-tab > [role="status"]')?.textContent)
+          .toContain('grok login');
+      } finally {
+        fixture.destroy();
+      }
+    });
+
+    it('shows the launcher failure when no terminal could be opened', async () => {
+      providerIpc.runProviderLogin.mockResolvedValueOnce({
+        success: false,
+        error: { message: 'No known sign-in command for provider "grok".' },
+      });
+      const fixture = await render();
+      const root = fixture.nativeElement as HTMLElement;
+      try {
+        root.querySelector<HTMLButtonElement>('[data-testid="sign-in-grok"]')!.click();
+        await settle(fixture);
+        expect(root.querySelector('.provider-accounts-tab > [role="alert"]')?.textContent)
+          .toContain('No known sign-in command');
+      } finally {
+        fixture.destroy();
+      }
+    });
   });
 });

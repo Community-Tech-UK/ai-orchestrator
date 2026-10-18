@@ -121,7 +121,7 @@ describe('PlanQueueRunControlsComponent', () => {
     await render(makeRun({ items: [item, { ...item, id: 'next', documentPath: '/repo/b_plan.md', state: 'queued' }] }));
     expect(fixture.nativeElement.textContent).toContain('Running · working on a_plan.md; next b_plan.md');
   });
-  it.each([['paused', 'Paused'], ['completed', 'Finished'], ['cancelled', 'Cancelled']] as const)(
+  it.each([['paused', 'Paused · 0 documents waiting to resume'], ['completed', 'Finished'], ['cancelled', 'Cancelled']] as const)(
     'shows the %s status word before controls', async (status, label) => {
       await render(makeRun({ status }));
       expect(fixture.nativeElement.querySelector('.pq-run-status')?.textContent).toBe(label);

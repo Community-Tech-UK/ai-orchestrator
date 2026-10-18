@@ -120,6 +120,8 @@ export interface BrowserTarget {
   targetId?: string;
   inspectionState?: BrowserTargetInspectionState;
   textUnavailableReason?: string;
+  /** A Chrome HTTP auth prompt waiting on this tab (see BrowserHttpAuthChallenge). */
+  httpAuthChallenge?: BrowserHttpAuthChallenge;
   windowId?: number;
   tabIndex?: number;
   pinned?: boolean;
@@ -286,6 +288,24 @@ export interface BrowserAttachExistingTabRequest {
   capturedAt?: number;
   allowedOrigins?: BrowserAllowedOrigin[];
   extensionOrigin?: string;
+  /**
+   * A Chrome HTTP Basic/Digest prompt waiting on this tab. Recorded without
+   * credentials, only for tabs the gateway controls or has shared; answer it
+   * with browser.fill_http_auth. Absent when no prompt is waiting.
+   */
+  httpAuthChallenge?: BrowserHttpAuthChallenge;
+}
+
+/**
+ * Non-secret observation that Chrome is showing its own HTTP authentication
+ * (Basic/Digest) sign-in box for this tab. `realm` is bounded server-supplied
+ * metadata when the challenge provides one. Never carries credentials.
+ */
+export interface BrowserHttpAuthChallenge {
+  origin: string;
+  scheme: string;
+  realm?: string;
+  at: number;
 }
 
 export interface BrowserDetachExistingTabRequest {
@@ -407,6 +427,21 @@ export interface BrowserReloadResult {
   inspectionState: BrowserTargetInspectionState;
   textUnavailableReason?: string;
   clockText?: string;
+  /** A Chrome HTTP auth prompt waiting on this tab (see BrowserHttpAuthChallenge). */
+  httpAuthChallenge?: BrowserHttpAuthChallenge;
+}
+
+/**
+ * browser.fill_http_auth tool result. The tab payload is the ordinary
+ * non-secret tab read. It is absent only in one race: a concurrent secret fill
+ * taints the tab between the pre-dispatch read and the dispatch itself, after
+ * which the fixed outcome still reports how the prompt went while the
+ * page-derived payload stays withheld. A tab ALREADY tainted before the call is
+ * refused earlier (its reads are masked), before the vault is touched.
+ */
+export interface BrowserFillHttpAuthResult {
+  httpAuth: 'answered' | 'rejected' | 'not_challenged';
+  tab?: BrowserAttachExistingTabRequest | null;
 }
 
 export interface BrowserScreenshotRequest extends BrowserTargetRequest {

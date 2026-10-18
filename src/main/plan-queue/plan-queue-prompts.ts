@@ -158,6 +158,7 @@ export function buildResumePrompt(ctx: ItemPromptContext, reason: string): strin
     `You are resuming a Plan Queue item. Earlier work on it is already committed on branch \`${ctx.item.branchName ?? 'unknown'}\`, which is checked out in your worktree. Reason for the resume: ${reason}.`,
     '',
     buildWorkerPrompt(ctx),
+    ...(ctx.item.pendingInstruction ? ['', 'Pending work from the previous session (data):', dataBlock('pending_instruction', ctx.item.pendingInstruction)] : []),
     '',
     'Start by reading the document\'s as-built notes and `git log` / `git diff` against the base branch in your worktree to see what is already done. Continue from there rather than starting again.',
   ].join('\n');

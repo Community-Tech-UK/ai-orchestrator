@@ -1,6 +1,6 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
-import type { PlanQueueRouteChoice, PlanQueueRouting } from '@contracts/schemas/plan-queue';
+import { ChangeDetectionStrategy, Component, Injector, OnInit, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import type { PlanQueueRouteChoice, PlanQueueRouting, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { sameFamily } from '../../../../../shared/models/model-family';
 import { sameProviderCheckerCanDiffer } from '../../../../../shared/models/multi-maker-providers';
 import { AUTOMATION_PROVIDER_DEFINITIONS } from '../../../../../shared/types/automation-provider.types';
@@ -8,6 +8,7 @@ import { isLogicalMiMoModel, isPooledProvider } from '../../../../../shared/type
 import { REMOTE_REVIEWER_PROVIDER_DEFINITIONS } from '../../../../../shared/types/reviewer-provider.types';
 import { CopilotAccountIpcService, type CopilotAccountView } from '../../../core/services/ipc/copilot-account-ipc.service';
 import { ProviderAccountIpcService, type ProviderAccountView } from '../../../core/services/ipc/provider-account-ipc.service';
+import { PlanQueueStore } from '../../../core/state/plan-queue.store';
 import { SettingsStore } from '../../../core/state/settings.store';
 
 /** Most checker rows the main process accepts. */
@@ -124,6 +125,15 @@ function eventChecked(event: Event): boolean {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PlanQueueRoutingPanelComponent implements OnInit {
+  readonly mode = input<'saved' | 'run'>('saved');
+  readonly run = input<PlanQueueRunDto | null>(null);
+  private readonly injector = inject(Injector);
+  protected readonly moveInProgress = signal(false);
+  protected readonly canMoveInProgress = computed(() => this.mode() === 'run'
+    && this.run()?.status === 'running'
+    && this.run()?.items.some(item => ['preparing', 'working', 'fixing', 'awaiting-slot', 'verifying', 'landing'].includes(item.state)));
+  protected readonly radioSuffix = computed(() => this.mode() === 'run' ? `-${this.run()?.id ?? 'run'}` : '');
+
   private readonly settingsStore = inject(SettingsStore);
   private readonly providerAccountIpc = inject(ProviderAccountIpcService);
   private readonly copilotAccountIpc = inject(CopilotAccountIpcService);
@@ -149,13 +159,19 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
   protected readonly isWorkerAlways = computed(() => this.workerMode() === 'always');
   protected readonly isCheckerManual = computed(() => this.checkerMode() === 'manual');
 
-  private readonly saved = computed<PlanQueueRouting>(
-    () => this.settingsStore.settings().planQueueRouting ?? { worker: null, verifiers: [] },
-  );
-  // Trimmed and lowercased, as the main process reads the list.
-  private readonly excludedProviders = computed(
-    () => new Set((this.settingsStore.settings().providersExcludedFromAutomation ?? []).map((id) => id.trim().toLowerCase())),
-  );
+  private readonly saved = computed<PlanQueueRouting>(() => {
+    if (this.mode() === 'saved') return this.settingsStore.settings().planQueueRouting ?? { worker: null, verifiers: [] };
+    const run = this.run();
+    return run?.config.routing ?? {
+      worker: { provider: run?.workerProvider ?? 'claude', ...(run?.workerModel ? { model: run.workerModel } : {}) },
+      verifiers: [],
+    };
+  });
+  // Only the current run's explicit relaxation bypasses exclusions; saved defaults still enforce them.
+  private readonly excludedProviders = computed(() => {
+    if (this.mode() === 'run' && this.run()?.config.relaxSettings) return new Set<string>();
+    return new Set((this.settingsStore.settings().providersExcludedFromAutomation ?? []).map((id) => id.trim().toLowerCase()));
+  });
 
   /** The value that would be saved right now (empty optional fields stripped). */
   protected readonly cleaned = computed<PlanQueueRouting>(() => ({
@@ -315,6 +331,18 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
     this.saving.set(true);
     this.status.set(null);
     try {
+      if (this.mode() === 'run') {
+        const run = this.run();
+        if (!run) throw new Error('The run is no longer available.');
+        const result = await this.injector.get(PlanQueueStore).control({
+          action: 'set-routing', runId: run.id, routing: value,
+          ...(this.canMoveInProgress() && this.moveInProgress() ? { moveInProgress: true } : {}),
+        });
+        this.status.set(result.success
+          ? { kind: 'success', text: 'Saved. New sessions in this run will use these choices.' }
+          : { kind: 'error', text: result.error?.message ?? 'Could not change this run.' });
+        return;
+      }
       // SettingsStore.set() swallows write failures into its error signal.
       this.settingsStore.clearError();
       await this.settingsStore.set('planQueueRouting', value);

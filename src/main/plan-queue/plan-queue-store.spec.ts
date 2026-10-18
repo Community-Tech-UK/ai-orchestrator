@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { runLoopMigrations, runLoopMigrationsUpTo } from '../orchestration/loop-schema';
@@ -49,6 +49,8 @@ function makeItem(overrides: Partial<PlanQueueItem> = {}): PlanQueueItem {
     answer: null,
     parkReason: null,
     detail: null,
+    heldAt: null,
+    pendingInstruction: null,
     verdict: null,
     createdAt: 2_000,
     updatedAt: 2_000,
@@ -188,6 +190,130 @@ describe('PlanQueueStore', () => {
     expect(store.findItemByInstance('v1')?.id).toBe('item-1');
     expect(store.findItemByInstance('w1')?.id).toBe('item-1');
     expect(store.findItemByInstance('nobody')).toBeNull();
+  });
+
+
+  it('persists and clears hold time and pending instructions while retaining saved work', () => {
+    store.upsertRun(makeRun({ status: 'paused' }));
+    const item = makeItem({
+      state: 'queued', heldAt: 8_000,
+      pendingInstruction: 'Fix the checker findings in the existing branch.\nKeep its checkpoint.',
+      branchName: 'queue/held-work', worktreePath: '/repo/.worktrees/held-work', checkpointCommit: 'saved-checkpoint',
+    });
+    store.upsertItem(item);
+    expect(store.getItem(item.id)).toEqual({ ...item, updatedAt: 9_000 });
+    expect(store.listItems(item.runId)[0]).toMatchObject({ heldAt: 8_000, pendingInstruction: item.pendingInstruction });
+
+    store.upsertItem({ ...item, state: 'working', heldAt: null, pendingInstruction: null });
+    expect(store.getItem(item.id)).toMatchObject({
+      state: 'working', heldAt: null, pendingInstruction: null,
+      branchName: item.branchName, worktreePath: item.worktreePath, checkpointCommit: item.checkpointCommit,
+    });
+  });
+
+  it('upgrades v22 to v23 without altering existing rows, and repeats safely', () => {
+    const old = new Database(':memory:') as unknown as SqliteDriver;
+    try {
+      runLoopMigrationsUpTo(old, 22);
+      old.prepare(`INSERT INTO plan_queue_runs
+        (id, parent_instance_id, parent_history_thread_id, kind, workspace_cwd, status, config_json, worker_provider, started_at, updated_at)
+        VALUES ('legacy-run', 'legacy-parent', 'legacy-thread', 'plans', '/repo', 'paused', '{}', 'claude', 1000, 1100)`).run();
+      old.prepare(`INSERT INTO plan_queue_items
+        (id, run_id, document_path, state, round, errored_rounds, landing_refusals, branch_name, worktree_path, checkpoint_commit, detail, created_at, updated_at, tokens, cost_usd)
+        VALUES ('legacy-item', 'legacy-run', '/repo/old_plan.md', 'fixing', 2, 1, 1, 'queue/legacy', '/repo/.worktrees/legacy', 'checkpoint', 'Keep these findings', 2000, 2100, 123, 1.25)`).run();
+      const runBefore = old.prepare('SELECT * FROM plan_queue_runs').get();
+      const itemBefore = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
+      const columnsBefore = old.prepare('PRAGMA table_info(plan_queue_items)').all<{ name: string }>().map(column => column.name);
+      expect(columnsBefore).not.toContain('held_at');
+      expect(columnsBefore).not.toContain('pending_instruction');
+
+      runLoopMigrations(old);
+      expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual(runBefore);
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, held_at: null, pending_instruction: null });
+      const upgraded = new PlanQueueStore(old);
+      expect(upgraded.getItem('legacy-item')).toMatchObject({ heldAt: null, pendingInstruction: null, state: 'fixing', round: 2 });
+
+      const heldItem = { ...upgraded.getItem('legacy-item')!, state: 'queued' as const, heldAt: 3000, pendingInstruction: 'Continue saved findings' };
+      upgraded.upsertItem(heldItem);
+      const heldSnapshot = upgraded.getItem('legacy-item');
+      expect(() => runLoopMigrations(old)).not.toThrow();
+      expect(upgraded.getItem('legacy-item')).toEqual(heldSnapshot);
+      expect(old.prepare('SELECT COUNT(*) AS n FROM plan_queue_runs').get<{ n: number }>()?.n).toBe(1);
+      expect(old.prepare('SELECT COUNT(*) AS n FROM plan_queue_items').get<{ n: number }>()?.n).toBe(1);
+      expect(old.prepare('SELECT COUNT(*) AS n FROM loop_migrations WHERE version = 23').get<{ n: number }>()?.n).toBe(1);
+    } finally { old.close(); }
+  });
+
+  it('snapshots every active run with bounded recent history, sorted and without duplicates', () => {
+    store.upsertRun(makeRun({ id: 'old-running', startedAt: 1 }));
+    store.upsertRun(makeRun({ id: 'old-paused', status: 'paused', startedAt: 2, kind: 'livetests' }));
+    store.upsertItem(makeItem({ runId: 'old-running', heldAt: null, pendingInstruction: null }));
+    for (let index = 0; index < 55; index++) {
+      store.upsertRun(makeRun({ id: `terminal-${index}`, status: index % 2 ? 'completed' : 'cancelled', startedAt: 100 + index }));
+    }
+    expect(store.listRuns(50)).toHaveLength(50);
+    const snapshot = store.listRunSnapshots(50);
+    expect(snapshot).toHaveLength(52);
+    expect(snapshot.slice(-2).map(entry => [entry.run.id, entry.run.kind])).toEqual([['old-paused', 'livetests'], ['old-running', 'plans']]);
+    expect(snapshot.at(-1)?.items).toEqual([{ ...makeItem({ runId: 'old-running' }), updatedAt: 9000 }]);
+    expect(snapshot.filter(entry => ['completed', 'cancelled'].includes(entry.run.status))).toHaveLength(50);
+    expect(snapshot.map(entry => entry.run.startedAt)).toEqual([...snapshot.map(entry => entry.run.startedAt)].sort((a, b) => b - a));
+
+    store.upsertRun(makeRun({ id: 'recent-running', startedAt: 200 }));
+    const overlapping = store.listRunSnapshots(50);
+    expect(overlapping.filter(entry => entry.run.id === 'recent-running')).toHaveLength(1);
+    expect(new Set(overlapping.map(entry => entry.run.id)).size).toBe(overlapping.length);
+    expect(overlapping.filter(entry => ['completed', 'cancelled'].includes(entry.run.status))).toHaveLength(49);
+    expect(overlapping[0].run.id).toBe('recent-running');
+    // Deterministic ordering also covers equal start times.
+    store.upsertRun(makeRun({ id: 'recent-z', startedAt: 200 }));
+    expect(store.listRunSnapshots(1).slice(0, 2).map(entry => entry.run.id)).toEqual(['recent-z', 'recent-running']);
+  });
+
+  it('includes every terminal run with parked documents while bounding inert history', () => {
+    store.upsertRun(makeRun({ id: 'old-completed', status: 'completed', startedAt: 1 }));
+    store.upsertRun(makeRun({ id: 'old-cancelled', status: 'cancelled', kind: 'livetests', startedAt: 2 }));
+    store.upsertItem(makeItem({ id: 'retained', runId: 'old-completed', state: 'parked', branchName: 'queue/retained', parkReason: 'round-limit' }));
+    store.upsertItem(makeItem({ id: 'second-parked', runId: 'old-completed', documentPath: '/repo/second_plan.md', state: 'parked' }));
+    store.upsertItem(makeItem({ id: 'branchless', runId: 'old-cancelled', state: 'parked', parkReason: 'triage-failed' }));
+    for (let index = 0; index < 55; index++) {
+      store.upsertRun(makeRun({ id: `inert-${index}`, status: index % 2 ? 'completed' : 'cancelled', startedAt: 100 + index }));
+    }
+    const snapshot = store.listRunSnapshots(50);
+    expect(snapshot).toHaveLength(52);
+    expect(snapshot.filter(entry => entry.run.id.startsWith('inert-'))).toHaveLength(50);
+    expect(snapshot.slice(-2).map(entry => [entry.run.id, entry.run.kind])).toEqual([['old-cancelled', 'livetests'], ['old-completed', 'plans']]);
+    expect(snapshot.find(entry => entry.run.id === 'old-cancelled')?.items[0]).toMatchObject({ branchName: null, state: 'parked', parkReason: 'triage-failed' });
+    expect(snapshot.find(entry => entry.run.id === 'old-completed')?.items).toHaveLength(2);
+    expect(snapshot.filter(entry => entry.run.id === 'old-completed')).toHaveLength(1);
+    expect(store.listRuns(50).every(entry => entry.id.startsWith('inert-'))).toBe(true);
+
+    store.upsertRun(makeRun({ id: 'recent-parked', status: 'completed', startedAt: 200 }));
+    store.upsertItem(makeItem({ id: 'recent-document', runId: 'recent-parked', state: 'parked' }));
+    const overlapping = store.listRunSnapshots(50);
+    expect(overlapping.filter(entry => entry.run.id === 'recent-parked')).toHaveLength(1);
+    expect(overlapping.filter(entry => entry.run.id.startsWith('inert-'))).toHaveLength(49);
+    expect(overlapping.map(entry => entry.run.startedAt)).toEqual([...overlapping.map(entry => entry.run.startedAt)].sort((a, b) => b - a));
+  });
+
+  it('bulk-loads items in one read transaction for more active runs than a small IN parameter limit', () => {
+    for (let index = 0; index < 1100; index++) {
+      const id = `active-${index}`;
+      store.upsertRun(makeRun({ id, startedAt: index }));
+      store.upsertItem(makeItem({ id: `document-${index}`, runId: id }));
+    }
+    store.upsertRun(makeRun({ id: 'newest-history', status: 'completed', startedAt: 2000 }));
+    const prepare = vi.spyOn(driver, 'prepare');
+    const transaction = vi.spyOn(driver, 'transaction');
+    try {
+      const snapshot = store.listRunSnapshots(1);
+      expect(snapshot).toHaveLength(1101);
+      expect(snapshot.flatMap(entry => entry.items)).toHaveLength(1100);
+      expect(snapshot.filter(entry => entry.run.status === 'completed')).toHaveLength(1);
+      expect(prepare).toHaveBeenCalledTimes(2);
+      expect(transaction).toHaveBeenCalledTimes(1);
+      expect(snapshot.find(entry => entry.run.id === 'active-0')?.items[0].runId).toBe('active-0');
+    } finally { prepare.mockRestore(); transaction.mockRestore(); }
   });
 
   it('lists only items that own a branch or worktree', () => {

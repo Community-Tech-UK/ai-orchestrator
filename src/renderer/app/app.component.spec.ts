@@ -245,6 +245,22 @@ describe('AppComponent startup banner', () => {
     expect(router.navigate).toHaveBeenCalledExactlyOnceWith(['/settings'], { fragment: 'provider-accounts' });
   });
 
+  it('opens the Claude, Codex & MiMo accounts page from a quota reauth banner', () => {
+    router.navigate.mockClear();
+
+    component.openProviderAccounts('claude');
+
+    expect(router.navigate).toHaveBeenCalledExactlyOnceWith(['/settings'], { fragment: 'provider-accounts' });
+  });
+
+  it('opens the Copilot accounts page from a Copilot quota reauth banner', () => {
+    router.navigate.mockClear();
+
+    component.openProviderAccounts('copilot');
+
+    expect(router.navigate).toHaveBeenCalledExactlyOnceWith(['/settings'], { fragment: 'copilot-accounts' });
+  });
+
   it('hides the current degraded startup report after dismissal', () => {
     const dismiss = fixture.nativeElement.querySelector('.startup-banner-dismiss') as HTMLButtonElement;
 

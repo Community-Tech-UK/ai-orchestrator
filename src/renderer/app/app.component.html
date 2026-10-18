@@ -37,7 +37,7 @@
         Remote Terminal
       </button>
     }
-    <app-provider-quota-chip (accountsRequested)="openProviderAccounts()" />
+    <app-provider-quota-chip (accountsRequested)="openProviderAccounts($event)" />
     <app-computer-use-permission-chip />
     <app-notification-center />
     @if (resumeToast(); as toast) {

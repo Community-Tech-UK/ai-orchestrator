@@ -6082,7 +6082,7 @@
     },
     {
       "path": "resources/browser-extension/background.js",
-      "lines": 6429
+      "lines": 6772
     },
     {
       "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
@@ -6095,6 +6095,10 @@
     {
       "path": "docs/plans/2026-10-10-oct-phase3-calm-screen_plan.md",
       "lines": 4736
+    },
+    {
+      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
+      "lines": 4456
     },
     {
       "path": "docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md",
@@ -6127,10 +6131,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
       "lines": 3817
-    },
-    {
-      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 3775
     },
     {
       "path": "src/main/instance/rlm-process-ownership.spec.ts",
@@ -6213,6 +6213,10 @@
       "lines": 2639
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.ts",
+      "lines": 2616
+    },
+    {
       "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
       "lines": 2606
     },
@@ -6237,12 +6241,8 @@
       "lines": 2517
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2510
-    },
-    {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2467
+      "lines": 2468
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
@@ -6309,16 +6309,20 @@
       "lines": 2009
     },
     {
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "lines": 2004
+    },
+    {
       "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
       "lines": 2001
     },
     {
-      "path": "docs/superpowers/plans/2026-04-11-knowledge-ui-completion_completed.md",
-      "lines": 1991
+      "path": "src/main/browser-gateway/browser-gateway-service.credentials.spec.ts",
+      "lines": 1992
     },
     {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 1982
+      "path": "docs/superpowers/plans/2026-04-11-knowledge-ui-completion_completed.md",
+      "lines": 1991
     },
     {
       "path": "src/main/session/session-continuity.spec.ts",
@@ -6375,10 +6379,6 @@
     {
       "path": "src/main/session/session-continuity.ts",
       "lines": 1761
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service.credentials.spec.ts",
-      "lines": 1746
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
@@ -6469,12 +6469,12 @@
       "lines": 1456
     },
     {
-      "path": "src/main/background-jobs/__tests__/lane-gateway.spec.ts",
-      "lines": 1443
+      "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
+      "lines": 1451
     },
     {
-      "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
-      "lines": 1436
+      "path": "src/main/background-jobs/__tests__/lane-gateway.spec.ts",
+      "lines": 1443
     },
     {
       "path": "src/main/ipc/handlers/__tests__/session-handlers.spec.ts",
@@ -6503,6 +6503,10 @@
     {
       "path": "src/main/browser-gateway/browser-extension-accessibility-frames.spec.ts",
       "lines": 1376
+    },
+    {
+      "path": "src/main/browser-gateway/browser-extension-command-store.spec.ts",
+      "lines": 1361
     },
     {
       "path": "src/main/memory/unified-controller.ts",
@@ -6559,10 +6563,6 @@
     {
       "path": "src/main/instance/__tests__/instance-manager.yolo-mode.spec.ts",
       "lines": 1317
-    },
-    {
-      "path": "src/main/browser-gateway/browser-extension-command-store.spec.ts",
-      "lines": 1315
     },
     {
       "path": "src/main/plugins/plugin-manager.ts",
@@ -6881,6 +6881,10 @@
       "lines": 1043
     },
     {
+      "path": "src/main/cli/adapters/base-cli-adapter.ts",
+      "lines": 1038
+    },
+    {
       "path": "src/main/ipc/handlers/vcs-handlers.ts",
       "lines": 1038
     },
@@ -6895,10 +6899,6 @@
     {
       "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
       "lines": 1035
-    },
-    {
-      "path": "src/main/cli/adapters/base-cli-adapter.ts",
-      "lines": 1031
     },
     {
       "path": "src/renderer/app/features/hooks/hooks-config.component.ts",
@@ -7149,6 +7149,10 @@
       "lines": 883
     },
     {
+      "path": "src/main/browser-gateway/browser-mcp-tools.ts",
+      "lines": 879
+    },
+    {
       "path": "src/main/instance/__tests__/instance-manager.normalized-event.spec.ts",
       "lines": 879
     },
@@ -7219,10 +7223,6 @@
     {
       "path": "src/renderer/app/features/semantic-search/semantic-search-page.component.ts",
       "lines": 854
-    },
-    {
-      "path": "src/main/browser-gateway/browser-mcp-tools.ts",
-      "lines": 853
     },
     {
       "path": "src/renderer/app/core/state/instance/instance.store.ts",
@@ -7358,6 +7358,10 @@
     },
     {
       "path": "docs/superpowers/specs/2026-07-08-desktop-computer-use-gateway-design_completed.md",
+      "lines": 809
+    },
+    {
+      "path": "src/main/browser-gateway/browser-form-fill-operations.spec.ts",
       "lines": 809
     },
     {

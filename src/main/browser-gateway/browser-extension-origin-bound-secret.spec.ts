@@ -215,7 +215,9 @@ return executeBrowserCommand;`,
       'capturePageText',
       'captureTabScreenshot',
       'runWithSecretObservationBoundary',
-      `${extractFunctionSource(background, 'buildTabPayload')}
+      'httpAuthChallenges',
+      `${extractFunctionSource(background, 'httpAuthChallengeForTab')}
+${extractFunctionSource(background, 'buildTabPayload')}
 ${extractFunctionSource(background, 'buildTabPayloadLocked')}
 return buildTabPayload;`,
     );
@@ -225,6 +227,7 @@ return buildTabPayload;`,
       capturePageText,
       captureTabScreenshot,
       (operation: () => Promise<unknown>) => operation(),
+      new Map(),
     );
 
     const result = await buildTabPayload(
@@ -274,6 +277,7 @@ return buildTabPayload;`,
       'capturePageText',
       'captureTabScreenshot',
       'runWithSecretObservationBoundary',
+      'httpAuthChallenges',
       `let secretRecoveryRequest = null;
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'persistSecretTaints')}
@@ -282,6 +286,7 @@ ${extractFunctionSource(background, 'browserTabOrigin')}
 ${extractFunctionSource(background, 'credentialFrameOriginProbe')}
 ${extractFunctionSource(background, 'taintedFrameOriginForTabId')}
 ${extractFunctionSource(background, 'secretTaintOriginForTab')}
+${extractFunctionSource(background, 'httpAuthChallengeForTab')}
 ${extractFunctionSource(background, 'buildTabPayload')}
 ${extractFunctionSource(background, 'buildTabPayloadLocked')}
 return { clearSecretTaint, buildTabPayload };`,
@@ -296,6 +301,7 @@ return { clearSecretTaint, buildTabPayload };`,
       capturePageText,
       captureTabScreenshot,
       (operation: () => Promise<unknown>) => operation(),
+      new Map(),
     );
 
     await harness.clearSecretTaint(42);
@@ -1379,7 +1385,11 @@ return runBrowserCommand;`,
     // main process itself) are an exact, pinned complement.
     const fn = extractFunctionSource(background, 'browserCommandErrorMessage');
     const block = /const safeCredentialWriteErrors = \[([\s\S]*?)\];/.exec(fn)?.[1] ?? '';
-    const extensionCodes = [...block.matchAll(/'([A-Za-z0-9_]+)'/g)].map((match) => match[1]);
+    // The HTTP auth branch carries its own fixed list + fallback literal.
+    const httpAuthBlock = /const safeHttpAuthErrors = \[([\s\S]*?)\];/.exec(fn)?.[1] ?? '';
+    const httpAuthFallback = /: '(http_auth_[A-Za-z0-9_]+)'/.exec(fn)?.[1] ?? '';
+    const extensionCodes = [...`${block}\n${httpAuthBlock}\n'${httpAuthFallback}'`
+      .matchAll(/'([A-Za-z0-9_]+)'/g)].map((match) => match[1]);
     expect(extensionCodes.length).toBeGreaterThan(10);
     for (const code of extensionCodes) {
       expect(SAFE_CREDENTIAL_CODES.has(code), code).toBe(true);
@@ -1391,6 +1401,11 @@ return runBrowserCommand;`,
       'shared_tab_public_credential_write_not_confirmed',
       'credential_authorization_changed',
       'browser_verify_readback_invalid',
+      // fill_http_auth gate/confirmation codes minted by the main process.
+      'shared_tab_http_auth_unavailable',
+      'shared_tab_http_auth_write_not_confirmed',
+      'http_auth_managed_profiles_unsupported',
+      'http_auth_rejected',
     ]));
   });
 

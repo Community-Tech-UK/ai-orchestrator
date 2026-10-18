@@ -39,6 +39,7 @@ import {
   BrowserWorkflowCheckpointSaveRequestSchema,
   BrowserExecuteFillPlanRequestSchema,
   BrowserFillCredentialRequestSchema,
+  BrowserFillHttpAuthRequestSchema,
   BrowserFillSecretRequestSchema,
   BrowserCreateAgentCredentialRequestSchema,
   BrowserTargetRequestSchema,
@@ -74,6 +75,7 @@ const STRICT_NO_STRIP_METHODS: ReadonlySet<string> = new Set([
   'browser.request_grant',
   'browser.revoke_grant',
   'browser.fill_credential',
+  'browser.fill_http_auth',
   'browser.fill_secret',
   'browser.create_agent_credential',
   'browser.execute_fill_plan',
@@ -127,6 +129,8 @@ function schemaForBrowserRpcMethod(method: string): ZodType | null {
       return BrowserExecuteFillPlanRequestSchema;
     case 'browser.fill_credential':
       return BrowserFillCredentialRequestSchema;
+    case 'browser.fill_http_auth':
+      return BrowserFillHttpAuthRequestSchema;
     case 'browser.fill_secret':
       return BrowserFillSecretRequestSchema;
     case 'browser.create_agent_credential':

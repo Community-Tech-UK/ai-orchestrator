@@ -5,6 +5,7 @@ import {
   resolveEmailSenderDomains,
   type FillOperationDeps,
 } from './browser-form-fill-operations';
+import { fillHttpAuthOperation } from './browser-http-auth-fill-operation';
 import { credentialFailureCode } from './browser-credential-fill-targeting';
 import type { BrowserGatewayFillCredentialRequest } from './browser-gateway-service-types';
 import { CredentialVaultError } from './browser-credential-vault';
@@ -137,6 +138,7 @@ describe('fillCredentialOperation secure extension revalidation', () => {
         click: vi.fn(),
         readControl: vi.fn(),
         driverType: vi.fn(),
+      httpAuthNavigate: vi.fn(),
         refreshTargetOrigin: vi.fn(async () => {
           compatible = false;
           return 'https://www.instagram.com';
@@ -181,6 +183,7 @@ describe('fillCredentialOperation authorization denial', () => {
       click: vi.fn(),
       readControl: vi.fn(),
       driverType: vi.fn(),
+      httpAuthNavigate: vi.fn(),
       refreshTargetOrigin: vi.fn(async () => liveOrigin),
       credentialVault: {
         getSecretForFill: vi.fn(),
@@ -254,6 +257,7 @@ describe('fillCredentialOperation fill-origin resolution (embedded cross-origin 
       readControl: vi.fn(async () => ({})),
       resolveFieldFrameOrigin: vi.fn(async () => options.frameOrigin),
       driverType: options.driverType ?? vi.fn(async () => undefined),
+      httpAuthNavigate: vi.fn(),
       refreshTargetOrigin: vi.fn(async () => PAGE_ORIGIN),
       credentialVault: {
         getSecretForFill: vaultRead,
@@ -401,6 +405,7 @@ describe('fillCredentialOperation failure classification (no swallowed errors)',
       click: vi.fn(),
       readControl: vi.fn(async () => ({})),
       driverType,
+      httpAuthNavigate: vi.fn(),
       refreshTargetOrigin: vi.fn(async () => PAGE_ORIGIN),
       credentialVault: {
         getSecretForFill: vi.fn(async () => 'TEST_ONLY_SECRET_VALUE'),
@@ -558,6 +563,7 @@ describe('fillCredentialOperation vault recovery failure', () => {
       click: vi.fn(),
       readControl: vi.fn(),
       driverType,
+      httpAuthNavigate: vi.fn(),
       refreshTargetOrigin: vi.fn(async () => ORIGIN),
       credentialVault: {
         getSecretForFill: vi.fn(async () => {
@@ -587,5 +593,216 @@ describe('fillCredentialOperation vault recovery failure', () => {
       reason: 'vault_resolve:vault_relock_failed:empty_password',
     });
     expect(driverType).not.toHaveBeenCalled();
+  });
+});
+
+describe('fillHttpAuthOperation', () => {
+  const CHALLENGE_URL = 'https://portal.in-tendhost.co.uk/admin/report';
+  const CHALLENGE_ORIGIN = 'https://portal.in-tendhost.co.uk';
+
+  function makeHttpAuthDeps(options: {
+    pageOrigin?: string;
+    liveUrl?: string;
+    secondPageOrigin?: string;
+    authorized?: boolean;
+    authorizationReason?: string;
+    sharedTabAllowed?: boolean;
+    httpAuthSupported?: boolean;
+    existingTab?: boolean;
+    dispatch?: FillOperationDeps['httpAuthNavigate'];
+  } = {}) {
+    const vaultRead = vi.fn(async ({ kind }: { kind: string }) =>
+      kind === 'username' ? 'alice' : 'TEST_ONLY_HTTP_AUTH_PASSWORD');
+    const dispatch = options.dispatch ?? vi.fn(async () => ({
+      httpAuth: 'answered' as const,
+      tab: { tabId: 42, windowId: 7, url: CHALLENGE_URL },
+    }));
+    const results: unknown[] = [];
+    let pageReads = 0;
+    const deps = {
+      result: ((input: unknown) => {
+        results.push(input);
+        return input;
+      }) as FillOperationDeps['result'],
+      hasExistingTab: () => options.existingTab !== false,
+      sharedTabCredentialFillAllowed: () => options.sharedTabAllowed !== false,
+      sharedTabSecureCredentialFillSupported: () => true,
+      sharedTabSecureHttpAuthSupported: () => options.httpAuthSupported !== false,
+      resolveCredentialProfileScope: () => 'n.test',
+      type: vi.fn(),
+      select: vi.fn(),
+      click: vi.fn(),
+      readControl: vi.fn(),
+      driverType: vi.fn(),
+      httpAuthNavigate: dispatch,
+      readTargetUrl: vi.fn(async () => options.liveUrl ?? CHALLENGE_URL),
+      refreshTargetOrigin: vi.fn(async () => {
+        pageReads += 1;
+        return pageReads > 1 && options.secondPageOrigin !== undefined
+          ? options.secondPageOrigin
+          : options.pageOrigin ?? CHALLENGE_ORIGIN;
+      }),
+      credentialVault: {
+        getSecretForFill: vaultRead,
+        createAgentCredential: vi.fn(),
+        getGenericSecretForFill: vi.fn(),
+      } as unknown as FillOperationDeps['credentialVault'],
+      credentialAuthorizations: {
+        check: vi.fn(() => (options.authorized === false
+          ? { authorized: false as const, reason: (options.authorizationReason ?? 'origin_not_authorized') as 'origin_not_authorized' }
+          : { authorized: true as const })),
+        list: vi.fn(() => []),
+      } as unknown as FillOperationDeps['credentialAuthorizations'],
+    } satisfies FillOperationDeps & Record<string, unknown>;
+    return { deps: deps as FillOperationDeps, vaultRead, dispatch, results };
+  }
+
+  const request = (url?: string) => ({
+    instanceId: 'instance-1',
+    provider: 'codex' as const,
+    profileId: 'existing-tab:7:42',
+    targetId: 'existing-tab:7:42:target',
+    vaultItemRef: 'opaque-vault-ref',
+    ...(url ? { url } : {}),
+  });
+
+  it.each([
+    ['the shared-tab opt-in is off', { sharedTabAllowed: false }, 'http_auth_shared_tab_not_allowed', CHALLENGE_URL],
+    ['the target is a managed profile', { existingTab: false }, 'http_auth_managed_profiles_unsupported', CHALLENGE_URL],
+    ['the extension is too old', { httpAuthSupported: false }, 'shared_tab_http_auth_unavailable', CHALLENGE_URL],
+    ['the target is plain http', { pageOrigin: 'http://plain.example' }, 'http_auth_insecure_origin', 'http://plain.example/protected'],
+    ['the tab is on another origin', { pageOrigin: 'https://other.example/home' }, 'http_auth_origin_mismatch', CHALLENGE_URL],
+    ['there is no authorization', { authorized: false, authorizationReason: 'origin_not_authorized' }, 'credential_not_authorized', CHALLENGE_URL],
+  ])('refuses before the vault read when %s', async (_label, options, reason, url) => {
+    const { deps, vaultRead, dispatch } = makeHttpAuthDeps(options);
+
+    const result = await fillHttpAuthOperation(deps, request(url));
+
+    expect(result.decision).toBe('denied');
+    expect(result.outcome).toBe('not_run');
+    expect(result.reason).toContain(reason);
+    expect(vaultRead).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('answers the prompt from the saved login and keeps the tab payload non-secret', async () => {
+    const { deps, vaultRead, dispatch } = makeHttpAuthDeps();
+
+    const result = await fillHttpAuthOperation(deps, request());
+
+    expect(dispatch).toHaveBeenCalledWith(
+      'existing-tab:7:42',
+      'existing-tab:7:42:target',
+      {
+        url: CHALLENGE_URL,
+        credentialOrigin: CHALLENGE_ORIGIN,
+        username: 'alice',
+        password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+        protection: 'password',
+      },
+      expect.any(Function),
+    );
+    expect(vaultRead).toHaveBeenCalledWith(expect.objectContaining({ kind: 'username' }));
+    expect(vaultRead).toHaveBeenCalledWith(expect.objectContaining({ kind: 'password' }));
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: {
+        httpAuth: 'answered',
+        tab: { tabId: 42, windowId: 7, url: CHALLENGE_URL },
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('TEST_ONLY_HTTP_AUTH_PASSWORD');
+    expect(JSON.stringify(result)).not.toContain('"alice"');
+  });
+
+  it('reports a refused saved password as rejected without looping', async () => {
+    const { deps, results } = makeHttpAuthDeps({
+      dispatch: vi.fn(async () => ({ httpAuth: 'rejected' as const, tab: null })),
+    });
+
+    const result = await fillHttpAuthOperation(deps, request());
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'failed',
+      reason: 'http_auth_rejected',
+      data: { httpAuth: 'rejected' },
+    });
+    const [denial] = results as Array<{ summary?: string }>;
+    expect(denial.summary).toContain('do not ask the user to type it');
+  });
+
+  it('reports not_challenged when the page never shows a prompt', async () => {
+    const { deps } = makeHttpAuthDeps({
+      dispatch: vi.fn(async () => ({
+        httpAuth: 'not_challenged' as const,
+        tab: { tabId: 42, windowId: 7, url: CHALLENGE_URL },
+      })),
+    });
+
+    const result = await fillHttpAuthOperation(deps, request());
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: { httpAuth: 'not_challenged' },
+    });
+  });
+
+  it('refuses when the tab navigates away between the checks and the dispatch', async () => {
+    const { deps, vaultRead, dispatch } = makeHttpAuthDeps({
+      secondPageOrigin: 'https://somewhere.else/home',
+    });
+
+    const result = await fillHttpAuthOperation(deps, request(CHALLENGE_URL));
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'origin_changed_during_fill',
+    });
+    expect(dispatch).not.toHaveBeenCalled();
+    // The secret WAS resolved (the drift is detected immediately after), but
+    // never dispatched and never surfaces.
+    expect(vaultRead).toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain('TEST_ONLY_HTTP_AUTH_PASSWORD');
+  });
+
+  it('collapses an unknown dispatch error to the fixed fallback code', async () => {
+    const { deps } = makeHttpAuthDeps({
+      dispatch: vi.fn(async () => {
+        throw new Error('chrome exploded quoting TEST_ONLY_HTTP_AUTH_PASSWORD');
+      }),
+    });
+
+    const result = await fillHttpAuthOperation(deps, request());
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'failed',
+      reason: 'dispatch:http_auth_fill_failed',
+    });
+    expect(JSON.stringify(result)).not.toContain('TEST_ONLY_HTTP_AUTH_PASSWORD');
+  });
+
+  it('passes a fixed extension code through the allowlist unchanged', async () => {
+    const { deps } = makeHttpAuthDeps({
+      dispatch: vi.fn(async () => {
+        throw new Error('shared_tab_http_auth_write_not_confirmed');
+      }),
+    });
+
+    const result = await fillHttpAuthOperation(deps, request());
+
+    expect(result).toMatchObject({
+      reason: 'dispatch:shared_tab_http_auth_write_not_confirmed',
+    });
+    expect(credentialFailureCode(
+      new Error('shared_tab_http_auth_write_not_confirmed'),
+      'fallback',
+    )).toBe('shared_tab_http_auth_write_not_confirmed');
+    expect(credentialFailureCode(new Error('http_auth_rejected'), 'fallback'))
+      .toBe('http_auth_rejected');
   });
 });

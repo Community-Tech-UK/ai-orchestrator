@@ -102,8 +102,8 @@ export class PlanQueueItemListComponent {
     return state === 'needs-answer' || state === 'working' || state === 'fixing';
   }
 
-  isSkippable(state: PlanQueueItemState): boolean {
-    return SKIPPABLE_STATES.has(state);
+  isSkippable(item: PlanQueueItemDto): boolean {
+    return SKIPPABLE_STATES.has(item.state) && item.heldAt == null && item.branchName === null && item.worktreePath === null;
   }
 
   onSkip(itemId: string): void {
@@ -117,7 +117,7 @@ export class PlanQueueItemListComponent {
   confirmSkip(itemId: string): void {
     if (this.confirmingSkip() !== itemId) return;
     this.confirmingSkip.set(null);
-    if (this.items().some(item => item.id === itemId && this.isSkippable(item.state))) {
+    if (this.items().some(item => item.id === itemId && this.isSkippable(item))) {
       this.skipItem.emit(itemId);
     }
   }

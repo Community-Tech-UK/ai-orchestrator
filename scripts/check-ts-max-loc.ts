@@ -86,6 +86,10 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 1788 -> 1803 for the provider swap fields on the change-model and
   // state-update payloads (provider + pendingModelChange round-trip).
   'packages/contracts/src/types/transport.types.ts': 1803,
+  // Shared browser contract types. Crossed 700 with the HTTP auth observation
+  // + fill_http_auth result types and the httpAuthChallenge fields on tab/
+  // target/reload payloads (2026-10-17).
+  'packages/contracts/src/types/browser.types.ts': 731,
   // Main process — automations
   'src/main/automations/automation-store.ts': 884,
   // Added 2026-07-16 at 753 (Fable WS5 spawn-loop dispatch branch + recovery
@@ -110,7 +114,11 @@ const ALLOWLIST: Record<string, number> = {
   // sentinel + write journal + assert_persisted/write_journal delegates; the
   // implementations live in browser-reliability-operations.ts).
   // Raised 2419 -> 2461 for thin closeTab/closeMatching wrappers.
-  'src/main/browser-gateway/browser-gateway-service.ts': 2461,
+  // Raised 2461 -> 2613 for the fill_http_auth service delegator + the
+  // http_auth_navigate dispatch shim + readTargetUrl (HTTP Basic/Digest
+  // answering, 2026-10-17; the operation itself lives in
+  // browser-http-auth-fill-operation.ts).
+  'src/main/browser-gateway/browser-gateway-service.ts': 2613,
   // Thin pressKey/viewport delegates; page-level impl in browser-input-control-driver.ts.
   'src/main/browser-gateway/puppeteer-browser-driver.ts': 717,
   // Self-allowlisted: the registry below grows one line per documented ceiling.
@@ -125,7 +133,8 @@ const ALLOWLIST: Record<string, number> = {
   // reliability tools (assert_persisted, write_journal). Catalog growth, not
   // logic growth. Raised 727 -> 762 for the fill_credential authorize-path hint.
   // Raised 762 -> 825 for browser.close_tab / close_matching schemas.
-  'src/main/browser-gateway/browser-mcp-tools.ts': 825,
+  // Raised 825 -> 878 for the browser.fill_http_auth schema + description.
+  'src/main/browser-gateway/browser-mcp-tools.ts': 878,
   // Declarative Zod request/response schema catalog for the browser domain;
   // crossed 700 with the snapshot/assert_persisted/write_journal schemas.
   // Raised 731 -> 796 for close + inspection-state request schemas.

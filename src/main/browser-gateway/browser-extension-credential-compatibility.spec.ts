@@ -3,7 +3,9 @@ import type { BrowserExtensionContactStateReader } from './browser-extension-con
 import {
   confirmBrowserExtensionCredentialWrite,
   isExactSecureCredentialWriteCompletion,
+  readHttpAuthCompletion,
   supportsSecureBrowserExtensionCredentialFill,
+  supportsSecureBrowserExtensionHttpAuth,
 } from './browser-extension-credential-compatibility';
 
 function contactState(
@@ -87,5 +89,57 @@ describe('browser extension credential compatibility', () => {
       .toThrow('shared_tab_secure_credential_write_not_confirmed');
     expect(() => confirmBrowserExtensionCredentialWrite({ ...exact, valueApplied: true }, 'public'))
       .toThrow('shared_tab_public_credential_write_not_confirmed');
+  });
+
+  describe('HTTP auth answering (fill_http_auth)', () => {
+    it.each(['0.2.43', '0.3.0', '1.0.0'])(
+      'accepts a runtime at %s that registers the webRequest answering path',
+      (version) => {
+        expect(supportsSecureBrowserExtensionHttpAuth(contactState(version), 'local')).toBe(true);
+      },
+    );
+
+    it.each([
+      ['one patch short', '0.2.42'],
+      ['the secure-fill floor only', '0.2.18'],
+      ['prerelease floor', '0.2.43-rc.1'],
+      ['malformed', 'not-a-version'],
+      ['missing', undefined],
+    ])('rejects a %s runtime for HTTP auth answering', (_case, version) => {
+      expect(supportsSecureBrowserExtensionHttpAuth(contactState(version), 'local')).toBe(false);
+      // Stale contact fails closed too.
+      expect(supportsSecureBrowserExtensionHttpAuth(contactState(version, false), 'local')).toBe(false);
+    });
+
+    it('reads the fixed completion and distinguishes an observation-locked tab', () => {
+      expect(readHttpAuthCompletion({
+        tabId: 42,
+        windowId: 7,
+        url: 'https://example.test/protected',
+        completed: true,
+        httpAuth: 'answered',
+      })).toEqual({ httpAuth: 'answered', observationBlocked: false });
+      expect(readHttpAuthCompletion({
+        completed: true,
+        httpAuth: 'not_challenged',
+        observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin',
+      })).toEqual({ httpAuth: 'not_challenged', observationBlocked: true });
+    });
+
+    it('fails closed on a legacy or page-derived shape', () => {
+      for (const bad of [
+        { valueApplied: true },
+        { completed: true },
+        { completed: true, httpAuth: 'maybe' },
+        { completed: false, httpAuth: 'answered' },
+        { httpAuth: 'answered' },
+        null,
+        [],
+        'answered',
+      ]) {
+        expect(() => readHttpAuthCompletion(bad))
+          .toThrow('shared_tab_http_auth_write_not_confirmed');
+      }
+    });
   });
 });

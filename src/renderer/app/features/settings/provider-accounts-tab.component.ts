@@ -24,6 +24,8 @@ import {
   type ProviderAccountDoctorView,
   type ProviderAccountView,
 } from '../../core/services/ipc/provider-account-ipc.service';
+import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
+import type { ProviderId } from '../../../../shared/types/provider-quota.types';
 import type {
   AccountAutomationPolicy,
   AccountContinuationMode,
@@ -40,6 +42,18 @@ const PROVIDERS: readonly { id: PooledProvider; label: string; subscription: str
   { id: 'claude', label: 'Claude', subscription: 'Claude', vendor: 'Anthropic' },
   { id: 'codex', label: 'Codex', subscription: 'ChatGPT', vendor: 'OpenAI' },
   { id: 'opencode', label: 'MiMo', subscription: 'MiMo Token Plan', vendor: 'Xiaomi' },
+];
+
+/**
+ * Providers that only ever sign in once, through their own CLI — no account
+ * list, ordering or limit-switching here. They still need a sign-in button on
+ * this page so a "Reauth needed" banner always lands somewhere that can fix it.
+ */
+const SIGN_IN_ONLY_PROVIDERS: readonly { id: ProviderId; label: string }[] = [
+  { id: 'gemini', label: 'Gemini' },
+  { id: 'antigravity', label: 'Antigravity' },
+  { id: 'cursor', label: 'Cursor' },
+  { id: 'grok', label: 'Grok' },
 ];
 
 const SIGN_IN_POLL_MS = 5_000;
@@ -103,6 +117,8 @@ const SIGN_IN_POLL_LIMIT = 60;
     .account-actions, .add-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     .account-actions .btn { padding: 4px 10px; }
     .account-actions .btn.icon { min-width: 30px; padding: 4px 6px; }
+    .sign-in-rows { display: flex; flex-direction: column; gap: 8px; }
+    .sign-in-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .action-divider { width: 1px; align-self: stretch; margin: 0 4px; background: var(--border-color); }
     .add-account { display: flex; flex-direction: column; gap: 4px; }
     .add-row input { flex: 1 1 18rem; min-width: 0; max-width: 28rem; }
@@ -122,10 +138,12 @@ const SIGN_IN_POLL_LIMIT = 60;
 })
 export class ProviderAccountsTabComponent implements OnInit {
   private readonly ipc = inject(ProviderAccountIpcService);
+  private readonly providerIpc = inject(ProviderIpcService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly nodeStore = inject(RemoteNodeStore);
 
   readonly providers = PROVIDERS;
+  readonly signInOnlyProviders = SIGN_IN_ONLY_PROVIDERS;
 
   private readonly accountsSignal = signal<ProviderAccountView[]>([]);
   private readonly poolsSignal = signal<ProviderAccountPools | null>(null);
@@ -134,6 +152,7 @@ export class ProviderAccountsTabComponent implements OnInit {
   private readonly errorSignal = signal<string | null>(null);
   private readonly noticeSignal = signal<string | null>(null);
   private readonly feedbackAccountSignal = signal<string | null>(null);
+  private readonly signingInProviderSignal = signal<ProviderId | null>(null);
   private readonly newLabelsSignal = signal<Partial<Record<PooledProvider, string>>>({});
   private readonly newRegionsSignal = signal<Partial<Record<PooledProvider, OpenCodeAccountRegion>>>({});
   private readonly newChromeProfilesSignal = signal<Partial<Record<PooledProvider, string>>>({});
@@ -146,6 +165,7 @@ export class ProviderAccountsTabComponent implements OnInit {
   readonly error = this.errorSignal.asReadonly();
   readonly notice = this.noticeSignal.asReadonly();
   readonly feedbackAccount = this.feedbackAccountSignal.asReadonly();
+  readonly signingInProvider = this.signingInProviderSignal.asReadonly();
   readonly newLabels = this.newLabelsSignal.asReadonly();
   readonly newRegions = this.newRegionsSignal.asReadonly();
   readonly newChromeProfiles = this.newChromeProfilesSignal.asReadonly();
@@ -283,6 +303,30 @@ export class ProviderAccountsTabComponent implements OnInit {
 
   async signIn(account: ProviderAccountView, openTerminal = false): Promise<void> {
     await this.run(() => this.launchSignIn(account, openTerminal), account);
+  }
+
+  /**
+   * Sign-in for a provider that has no account list here (Gemini, Antigravity,
+   * Cursor, Grok). The login is interactive, so this only opens a terminal
+   * already running the right command — the same launcher the Doctor page uses.
+   */
+  async signInProvider(provider: ProviderId): Promise<void> {
+    if (this.busySignal()) return;
+    await this.run(async () => {
+      this.signingInProviderSignal.set(provider);
+      try {
+        const response = await this.providerIpc.runProviderLogin(provider);
+        if (!response.success) {
+          throw new Error(response.error?.message ?? 'The sign-in terminal could not be opened.');
+        }
+        const data = response.data as { command?: string; terminal?: string; hint?: string } | undefined;
+        const message = `${data?.terminal ?? 'A terminal'} opened running \`${data?.command ?? ''}\`. `
+          + `${data?.hint ?? ''} Finish signing in there, then click Refresh above to check the connection.`;
+        this.noticeSignal.set(message.replace(/\s+/g, ' ').trim());
+      } finally {
+        this.signingInProviderSignal.set(null);
+      }
+    });
   }
 
   async manageUsageSession(account: ProviderAccountView, action: 'connect' | 'disconnect'): Promise<void> {

@@ -27,7 +27,8 @@ export function withLocalBrowserAutoApproval(
   return (request) => isLocalBrowserApproval(request.approval) || Boolean(fallback?.(request));
 }
 
-function isLoopbackHost(host: string): boolean {
+/** Loopback is "the machine talking to itself" — safe even over plain http. */
+export function isLoopbackHost(host: string): boolean {
   return host === 'localhost' || host === '[::1]' || (isIP(host) === 4 && host.startsWith('127.'));
 }
 

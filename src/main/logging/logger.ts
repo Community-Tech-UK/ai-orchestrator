@@ -336,14 +336,21 @@ export class LogManager extends EventEmitter {
     this.logFile = path.join(baseDir, 'logs', 'app.log');
 
     if (this.config.enableFile) {
-      this.ensureLogDirectory();
-      this.initFileSize();
-      this.logWriterClient = new LogWriterClient({
-        logFile: this.logFile,
-        maxFileSize: this.config.maxFileSize,
-        maxFiles: this.config.maxFiles,
-        currentFileSize: this.currentFileSize,
-      });
+      try {
+        this.ensureLogDirectory();
+        this.initFileSize();
+        this.logWriterClient = new LogWriterClient({
+          logFile: this.logFile,
+          maxFileSize: this.config.maxFileSize,
+          maxFiles: this.config.maxFiles,
+          currentFileSize: this.currentFileSize,
+        });
+      } catch {
+        // Forwarders construct loggers during imports, before handling MCP
+        // initialize. A denied log directory must not kill that handshake.
+        this.config.enableFile = false;
+        process.stderr.write('Harness file logging could not be initialised; continuing without file output.\n');
+      }
     }
   }
 

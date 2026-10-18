@@ -77,6 +77,7 @@ const LOGIN_COMMANDS: Record<string, ProviderLoginCommand> = {
     command: 'gemini',
     hint: 'Gemini CLI has no login subcommand — pick an auth method in the interactive prompts.',
   },
+  grok: { provider: 'grok', command: 'grok login' },
 };
 
 const PROVIDER_ALIASES: Record<string, string> = {

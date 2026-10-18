@@ -498,6 +498,8 @@ describe('adapter factory — copilot', () => {
     expect(systemPrompt).toContain('ask the user to share the current tab');
     expect(systemPrompt).toContain('Do not tell the user to open /browser');
     expect(systemPrompt).toContain('browser.query_elements');
+    expect(systemPrompt).toContain('browser.fill_http_auth');
+    expect(systemPrompt).toContain('Do not ask the user to type it in Chrome');
     expect(systemPrompt).toContain('chrome-devtools.*');
     expect(systemPrompt).toContain('cannot see the user\'s shared authenticated tabs');
   });

@@ -34,6 +34,7 @@ import { getControlSurface } from './shared/control-surface/control-surface-nav'
 import { RoleChoiceComponent } from './features/worker-mode/role-choice.component';
 import { WorkerModeComponent } from './features/worker-mode/worker-mode.component';
 import type { HarnessRole } from '../../shared/types/pair-both.types';
+import type { ProviderId } from '../../shared/types/provider-quota.types';
 import { AppUpdateStore } from './core/state/app-update.store';
 import { AppUpdateBannerComponent } from './shared/components/app-update-banner/app-update-banner.component';
 import { ComputerUsePermissionBannerComponent } from './core/state/computer-use-permission-banner.component';
@@ -378,8 +379,14 @@ export class AppComponent implements OnInit, OnDestroy {
     void this.router.navigate(['/setup']);
   }
 
-  openProviderAccounts(): void {
-    void this.router.navigate([getControlSurface('settings').path], { fragment: 'provider-accounts' });
+  /**
+   * Opens the accounts settings page that owns this provider's sign-in.
+   * Copilot keeps its own accounts page (it signs in per GitHub account);
+   * every other provider signs in from the Claude, Codex & MiMo accounts page.
+   */
+  openProviderAccounts(provider?: ProviderId): void {
+    const fragment = provider === 'copilot' ? 'copilot-accounts' : 'provider-accounts';
+    void this.router.navigate([getControlSurface('settings').path], { fragment });
   }
 
   dismissStartupBanner(): void {

@@ -35,6 +35,9 @@ export interface PlanQueueRun {
 }
 
 export interface PlanQueueItem {
+  /** Paused work retains its branch and pending next-turn instructions. */
+  heldAt?: number | null;
+  pendingInstruction?: string | null;
   spend?: PlanQueueSpend;
   id: string;
   runId: string;

@@ -216,6 +216,20 @@ export interface BrowserGatewayFillSecretRequest extends BrowserGatewayContext {
   fields: BrowserGatewayFillSecretField[];
 }
 
+export interface BrowserGatewayFillHttpAuthRequest extends BrowserGatewayContext {
+  profileId: string;
+  targetId: string;
+  /** Opaque vault item reference — NOT a secret. Resolved in-process. */
+  vaultItemRef: string;
+  /**
+   * The http(s) URL being signed into. Same-origin with the live tab, or with
+   * the authorised origin when the tab sits on Chrome's error/blank page.
+   * Defaults to the tab's current URL. The origin that receives the credential
+   * is always derived from this URL and the live tab — never caller-supplied.
+   */
+  url?: string;
+}
+
 export interface BrowserGatewayServiceOptions {
   profileStore?: Pick<
     BrowserProfileStore,
