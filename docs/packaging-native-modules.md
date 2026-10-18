@@ -19,6 +19,8 @@ The TypeScript aliases are type-check-only; they do not rewrite emitted JavaScri
 
 `better-sqlite3` must match Electron's ABI. The postinstall hook covers clean installs, but installing a new Electron version alone does not rerun it.
 
+The same preparation step materializes Electron's executable before rebuilding native modules. Electron 42 downloads its binary lazily on first import; preparing it serially during installation prevents parallel test workers from racing extraction into the same directory. A download or missing-executable failure stops preparation with a nonzero exit status.
+
 After changing Electron, run:
 
 ```bash

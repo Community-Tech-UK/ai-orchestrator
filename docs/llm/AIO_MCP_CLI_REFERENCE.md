@@ -82,7 +82,7 @@ asks for specific providers or accounts, since his saved Plan Queue choice
 applies otherwise; the gate lists default to this app's checklist, so pass the
 target repository's own commands or `[]` for any other repository), `plan_queue_status` (`run_id?`),
 `plan_queue_answer` (`item_id`, `option_id`) and `plan_queue_control`
-(`action`, `run_id?`, `item_id?`). Use them when James asks to work through the
+(`action`, `run_id?`, `item_id?`, `routing?`, `move_in_progress?`). Use them when James asks to work through the
 plan or livetest documents; ask James any question the queue sends back and
 record his choice with `plan_queue_answer`. Answer and control are refused
 from anyone but the session that started the run, except one rescue: once that
@@ -92,6 +92,35 @@ detail records who did it). `plan_queue_report_triage` and
 `plan_queue_report_verdict` belong to the queue's own triage and verifier
 sessions and are refused from anyone else. These are MCP tools, not `$AIO_MCP`
 CLI subcommands.
+
+Without `run_id`, `plan_queue_status` lists every running or paused run and every
+finished run with parked documents, including branchless triage failures, plus the
+ten most recent runs. Results are deduplicated and newest first. The page's list
+snapshot includes those same operational runs alongside its requested recent
+window (fifty by default). The list IPC's `limit` bounds that recent window only;
+active runs and runs with parked work can take the total above it. Ordinary
+terminal history stays bounded.
+
+Plan Queue Pause stops workers, triage and checkers immediately, saving work on
+each document's branch. A merge already landing finishes; Resume starts fresh
+sessions on those same branches. Paused documents remain waiting, never parked
+just because the run paused.
+
+The parent's `plan_queue_control` action `set-routing` takes `run_id` and
+`routing: { worker: { provider, model?, account_ids?, copilot_account_id? } | null,
+verifiers: [<same choice shape>] }`. `worker: null` inherits the starting session;
+an empty checker list means automatic selection. This replaces the run's choice
+for future sessions, including resumed parked work, triage and checkers, without
+changing the saved default. Invalid or unavailable providers/accounts are refused
+before saving. Per-run agent checker lists still cannot replace a protected work
+Copilot seat. Only the parent may change routing, even when the run is stranded;
+adopt first if authorized to continue its work.
+
+On a running run, optional `move_in_progress: true` stops and checkpoints current
+sessions and starts fresh ones using the changed choice; default false lets their
+current sessions finish. Pause → set-routing → resume is the simple path. The
+parent receives a routing-change message, and the log records it. Pause all and
+Resume all are page controls only, unavailable through MCP.
 
 ## What This CLI May Change
 
@@ -326,7 +355,9 @@ pending reference rather than generating another prompt.
 Keep the returned reference and use the real `data.status`: `pending`,
 `approved`, `denied` or `expired`. Only approved credential access permits retrying
 `browser.fill_credential` on the same website and computer, using the returned
-vault item reference. Approval performs enrolment and authorization in Harness
+vault item reference. For Chrome's own HTTP Basic/Digest pop-up (not a page
+form), use `browser.fill_http_auth` with the same vault item reference instead.
+Approval performs enrolment and authorization in Harness
 and notifies the requesting session. A manual login handoff, parked escalation,
 read-only browser grant or auto-approved manual step never proves saved-login
 authorization. Navigation, disconnection, locked vault or revocation may still

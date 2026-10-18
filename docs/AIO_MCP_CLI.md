@@ -71,11 +71,38 @@ lands on the checked-out branch as one local squash commit (never pushed).
 | Tool | Args | Purpose |
 | --- | --- | --- |
 | `plan_queue_start` | `kind` (`plans`\|`livetests`), `glob?`, `worker_slots?`, `verification_slots?`, `max_rounds?`, `relax_settings?`, `verifier_gates?`, `post_merge_gate?`, `worker?`, `verifiers?` | Discover documents and start a run with the caller as parent. The gate lists default to this app's checklist; pass the target repository's own commands (or `[]`) elsewhere. `worker` and each `verifiers` entry are `{ provider, model?, account_ids?, copilot_account_id? }` and override, for this run only, James's saved choice on the Plan Queue page (`planQueueRouting`); without either, workers use the caller's provider and model, and its account when that account is allowed for automatic work, and checkers are picked automatically. Choices the queue may not use refuse the run: a provider on the never-auto-pick list, an account that is off or manual-only, a misspelt key, or checkers that all share the workers' provider without a model from a different maker. A per-run `verifiers` list is refused in a repository covered by a protected work Copilot rule; only James's saved choice can replace that seat. `verifiers: []` means automatic checker selection for that run, even when a saved list exists. Not available to queue-spawned sessions. |
-| `plan_queue_status` | `run_id?` | One run's items (state, round, question, park reason, findings), or recent runs plus reconciler alerts. |
+| `plan_queue_status` | `run_id?` | One run's items (state, round, question, park reason, findings), or all active runs and finished runs with parked documents plus the ten most recent runs, deduplicated and newest first, with reconciler alerts. |
 | `plan_queue_answer` | `item_id`, `option_id` | Record James's answer to a readiness or worker question. Parent session only. |
-| `plan_queue_control` | `action`, `run_id?`, `item_id?` | Pause, resume or cancel a run; skip, resume, land-anyway or discard an item. Parent session only, except the stranded-run rescue: once the parent session no longer exists, any session that the queue did not spawn may `cancel` the run or `discard-item` a parked item. Each affected item's detail and the log record which session did it. |
+| `plan_queue_control` | `action`, `run_id?`, `item_id?`, `routing?`, `move_in_progress?` | Pause stops workers, triage and checkers now, checkpointing work on document branches; Resume starts fresh sessions on those branches. Landing already in progress finishes. Cancel ends the run. `set-routing` changes providers/accounts for future sessions; see below. Item controls include skip, resume, retry-landing, land-anyway and discard. Parent session only, except stranded-run rescue: once the parent no longer exists, a non-queue session may adopt or cancel the run, or discard a parked item. `set-routing` is never a rescue action. |
 | `plan_queue_report_triage` | `run_id`, `records` | Triage agent only (caller-checked). |
 | `plan_queue_report_verdict` | `item_id`, `verdict`, `findings?`, `gates_run?`, `document_complete?`, `need_james?` | The item's current verifier only (caller-checked); a worker cannot report its own verdict. |
+
+Run listings always include every running or paused run and every finished run
+with parked documents, including branchless triage failures. MCP adds the ten
+most recent runs; the page requests fifty. The list IPC's `limit` (1–200) bounds
+that recent window only. Active runs and runs with parked work can take the total
+above the limit; ordinary terminal history stays bounded. Results are deduplicated
+and sorted newest first.
+
+`set-routing` requires `run_id` and a full `routing` object:
+
+```json
+{"action":"set-routing","run_id":"<run-id>","routing":{"worker":{"provider":"codex","account_ids":["<account-id>"]},"verifiers":[{"provider":"claude"}]},"move_in_progress":false}
+```
+
+Choices use the same fields as `plan_queue_start`. `worker: null` inherits the
+session that started the run; `verifiers: []` selects checkers automatically.
+The choice is validated before saving, including installed CLIs, automatic-account
+eligibility, exclusions and checker diversity. An agent's checker list cannot
+replace a protected work Copilot seat. James's choice from the page has the
+same authority as his saved choice. Saved defaults stay unchanged.
+
+On a running run, `move_in_progress: true` stops and checkpoints its in-progress
+sessions, then restarts them with the new choice. Otherwise existing sessions
+keep their provider until their next new session. Pause → change → resume is the
+simple path. Paused runs start nothing until resumed. Routing changes are logged
+and sent to the parent. The page also offers Pause all and Resume all; MCP keeps
+controls scoped to one run.
 
 ## `copilot-account` (read-only)
 
@@ -429,6 +456,27 @@ purposes?}`. Poll with `browser.get_credential_access_status({requestId})` or
 cancel with `browser.cancel_credential_access({requestId})`. These tools and CLI
 commands use the same service and permission checks. Do not repair this by
 editing permission records or borrowing another session's connection.
+
+### HTTP sign-in prompts (Basic/Digest)
+
+Chrome sometimes shows its own username/password pop-up instead of a page form
+(HTTP Basic or Digest auth, e.g. a staging site behind a server login). That
+prompt is browser UI, so `browser.fill_credential` cannot type into it. Use
+`browser.fill_http_auth({profileId, targetId, vaultItemRef, url?})` instead: it
+navigates the tab with the saved login staged inside the extension for that one
+navigation, answers the prompt from it, and returns `{ httpAuth: 'answered' |
+'rejected' | 'not_challenged', tab }`. The signal is an `httpAuthChallenge`
+field on `navigate`, `find_or_open`, `reload` or `snapshot` payloads.
+
+The same standing login approval as `browser.fill_credential` covers it; run
+`browser.request_credential_access` first when it is not approved yet. The
+password never enters the page, so the tab stays readable afterwards and the
+agent can carry on checking the site. A `rejected` result means the saved
+password is wrong for the site: the prompt is cancelled and will not loop — do
+not ask the user to type it in Chrome. Plain-http targets are refused with
+`http_auth_insecure_origin` (the password would travel unencrypted), except
+loopback for local development. The current build answers prompts on shared
+existing Chrome tabs; managed profiles follow later.
 
 ### Legacy operator management
 

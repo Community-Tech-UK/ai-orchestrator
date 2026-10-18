@@ -18,6 +18,28 @@ npm run test:quiet
 
 The default suite excludes `*.e2e.spec.ts` and `**/soak.spec.ts`. Run those with `npm run test:slow`. Load and benchmark suites use `npm run test:load` and `npm run bench`.
 
+### Packaged archive regression on macOS
+
+After changing Electron or rebuilding native modules, run:
+
+```bash
+npm run smoke:asar-integrity
+```
+
+This automated test copies the development Electron app into `_scratch/`, enables
+archive integrity checks on that copy, and uses invisible offscreen windows with
+an isolated profile. It checks normal resource loading, loading after an atomic
+archive replacement (Electron #52283), rejection of changed bytes in the original
+archive, and real in-memory SQLite operations. It never starts the installed
+Harness app. The test-only `--no-sandbox` flag allows execution from an agent shell
+already inside a macOS sandbox; production sandbox settings are unchanged.
+
+The command prints the evidence directory and returns nonzero on a failed check
+or timeout. Logs and structured results remain there; a successful run removes
+its disposable app and data. To check a different Electron build without changing
+the installed dependency, pass its `.app` path after `--`. This signed-archive test
+requires macOS, Python 3, `codesign`, and rebuilt native modules.
+
 ### Retrieval evaluation (WS16)
 
 `npm run bench:retrieval` runs the labeled retrieval eval harness against the REAL codemem BM25 + lesson-digest engines over the committed fixture dataset (`benchmarks/retrieval/fixtures/*.jsonl`), reporting Recall@1/5/10 + NDCG@10 with a per-type breakdown and a deterministic dev/held-out split. It compares against the committed baseline (`benchmarks/retrieval/baseline.json`) and **exits non-zero on a regression**, so a ranking change shows a measurable delta before it lands.

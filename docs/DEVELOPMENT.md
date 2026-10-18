@@ -309,7 +309,7 @@ first account until it is refused or nearly used up).
   Harness defines those providers at spawn (model metadata copied from the built-in
   region provider at run time) and never reads a key.
 - Sign in per account using the **complete command copied from Settings**; the
-  "Open a terminal" action runs the same command. For added accounts it uses Node.js
+  **Sign in** button runs the same command in a terminal. For added accounts it uses Node.js
   to register a temporary, non-secret provider list for OpenCode's login command,
   then opens the key prompt and removes the temporary list. A bare
   `opencode auth login -p aio-mimo-<account id>` cannot register a new account.
