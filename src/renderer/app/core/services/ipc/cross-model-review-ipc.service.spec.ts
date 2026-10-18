@@ -11,6 +11,9 @@ type Cb<T> = (data: T) => void;
 
 /** Captures the event callbacks the service registers so tests can fire them. */
 class FakeApi {
+  onSkipped?: Cb<{ instanceId: string; reason: 'daily-limit'; dailyUsage: NonNullable<CrossModelReviewStatus['dailyUsage']> }>;
+  crossModelReviewOnSkipped = (cb: FakeApi['onSkipped']): void => { this.onSkipped = cb; };
+  crossModelReviewRequest = async (_payload: { instanceId: string }) => ({ success: true, data: { status: 'started' as const, reviewId: 'manual' } });
   onStarted?: Cb<{ instanceId: string; reviewId: string; reviewStartedAt?: number }>;
   onResult?: Cb<AggregatedReview>;
   onDiscarded?: Cb<{ instanceId: string; reviewId: string; reason: 'superseded' }>;
@@ -35,7 +38,7 @@ class FakeApi {
     this.onReviewerRateLimitCleared = cb;
   };
   status: CrossModelReviewStatus | null = null;
-  crossModelReviewStatus = async (): Promise<CrossModelReviewStatus | null> => this.status;
+  crossModelReviewStatus = async () => ({ success: true, data: this.status ?? undefined });
 }
 
 class FakeIpc {
@@ -58,6 +61,21 @@ describe('CrossModelReviewIpcService — reviewer notices', () => {
       ],
     });
     service = TestBed.inject(CrossModelReviewIpcService);
+  });
+
+  it('requests a manual review through the typed API', async () => {
+    await expect(service.requestReview('child')).resolves.toEqual({ status: 'started', reviewId: 'manual' });
+  });
+
+  it('refreshes daily usage after started and skipped pushes', async () => {
+    ipc.api.status = { enabled: true, reviewers: [], pendingReviews: 0, dailyUsage: { used: 20, limit: 20, resetsAt: Date.now() + 60_000, limitReached: true } };
+    ipc.api.onStarted?.({ instanceId: 's', reviewId: 'r' });
+    await Promise.resolve();
+    expect(service.status()?.dailyUsage?.used).toBe(20);
+    ipc.api.status.dailyUsage!.used = 21;
+    ipc.api.onSkipped?.({ instanceId: 's', reason: 'daily-limit', dailyUsage: ipc.api.status.dailyUsage! });
+    await Promise.resolve();
+    expect(service.status()?.dailyUsage?.used).toBe(21);
   });
 
   it('records an unavailable reviewer and clears it when the set recovers', () => {

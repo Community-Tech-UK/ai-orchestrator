@@ -208,6 +208,16 @@ describe('buildMessageContextMenuItems', () => {
   });
 });
 
+it('offers a manual second opinion only for an assistant reply and invokes the supplied action', () => {
+  const requestReview = vi.fn();
+  const actions = { copyMessage: vi.fn(), forkFromHere: vi.fn(), requestReview };
+  const item = { id: 'reply', type: 'message', message: { id: 'reply', type: 'assistant', content: 'answer' } } as DisplayItem;
+  const entry = buildMessageContextMenuItems(item, actions).find(row => row.label === 'Get a second opinion');
+  expect(entry).toBeDefined(); entry!.action(); expect(requestReview).toHaveBeenCalledOnce();
+  item.message!.type = 'user';
+  expect(buildMessageContextMenuItems(item, actions).some(row => row.label === 'Get a second opinion')).toBe(false);
+});
+
 describe('visibleFailedImages', () => {
   it('hides unsupported bare-URL inferences and keeps markdown failures', () => {
     const failures = [

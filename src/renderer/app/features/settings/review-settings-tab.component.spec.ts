@@ -209,6 +209,7 @@ class FakeProviderIpc {
 }
 
 class FakeReviewHealth {
+  readonly status = signal({ enabled: true, reviewers: [], pendingReviews: 0, dailyUsage: { used: 12, limit: 20, resetsAt: 123, limitReached: false } });
   private notices = new Map<string, ReviewerNotice>();
   getReviewerNotice = (cliType: string): ReviewerNotice | undefined => this.notices.get(cliType);
   setNotice(notice: ReviewerNotice): void {
@@ -266,6 +267,11 @@ describe('ReviewSettingsTabComponent', () => {
     await TestBed.compileComponents();
 
     fixture = TestBed.createComponent(ReviewSettingsTabComponent);
+  });
+
+  it('shows the current daily review count', () => {
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Used today: 12 of 20');
   });
 
   it('shows the configured reviewer model in the shared session picker', () => {

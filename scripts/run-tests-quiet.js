@@ -155,7 +155,25 @@ function runVitest() {
     child.stdout.pipe(logStream);
     child.stderr.pipe(logStream);
 
+    // Periodic progress so a slow run is distinguishable from a hung one.
+    // A full suite on a busy host can take 30-60+ minutes; without a heartbeat
+    // the console is silent for the whole run and callers reasonably conclude
+    // the process is stuck.  This prints one line to stderr every 2 minutes.
+    const progressTimer = setInterval(() => {
+      try {
+        const text = fs.readFileSync(LOG_PATH, 'utf8');
+        const done = (text.match(/^ [\s✓✗↓] \|/gm) || []).length;
+        if (done > 0) {
+          process.stderr.write(`  … ${done} test file(s) done (full log: ${path.relative(ROOT, LOG_PATH)})\n`);
+        }
+      } catch {
+        /* log not written yet — skip this tick */
+      }
+    }, 120_000);
+    progressTimer.unref();
+
     child.on('error', (err) => {
+      clearInterval(progressTimer);
       try {
         logStream.end();
       } catch {
@@ -165,6 +183,7 @@ function runVitest() {
       resolve(1);
     });
     child.on('close', (code) => {
+      clearInterval(progressTimer);
       try {
         logStream.end();
       } catch {

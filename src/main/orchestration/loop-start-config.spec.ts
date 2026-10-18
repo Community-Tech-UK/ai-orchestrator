@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { prepareLoopStartConfig, attachNextObjectivePlanner } from './loop-start-config';
 import { defaultLoopConfig, type LoopConfig } from '../../shared/types/loop.types';
 import type { LoopConfigInput } from '@contracts/schemas/loop';
+import { buildGoalLoopStartConfig } from './goal-command-loop';
 
 let workspace: string;
 
@@ -38,6 +39,14 @@ function mkConfig(overrides: Partial<LoopConfigInput> = {}): LoopConfigInput {
 }
 
 describe('prepareLoopStartConfig (LF-3a)', () => {
+  it('allows uncapped operator review only with the /goal option', async () => {
+    const config = buildGoalLoopStartConfig({ objective: 'Fix a widget', workspaceCwd: workspace });
+    await expect(prepareLoopStartConfig(config)).rejects.toThrow(/usage cap/i);
+    const prepared = await prepareLoopStartConfig(config, { allowUncappedOperatorReview: true });
+    expect(prepared.caps?.maxCostCents).toBeNull();
+    expect(prepared.completion?.allowOperatorReviewedCompletion).toBe(true);
+    expect(prepared.completion?.verifyCommand).toBe('');
+  });
   it('records an implementation baseline and infers its cheap declared precheck', async () => {
     writeFileSync(join(workspace, 'package.json'), JSON.stringify({ scripts: { verify: 'npm test', typecheck: 'tsc --noEmit' } }));
     const prepared = await prepareLoopStartConfig(mkConfig({ completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: '', mode: undefined } }));

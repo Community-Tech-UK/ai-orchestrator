@@ -1,3 +1,4 @@
+import { subscribeCostAttribution } from '../core/system/cost-attribution';
 import { EventEmitter } from 'events';
 import { describe, expect, it, vi } from 'vitest';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
@@ -11,6 +12,18 @@ import {
 import type { CliAsyncWorkEvent } from '../cli/adapters/claude-cli-async-work';
 
 describe('raw adapter provider-event evidence ingress', () => {
+  it('records one finished subagent with parent identity and numeric telemetry only',()=>{
+    const adapter=new EventEmitter() as CliAdapter;
+    const records:unknown[]=[];
+    const unsubscribe=subscribeCostAttribution(record=>records.push(record));
+    bindRawAdapterProviderEvents({adapter,isStale:()=>false,emit:vi.fn(),getInstance:()=>evidenceInstance()});
+    const sample={toolUseId:'agent-tool',finalContextTokens:100,toolUses:2,durationMs:300,final:false,description:'model-written text'};
+    adapter.emit('subagent_usage',sample);adapter.emit('subagent_usage',{...sample,final:true});
+    adapter.emit('subagent_usage',{...sample,final:true});unsubscribe();
+    expect(records).toHaveLength(1);expect(records[0]).toMatchObject({purpose:'subagent',costSource:'unknown',
+      subagentUsage:true,instanceId:'instance-1',sessionId:'session-1',finalContextTokens:100,toolUses:2,durationMs:300});
+    expect(records[0]).not.toHaveProperty('description');
+  });
   it('offers the exact raw tool result to evidence capture before publishing the forensic event', () => {
     const adapter = new EventEmitter() as CliAdapter;
     const order: string[] = [];

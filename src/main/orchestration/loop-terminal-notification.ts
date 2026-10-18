@@ -85,8 +85,10 @@ export function loopTerminalNotice(
   }
 
   const reason = input.reason ? clip(input.reason, MAX_REASON_CHARS) : '';
-  const headline = input.status === 'completed-needs-review'
-    ? 'Loop needs your review'
+  const headline = input.status === 'attempt-failed'
+    ? 'Loop stopped: a step failed'
+    : input.status === 'completed-needs-review'
+      ? 'Loop ended: check its notes'
     : OPERATOR_INITIATED.has(input.status)
       ? 'Loop stopped'
       : input.status === 'no-progress' || input.status === 'cap-reached'

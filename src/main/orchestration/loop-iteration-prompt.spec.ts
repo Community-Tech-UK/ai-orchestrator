@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -6,6 +6,10 @@ import * as path from 'path';
 import { prepareLoopIterationPrompt, shouldIncludeSessionReplay } from './loop-iteration-prompt';
 import { LoopStageMachine } from './loop-stage-machine';
 import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
+
+vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ getAll: () => ({ defaultCli: 'claude', loopModelByProvider: {}, auxiliaryLlmRoutingClassificationEnabled: false }) }) }));
+vi.mock('../cli/adapters/adapter-factory', () => ({ resolveCliType: async () => 'claude' }));
+vi.mock('./invocation-model-resolver', () => ({ resolveLoopChildModel: async () => 'test-model' }));
 
 const REPLAY_MARKER = 'old parent chat marker';
 
@@ -121,5 +125,30 @@ describe('prepareLoopIterationPrompt session replay seam', () => {
     expect(freshSessionPrompt).toContain(REPLAY_MARKER);
     expect(freshSessionPrompt).toContain('My persistent loop goal');
     expect(freshSessionPrompt).not.toBe(prompt);
+  });
+});
+
+describe('A3 proven continuation seam', () => {
+  it('sends the card for proven continuation and the full prompt after compaction, model switch, or cadence expiry', async () => {
+    const state = stateFor({ lastFullAnchorSeq: 0, lastThreadCaps: { supportsResume: true, sameThreadContinuation: true, model: 'test-model' } });
+    const continued = await prepare(1, state);
+    expect(continued.reanchorGoal).toBe(false);
+    expect(continued.prompt).toContain('# Loop Mode — Continuation');
+    expect(continued.prompt).toContain('Goal (unchanged');
+    expect(continued.routingPrompt).not.toBe(continued.prompt);
+    expect(continued.freshSessionPrompt).toContain(REPLAY_MARKER);
+    for (const [seq, changed] of [
+      [2, { lastThreadCaps: undefined }],
+      [2, { lastThreadCaps: { ...state.lastThreadCaps!, providerCompacted: true } }],
+      [2, { lastThreadCaps: { ...state.lastThreadCaps!, model: 'different-model' } }],
+      [2, { justCompacted: { seq: 1, reason: 'provider' } }],
+      [10, {}],
+      [2, { lastFullAnchorSeq: undefined }],
+    ] as const) {
+      const result = await prepare(seq, { ...state, ...changed });
+      expect(result.reanchorGoal).toBe(true);
+      expect(result.prompt).toBe(result.routingPrompt);
+    }
+    expect((await prepare(2, state, true)).reanchorGoal).toBe(true);
   });
 });

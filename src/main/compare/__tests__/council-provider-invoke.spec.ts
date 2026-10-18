@@ -10,6 +10,7 @@ vi.mock('../../cli/provider-notice', () => ({
 }));
 
 import { invokeProviderOneShot, type ProviderInvokeDeps } from '../council-provider-invoke';
+import { subscribeCostAttribution, type CostAttributionRecord } from '../../core/system/cost-attribution';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 
 function makeDeps(answers: Record<string, string | Error | null>): {
@@ -42,6 +43,62 @@ function makeDeps(answers: Record<string, string | Error | null>): {
 
 describe('invokeProviderOneShot', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('caps a fresh Claude call and records a budget stop without another send', async () => {
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    const { deps } = makeDeps({ claude: 'answer' });
+    const send = vi.fn(async () => ({ content: 'partial', metadata: { budgetExceeded: true }, usage: { cost: 0.0064186, inputTokens: 0, outputTokens: 0 } }));
+    deps.createAdapter = vi.fn((_type, options) => {
+      expect(options.maxBudgetUsd).toBe(1);
+      return { sendMessage: send } as unknown as CliAdapter;
+    });
+    try {
+      expect(await invokeProviderOneShot(deps, 'claude', 'hi')).toMatchObject({ ok: false, error: 'Provider budget exceeded' });
+      expect(send).toHaveBeenCalledOnce();
+      expect(rows).toContainEqual(expect.objectContaining({ outcome: 'budget-exceeded', costSource: 'provider', usage: expect.objectContaining({ cost: 0.0064186 }) }));
+    } finally { stop(); }
+  });
+
+  it('records dispatched calls with purpose, usage, and explicit failures', async () => {
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    try {
+      const { deps } = makeDeps({ claude: 'answer', codex: new Error('failed') });
+      const create = deps.createAdapter;
+      deps.createAdapter = (type, options) => {
+        const adapter = create(type, options);
+        if (type === 'claude') Object.assign(adapter, {
+          sendMessage: vi.fn(async () => ({ content: 'answer', usage: { inputTokens: 10, outputTokens: 2, cost: 0.12 } })),
+        });
+        return adapter;
+      };
+      const result = await invokeProviderOneShot(deps, 'claude', 'hi', { purpose: 'compare' });
+      await invokeProviderOneShot(deps, 'codex', 'hi', { purpose: 'council' });
+      await invokeProviderOneShot(makeDeps({ claude: null }).deps, 'claude', 'hi');
+      expect(result.usage).toMatchObject({ cost: 0.12 });
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toMatchObject({ purpose: 'compare', provider: 'claude', model: expect.any(String), costKnown: true, usage: { cost: 0.12, inputTokens: 10 } });
+      expect(rows[1]).toMatchObject({ purpose: 'council', provider: 'codex', outcome: 'error', costSource: 'unknown' });
+    } finally { stop(); }
+  });
+
+  it('records cancellation once only after dispatch', async () => {
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    const abort = new AbortController();
+    const { deps } = makeDeps({ claude: 'answer' });
+    deps.createAdapter = () => ({ sendMessage: async () => {
+      abort.abort();
+      return { content: 'partial', usage: { cost: 0.1 } };
+    } }) as unknown as CliAdapter;
+    try {
+      await invokeProviderOneShot(deps, 'claude', 'hi', { signal: abort.signal });
+      await invokeProviderOneShot(deps, 'claude', 'hi', { signal: abort.signal });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ outcome: 'cancelled', costSource: 'provider', costKnown: true, usage: { cost: 0.1 } });
+    } finally { stop(); }
+  });
 
   it('returns the answer on success', async () => {
     const { deps } = makeDeps({ claude: 'hello' });

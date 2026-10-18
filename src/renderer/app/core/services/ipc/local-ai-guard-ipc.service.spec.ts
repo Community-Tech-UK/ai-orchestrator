@@ -9,6 +9,7 @@ describe('LocalAiGuardIpcService', () => {
   const unsubscribe = vi.fn();
   const api = {
     localAiGuardGetSnapshot: vi.fn(),
+    localAiGuardRetryHelperNow: vi.fn(),
     localAiGuardSetTargetLifecycle: vi.fn(),
     localAiGuardResolveFallback: vi.fn(),
     onLocalAiGuardStatusDelta: vi.fn((listener: (snapshot: LocalAiGuardSnapshot) => void) => {
@@ -51,6 +52,8 @@ describe('LocalAiGuardIpcService', () => {
       success: true,
       data: snapshot(),
     });
+    await service.retryHelperNow('compression');
+    expect(api.localAiGuardRetryHelperNow).toHaveBeenCalledWith({ slot: 'compression' });
     await service.resolveFallback('request-1', 'allow-once');
     await service.setTargetLifecycle('target-1', 'paused', { pausedUntil: 5_000 });
 

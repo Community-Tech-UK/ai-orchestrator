@@ -5,6 +5,7 @@ import type { MachineSessionReason } from '../../../shared/utils/machine-session
  * All symbols remain importable from `claude-cli-adapter.ts` via re-exports there.
  */
 
+import type { ClaudeModelUsageSnapshot } from '../../../shared/types/provider-model-usage.types';
 import type {
   OutputMessage,
   ContextUsage,
@@ -51,11 +52,7 @@ export interface RawCliPayload {
   };
   content?: string;
   is_error?: boolean;
-  modelUsage?: Record<string, {
-    inputTokens?: number;
-    outputTokens?: number;
-    contextWindow?: number;
-  }>;
+  modelUsage?: ClaudeModelUsageSnapshot;
   usage?: {
     input_tokens?: number;
     output_tokens?: number;
@@ -127,6 +124,8 @@ export interface ClaudeCliSpawnOptions {
    *  CLI ends the run with a max-turns result instead of looping further;
    *  callers (e.g. Loop Mode degraded-iteration retry) handle the truncation. */
   maxTurns?: number;
+  /** Claude only; spend backstop for fresh print-mode sessions. */
+  maxBudgetUsd?: number;
   timeout?: number;
   env?: Record<string, string>;
   /** Variables removed from the child env after the ambient merge (account pools). */

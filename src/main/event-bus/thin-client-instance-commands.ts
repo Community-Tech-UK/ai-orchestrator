@@ -16,6 +16,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { serializeInstance } from '../ipc/handlers/instance-handler-serializers';
 import { revealHiddenAutomationSession } from '../automations/automation-hidden-outcome';
 import type { ThinClientCommandExecutorDeps } from './thin-client-command-executor';
+import { stopLoopsForSessions } from '../orchestration/loop-stop-for-sessions';
 
 export async function createInstance(
   deps: ThinClientCommandExecutorDeps,
@@ -75,6 +76,7 @@ export async function terminateInstance(
     payload,
     'THIN_CLIENT_INSTANCE_TERMINATE',
   );
+  await stopLoopsForSessions([validated.instanceId]);
   await deps.instanceManager.terminateInstance(
     validated.instanceId,
     validated.graceful ?? true,

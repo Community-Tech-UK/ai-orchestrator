@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import { withBrowserGatewaySystemPrompt } from '../cli/adapters/adapter-spawn-helpers';
+import { buildAcpSystemPromptBlock } from '../cli/adapters/acp-system-prompt-delivery';
 import {
   _resetAllContextManifestsForTesting,
   buildContextManifestEntries,
@@ -105,4 +107,26 @@ describe('provider runtime context manifest', () => {
     );
     expect(entries).toEqual([{ kind: 'adapter-browser-gateway', status: 'skipped-empty' }]);
   });
+});
+
+
+it.each(['copilot', 'opencode', 'cursor', 'grok'] as const)('records accepted ACP first-message cuts on %s', (cliType) => {
+  seedManifest('inst-acp-cut');
+  const adapter = Object.assign(new EventEmitter(), { getRuntimeCapabilities: () => undefined });
+  const service = new ProviderRuntimeService({ registry: new ProviderRuntimeRegistry(),
+    createAdapter: () => adapter as unknown as CliAdapter });
+  const systemPrompt = '# Rules\n' + 'a'.repeat(94000) + '\n# Omitted details\n' + 'b'.repeat(20000) + '\n# Final permissions\nPermission rule.';
+  service.createAdapter({ cliType, options: { instanceId: 'inst-acp-cut', systemPrompt } });
+  expect(getLatestContextManifest('inst-acp-cut')?.note).toBeUndefined();
+  const { block: _block, ...delivery } = buildAcpSystemPromptBlock(systemPrompt);
+  adapter.emit('system_prompt_delivered', delivery);
+  expect(getLatestContextManifest('inst-acp-cut')?.note).toMatch(/ACP first message: delivered \d+ of \d+ characters; omitted sections: .*Omitted details/);
+});
+
+it.each(['opencode', 'claude', 'codex'] as const)('does not report ACP cuts for an under-budget or non-ACP %s prompt', (cliType) => {
+  seedManifest('inst-no-cut');
+  const service = new ProviderRuntimeService({ registry: new ProviderRuntimeRegistry(),
+    createAdapter: () => ({ getRuntimeCapabilities: () => undefined } as unknown as CliAdapter) });
+  service.createAdapter({ cliType, options: { instanceId: 'inst-no-cut', systemPrompt: cliType === 'opencode' ? 'Small instructions' : 'a'.repeat(120000) } });
+  expect(getLatestContextManifest('inst-no-cut')?.note).toBeUndefined();
 });

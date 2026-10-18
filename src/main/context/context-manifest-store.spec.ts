@@ -11,6 +11,7 @@ import {
   getContextManifestHistory,
   getLatestContextManifest,
   recordContextManifest,
+  appendContextManifestNote,
 } from './context-manifest-store';
 import { SYSTEM_PROMPT_BLOCK_ORDER, type SystemPromptBlockManifestEntry } from './prompt-injection-contract';
 
@@ -111,4 +112,15 @@ describe('context-manifest-store (WS-C6)', () => {
       expect(getContextManifestHistory('inst-1')).toEqual([]);
     });
   });
+});
+
+
+it('appends adapter notes to the latest manifest without changing earlier epochs', () => {
+  _resetAllContextManifestsForTesting();
+  recordContextManifest('instance-notes', 'spawn', [], { note: 'Original note' });
+  recordContextManifest('instance-notes', 'respawn', [], { note: 'Respawn note' });
+  appendContextManifestNote('instance-notes', 'ACP cut details');
+  expect(getContextManifestHistory('instance-notes').map((snapshot) => snapshot.note)).toEqual(['Original note', 'Respawn note\nACP cut details']);
+  appendContextManifestNote('missing-instance', 'No snapshot');
+  expect(getContextManifestHistory('missing-instance')).toEqual([]);
 });

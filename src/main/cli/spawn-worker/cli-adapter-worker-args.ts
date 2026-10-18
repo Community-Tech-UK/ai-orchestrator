@@ -43,6 +43,13 @@ function buildClaudeArgs(options: UnifiedSpawnOptions, sessionId: string | null)
   } else if (sessionId) {
     args.push('--session-id', sessionId);
   }
+  if (typeof options.maxTurns === 'number' && Number.isInteger(options.maxTurns) && options.maxTurns > 0) {
+    args.push('--max-turns', String(options.maxTurns));
+  }
+  if (!args.includes('--resume') && typeof options.maxBudgetUsd === 'number'
+    && Number.isFinite(options.maxBudgetUsd) && options.maxBudgetUsd > 0) {
+    args.push('--max-budget-usd', String(options.maxBudgetUsd));
+  }
   if (options.model) args.push('--model', options.model);
   const effort = mapClaudeReasoningEffort(options.reasoningEffort);
   if (effort) args.push('--effort', effort);

@@ -18,7 +18,7 @@ const VERDICTS = new Set<string>(['OK', 'WARN', 'CRITICAL']);
 const PUSH_COMPLETED = new Set<MobileLoopStatus>(['completed']);
 const PUSH_NEEDS_REVIEW = new Set<MobileLoopStatus>(['completed-needs-review', 'needs-human-arbitration']);
 const PUSH_FAILED = new Set<MobileLoopStatus>([
-  'failed', 'error', 'no-progress', 'cap-reached', 'provider-limit',
+  'attempt-failed', 'failed', 'error', 'no-progress', 'cap-reached', 'provider-limit',
   'cost-exceeded', 'reviewer-unreliable', 'reviewer-unavailable', 'builder-unreliable',
 ]);
 

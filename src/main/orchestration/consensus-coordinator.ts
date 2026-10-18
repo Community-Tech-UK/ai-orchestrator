@@ -29,6 +29,7 @@ import { getLogger } from '../logging/logger';
 import { handleCoordinatorError } from './utils/coordinator-error-handler';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
+import { recordModelCall } from '../core/system/model-call-recorder';
 import { observeAdapterRuntimeEvents } from '../providers/adapter-runtime-event-bridge';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
@@ -205,6 +206,10 @@ export class ConsensusCoordinator extends EventEmitter {
     logger.debug('Querying provider', { provider: spec.provider, model: spec.model });
 
     let adapter: CliAdapter | null = null;
+    let stopAttribution: (() => void) | undefined;
+    let usage: unknown;
+    let dispatched = false;
+    let outcome: 'success' | 'error' | 'cancelled' | 'budget-exceeded' = 'error';
 
     try {
       // Build the consensus prompt
@@ -217,6 +222,7 @@ export class ConsensusCoordinator extends EventEmitter {
         model: spec.model,
         // Codex desktop surfaces persisted threads; consensus fan-out should stay hidden.
         ephemeral: cliType === 'codex',
+        maxBudgetUsd: cliType === 'claude' ? 1 : undefined,
         yoloMode: false,
       };
 
@@ -230,6 +236,13 @@ export class ConsensusCoordinator extends EventEmitter {
       // Spawn the process
       await adapter.spawn();
 
+      // Keep completion observation alive when collection settles on idle first.
+      stopAttribution = observeAdapterRuntimeEvents(adapter, runtime => {
+        if (runtime.kind === 'complete') {
+          usage = { ...runtime.rawPayload.usage, ...runtime.event, cost: runtime.event.costUsd, totalTokens: runtime.event.tokensUsed, metadata: runtime.rawPayload.metadata };
+        }
+      });
+      dispatched = true;
       // Collect output
       const response = await this.collectResponse(adapter, prompt, timeoutMs, isAborted);
 
@@ -261,6 +274,11 @@ export class ConsensusCoordinator extends EventEmitter {
         };
       }
 
+      if ((usage as { metadata?: { budgetExceeded?: boolean } } | undefined)?.metadata?.budgetExceeded) {
+        outcome = 'budget-exceeded';
+        return { provider: spec.provider, model: spec.model, content: '', success: false, error: 'Provider budget exceeded', durationMs };
+      }
+
       const consensusResponse: ConsensusProviderResponse = {
         provider: spec.provider,
         model: spec.model,
@@ -278,8 +296,10 @@ export class ConsensusCoordinator extends EventEmitter {
         success: true,
       });
 
+      outcome = 'success';
       return consensusResponse;
     } catch (error) {
+      if (isAborted()) outcome = 'cancelled';
       const durationMs = Date.now() - providerStart;
       const errorMessage = error instanceof Error ? error.message : String(error);
       // Learn a Copilot seat's real roster from its refusal; otherwise the same
@@ -318,6 +338,8 @@ export class ConsensusCoordinator extends EventEmitter {
 
       return response;
     } finally {
+      stopAttribution?.();
+      if (dispatched) recordModelCall({ purpose: 'consensus', provider: cliType, model: spec.model, usage, outcome, correlationId: queryId });
       // Always terminate the ephemeral adapter
       if (adapter) {
         try {

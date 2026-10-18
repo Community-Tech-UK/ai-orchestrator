@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
 import type { KeepAwakeState } from '@contracts/schemas/observability';
 import type { UpdateStatus } from '../../shared/types/update.types';
+import type { CostPurposeRange, CostPurposeSummary } from '../../shared/types/cost-purpose.types';
 
 export function createInfrastructureDomain(
   ipcRenderer: IpcRenderer,
@@ -220,6 +221,9 @@ export function createInfrastructureDomain(
         ch.COST_GET_SUMMARY,
         _withAuth({ instanceId })
       );
+    },
+    costGetPurposeSummary: (range?: CostPurposeRange): Promise<IpcResponse<CostPurposeSummary>> => {
+      return ipcRenderer.invoke(ch.COST_GET_PURPOSE_SUMMARY, range);
     },
     costGetHistory: (
       instanceId?: string,

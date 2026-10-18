@@ -1,7 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AggregatedReview, ReviewResult } from '../../../../shared/types/cross-model-review.types';
+import type { AggregatedReview, ReviewResult, CrossModelReviewStatus } from '../../../../shared/types/cross-model-review.types';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { CrossModelReviewIndicatorComponent } from './cross-model-review-indicator.component';
 
@@ -34,7 +34,7 @@ function review(reviews: ReviewResult[], localReviewer?: AggregatedReview['local
 describe('CrossModelReviewIndicatorComponent local review authority', () => {
   const current = signal<AggregatedReview | undefined>(undefined);
   const service = {
-    status: signal({ enabled: true, reviewers: [], pendingReviews: 0 }),
+    status: signal<CrossModelReviewStatus>({ enabled: true, reviewers: [], pendingReviews: 0 }),
     pendingInstances: signal(new Set<string>()),
     skippedInstances: signal(new Set<string>()),
     getReviewForInstance: vi.fn(() => current()),
@@ -42,11 +42,27 @@ describe('CrossModelReviewIndicatorComponent local review authority', () => {
 
   beforeEach(async () => {
     current.set(undefined);
+    service.status.set({ enabled: true, reviewers: [], pendingReviews: 0 });
     service.getReviewForInstance.mockClear();
     TestBed.resetTestingModule();
     await TestBed.configureTestingModule({
       providers: [{ provide: CrossModelReviewIpcService, useValue: service }],
     }).compileComponents();
+  });
+
+  it('renders the daily limit badge and exact tooltip', () => {
+    service.status.set({ enabled: true, reviewers: [], pendingReviews: 0, dailyUsage: { used: 20, limit: 20, resetsAt: 123, limitReached: true } });
+    const fixture = TestBed.createComponent(CrossModelReviewIndicatorComponent);
+    fixture.componentRef.setInput('instanceId', 'inst-1'); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Limit reached');
+    expect(fixture.componentInstance.tooltip()).toBe("20 of 20 automatic second opinions used today. Resets at midnight. You can still ask for one from a reply's menu.");
+  });
+
+  it('names the reviewed turn', () => {
+    current.set({ ...review([result('codex', undefined)]), turnSeq: 3 });
+    const component = TestBed.runInInjectionContext(() => new CrossModelReviewIndicatorComponent());
+    (component as unknown as { instanceId: ReturnType<typeof signal<string>> }).instanceId = signal('inst-1');
+    expect(component.tooltip()).toContain('Reviewed turn 3');
   });
 
   it('does not render a green Verified state from a local-only clean review', () => {

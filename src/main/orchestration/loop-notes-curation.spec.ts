@@ -49,8 +49,9 @@ describe('curateNotesContent (LF-3)', () => {
     expect(result.curated).toContain('Final recent note marker.');
     // …an early entry is elided…
     expect(result.curated).not.toContain('Did some work in iteration 0.');
-    // …and the elision is announced + points at the durable log.
-    expect(result.curated).toContain('ITERATION_LOG.md');
+    // …and the curation is announced.
+    expect(result.curated).not.toContain('ITERATION_LOG.md');
+    expect(result.curated).toContain('newest entries follow');
     expect(result.curated.startsWith('# Loop Notes')).toBe(true);
   });
 

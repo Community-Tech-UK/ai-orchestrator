@@ -52,6 +52,7 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { MessageFormatService } from './message-format.service';
 import { OutputScrollService } from './output-scroll.service';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
+import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import type { LinkKind } from '../../../../shared/utils/link-detection';
 import { shouldCollapseUserMessage, toggleExpandedId } from './output-stream-message-collapse';
@@ -75,6 +76,7 @@ import { TranscriptFindBarComponent } from './transcript-find-bar.component';
 import { TranscriptFindController } from './transcript-find-controller';
 import { TranscriptJumpRailComponent } from './transcript-jump-rail.component';
 import { excerptText } from './transcript-jump-rail.markers';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { AsyncQuestionAnswersComponent } from './async-question-answers.component';
 import type { AsyncAnswerTarget } from './async-question';
@@ -241,6 +243,7 @@ export class OutputStreamComponent {
   private scrollService = inject(OutputScrollService);
   private clipboard = inject(CLIPBOARD_SERVICE);
   private fileIpc = inject(FileIpcService);
+  private reviewIpc = inject(CrossModelReviewIpcService);
   private displayItemProcessor = new DisplayItemProcessor();
 
   /**
@@ -985,6 +988,12 @@ export class OutputStreamComponent {
     return this.messageFormat.isRestoreNotice(message);
   }
 
+  getCompactionTooltip(message: OutputMessage): string | null {
+    if (message.metadata?.['method'] !== 'restart-with-summary') return null;
+    const stats = message.metadata?.['continuityStats'] as { recentTurns?: number; userMessages?: number; anchorCount?: number } | undefined;
+    return copyFor('compaction.freshSession') + (stats ? ` Kept: ${stats.recentTurns ?? 0} recent turns, ${stats.userMessages ?? 0} user messages, ${stats.anchorCount ?? 0} anchors.` : '');
+  }
+
   getCompactionLabel(message: OutputMessage): string {
     return this.messageFormat.getCompactionLabel(message);
   }
@@ -1149,6 +1158,10 @@ export class OutputStreamComponent {
         this.closeContextMenu();
       },
       forkFromHere: () => this.forkFromMessage(item),
+      requestReview: () => {
+        this.closeContextMenu();
+        void this.reviewIpc.requestReview(this.instanceId());
+      },
     });
   }
 

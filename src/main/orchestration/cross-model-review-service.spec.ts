@@ -14,6 +14,7 @@ import type { CliType } from '../cli/cli-detection';
 import { normalizeReviewerCliList } from './cross-model-review-service.constants';
 import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
+import { _resetReviewDispatchLedgerForTesting } from './review-dispatch-ledger';
 import { _resetAutomationProviderExclusionsForTesting } from '../providers/automation-provider-exclusions';
 
 /**
@@ -62,8 +63,9 @@ type TestReviewService = Omit<CrossModelReviewService, PrivateReviewMembers> & {
 /** Long enough (>50 chars) and code-fenced so the classifier triggers a review. */
 const REVIEWABLE_CONTENT = 'Here is the implementation:\n```ts\nconst x = 1;\nconst y = 2;\n```\nAll done.';
 
-function makeInstanceManager(instance: Record<string, unknown> | undefined): { getInstance: () => unknown } {
-  return { getInstance: () => instance };
+function makeInstanceManager(instance: Record<string, unknown> | undefined) {
+  return { getInstance: (id: string) => instance ? { id, ...instance } : undefined,
+    getTurnFileChanges: () => ({ seq: 1, changedPaths: ['src/a.ts'], editedPaths: [] as string[] }) };
 }
 
 function makeRequest(overrides: Partial<ReviewDispatchRequest> = {}): ReviewDispatchRequest {
@@ -156,6 +158,8 @@ const reviewTestState = vi.hoisted(() => ({
   modelByProvider: {} as Record<string, string>,
   providers: [] as string[],
   maxReviewers: 2,
+  enabled: true,
+  dailyLimit: 20,
   localEnabled: false,
   localSelectorId: '',
   localTimeout: 120,
@@ -168,7 +172,8 @@ const reviewTestState = vi.hoisted(() => ({
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
     getAll: () => ({
-      crossModelReviewEnabled: true,
+      crossModelReviewEnabled: reviewTestState.enabled,
+      crossModelReviewDailyLimit: reviewTestState.dailyLimit,
       crossModelReviewDepth: 'structured',
       crossModelReviewMaxReviewers: reviewTestState.maxReviewers,
       crossModelReviewProviders: reviewTestState.providers,
@@ -247,9 +252,13 @@ function makeAntigravityQuotaSnapshot(
 describe('CrossModelReviewService', () => {
   beforeEach(() => {
     CrossModelReviewService._resetForTesting();
+    _resetReviewDispatchLedgerForTesting();
+    CrossModelReviewService.getInstance().setInstanceManager(makeInstanceManager({ displayName: 'Test', provider: 'claude', workingDirectory: process.cwd(), outputBuffer: [] }) as never);
     reviewTestState.modelByProvider = {};
     reviewTestState.providers = [];
     reviewTestState.maxReviewers = 2;
+    reviewTestState.enabled = true;
+    reviewTestState.dailyLimit = 20;
     reviewTestState.localEnabled = false;
     reviewTestState.localSelectorId = '';
     reviewTestState.qualityModel = '';
@@ -1308,4 +1317,79 @@ describe('CrossModelReviewService', () => {
       localReviewer: { status: 'skipped', reason: expect.stringContaining('builder') },
     });
   });
+  describe('deliberate automatic and manual triggers', () => {
+    function setup(fields: Record<string, unknown> = {}, changes = ['src/a.ts']) {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      const manager = makeInstanceManager({ provider: 'claude', workingDirectory: process.cwd(),
+        outputBuffer: [{ type: 'assistant', content: 'Saved the requested change.' }], ...fields });
+      const turn = { seq: 1, changedPaths: changes, editedPaths: [] as string[] };
+      manager.getTurnFileChanges = () => turn;
+      service.setInstanceManager(manager as never);
+      const execute = vi.spyOn(service, 'executeReviews').mockResolvedValue(undefined);
+      return { service, turn, execute };
+    }
+    it.each([REVIEWABLE_CONTENT, '1. one\n2. two\n3. three\n4. four\n5. five'])('does not review text without file changes: %s', async content => {
+      const { service, execute } = setup({}, []);
+      service.bufferMessage('main', 'assistant', content);
+      await service.onInstanceIdle('main');
+      expect(execute).not.toHaveBeenCalled();
+    });
+    it('reviews a plain reply after a file change once, with its paths and sequence', async () => {
+      const { service, execute, turn } = setup();
+      service.bufferMessage('main', 'assistant', 'Saved the requested change.');
+      await service.onInstanceIdle('main');
+      expect(execute).toHaveBeenCalledOnce();
+      expect(execute.mock.calls[0][0]).toMatchObject({ changedFiles: ['src/a.ts'], turnSeq: 1, trigger: 'automatic', classification: { type: 'code' } });
+      service.bufferMessage('main', 'assistant', REVIEWABLE_CONTENT);
+      await service.onInstanceIdle('main');
+      turn.seq++;
+      turn.changedPaths = [];
+      await service.onInstanceIdle('main');
+      expect(execute).toHaveBeenCalledOnce();
+    });
+    it.each([
+      { parentId: 'parent' }, { metadata: { planQueueRunId: 'queue' } },
+      { metadata: { automationId: 'automation' } }, { metadata: { pingPongReviewer: true } },
+      { executionLocation: { type: 'remote', nodeId: 'worker' } },
+    ])('skips automatic buffers and reviews but allows a manual review: %j', async fields => {
+      const { service, execute } = setup(fields);
+      service.bufferMessage('main', 'assistant', REVIEWABLE_CONTENT);
+      expect(service.getBufferSize('main')).toBe(0);
+      await service.onInstanceIdle('main');
+      expect(execute).not.toHaveBeenCalled();
+      await expect(service.requestReview('main')).resolves.toMatchObject({ status: 'started' });
+      expect(execute).toHaveBeenCalledOnce();
+    });
+    it('does not buffer missing sessions or active loops; a manual loop review still works', async () => {
+      const { service, execute } = setup();
+      service.setActiveLoopPredicate(() => true);
+      service.bufferMessage('main', 'assistant', REVIEWABLE_CONTENT);
+      await service.onInstanceIdle('main');
+      expect(service.getBufferSize('main')).toBe(0);
+      expect(execute).not.toHaveBeenCalled();
+      await expect(service.requestReview('main')).resolves.toMatchObject({ status: 'started' });
+      service.setInstanceManager(makeInstanceManager(undefined) as never);
+      service.bufferMessage('missing', 'assistant', REVIEWABLE_CONTENT);
+      expect(service.getBufferSize('missing')).toBe(0);
+    });
+    it('emits daily-limit skipped with usage, allows a manual review with automatic disabled, and counts it', async () => {
+      const { service, execute } = setup({ parentId: 'parent' });
+      reviewTestState.dailyLimit = 0;
+      service.setInstanceManager(makeInstanceManager({ provider: 'claude', workingDirectory: process.cwd(), outputBuffer: [{ type: 'assistant', content: 'reply' }] }) as never);
+      const skipped = vi.fn(); service.on('review:skipped', skipped);
+      service.bufferMessage('main', 'assistant', 'Changed a file.');
+      await service.onInstanceIdle('main');
+      expect(skipped).toHaveBeenCalledWith(expect.objectContaining({ reason: 'daily-limit', dailyUsage: expect.objectContaining({ used: 0, limit: 0 }) }));
+      reviewTestState.enabled = false;
+      await expect(service.requestReview('main')).resolves.toMatchObject({ status: 'started' });
+      expect(execute).toHaveBeenCalledOnce();
+      expect(service.getStatus().dailyUsage?.used).toBe(1);
+    });
+    it('reports no-output without creating a review when no assistant reply exists', async () => {
+      const { service, execute } = setup({ outputBuffer: [{ type: 'user', content: 'question' }] });
+      await expect(service.requestReview('main')).resolves.toEqual({ status: 'no-output' });
+      expect(execute).not.toHaveBeenCalled();
+    });
+  });
+
 });

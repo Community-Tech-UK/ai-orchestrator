@@ -702,14 +702,12 @@ export type LoopStatus =
   | 'paused'
   | 'completed'
   /**
-   * LF-7: a *successful* terminal state meaning "work is done and was accepted,
-   * but a human should glance at it" — reached when an operator accepts a
-   * manual-review loop, or when verify kept passing but a secondary gate
-   * (the `*_Completed.md` rename) never did within `maxCompletionAttempts`.
-   * Distinct from `completed` (fully auto-verified) and from `cap-reached`
-   * (stopped without converging). NOT a failure state.
+   * An ended run with notes to check. Historically also used for unprovable
+   * failed attempts; new failed attempts use `attempt-failed` instead.
+   * The label alone does not prove that the work is complete.
    */
   | 'completed-needs-review'
+  /** A step failed; its file effects are unknown or unsafe to replay. The run stopped without success. */
   | 'attempt-failed'
   | 'cancelled'
   | 'failed'

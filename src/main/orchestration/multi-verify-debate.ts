@@ -16,7 +16,7 @@ import type {
   ExtractedKeyPoint,
   PersonalityType,
 } from '../../shared/types/verification.types';
-import { DEFAULT_VERIFICATION_MAX_DEBATE_ROUNDS } from '../../shared/types/verification.types';
+import { DEFAULT_VERIFICATION_MAX_DEBATE_ROUNDS, sumVerificationCosts } from '../../shared/types/verification.types';
 import type { DebateSessionRound } from '../../shared/types/debate.types';
 import { PERSONALITY_PROMPTS } from './personalities';
 import { isProviderNotice } from '../cli/provider-notice';
@@ -147,7 +147,7 @@ export async function runDebateRounds(
         keyPoints: deps.extractKeyPoints(result.response),
         confidence: deps.extractConfidence(result.response),
         tokens: resp.tokens + result.tokens,
-        cost: resp.cost + result.cost,
+        cost: sumVerificationCosts([resp.cost, result.cost]),
       };
     });
 

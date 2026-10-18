@@ -1912,6 +1912,7 @@ export class ChannelMessageRouter {
       initialPrompt: buildChannelMessagePrompt(msg, content),
       yoloMode: true,
       forceNodeId: node.id,
+      metadata: { spendPurpose: 'channel' },
     });
 
     this.streamResults(msg, instance.id, adapter, { replayBufferedAssistant: true });
@@ -2050,6 +2051,7 @@ export class ChannelMessageRouter {
       attachments: attachments.length > 0 ? attachments : undefined,
       yoloMode: true,
       ...(nodePlacement ? { nodePlacement } : {}),
+      metadata: { spendPurpose: 'channel' },
     });
 
     // Stream results back. The listener attaches only after createInstance

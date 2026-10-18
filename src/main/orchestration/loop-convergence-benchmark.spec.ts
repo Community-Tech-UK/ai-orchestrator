@@ -60,7 +60,9 @@ describe('B2 loop convergence benchmark', () => {
   // a settings manager — so the saving is measured directly at the assembly
   // seam instead. See `loop-continuation-prompt.spec.ts` for the shape guard.
   it('measures the continuation card against the full scaffold at the prompt seam', () => {
-    const config = defaultLoopConfig('/tmp/bench-seam', 'Refactor the module until it is clean.');
+    const goalTitle = 'Refactor the module until it is clean.';
+    const goalDetails = 'Preserve the public exports, fix the edge cases, and verify the callers.';
+    const config = defaultLoopConfig('/tmp/bench-seam', `${goalTitle}\n${goalDetails}`);
     const machine = new LoopStageMachine('/tmp/bench-seam', 'bench-seam');
     const shared = {
       config,
@@ -75,6 +77,10 @@ describe('B2 loop convergence benchmark', () => {
     // The card must be a fraction of the scaffold, or T12 has regressed.
     expect(Buffer.byteLength(card, 'utf8')).toBeLessThan(Buffer.byteLength(full, 'utf8') / 2);
     expect(full).toContain(config.initialPrompt);
+    // A3 keeps a bounded title and done-when anchor, without replaying the goal.
+    expect(card).toContain(`): ${goalTitle}. Done when`);
+    expect(card).toContain('you have run the project checks');
+    expect(card).not.toContain(goalDetails);
     expect(card).not.toContain(config.initialPrompt);
   });
 });

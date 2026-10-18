@@ -126,7 +126,7 @@ export function visibleFailedImages(failures: readonly FailedImageRef[]): Failed
 
 export function buildMessageContextMenuItems(
   item: DisplayItem,
-  actions: { copyMessage: () => void; forkFromHere: () => void },
+  actions: { copyMessage: () => void; forkFromHere: () => void; requestReview?: () => void },
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [];
   const content = item.message?.content || item.response?.content;
@@ -151,6 +151,9 @@ export function buildMessageContextMenuItems(
       divider: true,
       action: actions.forkFromHere,
     });
+  }
+  if (forkableMessage?.type === 'assistant' && content && actions.requestReview) {
+    items.push({ label: 'Get a second opinion', divider: true, action: actions.requestReview });
   }
   return items;
 }

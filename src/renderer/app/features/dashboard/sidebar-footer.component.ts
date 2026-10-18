@@ -10,6 +10,8 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
 import { shouldHintCostHiddenWhileBusy } from '../../../../shared/types/hint-policy';
 import { isActiveTurnStatus } from '../../core/state/instance/instance-messaging-queue-utils';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { FLEET_COST_TOOLTIP } from '../../../../shared/types/session-cost-copy';
 
 /** Display labels for the per-provider cost breakdown tooltip. */
 const PROVIDER_COST_LABELS: Record<string, string> = {
@@ -23,7 +25,7 @@ const PROVIDER_COST_LABELS: Record<string, string> = {
 @Component({
   selector: 'app-sidebar-footer',
   standalone: true,
-  imports: [DecimalPipe, InlineHintComponent],
+  imports: [DecimalPipe, InlineHintComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (hasContent()) {
@@ -46,8 +48,8 @@ const PROVIDER_COST_LABELS: Record<string, string> = {
               </span>
             }
             @if (showCost() && store.totalContextUsage().costEstimate) {
-              <span class="stat cost-stat" [title]="costBreakdown()">
-                ~\${{ store.totalContextUsage().costEstimate | number: '1.2-2' }}
+              <span class="stat cost-stat" tabindex="0" [appTooltip]="costTooltip()">
+                ≈\${{ store.totalContextUsage().costEstimate | number: '1.2-2' }}
               </span>
             }
           </div>
@@ -106,6 +108,11 @@ export class SidebarFooterComponent {
     return parts
       .map((p) => `${PROVIDER_COST_LABELS[p.provider] ?? p.provider} $${p.cost.toFixed(2)}`)
       .join(' + ');
+  });
+
+  readonly costTooltip = computed(() => {
+    const breakdown = this.costBreakdown();
+    return breakdown ? `${FLEET_COST_TOOLTIP}\n${breakdown}` : FLEET_COST_TOOLTIP;
   });
 
   closeAllClicked = output<void>();

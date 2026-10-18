@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
+  purposeOf,
   recordAuxiliaryAttribution,
   recordCostAttribution,
   recordInstanceTurnAttribution,
@@ -10,6 +11,7 @@ import {
   reserveAuxiliarySpend,
   getCostAttributionFilePath,
   _resetCostAttributionForTesting,
+  type CostAttributionRecord,
 } from './cost-attribution';
 import { withLocalAiCostCorrelation } from '../../local-ai-guard/local-ai-cost-correlation';
 
@@ -118,6 +120,23 @@ describe('cost-attribution', () => {
     expect(second['taskType']).toBe('verify-orchestration');
   });
 
+  it.each([
+    ['loop-orchestration:claude', 'loop'], ['verify-orchestration', 'verify'],
+    ['review-orchestration', 'review'], ['debate-orchestration', 'debate'],
+    ['workflow-orchestration', 'workflow'], ['branch-select', 'branch-select'],
+    ['aux:compression', 'helper'], ['chat:build', 'chat'], ['child:review', 'child'],
+    ['local-ai-frontier-fallback', 'helper'], ['unrecognized-old-call', 'unknown'],
+  ])('derives purpose for legacy %s records', (taskType, expected) => {
+    expect(purposeOf({ taskType })).toBe(expected);
+  });
+
+  it('keeps explicit purpose and tags an automation-created turn', () => {
+    recordInstanceTurnAttribution({ instanceId: 'automation-instance', spendPurpose: 'automation', agentId: 'build', usage: { inputTokens: 10 }, costKnown: false });
+    const record = JSON.parse(readFileSync(getCostAttributionFilePath()!, 'utf8').trim()) as CostAttributionRecord;
+    expect(record).toMatchObject({ source: 'instance-turn', taskType: 'automation:build', purpose: 'automation' });
+    expect(purposeOf(record)).toBe('automation');
+  });
+
   it('derives chat/child task-types for instance turns', () => {
     process.env['AIO_COST_ATTRIBUTION'] = '1';
     recordInstanceTurnAttribution({
@@ -200,6 +219,14 @@ describe('cost-attribution', () => {
         .trim()
         .split('\n')
         .map((l) => JSON.parse(l) as Record<string, unknown>);
+
+    it.each([['gpt-5.4-mini', 'priced'], ['unknown-cloud-model', 'unknown']])('prices a cheap-cloud success only for known model %s', (model, costSource) => {
+      recordAuxiliaryAttribution({ slot: 'compression', provider: 'openai-compatible', model, routedTo: 'cheap-cloud', escalatedToFrontier: false, usage: { inputTokens: 100, outputTokens: 10 } });
+      const [row] = readRecords();
+      expect(row['costSource']).toBe(costSource);
+      if (costSource === 'priced') expect((row['usage'] as { cost?: number }).cost).toBeGreaterThan(0);
+      else expect((row['usage'] as { cost?: number }).cost).toBeUndefined();
+    });
 
     it('records a local offload with token counts and no dollar cost', () => {
       recordAuxiliaryAttribution({

@@ -69,6 +69,7 @@ import { setupCompactionCoordinator } from './compaction-runtime';
 import { LongRunResourceGovernor } from '../runtime/long-run-resource-governor';
 import { RLM_STORAGE_HARD_LIMIT_BYTES } from '../../shared/types/rlm-maintenance.types';
 import { getContextWorkerClient } from '../instance/context-worker-client';
+import { isActiveLoopRuntimeState } from '../orchestration/loop-runtime-status';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import {
   createCodebaseAutoIndexCoordinatorStep,
@@ -398,6 +399,9 @@ export function createLateRuntimeInitializationSteps(
       fn: async () => {
         const crossModelReview = getCrossModelReviewService();
         crossModelReview.setInstanceManager(instanceManager);
+        crossModelReview.setActiveLoopPredicate((instanceId) => getLoopCoordinator().getActiveLoops().some(
+          (loop) => loop.chatId === instanceId && isActiveLoopRuntimeState(loop),
+        ));
         // Install the headless review execution host so `runHeadlessReview`
         // can dispatch prompts to alternative CLI providers from inside the
         // running app (not just from the standalone `review` CLI entrypoint).

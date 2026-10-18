@@ -158,7 +158,7 @@ export async function runLoopConvergenceScenario(
 
   coordinator.on('loop:state-changed', (data: unknown) => {
     const state = (data as { state: { status: string; endReason?: string } }).state;
-    if (['completed', 'completed-needs-review', 'cap-reached', 'error', 'failed', 'paused'].includes(state.status)) {
+    if (['completed', 'completed-needs-review', 'cap-reached', 'error', 'failed', 'attempt-failed', 'paused'].includes(state.status)) {
       terminal.value ??= { status: state.status, reason: state.endReason ?? null };
     }
   });

@@ -27,6 +27,7 @@ import {
   type ResumeAttemptResult,
   ndjsonSafeStringify,
 } from './base-cli-adapter';
+import { buildAcpSystemPromptBlock, type AcpSystemPromptDelivery } from './acp-system-prompt-delivery';
 import { StderrTailBuffer } from './acp-stderr-tail';
 import { AcpNdjsonFramer } from './acp-ndjson-framer';
 import { acpTextDiagnostic, safeAcpProtocolDetails } from './acp-protocol-diagnostics';
@@ -128,6 +129,7 @@ import { buildAcpElicitationResponse } from './acp-elicitation-response';
 import { cancelAcpElicitations } from './acp-elicitation-cleanup';
 import type { AcpSessionConfigRequest } from './acp-session-config-options';
 import { applyConfirmedAcpLiveSessionConfig, assertAcpLiveSessionConfigReady } from './acp-session-config-confirmation';
+import { AcpCumulativePromptUsageLedger } from './acp-prompt-usage-ledger';
 import { AcpSessionCostLedger, buildAcpMeasuredContextEvent, parseAcpUsageUpdate } from './acp-usage-update';
 import { appendAcpThoughtDelta, buildAcpTurnThinking } from './acp-thought-stream';
 import { buildAcpTurnCompletion } from './acp-turn-completion';
@@ -224,7 +226,6 @@ const ACP_CAPABILITIES: CliCapabilities = {
   contextWindow: 200_000,
   outputFormats: ['jsonrpc', 'text'],
 };
-
 interface AcpObservedToolCall {
   id: string;
   title: string;
@@ -237,7 +238,6 @@ interface AcpObservedToolCall {
   /** Position of this call's output in the turn's `toolActivityChunks`. */
   outputChunkIndex?: number;
 }
-
 type AcpPendingPromptTurn = AcpAssistantTurnState & { writePhase?: { accepted: boolean; cancelledByClient?: boolean } };
 interface AcpPendingPermissionRequest {
   key: string;
@@ -252,13 +252,11 @@ interface AcpPendingPermissionRequest {
    *  turn diagnosis filters on this rather than blaming a dead turn's request. */
   createdAt: number;
 }
-
 interface AcpPendingElicitationRequest {
   key: string;
   rpcId: AcpJsonRpcId;
   params?: AcpElicitationCreateParams;
 }
-
 export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 'cwd'> {
   adapterName?: string;
   contextCapabilityProfile?: 'copilot-acp';
@@ -271,6 +269,7 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
   resolveCommand?: () => Promise<string>;
   model?: string;
   systemPrompt?: string;
+  systemPromptMaxChars?: number;
   /** When true, prepend the RTK awareness prompt on the first turn so the
    *  model prefixes shell commands with `rtk`. ACP-backed providers
    *  (Copilot, Cursor) lack a Claude-style PreToolUse hook surface, so
@@ -336,6 +335,7 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
    *  $0 instead of pricing its tokens from a static table (OpenCode fronts
    *  flat-fee and free backends that no price row describes). */
   reportedCostOnly?: boolean;
+  promptUsageReporting?: 'per-turn' | 'session-cumulative-gross';
   /** Materialize provider-specific private launch files and return that spawn's cleanup. */
   prepareSpawn?: () => (() => void) | Promise<() => void>;
   beforeProviderPrompt?: () => Promise<void>;
@@ -346,35 +346,26 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
    *  closes, which strands the transcript's image paths after hibernation. */
   persistImageAttachments?: boolean;
 }
-
 type InputRequiredResolvedReason = 'timeout' | 'auto_approved' | 'decided' | 'cancelled' | 'exited';
-
 function toError(value: unknown, fallback: string): Error {
   if (value instanceof Error) {
     return value;
   }
   return new Error(typeof value === 'string' ? value : fallback);
 }
-
 function slug(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
-
 export class AcpCliAdapter extends BaseCliAdapter {
-  private static readonly MAX_SYSTEM_PROMPT_CHARS = 4000;
-
   /** B9: ACP speaks JSON-RPC over stdio (Agent Client Protocol). */
   protected override spawnMode: CliSpawnMode = 'acp';
   protected override readonly defersInputDispatch = true;
-
   private readonly acpConfig: AcpCliAdapterConfig;
   private readonly pendingRequests = new Map<string, AcpPendingRequest>();
   private readonly toolCalls = new Map<string, AcpObservedToolCall>();
@@ -412,6 +403,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
    *  keeps its trigger (e.g. the raw " Exiting… " signal marker). */
   private readonly stderrTail = new StderrTailBuffer();
   private readonly costLedger = new AcpSessionCostLedger();
+  private readonly promptUsageLedger = new AcpCumulativePromptUsageLedger();
   /** True once the agent reported measured occupancy via `usage_update`. */
   private measuredOccupancy = false;
   private spawnCleanup: (() => void) | null = null;
@@ -424,7 +416,6 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private availableCommands: { name: string; description?: string }[] = [];
   private openingReplay: AcpSessionReplay | null = null;
   private promptLifecycleEpoch = 0;
-
   constructor(config: AcpCliAdapterConfig) {
     super({
       command: config.command ?? 'acp-agent',
@@ -454,11 +445,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
       this.emit('heartbeat');
     });
   }
-
   getName(): string {
     return this.acpConfig.adapterName?.trim() || 'ACP';
   }
-
   configureOpenCodeV2(enabled: boolean): void { this.openCodeV2 = enabled; }
   getAvailableCommands(): readonly { name: string; description?: string }[] { return this.availableCommands; }
 
@@ -778,9 +767,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
     const nativeCommand = this.openCodeV2 && this.availableCommands.some((command) => command.name === commandName);
     const queuedContext = nativeCommand ? [] : this.nextPromptContext.slice();
     const previousPromptFlags = { system: this.systemPromptSent, rtk: this.rtkAwarenessSent };
+    const preparedPrompt = nativeCommand ? { prompt: [{ type: 'text' as const, text: message.content }], systemPromptDelivery: undefined } : this.toPromptBlocks(message);
     const promptParams: AcpSessionPromptParams = {
       sessionId: this.sessionId,
-      prompt: nativeCommand ? [{ type: 'text', text: message.content }] : [...queuedContext.map((text) => ({ type: 'text' as const, text })), ...this.toPromptBlocks(message)],
+      prompt: [...queuedContext.map((text) => ({ type: 'text' as const, text })), ...preparedPrompt.prompt],
     };
 
     const responseId = this.generateResponseId();
@@ -806,11 +796,15 @@ export class AcpCliAdapter extends BaseCliAdapter {
       if (this.currentPrompt !== turn) throw Object.assign(new Error(ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE), { name: 'AbortError' });
       if (nativeCommand && !this.availableCommands.some((command) => command.name === commandName)) throw new Error('The selected native command is no longer available in this session.');
       preparing = false;
-      const result = await this.sendRequest<AcpSessionPromptResult>('session/prompt', promptParams, admission, writePhase);
+      const result = await this.sendRequest<AcpSessionPromptResult>('session/prompt', promptParams, admission, writePhase, preparedPrompt.systemPromptDelivery);
       const duration = Date.now() - turn.startedAt;
       const responseText = turn.chunks.join('');
-      const usage = toAcpCliUsage(
-        result.usage,
+      const cumulative = this.acpConfig.promptUsageReporting === 'session-cumulative-gross';
+      const turnUsage = cumulative ? this.promptUsageLedger.settle(result.usage) : result.usage;
+      const unchanged = cumulative && result.usage !== undefined && turnUsage === undefined;
+      if (cumulative && turnUsage) this.cumulativeTokens = this.promptUsageLedger.sessionTotalTokens - (turnUsage.totalTokens ?? 0);
+      const usage = unchanged ? undefined : toAcpCliUsage(
+        turnUsage,
         duration,
         message.content,
         responseText,
@@ -822,7 +816,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       // LT-018: publish the raw ACP usage aggregate (not the LT-100 estimate
       // above) so occupancy stays honest ("no usage ⇒ no event") even when
       // cost falls back to an estimate.
-      const providerUsageReported = this.publishContextUsageFromTurn(result.usage, duration);
+      const providerUsageReported = unchanged || this.publishContextUsageFromTurn(turnUsage, duration);
       const { response, truncated, logFields } = buildAcpTurnCompletion({
         result, turn, usage, toolCalls: this.toolCalls.values(), adapter: this.getName(),
         model: this.acpConfig.model, providerUsageReported, generationBudget: this.acpConfig.generationBudget,
@@ -1225,6 +1219,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     };
     const result = await this.sendRequest<AcpSessionNewResult>('session/new', newParams);
     this.costLedger.reset(true);
+    this.promptUsageLedger.reset();
     this.lastResumeAttemptResult = undefined;
     this.reportResolvedModel(result.models?.currentModelId);
     return result.sessionId;
@@ -2239,17 +2234,14 @@ export class AcpCliAdapter extends BaseCliAdapter {
     return undefined;
   }
 
-  private toPromptBlocks(message: CliMessage): AcpContentBlock[] {
+  private toPromptBlocks(message: CliMessage): { prompt: AcpContentBlock[]; systemPromptDelivery?: AcpSystemPromptDelivery } {
     const prompt: AcpContentBlock[] = [];
+    // Diagnostics belong to these blocks, never to a later prompt that bypasses them.
+    let systemPromptDelivery: AcpSystemPromptDelivery | undefined;
 
     if (!this.acpConfig.resume && !this.systemPromptSent && this.acpConfig.systemPrompt?.trim()) {
-      const systemPrompt = this.acpConfig.systemPrompt.trim();
-      if (systemPrompt.length <= AcpCliAdapter.MAX_SYSTEM_PROMPT_CHARS) {
-        prompt.push({
-          type: 'text',
-          text: ['[SYSTEM INSTRUCTIONS]', systemPrompt, '[/SYSTEM INSTRUCTIONS]'].join('\n'),
-        });
-      }
+      systemPromptDelivery = buildAcpSystemPromptBlock(this.acpConfig.systemPrompt, this.acpConfig.systemPromptMaxChars);
+      prompt.push({ type: 'text', text: systemPromptDelivery.block });
       this.systemPromptSent = true;
     }
 
@@ -2269,9 +2261,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
       }
     }
 
-    return prompt;
+    return { prompt, systemPromptDelivery };
   }
 
+  /** Per-turn providers accumulate; Copilot differences gross counters first. */
   private cumulativeTokens = 0;
 
   /** One "no usage reported" log line per session, not one per turn (LT-018). */
@@ -2350,7 +2343,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     return true;
   }
 
-  private async sendRequest<TResult>(method: string, params?: unknown, dispatch?: AdapterInputDispatch, writePhase?: { accepted: boolean }): Promise<TResult> {
+  private async sendRequest<TResult>(method: string, params?: unknown, dispatch?: AdapterInputDispatch, writePhase?: { accepted: boolean }, delivery?: AcpSystemPromptDelivery): Promise<TResult> {
     if (!this.process) {
       throw new Error(`Cannot send ACP request '${method}' before the process is spawned.`);
     }
@@ -2399,6 +2392,12 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     try {
       await this.writeAcpLine(line, method, dispatch, writePhase);
+      if (method === 'session/prompt' && delivery) {
+        const { block: _block, ...diagnostics } = delivery;
+        this.emit('system_prompt_delivered', diagnostics);
+        logger.info('ACP system prompt delivered', { adapter: this.getName(), chars: delivery.block.length });
+        if (delivery.truncated) logger.warn('ACP system prompt excerpted', { adapter: this.getName(), originalChars: delivery.originalChars, deliveredChars: delivery.deliveredChars, omittedHeadings: delivery.omittedHeadings });
+      }
     } catch (error) {
       const err = normalizeAcpInputWriteError(error);
       if (method === 'session/prompt' && err.name !== 'AbortError') markAcpInputWriteFailure(err);

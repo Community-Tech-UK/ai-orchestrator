@@ -1,11 +1,11 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { buildLoopCheckpoint } from './loop-checkpoint';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
-import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
+import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 
 describe('LoopCoordinator checkpoint restore', () => {
   let coordinator: LoopCoordinator;
@@ -139,6 +139,33 @@ describe('LoopCoordinator checkpoint restore', () => {
 
     expect(restored.config.audit).toEqual(defaultLoopConfig(workspace, 'goal').audit);
   });
+
+  it('refuses the first child after restoring four identical-hash rounds', async () => {
+    const state = pausedState();
+    state.pendingInterventions = [];
+    state.totalIterations = 4;
+    state.config.completion.mode = 'gated';
+    state.config.completion.verifyCommand = 'true';
+    const history: LoopIteration[] = [0, 1, 2, 3].map((seq) => ({
+      id: `iteration-${seq}`, loopRunId: state.id, seq, stage: 'IMPLEMENT',
+      startedAt: seq, endedAt: seq + 1, childInstanceId: 'child', tokens: 1, costCents: 0,
+      filesChanged: [], toolCalls: [], errors: [], testPassCount: null, testFailCount: null,
+      workHash: 'identical-hash', outputSimilarityToPrev: null, outputExcerpt: '', outputFull: '',
+      progressVerdict: 'WARN', progressSignals: [], completionSignalsFired: [],
+      verifyStatus: 'not-run', verifyOutputExcerpt: '',
+    }));
+    state.lastIteration = history[3];
+    const invoke = vi.fn();
+    coordinator.on('loop:invoke-iteration', invoke);
+    await coordinator.restoreLoopFromCheckpoint(buildLoopCheckpoint({ state, history }));
+    expect(coordinator.getIterations(state.id)).toHaveLength(4);
+    const blocked = new Promise<{ signal: { id: string } }>((resolve) => coordinator.once('loop:paused-no-progress', resolve));
+
+    expect(coordinator.resumeLoop(state.id)).toBe(true);
+    expect((await blocked).signal.id).toBe('A');
+    expect(coordinator.getLoop(state.id)?.status).toBe('paused');
+    expect(invoke).not.toHaveBeenCalled();
+  }, 15_000);
 
   it('treats a running checkpoint as an interrupted paused loop on restore', async () => {
     const interrupted = {

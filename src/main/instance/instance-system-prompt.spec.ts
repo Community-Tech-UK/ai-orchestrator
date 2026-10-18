@@ -20,10 +20,20 @@ import {
 
 const promptMocks = vi.hoisted(() => ({
   indexedBuildContext: vi.fn().mockResolvedValue(null),
+  queryReflections: vi.fn().mockResolvedValue([]),
+  recordInjection: vi.fn().mockResolvedValue(undefined),
+  logInfo: vi.fn(),
 }));
 
 vi.mock('../logging/logger', () => ({
-  getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+  getLogger: () => ({ info: promptMocks.logInfo, warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+}));
+
+vi.mock('../observation/observation-store', () => ({
+  getObservationStore: () => ({
+    queryRelevantReflections: promptMocks.queryReflections,
+    recordInjection: promptMocks.recordInjection,
+  }),
 }));
 
 vi.mock('../core/config/settings-manager', () => ({
@@ -65,6 +75,9 @@ vi.mock('../indexing/indexed-codebase-context', () => ({
     formatContextBlock: vi.fn(() => null),
   }),
 }));
+
+import { PolicyAdapter } from '../observation/policy-adapter';
+import type { Reflection } from '../observation/observation.types';
 
 import { assembleInstanceSystemPrompt } from './instance-system-prompt';
 
@@ -195,7 +208,7 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
     const config: InstanceCreateConfig = { workingDirectory: '/tmp/project', provider: 'claude' };
     const deps = makeDeps();
     // Never resolves within CREATE_ENRICHER_DEADLINE_MS (600ms) -> onTimeout fires.
-    deps.buildWakeContextText = vi.fn(() => new Promise(() => {}));
+    deps.buildWakeContextText = vi.fn(() => new Promise(() => { /* Simulate an enricher that never finishes. */ }));
 
     await assembleInstanceSystemPrompt({
       instance, config, resolvedAgent: baseAgent, instructionPrompts: [],
@@ -227,7 +240,7 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
     deps.buildWakeContextText.mockResolvedValue('Outstanding request: finish the known fix before repeating research.');
     const result = await assembleInstanceSystemPrompt({
       instance: makeInstance(),
-      config: { workingDirectory: '/tmp/project', provider: 'codex' },
+      config: { workingDirectory: '/tmp/project', provider: 'codex', initialPrompt: 'Fix memory injection' },
       resolvedAgent: baseAgent,
       instructionPrompts: ['Shared governing instruction', 'Shared governing instruction', 'Distinct project instruction'],
       initialUserMessageContent: undefined,
@@ -240,5 +253,65 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
     expect(snapshot.note).toContain('observation-memory:');
     expect(snapshot.entries.find((entry) => entry.kind === 'observation-memory')!.charLength).toBeLessThanOrEqual(1_200);
     expect(snapshot.entries.filter((entry) => entry.status === 'supplied').map(({ status: _status, ...entry }) => entry)).toEqual(result.systemPromptManifest);
+  });
+});
+
+
+describe('assembleInstanceSystemPrompt observation retrieval (MEM-4)', () => {
+  beforeEach(() => {
+    _resetAllContextManifestsForTesting();
+    PolicyAdapter._resetForTesting();
+    promptMocks.queryReflections.mockReset().mockResolvedValue([]);
+    promptMocks.recordInjection.mockClear();
+    promptMocks.logInfo.mockClear();
+  });
+
+  async function assemble(initialPrompt?: string, deps = makeDeps()) {
+    return assembleInstanceSystemPrompt({
+      instance: makeInstance(),
+      config: { workingDirectory: '/tmp/project', provider: 'claude', initialPrompt },
+      resolvedAgent: baseAgent,
+      instructionPrompts: ['Instructions are not the user search query.'],
+      initialUserMessageContent: initialPrompt,
+      deps,
+    });
+  }
+
+  it("queries observation memory with the user's first message and no task-type filter", async () => {
+    const deps = makeDeps();
+    await assemble('Fix auth middleware race conditions', deps);
+    expect(deps.buildObservationContext).toHaveBeenCalledWith('Fix auth middleware race conditions', 'inst-1');
+  });
+
+  it('fills the observation block from a matching reflection when the session has a first message', async () => {
+    const reflection: Reflection = {
+      id: 'reflection-1', title: 'Auth middleware race', insight: 'Serialize refresh requests before retrying.',
+      confidence: 0.9, applicability: ['auth', 'middleware'], patterns: [], observationIds: [],
+      createdAt: 1, ttl: 100000, usageCount: 0, effectivenessScore: 0.8, promotedToProcedural: false,
+    };
+    promptMocks.queryReflections.mockResolvedValue([reflection]);
+    const adapter = PolicyAdapter.getInstance();
+    const deps = makeDeps();
+    deps.buildObservationContext.mockImplementation((...args: Parameters<PolicyAdapter['buildObservationContext']>) => adapter.buildObservationContext(...args));
+
+    const result = await assemble('Fix auth middleware race conditions', deps);
+    expect(result.systemPrompt).toContain('**Auth middleware race**');
+    expect(result.systemPrompt).toContain('Serialize refresh requests before retrying.');
+    expect(getContextManifestHistory('inst-1')[0].entries.find((entry) => entry.kind === 'observation-memory')?.status).toBe('supplied');
+    expect(promptMocks.queryReflections).toHaveBeenCalledWith('Fix auth middleware race conditions', expect.any(Object));
+    expect(promptMocks.logInfo).toHaveBeenCalledWith('Injected observation memory context into system prompt', { noteCount: 1 });
+  });
+
+  it('uses the sanitized question for a long pasted first message', async () => {
+    const deps = makeDeps();
+    await assemble(`${'Pasted code context. '.repeat(40)}\nWhere should the auth refresh be serialized?`, deps);
+    expect(deps.buildObservationContext).toHaveBeenCalledWith('Where should the auth refresh be serialized?', 'inst-1');
+  });
+
+  it.each([undefined, '', '   '])('skips the lookup when there is no first message (%s)', async (initialPrompt) => {
+    const deps = makeDeps();
+    await assemble(initialPrompt, deps);
+    expect(deps.buildObservationContext).not.toHaveBeenCalled();
+    expect(getContextManifestHistory('inst-1')[0].entries.find((entry) => entry.kind === 'observation-memory')?.status).toBe('skipped-empty');
   });
 });

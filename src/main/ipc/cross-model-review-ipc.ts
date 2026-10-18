@@ -7,9 +7,11 @@ import { z } from 'zod';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import {
   ReviewDismissPayloadSchema,
+  ReviewRequestPayloadSchema,
   ReviewActionPayloadSchema,
 } from '../../shared/validation/cross-model-review-schemas';
 import { getCrossModelReviewService } from '../orchestration/cross-model-review-service';
+import { recordReviewLifecycle } from '../orchestration/review-dispatch-ledger';
 import { getDebateCoordinator } from '../orchestration/debate-coordinator';
 import { getLogger } from '../logging/logger';
 import { getReviewResultConcernItems } from '../../shared/utils/cross-model-review-concerns';
@@ -28,9 +30,17 @@ export function registerCrossModelReviewIpcHandlers(
   deps: CrossModelReviewHandlerDeps = {},
 ): void {
   registerReviewHandler(
+    IPC_CHANNELS.CROSS_MODEL_REVIEW_REQUEST,
+    ReviewRequestPayloadSchema,
+    (payload) => getCrossModelReviewService().requestReview(payload.instanceId),
+    deps,
+  );
+
+  registerReviewHandler(
     IPC_CHANNELS.CROSS_MODEL_REVIEW_DISMISS,
     ReviewDismissPayloadSchema,
     (payload) => {
+      recordReviewLifecycle({ reviewId: payload.reviewId, instanceId: payload.instanceId, action: 'dismiss' });
       logger.debug('Review dismissed', { reviewId: payload.reviewId });
     },
     deps,
@@ -41,6 +51,7 @@ export function registerCrossModelReviewIpcHandlers(
     ReviewActionPayloadSchema,
     async (payload) => {
       const service = getCrossModelReviewService();
+      recordReviewLifecycle({ reviewId: payload.reviewId, instanceId: payload.instanceId, action: payload.action });
 
       switch (payload.action) {
         case 'ask-primary': {

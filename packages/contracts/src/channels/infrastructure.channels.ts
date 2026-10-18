@@ -79,6 +79,7 @@ export const INFRASTRUCTURE_CHANNELS = {
   // Cost Tracking
   COST_RECORD_USAGE: 'cost:record-usage',
   COST_GET_SUMMARY: 'cost:get-summary',
+  COST_GET_PURPOSE_SUMMARY: 'cost:get-purpose-summary',
   COST_GET_HISTORY: 'cost:get-history',
   COST_GET_SESSION_COST: 'cost:get-session-cost',
   COST_GET_BUDGET: 'cost:get-budget',

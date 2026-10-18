@@ -9,7 +9,7 @@ import type { SessionDiffTracker } from './session-diff-tracker';
 import type { ContextEvidenceMode } from '../../shared/types/settings.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getContextEvidenceMode } from '../context-evidence/context-evidence-settings';
-import { ToolOutputParser } from './tool-output-parser';
+import { EDIT_TOOL_NAMES, ToolOutputParser } from './tool-output-parser';
 import { dispatchInstanceLifecycleHook } from './instance-lifecycle-hooks';
 import {
   buildParsedToolResultEvidenceIngress,
@@ -38,6 +38,7 @@ export class InstanceToolResultProcessor {
   private readonly seenToolResultIds = new Map<string, Set<string>>();
   private readonly autonomousToolCounts = new Map<string, number>();
   private readonly softCheckpointCounts = new Map<string, number>();
+  private readonly pendingStructuredEdits = new Map<string, { turnId: string | undefined; calls: Map<string, string[]> }>();
   private readonly toolOutputParser = new ToolOutputParser();
   private readonly hookManager: HookManager;
 
@@ -85,6 +86,9 @@ export class InstanceToolResultProcessor {
     message: OutputMessage,
   ): Promise<void> {
     if (message.type !== 'tool_use' && message.type !== 'tool_result') return;
+    // Register requests before awaiting hooks: the matching result can arrive
+    // while a PreToolUse hook is still running. Intent needs successful evidence.
+    const confirmedEdits = this.processStructuredEditOutcome(instanceId, instance, message);
 
     if (message.type === 'tool_use' && message.metadata) {
       const metadata = message.metadata as Record<string, unknown>;
@@ -102,7 +106,7 @@ export class InstanceToolResultProcessor {
       }
     }
 
-    this.processFilePaths(instanceId, instance, message);
+    this.processFilePaths(instanceId, instance, message, confirmedEdits);
 
     if (message.type === 'tool_result' && message.metadata) {
       const metadata = message.metadata as Record<string, unknown>;
@@ -131,10 +135,33 @@ export class InstanceToolResultProcessor {
     this.seenToolResultIds.delete(instanceId);
     this.autonomousToolCounts.delete(instanceId);
     this.softCheckpointCounts.delete(instanceId);
+    this.pendingStructuredEdits.delete(instanceId);
   }
 
   cleanupDedup(instanceId: string): void {
     this.seenToolResultIds.delete(instanceId);
+    this.pendingStructuredEdits.delete(instanceId);
+  }
+
+  private processStructuredEditOutcome(instanceId: string, instance: Instance, message: OutputMessage): Set<string> {
+    const metadata = message.metadata;
+    if (!metadata) return new Set();
+    let pending = this.pendingStructuredEdits.get(instanceId);
+    if (!pending || pending.turnId !== instance.activeTurnId) {
+      pending = { turnId: instance.activeTurnId, calls: new Map<string, string[]>() };
+      this.pendingStructuredEdits.set(instanceId, pending);
+    }
+    const structured = ['claude', 'codex', 'gemini', 'copilot'].includes(instance.provider)
+      && EDIT_TOOL_NAMES.has(String(metadata['name'] ?? ''));
+    const id = metadata['tool_use_id'] ?? metadata['id'] ?? metadata['toolCallId'];
+    const paths = structured ? this.toolOutputParser.extractFilePaths(message, instance.workingDirectory, instance.provider) : [];
+    if (message.type === 'tool_use') {
+      if (typeof id === 'string' && paths.length) pending.calls.set(id, paths);
+      return new Set();
+    }
+    const requested = typeof id === 'string' ? pending.calls.get(id) : undefined;
+    if (typeof id === 'string') pending.calls.delete(id);
+    return metadata['is_error'] === true ? new Set() : new Set([...(requested ?? []), ...paths]);
   }
 
   private async captureEvidence(
@@ -190,19 +217,20 @@ export class InstanceToolResultProcessor {
     instanceId: string,
     instance: Instance,
     message: OutputMessage,
+    confirmedEdits: ReadonlySet<string>,
   ): void {
-    const filePaths = this.toolOutputParser.extractFilePaths(
+    const filePaths = [...new Set([...this.toolOutputParser.extractFilePaths(
       message,
       instance.workingDirectory,
       instance.provider,
-    );
+    ), ...confirmedEdits])];
     if (filePaths.length === 0) return;
 
     const tracker = this.deps.getDiffTracker?.(instanceId);
     if (tracker) {
       for (const filePath of filePaths) {
         try {
-          tracker.captureBaseline(filePath);
+          tracker.captureBaseline(filePath, { editIntent: confirmedEdits.has(filePath) });
         } catch (error) {
           logger.debug('Baseline capture failed', {
             instanceId,

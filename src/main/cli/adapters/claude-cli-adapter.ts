@@ -1,6 +1,3 @@
-import { ClaudeSessionCostLedger } from './claude-session-cost-ledger';
-import { computeProviderTokenCost } from '../../../shared/data/model-pricing';
-import { parseClaudeOutput } from './claude-output-parser';
 /**
  * Claude CLI Adapter - Spawns and manages Claude Code CLI processes
  * Extends BaseCliAdapter for multi-CLI support
@@ -28,7 +25,12 @@ import {
 } from './base-cli-adapter';
 import { NdjsonParser } from '../ndjson-parser';
 import { applyClaudeHygieneEnv, resolveClaudeDebugLogging, resolveClaudeFallbackModel } from './claude-env-pack';
+import { ClaudeSessionCostLedger } from './claude-session-cost-ledger';
+import { computeTokenCost } from '../../../shared/data/model-pricing';
+import { ClaudeCompactionObserver } from './claude-compaction-observer';
+import { flushClaudeSubagentUsage } from './claude-subagent-usage';
 import { nativeTranscriptExists, readLastClaudeCostState } from './claude-transcript-registry';
+import { parseClaudeOutput } from './claude-output-parser';
 import { createOutputMessage, isCliStderrFailureText } from './base-cli-adapter-utils';
 import { InputFormatter } from '../input-formatter';
 import { processAttachments, buildMessageWithFiles } from '../file-handler';
@@ -45,8 +47,6 @@ import type {
 import { generateId } from '../../../shared/utils/id-generator';
 import { buildToolOutcomeMessage } from '../../../shared/types/tool-outcome';
 import {
-  MODEL_PRICING,
-  CLAUDE_MODELS,
   getProviderModelContextWindow
 } from '../../../shared/types/provider.types';
 import { getErrorRecoveryManager } from '../../core/error-recovery';
@@ -69,11 +69,14 @@ import {
   isPermissionDenialContent,
   type ClaudeToolUseContext,
 } from './claude-cli-permission-details';
-import { emitClaudeSelfWakeup, emitClaudeSelfWakeupRefusal, sanitizeClaudeToolInput, sanitizeClaudeSelfWakeupRawNdjson } from './claude-cli-self-wakeup';
+import { emitClaudeSelfWakeup, emitClaudeSelfWakeupRefusal, sanitizeClaudeToolInput } from './claude-cli-self-wakeup';
 import { probeVersionStatus } from './cli-status-probe';
+import { ClaudeOneShotLifecycle, ClaudeOneShotTurn, watchClaudeProcessClose } from './claude-one-shot-lifecycle';
+import { markProviderDispatchNotStarted } from './provider-dispatch-status';
 import { parseClaudeStreamError } from './claude-stream-error';
 import { prepareHardenedClaudeLoginEnv } from './claude-hardened-login';
 import { applyClaudeResultUsage, type ClaudeResultUsageHost } from './claude-result-usage';
+import { processClaudeSystemMessage, type ClaudeSystemMessageHost } from './claude-system-message';
 import {
   processClaudeAssistantMessage,
   type ClaudeAssistantMessageHost,
@@ -88,6 +91,8 @@ import {
 } from './claude-cli-async-work';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
+import { deferUntilResponseUsageSettled } from './deferred-response-usage';
+import { ClaudeResidentTurnSettlement } from './claude-resident-turn-settlement';
 
 export type { DeferredToolUse } from './claude-cli-adapter.types';
 export type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
@@ -105,8 +110,6 @@ const logger = getLogger('ClaudeCliAdapter');
  */
 export class ClaudeCliAdapter extends BaseCliAdapter {
   protected override readonly defersInputDispatch = true;
-  private readonly sessionCostLedger = new ClaudeSessionCostLedger();
-  private readonly settledResponses = new WeakSet<CliResponse>();
   private parser: NdjsonParser;
   private formatter: InputFormatter | null = null;
   private spawnOptions: ClaudeCliSpawnOptions;
@@ -172,9 +175,15 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   /** LT-047: raw NDJSON for the current resident turn, fed to parseOutput()/completeResponse() at `result`. */
   private residentTurnRawOutput = '';
   /** LT-047 double-fire guard: true while sendMessage()'s own close handler owns completeResponse(). */
+  private readonly oneShotLifecycle = new ClaudeOneShotLifecycle();
   private awaitingOneShotCompletion = false;
   /** LT-105: an `error` completed the current resident turn, so its trailing `result` must not. */
+  private residentTurnActive = false;
   private residentTurnCompletedByError = false;
+  private readonly residentSettlement = new ClaudeResidentTurnSettlement(response => this.settleResponseUsage(response));
+  private readonly sessionCostLedger = new ClaudeSessionCostLedger();
+  private costSanityWarned = false;
+  private readonly compactionObserver = new ClaudeCompactionObserver();
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
     // Build env passthrough for the spawned CLI process. The PreToolUse hook
@@ -216,14 +225,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   /** Returns the currently deferred tool use, or null if not paused. */
-  getDeferredToolUse(): DeferredToolUse | null {
-    return this.deferredToolUse;
-  }
+  getDeferredToolUse(): DeferredToolUse | null { return this.deferredToolUse; }
 
   /** Clears deferred tool use state (e.g., after successful resume). */
-  clearDeferredToolUse(): void {
-    this.deferredToolUse = null;
-  }
+  clearDeferredToolUse(): void { this.deferredToolUse = null; }
 
   /**
    * Last accurate per-API-call context occupancy. Unlike the cumulative
@@ -244,14 +249,19 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     return { status: 'known', used: sample.used, total: sample.total, source: 'provider-turn' };
   }
 
-  getResumeAttemptResult(): ResumeAttemptResult | null {
-    return this.lastResumeAttemptResult;
+  getResumeAttemptResult(): ResumeAttemptResult | null { return this.lastResumeAttemptResult; }
+
+  willResumeSession(): boolean { return this.shouldUseNativeResume(); }
+  getTurnCompaction() { return this.compactionObserver.getTurnCompaction(); }
+
+  private beginResumeAttempt(): void {
+    this.lastResumeAttemptResult = this.shouldUseNativeResume()
+      ? { source: 'native', confirmed: false, requestedSessionId: this.sessionId ?? undefined, forked: this.spawnOptions.forkSession === true }
+      : { source: 'fresh-fallback', confirmed: false };
   }
 
   /** Latest rate-limit telemetry reported by the CLI, or null if none seen. */
-  getLastRateLimitInfo(): CliRateLimitInfo | null {
-    return this.lastRateLimitInfo;
-  }
+  getLastRateLimitInfo(): CliRateLimitInfo | null { return this.lastRateLimitInfo; }
 
   /** Whether the next spawn should use native `--resume` (B7-guarded). */
   private shouldUseNativeResume(): boolean {
@@ -264,9 +274,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
   // ============ BaseCliAdapter Abstract Implementations ============
 
-  getName(): string {
-    return 'claude-cli';
-  }
+  getName(): string { return 'claude-cli'; }
 
   getCapabilities(): CliCapabilities {
     return {
@@ -431,9 +439,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
    * host denylist and any caller-supplied `disallowedTools`; never removes
    * an existing restriction.
    */
-  setDisallowedToolsOverride(tools: readonly string[] | null): void {
-    this.disallowedToolsOverride = tools && tools.length > 0 ? [...tools] : null;
-  }
+  setDisallowedToolsOverride(tools: readonly string[] | null): void { this.disallowedToolsOverride = tools && tools.length > 0 ? [...tools] : null; }
 
   /** Private temp dir holding inline-JSON arguments. */
   private inlineArgTempDir: string | null = null;
@@ -557,13 +563,21 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   async sendMessage(message: CliMessage): Promise<CliResponse> {
+    const admission = this.oneShotLifecycle.prepare();
+    const turn = new ClaudeOneShotTurn(this);
+    this.oneShotLifecycle.current = turn;
     const startTime = Date.now();
+    this.residentSettlement.settle();
+    this.resetResidentTurn(false);
     this.outputBuffer = '';
     this.awaitingOneShotCompletion = true; // LT-047: this close handler owns completeResponse()
-    await this.primeCliVersion();
-    await this.prepareHardenedLogin();
+    try { await this.primeCliVersion(); await this.prepareHardenedLogin(); this.oneShotLifecycle.admit(admission); }
+    catch (error) {
+      this.awaitingOneShotCompletion = false; this.oneShotLifecycle.finish(turn);
+      throw markProviderDispatchNotStarted(error instanceof Error ? error : new Error(String(error)));
+    }
 
-    return new Promise((resolve, reject) => {
+    return new Promise<CliResponse>((resolve, reject) => {
       let settled = false;
       let timeout: ReturnType<typeof setTimeout> | undefined;
       const allowPartialOnTimeout = message.metadata?.['allowPartialOnTimeout'] === true;
@@ -577,6 +591,17 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       let hasOutputActivity = false;
       let lastActivityAt = startTime;
       let timeoutExtensionCount = 0;
+      let partialTimeoutMetadata: Record<string, unknown> | undefined;
+
+      const parseTurnResponse = (): CliResponse => {
+        const response = this.parseOutput(turn.raw);
+        response.usage = { ...response.usage, duration: Date.now() - startTime };
+        if (partialTimeoutMetadata) {
+          response.metadata = { ...response.metadata, ...partialTimeoutMetadata };
+          if (!response.content.trim()) response.content = 'Claude CLI reached the iteration timeout after emitting activity but before producing a final assistant message. Treat the workspace state and tool activity as the partial result, then continue from disk state in the next loop iteration.';
+        }
+        return response;
+      };
 
       const cleanupAfterSettle = (): void => {
         this.process = null;
@@ -586,27 +611,36 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
       const finishResolve = (response: CliResponse): void => {
         if (settled) return;
+        const failure = turn.failure(response); if (failure) { finishReject(failure, response); return; }
         settled = true;
         this.awaitingOneShotCompletion = false;
         if (timeout) clearTimeout(timeout);
+        turn.finish();
         this.completeResponse(response);
         resolve(response);
       };
 
-      const finishReject = (error: Error): void => {
+      const finishReject = (error: Error, response?: CliResponse): void => {
         if (settled) return;
         settled = true;
         this.awaitingOneShotCompletion = false;
         if (timeout) clearTimeout(timeout);
+        turn.finish();
+        if (response) {
+          response.metadata = { ...response.metadata, turnErrored: true };
+          this.completeResponse(response, { cancelled: turn.cancelled });
+          Object.assign(error, { partialUsage: response.usage });
+        }
         reject(error);
       };
 
       const terminateTimedOutProcess = (): void => {
-        this.terminate(false).catch((error: unknown) => {
+        this.terminateProcess(false, false).catch((error: unknown) => {
           logger.warn('Failed to terminate timed-out Claude CLI process', {
             sessionId: this.sessionId,
             ...errorDiagnostic(error),
           });
+          turn.forceClose?.(error instanceof Error ? error : new Error(String(error)));
         });
       };
 
@@ -649,43 +683,36 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           return;
         }
 
-        if (allowPartialOnTimeout && this.outputBuffer.trim().length > 0) {
-          const duration = Date.now() - startTime;
-          const response = this.parseOutput(this.outputBuffer);
-          response.usage = {
-            ...response.usage,
-            duration
-          };
-          response.metadata = {
-            ...response.metadata,
+        if (allowPartialOnTimeout && turn.raw.trim().length > 0) {
+          partialTimeoutMetadata = {
             timedOut: true,
             timeoutMs,
             idleMs,
             activeTimeoutMs,
             timeoutExtensions: timeoutExtensionCount,
           };
-          if (!response.content.trim()) {
-            response.content = 'Claude CLI reached the iteration timeout after emitting activity but before producing a final assistant message. Treat the workspace state and tool activity as the partial result, then continue from disk state in the next loop iteration.';
-          }
           logger.warn('Claude CLI timeout after partial output; returning partial response', {
             sessionId: this.sessionId,
             timeoutMs,
             idleMs,
             activeTimeoutMs,
-            outputLength: this.outputBuffer.length,
+            outputLength: turn.raw.length,
           });
-          finishResolve(response);
+          // Settle only after owned stdio finality or the bounded close fallback.
         } else {
-          finishReject(new Error('Claude CLI timeout'));
+          turn.failInput(new Error('Claude CLI timeout'), () => this.terminate(false)); return;
         }
 
         terminateTimedOutProcess();
       };
 
+      turn.forceClose = error => partialTimeoutMetadata ? finishResolve(parseTurnResponse()) : finishReject(error, this.parseOutput(turn.raw));
+      this.beginResumeAttempt();
       const args = this.buildArgs(message);
       this.process = this.spawnWithInlineArgCleanup(args);
+      turn.started = Boolean(this.process.pid);
+      this.process.once('error', error => turn.failInput(error, () => this.terminate(false)));
 
-      // Set up stdin formatter
       if (this.process.stdin) {
         this.formatter = new InputFormatter(this.process.stdin);
 
@@ -729,7 +756,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           finalMessage = buildMessageWithFiles(message.content, processed);
         }
 
-        // Send the message
+        this.oneShotLifecycle.admit(admission);
         if (this.formatter && this.formatter.isWritable()) {
           await this.formatter.sendMessage(
             finalMessage,
@@ -740,25 +767,26 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
                   data: a.content || '',
                   size: a.content?.length || 0
                 }))
-              : undefined
+              : undefined,
+            { beforeProviderDispatch: () => { turn.dispatched = true; }, assertCurrent: () => this.oneShotLifecycle.admit(admission) }
           );
           this.formatter.close();
         }
       };
 
-      sendInput().catch((error: unknown) => {
-        finishReject(error instanceof Error ? error : new Error(String(error)));
-      });
+      sendInput().catch(error => turn.failInput(error, () => this.terminate(false)));
 
       // Handle stdout (NDJSON stream)
       this.process.stdout?.on('data', (chunk: Buffer) => {
+        if (settled) return;
         const raw = chunk.toString();
         hasOutputActivity = true;
         lastActivityAt = Date.now();
-        this.outputBuffer += raw;
+        turn.raw += raw; this.outputBuffer += raw;
 
         const messages = this.parser.parse(raw);
         for (const msg of messages) {
+          if (msg.type === 'result') turn.noteResult();
           this.processCliMessage(msg);
         }
       });
@@ -785,18 +813,12 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         // Flush remaining buffer
         const remaining = this.parser.flush();
         for (const msg of remaining) {
+          if (msg.type === 'result') turn.noteResult();
           this.processCliMessage(msg);
         }
 
-        const duration = Date.now() - startTime;
-
-        if (code === 0 || this.outputBuffer) {
-          const response = this.parseOutput(this.outputBuffer);
-          response.usage = {
-            ...response.usage,
-            duration
-          };
-          finishResolve(response);
+        if (code === 0 || turn.raw || turn.error || turn.cancelled) {
+          finishResolve(parseTurnResponse());
         } else {
           finishReject(new Error(`Claude CLI exited with code ${code}`));
         }
@@ -804,15 +826,13 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         cleanupAfterSettle();
       });
 
-      // Timeout handling. Loop Mode opts into activity-aware checkpoints:
-      // the wall-clock timeout only returns a partial result once the child
-      // has also been quiet past the configured stream-idle threshold.
+      // Loop watchdogs may extend while the child remains active.
       scheduleTimeout(timeoutMs);
 
       this.process.on('close', () => {
         if (timeout) clearTimeout(timeout);
       });
-    });
+    }).catch(error => { this.awaitingOneShotCompletion = false; throw turn.beforeStartFailure(error); }).finally(() => this.oneShotLifecycle.finish(turn));
   }
 
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
@@ -892,31 +912,51 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       shouldUsePermissionHook: this.shouldUsePermissionHook(),
       materializeInlineJsonArg: (value, forceFile) => this.materializeInlineJsonArg(value, forceFile),
     });
-    this.sessionCostLedger.onSpawn(args.includes('--fork-session') ? 'fork' : args.includes('--resume') ? 'resume' : 'fresh', readLastClaudeCostState(this.spawnOptions.workingDirectory, this.sessionId ?? '')?.totalCostUSD ?? this.sessionCostLedger.lastTotalUsd);
+    const mode = args.includes('--fork-session') ? 'fork' : args.includes('--resume') ? 'resume' : 'fresh';
+    if (mode !== 'resume') this.costSanityWarned = false;
+    const seed = mode === 'resume' && this.sessionId
+      ? readLastClaudeCostState(this.spawnOptions.workingDirectory, this.sessionId, this.config.env?.['CLAUDE_CONFIG_DIR']) : undefined;
+    this.sessionCostLedger.onSpawn(mode, seed?.totalCostUSD ?? this.sessionCostLedger.lastTotalUsd,
+      seed?.modelUsage ?? this.sessionCostLedger.lastModelUsage);
     return args;
+  }
+
+  protected override completeResponse(response: CliResponse, opts?: { cancelled?: boolean }): void {
+    if (!deferUntilResponseUsageSettled(response, () => undefined)) this.settleResponseUsage(response);
+    super.completeResponse(response, opts);
+  }
+
+  private settleResponseUsage(response: CliResponse): void {
+    const usage = response.usage;
+    if (usage) {
+      const priced = computeTokenCost(this.spawnOptions.model, usage);
+      const cost = this.sessionCostLedger.settle(usage.providerSessionTotalUsd, priced, usage.providerModelUsage);
+      if (cost !== undefined) usage.cost = cost;
+      else delete usage.cost;
+      if (this.sessionCostLedger.byModel) usage.byModel = this.sessionCostLedger.byModel;
+      if (!this.costSanityWarned && cost !== undefined && priced > 0
+        && (cost < 0.8 * priced || (cost > 50 * priced && cost > 5))) {
+        this.costSanityWarned = true;
+        logger.warn('Claude turn cost differs substantially from main-thread token pricing', { sessionId: this.sessionId, cost, priced });
+      }
+    }
   }
 
   // ============ Legacy API Methods (Backward Compatibility) ============
 
-  /**
-   * Spawn the Claude CLI process (legacy API)
-   */
+  /** Spawn the resident Claude CLI process. */
   async spawn(): Promise<number> {
+    const admission = this.oneShotLifecycle.prepare();
     if (this.process) {
       throw new Error('Process already spawned');
     }
 
-    this.resetResidentTurn(); // LT-047: fresh process, no in-flight turn
+    this.residentSettlement.settle();
+    this.resetResidentTurn(false); // LT-047: fresh process, no in-flight turn
     await this.primeCliVersion();
     await this.prepareHardenedLogin();
-    this.lastResumeAttemptResult = this.shouldUseNativeResume()
-      ? {
-          source: 'native',
-          confirmed: false,
-          requestedSessionId: this.sessionId ?? undefined,
-          forked: this.spawnOptions.forkSession === true,
-        }
-      : { source: 'fresh-fallback', confirmed: false };
+    this.oneShotLifecycle.admit(admission);
+    this.beginResumeAttempt();
     const args = this.buildArgs({ role: 'user', content: '' });
 
     this.process = this.spawnWithInlineArgCleanup(args);
@@ -942,22 +982,18 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       });
     }
 
-    // Set up stdout handler (NDJSON stream)
     this.process.stdout?.on('data', (chunk: Buffer) => {
       this.handleStdout(chunk);
     });
 
-    // Set up stderr handler
     this.process.stderr?.on('data', (chunk: Buffer) => {
       this.handleStderr(chunk);
     });
 
-    // Set up exit handler
-    this.process.on('exit', (code, signal) => {
+    this.process.on('close', (code, signal) => {
       this.handleExit(code, signal);
     });
 
-    // Set up error handler
     this.process.on('error', (error) => {
       this.emitClassifiedError(error);
     });
@@ -965,9 +1001,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     return this.process.pid;
   }
 
-  /**
-   * Send a message to the CLI (legacy API)
-   */
+  /** Send a message to the resident CLI. */
   protected override async sendInputImpl(message: string, attachments?: FileAttachment[], _metadata?: CliMessage['metadata'], dispatch?: AdapterInputDispatch): Promise<void> {
     const admission = createAdapterInputDispatch(dispatch);
     assertAdapterInputCurrent(admission);
@@ -994,7 +1028,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       finalMessage = buildMessageWithFiles(message, processed);
     }
 
-    this.resetResidentTurn(); // LT-047: new turn, drop stale prior output
+    this.resetResidentTurn(true); // LT-047: new turn, drop stale prior output
     await this.formatter.sendMessage(
       finalMessage,
       imageAttachments.length > 0 ? imageAttachments : undefined,
@@ -1064,7 +1098,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       jsonMessageLength: jsonMessage.length,
       ...textDiagnostic(text),
     });
-    this.resetResidentTurn(); // LT-047: see sendInputImpl
+    this.resetResidentTurn(true); // LT-047: see sendInputImpl
     await this.formatter.sendRaw(jsonMessage);
 
     this.emit('status', 'busy' as InstanceStatus);
@@ -1082,38 +1116,50 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
   // ============ Private Helper Methods ============
 
-  protected override completeResponse(response: CliResponse, opts?: { cancelled?: boolean }): void {
-    if (!this.settledResponses.has(response)) {
-      this.settledResponses.add(response);
-      if (response.usage) {
-        const cost = this.sessionCostLedger.settle(response.usage.providerSessionTotalUsd, computeProviderTokenCost('claude', this.spawnOptions.model, response.usage));
-        if (cost !== undefined) response.usage.cost = cost;
-      }
-    }
-    super.completeResponse(response, opts);
-  }
-
-  private resetResidentTurn(): void {
+  private resetResidentTurn(active = true): void {
+    this.residentTurnActive = active;
+    this.residentSettlement.markInput();
+    this.compactionObserver.reset();
     this.residentTurnRawOutput = '';
     this.residentTurnCompletedByError = false;
   }
 
   /** LT-047/LT-105: complete the current resident turn once, from its accumulated NDJSON. */
   private completeResidentTurn(metadata?: Record<string, unknown>): void {
+    if (!this.residentTurnActive) return;
+    this.residentTurnActive = false;
     const response = this.parseOutput(this.residentTurnRawOutput);
     this.residentTurnRawOutput = '';
     if (metadata) response.metadata = { ...response.metadata, ...metadata };
+    if (metadata?.['turnErrored']) this.residentSettlement.defer(response);
     this.completeResponse(response);
   }
 
+  override terminate(graceful = true): Promise<void> {
+    return this.terminateProcess(graceful);
+  }
+
+  // A partial watchdog result stops transport without changing its semantic outcome.
+  private terminateProcess(graceful: boolean, cancelCurrent = true): Promise<void> {
+    return this.oneShotLifecycle.terminate(async () => {
+      const turn = this.oneShotLifecycle.current;
+      await this.residentSettlement.drain(); await turn?.drain();
+      const residentClose = !turn && this.residentSettlement.pending && this.process ? watchClaudeProcessClose(this.process) : undefined;
+      try { await super.terminate(graceful); await turn?.waitForClose(); }
+      finally { await residentClose?.(); this.residentSettlement.settle(); }
+    }, cancelCurrent);
+  }
+
   private emitClassifiedError(error: Error): void {
+    if (!this.awaitingOneShotCompletion && this.residentTurnActive && !this.residentTurnCompletedByError) {
+      this.completeResidentTurn({ turnErrored: true }); this.residentTurnCompletedByError = true;
+    }
     getErrorRecoveryManager().classifyError(error, 'claude-cli-adapter');
     this.emit('error', error);
   }
 
   private handleStdout(chunk: Buffer): void {
     const raw = chunk.toString();
-    this.residentTurnRawOutput += raw; // LT-047: accumulate for the `result` case
 
     // Log ALL message types coming through for debugging
     const typeMatch = raw.match(/"type"\s*:\s*"([^"]+)"/g);
@@ -1137,6 +1183,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     });
 
     for (const message of messages) {
+      // A result belongs to the pending failed turn even if newer input has
+      // already reset the current buffer. Append message-by-message so chunks
+      // containing several turn boundaries cannot leak future usage backwards.
+      if (!(message.type === 'result' && this.residentSettlement.pending)) this.residentTurnRawOutput += JSON.stringify(message) + '\n';
       // Log all message types for debugging
       if (message.type === 'input_required') {
         logger.debug('Parsed input_required message, forwarding to processCliMessage');
@@ -1167,8 +1217,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     // Flush any remaining parser buffer
     const remaining = this.parser.flush();
     for (const message of remaining) {
+      if (!(message.type === 'result' && this.residentSettlement.pending)) this.residentTurnRawOutput += JSON.stringify(message) + '\n';
       this.processCliMessage(message);
     }
+    this.residentSettlement.settle();
+    this.residentTurnActive = false;
 
     // Clear any in-flight resident interrupt WITHOUT resolving it.
     // Do NOT resolve with 'rejected' here: the 'exit' event (emitted below) triggers
@@ -1206,6 +1259,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     const raw = toRawCliPayload(message, message.type);
     switch (message.type) {
       case 'assistant': {
+        const streamError = parseClaudeStreamError(raw);
+        if (streamError) { this.emitClassifiedError(streamError.error); break; }
+        this.residentSettlement.settle();
+        if (!this.awaitingOneShotCompletion && !(raw as { parent_tool_use_id?: unknown }).parent_tool_use_id) this.residentTurnActive = true;
         // LT-105: assistant output after an errored turn means the CLI started a new turn itself.
         this.residentTurnCompletedByError = false;
         processClaudeAssistantMessage(this as unknown as ClaudeAssistantMessageHost, message, raw);
@@ -1430,80 +1487,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       }
 
       case 'system':
-        for (const event of this.backgroundTasks.observe(raw)) {
-          this.emitAsyncWork(event);
-        }
-        if (message.subtype === 'context_usage' && message.usage) {
-          const modelId = this.spawnOptions.model || CLAUDE_MODELS.OPUS_1M;
-          const pricing = MODEL_PRICING[modelId] || {
-            input: 3.0,
-            output: 15.0
-          };
-
-          // Per-API-call usage — correctly reflects current context occupancy.
-          // input_tokens = non-cached, cache_creation/cache_read = cached portions.
-          const inputTokens = (message.usage.input_tokens || 0)
-            + (message.usage.cache_creation_input_tokens || 0)
-            + (message.usage.cache_read_input_tokens || 0);
-          const outputTokens = message.usage.output_tokens || 0;
-          const totalUsedTokens = inputTokens + outputTokens;
-
-          const inputCost = (inputTokens / 1_000_000) * pricing.input;
-          const outputCost = (outputTokens / 1_000_000) * pricing.output;
-          const costEstimate = inputCost + outputCost;
-
-          // max_tokens is the output token cap, NOT the context window.
-          // Only trust modelUsage.contextWindow from result messages (handled below).
-          const contextWindow = this.lastKnownContextWindow;
-          const percentage = contextWindow > 0
-            ? (totalUsedTokens / contextWindow) * 100
-            : 0;
-
-          this.hasPerCallUsageThisTurn = true;
-          this.lastObservedContextUsage = { used: totalUsedTokens, total: contextWindow };
-          this.emit('context', {
-            used: totalUsedTokens,
-            total: contextWindow,
-            percentage: Math.min(percentage, 100),
-            costEstimate
-          });
-        }
-        if (message.session_id) {
-          this.sessionId = message.session_id;
-          // Confirm or annotate the resume proof with the authoritative session_id
-          if (this.lastResumeAttemptResult?.source === 'native') {
-            // A forked resume mints a new id by design, so receiving ANY
-            // authoritative session_id back is the confirmation. Requiring an
-            // exact echo made every fork read as a wrong-session failure and
-            // destroyed the live session (LT-008).
-            const confirmed = this.lastResumeAttemptResult.forked
-              ? Boolean(message.session_id)
-              : message.session_id === this.lastResumeAttemptResult.requestedSessionId;
-            this.lastResumeAttemptResult = {
-              ...this.lastResumeAttemptResult,
-              confirmed,
-              actualSessionId: message.session_id,
-            };
-          } else if (this.lastResumeAttemptResult) {
-            this.lastResumeAttemptResult = {
-              ...this.lastResumeAttemptResult,
-              actualSessionId: message.session_id,
-            };
-          }
-        }
-        if (message.subtype === 'init' && Array.isArray(message.mcp_servers)) {
-          // Claude connects MCP servers once per process and never retries a
-          // failed one; the instance layer decides whether a respawn is needed.
-          this.emit('mcp_servers', message.mcp_servers);
-        }
-        if (message.content) {
-          this.emit('output', {
-            id: generateId(),
-            timestamp: message.timestamp || Date.now(),
-            type: 'system',
-            content: message.content
-          });
-        }
+        processClaudeSystemMessage(this as unknown as ClaudeSystemMessageHost, message, raw);
         break;
 
       case 'tool_use':
@@ -1560,6 +1544,15 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
       case 'result': {
         const resultMsg = raw;
+        flushClaudeSubagentUsage(this);
+        if (this.residentSettlement.pending) {
+          const newerInput = this.residentSettlement.settle(this.parseOutput(JSON.stringify(resultMsg)).usage);
+          this.residentTurnCompletedByError = false;
+          if (!newerInput) this.residentTurnActive = false;
+          if (!newerInput) applyClaudeResultUsage(this as unknown as ClaudeResultUsageHost, resultMsg);
+          if (!newerInput) { this.hasPerCallUsageThisTurn = false; this.emit('status', 'idle' as InstanceStatus); }
+          break;
+        }
 
         // VALIDATED: Check for tool_deferred stop reason (Claude CLI 2.1.98+).
         // When a PreToolUse hook returns `defer`, the CLI emits a result with
@@ -1631,12 +1624,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
       case 'error': {
         const streamError = parseClaudeStreamError(raw);
-        this.emit('error', streamError?.error ?? new Error('Claude CLI reported an unknown error'));
-        // LT-105: a resident turn that fails mid-stream still owes exactly one completion.
-        if (!this.awaitingOneShotCompletion && !this.residentTurnCompletedByError) {
-          this.completeResidentTurn({ turnErrored: true });
-          this.residentTurnCompletedByError = true;
-        }
+        this.emitClassifiedError(streamError?.error ?? new Error('Claude CLI reported an unknown error'));
         break;
       }
 

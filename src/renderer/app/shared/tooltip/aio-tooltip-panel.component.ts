@@ -10,14 +10,23 @@
  * still appears, it just does not animate.
  */
 
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
+import type { TooltipFormat } from './tooltip-policy';
+import { ChangeDetectionStrategy, Component, input, type TemplateRef } from '@angular/core';
 
 @Component({
   selector: 'app-aio-tooltip-panel',
   standalone: true,
+  imports: [NgTemplateOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="aio-tooltip" role="tooltip" [id]="tooltipId()">{{ text() }}</div>
+    <div class="aio-tooltip" [class.aio-tooltip--code]="format() === 'code'" role="tooltip" [id]="tooltipId()">
+      @if (template(); as content) {
+        <ng-container [ngTemplateOutlet]="content" />
+      } @else {
+        {{ text() }}
+      }
+    </div>
   `,
   styles: [`
     .aio-tooltip {
@@ -31,10 +40,18 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
       font-size: 12px;
       line-height: 1.45;
       white-space: pre-line;
+      overflow-wrap: anywhere;
       /* Never take the pointer — see the component doc. */
       pointer-events: none;
       transform-origin: center;
       animation: aio-tooltip-in 90ms ease-out;
+    }
+
+    .aio-tooltip--code {
+      max-width: 480px;
+      font-family: var(--font-mono, monospace);
+      white-space: pre-wrap;
+      text-align: left;
     }
 
     @keyframes aio-tooltip-in {
@@ -49,5 +66,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 })
 export class AioTooltipPanelComponent {
   readonly text = input('');
+  readonly template = input<TemplateRef<unknown> | null>(null);
+  readonly format = input<TooltipFormat>('text');
   readonly tooltipId = input('');
 }

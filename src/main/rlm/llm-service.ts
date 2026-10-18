@@ -30,6 +30,7 @@ import {
 import { getAuxiliaryLlmService } from './auxiliary-llm-service';
 import type { AuxiliaryLlmSlot } from '../../shared/types/auxiliary-llm.types';
 import { generateLocalFallback, fallbackSummarize } from './llm-service-fallbacks';
+import { recordLadderResult } from './llm-service-ladder-recording';
 import {
   runAuthorizedFrontierFallback,
 } from '../local-ai-guard/local-ai-cost-correlation';
@@ -134,7 +135,7 @@ ${request.content}
 
 Summary:`;
     const localFallback = (): string => {
-      const summary = fallbackSummarize(request.content, request.targetTokens);
+      const summary = recordLadderResult({ text: fallbackSummarize(request.content, request.targetTokens), provider: 'aio-basic-summary' });
       this.emit('summarize:complete', {
         requestId: request.requestId,
         summary,
@@ -459,7 +460,7 @@ Answer:`;
         try {
           const result = await generateWithAnthropic(this.config, this.providerAvailability(), systemPrompt, userPrompt);
           breaker.recordSuccess(Date.now() - startTime);
-          return result;
+          return result.text;
         } catch (error) {
           breaker.recordFailure(error as Error, Date.now() - startTime);
           this.anthropicAvailable = false;
@@ -477,7 +478,7 @@ Answer:`;
         try {
           const result = await generateWithOllama(this.config, this.providerAvailability(), systemPrompt, userPrompt);
           breaker.recordSuccess(Date.now() - startTime);
-          return result;
+          return result.text;
         } catch (error) {
           breaker.recordFailure(error as Error, Date.now() - startTime);
           this.ollamaAvailable = false;
@@ -495,7 +496,7 @@ Answer:`;
         try {
           const result = await generateWithOpenAI(this.config, this.providerAvailability(), systemPrompt, userPrompt);
           breaker.recordSuccess(Date.now() - startTime);
-          return result;
+          return result.text;
         } catch (error) {
           breaker.recordFailure(error as Error, Date.now() - startTime);
           this.openaiAvailable = false;
@@ -505,7 +506,7 @@ Answer:`;
     }
 
     // Fall back to local extraction
-    return generateLocalFallback(userPrompt);
+    return recordLadderResult({ text: generateLocalFallback(userPrompt), provider: 'aio-basic-summary' });
   }
 
   /**
@@ -583,7 +584,7 @@ Answer:`;
       }
 
       // Fall back to local (non-streaming, emitted as single chunk)
-      const response = generateLocalFallback(userPrompt);
+      const response = recordLadderResult({ text: generateLocalFallback(userPrompt), provider: 'aio-basic-summary' });
       yield { requestId, chunk: response, done: true };
     } finally {
       this.activeStreams.delete(requestId);

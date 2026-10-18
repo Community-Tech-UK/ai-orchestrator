@@ -2,6 +2,9 @@ import type { ClaudeSelfWakeupEvent } from '../cli/adapters/claude-cli-self-wake
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
 import type { CliAsyncWorkEvent } from '../cli/adapters/claude-cli-async-work';
+import type { ClaudeSubagentUsage } from '../cli/adapters/claude-subagent-usage';
+import type { Instance } from '../../shared/types/instance.types';
+import { recordCostAttribution } from '../core/system/cost-attribution';
 import { mapAdapterRuntimeEvent } from '../providers/adapter-runtime-event-bridge';
 import { toJsonSafeProviderEventPayload } from '../providers/provider-event-raw-payload';
 import { nativeOpenCodeCommands } from '../commands/provider-native-commands';
@@ -22,6 +25,7 @@ interface BindRawAdapterProviderEventsInput {
   observeSelfWakeup?: (event: ClaudeSelfWakeupEvent) => void;
   observeAsyncWork?: (event: CliAsyncWorkEvent) => void;
   observeAvailableCommands?: () => void;
+  getInstance?: () => Instance | undefined;
 }
 
 /** Bind canonical capture for adapter events not otherwise handled by the UI. */
@@ -38,6 +42,17 @@ export function bindRawAdapterProviderEvents(input: BindRawAdapterProviderEvents
     input.observeAvailableCommands?.();
   });
 
+  const recordedSubagents = new Set<string>();
+  input.adapter.on('subagent_usage', (sample: ClaudeSubagentUsage) => {
+    if (input.isStale('subagent_usage') || !sample.final || recordedSubagents.has(sample.toolUseId)) return;
+    const instance = input.getInstance?.();
+    if (!instance) return;
+    recordedSubagents.add(sample.toolUseId);
+    recordCostAttribution({source:'instance-turn',purpose:'subagent',taskType:'claude-subagent-final',
+      provider:'claude',instanceId:instance.id,sessionId:instance.sessionId,costSource:'unknown',costKnown:false,
+      subagentUsage:true,finalContextTokens:sample.finalContextTokens,toolUses:sample.toolUses,
+      durationMs:sample.durationMs,toolUseId:sample.toolUseId});
+  });
   // Terminal provider turn failure is distinct from a broken adapter. The
   // send rejection still owns overflow/limit/auth recovery; this records the
   // canonical ending synchronously without teardown, hooks or a second notice.

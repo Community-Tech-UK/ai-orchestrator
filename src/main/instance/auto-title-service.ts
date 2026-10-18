@@ -15,7 +15,7 @@
  */
 
 import { resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory';
-import type { CliMessage, CliUsage } from '../cli/adapters/base-cli-adapter';
+import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { isCliAvailable } from '../cli/cli-detection';
 import { isProviderNotice } from '../cli/provider-notice';
 import { detectAuthFailureSignal } from './instance-auth-failure-detection';
@@ -44,6 +44,8 @@ import {
   runCorrelatedPaidFrontierCall,
 } from '../local-ai-guard/local-ai-cost-correlation';
 import { recordCorrelatedFrontierAttribution } from '../rlm/frontier-cost-attribution';
+import { observeModelCallUsage, isModelCallCancelled } from '../core/system/observed-model-call-usage';
+import { recordModelCall } from '../core/system/model-call-recorder';
 import { buildTitleUserPrompt, TITLE_SYSTEM_PROMPT } from './auto-title-prompt';
 
 const logger = getLogger('AutoTitle');
@@ -176,7 +178,7 @@ function finalizeDocumentTitle(
 }
 
 function hasSendMessage(adapter: CliAdapter): adapter is CliAdapter & {
-  sendMessage: (m: CliMessage) => Promise<{ content: string; usage?: CliUsage }>;
+  sendMessage: (m: CliMessage) => Promise<CliResponse>;
 } {
   return typeof (adapter as unknown as { sendMessage?: unknown }).sendMessage === 'function';
 }
@@ -401,6 +403,7 @@ export class AutoTitleService {
 
     const userInstruction = buildTitleUserPrompt(modelMessage, labels);
     const candidates = filterProvidersForAutomation(FAST_PROVIDER_PREFERENCE, 'autoTitle');
+    if (fallbackDecision.pausedUntil && fallbackDecision.pausedUntil > Date.now()) return null;
     let resolvedAnyCli = false;
     for (const candidate of candidates) {
       let cliType: Awaited<ReturnType<typeof resolveCliType>>;
@@ -423,6 +426,7 @@ export class AutoTitleService {
           systemPromptMode: 'replace' as const,
           yoloMode: false,
           timeout: AI_TITLE_TIMEOUT,
+          ...(cliType === 'claude' ? { maxBudgetUsd: 0.10 } : {}),
         }, 'internal');
         adapter = getProviderRuntimeService().createAdapter({ cliType, options: titleSpawnOptions });
       } catch (error) {
@@ -439,29 +443,41 @@ export class AutoTitleService {
       }
 
       const startedAt = Date.now();
-      let response: { content: string };
+      let response: CliResponse;
+      let observed: ReturnType<typeof observeModelCallUsage> | undefined;
       try {
         response = await runAuthorizedFrontierFallback(fallbackDecision, async () => {
-          const result = await runCorrelatedPaidFrontierCall(() => adapter.sendMessage({
-            role: 'user', content: userInstruction,
-          }));
-          const usage = cliType === 'antigravity' && result.usage?.inputTokens === 0
-            ? { ...result.usage, inputTokens: undefined }
-            : result.usage;
+          const result = await runCorrelatedPaidFrontierCall(() => {
+            observed = observeModelCallUsage(adapter);
+            return adapter.sendMessage({ role: 'user', content: userInstruction });
+          });
+          observed?.observe(result.usage);
+          const reportedUsage = observed?.usage;
+          const usage = cliType === 'antigravity' && reportedUsage?.inputTokens === 0
+            ? { ...reportedUsage, inputTokens: undefined }
+            : reportedUsage;
           recordCorrelatedFrontierAttribution({
             taskType: 'aux:titleGeneration', provider: cliType, model,
+            outcome: result.metadata?.['budgetExceeded'] === true ? 'budget-exceeded' : 'success',
             inputTexts: [TITLE_SYSTEM_PROMPT, userInstruction], outputText: result.content, usage,
           });
           return result;
         });
       } catch (error) {
+        observed?.observeError(error);
+        if (observed?.dispatched) recordModelCall({ purpose: 'helper', taskType: 'aux:titleGeneration', provider: cliType, model, usage: observed.usage, correlationId: fallbackDecision.localAiRoutingEventId, outcome: isModelCallCancelled(error) ? 'cancelled' : 'error' });
         logger.warn('AI title escalation failed', {
           cliType, model, elapsedMs: Date.now() - startedAt, timeoutMs: AI_TITLE_TIMEOUT,
           workingDirectory: titleSpawnOptions.workingDirectory,
           error: error instanceof Error ? error.message : String(error),
         });
+        if (isModelCallCancelled(error)) return null;
         continue;
+      } finally {
+        observed?.dispose();
       }
+
+      if (response.metadata?.['budgetExceeded'] === true) return null;
 
       const cliTitle = finalizeDocumentTitle(response.content, modelMessage, labels, documentSubject);
       if (!cliTitle) {

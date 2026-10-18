@@ -209,7 +209,8 @@ describe('buildLoopGateDecisions — plain-language title mapping', () => {
   });
 
   it.each([
-    ['completed-needs-review', 'Finished — flagged items for you to check'],
+    ['completed-needs-review', 'Ended, see notes'],
+    ['attempt-failed', 'Stopped: a step failed and its changes are unknown or unsafe to replay'],
     ['failed', 'Stopped — the run failed'],
     ['error', 'Stopped — hit an error'],
     ['no-progress', 'Stopped — no progress across recent iterations'],

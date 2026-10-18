@@ -69,7 +69,7 @@ describe('actual high-level native failure and recovery source diagnostics', () 
         expect(serialize(instance.outputBuffer)).toContain(source);
         if (mode === 'hibernate') { adapter.terminate.mockRejectedValueOnce(failure); await expect(harness.manager.hibernateInstance(instance.id)).rejects.toBe(failure); }
         if (mode === 'wake') { await harness.manager.hibernateInstance(instance.id); adapter.spawn.mockRejectedValueOnce(failure); await expect(harness.manager.wakeInstance(instance.id)).rejects.toBe(failure); }
-        if (mode === 'restart-fresh') { adapter.spawn.mockRejectedValueOnce(failure); await harness.manager.restartFreshInstance(instance.id); expect(instance.status).toBe('error'); }
+        if (mode === 'restart-fresh') { adapter.spawn.mockRejectedValueOnce(failure); await expect(harness.manager.restartFreshInstance(instance.id)).rejects.toThrow('Fresh restart failed'); expect(instance.status).toBe('error'); }
         if (mode === 'nudge') {
           const owner = harness.manager as unknown as { interruptRespawn: { interrupt(id: string): boolean }; dispatchRecoveryActions(id: string, failure: unknown): Promise<void> };
           vi.spyOn(owner.interruptRespawn, 'interrupt').mockReturnValue(true);

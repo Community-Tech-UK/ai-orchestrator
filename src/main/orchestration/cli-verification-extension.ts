@@ -2,9 +2,9 @@
  * CLI Verification Extension - Extends MultiVerifyCoordinator for CLI agents
  * Enables heterogeneous multi-agent verification across different CLI tools
  */
-
 import { EventEmitter } from 'events';
 import { Subscription } from 'rxjs';
+import { recordModelCall } from '../core/system/model-call-recorder';
 import { getLogger } from '../logging/logger';
 import {
   VerificationConfig,
@@ -17,6 +17,7 @@ import {
   PersonalityType,
   SynthesisStrategy,
   createDefaultVerificationConfig,
+  sumVerificationCosts,
 } from '../../shared/types/verification.types';
 import { ProviderType } from '../../shared/types/provider.types';
 import {
@@ -55,6 +56,7 @@ export interface CliVerificationConfig extends VerificationConfig {
  */
 export interface AgentConfig {
   type: 'cli' | 'api';
+  providerId?: string;
   name: string;
   command?: string;
   provider: ProviderAdapter;
@@ -72,9 +74,6 @@ const API_FALLBACKS: Record<string, ProviderType> = {
   'gemini': 'google',
 };
 
-/**
- * CLI Verification Coordinator - Manages multi-CLI verification workflows
- */
 /**
  * Tracks active agent providers for a verification session
  */
@@ -110,9 +109,9 @@ export class CliVerificationCoordinator extends EventEmitter {
   private static instance: CliVerificationCoordinator | null = null;
   private cliDetection = CliDetectionService.getInstance();
   private registry = getProviderInstanceManager();
-  private activeVerifications: Map<string, VerificationRequest> = new Map();
-  private activeSessions: Map<string, ActiveSession> = new Map();
-  private results: Map<string, VerificationResult> = new Map();
+  private activeVerifications = new Map<string, VerificationRequest>();
+  private activeSessions = new Map<string, ActiveSession>();
+  private results = new Map<string, VerificationResult>();
 
   private constructor() {
     super();
@@ -250,6 +249,7 @@ export class CliVerificationCoordinator extends EventEmitter {
             );
             agents.push({
               type: 'cli',
+              providerId: cliName,
               name: cli.displayName,
               command: cli.command,
               provider,
@@ -267,6 +267,7 @@ export class CliVerificationCoordinator extends EventEmitter {
               const provider = this.registry.createProvider(apiType);
               agents.push({
                 type: 'api',
+                providerId: apiType,
                 name: `${cliName}-api`,
                 provider,
                 personality: personalities[personalityIndex++ % personalities.length],
@@ -290,6 +291,7 @@ export class CliVerificationCoordinator extends EventEmitter {
           );
           agents.push({
             type: 'cli',
+            providerId: cli.name,
             name: cli.displayName,
             command: cli.command,
             provider,
@@ -312,6 +314,7 @@ export class CliVerificationCoordinator extends EventEmitter {
             const provider = this.registry.createProvider(apiConfig.type);
             agents.push({
               type: 'api',
+              providerId: apiConfig.type,
               name: apiConfig.name,
               provider,
               personality: personalities[personalityIndex++ % personalities.length],
@@ -383,7 +386,7 @@ export class CliVerificationCoordinator extends EventEmitter {
       synthesisConfidence: confidence,
       totalDuration: Date.now() - startTime,
       totalTokens: responses.reduce((sum, r) => sum + r.tokens, 0),
-      totalCost: responses.reduce((sum, r) => sum + r.cost, 0),
+      totalCost: sumVerificationCosts(responses.map(r => r.cost)),
       completedAt: Date.now(),
       ...(earlyConsensus ? { earlyConsensus } : {}),
     };
@@ -419,6 +422,11 @@ export class CliVerificationCoordinator extends EventEmitter {
     }
 
     let sub: Subscription | undefined;
+    let dispatched = false;
+    let usage: unknown;
+    let providerId = agent.providerId ?? agent.command ?? agent.name;
+    let model = agent.model;
+    let outcome: 'success' | 'error' | 'cancelled' | 'budget-exceeded' = 'error';
 
     try {
       // Build prompt with personality
@@ -442,6 +450,7 @@ export class CliVerificationCoordinator extends EventEmitter {
 
       // Initialize provider (an early-consensus drop can terminate it mid-initialize; that is the drop)
       await agent.provider.initialize({
+        maxBudgetUsd: agent.providerId === 'claude' ? 0.25 : undefined,
         workingDirectory: process.cwd(),
         systemPrompt,
         yoloMode: false,
@@ -454,7 +463,7 @@ export class CliVerificationCoordinator extends EventEmitter {
       if (session.cancelled || session.dropped?.has(index)) {
         await agent.provider.terminate().catch((error: unknown) => { if (!session.dropped?.has(index)) throw error; });
         session.providers.delete(agentId);
-        if (!session.cancelled) this.emit('verification:agent-complete', { requestId: request.id, agentId, agentName: agent.name, success: false, error: EARLY_CONSENSUS_DROP_ERROR, responseLength: 0, tokens: 0 });
+        if (!session.cancelled) this.emit('verification:agent-complete', { requestId: request.id, agentId, agentName: agent.name, success: false, error: EARLY_CONSENSUS_DROP_ERROR, responseLength: 0, tokens: 0, cost: 0 });
         return {
           agentId,
           agentIndex: index,
@@ -477,6 +486,8 @@ export class CliVerificationCoordinator extends EventEmitter {
 
       // Subscribe to typed events$ stream before sending message
       sub = agent.provider.events$.subscribe(env => {
+        providerId = env.provider;
+        model = env.model ?? model;
         switch (env.event.kind) {
           case 'output': {
             const content = env.event.content;
@@ -492,6 +503,9 @@ export class CliVerificationCoordinator extends EventEmitter {
             }
             break;
           }
+          case 'complete':
+            usage = { ...env.event, cost: env.event.costUsd, totalTokens: env.event.tokensUsed, metadata: (env.raw?.payload as { metadata?: Record<string, unknown> } | undefined)?.metadata };
+            break;
           case 'context':
             tokens = env.event.used || 0;
             break;
@@ -513,6 +527,7 @@ export class CliVerificationCoordinator extends EventEmitter {
 
       // Send message with attachments. Blocking providers (Codex exec, Gemini) hold this call for the
       // whole turn, so an early-consensus drop surfaces as a rejection here: treat it as the drop.
+      dispatched = true;
       await agent.provider.sendMessage(fullPrompt, providerAttachments)
         .catch((error: unknown) => { if (!session.dropped?.has(index)) throw error; });
 
@@ -526,7 +541,7 @@ export class CliVerificationCoordinator extends EventEmitter {
         waitedTime += pollInterval;
       }
 
-      // Additional grace period for any final events
+      // Allow final completion events.
       await new Promise(resolve => setTimeout(resolve, 500));
 
       // Terminate provider and remove from session tracking (a dropped agent was already terminated)
@@ -534,9 +549,7 @@ export class CliVerificationCoordinator extends EventEmitter {
       sub?.unsubscribe();
       session.providers.delete(agentId);
 
-      // If no token count from context event, estimate from content length.
-      // Pass the CLI command (or agent name) so the counter uses
-      // family-specific char/token ratios (e.g. Claude ~3.8 vs the default 4.0).
+      // Missing token counts use a provider-specific content estimate.
       if (tokens === 0 && (responseContent.length > 0 || session.dropped?.has(index))) {
         const modelHint = agent.command ?? agent.name;
         const promptTokens = estimateTokens(fullPrompt, modelHint);
@@ -544,8 +557,10 @@ export class CliVerificationCoordinator extends EventEmitter {
         tokens = promptTokens + responseTokens;
       }
 
-      const dropError = !responseComplete && session.dropped?.has(index) ? EARLY_CONSENSUS_DROP_ERROR : undefined;
-      // Emit agent complete event
+      const dropError = (usage as { metadata?: { budgetExceeded?: boolean } } | undefined)?.metadata?.budgetExceeded ? 'Provider budget exceeded' : !responseComplete && session.dropped?.has(index) ? EARLY_CONSENSUS_DROP_ERROR : undefined;
+      outcome = dropError === 'Provider budget exceeded' ? 'budget-exceeded' : dropError || session.cancelled ? 'cancelled' : 'success';
+      const attribution = recordModelCall({ purpose: 'cli-verification', provider: providerId, model, usage, outcome, correlationId: request.id, instanceId: request.instanceId });
+      dispatched = false;
       this.emit('verification:agent-complete', {
         requestId: request.id,
         agentId,
@@ -553,6 +568,7 @@ export class CliVerificationCoordinator extends EventEmitter {
         success: !dropError,
         ...(dropError ? { error: dropError } : {}),
         responseLength: responseContent.length,
+        cost: attribution?.usage?.cost ?? 'unknown',
         tokens,
       });
 
@@ -564,15 +580,16 @@ export class CliVerificationCoordinator extends EventEmitter {
         agentIndex: index,
         model: `${agent.type}:${agent.name}`,
         personality: agent.personality,
-        response: responseContent,
-        keyPoints,
-        confidence,
+        response: dropError ? '' : responseContent,
+        keyPoints: dropError ? [] : keyPoints,
+        confidence: dropError ? 0 : confidence,
         duration: Date.now() - startTime,
         tokens,
-        cost: this.estimateCost(tokens, agent.type),
+        cost: attribution?.usage?.cost ?? 'unknown',
         ...(dropError ? { error: dropError } : {}),
       };
     } catch (error) {
+      outcome = session.cancelled || session.dropped?.has(index) ? 'cancelled' : 'error';
       // Clean up provider from session tracking
       try {
         if (session.providers.has(agentId)) {
@@ -584,13 +601,13 @@ export class CliVerificationCoordinator extends EventEmitter {
       }
       sub?.unsubscribe();
 
-      // Teach the entitlement cache when a Copilot seat refused this agent's
-      // model. Without it, `createVerificationModelAssigner` re-picks the same
-      // dead model on every future panel — the one surface still missing the
-      // feedback every other checking path already has. No profile is threaded
-      // here because this surface is not seat-aware, so it learns and reads
-      // through the same unscoped bucket the assigner consults.
+      // Learn refusals in the same unscoped entitlement bucket the model assigner
+      // reads, so future panels avoid a refused Copilot model.
       learnFromCheckerFailure(undefined, (error as Error).message);
+
+      const attribution = dispatched ? recordModelCall({ purpose: 'cli-verification', provider: providerId, model, usage, outcome, correlationId: request.id, instanceId: request.instanceId }) : undefined;
+      const cost = dispatched ? attribution?.usage?.cost ?? 'unknown' : 0;
+      dispatched = false;
 
       // Emit agent complete event with error
       this.emit('verification:agent-complete', {
@@ -599,6 +616,7 @@ export class CliVerificationCoordinator extends EventEmitter {
         agentName: agent.name,
         success: false,
         error: (error as Error).message,
+        cost,
       });
       this.emit('verification:agent-error', {
         requestId: request.id,
@@ -617,16 +635,17 @@ export class CliVerificationCoordinator extends EventEmitter {
         confidence: 0,
         duration: Date.now() - startTime,
         tokens: 0,
-        cost: 0,
+        cost,
         error: (error as Error).message,
         timedOut: (error as Error).message.includes('timeout'),
       };
+    } finally {
+      sub?.unsubscribe();
+      if (dispatched) recordModelCall({ purpose: 'cli-verification', provider: providerId, model, usage, outcome, correlationId: request.id, instanceId: request.instanceId });
     }
   }
 
-  /**
-   * Build agent prompt with personality
-   */
+  /** Build the verification prompt. */
   private buildAgentPrompt(personality?: PersonalityType): string {
     const personalitySection = personality && PERSONALITY_PROMPTS[personality]
       ? PERSONALITY_PROMPTS[personality] + '\n\n'
@@ -807,18 +826,6 @@ State your overall confidence in your response (0-100%): X%`;
     };
   }
 
-  /**
-   * Estimate cost based on tokens and agent type
-   */
-  private estimateCost(tokens: number, agentType: string): number {
-    const pricing: Record<string, number> = {
-      'cli': 10, // $10 per million tokens (blended)
-      'api': 15, // $15 per million tokens (blended)
-    };
-    const rate = pricing[agentType] || 10;
-    return (tokens / 1_000_000) * rate;
-  }
-
   // ============ Cancellation Methods ============
 
   /**
@@ -956,14 +963,12 @@ State your overall confidence in your response (0-100%): X%`;
     return Array.from(this.results.values());
   }
 
-  /**
-   * Get information about active sessions (for debugging/monitoring)
-   */
-  getActiveSessions(): Array<{
+  /** Active sessions for monitoring. */
+  getActiveSessions(): {
     verificationId: string;
     agentCount: number;
     cancelled: boolean;
-  }> {
+  }[] {
     return Array.from(this.activeSessions.entries()).map(([id, session]) => ({
       verificationId: id,
       agentCount: session.providers.size,

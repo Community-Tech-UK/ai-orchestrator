@@ -3,7 +3,7 @@
  *
  * Extracted from `claude-cli-adapter.ts` so the adapter stays inside its LOC
  * ceiling. Callers pass the live adapter host; this module does not own
- * adapter state. Behaviour matches the previous `processCliMessage` case.
+ * adapter state. Result metadata also preserves terminal failure provenance.
  */
 
 import type { RawCliPayload } from './claude-cli-adapter.types';
@@ -77,4 +77,21 @@ export function applyClaudeResultUsage(host: ClaudeResultUsageHost, resultMsg: R
     // can merge it without overwriting accurate token values.
     host.emit('cost', { costEstimate: resultMsg.total_cost_usd });
   }
+}
+
+/** Result classification is pure; budget stops retain their paid usage. */
+export function claudeResultMetadata(result: RawCliPayload | Record<string, unknown>): Record<string, unknown> | undefined {
+  const subtype = typeof result.subtype === 'string' ? result.subtype : undefined;
+  const budgetExceeded = subtype === 'error_max_budget_usd';
+  const failed = !budgetExceeded && (result.is_error === true || subtype?.startsWith('error_'));
+  if (!subtype && !failed) return undefined;
+  const rawErrors = 'errors' in result ? result['errors'] : undefined;
+  const errors = Array.isArray(rawErrors) ? rawErrors : [];
+  const errorMessage = typeof result.result === 'string' && result.result.trim() ? result.result.trim()
+    : typeof errors[0] === 'string' ? errors[0] : `Claude CLI reported ${subtype ?? 'an error result'}`;
+  return {
+    ...(subtype ? { claudeResultSubtype: subtype } : {}),
+    ...(budgetExceeded ? { budgetExceeded: true } : {}),
+    ...(failed ? { turnErrored: true, claudeResultError: errorMessage } : {}),
+  };
 }

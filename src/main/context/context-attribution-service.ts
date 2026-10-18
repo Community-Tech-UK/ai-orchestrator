@@ -19,7 +19,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { COMPUTER_USE_MCP_SERVER_NAME } from '../desktop-gateway/desktop-mcp-config';
 import { nativeOwnedInstructionPaths } from '../core/config/native-instruction-ownership';
-import type { InstructionSourceKind } from '../../shared/types/instruction-source.types';
+import type { InstructionSourceKind, InstructionSourceScope } from '../../shared/types/instruction-source.types';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type {
   ContextAttributionBucket,
@@ -60,6 +60,7 @@ interface InstructionStackLike {
   sources: {
     path: string;
     kind?: InstructionSourceKind;
+    scope?: InstructionSourceScope;
     loaded: boolean;
     applied: boolean;
   }[];
@@ -192,6 +193,7 @@ export async function computeContextAttribution(
       sources: stack.sources.map((source) => ({
         path: source.path,
         kind: source.kind ?? 'custom',
+        scope: source.scope ?? 'custom',
         loaded: source.loaded,
         applied: source.applied,
       })),

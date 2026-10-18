@@ -138,15 +138,10 @@ describe('UX5 predicates', () => {
       expect(copy.action).toContain('Costs & Usage');
     });
 
-    /**
-     * `context-bar` reads `showCost`, but its only mount hardcodes
-     * `[showCost]="false"`, and `token-counter` is unmounted — so the sidebar
-     * total is the one visible thing this toggle changes. Claiming per-session
-     * views would be the same overstatement one narrowing smaller.
-     */
-    it('claims only the sidebar total, which is all the setting really gates', () => {
+    it('names both the session header and sidebar total, and the setting to enable them', () => {
       expect(copy.body).toContain('sidebar total');
-      expect(copy.body).not.toContain('per-session');
+      expect(copy.body).toContain('session header');
+      expect(copy.action).toContain('Show cost estimates');
     });
   });
 

@@ -161,6 +161,7 @@ vi.mock('../../cli-path-resolver', () => ({
 import { ClaudeCliAdapter, DEFER_MIN_VERSION } from '../claude-cli-adapter';
 import type { CliResponse } from '../base-cli-adapter.types';
 import { InputFormatter } from '../../input-formatter';
+import * as transcriptRegistry from '../claude-transcript-registry';
 import { NdjsonParser } from '../../ndjson-parser';
 import { getErrorRecoveryManager } from '../../../core/error-recovery';
 import { ErrorCategory } from '../../../../shared/types/error-recovery.types';
@@ -254,6 +255,13 @@ describe('ClaudeCliAdapter', () => {
       expect(out.usage?.outputTokens).toBe(6);
       expect(out.usage?.providerSessionTotalUsd).toBeCloseTo(0.0938);
       expect(out.usage?.cost).toBeUndefined();
+    });
+
+    it('preserves usage and signals the Claude budget result subtype', () => {
+      const result = adapter.parseOutput(JSON.stringify({type:'result',subtype:'error_max_budget_usd',is_error:true,
+        total_cost_usd:0.011,usage:{input_tokens:100,output_tokens:20}}));
+      expect(result.metadata).toMatchObject({claudeResultSubtype:'error_max_budget_usd',budgetExceeded:true});
+      expect(result.usage).toMatchObject({inputTokens:100,outputTokens:20,providerSessionTotalUsd:0.011});
     });
 
     it('falls back to summed assistant.message.usage when no result message', () => {
@@ -650,19 +658,19 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
   });
 
   describe('sendMessage', () => {
-    it('classifies stdin failures through ErrorRecoveryManager and emits only the error', async () => {
+    it('classifies stdin failures and rejects with one failed completion after close', async () => {
       const recovery = getErrorRecoveryManager();
       recovery.reset();
       const adapter = new ClaudeCliAdapter({});
       const onError = vi.fn();
       adapter.on('error', onError);
+      const onComplete = vi.fn();
+      adapter.on('complete', onComplete);
       const sendPromise = adapter.sendMessage({ role: 'user', content: 'hello' });
-
       await new Promise<void>((resolve) => setImmediate(resolve));
       const proc = spawnedProcesses[spawnedProcesses.length - 1]!;
       const error = new Error('ECONNRESET while writing to Claude');
       (proc.stdin as unknown as EventEmitter).emit('error', error);
-
       expect(recovery.getErrorHistory()).toEqual([
         expect.objectContaining({
           original: error,
@@ -671,9 +679,11 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
         }),
       ]);
       expect(onError).toHaveBeenCalledWith(error);
-
+      expect(onComplete).not.toHaveBeenCalled();
       proc.emit('close', 0);
-      await expect(sendPromise).resolves.toBeDefined();
+      await expect(sendPromise).rejects.toBe(error);
+      expect(onComplete).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ metadata: { turnErrored: true } }));
+      expect(adapter.isRunning()).toBe(false);
     });
 
     it('closes stdin after writing the one-shot stream-json prompt', async () => {
@@ -713,7 +723,7 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
           Buffer.from('{"type":"assistant","message":{"content":[{"type":"text","text":"partial work"}],"usage":{"input_tokens":5,"output_tokens":7}}}\n'),
         );
 
-        await vi.advanceTimersByTimeAsync(100);
+        await vi.advanceTimersByTimeAsync(100 + 3000);
 
         await expect(sendPromise).resolves.toMatchObject({
           content: 'partial work',
@@ -726,7 +736,7 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
           },
         });
         expect(killSpy).toHaveBeenCalledWith(-proc.pid, 'SIGKILL');
-        expect(onComplete).toHaveBeenCalledWith(
+        expect(onComplete).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({
             content: 'partial work',
             metadata: expect.objectContaining({ timedOut: true }),
@@ -810,8 +820,8 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
         );
 
         const rejection = expect(sendPromise).rejects.toThrow('Claude CLI timeout');
-        await vi.advanceTimersByTimeAsync(100);
-
+        // Watchdog, native-result drain, then bounded child-close fallback.
+        await vi.advanceTimersByTimeAsync(100 + 250 + 3000);
         await rejection;
         expect(killSpy).toHaveBeenCalledWith(-proc.pid, 'SIGKILL');
       } finally {
@@ -822,10 +832,8 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
 
   describe('terminate', () => {
     /**
-     * Helper: stand up a ClaudeCliAdapter with a "running" process by
-     * driving `checkStatus()` and then attaching the spawned proc to the
-     * adapter's protected `process` field. This mirrors what spawn() would
-     * do without exercising the full ~600 LOC spawn pipeline.
+     * Attach a fake running child directly to isolate termination from spawn.
+     * Exercise lifecycle ordering through the real adapter's terminate().
      */
     function adapterWithRunningProcess(): { adapter: ClaudeCliAdapter; proc: FakeProc } {
       const adapter = new ClaudeCliAdapter({});
@@ -839,7 +847,7 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
     it('sends SIGTERM to the process group on graceful terminate', async () => {
       const { adapter, proc } = adapterWithRunningProcess();
       const terminatePromise = adapter.terminate(true);
-      // Simulate the process exiting cleanly so the timeout isn't triggered.
+      await vi.waitFor(() => expect(killSpy).toHaveBeenCalledWith(-proc.pid, 'SIGTERM'));
       proc.killed = true;
       proc.emit('exit');
       await terminatePromise;
@@ -1173,6 +1181,44 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
       })}\n`;
     }
 
+    it('resident turns with a growing total_cost_usd complete with per-turn cost', async () => {
+      const { adapter, handleStdout } = adapterWithResidentProcess();
+      const costs: number[] = [];
+      adapter.on('complete', (response: CliResponse) => costs.push(response.usage?.cost ?? -1));
+      await adapter.sendInput('first');
+      handleStdout(resultLine({ total_cost_usd: 0.5 }));
+      await adapter.sendInput('second');
+      handleStdout(resultLine({ total_cost_usd: 1.25 }));
+      expect(costs).toEqual([0.5, 0.75]);
+    });
+
+    it('a reused one-shot adapter that resumes books only the new spend', async () => {
+      const { adapter } = adapterWithResidentProcess();
+      vi.spyOn(transcriptRegistry, 'nativeTranscriptExists').mockReturnValue(true);
+      for (const [total, expected] of [[0.5, 0.5], [1.25, 0.75]]) {
+        const pending = adapter.sendMessage({ role: 'user', content: 'turn' });
+        await new Promise<void>(resolve => setImmediate(resolve));
+        const proc = spawnedProcesses.at(-1)!;
+        proc.stdout.emit('data', Buffer.from(resultLine({ total_cost_usd: total })));
+        proc.emit('close', 0);
+        expect((await pending).usage?.cost).toBe(expected);
+        adapter.setResume(true);
+      }
+      vi.restoreAllMocks();
+    });
+
+    it('a deferred-permission result followed by the final result books once', async () => {
+      const { adapter, handleStdout } = adapterWithResidentProcess();
+      const completed: CliResponse[] = [];
+      adapter.on('complete', response => completed.push(response));
+      await adapter.sendInput('run');
+      handleStdout(resultLine({ total_cost_usd: 0.5, stop_reason: 'tool_deferred',
+        deferred_tool_use: { id: 'tool-1', name: 'Bash', input: { command: 'pwd' } } }));
+      handleStdout(resultLine({ total_cost_usd: 1.25 }));
+      expect(completed).toHaveLength(1);
+      expect(completed[0].usage?.cost).toBe(1.25);
+    });
+
     it('emits complete (with content + usage) when a resident turn ends via a result message', async () => {
       const { adapter, handleStdout } = adapterWithResidentProcess();
       const onComplete = vi.fn();
@@ -1280,4 +1326,15 @@ describe('ClaudeCliAdapter init MCP server report', () => {
 
     expect(onServers).not.toHaveBeenCalled();
   });
+  it('retains assistant usage when a paid budget stop reports zero final counters',()=>{
+    const adapter=new ClaudeCliAdapter({workingDirectory:'/tmp',model:'haiku'});
+    const response=adapter.parseOutput([
+      JSON.stringify({type:'assistant',message:{content:[{type:'text',text:'partial'}],usage:{input_tokens:10,output_tokens:5,cache_read_input_tokens:20,cache_creation_input_tokens:30}}}),
+      JSON.stringify({type:'result',subtype:'error_max_budget_usd',total_cost_usd:0.0064186,
+        usage:{input_tokens:0,output_tokens:0,cache_read_input_tokens:0,cache_creation_input_tokens:0}}),
+    ].join('\n'));
+    expect(response.metadata?.['budgetExceeded']).toBe(true);
+    expect(response.usage).toMatchObject({inputTokens:10,outputTokens:5,cacheReadTokens:20,cacheWriteTokens:30,providerSessionTotalUsd:0.0064186});
+  });
+
 });

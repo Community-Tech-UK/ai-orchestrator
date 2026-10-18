@@ -271,6 +271,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // Cross-Model Review
   crossModelReviewEnabled: true,
+  crossModelReviewDailyLimit: 20,
   crossModelReviewDepth: 'structured',
   crossModelReviewMaxReviewers: 2,
   crossModelReviewProviders: ['cursor', 'antigravity', 'codex'],

@@ -158,6 +158,7 @@ describe('UserActionRequestComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Allow update_automation?');
     expect(fixture.nativeElement.querySelector('.question-input')).toBeNull();
     expect(fixture.nativeElement.querySelector('.scope-select')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.btn-approve')?.textContent?.trim()).toBe('Allow once');
 
     const approve = fixture.nativeElement.querySelector('.btn-approve') as HTMLButtonElement;
     approve.click();
@@ -337,33 +338,77 @@ describe('UserActionRequestComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Edit input');
   });
 
-  it('names the permission-scope select and shows the always-write consequence inline (UX28)', async () => {
+  const showPermission = async (metadata: Record<string, unknown>) => {
     currentInstanceId.set('inst-a');
     fixture.detectChanges();
     await settle(fixture);
-
-    onInputRequired({
-      instanceId: 'inst-a',
-      requestId: 'req-permission-denial',
-      prompt: 'Allow Bash?',
-      timestamp: 1_900_000_000_000,
-      metadata: {
-        type: 'permission_denial',
-        toolName: 'Bash',
-      },
-    });
+    onInputRequired({ instanceId: 'inst-a', requestId: 'permission-1', prompt: 'Permission required', timestamp: 1, metadata });
     fixture.detectChanges();
     await settle(fixture);
+  };
 
-    const select = fixture.nativeElement.querySelector('.scope-select') as HTMLSelectElement | null;
-    const label = fixture.nativeElement.querySelector('.scope-label') as HTMLLabelElement | null;
-    const writeHint = fixture.nativeElement.querySelector('.scope-write-hint') as HTMLElement | null;
+  it('offers only a persistent rule and explains the restart for supported Claude denials', async () => {
+    await showPermission({ type: 'permission_denial', tool_name: 'Bash', path: 'git status' });
+    expect(fixture.nativeElement.querySelector('.scope-select')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.btn-approve')?.textContent?.trim()).toBe(
+      'Always allow (adds a rule to ~/.claude/settings.json and restarts)',
+    );
+    expect(fixture.nativeElement.textContent).toContain('Allows Bash on git status in every Claude session.');
+    expect(fixture.nativeElement.textContent).toContain('The session restarts');
+    expect(fixture.nativeElement.querySelector('.btn-reject')?.textContent?.trim()).toBe("Don't allow");
+  });
 
-    expect(select).toBeTruthy();
-    expect(select?.getAttribute('title')).toBeNull();
-    expect(label?.textContent).toContain('Remember this decision');
-    expect(label?.htmlFor).toBe(select?.id);
-    expect(writeHint?.textContent).toContain('Always writes an allow rule to ~/.claude/settings.json');
+  it('rejects a Claude denial without sending a decision to cache or save', async () => {
+    await showPermission({ type: 'permission_denial', tool_name: 'Edit', action: 'edit', path: '/tmp/a.ts' });
+    buttonByText("Don't allow").click();
+    await settle(fixture);
+    expect(fakeIpc.respondToInputRequired).toHaveBeenCalledWith(
+      'inst-a', 'permission-1', expect.stringContaining('Permission denied'), 'edit:/tmp/a.ts',
+      undefined, undefined, expect.objectContaining({ type: 'permission_denial' }),
+    );
+  });
+
+  it('shows no allow button for an unsupported Claude tool and explains how to retry', async () => {
+    await showPermission({ type: 'permission_denial', tool_name: 'WebFetch', path: 'https://example.test' });
+    expect(fixture.nativeElement.querySelector('.btn-approve')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.scope-select')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain("Harness can't add an allow rule for WebFetch");
+    expect(fixture.nativeElement.textContent).toContain('YOLO button at the top of this session');
+    buttonByText('OK').click();
+    await settle(fixture);
+    expect(fakeIpc.respondToInputRequired.mock.calls[0]?.slice(4, 6)).toEqual([undefined, undefined]);
+  });
+
+  it('refuses a held command without a scope so it is not cached for an hour', async () => {
+    await showPermission({ type: 'deferred_permission', tool_name: 'Bash', tool_use_id: 'toolu_1' });
+    expect(fixture.nativeElement.textContent).toContain('Also allows the same command for the next hour.');
+    expect(fixture.nativeElement.querySelector('.btn-approve')?.textContent?.trim()).toBe('Allow once');
+    buttonByText("Don't allow").click();
+    await settle(fixture);
+    expect(fakeIpc.respondToInputRequired).toHaveBeenCalledWith(
+      'inst-a', 'permission-1', expect.stringContaining('Permission denied'), undefined,
+      'deny', undefined, { type: 'deferred_permission', tool_use_id: 'toolu_1' },
+    );
+  });
+
+  it('names held-command actions and persistence consequences for the selected scope', async () => {
+    await showPermission({ type: 'deferred_permission', tool_name: 'Bash' });
+    const select = fixture.nativeElement.querySelector('.scope-select') as HTMLSelectElement;
+    const label = fixture.nativeElement.querySelector('.scope-label') as HTMLLabelElement;
+    expect(label.htmlFor).toBe(select.id);
+    expect(Array.from(select.options).map(option => option.text)).toEqual(['Once', 'This session', 'Always']);
+    select.value = 'session';
+    select.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.btn-approve')?.textContent?.trim()).toBe('Allow for this session');
+    expect(fixture.nativeElement.querySelector('.btn-reject')?.textContent?.trim()).toBe('Block for this session');
+    expect(fixture.nativeElement.textContent).not.toContain('next hour');
+    select.value = 'always';
+    select.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.btn-approve')?.textContent?.trim()).toBe('Always allow this command');
+    expect(fixture.nativeElement.querySelector('.btn-reject')?.textContent?.trim()).toBe('Always block this command');
+    expect(fixture.nativeElement.textContent).toContain('Saved in Harness (~/.orchestrator/permissions.json) for this exact command, in every session.');
   });
 
   it('shows inline error and does NOT call respondToInputRequired on invalid JSON', async () => {

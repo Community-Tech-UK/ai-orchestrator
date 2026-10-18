@@ -4,6 +4,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
+import type { CostPurposeRange, CostPurposeSummary } from '../../../../../shared/types/cost-purpose.types';
 
 @Injectable({ providedIn: 'root' })
 export class CostIpcService {
@@ -53,6 +54,10 @@ export class CostIpcService {
   async costGetSummary(instanceId?: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.costGetSummary(instanceId);
+  }
+  async costGetPurposeSummary(range?: CostPurposeRange): Promise<IpcResponse<CostPurposeSummary>> {
+    if (!this.api) return {success:false,error:{message:'Not in Electron'}};
+    return this.api.costGetPurposeSummary(range);
   }
 
   /**

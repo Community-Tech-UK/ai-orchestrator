@@ -13,6 +13,7 @@ import { getLLMService, type LLMService } from '../rlm/llm-service';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { runAuthorizedFrontierFallback } from '../local-ai-guard/local-ai-cost-correlation';
 import { getLogger } from '../logging/logger';
+import { recordModelCall } from '../core/system/model-call-recorder';
 import { LIMITS } from '../../shared/constants/limits';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import {
@@ -23,7 +24,7 @@ import {
   type MicrocompactResult,
 } from './microcompact';
 import { ContextCollapse, type CollapsibleTurn, type ApplyResult } from './context-collapse';
-import { buildCompactionPrompt, extractBranchSummaryBlocks, redactSecrets } from './context-compaction-prompt';
+import { buildCompactionPrompt, COMPACTION_SYSTEM_PROMPT, extractBranchSummaryBlocks, redactSecrets } from './context-compaction-prompt';
 import { generateLocalSummary } from './context-local-summary';
 import {
   appendEvidenceWorkingSet,
@@ -151,6 +152,12 @@ export class ContextCompactor extends EventEmitter {
       fillRatio: 0,
       summaries: [],
     };
+  }
+
+  static createIsolated(config: Partial<CompactionConfig> = {}): ContextCompactor {
+    const compactor = new ContextCompactor();
+    compactor.config = { ...DEFAULT_CONFIG, ...config };
+    return compactor;
   }
 
   static getInstance(): ContextCompactor {
@@ -357,7 +364,7 @@ export class ContextCompactor extends EventEmitter {
    * mutating the shared `config.preserveRecent` default. Omitting it is
    * byte-compatible with the pre-WS-B7 behavior (uses `config.preserveRecent`).
    */
-  async compact(options?: { preserveRecentOverride?: number }): Promise<CompactionResult> {
+  async compact(options?: { preserveRecentOverride?: number; force?: boolean; priorSummary?: string | null; summaryPrompt?: string }): Promise<CompactionResult> {
     this.rebuildWorkingStateFromSource();
     const originalTokens = this.state.totalTokens;
     const originalTurnCount = this.state.turns.length;
@@ -382,7 +389,7 @@ export class ContextCompactor extends EventEmitter {
       }
 
       // Check if pruning alone was sufficient
-      if (!this.shouldCompact()) {
+      if (!options?.force && !this.shouldCompact()) {
         const result: CompactionResult = {
           originalTokens,
           compactedTokens: this.state.totalTokens,
@@ -428,7 +435,7 @@ export class ContextCompactor extends EventEmitter {
         (found, t, i) => (found === -1 && t.role === 'user' ? i : found),
         -1
       );
-      if (lastUserTurnIdx !== -1) {
+      if (lastUserTurnIdx !== -1 && !preservedTurns.some(turn => turn.role === 'user')) {
         const [protectedUserTurn] = turnsToCompact.splice(lastUserTurnIdx, 1);
         preservedTurns.unshift(protectedUserTurn);
       }
@@ -448,7 +455,7 @@ export class ContextCompactor extends EventEmitter {
       }
 
       // Generate summary with safety timeout
-      const summary = await this.generateSummaryWithTimeout(turnsToCompact);
+      const summary = await this.generateSummaryWithTimeout(turnsToCompact, options?.priorSummary ?? this.state.summaries.at(-1)?.content ?? null, options?.summaryPrompt);
 
       // Apply tool call retention strategy
       const processedTurns = this.applyToolCallRetention(preservedTurns);
@@ -471,7 +478,7 @@ export class ContextCompactor extends EventEmitter {
       // Phase 3: Post-compaction verification
       this.metrics.attempts++;
 
-      if (newTotalTokens >= originalTokens) {
+      if (!options?.force && newTotalTokens >= originalTokens) {
         this.metrics.failures++;
         compactorLogger.warn('Post-compaction verification failed: tokens did not decrease — discarding result', {
           originalTokens,
@@ -553,7 +560,7 @@ export class ContextCompactor extends EventEmitter {
    * Generate a summary with a safety timeout to prevent hanging on slow LLM calls.
    * If the timeout fires, falls back to local summary generation.
    */
-  private async generateSummaryWithTimeout(turns: ConversationTurn[]): Promise<ConversationSummary> {
+  private async generateSummaryWithTimeout(turns: ConversationTurn[], priorSummary: string | null, summaryPrompt?: string): Promise<ConversationSummary> {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeout = setTimeout(() => reject(new Error('Compaction summary timed out')), COMPACTION_TIMEOUT_MS);
@@ -561,7 +568,7 @@ export class ContextCompactor extends EventEmitter {
 
     try {
       return await Promise.race([
-        this.generateSummary(turns),
+        this.generateSummary(turns, priorSummary, summaryPrompt),
         timeoutPromise,
       ]);
     } catch (error) {
@@ -571,11 +578,8 @@ export class ContextCompactor extends EventEmitter {
         timeoutMs: COMPACTION_TIMEOUT_MS,
       });
       // Fall back to local keyword-extraction summary
-      const priorSummary = this.state.summaries.length > 0
-        ? this.state.summaries[this.state.summaries.length - 1].content
-        : null;
       const localContent = redactSecrets(appendEvidenceWorkingSet(
-        generateLocalSummary(turns, priorSummary),
+        this.generateBasicSummary(turns, priorSummary),
         turns,
         priorSummary,
       ));
@@ -597,7 +601,7 @@ export class ContextCompactor extends EventEmitter {
    * The most recent prior summary (if any) is passed as an anchor so decisions and
    * state from earlier compaction rounds survive across multiple compactions.
    */
-  private async generateSummary(turns: ConversationTurn[]): Promise<ConversationSummary> {
+  private async generateSummary(turns: ConversationTurn[], priorSummary: string | null, summaryPrompt?: string): Promise<ConversationSummary> {
     const evidenceWorkingSet = collectEvidenceWorkingSet(turns);
     const conversationText = turns
       .map(t => {
@@ -617,18 +621,14 @@ export class ContextCompactor extends EventEmitter {
       })
       .join('\n\n');
 
-    const priorSummary = this.state.summaries.length > 0
-      ? this.state.summaries[this.state.summaries.length - 1].content
-      : null;
-
     let summaryContent: string;
 
     // Lazily resolve LLMService if not yet initialized
     const llm = this.llmService ?? getLLMService();
     const isLlmAvailable = await llm.isAvailable();
-
     if (isLlmAvailable) {
-      const compactionPrompt = buildCompactionPrompt(
+      // Restart compaction supplies the exact complete request already fitted to the helper budget.
+      const compactionPrompt = summaryPrompt ?? buildCompactionPrompt(
         conversationText,
         priorSummary,
         extractFileOperationsFromTurns(turns),
@@ -637,15 +637,15 @@ export class ContextCompactor extends EventEmitter {
         extractBranchSummaryBlocks(turns),
         evidenceWorkingSet,
       );
-      const compactionSystemPrompt =
-        'You are a context compaction assistant. Produce a structured summary of the provided conversation turns using the section headers given in the prompt. Be concise and preserve key decisions, file names, and pending work.';
+      const compactionSystemPrompt = COMPACTION_SYSTEM_PROMPT;
 
       // Try auxiliary LLM first (local/cheap model), fall back to primary LLM
       const aux = getAuxiliaryLlmService();
       const { text: auxText, decision: auxDecision } = await aux.generate(
         'compression',
         compactionSystemPrompt,
-        compactionPrompt
+        compactionPrompt,
+        summaryPrompt === undefined ? undefined : { preserveInput: true },
       );
       if (auxDecision.source !== 'fallback' && auxText.trim()) {
         summaryContent = auxText;
@@ -658,10 +658,10 @@ export class ContextCompactor extends EventEmitter {
         // Frontier fallback is disabled for the compression slot — keep all
         // content local with the deterministic summary rather than sending it
         // to the primary (cloud) model.
-        summaryContent = generateLocalSummary(turns, priorSummary);
+        summaryContent = this.generateBasicSummary(turns, priorSummary);
       }
     } else {
-      summaryContent = generateLocalSummary(turns, priorSummary);
+      summaryContent = this.generateBasicSummary(turns, priorSummary);
     }
 
     const redactedContent = redactSecrets(appendEvidenceWorkingSet(
@@ -680,6 +680,11 @@ export class ContextCompactor extends EventEmitter {
       tokenCount: this.estimateTokens(redactedContent),
       timestamp: Date.now(),
     };
+  }
+
+  private generateBasicSummary(turns: ConversationTurn[], priorSummary: string | null): string {
+    recordModelCall({ purpose: 'helper', taskType: 'aux:compression', provider: 'aio-basic-summary', costSource: 'free' });
+    return generateLocalSummary(turns, priorSummary);
   }
 
   private toolOutputExcerpt(output: string): string {

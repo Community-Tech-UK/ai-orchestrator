@@ -56,6 +56,14 @@ describe('Claude provider', () => {
     expect(extractFilePaths(msg, WD, 'claude')).toEqual([`${WD}/src/util.ts`]);
   });
 
+  it.each(['book.ipynb', `${WD}/book.ipynb`])('extracts the native NotebookEdit notebook_path %s', notebookPath => {
+    expect(extractFilePaths(toolUse('NotebookEdit', { notebook_path: notebookPath }), WD, 'claude')).toEqual([`${WD}/book.ipynb`]);
+  });
+
+  it('resolves a native Windows NotebookEdit path with the existing path policy', () => {
+    expect(extractFilePaths(toolUse('NotebookEdit', { notebook_path: 'book.ipynb' }), 'C:\\project', 'claude')).toEqual(['C:\\project\\book.ipynb']);
+  });
+
   it('extracts file_paths from MultiEdit', () => {
     const msg = toolUse('MultiEdit', {
       edits: [

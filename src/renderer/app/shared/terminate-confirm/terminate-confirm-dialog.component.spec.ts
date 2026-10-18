@@ -26,6 +26,7 @@ const ROOT_SESSION = { id: 'i1', displayName: 'Refactor the parser' };
 
 function mount(
   instances: Record<string, unknown>[] = [ROOT_SESSION],
+  runningChatIds = new Set<string>(),
 ): { fixture: ComponentFixture<TerminateConfirmDialogComponent>; store: TerminateConfirmStore } {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
@@ -39,7 +40,7 @@ function mount(
           terminateAllInstances,
         },
       },
-      { provide: LoopStore, useValue: { runningChatIds: () => new Set(['i1']) } },
+      { provide: LoopStore, useValue: { runningChatIds: () => runningChatIds } },
       { provide: PlanQueueStore, useValue: { allRuns: () => queueRunning ? [{ status: 'running' }] : [] } },
     ],
   });
@@ -71,8 +72,67 @@ function pressTab(target: HTMLElement): KeyboardEvent {
 describe('TerminateConfirmDialogComponent (Decision 16b)', () => {
   beforeEach(() => { terminateInstance.mockClear(); terminateAllInstances.mockClear(); queueRunning = false; });
 
-  it('asks before closing all and explains paused queue runs only when running', () => {
+  it('asks before closing all and closes only after confirmation', () => {
+    const { fixture, store } = mount([ROOT_SESSION, { id: 'i2' }]);
+    store.requestAll();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('h3').textContent).toContain('Close all 2 sessions?');
+    expect(fixture.nativeElement.querySelector('p').textContent).toContain('except child sessions');
+    expect(terminateAllInstances).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(fixture.nativeElement.querySelector('.confirm-dialog'));
+    expect(button(fixture, '.btn-confirm').textContent).toContain('Close all sessions');
+    button(fixture, '.btn-confirm').click();
+    fixture.detectChanges();
+    expect(terminateAllInstances).toHaveBeenCalledOnce();
+    expect(terminateInstance).not.toHaveBeenCalled();
+    expect(overlay(fixture)).toBeNull();
+  });
+
+  it('uses singular wording when closing all with one session', () => {
     const { fixture, store } = mount();
+    store.requestAll();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('h3').textContent).toContain('Close 1 session?');
+  });
+
+  it('does not open Close all without sessions', () => {
+    const { fixture, store } = mount([]);
+    store.requestAll();
+    fixture.detectChanges();
+    expect(overlay(fixture)).toBeNull();
+  });
+
+  it.each(['button', 'escape', 'backdrop'])('dismisses Close all with %s without terminating', (method) => {
+    const { fixture, store } = mount();
+    store.requestAll();
+    fixture.detectChanges();
+    if (method === 'button') button(fixture, '.btn-cancel').click();
+    if (method === 'escape') document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    if (method === 'backdrop') overlay(fixture)!.click();
+    fixture.detectChanges();
+    expect(overlay(fixture)).toBeNull();
+    expect(terminateAllInstances).not.toHaveBeenCalled();
+  });
+
+  it('counts only loops in the sessions being closed', () => {
+    const { fixture, store } = mount([ROOT_SESSION, { id: 'i2' }], new Set(['i1', 'i2', 'chat-id']));
+    store.request('i1');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('1 running loop will be stopped too.');
+    store.requestAll();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('2 running loops will be stopped too.');
+  });
+
+  it('omits the loop line when the closing session has no loop', () => {
+    const { fixture, store } = mount([ROOT_SESSION], new Set(['chat-id']));
+    store.request('i1');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('will be stopped too');
+  });
+
+  it('asks before closing all and explains paused queue runs only when running', () => {
+    const { fixture, store } = mount([ROOT_SESSION], new Set(['i1']));
     queueRunning = true;
     store.requestAll(); fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Close 1 session?');

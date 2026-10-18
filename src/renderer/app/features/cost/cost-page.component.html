@@ -65,14 +65,54 @@
       <div class="metric-label">Output Tokens</div>
     </div>
     <div class="metric-card">
-      <div class="metric-value">{{ formatTokens(totalCacheTokens()) }}</div>
-      <div class="metric-label">Cache Tokens</div>
+      <div class="metric-value">{{ formatTokens(totalCacheReadTokens()) }}</div>
+      <div class="metric-label">Cache read</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">{{ formatTokens(totalCacheWriteTokens()) }}</div>
+      <div class="metric-label">Cache write</div>
     </div>
     <div class="metric-card">
       <div class="metric-value">{{ formatTokens(totalTokens()) }}</div>
       <div class="metric-label">Total Tokens</div>
     </div>
   </div>
+
+  <section class="panel-card" aria-label="Spend by purpose">
+    <div class="panel-title">Spend by purpose (last 30 days)</div>
+    <div class="subtitle">Everything Harness started, from the cost log</div>
+    @if (purposeSummary(); as purposes) {
+      @if (!purposes.enabled) {
+        <div class="empty-hint">Cost log is switched off</div>
+      } @else {
+        <div class="header-actions" role="group" aria-label="Group spend">
+          <button class="btn" type="button" [attr.aria-pressed]="purposeGrouping() === 'purpose'" (click)="purposeGrouping.set('purpose')">By purpose</button>
+          <button class="btn" type="button" [attr.aria-pressed]="purposeGrouping() === 'provider'" (click)="purposeGrouping.set('provider')">By provider</button>
+        </div>
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead><tr><th>{{ purposeGrouping() === 'purpose' ? 'Purpose' : 'Provider' }}</th><th>Calls</th><th>Uncached input</th><th>Cache read</th><th>Cache write</th><th>Output</th><th>Cost</th></tr></thead>
+            <tbody>
+              @for (row of purposeRows(); track row.key) {
+                <tr><td>{{ row.key }}</td><td class="num-col">{{ row.calls }}</td><td class="num-col">{{ formatTokens(row.inputTokens) }}</td><td class="num-col">{{ formatTokens(row.cacheReadTokens) }}</td><td class="num-col">{{ formatTokens(row.cacheWriteTokens) }}</td><td class="num-col">{{ formatTokens(row.outputTokens) }}</td><td class="num-col mono">{{ row.estimatedCost > 0 ? '~' : '' }}${{ row.cost.toFixed(4) }}</td></tr>
+              } @empty {
+                <tr><td colspan="7">No model calls recorded in this period.</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        @if (purposes.totals.unknownCostCalls > 0) {
+          <p class="subtitle" data-testid="unknown-cost-footnote">{{ purposes.totals.unknownCostCalls }} calls have no reliable cost, so their dollar amounts are excluded. {{ purposes.totals.freeCalls }} calls ran free on a local model or the basic summary.</p>
+        }
+        @if (purposes.totals.historicalCostUnknownCalls) {
+          <p class="subtitle" data-testid="historical-cost-footnote">{{ purposes.totals.historicalCostUnknownCalls }} historical Claude turns have uncorrected running totals in the cost log. Their dollar amounts are excluded here.</p>
+        }
+      }
+    } @else {
+      <div class="empty-hint">Cost log data is unavailable.</div>
+    }
+    <p class="subtitle">Copilot is billed in AI credits and is not in the dollar total.</p>
+  </section>
 
   <!-- Budget status row -->
   <div class="metrics-row">

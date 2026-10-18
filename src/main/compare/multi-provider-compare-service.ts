@@ -101,7 +101,7 @@ export class MultiProviderCompareService {
     provider: string,
     workingDirectory?: string,
   ): Promise<CompareCell> {
-    const result = await invokeProviderOneShot(this.deps, provider, prompt, { workingDirectory });
+    const result = await invokeProviderOneShot(this.deps, provider, prompt, { workingDirectory, purpose: 'compare' });
     return { provider, ...result };
   }
 }

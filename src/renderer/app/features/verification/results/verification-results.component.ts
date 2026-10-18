@@ -19,7 +19,7 @@ import { VerificationStore } from '../../../core/state/verification.store';
 import { ConsensusHeatmapComponent } from './consensus-heatmap.component';
 import { StreamingTextComponent } from '../../../shared/components/streaming-text/streaming-text.component';
 import { CLIPBOARD_SERVICE } from '../../../core/services/clipboard.service';
-import type { VerdictStatus } from '../../../../../shared/types/verification.types';
+import type { VerdictStatus, VerificationCost } from '../../../../../shared/types/verification.types';
 
 type ResultTab = 'summary' | 'comparison' | 'debate' | 'raw' | 'export';
 
@@ -80,8 +80,8 @@ export class VerificationResultsComponent {
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   }
 
-  formatCost(cost?: number): string {
-    return `$${(cost || 0).toFixed(4)}`;
+  formatCost(cost?: VerificationCost): string {
+    return cost === undefined || cost === 'unknown' ? 'Unknown' : `$${cost.toFixed(4)}`;
   }
 
   formatPersonality(personality?: string): string {

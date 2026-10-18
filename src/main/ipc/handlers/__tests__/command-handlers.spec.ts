@@ -271,6 +271,17 @@ describe('registerCommandHandlers', () => {
     expect(instanceManager.queueInstanceUpdate).toHaveBeenCalledWith('inst-1', {});
   });
 
+  it('emits a goal-command system message when /goal fails', async () => {
+    mocks.commandManager.executeCommand.mockResolvedValue(makeParsedGoal(['fix', 'widget']));
+    mocks.loopCoordinator.startLoop.mockRejectedValue(new Error('Cannot start this loop'));
+    const instanceManager = makeInstanceManager();
+    registerCommandHandlers(instanceManager as never);
+    const result = await invoke(IPC_CHANNELS.COMMAND_EXECUTE, { instanceId: 'inst-1', commandId: 'builtin-goal', args: ['fix', 'widget'] });
+    expect(result).toMatchObject({ success: false, error: { code: 'GOAL_START_FAILED' } });
+    expect(instanceManager.emitSystemMessage).toHaveBeenCalledWith('inst-1', 'Cannot start this loop', expect.objectContaining({ source: 'goal-command', code: 'GOAL_START_FAILED' }));
+    expect(mocks.usageTracker.record).not.toHaveBeenCalled();
+  });
+
   it('allows /goal for non-Claude/Codex providers because Loop Mode owns execution', async () => {
     mocks.commandManager.executeCommand.mockResolvedValue(makeParsedGoal(['ship', 'settings']));
     const instanceManager = makeInstanceManager(makeInstance('gemini'));

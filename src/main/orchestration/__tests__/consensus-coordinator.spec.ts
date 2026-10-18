@@ -45,7 +45,9 @@ vi.mock('../utils/coordinator-error-handler', () => ({
   })),
 }));
 
+import { subscribeCostAttribution, type CostAttributionRecord } from '../../core/system/cost-attribution';
 import { ConsensusCoordinator } from '../consensus-coordinator';
+import { registerProviderModelRates, clearModelRateOverlay } from '../../../shared/data/model-pricing';
 
 class MockConsensusAdapter extends EventEmitter {
   spawn = vi.fn().mockResolvedValue(1234);
@@ -69,6 +71,86 @@ describe('ConsensusCoordinator', () => {
 
   afterEach(() => {
     ConsensusCoordinator._resetForTesting();
+  });
+
+  it('captures complete usage after idle and detaches the attribution listener', async () => {
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    const adapter = new MockConsensusAdapter();
+    adapter.sendInput = vi.fn(async () => {
+      adapter.emit('output', { type: 'assistant', content: 'answer' });
+      adapter.emit('status', 'idle');
+      adapter.emit('complete', { content: 'answer', usage: { inputTokens: 12, outputTokens: 4, cost: 0.05 } });
+    });
+    createAdapterMock.mockReturnValue(adapter);
+    detectAllMock.mockResolvedValue({ available: [{ name: 'claude' }] });
+    try {
+      await ConsensusCoordinator.getInstance().query('question', undefined, { providers: [{ provider: 'claude', model: 'unknown-model' }] });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ purpose: 'consensus', provider: 'claude', model: 'unknown-model', costSource: 'provider', usage: { cost: 0.05 } });
+      expect(adapter.listenerCount('complete')).toBe(0);
+    } finally { stop(); }
+  });
+
+  it('records failed sends with unknown cost and removes observation listeners', async () => {
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    const adapter = new MockConsensusAdapter();
+    adapter.sendInput = vi.fn(async () => { throw new Error('failed send'); });
+    createAdapterMock.mockReturnValue(adapter);
+    detectAllMock.mockResolvedValue({ available: [{ name: 'claude' }] });
+    try {
+      await ConsensusCoordinator.getInstance().query('question', undefined, { providers: [{ provider: 'claude' }] });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ purpose: 'consensus', outcome: 'error', costSource: 'unknown' });
+      expect(adapter.listenerCount('complete')).toBe(0);
+    } finally { stop(); }
+  });
+
+  it.each([
+    { cost: 0.05, estimated: false }, { cost: undefined, estimated: false }, { cost: undefined, estimated: true },
+  ])('records the actual default-panel model with reported cost $cost and estimated=$estimated', async ({ cost, estimated }) => {
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    registerProviderModelRates([{ provider: 'claude', id: 'fixture-recorded-model', rate: { input: 2, output: 10 } }]);
+    const adapter = new MockConsensusAdapter();
+    adapter.sendInput = vi.fn(async () => {
+      adapter.emit('output', { type: 'assistant', content: 'answer' });
+      adapter.emit('status', 'idle');
+      adapter.emit('complete', { content: 'answer', usage: { inputTokens: 12, outputTokens: 4, cost, isEstimated: estimated,
+        providerModelUsage: { 'fixture-recorded-model': { inputTokens: 12, outputTokens: 4 } },
+        byModel: [{ model: 'fixture-recorded-model', inputTokens: 12, outputTokens: 4, cacheReadTokens: 0, cacheWriteTokens: 0 }] } });
+    });
+    createAdapterMock.mockReturnValue(adapter);
+    detectAllMock.mockResolvedValue({ available: [{ name: 'claude' }] });
+    try {
+      const result = await ConsensusCoordinator.getInstance().query('question', undefined, { workingDirectory: '/tmp/project' });
+      expect(result.successCount).toBe(1);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ purpose: 'consensus', provider: 'claude', model: 'fixture-recorded-model', costSource: cost === undefined ? 'priced' : 'provider' });
+      expect(rows[0].usage?.cost).toBeCloseTo(cost ?? 0.000064);
+      expect(rows[0].costKnown).toBe(cost !== undefined || !estimated);
+      expect(rows[0].isEstimated).toBe(estimated ? true : undefined);
+      expect(adapter.listenerCount('complete')).toBe(0);
+    } finally { stop(); clearModelRateOverlay(); }
+  });
+
+  it('rejects a budget-stop partial vote and preserves its paid cost', async () => {
+    const adapter = new MockConsensusAdapter();
+    adapter.sendInput = vi.fn(async () => {
+      adapter.emit('output', { type: 'assistant', content: 'partial vote' });
+      adapter.emit('complete', { content: 'partial vote', metadata: { budgetExceeded: true }, usage: { cost: 0.0064186, inputTokens: 0, outputTokens: 0 } });
+    });
+    createAdapterMock.mockReturnValue(adapter);
+    detectAllMock.mockResolvedValue({ available: [{ name: 'claude' }] });
+    const rows: CostAttributionRecord[] = []; const stop = subscribeCostAttribution(row => rows.push(row));
+    try {
+      const result = await ConsensusCoordinator.getInstance().query('question', undefined, { providers: [{ provider: 'claude' }] });
+      expect(result.responses[0]).toMatchObject({ success: false, content: '', error: 'Provider budget exceeded' });
+      expect(rows[0]).toMatchObject({ outcome: 'budget-exceeded', usage: { cost: 0.0064186 } });
+      expect(createAdapterMock).toHaveBeenCalledWith(expect.objectContaining({ options: expect.objectContaining({ maxBudgetUsd: 1 }) }));
+      expect(adapter.sendInput).toHaveBeenCalledOnce();
+    } finally { stop(); }
   });
 
   it('uses ephemeral Codex sessions for consensus fan-out', async () => {

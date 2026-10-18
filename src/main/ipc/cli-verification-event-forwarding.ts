@@ -68,7 +68,7 @@ export function setupCoordinatorEvents(
         confidence: data.success ? 1 : 0,
         duration: 0,
         tokens: data.tokens || 0,
-        cost: 0,
+        cost: data.cost ?? 'unknown',
         error: data.error,
       },
     };

@@ -17,6 +17,7 @@ import { materializeWorkerAccountRoute, type WorkerAccountRouteParams } from './
 import { wireWorkerInteraction } from './worker-instance-interaction';
 import { InstanceSendRawParamsSchema, remoteContextDetails } from '../main/remote-node/instance-interaction-schemas';
 import { resolveNativeOpenCodeCommandInput } from '../main/commands/provider-native-commands';
+import { observeWorkerInstanceTelemetry } from './worker-instance-telemetry';
 
 const ACTIVITY_WATCHDOG_INTERVAL_MS = 5_000;
 type MobileMcpSpawnAttach = Omit<WorkerAndroidAttach, 'mobileMcpVersion'> & { version?: string };
@@ -27,6 +28,8 @@ export interface SpawnParams {
   interactionId?: string;
   cliType: CliType;
   workingDirectory: string;
+  /** Controller understands pending/settled usage frames for this instance. */
+  usageSettlementProtocol?: 1;
   systemPrompt?: string;
   model?: string;
   reasoningEffort?: UnifiedSpawnOptions['reasoningEffort'];
@@ -403,7 +406,9 @@ export class LocalInstanceManager extends EventEmitter {
         (state, info) => this.emit('instance:stateChange', params.instanceId, state, info), params.interactionId);
       this.interactions.set(params.instanceId, interaction);
 
-      runtimeObserverCleanup = observeAdapterRuntimeEvents(adapter, ({ event, eventId, rawPayload, timestamp }) => {
+      const stopTelemetry = observeWorkerInstanceTelemetry(adapter, telemetry => this.emit('instance:telemetry', params.instanceId, telemetry));
+      runtimeObserverCleanup = stopTelemetry;
+      const stopRuntime = observeAdapterRuntimeEvents(adapter, ({ event, eventId, rawPayload, timestamp }) => {
         switch (event.kind) {
           case 'output': {
             const inst = this.instances.get(params.instanceId);
@@ -456,12 +461,14 @@ export class LocalInstanceManager extends EventEmitter {
             break;
           case 'complete':
             this.relayResumeProof(params.instanceId, adapter);
-            this.emit('instance:complete', params.instanceId, rawPayload as CliResponse);
+            this.emit('instance:complete', params.instanceId, rawPayload as CliResponse,
+              params.usageSettlementProtocol === 1);
             break;
           default:
             break;
         }
       });
+      runtimeObserverCleanup = () => { stopTelemetry(); stopRuntime(); };
 
       adapter.on('heartbeat', () => {
         const inst = this.instances.get(params.instanceId);

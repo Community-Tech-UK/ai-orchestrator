@@ -455,6 +455,7 @@ export const SETTINGS_TOOL_POLICY = {
   ),
   projectKnowledgeAutoMirrorStartupHint: open(z.boolean()),
   crossModelReviewEnabled: open(z.boolean()),
+  crossModelReviewDailyLimit: open(z.number().finite().int().min(0).max(500)),
   crossModelReviewDepth: open(reviewDepthSchema),
   crossModelReviewMaxReviewers: open(numberSettingSchema('crossModelReviewMaxReviewers')),
   crossModelReviewProviders: open(z.array(reviewProviderSchema).max(6)),

@@ -427,7 +427,7 @@ describe('LoopStageMachine', () => {
     expect(iter5).toContain('My specific goal text');
   });
 
-  it('T2: omits the goal and prior observations when reanchorGoal is false', () => {
+  it('T2/A3: keeps the sparse anchor and omits the full goal and prior observations when reanchorGoal is false', () => {
     const m = new LoopStageMachine(tmpDir, RUN_ID);
     const cfg = defaultLoopConfig(tmpDir, 'My specific goal text');
     const skipped = m.buildPrompt({
@@ -438,7 +438,8 @@ describe('LoopStageMachine', () => {
       reanchorGoal: false,
     });
     expect(skipped).not.toContain('Goal (persistent across iterations)');
-    expect(skipped).not.toContain('My specific goal text');
+    expect(skipped).toContain('Goal (unchanged;');
+    expect(skipped).toContain('My specific goal text');
     expect(skipped).not.toContain('Prior Observations');
     expect(skipped).not.toContain('do not resend this');
 
@@ -450,7 +451,8 @@ describe('LoopStageMachine', () => {
       reanchorGoal: false,
     });
     expect(rdSkipped).not.toContain('Goal (persistent across iterations)');
-    expect(rdSkipped).not.toContain('My specific goal text');
+    expect(rdSkipped).toContain('Goal (unchanged;');
+    expect(rdSkipped).toContain('My specific goal text');
     expect(rdSkipped).not.toContain('Prior observations');
   });
 
@@ -602,7 +604,7 @@ describe('LoopStageMachine', () => {
 
     expect(result.changed).toBe(true);
     expect(result.elidedChars).toBeGreaterThan(0);
-    expect(curated).toContain('Older NOTES.md entries were elided');
+    expect(curated).toContain('Older NOTES.md entries were removed');
     expect(curated).toContain('TAIL');
     expect(curated).not.toContain('OLD');
     expect(curated.length).toBeLessThan(original.length);

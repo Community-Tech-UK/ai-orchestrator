@@ -16,6 +16,12 @@ import {
 import { IpcFacadeService } from '../../core/services/ipc';
 import { InstanceStore } from '../../core/state/instance.store';
 import {
+  approveLabelFor,
+  decisionFor,
+  permissionHintFor,
+  permissionScopesFor,
+  rejectLabelFor,
+  scopeOptionLabel,
   canResolveInputRequiredWithYolo,
   defaultInputRequiredScope,
   type InputRequiredScope,
@@ -341,7 +347,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     void this.onSelectOption(selectRequest, option.id);
   }
 
-  getApproveLabel(request: UserActionRequest): string {
+  getApproveLabel(request: UserActionRequest): string | undefined {
     switch (request.requestType) {
       case 'switch_mode':
         return request.targetMode
@@ -352,7 +358,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       case 'confirm':
         return 'Confirm';
       case 'input_required':
-        return 'Allow';
+        return approveLabelFor(request.permissionMetadata, this.getInputRequiredScope(request));
       default:
         return 'Yes';
     }
@@ -382,9 +388,14 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
        request.permissionMetadata?.type === 'codex_mcp_approval');
   }
 
-  supportsPermissionScope(request: UserActionRequest): boolean {
-    return request.permissionMetadata?.type === 'permission_denial'
-      || request.permissionMetadata?.type === 'deferred_permission';
+  getRejectLabel(request: UserActionRequest): string {
+    return this.isPermissionRequest(request)
+      ? rejectLabelFor(request.permissionMetadata, this.getInputRequiredScope(request)) : 'Reject';
+  }
+
+  getPermissionHint(request: UserActionRequest): string {
+    return this.isPermissionRequest(request)
+      ? permissionHintFor(request.permissionMetadata, this.getInputRequiredScope(request)) : '';
   }
 
   isDeferredPermission(request: UserActionRequest): boolean {
@@ -399,36 +410,11 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     return canResolveInputRequiredWithYolo(request);
   }
 
-  /**
-   * Returns the scope choices to show in the scope selector for a given
-   * request. `permission_denial` intentionally drops 'session' because
-   * remembering the grant only for the duration of the current Claude CLI
-   * session would require re-deriving an in-memory allow-list that the CLI
-   * doesn't expose; the meaningful options are 'once' (one-shot retry) and
-   * 'always' (persist to `~/.claude/settings.json`). Deferred permission
-   * prompts keep all three choices so users can opt into a session-scoped
-   * grant via the hook bridge's in-memory resume flow.
-   */
   scopesFor(request: UserActionRequest): InputRequiredScope[] {
-    return this.isPermissionDenial(request)
-      ? ['once', 'always']
-      : ['once', 'session', 'always'];
+    return permissionScopesFor(request.permissionMetadata);
   }
 
-  /**
-   * Human-readable label for a scope choice. Kept inline so the template can
-   * render the options without a pipe or nested switch.
-   */
-  scopeLabel(scope: InputRequiredScope): string {
-    switch (scope) {
-      case 'once':
-        return 'Once';
-      case 'session':
-        return 'Session';
-      case 'always':
-        return 'Always';
-    }
-  }
+  readonly scopeLabel = scopeOptionLabel;
 
   onInputRequiredTextChange(requestId: string, event: Event): void {
     const target = event.target as HTMLTextAreaElement;
@@ -903,8 +889,9 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         const approvalTraceId = meta?.approvalTraceId || `approval-renderer-permission-${request.id}`;
         // Create permission key to clear pending permission tracking
         const permissionKey = meta?.action && meta?.path ? `${meta.action}:${meta.path}` : undefined;
-        const decisionScope = this.getInputRequiredScope(request);
-        const decisionAction = approved ? 'allow' : 'deny';
+        const decision = decisionFor(meta, approved, this.getInputRequiredScope(request));
+        const decisionScope = decision?.scope;
+        const decisionAction = decision?.action;
 
         if (approved) {
           // Construct a helpful retry message based on the permission metadata

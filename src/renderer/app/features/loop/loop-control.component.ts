@@ -48,6 +48,7 @@ import {
   shortTime,
   summaryHasDistinctIterationPrompt as hasDistinctIterationPrompt,
   summarizeToolDetail,
+  terminalStatusLabel,
 } from './loop-formatters.util';
 import { managedWorktreeStatus } from './managed-worktree-status.util';
 import { LoopInspectorProgressComponent } from './loop-inspector-progress.component';
@@ -785,6 +786,7 @@ export class LoopControlComponent implements OnDestroy {
   protected readonly iterationNumber = displayIterationNumber;
   protected readonly executionPath = effectiveLoopExecutionPath;
   protected readonly iterationCapLabel = iterationCapLabel;
+  protected readonly summaryStatusLabel = terminalStatusLabel;
   protected readonly managedStatus = managedWorktreeStatus;
   protected readonly verdictHeader = progressVerdictHeaderWord;
   protected readonly iterationDuration = loopIterationDuration;

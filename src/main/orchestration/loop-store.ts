@@ -32,6 +32,7 @@ import {
   upsertLoopCheckpoint,
 } from './loop-store-checkpoints';
 import { countLoopIterations, insertLoopIteration, selectLoopIterations } from './loop-store-iterations';
+import { closeStoredLoopRun } from './loop-store-close';
 import {
   getLoopWorktreeRecord,
   getPendingLoopWorktreeLifecycles,
@@ -154,6 +155,7 @@ interface LoopTerminalIntentRow {
 
 export class LoopStore {
   constructor(private readonly db: SqliteDriver) {}
+  closeStoredRun(loopRunId: string): boolean { return closeStoredLoopRun(this.db, loopRunId); }
 
   /**
    * Insert / overwrite a loop run row from in-memory state.

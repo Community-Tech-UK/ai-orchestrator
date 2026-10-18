@@ -1,19 +1,19 @@
-import { ContextCompactor } from '../context/context-compactor';
+import { prepareRestartCompaction } from '../context/restart-compaction';
+import { CompactionInputBudgetError } from '../context/compaction-summary-fit';
+import type { ContinuityStats } from '../context/compaction-continuity';
+import { activeMessagesOf } from '../context/compaction-tail';
 import {
   getCompactionCoordinator,
   type CompactionResult,
   type ContextPolicyEvent,
 } from '../context/compaction-coordinator';
 import { getContextEngine } from '../context/context-engine';
-import { exchangesToMessageBoundary, groupExchanges } from '../context/compaction-boundary';
 import { loadAuthenticatedEvidencePreviews } from '../context/compaction-evidence-preview';
 import { buildCompactionDecisionLogLines } from '../context/compaction-decision-log';
-import { CONTINUITY_PACKAGE_MARKER } from '../context/observation-extractor';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getHookManager } from '../hooks/hook-manager';
 import { getLogger } from '../logging/logger';
-import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import {
   recordCompactionMarker,
@@ -48,6 +48,7 @@ export const CONTEXT_POLICY_STEER_NOTICE =
  * "already in progress" early return).
  */
 const pendingManualCheckpoints = new Map<string, string>();
+const pendingRestartStats = new Map<string, { continuityStats: ContinuityStats; restartArchiveId?: string; previousProviderSessionId?: string }>();
 
 interface NativeCompactionAdapter {
   compactContext?: () => Promise<boolean>;
@@ -138,6 +139,7 @@ function recordCompactionBoundary(
   instanceId: string,
   instance: Instance,
   result: CompactionResult,
+  restartMetadata?: Record<string, unknown>,
 ): string | null {
   const createdAt = Date.now();
   return compactionMarkerRecorder({
@@ -152,6 +154,7 @@ function recordCompactionBoundary(
     metadata: {
       previousUsage: result.previousUsage ?? null,
       newUsage: result.newUsage ?? null,
+      ...restartMetadata,
     },
   }) ?? null;
 }
@@ -350,141 +353,35 @@ export function setupCompactionCoordinator(
       return capabilities?.selfManagedAutoCompaction === true;
     },
     restartCompact: async (instanceId: string, options?: CompactionBoundaryOptions) => {
-      const compactor = ContextCompactor.getInstance();
       try {
         const instance = instanceManager.getInstance(instanceId);
         if (!instance) return false;
-
-        compactor.clear();
-
         const evidencePreviews = await loadAuthenticatedEvidencePreviews(instance);
-        if (evidencePreviews.length > 0) {
-          // LT-188: suppress the auto-compact trigger during this bulk rebuild —
-          // the explicit `compactor.compact()` call below already handles it
-          // deterministically once every turn has been re-added, and letting
-          // addTurn's own auto-trigger fire mid-rebuild races that call.
-          compactor.addTurn({
-            role: 'system',
-            content: 'Authenticated evidence is retained below as bounded, untrusted source material.',
-            tokenCount: sharedEstimateTokens('Authenticated evidence working set.'),
-            toolCalls: evidencePreviews.map((preview) => ({
-              id: `evidence-${preview.evidenceId}`,
-              name: 'context-evidence',
-              input: '[Authenticated ledger lookup]',
-              output: preview.preview,
-              inputTokens: 5,
-              outputTokens: preview.tokenCount + 1,
-              evidencePreview: preview,
-            })),
-          }, { suppressAutoCompact: true });
-        }
-
-        const turns = instance.outputBuffer
-          .filter(msg => msg.type === 'user' || msg.type === 'assistant')
-          .map(msg => ({
-            role: msg.type as 'user' | 'assistant',
-            content: msg.content,
-            tokenCount: sharedEstimateTokens(msg.content),
-          }));
-
-        for (const turn of turns) {
-          compactor.addTurn(turn, { suppressAutoCompact: true });
-        }
-
-        // WS-B7: honor an explicit "keep latest N exchanges" boundary.
-        // Omitting it (the pre-WS-B7 default, and what plain "Compact Now"
-        // still sends) leaves `compact()` on its own `preserveRecent`
-        // config — byte-identical to the prior behavior.
-        const preserveRecentOverride = options?.keepLatestExchanges === undefined
-          ? undefined
-          : exchangesToMessageBoundary(groupExchanges(turns), options.keepLatestExchanges);
-
-        const compactionResult = await compactor.compact(
-          preserveRecentOverride === undefined ? undefined : { preserveRecentOverride },
-        );
-        const summaries = compactor.getState().summaries;
-        const latestSummary = summaries[summaries.length - 1];
-        const summaryText = latestSummary?.content || 'Previous conversation context was compacted.';
-
-        const latestUserMessage = [...instance.outputBuffer]
-          .reverse()
-          .find(msg => msg.type === 'user');
-        const currentObjective = latestUserMessage?.content || 'Continue from the previous task.';
-
-        const unresolvedItems = instance.outputBuffer
-          .slice(-30)
-          .flatMap(msg => {
-            const matches = msg.content.match(/(?:^|\n)\s*(?:- \[ \]|todo[:-]|next[:-]|follow-up[:-])\s*(.+)/gi) || [];
-            return matches.map(m =>
-              m.replace(/(?:^|\n)\s*(?:- \[ \]|todo[:-]|next[:-]|follow-up[:-])\s*/i, '').trim()
-            );
-          })
-          .filter(Boolean)
-          .slice(0, 5);
-
-        const recentTurns = instance.outputBuffer
-          .filter(msg => msg.type === 'user' || msg.type === 'assistant')
-          .slice(-8)
-          .map(msg => {
-            const role = msg.type === 'user' ? 'User' : 'Assistant';
-            const content = msg.content.length > 400
-              ? `${msg.content.slice(0, 400)}...[truncated]`
-              : msg.content;
-            return `- ${role}: ${content}`;
-          });
-
-        const continuityPrompt = [
-          CONTINUITY_PACKAGE_MARKER,
-          'Compaction method: restart-with-summary',
-          '',
-          'Objective:',
-          currentObjective,
-          '',
-          'Unresolved items:',
-          unresolvedItems.length > 0 ? unresolvedItems.map(item => `- ${item}`).join('\n') : '- None captured.',
-          '',
-          ...buildCompactionDecisionLogLines(instanceId, instance.outputBuffer),
-          'Compacted summary:',
-          summaryText,
-          '',
-          'Authenticated evidence working set:',
-          evidencePreviews.length > 0
-            ? evidencePreviews.map((preview) => preview.preview).join('\n\n')
-            : '- No authenticated evidence previews were available.',
-          '',
-          'Recent turns:',
-          recentTurns.length > 0 ? recentTurns.join('\n') : '- No recent turns available.',
-          '',
-          'Continue from this state without redoing completed work.',
-          '[End Continuity Package]',
-        ].join('\n');
-
-        // Use a FRESH restart, not the context-preserving one. `restartInstance`
-        // recovers via native `--resume` / history replay, which restores the
-        // entire prior conversation into the new CLI process — defeating
-        // compaction and snapping context usage straight back to ~100%.
-        // `restartFreshInstance` spawns a clean session (resume: false, new
-        // session id, resetTotalTokensUsed) and archives the old messages, so
-        // the continuity package below becomes the seed of an empty context.
-        await instanceManager.restartFreshInstance(instanceId);
-        await instanceManager.sendInput(
-          instanceId,
-          continuityPrompt,
-          undefined,
-          { automatedInput: true, internalSource: 'compaction-continuity' },
-        );
-
-        logger.info('restart-with-summary compaction completed', {
-          instanceId,
-          reductionRatio: compactionResult.reductionRatio,
+        let maxInputTokens = 96000;
+        try {
+          const slots = JSON.parse(getSettingsManager().get('auxiliaryLlmSlotsJson')) as { compression?: { maxInputTokens?: number } };
+          const configured = slots.compression?.maxInputTokens;
+          if (configured && Number.isFinite(configured) && configured > 0) maxInputTokens = configured;
+        } catch { /* The default compression budget applies to legacy settings. */ }
+        const prepared = await prepareRestartCompaction(instance, {
+          ...options, maxInputTokens,
+          evidence: evidencePreviews.map(preview => preview.preview).join('\n\n'),
+          decisions: buildCompactionDecisionLogLines(instanceId, activeMessagesOf(instance)).join('\n'),
         });
-
+        const previousProviderSessionId = instance.sessionId;
+        const restartArchiveId = await instanceManager.restartFreshInstance(instanceId);
+        await instanceManager.sendInput(instanceId, prepared.text, undefined,
+          { automatedInput: true, internalSource: 'compaction-continuity' });
+        pendingRestartStats.set(instanceId, { continuityStats: prepared.stats, restartArchiveId, previousProviderSessionId });
+        logger.info('restart-with-summary compaction completed', { instanceId, ...prepared.stats });
         return true;
       } catch (error) {
+        pendingRestartStats.delete(instanceId);
+        if (error instanceof CompactionInputBudgetError) {
+          coordinator.emit('compaction-refused', { instanceId, error: error.message });
+        }
         logger.error('Restart-with-summary compaction failed', error instanceof Error ? error : undefined);
         return false;
-      } finally {
-        compactor.clear();
       }
     },
   });
@@ -507,6 +404,8 @@ export function setupCompactionCoordinator(
     // compaction never leaves a stale entry behind.
     const checkpointId = pendingManualCheckpoints.get(instanceId) ?? null;
     pendingManualCheckpoints.delete(instanceId);
+    const restartStats = pendingRestartStats.get(instanceId);
+    pendingRestartStats.delete(instanceId);
 
     if (result.success) {
       const instance = instanceManager.getInstance(instanceId);
@@ -520,7 +419,7 @@ export function setupCompactionCoordinator(
           });
         }
 
-        const markerId = recordCompactionBoundary(instanceId, instance, result);
+        const markerId = recordCompactionBoundary(instanceId, instance, result, restartStats);
         const boundaryMessage = {
           id: crypto.randomUUID(),
           timestamp: Date.now(),
@@ -531,6 +430,7 @@ export function setupCompactionCoordinator(
             method: result.method,
             previousUsage: result.previousUsage,
             newUsage: result.newUsage,
+            ...(restartStats ?? {}),
             ...(markerId ? { compactionMarkerId: markerId } : {}),
             ...(checkpointId ? { checkpointId } : {}),
           },
@@ -573,6 +473,7 @@ export function setupCompactionCoordinator(
   });
 
   coordinator.on('compaction-error', (payload) => {
+    pendingRestartStats.delete(payload.instanceId);
     windowManager.sendToRenderer('instance:compact-status', {
       ...payload,
       status: 'error',

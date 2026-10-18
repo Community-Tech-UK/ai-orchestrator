@@ -13,6 +13,8 @@ import { isCliAvailable, type CliType } from '../cli/cli-detection';
 import { isProviderNotice } from '../cli/provider-notice';
 import { resolveModelForTier } from '../../shared/types/provider.types';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { observeModelCallUsage, isModelCallCancelled } from '../core/system/observed-model-call-usage';
+import { recordModelCall } from '../core/system/model-call-recorder';
 import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
 
 /** Wall-clock cap for a single provider's one-shot response. */
@@ -32,6 +34,7 @@ export interface ProviderInvokeResult {
   answer?: string;
   error?: string;
   durationMs: number;
+  usage?: CliResponse['usage'];
 }
 
 export async function defaultResolveProvider(provider: string): Promise<CliType | null> {
@@ -74,6 +77,8 @@ export async function invokeProviderOneShot(
   provider: string,
   prompt: string,
   options: {
+    purpose?: 'council' | 'compare';
+    correlationId?: string;
     workingDirectory?: string;
     signal?: AbortSignal;
     /** Reports the live adapter back to the caller so it can be terminated on cancellation. */
@@ -109,6 +114,7 @@ export async function invokeProviderOneShot(
           model,
           yoloMode: false,
           timeout: PROVIDER_INVOKE_TIMEOUT,
+          maxBudgetUsd: cliType === 'claude' ? 1 : undefined,
         },
         'consensus',
       ),
@@ -122,9 +128,19 @@ export async function invokeProviderOneShot(
     return { ok: false, model, error: 'Provider does not support one-shot prompts', durationMs: elapsed() };
   }
 
+  if (options.signal?.aborted) return { ok: false, model, error: 'Cancelled', durationMs: elapsed() };
+  const observed = observeModelCallUsage(adapter);
+  let outcome: 'success' | 'error' | 'cancelled' | 'budget-exceeded' = 'error';
   try {
     const response = await adapter.sendMessage({ role: 'user', content: prompt });
+    observed.observe(response.usage);
+    const usage = observed.usage;
+    if (response.metadata?.['budgetExceeded'] === true) {
+      outcome = 'budget-exceeded';
+      return { ok: false, model, usage, error: 'Provider budget exceeded', durationMs: elapsed() };
+    }
     if (options.signal?.aborted) {
+      outcome = 'cancelled';
       return { ok: false, model, error: 'Cancelled', durationMs: elapsed() };
     }
     const raw = (response.content ?? '').trim();
@@ -134,11 +150,17 @@ export async function invokeProviderOneShot(
     if (isProviderNotice(raw)) {
       return { ok: false, model, error: 'Provider returned a status/limit notice', durationMs: elapsed() };
     }
-    return { ok: true, model, answer: raw, durationMs: elapsed() };
+    outcome = 'success';
+    return { ok: true, model, answer: raw, usage, durationMs: elapsed() };
   } catch (error) {
-    if (options.signal?.aborted) {
+    observed.observeError(error);
+    if (options.signal?.aborted || isModelCallCancelled(error)) {
+      outcome = 'cancelled';
       return { ok: false, model, error: 'Cancelled', durationMs: elapsed() };
     }
     return { ok: false, model, error: errMsg(error), durationMs: elapsed() };
+  } finally {
+    observed.dispose();
+    if (observed.dispatched) recordModelCall({ purpose: options.purpose ?? 'council', provider: cliType, model, usage: observed.usage, outcome, correlationId: options.correlationId });
   }
 }

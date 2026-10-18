@@ -21,6 +21,7 @@ vi.mock('../../logging/logger', () => ({
 }));
 
 import { MagicPromptService, type MagicPromptServiceDeps } from '../magic-prompt-service';
+import { subscribeCostAttribution, type CostAttributionRecord } from '../../core/system/cost-attribution';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import type { RecapResult, CommitMessageResult } from '../magic-prompt-registry';
 
@@ -35,7 +36,7 @@ function makeService(
   const sendMessage = vi.fn(async ({ content }: { content: string }) => {
     if (canned instanceof Error) throw canned;
     const out = typeof canned === 'function' ? canned(content) : canned;
-    return { id: 'r1', role: 'assistant' as const, content: out };
+    return { id: 'r1', role: 'assistant' as const, content: out, usage: undefined as { cost?: number } | undefined };
   });
 
   const resolveProvider = vi.fn(async () => (opts.provider === undefined ? 'claude' : opts.provider));
@@ -58,6 +59,23 @@ const VALID_RECAP = JSON.stringify({
 describe('MagicPromptService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('records success and invalid or failed results without claiming zero spend', async () => {
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    try {
+      const valid = makeService(VALID_RECAP);
+      valid.sendMessage.mockResolvedValueOnce({ id: 'r', role: 'assistant', content: VALID_RECAP, usage: { cost: 0.03 } });
+      await valid.service.run({ id: 'recap', text: 'convo' });
+      await makeService('bad JSON').service.run({ id: 'recap', text: 'convo' });
+      await makeService(new Error('failed')).service.run({ id: 'recap', text: 'convo' });
+      expect(rows).toHaveLength(3);
+      expect(rows[0]).toMatchObject({ purpose: 'magic-prompt', provider: 'claude', usage: { cost: 0.03 }, costSource: 'provider' });
+      expect(rows.slice(1)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ outcome: 'error', costSource: 'unknown' }),
+      ]));
+    } finally { stop(); }
   });
 
   it('lists the registered magic prompts', () => {

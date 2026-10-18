@@ -672,6 +672,14 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.context?.compaction.resetAtUtilization).toBe(0.75);
   });
 
+  it('describes the short recycle note and mounts the recycle tooltip', () => {
+    component.showAdvanced.set(true);
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('1,200 characters');
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('50KB');
+    expect(template).toContain("copy('loop.recycleToggle')");
+  });
+
   describe('B4 loop presets', () => {
     /** Real DOM clicks through the rendered picker, not direct applyPreset calls. */
     function presetButton(id: string): HTMLButtonElement {

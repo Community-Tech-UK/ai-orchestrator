@@ -99,7 +99,8 @@ function describeTerminalIntent(intent: LoopTerminalIntent): { title: string; re
  *  still `running`/`paused`, or ended on `provider-limit` (covered by the
  *  provider-limit source instead) intentionally have no entry here. */
 const LOOP_FINAL_OUTCOME_TITLES: Partial<Record<LoopStatus, string>> = {
-  'completed-needs-review': 'Finished — flagged items for you to check',
+  'completed-needs-review': 'Ended, see notes',
+  'attempt-failed': 'Stopped: a step failed and its changes are unknown or unsafe to replay',
   failed: 'Stopped — the run failed',
   error: 'Stopped — hit an error',
   'no-progress': 'Stopped — no progress across recent iterations',

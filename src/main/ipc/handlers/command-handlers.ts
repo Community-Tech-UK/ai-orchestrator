@@ -34,6 +34,7 @@ import { getUsageTracker } from '../../usage/usage-tracker';
 import { evaluateApplicability } from '../../../shared/utils/command-applicability';
 import { executeGoalCommand } from './goal-command-handler';
 import { nativeOpenCodeCommands, resolveNativeOpenCodeCommand } from '../../commands/provider-native-commands';
+import { emitGoalCommandError } from '../../commands/goal-loop-command';
 
 export function registerCommandHandlers(
   instanceManager: InstanceManager
@@ -211,6 +212,7 @@ export function registerCommandHandlers(
           if (result.success) {
             getUsageTracker().record('command', executed.command.id, workingDirectory);
           }
+          emitGoalCommandError(instanceManager, validated.instanceId, result);
           return result;
         }
 

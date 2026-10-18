@@ -16,6 +16,7 @@ import type {
   LocalAiTarget,
   LocalAiTargetStatus,
 } from '../../../../shared/types/local-ai-guard.types';
+import type { AuxiliaryHelperPause } from '../../../../shared/types/auxiliary-llm.types';
 import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
 import { LocalAiGuardPageComponent } from './local-ai-guard-page.component';
 import { LOCAL_AI_GUARD_CLOCK } from './local-ai-guard-clock';
@@ -180,6 +181,8 @@ describe('LocalAiGuardPageComponent', () => {
     refresh: vi.fn(async () => undefined),
     loadInventory: vi.fn(async () => undefined),
     snapshot: vi.fn(() => snapshot()),
+    helperPauses: vi.fn<() => AuxiliaryHelperPause[]>(() => []),
+    retryHelperNow: vi.fn(async () => snapshot()),
     hasAuthoritativeSnapshot: vi.fn(() => true),
     aggregate: vi.fn(() => snapshot().aggregate),
     targets: vi.fn(() => [status()]),
@@ -211,6 +214,7 @@ describe('LocalAiGuardPageComponent', () => {
     vi.useFakeTimers();
     clockNow = NOW;
     vi.clearAllMocks();
+    store.helperPauses.mockReturnValue([]);
     store.discoveries.mockReturnValue([discovery()]);
     store.knownTarget.mockReturnValue(configuredTarget());
     await TestBed.configureTestingModule({
@@ -229,6 +233,14 @@ describe('LocalAiGuardPageComponent', () => {
   afterEach(() => {
     fixture.destroy();
     vi.useRealTimers();
+  });
+
+  it('shows each paused helper and lets it retry now', async () => {
+    store.helperPauses.mockReturnValue([{ slot: 'compression', pausedUntil: NOW + 60_000, failures: 2, startedAt: NOW, reason: 'Paused after 2 failures' }]);
+    await recreateFixture();
+    expect(fixture.nativeElement.textContent).toContain('compression: helpers paused until');
+    click('Retry now'); await fixture.whenStable();
+    expect(store.retryHelperNow).toHaveBeenCalledWith('compression');
   });
 
   it('loads inventory and renders worker → endpoint → model → canary evidence', () => {

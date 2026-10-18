@@ -273,6 +273,11 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     args.push('--max-turns', spawnOptions.maxTurns.toString());
   }
 
+  if (!input.shouldUseNativeResume && typeof spawnOptions.maxBudgetUsd === 'number'
+    && Number.isFinite(spawnOptions.maxBudgetUsd) && spawnOptions.maxBudgetUsd > 0) {
+    args.push('--max-budget-usd', String(spawnOptions.maxBudgetUsd));
+  }
+
   // Only add user-specified allowedTools if in YOLO mode (already handled above for non-YOLO)
   if (
     !spawnOptions.readOnlyReview && spawnOptions.yoloMode &&

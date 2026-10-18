@@ -1,5 +1,4 @@
 import { machineSessionReasonOf } from '../../shared/utils/machine-session';
-import { resolveModelCallCost } from '../core/system/model-call-recorder';
 /**
  * Per-turn cost recording and estimate-vs-actual telemetry.
  *
@@ -15,53 +14,79 @@ import { normalizeUsage, type UsageLike } from '../../shared/util/usage-normaliz
 import { getTokenCounter } from '../rlm/token-counter';
 import type { Instance } from '../../shared/types/instance.types';
 import type { CliResponse } from '../cli/adapters/base-cli-adapter';
+import { computeProviderTokenCost } from '../../shared/data/model-pricing';
+import { deferUntilResponseUsageSettled } from '../cli/adapters/deferred-response-usage';
 
 const logger = getLogger('InstanceCommunication');
+
+export type CompletionCostIdentity = Pick<Instance, 'sessionId' | 'provider' | 'currentModel' | 'parentId' | 'agentId' | 'metadata'>;
+export function captureCompletionCostIdentity(instance: Instance): CompletionCostIdentity {
+  return { sessionId: instance.sessionId, provider: instance.provider, currentModel: instance.currentModel,
+    parentId: instance.parentId, agentId: instance.agentId, metadata: { ...instance.metadata } };
+}
 
 export function recordCompletionCost(
   instanceId: string,
   instance: Instance,
   response: CliResponse,
+  onUsageSettled?: () => void,
+  identity = captureCompletionCostIdentity(instance),
 ): void {
+  if (deferUntilResponseUsageSettled(response, () => {
+    recordCompletionCost(instanceId, instance, response, undefined, identity);
+    onUsageSettled?.();
+  })) return;
+  const billingInstance = { ...instance, ...identity };
   try {
-    const usage = normalizeUsage(response.usage as UsageLike | undefined);
-    if (!usage && typeof response.usage?.cost !== 'number') {
+    const rawProviderCost = response.usage?.cost;
+    const providerCost = typeof rawProviderCost === 'number' && Number.isFinite(rawProviderCost) && rawProviderCost >= 0 ? rawProviderCost : undefined;
+    const positiveProviderCost = providerCost !== undefined && providerCost > 0;
+    const usage = normalizeUsage(response.usage as UsageLike | undefined) ?? (positiveProviderCost ? {} : undefined);
+    if (!usage) {
       return;
     }
-    const input = usage?.input ?? 0;
-    const output = usage?.output ?? 0;
-    const cacheRead = usage?.cacheRead ?? 0;
-    const cacheWrite = usage?.cacheWrite ?? 0;
-    const reasoning = usage?.reasoning ?? 0;
-    if (input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0 && reasoning === 0 && typeof response.usage?.cost !== 'number') {
+    const input = usage.input ?? 0;
+    const output = usage.output ?? 0;
+    const cacheRead = usage.cacheRead ?? 0;
+    const cacheWrite = usage.cacheWrite ?? 0;
+    const reasoning = usage.reasoning ?? 0;
+    if (!positiveProviderCost && input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0 && reasoning === 0) {
       return;
     }
-    const model = instance.currentModel || instance.provider;
-    const resolvedCost = resolveModelCallCost(instance.provider, model, response.usage);
-    const providerCost = resolvedCost.costUsd ?? undefined;
+    const model = billingInstance.currentModel || billingInstance.provider;
     const isEstimated = response.usage?.isEstimated === true;
-    getCostTracker().recordUsage(
+    const observedTokens = { inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, reasoningTokens: reasoning };
+    const freeProvider = ['copilot', 'cursor', 'ollama', 'lmstudio'].includes(billingInstance.provider.toLowerCase());
+    const pricedCost = !isEstimated && !freeProvider
+      ? computeProviderTokenCost(billingInstance.provider, model, observedTokens) : undefined;
+    const attributionCost = providerCost ?? pricedCost ?? (freeProvider ? 0 : undefined);
+    const entry = getCostTracker().recordUsage(
       instanceId,
-      instance.sessionId,
+      billingInstance.sessionId,
       model,
       input,
       output,
       cacheRead,
       cacheWrite,
-      typeof providerCost === 'number' ? providerCost : undefined,
+      attributionCost,
       reasoning,
       isEstimated,
+      { provider: billingInstance.provider, byModel: response.usage?.byModel },
     );
+    instance.contextUsage.costEstimate = (instance.contextUsage.costEstimate ?? 0) + entry.cost;
     recordInstanceTurnAttribution({
-      purpose: machineSessionReasonOf(instance) === 'plan-queue' ? 'plan-queue' : typeof instance.metadata?.['spendPurpose'] === 'string' ? instance.metadata['spendPurpose'] : undefined,
+      purpose: machineSessionReasonOf(billingInstance) === 'plan-queue' ? 'plan-queue' : typeof billingInstance.metadata?.['spendPurpose'] === 'string' ? billingInstance.metadata['spendPurpose'] : undefined,
       instanceId,
-      parentId: instance.parentId,
-      agentId: instance.agentId,
-      provider: instance.provider,
+      parentId: billingInstance.parentId,
+      agentId: billingInstance.agentId,
+      provider: billingInstance.provider,
       model,
-      usage: { inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, reasoningTokens: reasoning, cost: response.usage?.cost },
-      costKnown: resolvedCost.costSource === 'provider' || resolvedCost.costSource === 'free',
+      usage: { ...observedTokens, ...(attributionCost === undefined ? {} : { cost: attributionCost }) },
+      costKnown: attributionCost !== undefined,
+      costSource: providerCost !== undefined ? 'provider' : pricedCost !== undefined ? 'priced' : freeProvider ? 'free' : 'unknown',
       isEstimated,
+      ...(billingInstance.metadata?.['spendPurpose'] === 'automation' || billingInstance.metadata?.['spendPurpose'] === 'channel'
+        ? { spendPurpose: billingInstance.metadata['spendPurpose'] } : {}),
     });
     if (!isEstimated) {
       getCacheAnalyticsService().recordTurn(instanceId, { input, cacheRead, cacheWrite });

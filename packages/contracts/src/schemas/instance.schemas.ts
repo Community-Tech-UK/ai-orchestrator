@@ -682,6 +682,17 @@ export const InstanceFastToggledEventPayloadSchema = z.object({
 // Cross-model review + doom-loop + input-required renderer events
 // ─────────────────────────────────────────────────────────────────────────────
 
+export const CrossModelReviewSkippedEventSchema = z.object({
+  instanceId: z.string(),
+  reason: z.literal('daily-limit'),
+  dailyUsage: z.object({
+    used: z.number().int().nonnegative(),
+    limit: z.number().int().nonnegative(),
+    resetsAt: z.number().finite(),
+    limitReached: z.boolean(),
+  }).strict(),
+}).strict();
+
 export const CrossModelReviewStartedEventSchema = z.object({
   instanceId: z.string(),
   reviewId: z.string(),
@@ -698,6 +709,7 @@ export const CrossModelReviewResultEventSchema = z.object({
   reviewDepth: z.enum(['structured', 'tiered']),
   reviews: z.array(z.object({ reviewerId: z.string() }).passthrough()),
   localReviewer: z.unknown().optional(),
+  turnSeq: z.number().int().nonnegative().optional(),
   hasDisagreement: z.boolean(),
   reviewStartedAt: z.number().optional(),
   timestamp: z.number(),

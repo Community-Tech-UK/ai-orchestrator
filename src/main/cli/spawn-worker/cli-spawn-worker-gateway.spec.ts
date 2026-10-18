@@ -1,10 +1,14 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CliSpawnWorkerGateway,
   type CliSpawnWorkerLike,
 } from './cli-spawn-worker-gateway';
+import { killProcessGroup } from '../adapters/base-cli-process-utils';
 import type { SpawnWorkerInboundMsg, SpawnWorkerOutboundMsg } from './cli-spawn-worker-protocol';
+
+vi.mock('../adapters/base-cli-process-utils', () => ({ killProcessGroup: vi.fn(() => true) }));
+afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
 
 class FakeWorker extends EventEmitter implements CliSpawnWorkerLike {
   readonly posted: SpawnWorkerInboundMsg[] = [];
@@ -142,5 +146,64 @@ describe('CliSpawnWorkerGateway', () => {
     worker.send({ type: 'rpc-response', id: 1, error: 'spawn missing-cli ENOENT' });
 
     await expect(spawnPromise).rejects.toThrow('spawn missing-cli ENOENT');
+  });
+});
+
+
+describe('worker ownership after thread failure', () => {
+  it('drains queued usage before notifying owners and isolates throwing callbacks', async () => {
+    const worker = new FakeWorker();
+    let finish!: (code: number) => void;
+    vi.spyOn(worker, 'terminate').mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const gateway = new CliSpawnWorkerGateway({ workerFactory: () => worker });
+    const order: string[] = [];
+    gateway.registerInstance('one', { stdout: () => order.push('paid-output'),
+      failed: () => { order.push('failure'); throw new Error('Fixture callback failure'); }, exited: () => order.push('exit-one') });
+    const other = { failed: vi.fn(), exited: vi.fn() };
+    gateway.registerInstance('two', other);
+    worker.send({ type: 'spawned', instanceId: 'one', pid: 101 });
+    worker.send({ type: 'spawned', instanceId: 'two', pid: 102 });
+    worker.emit('error', new Error('Fixture worker loss'));
+    await expect(gateway.writeStdin('one', 'late')).rejects.toThrow('unavailable');
+    expect(order).toEqual([]);
+    worker.send({ type: 'stdout-chunk', instanceId: 'one', chunk: 'paid fixture' });
+    worker.emit('exit', 1); finish(1);
+    await Promise.resolve();
+    expect(order).toEqual(['paid-output', 'failure', 'exit-one']);
+    expect(other.failed).toHaveBeenCalledOnce(); expect(other.exited).toHaveBeenCalledOnce();
+    expect(killProcessGroup).toHaveBeenCalledTimes(2);
+    await gateway.close();
+  });
+
+  it('ignores stale worker events after one restart and never restarts after close', async () => {
+    vi.useFakeTimers();
+    const first = new FakeWorker(); const next = new FakeWorker();
+    const factory = vi.fn().mockReturnValueOnce(first).mockReturnValue(next);
+    const gateway = new CliSpawnWorkerGateway({ workerFactory: factory });
+    const owner = { failed: vi.fn(), exited: vi.fn(), stdout: vi.fn() };
+    gateway.registerInstance('one', owner);
+    first.send({ type: 'spawned', instanceId: 'one', pid: 101 });
+    first.emit('error', new Error('Fixture worker loss')); first.emit('exit', 1);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(owner.exited).toHaveBeenCalledOnce();
+    first.send({ type: 'stdout-chunk', instanceId: 'one', chunk: 'stale' }); first.emit('exit', 1);
+    expect(owner.stdout).not.toHaveBeenCalled();
+    const closing = gateway.close();
+    const shutdown = next.posted.find(message => message.type === 'shutdown')!;
+    next.send({ type: 'rpc-response', id: shutdown.id }); await closing;
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(factory).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not kill or notify a child that already reported exit', async () => {
+    const worker = new FakeWorker();
+    const gateway = new CliSpawnWorkerGateway({ workerFactory: () => worker });
+    const owner = { failed: vi.fn(), exited: vi.fn() }; gateway.registerInstance('one', owner);
+    worker.send({ type: 'spawned', instanceId: 'one', pid: 101 });
+    worker.send({ type: 'exited', instanceId: 'one', code: 0, signal: null });
+    worker.emit('exit', 0);
+    expect(owner.failed).not.toHaveBeenCalled(); expect(owner.exited).toHaveBeenCalledOnce();
+    expect(killProcessGroup).not.toHaveBeenCalled(); await gateway.close();
   });
 });

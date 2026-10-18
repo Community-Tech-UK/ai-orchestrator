@@ -199,13 +199,8 @@ describe('previewCompaction', () => {
     expect(preview.mode).toBe('aio-managed');
     expect(preview.totalMessageCount).toBe(6);
     expect(preview.totalExchangeCount).toBe(3);
-    // Exchange 2 ("three"/"four") is the last exchange the boundary cuts, so
-    // its opening user turn ("three", index 2) is rescued by the
-    // always-protect-most-recent-user-turn rule — leaving a real (not a bug)
-    // hole in the affected indices at 2. fromIndex/toIndex bound the span;
-    // messageCount is the authoritative affected count.
-    expect(preview.affectedRange).toEqual({ fromIndex: 0, toIndex: 3, messageCount: 3 });
-    expect(preview.keptVerbatimCount).toBe(3);
+    expect(preview.affectedRange).toEqual({ fromIndex: 0, toIndex: 3, messageCount: 4 });
+    expect(preview.keptVerbatimCount).toBe(2);
     expect(preview.keepLatestExchanges).toBe(1);
     expect(preview.protectedItems.mostRecentUserTurnProtected).toBe(true);
   });
@@ -257,27 +252,12 @@ describe('previewCompaction', () => {
     expect(preview.keptVerbatimCount).toBe(0);
   });
 
-  it('falls back to the compactor default preserveRecent when no boundary is given', async () => {
-    ContextCompactor.getInstance().updateConfig({ preserveRecent: 2 });
-    const instance = makeInstance({
-      outputBuffer: [
-        message({ type: 'user', content: 'one' }),
-        message({ type: 'assistant', content: 'two' }),
-        message({ type: 'user', content: 'three' }),
-        message({ type: 'assistant', content: 'four' }),
-      ],
-    });
-    const instanceManager = makeInstanceManager({ instance, capabilities: { supportsNativeCompaction: false } });
-
-    const preview = await previewCompaction(instanceManager, 'inst-1');
-
-    // preserveRecent=2 keeps the trailing 2 messages, but the
-    // most-recent-user-turn rescue rule pulls the opening user turn of the
-    // cut exchange ("one", index 0) back out of the affected set too.
-    expect(preview.keptVerbatimCount).toBe(3);
-    expect(preview.affectedRange).toEqual({ fromIndex: 1, toIndex: 1, messageCount: 1 });
-    // Echoed keepLatestExchanges reflects the default's exchange span.
-    expect(preview.keepLatestExchanges).toBe(1);
+  it('keeps a small whole conversation within the default token budget', async () => {
+    const instance = makeInstance({ outputBuffer: [message({ type: 'user', content: 'one' }), message({ type: 'assistant', content: 'two' }), message({ type: 'user', content: 'three' }), message({ type: 'assistant', content: 'four' })] });
+    const preview = await previewCompaction(makeInstanceManager({ instance, capabilities: { supportsNativeCompaction: false } }), 'inst-1');
+    expect(preview.keptVerbatimCount).toBe(4);
+    expect(preview.affectedRange.messageCount).toBe(0);
+    expect(preview.keepLatestExchanges).toBe(2);
   });
 
   it('reports authenticated evidence preservation only when the ledger has replayable evidence', async () => {

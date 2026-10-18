@@ -135,6 +135,7 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
   const staticMcpServers = buildStaticMcpServersAcpMcpServers(options.mcpConfig);
   const yoloMode = options.yoloMode !== false;
   const env = mergeSpawnEnv(options);
+  env['OPENCODE_DISABLE_CLAUDE_CODE_PROMPT'] = '1';
   env[OPENCODE_CONFIG_CONTENT_ENV] = buildOpenCodeConfigContent(
     env[OPENCODE_CONFIG_CONTENT_ENV],
     yoloMode,

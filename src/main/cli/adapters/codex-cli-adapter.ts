@@ -53,6 +53,24 @@ export type { CodexExecPhase, CodexTimeoutKind };
  * exec (spawn-per-message) with automatic detection and fallback.
  */
 export class CodexCliAdapter extends CodexAppServerTurnAdapter {
+  private turnCompaction = { count: 0 };
+  private compactionOuterSendId: string | null = null;
+
+  getTurnCompaction(): { count: number } {
+    const outerSendId = this.getContextOuterSendId();
+    if (outerSendId !== this.compactionOuterSendId) {
+      this.compactionOuterSendId = outerSendId;
+      this.turnCompaction = { count: 0 };
+    }
+    return { ...this.turnCompaction };
+  }
+
+  protected override handleObservedThreadCompaction(threadId: string, completesLifecycle = true): void {
+    this.getTurnCompaction();
+    this.turnCompaction.count += 1;
+    super.handleObservedThreadCompaction(threadId, completesLifecycle);
+  }
+
   constructor(config: CodexCliConfig = {}) {
     super(config);
   }

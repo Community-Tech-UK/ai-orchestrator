@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LoopCoordinator } from './loop-coordinator';
 import { passingVerifyCommand } from './loop-test-commands';
-import { defaultLoopConfig } from '../../shared/types/loop.types';
+import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
 import type { LoopChildInvocationError } from './loop-coordinator.types';
 
 interface ActivityPayload {
@@ -82,16 +82,23 @@ describe('failed-attempt usage accounting (coordinator)', () => {
     expect(charged[0].detail).toMatchObject({ estimated: true, tokens: 2_000, model: 'grok-4.6' });
   }, 20_000);
 
-  it('charges the attempt without hijacking cap or writes-unprovable pause semantics', async () => {
+  it('charges the attempt without hijacking cap or unprovable-attempt failure semantics', async () => {
     // The charge deliberately does NOT terminate the run itself, even when it
     // overshoots a hard cap: a second cap path would skip the
     // `capWrapUpIteration` wrap-up turn LoopPreIterationGuard guarantees.
-    // The pre-existing WS5 rule still owns the outcome — a failed attempt with
-    // an unprovable workspace state pauses for review instead of replaying.
+    // The WS5 guard still owns the outcome — an unprovable failed attempt
+    // stops as attempt-failed instead of replaying or claiming success.
     const capReached: { cap: string }[] = [];
+    const successEvents: unknown[] = [];
+    const activity: ActivityPayload[] = [];
+    let invokeCount = 0;
     coordinator.on('loop:cap-reached', (p: unknown) => capReached.push(p as { cap: string }));
+    coordinator.on('loop:completed', (p: unknown) => successEvents.push(p));
+    coordinator.on('loop:completed-needs-review', (p: unknown) => successEvents.push(p));
+    coordinator.on('loop:activity', (p: unknown) => activity.push(p as ActivityPayload));
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
       const p = payload as { callback: (result: LoopChildInvocationError) => void };
+      invokeCount += 1;
       queueMicrotask(() => p.callback({
         error: 'ACP prompt turn failed.',
         model: 'grok-4.6',
@@ -99,10 +106,10 @@ describe('failed-attempt usage accounting (coordinator)', () => {
       }));
     });
     const settled = new Promise<void>((resolve) => {
-      coordinator.on('loop:state-changed', (payload: { state: { status: string } }) => {
-        if (payload.state.status === 'attempt-failed') resolve();
+      coordinator.on('loop:state-changed', (payload: unknown) => {
+        if ((payload as { state: LoopState }).state.status === 'attempt-failed') resolve();
       });
-      for (const event of ['loop:cap-reached', 'loop:error', 'loop:failed']) {
+      for (const event of ['loop:completed-needs-review', 'loop:cap-reached', 'loop:error', 'loop:failed']) {
         coordinator.on(event, () => resolve());
       }
     });
@@ -121,9 +128,16 @@ describe('failed-attempt usage accounting (coordinator)', () => {
     // Charged, and past the 1,000-token cap — but not killed by the charge.
     expect(finalState?.totalTokens).toBe(5_000);
     expect(capReached).toHaveLength(0);
-    // Unattended failed steps have a truthful failure terminal, never a success.
     expect(finalState?.status).toBe('attempt-failed');
-    expect(finalState?.endEvidence?.['workspaceEffect']).toBe('unknown');
+    expect(finalState?.endedAt).toBeTypeOf('number');
+    expect(finalState?.endEvidence).toMatchObject({
+      workspaceEffect: 'unknown', attemptOutcome: 'failed', pausedIterationSeq: 0,
+    });
+    expect(finalState?.endReason).toContain('Nothing was merged');
+    expect(finalState?.totalIterations).toBe(0);
+    expect(invokeCount).toBe(1);
+    expect(successEvents).toHaveLength(0);
+    expect(activity.filter((a) => a.detail?.['accounting'] === 'failed-attempt')).toHaveLength(1);
   }, 30_000);
 
   it('leaves run totals untouched when the failed attempt reported nothing estimable', async () => {

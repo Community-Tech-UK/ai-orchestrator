@@ -5,6 +5,7 @@
 
 const { execFileSync, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
+const path = require('node:path');
 
 // Generated artifacts are staged by the pre-commit hook itself (via `git add`)
 // and are widely imported, so feeding them to `vitest related` would balloon
@@ -15,35 +16,6 @@ const { GENERATED_ARTIFACTS } = require('./run-git-hook.js');
 
 // File extensions vitest can map back to related test files.
 const SOURCE_FILE_PATTERN = /\.(?:ts|tsx|js|cjs|mjs|jsx)$/;
-
-// Windows' cmd.exe caps a command line at ~8191 chars. A large staged set (e.g.
-// a merge commit touching hundreds of files) overflows that when every path is
-// appended to `npx vitest related`, failing with "The command line is too long."
-// Keep each batch's combined path length well under the limit, leaving headroom
-// for the fixed `npx vitest related --run --passWithNoTests` prefix.
-const MAX_ARG_CHARS = 6000;
-
-// Split files into batches whose combined length (plus separators) stays under
-// MAX_ARG_CHARS so each spawned command line fits Windows' limit.
-function batchFilesByLength(files, maxChars = MAX_ARG_CHARS) {
-  const batches = [];
-  let current = [];
-  let length = 0;
-  for (const file of files) {
-    const cost = file.length + 1; // +1 for the separating space
-    if (current.length > 0 && length + cost > maxChars) {
-      batches.push(current);
-      current = [];
-      length = 0;
-    }
-    current.push(file);
-    length += cost;
-  }
-  if (current.length > 0) {
-    batches.push(current);
-  }
-  return batches;
-}
 
 function getStagedTestRelatedFiles(options = {}) {
   const exec = options.execFileSync ?? execFileSync;
@@ -79,34 +51,26 @@ function runStagedTests(options = {}) {
 
   log(`test-staged: running tests related to ${files.length} staged file(s)`);
 
-  const batches = batchFilesByLength(files);
-  if (batches.length > 1) {
-    log(`test-staged: splitting into ${batches.length} batch(es) to fit command-line limits`);
+  // Source batches have overlapping dependency graphs and rerun the same tests.
+  // Feed the entire list through stdin to one Vitest run instead: no cmd.exe or
+  // OS argument-length limit, and each related test specification executes once.
+  const result = run(process.execPath, [path.join(__dirname, 'run-related-tests.mjs')], {
+    input: JSON.stringify(files),
+    stdio: ['pipe', 'inherit', 'inherit'],
+    shell: false,
+  });
+
+  if (result.error) {
+    console.error(`test-staged failed to run vitest: ${result.error.message}`);
+    return 1;
   }
 
-  for (const batch of batches) {
-    const result = run('npx', ['vitest', 'related', '--run', '--passWithNoTests', ...batch], {
-      stdio: 'inherit',
-      shell: process.platform === 'win32',
-    });
-
-    if (result.error) {
-      console.error(`test-staged failed to run vitest: ${result.error.message}`);
-      return 1;
-    }
-
-    if (result.signal) {
-      console.error(`test-staged stopped: vitest received ${result.signal}`);
-      return 1;
-    }
-
-    const status = result.status ?? 1;
-    if (status !== 0) {
-      return status;
-    }
+  if (result.signal) {
+    console.error(`test-staged stopped: vitest received ${result.signal}`);
+    return 1;
   }
 
-  return 0;
+  return result.status ?? 1;
 }
 
 function main() {
@@ -124,7 +88,6 @@ if (require.main === module) {
 
 module.exports = {
   SOURCE_FILE_PATTERN,
-  batchFilesByLength,
   getStagedTestRelatedFiles,
   runStagedTests,
 };

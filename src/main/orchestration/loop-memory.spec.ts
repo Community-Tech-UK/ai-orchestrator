@@ -87,6 +87,7 @@ describe('loopStatusToOutcome', () => {
   it('maps statuses to coarse episodic outcomes', () => {
     expect(loopStatusToOutcome('completed')).toBe('success');
     expect(loopStatusToOutcome('failed')).toBe('failure');
+    expect(loopStatusToOutcome('attempt-failed')).toBe('failure');
     expect(loopStatusToOutcome('error')).toBe('failure');
     expect(loopStatusToOutcome('cancelled')).toBe('failure');
     expect(loopStatusToOutcome('cost-exceeded')).toBe('failure');

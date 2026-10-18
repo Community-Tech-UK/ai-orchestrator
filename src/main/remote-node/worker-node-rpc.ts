@@ -15,6 +15,7 @@ export const NODE_TO_COORDINATOR = {
   INSTANCE_STATE_CHANGE: 'instance.stateChange',
   INSTANCE_PERMISSION_REQUEST: 'instance.permissionRequest',
   INSTANCE_CONTEXT: 'instance.context',
+  INSTANCE_TELEMETRY: 'instance.telemetry',
   FS_EVENT: 'fs.event',
   TERMINAL_OUTPUT: 'terminal.output',
   TERMINAL_EXIT: 'terminal.exit',

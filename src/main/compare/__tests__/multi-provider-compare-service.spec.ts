@@ -14,6 +14,7 @@ vi.mock('../../logging/logger', () => ({
 }));
 
 import { MultiProviderCompareService, type MultiProviderCompareDeps } from '../multi-provider-compare-service';
+import { subscribeCostAttribution, type CostAttributionRecord } from '../../core/system/cost-attribution';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 
 /**
@@ -45,6 +46,16 @@ function makeService(
 
 describe('MultiProviderCompareService', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('tags the real compare caller rather than defaulting to council', async () => {
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    try {
+      await makeService({ claude: 'answer', codex: 'answer' }).service.compare('hi', ['claude', 'codex']);
+      expect(rows).toHaveLength(2);
+      expect(rows.every(row => row.purpose === 'compare')).toBe(true);
+    } finally { stop(); }
+  });
 
   it('returns an empty result for a blank prompt', async () => {
     const { service } = makeService({ claude: 'x' });

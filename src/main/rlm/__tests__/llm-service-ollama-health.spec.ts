@@ -179,7 +179,7 @@ describe('LLMService.summarize() — auxiliary routing', () => {
     expect(result).toBeTruthy();
   });
 
-  it('does not mark or attribute an authorized fallback that wins on local Ollama', async () => {
+  it('does not mark paid dispatch but attributes the free local Ollama winner', async () => {
     auxMockControls.generate.mockResolvedValue({
       text: '',
       decision: {
@@ -235,7 +235,7 @@ describe('LLMService.summarize() — auxiliary routing', () => {
     expect(mark).not.toHaveBeenCalled();
     expect(records.filter((record) => (
       (record as { correlationId?: string }).correlationId === 'routing-ollama'
-    ))).toHaveLength(0);
+    ))).toEqual([expect.objectContaining({ provider: 'ollama', costSource: 'free', costKnown: true, usage: { cost: 0 } })]);
   });
 
   it('marks exactly once before the paid Anthropic network boundary', async () => {

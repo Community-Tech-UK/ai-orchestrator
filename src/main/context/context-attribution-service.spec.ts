@@ -179,3 +179,16 @@ describe('computeContextAttribution', () => {
     expect(bucket(report, 'mcpToolSchemas')!.tokens).toBeGreaterThan(0);
   });
 });
+
+
+it('keeps Copilot user-global instruction attribution while excluding native project files', async () => {
+  const report = await computeContextAttribution(makeInput({ provider: 'copilot' }), makeDeps({
+    resolveInstructionStack: async () => ({ sources: [
+      { path: '/home/.claude/CLAUDE.md', kind: 'claude', scope: 'user', loaded: true, applied: true },
+      { path: '/proj/CLAUDE.md', kind: 'claude', scope: 'project', loaded: true, applied: true },
+      { path: '/proj/AGENTS.md', kind: 'agents', scope: 'project', loaded: true, applied: true },
+    ] }),
+    readFile: async () => 'Read before editing.',
+  }));
+  expect(bucket(report, 'instructionFiles')?.detail?.map((entry) => entry.label)).toEqual(['/home/.claude/CLAUDE.md']);
+});

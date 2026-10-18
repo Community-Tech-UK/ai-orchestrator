@@ -55,6 +55,24 @@ class FakeGateway implements CliSpawnGatewayPort {
 }
 
 describe('CliAdapterWorkerProxy', () => {
+  it('books resident Claude totals once per completed turn and keeps parsing pure', async () => {
+    const gateway = new FakeGateway();
+    const proxy = new CliAdapterWorkerProxy({cliType:'claude',instanceId:'cost-turns',gateway,
+      options:{workingDirectory:'/repo',model:'haiku'}});
+    const complete = vi.fn();
+    proxy.on('complete', complete);
+    await proxy.spawn();
+    for (const total of [0.5, 1.25]) {
+      await proxy.sendInput('next');
+      const raw = JSON.stringify({type:'result',total_cost_usd:total,
+        usage:{input_tokens:100,output_tokens:10,cache_read_input_tokens:20}});
+      expect(proxy.parseOutput(raw).usage?.cost).toBeUndefined();
+      gateway.handler?.stdout?.(`${raw}\n`);
+    }
+    expect(complete.mock.calls.map(call => call[0].usage.cost)).toEqual([0.5,0.75]);
+    gateway.handler?.exited?.(0,null);
+    expect(complete).toHaveBeenCalledTimes(2);
+  });
   it('spawns Claude through the gateway and formats stdin as stream-json input', async () => {
     const gateway = new FakeGateway();
     const proxy = new CliAdapterWorkerProxy({

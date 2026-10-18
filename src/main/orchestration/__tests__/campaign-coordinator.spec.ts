@@ -971,8 +971,14 @@ describe('CampaignCoordinator — provider-limit choreography', () => {
     expect(internals.loopRunToNode.has('loop-provider-limit-ended')).toBe(false);
   });
 
-  it('pauses the campaign for operator review when a child loop fails', async () => {
+  it.each([
+    { status: 'failed', completedOnly: false },
+    { status: 'attempt-failed', completedOnly: false },
+    { status: 'attempt-failed', completedOnly: true },
+  ] as const)('pauses on $status and respects completed-only=$completedOnly after operator resume', async ({ status, completedOnly }) => {
     const coordinator = new CampaignCoordinator();
+    const loopStarter = vi.fn().mockResolvedValue({ id: 'loop-downstream' });
+    coordinator.setLoopStarterForTesting(loopStarter);
     const run: CampaignRun = {
       id: 'camp-child-failed',
       spec: buildSpec({
@@ -981,7 +987,7 @@ describe('CampaignCoordinator — provider-limit choreography', () => {
           { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
           { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: ['a'] },
         ],
-        edges: [{ from: 'a', to: 'b' }],
+        edges: [{ from: 'a', to: 'b', ...(completedOnly ? { when: { type: 'is' as const, status: 'completed' as const } } : {}) }],
       }),
       status: 'running',
       nodeRuns: new Map([
@@ -1009,7 +1015,7 @@ describe('CampaignCoordinator — provider-limit choreography', () => {
     internals.activeCampaigns.set(run.id, run);
     internals.loopRunToNode.set('loop-child-failed', { campaignId: run.id, nodeId: 'a' });
 
-    await internals.onLoopTerminal('loop-child-failed', 'failed');
+    await internals.onLoopTerminal('loop-child-failed', status);
 
     expect(run.status).toBe('paused');
     expect(run.pausedReason).toContain('failed');
@@ -1017,6 +1023,16 @@ describe('CampaignCoordinator — provider-limit choreography', () => {
     expect(run.nodeRuns.get('a')?.endedAt).toBeTypeOf('number');
     expect(run.nodeRuns.get('b')?.status).toBe('pending');
     expect(internals.activeCampaigns.get(run.id)).toBe(run);
+    expect(loopStarter).not.toHaveBeenCalled();
+    await coordinator.resumeCampaign(run.id);
+    await flushAsyncWork(3);
+    if (completedOnly) {
+      expect(run.nodeRuns.get('b')?.status).toBe('skipped');
+      expect(loopStarter).not.toHaveBeenCalled();
+    } else {
+      expect(run.nodeRuns.get('b')?.status).toBe('running');
+      expect(loopStarter).toHaveBeenCalledOnce();
+    }
   });
 
   it('halts instead of failing when needs-review policy is halt', async () => {

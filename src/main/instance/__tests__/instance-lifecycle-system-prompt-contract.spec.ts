@@ -13,15 +13,22 @@
  * Harness borrowed from instance-lifecycle-spawn-rollback.spec.ts (same
  * mocking shape); trimmed to what createInstance() touches.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import Module from 'node:module';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { Instance } from '../../../shared/types/instance.types';
 import type { LifecycleDependencies } from '../instance-lifecycle.types';
 import type { InstanceStateMachine } from '../instance-state-machine';
 import { buildToolPermissionPrompt } from '../lifecycle/tool-permission-prompt';
+import { getLatestContextManifest } from '../../context/context-manifest-store';
+import { createInitializedAgentHarness, TestAcpCliAdapter } from '../../cli/adapters/acp-cli-adapter.test-helpers';
+import type { AcpJsonRpcRequest, AcpSessionPromptParams } from '../../../shared/types/cli.types';
 import { SYSTEM_PROMPT_BLOCK_SEPARATOR } from '../../context/prompt-injection-contract';
 
 const mocks = vi.hoisted(() => ({
   resolveAgent: vi.fn(),
+  resolveInstructionStack: vi.fn(),
   loadProjectRules: vi.fn(),
   supervisorRegister: vi.fn(() => ({ supervisorNodeId: 'sup-1', workerNodeId: 'worker-1' })),
   supervisorUnregister: vi.fn(),
@@ -34,7 +41,6 @@ const mocks = vi.hoisted(() => ({
   localModelInventory: [] as unknown[],
   localModelRefresh: vi.fn(),
   getProviderCapabilities: vi.fn(),
-  resolveInstructionStack: vi.fn(),
   buildProjectMemoryBrief: vi.fn(),
   extractAuthoredLessons: vi.fn(),
   outputStyle: 'default' as string,
@@ -367,6 +373,7 @@ describe('instance-lifecycle system-prompt composition (WS-B4 regression)', () =
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.outputStyle = 'default';
+    mocks.resolveInstructionStack.mockResolvedValue({ sources: [], mergedContent: '' });
     mocks.resolveCliType.mockResolvedValue('claude');
     mocks.resolveAgent.mockResolvedValue(getDefaultAgent());
     mocks.supervisorRegister.mockReturnValue({ supervisorNodeId: 'sup-1', workerNodeId: 'worker-1' });
@@ -415,6 +422,7 @@ describe('instance-lifecycle system-prompt composition (WS-B4 regression)', () =
       harness.manager.destroy();
     }
   });
+  afterEach(() => { vi.restoreAllMocks(); });
 
   it('assembles instructions + tool-permissions in contract order with no optional blocks populated', async () => {
     const harness = makeHarness();
@@ -458,6 +466,7 @@ describe('instance-lifecycle system-prompt composition (WS-B4 regression)', () =
     const instance = await harness.manager.createInstance({
       workingDirectory: '/tmp/project',
       provider: 'claude',
+      initialPrompt: 'Review binding conventions in this project.',
     });
     await instance.readyPromise;
 
@@ -476,4 +485,99 @@ describe('instance-lifecycle system-prompt composition (WS-B4 regression)', () =
       }),
     );
   });
+
+  it('delivers global rules, mode instructions and permissions to an OpenCode root without duplicate AGENTS text', async () => {
+    const globalRules = '# Global rules\n' + 'Read before editing. '.repeat(1200);
+    const nativeProjectRules = 'NATIVE_AGENTS_SENTINEL';
+    mocks.resolveInstructionStack.mockResolvedValue({
+      mergedContent: `${globalRules}${SYSTEM_PROMPT_BLOCK_SEPARATOR}${nativeProjectRules}`,
+      sources: [
+        { path: '/home/.claude/CLAUDE.md', kind: 'claude', scope: 'user', loaded: true, applied: true, label: 'Global rules' },
+        { path: '/tmp/project/AGENTS.md', kind: 'agents', scope: 'project', loaded: true, applied: true, label: 'Project rules' },
+      ],
+    });
+    const agent = { ...getDefaultAgent(), systemPrompt: 'Harness mode: plan changes with read-only access.' };
+    mocks.resolveAgent.mockResolvedValue(agent);
+    mocks.resolveCliType.mockResolvedValue('opencode');
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', (message) => proc.respond(message.id, { stopReason: 'end_turn' }));
+    mocks.createAdapter.mockImplementation((input) => new TestAcpCliAdapter(proc, {
+      adapterName: 'opencode-acp', workingDirectory: '/tmp/project', systemPrompt: input.options.systemPrompt,
+    }));
+    try {
+      const harness = makeHarness();
+      const instance = await harness.manager.createInstance({ workingDirectory: '/tmp/project', provider: 'opencode' });
+      await instance.readyPromise;
+      const adapter = harness.adapters.get(instance.id) as TestAcpCliAdapter;
+      await adapter.sendMessage({ role: 'user', content: 'Plan a fix.' });
+      const firstPrompt = proc.receivedMessages.find((message): message is AcpJsonRpcRequest<AcpSessionPromptParams> =>
+        'method' in message && message.method === 'session/prompt')!.params!.prompt;
+      const instructions = firstPrompt[0];
+      const expected = [globalRules, agent.systemPrompt, buildToolPermissionPrompt(instance.yoloMode)].join(SYSTEM_PROMPT_BLOCK_SEPARATOR);
+      expect(instructions).toEqual({ type: 'text', text: `[SYSTEM INSTRUCTIONS]\n${expected}\n[/SYSTEM INSTRUCTIONS]` });
+      expect(JSON.stringify(firstPrompt)).not.toContain(nativeProjectRules);
+      expect(getLatestContextManifest(instance.id)?.entries.find((entry) => entry.kind === 'instructions')).toMatchObject({ status: 'supplied', charLength: globalRules.length + agent.systemPrompt.length + SYSTEM_PROMPT_BLOCK_SEPARATOR.length });
+      expect(getLatestContextManifest(instance.id)?.note).toBeUndefined();
+    } finally { proc.exit(); }
+  });
+
+  it.each(['forced', 'selected', 'local'] as const)('uses resolved %s Codex placement for native paragraph ownership before assembly', async placement => {
+    const shared = 'Shared governing Harness rule: preserve every user constraint.';
+    const unique = 'Harness-specific governing rule: verify before claiming completion.';
+    const global = `# Shared rules\n\n${shared}\n\n# Harness rules\n\n${unique}`;
+    const nativeReads: string[] = [];
+    // The resolver uses guarded CommonJS loading. Stub only that external
+    // registry seam, keeping the real placement resolver and lifecycle intact.
+    const loader = Module as unknown as { _load: (request: string, ...args: unknown[]) => unknown };
+    const originalLoad = loader._load;
+    const node = { id: 'windows-pc', status: 'connected' };
+    const registry = { getNode: vi.fn(() => node), selectNode: vi.fn(() => node) };
+    vi.spyOn(loader, '_load').mockImplementation((request, ...args) => request === '../../remote-node'
+      ? { getWorkerNodeRegistry: () => registry } : originalLoad.call(Module, request, ...args));
+    mocks.resolveInstructionStack.mockResolvedValue({ mergedContent: global, sources: [
+      { path: '/fixture/.claude/CLAUDE.md', kind: 'claude', scope: 'user', loaded: true, applied: true, label: 'Global rules' },
+    ] });
+    mocks.resolveCliType.mockResolvedValue('codex');
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    const harness = makeHarness();
+    const ownership = await import('../../core/config/native-instruction-ownership');
+    const realOmit = ownership.omitNativeOwnedInstructionStack;
+    // Replace only the file-reader seam below the real ownership algorithm;
+    // no native instruction/profile data is read by this regression.
+    vi.spyOn(ownership, 'omitNativeOwnedInstructionStack').mockImplementation((resolution, provider, _reader, home, options) =>
+      realOmit(resolution, provider, file => {
+        if (file === join(homedir(), '.codex', 'AGENTS.override.md') || file === join(homedir(), '.codex', 'AGENTS.md')) {
+          nativeReads.push(file);
+          return shared;
+        }
+        return null;
+      }, home, options));
+    try {
+      const config = { workingDirectory: '/tmp/project', provider: 'codex' as const,
+        ...(placement === 'forced' ? { forceNodeId: node.id } : {}),
+        ...(placement === 'selected' ? { nodePlacement: { preferNodeId: node.id } } : {}),
+      };
+      const instance = await harness.manager.createInstance(config);
+      await instance.readyPromise;
+      const call = mocks.createAdapter.mock.calls[0][0] as { options: { systemPrompt: string }; executionLocation: Instance['executionLocation'] };
+      expect(call.options.systemPrompt).toContain(unique);
+      if (placement === 'local') {
+        expect(nativeReads).toEqual([join(homedir(), '.codex', 'AGENTS.override.md')]);
+        expect(call.options.systemPrompt).not.toContain(shared);
+        expect(instance.executionLocation).toEqual({ type: 'local' });
+        const second = await harness.manager.createInstance(config);
+        await second.readyPromise;
+        expect(mocks.createAdapter.mock.calls[1][0].options.systemPrompt).toBe(call.options.systemPrompt);
+      } else {
+        expect(call.options.systemPrompt).toContain(shared);
+        expect(nativeReads).toEqual([]);
+        expect(call.executionLocation).toEqual({ type: 'remote', nodeId: node.id });
+        expect(instance.executionLocation).toEqual(call.executionLocation);
+        expect(placement === 'forced' ? registry.getNode : registry.selectNode).toHaveBeenCalledTimes(1);
+      }
+      expect(adapter.spawn).toHaveBeenCalled();
+    } finally { harness.manager.destroy(); }
+  });
+
 });

@@ -9,7 +9,7 @@ import { attachProviderRoutes } from '../instance/lifecycle/provider-route-prefl
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
 import type { InstanceManager } from '../instance/instance-manager';
-import type { OutputMessage } from '../../shared/types/instance.types';
+import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import type { CliType as SettingsCliType } from '../../shared/types/settings.types';
 import { CliDetectionService } from '../cli/cli-detection';
@@ -19,7 +19,6 @@ import {
   buildReviewFormatRepairPrompt,
   buildStructuredReviewPrompt,
   buildTieredReviewPrompt,
-  truncateForReview,
 } from './review-prompts';
 import { combineAbortSignals } from '../util/abort-signals';
 import { serializeReviewResultJsonSchema } from '../../shared/validation/cross-model-review-schemas';
@@ -48,7 +47,6 @@ import {
   normalizeReviewerCliList,
   isReviewerRateLimitError,
 } from './cross-model-review-service.constants';
-import { resolveReviewWorkingDirectory } from './cross-model-review-service.helpers';
 import { filterProvidersForAutomation } from '../providers/automation-provider-exclusions';
 import { resolveCheckerPlan, type CheckerCandidate } from '../review/checker-plan';
 import { learnFromCheckerFailure } from '../review/copilot-model-entitlements';
@@ -61,9 +59,11 @@ import {
 import { isLikelyReviewRefusal, parseCrossModelReviewResponse } from './review-response-parser';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { resolveAntigravityReviewModelPlan } from './antigravity-review-model-routing';
-import { redactForEgress } from '../security/content-egress-gate';
 import { runHeadlessReviewCommand } from './headless-review-runner';
 import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
+import { automaticReviewSkipReason } from './automatic-review-skip';
+import { buildCrossModelReviewDispatch } from './cross-model-review-dispatch';
+import { getReviewDailyUsage, reserveReviewDispatch, recordReviewLifecycle } from './review-dispatch-ledger';
 const logger = getLogger('CrossModelReviewService');
 
 // Codex and Antigravity both run noticeably slower than other reviewer CLIs
@@ -140,6 +140,8 @@ export class CrossModelReviewService extends EventEmitter {
   private localModelInventory: Pick<ReturnType<typeof getLocalModelInventoryService>, 'list'> &
     Partial<Pick<ReturnType<typeof getLocalModelInventoryService>, 'resolveTarget'>> =
     getLocalModelInventoryService();
+  private lastReviewedTurn = new Map<string, number>();
+  private isLoopActive: (instanceId: string) => boolean = () => false;
   private isPaused = getPauseCoordinator().isPaused();
   private readonly handlePause = (): void => {
     this.isPaused = true;
@@ -176,6 +178,8 @@ export class CrossModelReviewService extends EventEmitter {
    * InstanceManager is constructed so this service can look up instances
    * without a global singleton accessor.
    */
+  setActiveLoopPredicate(predicate: (instanceId: string) => boolean): void { this.isLoopActive = predicate; }
+
   setInstanceManager(im: InstanceManager): void {
     this.instanceManager = im;
   }
@@ -224,6 +228,7 @@ export class CrossModelReviewService extends EventEmitter {
     accumulatedContent?: string,
   ): void {
     if (messageType !== 'assistant') return;
+    if (automaticReviewSkipReason(this.instanceManager?.getInstance(instanceId), this.isLoopActive)) return;
     let buffer = this.buffers.get(instanceId);
     if (!buffer) {
       buffer = { instanceId, messages: [], primaryProvider, firstUserPrompt, lastUpdated: Date.now() };
@@ -252,132 +257,61 @@ export class CrossModelReviewService extends EventEmitter {
 
   async onInstanceIdle(instanceId: string): Promise<void> {
     if (this.isPaused || getPauseCoordinator().isPaused()) return;
-
     const settings = getSettingsManager().getAll();
     if (!settings.crossModelReviewEnabled) return;
-
-    const buffer = this.buffers.get(instanceId);
-    if (!buffer || buffer.messages.length === 0) return;
-
-    const aggregatedContent = buffer.messages.map(message => message.content).join('\n\n');
-    this.buffers.delete(instanceId);
-
-    if (aggregatedContent.length < 50) return;
-
-    const lastReview = this.lastReviewTime.get(instanceId) ?? 0;
-    if (Date.now() - lastReview < MIN_COOLDOWN_MS) {
-      logger.debug('Skipping review due to cooldown', { instanceId });
-      return;
-    }
-
-    const classification = this.classifier.classify(aggregatedContent);
-    if (!classification.shouldReview) return;
-
     const instance = this.instanceManager?.getInstance(instanceId);
+    if (automaticReviewSkipReason(instance, this.isLoopActive)) { this.buffers.delete(instanceId); return; }
+    const turn = this.instanceManager?.getTurnFileChanges(instanceId);
+    if (!turn || turn.seq <= (this.lastReviewedTurn.get(instanceId) ?? 0)) return;
+    this.lastReviewedTurn.set(instanceId, turn.seq);
+    const changedFiles = [...new Set([...turn.changedPaths, ...turn.editedPaths])].slice(0, 50);
+    const buffer = this.buffers.get(instanceId);
+    this.buffers.delete(instanceId);
+    if (!changedFiles.length || !buffer?.messages.length || !instance) return;
+    if (Date.now() - (this.lastReviewTime.get(instanceId) ?? 0) < MIN_COOLDOWN_MS) return;
+    await this.dispatchReview(instance, buffer.messages.map(message => message.content).join('\n\n'),
+      buffer.primaryProvider, buffer.firstUserPrompt, changedFiles, turn.seq, 'automatic');
+  }
 
-    // Remote instances run on another machine — their files do not exist
-    // locally. A local reviewer CLI would spawn with the remote machine's
-    // working directory (crash: `spawn <cli> ENOENT`) and, even with a
-    // fallback cwd, review without file context. Skip; routing reviews to
-    // the owning node is a separate feature.
-    if (instance?.executionLocation?.type === 'remote') {
-      logger.info('Skipping cross-model review for remote instance', {
-        instanceId,
-        nodeId: instance.executionLocation.nodeId,
-      });
-      return;
-    }
+  async requestReview(instanceId: string): Promise<{ status: 'started' | 'no-output' | 'no-reviewers'; reviewId?: string }> {
+    const instance = this.instanceManager?.getInstance(instanceId);
+    const reply = instance?.outputBuffer.slice().reverse().find(message => message.type === 'assistant' && message.content.trim());
+    if (!instance || !reply) return { status: 'no-output' };
+    return this.dispatchReview(instance, reply.content, instance.provider, '', Object.keys(instance.diffStats?.files ?? {}),
+      this.instanceManager?.getTurnFileChanges(instanceId)?.seq, 'manual');
+  }
 
-    const sourceUserMessage = findLatestUserMessage(instance?.outputBuffer);
-
-    const enabledTypes = settings.crossModelReviewTypes as string[];
-    if (!enabledTypes.includes(classification.type)) return;
-
-    let reviewDepth = settings.crossModelReviewDepth as 'structured' | 'tiered';
-    if (reviewDepth === 'structured' && classification.isComplex) {
-      reviewDepth = 'tiered';
-    }
-
+  private async dispatchReview(instance: Instance, content: string, primaryProvider: string, firstUserPrompt: string,
+    changedFiles: string[], turnSeq: number | undefined, trigger: 'automatic' | 'manual') {
+    const settings = getSettingsManager().getAll();
+    const classification = this.classifier.classify(content);
+    if (classification.type === 'conversation') classification.type = 'code';
+    if (trigger === 'automatic' && !(settings.crossModelReviewTypes as string[]).includes(classification.type)) return { status: 'no-reviewers' as const };
+    const sourceUserMessage = findLatestUserMessage(instance.outputBuffer);
     await this.refreshAvailability();
-    const preferredReviewers = normalizeReviewerCliList(settings.crossModelReviewProviders as string[]);
-    const reviewWorkingDirectory = resolveReviewWorkingDirectory(instance?.workingDirectory);
-    const pooledReviewers = this.reviewerPool.selectReviewers(
-      normalizeReviewerCli(buffer.primaryProvider),
-      settings.crossModelReviewMaxReviewers,
-      [],
-      preferredReviewers,
-    );
-    // Family diversity + licence containment: the pool already excluded the
-    // implementer's PROVIDER; this decides each checker's MODEL, and pins the
-    // plan to the employer's own seat inside a protected enterprise scope.
-    const plan = resolveCheckerPlan(pooledReviewers, {
-      implementerProvider: buffer.primaryProvider,
-      ...(instance?.currentModel ? { implementerModel: instance.currentModel } : {}),
-      workingDirectory: reviewWorkingDirectory,
-      context: 'crossModelReview.inSession',
-      // An empty pool here means "nothing available", never "run nothing".
-      minCheckers: 1,
-    });
-    // Candidates, NOT a provider list: a licence-pinned plan is several checkers
-    // on the SAME Copilot seat with different models, so collapsing by provider
-    // name would silently discard every checker after the first.
-    const selectedReviewers = plan.candidates;
-    const licencePinned = selectedReviewers.some((c) => c.rationale === 'licence-pinned');
-
-    if (selectedReviewers.length === 0 && plan.blockedReason) {
-      logger.warn('Cross-model review skipped — checking policy produced no eligible checker', {
-        instanceId,
-        blockedReason: plan.blockedReason,
-      });
-      return;
+    const dispatch = buildCrossModelReviewDispatch({ instance, primaryProvider, content,
+      taskDescription: sourceUserMessage?.content.trim() || firstUserPrompt || instance.displayName || 'No task description available',
+      classification, reviewDepth: settings.crossModelReviewDepth === 'structured' && classification.isComplex ? 'tiered' : settings.crossModelReviewDepth as 'structured' | 'tiered',
+      preferredReviewers: normalizeReviewerCliList(settings.crossModelReviewProviders as string[]),
+      maxReviewers: settings.crossModelReviewMaxReviewers, selectReviewers: (...args) => this.reviewerPool.selectReviewers(...args),
+      changedFiles, turnSeq, trigger });
+    if (!dispatch.reviewers.length && dispatch.blockedReason) return { status: 'no-reviewers' as const };
+    const { request } = dispatch;
+    const reservation = reserveReviewDispatch({ limit: settings.crossModelReviewDailyLimit ?? 20,
+      reviewId: request.id, instanceId: instance.id, trigger });
+    if (!reservation.allowed) {
+      const { allowed: _allowed, ...dailyUsage } = reservation;
+      this.emit('review:skipped', { instanceId: instance.id, reason: 'daily-limit', dailyUsage });
+      return { status: 'no-reviewers' as const };
     }
-
-    // Record who actually ran vs. what was configured, so a top-priority
-    // reviewer quietly falling through to a fallback is visible per cycle.
-    logger.info('Cross-model review reviewers selected', {
-      instanceId,
-      selected: selectedReviewers.map((c) => `${c.provider}:${c.model ?? 'auto'}`),
-      configured: preferredReviewers,
-      licencePinned,
-    });
-
-    const reviewStartedAt = Date.now();
-    const reviewId = `review-${reviewStartedAt}-${Math.random().toString(36).slice(2, 8)}`;
-    this.lastReviewTime.set(instanceId, Date.now());
-    this.emit('review:started', { instanceId, reviewId, reviewStartedAt });
-
-    const request: ReviewDispatchRequest = {
-      id: reviewId,
-      instanceId,
-      primaryProvider: buffer.primaryProvider,
-      ...(instance?.modelRuntimeTarget
-        ? { builderModelRuntimeTarget: instance.modelRuntimeTarget }
-        : {}),
-      workingDirectory: reviewWorkingDirectory,
-      ...(instance?.currentModel ? { implementerModel: instance.currentModel } : {}),
-      ...(licencePinned ? { licencePinned: true } : {}),
-      ...(selectedReviewers.find((c) => c.copilotProfileId)?.copilotProfileId
-        ? { copilotProfileId: selectedReviewers.find((c) => c.copilotProfileId)!.copilotProfileId! }
-        : {}),
-      content: redactForEgress(truncateForReview(aggregatedContent), {
-        kind: 'prompt',
-        instanceId,
-      }).content,
-      taskDescription: redactForEgress(
-        sourceUserMessage?.content.trim() || buffer.firstUserPrompt || instance?.displayName || 'No task description available',
-        { kind: 'prompt', instanceId },
-      ).content,
-      classification,
-      reviewDepth,
-      ...(sourceUserMessage?.id ? { sourceUserMessageId: sourceUserMessage.id } : {}),
-      ...(sourceUserMessage?.timestamp ? { sourceUserMessageTimestamp: sourceUserMessage.timestamp } : {}),
-      timestamp: reviewStartedAt,
-    };
-
-    this.reviewContexts.set(reviewId, request);
-
-    this.executeReviews(request, selectedReviewers, settings.crossModelReviewTimeout)
-      .catch(err => logger.error('Review execution failed', err, { reviewId }));
+    if (sourceUserMessage?.id) request.sourceUserMessageId = sourceUserMessage.id;
+    if (sourceUserMessage?.timestamp) request.sourceUserMessageTimestamp = sourceUserMessage.timestamp;
+    this.lastReviewTime.set(instance.id, Date.now());
+    this.reviewContexts.set(request.id, request);
+    this.emit('review:started', { instanceId: instance.id, reviewId: request.id, reviewStartedAt: request.timestamp });
+    void this.executeReviews(request, dispatch.reviewers, settings.crossModelReviewTimeout)
+      .catch(error => logger.error('Review execution failed', error, { reviewId: request.id }));
+    return { status: 'started' as const, reviewId: request.id };
   }
 
   // === Review Execution ===
@@ -439,11 +373,14 @@ export class CrossModelReviewService extends EventEmitter {
         ? [{ ...batch.localOutcome.review, source: 'local' as const }]
         : [];
       const successfulResults = [...batch.remoteReviews, ...localReview];
+      for (const result of successfulResults) recordReviewLifecycle({ reviewId: request.id, instanceId: request.instanceId,
+        verdict: result.overallVerdict, reviewerId: result.reviewerId });
       const aggregated: AggregatedReview = {
         id: request.id,
         instanceId: request.instanceId,
         outputType: request.classification.type as ReviewOutputType,
         reviewDepth: request.reviewDepth,
+        turnSeq: request.turnSeq,
         reviews: successfulResults,
         localReviewer: localParticipant,
         hasDisagreement: this.detectDisagreement(batch.remoteReviews),
@@ -598,7 +535,7 @@ export class CrossModelReviewService extends EventEmitter {
               workingDirectory: request.workingDirectory,
               timeout: timeoutMs,
               yoloMode: false,
-              ...(resolvedCli === 'claude' ? { readOnlyReview: true, maxTurns: CLAUDE_REVIEWER_MAX_TURNS } : {}),
+              ...(resolvedCli === 'claude' ? { readOnlyReview: true, maxTurns: CLAUDE_REVIEWER_MAX_TURNS, maxBudgetUsd: 1 } : {}),
               ...(isCodex ? { reasoningEffort: 'low' as const } : {}),
               // When no override is configured, leave `model` unset so the
               // reviewer CLI uses its own default/auto routing.
@@ -626,15 +563,18 @@ export class CrossModelReviewService extends EventEmitter {
             }
 
             const prompt = effectiveDepth === 'tiered'
-              ? buildTieredReviewPrompt(request.taskDescription, request.content)
-              : buildStructuredReviewPrompt(request.taskDescription, request.content);
+              ? buildTieredReviewPrompt(request.taskDescription, request.content, undefined, request.changedFiles)
+              : buildStructuredReviewPrompt(request.taskDescription, request.content, undefined, request.changedFiles);
 
             const initialResponse = await sendAbortableReviewerMessage(
               adapter,
               { role: 'user', content: prompt },
               operationSignal,
               () => { cancelled = true; },
+              { purpose: 'cross-model-review', taskType: `cross-model-review:${request.trigger ?? 'automatic'}`, correlationId: request.id, instanceId: request.instanceId, provider: resolvedCli, model: reviewerModel },
             );
+
+            if (initialResponse.metadata?.['budgetExceeded'] === true) throw new Error('Reviewer budget exceeded');
 
             const initialParsed = this.parseReviewResponse(reviewerCli, initialResponse.content, effectiveDepth, Date.now() - startTime);
             if (initialParsed) return { result: initialParsed, repaired: false };
@@ -652,7 +592,9 @@ export class CrossModelReviewService extends EventEmitter {
                 { role: 'user', content: buildReviewFormatRepairPrompt(effectiveDepth, initialResponse.content) },
                 operationSignal,
                 () => { cancelled = true; },
+                { purpose: 'cross-model-review', taskType: `cross-model-review:${request.trigger ?? 'automatic'}`, correlationId: request.id, instanceId: request.instanceId, provider: resolvedCli, model: reviewerModel },
               );
+              if (repairResponse.metadata?.['budgetExceeded'] === true) throw new Error('Reviewer budget exceeded');
               const repairedParsed = this.parseReviewResponse(reviewerCli, repairResponse.content, effectiveDepth, Date.now() - startTime);
               if (repairedParsed) return { result: repairedParsed, repaired: true };
               logger.warn('Reviewer format-repair response also failed validation', {
@@ -926,6 +868,7 @@ export class CrossModelReviewService extends EventEmitter {
     const settings = getSettingsManager().getAll();
     return {
       enabled: settings.crossModelReviewEnabled,
+      dailyUsage: getReviewDailyUsage(settings.crossModelReviewDailyLimit ?? 20),
       reviewers: this.reviewerPool.getStatus(),
       pendingReviews: this.pendingReviews.size,
       unavailableReviewers: this.unavailableReviewers,
@@ -946,6 +889,8 @@ export class CrossModelReviewService extends EventEmitter {
       }
     }
     this.clearBuffer(instanceId);
+    this.lastReviewedTurn.delete(instanceId);
+    this.lastReviewTime.delete(instanceId);
     this.reviewHistory.delete(instanceId);
     for (const [reviewId, context] of this.reviewContexts) {
       if (context.instanceId === instanceId) {
@@ -966,6 +911,7 @@ export class CrossModelReviewService extends EventEmitter {
     this.reviewHistory.clear();
     this.reviewContexts.clear();
     this.lastReviewTime.clear();
+    this.lastReviewedTurn.clear();
     const pauseCoordinator = getPauseCoordinator();
     pauseCoordinator.removeListener('pause', this.handlePause);
     pauseCoordinator.removeListener('resume', this.handleResume);

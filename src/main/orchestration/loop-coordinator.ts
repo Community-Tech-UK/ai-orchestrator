@@ -1943,11 +1943,11 @@ export class LoopCoordinator extends EventEmitter {
       // -- read current stage --
       const stage = await stageMachine.readStage(state.config);
       if (stage !== state.currentStage) {
-        // LF-4 RPI: on a PLAN→IMPLEMENT transition, reset context before the
-        // first IMPLEMENT iteration so it starts from a clean session anchored
-        // on the (now finalized) plan, not the planning transcript. Gated on
-        // context discipline being enabled (it reuses the LF-1 recycle path).
+        // PLAN→IMPLEMENT always refreshes the full goal/control instructions.
+        // Context discipline additionally discards the planning transcript;
+        // disabling compaction preserves the session, not the old anchor.
         const contextEnabled = (state.config.context?.compaction.enabled) ?? true;
+        if (state.currentStage === 'PLAN' && stage === 'IMPLEMENT') state.lastFullAnchorSeq = undefined;
         if (state.currentStage === 'PLAN' && stage === 'IMPLEMENT' && contextEnabled) {
           this.completionContext.requestContextReset(state.id);
           logger.info('Loop PLAN→IMPLEMENT: scheduling context reset for the first IMPLEMENT iteration', {
@@ -2056,6 +2056,7 @@ export class LoopCoordinator extends EventEmitter {
           if (forceContextReset && prompt !== freshSessionPrompt) {
             prompt = freshSessionPrompt;
           }
+          if (iterationPrompts.reanchorGoal || forceContextReset) state.lastFullAnchorSeq = seq;
           childResult = await this.invokeChild(state, prompt, routingPrompt, stage, forceContextReset);
         } catch (err) {
           invocationFailure = err;

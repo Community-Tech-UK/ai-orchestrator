@@ -29,6 +29,17 @@ describe('CostTracker.recordUsage', () => {
     );
   });
 
+  it.each(['copilot', 'cursor'])('does not invent dollar pricing for %s', provider => {
+    expect(tracker.recordUsage('i', 's', 'claude-opus-5', 1000, 500, 0, 0, undefined, 0, false, { provider }).cost).toBe(0);
+    expect(tracker.recordUsage('i', 's', 'claude-opus-5', 1000, 500, 0, 0, 0.7, 0, false, { provider }).cost).toBe(0.7);
+  });
+  it.each(['claude', 'codex', undefined])('preserves legacy token fallback for %s including unlisted models', provider => {
+    const model = provider === 'codex' ? 'gpt-6.1-sol' : 'claude-sonnet-4-6';
+    const entry = tracker.recordUsage('i', 's', model, 1000, 500, 0, 0, undefined, 0, false, { provider });
+    expect(entry.cost).toBe(tracker.calculateCost(model, 1000, 500));
+    expect(entry.cost).toBeGreaterThan(0);
+  });
+
   it('trusts a finite, non-negative provider-supplied cost verbatim', () => {
     const entry = tracker.recordUsage('inst-1', 'sess-1', 'claude-sonnet-4-6', 1000, 500, 0, 0, 0.0731);
     expect(entry.cost).toBe(0.0731);
@@ -227,6 +238,20 @@ describe('CostTracker persistence (E15)', () => {
     const entries = rehydrated.getEntries();
     expect(entries.find((e) => e.instanceId === 'inst-est')?.isEstimated).toBe(true);
     expect(entries.find((e) => e.instanceId === 'inst-measured')?.isEstimated).toBe(false);
+  });
+
+  it('persists per-model deltas including side models without changing parent main-thread tokens', () => {
+    const tracker = new CostTracker(); tracker.setDatabase(db);
+    const byModel = [{ model: 'main', inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.2 },
+      { model: 'side', inputTokens: 200, outputTokens: 20, cacheReadTokens: 300, cacheWriteTokens: 0, costUsd: 0.3 }];
+    const entry = tracker.recordUsage('i', 's', 'main', 100, 10, 0, 0, 0.5, 0, false, { provider: 'claude', byModel });
+    const rows = db.prepare('SELECT * FROM cost_entry_model_usage WHERE entry_id = ? ORDER BY model').all<{model:string; cost_usd:number}>(entry.id);
+    expect(rows.map(row => [row.model, row.cost_usd])).toEqual([['main', 0.2], ['side', 0.3]]);
+    expect(tracker.getSummary().totalInputTokens).toBe(100);
+    const restored = new CostTracker(); restored.setDatabase(db);
+    expect(restored.getEntries()[0].byModel).toEqual(byModel);
+    tracker.clearEntries();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM cost_entry_model_usage').get<{n:number}>()?.n).toBe(0);
   });
 
   it('rehydrates history on a fresh tracker pointed at the same DB (survives restart)', () => {

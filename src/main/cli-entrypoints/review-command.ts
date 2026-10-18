@@ -166,6 +166,7 @@ export async function runReviewCommand(
     const runHeadlessReview = deps.runHeadlessReview ?? defaultRunHeadlessReview;
     const result = await runHeadlessReview({
       target: target.target,
+      purpose: 'review-cli',
       cwd: target.cwd,
       content: target.content,
       taskDescription: target.taskDescription,

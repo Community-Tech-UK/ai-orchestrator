@@ -24,6 +24,8 @@ const STATE_LABELS: Record<LocalAiAggregateStatus['state'], string> = {
         data-testid="local-ai-status-chip"
         [attr.data-state]="!store.hasAuthoritativeSnapshot()
           ? 'unavailable'
+          : store.helperPauses().length > 0
+          ? 'degraded'
           : store.aggregate().state === 'not-configured'
           ? 'neutral'
           : store.aggregate().state"
@@ -112,10 +114,15 @@ export class LocalAiStatusChipComponent {
   protected readonly store = inject(LocalAiGuardStore);
   private readonly router = inject(Router);
 
-  protected readonly stateLabel = computed(() =>
-    this.store.hasAuthoritativeSnapshot()
-      ? STATE_LABELS[this.store.aggregate().state]
-      : 'Status unavailable');
+  protected readonly stateLabel = computed(() => {
+    if (!this.store.hasAuthoritativeSnapshot()) return 'Status unavailable';
+    const pauses = this.store.helperPauses();
+    if (pauses.length) return `helpers paused until ${this.formatRetry(Math.min(...pauses.map(pause => pause.pausedUntil)))}`;
+    return STATE_LABELS[this.store.aggregate().state];
+  });
+  private formatRetry(at: number): string {
+    return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
   protected readonly targetCountLabel = computed(() => {
     const count = this.store.aggregate().enrolled;
     return `${count} ${count === 1 ? 'target' : 'targets'}`;
@@ -124,6 +131,8 @@ export class LocalAiStatusChipComponent {
     if (!this.store.hasAuthoritativeSnapshot()) {
       return 'Local AI Guard: Status unavailable. Open Local AI health centre.';
     }
+    const pauses = this.store.helperPauses();
+    if (pauses.length) return `Local AI: ${this.stateLabel()}. ${pauses.map(pause => `${pause.slot}: ${pause.reason}`).join('; ')}. Open Local AI health centre.`;
     const aggregate = this.store.aggregate();
     const targetNoun = aggregate.enrolled === 1 ? 'target' : 'targets';
     return `Local AI Guard: ${this.stateLabel()}. ${aggregate.enrolled} enrolled ${targetNoun}. Open Local AI health centre.`;

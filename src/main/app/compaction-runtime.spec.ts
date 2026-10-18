@@ -20,6 +20,8 @@ const settingsManagerMock = vi.hoisted(() => ({
   on: vi.fn(),
 }));
 
+vi.mock('../rlm/llm-service', () => ({ getLLMService: () => ({ isAvailable: async () => false }) }));
+
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => settingsManagerMock,
 }));
@@ -609,7 +611,7 @@ describe('setupCompactionCoordinator', () => {
     const rejectedPrompt = sendInput.mock.calls[0]![1];
     expect(rejectedPrompt).not.toContain('[evidence:evidence-runtime@');
     expect(rejectedPrompt).not.toContain('authenticated evidence body');
-    expect(rejectedPrompt).toContain('No authenticated evidence previews were available');
+    expect(rejectedPrompt).toContain('<authenticated_evidence>\n(none)');
   });
 
   it('wires selfManagesAutoCompaction so the coordinator skips background auto-trigger for Claude-style adapters', () => {
@@ -783,8 +785,8 @@ describe('applyCompaction (WS-B7)', () => {
     const instance = {
       id: 'inst-restart',
       outputBuffer: [
-        { id: 'm1', type: 'user' as const, content: 'one', timestamp: 1 },
-        { id: 'm2', type: 'assistant' as const, content: 'two', timestamp: 2 },
+        { id: 'm1', type: 'user' as const, content: 'one '.repeat(10000), timestamp: 1 },
+        { id: 'm2', type: 'assistant' as const, content: 'two '.repeat(10000), timestamp: 2 },
         { id: 'm3', type: 'user' as const, content: 'three', timestamp: 3 },
         { id: 'm4', type: 'assistant' as const, content: 'four', timestamp: 4 },
       ],
@@ -799,16 +801,17 @@ describe('applyCompaction (WS-B7)', () => {
     } as unknown as InstanceManager;
     setupCompactionCoordinator(instanceManager, makeWindowManager());
 
-    const compactSpy = vi.spyOn(ContextCompactor.getInstance(), 'compact');
+    const compactSpy = vi.spyOn(ContextCompactor, 'createIsolated');
 
     const result = await applyCompaction(instanceManager, 'inst-restart', { keepLatestExchanges: 1 });
 
     expect(result.success).toBe(true);
     // 1 exchange = the trailing user+assistant pair = 2 messages.
-    expect(compactSpy).toHaveBeenCalledWith({ preserveRecentOverride: 2 });
+    expect(compactSpy).toHaveBeenCalledWith(expect.objectContaining({ autoCompact: false }));
+    expect(instanceManager.sendInput).toHaveBeenCalledWith('inst-restart', expect.stringContaining('[user]: three'), undefined, expect.anything());
   });
 
-  it('is byte-compatible with the pre-WS-B7 default when no boundary is given (no override passed to compact())', async () => {
+  it('keeps a small whole conversation without calling a summary model', async () => {
     const instance = {
       id: 'inst-restart-default',
       outputBuffer: [
@@ -826,11 +829,12 @@ describe('applyCompaction (WS-B7)', () => {
     } as unknown as InstanceManager;
     setupCompactionCoordinator(instanceManager, makeWindowManager());
 
-    const compactSpy = vi.spyOn(ContextCompactor.getInstance(), 'compact');
+    const compactSpy = vi.spyOn(ContextCompactor, 'createIsolated');
 
     await applyCompaction(instanceManager, 'inst-restart-default');
 
-    expect(compactSpy).toHaveBeenCalledWith(undefined);
+    expect(compactSpy).not.toHaveBeenCalled();
+    expect(instanceManager.sendInput).toHaveBeenCalledWith('inst-restart-default', expect.stringContaining('[user]: one'), undefined, expect.anything());
   });
 });
 

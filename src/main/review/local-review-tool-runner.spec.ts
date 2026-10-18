@@ -145,6 +145,10 @@ describe('LocalReviewToolRunner', () => {
         ? { ok: false, code: 'not-file' }
         : { ok: true, content: '' });
     },
+    // The beforeEach alone shells out to git five times and does real file I/O;
+    // under heavy host contention (e.g. two overlapping full-suite runs) that
+    // plus the mkfifo spawn and the 1s probe window exceeds the 5s default.
+    15_000,
   );
 
   it.each(['workspace_read', 'workspace_list', 'workspace_search'] as const)(

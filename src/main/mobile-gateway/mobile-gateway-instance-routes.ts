@@ -40,6 +40,7 @@ import {
   shouldQueueInput,
 } from "./mobile-input-queue";
 import { validateMobileInput } from './mobile-input-validation';
+import { stopLoopsForSessions } from '../orchestration/loop-stop-for-sessions';
 
 const MESSAGE_REPLAY_LIMIT = 300;
 const VALID_PROVIDERS = new Set([
@@ -550,6 +551,7 @@ export class MobileGatewayInstanceRoutes {
       sendJsonResponse(res, 200, { ok: true, duplicate: true });
       return;
     }
+    await stopLoopsForSessions([instanceId]);
     await this.source().terminateInstance(instanceId, body.graceful !== false);
     this.deps.promptStore.clearForInstance(instanceId);
     sendJsonResponse(res, 200, { ok: true });

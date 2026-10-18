@@ -403,7 +403,7 @@ describe('LocalInstanceManager', () => {
     };
     mockAdapter.emit('complete', response);
 
-    expect(completeHandler).toHaveBeenCalledWith('test-complete', response);
+    expect(completeHandler).toHaveBeenCalledWith('test-complete', response, false);
   });
 
   it('hibernates an instance and wakes it with resume enabled', async () => {

@@ -32,6 +32,7 @@ import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { EchartsThemedComponent } from '../../shared/components/echarts-themed/echarts-themed.component';
 import type { EChartsOption } from 'echarts';
 import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
+import type { CostPurposeSummary } from '../../../../shared/types/cost-purpose.types';
 
 // ─── Local data shapes ────────────────────────────────────────────────────────
 
@@ -159,6 +160,12 @@ export class CostPageComponent implements OnInit, OnDestroy {
   readonly summary = signal<CostSummaryData>(EMPTY_SUMMARY);
   readonly entries = signal<CostEntry[]>([]);
   readonly budgetStatus = signal<BudgetStatusData>(EMPTY_BUDGET_STATUS);
+  readonly purposeSummary = signal<CostPurposeSummary | null>(null);
+  readonly purposeGrouping = signal<'purpose' | 'provider'>('purpose');
+  readonly purposeRows = computed(() => this.purposeGrouping() === 'purpose'
+    ? this.purposeSummary()?.byPurpose ?? [] : this.purposeSummary()?.byProvider ?? []);
+  readonly totalCacheReadTokens = computed(() => this.summary().totalCacheReadTokens ?? 0);
+  readonly totalCacheWriteTokens = computed(() => this.summary().totalCacheWriteTokens ?? 0);
 
   // Budget form fields
   readonly budgetDaily = signal<number | null>(null);
@@ -302,14 +309,17 @@ export class CostPageComponent implements OnInit, OnDestroy {
     this.errorMessage.set('');
 
     try {
-      const [summaryResp, entriesResp, budgetResp] = await Promise.all([
+      const now = Date.now();
+      const [summaryResp, entriesResp, budgetResp, purposeResp] = await Promise.all([
         this.costIpc.costGetSummary(),
         this.costIpc.costGetEntries(100),
         this.costIpc.costGetBudgetStatus(),
+        this.costIpc.costGetPurposeSummary({startTime:now - 30 * 86400000,endTime:now}),
       ]);
 
       this.summary.set(this.unwrapData<CostSummaryData>(summaryResp, EMPTY_SUMMARY));
       this.entries.set(this.unwrapData<CostEntry[]>(entriesResp, []));
+      this.purposeSummary.set(this.unwrapData<CostPurposeSummary | null>(purposeResp, null));
 
       const budget = this.unwrapData<BudgetStatusData>(budgetResp, EMPTY_BUDGET_STATUS);
       this.budgetStatus.set(budget);

@@ -95,6 +95,22 @@ ${interventions}
 `;
 }
 
+function sparseGoalAnchor(config: LoopConfig, stateDir: string, reviewDriven = false): string {
+  const firstLine = config.initialPrompt.split(/\r?\n/).find((line) => line.trim()) ?? '';
+  const collapsed = firstLine.replace(/`/g, '').replace(/\s+/g, ' ').trim();
+  const title = collapsed.length > 160 ? `${collapsed.slice(0, 159)}…` : collapsed;
+  const tasks = `every item in \`${stateDir}/LOOP_TASKS.md\` is [x] or [-] with a reason`;
+  const investigation = config.goalIntent === 'investigation';
+  const plan = !reviewDriven && !investigation ? config.planFile : undefined;
+  const reference = plan ? ` and in \`${plan}\`` : '';
+  const goal = `Goal (unchanged; the full text is earlier in this conversation${reference}): ${title}. Done when `;
+  if (reviewDriven) return `${goal}${Math.max(1, config.completion.requiredCleanReviewPasses ?? 2)} rounds in a row change no production code and find nothing you can act on.`;
+  if (investigation) return `${goal}\`${stateDir}/REPORT.md\` answers the goal with file:line evidence and ${tasks}.`;
+  const verify = config.completion.verifyCommand.trim();
+  const checks = verify ? `\`${verify}\` passes` : 'you have run the project checks';
+  return `${goal}${tasks}, ${checks}${plan ? `, and \`${plan}\` is renamed with \`_completed\`` : ''}.`;
+}
+
 export function renderStagedContinuationCard(options: {
   config: LoopConfig;
   iterationSeq: number;
@@ -124,7 +140,9 @@ There is no human in the loop to answer questions. You must:
 ${clarifyingQuestionRule(options.config.contextStrategy)}
 3. **If you are genuinely blocked**, write \`${options.blockedPath}\` describing exactly what you need, then exit.
 
-State files live under \`${options.stateDir}/\`. Continue the current stage (\`${options.currentStage}\`). Do not re-read these instructions as a new contract.
+State files live under \`${options.stateDir}/\`. Do not re-read these instructions as a new contract.
+
+${sparseGoalAnchor(options.config, options.stateDir)}
 ${directive.prefix}
 ${directive.tail ? `${board}${directive.tail}` : board}
 Begin.`;
@@ -165,6 +183,8 @@ ${finishRule()}
 Complete a coherent work slice, update the state files, and return control to the loop before this iteration's timeout. Leave a resumable handoff for remaining work; the next iteration can continue it.
 
 Clean-review sentence (unchanged): ${preferred}
+
+${sparseGoalAnchor(options.config, options.stateDir, true)}
 ${directive.prefix}
 ${LOOP_PROMPT_BOARD_MARKER}
 

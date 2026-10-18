@@ -46,6 +46,7 @@ import { getContextEvidenceRuntime } from '../context-evidence/evidence-maintena
 import { getContextEvidenceCoordinator } from '../context-evidence/context-evidence-coordinator';
 import type { ChatEvidenceDeletion } from './chat-service.types';
 import { SideChatService, createHistoryArchiveLookup } from './side-chat-service';
+import { stopLoopsForSessions } from '../orchestration/loop-stop-for-sessions';
 
 const logger = getLogger('ChatService');
 const CHAT_DETAIL_MESSAGE_LIMIT = 200;
@@ -593,6 +594,7 @@ export class ChatService {
     instanceId: string,
     reason: 'provider' | 'model' | 'reasoning' | 'archive' | 'cwd' | 'delete' | 'failed' | 'policy',
   ): Promise<void> {
+    if (reason === 'archive' || reason === 'delete') await stopLoopsForSessions([instanceId]);
     const inst = this.instanceManager.getInstance(instanceId);
     if (inst && inst.status !== 'terminated') {
       try {

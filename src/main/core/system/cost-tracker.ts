@@ -4,6 +4,7 @@
  * Tracks API costs per model, session, and overall with budget alerts.
  */
 
+import type { ModelUsageDelta } from '../../../shared/types/provider-model-usage.types';
 import { EventEmitter } from 'events';
 import { computeTokenCost } from '../../../shared/data/model-pricing';
 import type { SqliteDriver, SqliteStatement } from '../../db/sqlite-driver';
@@ -26,6 +27,7 @@ export interface CostEntry {
   cacheWriteTokens?: number;
   reasoningTokens?: number;
   cost: number;
+  byModel?: ModelUsageDelta[];
   /**
    * True when the token counts (and therefore `cost`, unless a provider
    * cost override was also supplied) came from a heuristic estimate rather
@@ -148,8 +150,8 @@ const DEFAULT_BUDGET: BudgetConfig = {
 export class CostTracker extends EventEmitter {
   private entries: CostEntry[] = [];
   private budget: BudgetConfig = { ...DEFAULT_BUDGET };
-  private alertedThresholds: Set<string> = new Set();
-  private maxEntries: number = 10000;
+  private alertedThresholds = new Set<string>();
+  private maxEntries = 10000;
   private db: SqliteDriver | null = null;
   private insertStmt: SqliteStatement | null = null;
 
@@ -199,26 +201,50 @@ export class CostTracker extends EventEmitter {
     // Rows came back newest-first; reverse so the array stays chronological
     // (matching push-on-record order).
     this.entries = rows.reverse().map(rowToEntry);
+    const modelRows = this.db.prepare(`SELECT * FROM cost_entry_model_usage WHERE entry_id IN
+      (SELECT id FROM cost_entries ORDER BY timestamp DESC LIMIT ?) ORDER BY model`).all<{
+        entry_id: string; model: string; input_tokens: number; output_tokens: number;
+        cache_read_tokens: number; cache_write_tokens: number; cost_usd: number | null;
+      }>(this.maxEntries);
+    const byEntry = new Map<string, ModelUsageDelta[]>();
+    for (const row of modelRows) {
+      const deltas = byEntry.get(row.entry_id) ?? [];
+      deltas.push({ model: row.model, inputTokens: row.input_tokens, outputTokens: row.output_tokens,
+        cacheReadTokens: row.cache_read_tokens, cacheWriteTokens: row.cache_write_tokens,
+        ...(row.cost_usd !== null ? { costUsd: row.cost_usd } : {}) });
+      byEntry.set(row.entry_id, deltas);
+    }
+    for (const entry of this.entries) if (byEntry.has(entry.id)) entry.byModel = byEntry.get(entry.id);
   }
 
   /** Best-effort write-through of a single entry to the persistence table. */
   private persistEntry(entry: CostEntry): void {
     if (!this.insertStmt) return;
     try {
-      this.insertStmt.run(
-        entry.id,
-        entry.timestamp,
-        entry.instanceId,
-        entry.sessionId,
-        entry.model,
-        entry.inputTokens,
-        entry.outputTokens,
-        entry.cacheReadTokens ?? 0,
-        entry.cacheWriteTokens ?? 0,
-        entry.reasoningTokens ?? 0,
-        entry.cost,
-        entry.isEstimated ? 1 : 0,
-      );
+      const persist = (): void => {
+        this.insertStmt!.run(
+          entry.id,
+          entry.timestamp,
+          entry.instanceId,
+          entry.sessionId,
+          entry.model,
+          entry.inputTokens,
+          entry.outputTokens,
+          entry.cacheReadTokens ?? 0,
+          entry.cacheWriteTokens ?? 0,
+          entry.reasoningTokens ?? 0,
+          entry.cost,
+          entry.isEstimated ? 1 : 0,
+        );
+        if (this.db && entry.byModel) {
+          const statement = this.db.prepare(`INSERT OR REPLACE INTO cost_entry_model_usage
+            (entry_id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`);
+          for (const delta of entry.byModel) statement.run(entry.id, delta.model, delta.inputTokens,
+            delta.outputTokens, delta.cacheReadTokens, delta.cacheWriteTokens, delta.costUsd ?? null);
+        }
+      };
+      if (this.db) this.db.transaction(persist)(); else persist();
     } catch (err) {
       logger.warn('Failed to persist cost entry', { error: String(err) });
     }
@@ -231,9 +257,9 @@ export class CostTracker extends EventEmitter {
     model: string,
     inputTokens: number,
     outputTokens: number,
-    cacheReadTokens: number = 0,
-    cacheWriteTokens: number = 0,
-    reasoningTokens: number = 0,
+    cacheReadTokens = 0,
+    cacheWriteTokens = 0,
+    reasoningTokens = 0,
   ): number {
     // Delegate to the shared pricing helper so every cost path (this tracker
     // plus the provider adapters) uses one per-model input/output/cache table.
@@ -267,18 +293,19 @@ export class CostTracker extends EventEmitter {
     model: string,
     inputTokens: number,
     outputTokens: number,
-    cacheReadTokens: number = 0,
-    cacheWriteTokens: number = 0,
+    cacheReadTokens = 0,
+    cacheWriteTokens = 0,
     providerCostUsd?: number,
-    reasoningTokens: number = 0,
-    isEstimated: boolean = false,
+    reasoningTokens = 0,
+    isEstimated = false,
+    options?: { provider?: string; byModel?: ModelUsageDelta[] },
   ): CostEntry {
     const cost =
       typeof providerCostUsd === 'number' &&
       Number.isFinite(providerCostUsd) &&
       providerCostUsd >= 0
         ? providerCostUsd
-        : this.calculateCost(
+        : options?.provider === 'copilot' || options?.provider === 'cursor' ? 0 : this.calculateCost(
             model,
             inputTokens,
             outputTokens,
@@ -300,6 +327,7 @@ export class CostTracker extends EventEmitter {
       reasoningTokens,
       cost,
       isEstimated,
+      ...(options?.byModel ? { byModel: structuredClone(options.byModel) } : {}),
     };
 
     this.entries.push(entry);
@@ -492,7 +520,7 @@ export class CostTracker extends EventEmitter {
   private checkBudgetAlerts(sessionId: string): void {
     if (!this.budget.enabled) return;
 
-    const checks: Array<{ type: BudgetAlert['type']; usage: number; limit: number }> = [
+    const checks: { type: BudgetAlert['type']; usage: number; limit: number }[] = [
       { type: 'daily', usage: this.getDailyCost(), limit: this.budget.dailyLimit },
       { type: 'weekly', usage: this.getWeeklyCost(), limit: this.budget.weeklyLimit },
       { type: 'monthly', usage: this.getMonthlyCost(), limit: this.budget.monthlyLimit },
@@ -546,7 +574,10 @@ export class CostTracker extends EventEmitter {
     this.alertedThresholds.clear();
     if (this.db) {
       try {
-        this.db.prepare('DELETE FROM cost_entries').run();
+        this.db.transaction(() => {
+          this.db!.prepare('DELETE FROM cost_entry_model_usage').run();
+          this.db!.prepare('DELETE FROM cost_entries').run();
+        })();
       } catch (err) {
         logger.warn('Failed to clear persisted cost entries', { error: String(err) });
       }
@@ -564,7 +595,10 @@ export class CostTracker extends EventEmitter {
     this.entries = this.entries.filter((e) => e.timestamp >= cutoff);
     if (!this.db) return 0;
     try {
-      const result = this.db.prepare('DELETE FROM cost_entries WHERE timestamp < ?').run(cutoff);
+      const result = this.db.transaction(() => {
+        this.db!.prepare('DELETE FROM cost_entry_model_usage WHERE entry_id IN (SELECT id FROM cost_entries WHERE timestamp < ?)').run(cutoff);
+        return this.db!.prepare('DELETE FROM cost_entries WHERE timestamp < ?').run(cutoff);
+      })();
       logger.info('CostTracker cleanup complete', { deleted: result.changes, cutoff });
       return result.changes;
     } catch (err) {

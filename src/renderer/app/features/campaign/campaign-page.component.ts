@@ -73,7 +73,7 @@ function nodeStatusLabel(status: string): string {
     case 'running': return 'Running';
     case 'skipped': return 'Skipped';
     case 'completed': return 'Done';
-    case 'completed-needs-review': return 'Needs review';
+    case 'completed-needs-review': return 'Ended, see notes';
     case 'failed': return 'Failed';
     case 'provider-limit': return 'Rate-limited';
     case 'operator-halted': return 'Halted';

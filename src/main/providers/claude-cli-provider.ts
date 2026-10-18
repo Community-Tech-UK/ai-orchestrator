@@ -133,6 +133,7 @@ export class ClaudeCliProvider extends BaseProvider {
       resume: options.resume,
       model,
       maxTokens: options.maxTokens,
+      maxBudgetUsd: options.maxBudgetUsd,
       systemPrompt: options.systemPrompt,
       yoloMode: options.yoloMode,
       ...(Object.keys(accountEnv.env).length > 0 ? { env: accountEnv.env } : {}),

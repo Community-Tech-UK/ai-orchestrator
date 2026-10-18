@@ -55,6 +55,7 @@ export interface ReviewResult {
 
 /** Aggregated review for a single output */
 export interface AggregatedReview {
+  turnSeq?: number;
   id: string;
   instanceId: string;
   outputType: ReviewOutputType;
@@ -70,6 +71,7 @@ export interface AggregatedReview {
 
 /** Status of the cross-model review system */
 export interface CrossModelReviewStatus {
+  dailyUsage?: { used: number; limit: number; resetsAt: number; limitReached: boolean };
   enabled: boolean;
   reviewers: {
     cliType: string;

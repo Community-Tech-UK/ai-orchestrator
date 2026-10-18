@@ -78,6 +78,10 @@ export function tooltipText(entry: TooltipCopyEntry): string {
  * control does not silently orphan its copy.
  */
 export const TOOLTIP_COPY = {
+  'compaction.freshSession': {
+    label: 'Fresh session',
+    meaning: 'Restarts the agent with a summary of older turns, full recent turns, user messages, and an anchor index. The earlier conversation stays in history; the agent waits for your next message.',
+  },
   'diskSpace.review': { label: 'Review and clean up', meaning: 'Shows the current list and its consequence before you decide.' },
   'diskSpace.refresh': { label: 'Refresh', meaning: 'Measures Harness’s files again.' },
   'workFolders.review': {
@@ -138,12 +142,28 @@ export const TOOLTIP_COPY = {
   },
   'loop.statusPill': {
     label: 'Status',
-    meaning: 'The loop run’s current state.',
+    meaning: 'Shows the current state of this loop.',
   },
-  'loop.statusPill.stepFailed': { label: 'Paused: a step failed', meaning: 'A step failed and the loop paused. Check the files, then Resume or Stop.' },
+  'loop.statusPill.signOff': {
+    label: 'Needs your sign-off',
+    meaning: "The loop thinks it's done. Check the work, then Accept or Resume.",
+  },
+  'loop.statusPill.ended': {
+    label: 'Ended, see notes',
+    meaning: 'The loop ended. Read its notes: it may have finished, stalled, or stopped for a final check.',
+  },
+  'loop.statusPill.stepFailed': {
+    label: 'Stopped: a step failed',
+    meaning: 'A step failed and the loop stopped without merging. Check the files.',
+  },
+  'loop.statusPill.stepFailedPaused': { label: 'Paused: a step failed', meaning: 'A step failed and the loop paused. Check the files, then Resume or Stop.' },
   'loop.acceptCompletion': {
     label: 'Accept as complete',
     meaning: 'Signs off the work yourself and ends the run as complete.',
+  },
+  'loop.closeStored': {
+    label: 'Close',
+    meaning: 'Mark this run as finished. It will not be resumed.',
   },
 
   // ---- Loop metric strip (dense variant) ----
@@ -281,7 +301,7 @@ export const TOOLTIP_COPY = {
   },
   'permissions.scope': {
     label: 'Remember this decision',
-    meaning: 'How long this allow or deny is remembered: once, this session, or always.',
+    meaning: 'Once: just this command (an identical one in the next hour is allowed too). This session: this exact command until the session closes. Always: this exact command in every session.',
   },
 } as const satisfies Record<string, TooltipCopyEntry>;
 

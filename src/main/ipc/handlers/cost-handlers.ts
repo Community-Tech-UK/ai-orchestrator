@@ -17,6 +17,8 @@ import {
   CostRecordUsagePayloadSchema,
   CostSetBudgetPayloadSchema,
 } from '@contracts/schemas/session';
+import { repairStoredCostEntriesA0 } from '../../core/system/cost-entries-a0-repair';
+import { getCostPurposeSummary } from '../../core/system/cost-purpose-summary';
 import { getCostTracker, type BudgetAlert, type CostEntry } from '../../core/system/cost-tracker';
 import { WindowManager } from '../../window-manager';
 import { getRLMDatabase } from '../../persistence/rlm-database';
@@ -32,6 +34,11 @@ const CostGetHistoryPayloadSchema = z.object({
   instanceId: InstanceIdSchema.optional(),
   limit: z.number().int().min(1).max(100000).optional(),
 }).optional();
+const CostPurposeRangeSchema = z.object({
+  startTime: z.number().finite().int().nonnegative().optional(),
+  endTime: z.number().finite().int().nonnegative().optional(),
+}).refine(range => range.startTime === undefined || range.endTime === undefined
+  || range.startTime <= range.endTime, 'startTime must not exceed endTime').optional();
 
 // Renderer-facing push channels for budget alerts. The CostTracker emits a single
 // `budget-alert` domain event; the preload bridge (infrastructure.preload.ts) splits
@@ -44,10 +51,21 @@ export function registerCostHandlers(deps: {
   windowManager: WindowManager;
 }): void {
   const costTracker = getCostTracker();
+  ipcMain.handle(IPC_CHANNELS.COST_GET_PURPOSE_SUMMARY, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const range = validateIpcPayload(CostPurposeRangeSchema, payload, 'COST_GET_PURPOSE_SUMMARY');
+      return {success:true,data:getCostPurposeSummary().getSummary(range)};
+    } catch (error) {
+      return {success:false,error:{code:'COST_GET_PURPOSE_SUMMARY_FAILED',
+        message:(error as Error).message,timestamp:Date.now()}};
+    }
+  });
 
   // Wire the RLM database so cost history persists across restarts (best-effort).
   try {
-    costTracker.setDatabase(getRLMDatabase().getRawDb());
+    const db = getRLMDatabase().getRawDb();
+    repairStoredCostEntriesA0(db);
+    costTracker.setDatabase(db);
   } catch (err) {
     logger.warn('Could not wire RLM database to CostTracker — cost history will be in-memory only', {
       error: String(err),

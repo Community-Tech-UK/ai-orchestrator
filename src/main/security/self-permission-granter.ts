@@ -31,13 +31,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { getLogger } from '../logging/logger';
+import { resolveClaudeAllowRuleTool, type ClaudeAllowRuleTool } from '../../shared/permissions/claude-allow-rule-tools';
 
 const logger = getLogger('SelfPermissionGranter');
 
 // Claude CLI permission tool names we map to. Keep this conservative —
-// unknown CLI actions fall back to the most-specific file tool when a path
-// is present, or fail-closed when nothing sensible can be written.
-export type ClaudeCliToolName = 'Write' | 'Edit' | 'Read' | 'Bash';
+// Explicit unsupported tools fail closed; legacy action-only calls keep their mapping.
+export type ClaudeCliToolName = ClaudeAllowRuleTool;
 
 export interface GrantInput {
   /**
@@ -155,14 +155,8 @@ const ACTION_MAP: Record<string, ClaudeCliToolName> = {
 
 /** Prefer `toolName` when it's a recognized Claude CLI tool name. */
 function resolveToolName(input: GrantInput): ClaudeCliToolName | null {
-  if (input.toolName) {
-    const normalized = input.toolName.trim();
-    if (['Write', 'Edit', 'Read', 'Bash'].includes(normalized)) {
-      return normalized as ClaudeCliToolName;
-    }
-    // Lowercase version — fall through the action map
-    const lower = normalized.toLowerCase();
-    if (lower in ACTION_MAP) return ACTION_MAP[lower]!;
+  if (input.toolName !== undefined) {
+    return resolveClaudeAllowRuleTool(input.toolName) ?? null;
   }
   if (input.action) {
     const lower = input.action.trim().toLowerCase();

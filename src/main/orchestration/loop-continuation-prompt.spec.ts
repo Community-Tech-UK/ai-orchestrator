@@ -20,6 +20,8 @@ function configFor(): LoopConfig {
 
 function stagedCard(overrides: {
   iterationSeq: number;
+  config?: LoopConfig;
+  currentStage?: 'PLAN' | 'IMPLEMENT' | 'REVIEW';
   pendingInterventions?: string[];
   capUsage?: { totalTokens: number; totalCostCents: number };
   iterationPrompt?: string;
@@ -27,8 +29,8 @@ function stagedCard(overrides: {
   return renderStagedContinuationCard({
     blockedPath: `${tmpDir}/BLOCKED.md`,
     capUsage: overrides.capUsage,
-    config: configFor(),
-    currentStage: 'IMPLEMENT',
+    config: overrides.config ?? configFor(),
+    currentStage: overrides.currentStage ?? 'IMPLEMENT',
     iterationPrompt: overrides.iterationPrompt,
     iterationSeq: overrides.iterationSeq,
     notesPath: `${tmpDir}/NOTES.md`,
@@ -64,12 +66,12 @@ function reviewDrivenCard(overrides: {
  * behind the marker, so the provider's prompt cache keeps the prefix hit.
  */
 describe('T8 stable prefix / volatile tail', () => {
-  const varyingTails: Array<{
+  const varyingTails: {
     label: string;
     iterationSeq: number;
     pendingInterventions: string[];
     capUsage: { totalTokens: number; totalCostCents: number };
-  }> = [
+  }[] = [
     { label: 'quiet iteration', iterationSeq: 3, pendingInterventions: [], capUsage: { totalTokens: 1_000, totalCostCents: 10 } },
     { label: 'steered iteration', iterationSeq: 4, pendingInterventions: ['fix the failing spec'], capUsage: { totalTokens: 90_000, totalCostCents: 900 } },
     { label: 'ledger-reminder iteration', iterationSeq: 10, pendingInterventions: ['a', 'b'], capUsage: { totalTokens: 5, totalCostCents: 0 } },
@@ -200,5 +202,43 @@ describe('T50 review-driven reanchor prefix / volatile tail', () => {
     expect(first).not.toContain(directive);
     expect(first).toContain('Return control to the loop');
     expect(later).toContain(directive);
+  });
+});
+
+describe('A3 sparse goal anchors', () => {
+  it('keeps the goal and done-when in both stable prefixes', () => {
+    for (const card of [stagedCard({ iterationSeq: 1 }), reviewDrivenCard({ iterationSeq: 1 })]) {
+      const { prefix, tail } = splitLoopPromptPrefix(card);
+      expect(prefix).toContain('Goal (unchanged; the full text is earlier in this conversation');
+      expect(prefix).toContain('Ship the stable-prefix continuation card');
+      expect(prefix).toContain('Done when');
+      expect(tail).not.toContain('Goal (unchanged');
+    }
+    expect(stagedCard({ iterationSeq: 1 })).toContain('you have run the project checks');
+    expect(reviewDrivenCard({ iterationSeq: 1 })).toContain('2 rounds in a row change no production code and find nothing you can act on');
+  });
+  it('collapses and clips only the first nonempty goal line, stripping backticks', () => {
+    const config = configFor();
+    config.initialPrompt = '\n   `Goal`  with \t spaces ' + 'a'.repeat(200) + '\nsecret second line';
+    const card = stagedCard({ iterationSeq: 1, config });
+    const title = card.match(/\): (.+)\. Done when/)?.[1];
+    expect(title).toHaveLength(160);
+    expect(title).toMatch(/^Goal with spaces a+…$/);
+    expect(card).not.toContain('secret second line');
+  });
+  it('names implementation checks and rename, and investigation report evidence', () => {
+    const config = configFor(); config.planFile = 'docs/plan.md'; config.completion.verifyCommand = 'npm run checks';
+    expect(stagedCard({ iterationSeq: 1, config })).toContain('`npm run checks` passes, and `docs/plan.md` is renamed with `_completed`');
+    config.goalIntent = 'investigation';
+    const card = stagedCard({ iterationSeq: 1, config });
+    expect(card).toContain('REPORT.md` answers the goal with file:line evidence');
+    expect(card).not.toContain('is renamed');
+    expect(card).not.toContain('npm run checks');
+  });
+  it('keeps the stage solely on the board', () => {
+    const cards = (['PLAN', 'IMPLEMENT', 'REVIEW'] as const).map((currentStage) => stagedCard({ iterationSeq: 2, currentStage }));
+    const prefixes = cards.map((card) => splitLoopPromptPrefix(card).prefix);
+    expect(new Set(prefixes).size).toBe(1);
+    expect(new Set(cards.map((card) => splitLoopPromptPrefix(card).tail)).size).toBe(3);
   });
 });

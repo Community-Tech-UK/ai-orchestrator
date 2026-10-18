@@ -1,5 +1,5 @@
 import { CLAUDE_REVIEWER_MAX_TURNS } from '../cli/adapters/claude-machine-session-policy';
-import { recordModelCall, resolveModelCallCost, type ModelCallCostSource } from '../core/system/model-call-recorder';
+import { recordModelCall, resolveModelCallCost, type ModelCallCostSource, type ModelCallRecordInput } from '../core/system/model-call-recorder';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import type { ReviewResult } from '../../shared/types/cross-model-review.types';
@@ -9,6 +9,7 @@ import type { CliType as SettingsCliType } from '../../shared/types/settings.typ
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { resolveAntigravityReviewModelPlan } from '../orchestration/antigravity-review-model-routing';
 import { resolveReviewerModelOverride } from './reviewer-model-override';
+import { observeModelCallUsage, isModelCallCancelled } from '../core/system/observed-model-call-usage';
 
 /**
  * Lives in its own leaf module so this file and the checker planner can both use
@@ -77,6 +78,8 @@ export interface HeadlessReviewAngleCacheHook {
 }
 
 export interface HeadlessReviewRequest {
+  purpose?: 'fresh-eyes-review' | 'review-cli';
+  correlationId?: string;
   maxReviewers?: number;
   target: string;
   cwd: string;
@@ -136,6 +139,7 @@ export async function sendAbortableReviewerMessage(
   message: CliMessage,
   signal: AbortSignal,
   onAbort?: () => void,
+  record?: Omit<ModelCallRecordInput, 'usage' | 'outcome'>,
 ): Promise<CliResponse> {
   if (signal.aborted) throw new Error('Review cancelled');
   let removeAbortListener: (() => void) | undefined;
@@ -148,9 +152,42 @@ export async function sendAbortableReviewerMessage(
     signal.addEventListener('abort', handleAbort, { once: true });
     removeAbortListener = () => signal.removeEventListener('abort', handleAbort);
   });
+  const observed = observeModelCallUsage(adapter);
+  const recordContext = record ? { ...record } : undefined;
+  let sent: Promise<CliResponse> | undefined;
+  let deferredRecording = false;
   try {
-    return await Promise.race([adapter.sendMessage(message), cancelled]);
+    sent = adapter.sendMessage(message);
+    const response = await Promise.race([sent, cancelled]);
+    observed.observe(response.usage);
+    if (recordContext && observed.dispatched) recordModelCall({ ...recordContext, usage: observed.usage, outcome: response.metadata?.['budgetExceeded'] === true ? 'budget-exceeded' : 'success' });
+    return response;
+  } catch (error) {
+    observed.observeError(error);
+    const outcome = signal.aborted || isModelCallCancelled(error) ? 'cancelled' : 'error';
+    if (outcome === 'cancelled' && sent) {
+      // Cancellation acknowledgement stays immediate. The native request can
+      // reject with paid partial usage only after asynchronous process closure.
+      // Keep its accounting observer until that send actually settles.
+      deferredRecording = true;
+      const finish = (): void => {
+        try {
+          if (recordContext && observed.dispatched) recordModelCall({ ...recordContext, usage: observed.usage, outcome });
+        } finally { observed.dispose(); }
+      };
+      void sent.then(response => {
+        observed.observe(response.usage);
+        finish();
+      }, failure => {
+        observed.observeError(failure);
+        finish();
+      });
+    } else if (recordContext && observed.dispatched) {
+      recordModelCall({ ...recordContext, usage: observed.usage, outcome });
+    }
+    throw error;
   } finally {
+    if (!deferredRecording) observed.dispose();
     removeAbortListener?.();
   }
 }
@@ -191,7 +228,7 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
       {
         workingDirectory: cwd,
         yoloMode: false,
-        ...(resolvedCli === 'claude' ? { readOnlyReview: true, maxTurns: CLAUDE_REVIEWER_MAX_TURNS } : {}),
+        ...(resolvedCli === 'claude' ? { readOnlyReview: true, maxTurns: CLAUDE_REVIEWER_MAX_TURNS, maxBudgetUsd: 1 } : {}),
         // When no override is configured, leave `model` unset so the reviewer
         // CLI uses its own default/auto routing.
         ...(reviewerModel ? { model: reviewerModel } : {}),
@@ -207,6 +244,7 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
     });
 
     let cancelled = false;
+    let usageNotified = false;
     try {
       if (!isCliAdapterLike(adapter)) {
         throw new Error(`CLI adapter "${provider}" does not support sendMessage`);
@@ -219,15 +257,17 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
         { role: 'user', content: prompt },
         signal,
         () => { cancelled = true; },
+        { purpose: options?.purpose ?? 'review-cli', correlationId: options?.correlationId, provider: resolvedCli, model: reviewerModel },
       );
       const model = reviewerModel ?? (typeof response.metadata?.['model'] === 'string' ? response.metadata['model'] : undefined);
       const resolved = resolveModelCallCost(resolvedCli, model, response.usage);
-      recordModelCall({ purpose: options?.purpose ?? 'cross-model-review', provider: resolvedCli, model, usage: response.usage, correlationId: options?.correlationId });
-      try { options?.onUsage?.({ provider: resolvedCli, model, tokens: (response.usage?.inputTokens ?? 0) + (response.usage?.outputTokens ?? 0), cacheReadTokens: response.usage?.cacheReadTokens, cacheWriteTokens: response.usage?.cacheWriteTokens, ...resolved }); } catch { /* observer cannot fail a successful send */ }
+      try { options?.onUsage?.({ provider: resolvedCli, model, tokens: (response.usage?.inputTokens ?? 0) + (response.usage?.outputTokens ?? 0), cacheReadTokens: response.usage?.cacheReadTokens, cacheWriteTokens: response.usage?.cacheWriteTokens, ...resolved }); usageNotified = true; } catch { /* observer cannot fail a successful send */ }
+      if (response.metadata?.['budgetExceeded'] === true) throw new Error('Reviewer budget exceeded');
       return response.content;
     } catch (error) {
-      recordModelCall({ purpose: options?.purpose ?? 'cross-model-review', provider: resolvedCli, model: reviewerModel, correlationId: options?.correlationId, outcome: signal.aborted ? 'cancelled' : 'error' });
-      try { options?.onUsage?.({ provider: resolvedCli, model: reviewerModel, tokens: 0, costUsd: null, costSource: 'unknown' }); } catch { /* preserve provider failure */ }
+      if (!usageNotified) {
+        try { options?.onUsage?.({ provider: resolvedCli, model: reviewerModel, tokens: 0, costUsd: null, costSource: 'unknown' }); } catch { /* preserve provider failure */ }
+      }
       throw error;
     } finally {
       if (!cancelled && isTerminableAdapter(adapter)) {

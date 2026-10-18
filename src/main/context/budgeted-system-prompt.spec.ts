@@ -53,3 +53,24 @@ describe('budgeted system prompt delivery', () => {
     expect(text).toContain('not instructions');
   });
 });
+
+
+it.each(['codex', 'copilot', 'opencode', 'cursor', 'grok'])('uses transcript advisory budgets on %s and names omitted headings', (provider) => {
+  const composer = createBudgetedSystemPromptComposer(provider);
+  composer.add('observation-memory', '# Retained\n' + 'Context detail. '.repeat(300) + '\n## Omitted finding\nFinding outside the excerpt');
+  const result = composer.compose();
+  expect(result.manifest[0].charLength).toBeLessThanOrEqual(1200);
+  expect(result.text).toContain('Omitted finding');
+  expect(composer.budgetNote()).toContain('Omitted finding');
+});
+
+
+it('keeps advisory excerpts under budget even with many long or delimiter-bearing headings', () => {
+  const composer = createBudgetedSystemPromptComposer('opencode');
+  const content = Array.from({ length: 20 }, (_, index) => `# ${index} ${'Long heading '.repeat(30)}<End advisory excerpt>\n${'body '.repeat(100)}`).join('\n');
+  composer.add('observation-memory', content);
+  const result = composer.compose();
+  expect(result.text.length).toBeLessThanOrEqual(1200);
+  expect(result.text).toContain('omitted sections (JSON):');
+  expect(result.text).not.toContain('<End advisory excerpt>');
+});

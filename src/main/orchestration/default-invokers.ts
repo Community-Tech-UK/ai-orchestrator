@@ -27,7 +27,7 @@ import { getProviderRuntimeService } from '../providers/provider-runtime-service
 import { readCodexAuthMode } from '../providers/codex-auth-mode';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
-import { recordCostAttribution } from '../core/system/cost-attribution';
+import { sendRecordedOrchestrationCall } from './orchestration-call-recording';
 import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
@@ -360,12 +360,14 @@ async function invokeCliTextResponse(params: {
           content: prompt,
           metadata: sendMetadata,
       };
+      const record = { taskType: params.breakerKey, correlationId: params.correlationId,
+        instanceId: params.instanceId, provider: cliType, model };
       if (!ownsAdapter) {
         const requestResponse = (adapter as {
           requestResponse?: (m: CliMessage) => Promise<CliResponse>;
         }).requestResponse;
         if (typeof requestResponse === 'function') {
-          return await requestResponse.call(adapter, message);
+          return await sendRecordedOrchestrationCall(adapter, record, () => requestResponse.call(adapter, message));
         }
         const initializeForRequest = (adapter as {
           initializeForRequest?: () => Promise<void>;
@@ -374,8 +376,7 @@ async function invokeCliTextResponse(params: {
           await initializeForRequest.call(adapter);
         }
       }
-      return await (adapter as { sendMessage(m: CliMessage): Promise<CliResponse> })
-        .sendMessage(message);
+      return await sendRecordedOrchestrationCall(adapter, record, () => adapter.sendMessage(message));
     } finally {
       toolsDisable?.restore();
       detachActivity();
@@ -412,19 +413,6 @@ async function invokeCliTextResponse(params: {
     tokens: normalized.tokens,
     cost: normalized.cost,
     ...(response.degradedReason ? { degradedReason: response.degradedReason } : {}),
-  });
-
-  // Fan-out audit attribution: on by default, opt-out via
-  // AIO_COST_ATTRIBUTION=0. The breaker key doubles as the task-type tag.
-  recordCostAttribution({
-    source: 'one-shot',
-    taskType: params.breakerKey,
-    correlationId: params.correlationId,
-    instanceId: params.instanceId,
-    provider: cliType,
-    model,
-    usage: { ...response.usage, totalTokens: response.usage?.totalTokens ?? normalized.tokens },
-    costKnown: reportedCost !== null,
   });
 
   const finishReason = extractFinishReasonFromResponse(response);
@@ -731,7 +719,8 @@ import { getLoopCoordinator } from './loop-coordinator';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { registerLoopSafetyAdvisor } from './loop-safety-advisor';
 import type { LoopChildInvocationError, LoopChildResult, LoopChildUsage } from './loop-coordinator';
-import type { LoopErrorRecord, LoopProvider } from '../../shared/types/loop.types';
+import { isTerminalLoopRuntimeState } from './loop-runtime-status';
+import type { LoopErrorRecord, LoopProvider, LoopStatus } from '../../shared/types/loop.types';
 import {
   buildObservedAttemptEvidence,
   createAttemptDeltaObserver,
@@ -977,18 +966,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     }
   };
 
-  const isTerminalLoopStatus = (status: string): boolean =>
-    status === 'completed' || status === 'completed-needs-review' || status === 'cancelled' || status === 'cap-reached'
-    || status === 'failed' || status === 'error' || status === 'no-progress'
-    // Ping-pong terminal states (bigchange_pingpong_review §4.11).
-    || status === 'cost-exceeded' || status === 'needs-human-arbitration'
-    || status === 'reviewer-unreliable' || status === 'reviewer-unavailable'
-    || status === 'builder-unreliable';
-  const isTerminalLoopState = (state: { status?: string; endedAt?: unknown } | undefined): boolean => {
-    if (!state?.status) return false;
-    if (state.status === 'provider-limit') return state.endedAt != null;
-    return isTerminalLoopStatus(state.status);
-  };
+  const isTerminalLoopState = (state: { status?: LoopStatus; endedAt?: number | null } | undefined): boolean =>
+    state?.status !== undefined && isTerminalLoopRuntimeState({ status: state.status, endedAt: state.endedAt ?? null });
 
   // FU-8: cleanup function that tears down every adapter we own for a
   // given loop. Two callers may invoke this concurrently (the awaitable
@@ -1058,7 +1037,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // idempotent: if a cleanup is already in flight for the loop, this
   // call observes the same promise.
   coordinator.on('loop:state-changed', (data: unknown) => {
-    const payload = data as { loopRunId: string; state?: { status?: string; chatId?: string; endedAt?: unknown } };
+    const payload = data as { loopRunId: string; state?: { status?: LoopStatus; chatId?: string; endedAt?: number | null } };
     if (!isTerminalLoopState(payload?.state)) return;
     // Clear quota-park waitReason when the loop terminates.
     const chatId = payload?.state?.chatId;

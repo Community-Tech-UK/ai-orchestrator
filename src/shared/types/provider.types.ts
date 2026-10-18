@@ -133,6 +133,8 @@ export interface ProviderSessionOptions {
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  /** Dollar backstop for a fresh Claude print session. */
+  maxBudgetUsd?: number;
   temperature?: number;
   workingDirectory: string;
   sessionId?: string;

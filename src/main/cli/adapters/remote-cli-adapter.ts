@@ -7,7 +7,6 @@
  * worker and are forwarded as EventEmitter events — matching the event contract
  * of the local CLI adapters.
  */
-
 import { EventEmitter } from 'events';
 import { randomUUID } from 'node:crypto';
 import { getLogger } from '../../logging/logger';
@@ -18,62 +17,54 @@ import type { UnifiedSpawnOptions } from './adapter-factory';
 import type { AdapterInputOptions, AdapterRuntimeCapabilities, CliResponse, CliSpawnMode, InterruptResult, ResumeAttemptResult, TurnInterruptCompletion } from './base-cli-adapter';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
+import { isRemoteUsageFinalization, RemoteResponseUsageSettlement } from './remote-response-usage-settlement';
 import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
 import { RPC_ERROR_CODES } from '../../remote-node/worker-node-rpc';
 import { InstanceSendRawParamsSchema, InputRequiredResolvedSchema, ProviderSessionSchema, ProviderTurnSchema, NativeHistoryReplaySchema, RemoteInputRequiredSchema, boundedRemoteCommands, inputNotPending, interactionPayload, type RemoteNativeCommand } from '../../remote-node/instance-interaction-schemas';
 import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 import { JsonChunkAssembler } from '../../../shared/utils/json-chunks';
 import type { AcpHistoryReplay } from './acp-session-replay';
-
+import type { RemoteInstanceTelemetry } from '../../remote-node/instance-telemetry-rpc';
 const logger = getLogger('RemoteCliAdapter');
-
 /**
  * Max time to wait for a terminal remote event after an interrupt before the
  * completion settles to `unknown` (Phase 5 / A2 for remote). Bounds the await so
  * the interrupt state machine never hangs on a wedged/silent worker.
  */
 const REMOTE_INTERRUPT_COMPLETION_MS = 15_000;
-
 interface SpawnResponse {
   instanceId: string;
 }
-
 interface RemoteOutputEvent {
   nodeId: string;
   instanceId: string;
   message: OutputMessage;
 }
-
 interface RemoteStateChangeEvent {
   nodeId: string;
   instanceId: string;
   state: string;
   info?: unknown;
 }
-
 interface RemotePermissionRequestEvent {
   nodeId: string;
   instanceId: string;
   permission: unknown;
 }
-
 interface RemoteContextEvent {
   nodeId: string;
   instanceId: string;
   usage: unknown;
 }
-
 interface RemoteHeartbeatEvent {
   nodeId: string;
   instanceId: string;
 }
-
 interface RemoteCompleteEvent {
   nodeId: string;
   instanceId: string;
   response: CliResponse;
 }
-
 export class RemoteCliAdapter extends EventEmitter {
   private remoteInstanceId: string | null = null;
   private interactionId = randomUUID();
@@ -81,6 +72,8 @@ export class RemoteCliAdapter extends EventEmitter {
   private providerSessionId: string | null = null;
   private providerTurn: { active: boolean; activeToolCalls: boolean; at: number } | null = null;
   private readonly pendingInputs = new Set<string>();
+  private readonly usageSettlement = new RemoteResponseUsageSettlement();
+  private usageFinalizationCleanup?: () => void;
   private readonly nextPromptContexts: string[] = [];
   private contextDispatchPending: object | null = null;
   private readonly historyChunks = new JsonChunkAssembler({ maxCharacters: 40 * 1024 * 1024, maxTransfers: 1 });
@@ -89,12 +82,7 @@ export class RemoteCliAdapter extends EventEmitter {
   private spawnPending = false;
   /** Latest resume proof relayed from the worker adapter (P2.9). */
   private lastResumeAttemptResult: ResumeAttemptResult | null = null;
-  /**
-   * Wall-clock of the last sign of life from the remote turn (Phase 5 / D4):
-   * spawn, output, state-change, context, heartbeat, or complete. The idle
-   * monitor reads `getMillisSinceLastActivity()` to detect a connected-but-wedged
-   * worker whose turn-level heartbeat has gone stale.
-   */
+  /** Last remote activity; the idle monitor uses it to detect a stale worker. */
   private lastActivityAt: number | null = null;
   private readonly registry = getWorkerNodeRegistry();
   private registryListenersAttached = false;
@@ -190,7 +178,10 @@ export class RemoteCliAdapter extends EventEmitter {
     }
     this.handleRemoteComplete(event.response);
   };
-
+  private readonly onRemoteTelemetryEvent = (event: RemoteInstanceTelemetry): void => {
+    if (!this.matchesRemoteInstance(event.nodeId, event.instanceId)) return;
+    this.emit(event.telemetry.event, event.telemetry.payload);
+  };
   constructor(
     private readonly nodeConnection: WorkerNodeConnectionServer,
     private readonly targetNodeId: string,
@@ -199,11 +190,9 @@ export class RemoteCliAdapter extends EventEmitter {
   ) {
     super();
   }
-
   // ---------------------------------------------------------------------------
   // Core operations — all proxy to RPC
   // ---------------------------------------------------------------------------
-
   /**
    * Spawn a remote instance via RPC.
    * Returns -1 as PID since the process runs on a remote machine.
@@ -215,7 +204,6 @@ export class RemoteCliAdapter extends EventEmitter {
     if (!this.spawnOptions.workingDirectory) {
       throw new Error('RemoteCliAdapter requires spawnOptions.workingDirectory for remote execution');
     }
-
     if (this.requestedCliType === 'opencode') {
       const requiresV2 = this.spawnOptions.forkSession || Boolean(this.spawnOptions.additionalDirectories?.length)
         || this.spawnOptions.nodePlacement?.requiresOpenCodeMajor === 2;
@@ -223,7 +211,6 @@ export class RemoteCliAdapter extends EventEmitter {
         throw new Error('This OpenCode operation needs a worker running OpenCode 2.0.30 or newer. Update OpenCode on that worker or choose another worker.');
       }
     }
-
     // Set the expected remote instance ID and attach registry listeners BEFORE
     // sending the spawn RPC. This eliminates the window where early output from
     // the remote instance could be missed because listeners weren't registered yet.
@@ -231,7 +218,6 @@ export class RemoteCliAdapter extends EventEmitter {
     this.interactionId = randomUUID();
     this.spawnPending = true;
     this.attachRegistryListeners();
-
     let acknowledged = false;
     try {
       const response = await this.nodeConnection.sendRpc<SpawnResponse>(
@@ -241,6 +227,7 @@ export class RemoteCliAdapter extends EventEmitter {
           instanceId: this.spawnOptions.sessionId,
           interactionId: this.interactionId,
           cliType: this.requestedCliType,
+          usageSettlementProtocol: 1,
           workingDirectory: this.spawnOptions.workingDirectory,
           systemPrompt: this.spawnOptions.systemPrompt,
           model: this.spawnOptions.model,
@@ -291,7 +278,6 @@ export class RemoteCliAdapter extends EventEmitter {
       const expectsHistory = this.requestedCliType === 'opencode' && this.spawnOptions.resume
         && !this.spawnOptions.transcriptKnown && this.registry.getNode?.(this.targetNodeId)?.capabilities.openCodeMajor === 2;
       if (this.historyReplayFailure || expectsHistory && !this.pendingHistoryReplay) throw this.historyReplayFailure ?? new Error('The OpenCode 2 worker did not deliver the loaded session history.');
-
       // Update with the actual remote instance ID (should match sessionId)
       this.remoteInstanceId = response.instanceId;
       logger.info('Remote instance spawned', {
@@ -311,13 +297,8 @@ export class RemoteCliAdapter extends EventEmitter {
       this.spawnPending = false;
     }
 
-    // Fix C: emit OUTSIDE the try/catch. Once the worker has acknowledged the
-    // spawn, `remoteInstanceId` must stay set until terminate() clears it — the
-    // invariant that lets a rollback's adapter.terminate() reach the worker. A
-    // throwing `spawned` listener (e.g. downstream strict schema validation on
-    // the remote pid=-1 sentinel) previously landed in the catch above, nulled
-    // `remoteInstanceId`, and orphaned the still-running remote child. Keeping
-    // the emit here means a throwing listener no longer resets the adapter.
+    // Emit outside the catch: a throwing listener must retain the acknowledged
+    // child identity so rollback termination can still reach the worker.
     const history = this.pendingHistoryReplay;
     this.pendingHistoryReplay = null;
     if (history) this.emit('history_replay', history);
@@ -441,10 +422,7 @@ export class RemoteCliAdapter extends EventEmitter {
       this.emit('error', new Error(`Remote interrupt failed: ${err.message}`));
     });
 
-    // Phase 5 / A2-for-remote: return an ack PLUS a bounded completion that
-    // settles when the remote turn reaches a terminal event (complete/exit), or
-    // to `unknown` after a deadline — so the interrupt state machine never waits
-    // forever on a wedged or silent worker.
+    // Completion waits for a terminal event, bounded for a silent worker.
     const completion = new Promise<TurnInterruptCompletion>((resolve) => {
       let settled = false;
       const finish = (result: TurnInterruptCompletion): void => {
@@ -470,13 +448,25 @@ export class RemoteCliAdapter extends EventEmitter {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async terminate(graceful?: boolean): Promise<void> {
-    // Always detach listeners, even if remoteInstanceId is null (defensive cleanup)
+    // Lifecycle events stop immediately. Pending billing alone can still receive
+    // native finalization while the worker drains the termination RPC.
     this.detachRegistryListeners();
-
-    if (!this.remoteInstanceId) return;
+    if (!this.remoteInstanceId) {
+      if (!this.usageFinalizationCleanup) this.usageSettlement.settleAll();
+      return;
+    }
 
     const instanceId = this.remoteInstanceId;
     this.remoteInstanceId = null;
+    if (this.usageSettlement.hasPending) {
+      const finalize = (event: RemoteCompleteEvent): void => {
+        if (event.nodeId === this.targetNodeId && event.instanceId === instanceId && isRemoteUsageFinalization(event.response)) {
+          this.usageSettlement.accept(event.response);
+        }
+      };
+      this.registry.on('remote:instance-complete', finalize);
+      this.usageFinalizationCleanup = () => this.registry.off('remote:instance-complete', finalize);
+    }
 
     try {
       await this.nodeConnection.sendRpc(
@@ -492,11 +482,18 @@ export class RemoteCliAdapter extends EventEmitter {
         instanceId,
         error: err instanceof Error ? err.message : String(err),
       });
+    } finally {
+      this.usageFinalizationCleanup?.();
+      this.usageFinalizationCleanup = undefined;
+      this.usageSettlement.settleAll();
     }
   }
 
   /** Force cleanup after interrupted termination or error recovery. */
   forceCleanup(): void {
+    this.usageFinalizationCleanup?.();
+    this.usageFinalizationCleanup = undefined;
+    this.usageSettlement.settleAll();
     this.remoteInstanceId = null;
     this.detachRegistryListeners();
   }
@@ -603,11 +600,7 @@ export class RemoteCliAdapter extends EventEmitter {
     this.lastActivityAt = Date.now();
   }
 
-  /**
-   * Milliseconds since the last sign of life from the remote turn, or `null` if
-   * no activity has been observed yet. Used by the idle monitor to detect a
-   * connected-but-wedged worker (stale turn heartbeat).
-   */
+  /** Milliseconds since remote activity, or null before the first observation. */
   getMillisSinceLastActivity(): number | null {
     return this.lastActivityAt === null ? null : Date.now() - this.lastActivityAt;
   }
@@ -618,6 +611,9 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   handleRemoteExit(code: number | null, signal: string | null): void {
+    this.usageFinalizationCleanup?.();
+    this.usageFinalizationCleanup = undefined;
+    this.usageSettlement.settleAll();
     this.remoteInstanceId = null;
     this.detachRegistryListeners();
     this.emit('exit', code, signal);
@@ -653,9 +649,9 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   handleRemoteComplete(response: CliResponse): void {
-    this.providerTurn = null;
     this.markActivity();
-    this.emit('complete', response);
+    const semantic = this.usageSettlement.accept(response);
+    if (semantic) { this.providerTurn = null; this.emit('complete', semantic); }
   }
 
   private matchesRemoteInstance(nodeId: string, instanceId: string): boolean {
@@ -677,6 +673,7 @@ export class RemoteCliAdapter extends EventEmitter {
     this.registry.on('remote:instance-context', this.onRemoteContextEvent);
     this.registry.on('remote:instance-heartbeat', this.onRemoteHeartbeatEvent);
     this.registry.on('remote:instance-complete', this.onRemoteCompleteEvent);
+    this.registry.on('remote:instance-telemetry', this.onRemoteTelemetryEvent);
     this.registryListenersAttached = true;
   }
 
@@ -694,6 +691,7 @@ export class RemoteCliAdapter extends EventEmitter {
     this.registry.off('remote:instance-context', this.onRemoteContextEvent);
     this.registry.off('remote:instance-heartbeat', this.onRemoteHeartbeatEvent);
     this.registry.off('remote:instance-complete', this.onRemoteCompleteEvent);
+    this.registry.off('remote:instance-telemetry', this.onRemoteTelemetryEvent);
     this.registryListenersAttached = false;
   }
 }

@@ -94,17 +94,28 @@ describe('capped', () => {
 });
 
 describe('review-blocked', () => {
+  it('explains a failed attempt, offers a file check, and claims no verify or review pass', () => {
+    const timeline = buildLoopCausalTimeline(state({ status: 'attempt-failed' }));
+    expect(timeline.blockingStepId).toBe('work');
+    expect(timeline.steps.find((step) => step.id === 'work')?.detail)
+      .toBe("A step failed and Harness can't tell what it changed. Nothing was merged.");
+    expect(timeline.steps.find((step) => step.id === 'verify')?.state).toBe('pending');
+    expect(timeline.steps.find((step) => step.id === 'review')?.state).toBe('pending');
+    expect(timeline.nextAutomaticAction).toBe('Nothing. It has stopped.');
+    expect(timeline.recovery.label).toBe('Check the files');
+  });
   it('blocks on review when builder and reviewer disagree', () => {
     const timeline = buildLoopCausalTimeline(state({ status: 'needs-human-arbitration' }));
     expect(timeline.blockingStepId).toBe('review');
     expect(timeline.recovery.id).toBe('review-now');
   });
 
-  /** A success state that still wants a person. Not a failure, and says so. */
-  it('treats completed-needs-review as finished-but-asking, not failed', () => {
+  /** An ended run must leave its actual outcome to the notes. */
+  it('labels completed-needs-review as ended without promising completed work', () => {
     const timeline = buildLoopCausalTimeline(state({ status: 'completed-needs-review' }));
     expect(timeline.blockingStepId).toBe('review');
-    expect(timeline.nextAutomaticAction).toContain('this is a request, not a failure');
+    expect(timeline.nextAutomaticAction).toBe('Nothing. It has ended.');
+    expect(timeline.steps.find((s) => s.state === 'blocked')?.detail).not.toContain('done and accepted');
   });
 
   it('names a degraded replay-unsafe pause instead of calling the work done', () => {

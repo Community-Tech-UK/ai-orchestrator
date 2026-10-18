@@ -14,7 +14,7 @@ import { countReviewResultsWithConcerns } from '../../../../shared/utils/cross-m
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (enabled() && hasVisibleState()) {
+    @if (hasVisibleState()) {
       <span
         class="review-indicator"
         [class.reviewing]="isPending()"
@@ -32,8 +32,10 @@ import { countReviewResultsWithConcerns } from '../../../../shared/utils/cross-m
       >
         @if (isPending()) {
           <span class="spinner">&#x21bb;</span> Reviewing...
+        } @else if (limitReached()) {
+          Limit reached
         } @else if (isVerified()) {
-          &#x2713; Verified{{ hasLocalAdvisory() ? ' + local advisory' : '' }}
+          &#x2713; Reviewed{{ hasLocalAdvisory() ? ' + local advisory' : '' }}
         } @else if (hasConcerns()) {
           &#x26A0; {{ concernCount() }} concern{{ concernCount() > 1 ? 's' : '' }}
         } @else if (hasLocalAdvisory()) {
@@ -149,8 +151,10 @@ export class CrossModelReviewIndicatorComponent {
 
   hasLocalFailure = computed(() => this.review()?.localReviewer?.status === 'failed');
 
+  limitReached = computed(() => this.reviewService.status()?.dailyUsage?.limitReached ?? false);
+
   hasVisibleState = computed(() =>
-    this.isPending() || this.isSkipped() || this.review() != null
+    this.isPending() || this.isSkipped() || this.limitReached() || this.review() != null
   );
 
   concernCount = computed(() => {
@@ -161,15 +165,20 @@ export class CrossModelReviewIndicatorComponent {
 
   tooltip = computed(() => {
     if (this.isPending()) return 'Cross-model review in progress...';
+    if (this.limitReached()) {
+      const usage = this.reviewService.status()!.dailyUsage!;
+      return `${usage.used} of ${usage.limit} automatic second opinions used today. Resets at midnight. You can still ask for one from a reply's menu.`;
+    }
     if (this.isSkipped()) return 'Cross-model review skipped because no secondary reviewers were available';
     const r = this.review();
     if (!r) return 'No review available';
+    const turn = r.turnSeq === undefined ? '' : ` Reviewed turn ${r.turnSeq}.`;
     const local = r.localReviewer;
     const localSuffix = local
       ? ` Local reviewer ${local.status}${local.reason ? `: ${local.reason}` : ''}.`
       : this.localReviews().length > 0 ? ' Local reviewer output is advisory.' : '';
-    if (this.hasConcerns()) return `Remote reviewers flagged concerns \u2014 click to view.${localSuffix}`;
-    if (this.isVerified()) return `Remote reviewers approved this output.${localSuffix}`;
+    if (this.hasConcerns()) return `Remote reviewers flagged concerns \u2014 click to view.${localSuffix}${turn}`;
+    if (this.isVerified()) return `Remote reviewers approved this output.${localSuffix}${turn}`;
     if (local?.status === 'failed') return `Local reviewer failed: ${local.reason ?? 'unknown failure'}. No remote reviewer completed.`;
     if (local?.status === 'skipped') return `Local reviewer skipped: ${local.reason ?? 'unavailable'}. No remote reviewer completed.`;
     return 'Local review completed as advisory; no remote reviewer completed.';

@@ -106,6 +106,8 @@ export const ORCHESTRATION_CHANNELS = {
   CROSS_MODEL_REVIEW_REVIEWER_UNAVAILABLE: 'cross-model-review:reviewer-unavailable',
   CROSS_MODEL_REVIEW_REVIEWER_RATE_LIMITED: 'cross-model-review:reviewer-rate-limited',
   CROSS_MODEL_REVIEW_REVIEWER_RATE_LIMIT_CLEARED: 'cross-model-review:reviewer-rate-limit-cleared',
+  CROSS_MODEL_REVIEW_REQUEST: 'cross-model-review:request',
+  CROSS_MODEL_REVIEW_SKIPPED: 'cross-model-review:skipped',
   CROSS_MODEL_REVIEW_STATUS: 'cross-model-review:status',
   CROSS_MODEL_REVIEW_DISMISS: 'cross-model-review:dismiss',
   CROSS_MODEL_REVIEW_ACTION: 'cross-model-review:action',

@@ -250,7 +250,7 @@ export class RestartPolicyHelpers {
    * Archive a snapshot of the instance's conversation before restart.
    * Skips child instances and empty conversations.
    */
-  async archiveRestartSnapshot(instance: Instance, messages: OutputMessage[]): Promise<void> {
+  async archiveRestartSnapshot(instance: Instance, messages: OutputMessage[]): Promise<string | undefined> {
     if (instance.parentId || messages.length === 0) {
       return;
     }
@@ -269,5 +269,6 @@ export class RestartPolicyHelpers {
     };
 
     await this.deps.archiveInstance(archivedInstance, 'completed');
+    return archivedInstance.id;
   }
 }

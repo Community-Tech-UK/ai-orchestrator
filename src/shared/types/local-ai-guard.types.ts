@@ -1,4 +1,4 @@
-import type { AuxiliaryLlmSlot } from './auxiliary-llm.types';
+import type { AuxiliaryHelperPause, AuxiliaryLlmSlot } from './auxiliary-llm.types';
 
 export const LOCAL_AI_TARGET_NUMERIC_LIMITS = {
   endpointCheckIntervalMs: { min: 30_000, max: 900_000 },
@@ -385,6 +385,7 @@ export function compareLocalAiRevisionCursors(
 }
 
 export interface LocalAiGuardSnapshot {
+  helperPauses?: AuxiliaryHelperPause[];
   /** Main-process monotonic cursor used to order snapshots and status deltas. */
   revision: LocalAiRevisionCursor;
   aggregate: LocalAiAggregateStatus;

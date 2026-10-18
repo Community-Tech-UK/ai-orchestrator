@@ -28,28 +28,13 @@ import type {
 import type { LoopConfig, LoopStatus } from '../../shared/types/loop.types';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 import { getLogger } from '../logging/logger';
+import { isTerminalLoopRuntimeState } from '../orchestration/loop-runtime-status';
 
 const logger = getLogger('AutomationLoopRun');
 
 /** Loop terminal statuses that count as a successful automation outcome. */
 const SUCCESS_STATUSES = new Set<LoopStatus>(['completed', 'completed-needs-review']);
-/** All loop terminal statuses (mirrors campaign-loop-status's terminal set). */
-const TERMINAL_STATUSES = new Set<LoopStatus>([
-  'completed',
-  'completed-needs-review',
-  'cancelled',
-  'failed',
-  'attempt-failed',
-  'provider-limit',
-  'error',
-  'no-progress',
-  'cap-reached',
-  'cost-exceeded',
-  'needs-human-arbitration',
-  'reviewer-unreliable',
-  'reviewer-unavailable',
-  'builder-unreliable',
-]);
+interface AutomationLoopState { status: LoopStatus; endedAt?: number | null; lastCompletionOutcome?: string }
 
 export interface AutomationLoopRunStorePort {
   attachLoopRun(runId: string, loopRunId: string, now?: number): AutomationRun | null;
@@ -75,7 +60,7 @@ export interface AutomationLoopRunDeps {
   ) => Promise<Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }>;
   /** Injectable subscription to loop state changes. */
   subscribeLoopStateChanged?: (
-    listener: (payload: { loopRunId: string; state: { status: LoopStatus; endedAt?: number | null; lastCompletionOutcome?: string } }) => void,
+    listener: (payload: { loopRunId: string; state: AutomationLoopState }) => void,
   ) => void;
 }
 
@@ -215,11 +200,10 @@ export class AutomationLoopRunDispatcher {
   }
 
   /** Exposed for direct spec-driving; production flow uses the subscription. */
-  handleLoopStateChanged(payload: { loopRunId: string; state: { status: LoopStatus; endedAt?: number | null; lastCompletionOutcome?: string } }): void {
+  handleLoopStateChanged(payload: { loopRunId: string; state: AutomationLoopState }): void {
     const tracked = this.trackedByLoopRunId.get(payload.loopRunId);
     const signOff = payload.state.status === 'paused' && payload.state.lastCompletionOutcome === 'unverifiable';
-    if (!tracked || (!signOff && !TERMINAL_STATUSES.has(payload.state.status))
-      || (payload.state.status === 'provider-limit' && payload.state.endedAt == null)) {
+    if (!tracked || (!signOff && !isTerminalLoopRuntimeState({ ...payload.state, endedAt: payload.state.endedAt ?? null }))) {
       return;
     }
     this.trackedByLoopRunId.delete(payload.loopRunId);
@@ -231,7 +215,7 @@ export class AutomationLoopRunDispatcher {
       succeeded ? 'succeeded' : 'failed',
       succeeded ? undefined : signOff ? 'Loop paused for sign-off: open the loop to Accept or Resume it' : `Loop ended ${status}`,
       status === 'completed-needs-review'
-        ? 'Loop completed but flagged items for human review.'
+        ? 'Loop ended; check its notes.'
         : succeeded ? 'Loop completed.' : undefined,
       this.deps.now(),
     );

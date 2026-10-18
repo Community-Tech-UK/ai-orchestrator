@@ -9,12 +9,11 @@
  *   2. an IMPLEMENTATION loop must carry a real verification authority — a
  *      verify command (supplied by the caller, or the one this workspace
  *      already exposes, resolved here via `resolveLoopVerification`), or
- *      explicitly enabled operator-reviewed completion with a finite estimated
- *      cost cap. Investigation loops may use review/report authority.
+ *      explicitly enabled operator-reviewed completion. Panel-started runs need
+ *      a finite estimated cost cap; /goal explicitly opts out of that guard.
  *      Cross-model review is corroboration, not the substitute authority for
  *      autonomous completion;
- *   3. operator-reviewed loops require a non-null estimated usage cap — they
- *      sit paused awaiting a human Accept and get resumed repeatedly.
+ *   3. panel-started operator-reviewed loops require a non-null usage cap.
  * Validation happens in this main-process seam so IPC/programmatic callers
  * cannot bypass the renderer's submit gating.
  */
@@ -98,7 +97,7 @@ export async function prepareLoopStartConfig(
   // consistent; an explicit caller-supplied intent is preserved.
   const goalIntent = resolveLoopGoalIntent(config.goalIntent, config.initialPrompt);
   // LF-3a: operator-reviewed loops sit paused waiting for a human Accept and get
-  // resumed/re-attempted repeatedly, so require an explicit local usage cap.
+  // resumed/re-attempted repeatedly; /goal explicitly permits an uncapped run.
   if (
     config.completion?.allowOperatorReviewedCompletion &&
     config.caps?.maxCostCents === null && !options.allowUncappedOperatorReview
@@ -111,8 +110,8 @@ export async function prepareLoopStartConfig(
   }
   // WS6 verification-authority policy: an IMPLEMENTATION loop cannot imply
   // autonomous completion without a real verification authority — it needs a
-  // verify command, or the explicitly operator-reviewed mode (whose finite-cap
-  // requirement is enforced above plus the finite default). Investigation loops
+  // verify command, or explicitly operator-reviewed mode (cap policy above).
+  // Investigation loops
   // may use review/report authority (their deliverable is a cited REPORT.md
   // gated by the completion detector, not a build). Cross-model review remains
   // corroboration, never the substitute authority.

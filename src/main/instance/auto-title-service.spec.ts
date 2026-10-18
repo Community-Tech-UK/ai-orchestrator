@@ -365,6 +365,47 @@ describe('AutoTitleService', () => {
     expect(durablePatch).not.toHaveProperty('estimatedCostUsd');
   });
 
+  it.each(['success', 'error'] as const)('records an uncorrelated title escalation with outcome %s', async outcome => {
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({ installed: type === 'claude' }));
+    mockResolveCliType.mockResolvedValue('claude');
+    if (outcome === 'error') mockSendMessage.mockRejectedValue(new Error('provider failed'));
+    else mockSendMessage.mockResolvedValue({ content: 'Deployment title', usage: { inputTokens: 20, outputTokens: 4, cost: 0.01 } });
+    const { subscribeCostAttribution } = await import('../core/system/cost-attribution');
+    const records: unknown[] = [];
+    const stop = subscribeCostAttribution(record => records.push(record));
+    try {
+      await AutoTitleService.getInstance().generateTitle('Investigate the broken deployment and summarize the fix.');
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({ purpose: 'helper', taskType: 'aux:titleGeneration', outcome, costSource: outcome === 'error' ? 'unknown' : 'provider' });
+    } finally { stop(); }
+  });
+
+  it('keeps the plain title while its helper is paused without probing a paid CLI', async () => {
+    mockAuxGenerate.mockResolvedValue({ text: '', decision: { slot: 'titleGeneration', provider: 'local-fallback', source: 'fallback', reason: 'paused', allowFrontierFallback: true, pausedUntil: Date.now() + 60_000 } });
+    const applyTitle = vi.fn();
+    await AutoTitleService.getInstance().maybeGenerateTitle('paused', 'Investigate the failing helper model.', applyTitle);
+    expect(mockCreateAdapter).not.toHaveBeenCalled();
+    expect(mockIsCliAvailable).not.toHaveBeenCalled();
+    expect(applyTitle).toHaveBeenCalledWith('paused', expect.any(String), 'instant');
+    expect(applyTitle).not.toHaveBeenCalledWith('paused', expect.any(String), 'ai');
+  });
+
+  it('stops title candidates after a budget stop and retains the billed cost', async () => {
+    mockIsCliAvailable.mockResolvedValue({ installed: true });
+    mockResolveCliType.mockImplementation(async (type: string) => type);
+    mockSendMessage.mockResolvedValue({ content: 'partial', metadata: { budgetExceeded: true }, usage: { cost: 0.11 } });
+    const { subscribeCostAttribution } = await import('../core/system/cost-attribution');
+    const records: unknown[] = [];
+    const stop = subscribeCostAttribution(record => records.push(record));
+    try {
+      expect(await AutoTitleService.getInstance().generateTitle('Investigate the broken deployment and summarize the fix.')).toBeNull();
+      expect(mockSendMessage).toHaveBeenCalledOnce();
+      expect(mockCreateAdapter).toHaveBeenCalledOnce();
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({ outcome: 'budget-exceeded', costSource: 'provider', usage: { cost: 0.11 } });
+    } finally { stop(); }
+  });
+
   it.each([
     ['claude', 'claude', 'anthropic', 'haiku'],
     ['codex', 'codex', 'openai', 'gpt-5.6-luna'],

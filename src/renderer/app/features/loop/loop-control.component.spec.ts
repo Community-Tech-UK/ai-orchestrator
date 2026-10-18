@@ -572,6 +572,43 @@ describe('LoopControlComponent', () => {
     expect(text).not.toContain('Iteration 0 prompt');
   });
 
+  it.each([
+    ['completed', 'completed ✓', 'Shows the current state of this loop.'],
+    ['completed-needs-review', 'ended, see notes', 'The loop ended. Read its notes:'],
+    ['attempt-failed', 'stopped: a step failed', 'A step failed and the loop stopped without merging.'],
+  ] as const)('makes the %s terminal explanation available on keyboard focus', (status, label, explanation) => {
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status, endedAt: 1778310060000 },
+    }));
+    fixture.detectChanges();
+
+    const pill = fixture.nativeElement.querySelector('.lsum-status-pill') as HTMLElement;
+    expect(pill.textContent?.trim()).toBe(label);
+    expect(pill.getAttribute('tabindex')).toBe('0');
+    expect(pill.getAttribute('aria-label')).toBeNull();
+    expect(pill.getAttribute('role')).toBeNull();
+
+    // jsdom has no keyboard modality. Supply only :focus-visible; the real
+    // focus event, directive, overlay, and description wiring still execute.
+    const matches = pill.matches.bind(pill);
+    const focusVisible = vi.spyOn(pill, 'matches').mockImplementation((selector) =>
+      selector === ':focus-visible' || matches(selector));
+    pill.focus();
+    fixture.detectChanges();
+
+    expect(document.activeElement).toBe(pill);
+    const description = document.getElementById(pill.getAttribute('aria-describedby') ?? '');
+    expect(description?.getAttribute('role')).toBe('tooltip');
+    expect(description?.textContent).toContain(explanation);
+
+    pill.blur();
+    fixture.detectChanges();
+    expect(pill.getAttribute('aria-describedby')).toBeNull();
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    focusVisible.mockRestore();
+  });
+
   it('shows compact preflight and final-audit status without exposing absolute artifact paths', () => {
     const state = activeState();
     state.config.audit = {

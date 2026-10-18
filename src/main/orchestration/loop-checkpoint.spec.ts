@@ -58,6 +58,11 @@ function iteration(seq: number): LoopIteration {
 }
 
 describe('buildLoopCheckpoint', () => {
+  it('keeps the stuck detector window rather than excess history', () => {
+    const checkpoint = buildLoopCheckpoint({ state: state(), history: Array.from({ length: 30 }, (_, seq) => iteration(seq)) });
+    expect(checkpoint.historyTail).toHaveLength(5);
+    expect(checkpoint.historyTail[0].seq).toBe(25);
+  });
   it('keeps five detector rounds, replaces the latest sealed round and snapshots completion hints', () => {
     const history = Array.from({ length: 8 }, (_, index) => iteration(index));
     const last = { ...iteration(7), outputExcerpt: 'sealed' };
@@ -66,12 +71,28 @@ describe('buildLoopCheckpoint', () => {
     expect(checkpoint.historyTail.at(-1)?.outputExcerpt).toBe('sealed');
     expect(checkpoint).toMatchObject({ convergenceNote: 'ledger stall', planRegenerationCount: 2, pendingContextReset: true });
   });
+  it('follows a raised identicalHashCriticalWindow', () => {
+    const run = state();
+    run.config.progressThresholds.identicalHashCriticalWindow = 12;
+    expect(buildLoopCheckpoint({ state: run, history: Array.from({ length: 30 }, (_, seq) => iteration(seq)) }).historyTail).toHaveLength(12);
+  });
+  it('falls back to lastIteration', () => {
+    const run = state();
+    run.lastIteration = iteration(3);
+    expect(buildLoopCheckpoint({ state: run, history: [] }).historyTail).toEqual([run.lastIteration]);
+  });
   it('keeps only a bounded history tail in checkpoints', () => {
     const history = Array.from({ length: LOOP_CHECKPOINT_HISTORY_TAIL + 3 }, (_, index) => iteration(index));
-    const checkpoint = buildLoopCheckpoint({ state: state(), history, now: 500 });
-    expect(checkpoint.historyTail).toHaveLength(5);
-    expect(checkpoint.historyTail[0]?.seq).toBe(LOOP_CHECKPOINT_HISTORY_TAIL - 2);
+    const run = state();
+    run.config.progressThresholds.identicalHashCriticalWindow = 30;
+    const checkpoint = buildLoopCheckpoint({ state: run, history, now: 500 });
+    expect(checkpoint.historyTail).toHaveLength(LOOP_CHECKPOINT_HISTORY_TAIL);
+    expect(checkpoint.historyTail[0]?.seq).toBe(3);
     expect(checkpoint.updatedAt).toBe(500);
+    const windowed = buildLoopCheckpoint({ state: state(), history, now: 500 });
+    expect(windowed.historyTail).toHaveLength(5);
+    expect(windowed.historyTail[0]?.seq).toBe(LOOP_CHECKPOINT_HISTORY_TAIL - 2);
+    expect(windowed.updatedAt).toBe(500);
   });
 
   it('expands the detector window and caps it at twenty-five rounds', () => {

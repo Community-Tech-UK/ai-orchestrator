@@ -80,6 +80,7 @@ describe('registerLocalAiGuardHandlers', () => {
         }],
         pendingFallbacks: [h.pending],
         fallbackNotifications: [h.notified],
+        helperPauses: [],
       },
     });
     expect(h.runtime.health.listIncidents).toHaveBeenCalledWith({ limit: 100 });
@@ -1079,6 +1080,7 @@ function targetConfig() {
 function requestChannels(): string[] {
   return [
     IPC_CHANNELS.LOCAL_AI_GUARD_GET_SNAPSHOT,
+    IPC_CHANNELS.LOCAL_AI_GUARD_RETRY_HELPER_NOW,
     IPC_CHANNELS.LOCAL_AI_GUARD_TARGET_CREATE,
     IPC_CHANNELS.LOCAL_AI_GUARD_TARGET_UPDATE,
     IPC_CHANNELS.LOCAL_AI_GUARD_TARGET_SET_LIFECYCLE,
@@ -1096,6 +1098,7 @@ function requestChannels(): string[] {
 
 function trustedOperationRequests(): [string, unknown][] {
   return [
+    [IPC_CHANNELS.LOCAL_AI_GUARD_RETRY_HELPER_NOW, { slot: 'compression' }],
     [IPC_CHANNELS.LOCAL_AI_GUARD_TARGET_CREATE, { config: targetConfig() }],
     [IPC_CHANNELS.LOCAL_AI_GUARD_TARGET_UPDATE, {
       targetId: 'target-1', patch: { warningLatencyMs: 2_000 },

@@ -5,7 +5,8 @@
  * Exposes signals for reactive state consumption in components.
  */
 
-import { Injectable, signal, NgZone, inject } from '@angular/core';
+import { DestroyRef, Injectable, signal, NgZone, inject } from '@angular/core';
+import type { IpcResponse } from './electron-ipc.service';
 import { ElectronIpcService } from './electron-ipc.service';
 import type {
   AggregatedReview,
@@ -31,6 +32,8 @@ export interface ReviewerNotice {
 
 /** Typed extension for the cross-model review APIs exposed by the preload */
 interface CrossModelReviewApi {
+  crossModelReviewRequest?: (payload: { instanceId: string }) => Promise<IpcResponse<{ status: 'started' | 'no-output' | 'no-reviewers'; reviewId?: string }>>;
+  crossModelReviewOnSkipped?: (callback: (data: { instanceId: string; reason: 'daily-limit'; dailyUsage: NonNullable<CrossModelReviewStatus['dailyUsage']> }) => void) => void;
   crossModelReviewOnStarted?: (
     callback: (data: { instanceId: string; reviewId: string; reviewStartedAt?: number }) => void,
   ) => void;
@@ -50,7 +53,7 @@ interface CrossModelReviewApi {
   crossModelReviewOnReviewerRateLimitCleared?: (
     callback: (data: { cliType: string }) => void,
   ) => void;
-  crossModelReviewStatus?: () => Promise<CrossModelReviewStatus>;
+  crossModelReviewStatus?: () => Promise<IpcResponse<CrossModelReviewStatus>>;
   crossModelReviewDismiss?: (payload: ReviewDismissPayload) => Promise<void>;
   crossModelReviewAction?: (payload: ReviewActionPayload) => Promise<unknown>;
 }
@@ -59,6 +62,9 @@ interface CrossModelReviewApi {
 export class CrossModelReviewIpcService {
   private zone = inject(NgZone);
   private ipc = inject(ElectronIpcService);
+  private destroyRef = inject(DestroyRef);
+  private dailyUsageResetTimer?: ReturnType<typeof setTimeout>;
+  private statusRefreshSequence = 0;
   private pendingReviewIds = new Map<string, Set<string>>();
   private latestStartedReviews = new Map<string, { reviewId: string; startedAt: number }>();
   private unavailableReviewIds = new Map<string, Set<string>>();
@@ -72,6 +78,7 @@ export class CrossModelReviewIpcService {
   readonly reviewerNotices = signal(new Map<string, ReviewerNotice>());
 
   constructor() {
+    this.destroyRef.onDestroy(() => this.clearDailyUsageResetTimer());
     this.listenForResults();
     void this.refreshStatus();
   }
@@ -84,7 +91,16 @@ export class CrossModelReviewIpcService {
     const api = this.api;
     if (!api) return;
 
+    api.crossModelReviewOnSkipped?.((data) => {
+      this.zone.run(() => {
+        this.status.update(status => status ? { ...status, dailyUsage: data.dailyUsage } : status);
+        this.scheduleDailyUsageReset();
+      });
+      void this.refreshStatus();
+    });
+
     api.crossModelReviewOnStarted?.((data) => {
+      void this.refreshStatus();
       this.zone.run(() => {
         if (!this.addPendingReview(data.instanceId, data.reviewId, data.reviewStartedAt)) return;
 
@@ -284,13 +300,56 @@ export class CrossModelReviewIpcService {
   }
 
   async refreshStatus(): Promise<void> {
+    return this.refreshStatusSnapshot(true);
+  }
+
+  private async refreshStatusSnapshot(retryExpired: boolean): Promise<void> {
+    if (this.destroyRef.destroyed) return;
     const api = this.api;
     if (!api?.crossModelReviewStatus) return;
-    const status = await api.crossModelReviewStatus();
+    const sequence = ++this.statusRefreshSequence;
+    const response = await api.crossModelReviewStatus();
+    if (this.destroyRef.destroyed || sequence !== this.statusRefreshSequence || !response?.success || !response.data) return;
+    const status = response.data;
+    const expired = status.dailyUsage !== undefined && status.dailyUsage.resetsAt <= Date.now();
     this.zone.run(() => {
-      this.status.set(status);
+      // A response started before midnight may arrive after its count expired.
+      this.status.set(expired ? { ...status, dailyUsage: undefined } : status);
       this.hydrateNoticesFromStatus(status);
+      this.scheduleDailyUsageReset();
     });
+    // Refetch an in-flight yesterday snapshot once; a stale backend must not loop.
+    if (expired && retryExpired) await this.refreshStatusSnapshot(false);
+  }
+
+  private clearDailyUsageResetTimer(): void {
+    if (this.dailyUsageResetTimer !== undefined) clearTimeout(this.dailyUsageResetTimer);
+    this.dailyUsageResetTimer = undefined;
+  }
+
+  private scheduleDailyUsageReset(): void {
+    this.clearDailyUsageResetTimer();
+    const resetsAt = this.status()?.dailyUsage?.resetsAt;
+    if (this.destroyRef.destroyed || resetsAt === undefined || !Number.isFinite(resetsAt)) return;
+    if (resetsAt <= Date.now()) {
+      this.status.update(status => status ? { ...status, dailyUsage: undefined } : status);
+      return;
+    }
+    this.dailyUsageResetTimer = setTimeout(() => {
+      this.dailyUsageResetTimer = undefined;
+      if (this.destroyRef.destroyed) return;
+      this.zone.run(() => {
+        // Recheck the clock: a backwards clock adjustment can delay midnight.
+        if (resetsAt > Date.now()) {
+          this.scheduleDailyUsageReset();
+          return;
+        }
+        this.status.update(status => status ? { ...status, dailyUsage: undefined } : status);
+        void this.refreshStatus().catch(error => {
+          console.warn('Failed to refresh daily second-opinion usage', error);
+        });
+      });
+    }, Math.min(resetsAt - Date.now(), 2_147_483_647));
   }
 
   /**
@@ -312,6 +371,11 @@ export class CrossModelReviewIpcService {
       }
     }
     this.reviewerNotices.set(notices);
+  }
+
+  async requestReview(instanceId: string): Promise<{ status: 'started' | 'no-output' | 'no-reviewers'; reviewId?: string } | undefined> {
+    const response = await this.api?.crossModelReviewRequest?.({ instanceId });
+    return response?.success ? response.data : undefined;
   }
 
   async dismiss(payload: ReviewDismissPayload): Promise<void> {

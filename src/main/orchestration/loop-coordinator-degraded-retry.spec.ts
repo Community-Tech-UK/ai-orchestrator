@@ -428,6 +428,47 @@ describe('LoopCoordinator degraded iteration retry', () => {
     }
   });
 
+  it('a child that never calls back times out and stops as attempt-failed with UNKNOWN workspace effects', async () => {
+    vi.useFakeTimers();
+    const success = vi.fn();
+    coordinator.on('loop:completed-needs-review', success);
+    coordinator.on('loop:completed', success);
+    let invokeCount = 0;
+    coordinator.on('loop:invoke-iteration', () => {
+      invokeCount += 1;
+    });
+
+    const state = await coordinator.startLoop('chat-ws5-unknown-effect', {
+      initialPrompt: 'keep going',
+      workspaceCwd: workspace,
+      iterationTimeoutMs: 1000,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 3 },
+      degradedIterationRetry: { enabled: true, maxRetries: 2 },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: 'false',
+        runVerifyTwice: false,
+        requireCompletedFileRename: false,
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+
+    try {
+      await vi.waitFor(() => expect(invokeCount).toBe(1));
+      await vi.advanceTimersByTimeAsync(33_001);
+      await vi.waitFor(() => expect(coordinator.getLoop(state.id)?.status).not.toBe('running'));
+      expect(invokeCount).toBe(1);
+      const final = coordinator.getLoop(state.id);
+      expect(final?.status).toBe('attempt-failed');
+      expect(final?.endReason).toContain('timed out');
+      expect(final?.endEvidence?.['workspaceEffect']).toBe('unknown');
+      expect(success).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
   it('WS5: an unattended evidence-less failure has UNKNOWN workspace state and stops as failed', async () => {
     let invokeCount = 0;
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
@@ -438,7 +479,7 @@ describe('LoopCoordinator degraded iteration retry', () => {
       p.callback({ error: 'boom' });
     });
 
-    const state = await coordinator.startLoop('chat-ws5-unknown-effect', {
+    const state = await coordinator.startLoop('chat-ws5-bare-error', {
       initialPrompt: 'keep going',
       workspaceCwd: workspace,
       caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 3 },

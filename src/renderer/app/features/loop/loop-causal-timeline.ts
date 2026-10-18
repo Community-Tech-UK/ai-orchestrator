@@ -238,24 +238,29 @@ export function buildLoopCausalTimeline(input: LoopTimelineInput): LoopTimeline 
       label: 'Show the work',
       description: 'Read both positions and decide which one stands.',
     };
+  } else if (input.status === 'attempt-failed') {
+    blocking = 'work';
+    detail = "A step failed and Harness can't tell what it changed. Nothing was merged.";
+    nextAutomaticAction = 'Nothing. It has stopped.';
+    recovery = {
+      id: 'review-now',
+      label: 'Check the files',
+      description: 'Check what changed, then start a new loop.',
+    };
   } else if (input.status === 'completed-needs-review') {
     blocking = 'review';
     if (isDegradedAttemptReviewPause(input.endReason)) {
       detail = 'paused because the failed attempt already changed files — replay unsafe';
       nextAutomaticAction = 'Nothing. Replay is unsafe; it is waiting on you.';
     } else {
-      detail = 'The work is done and accepted, but it is asking for a human glance.';
-      nextAutomaticAction = 'Nothing. It finished; this is a request, not a failure.';
+      detail = 'The run has ended. Check its notes to see what remains.';
+      nextAutomaticAction = 'Nothing. It has ended.';
     }
     recovery = {
       id: 'review-now',
       label: 'Show the work',
       description: 'Read what it produced and close the run out.',
     };
-  } else if (input.status === 'attempt-failed') {
-    blocking = 'work'; detail = 'A step stopped without finishing.';
-    nextAutomaticAction = 'Nothing. The run has stopped.';
-    recovery = { id: 'retry-failed-step', label: 'Run again', description: 'Opens a new loop with the same goal. Check the files before starting.' };
   } else if (TERMINAL_STATUSES.has(input.status) || (input.status === 'provider-limit' && !isProviderLimitParked(input))) {
     nextAutomaticAction = 'Nothing. The run has finished.';
   } else if (input.status === 'running') {

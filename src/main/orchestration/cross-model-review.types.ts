@@ -3,6 +3,9 @@ import type { ModelRuntimeTarget } from '../../shared/types/local-model-runtime.
 
 /** Internal request dispatched to a reviewer */
 export interface ReviewDispatchRequest {
+  changedFiles?: string[];
+  turnSeq?: number;
+  trigger?: 'automatic' | 'manual';
   id: string;
   instanceId: string;
   primaryProvider: string;

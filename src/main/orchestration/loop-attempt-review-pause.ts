@@ -1,7 +1,8 @@
 /**
  * WS5 — stop or interactively pause a loop because a
  * degraded/failed attempt cannot be safely replayed (writes were observed, or
- * the workspace state is unprovable).
+ * the workspace state is unprovable). A stop is a truthful `attempt-failed`
+ * terminal: nothing is merged and successful completion is never claimed.
  *
  * Extracted from `loop-coordinator.ts` to keep that file inside its size
  * ceiling. The attempt evidence is sealed into
@@ -19,19 +20,45 @@ import { notifyLoopFailedStepPause } from './loop-terminal-notification';
 
 const logger = getLogger('LoopCoordinator');
 
-export function handleFailedAttempt(args: {
+interface FailedAttemptArgs {
   state: LoopState;
   seq: number;
   evidence: LoopInvocationAttemptEvidence;
   reason: string;
-  emit: (eventName: string, payload: unknown) => void;
   terminate: (status: LoopState['status'], reason: string) => void;
+}
+
+function effectWording(evidence: LoopInvocationAttemptEvidence): string {
+  return evidence.workspaceEffect === 'writes-observed'
+    ? `the failed attempt was observed writing these files: ${evidence.filesChanged.map((change) => change.path).join(', ')}`
+    : "Harness can't tell what it changed in the files";
+}
+
+function stopFailedAttempt(args: FailedAttemptArgs): 'stopped' {
+  const { state, seq, evidence } = args;
+  state.endEvidence = { ...state.endEvidence, ...buildAttemptReviewEndEvidence(evidence, seq) };
+  logger.warn('Stopping loop after failed attempt (side-effect-aware retry)', {
+    loopRunId: state.id,
+    seq,
+    workspaceEffect: evidence.workspaceEffect,
+    changedPathCount: evidence.filesChanged.length,
+  });
+  const fullReason = `Stopped: step ${seq + 1} failed (${args.reason}) and ${effectWording(evidence)}. `
+    + `Nothing was merged. Check Step ${seq + 1}'s files, then start a new loop.`;
+  args.terminate('attempt-failed', fullReason);
+  return 'stopped';
+}
+
+export function handleFailedAttempt(args: FailedAttemptArgs & {
+  emit: (eventName: string, payload: unknown) => void;
   pause?: (reason: string, signal: ProgressSignalEvidence) => void;
   notify?: (state: LoopState, reason: string) => void;
 }): 'stopped' | 'paused' {
   const { state, seq, evidence } = args;
-  const fullReason =
-    `Step ${seq + 1} stopped without finishing (${args.reason}) and Harness can't tell what it changed. `
+  if (state.config?.onFailedStep !== 'pause') {
+    return stopFailedAttempt(args);
+  }
+  const fullReason = `Step ${seq + 1} stopped without finishing (${args.reason}) and ${effectWording(evidence)}. `
     + 'Nothing was merged. Check the files, then Resume or Stop.';
   state.endEvidence = { ...state.endEvidence, ...buildAttemptReviewEndEvidence(evidence, seq) };
   logger.warn('Loop step failed (side-effect-aware retry)', {
@@ -40,10 +67,6 @@ export function handleFailedAttempt(args: {
     workspaceEffect: evidence.workspaceEffect,
     changedPathCount: evidence.filesChanged.length,
   });
-  if (state.config.onFailedStep !== 'pause') {
-    args.terminate('attempt-failed', fullReason);
-    return 'stopped';
-  }
   state.status = 'paused';
   state.endReason = fullReason;
   state.pausedForInput = true;
@@ -62,4 +85,9 @@ export function handleFailedAttempt(args: {
   }
   (args.notify ?? notifyLoopFailedStepPause)(state, fullReason);
   return 'paused';
+}
+
+/** Stop a failed attempt that cannot be safely replayed (unattended callers). */
+export function stopRunForFailedAttempt(args: FailedAttemptArgs): void {
+  stopFailedAttempt(args);
 }

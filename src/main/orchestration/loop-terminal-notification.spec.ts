@@ -27,6 +27,13 @@ describe('loopTerminalNotice (N1)', () => {
     expect(notice?.kind).toBe('loop-needs-you');
     expect(notice?.urgency).toBe('critical');
     expect(notice?.body).toContain('two findings');
+    expect(notice?.title).toBe('Loop ended: check its notes');
+  });
+
+  it('announces a failed step as a critical stop', () => {
+    expect(loopTerminalNotice({ ...base, status: 'attempt-failed' })).toMatchObject({
+      title: 'Loop stopped: a step failed', urgency: 'critical', kind: 'loop-needs-you',
+    });
   });
 
   it('escalates every terminal outcome that stopped short of finishing', () => {

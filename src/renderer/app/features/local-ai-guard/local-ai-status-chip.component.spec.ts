@@ -28,6 +28,7 @@ describe('LocalAiStatusChipComponent', () => {
     isInitialized: initialized.asReadonly(),
     hasAuthoritativeSnapshot: hasAuthoritativeSnapshot.asReadonly(),
     aggregate: currentAggregate.asReadonly(),
+    helperPauses: signal<import('../../../../shared/types/auxiliary-llm.types').AuxiliaryHelperPause[]>([]),
   };
   const router = { navigateByUrl: vi.fn(async () => true) };
 
@@ -37,6 +38,7 @@ describe('LocalAiStatusChipComponent', () => {
     initialized.set(true);
     hasAuthoritativeSnapshot.set(true);
     currentAggregate.set(aggregate('not-configured'));
+    store.helperPauses.set([]);
     TestBed.configureTestingModule({
       imports: [LocalAiStatusChipComponent],
       providers: [
@@ -65,6 +67,15 @@ describe('LocalAiStatusChipComponent', () => {
     expect(button.getAttribute('aria-label')).toBe(
       `Local AI Guard: ${label}. ${state === 'not-configured' ? 0 : 2} enrolled targets. Open Local AI health centre.`,
     );
+  });
+
+  it('shows helper pauses and lists the affected types and reason', () => {
+    const at = Date.now() + 60_000;
+    store.helperPauses.set([{ slot: 'compression', pausedUntil: at, failures: 2, startedAt: Date.now(), reason: 'Paused until retry after 2 failures' }]);
+    const fixture = TestBed.createComponent(LocalAiStatusChipComponent); fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    expect(button.textContent).toContain('Local AI: helpers paused until');
+    expect(button.title).toContain('compression: Paused until retry after 2 failures');
   });
 
   it('is hidden only until initialization completes', () => {

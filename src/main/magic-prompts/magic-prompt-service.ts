@@ -22,6 +22,8 @@ import { isProviderNotice } from '../cli/provider-notice';
 import { resolveModelForTier } from '../../shared/types/provider.types';
 import { getLogger } from '../logging/logger';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { observeModelCallUsage, isModelCallCancelled } from '../core/system/observed-model-call-usage';
+import { recordModelCall } from '../core/system/model-call-recorder';
 import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
 import {
   filterProvidersForAutomation,
@@ -164,6 +166,7 @@ export class MagicPromptService {
           systemPrompt: def.systemPrompt,
           yoloMode: false,
           timeout: MAGIC_PROMPT_TIMEOUT,
+          maxBudgetUsd: cliType === 'claude' ? 0.25 : undefined,
         },
         'internal',
       ),
@@ -177,58 +180,74 @@ export class MagicPromptService {
       `${def.buildPrompt({ text, context: input.context })}` +
       `\n\nRespond with ONLY a JSON object matching exactly this shape:\n${def.schemaHint}`;
 
+    const observed = observeModelCallUsage(adapter);
     let response: CliResponse;
     try {
       response = await adapter.sendMessage({ role: 'user', content: prompt });
+      observed.observe(response.usage);
     } catch (error) {
+      observed.observeError(error);
       const message = error instanceof Error ? error.message : String(error);
+      if (observed.dispatched) recordModelCall({ purpose: 'magic-prompt', taskType: `magic-prompt:${def.id}`, provider: cliType, model, usage: observed.usage, outcome: isModelCallCancelled(error) ? 'cancelled' : 'error' });
       logger.warn('Magic prompt one-shot failed', { id: def.id, provider: cliType, error: message });
       return { ok: false, id: def.id, error: `Provider request failed: ${message}` };
+    } finally {
+      observed.dispose();
     }
 
-    const raw = (response.content ?? '').trim();
-    if (raw.length === 0) {
-      return { ok: false, id: def.id, error: 'Provider returned an empty response' };
-    }
+    let outcome: 'success' | 'error' | 'budget-exceeded' = 'error';
+    try {
+      if (response.metadata?.['budgetExceeded'] === true) {
+        outcome = 'budget-exceeded';
+        return { ok: false, id: def.id, error: 'Provider budget exceeded' };
+      }
+      const raw = (response.content ?? '').trim();
+      if (raw.length === 0) {
+        return { ok: false, id: def.id, error: 'Provider returned an empty response' };
+      }
 
-    // A throttled/errored one-shot can return a status notice as content.
-    if (isProviderNotice(raw)) {
-      logger.warn('Magic prompt got a provider status/limit notice', { id: def.id, provider: cliType });
+      // A throttled/errored one-shot can return a status notice as content.
+      if (isProviderNotice(raw)) {
+        logger.warn('Magic prompt got a provider status/limit notice', { id: def.id, provider: cliType });
+        return {
+          ok: false,
+          id: def.id,
+          error: 'Provider returned a status/limit notice instead of a result',
+          raw,
+        };
+      }
+
+      const parsed = extractJson(raw);
+      if (parsed === null) {
+        return { ok: false, id: def.id, error: 'Could not parse a JSON object from the response', raw };
+      }
+
+      const validated = def.schema.safeParse(parsed);
+      if (!validated.success) {
+        const issues = validated.error.issues
+          .slice(0, 5)
+          .map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`)
+          .join('; ');
+        return {
+          ok: false,
+          id: def.id,
+          error: `Response did not match the expected schema (${issues})`,
+          raw,
+        };
+      }
+
+      outcome = 'success';
       return {
-        ok: false,
+        ok: true,
         id: def.id,
-        error: 'Provider returned a status/limit notice instead of a result',
+        provider: cliType,
+        model,
+        data: validated.data as T,
         raw,
       };
+    } finally {
+      if (observed.dispatched) recordModelCall({ purpose: 'magic-prompt', taskType: `magic-prompt:${def.id}`, provider: cliType, model, usage: observed.usage, outcome });
     }
-
-    const parsed = extractJson(raw);
-    if (parsed === null) {
-      return { ok: false, id: def.id, error: 'Could not parse a JSON object from the response', raw };
-    }
-
-    const validated = def.schema.safeParse(parsed);
-    if (!validated.success) {
-      const issues = validated.error.issues
-        .slice(0, 5)
-        .map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`)
-        .join('; ');
-      return {
-        ok: false,
-        id: def.id,
-        error: `Response did not match the expected schema (${issues})`,
-        raw,
-      };
-    }
-
-    return {
-      ok: true,
-      id: def.id,
-      provider: cliType,
-      model,
-      data: validated.data as T,
-      raw,
-    };
   }
 }
 

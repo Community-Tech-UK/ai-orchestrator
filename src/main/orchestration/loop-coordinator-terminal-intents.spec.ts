@@ -599,13 +599,14 @@ describe('LoopCoordinator terminal intents', () => {
 
   it('uses iterationTimeoutMs for the child invocation backstop', async () => {
     // WS5: a timed-out attempt bypassed the invoker's workspace observers, so
-    // its effect is UNKNOWN — the unattended loop ends as attempt-failed,
-    // preserving the files for review. An automatic replay is unsafe. The
-    // subject here is unchanged: the backstop fires at the PER-ITERATION
-    // timeout (25ms), not the total wall cap.
+    // its effect is UNKNOWN — the loop stops as a failed attempt,
+    // preserving the files for review. An automatic replay over unprovable
+    // side effects is unsafe. The subject here is unchanged: the backstop
+    // fires at the PER-ITERATION timeout (25ms), not the total wall cap.
+    const completedNeedsReview = vi.fn();
+    coordinator.on('loop:completed-needs-review', completedNeedsReview);
     const completed = vi.fn();
     coordinator.on('loop:completed', completed);
-    coordinator.on('loop:completed-needs-review', completed);
     let invokeCount = 0;
     let callback: ((result: LoopChildResult | { error: string }) => void) | undefined;
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
@@ -631,6 +632,7 @@ describe('LoopCoordinator terminal intents', () => {
     await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'attempt-failed', LOOP_EVENT_TIMEOUT_MS);
     expect(coordinator.getLoop(state.id)?.endReason).toContain('timed out after 25ms');
     expect(invokeCount).toBe(1);
+    expect(completedNeedsReview).not.toHaveBeenCalled();
     expect(completed).not.toHaveBeenCalled();
   }, 20_000);
 

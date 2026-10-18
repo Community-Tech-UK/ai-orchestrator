@@ -871,6 +871,12 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     // Cross-Model Review
     // ============================================
 
+    crossModelReviewRequest: (payload: { instanceId: string }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CROSS_MODEL_REVIEW_REQUEST, payload),
+
+    crossModelReviewOnSkipped: (callback: (data: unknown) => void) =>
+      ipcRenderer.on(ch.CROSS_MODEL_REVIEW_SKIPPED, (_e, data) => callback(data)),
+
     crossModelReviewOnResult: (callback: (data: unknown) => void) =>
       ipcRenderer.on('cross-model-review:result', (_e, data) => callback(data)),
 

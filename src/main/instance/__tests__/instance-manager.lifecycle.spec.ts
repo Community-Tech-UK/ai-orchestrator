@@ -2157,7 +2157,7 @@ describe('InstanceManager', () => {
       expect(restartEpoch?.note).toMatch(/no AIO system-prompt blocks were re-injected/i);
     });
 
-    it('rolls back the replacement adapter when fresh restart spawn fails', async () => {
+    it('rejects and rolls back the replacement adapter when fresh restart spawn fails', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,
         displayName: 'Fresh Restart Rollback',
@@ -2173,11 +2173,12 @@ describe('InstanceManager', () => {
         return adapter;
       });
 
-      await manager.restartFreshInstance(instance.id);
+      await expect(manager.restartFreshInstance(instance.id)).rejects.toThrow('Fresh restart failed');
 
       expect(manager.getInstance(instance.id)).toBe(instance);
       expect(manager.getAdapter(instance.id)).toBeUndefined();
       expect(instance.status).toBe('error');
+      expect(instance.recoveryMethod).toBe('failed');
       expect(mockAdapterTerminate).toHaveBeenCalled();
     });
   });

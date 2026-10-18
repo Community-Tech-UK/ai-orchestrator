@@ -13,6 +13,8 @@ import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import type { Instance } from '../../core/state/instance.store';
+import { InstanceStore } from '../../core/state/instance.store';
+import { SettingsStore } from '../../core/state/settings.store';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 
@@ -41,11 +43,15 @@ function instance(provider: Instance['provider']): Instance {
 
 describe('InstanceHeaderComponent interrupt tooltip', () => {
   let fixture: ComponentFixture<InstanceHeaderComponent>;
+  let showCost = true;
 
   beforeEach(async () => {
+    showCost = true;
     await TestBed.configureTestingModule({
       imports: [InstanceHeaderComponent],
       providers: [
+        { provide: SettingsStore, useValue: { showCost: () => showCost, settings: () => ({}), update: vi.fn() } },
+        { provide: InstanceStore, useValue: { getInstance: () => undefined } },
         {
           provide: SkillStore,
           useValue: {
@@ -87,5 +93,13 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
     const button = fixture.nativeElement.querySelector('.btn-interrupt') as HTMLButtonElement;
     expect(button.title).toBe('Interrupt Codex (Esc)');
     expect(button.title).not.toContain('Claude');
+  });
+
+  it.each([true, false])('allows the cost setting to control the header cost (%s)', (enabled) => {
+    showCost = enabled;
+    fixture.componentRef.setInput('instance', instance('claude'));
+    fixture.componentRef.setInput('contextUsage', { used: 10, total: 100, percentage: 10, occupancyReported: true, costEstimate: 12.34 });
+    fixture.detectChanges();
+    expect(Boolean(fixture.nativeElement.querySelector('.cost'))).toBe(enabled);
   });
 });

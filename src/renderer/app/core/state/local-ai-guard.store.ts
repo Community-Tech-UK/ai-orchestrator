@@ -84,6 +84,7 @@ export class LocalAiGuardStore {
     active: null,
     pending: [],
   };
+  private readonly helperOperations = new Map<string, Promise<LocalAiGuardSnapshot | undefined>>();
   private readonly discoveryOperations =
     new Map<string, Promise<LocalAiDiscoveredEndpoint[] | undefined>>();
   private readonly validationOperations =
@@ -111,6 +112,7 @@ export class LocalAiGuardStore {
   readonly discoveries = this._discoveries.asReadonly();
   readonly operationKey = this._operationKey.asReadonly();
   readonly operationError = this._operationError.asReadonly();
+  readonly helperPauses = computed(() => this._snapshot()?.helperPauses ?? []);
   readonly aggregate = computed(() => this._snapshot()?.aggregate ?? EMPTY_AGGREGATE);
   readonly targets = computed(() => this._snapshot()?.targets ?? []);
   readonly activeIncidents = computed(() =>
@@ -199,6 +201,11 @@ export class LocalAiGuardStore {
     });
     this.resolutionInFlight = operation;
     return this.resolutionInFlight;
+  }
+
+  retryHelperNow(slot: import('../../../../shared/types/auxiliary-llm.types').AuxiliaryLlmSlot): Promise<LocalAiGuardSnapshot | undefined> {
+    return this.runOperation(`helper:${slot}`, `helper:${slot}`, this.helperOperations,
+      () => this.ipc.retryHelperNow(slot), snapshot => this.applyServerSnapshot(snapshot), false);
   }
 
   loadInventory(): Promise<LocalAiDiscoveredEndpoint[] | undefined> {
@@ -491,6 +498,7 @@ export class LocalAiGuardStore {
   }
 
   private clearOperationMaps(): void {
+    this.helperOperations.clear();
     this.discoveryOperations.clear();
     this.validationOperations.clear();
     this.targetOperations.clear();

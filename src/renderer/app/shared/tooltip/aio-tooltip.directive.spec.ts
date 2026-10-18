@@ -5,7 +5,8 @@
  * compiles and a directive that renders are different things.
  */
 
-import { Component } from '@angular/core';
+import { Component, signal } from '@angular/core';
+import { readFileSync } from 'node:fs';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AioTooltipDirective } from './aio-tooltip.directive';
@@ -385,5 +386,94 @@ describe('AioTooltipDirective — nested hosts', () => {
     const open = openTooltips();
     expect(open).toHaveLength(1);
     expect(open[0]?.textContent).toContain('Outer label');
+  });
+});
+
+@Component({
+  standalone: true,
+  imports: [AioTooltipDirective],
+  template: `
+    <ng-template #richTip><strong>{{ detail() }}</strong></ng-template>
+    <button aria-label="Details" id="rich" [appTooltipTpl]="richTip"></button>
+    <button id="inline-hidden" appTooltip="Settings"><span style="display: none">Settings</span></button>
+    <button id="class-hidden" appTooltip="Settings"><span class="collapsed-label">Settings</span></button>
+    <button id="visible" appTooltip="Settings">Settings</button>
+    <button aria-label="Unavailable action" id="disabled" disabled appTooltip="Unavailable while busy"></button>
+    <button aria-label="Suppressed action" id="suppressed" [appTooltipDisabled]="true" appTooltip="Unavailable"></button>
+    <button aria-label="Code details" id="code" appTooltip="const answer = 42;" appTooltipFormat="code"></button>
+  `,
+  styles: ['.collapsed-label { display: none; }'],
+})
+class RichHostComponent {
+  readonly detail = signal('First detail');
+}
+
+describe('AioTooltipDirective — templates and visible labels', () => {
+  let fixture: ComponentFixture<RichHostComponent>;
+
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    await TestBed.configureTestingModule({ imports: [RichHostComponent] }).compileComponents();
+    fixture = TestBed.createComponent(RichHostComponent);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+    vi.useRealTimers();
+    expect(tooltipEl()).toBeNull();
+  });
+
+  function hover(id: string): HTMLElement {
+    const button = fixture.nativeElement.querySelector(`#${id}`) as HTMLElement;
+    button.dispatchEvent(new MouseEvent('mouseenter'));
+    vi.advanceTimersByTime(TOOLTIP_DELAY_MS);
+    fixture.detectChanges();
+    return button;
+  }
+
+  it('resolves a template description to a rendered tooltip panel', () => {
+    const button = hover('rich');
+    const description = document.getElementById(button.getAttribute('aria-describedby')!);
+    expect(description?.getAttribute('role')).toBe('tooltip');
+    expect(description?.querySelector('strong')?.textContent).toBe('First detail');
+  });
+
+  it('updates a visible template tooltip when its signal changes', () => {
+    hover('rich');
+    fixture.componentInstance.detail.set('Updated detail');
+    fixture.detectChanges();
+    expect(tooltipEl()?.textContent).toContain('Updated detail');
+  });
+
+  it.each(['inline-hidden', 'class-hidden'])('ignores hidden labels on %s when checking redundancy', (id) => {
+    hover(id);
+    expect(tooltipEl()?.textContent).toContain('Settings');
+  });
+
+  it('still suppresses a matching visible label without an explicit label input', () => {
+    hover('visible');
+    expect(tooltipEl()).toBeNull();
+  });
+
+  it('opens on a disabled host hover', () => {
+    hover('disabled');
+    expect(tooltipEl()?.textContent).toContain('Unavailable while busy');
+  });
+
+  it('respects explicit tooltip disabling', () => {
+    hover('suppressed');
+    expect(tooltipEl()).toBeNull();
+  });
+
+  it('adds the code format class to the panel', () => {
+    hover('code');
+    expect(tooltipEl()?.classList.contains('aio-tooltip--code')).toBe(true);
+  });
+
+  it('ships long-path wrapping and readable code panel styles', () => {
+    const source = readFileSync('src/renderer/app/shared/tooltip/aio-tooltip-panel.component.ts', 'utf8');
+    expect(source).toContain('overflow-wrap: anywhere');
+    expect(source).toMatch(/\.aio-tooltip--code\s*\{[^}]*max-width: 480px;[^}]*font-family: [^;]*monospace[^;]*;[^}]*white-space: pre-wrap;[^}]*text-align: left;/);
   });
 });

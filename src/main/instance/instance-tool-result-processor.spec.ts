@@ -83,6 +83,20 @@ describe('InstanceToolResultProcessor', () => {
     expect(instance.contextEvidence?.mode).toBe('shadow');
     expect(captureEvidence).not.toHaveBeenCalled();
   });
+
+  it.each([['Edit', { file_path: 'file.ts' }, true], ['Bash', { command: 'echo example 2>&1' }, false]])('marks successful structured edit intent only for %s', async (name, input, editIntent) => {
+    instance.workingDirectory = '/repo';
+    const captureBaseline = vi.fn();
+    processor = new InstanceToolResultProcessor({
+      getDiffTracker: () => ({ captureBaseline }) as never,
+      hookManager: { triggerLifecycleHooks: vi.fn().mockResolvedValue(undefined) } as never,
+    });
+    await processor.processToolLifecycle(instance.id, instance, { id: 'example', timestamp: 1, type: 'tool_use', content: '', metadata: { id: 'example-call', name, input } });
+    expect(captureBaseline.mock.calls.every(call => call[1]?.editIntent === false)).toBe(true);
+    await processor.processToolLifecycle(instance.id, instance, { id: 'result', timestamp: 2, type: 'tool_result', content: '', metadata: { tool_use_id: 'example-call', is_error: false } });
+    if (editIntent) expect(captureBaseline).toHaveBeenCalledWith('/repo/file.ts', { editIntent: true });
+    else expect(captureBaseline.mock.calls.every(call => call[1]?.editIntent === false)).toBe(true);
+  });
 });
 
 function toolResult(toolUseId: string, name = 'Read'): OutputMessage {

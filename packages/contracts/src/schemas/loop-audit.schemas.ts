@@ -6,6 +6,7 @@ export const LoopPlanPacketModeSchema = z.enum(['off', 'prompted']);
 export const LoopAuditStatusSchema = z.enum(['passed', 'failed', 'needs-review', 'skipped']);
 
 export const LoopThreadCapsSchema = z.object({
+  providerCompacted: z.boolean().optional(),
   supportsResume: z.boolean(),
   sameThreadContinuation: z.boolean(),
   model: z.string().nullable(),

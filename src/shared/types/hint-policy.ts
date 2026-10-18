@@ -89,22 +89,13 @@ export const HINTS: Readonly<Record<HintId, HintCopy>> = {
     action: 'Use Steer if you need the running iteration to change course now.',
   },
   'cost-hidden-while-busy': {
-    // Scoped to what `showCost` actually gates TODAY, which took two
-    // corrections to get right. The first draft said spend was hidden
-    // "anywhere in the app" — false; the Costs & Usage page renders per-session
-    // cost and never reads the setting. The second said "the sidebar total or
-    // the per-session views" — also false: `context-bar` reads `showCost`, but
-    // its only mount (`instance-header.component.html`) hardcodes
-    // `[showCost]="false"`, and `token-counter` is unmounted anywhere in the
-    // app. So the sidebar total is the one visible thing this toggle changes.
-    // Naming more than that would mislead the managed-deployment operator the
-    // setting's own doc comment ("Off = hide for managed setups") is aimed at.
+    // Show cost estimates gates both the session header and sidebar total.
     id: 'cost-hidden-while-busy',
     title: 'Several sessions are running with cost hidden',
     body:
-      'Cost display is off, so the sidebar total is not showing what these '
-      + 'sessions are spending while they work.',
-    action: 'The Costs & Usage page still shows it, or turn the display back on in Settings.',
+      'Cost display is off, so the session header and sidebar total are not showing '
+      + 'what these sessions are spending while they work.',
+    action: 'The Costs & Usage page still shows it. Turn on Show cost estimates in Settings to show it here.',
   },
   'settings-overview-profiles': {
     id: 'settings-overview-profiles',

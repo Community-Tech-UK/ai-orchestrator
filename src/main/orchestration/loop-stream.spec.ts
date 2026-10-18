@@ -31,7 +31,7 @@ describe('streamLoopEvents', () => {
     await expect(nextStreamEvent(stream)).resolves.toMatchObject({ done: true });
   });
 
-  it('yields state-change-only ping-pong terminal statuses and then closes the stream', async () => {
+  it.each(['reviewer-unreliable', 'attempt-failed'])('yields state-change-only terminal %s and then closes the stream', async (status) => {
     const emitter = new EventEmitter();
     const stream = streamLoopEvents({ emitter, loopRunId: 'loop-1', chatId: 'chat-1' });
 
@@ -44,7 +44,7 @@ describe('streamLoopEvents', () => {
       loopRunId: 'loop-1',
       state: {
         id: 'loop-1',
-        status: 'reviewer-unreliable',
+        status,
         endReason: 'reviewer produced unusable output',
       },
     });
@@ -53,7 +53,7 @@ describe('streamLoopEvents', () => {
       value: {
         type: 'terminal-status',
         loopRunId: 'loop-1',
-        status: 'reviewer-unreliable',
+        status,
         reason: 'reviewer produced unusable output',
       },
       done: false,

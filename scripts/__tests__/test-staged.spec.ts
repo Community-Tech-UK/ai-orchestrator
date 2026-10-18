@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 
@@ -19,8 +20,7 @@ interface RunOptions extends StagedFilesOptions {
   ) => { status?: number | null; signal?: NodeJS.Signals | null; error?: Error };
 }
 
-const { batchFilesByLength, getStagedTestRelatedFiles, runStagedTests } = require('../test-staged.js') as {
-  batchFilesByLength: (files: string[], maxChars?: number) => string[][];
+const { getStagedTestRelatedFiles, runStagedTests } = require('../test-staged.js') as {
   getStagedTestRelatedFiles: (options?: StagedFilesOptions) => string[];
   runStagedTests: (options?: RunOptions) => number;
 };
@@ -62,40 +62,26 @@ describe('test-staged: getStagedTestRelatedFiles', () => {
   });
 });
 
-describe('test-staged: batchFilesByLength', () => {
-  it('keeps a small file set in a single batch', () => {
-    const files = ['src/a.ts', 'src/b.ts', 'src/c.ts'];
-    expect(batchFilesByLength(files)).toEqual([files]);
-  });
-
-  it('splits into multiple batches once the combined length exceeds the limit', () => {
-    const files = Array.from({ length: 10 }, (_, i) => `src/file-${i}.ts`);
-    // Each entry costs its length + 1; force a split after ~2 entries.
-    const batches = batchFilesByLength(files, 30);
-
-    expect(batches.length).toBeGreaterThan(1);
-    // Every file is preserved exactly once, in order.
-    expect(batches.flat()).toEqual(files);
-    // No batch exceeds the char budget.
-    for (const batch of batches) {
-      const chars = batch.reduce((sum, file) => sum + file.length + 1, 0);
-      expect(chars).toBeLessThanOrEqual(30);
-    }
-  });
-
-  it('never drops a single file that alone exceeds the limit', () => {
-    const files = ['a'.repeat(50) + '.ts', 'short.ts'];
-    const batches = batchFilesByLength(files, 10);
-
-    expect(batches.flat()).toEqual(files);
-  });
-
-  it('returns no batches for an empty file list', () => {
-    expect(batchFilesByLength([])).toEqual([]);
-  });
-});
-
 describe('test-staged: runStagedTests', () => {
+  it('sends a large staged set in one run so overlapping related tests cannot run in separate batches', () => {
+    const files = Array.from({ length: 400 }, (_, i) => `src/renderer/app/features/long/path/component-${i}.ts`);
+    const calls: Array<{ command: string; args: string[]; opts: unknown }> = [];
+    const status = runStagedTests({
+      files,
+      log: () => {},
+      spawnSync: (command, args, opts) => {
+        calls.push({ command, args, opts });
+        return { status: 0 };
+      },
+    });
+
+    expect(status).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].command).toBe(process.execPath);
+    expect(calls[0].opts).toMatchObject({ input: JSON.stringify(files), shell: false });
+    expect(calls[0].args.join(' ').length).toBeLessThan(6000);
+  });
+
   it('skips vitest entirely when no source files are staged', () => {
     const spawnSync = vi.fn();
     const status = runStagedTests({ files: [], spawnSync, log: () => {} });
@@ -104,7 +90,7 @@ describe('test-staged: runStagedTests', () => {
     expect(spawnSync).not.toHaveBeenCalled();
   });
 
-  it('runs vitest related against the staged files and returns its exit status', () => {
+  it('runs related tests against the staged files and returns its exit status', () => {
     const calls: Array<{ command: string; args: string[] }> = [];
     const status = runStagedTests({
       files: ['src/main/foo.ts', 'src/main/bar.ts'],
@@ -118,35 +104,33 @@ describe('test-staged: runStagedTests', () => {
     expect(status).toBe(0);
     expect(calls).toEqual([
       {
-        command: 'npx',
-        args: ['vitest', 'related', '--run', '--passWithNoTests', 'src/main/foo.ts', 'src/main/bar.ts'],
+        command: process.execPath,
+        args: [path.resolve('scripts/run-related-tests.mjs')],
       },
     ]);
   });
 
-  it('splits a large staged set across multiple vitest invocations covering every file', () => {
-    // Enough long paths to overflow the internal ~6000-char command-line budget.
+  it('preserves every source path in stdin, including spaces and shell metacharacters', () => {
     const files = Array.from(
       { length: 400 },
       (_, i) => `src/renderer/app/features/some/really/long/path/component-${i}.spec.ts`,
     );
-    const calls: string[][] = [];
+    files.push('src/a path/$(literal);file.ts');
+    const payloads: string[][] = [];
     const status = runStagedTests({
       files,
       log: () => undefined,
-      spawnSync: (_command, args) => {
-        // Drop the fixed prefix, keep only the file arguments.
-        calls.push(args.slice(4));
+      spawnSync: (_command, _args, opts) => {
+        payloads.push(JSON.parse((opts as { input: string }).input));
         return { status: 0 };
       },
     });
 
     expect(status).toBe(0);
-    expect(calls.length).toBeGreaterThan(1);
-    expect(calls.flat()).toEqual(files);
+    expect(payloads).toEqual([files]);
   });
 
-  it('stops at the first failing batch and returns its status', () => {
+  it('returns a failure without retrying a large staged set', () => {
     const files = Array.from(
       { length: 400 },
       (_, i) => `src/renderer/app/features/some/really/long/path/component-${i}.spec.ts`,
@@ -162,7 +146,7 @@ describe('test-staged: runStagedTests', () => {
     });
 
     expect(status).toBe(2);
-    // Short-circuits after the first failing batch instead of running them all.
+    // A failed test run must not be retried or hidden by a subsequent run.
     expect(invocations).toBe(1);
   });
 
@@ -184,5 +168,15 @@ describe('test-staged: runStagedTests', () => {
     });
 
     expect(status).toBe(1);
+  });
+
+  it('fails closed on a signalled or missing child exit status', () => {
+    for (const result of [{ status: null, signal: 'SIGTERM' as const }, { status: null }]) {
+      expect(runStagedTests({
+        files: ['src/main/foo.ts'],
+        log: () => {},
+        spawnSync: () => result,
+      })).toBe(1);
+    }
   });
 });

@@ -155,6 +155,7 @@ export async function prepareLoopIterationPrompt(input: {
   const reanchorGoal = shouldReanchorLoopGoal({
     iterationSeq: input.seq,
     lastThreadCaps: input.state.lastThreadCaps,
+    lastFullAnchorSeq: input.state.lastFullAnchorSeq,
     pendingContextReset: input.pendingContextReset,
     justCompacted: Boolean(input.state.justCompacted),
     thisAttemptModel,

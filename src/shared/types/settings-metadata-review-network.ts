@@ -6,9 +6,15 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'crossModelReviewEnabled',
     label: 'Enable cross-model review',
-    description: "Have a second AI model double-check an agent's work (e.g. Antigravity or Codex reviewing Claude) to catch mistakes.",
+    description: 'Automatically review new file edits in regular sessions. Loops use their own review gates. You can also request a review from the latest answer.',
     type: 'boolean',
     category: 'review',
+  },
+  {
+    key: 'crossModelReviewDailyLimit',
+    label: 'Automatic reviews per day',
+    description: 'Daily automatic review limit across regular sessions. Manual reviews count toward usage and remain available after the limit.',
+    type: 'number', category: 'review', min: 0, max: 500,
   },
   {
     key: 'crossModelReviewDepth',

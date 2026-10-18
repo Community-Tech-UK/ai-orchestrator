@@ -228,6 +228,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     model: options.model,
     timeout: options.timeout,
     maxTurns: options.maxTurns,
+    maxBudgetUsd: options.maxBudgetUsd,
     yoloMode: options.yoloMode,
     allowedTools: options.allowedTools,
     disallowedTools: options.disallowedTools,
@@ -459,6 +460,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
   return new AcpCliAdapter({
     adapterName: 'copilot-acp',
     contextCapabilityProfile: 'copilot-acp',
+    promptUsageReporting: 'session-cumulative-gross',
     // Applied AFTER the ambient-env merge, so this is the only thing that
     // actually keeps an ambient token out of the child. Copilot reads
     // GH_TOKEN/GITHUB_TOKEN before its keychain, so without it a developer with

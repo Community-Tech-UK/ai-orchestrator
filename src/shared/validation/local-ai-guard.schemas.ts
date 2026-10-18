@@ -601,7 +601,14 @@ export const LocalAiPublicRecoveryAttemptSchema = z.object({
   recovered: z.boolean().optional(),
 }).strict();
 
+export const LocalAiHelperPauseSchema = z.object({
+  slot: AuxiliaryLlmSlotSchema, pausedUntil: TimestampSchema, startedAt: TimestampSchema,
+  failures: CountSchema, reason: z.string().min(1).max(512),
+}).strict();
+export const LocalAiRetryHelperRequestSchema = z.object({ slot: AuxiliaryLlmSlotSchema }).strict();
+
 export const LocalAiGuardSnapshotSchema = z.object({
+  helperPauses: z.array(LocalAiHelperPauseSchema).max(12).default([]),
   revision: LocalAiRevisionCursorSchema,
   aggregate: LocalAiAggregateStatusSchema,
   targets: z.array(LocalAiTargetStatusSchema).max(1_000),

@@ -17,6 +17,8 @@ import { SessionPickerController } from '../../src/renderer/app/features/session
 import { deriveVerdict } from '../../src/main/orchestration/verification-verdict-deriver';
 import type { AgentResponse, VerificationResult } from '../../src/shared/types/verification.types';
 import { VerificationVerdictReadyPayloadSchema } from '../../packages/contracts/src/schemas/verification.schemas';
+import { runHelperPauseExpirySmoke } from '../test-utils/helper-pause-expiry-smoke';
+import { registerVerificationCostSmoke } from '../test-utils/verification-cost-smoke';
 
 const smokePaths = vi.hoisted(() => ({
   root: '',
@@ -37,6 +39,7 @@ vi.mock('electron', () => ({
   ipcMain: {
     on: vi.fn(),
     handle: vi.fn(),
+    removeHandler: vi.fn(),
   },
   shell: {
     showItemInFolder: vi.fn(),
@@ -62,6 +65,9 @@ vi.mock('electron', () => ({
 
 vi.mock('../../src/main/logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+}));
+vi.mock('../../src/main/notifications/notification-service', () => ({
+  getNotificationService: () => ({ notify: vi.fn() }),
 }));
 
 vi.mock('../../src/main/bootstrap/capability-probe', () => ({
@@ -128,6 +134,7 @@ vi.mock('../../src/main/cli/cli-detection', () => {
     supported.map((cli) => [cli, { displayName: cli }]),
   );
   return {
+    CliDetectionService: { getInstance: () => ({ detectAll: async () => ({ available: [{ name: 'codex', displayName: 'Agent', installed: true, command: 'codex' }] }) }) },
     CLI_REGISTRY: registry,
     SUPPORTED_CLIS: supported,
     getCliDetectionService: () => ({
@@ -175,6 +182,7 @@ vi.mock('../../src/main/observability/lifecycle-trace', () => ({
 }));
 
 describe('Wave 7 cross-wave smoke', () => {
+  it('expires helper pauses through runtime, IPC, store and the accessible status chip', runHelperPauseExpirySmoke);
   beforeAll(async () => {
     smokePaths.root = await mkdtemp(join(tmpdir(), 'wave7-smoke-'));
     smokePaths.home = join(smokePaths.root, 'home');
@@ -493,3 +501,5 @@ describe('Wave 7 cross-wave smoke', () => {
     }
   }, 30_000);
 });
+
+registerVerificationCostSmoke();

@@ -221,18 +221,24 @@ async function terminateInstance(instanceId: string, graceful: boolean): Promise
   const session = sessions.get(instanceId);
   if (!session) return;
   const pid = session.process.pid;
-  if (graceful) {
-    killProcessGroup(pid, 'SIGTERM');
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(resolve, 5000);
-      session.process.once('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-    });
-  } else {
-    killProcessGroup(pid, 'SIGKILL');
-  }
+  // `close` follows stdio drain and closeSession's output/exited messages.
+  // Acknowledging a kill before this point lets the proxy detach too early.
+  await new Promise<void>((resolve, reject) => {
+    let escalation: ReturnType<typeof setTimeout> | undefined;
+    const onClose = () => {
+      clearTimeout(timeout);
+      clearTimeout(escalation);
+      resolve();
+    };
+    const timeout = setTimeout(() => {
+      session.process.off('close', onClose);
+      clearTimeout(escalation);
+      reject(new Error('CLI process did not close after termination'));
+    }, graceful ? 2 * SHUTDOWN_GRACE_MS : SHUTDOWN_GRACE_MS);
+    session.process.once('close', onClose);
+    killProcessGroup(pid, graceful ? 'SIGTERM' : 'SIGKILL');
+    if (graceful) escalation = setTimeout(() => killProcessGroup(pid, 'SIGKILL'), SHUTDOWN_GRACE_MS);
+  });
 }
 
 async function shutdown(): Promise<void> {

@@ -2,7 +2,8 @@ import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {EventEmitter} from 'node:events';
 import Database from 'better-sqlite3';
 import type {SqliteDriver} from '../db/sqlite-driver';
-import type {Instance} from '../../shared/types/instance.types';
+import {getDefaultAgent} from '../../shared/types/agent.types';
+import {buildInstanceRecord} from './lifecycle/instance-create-builder';
 import {InstanceCommunicationManager} from '../instance/instance-communication';
 import {getSessionAdmissionService,_resetSessionAdmissionServiceForTesting} from '../session/session-admission-service';
 import {SessionAdmissionStore} from '../session/session-admission-store';
@@ -30,7 +31,8 @@ describe('actual Gemini event-owned recovery joins rejected send once',()=>{
   const ordinary=scenario==='ordinary-overflow-success'||scenario==='ordinary-park';
   const mode=scenario==='ordinary-overflow-success'?'overflow-success':scenario==='ordinary-park'?'park':scenario;
   const adapter=new GeminiCliAdapter({timeout:1000});Object.assign(adapter,{isSpawned:true});
-  const instance={id:'event-owned-'+scenario,parentId:null,launchMode:'orchestrated',provider:'gemini',sessionId:adapter.getSessionId(),...(knownSession?{providerSessionId:adapter.getSessionId()}:{}),adapterGeneration:0,restartEpoch:0,status:'idle',requestCount:4,lastActivity:0,errorCount:0,outputBuffer:[]} as unknown as Instance;
+  const instance=buildInstanceRecord({workingDirectory:'/tmp/event-owned-recovery',provider:'gemini',sessionId:adapter.getSessionId()??undefined},getDefaultAgent(),{defaultYoloMode:false,getParent:()=>undefined});
+  Object.assign(instance,{id:'event-owned-'+scenario,status:'idle',requestCount:4,lastActivity:0,providerSessionId:knownSession?adapter.getSessionId():undefined});
   let currentAdapter=adapter;let nativeInputs=0;
   const nativePrompts:string[]=[];
   (adapter as unknown as {spawnProcess:(args:string[])=>ChildProcess}).spawnProcess=args=>{
@@ -46,8 +48,9 @@ describe('actual Gemini event-owned recovery joins rejected send once',()=>{
   const park=vi.fn(()=> 'parked' as const);
   let entered!:()=>void;const compactEntered=new Promise<void>(resolve=>{entered=resolve;});
   let release!:()=>void;const compactGate=new Promise<void>(resolve=>{release=resolve;});
-  const outputs:Record<string,unknown>[]=[];
-  const communication=new InstanceCommunicationManager({getInstance:()=>instance,getAdapter:()=>currentAdapter,setAdapter:()=>undefined,deleteAdapter:()=>false,queueUpdate:()=>undefined,processOrchestrationOutput:()=>undefined,onInterruptedExit:async()=>undefined,ingestToRLM:()=>undefined,ingestToUnifiedMemory:()=>undefined,onProviderLimitTurn:park,emitProviderRuntimeEvent:(_id,event)=>{
+  const outputs:Record<string,unknown>[]=[];const runtimeErrors:Record<string,unknown>[]=[];
+  const communication=new InstanceCommunicationManager({getInstance:()=>instance,getAdapter:()=>currentAdapter,setAdapter:()=>undefined,deleteAdapter:()=>false,queueUpdate:()=>undefined,processOrchestrationOutput:()=>undefined,onInterruptedExit:async()=>undefined,ingestToRLM:()=>undefined,ingestToUnifiedMemory:()=>undefined,onProviderLimitTurn:park,emitProviderRuntimeEvent:(_id,event,options)=>{
+    if(event.kind==='error')runtimeErrors.push({event,raw:options?.raw});
     if(event.kind==='error' && mode==='observer-manual'){instance.requestCount++;instance.status='busy';controller.abort();}
   },compactContext:async()=>{compactions++;entered();await compactGate;}});
   communication.setupAdapterEvents(instance.id,adapter);communication.on('output',({message})=>outputs.push(message));
@@ -71,6 +74,8 @@ describe('actual Gemini event-owned recovery joins rejected send once',()=>{
   if(mode==='observer-manual'||mode==='old-request-error')expect(instance.status).toBe('busy');
   const rows=SessionAdmissionStore.getInstance(db as unknown as SqliteDriver).list({instanceId:instance.id});
   const success=mode==='overflow-success'||mode==='reentrant-error';
+  const nativeFailure=mode==='park'?'usage limit reached':'context_length_exceeded';
+  expect(runtimeErrors).toEqual(mode==='old-request-error'?[]:[{event:expect.objectContaining({kind:'error',message:nativeFailure}),raw:expect.objectContaining({source:'adapter-event:error',payload:expect.objectContaining({message:nativeFailure})})}]);
   expect(admissions).toBe(ordinary?0:1);expect(recorded).toHaveBeenCalledOnce();expect(rows).toHaveLength(1);expect(delivered).toHaveBeenCalledTimes(success?1:0);expect(failed).toHaveBeenCalledOnce();expect(rows[0].state).toBe(success?'delivered':'failed');
   expect(nativeInputs).toBe(success||mode==='overflow-failure'?2:1);expect(compactions).toBe(mode==='park'||mode==='observer-manual'||mode==='old-request-error'?0:1);expect(park).toHaveBeenCalledTimes(mode==='park'?1:0);
   if(mode==='park')expect(outputs.filter(o=>(o['metadata'] as Record<string,unknown>)?.['providerLimitParked'])).toHaveLength(1);

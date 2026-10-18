@@ -1713,7 +1713,7 @@ describe('InstanceCommunicationManager', () => {
     });
     await flushOutputHandlers();
 
-    expect(captureBaseline).toHaveBeenCalledWith('/tmp/project/src/main.ts');
+    expect(captureBaseline).toHaveBeenCalledWith('/tmp/project/src/main.ts', { editIntent: true });
   });
 
   it('emits file.edited on a mutating tool_use, independent of a diff tracker', async () => {
@@ -2802,7 +2802,7 @@ describe('LT-004: Codex app-server exit classification', () => {
       request: vi.fn(async () => ({ threadId: 'thread-lt004-ic' })),
       exitPromise,
       getExitError: () => exitError,
-      subscribeNotifications: vi.fn(() => () => {}),
+      subscribeNotifications: vi.fn(() => () => undefined),
     };
     vi.spyOn(
       adapter as unknown as { connectAppServer(cwd: string): Promise<unknown> },

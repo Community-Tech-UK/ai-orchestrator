@@ -15,7 +15,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { errorDiagnostic, textDiagnostic } from '../logging/source-diagnostics';
 import { getOutputStorageManager } from '../memory/output-storage';
-import { recordCompletionCost as recordCompletionCostImpl, recordEstimationTelemetry as recordEstimationTelemetryImpl } from './communication-completion-cost';
+import { captureCompletionCostIdentity, type CompletionCostIdentity, recordCompletionCost as recordCompletionCostImpl, recordEstimationTelemetry as recordEstimationTelemetryImpl } from './communication-completion-cost';
 import { getHandoffStateService } from '../session/handoff-state-service';
 import { noteSandboxDenialOnExit } from './lifecycle/sandbox-exit-advice';
 import { getHookManager } from '../hooks/hook-manager';
@@ -348,8 +348,9 @@ export class InstanceCommunicationManager extends EventEmitter {
    * present. Fail-soft by design — cost accounting must never break the
    * turn-complete path.
    */
-  private recordCompletionCost(instanceId: string, instance: Instance, response: CliResponse): void {
-    recordCompletionCostImpl(instanceId, instance, response);
+  private recordCompletionCost(instanceId: string, instance: Instance, response: CliResponse, identity?: CompletionCostIdentity): void {
+    recordCompletionCostImpl(instanceId, instance, response, () => this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage), identity);
+    this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
   }
 
   /**
@@ -1397,7 +1398,11 @@ export class InstanceCommunicationManager extends EventEmitter {
         }
 
         // Detect context-overflow errors arriving via NDJSON stdout path
-        // (these bypass the adapter 'error' event and need explicit handling)
+        // (these bypass the adapter 'error' event and need explicit handling).
+        // A native send owns recovery even when stdout arrives before its error
+        // event: an active scope keeps the printed text for that owner instead
+        // of stopping the instance. Only unscoped output needs the terminal
+        // fallback below.
         if (message.type === 'error' && isContextOverflowMessage(message.content) && !failureScope?.hasRecovery) {
           const tokenInfo = extractOverflowTokenCount(message.content);
           logger.warn('Context overflow detected via output path', {
@@ -1458,13 +1463,14 @@ export class InstanceCommunicationManager extends EventEmitter {
         return;
       }
       const failureScope = message.type === 'error' ? this.inputFailureScopes.find(instanceId, adapter) : undefined;
-      if (failureScope?.hasRecovery && !failureScope.isCurrent()) return;
+      if (failureScope && !failureScope.isCurrent()) return;
       const ticket = outputOrder.enter();
       void handleOutput(message, failureScope, ticket).finally(ticket.release);
     });
     bindRawAdapterProviderEvents({
       adapter,
       isStale: isStaleAdapterEvent,
+      getInstance: () => this.deps.getInstance(instanceId),
       emit: emitProviderRuntimeEvent,
       observeAvailableCommands: () => this.emit('commands-changed', { instanceId }),
       captureToolResult: (toolCall) => {
@@ -1695,6 +1701,8 @@ export class InstanceCommunicationManager extends EventEmitter {
         // ProviderContextEvent cannot disagree.
         instance.contextUsage = {
           ...usage,
+          // Recorded turn deltas own session cost, independently of occupancy.
+          costEstimate: instance.contextUsage.costEstimate,
           ...(occupancyReported ? { occupancyReported: true } : {}),
           // LT-034: must travel with the numbers, not be re-derived downstream.
           // The renderer only ever sees what is queued here.
@@ -1749,17 +1757,6 @@ export class InstanceCommunicationManager extends EventEmitter {
       );
     });
 
-    adapter.on('cost', (cost: { costEstimate: number }) => {
-      if (isStaleAdapterEvent('cost')) {
-        return;
-      }
-      const instance = this.deps.getInstance(instanceId);
-      if (instance) {
-        instance.contextUsage = { ...instance.contextUsage, costEstimate: cost.costEstimate };
-        this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
-      }
-    });
-
     adapter.on('usage', (usage: CliResponse['usage']) => {
       if (isStaleAdapterEvent('usage')) return;
       const instance = this.deps.getInstance(instanceId);
@@ -1771,7 +1768,9 @@ export class InstanceCommunicationManager extends EventEmitter {
         if (isStaleAdapterEvent('complete')) {
           return;
         }
-        const requestCountAtProviderCompletion = this.deps.getInstance(instanceId)?.requestCount;
+        const instanceAtCompletion = this.deps.getInstance(instanceId);
+        const requestCountAtProviderCompletion = instanceAtCompletion?.requestCount;
+        const billingIdentity = instanceAtCompletion ? captureCompletionCostIdentity(instanceAtCompletion) : undefined;
         // A completion follows the outputs emitted before it, including any
         // still queued behind a session-identity save.
         const heldOutput = outputOrder.pending();
@@ -1818,7 +1817,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           },
         });
         if (completedInstance) {
-          this.recordCompletionCost(instanceId, completedInstance, response);
+          this.recordCompletionCost(instanceId, completedInstance, response, billingIdentity);
           this.recordEstimationTelemetry(completedInstance, response);
           // Spec item 5 / LT-046: maintain the rolling handoff document as turns
           // complete (cheap, no LLM; only when the feature is enabled). Must not

@@ -12,10 +12,8 @@ import type { Instance } from '../../shared/types/instance.types';
 import type { CompactionBoundaryOptions, CompactionPreview } from '../../shared/types/compaction-preview.types';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type { InstanceManager } from '../instance/instance-manager';
-import { ContextCompactor } from './context-compactor';
+import { activeMessagesOf, selectCompactionTail } from './compaction-tail';
 import {
-  computeCompactionCut,
-  exchangesToMessageBoundary,
   groupExchanges,
   messageBoundaryToExchangeCount,
   type CompactionTurnRole,
@@ -29,7 +27,7 @@ interface CompactionTurn extends CompactionTurnRole {
 }
 
 function extractTurns(instance: Instance): CompactionTurn[] {
-  return instance.outputBuffer
+  return activeMessagesOf(instance)
     .filter((message) => message.type === 'user' || message.type === 'assistant')
     .map((message) => ({ role: message.type as 'user' | 'assistant', content: message.content }));
 }
@@ -83,12 +81,7 @@ export async function previewCompaction(
     };
   }
 
-  const defaultPreserveRecent = ContextCompactor.getInstance().getConfig().preserveRecent;
-  const preserveRecentMessages = opts?.keepLatestExchanges === undefined
-    ? Math.min(defaultPreserveRecent, turns.length)
-    : exchangesToMessageBoundary(exchanges, opts.keepLatestExchanges);
-
-  const cut = computeCompactionCut(turns, preserveRecentMessages);
+  const cut = selectCompactionTail(turns, instance.contextUsage?.total || 200000, opts?.keepLatestExchanges);
   const tokenValue = cut.affectedIndices.reduce(
     (sum, index) => sum + sharedEstimateTokens(turns[index]!.content),
     0,
@@ -107,13 +100,13 @@ export async function previewCompaction(
     keptVerbatimCount: cut.keptIndices.length,
     tokenEstimate: { value: tokenValue, source: 'heuristic' },
     protectedItems: {
-      mostRecentUserTurnProtected: cut.rescuedLastUserTurnIndex !== null,
+      mostRecentUserTurnProtected: turns.some(turn => turn.role === 'user'),
       authenticatedEvidencePreserved: evidencePreviews.length > 0,
     },
     totalMessageCount: turns.length,
     totalExchangeCount: exchanges.length,
     keepLatestExchanges: opts?.keepLatestExchanges
-      ?? messageBoundaryToExchangeCount(exchanges, preserveRecentMessages),
+      ?? messageBoundaryToExchangeCount(exchanges, cut.keptIndices.length),
     note: null,
   };
 }

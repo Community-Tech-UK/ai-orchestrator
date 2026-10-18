@@ -222,13 +222,43 @@ describe('defaultLoopContextSurvivalManager', () => {
       expect(decision.reason).toContain('cache TTL');
     });
 
+    it.each([150_000, 7_000_000])('never forces a reset from %i lifetime tokens after an idle gap', async (lifetimeTokens) => {
+      const state = makeState('loop-b4-stale-over-budget');
+      // Pin the threshold rather than inheriting the default: this test is about
+      // COMPOSING the stale-cache micro tier with a full recycle, not about
+      // whatever the shipped reset threshold happens to be.
+      state.config.context = { compaction: { enabled: true, resetAtUtilization: 0.6, clearToolResults: true } };
+      state.totalTokens = lifetimeTokens;
+      const t0 = 1_000_000;
+
+      await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration: makeTimedIteration(400, t0, t0 + 60_000, 0),
+        childResult: makeChildResult(400),
+      });
+      const decision = await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration: makeTimedIteration(
+          400,
+          t0 + 60_000 + CONTEXT_CACHE_TTL_MS + 30 * 60_000,
+          t0 + 60_000 + CONTEXT_CACHE_TTL_MS + 31 * 60_000,
+          1,
+        ),
+        childResult: makeChildResult(400),
+      });
+
+      expect(decision.action).toBe('micro');
+      expect(decision.forceContextReset).toBe(false);
+      expect(decision.reason).toContain('context resets stay with the occupancy check');
+    });
+
     it('keeps a stale-cache micro note separate from adapter-owned context recycling', async () => {
       const state = makeState('loop-b4-stale-over-budget');
       // Pin the threshold rather than inheriting the default: this test is about
       // COMPOSING the stale-cache micro tier with a full recycle, not about
       // whatever the shipped reset threshold happens to be.
       state.config.context = { compaction: { enabled: true, resetAtUtilization: 0.6, clearToolResults: true } };
-      state.totalTokens = 150_000; // 75% of the 200k loop context window ≥ the 60% threshold set above.
+      state.totalTokens = 150_000;
       const t0 = 1_000_000;
 
       await defaultLoopContextSurvivalManager.onIterationSealed({

@@ -1,3 +1,4 @@
+import type { ClaudeModelUsageSnapshot, ModelUsageDelta } from '../../../shared/types/provider-model-usage.types';
 import type { ClaudeSelfWakeupEvent } from './claude-cli-self-wakeup';
 import type { DegradedReason } from './degraded-output-classifier';
 import type { ContextUsage } from '../../../shared/types/instance.types';
@@ -227,6 +228,8 @@ export interface CliUsage {
   reasoningTokens?: number;
   totalTokens?: number;
   cost?: number;
+  providerModelUsage?: ClaudeModelUsageSnapshot;
+  byModel?: ModelUsageDelta[];
   duration?: number;
   /**
    * True when the token counts above are a heuristic estimate (e.g.

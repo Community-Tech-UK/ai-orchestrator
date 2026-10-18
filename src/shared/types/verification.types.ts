@@ -10,6 +10,15 @@ import type {
 
 export const DEFAULT_VERIFICATION_MAX_DEBATE_ROUNDS = 2;
 
+/** Recorded dollars, including a genuine zero; unknown is never a free call. */
+export type VerificationCost = number | 'unknown';
+
+/** A total is known only when every contributing cost is known. */
+export function sumVerificationCosts(costs: readonly VerificationCost[]): VerificationCost {
+  return costs.reduce<VerificationCost>((sum, cost) =>
+    sum === 'unknown' || cost === 'unknown' ? 'unknown' : sum + cost, 0);
+}
+
 export type SynthesisStrategy =
   | 'consensus' // Use points N-1 agents agree on
   | 'best-of' // Rank and select highest quality
@@ -96,7 +105,7 @@ export interface AgentResponse {
   // Metrics
   duration: number;
   tokens: number;
-  cost: number;
+  cost: VerificationCost;
 
   // Status
   error?: string;
@@ -185,7 +194,7 @@ export interface VerificationResult {
   // Metadata
   totalDuration: number;
   totalTokens: number;
-  totalCost: number;
+  totalCost: VerificationCost;
   completedAt: number;
 
   // Audit trail

@@ -205,6 +205,13 @@ export function getLatestContextManifest(instanceId: string): ContextManifestSna
   return history && history.length > 0 ? history[history.length - 1] : undefined;
 }
 
+/** Add adapter delivery diagnostics to the latest epoch without replacing prior notes. */
+export function appendContextManifestNote(instanceId: string, note: string): void {
+  const snapshot = getLatestContextManifest(instanceId);
+  if (!snapshot || !note.trim()) return;
+  snapshot.note = snapshot.note ? `${snapshot.note}\n${note}` : note;
+}
+
 /** Drop all recorded history for an instance (e.g. on termination). Not yet wired — see module header. */
 export function deleteContextManifest(instanceId: string): void {
   registry.delete(instanceId);

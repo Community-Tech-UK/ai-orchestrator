@@ -117,6 +117,9 @@ describe('SidebarFooterComponent', () => {
 
     expect(text).not.toContain('% ctx');
     expect(text).toContain('2.50');
+    expect(text).toContain('≈$2.50');
+    expect(fixture.componentInstance.costTooltip()).toContain('at API prices');
+    expect(fixture.nativeElement.querySelector('.cost-stat').tabIndex).toBe(0);
   });
 
   it('hides cost when the global cost setting is off', async () => {

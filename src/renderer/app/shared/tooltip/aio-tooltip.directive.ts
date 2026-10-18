@@ -11,6 +11,7 @@
  *
  * Deliberate behaviours, each of which is a bug somewhere else if omitted:
  *
+ * - Hover works on disabled controls, but keyboard focus does not.
  * - **Keyboard focus opens; a click that focuses does not.** Otherwise every
  *   button press leaves a tooltip covering the thing you just pressed.
  * - **`aria-describedby` merges and restores.** A trigger that already had a
@@ -40,7 +41,8 @@ import {
   type ConnectedPosition,
   type OverlayRef,
 } from '@angular/cdk/overlay';
-import { ComponentPortal, TemplatePortal } from '@angular/cdk/portal';
+import { ComponentPortal } from '@angular/cdk/portal';
+import { visibleTextOf } from './tooltip-visible-text';
 import { AioTooltipPanelComponent } from './aio-tooltip-panel.component';
 import {
   openDelayFor,
@@ -53,6 +55,7 @@ import {
   mergeDescribedBy,
   unmergeDescribedBy,
   type TooltipVariant,
+  type TooltipFormat,
 } from './tooltip-policy';
 
 /**
@@ -108,6 +111,8 @@ export class AioTooltipDirective implements OnDestroy {
   readonly appTooltipTpl = input<TemplateRef<unknown> | null>(null);
   /** Timing profile. See `TooltipVariant`. */
   readonly appTooltipVariant = input<TooltipVariant>('default');
+  /** Presentation is separate from the timing profile. */
+  readonly appTooltipFormat = input<TooltipFormat>('text');
   readonly appTooltipPosition = input<'above' | 'below' | 'before' | 'after'>('above');
   readonly appTooltipDisabled = input(false);
   /**
@@ -203,15 +208,12 @@ export class AioTooltipDirective implements OnDestroy {
     this.hideAncestorTooltips();
 
     const overlayRef = this.ensureOverlay();
-    const template = this.appTooltipTpl();
-    if (template) {
-      overlayRef.attach(new TemplatePortal(template, this.viewContainer));
-    } else {
-      const portal = new ComponentPortal(AioTooltipPanelComponent, this.viewContainer);
-      const ref = overlayRef.attach(portal);
-      ref.setInput('text', this.appTooltip() ?? '');
-      ref.setInput('tooltipId', this.tooltipId);
-    }
+    const portal = new ComponentPortal(AioTooltipPanelComponent, this.viewContainer);
+    const ref = overlayRef.attach(portal);
+    ref.setInput('text', this.appTooltip() ?? '');
+    ref.setInput('template', this.appTooltipTpl());
+    ref.setInput('format', this.appTooltipFormat());
+    ref.setInput('tooltipId', this.tooltipId);
     this.applyDescribedBy();
   }
 
@@ -270,7 +272,7 @@ export class AioTooltipDirective implements OnDestroy {
   private isSuppressed(): boolean {
     return shouldSuppressTooltip({
       text: this.appTooltipTpl() ? 'template' : this.appTooltip(),
-      visibleLabel: this.appTooltipLabel() ?? this.host.nativeElement.textContent,
+      visibleLabel: this.appTooltipLabel() ?? visibleTextOf(this.host.nativeElement),
       truncated: this.isTruncated(),
       expanded: this.host.nativeElement.getAttribute('aria-expanded') === 'true',
       disabled: this.appTooltipDisabled(),

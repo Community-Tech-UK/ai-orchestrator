@@ -12,10 +12,10 @@ describe('buildCompactionPrompt', () => {
       null,
     );
 
-    expect(prompt).toContain('## Pending User Asks');
-    expect(prompt).toContain('## Remaining Work');
-    expect(prompt).toMatch(/Pending User Asks[\s\S]*verbatim/i);
-    expect(prompt).toMatch(/Remaining Work[\s\S]*verbatim/i);
+    expect(prompt).toContain('## Open user asks (word for word)');
+    expect(prompt).toContain('## Next step if the user asks to continue');
+    expect(prompt).toContain('quote unresolved user asks and user corrections word for word');
+    expect(prompt).toContain('immediate next step verbatim');
     expect(prompt).toContain('next step');
   });
 
@@ -34,10 +34,10 @@ describe('buildCompactionPrompt', () => {
     ];
     const prompt = buildCompactionPrompt('new turn', null, operations);
 
-    expect(prompt).toContain('## File Operations Observed');
+    expect(prompt).toContain('## File operations observed');
     expect(prompt).toContain('- edit: src/main/context/context-compactor.ts (tool-output)');
     expect(prompt).toMatch(
-      /## Relevant Files[\s\S]*## File Operations Observed[\s\S]*## Remaining Work/
+      /## Relevant files[\s\S]*## File operations observed[\s\S]*## Next step if the user asks to continue/
     );
   });
 
@@ -55,7 +55,7 @@ describe('buildCompactionPrompt', () => {
     expect(prompt).toContain('<branch_switch_summaries>');
     expect(prompt).toContain('Implemented the parser on the main branch.');
     expect(prompt).toContain('</branch_switch_summaries>');
-    expect(prompt).toMatch(/branch_switch_summaries[\s\S]*Preserve their decisions, file paths, and unresolved work/);
+    expect(prompt).toMatch(/branch_switch_summaries[\s\S]*Preserve branch decisions, file paths, unresolved work/);
   });
 
   it('omits the branch summary section when none are supplied', () => {

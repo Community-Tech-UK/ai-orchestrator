@@ -1,5 +1,6 @@
 import { Subject } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { subscribeCostAttribution, type CostAttributionRecord } from '../core/system/cost-attribution';
 import { CliVerificationCoordinator, type AgentConfig } from './cli-verification-extension';
 import type { VerificationRequest } from '../../shared/types/verification.types';
 import type { AgentResponse, VerificationAnalysis } from '../../shared/types/verification.types';
@@ -30,6 +31,21 @@ describe('CliVerificationCoordinator verification lifecycle events', () => {
   beforeEach(() => {
     CliVerificationCoordinator._resetForTesting();
     coordinator = CliVerificationCoordinator.getInstance();
+  });
+
+  it('uses completion cost instead of guessing cost from context occupancy', async () => {
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    const request = makeRequest('verification-cost');
+    try {
+      const known = await testSeam(coordinator).runAgent(request, makeAgent('Agent A', makeSuccessfulProvider('answer', 0.07)), 0, makeSession(request)) as AgentResponse;
+      const unknown = await testSeam(coordinator).runAgent(request, makeAgent('Agent B', makeSuccessfulProvider('answer')), 1, makeSession(request)) as AgentResponse;
+      expect(known.cost).toBe(0.07);
+      expect(unknown.cost).toBe('unknown');
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toMatchObject({ purpose: 'cli-verification', provider: 'codex', usage: { cost: 0.07 }, costSource: 'provider' });
+      expect(rows[1]).toMatchObject({ costSource: 'unknown', costKnown: false });
+    } finally { stop(); }
   });
 
   it('emits round progress and consensus score during CLI verification', async () => {
@@ -63,6 +79,32 @@ describe('CliVerificationCoordinator verification lifecycle events', () => {
       requestId: 'verification-consensus',
       score: 1,
     });
+  });
+
+  it.each([
+    { second: undefined, total: 'unknown' },
+    { second: 0, total: 0.07 },
+  ])('keeps the aggregate honest with a second cost of $second', async ({ second, total }) => {
+    const request = makeRequest('verification-aggregate');
+    const result = await testSeam(coordinator).runCliVerification(request, [
+      makeAgent('Agent A', makeSuccessfulProvider('answer', 0.07)),
+      makeAgent('Agent B', makeSuccessfulProvider('answer', second)),
+    ], makeSession(request)) as { totalCost: number | 'unknown' };
+    expect(result.totalCost).toBe(total);
+  });
+
+  it('caps Claude initialization and excludes a budget-stop partial answer from verification', async () => {
+    const provider = makeSuccessfulProvider('partial', 0.0064186, true);
+    const request = makeRequest('budget-stop');
+    const agent = { ...makeAgent('Claude', provider), providerId: 'claude' };
+    const rows: CostAttributionRecord[] = []; const stop = subscribeCostAttribution(row => rows.push(row));
+    try {
+      const response = await testSeam(coordinator).runAgent(request, agent, 0, makeSession(request)) as AgentResponse;
+      expect(provider.initialize).toHaveBeenCalledWith(expect.objectContaining({ maxBudgetUsd: 0.25 }));
+      expect(response).toMatchObject({ response: '', confidence: 0, error: 'Provider budget exceeded' });
+      expect(rows[0]).toMatchObject({ outcome: 'budget-exceeded', usage: { cost: 0.0064186 } });
+      expect(provider.sendMessage).toHaveBeenCalledOnce();
+    } finally { stop(); }
   });
 
   it('emits an agent-error event when an agent provider fails', async () => {
@@ -225,7 +267,7 @@ function makeAgent(name: string, provider: ProviderAdapter): AgentConfig {
   };
 }
 
-function makeSuccessfulProvider(response: string): ProviderAdapter {
+function makeSuccessfulProvider(response: string, costUsd?: number, budgetExceeded = false): ProviderAdapter {
   const events$ = new Subject<ProviderRuntimeEventEnvelope>();
   return {
     events$,
@@ -234,6 +276,7 @@ function makeSuccessfulProvider(response: string): ProviderAdapter {
       events$.next(makeProviderEvent({ kind: 'output', content: response }));
       events$.next(makeProviderEvent({ kind: 'context', used: 42, total: 100 }));
       events$.next(makeProviderEvent({ kind: 'status', status: 'idle' }));
+      if (costUsd !== undefined) events$.next({ ...makeProviderEvent({ kind: 'complete', costUsd, inputTokens: 10, outputTokens: 2 }), raw: { source: 'adapter-event:complete', payload: { metadata: { budgetExceeded } } } });
       return Promise.resolve();
     }),
     terminate: vi.fn(() => Promise.resolve()),

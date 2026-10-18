@@ -43,6 +43,7 @@ export interface CliSpawnWorkerInstanceEvents {
   stdout?: (chunk: string) => void;
   stderr?: (chunk: string) => void;
   exited?: (code: number | null, signal: string | null) => void;
+  failed?: (error: Error) => void;
   streamIdle?: (timeoutMs: number) => void;
   epipe?: (pipe: 'stdin' | 'stdout') => void;
 }
@@ -74,6 +75,7 @@ function makeWorker(): CliSpawnWorkerLike {
 
 export class CliSpawnWorkerGateway implements CliSpawnGatewayPort {
   private worker: CliSpawnWorkerLike | null = null;
+  private workerFailure: Error | null = null;
   private rpcId = 0;
   private readonly pending = new Map<number, PendingRpc>();
   private readonly handlers = new Map<string, CliSpawnWorkerInstanceEvents>();
@@ -147,14 +149,15 @@ export class CliSpawnWorkerGateway implements CliSpawnGatewayPort {
   async close(): Promise<void> {
     this.shuttingDown = true;
     this.failAllPending(new Error('CLI spawn worker shutting down'));
-    if (!this.worker) return;
+    const worker = this.worker;
+    if (!worker) return;
     try {
       await this.postRpc({ type: 'shutdown', id: this.nextId() });
     } catch {
       // best-effort shutdown
     }
-    await this.worker.terminate().catch(() => 0);
-    this.worker = null;
+    await worker.terminate().catch(() => 0);
+    this.finishWorker(worker, this.workerFailure ?? new Error('CLI spawn worker shutting down'));
   }
 
   private nextId(): number {
@@ -162,20 +165,36 @@ export class CliSpawnWorkerGateway implements CliSpawnGatewayPort {
   }
 
   private startWorker(): void {
-    if (this.worker) return;
+    if (this.worker || this.shuttingDown) return;
     try {
       const worker = this.workerFactory();
-      worker.on('message', (msg: SpawnWorkerOutboundMsg) => this.handleMessage(msg));
-      worker.on('error', (err) => this.handleWorkerError(err));
-      worker.on('exit', (code) => {
-        if (code !== 0 && !this.shuttingDown) {
-          this.handleWorkerError(new Error(`CLI spawn worker exited with code ${code}`));
-        }
-      });
       this.worker = worker;
+      this.workerFailure = null;
+      // Keep draining messages until exit; Node delivers queued messages before it.
+      worker.on('message', (msg: SpawnWorkerOutboundMsg) => {
+        if (this.worker === worker) this.handleMessage(msg);
+      });
+      worker.on('error', (error: Error) => {
+        if (this.worker !== worker || this.workerFailure) return;
+        this.workerFailure = error;
+        void worker.terminate().then(
+          () => this.finishWorker(worker, error),
+          () => this.finishWorker(worker, error),
+        );
+      });
+      worker.on('exit', (code: number) => {
+        this.finishWorker(worker, this.workerFailure ?? new Error(`CLI spawn worker exited with code ${code}`));
+      });
     } catch (err) {
       this.handleWorkerError(err instanceof Error ? err : new Error(String(err)));
     }
+  }
+
+  private finishWorker(worker: CliSpawnWorkerLike, error: Error): void {
+    if (this.worker !== worker) return;
+    this.worker = null;
+    this.workerFailure = null;
+    this.handleWorkerError(error);
   }
 
   private handleMessage(msg: SpawnWorkerOutboundMsg): void {
@@ -223,11 +242,16 @@ export class CliSpawnWorkerGateway implements CliSpawnGatewayPort {
 
   private handleWorkerError(err: Error): void {
     this.failAllPending(err);
-    for (const pid of this.liveInstancePids.values()) {
-      killProcessGroup(pid, 'SIGKILL');
-    }
+    const owners = [...this.liveInstancePids].map(([instanceId, pid]) => ({
+      pid, handler: this.handlers.get(instanceId),
+    }));
     this.liveInstancePids.clear();
-    this.worker = null;
+    for (const { pid } of owners) killProcessGroup(pid, 'SIGKILL');
+    for (const { handler } of owners) {
+      // One failing consumer must not prevent other sends from reaching finality.
+      try { handler?.failed?.(err); } catch (error) { logger.error('CLI worker failure callback failed', error instanceof Error ? error : new Error(String(error))); }
+      try { handler?.exited?.(null, 'SIGKILL'); } catch (error) { logger.error('CLI worker exit callback failed', error instanceof Error ? error : new Error(String(error))); }
+    }
     if (this.shuttingDown) return;
     if (this.restartAttempts < MAX_RESTART_ATTEMPTS) {
       this.restartAttempts++;
@@ -247,7 +271,7 @@ export class CliSpawnWorkerGateway implements CliSpawnGatewayPort {
   }
 
   private postRpc(msg: SpawnWorkerInboundMsg & { id: number }): Promise<unknown> {
-    if (!this.worker) {
+    if (!this.worker || this.workerFailure) {
       return Promise.reject(new Error('CLI spawn worker unavailable'));
     }
     return new Promise((resolve, reject) => {

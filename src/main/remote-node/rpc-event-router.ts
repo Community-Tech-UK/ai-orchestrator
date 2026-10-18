@@ -1,10 +1,9 @@
 import { getLogger } from '../logging/logger';
-import { NODE_TO_COORDINATOR, createRpcResponse, createRpcError, RPC_ERROR_CODES } from './worker-node-rpc';
+import { COORDINATOR_TO_NODE, NODE_TO_COORDINATOR, createRpcResponse, createRpcError, RPC_ERROR_CODES, type RpcRequest, type RpcNotification } from './worker-node-rpc';
 import { getWorkerNodeHealth } from './worker-node-health';
 import { BROWSER_CDP_MAX_FRAME_BYTES, validateRpcParams, RPC_PARAM_SCHEMAS } from './rpc-schemas';
 import type { RpcRequestResponder, WorkerNodeConnectionServer } from './worker-node-connection';
 import type { WorkerNodeRegistry } from './worker-node-registry';
-import type { RpcRequest, RpcNotification } from './worker-node-rpc';
 import type { WorkerNodeCapabilities } from '../../shared/types/worker-node.types';
 import type { FsEventNotification } from '../../shared/types/remote-fs.types';
 import { getRemoteAuthService } from '../auth/remote-auth';
@@ -13,15 +12,12 @@ import {
   type RemoteBrowserExtensionBridge,
 } from '../browser-gateway/remote-extension-bridge';
 import { StreamDurabilityCoordinator } from './stream-durability-coordinator';
-import { COORDINATOR_TO_NODE } from './worker-node-rpc';
-
+import { routeInstanceTelemetry } from './rpc-instance-telemetry-routing';
 const logger = getLogger('RpcEventRouter');
-
 export class RpcEventRouter {
   private readonly connection: WorkerNodeConnectionServer;
   private readonly registry: WorkerNodeRegistry;
   private readonly browserExtensionBridge?: RemoteBrowserExtensionBridge;
-
   // Bound handler references so stop() can cleanly remove them
   private readonly onWsConnected: (nodeId: string) => void;
   private readonly onWsDisconnected: (nodeId: string) => void;
@@ -300,6 +296,9 @@ export class RpcEventRouter {
         this.handleInstanceContext(nodeId, notification);
         break;
       }
+      case NODE_TO_COORDINATOR.INSTANCE_TELEMETRY:
+        routeInstanceTelemetry(nodeId, notification.params, this.registry, params => this.acceptsDurableFrame(nodeId, params));
+        break;
       case NODE_TO_COORDINATOR.TERMINAL_OUTPUT: {
         this.handleTerminalOutputNotification(nodeId, notification);
         break;

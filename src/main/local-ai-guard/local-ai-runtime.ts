@@ -1,3 +1,5 @@
+import type { AuxiliaryHelperPause } from '../../shared/types/auxiliary-llm.types';
+import type { HelperBackoffTransition } from '../rlm/auxiliary-slot-backoff';
 import type { LocalAiRoutingEvent, LocalAiTarget } from '../../shared/types/local-ai-guard.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { computeProviderTokenCost } from '../../shared/data/model-pricing';
@@ -63,6 +65,8 @@ export class LocalAiGuardRuntime {
   private disposed = false;
   private readonly listeners = new Set<() => void>();
   private statusRevision = 0n;
+  helperPauses: AuxiliaryHelperPause[] = [];
+  private helperPauseExpiry?: ReturnType<typeof setTimeout>;
   /**
    * LT-189 — bounded, most-recent-first `notify-and-allow` events for the
    * renderer's passive banner. Live discovery only; the durable record is
@@ -93,12 +97,54 @@ export class LocalAiGuardRuntime {
     }
   }
 
+  recordHelperPauses(pauses: AuxiliaryHelperPause[], transition?: HelperBackoffTransition): void {
+    if (this.disposed) return;
+    this.helperPauses = pauses.map(pause => ({ ...pause }));
+    this.scheduleHelperPauseExpiry();
+    this.notifyChanged();
+    if (!transition) return;
+    const { kind, pause } = transition;
+    try {
+      getNotificationService().notify({ kind: `local-ai-helper-${kind}`,
+        title: kind === 'paused' ? 'Local helper model offline' : 'Local helper model recovered',
+        body: kind === 'paused'
+          ? `Summaries and titles are using the basic fallback. Next retry ${new Date(pause.pausedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}.`
+          : `${pause.slot} is using its helper model again.`,
+        fingerprintFields: { slot: pause.slot, startedAt: pause.startedAt },
+      });
+    } catch { /* Notifications are best effort. */ }
+  }
+
   get isDisposed(): boolean {
     return this.disposed;
   }
 
   get revision(): string {
+    if (this.expireHelperPauses()) this.notifyChanged();
     return this.statusRevision.toString();
+  }
+
+  /** Retry eligibility expires by time; recovery still requires a success. */
+  private expireHelperPauses(): boolean {
+    if (this.disposed) return false;
+    const active = this.helperPauses.filter(pause => pause.pausedUntil > Date.now());
+    if (active.length === this.helperPauses.length) return false;
+    this.helperPauses = active;
+    this.scheduleHelperPauseExpiry();
+    return true;
+  }
+
+  private scheduleHelperPauseExpiry(): void {
+    clearTimeout(this.helperPauseExpiry);
+    this.helperPauseExpiry = undefined;
+    if (this.disposed || !this.helperPauses.length) return;
+    const deadline = Math.min(...this.helperPauses.map(pause => pause.pausedUntil));
+    this.helperPauseExpiry = setTimeout(() => {
+      this.helperPauseExpiry = undefined;
+      if (this.expireHelperPauses()) this.notifyChanged();
+      else this.scheduleHelperPauseExpiry();
+    }, Math.max(0, deadline - Date.now()));
+    this.helperPauseExpiry.unref?.();
   }
 
   /** Most-recent-first, bounded. See `_fallbackNotifications` for scope. */
@@ -144,6 +190,7 @@ export class LocalAiGuardRuntime {
 
   notifyChanged(): void {
     if (this.disposed) return;
+    this.expireHelperPauses();
     this.statusRevision += 1n;
     for (const listener of this.listeners) {
       try {
@@ -172,6 +219,8 @@ export class LocalAiGuardRuntime {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    clearTimeout(this.helperPauseExpiry);
+    this.helperPauseExpiry = undefined;
     this.listeners.clear();
     runCleanupStep(this.releaseOwnership);
     const unregisterCleanup = this.unregisterCleanup;

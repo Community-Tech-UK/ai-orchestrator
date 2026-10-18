@@ -6,8 +6,8 @@
  * One tracker is created per active instance. The lifecycle is:
  *   1. Agent tool calls trigger captureBaseline() for each file they read/write.
  *      The FIRST snapshot seen for a file becomes its session baseline and is
- *      retained for the whole session (later captures of the same file are
- *      ignored).
+ *      retained for the whole session. Each turn also captures the first-touch
+ *      state so changes from other sessions do not trigger automatic reviews.
  *   2. At the end of a turn computeDiff() is called — it re-snapshots every
  *      baseline file's current state and diffs it against that file's session
  *      baseline. Stats are recomputed from scratch (net current-vs-baseline),
@@ -29,6 +29,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { createHash } from 'crypto';
 import { diffLines } from 'diff';
 import { getLogger } from '../logging/logger';
 import type { FileDiffEntry, SessionDiffStats } from '../../shared/types/instance.types';
@@ -59,6 +60,14 @@ type FileSnapshot =
   | { kind: 'text'; content: string }
   | { kind: 'binary'; size: number; mtimeMs: number }
   | { kind: 'absent' };
+
+export interface TurnFileChanges { seq: number; changedPaths: string[]; editedPaths: string[] }
+
+function fingerprint(snapshot: FileSnapshot): string {
+  return snapshot.kind === 'text'
+    ? createHash('sha256').update(snapshot.content).digest('hex')
+    : snapshot.kind === 'binary' ? `${snapshot.size}:${snapshot.mtimeMs}` : 'absent';
+}
 
 /**
  * Snapshot `filePath`. Returns:
@@ -207,6 +216,10 @@ export class SessionDiffTracker {
    * Key: absolute file path.
    */
   private sessionBaselines = new Map<string, FileSnapshot>();
+  /** First observed state of paths actually touched in this turn. */
+  private turnFingerprints = new Map<string, string>();
+  private editIntentPaths = new Set<string>();
+  private lastTurnChanges: TurnFileChanges = { seq: 0, changedPaths: [], editedPaths: [] };
 
   /**
    * Net diff stats for the entire session. Recomputed from scratch on every
@@ -229,9 +242,8 @@ export class SessionDiffTracker {
    *
    * Rules:
    * - A file's baseline is captured ONCE per session — the first snapshot wins
-   *   and is retained for the whole session (subsequent calls for the same path
-   *   are ignored, so re-editing a file across turns is diffed against its
-   *   original state, not the previous turn).
+   *   and is retained for the whole session. Each turn's first touch captures a
+   *   separate fingerprint, while net session stats retain the original state.
    * - Paths outside `workingDirectory` are only tracked if they are
    *   user-facing artifacts (md, pdf, png, docx, etc.). Code files outside
    *   cwd stay ignored.
@@ -242,7 +254,7 @@ export class SessionDiffTracker {
    * `filePath` may be absolute or relative; relative paths are resolved
    * against `workingDirectory`.
    */
-  captureBaseline(filePath: string): void {
+  captureBaseline(filePath: string, options: { editIntent?: boolean } = {}): void {
     const absolute = path.isAbsolute(filePath)
       ? filePath
       : path.resolve(this.workingDirectory, filePath);
@@ -261,9 +273,11 @@ export class SessionDiffTracker {
       });
       return;
     }
+    if (options.editIntent) this.editIntentPaths.add(absolute);
 
-    // Only capture once per session — the first snapshot is the baseline.
-    if (this.sessionBaselines.has(absolute)) {
+    // Session baselines persist, but each turn needs its own provenance and
+    // first-touch state. Another session's between-turn edit is not our edit.
+    if (this.turnFingerprints.has(absolute)) {
       return;
     }
 
@@ -273,7 +287,8 @@ export class SessionDiffTracker {
       return;
     }
 
-    this.sessionBaselines.set(absolute, snapshot);
+    if (!this.sessionBaselines.has(absolute)) this.sessionBaselines.set(absolute, snapshot);
+    this.turnFingerprints.set(absolute, fingerprint(snapshot));
     logger.debug('captureBaseline: captured baseline', {
       filePath: absolute,
       kind: snapshot.kind,
@@ -294,6 +309,7 @@ export class SessionDiffTracker {
     const files: Record<string, FileDiffEntry> = {};
     let totalAdded = 0;
     let totalDeleted = 0;
+    const changedPaths: string[] = [];
 
     for (const [absolute, baseline] of this.sessionBaselines) {
       const current = snapshotFile(absolute);
@@ -305,6 +321,8 @@ export class SessionDiffTracker {
       }
 
       const relPath = path.relative(this.workingDirectory, absolute);
+      const currentFingerprint = fingerprint(current);
+      if (this.turnFingerprints.has(absolute) && this.turnFingerprints.get(absolute) !== currentFingerprint) changedPaths.push(relPath);
       const entry = diffSnapshot(relPath, baseline, current);
       if (!entry) {
         continue; // unchanged or net-zero → omit
@@ -316,6 +334,10 @@ export class SessionDiffTracker {
     }
 
     this.stats = { totalAdded, totalDeleted, files };
+    this.lastTurnChanges = { seq: this.lastTurnChanges.seq + 1, changedPaths,
+      editedPaths: [...this.editIntentPaths].map(absolute => path.relative(this.workingDirectory, absolute)) };
+    this.editIntentPaths.clear();
+    this.turnFingerprints.clear();
 
     logger.debug('computeDiff: completed', {
       totalAdded,
@@ -338,12 +360,19 @@ export class SessionDiffTracker {
     };
   }
 
+  getLastTurnChanges(): TurnFileChanges {
+    return { ...this.lastTurnChanges, changedPaths: [...this.lastTurnChanges.changedPaths], editedPaths: [...this.lastTurnChanges.editedPaths] };
+  }
+
   /**
    * Reset all state, including session baselines. Call when starting a new
    * session.
    */
   reset(): void {
     this.sessionBaselines.clear();
+    this.turnFingerprints.clear();
+    this.editIntentPaths.clear();
+    this.lastTurnChanges = { seq: 0, changedPaths: [], editedPaths: [] };
     this.stats = {
       totalAdded: 0,
       totalDeleted: 0,

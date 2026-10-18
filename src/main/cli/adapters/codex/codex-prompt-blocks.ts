@@ -1,3 +1,5 @@
+import { wrapSystemInstructions } from '../system-instruction-wrapper';
+
 export interface CodexReplayEntry {
   content: string;
   role: 'assistant' | 'user';
@@ -45,9 +47,5 @@ export function buildCodexReplayPrompt(
 }
 
 export function wrapCodexSystemInstructions(instructions: string, content: string): string {
-  const escapedInstructions = instructions.replace(
-    /\[\/SYSTEM INSTRUCTIONS\]/gi,
-    '[\\/SYSTEM INSTRUCTIONS]',
-  );
-  return `[SYSTEM INSTRUCTIONS]\n${escapedInstructions}\n[/SYSTEM INSTRUCTIONS]\n\n${content}`;
+  return `${wrapSystemInstructions(instructions)}\n\n${content}`;
 }

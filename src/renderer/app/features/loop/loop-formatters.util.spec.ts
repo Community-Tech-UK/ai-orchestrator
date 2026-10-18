@@ -123,7 +123,7 @@ describe('activityKindLabel', () => {
 describe('terminalStatusLabel', () => {
   it('renders each terminal status exactly once', () => {
     expect(terminalStatusLabel('completed')).toBe('completed ✓');
-    expect(terminalStatusLabel('completed-needs-review')).toBe('needs review');
+    expect(terminalStatusLabel('completed-needs-review')).toBe('ended, see notes');
     expect(terminalStatusLabel('cancelled')).toBe('cancelled');
     expect(terminalStatusLabel('failed')).toBe('failed');
     expect(terminalStatusLabel('cap-reached')).toBe('cap reached');
@@ -141,7 +141,7 @@ describe('terminalStatusLabel', () => {
 describe('loopStatusLabel', () => {
   it('handles terminal + intermediate statuses', () => {
     expect(loopStatusLabel('completed')).toBe('completed');
-    expect(loopStatusLabel('completed-needs-review')).toBe('needs review');
+    expect(loopStatusLabel('completed-needs-review')).toBe('ended, see notes');
     expect(loopStatusLabel('cancelled')).toBe('cancelled');
     expect(loopStatusLabel('cap-reached')).toBe('cap');
     expect(loopStatusLabel('error')).toBe('error');
@@ -156,6 +156,14 @@ describe('loopStatusLabel', () => {
 });
 
 describe('loopStatusTone', () => {
+  it('labels failed attempts distinctly and never marks their completion gates done', () => {
+    expect(loopStatusLabel('attempt-failed')).toBe('stopped: a step failed');
+    expect(terminalStatusLabel('attempt-failed')).toBe('stopped: a step failed');
+    expect(loopStatusTone('attempt-failed')).toBe('error');
+    expect(loopStatusPill({ status: 'attempt-failed' })).toEqual({ kind: 'stopped', label: 'STOPPED · STEP FAILED' });
+    expect(loopStatusPill({ status: 'paused', lastCompletionOutcome: 'unverifiable' }).label).toBe('NEEDS YOUR SIGN-OFF');
+    expect(completionGateSteps({ status: 'attempt-failed', freshEyesEnabled: true }).filter((step) => step.state === 'done')).toEqual([]);
+  });
   it('maps failed and error to the same error tone', () => {
     expect(loopStatusTone('failed')).toBe('error');
     expect(loopStatusTone('error')).toBe('error');
@@ -180,6 +188,7 @@ describe('LoopStatus label completeness (LF-8 contract)', () => {
   const TERMINAL = new Set([
     'completed',
     'completed-needs-review',
+    'attempt-failed',
     'cancelled',
     'failed',
     'cap-reached',

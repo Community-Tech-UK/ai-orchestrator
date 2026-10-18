@@ -5,6 +5,12 @@ import type { DisplayItem } from './display-item-processor.service';
 describe('MessageFormatService', () => {
   const service = new MessageFormatService();
 
+  it('distinguishes a fresh session from measured in-place compaction', () => {
+    const message = { id: 'compact', type: 'system' as const, timestamp: 1, content: '', metadata: { method: 'restart-with-summary', previousUsage: { percentage: 82 }, newUsage: { percentage: 31 } } };
+    expect(service.getCompactionLabel(message)).toBe('Context compacted — fresh session (was 82%; new size after reply)');
+    expect(service.getCompactionLabel({ ...message, metadata: { ...message.metadata, method: 'native' } })).toBe('Context compacted in place (82% → 31%)');
+  });
+
   describe('summarizeCycle', () => {
     it('counts thinking blocks, not thought-groups', () => {
       const cycle: DisplayItem = {

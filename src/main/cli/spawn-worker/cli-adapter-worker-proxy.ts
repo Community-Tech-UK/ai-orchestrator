@@ -1,3 +1,7 @@
+import { observeClaudeSubagentUsage, flushClaudeSubagentUsage } from '../adapters/claude-subagent-usage';
+import { ClaudeSessionCostLedger } from '../adapters/claude-session-cost-ledger';
+import { ClaudeResidentTurnSettlement } from '../adapters/claude-resident-turn-settlement';
+import { readLastClaudeCostState } from '../adapters/claude-transcript-registry';
 import { EventEmitter } from 'node:events';
 import type { ContextUsage, FileAttachment, InstanceStatus, OutputMessage } from '../../../shared/types/instance.types';
 import type { CliType } from '../cli-detection';
@@ -23,6 +27,8 @@ import {
   getCliSpawnWorkerGateway,
 } from './cli-spawn-worker-gateway';
 import { buildWorkerArgs } from './cli-adapter-worker-args';
+import { CliWorkerProcessLifecycle } from './cli-worker-process-lifecycle';
+import { waitForWorkerTurn } from './cli-worker-turn';
 import { formatClaudeWorkerInput } from './cli-adapter-worker-input';
 import { parseWorkerOutput } from './cli-adapter-worker-output';
 import { parseClaudeStreamError } from '../adapters/claude-stream-error';
@@ -40,11 +46,16 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   private readonly instanceId: string;
   private readonly options: UnifiedSpawnOptions;
   private readonly gateway: CliSpawnGatewayPort;
+  private readonly lifecycle = new CliWorkerProcessLifecycle();
   private sessionId: string | null;
   private pid: number | null = null;
   private running = false;
   private spawned = false;
+  private residentTurnActive = false;
+  private workerFailed = false;
   private outputBuffer = '';
+  private readonly claudeCostLedger = new ClaudeSessionCostLedger();
+  private readonly residentSettlement = new ClaudeResidentTurnSettlement(response => this.settleResponse(response));
   private cumulativeTokensUsed = 0;
   private cumulativeCostUsd = 0;
   private spawnMode: CliSpawnMode;
@@ -52,7 +63,6 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   private lastKnownContextWindow: number;
   private deferredToolUse: DeferredToolUse | null = null;
   private geminiRtkAwarenessSent = false;
-  /** Child env for every worker spawn: caller env plus the account-pool overlay. */
   private readonly childEnv: Record<string, string>;
   private readonly childEnvRemove: string[];
 
@@ -61,8 +71,6 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     this.cliType = opts.cliType;
     this.instanceId = opts.instanceId;
     this.options = opts.options;
-    // Same account-pool enforcement as createClaudeAdapter: the offload path
-    // never reaches the factory, so it must not become a way around the route.
     const accountEnv = opts.cliType === 'claude'
       ? resolveClaudeAccountSpawnEnv(opts.options)
       : { env: {}, envRemove: [] };
@@ -76,6 +84,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
       : 1000000;
     this.gateway.registerInstance(this.instanceId, {
       spawned: (pid) => {
+        this.workerFailed = false;
         this.pid = pid;
         this.running = true;
         this.emit('spawned', pid);
@@ -83,6 +92,15 @@ export class CliAdapterWorkerProxy extends EventEmitter {
       stdout: (chunk) => this.handleStdout(chunk),
       stderr: (chunk) => this.handleStderr(chunk),
       exited: (code, signal) => this.handleExit(code, signal),
+      failed: error => {
+        this.workerFailed = true;
+        if (this.stdoutLineBuffer.trim()) {
+          this.emitOutputFromLine(this.stdoutLineBuffer);
+          this.stdoutLineBuffer = '';
+        }
+        if (this.cliType === 'claude') this.emitClaudeError(error);
+        else if (this.listenerCount('error') > 0) this.emit('error', error);
+      },
       streamIdle: (timeoutMs) => {
         this.emit('stream:idle', {
           adapter: this.getName(),
@@ -96,9 +114,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     });
   }
 
-  getName(): string {
-    return this.cliType === 'claude' ? 'claude-cli' : 'gemini-cli';
-  }
+  getName(): string { return this.cliType === 'claude' ? 'claude-cli' : 'gemini-cli'; }
 
   getCapabilities(): CliCapabilities {
     if (this.cliType === 'claude') {
@@ -184,7 +200,6 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     return result.pid;
   }
 
-  /** Claude/Gemini have no non-user channel; the Harness envelope is in the text. */
   async sendInput(message: string, attachments?: FileAttachment[], _options?: AdapterInputOptions): Promise<void> {
     if (getPauseCoordinator().isPaused()) {
       throw new OrchestratorPausedError('CLI input refused while orchestrator is paused');
@@ -202,7 +217,8 @@ export class CliAdapterWorkerProxy extends EventEmitter {
       this.geminiRtkAwarenessSent = true;
       return;
     }
-    await this.gateway.writeStdin(this.instanceId, await this.formatClaudeInput(message, attachments));
+    const input = await this.formatClaudeInput(message, attachments);
+    await this.lifecycle.write(() => { this.outputBuffer = ''; this.residentSettlement.markInput(); this.residentTurnActive = true; return this.gateway.writeStdin(this.instanceId, input); });
   }
 
   async sendMessage(message: CliMessage): Promise<CliResponse> {
@@ -216,50 +232,19 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     if (this.cliType === 'gemini') this.geminiRtkAwarenessSent = true;
     return response;
   }
-
   private async runTurn(
     args: string[],
     stdin: string | undefined,
     opts: { closeStdin?: boolean; closeStdinAfterWrite?: boolean } = {},
   ): Promise<CliResponse> {
+    let inputStarted = this.cliType === 'gemini';
     this.outputBuffer = '';
     this.stdoutLineBuffer = '';
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const onComplete = (response: CliResponse) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        resolve(response);
-      };
-      const onError = (error: Error) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        reject(error);
-      };
-      const onExit = (code: number | null) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        if (code === 0 || this.outputBuffer.trim()) {
-          resolve(this.parseOutput(this.outputBuffer));
-          return;
-        }
-        reject(new Error(`${this.getName()} exited with code ${code}`));
-      };
-      const cleanup = () => {
-        this.off('complete', onComplete);
-        this.off('error', onError);
-        this.off('exit', onExit);
-      };
-      this.once('complete', onComplete);
-      this.once('error', onError);
-      this.once('exit', onExit);
-      this.spawnWorkerProcess(args, opts)
-        .then(() => stdin ? this.gateway.writeStdin(this.instanceId, stdin, { closeAfterWrite: opts.closeStdinAfterWrite }) : undefined)
-        .catch(onError);
-    });
+    return waitForWorkerTurn(this, this.getName(),
+      () => this.spawnWorkerProcess(args, opts)
+        .then(() => stdin ? this.lifecycle.write(() => { inputStarted = true; return this.gateway.writeStdin(this.instanceId, stdin, { closeAfterWrite: opts.closeStdinAfterWrite }); }) : undefined),
+      () => this.settleResponse(this.parseOutput(this.outputBuffer)), () => Boolean(this.outputBuffer.trim()),
+      () => this.running, () => this.terminate(false), () => inputStarted);
   }
 
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
@@ -288,14 +273,20 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   }
 
   async terminate(graceful = true): Promise<void> {
-    if (this.running) {
-      await this.gateway.terminate(this.instanceId, graceful);
+    try {
+      await this.lifecycle.terminate(async () => {
+        await this.residentSettlement.drain();
+        if (this.running) await this.gateway.terminate(this.instanceId, graceful);
+      });
+    } finally {
+      // Failed teardown must also settle an active send before detaching.
+      if (this.running) this.handleExit(null, graceful ? 'SIGTERM' : 'SIGKILL');
+      else this.residentSettlement.settle();
+      this.spawned = false;
+      this.pid = null;
+      this.outputBuffer = '';
+      this.gateway.unregisterInstance(this.instanceId);
     }
-    this.running = false;
-    this.spawned = false;
-    this.pid = null;
-    this.outputBuffer = '';
-    this.gateway.unregisterInstance(this.instanceId);
   }
 
   interrupt(): InterruptResult {
@@ -306,29 +297,17 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     return { status: 'accepted' };
   }
 
-  getSessionId(): string | null {
-    return this.sessionId;
-  }
+  getSessionId(): string | null { return this.sessionId; }
 
-  setSessionId(id: string): void {
-    this.sessionId = id;
-  }
+  setSessionId(id: string): void { this.sessionId = id; }
 
-  getDeferredToolUse(): DeferredToolUse | null {
-    return this.deferredToolUse;
-  }
+  getDeferredToolUse(): DeferredToolUse | null { return this.deferredToolUse; }
 
-  clearDeferredToolUse(): void {
-    this.deferredToolUse = null;
-  }
+  clearDeferredToolUse(): void { this.deferredToolUse = null; }
 
-  isRunning(): boolean {
-    return this.running;
-  }
+  isRunning(): boolean { return this.running; }
 
-  getPid(): number | null {
-    return this.pid;
-  }
+  getPid(): number | null { return this.pid; }
 
   getConfig(): { command: string; args: string[]; cwd?: string; timeout?: number; env?: Record<string, string> } {
     return {
@@ -340,9 +319,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     };
   }
 
-  getSpawnMode(): CliSpawnMode {
-    return this.spawnMode;
-  }
+  getSpawnMode(): CliSpawnMode { return this.spawnMode; }
 
   getRuntimeCapabilities(): AdapterRuntimeCapabilities {
     return {
@@ -356,16 +333,13 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   }
 
   setStreamIdleTimeoutMs(): void {
-    // The timeout is captured when the worker process is spawned.
+    // Captured when the worker process spawns.
   }
 
-  noteActivity(): void {
-    this.emit('heartbeat');
-  }
-
+  noteActivity(): void { this.emit('heartbeat'); }
   private async spawnWorkerProcess(args: string[], opts: { closeStdin?: boolean } = {}): Promise<{ pid: number }> {
     this.outputBuffer = '';
-    return this.gateway.spawnInstance({
+    return this.lifecycle.spawn(() => this.gateway.spawnInstance({
       instanceId: this.instanceId,
       command: this.command(),
       args,
@@ -374,25 +348,26 @@ export class CliAdapterWorkerProxy extends EventEmitter {
       ...(this.childEnvRemove.length > 0 ? { envRemove: this.childEnvRemove } : {}),
       streamIdleTimeoutMs: this.options.timeout,
       closeStdin: opts.closeStdin,
-    });
+    }));
   }
-
-  private command(): string {
-    return this.cliType === 'claude' ? 'claude' : 'gemini';
-  }
-
+  private command(): string { return this.cliType === 'claude' ? 'claude' : 'gemini'; }
   private buildArgs(message: CliMessage): string[] {
-    return buildWorkerArgs(this.cliType, this.options, this.sessionId, message, {
+    const args = buildWorkerArgs(this.cliType, this.options, this.sessionId, message, {
       includeGeminiRtkAwareness: !this.geminiRtkAwarenessSent,
     });
+    if (this.cliType === 'claude') {
+      const mode = args.includes('--fork-session') ? 'fork' : args.includes('--resume') ? 'resume' : 'fresh';
+      const seed = mode === 'resume' && this.sessionId ? readLastClaudeCostState(
+        this.options.workingDirectory ?? process.cwd(), this.sessionId, this.childEnv['CLAUDE_CONFIG_DIR']) : undefined;
+      this.claudeCostLedger.onSpawn(mode, seed?.totalCostUSD ?? this.claudeCostLedger.lastTotalUsd,
+        seed?.modelUsage ?? this.claudeCostLedger.lastModelUsage);
+    }
+    return args;
   }
-
   private async formatClaudeInput(message: string, attachments?: FileAttachment[]): Promise<string> {
-    return formatClaudeWorkerInput(message, attachments, this.sessionId, this.options.workingDirectory);
+    return this.lifecycle.prepare(() => formatClaudeWorkerInput(message, attachments, this.sessionId, this.options.workingDirectory));
   }
-
   private handleStdout(chunk: string): void {
-    this.outputBuffer += chunk;
     const combined = this.stdoutLineBuffer + chunk;
     const parts = combined.split('\n');
     this.stdoutLineBuffer = parts.pop() ?? '';
@@ -403,6 +378,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   }
 
   private emitOutputFromLine(line: string): void {
+    this.outputBuffer += `${line}\n`;
     try {
       const event = JSON.parse(line) as Record<string, unknown>;
       if (this.cliType === 'claude') {
@@ -427,7 +403,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
       case 'assistant': {
         const streamError = parseClaudeStreamError(event);
         if (streamError) {
-          this.emit('error', streamError.error);
+          this.emitClaudeError(streamError.error);
           return;
         }
         this.emitClaudeAssistant(event);
@@ -470,10 +446,22 @@ export class CliAdapterWorkerProxy extends EventEmitter {
         return;
       case 'error': {
         const streamError = parseClaudeStreamError(event);
-        this.emit('error', streamError?.error ?? new Error('Claude CLI reported an unknown error'));
+        this.emitClaudeError(streamError?.error ?? new Error('Claude CLI reported an unknown error'));
         return;
       }
     }
+  }
+
+  private emitClaudeError(error: Error): void {
+    if (this.residentTurnActive) {
+      this.residentTurnActive = false;
+      const response = this.parseOutput(this.outputBuffer);
+      response.metadata = { ...response.metadata, turnErrored: true };
+      this.residentSettlement.defer(response);
+      this.outputBuffer = '';
+      this.emit('complete', response);
+    }
+    if (this.listenerCount('error') > 0) this.emit('error', error);
   }
 
   private emitClaudeAssistant(event: Record<string, unknown>): void {
@@ -502,6 +490,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   }
 
   private emitClaudeSystem(event: Record<string, unknown>): void {
+    observeClaudeSubagentUsage(this,event);
     this.updateSessionId(event);
     const usage = event['usage'];
     if (event['subtype'] === 'context_usage' && this.isRecord(usage)) {
@@ -538,9 +527,24 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     if (typeof event['total_cost_usd'] === 'number') {
       this.emit('cost', { costEstimate: event['total_cost_usd'] });
     }
+    if (this.residentSettlement.pending) {
+      const newerInput = this.residentSettlement.settle(this.parseOutput(JSON.stringify(event)).usage);
+      if (!newerInput) { this.outputBuffer = ''; this.residentTurnActive = false; }
+      flushClaudeSubagentUsage(this);
+      if (!newerInput) this.emit('status', 'idle' as InstanceStatus);
+      return;
+    }
     if (event['stop_reason'] === 'tool_deferred' && this.isRecord(event['deferred_tool_use'])) {
       const deferred = event['deferred_tool_use'] as Record<string, unknown>;
       this.emitDeferredPermission(event, deferred);
+      return;
+    }
+    flushClaudeSubagentUsage(this);
+    if (this.spawned && event['stop_reason'] !== 'tool_deferred') {
+      const ownedTurn = this.residentTurnActive;
+      this.residentTurnActive = false;
+      if (ownedTurn) this.emit('complete', this.settleResponse(this.parseOutput(this.outputBuffer)));
+      this.outputBuffer = '';
     }
     this.emit('status', 'idle' as InstanceStatus);
   }
@@ -616,7 +620,12 @@ export class CliAdapterWorkerProxy extends EventEmitter {
       this.emitOutputFromLine(this.stdoutLineBuffer);
       this.stdoutLineBuffer = '';
     }
-    if (this.outputBuffer.trim()) {
+    const ownedTurn = this.residentTurnActive; this.residentTurnActive = false;
+    if (this.residentSettlement.pending) {
+      this.residentSettlement.settle();
+      this.outputBuffer = '';
+    }
+    if (this.outputBuffer.trim() && (this.cliType !== 'claude' || !this.spawned || ownedTurn)) {
       const response = this.parseOutput(this.outputBuffer);
       if (this.cliType === 'gemini' && response.usage) {
         const inputTokens = response.usage.inputTokens ?? 0;
@@ -635,12 +644,24 @@ export class CliAdapterWorkerProxy extends EventEmitter {
           outputTokens,
         } as ContextUsage);
       }
-      this.emit('complete', response);
-    } else if (wasRunning && code !== 0) {
+      this.emit('complete', this.settleResponse(response));
+    } else if (!this.outputBuffer.trim() && wasRunning && !this.workerFailed && code !== 0 && this.listenerCount('error') > 0) {
       this.emit('error', new Error(`${this.getName()} exited with code ${code}`));
     }
+    this.outputBuffer = '';
     this.emit('exit', code, signal);
     if (this.spawned) this.emit('status', 'idle' as InstanceStatus);
+  }
+
+  private settleResponse(response: CliResponse): CliResponse {
+    if (this.cliType !== 'claude' || !response.usage) return response;
+    const usage = response.usage;
+    const cost = this.claudeCostLedger.settle(usage.providerSessionTotalUsd,
+      computeTokenCost(this.options.model, usage), usage.providerModelUsage);
+    if (cost !== undefined) usage.cost = cost;
+    else delete usage.cost;
+    if (this.claudeCostLedger.byModel) usage.byModel = this.claudeCostLedger.byModel;
+    return response;
   }
 
   private updateSessionId(event: Record<string, unknown>): void {
@@ -673,7 +694,5 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     } as ContextUsage);
   }
 
-  private isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-  }
+  private isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null; }
 }

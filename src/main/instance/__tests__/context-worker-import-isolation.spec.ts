@@ -101,7 +101,14 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // is the sole addition, and its only import is the type-only `Migration`, so it
 // is a leaf. The browser-gateway modules from the same change are NOT in this
 // closure (the gateway is not reachable from `context-worker-main.ts`).
-const CLOSURE_SIZE_CEILING = 152;
+// 2026-10-11: 155 after Phase 0's purpose-aware helper accounting and outage
+// backoff. A base (4d175e55b)-to-working-tree walk using this exact parser found
+// four additions only: model-call-recorder, auxiliary-slot-backoff,
+// llm-service-ladder-recording, and shared/util/usage-normalization. Their
+// dependencies were already reachable; none imports Electron. In particular,
+// none of the new compaction handoff modules is reachable (guarded below).
+// Keep the same one-module margin as the audited 151-module baseline.
+const CLOSURE_SIZE_CEILING = 156;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)
@@ -193,6 +200,14 @@ const rel = (p: string): string => {
 describe('context worker import isolation', () => {
   it('worker entry file exists', () => {
     expect(existsSync(WORKER_ENTRY)).toBe(true);
+  });
+
+  it('keeps main-process compaction and handoff modules outside the worker graph', () => {
+    const { modules } = walkWorkerClosure(WORKER_ENTRY);
+    const compactionModules = [...modules].map(rel).filter((file) =>
+      /^src\/main\/context\/(?:compaction-|context-compaction-|context-compactor\.)/.test(file),
+    );
+    expect(compactionModules).toEqual([]);
   });
 
   it('no module in the worker value-import closure top-level imports electron', () => {

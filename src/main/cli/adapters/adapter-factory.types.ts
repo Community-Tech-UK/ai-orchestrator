@@ -64,6 +64,8 @@ export interface UnifiedSpawnOptions {
   /** Agentic-turn backstop for a print-mode run (Claude CLI `--max-turns`).
    *  Bounds runaway sessions; omit for unbounded (the CLI default). */
   maxTurns?: number;
+  /** Claude only; spend backstop for fresh print-mode sessions. */
+  maxBudgetUsd?: number;
   env?: Record<string, string>;
   /**
    * WS-C7 — derive the merged spawn environment from `getSafeEnv()` instead

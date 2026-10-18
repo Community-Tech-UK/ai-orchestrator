@@ -38,6 +38,9 @@ export const TOUCH_VISIBLE_MS = 900;
 /** After a click, suppress hover-reopen for this long. */
 export const POST_CLICK_BLOCK_MS = 300;
 
+/** Presentation of ordinary prose or whitespace-preserving code. */
+export type TooltipFormat = 'text' | 'code';
+
 /** Where a tooltip's timing profile comes from. */
 export type TooltipVariant =
   /** Icon buttons, status dots, rails — the icon is not self-describing. */

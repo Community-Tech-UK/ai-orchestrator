@@ -32,17 +32,24 @@ export class TerminateConfirmStore {
   private readonly queue = inject(PlanQueueStore);
 
   private readonly pending = signal<{ kind: 'one'; instanceId: string } | { kind: 'all' } | null>(null);
+
+  /** The session awaiting confirmation, or null when nothing is pending. */
+  readonly pendingId = computed(() => {
+    const pending = this.pending();
+    return pending?.kind === 'one' ? pending.instanceId : null;
+  });
   readonly isOpen = computed(() => this.pending() !== null);
   readonly isAll = computed(() => this.pending()?.kind === 'all');
   readonly allCount = computed(() => this.instances.instances().length);
   readonly queueWillPause = computed(() => this.isAll() && this.queue.allRuns().some(run => run.status === 'running'));
   readonly runningLoopCount = computed(() => {
+    const pending = this.pending();
+    if (!pending) return 0;
     const ids = this.loops.runningChatIds();
-    return this.isAll() ? this.instances.instances().filter(instance => ids.has(instance.id)).length : Number(ids.has(this.pendingId() ?? ''));
+    return pending.kind === 'all'
+      ? this.instances.instances().filter((instance) => ids.has(instance.id)).length
+      : Number(ids.has(pending.instanceId));
   });
-
-  /** The session awaiting confirmation, or null when nothing is pending. */
-  readonly pendingId = computed(() => { const pending = this.pending(); return pending?.kind === 'one' ? pending.instanceId : null; });
 
   /**
    * Name for the prompt. Falls back to "this session" rather than showing a raw
@@ -77,15 +84,20 @@ export class TerminateConfirmStore {
   }
 
   requestAll(): void {
-    if (this.allCount() > 0) this.pending.set({ kind: 'all' });
+    if (this.allCount() === 0) return;
+    this.pending.set({ kind: 'all' });
   }
 
   confirm(): void {
     const pending = this.pending();
     if (!pending) return;
     this.pending.set(null);
-    if (pending.kind === 'all') void this.instances.terminateAllInstances();
-    else void this.instances.terminateInstance(pending.instanceId);
+    if (pending.kind === 'all') {
+      void this.instances.terminateAllInstances();
+    } else {
+      const id = pending.instanceId;
+      void this.instances.terminateInstance(id);
+    }
   }
 
   cancel(): void {

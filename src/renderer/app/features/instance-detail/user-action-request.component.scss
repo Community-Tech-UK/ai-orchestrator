@@ -111,6 +111,7 @@
 
 .request-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--spacing-sm);
   justify-content: flex-end;
   align-items: center;
@@ -131,7 +132,8 @@
 }
 
 .scope-write-hint {
-  flex-basis: 100%;
+  margin: var(--spacing-sm) 0 0;
+  overflow-wrap: anywhere;
   font-size: 11px;
   line-height: 1.35;
   color: var(--text-secondary);
@@ -187,6 +189,11 @@
 .btn-reject,
 .btn-approve,
 .btn-yolo {
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
   padding: var(--spacing-sm) var(--spacing-lg);
   border-radius: var(--radius-md);
   font-family: var(--font-display);

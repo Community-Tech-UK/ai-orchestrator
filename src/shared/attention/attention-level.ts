@@ -152,10 +152,10 @@ export function attentionLevelForLoopStatus(
       return endedAt === null ? 'waiting' : 'failed';
     case 'completed-needs-review':
       return 'review';
+    case 'attempt-failed':
     case 'failed':
     case 'error':
     case 'no-progress':
-    case 'attempt-failed':
     case 'cap-reached':
     case 'cost-exceeded':
     case 'needs-human-arbitration':

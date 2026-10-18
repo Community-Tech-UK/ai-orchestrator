@@ -31,7 +31,9 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { getLogger } from '../../logging/logger';
+import type { ModelCallPurpose, ModelCallCostSource, ModelCallOutcome } from '../../../shared/types/cost-attribution.types';
 import { getLocalAiCostCorrelationId } from '../../local-ai-guard/local-ai-cost-correlation';
+import { computeTokenCost, hasModelRate } from '../../../shared/data/model-pricing';
 
 const logger = getLogger('CostAttribution');
 
@@ -47,10 +49,22 @@ export interface CostAttributionUsage {
 }
 
 export interface CostAttributionRecord {
-  purpose?: string;
-  costSource?: 'provider' | 'priced' | 'unknown' | 'free';
+  sessionId?: string;
+  subagentUsage?: true;
+  finalContextTokens?: number;
+  toolUses?: number;
+  durationMs?: number;
+  toolUseId?: string;
+  reviewLifecycle?: boolean;
+  reviewVerdict?: string;
+  reviewAction?: string;
+  reviewerId?: string;
+  /** Canonical values are {@link ModelCallPurpose}; open tags (e.g. `plan-queue`) pass through. */
+  purpose?: ModelCallPurpose | (string & {});
+  costSource?: ModelCallCostSource;
+  /** Resolved dollar cost from {@link resolveModelCallCost} when a caller books one. */
   costUsd?: number | null;
-  outcome?: 'success' | 'error' | 'cancelled';
+  outcome?: ModelCallOutcome;
   /** Which seam produced the record. */
   source: 'one-shot' | 'instance-turn' | 'auxiliary';
   /**
@@ -90,6 +104,19 @@ export interface CostAttributionRecord {
   auxReason?: string;
   /** Pre-dispatch reservation used to enforce the configured daily aux cap. */
   auxiliarySpendReservationUsd?: number;
+}
+
+/** Derive a purpose for historical JSONL rows written before explicit tags. */
+export function purposeOf(record: Pick<CostAttributionRecord, 'purpose' | 'taskType'>): string {
+  if (record.purpose) return record.purpose;
+  const task = record.taskType;
+  if (task.startsWith('aux:') || task === 'local-ai-frontier-fallback') return 'helper';
+  const prefixes: ModelCallPurpose[] = [
+    'cross-model-review', 'fresh-eyes-review', 'review-cli', 'multi-verify-synthesis',
+    'cli-verification', 'branch-select', 'magic-prompt', 'consensus', 'automation',
+    'channel', 'council', 'compare', 'workflow', 'debate', 'verify', 'review', 'loop', 'child', 'chat', 'helper',
+  ];
+  return prefixes.find(prefix => task === prefix || task.startsWith(`${prefix}:`) || task.startsWith(`${prefix}-`)) ?? 'unknown';
 }
 
 let cachedDir: string | null | undefined;
@@ -144,9 +171,13 @@ function resolveDir(): string | null {
 }
 
 /** Current target file, or null when the sink is disabled/unavailable. */
+export function getCostAttributionDirectory(): string | null {
+  return resolveDir();
+}
+
 export function getCostAttributionFilePath(): string | null {
   if (!isEnabled()) return null;
-  const dir = resolveDir();
+  const dir = getCostAttributionDirectory();
   if (!dir) return null;
   const day = new Date().toISOString().slice(0, 10);
   return join(dir, `cost-attribution-${day}.jsonl`);
@@ -207,12 +238,15 @@ export function recordInstanceTurnAttribution(args: {
   usage: CostAttributionUsage;
   costKnown: boolean;
   isEstimated?: boolean;
+  spendPurpose?: 'automation' | 'channel';
+  costSource?: ModelCallCostSource;
 }): void {
-  const role = args.parentId ? 'child' : 'chat';
+  const role = args.spendPurpose ?? (args.parentId ? 'child' : 'chat');
   recordCostAttribution({
     source: 'instance-turn',
     purpose: args.purpose ?? role,
     taskType: `${role}:${args.agentId ?? 'unknown'}`,
+    costSource: args.costSource ?? (args.costKnown ? 'provider' : 'unknown'),
     instanceId: args.instanceId,
     parentId: args.parentId ?? null,
     agentId: args.agentId,
@@ -250,15 +284,20 @@ export function recordAuxiliaryAttribution(args: {
   usage?: CostAttributionUsage;
   reason?: string;
 }): void {
+  const pricedCost = args.routedTo === 'cheap-cloud' && args.usage && hasModelRate(args.model)
+    ? computeTokenCost(args.model, args.usage)
+    : undefined;
   recordCostAttribution({
     source: 'auxiliary',
     taskType: `aux:${args.slot}`,
+    purpose: 'helper',
     provider: args.provider,
     model: args.model,
-    usage: args.usage,
-    // Local/cheap endpoints don't report dollars; the frontier retry is billed
-    // on the caller's own seam, not here.
+    usage: pricedCost === undefined ? args.usage : { ...args.usage, cost: pricedCost },
+    costSource: pricedCost === undefined ? 'unknown' : 'priced',
+    // These helper token counts are estimated rather than provider-reported.
     costKnown: false,
+    ...(pricedCost === undefined ? {} : { isEstimated: true }),
     auxRoutedTo: args.routedTo,
     auxEscalatedToFrontier: args.escalatedToFrontier,
     ...(args.endpointId ? { auxEndpointId: args.endpointId } : {}),

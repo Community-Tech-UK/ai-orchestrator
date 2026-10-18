@@ -148,9 +148,9 @@ export async function runHeadlessReviewCommand(
                 || (reviewer === 'antigravity' && reviewerModel !== configuredModel);
               const rawResponse = needsModelOverride
                 ? await dependencies.host.dispatchReviewerPrompt(
-                    reviewer, prompt, cwd, abort.signal, { modelOverride: reviewerModel, jsonSchema, onUsage, purpose: request.target.startsWith('loop:') ? 'fresh-eyes-review' : 'review-cli', correlationId: request.target },
+                    reviewer, prompt, cwd, abort.signal, { modelOverride: reviewerModel, jsonSchema, onUsage, purpose: request.purpose ?? (request.target.startsWith('loop:') ? 'fresh-eyes-review' : 'review-cli'), correlationId: request.correlationId ?? request.target },
                   )
-                : await dependencies.host.dispatchReviewerPrompt(reviewer, prompt, cwd, abort.signal, { jsonSchema, onUsage, purpose: request.target.startsWith('loop:') ? 'fresh-eyes-review' : 'review-cli', correlationId: request.target });
+                : await dependencies.host.dispatchReviewerPrompt(reviewer, prompt, cwd, abort.signal, { jsonSchema, onUsage, purpose: request.purpose ?? (request.target.startsWith('loop:') ? 'fresh-eyes-review' : 'review-cli'), correlationId: request.correlationId ?? request.target });
               lastResponseLength = rawResponse?.length ?? 0;
               parsed = parseCrossModelReviewResponse(reviewer, rawResponse, reviewDepth, 0);
               if (parsed) {

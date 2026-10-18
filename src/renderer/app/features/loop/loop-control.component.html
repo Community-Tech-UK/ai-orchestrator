@@ -19,7 +19,7 @@
       [class.danger]="(b.kind === 'claimed-failed' || pauseKind() === 'step-failed') && pauseKind() !== 'awaiting-review'"
     >
       @if (pauseKind() === 'awaiting-review') {
-        <span class="loop-banner-title">Awaiting your review — loop thinks it's done</span>
+        <span class="loop-banner-title">Needs your sign-off: the loop thinks it's done</span>
         <span class="loop-banner-msg">
           @if (b.kind === 'claimed-failed') {
             {{ b.failure }}
@@ -80,7 +80,7 @@
     >
       <div class="loop-status">
         @if (statusPill(); as pill) {
-          <span class="ls-pill" [attr.data-pill]="pill.kind" [appTooltip]="pill.kind === 'step-failed' ? copy('loop.statusPill.stepFailed') : copy('loop.statusPill')">{{ pill.label }}</span>
+          <span class="ls-pill" [attr.data-pill]="pill.kind" [appTooltip]="pill.kind === 'step-failed' ? copy('loop.statusPill.stepFailedPaused') : pill.kind === 'awaiting-review' ? copy('loop.statusPill.signOff') : copy('loop.statusPill')">{{ pill.label }}</span>
         }
         @if (latestVerdict(); as verdict) {
           <!-- No role and no aria-label ON PURPOSE: this span has visible text, so that text
@@ -403,7 +403,7 @@
     <div class="loop-summary" [attr.data-status]="s.status">
       <div class="lsum-title">
         <span class="lsum-title-text">
-          <span class="lsum-status-pill" [attr.data-status]="s.status">{{ endWording()?.headline }}</span>
+          Loop ended — <span class="lsum-status-pill" tabindex="0" [attr.data-status]="s.status" [appTooltip]="copy(s.status === 'attempt-failed' ? 'loop.statusPill.stepFailed' : s.status === 'completed-needs-review' ? 'loop.statusPill.ended' : 'loop.statusPill')">{{ summaryStatusLabel(s.status) }}</span>
           · {{ s.status === 'completed' || s.status === 'completed-needs-review' ? 'Finished at' : 'Stopped at' }} {{ finishTime(s.endedAt) }}
         </span>
         <button type="button" class="lsum-close" (click)="onDismissSummary()" appTooltip="Hides this summary. The run and its record are kept." aria-label="Dismiss">×</button>

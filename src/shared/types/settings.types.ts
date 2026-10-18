@@ -463,6 +463,7 @@ export interface AppSettings extends DesktopComputerUseSettings {
 
   // Cross-Model Review
   crossModelReviewEnabled: boolean;
+  crossModelReviewDailyLimit: number;
   crossModelReviewDepth: 'structured' | 'tiered';
   crossModelReviewMaxReviewers: number;
   crossModelReviewProviders: RemoteReviewerProvider[];

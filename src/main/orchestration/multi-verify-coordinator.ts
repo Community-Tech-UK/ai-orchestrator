@@ -20,6 +20,7 @@ import {
   AgentHealthConfig,
   VerificationProgress,
   createDefaultVerificationConfig,
+  sumVerificationCosts,
 } from '../../shared/types/verification.types';
 import type { DebateSessionRound } from '../../shared/types/debate.types';
 import { PERSONALITY_PROMPTS, selectPersonalities } from './personalities';
@@ -35,6 +36,7 @@ import { isProviderNotice } from '../cli/provider-notice';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { sendRecordedOrchestrationCall } from './orchestration-call-recording';
 import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
 import { AGENT_OUTPUT_STRUCTURE, runDebateRounds, verificationDataBlock } from './multi-verify-debate';
 
@@ -346,7 +348,7 @@ export class MultiVerifyCoordinator extends EventEmitter {
     );
 
     switch (config.synthesisStrategy) {
-      case 'debate':
+      case 'debate': {
         const debateResult = await this.runDebate(request, responsesToAnalyze, analysis);
         synthesizedResponse = debateResult.synthesizedResponse;
         synthesisConfidence = debateResult.confidence;
@@ -354,17 +356,20 @@ export class MultiVerifyCoordinator extends EventEmitter {
         debateTokens = debateResult.tokensUsed;
         debateCost = debateResult.costUsed;
         break;
+      }
 
-      case 'hierarchical':
+      case 'hierarchical': {
         const hierResult = await this.synthesizeHierarchical(request, responsesToAnalyze, analysis);
         synthesizedResponse = hierResult.synthesizedResponse;
         synthesisConfidence = hierResult.confidence;
         break;
+      }
 
-      default:
+      default: {
         const result = await this.synthesize(request, responsesToAnalyze, analysis, config.synthesisStrategy);
         synthesizedResponse = result.synthesizedResponse;
         synthesisConfidence = result.confidence;
+      }
     }
 
     const verificationResult: VerificationResult = {
@@ -377,7 +382,7 @@ export class MultiVerifyCoordinator extends EventEmitter {
       synthesisConfidence,
       totalDuration: Date.now() - startTime,
       totalTokens: successfulResponses.reduce((sum, r) => sum + r.tokens, 0) + debateTokens,
-      totalCost: successfulResponses.reduce((sum, r) => sum + r.cost, 0) + debateCost,
+      totalCost: sumVerificationCosts([...successfulResponses.map(r => r.cost), debateCost]),
       completedAt: Date.now(),
       debateRounds,
     };
@@ -1020,6 +1025,7 @@ Provide your synthesized response:`;
       systemPrompt: 'You are a synthesis agent that combines multiple perspectives into a single coherent response.',
       yoloMode: false,
       timeout: 300000,
+      maxBudgetUsd: cliType === 'claude' ? 1 : undefined,
     };
 
     // Copilot account routing: verification synthesis is an automatic surface.
@@ -1030,7 +1036,7 @@ Provide your synthesized response:`;
     // Not every adapter implements one-shot sendMessage/terminate; probe them structurally.
     const oneShotAdapter = adapter as unknown as {
       sendMessage?: (m: CliMessage) => Promise<CliResponse>;
-      terminate?: () => void;
+      terminate?: () => void | Promise<void>;
     };
     try {
       const sendMessage = oneShotAdapter.sendMessage?.bind(adapter);
@@ -1038,7 +1044,16 @@ Provide your synthesized response:`;
         throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
       }
 
-      const cliResponse = await sendMessage({ role: 'user', content: synthesisPrompt });
+      const cliResponse = await sendRecordedOrchestrationCall(adapter, {
+        taskType: 'multi-verify-synthesis', provider: cliType, model: spawnOptions.model,
+        correlationId: request.id, instanceId: request.instanceId,
+        outcomeForResponse: response => response.metadata?.['budgetExceeded'] === true ? 'budget-exceeded'
+          : response.degradedReason === 'cancelled' ? 'cancelled'
+            : !response.content?.trim() || isProviderNotice(response.content) ? 'error' : 'success',
+      }, () => sendMessage({ role: 'user', content: synthesisPrompt }));
+      if (cliResponse.metadata?.['budgetExceeded'] === true) {
+        return this.synthesizeConsensus(responses, analysis);
+      }
       // A throttled CLI returns a status notice ("You've hit your session limit
       // · resets 6:30pm") as content and exits 0. Don't present it as a confident
       // synthesis — fall back to the deterministic, model-free consensus
@@ -1053,7 +1068,7 @@ Provide your synthesized response:`;
       };
     } finally {
       if (typeof oneShotAdapter.terminate === 'function') {
-        try { oneShotAdapter.terminate(); } catch { /* cleanup */ }
+        try { await oneShotAdapter.terminate(); } catch { /* cleanup */ }
       }
     }
   }

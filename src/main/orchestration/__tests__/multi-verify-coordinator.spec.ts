@@ -11,9 +11,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { EventEmitter } from 'node:events';
 
 const synthesisHoisted = vi.hoisted(() => ({
   sendMessage: vi.fn().mockResolvedValue({ content: 'Synthesized response from CLI adapter' }),
+  createAdapter: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -72,10 +74,7 @@ vi.mock('../../cli/adapters/adapter-factory', () => ({
 
 vi.mock('../../providers/provider-runtime-service', () => ({
   getProviderRuntimeService: vi.fn(() => ({
-    createAdapter: vi.fn(() => ({
-      sendMessage: synthesisHoisted.sendMessage,
-      terminate: vi.fn(),
-    })),
+    createAdapter: synthesisHoisted.createAdapter,
   })),
 }));
 
@@ -143,6 +142,7 @@ vi.mock('../../orchestration/personalities', () => ({
 // Import the class under test (after all mocks are set up)
 // ---------------------------------------------------------------------------
 
+import { subscribeCostAttribution, type CostAttributionRecord } from '../../core/system/cost-attribution';
 import {
   MultiVerifyCoordinator,
   getMultiVerifyCoordinator,
@@ -153,7 +153,7 @@ import {
 // Test helpers
 // ---------------------------------------------------------------------------
 
-type InvokeAgentPayload = {
+interface InvokeAgentPayload {
   correlationId: string;
   requestId: string;
   instanceId: string;
@@ -163,7 +163,7 @@ type InvokeAgentPayload = {
   userPrompt: string;
   context?: string;
   callback: (err: string | null, response?: string, tokens?: number, cost?: number) => void;
-};
+}
 
 /**
  * Registers a handler on coordinator for 'verification:invoke-agent' that
@@ -214,6 +214,9 @@ describe('MultiVerifyCoordinator', () => {
     MultiVerifyCoordinator._resetForTesting();
     coordinator = MultiVerifyCoordinator.getInstance();
     vi.clearAllMocks();
+    synthesisHoisted.createAdapter.mockImplementation(() => Object.assign(new EventEmitter(), {
+      sendMessage: synthesisHoisted.sendMessage, terminate: vi.fn(),
+    }));
 
     // Restore mocks cleared by clearAllMocks
     mockGetCached.mockResolvedValue(null);
@@ -224,6 +227,105 @@ describe('MultiVerifyCoordinator', () => {
 
   afterEach(() => {
     MultiVerifyCoordinator._resetForTesting();
+  });
+
+  it('records the direct merge synthesis call and returned usage', async () => {
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    synthesisHoisted.sendMessage.mockResolvedValueOnce({ content: 'synthesis', usage: { cost: 0.09 } });
+    registerAgentHandler(coordinator);
+    try {
+      const completed = waitForEvent(coordinator, 'verification:completed');
+      await coordinator.startVerification('instance-1', 'Merge?', { agentCount: 2, timeout: 5000, synthesisStrategy: 'merge' });
+      await completed;
+      expect(rows.filter(row => row.purpose === 'multi-verify-synthesis')).toEqual([
+        expect.objectContaining({ provider: 'claude', costSource: 'provider', usage: expect.objectContaining({ cost: 0.09 }), instanceId: 'instance-1' }),
+      ]);
+    } finally { stop(); }
+  });
+
+  it('records the actual provider model for a default merge synthesis once', async () => {
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    synthesisHoisted.sendMessage.mockResolvedValueOnce({ content: 'synthesis', usage: { cost: 0.09,
+      providerModelUsage: { 'fixture-recorded-model': { costUSD: 0.09 } },
+      byModel: [{ model: 'fixture-recorded-model', inputTokens: 12, outputTokens: 4, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.09 }] } });
+    registerAgentHandler(coordinator);
+    try {
+      const completed = waitForEvent(coordinator, 'verification:completed');
+      await coordinator.startVerification('instance-1', 'Merge?', { agentCount: 2, timeout: 5000, synthesisStrategy: 'merge' });
+      await completed;
+      expect(rows.filter(row => row.purpose === 'multi-verify-synthesis')).toEqual([
+        expect.objectContaining({ model: 'fixture-recorded-model', provider: 'claude', costSource: 'provider', usage: expect.objectContaining({ cost: 0.09 }) }),
+      ]);
+    } finally { stop(); }
+  });
+
+  it.each(['usage', 'complete', 'partial', 'paid-then-token-only', 'unknown', 'cancelled'] as const)('records a failed merge synthesis once from %s evidence and detaches listeners', async evidence => {
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    synthesisHoisted.sendMessage.mockImplementationOnce(async function(this: EventEmitter) {
+      const usage = { inputTokens: 12, outputTokens: 4, cost: 0.09 };
+      if (evidence === 'usage' || evidence === 'paid-then-token-only' || evidence === 'cancelled') this.emit('usage', usage);
+      if (evidence === 'complete') this.emit('complete', { content: 'partial', usage });
+      throw Object.assign(new Error(evidence === 'cancelled' ? 'Request cancelled' : 'Failed paid send'), {
+        ...(evidence === 'partial' ? { partialUsage: usage } : {}),
+        ...(evidence === 'paid-then-token-only' ? { partialUsage: { outputTokens: 5, cost: undefined } } : {}),
+        ...(evidence === 'cancelled' ? { name: 'AbortError' } : {}),
+      });
+    });
+    registerAgentHandler(coordinator);
+    try {
+      const failed = waitForEvent(coordinator, 'verification:error');
+      await coordinator.startVerification('instance-1', 'Merge?', { agentCount: 2, timeout: 5000, synthesisStrategy: 'merge' });
+      await failed;
+      const observedAdapter = synthesisHoisted.sendMessage.mock.contexts[0];
+      if (!(observedAdapter instanceof EventEmitter)) throw new Error('Synthesis mock has no adapter receiver');
+      const synthesisRows = rows.filter(row => row.purpose === 'multi-verify-synthesis');
+      expect(synthesisRows).toHaveLength(1);
+      expect(synthesisRows[0]).toMatchObject({ outcome: evidence === 'cancelled' ? 'cancelled' : 'error', costSource: evidence === 'unknown' ? 'unknown' : 'provider', costKnown: evidence !== 'unknown' });
+      expect(synthesisRows[0].usage?.cost).toBe(evidence === 'unknown' ? undefined : 0.09);
+      expect(observedAdapter?.listenerCount('usage')).toBe(0);
+      expect(observedAdapter?.listenerCount('complete')).toBe(0);
+    } finally { stop(); }
+  });
+
+  it('does not record an unsupported synthesis adapter before dispatch', async () => {
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    synthesisHoisted.createAdapter.mockReturnValueOnce({ terminate: vi.fn(async () => { throw new Error('Fixture cleanup failure'); }) });
+    registerAgentHandler(coordinator);
+    try {
+      const failed = waitForEvent(coordinator, 'verification:error');
+      await coordinator.startVerification('instance-1', 'Merge?', { agentCount: 2, timeout: 5000, synthesisStrategy: 'merge' });
+      await failed;
+      expect(rows.filter(row => row.purpose === 'multi-verify-synthesis')).toEqual([]);
+      expect(synthesisHoisted.sendMessage).not.toHaveBeenCalled();
+    } finally { stop(); }
+  });
+
+  it.each([
+    { content: 'Partial budget-stop synthesis', metadata: { budgetExceeded: true }, outcome: 'budget-exceeded' },
+    { content: "You've hit your session limit", metadata: undefined, outcome: 'error' },
+    { content: '   ', metadata: undefined, outcome: 'error' },
+  ])('retains paid $outcome synthesis with deterministic fallback and one row', async ({ content, metadata, outcome }) => {
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    synthesisHoisted.sendMessage.mockImplementationOnce(async function(this: EventEmitter) {
+      const response = { content, metadata, usage: { cost: 0.09 } };
+      this.emit('complete', response);
+      return response;
+    });
+    registerAgentHandler(coordinator);
+    try {
+      const completed = waitForEvent<{ synthesizedResponse: string }>(coordinator, 'verification:completed');
+      await coordinator.startVerification('instance-1', 'Merge?', { agentCount: 2, timeout: 5000, synthesisStrategy: 'merge' });
+      const result = await completed;
+      expect(result.synthesizedResponse).not.toBe(content);
+      const synthesisRows = rows.filter(row => row.purpose === 'multi-verify-synthesis');
+      expect(synthesisRows).toHaveLength(1);
+      expect(synthesisRows[0]).toMatchObject({ outcome, costSource: 'provider', usage: { cost: 0.09 } });
+    } finally { stop(); }
   });
 
   // =========================================================================
@@ -334,7 +436,7 @@ describe('MultiVerifyCoordinator', () => {
     it('honors one-agent verification requests', async () => {
       registerAgentHandler(coordinator);
 
-      const launchPayloads: Array<{ agentCount: number }> = [];
+      const launchPayloads: { agentCount: number }[] = [];
       coordinator.on('verification:agents-launching', (p) => launchPayloads.push(p));
 
       const completed = waitForEvent(coordinator, 'verification:completed');
@@ -1016,7 +1118,7 @@ describe('MultiVerifyCoordinator', () => {
       coordinator.on('verification:invoke-agent', () => { /* no-op */ });
       const id = await coordinator.startVerification('instance-1', 'Cancel event', { agentCount: 3, timeout: 60000, synthesisStrategy: 'best-of' });
 
-      const cancelledEvents: Array<{ verificationId: string }> = [];
+      const cancelledEvents: { verificationId: string }[] = [];
       coordinator.on('verification:cancelled', (p) => cancelledEvents.push(p));
 
       coordinator.cancelVerification(id);

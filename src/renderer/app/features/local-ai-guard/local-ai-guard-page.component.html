@@ -51,6 +51,18 @@
       </dl>
     </section>
 
+    @if (store.helperPauses().length > 0) {
+      <section class="state-card" aria-label="Paused helper types">
+        <strong>Helpers paused</strong>
+        @for (pause of store.helperPauses(); track pause.slot) {
+          <div>
+            <span>{{ pause.slot }}: helpers paused until {{ helperRetryTime(pause.pausedUntil) }}. {{ pause.reason }}</span>
+            <button type="button" class="button secondary" [disabled]="store.operationKey() !== null" (click)="retryHelperNow(pause.slot)">Retry now</button>
+          </div>
+        }
+      </section>
+    }
+
     @if (store.targets().length === 0) {
       <section class="state-card empty">
         <strong>No enrolled targets</strong>

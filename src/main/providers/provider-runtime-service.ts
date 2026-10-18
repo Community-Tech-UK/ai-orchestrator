@@ -14,8 +14,9 @@ import type {
 } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { CliAdapterWorkerProxy } from '../cli/spawn-worker/cli-adapter-worker-proxy';
+import type { AcpSystemPromptDelivery } from '../cli/adapters/acp-system-prompt-delivery';
 import { getAdapterGuidanceBlocks } from '../cli/adapters/adapter-spawn-helpers';
-import { recordAdapterGuidanceBlocks } from '../context/context-manifest-store';
+import { appendContextManifestNote, recordAdapterGuidanceBlocks } from '../context/context-manifest-store';
 import { rememberAdapterAccountRoute } from './account-pool/adapter-account-routes';
 import { attachAccountTelemetryBridge } from './account-pool/account-telemetry-bridge';
 import { attachUsageOverageStopGuard } from '../instance/instance-usage-overage-wiring';
@@ -111,6 +112,13 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
           input.options.instanceId,
           getAdapterGuidanceBlocks(input.options),
         );
+      }
+      if (input.options.instanceId && ['copilot', 'opencode', 'cursor', 'grok'].includes(input.cliType)
+        && typeof adapter.on === 'function') {
+        adapter.on('system_prompt_delivered', (delivery: Omit<AcpSystemPromptDelivery, 'block'>) => {
+          if (delivery.truncated) appendContextManifestNote(input.options.instanceId!,
+            `ACP first message: delivered ${delivery.deliveredChars} of ${delivery.originalChars} characters; omitted sections: ${delivery.omittedHeadings.join('; ') || '(unheaded content)'}.`);
+        });
       }
       return adapter;
     } catch (error) {

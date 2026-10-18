@@ -79,7 +79,7 @@ const DEFAULT_SYNTHESIS_DEPS: CouncilSynthesisDeps = {
   debateSynthesize: (query, contributions, context) =>
     getDebateCoordinator().synthesizeContributions(query, contributions, context),
   invokeProvider: async (provider, prompt, workingDirectory) => {
-    const result = await invokeProviderOneShot(DEFAULT_PROVIDER_INVOKE_DEPS, provider, prompt, { workingDirectory });
+    const result = await invokeProviderOneShot(DEFAULT_PROVIDER_INVOKE_DEPS, provider, prompt, { workingDirectory, purpose: 'council' });
     return result;
   },
 };
@@ -206,6 +206,8 @@ export class CouncilRunService extends EventEmitter {
 
     const run = this.runs.get(runId);
     const result = await invokeProviderOneShot(this.deps.invoke, provider, run?.prompt ?? '', {
+      purpose: 'council',
+      correlationId: runId,
       workingDirectory: run?.workingDirectory,
       signal: abort.signal,
       onAdapterCreated: (adapter) => this.liveAdapters.get(runId)?.set(provider, adapter),

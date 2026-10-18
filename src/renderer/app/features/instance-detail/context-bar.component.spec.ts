@@ -69,6 +69,7 @@ describe('ContextBarComponent', () => {
 
   beforeEach(async () => {
     instances.clear();
+    fakeSettingsStore.showCost = () => true;
 
     TestBed.overrideComponent(ContextBarComponent, {
       remove: { imports: [ContextEvidencePanelComponent] },
@@ -222,6 +223,24 @@ describe('ContextBarComponent', () => {
   });
 
   describe('existing occupancy rendering', () => {
+    it('shows API-priced session dollars and explains provider billing', () => {
+      setUsage(fixture.componentInstance, usage({ costEstimate: 12.34 }));
+      setShowDetails(fixture.componentInstance, true);
+      fixture.detectChanges();
+      const cost = fixture.nativeElement.querySelector('.cost') as HTMLElement;
+      expect(cost.textContent?.trim()).toBe('≈$12.34');
+      expect(fixture.componentInstance.costTooltip).toBe('Cost of this session so far at API prices, including subagents. Your Claude and Codex plans bill differently. Copilot is billed in AI credits and is not included.');
+      expect(cost.tabIndex).toBe(0);
+    });
+
+    it('hides session cost when Show cost estimates is off', () => {
+      fakeSettingsStore.showCost = () => false;
+      setUsage(fixture.componentInstance, usage({ costEstimate: 12.34 }));
+      setShowDetails(fixture.componentInstance, true);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.cost')).toBeNull();
+    });
+
     it('caps the bar fill at 100% for over-budget usage', () => {
       setUsage(fixture.componentInstance, usage({ used: 150, total: 100 }));
       fixture.detectChanges();

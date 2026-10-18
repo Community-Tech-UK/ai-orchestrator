@@ -58,6 +58,10 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
       />
     </section>
 
+    @if (dailyUsage(); as usage) {
+      <p role="status">Used today: {{ usage.used }} of {{ usage.limit }}</p>
+    }
+
     <!-- UX4.2: the anchor lives on the section, not the <ol> inside the @else.
          On the list it vanished whenever the user removed every reviewer — the
          empty state renders instead — so a search for "Reviewer CLIs" landed on
@@ -281,6 +285,7 @@ export class ReviewSettingsTabComponent {
     this.store.get(key as keyof AppSettings);
   private unifiedCatalog = inject(UnifiedCatalogStore);
   private reviewHealth = inject(CrossModelReviewIpcService);
+  readonly dailyUsage = computed(() => this.reviewHealth.status()?.dailyUsage);
   private providerIpc = inject(ProviderIpcService);
   private destroyRef = inject(DestroyRef);
   private destroyed = false;

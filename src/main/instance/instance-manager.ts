@@ -979,6 +979,8 @@ export class InstanceManager extends EventEmitter {
     return this.state.getInstance(id);
   }
 
+  getTurnFileChanges(id: string) { return this.state.getDiffTracker(id)?.getLastTurnChanges() ?? { seq: 0, changedPaths: [], editedPaths: [] }; }
+
   /** Published or still-private crash-recovery instance; for spawn-time capability minting only. */
   hasRuntimeInstance(id: string): boolean {
     return this.state.getInstance(id) !== undefined || this.state.isInstancePending(id);
@@ -990,11 +992,8 @@ export class InstanceManager extends EventEmitter {
 
   /** Nest a live session that lost its parent under a live parent; see instance-adoption.ts. */
   adoptOrphanInstance(childId: string, parentId: string): boolean {
-    return adoptInstance({
-      getInstance: (id) => this.state.getInstance(id),
-      reparentOrchestration: (id, parent) => this.orchestrationMgr.setOrchestrationParent(id, parent),
-      queueUpdate: (instance) => this.state.queueUpdate(instance.id, instance.status),
-    }, childId, parentId);
+    return adoptInstance({ getInstance: (id) => this.state.getInstance(id), reparentOrchestration: (id, parent) => this.orchestrationMgr.setOrchestrationParent(id, parent),
+      queueUpdate: (instance) => this.state.queueUpdate(instance.id, instance.status) }, childId, parentId);
   }
 
   getLiveRecoveryKeys(): ReadonlySet<string> { return this.continuityRecovery.getLiveRecoveryKeys(); }
@@ -1203,7 +1202,7 @@ export class InstanceManager extends EventEmitter {
     return this.lifecycle.restartInstance(instanceId);
   }
 
-  async restartFreshInstance(instanceId: string): Promise<void> {
+  async restartFreshInstance(instanceId: string): Promise<string | undefined> {
     return this.lifecycle.restartFreshInstance(instanceId);
   }
 
@@ -1211,9 +1210,7 @@ export class InstanceManager extends EventEmitter {
     return this.lifecycle.terminateAll();
   }
 
-  async terminateAllInstances(): Promise<void> {
-    return this.lifecycle.terminateAll();
-  }
+  async terminateAllInstances(): Promise<void> { const ids = this.state.getAllInstances().map((instance) => instance.id); await Promise.all(ids.map((id) => this.terminateInstance(id, true))); }
 
   renameInstance(instanceId: string, displayName: string): void {
     return this.lifecycle.renameInstance(instanceId, displayName);
@@ -1741,7 +1738,8 @@ export class InstanceManager extends EventEmitter {
         this.publishOutput(instanceId, userMessage);
       }
 
-      await getContextEngine().compactInstance(instanceId);
+      void getContextEngine().compactInstance(instanceId).catch((error: unknown) =>
+        logger.error('Typed compaction command failed', error instanceof Error ? error : undefined, { instanceId }));
       return;
     }
 

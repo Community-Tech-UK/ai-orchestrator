@@ -48,6 +48,14 @@ describe('cost-handlers event forwarding', () => {
     electronMocks.handlers.clear();
     electronMocks.handle.mockClear();
   });
+  it.each([{startTime:2,endTime:1},{startTime:-1},{endTime:Infinity},{startTime:'date'}])(
+    'rejects an invalid purpose-summary range %s',async payload=>{
+      setup();const result=await invoke(IPC_CHANNELS.COST_GET_PURPOSE_SUMMARY,payload);
+      expect(result.success).toBe(false);expect(result.error?.code).toBe('COST_GET_PURPOSE_SUMMARY_FAILED');
+    });
+  it('accepts an optional purpose-summary range',async()=>{
+    setup();expect((await invoke(IPC_CHANNELS.COST_GET_PURPOSE_SUMMARY)).success).toBe(true);
+  });
 
   it('handles COST_GET_HISTORY with the same stored entries used by the cost page', async () => {
     const { tracker } = setup();

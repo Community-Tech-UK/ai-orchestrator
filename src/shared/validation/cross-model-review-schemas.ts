@@ -9,6 +9,10 @@ import { z } from 'zod';
 
 // ============ IPC Payload Schemas ============
 
+export const ReviewRequestPayloadSchema = z.object({
+  instanceId: z.string().trim().min(1).max(100),
+}).strict();
+
 export const ReviewDismissPayloadSchema = z.object({
   reviewId: z.string().trim().min(1).max(100),
   instanceId: z.string().trim().min(1).max(100),

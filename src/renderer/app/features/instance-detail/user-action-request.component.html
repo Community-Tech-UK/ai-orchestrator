@@ -241,7 +241,7 @@
             </div>
           }
           <div class="request-actions">
-            @if (request.requestType === 'input_required' && supportsPermissionScope(request)) {
+            @if (request.requestType === 'input_required' && scopesFor(request).length > 1) {
               <div class="scope-field">
                 <label class="scope-label" [attr.for]="'permission-scope-' + request.id">Remember this decision</label>
                 <select
@@ -256,9 +256,6 @@
                     <option [value]="scope">{{ scopeLabel(scope) }}</option>
                   }
                 </select>
-                @if (isPermissionDenial(request)) {
-                  <span class="scope-write-hint">Always writes an allow rule to ~/.claude/settings.json</span>
-                }
               </div>
             }
             <button
@@ -266,7 +263,7 @@
               (click)="onReject(request)"
               [disabled]="isResponding()"
             >
-              Reject
+              {{ getRejectLabel(request) }}
             </button>
             @if (request.requestType === 'input_required' && isPermissionRequest(request)) {
               @if (canResolveWithYolo(request)) {
@@ -280,14 +277,19 @@
                 </button>
               }
             }
-            <button
-              class="btn-approve"
-              (click)="onApprove(request)"
-              [disabled]="isResponding()"
-            >
-              {{ getApproveLabel(request) }}
-            </button>
+            @if (getApproveLabel(request); as approveLabel) {
+              <button
+                class="btn-approve"
+                (click)="onApprove(request)"
+                [disabled]="isResponding()"
+              >
+                {{ approveLabel }}
+              </button>
+            }
           </div>
+          @if (getPermissionHint(request); as hint) {
+            <p class="scope-write-hint">{{ hint }}</p>
+          }
           @if (getResponseError(request.id)) {
             <p class="request-error">{{ getResponseError(request.id) }}</p>
           }

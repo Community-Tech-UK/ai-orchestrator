@@ -15,9 +15,10 @@
  * block an otherwise legitimate spawn.
  */
 
-import { closeSync, existsSync, fstatSync, openSync, readSync, readdirSync, realpathSync } from 'fs';
+import { existsSync, readdirSync, realpathSync, openSync, fstatSync, readSync, closeSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import type { ClaudeModelUsageSnapshot } from '../../../shared/types/provider-model-usage.types';
 
 /** Root of the CLI's per-workspace transcript store. */
 function projectsRoot(): string {
@@ -63,27 +64,48 @@ export function nativeSessionIdInUse(sessionId: string): boolean {
   }
 }
 
-/** Read only the bounded transcript tail. Unreadable/unknown shapes leave the resume cost unknown. */
-export function readLastClaudeCostState(cwd: string | undefined, sessionId: string): { totalCostUSD: number; modelUsage?: Record<string, unknown> } | undefined {
-  if (!cwd || !/^[a-zA-Z0-9_-]+$/.test(sessionId)) return undefined;
-  for (const dir of candidateProjectDirs(cwd)) {
+export interface ClaudeCostState {
+  totalCostUSD: number;
+  modelUsage?: ClaudeModelUsageSnapshot;
+}
+
+/** Read only the bounded tail, tolerating corrupt/partial final records and symlinked cwd. */
+export function readLastClaudeCostState(cwd: string | undefined, sessionId: string,
+  configDir?: string): ClaudeCostState | undefined {
+  if (!cwd || !sessionId || !/^[a-zA-Z0-9_-]+$/.test(sessionId)) return undefined;
+  for (const defaultDir of candidateProjectDirs(cwd)) {
+    const dir = configDir ? join(configDir, 'projects', defaultDir.split(/[\\/]/).at(-1)!) : defaultDir;
     let fd: number | undefined;
     try {
       fd = openSync(join(dir, `${sessionId}.jsonl`), 'r');
       const size = fstatSync(fd).size;
-      const length = Math.min(size, 256 * 1024);
-      const bytes = Buffer.alloc(length); readSync(fd, bytes, 0, length, size - length);
-      const lines = bytes.toString('utf8').split('\n');
-      for (let i = lines.length - 1; i >= 0; i--) {
+      const start = Math.max(0, size - 256 * 1024);
+      const buffer = Buffer.alloc(size - start);
+      const bytes = readSync(fd, buffer, 0, buffer.length, start);
+      let tail = buffer.subarray(0, bytes).toString('utf8');
+      if (start > 0) tail = tail.includes('\n') ? tail.slice(tail.indexOf('\n') + 1) : '';
+      for (const line of tail.split('\n').reverse()) {
         try {
-          const row = JSON.parse(lines[i]) as Record<string, unknown>;
-          if (row['type'] === 'cost-state' && typeof row['totalCostUSD'] === 'number' && Number.isFinite(row['totalCostUSD']) && row['totalCostUSD'] >= 0) {
-            return { totalCostUSD: row['totalCostUSD'], ...(row['modelUsage'] && typeof row['modelUsage'] === 'object' ? { modelUsage: row['modelUsage'] as Record<string, unknown> } : {}) };
-          }
-        } catch { /* Partial or non-JSON lines are not cost records. */ }
+          const record: unknown = JSON.parse(line);
+          if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+          const state = record as Record<string, unknown>;
+          const total = state['totalCostUSD'];
+          if (state['type'] !== 'cost-state' || typeof total !== 'number' || !Number.isFinite(total) || total < 0) continue;
+          const models = state['modelUsage'];
+          if (models !== undefined && !validModelUsage(models)) continue;
+          return { totalCostUSD: total, ...(models ? { modelUsage: models as ClaudeModelUsageSnapshot } : {}) };
+        } catch { /* malformed or partial last line: continue to the preceding record */ }
       }
-    } catch { /* Fail soft to token pricing. */ }
-    finally { if (fd !== undefined) { try { closeSync(fd); } catch { /* Seed lookup stays fail-soft. */ } } }
+    } catch { /* missing/unreadable transcript: try the resolved cwd */ }
+    finally { if (fd !== undefined) { try { closeSync(fd); } catch { /* fail soft */ } } }
   }
   return undefined;
+}
+
+function validModelUsage(models: unknown): models is ClaudeModelUsageSnapshot {
+  if (!models || typeof models !== 'object' || Array.isArray(models)) return false;
+  const keys = ['inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens', 'costUSD'];
+  return Object.values(models).every(usage => usage && typeof usage === 'object' && !Array.isArray(usage)
+    && keys.every(key => { const value = (usage as Record<string, unknown>)[key];
+      return value === undefined || (typeof value === 'number' && Number.isFinite(value) && value >= 0); }));
 }

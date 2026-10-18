@@ -32,9 +32,21 @@ export async function executeGoalLoopCommand(input: {
   provider: string | undefined;
   executed: ParsedCommand;
 }): Promise<IpcResponse> {
-  const result = await executeGoalLoopCommandResult(input);
-  if (!result.success) input.instanceManager.emitSystemMessage(input.instanceId, result.error?.message ?? 'Goal command failed.', { source: 'goal-command', action: 'error', code: result.error?.code });
-  return result;
+  return executeGoalLoopCommandResult(input);
+}
+
+export function emitGoalCommandError(instanceManager: InstanceManager, instanceId: string, result: IpcResponse): void {
+  if (!result.success) {
+    instanceManager.emitSystemMessage(
+      instanceId,
+      result.error?.message ?? 'Goal command failed.',
+      {
+        source: 'goal-command',
+        action: 'error',
+        code: result.error?.code,
+      },
+    );
+  }
 }
 
 async function executeGoalLoopCommandResult(input: Parameters<typeof executeGoalLoopCommand>[0]): Promise<IpcResponse> {
@@ -123,13 +135,14 @@ export async function executeGoalLoopCommandForInstanceInput(input: {
     return;
   }
 
-  await executeGoalLoopCommand({
+  const result = await executeGoalLoopCommand({
     instanceManager: input.instanceManager,
     instanceId: input.instanceId,
     workingDirectory: input.instance.workingDirectory,
     provider: input.instance.provider,
     executed: input.executed,
   });
+  emitGoalCommandError(input.instanceManager, input.instanceId, result);
 }
 
 async function executeGoalControl(input: {

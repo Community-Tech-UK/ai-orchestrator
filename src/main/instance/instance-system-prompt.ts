@@ -27,6 +27,7 @@ import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token
 import type { McpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
 import { getMcpManager } from '../mcp/mcp-manager';
 import { getContextWorkerClient } from './context-worker-client';
+import { sanitizeRetrievalQuery } from '../memory/retrieval-eval/query-sanitizer';
 import { getProjectMemoryBriefService } from '../memory/project-memory-brief';
 import { extractAuthoredLessons } from '../memory/project-story-convention';
 import { getProjectKnowledgeCoordinator } from '../memory/project-knowledge-coordinator';
@@ -210,35 +211,41 @@ export async function assembleInstanceSystemPrompt(
 
   // Inject observation memory context (learned reflections from past sessions).
   // Deadline-bounded and off-thread via the context worker.
-  try {
-    const promptSoFar = systemPromptComposer.compose().text;
-    const observationContext = await callWithDeadline(
-      deps.buildObservationContext(promptSoFar, instance.id, config.initialPrompt),
-      {
-        ms: CREATE_ENRICHER_DEADLINE_MS,
-        fallback: '',
-        onTimeout: () => {
-          unavailableBlockKinds.add('observation-memory');
-          logger.info('Observation context exceeded create deadline; deferring to next turn', {
-            instanceId: instance.id,
-          });
+  const observationQuery = config.initialPrompt
+    ? sanitizeRetrievalQuery(config.initialPrompt).query
+    : '';
+  if (observationQuery) {
+    try {
+      const observationContext = await callWithDeadline(
+        deps.buildObservationContext(observationQuery, instance.id),
+        {
+          ms: CREATE_ENRICHER_DEADLINE_MS,
+          fallback: '',
+          onTimeout: () => {
+            unavailableBlockKinds.add('observation-memory');
+            logger.info('Observation context exceeded create deadline; deferring to next turn', {
+              instanceId: instance.id,
+            });
+          },
+          onError: (err) => {
+            unavailableBlockKinds.add('observation-memory');
+            logger.warn('Failed to inject observation context', {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          },
+          onLateResult: (text) => deps.deferEnricherPreamble(instance.id, 'observation', text),
         },
-        onError: (err) => {
-          unavailableBlockKinds.add('observation-memory');
-          logger.warn('Failed to inject observation context', {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        },
-        onLateResult: (text) => deps.deferEnricherPreamble(instance.id, 'observation', text),
-      },
-    );
-    systemPromptComposer.add('observation-memory', observationContext);
-    if (observationContext) {
-      logger.info('Injected observation memory context into system prompt');
+      );
+      systemPromptComposer.add('observation-memory', observationContext);
+      if (observationContext) {
+        logger.info('Injected observation memory context into system prompt', {
+          noteCount: observationContext.match(/^- \*\*/gm)?.length ?? 0,
+        });
+      }
+    } catch (err) {
+      unavailableBlockKinds.add('observation-memory');
+      logger.warn('Failed to inject observation context', { error: err instanceof Error ? err.message : String(err) });
     }
-  } catch (err) {
-    unavailableBlockKinds.add('observation-memory');
-    logger.warn('Failed to inject observation context', { error: err instanceof Error ? err.message : String(err) });
   }
 
   // Inject a compact, project-scoped memory brief for fresh root sessions.

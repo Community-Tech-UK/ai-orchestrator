@@ -1,3 +1,4 @@
+import { forwardCrossModelReviewEvents } from './cross-model-review-event-forwarding';
 import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy';
 import { getContextEngine } from '../context/context-engine';
 import { evaluateContextWindowGuard } from '../context/context-window-guard';
@@ -475,27 +476,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     previousStatus.delete(instanceId);
   });
 
-  crossModelReview.on('review:started', (data) => {
-    windowManager.sendToRenderer('cross-model-review:started', data);
-  });
-  crossModelReview.on('review:result', (data) => {
-    windowManager.sendToRenderer('cross-model-review:result', data);
-  });
-  crossModelReview.on('review:discarded', (data) => {
-    windowManager.sendToRenderer(IPC_CHANNELS.CROSS_MODEL_REVIEW_DISCARDED, data);
-  });
-  crossModelReview.on('review:all-unavailable', (data) => {
-    windowManager.sendToRenderer('cross-model-review:all-unavailable', data);
-  });
-  crossModelReview.on('review:reviewer-unavailable', (data) => {
-    windowManager.sendToRenderer('cross-model-review:reviewer-unavailable', data);
-  });
-  crossModelReview.on('review:reviewer-rate-limited', (data) => {
-    windowManager.sendToRenderer('cross-model-review:reviewer-rate-limited', data);
-  });
-  crossModelReview.on('review:reviewer-rate-limit-cleared', (data) => {
-    windowManager.sendToRenderer('cross-model-review:reviewer-rate-limit-cleared', data);
-  });
+  forwardCrossModelReviewEvents(crossModelReview, windowManager);
 
   instanceManager.on('instance:input-required', (payload) => {
     windowManager.sendToRenderer('instance:input-required', payload);

@@ -411,7 +411,8 @@ button {
   border-color: rgba(247, 140, 124, 0.45);
   background: rgba(247, 140, 124, 0.08);
 }
-.loop-summary[data-status="failed"] {
+.loop-summary[data-status="failed"],
+.loop-summary[data-status="attempt-failed"] {
   border-color: rgba(247, 140, 124, 0.45);
   background: rgba(247, 140, 124, 0.08);
 }
@@ -428,10 +429,12 @@ button {
   background: rgba(255,255,255,0.08);
   font-weight: 700;
 }
+.lsum-status-pill:focus-visible { outline: 2px solid rgba(143,184,255,0.8); outline-offset: 1px; }
 .lsum-status-pill[data-status="completed"]   { color: #8edc8e; background: rgba(142,220,142,0.18); }
 .lsum-status-pill[data-status="completed-needs-review"] { color: #8ec4f7; background: rgba(142,196,247,0.18); }
 .lsum-status-pill[data-status="cancelled"]   { color: #c8b482; background: rgba(200,180,130,0.16); }
-.lsum-status-pill[data-status="failed"]      { color: #f78c7c; background: rgba(247,140,124,0.18); }
+.lsum-status-pill[data-status="failed"],
+.lsum-status-pill[data-status="attempt-failed"] { color: #f78c7c; background: rgba(247,140,124,0.18); }
 .lsum-status-pill[data-status="cap-reached"] { color: #f7c07a; background: rgba(247,192,122,0.18); }
 .lsum-status-pill[data-status="error"]       { color: #f78c7c; background: rgba(247,140,124,0.18); }
 .lsum-status-pill[data-status="no-progress"] { color: #f7c07a; background: rgba(247,192,122,0.18); }

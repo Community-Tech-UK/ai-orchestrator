@@ -56,7 +56,11 @@ describe('actual Claude native stdio diagnostic boundaries', () => {
         if (mode === 'stderr') proc.stderr.write(`permission observation ${source}`);
         if (mode === 'malformed') { proc.stdout.write(`invalid-json ${source}\n`); feed({ type: 'system', content: source }); expect(serialized(outputs)).toContain(source); }
         if (mode === 'overflow') { feed({ type: 'system', content: source + 'x'.repeat(1024 * 1024) }); expect(serialized(outputs)).toContain(source); }
-        if (mode === 'flush') { proc.stdout.write(`incomplete ${source}`); proc.emit('exit', 0, null); }
+        if (mode === 'flush') {
+          proc.stdout.write(`incomplete ${source}`); proc.emit('exit', 0, null);
+          expect(state.manager!.getRecentLogs().some((row) => row.message === 'Discarding incomplete NDJSON buffer')).toBe(false);
+          proc.emit('close', 0, null); expect(adapter.isRunning()).toBe(false); expect(errors).toHaveLength(0);
+        }
         if (mode === 'unknown') feed({ type: source, [source]: source });
         if (mode === 'unknown-missing-type') { feed({ [source]: source }); expect(errors).toHaveLength(0); }
         if (mode === 'rate-limit') { feed({ type: 'rate_limit_event', rate_limit_info: { status: source, rateLimitType: source, overageStatus: source } }); expect(serialized(outputs)).toContain(source); }

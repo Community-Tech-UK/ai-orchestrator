@@ -183,7 +183,7 @@ describe('AutomationLoopRunDispatcher terminal resolution', () => {
     const dispatcher = await startTracked(deps);
     dispatcher.handleLoopStateChanged({ loopRunId: 'loop-run-9', state: { status: 'completed-needs-review' } });
     expect(deps.store.terminalizeRun).toHaveBeenCalledWith(
-      'run-1', 'succeeded', undefined, expect.stringContaining('human review'), 1_000,
+      'run-1', 'succeeded', undefined, expect.stringContaining('check its notes'), 1_000,
     );
   });
 
@@ -194,6 +194,25 @@ describe('AutomationLoopRunDispatcher terminal resolution', () => {
     expect(deps.store.terminalizeRun).toHaveBeenCalledWith(
       'run-1', 'failed', 'Loop ended cap-reached', undefined, 1_000,
     );
+    expect(deps.onTerminal).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' }), { retryable: false });
+  });
+
+  it('fails an unreplayable attempt once and never retries the whole loop', async () => {
+    const deps = makeDeps();
+    const dispatcher = await startTracked(deps);
+    dispatcher.handleLoopStateChanged({ loopRunId: 'loop-run-9', state: { status: 'attempt-failed', endedAt: 500 } });
+    dispatcher.handleLoopStateChanged({ loopRunId: 'loop-run-9', state: { status: 'attempt-failed', endedAt: 500 } });
+    expect(deps.store.terminalizeRun).toHaveBeenCalledOnce();
+    expect(deps.onTerminal).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' }), { retryable: false });
+  });
+
+  it('keeps tracking a provider-limit park and fails when that same state ends', async () => {
+    const deps = makeDeps();
+    const dispatcher = await startTracked(deps);
+    dispatcher.handleLoopStateChanged({ loopRunId: 'loop-run-9', state: { status: 'provider-limit', endedAt: null } });
+    expect(deps.store.terminalizeRun).not.toHaveBeenCalled();
+    dispatcher.handleLoopStateChanged({ loopRunId: 'loop-run-9', state: { status: 'provider-limit', endedAt: 500 } });
+    expect(deps.store.terminalizeRun).toHaveBeenCalledWith('run-1', 'failed', 'Loop ended provider-limit', undefined, 1_000);
     expect(deps.onTerminal).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' }), { retryable: false });
   });
 

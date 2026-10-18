@@ -286,6 +286,7 @@ export class AutomationRunner {
         // automation-born with a clock indicator. Survives archive into the
         // history entry independently of its display title.
         metadata: {
+          spendPurpose: 'automation',
           automationId: claimed.run.automationId,
           automationRunId: claimed.run.id,
           // Snapshotted at fire time so the rail never has to join back to the
@@ -725,6 +726,7 @@ export class AutomationRunner {
         // Same durable provenance as the first attempt so the rail marks the
         // retry session as automation-born and viewing it clears the badge.
         metadata: {
+          spendPurpose: 'automation',
           automationId: retryRun.automationId,
           automationRunId: retryRun.id,
           // Same snapshotted visibility as the first attempt — see dispatchRun.

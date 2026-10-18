@@ -159,10 +159,10 @@ export type TerminalLoopStatus =
 export function terminalStatusLabel(status: TerminalLoopStatus): string {
   switch (status) {
     case 'completed':              return 'completed ✓';
-    case 'completed-needs-review': return 'needs review';
+    case 'completed-needs-review': return 'ended, see notes';
+    case 'attempt-failed': return 'stopped: a step failed';
     case 'cancelled':              return 'cancelled';
     case 'failed':                 return 'failed';
-    case 'attempt-failed':         return 'a step failed';
     case 'cap-reached':            return 'cap reached';
     case 'error':                  return 'error';
     case 'no-progress':            return 'no progress';
@@ -226,10 +226,10 @@ export function loopStatusTone(status: string): LoopStatusTone {
 export function loopStatusLabel(status: string): string {
   switch (status) {
     case 'completed':              return 'completed';
-    case 'completed-needs-review': return 'needs review';
+    case 'completed-needs-review': return 'ended, see notes';
+    case 'attempt-failed': return 'stopped: a step failed';
     case 'cancelled':              return 'cancelled';
     case 'failed':                 return 'failed';
-    case 'attempt-failed':         return 'a step failed';
     case 'cap-reached':            return 'cap';
     case 'error':                  return 'error';
     case 'no-progress':            return 'no-progress';
@@ -288,6 +288,7 @@ export function loopStatusPill(input: {
     case 'running':                return { kind: 'running', label: 'RUNNING' };
     case 'completed':              return { kind: 'done', label: 'DONE' };
     case 'completed-needs-review': return { kind: 'needs-review', label: 'ENDED · SEE NOTES' };
+    case 'attempt-failed': return { kind: 'stopped', label: 'STOPPED · STEP FAILED' };
     case 'paused': {
       const reason = loopPauseReason(input);
       switch (reason) {
@@ -300,7 +301,6 @@ export function loopStatusPill(input: {
     }
     case 'cancelled':   return { kind: 'stopped', label: 'STOPPED' };
     case 'failed':      return { kind: 'stopped', label: 'FAILED' };
-    case 'attempt-failed': return { kind: 'stopped', label: 'STOPPED · A STEP FAILED' };
     case 'error':       return { kind: 'stopped', label: 'ERROR' };
     case 'cap-reached': return { kind: 'stopped', label: 'CAP REACHED' };
     case 'no-progress': return { kind: 'no-progress', label: 'NO PROGRESS' };

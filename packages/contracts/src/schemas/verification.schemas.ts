@@ -55,6 +55,8 @@ const ExtractedKeyPointSchema = z.object({
   supportingEvidence: z.string().max(5000).optional(),
 });
 
+export const VerificationCostSchema = z.union([z.number().finite().min(0), z.literal('unknown')]);
+
 export const AgentResponseSchema = z.object({
   agentId: z.string().min(1).max(500),
   agentIndex: z.number().int().min(0),
@@ -66,7 +68,7 @@ export const AgentResponseSchema = z.object({
   reasoning: z.string().optional(),
   duration: z.number().min(0),
   tokens: z.number().min(0),
-  cost: z.number().min(0),
+  cost: VerificationCostSchema,
   error: z.string().optional(),
   timedOut: z.boolean().optional(),
 });
@@ -142,7 +144,11 @@ export const VerificationConsensusUpdateEventSchema = z.object({
 
 export const VerificationCompleteEventSchema = z.object({
   sessionId: VerificationEventIdSchema,
-  result: z.object({ id: VerificationEventIdSchema }).passthrough(),
+  result: z.object({
+    id: VerificationEventIdSchema,
+    responses: z.array(AgentResponseSchema).optional(),
+    totalCost: VerificationCostSchema.optional(),
+  }).passthrough(),
 }).strict();
 
 export const VerificationErrorEventSchema = z.object({

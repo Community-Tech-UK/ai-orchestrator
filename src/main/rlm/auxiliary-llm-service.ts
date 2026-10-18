@@ -10,10 +10,11 @@
  *   const { text, decision } = await getAuxiliaryLlmService().generate('compression', sys, user);
  */
 
+import { AuxiliarySlotBackoff } from './auxiliary-slot-backoff';
+import { getLocalAiAuxiliaryHooks } from '../local-ai-guard/local-ai-auxiliary-bridge';
 import { EventEmitter } from 'events';
 import { DEFAULT_SETTINGS, type AppSettings } from '../../shared/types/settings.types';
 import {
-  AUXILIARY_DISCOVERY_DEADLINE_MS,
   AUXILIARY_DISCOVERY_MAX_CANDIDATES,
   type AuxiliaryLlmCandidate,
   type AuxiliaryLlmDecision,
@@ -60,9 +61,8 @@ import {
 import {
   auxiliaryWorkerSourceKeys,
   collectAuxiliaryWorkerEndpointConfigs,
-  collectAuxiliaryWorkerEndpoints,
   resolveAuxiliaryWorkerModels,
-  settleBeforeAbort,
+  discoverAuxiliaryCandidates,
 } from './auxiliary-discovery';
 // remote-node imports are lazy — worker-node-connection and service-rpc-client
 // transitively import electron via remote-auth → settings-manager, which
@@ -111,6 +111,13 @@ export class AuxiliaryLlmService extends EventEmitter {
   private slots: AuxiliaryLlmSlotConfigMap = parseDefaultSlots();
   private quickModel = '';
   private qualityModel = '';
+  private readonly lastIntendedTargets = new Map<AuxiliaryLlmSlot, string | undefined>();
+  private readonly backoff = new AuxiliarySlotBackoff(Date.now, (pauses, transition) => {
+    try { getLocalAiAuxiliaryHooks().helperBackoffChanged?.(pauses, transition); } catch { /* Health display cannot break helpers. */ }
+  });
+  getHelperPauses() { return this.backoff.snapshot(); }
+  retryHelperNow(slot: AuxiliaryLlmSlot): void { this.backoff.retryNow(slot); }
+
   private readonly dailySpendCap = new AuxiliaryDailySpendCap();
 
   private readonly endpointHealth = new AuxiliaryEndpointHealthCache();
@@ -142,6 +149,8 @@ export class AuxiliaryLlmService extends EventEmitter {
   // ─── Configuration ─────────────────────────────────────────────────────────
 
   configure(settings: AuxiliaryLlmConfigSubset): void {
+    this.backoff.clear();
+    this.lastIntendedTargets.clear();
     this.enabled = settings.auxiliaryLlmEnabled;
     this.routingMode = settings.auxiliaryLlmRoutingMode;
     this.allowRemoteWorkerModels = settings.auxiliaryLlmAllowRemoteWorkerModels;
@@ -182,55 +191,8 @@ export class AuxiliaryLlmService extends EventEmitter {
   // ─── Discovery ─────────────────────────────────────────────────────────────
 
   async discoverCandidates(): Promise<AuxiliaryLlmCandidate[]> {
-    const candidates: AuxiliaryLlmCandidate[] = [];
-    const controller = new AbortController();
-    const deadline = setTimeout(
-      () => controller.abort(),
-      AUXILIARY_DISCOVERY_DEADLINE_MS,
-    );
-    const appendProbe = async (endpoint: AuxiliaryLlmEndpointConfig): Promise<void> => {
-      if (controller.signal.aborted || candidates.length >= AUXILIARY_DISCOVERY_MAX_CANDIDATES) return;
-      const candidate = await settleBeforeAbort(
-        this.probeCandidate(endpoint, controller.signal),
-        controller.signal,
-      );
-      if (candidate && !controller.signal.aborted) candidates.push(candidate);
-    };
-    try {
-      const localOllama = localhostOllamaEndpoint(this.useLocalhostOllama);
-      if (localOllama) await appendProbe(localOllama);
-      for (const endpoint of this.endpoints) {
-        if (controller.signal.aborted || candidates.length >= AUXILIARY_DISCOVERY_MAX_CANDIDATES) break;
-        if (endpoint.enabled && (this.allowRemoteWorkerModels || endpoint.source !== 'worker-node')) {
-          await appendProbe(endpoint);
-        }
-      }
-      const persistedWorkerSources = auxiliaryWorkerSourceKeys(this.endpoints);
-      const remaining = AUXILIARY_DISCOVERY_MAX_CANDIDATES - candidates.length;
-      if (controller.signal.aborted || remaining <= 0) return candidates;
-      const workers = this.allowRemoteWorkerModels
-        ? collectAuxiliaryWorkerEndpoints(
-            auxiliaryRemoteHooks.connectedWorkerNodes(),
-            remaining,
-            persistedWorkerSources,
-          )
-        : [];
-      for (const worker of workers) {
-        if (controller.signal.aborted || candidates.length >= AUXILIARY_DISCOVERY_MAX_CANDIDATES) break;
-        candidates.push({
-          endpoint: worker.endpoint,
-          models: worker.models,
-          healthy: worker.healthy,
-          reason: worker.healthy
-            ? worker.models.length === 0 ? 'No models reported' : undefined
-            : 'Worker Ollama unhealthy',
-        });
-      }
-      return candidates;
-    } finally {
-      clearTimeout(deadline);
-      controller.abort();
-    }
+    return discoverAuxiliaryCandidates({ endpoints: this.endpoints, useLocalhostOllama: this.useLocalhostOllama,
+      allowRemoteWorkerModels: this.allowRemoteWorkerModels, probe: (endpoint, signal) => this.probeCandidate(endpoint, signal) });
   }
 
   // ─── Generation ────────────────────────────────────────────────────────────
@@ -238,31 +200,52 @@ export class AuxiliaryLlmService extends EventEmitter {
   async generate(
     slot: AuxiliaryLlmSlot,
     systemPrompt: string,
-    userPrompt: string
+    userPrompt: string,
+    options?: { preserveInput?: boolean },
   ): Promise<{ text: string; decision: AuxiliaryLlmDecision }> {
-    const fallback = (
+    // A fitted continuity request must remain intact even if settings changed during preparation.
+    const slotConfig = this.slots[slot];
+    if (options?.preserveInput && slotConfig) {
+      const counter = getTokenCounter();
+      if (counter.countTokens(systemPrompt) + counter.countTokens(userPrompt) > slotConfig.maxInputTokens) {
+        throw new Error('The compression input limit changed after fitting; use the intact local summary instead.');
+      }
+    }
+    const fallback = async (
       reason: string,
       slotAllowsFrontier: boolean,
       prompts = { system: systemPrompt, user: userPrompt },
       intendedTargetId?: string,
       estimatedOutputTokens = 0,
-    ) => buildAuthorizedAuxiliaryFallback({
-      slot, reason, slotAllowsFrontier, intendedTargetId, estimatedOutputTokens,
-      systemPrompt: prompts.system, userPrompt: prompts.user,
-    });
+    ) => {
+      const pause = this.backoff.active(slot);
+      const result = await buildAuthorizedAuxiliaryFallback({
+        slot, reason, slotAllowsFrontier: pause && slot === 'titleGeneration' ? false : slotAllowsFrontier,
+        intendedTargetId, estimatedOutputTokens, systemPrompt: prompts.system, userPrompt: prompts.user,
+      });
+      if (pause) result.decision.pausedUntil = pause.pausedUntil;
+      return result;
+    };
     if (!this.enabled || this.routingMode === 'off') {
       return fallback('Service disabled or routing mode is off', true);
     }
 
-    const slotConfig = this.slots[slot];
     if (!slotConfig?.enabled) {
       return fallback('Slot is disabled', true);
     }
 
+    const pause = this.backoff.active(slot);
+    if (pause) {
+      const result = await fallback(pause.reason, slotConfig.allowFrontierFallback, undefined, this.lastIntendedTargets.get(slot), slotConfig.maxOutputTokens);
+      result.decision.pausedUntil = pause.pausedUntil;
+      return result;
+    }
     const truncated = this.maybeTruncatePrompt(slot, slotConfig, systemPrompt, userPrompt);
     const localAiContext: LocalAiResolutionContext = {};
     const resolved = await this.resolveEndpointForSlot(slot, slotConfig, localAiContext);
+    this.lastIntendedTargets.set(slot, resolved?.intendedTargetId ?? localAiContext.intendedTargetId);
     if (!resolved) {
+      this.backoff.recordFailure(slot);
       const detail = describeAuxiliaryResolutionFailure(localAiContext);
       this.resolutionWarnings.warn(slot, detail);
       return fallback(detail,
@@ -310,8 +293,10 @@ export class AuxiliaryLlmService extends EventEmitter {
         slot, endpoint, model, source, text, reason: decision.reason, intendedTargetId,
         systemPrompt: truncated.system, userPrompt: truncated.user,
       });
+      this.backoff.recordSuccess(slot);
       return { text, decision };
     } catch (err) {
+      this.backoff.recordFailure(slot);
       const message = err instanceof Error ? err.message : String(err);
       // Only auto-picked models are remembered. A pinned model must keep
       // surfacing its own error, and must not poison the auto-pick that another

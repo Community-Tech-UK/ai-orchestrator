@@ -166,7 +166,16 @@ export interface AuxiliaryLlmCandidate {
   reason?: string;
 }
 
+export interface AuxiliaryHelperPause {
+  slot: AuxiliaryLlmSlot;
+  pausedUntil: number;
+  failures: number;
+  startedAt: number;
+  reason: string;
+}
+
 export interface AuxiliaryLlmDecision {
+  pausedUntil?: number;
   slot: AuxiliaryLlmSlot;
   provider: AuxiliaryLlmProvider;
   endpointId?: string;

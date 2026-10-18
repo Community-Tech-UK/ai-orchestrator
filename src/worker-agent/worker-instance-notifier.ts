@@ -5,6 +5,7 @@ import {
 import { WORKER_NODE_WS_MAX_PAYLOAD_BYTES } from '../main/remote-node/rpc-schemas';
 import type { RpcMessage } from './worker-rpc-types';
 import type { WorkerStreamDurability } from './worker-stream-durability';
+import { InstanceTelemetrySchema, type InstanceTelemetry } from '../main/remote-node/instance-telemetry-rpc';
 
 interface WorkerInstanceNotifierOptions {
   getSocket: () => WebSocket | null;
@@ -19,7 +20,7 @@ interface WorkerInstanceNotifierOptions {
    * instance. Defaults to "always registered" when omitted (tests/legacy).
    */
   getRegistered?: () => boolean;
-  /** WS15 — durable ring for output/context/complete (seq/ack/replay). */
+  /** WS15 — durable ring for output/context/complete/telemetry (seq/ack/replay). */
   durability?: WorkerStreamDurability;
 }
 
@@ -293,6 +294,20 @@ export class WorkerInstanceNotifier {
         token: this.options.getToken()
       }
     });
+  }
+
+  sendTelemetryNotification(instanceId: string, telemetry: InstanceTelemetry): void {
+    const parsed = InstanceTelemetrySchema.safeParse(telemetry);
+    if (!parsed.success) {
+      console.warn('[WorkerAgent] Invalid instance telemetry dropped', { instanceId });
+      return;
+    }
+    // Preserve wire/sequence order, and retain offline events for normal replay.
+    this.flushOutputBuffer();
+    const params = { instanceId, telemetry: parsed.data };
+    const durableSeq = this.options.durability?.record(instanceId, NODE_TO_COORDINATOR.INSTANCE_TELEMETRY, params);
+    this.send({ jsonrpc: '2.0', method: NODE_TO_COORDINATOR.INSTANCE_TELEMETRY,
+      params: { ...params, ...(durableSeq !== undefined ? { durableSeq } : {}), token: this.options.getToken() } });
   }
 
   /**

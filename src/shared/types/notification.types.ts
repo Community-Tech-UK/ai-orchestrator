@@ -7,6 +7,8 @@ export type LocalAiIncidentNotificationTransition =
   | 'budget-critical'
   | 'recovered';
 
+export type LocalAiHelperNotificationKind = 'local-ai-helper-paused' | 'local-ai-helper-resumed';
+
 export type LocalAiIncidentNotificationKind =
   `local-ai-${LocalAiIncidentNotificationTransition}`;
 

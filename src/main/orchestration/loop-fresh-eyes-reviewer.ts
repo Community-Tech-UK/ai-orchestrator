@@ -213,6 +213,7 @@ export async function runLocalOnlyFreshEyesReview(
     }
     const result = await reviewService.runHeadlessReview({
       target: `loop:${input.loopRunId}:local-advisory`,
+      purpose: 'fresh-eyes-review', correlationId: input.loopRunId,
       cwd: input.workspaceCwd,
       content: buildFreshEyesReviewContent(input),
       taskDescription: input.goal,
@@ -267,6 +268,7 @@ export const defaultFreshEyesReviewer: FreshEyesReviewer = async (input) => {
   try {
     const result = await service.runHeadlessReview({
       target: `loop:${input.loopRunId}`,
+      purpose: 'fresh-eyes-review', correlationId: input.loopRunId,
       cwd: input.workspaceCwd,
       content,
       taskDescription: input.goal,

@@ -1,7 +1,7 @@
 import type { LoopStatus } from '../../shared/types/loop.types';
 import type { CampaignNodeStatus } from './campaign.types';
 
-export type CampaignLoopStatusSnapshot = { status: LoopStatus; endedAt: number | null };
+export interface CampaignLoopStatusSnapshot { status: LoopStatus; endedAt: number | null }
 export type CampaignLoopStatusReaderResult = LoopStatus | CampaignLoopStatusSnapshot | null;
 
 const LOOP_TERMINAL_STATUSES = new Set<LoopStatus>([

@@ -1,5 +1,6 @@
 /** IPC channels for Local AI Guard setup, operations, and bounded status updates. */
 export const LOCAL_AI_GUARD_CHANNELS = {
+  LOCAL_AI_GUARD_RETRY_HELPER_NOW: 'local-ai-guard:retry-helper-now',
   LOCAL_AI_GUARD_GET_SNAPSHOT: 'local-ai-guard:get-snapshot',
   LOCAL_AI_GUARD_TARGET_CREATE: 'local-ai-guard:target-create',
   LOCAL_AI_GUARD_TARGET_UPDATE: 'local-ai-guard:target-update',

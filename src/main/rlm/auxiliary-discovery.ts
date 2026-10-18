@@ -1,5 +1,7 @@
 import {
   AUXILIARY_DISCOVERY_MAX_CANDIDATES,
+  AUXILIARY_DISCOVERY_DEADLINE_MS,
+  type AuxiliaryLlmCandidate,
   AUXILIARY_DISCOVERY_MAX_MODELS,
   AUXILIARY_WORKER_ENDPOINT_MAX_DESCRIPTORS,
   auxiliaryWorkerPhysicalSourceKey,
@@ -7,7 +9,7 @@ import {
   type AuxiliaryLlmModelInfo,
 } from '../../shared/types/auxiliary-llm.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
-import { hostKeyFromUrl } from './auxiliary-llm-utils';
+import { hostKeyFromUrl, localhostOllamaEndpoint } from './auxiliary-llm-utils';
 import { auxiliaryRemoteHooks } from './auxiliary-remote-hooks';
 
 const AUXILIARY_MODEL_LIST_METHOD = 'auxiliaryModel.list';
@@ -198,4 +200,39 @@ export async function settleBeforeAbort<T>(
       () => finish(undefined),
     );
   });
+}
+
+
+export async function discoverAuxiliaryCandidates(input: {
+  endpoints: AuxiliaryLlmEndpointConfig[];
+  useLocalhostOllama: boolean;
+  allowRemoteWorkerModels: boolean;
+  probe: (endpoint: AuxiliaryLlmEndpointConfig, signal: AbortSignal) => Promise<AuxiliaryLlmCandidate | undefined>;
+}): Promise<AuxiliaryLlmCandidate[]> {
+  const candidates: AuxiliaryLlmCandidate[] = [];
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), AUXILIARY_DISCOVERY_DEADLINE_MS);
+  const appendProbe = async (endpoint: AuxiliaryLlmEndpointConfig): Promise<void> => {
+    if (controller.signal.aborted || candidates.length >= AUXILIARY_DISCOVERY_MAX_CANDIDATES) return;
+    const candidate = await settleBeforeAbort(input.probe(endpoint, controller.signal), controller.signal);
+    if (candidate && !controller.signal.aborted) candidates.push(candidate);
+  };
+  try {
+    const local = localhostOllamaEndpoint(input.useLocalhostOllama);
+    if (local) await appendProbe(local);
+    for (const endpoint of input.endpoints) {
+      if (controller.signal.aborted || candidates.length >= AUXILIARY_DISCOVERY_MAX_CANDIDATES) break;
+      if (endpoint.enabled && (input.allowRemoteWorkerModels || endpoint.source !== 'worker-node')) await appendProbe(endpoint);
+    }
+    const remaining = AUXILIARY_DISCOVERY_MAX_CANDIDATES - candidates.length;
+    if (controller.signal.aborted || remaining <= 0) return candidates;
+    const workers = input.allowRemoteWorkerModels
+      ? collectAuxiliaryWorkerEndpoints(auxiliaryRemoteHooks.connectedWorkerNodes(), remaining, auxiliaryWorkerSourceKeys(input.endpoints)) : [];
+    for (const worker of workers) {
+      if (controller.signal.aborted || candidates.length >= AUXILIARY_DISCOVERY_MAX_CANDIDATES) break;
+      candidates.push({ endpoint: worker.endpoint, models: worker.models, healthy: worker.healthy,
+        reason: worker.healthy ? worker.models.length === 0 ? 'No models reported' : undefined : 'Worker Ollama unhealthy' });
+    }
+    return candidates;
+  } finally { clearTimeout(deadline); controller.abort(); }
 }

@@ -80,6 +80,15 @@ export class LocalAiGuardPageComponent implements OnInit {
     }
   }
 
+  protected async retryHelperNow(slot: import('../../../../shared/types/auxiliary-llm.types').AuxiliaryLlmSlot): Promise<void> {
+    const result = await this.store.retryHelperNow(slot);
+    this.announcement.set(result ? `${slot} can retry now.` : 'Helper retry could not be saved. Try again.');
+  }
+
+  protected helperRetryTime(at: number): string {
+    return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+
   protected async recover(): Promise<void> {
     if (this.store.operationKey() !== null) return;
     this.loading.set(true);

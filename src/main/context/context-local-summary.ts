@@ -52,7 +52,7 @@ export function generateLocalSummary(turns: ConversationTurn[], priorSummary: st
   }
 
   const anchorSection = priorSummary
-    ? `\n\n*(Anchored from prior compaction)*\n${priorSummary.slice(0, 600)}`
+    ? `\n\n*(Anchored from prior compaction)*\n${priorSummary}`
     : '';
 
   const pendingItems = [...actions].map(a => `- ${a}`).join('\n') || '- (none extracted)';

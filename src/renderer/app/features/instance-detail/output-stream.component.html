@@ -134,7 +134,7 @@
                       [class.failed]="compactionRecoveryState()[markerId] === 'failed'"
                       [disabled]="isCompactionRecoveryDisabled(markerId)"
                       (click)="recoverCompactionContext($event, markerId)"
-                      title="Queue preserved context for the next turn">
+                      appTooltip="Queue preserved context for the next turn">
                       {{ compactionRecoveryLabel(markerId) }}
                     </button>
                   }
@@ -187,7 +187,7 @@
             @if (isCompactionBoundary(item.message)) {
               <div class="compaction-boundary">
                 <div class="boundary-line"></div>
-                <span class="boundary-label">{{ getCompactionLabel(item.message) }}</span>
+                <span class="boundary-label" [attr.tabindex]="item.message.metadata?.method === 'restart-with-summary' ? 0 : null" [appTooltip]="getCompactionTooltip(item.message)">{{ getCompactionLabel(item.message) }}</span>
                 @if (getCompactionMarkerId(item.message); as markerId) {
                   <button
                     type="button"
@@ -196,7 +196,7 @@
                     [class.failed]="compactionRecoveryState()[markerId] === 'failed'"
                     [disabled]="isCompactionRecoveryDisabled(markerId)"
                     (click)="recoverCompactionContext($event, markerId)"
-                    title="Queue preserved context for the next turn">
+                    appTooltip="Queue preserved context for the next turn">
                     {{ compactionRecoveryLabel(markerId) }}
                   </button>
                 }

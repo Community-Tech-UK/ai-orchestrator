@@ -114,6 +114,34 @@ describe('SessionDiffTracker', () => {
   // =========================================================================
 
   describe('computeDiff', () => {
+    it('does not attribute another session\'s between-turn edit to a no-tool or later read-only turn', () => {
+      const file = path.join(tmpDir, 'shared.ts');
+      writeFile(file, 'initial\n'); tracker.captureBaseline(file, { editIntent: true });
+      writeFile(file, 'own edit\n'); tracker.computeDiff();
+      writeFile(file, 'other session edit\n');
+      expect(tracker.computeDiff().totalAdded).toBe(1);
+      expect(tracker.getLastTurnChanges()).toEqual({ seq: 2, changedPaths: [], editedPaths: [] });
+      tracker.captureBaseline(file); tracker.computeDiff();
+      expect(tracker.getLastTurnChanges()).toEqual({ seq: 3, changedPaths: [], editedPaths: [] });
+    });
+    it('reports a re-edit even when the session net line counts stay the same, then clears it on a read-only turn', () => {
+      const file = path.join(tmpDir, 'reedit.ts');
+      writeFile(file, 'first\n'); tracker.captureBaseline(file);
+      writeFile(file, 'second\n'); tracker.computeDiff();
+      expect(tracker.getLastTurnChanges()).toEqual({ seq: 1, changedPaths: ['reedit.ts'], editedPaths: [] });
+      tracker.captureBaseline(file); writeFile(file, 'third\n'); tracker.computeDiff();
+      expect(tracker.getLastTurnChanges()).toEqual({ seq: 2, changedPaths: ['reedit.ts'], editedPaths: [] });
+      tracker.computeDiff();
+      expect(tracker.getLastTurnChanges()).toEqual({ seq: 3, changedPaths: [], editedPaths: [] });
+    });
+
+    it('keeps edit intent when the first baseline arrives after the edit', () => {
+      writeFile(path.join(tmpDir, 'late.ts'), 'already edited\n');
+      tracker.captureBaseline('late.ts', { editIntent: true }); tracker.computeDiff();
+      expect(tracker.getLastTurnChanges()).toEqual({ seq: 1, changedPaths: [], editedPaths: ['late.ts'] });
+      tracker.computeDiff();
+      expect(tracker.getLastTurnChanges()).toEqual({ seq: 2, changedPaths: [], editedPaths: [] });
+    });
     it('computes additions and deletions across multiple files', () => {
       const fileA = path.join(tmpDir, 'a.txt');
       const fileB = path.join(tmpDir, 'b.txt');

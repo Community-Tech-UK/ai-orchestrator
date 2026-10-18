@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConversationLedgerService, INTERNAL_ORCHESTRATOR_NATIVE_THREAD_ID } from '../conversation-ledger';
 import { NativeConversationRegistry } from '../conversation-ledger/native-conversation-registry';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
@@ -11,6 +11,15 @@ import { BranchSummarizer } from '../context/branch-summarizer';
 import { ChatService } from './chat-service';
 import { resolveSpawnReasoningEffort } from '../instance/lifecycle/reasoning-effort-resolution';
 import type { ConversationEvidenceDeletionResult } from '../conversation-ledger/context-evidence-ledger.types';
+import type { LoopState } from '../../shared/types/loop.types';
+
+const closeLoops = vi.hoisted(() => ({
+  states: [] as Pick<LoopState, 'id' | 'chatId' | 'status' | 'endedAt'>[],
+  cancelLoop: vi.fn(async (_id: string) => true),
+}));
+vi.mock('../orchestration/loop-coordinator', () => ({ getLoopCoordinator: () => ({
+  getActiveLoops: () => closeLoops.states, cancelLoop: closeLoops.cancelLoop,
+}) }));
 
 const modelDefaults = vi.hoisted(() => ({ defaultModelByProvider: {} as Record<string, string> }));
 vi.mock('../core/config/settings-manager', () => ({
@@ -23,6 +32,44 @@ describe('ChatService', () => {
   const ledgers: ConversationLedgerService[] = [];
   const dbs: SqliteDriver[] = [];
   const services: ChatService[] = [];
+
+  beforeEach(() => {
+    closeLoops.states = [];
+    closeLoops.cancelLoop.mockReset().mockResolvedValue(true);
+  });
+
+  it.each(['archive', 'delete'] as const)('%s stops the runtime-owned loop before closing its session', async (action) => {
+    const { service, instanceManager } = createHarness();
+    const chat = await service.createChat({ provider: 'claude', currentCwd: '/work/project' });
+    const active = await service.sendMessage({ chatId: chat.chat.id, text: 'Start work' });
+    const instanceId = active.chat.currentInstanceId!;
+    closeLoops.states = [
+      { id: 'runtime-loop', chatId: instanceId, status: 'paused', endedAt: null },
+      { id: 'chat-loop', chatId: chat.chat.id, status: 'running', endedAt: null },
+    ];
+    const events: string[] = [];
+    closeLoops.cancelLoop.mockImplementation(async (id) => { events.push(`stop:${id}`); return true; });
+    const terminate = instanceManager.terminateInstance.bind(instanceManager);
+    instanceManager.terminateInstance = async (id) => { events.push(`close:${id}`); await terminate(id); };
+    if (action === 'archive') await service.archiveChat(chat.chat.id);
+    else await service.deleteChat(chat.chat.id);
+    expect(events).toEqual(['stop:runtime-loop', `close:${instanceId}`]);
+  });
+
+  it.each(['provider', 'model', 'reasoning', 'cwd'] as const)('%s runtime swap leaves its loop running', async (action) => {
+    const { service, ledger } = createHarness();
+    const chat = await service.createChat({ provider: 'claude', currentCwd: '/work/project' });
+    const active = await service.sendMessage({ chatId: chat.chat.id, text: 'Start work' });
+    closeLoops.states = [{ id: 'runtime-loop', chatId: active.chat.currentInstanceId!, status: 'running', endedAt: null }];
+    if (action === 'provider') {
+      // The regular provider setter permits a swap only before any ledger turn.
+      vi.spyOn(ledger, 'hasMessages').mockResolvedValueOnce(false);
+      await service.setProvider(chat.chat.id, 'codex');
+    } else if (action === 'model') await service.setModel(chat.chat.id, 'sonnet');
+    else if (action === 'reasoning') await service.setReasoning(chat.chat.id, 'high');
+    else await service.setCwd(chat.chat.id, '/work/other');
+    expect(closeLoops.cancelLoop).not.toHaveBeenCalled();
+  });
 
   afterEach(async () => {
     modelDefaults.defaultModelByProvider = {};

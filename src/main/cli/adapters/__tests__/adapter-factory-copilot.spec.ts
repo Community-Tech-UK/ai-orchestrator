@@ -122,6 +122,12 @@ describe('adapter factory — copilot', () => {
     expect(adapter.getName()).toBe('copilot-acp');
   });
 
+  it('marks only Copilot prompt usage as cumulative gross', () => {
+    const config = (adapter: ReturnType<typeof createCliAdapter>) => (adapter as unknown as {acpConfig:{promptUsageReporting?:string}}).acpConfig;
+    expect(config(createCliAdapter('copilot', {workingDirectory:'/tmp', copilotAccountRoute:legacyRoute()})).promptUsageReporting).toBe('session-cumulative-gross');
+    expect(config(createCliAdapter('cursor', {workingDirectory:'/tmp'})).promptUsageReporting).toBeUndefined();
+  });
+
   it('passes resume session options through to the ACP adapter', () => {
     const adapter = createCliAdapter('copilot', {
       copilotAccountRoute: legacyRoute(),

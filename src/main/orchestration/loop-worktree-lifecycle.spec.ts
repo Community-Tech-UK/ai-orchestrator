@@ -229,15 +229,15 @@ describe('finalizeLoopWorktree', () => {
     expect(store.clearWorktreeInfo).not.toHaveBeenCalled();
   });
 
-  it('preserves a cancelled run on its session branch before cleaning the directory', async () => {
-    const state = makeState('cancelled');
+  it.each(['cancelled', 'attempt-failed'] as const)('preserves a %s run on its session branch before cleaning the directory', async (status) => {
+    const state = makeState(status);
     const manager = makeManager();
     const store = makeStore();
     const phases: string[] = [];
 
     await finalizeLoopWorktree({
       state,
-      status: 'cancelled',
+      status,
       worktreeSessionId: 'wt-1',
       manager,
       store,
@@ -246,7 +246,8 @@ describe('finalizeLoopWorktree', () => {
 
     expect(phases).toEqual(['harvesting', 'harvested', 'preserved', 'cleaned']);
     expect(manager.integrateWorktree).not.toHaveBeenCalled();
-    expect(manager.abandonWorktree).toHaveBeenCalledWith('wt-1', 'loop-cancelled');
+    expect(manager.abandonWorktree).toHaveBeenCalledWith('wt-1', `loop-${status}`);
+    expect(manager.promoteWorktreeIntegration).not.toHaveBeenCalled();
     expect(manager.cleanupWorktree).toHaveBeenCalledWith('wt-1', {
       retainBranch: true,
     });

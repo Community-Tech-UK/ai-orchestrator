@@ -159,13 +159,15 @@ export class MessageFormatService {
       }
       return 'Codex compacted its own context (awaiting updated usage)';
     }
-    const methodLabel = method ? `[${method}]` : '';
-
-    if (prev?.percentage !== undefined && next?.percentage !== undefined) {
-      return `Context compacted ${methodLabel} (${Math.round(prev.percentage)}% → ${Math.round(next.percentage)}%)`.trim();
+    if (method === 'restart-with-summary') {
+      return prev?.percentage !== undefined
+        ? `Context compacted — fresh session (was ${Math.round(prev.percentage)}%; new size after reply)`
+        : 'Context compacted — fresh session (new size after reply)';
     }
-
-    return `Context compacted ${methodLabel}`.trim();
+    if (prev?.percentage !== undefined && next?.percentage !== undefined) {
+      return `Context compacted in place (${Math.round(prev.percentage)}% → ${Math.round(next.percentage)}%)`;
+    }
+    return 'Context compacted in place';
   }
 
   getCompactionMarkerId(message: OutputMessage): string | null {

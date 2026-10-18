@@ -262,7 +262,7 @@ describe('WS9 §6 — Fable-shaped plan becomes a sequential campaign', () => {
 });
 
 describe('WS9 §7/§8 — persistence and restore', () => {
-  it('a parked write-observed attempt NEVER replays on restore (terminal park is refused re-activation) and its evidence survives the checkpoint round-trip', async () => {
+  it.each(['completed-needs-review', 'attempt-failed'] as const)('a sealed %s attempt NEVER replays on restore and its evidence survives the checkpoint round-trip', async (status) => {
     const seeded = await startedThenCancelledState();
     // Count ONLY invocations attributed to the parked run — the seed loop's
     // own (cancelled) run may still flush a queued emission.
@@ -274,7 +274,7 @@ describe('WS9 §7/§8 — persistence and restore', () => {
     const parkedId = seeded.id;
     const parked: LoopState = {
       ...seeded,
-      status: 'completed-needs-review',
+      status,
       endedAt: null,
       endReason: 'Iteration 3 paused for review instead of an automatic replay: writes observed',
       endEvidence: {

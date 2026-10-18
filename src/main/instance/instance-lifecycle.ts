@@ -1211,7 +1211,7 @@ export class InstanceLifecycleManager extends EventEmitter {
    * 3) <workDir>/.orchestrator/INSTRUCTIONS.md
    * 4) <workDir>/.claude/CLAUDE.md (legacy)
    */
-  private async loadPromptHierarchy(workDir: string, provider?: string): Promise<string[]> {
+  private async loadPromptHierarchy(workDir: string, provider?: string, options?: { remote?: boolean }): Promise<string[]> {
     const resolved = await resolveInstructionStack({
       workingDirectory: workDir,
       discovery: 'applicable',
@@ -1227,8 +1227,8 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
       },
       homedir(),
+      options,
     );
-
     for (const source of resolution.sources) {
       logger.debug('Resolved instruction source for instance prompt', {
         path: source.path,
@@ -1507,9 +1507,10 @@ export class InstanceLifecycleManager extends EventEmitter {
         );
         attachToolFilterMetadata(instance, toolPermissions.toolFilter);
 
+        const executionLocation = resolveExecutionLocation(config);
         // Load instruction hierarchy (skip for child instances to reduce token overhead)
         const instructionPrompts = instance.depth === 0
-          ? await this.loadPromptHierarchy(instance.workingDirectory, config.provider)
+          ? await this.loadPromptHierarchy(instance.workingDirectory, config.provider, { remote: executionLocation.type === 'remote' })
           : [];
 
         if (signal.aborted) return;
@@ -1539,7 +1540,6 @@ export class InstanceLifecycleManager extends EventEmitter {
         const localModelTarget = config.modelRuntimeTarget?.kind === 'local-model'
           ? config.modelRuntimeTarget
           : null;
-        const executionLocation = resolveExecutionLocation(config);
         const preserveForcedRemoteProvider = executionLocation.type === 'remote'
           && config.forceNodeId !== undefined
           && config.provider !== undefined
@@ -2461,8 +2461,7 @@ export class InstanceLifecycleManager extends EventEmitter {
   ): void {
     this.restartHelpers.resetBackendSessionState(instance, cliType, options);
   }
-
-  private async archiveRestartSnapshot(instance: Instance, messages: OutputMessage[]): Promise<void> {
+  private async archiveRestartSnapshot(instance: Instance, messages: OutputMessage[]): Promise<string | undefined> {
     return this.restartHelpers.archiveRestartSnapshot(instance, messages);
   }
 
@@ -2813,7 +2812,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     this.emit('output', { instanceId: instance.id, message: notice });
   }
 
-  async restartFreshInstance(instanceId: string): Promise<void> {
+  async restartFreshInstance(instanceId: string): Promise<string | undefined> {
     const release = await getSessionMutex().acquire(instanceId, 'restart-fresh');
     try {
       const instance = this.deps.getInstance(instanceId);
@@ -2843,8 +2842,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
       }
 
-      await this.archiveRestartSnapshot(instance, previousMessages);
-
+      const restartArchiveId = await this.archiveRestartSnapshot(instance, previousMessages);
       if (lastPreFreshMessageId) {
         instance.archivedUpToMessageId = lastPreFreshMessageId;
         this.deps.addToOutputBuffer(instance, this.createSessionBoundaryMessage());
@@ -2957,6 +2955,8 @@ export class InstanceLifecycleManager extends EventEmitter {
           historyThreadId: instance.historyThreadId,
         }
       );
+      if (instance.recoveryMethod === 'failed') throw new Error('Fresh restart failed');
+      return restartArchiveId;
     } finally {
       release();
     }

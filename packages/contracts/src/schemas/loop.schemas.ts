@@ -46,11 +46,10 @@ export const LoopStatusSchema = z.enum([
   'running',
   'paused',
   'completed',
-  // LF-7: successful "done but needs a human glance" terminal state.
   'completed-needs-review',
+  'attempt-failed',
   'cancelled',
   'failed',
-  'attempt-failed',
   'error',
   'no-progress',
   'cap-reached',
@@ -708,6 +707,7 @@ export const LoopStateSchema = z.object({
   }).optional(),
   /** T2: last successful child thread capabilities. Optional for back-compat. */
   lastThreadCaps: LoopThreadCapsSchema.optional(),
+  lastFullAnchorSeq: z.number().int().nonnegative().optional(),
   /** Ping-pong runtime state (round count, issue ledger, reviewer spend).
    *  Optional — only present on loops running in ping-pong mode. */
   pingPong: LoopPingPongStateSchema.optional(),

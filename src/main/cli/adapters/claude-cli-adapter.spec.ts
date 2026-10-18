@@ -820,6 +820,7 @@ describe('ClaudeCliAdapter rate_limit_event handling', () => {
     const getLastRateLimitInfo = (
       adapter as unknown as { getLastRateLimitInfo: () => { status?: string } | null }
     ).getLastRateLimitInfo.bind(adapter);
+    (adapter as unknown as { resetResidentTurn(): void }).resetResidentTurn();
     return { adapter, outputs, processCliMessage, getLastRateLimitInfo };
   }
 
@@ -916,6 +917,7 @@ describe('ClaudeCliAdapter LT-105 errored resident turn completion', () => {
       resetResidentTurn: () => void;
       awaitingOneShotCompletion: boolean;
     };
+    internals.resetResidentTurn(); // Establish the input-owned turn modeled by this fixture.
     return { completions, errors, internals };
   }
 
@@ -946,6 +948,9 @@ describe('ClaudeCliAdapter LT-105 errored resident turn completion', () => {
 
     internals.processCliMessage(streamError);
     internals.resetResidentTurn(); // what sendInputImpl does when the next turn starts
+    internals.processCliMessage(result); // old trailing result must not complete the newer input
+    expect(completions).toHaveLength(1);
+    internals.processCliMessage({ type: 'assistant', message: { content: [{ type: 'text', text: 'Next turn.' }] } });
     internals.processCliMessage(result);
 
     expect(completions).toHaveLength(2);

@@ -164,6 +164,7 @@ export function loopStatusToOutcome(
   if (status === 'provider-limit' && endedAt != null) return 'failure';
   if (
     status === 'failed' ||
+    status === 'attempt-failed' ||
     status === 'error' ||
     status === 'cancelled' ||
     status === 'cost-exceeded' ||

@@ -173,6 +173,13 @@ describe('SelfPermissionGranter', () => {
     expect(r.rulePattern).toBe('Write(/tmp/x.ts)');
   });
 
+  it.each(['WebFetch', 'mcp__example__tool', 'UnknownTool'])('refuses explicit unsupported tool %s without writing a fallback Edit rule', (toolName) => {
+    const result = granter.grant({ toolName, action: 'edit', path: '/tmp/y.ts' });
+    expect(result).toMatchObject({ ok: false, code: 'UNSUPPORTED_ACTION' });
+    expect(fs.existsSync(settingsFile)).toBe(false);
+    expect(fs.existsSync(auditFile)).toBe(false);
+  });
+
   it('falls back to Edit when action is unknown but a file path is supplied', () => {
     const r = granter.grant({ action: 'frobulate', path: '/tmp/y.ts' });
     expect(r.ok).toBe(true);

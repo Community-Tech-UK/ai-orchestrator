@@ -390,6 +390,7 @@ export const MOBILE_LOOP_STATUSES = [
   'paused',
   'completed',
   'completed-needs-review',
+  'attempt-failed',
   'cancelled',
   'failed',
   'error',

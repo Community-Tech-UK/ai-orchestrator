@@ -794,5 +794,20 @@ describe('VerificationResultsComponent', () => {
       const meta = fixture.nativeElement.querySelector('.results-meta');
       expect(meta?.textContent).toContain('Cost');
     });
+
+    it('discloses unknown aggregate and agent costs while retaining known and free values', () => {
+      mockResult.set({ ...mockVerificationResult, totalCost: 'unknown', responses: [
+        { ...mockVerificationResult.responses[0], cost: 0.07 },
+        { ...mockVerificationResult.responses[1], cost: 'unknown' },
+        { ...mockVerificationResult.responses[2], cost: 0 },
+      ] });
+      component.selectTab('comparison');
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.results-meta')?.textContent).toContain('Total Cost: Unknown');
+      const cards = fixture.nativeElement.querySelectorAll('.card-meta');
+      expect(cards[0].textContent).toContain('$0.0700');
+      expect(cards[1].textContent).toContain('Unknown');
+      expect(cards[2].textContent).toContain('$0.0000');
+    });
   });
 });

@@ -529,6 +529,21 @@ describe('Local AI Guard auxiliary integration', () => {
     });
   });
 
+  it('records a compression fallback without API keys as aio-basic-summary with known zero cost', async () => {
+    const setup = harness('notify-and-allow', false);
+    modelClient.probe.mockResolvedValue(false);
+    await configuredService();
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 })));
+    const { LLMService, getLLMService } = await import('../rlm/llm-service');
+    LLMService._resetForTesting();
+    const llm = getLLMService({ provider: 'local', anthropicApiKey: '', openaiApiKey: '' });
+    await llm.checkOllamaHealth();
+    await llm.summarize({ requestId: 'basic-provider', content: 'content requiring a summary', targetTokens: 50 });
+    const event = setup.health.getRoutingEvent('routing-1');
+    expect(event).toMatchObject({ provider: 'aio-basic-summary', knownCostUsd: 0 });
+    expect(event?.model).toBeUndefined();
+  });
+
   it('patches the routing event from a real LLMService paid provider winner', async () => {
     const setup = harness('notify-and-allow', false);
     modelClient.probe.mockResolvedValue(false);
@@ -566,7 +581,7 @@ describe('Local AI Guard auxiliary integration', () => {
     expect(event?.model).toBe('haiku');
     expect(event?.inputTokens).toBe(21);
     expect(event?.outputTokens).toBe(7);
-    expect(event?.estimatedCostUsd).toEqual(expect.any(Number));
+    expect(event?.knownCostUsd).toEqual(expect.any(Number));
     expect(event?.completedAt).toBe(1_000);
     expect(attributed.filter((record) => (
       (record as { correlationId?: string }).correlationId === 'routing-1'

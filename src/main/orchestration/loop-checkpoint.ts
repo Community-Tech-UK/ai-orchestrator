@@ -45,7 +45,10 @@ export function buildLoopCheckpoint(input: {
   now?: number;
 }): LoopCheckpoint {
   const window = Math.min(LOOP_CHECKPOINT_HISTORY_TAIL, progressDetectorHistoryWindow(input.state.config.progressThresholds));
-  const historyTail = input.history.slice(-window);
+  const history = input.history.length > 0
+    ? input.history
+    : input.state.lastIteration ? [input.state.lastIteration] : [];
+  const historyTail = history.slice(-window);
   return {
     version: LOOP_CHECKPOINT_VERSION,
     loopRunId: input.state.id,

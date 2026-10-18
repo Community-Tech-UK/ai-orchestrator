@@ -2,6 +2,7 @@ import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AuxiliaryHelperPause } from '../../../../shared/types/auxiliary-llm.types';
 import type {
   LocalAiFallbackRequest,
   LocalAiFallbackResolution,
@@ -88,6 +89,7 @@ describe('LocalAiFallbackBannerComponent', () => {
     isInitialized: isInitialized.asReadonly(),
     hasAuthoritativeSnapshot: hasAuthoritativeSnapshot.asReadonly(),
     aggregate: aggregate.asReadonly(),
+    helperPauses: signal<AuxiliaryHelperPause[]>([]).asReadonly(),
     resolveFallback,
     fallbackNotifications: fallbackNotifications.asReadonly(),
     dismissFallbackNotification,

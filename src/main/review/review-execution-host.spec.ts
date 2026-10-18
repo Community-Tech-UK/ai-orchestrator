@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ProviderReviewExecutionHost, resolveReviewerModelOverride } from './review-execution-host';
+import { subscribeCostAttribution, type CostAttributionRecord } from '../core/system/cost-attribution';
 
 // Mutable holder so each test can configure the per-reviewer model override.
 const hostTestState = vi.hoisted(() => ({
@@ -8,7 +9,7 @@ const hostTestState = vi.hoisted(() => ({
   quotaSnapshot: null as null | {
     ok: boolean;
     takenAt: number;
-    windows: Array<{ id: string; label: string; used: number; limit: number }>;
+    windows: { id: string; label: string; used: number; limit: number }[];
   },
 }));
 
@@ -76,6 +77,37 @@ describe('ProviderReviewExecutionHost', () => {
     hostTestState.modelByProvider = {};
     hostTestState.createAdapter.mockReset();
     hostTestState.quotaSnapshot = null;
+  });
+
+  it('records the successful send with its purpose, correlation and usage', async () => {
+    const records: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(record => records.push(record));
+    hostTestState.createAdapter.mockReturnValue({
+      sendMessage: vi.fn().mockResolvedValue({ content: '{}', usage: { inputTokens: 20, outputTokens: 3, cost: 0.01 } }),
+      terminate: vi.fn().mockResolvedValue(undefined),
+    });
+    try {
+      await new ProviderReviewExecutionHost().dispatchReviewerPrompt('codex', 'review', '/repo', new AbortController().signal,
+        { purpose: 'fresh-eyes-review', correlationId: 'loop-1' });
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({ purpose: 'fresh-eyes-review', correlationId: 'loop-1', costSource: 'provider', usage: { cost: 0.01 } });
+    } finally { stop(); }
+  });
+
+  it.each(['error', 'cancelled'] as const)('records an unknown-cost %s send once', async outcome => {
+    const abort = new AbortController();
+    const records: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(record => records.push(record));
+    let rejectSend: ((error: Error) => void) | undefined;
+    const sendMessage = vi.fn(outcome === 'error' ? () => Promise.reject(new Error('provider failed')) : () => new Promise<never>((_resolve, reject) => { rejectSend = reject; }));
+    hostTestState.createAdapter.mockReturnValue({ sendMessage, terminate: vi.fn(async () => { rejectSend?.(new Error('native process closed')); }) });
+    try {
+      const pending = new ProviderReviewExecutionHost().dispatchReviewerPrompt('codex', 'review', '/repo', abort.signal);
+      if (outcome === 'cancelled') { await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce()); abort.abort(); }
+      await expect(pending).rejects.toThrow();
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({ purpose: 'review-cli', outcome, costSource: 'unknown', costKnown: false });
+    } finally { stop(); }
   });
 
   it('interrupts and force-terminates an in-flight reviewer when cancelled', async () => {

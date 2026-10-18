@@ -44,10 +44,16 @@ import { TerminateConfirmStore } from './terminate-confirm.store';
         (keydown.escape)="confirmStore.cancel()"
       >
         <div #dialog class="confirm-dialog" tabindex="-1">
-          <h3 id="terminate-confirm-title">@if (confirmStore.isAll()) { Close {{ confirmStore.allCount() === 1 ? '1 session' : 'all ' + confirmStore.allCount() + ' sessions' }}? } @else { Close {{ confirmStore.pendingName() }}? }</h3>
+          <h3 id="terminate-confirm-title">
+            @if (confirmStore.isAll()) {
+              @if (confirmStore.allCount() === 1) { Close 1 session? }
+              @else { Close all {{ confirmStore.allCount() }} sessions? }
+            } @else { Close {{ confirmStore.pendingName() }}? }
+          </h3>
           <p id="terminate-confirm-body">
             @if (confirmStore.isAll()) {
-              This stops every agent and closes every session. Work they have not saved to disk is lost. Conversations stay in history, except child sessions.
+              This stops every agent and closes every session. Work they have not
+              saved to disk is lost. Conversations stay in history, except child sessions.
             } @else {
             This stops the agent and closes the session. Any work it has not
             written to disk is lost.
@@ -55,7 +61,9 @@ import { TerminateConfirmStore } from './terminate-confirm.store';
               The conversation is kept in history.
             }
             }
-            @if (confirmStore.runningLoopCount()) { {{ confirmStore.runningLoopCount() }} running loop(s) will be stopped too. }
+            @if (confirmStore.runningLoopCount(); as count) {
+              {{ count }} running {{ count === 1 ? 'loop' : 'loops' }} will be stopped too.
+            }
             @if (confirmStore.queueWillPause()) { Plan Queue runs will be paused. Resume them from the Plan Queue page. }
           </p>
           <div class="confirm-actions">
@@ -86,9 +94,9 @@ export class TerminateConfirmDialogComponent implements OnDestroy {
     // Focus follows the prompt and remains inside it until the question is
     // resolved. The shared trap also restores the element that opened it.
     effect(() => {
-      const open = this.confirmStore.isOpen();
+      const isOpen = this.confirmStore.isOpen();
       const dialog = this.dialog()?.nativeElement ?? null;
-      if (!open || !dialog) {
+      if (!isOpen || !dialog) {
         this.closeFocusTrap();
         return;
       }

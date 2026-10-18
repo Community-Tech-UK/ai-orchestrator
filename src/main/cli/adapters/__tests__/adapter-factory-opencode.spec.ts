@@ -206,3 +206,10 @@ describe('adapter factory — opencode', () => {
     }
   });
 });
+
+
+it('disables only OpenCode Claude prompt loading while keeping native skills', () => {
+  const adapter = createCliAdapter('opencode', { workingDirectory: '/tmp' });
+  expect(acpConfig(adapter).env?.['OPENCODE_DISABLE_CLAUDE_CODE_PROMPT']).toBe('1');
+  expect(acpConfig(adapter).env?.['OPENCODE_DISABLE_CLAUDE_CODE']).toBeUndefined();
+});

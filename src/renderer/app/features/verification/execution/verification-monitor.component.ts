@@ -16,6 +16,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { VerificationStore } from '../../../core/state/verification.store';
+import type { VerificationCost } from '../../../../../shared/types/verification.types';
 
 @Component({
   selector: 'app-verification-monitor',
@@ -639,8 +640,8 @@ export class VerificationMonitorComponent {
       .join(' ');
   }
 
-  formatCost(cost: number): string {
-    return `$${cost.toFixed(4)}`;
+  formatCost(cost: VerificationCost): string {
+    return cost === 'unknown' ? 'Unknown' : `$${cost.toFixed(4)}`;
   }
 
   // ============================================

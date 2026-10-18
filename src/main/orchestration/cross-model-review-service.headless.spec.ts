@@ -4,6 +4,12 @@ import type { ReviewExecutionHost } from '../review/review-execution-host';
 import type { ReviewResult } from '../../shared/types/cross-model-review.types';
 import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import type { LocalReviewerLimits } from '../review/local-reviewer';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { SessionDiffTracker } from '../instance/session-diff-tracker';
+import type { InstanceManager } from '../instance/instance-manager';
+import type { Instance } from '../../shared/types/instance.types';
 
 const localReviewState = vi.hoisted(() => ({
   settingsUnavailable: false,
@@ -96,6 +102,44 @@ describe('CrossModelReviewService headless review', () => {
     localReviewState.qualityModel = '';
     localReviewState.modelByProvider = {};
     localReviewState.quotaSnapshot = null;
+  });
+
+  it('uses actual per-turn tracker provenance to skip another session\'s edits and review repeated own edits', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'review-shared-checkout-'));
+    try {
+      const file = join(directory, 'file.ts');
+      writeFileSync(file, 'initial\n');
+      const tracker = new SessionDiffTracker(directory);
+      tracker.captureBaseline(file, { editIntent: true });
+      writeFileSync(file, 'own first edit\n'); tracker.computeDiff();
+      const instance = { id: 'main', provider: 'claude', parentId: null, launchMode: 'orchestrated', status: 'idle',
+        workingDirectory: directory, outputBuffer: [] } as unknown as Instance;
+      const service = CrossModelReviewService.getInstance();
+      service.setInstanceManager({ getInstance: () => instance, getTurnFileChanges: () => tracker.getLastTurnChanges() } as unknown as InstanceManager);
+      const dispatch = vi.spyOn(service as unknown as { dispatchReview: (...args: unknown[]) => Promise<{ status: 'started' }> }, 'dispatchReview')
+        .mockResolvedValue({ status: 'started' });
+      service.bufferMessage('main', 'assistant', 'First own edit', 'claude');
+      await service.onInstanceIdle('main');
+      expect(dispatch).toHaveBeenCalledTimes(1);
+      expect(dispatch.mock.calls[0][4]).toEqual(['file.ts']);
+      writeFileSync(file, 'another session changed this\n'); tracker.computeDiff();
+      service.bufferMessage('main', 'assistant', 'Ordinary reply without tools', 'claude');
+      await service.onInstanceIdle('main');
+      expect(dispatch).toHaveBeenCalledTimes(1);
+      tracker.captureBaseline(file); tracker.computeDiff();
+      service.bufferMessage('main', 'assistant', 'Read-only reply', 'claude');
+      await service.onInstanceIdle('main');
+      expect(dispatch).toHaveBeenCalledTimes(1);
+      tracker.captureBaseline(file, { editIntent: true });
+      writeFileSync(file, 'own second edit\n'); tracker.computeDiff();
+      service.bufferMessage('main', 'assistant', 'Second own edit', 'claude');
+      await service.onInstanceIdle('main');
+      expect(dispatch).toHaveBeenCalledTimes(2);
+      expect(dispatch.mock.calls[1][4]).toEqual(['file.ts']);
+    } finally {
+      CrossModelReviewService._resetForTesting();
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('limits both explicit and pooled headless reviewers to the requested maximum', async () => {

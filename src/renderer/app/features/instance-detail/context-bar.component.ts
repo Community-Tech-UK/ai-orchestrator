@@ -9,11 +9,13 @@ import { ContextUsage, InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { ContextEvidencePanelComponent } from '../../shared/components/context-evidence-panel/context-evidence-panel.component';
 import { ContextAttributionPanelComponent } from './context-attribution-panel.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { SESSION_COST_TOOLTIP } from '../../../../shared/types/session-cost-copy';
 
 @Component({
   selector: 'app-context-bar',
   standalone: true,
-  imports: [DecimalPipe, ContextEvidencePanelComponent, ContextAttributionPanelComponent],
+  imports: [DecimalPipe, ContextEvidencePanelComponent, ContextAttributionPanelComponent, AioTooltipDirective],
   template: `
     <div class="context-bar" [class.compact]="compact()">
       <div class="bar-track">
@@ -51,7 +53,7 @@ import { ContextAttributionPanelComponent } from './context-attribution-panel.co
             <span class="percentage no-data" title="This provider has not reported context occupancy for this session">no data</span>
           }
           @if (showCostEffective() && costEstimate()) {
-            <span class="cost">≈{{ costEstimate() | number:'1.2-2' }} USD</span>
+            <span class="cost" tabindex="0" [appTooltip]="costTooltip">≈\${{ costEstimate() | number:'1.2-2' }}</span>
           }
         </div>
       } @else {
@@ -231,6 +233,7 @@ import { ContextAttributionPanelComponent } from './context-attribution-panel.co
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ContextBarComponent {
+  readonly costTooltip = SESSION_COST_TOOLTIP;
   usage = input.required<ContextUsage>();
   compact = input<boolean>(false);
   showDetails = input<boolean>(false);

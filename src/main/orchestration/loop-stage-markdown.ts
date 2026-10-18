@@ -211,7 +211,7 @@ export interface NotesCurationResult {
  * Extract the `## Completion Inventory` section verbatim (heading through the
  * line before the next `##` heading, or EOF). Returns null when absent.
  */
-function extractCompletionInventory(content: string): string | null {
+export function extractCompletionInventory(content: string): string | null {
   const heading = content.match(/^##\s+Completion Inventory\b.*$/im);
   if (!heading || heading.index === undefined) return null;
   const afterHeadingStart = heading.index + heading[0].length;
@@ -238,14 +238,20 @@ export function curateNotesContent(
   const inventory = extractCompletionInventory(content);
 
   let tail = content.slice(-keepTailChars);
+  // A UTF-16 cut can land between the two units of one Unicode character.
+  // Drop that partial oldest character before any UTF-8 file write.
+  const precedingUnit = content.charCodeAt(content.length - tail.length - 1);
+  const firstUnit = tail.charCodeAt(0);
+  if (precedingUnit >= 0xD800 && precedingUnit <= 0xDBFF && firstUnit >= 0xDC00 && firstUnit <= 0xDFFF) {
+    tail = tail.slice(1);
+  }
   const firstNewline = tail.indexOf('\n');
   if (firstNewline >= 0) tail = tail.slice(firstNewline + 1);
   tail = tail.replace(/^\s+/, '');
 
   const banner = '# Loop Notes\n';
   const marker =
-    '\n_[loop] Older NOTES.md entries were elided to bound context. ' +
-    'Full per-iteration history remains in ITERATION_LOG.md._\n\n';
+    '\n_[loop] Older NOTES.md entries were removed to keep this file short; the newest entries follow._\n\n';
   let curated = `${banner}${marker}${tail}`;
 
   const inventoryTrimmed = inventory?.trim();
@@ -258,4 +264,15 @@ export function curateNotesContent(
     changed: curated !== content,
     elidedChars: Math.max(0, content.length - curated.length),
   };
+}
+
+export const ITERATION_LOG_MAX_BYTES = 64 * 1024;
+export const ITERATION_LOG_KEEP_TAIL_BYTES = 32 * 1024;
+
+/** Drop a partial oldest entry, including a partial UTF-8 character at the cut. */
+export function trimIterationLogTail(tailText: string): string {
+  const boundary = tailText.indexOf('\n## Iteration ');
+  const tail = tailText.startsWith('## Iteration ') ? tailText : boundary >= 0 ? tailText.slice(boundary + 1) : '';
+  return '# Iteration Log\n\n_[loop] Older entries were trimmed to keep this file under 64 KB. ' +
+    'Harness keeps every iteration in its run history._\n\n' + tail;
 }

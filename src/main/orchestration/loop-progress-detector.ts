@@ -36,11 +36,13 @@ import { signalI_idempotentReadIdentity } from './loop-progress-idempotent-read'
 
 export { signalI_idempotentReadIdentity } from './loop-progress-idempotent-read';
 
-export function progressDetectorHistoryWindow(th: LoopProgressThresholds): number {
-  return Math.max(5, th.identicalHashCriticalWindow, th.testStagnationCriticalIterations, th.testStagnationWarnIterations);
-}
-
 // ============ helpers ============
+
+/** Checkpoint history must retain the longest signal window, with a five-round floor. */
+export function progressDetectorHistoryWindow(thresholds: LoopProgressThresholds): number {
+  return Math.max(5, thresholds.identicalHashCriticalWindow,
+    thresholds.testStagnationCriticalIterations, thresholds.testStagnationWarnIterations);
+}
 
 /** Combine OK/WARN/CRITICAL — CRITICAL wins, then WARN, else OK. */
 function maxVerdict(a: LoopVerdict, b: LoopVerdict): LoopVerdict {

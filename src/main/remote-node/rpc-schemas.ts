@@ -28,10 +28,8 @@ import {
   NodeExecParamsSchema,
   WorkerNodeExtensionRelaySummarySchema,
 } from './node-control-rpc-schemas';
-
 export * from './node-control-rpc-schemas';
 export { FsReadFileParamsSchema, FsWriteFileParamsSchema };
-
 export const BROWSER_CDP_MAX_FRAME_BYTES = 64 * 1024 * 1024;
 export const WORKER_NODE_WS_MAX_PAYLOAD_BYTES = BROWSER_CDP_MAX_FRAME_BYTES + 16 * 1024 * 1024;
 export const WORKER_NODE_WS_BACKPRESSURE_BYTES = 32 * 1024 * 1024;
@@ -55,9 +53,7 @@ const LocalAiRoutingRoleSchema = z.enum([
 ]);
 export const LOCAL_AI_HEALTH_MAX_TIMEOUT_MS = 120_000;
 export const LOCAL_AI_HEALTH_MAX_LATENCY_THRESHOLD_MS = 300_000;
-
 // -- Shared sub-schemas -------------------------------------------------------
-
 const WorkerLoadedLocalModelSchema = z.object({
   id: z.string().min(1).max(256),
   contextLength: z.number().int()
@@ -223,6 +219,7 @@ export const InstanceSpawnParamsSchema = z.object({
   instanceId: z.string().min(1), sessionId: z.string().min(1).max(512).optional(), interactionId: z.string().uuid().optional(),
   cliType: z.string().min(1),
   workingDirectory: z.string().min(1),
+  usageSettlementProtocol: z.literal(1).optional(), // Per-instance opt-in; legacy workers strip it.
   systemPrompt: z.string().optional(),
   model: ProviderModelIdSchema.optional(),
   /**

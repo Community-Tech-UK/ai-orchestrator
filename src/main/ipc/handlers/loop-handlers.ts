@@ -19,10 +19,12 @@ import {
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { buildAwayRecap } from '../../orchestration/away-recap';
 import { registerLoopWorktreeResolveHandler } from './loop-worktree-resolve-handler';
+import { isTerminalLoopRuntimeState } from '../../orchestration/loop-runtime-status';
 import { getLoopCoordinator } from '../../orchestration/loop-coordinator';
 import { getDocReviewService } from '../../doc-review/doc-review-service';
 import { buildRunCheckpoint } from '../../orchestration/loop-checkpoint';
 import { resumeLoopRun } from '../../orchestration/loop-resume';
+import { cancelLoopOrCloseStoredRun } from '../../orchestration/loop-cancel-or-close';
 import { getLoopStore } from '../../orchestration/loop-store';
 import { inferLoopVerifyCommand } from '../../orchestration/loop-verify-command';
 import { prepareLoopStartConfig, markInteractiveLoopStart } from '../../orchestration/loop-start-config';
@@ -428,7 +430,7 @@ export function registerLoopHandlers(deps: {
   ipcMain.handle(IPC_CHANNELS.LOOP_CANCEL, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopByIdPayloadSchema, payload, 'LOOP_CANCEL');
-      const ok = await coordinator.cancelLoop(validated.loopRunId);
+      const ok = await cancelLoopOrCloseStoredRun(validated.loopRunId, coordinator, store);
       const state = coordinator.getLoop(validated.loopRunId);
       if (state) try { store.upsertRun(state); } catch { /* noop */ }
       return { success: true, data: { ok, state } };
@@ -601,29 +603,7 @@ function toVerificationRunPayload(run: VerificationRun) {
 }
 
 function shouldAppendTerminalSummary(state: LoopState): boolean {
-  if (state.status === 'provider-limit') {
-    return state.endedAt !== null;
-  }
-  return isTerminalLoopStatus(state.status);
-}
-
-function isTerminalLoopStatus(status: LoopState['status']): boolean {
-  return (
-    status === 'completed'
-    || status === 'completed-needs-review'
-    || status === 'cancelled'
-    || status === 'failed'
-    || status === 'attempt-failed'
-    || status === 'cap-reached'
-    || status === 'error'
-    || status === 'no-progress'
-    // Ping-pong terminal states (bigchange_pingpong_review §4.11).
-    || status === 'cost-exceeded'
-    || status === 'needs-human-arbitration'
-    || status === 'reviewer-unreliable'
-    || status === 'reviewer-unavailable'
-    || status === 'builder-unreliable'
-  );
+  return isTerminalLoopRuntimeState(state);
 }
 
 /**

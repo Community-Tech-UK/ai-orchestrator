@@ -38,7 +38,8 @@ export interface CliUserMessage extends CliStreamMessageBase {
  */
 export interface CliSystemMessage extends CliStreamMessageBase {
   type: 'system';
-  subtype: 'init' | 'context_usage' | 'session' | 'info' | 'warning';
+  subtype: 'init' | 'context_usage' | 'session' | 'info' | 'warning' | 'compact_boundary';
+  compact_metadata?: { trigger?: string; pre_tokens?: number };
   content?: string;
   session_id?: string;
   usage?: CliContextUsage;
@@ -377,7 +378,7 @@ export interface AcpInitializeResult {
   protocolVersion: number;
   agentCapabilities?: AcpAgentCapabilities;
   agentInfo?: AcpImplementationInfo;
-  authMethods?: Array<Record<string, unknown>>;
+  authMethods?: Record<string, unknown>[];
 }
 
 /** Re-exported for existing import sites; definition lives in acp-mcp.types.ts. */
@@ -390,11 +391,11 @@ export interface AcpSessionConfigOption {
   category?: string;
   type: string;
   currentValue?: string;
-  options?: Array<{
+  options?: {
     value: string;
     label: string;
     description?: string;
-  }>;
+  }[];
 }
 
 export interface AcpSessionModeDescriptor {
@@ -557,11 +558,11 @@ export interface AcpToolCallDeltaUpdate {
 
 export interface AcpPlanUpdate {
   sessionUpdate: 'plan';
-  entries: Array<{
+  entries: {
     content: string;
     priority?: string;
     status?: string;
-  }>;
+  }[];
 }
 
 export interface AcpSessionInfoUpdate {

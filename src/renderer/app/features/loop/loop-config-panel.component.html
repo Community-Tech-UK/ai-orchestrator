@@ -368,13 +368,13 @@
           <span class="hint">(off by default — doubles verify cost when on)</span>
         </label>
         <label>
-          <input type="checkbox" [checked]="compactContext()" (change)="compactContext.set(toggleEvent($event))" />
+          <input type="checkbox" [checked]="compactContext()" (change)="compactContext.set(toggleEvent($event))" [appTooltip]="copy('loop.recycleToggle')" />
           Recycle context on long runs
           <span class="hint">
             (Claude resident and Codex app-server recycle at {{ compactionThresholdPct() }}% of the live window.
             Resume-capable providers without occupancy — Copilot exec, Cursor, ACP — recycle every 8 iterations or 100k aggregate tokens.
             Gemini and Antigravity cannot recycle: each iteration is a fresh process.
-            Loop Mode does not use Settings compaction thresholds. After recycle, rehydrate can inject up to 50KB of files — that is not a cheap compact.)
+            Loop Mode does not use Settings compaction thresholds. After a recycle, the fresh session gets a short note of at most about 1,200 characters: the goal, open tasks and recently touched files, with brief excerpts. The agent re-opens the files it needs.)
           </span>
         </label>
         @if (compactContext()) {

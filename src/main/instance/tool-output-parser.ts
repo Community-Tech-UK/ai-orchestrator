@@ -15,7 +15,8 @@ import { isArtifactPath } from '../../shared/utils/artifact-extensions';
 // Read-only tool names (skip – they never mutate files)
 // ---------------------------------------------------------------------------
 
-const READ_ONLY_TOOLS = new Set([
+export const EDIT_TOOL_NAMES = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'apply_patch', 'edit_file', 'write_file', 'editFile', 'createFile']);
+export const READ_ONLY_TOOLS = new Set([
   // Claude
   'Read',
   'Glob',
@@ -206,8 +207,9 @@ type ToolInput = Record<string, unknown>;
 function extractClaude(toolName: string, input: ToolInput, workingDirectory: string): string[] {
   switch (toolName) {
     case 'Write':
-    case 'Edit': {
-      const resolved = resolveWithinDir(input['file_path'], workingDirectory);
+    case 'Edit':
+    case 'NotebookEdit': {
+      const resolved = resolveWithinDir(input[toolName === 'NotebookEdit' ? 'notebook_path' : 'file_path'], workingDirectory);
       return resolved ? [resolved] : [];
     }
     case 'MultiEdit': {

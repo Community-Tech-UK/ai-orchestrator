@@ -5,6 +5,7 @@
 import type { CliInfo, CliType } from '../../../../../shared/types/unified-cli-response';
 import type {
   VerificationResult,
+  VerificationCost,
   PersonalityType,
   SynthesisStrategy,
 } from '../../../../../shared/types/verification.types';
@@ -23,7 +24,7 @@ export interface AgentProgress {
   status: 'pending' | 'running' | 'complete' | 'error';
   progress: number;
   tokens: number;
-  cost: number;
+  cost: VerificationCost;
   currentActivity?: string;
   streamedContent?: string;
 }

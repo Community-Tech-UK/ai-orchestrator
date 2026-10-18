@@ -577,7 +577,10 @@ export interface LoopState {
    * Cleared on recycle / failover / missing snapshot so the next prompt
    * re-anchors. Coordinator never reads the adapter map for this.
    */
+  /** Most recent iteration that received the full goal, persisted in checkpoint JSON. */
+  lastFullAnchorSeq?: number;
   lastThreadCaps?: {
+    providerCompacted?: boolean;
     supportsResume: boolean;
     sameThreadContinuation: boolean;
     model: string | null;

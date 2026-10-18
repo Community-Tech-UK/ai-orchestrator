@@ -1,10 +1,15 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
+import { LoopStateSchema } from '@contracts/schemas/loop';
 import { cleanupLoopCoordinatorSpec } from './loop-coordinator-test-cleanup';
+
+vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ getAll: () => ({ defaultCli: 'claude', loopModelByProvider: {}, auxiliaryLlmRoutingClassificationEnabled: false }), get: () => undefined }) }));
+vi.mock('../cli/adapters/adapter-factory', () => ({ resolveCliType: async () => 'claude' }));
+vi.mock('./invocation-model-resolver', () => ({ resolveLoopChildModel: async () => 'test-model' }));
 
 function childResult(): LoopChildResult {
   return {
@@ -32,6 +37,43 @@ describe('LoopCoordinator pre-iteration persistence marker', () => {
 
   afterEach(async () => {
     await cleanupLoopCoordinatorSpec({ coordinator, workspace });
+  }, 20_000);
+
+  it('A3: sends full instructions at round 0 and 10, persists their sequence, and sends cards in between', async () => {
+    const prompts: string[] = [];
+    const anchorSeqs: number[] = [];
+    let resolveLast!: () => void;
+    const lastInvoked = new Promise<void>((resolve) => { resolveLast = resolve; });
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { seq: number; prompt: string; loopRunId: string; callback(result: LoopChildResult): void };
+      prompts[p.seq] = p.prompt;
+      const state = coordinator.getLoop(p.loopRunId)!;
+      anchorSeqs[p.seq] = state.lastFullAnchorSeq!;
+      expect(LoopStateSchema.parse(JSON.parse(JSON.stringify(state))).lastFullAnchorSeq).toBe(state.lastFullAnchorSeq);
+      if (p.seq === 10) { coordinator.pauseLoop(p.loopRunId); resolveLast(); }
+      queueMicrotask(() => p.callback({ ...childResult(),
+        output: `Changed unique module number ${p.seq} and ran its focused check ${p.seq * 19}.`,
+        filesChanged: [{ path: `src/progress-${p.seq}.ts`, additions: 1, deletions: 0, contentHash: `hash-${p.seq}` }],
+        threadCaps: { supportsResume: true, sameThreadContinuation: true, model: 'test-model' },
+        testPassCount: p.seq + 1,
+      }));
+    });
+    const config = defaultLoopConfig(workspace, 'Make progress across rounds');
+    config.caps.maxIterations = 20;
+    config.progressThresholds.stageWarnIterations.IMPLEMENT = 20;
+    config.progressThresholds.stageCriticalIterations.IMPLEMENT = 20;
+    config.contextStrategy = 'same-session';
+    config.completion.verifyCommand = '';
+    await coordinator.startLoop('chat-anchor-cadence', config);
+    await lastInvoked;
+    expect(prompts[0]).toContain('Goal (persistent across iterations)');
+    for (let seq = 1; seq < 10; seq += 1) {
+      expect(prompts[seq]).toContain('# Loop Mode — Continuation');
+      expect(prompts[seq]).toContain('Goal (unchanged;');
+      expect(anchorSeqs[seq]).toBe(0);
+    }
+    expect(prompts[10]).toContain('Goal (persistent across iterations)');
+    expect(anchorSeqs[10]).toBe(10);
   }, 20_000);
 
   it('sets an in-flight idempotency marker before invoking the child and clears it after sealing the iteration', async () => {

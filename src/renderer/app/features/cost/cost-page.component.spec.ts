@@ -6,7 +6,10 @@
  * from mocked IPC data, without spinning up the full Angular app.
  */
 
-import { TestBed } from '@angular/core/testing';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
   ɵresolveComponentResources as resolveComponentResources,
 } from '@angular/core';
@@ -15,7 +18,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CostPageComponent, type CostSummaryData, type CostEntry } from './cost-page.component';
 import { CostIpcService } from '../../core/services/ipc/cost-ipc.service';
 
+const specDirectory = dirname(fileURLToPath(import.meta.url));
 await resolveComponentResources((url) => {
+  if (url.endsWith('cost-page.component.html')) return Promise.resolve(readFileSync(resolve(specDirectory,'cost-page.component.html'),'utf8'));
   if (
     url.endsWith('cost-page.component.html') ||
     url.endsWith('cost-page.component.scss')
@@ -90,6 +95,7 @@ function buildMockIpc(
   entriesData: CostEntry[] = MOCK_ENTRIES,
 ) {
   return {
+    costGetPurposeSummary: vi.fn().mockResolvedValue({success:true,data:null}),
     costGetSummary: vi.fn().mockResolvedValue({ success: true, data: summaryData }),
     costGetEntries: vi.fn().mockResolvedValue({ success: true, data: entriesData }),
     costGetBudgetStatus: vi.fn().mockResolvedValue({
@@ -111,6 +117,7 @@ function buildMockIpc(
 
 describe('CostPageComponent — computed signals', () => {
   let component: CostPageComponent;
+  let fixture: ComponentFixture<CostPageComponent>;
   let mockIpc: ReturnType<typeof buildMockIpc>;
 
   beforeEach(async () => {
@@ -124,7 +131,7 @@ describe('CostPageComponent — computed signals', () => {
       ],
     }).compileComponents();
 
-    const fixture = TestBed.createComponent(CostPageComponent);
+    fixture = TestBed.createComponent(CostPageComponent);
     component = fixture.componentInstance;
   });
 
@@ -319,6 +326,7 @@ describe('CostPageComponent — computed signals', () => {
     expect(mockIpc.costGetEntries).toHaveBeenCalledWith(100);
     expect(mockIpc.costGetSummary).toHaveBeenCalled();
     expect(mockIpc.costGetBudgetStatus).toHaveBeenCalled();
+    expect(mockIpc.costGetPurposeSummary).toHaveBeenCalledWith({startTime:expect.any(Number),endTime:expect.any(Number)});
   });
 
   it('refreshAll populates entries signal', async () => {
@@ -330,4 +338,42 @@ describe('CostPageComponent — computed signals', () => {
     await component.refreshAll(false);
     expect(component.totalCost()).toBeCloseTo(MOCK_SUMMARY.totalCost, 6);
   });
+  it('renders separate cache cards and switches the purpose table to providers', async()=>{
+    await component.refreshAll(false);
+    const row={key:'helper',calls:2,inputTokens:10,cacheReadTokens:20,cacheWriteTokens:30,outputTokens:40,
+      reasoningTokens:0,cost:0.1,estimatedCost:0.1,estimatedShare:1,unknownCostCalls:0,freeCalls:1};
+    component.purposeSummary.set({enabled:true,totals:row,byPurpose:[{...row,key:'helper'}],byProvider:[{...row,key:'ollama'}]});
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Cache read');
+    expect(fixture.nativeElement.textContent).toContain('Cache write');
+    expect(fixture.nativeElement.querySelector('[aria-label="Spend by purpose"]').textContent).toContain('helper');
+    const buttons=Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[];
+    buttons.find(button=>button.textContent?.trim()==='By provider')!.click();fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[aria-label="Spend by purpose"]').textContent).toContain('ollama');
+    expect(fixture.nativeElement.querySelector('[data-testid="unknown-cost-footnote"]')).toBeNull();
+  });
+  it('shows unknown-cost/free-call footnote only when calls have no price and shows log opt-out',()=>{
+    const row={key:'all',calls:2,inputTokens:0,cacheReadTokens:0,cacheWriteTokens:0,outputTokens:0,
+      reasoningTokens:0,cost:0,estimatedCost:0,estimatedShare:0,unknownCostCalls:1,freeCalls:1};
+    component.purposeSummary.set({enabled:true,totals:row,byPurpose:[],byProvider:[]});fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="unknown-cost-footnote"]').textContent).toContain('1 calls have no reliable cost');
+    component.purposeSummary.set({enabled:false,totals:row,byPurpose:[],byProvider:[]});fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Cost log is switched off');
+    expect(fixture.nativeElement.querySelector('[data-testid="unknown-cost-footnote"]')).toBeNull();
+  });
+  it('discloses excluded historical Claude dollar amounts only when present', () => {
+    const row = { key: 'all', calls: 2, inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      outputTokens: 0, reasoningTokens: 0, cost: 0, estimatedCost: 0, estimatedShare: 0,
+      unknownCostCalls: 2, freeCalls: 0, historicalCostUnknownCalls: 2 };
+    component.purposeSummary.set({ enabled: true, totals: row, byPurpose: [], byProvider: [] });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="historical-cost-footnote"]').textContent)
+      .toContain('2 historical Claude turns have uncorrected running totals');
+    expect(fixture.nativeElement.querySelector('[data-testid="historical-cost-footnote"]').textContent)
+      .toContain('Their dollar amounts are excluded here');
+    component.purposeSummary.set({ enabled: true, totals: { ...row, historicalCostUnknownCalls: 0 }, byPurpose: [], byProvider: [] });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="historical-cost-footnote"]')).toBeNull();
+  });
+
 });

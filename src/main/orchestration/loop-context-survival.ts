@@ -308,15 +308,19 @@ class DefaultLoopContextSurvivalManager implements LoopContextSurvivalManager {
     // event/log. It never forces a reset using lifetime token spend. The
     // adapter's occupancy check owns recycling in `default-invokers.ts`.
     //
-    // A stale prompt cache lands here, gated by the §9
-    // `selfManagesAutoCompaction` opt-out for a borrowed Claude instance.
+    // Cache expiry is observational only: the provider rewrites the prefix on
+    // its next call. Occupancy alone owns context resets. A stale prompt cache
+    // lands here as a cheap context note, gated by the §9
+    // `selfManagesAutoCompaction` opt-out for a borrowed Claude instance. Both
+    // micro triggers retain that borrowed-adapter self-managed compaction opt-out.
     if (cacheStale && !isBorrowedAdapterSelfManaged(state, childResult)) {
       const gapMinutes = Math.round((gap ?? 0) / 60_000);
       return withRehydrate({
         action: 'micro',
         forceContextReset: false,
-        reason: `idle ${gapMinutes}m exceeds cache TTL (~60min) — cache prefix will be rewritten on the next `
-          + 'call regardless; recording a cheap context note. Live occupancy is owned by the adapter; lifetime spend cannot force a recycle.',
+        reason: `idle ${gapMinutes}m exceeds cache TTL (~60min); the cached prefix is rewritten on the next call ` +
+          'regardless; recording a cheap context note; context resets stay with the occupancy check; '
+          + 'live occupancy is owned by the adapter, and lifetime spend cannot force a recycle.',
       });
     }
 

@@ -9,8 +9,7 @@ import {
   curateNotesContent,
   hasPlanNameHint,
   isPlanLikeMarkdown,
-  NOTES_CURATION_MAX_CHARS,
-  NOTES_CURATION_KEEP_TAIL_CHARS,
+  extractCompletionInventory,
   outstandingHasHumanItems,
   parsePlanChecklist,
   type NotesCurationResult,
@@ -51,6 +50,8 @@ export {
 } from './loop-stage-markdown';
 export { INVESTIGATION_REPORT_FILE, LOOP_TASKS_FILE } from './loop-stage-files';
 export type { LoopStartupSnapshot } from './loop-stage-machine.types';
+
+import { appendBoundedIterationLog, type IterationLogEntry } from './loop-iteration-log';
 
 const logger = getLogger('LoopStageMachine');
 
@@ -124,7 +125,7 @@ export class LoopStageMachine {
       try { await fsp.access(fname); } catch {
         const banner = fname.endsWith('NOTES.md')
           ? '# Loop Notes\n\nRolling, compressed memory between iterations. The agent appends a short summary at the end of each iteration.\n\n'
-          : '# Iteration Log\n\nFull per-iteration record (the coordinator may also append from main process).\n\n';
+          : '# Iteration Log\n\nPer-iteration record written by the loop. Older entries are trimmed past 64 KB.\n\n';
         await fsp.writeFile(fname, banner, 'utf8');
       }
     }
@@ -332,15 +333,18 @@ export class LoopStageMachine {
     let content: string;
     let boundedReadElidedBytes = 0;
     try {
-      const readLimit = Math.min(
-        LOOP_TEXT_FILE_MAX_BYTES,
-        Math.max(opts.maxChars ?? NOTES_CURATION_MAX_CHARS, opts.keepTailChars ?? NOTES_CURATION_KEEP_TAIL_CHARS),
-      );
+      const readLimit = LOOP_TEXT_FILE_MAX_BYTES;
       const read = await readUtf8FileTail(notesPath, readLimit);
       boundedReadElidedBytes = read.truncated ? Math.max(0, read.sizeBytes - Buffer.byteLength(read.text, 'utf8')) : 0;
-      content = read.truncated
-        ? `# Loop Notes\n\n_[loop] NOTES.md exceeded the bounded read cap; preserving the newest entries._\n\n${read.text}`
-        : read.text;
+      if (read.truncated) {
+        const head = await readUtf8FileHead(notesPath, readLimit);
+        const inventory = extractCompletionInventory(head.text.slice(0, head.text.lastIndexOf('\n')));
+        const firstNewline = read.text.indexOf('\n');
+        const tail = firstNewline >= 0 ? read.text.slice(firstNewline + 1) : '';
+        content = `# Loop Notes\n${inventory ?? ''}\n## Recent entries\n${tail}`;
+      } else {
+        content = read.text;
+      }
     } catch {
       return { curated: '', changed: false, elidedChars: 0 };
     }
@@ -428,7 +432,6 @@ export class LoopStageMachine {
     const sd = promptPath(this.paths.dir);
     const stageRel = `${sd}/STAGE.md`;
     const notesRel = `${sd}/NOTES.md`;
-    const logRel = `${sd}/ITERATION_LOG.md`;
     const tasksRel = `${sd}/${LOOP_TASKS_FILE}`;
     const doneRel = `${sd}/${config.completion.doneSentinelFile || 'DONE.txt'}`;
     const blockedRel = `${sd}/BLOCKED.md`;
@@ -569,8 +572,7 @@ All loop-owned state files for THIS run live in \`${sd}/\` (absolute path — va
 1. Open \`${stageRel}\`. It contains exactly one of: PLAN, REVIEW, IMPLEMENT.
 2. Open ${planRef}.
 3. Open \`${notesRel}\`. It contains the rolling notes from prior iterations.
-4. Open \`${logRel}\` if you need detailed per-iteration history.
-5. Open \`${tasksRel}\` — the structured task ledger. For a multi-item goal, list every concrete work item there as a markdown checkbox and keep it current: \`[ ]\` todo, \`[~]\` in progress, \`[x]\` done, \`[-] … — deferred: <why>\`. **The loop stops only when every ledger item is \`[x]\` or \`[-]\` (with a reason) AND verify passes** — so an item you can't finish must be explicitly deferred with a reason, not left \`[ ]\`. (If no plan file is configured and the goal is broad, you may instead keep a \`## Completion Inventory\` in \`${notesRel}\`, but the ledger is preferred because the loop reads it as the source of truth for stopping.)${planPacketBlock}${investigationBlock}${uncompletedPlansBlock}${verdictDisciplineBlock}${freshEyesReviewBlock}${manualReviewBlock}${priorObservationsBlock}${planStageContextBlock}${interventions}${promptBlocks}
+4. Open \`${tasksRel}\` — the structured task ledger. For a multi-item goal, list every concrete work item there as a markdown checkbox and keep it current: \`[ ]\` todo, \`[~]\` in progress, \`[x]\` done, \`[-] … — deferred: <why>\`. **The loop stops only when every ledger item is \`[x]\` or \`[-]\` (with a reason) AND verify passes** — so an item you can't finish must be explicitly deferred with a reason, not left \`[ ]\`. (If no plan file is configured and the goal is broad, you may instead keep a \`## Completion Inventory\` in \`${notesRel}\`, but the ledger is preferred because the loop reads it as the source of truth for stopping.)${planPacketBlock}${investigationBlock}${uncompletedPlansBlock}${verdictDisciplineBlock}${freshEyesReviewBlock}${manualReviewBlock}${priorObservationsBlock}${planStageContextBlock}${interventions}${promptBlocks}
 
 ## Step 2 — Do this iteration's work
 
@@ -698,34 +700,9 @@ Begin.`;
    * Append a structured iteration record to ITERATION_LOG.md. Called by
    * the coordinator after each iteration completes.
    */
-  async appendIterationLog(entry: {
-    seq: number;
-    stage: LoopStage;
-    verdict: 'OK' | 'WARN' | 'CRITICAL';
-    tokens: number;
-    durationMs: number;
-    filesChanged: number;
-    progressNotes: string[];
-    completionNotes: string[];
-  }): Promise<void> {
-    const logPath = this.paths.iterationLog;
-    const lines = [
-      `## Iteration ${entry.seq + 1} — ${entry.stage} — ${entry.verdict}`,
-      `- duration: ${(entry.durationMs / 1000).toFixed(1)}s`,
-      `- tokens: ${entry.tokens}`,
-      `- files changed: ${entry.filesChanged}`,
-    ];
-    if (entry.progressNotes.length > 0) {
-      lines.push('- progress signals:');
-      for (const n of entry.progressNotes) lines.push(`  - ${n}`);
-    }
-    if (entry.completionNotes.length > 0) {
-      lines.push('- completion signals fired:');
-      for (const n of entry.completionNotes) lines.push(`  - ${n}`);
-    }
-    lines.push('');
+  async appendIterationLog(entry: IterationLogEntry): Promise<void> {
     try {
-      await fsp.appendFile(logPath, lines.join('\n') + '\n', 'utf8');
+      await appendBoundedIterationLog(this.paths.iterationLog, entry);
     } catch (err) {
       logger.warn('Failed to append iteration log', { error: String(err) });
     }

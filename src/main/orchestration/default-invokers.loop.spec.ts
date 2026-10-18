@@ -246,6 +246,24 @@ describe('Loop Mode invoker plumbing', () => {
     });
   }
 
+  it('A3: snapshots the adapter-confirmed native resume and provider compaction through the real invoker', async () => {
+    let compacted = false;
+    Object.assign(hoisted.adapterRef.current, {
+      getRuntimeCapabilities: () => ({ supportsResume: true }),
+      getContextCapabilities: () => ({ sameThreadContinuation: false }),
+      getResumeAttemptResult: () => ({ source: 'native', confirmed: true, forked: false, requestedSessionId: 'test-thread', actualSessionId: 'test-thread' }),
+      willResumeSession: () => true,
+      getTurnCompaction: () => ({ count: compacted ? 1 : 0 }),
+    });
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockResolvedValue({ content: 'continued', usage: { totalTokens: 5 } });
+    const result = await emitIteration({ model: 'test-model', config: { contextStrategy: 'same-session' } });
+    expect(result).toMatchObject({ threadCaps: { supportsResume: true, sameThreadContinuation: true, model: 'test-model' } });
+    compacted = true;
+    const next = await emitIteration({ seq: 1, model: 'test-model', config: { contextStrategy: 'same-session' } });
+    expect(next).toMatchObject({ threadCaps: { providerCompacted: true } });
+  });
+
   it('wires the durable provider-limit ledger into the loop coordinator', () => {
     registerDefaultLoopInvoker({} as never);
 
@@ -1157,7 +1175,7 @@ describe('Loop Mode invoker plumbing', () => {
     await result;
   });
 
-  it('terminates an in-flight fresh child when the loop enters a terminal state', async () => {
+  it.each(['cancelled', 'attempt-failed'])('terminates an in-flight fresh child when the loop enters %s', async (status) => {
     registerDefaultLoopInvoker({} as never);
     let resolveSend!: (value: { content: string; usage: { totalTokens: number } }) => void;
     hoisted.sendMessage.mockImplementation(() => new Promise((resolve) => {
@@ -1170,7 +1188,7 @@ describe('Loop Mode invoker plumbing', () => {
 
     hoisted.loopCoordinatorRef.current.emit('loop:state-changed', {
       loopRunId: 'loop-1',
-      state: { status: 'cancelled' },
+      state: { status },
     });
     await new Promise<void>((r) => setImmediate(r));
 
@@ -1970,7 +1988,7 @@ describe('Loop Mode invoker plumbing', () => {
       expect(hoisted.setResume).not.toHaveBeenCalledWith(false);
     });
 
-    it('tears down the persistent adapter when the loop reaches a terminal state', async () => {
+    it.each(['completed', 'attempt-failed'])('tears down the persistent adapter when the loop reaches %s', async (status) => {
       registerDefaultLoopInvoker({} as never);
       hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 1 } });
 
@@ -1999,7 +2017,7 @@ describe('Loop Mode invoker plumbing', () => {
       // the persistent adapter down so we don't leak orphaned CLI processes.
       hoisted.loopCoordinatorRef.current.emit('loop:state-changed', {
         loopRunId: 'loop-3',
-        state: { status: 'completed' },
+        state: { status },
       });
       await new Promise<void>((r) => setImmediate(r));
 

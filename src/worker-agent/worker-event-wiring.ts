@@ -6,16 +6,20 @@
  * forward them to the coordinator via the notifier.
  *
  * Electron isolation: this module (and its transitive imports) must never pull
- * in `electron`. All type-only imports are erased; the two runtime imports
- * (`NODE_TO_COORDINATOR`, `WORKER_NODE_WS_BACKPRESSURE_BYTES`) are the same ones
- * worker-agent already loads, so this introduces no new import graph.
+ * in `electron`. Type-only imports are erased; RPC constants and the
+ * in-process usage-settlement leaves are worker safe;
+ * settlement callbacks never travel in serialized notifications.
  */
 import type { EventEmitter } from 'events';
+import type { CliResponse } from '../main/cli/adapters/base-cli-adapter.types';
+import { deferUntilResponseUsageSettled } from '../main/cli/adapters/deferred-response-usage';
+import { markRemoteUsageSettlement } from '../main/cli/adapters/remote-response-usage-settlement';
 import { NODE_TO_COORDINATOR } from '../main/remote-node/worker-node-rpc';
 import { WORKER_NODE_WS_BACKPRESSURE_BYTES } from '../main/remote-node/rpc-schemas';
 import type { WorkerConfig } from './worker-config';
 import type { WorkerInstanceNotifier } from './worker-instance-notifier';
 import type { WorkerCdpTunnel } from './worker-cdp-tunnel';
+import type { InstanceTelemetry } from '../main/remote-node/instance-telemetry-rpc';
 
 /**
  * Forward Chrome CDP frames (and socket close) from the tunnel up to the
@@ -69,6 +73,9 @@ export function wireInstanceEvents(
 }
 
 function wireInstanceEventSource(source: EventEmitter, notifier: WorkerInstanceNotifier): void {
+  source.on('instance:telemetry', (instanceId: string, telemetry: InstanceTelemetry) => {
+    notifier.sendTelemetryNotification(instanceId, telemetry);
+  });
   source.on(
     'instance:output',
     (instanceId: string, message: unknown) => {
@@ -85,7 +92,17 @@ function wireInstanceEventSource(source: EventEmitter, notifier: WorkerInstanceN
 
   source.on(
     'instance:complete',
-    (instanceId: string, response: unknown) => {
+    (instanceId: string, response: unknown, usageSettlementEnabled = false) => {
+      // Preserve early semantic completion and its request identity. A marked
+      // finalization updates only its bill, never completes a later input.
+      // Older coordinators treat every frame as a semantic completion, so the
+      // marked pair requires their explicit spawn opt-in. Keep that capability
+      // in-process; it is not provider response metadata or a wire payload field.
+      if (usageSettlementEnabled && deferUntilResponseUsageSettled(response as CliResponse,
+        () => notifier.sendCompleteNotification(instanceId, markRemoteUsageSettlement(response as CliResponse, 'settled')))) {
+        notifier.sendCompleteNotification(instanceId, markRemoteUsageSettlement(response as CliResponse, 'pending'));
+        return;
+      }
       notifier.sendCompleteNotification(instanceId, response);
     }
   );

@@ -74,7 +74,28 @@ const ALLOWED_UNCONFIRMED: readonly { file: string; why: string }[] = [
   },
 ];
 
+const ALLOWED_ALL = [
+  'app/core/state/instance/instance-list.store.ts',
+  'app/core/state/instance/instance.store.ts',
+  'app/core/services/ipc/instance-ipc.service.ts',
+  'app/shared/terminate-confirm/terminate-confirm.store.ts',
+];
+
 describe('every terminate path in the renderer is accounted for (Decision 16b)', () => {
+  it('every Close all call is confirmed or plumbing and the allowlist has no stale entries', () => {
+    const present = sourceFiles(RENDERER)
+      .filter((file) => /\bterminateAllInstances\(/.test(readFileSync(file, 'utf8')))
+      .map((file) => relative(RENDERER, file).split(/[\\/]/).join('/'));
+    expect(present.filter((file) => !ALLOWED_ALL.includes(file))).toEqual([]);
+    expect(ALLOWED_ALL.filter((file) => !present.includes(file))).toEqual([]);
+  });
+
+  it('the dashboard Close all action requests confirmation', () => {
+    const dashboard = readFileSync(join(ROOT, 'src/renderer/app/features/dashboard/dashboard.component.ts'), 'utf8');
+    const action = dashboard.slice(dashboard.indexOf('closeAllInstances(): void'), dashboard.indexOf('closeAllInstances(): void') + 150);
+    expect(action).toContain('terminateConfirm.requestAll()');
+    expect(action).not.toContain('store.terminateAllInstances(');
+  });
   it('no call site outside the allowlist can end a session', () => {
     const offenders = sourceFiles(RENDERER)
       .filter((file) => /\bterminate(?:Instance|AllInstances)\(/.test(readFileSync(file, 'utf8')))
@@ -137,7 +158,10 @@ describe('the confirmation itself', () => {
     expect(request).not.toContain('terminateInstance(');
 
     const confirm = STORE.slice(STORE.indexOf('confirm()'), STORE.indexOf('cancel()'));
-    expect(confirm).toContain('this.instances.terminateInstance(pending.instanceId)');
+    expect(confirm).toContain('pending.kind === \'all\'');
+    expect(confirm).toContain('this.instances.terminateAllInstances()');
+    expect(confirm).toContain('const id = pending.instanceId');
+    expect(confirm).toContain('this.instances.terminateInstance(id)');
   });
 
   it('renders a real modal, offers a way out, and says what is lost', () => {

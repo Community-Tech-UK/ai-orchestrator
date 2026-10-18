@@ -177,6 +177,15 @@ describe('buildClaudeCliArgs', () => {
     }));
     expect(args).not.toContain('--fallback-model');
   });
+  it('applies a finite spend cap only to a fresh print-mode session', () => {
+    const fresh = buildClaudeCliArgs(baseInput({spawnOptions:{maxBudgetUsd:0.25}}));
+    expect(fresh).toEqual(expect.arrayContaining(['--max-budget-usd','0.25']));
+    expect(buildClaudeCliArgs(baseInput({spawnOptions:{maxBudgetUsd:0.25,resume:true}, sessionId:'s',shouldUseNativeResume:true}))).not.toContain('--max-budget-usd');
+  });
+  it.each([undefined, 0, -1, NaN, Infinity])('omits invalid or unset budget %s', maxBudgetUsd => {
+    expect(buildClaudeCliArgs(baseInput({spawnOptions:{maxBudgetUsd}}))).not.toContain('--max-budget-usd');
+  });
+
 });
 
 

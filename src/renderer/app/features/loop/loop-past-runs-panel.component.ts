@@ -16,6 +16,7 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { LoopStore } from '../../core/state/loop.store';
 import { LoopIpcService } from '../../core/services/ipc/loop-ipc.service';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
   formatCostCents,
   formatTimestamp,
@@ -37,6 +38,9 @@ export interface ReattemptSourceRun {
 }
 
 export const LATER_ITERATION_CONTINUATION_LABEL = 'Later-iteration continuation';
+export function canCloseStoredLoopRun(run: Pick<LoopRunSummaryPayload, 'status' | 'endedAt'>, live: boolean): boolean {
+  return !live && run.endedAt === null && (run.status === 'paused' || run.status === 'provider-limit');
+}
 
 /** Pure derivation of `seedMessage` (textarea / iter-0 goal) and
  *  `seedPrompt` (panel / iter-1+ continuation) from a past loop run.
@@ -128,6 +132,9 @@ export function deriveReattemptSeed(
                     </span>
                   }
                   <span class="pr-actions">
+                    @if (canClose(run)) {
+                      <button type="button" class="pr-action-btn" (click)="requestClose(run)" [disabled]="closingRunId() !== null" [appTooltip]="closeTooltip">Close</button>
+                    }
                     <button
                       type="button"
                       class="pr-action-btn"
@@ -160,6 +167,13 @@ export function deriveReattemptSeed(
                     }
                   </span>
                 </div>
+                @if (pendingClose()?.id === run.id) {
+                  <div role="group" aria-label="Confirm closing this loop run">
+                    <p>Close this run? It will not be resumed.</p>
+                    <button type="button" class="pr-action-btn" (click)="pendingClose.set(null)">Keep paused</button>
+                    <button type="button" class="pr-action-btn" (click)="confirmClose()" [disabled]="closingRunId() !== null">Close run</button>
+                  </div>
+                }
                 @if (run.endedAt !== null) { <div class="pr-end-line">{{ endLine(run) }}</div> }
                 @if (resolveError(); as failure) {
                   @if (failure.runId === run.id) {
@@ -296,6 +310,9 @@ export function deriveReattemptSeed(
 })
 export class LoopPastRunsPanelComponent implements OnDestroy {
   protected readonly continuationLabel = LATER_ITERATION_CONTINUATION_LABEL;
+  protected readonly closeTooltip = copyFor('loop.closeStored');
+  protected readonly pendingClose = signal<LoopRunSummaryPayload | null>(null);
+  protected readonly closingRunId = signal<string | null>(null);
   /** The chat the panel is showing past runs for. Null while no chat is
    *  selected — yields an empty list without errors. */
   chatId = input<string | null>(null);
@@ -316,6 +333,7 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
   private opener = inject(LoopPanelOpenerService);
   private pollScheduler = inject(RendererPollSchedulerService);
   private loopIpc = inject(LoopIpcService);
+  private readonly activeForChat = new Map<string, ReturnType<LoopStore['activeForChat']>>();
 
   /** 1Hz tick to re-render relative timestamps without per-row timers. */
   private tick = signal(0);
@@ -348,6 +366,7 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
       untracked(() => {
         this.expandedRowIds.set(new Set());
         this.copiedRunId.set(null);
+        this.pendingClose.set(null);
         if (this.copiedClearHandle) {
           clearTimeout(this.copiedClearHandle);
           this.copiedClearHandle = null;
@@ -387,6 +406,36 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
   }
 
   // ────── actions ──────
+
+  protected canClose(run: LoopRunSummaryPayload): boolean {
+    if (!this.activeForChat.has(run.chatId)) this.activeForChat.set(run.chatId, this.store.activeForChat(run.chatId));
+    return canCloseStoredLoopRun(run, this.activeForChat.get(run.chatId)!()?.id === run.id);
+  }
+
+  protected requestClose(run: LoopRunSummaryPayload): void {
+    if (this.canClose(run) && this.closingRunId() === null) this.pendingClose.set(run);
+  }
+
+  protected async confirmClose(): Promise<void> {
+    const run = this.pendingClose();
+    if (!run || !this.canClose(run) || this.closingRunId() !== null) return;
+    this.closingRunId.set(run.id);
+    this.resolveError.set(null);
+    try {
+      const result = await this.loopIpc.cancel(run.id);
+      if (!result.success || result.data?.ok !== true) {
+        this.resolveError.set({ runId: run.id, message: result.error?.message ?? 'This run could not be closed.' });
+        return;
+      }
+      this.pendingClose.set(null);
+      await this.store.refreshHistory(run.chatId);
+      await this.store.refreshRecentRuns();
+    } catch (error) {
+      this.resolveError.set({ runId: run.id, message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      this.closingRunId.set(null);
+    }
+  }
 
   async onCopy(run: LoopRunSummaryPayload): Promise<void> {
     if (!run.initialPrompt) return;

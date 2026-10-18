@@ -6,6 +6,7 @@ import type { AuxiliaryLlmCandidate } from '../../../shared/types/auxiliary-llm.
 import type { LocalAiGuardSnapshot } from '../../../shared/types/local-ai-guard.types';
 import {
   LocalAiEmptyRequestSchema,
+  LocalAiRetryHelperRequestSchema,
   LocalAiFallbackRequestSchema,
   LocalAiFallbackResolveRequestSchema,
   LocalAiGuardSnapshotSchema,
@@ -79,6 +80,12 @@ export function registerLocalAiGuardHandlers(
     });
     return registerUnavailableHandlers(dependencies.ensureTrustedSender);
   }
+
+  register(IPC_CHANNELS.LOCAL_AI_GUARD_RETRY_HELPER_NOW, LocalAiRetryHelperRequestSchema,
+    async ({ slot }) => runtimeOperation(runtime, 'LOCAL_AI_GUARD_RETRY_HELPER_FAILED', async () => {
+      getAuxiliaryLlmService().retryHelperNow(slot);
+      return success(buildSnapshot(runtime, now()));
+    }), dependencies.ensureTrustedSender);
 
   const discoverCandidates = dependencies.discoverCandidates
     ?? (() => getAuxiliaryLlmService().discoverCandidates());
@@ -318,6 +325,7 @@ function buildSnapshot(runtime: LocalAiGuardRuntime, now: number): LocalAiGuardS
         ?? runtime.engine.checking(target, safeTimestamp(now)));
     const snapshot = {
       revision,
+      helperPauses: runtime.helperPauses ?? [],
       aggregate: runtime.engine.aggregate(targets),
       targets,
       targetConfigs,
@@ -411,6 +419,7 @@ function installCleanup(beforeRemove?: () => void): () => void {
 function registrations(): readonly (readonly [string, ZodType<unknown>])[] {
   return [
     [IPC_CHANNELS.LOCAL_AI_GUARD_GET_SNAPSHOT, LocalAiEmptyRequestSchema],
+    [IPC_CHANNELS.LOCAL_AI_GUARD_RETRY_HELPER_NOW, LocalAiRetryHelperRequestSchema],
     [IPC_CHANNELS.LOCAL_AI_GUARD_TARGET_CREATE, LocalAiTargetCreateRequestSchema],
     [IPC_CHANNELS.LOCAL_AI_GUARD_TARGET_UPDATE, LocalAiTargetUpdateRequestSchema],
     [IPC_CHANNELS.LOCAL_AI_GUARD_TARGET_SET_LIFECYCLE, LocalAiTargetLifecycleRequestSchema],
@@ -431,6 +440,7 @@ function requestChannels(): string[] {
 }
 
 const TRUSTED_OPERATION_CHANNELS = new Set<string>([
+  IPC_CHANNELS.LOCAL_AI_GUARD_RETRY_HELPER_NOW,
   IPC_CHANNELS.LOCAL_AI_GUARD_TARGET_CREATE,
   IPC_CHANNELS.LOCAL_AI_GUARD_TARGET_UPDATE,
   IPC_CHANNELS.LOCAL_AI_GUARD_TARGET_SET_LIFECYCLE,

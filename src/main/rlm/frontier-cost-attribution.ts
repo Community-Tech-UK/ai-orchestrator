@@ -1,13 +1,14 @@
 import type { CostAttributionUsage } from '../core/system/cost-attribution';
-import { recordCostAttribution } from '../core/system/cost-attribution';
-import { getLocalAiCostCorrelationId } from '../local-ai-guard/local-ai-cost-correlation';
+import { recordModelCall } from '../core/system/model-call-recorder';
 import {
   CLAUDE_PINNED_MODELS,
   GOOGLE_MODELS,
 } from '../../shared/types/provider.types';
 import { getTokenCounter } from './token-counter';
+import type { ModelCallOutcome } from '../../shared/types/cost-attribution.types';
 
 interface FrontierCostAttribution {
+  outcome?: ModelCallOutcome;
   taskType: string;
   provider: string;
   model?: string;
@@ -50,11 +51,12 @@ function pricingIdentity(provider: string, model?: string): {
 export function recordCorrelatedFrontierAttribution(
   attribution: FrontierCostAttribution,
 ): void {
-  if (!getLocalAiCostCorrelationId()) return;
   const counter = getTokenCounter();
   const usage = attribution.usage;
   const identity = pricingIdentity(attribution.provider, attribution.model);
-  recordCostAttribution({
+  recordModelCall({
+    purpose: 'helper',
+    outcome: attribution.outcome,
     source: 'one-shot',
     taskType: attribution.taskType,
     provider: identity.provider,
@@ -73,8 +75,6 @@ export function recordCorrelatedFrontierAttribution(
         () => counter.countTokens(attribution.outputText),
       ),
     },
-    costKnown: typeof usage?.cost === 'number'
-      && Number.isFinite(usage.cost)
-      && usage.cost >= 0,
+    isEstimated: usage?.inputTokens === undefined || usage?.outputTokens === undefined,
   });
 }

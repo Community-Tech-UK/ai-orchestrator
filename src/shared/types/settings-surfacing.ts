@@ -145,6 +145,7 @@ export const SETTING_SURFACING = {
   projectKnowledgeAutoMirrorSkipWithinMs: 'tab',
   projectKnowledgeAutoMirrorStartupHint: 'tab',
   crossModelReviewEnabled: 'tab',
+  crossModelReviewDailyLimit: 'tab',
   crossModelReviewDepth: 'tab',
   crossModelReviewMaxReviewers: 'tab',
   crossModelReviewProviders: 'tab',

@@ -5,6 +5,7 @@ type IpcHandler = (event: unknown, payload?: unknown) => unknown | Promise<unkno
 
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, IpcHandler>(),
+  requestReview: vi.fn().mockResolvedValue({ status: 'started', reviewId: 'review-1' }),
   getStatus: vi.fn(() => ({ enabled: true })),
   getReviewHistory: vi.fn((): unknown[] => []),
   getReviewContext: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('electron', () => ({
 
 vi.mock('../orchestration/cross-model-review-service', () => ({
   getCrossModelReviewService: () => ({
+    requestReview: mocks.requestReview,
     getStatus: mocks.getStatus,
     getReviewHistory: mocks.getReviewHistory,
     getReviewContext: mocks.getReviewContext,
@@ -42,6 +44,13 @@ describe('cross-model review IPC handlers', () => {
     vi.clearAllMocks();
     mocks.handlers.clear();
     registerCrossModelReviewIpcHandlers();
+  });
+
+  it('validates and dispatches a manual request, rejecting blank ids', async () => {
+    await expect(invoke(IPC_CHANNELS.CROSS_MODEL_REVIEW_REQUEST, { instanceId: 'instance-1' })).resolves.toEqual({ success: true, data: { status: 'started', reviewId: 'review-1' } });
+    expect(mocks.requestReview).toHaveBeenCalledWith('instance-1');
+    await expect(invoke(IPC_CHANNELS.CROSS_MODEL_REVIEW_REQUEST, { instanceId: '' })).resolves.toMatchObject({ success: false });
+    expect(mocks.requestReview).toHaveBeenCalledOnce();
   });
 
   it('returns review status in a structured response', async () => {

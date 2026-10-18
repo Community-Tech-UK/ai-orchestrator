@@ -170,7 +170,7 @@ describe('HyDEService fallback behavior', () => {
     expect(patched.callDirectProviders).toHaveBeenCalledWith('sys', 'user');
   });
 
-  it('automatically attributes the real paid HyDE provider winner inside routing correlation', async () => {
+  it('prices the real paid HyDE provider winner inside routing correlation', async () => {
     mockGetConfig.mockReturnValue({
       anthropicApiKey: 'test-placeholder',
       ollamaHost: 'http://ollama.test',
@@ -213,11 +213,15 @@ describe('HyDEService fallback behavior', () => {
     expect(correlated[0]).toEqual(expect.objectContaining({
       correlationId: 'routing-hyde',
       provider: 'anthropic',
+      model: 'haiku',
+      purpose: 'helper',
+      costSource: 'priced',
       usage: expect.objectContaining({
         inputTokens: 13,
         outputTokens: 5,
+        cost: (13 * 0.10 + 5 * 0.50) / 1_000_000,
       }),
-      costKnown: false,
+      costKnown: true,
     }));
   });
 

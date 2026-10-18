@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { LoopConfigInput } from '@contracts/schemas/loop';
+import { LoopStatusSchema, type LoopConfigInput } from '@contracts/schemas/loop';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { InstanceManager } from '../../../instance/instance-manager';
 import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../../../shared/types/loop.types';
@@ -42,6 +42,7 @@ const hoisted = vi.hoisted(() => ({
     getRunConfig: vi.fn(),
     listOutstandingItems: vi.fn(),
     setOutstandingItemStatus: vi.fn(),
+    closeStoredRun: vi.fn(),
   },
   chatService: {
     appendSystemEvent: vi.fn(),
@@ -178,6 +179,20 @@ describe('buildExistingSessionContext', () => {
 });
 
 describe('registerLoopHandlers terminal summaries', () => {
+  it.each(LoopStatusSchema.options.flatMap((status) => [null, 123].map((endedAt) => ({ status, endedAt }))))(
+    'summarizes $status with endedAt=$endedAt exactly when terminal',
+    ({ status, endedAt }) => {
+      registerLoopHandlers({ windowManager: { sendToRenderer: vi.fn() } as never, instanceManager: makeInstanceManager([]) });
+      const state = makeLoopState({ status, endedAt });
+      const handler = hoisted.coordinator.on.mock.calls.find(([event]) => event === 'loop:state-changed')?.[1] as
+        (data: { loopRunId: string; state: LoopState }) => void;
+      expect(handler).toBeTypeOf('function');
+      handler({ loopRunId: state.id, state });
+      const terminal = !['running', 'paused'].includes(status) && !(status === 'provider-limit' && endedAt === null);
+      expect(hoisted.chatService.appendSystemEvent).toHaveBeenCalledTimes(terminal ? 1 : 0);
+    },
+  );
+
   it('persists a checkpoint whenever loop state changes', () => {
     const windowManager = { sendToRenderer: vi.fn() };
     const instanceManager = makeInstanceManager([]);
@@ -186,6 +201,8 @@ describe('registerLoopHandlers terminal summaries', () => {
       instanceManager,
     });
     const state = makeLoopState({ status: 'running', endedAt: null });
+    const history = [0, 1, 2].map((seq) => makeLoopIteration({ seq }));
+    hoisted.coordinator.getIterations.mockReturnValue(history);
     const stateHandler = hoisted.coordinator.on.mock.calls.find((call) =>
       call[0] === 'loop:state-changed'
     )?.[1] as ((data: { loopRunId: string; state: LoopState }) => void) | undefined;
@@ -199,6 +216,7 @@ describe('registerLoopHandlers terminal summaries', () => {
         loopRunId: state.id,
         chatId: state.chatId,
         status: state.status,
+        historyTail: history,
       }),
     }));
   });
@@ -214,6 +232,8 @@ describe('registerLoopHandlers terminal summaries', () => {
       ((payload: { state: LoopState; iteration: LoopIteration }) => void) | undefined;
     const state = makeLoopState({ status: 'running', endedAt: null });
     const iteration = makeLoopIteration({ loopRunId: state.id });
+    const history = [makeLoopIteration({ seq: -1 }), iteration];
+    hoisted.coordinator.getIterations.mockReturnValue(history);
 
     iterationHook?.({ state, iteration });
 
@@ -223,7 +243,7 @@ describe('registerLoopHandlers terminal summaries', () => {
       checkpoint: expect.objectContaining({
         convergenceNote: 'ledger stall: 2 open', planRegenerationCount: 2, pendingContextReset: true,
         loopRunId: state.id,
-        historyTail: [iteration],
+        historyTail: history,
       }),
     }));
   });
@@ -247,6 +267,8 @@ describe('registerLoopHandlers terminal summaries', () => {
         idempotencyKey: 'loop-1:iteration:3',
       },
     });
+    const history = [0, 1, 2].map((seq) => makeLoopIteration({ seq }));
+    hoisted.coordinator.getIterations.mockReturnValue(history);
 
     preIterationHook?.({ state });
 
@@ -259,7 +281,7 @@ describe('registerLoopHandlers terminal summaries', () => {
         state: expect.objectContaining({
           inFlightIteration: state.inFlightIteration,
         }),
-        historyTail: [],
+        historyTail: history,
       }),
     }));
   });
@@ -899,6 +921,27 @@ describe('LOOP_INTERVENE handler', () => {
         }),
       }),
     );
+  });
+});
+
+describe('LOOP_CANCEL stored recovery', () => {
+  it('closes a stored-only run when live cancellation returns false', async () => {
+    hoisted.coordinator.cancelLoop.mockResolvedValue(false);
+    hoisted.coordinator.getLoop.mockReturnValue(undefined);
+    hoisted.store.closeStoredRun.mockReturnValue(true);
+    registerLoopHandlers({ windowManager: { sendToRenderer: vi.fn() } as never, instanceManager: makeInstanceManager([]) });
+    const response = await findIpcHandler(IPC_CHANNELS.LOOP_CANCEL)({}, { loopRunId: 'loop-stranded' });
+    expect(hoisted.store.closeStoredRun).toHaveBeenCalledWith('loop-stranded');
+    expect(response).toMatchObject({ success: true, data: { ok: true } });
+  });
+
+  it('leaves a live run alone when cancellation is refused', async () => {
+    hoisted.coordinator.cancelLoop.mockResolvedValue(false);
+    hoisted.coordinator.getLoop.mockReturnValue(makeLoopState({ status: 'paused', endedAt: null }));
+    registerLoopHandlers({ windowManager: { sendToRenderer: vi.fn() } as never, instanceManager: makeInstanceManager([]) });
+    const response = await findIpcHandler(IPC_CHANNELS.LOOP_CANCEL)({}, { loopRunId: 'loop-1' });
+    expect(hoisted.store.closeStoredRun).not.toHaveBeenCalled();
+    expect(response).toMatchObject({ success: true, data: { ok: false } });
   });
 });
 

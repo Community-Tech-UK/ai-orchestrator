@@ -222,6 +222,10 @@ describe('CampaignPageComponent editor', () => {
     expect(component.terminalStatuses).not.toContain('provider-limit');
     expect(component.terminalStatuses).toContain('failed');
   });
+
+  it('labels ended review runs neutrally', () => {
+    expect(fixture.componentInstance.nodeStatusLabel('completed-needs-review')).toBe('Ended, see notes');
+  });
 });
 
 describe('CampaignPageComponent — WS8 plan import', () => {

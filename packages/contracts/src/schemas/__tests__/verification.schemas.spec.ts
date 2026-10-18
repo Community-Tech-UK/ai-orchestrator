@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   VerificationVerdictReadyPayloadSchema,
   VerificationVerdictSchema,
+  AgentResponseSchema,
+  VerificationCompleteEventSchema,
 } from '../verification.schemas';
 
 const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
@@ -41,6 +43,19 @@ describe('verification verdict schemas', () => {
 
   it('parses a verification verdict', () => {
     expect(VerificationVerdictSchema.parse(verdict)).toEqual(verdict);
+  });
+
+  it.each([0.07, 'unknown', 0])('preserves cost %s in live responses and final results', (cost) => {
+    const response = { ...verdict.rawResponses[0], cost };
+    expect(AgentResponseSchema.parse(response).cost).toBe(cost);
+    const parsed = VerificationCompleteEventSchema.parse({ sessionId: 'session', result: { id: 'result', responses: [response], totalCost: cost } });
+    expect(parsed.result.totalCost).toBe(cost);
+    expect(parsed.result.responses).toEqual([response]);
+  });
+
+  it.each([-1, 'free', '0', null, Infinity])('rejects invalid cost %s in responses and totals', (cost) => {
+    expect(AgentResponseSchema.safeParse({ ...verdict.rawResponses[0], cost }).success).toBe(false);
+    expect(VerificationCompleteEventSchema.safeParse({ sessionId: 'session', result: { id: 'result', totalCost: cost } }).success).toBe(false);
   });
 
   it('accepts raw response model ids up to the dynamic catalog limit', () => {
