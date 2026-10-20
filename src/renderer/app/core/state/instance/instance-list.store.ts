@@ -17,7 +17,7 @@ import type {
   CreateInstanceConfig,
   CreateInstanceWithMessageOptions,
 } from './instance.types';
-import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
+import { REASONING_EFFORTS, type ReasoningEffort } from '../../../../../shared/types/provider.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
 import { normalizeOpenCodeAdditionalDirectories } from '../../../../../shared/utils/opencode-additional-directories';
@@ -822,12 +822,7 @@ export class InstanceListStore {
   }
 
   private isReasoningEffort(value: unknown): value is ReasoningEffort {
-    return value === 'none'
-      || value === 'minimal'
-      || value === 'low'
-      || value === 'medium'
-      || value === 'high'
-      || value === 'xhigh';
+    return typeof value === 'string' && (REASONING_EFFORTS as readonly string[]).includes(value);
   }
 
   /**

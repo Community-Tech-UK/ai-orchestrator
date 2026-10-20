@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { CliType } from '../main/cli/cli-detection';
 import type { CliResponse, InterruptResult } from '../main/cli/adapters/base-cli-adapter';
+import type { StatelessExecClassifiable } from '../main/cli/adapters/stateless-exec-adapter';
 // Type-only: `adapter-factory.types` carries no runtime deps, so this cannot
 // pull `electron` into the worker (adapter-factory itself stays a lazy import).
 import type { UnifiedSpawnOptions } from '../main/cli/adapters/adapter-factory.types';
@@ -18,6 +19,8 @@ import { wireWorkerInteraction } from './worker-instance-interaction';
 import { InstanceSendRawParamsSchema, remoteContextDetails } from '../main/remote-node/instance-interaction-schemas';
 import { resolveNativeOpenCodeCommandInput } from '../main/commands/provider-native-commands';
 import { observeWorkerInstanceTelemetry } from './worker-instance-telemetry';
+import type { RemoteClaudeSpawnPolicy } from '../main/remote-node/claude-spawn-policy-schema';
+import { endsOnlyTheTurn, isSettledStatus, onExecTurnInterrupted } from './worker-exec-turn';
 
 const ACTIVITY_WATCHDOG_INTERVAL_MS = 5_000;
 type MobileMcpSpawnAttach = Omit<WorkerAndroidAttach, 'mobileMcpVersion'> & { version?: string };
@@ -58,9 +61,11 @@ export interface SpawnParams {
   };
   /** Claude Code / Codex account pool routing (D10). Safe metadata only, like `copilotAccountRoute`. */
   accountRoute?: WorkerAccountRouteParams;
+  /** Claude policies the controller resolved; applied by this worker's own Claude adapter. */
+  claudeSpawnPolicy?: RemoteClaudeSpawnPolicy;
 }
 
-type WorkerManagedAdapter = EventEmitter & {
+type WorkerManagedAdapter = EventEmitter & Partial<StatelessExecClassifiable> & {
   spawn: () => Promise<number | void>;
   sendInput: (message: string, attachments?: FileAttachment[]) => Promise<void>;
   terminate: (graceful?: boolean) => Promise<void>;
@@ -313,6 +318,8 @@ export class LocalInstanceManager extends EventEmitter {
 
     this.assertSpawnNotShuttingDown(params.instanceId);
 
+    if (params.claudeSpawnPolicy && params.cliType !== 'claude') throw new Error('A Claude spawn policy was sent for a non-Claude provider.');
+
     if (this.instances.has(params.instanceId) || this.pendingSpawns.has(params.instanceId)) {
       throw new Error(`Instance already exists: ${params.instanceId}`);
     }
@@ -396,6 +403,7 @@ export class LocalInstanceManager extends EventEmitter {
             }
           : {}),
         ...(accountRoute ? { accountRoute } : {}),
+        ...params.claudeSpawnPolicy, // createClaudeAdapter turns these into argv/env here as on the controller.
         ...(chromeDevtoolsMcp ? { chromeDevtoolsMcp } : {}),
         ...(mobileMcp ? { mobileMcp } : {}),
       });
@@ -430,6 +438,7 @@ export class LocalInstanceManager extends EventEmitter {
             break;
           }
           case 'exit':
+            if (endsOnlyTheTurn(adapter)) break; // One process per turn: the session continues.
             this.interactions.get(params.instanceId)?.cleanup(); this.interactions.delete(params.instanceId);
             runtimeObserverCleanup();
             this.clearWatchdog(params.instanceId);
@@ -439,16 +448,19 @@ export class LocalInstanceManager extends EventEmitter {
             this.emit('instance:exit', params.instanceId, { code: event.code, signal: event.signal });
             break;
           case 'status': {
+            // As the coordinator does locally: a failed exec turn's `error` ends that turn only
+            // (its error already went out as output), so the session settles instead of staying busy.
+            const status = event.status === 'error' && endsOnlyTheTurn(adapter) ? 'idle' : event.status;
             const inst = this.instances.get(params.instanceId);
             if (inst) {
-              inst.lastStatus = event.status;
+              inst.lastStatus = status;
             }
-            if (event.status === 'idle' || event.status === 'ready' || event.status === 'waiting_for_input') {
+            if (isSettledStatus(status)) {
               this.clearWatchdog(params.instanceId);
             } else {
               this.resetWatchdog(params.instanceId);
             }
-            this.emit('instance:stateChange', params.instanceId, event.status);
+            this.emit('instance:stateChange', params.instanceId, status);
             break;
           }
           case 'context':
@@ -479,6 +491,7 @@ export class LocalInstanceManager extends EventEmitter {
         this.emit('instance:heartbeat', params.instanceId);
       });
       adapter.on('exit', () => {
+        if (endsOnlyTheTurn(adapter)) return;
         this.releaseAndroidLease(params.instanceId);
       });
 
@@ -610,7 +623,16 @@ export class LocalInstanceManager extends EventEmitter {
   async interrupt(instanceId: string): Promise<void> {
     const inst = this.instances.get(instanceId);
     if (!inst) throw new Error(`Instance not found: ${instanceId}`);
-    await inst.adapter.interrupt();
+    const adapter = inst.adapter;
+    onExecTurnInterrupted(adapter, await adapter.interrupt(), () => this.settleInterruptedExecTurn(instanceId, adapter));
+  }
+
+  /** Report the interrupted exec turn settled (see onExecTurnInterrupted) and stop the busy watchdog. */
+  private settleInterruptedExecTurn(instanceId: string, adapter: WorkerManagedAdapter): void {
+    const inst = this.instances.get(instanceId);
+    if (!inst || inst.adapter !== adapter || isSettledStatus(inst.lastStatus)) return;
+    inst.lastStatus = 'idle'; this.clearWatchdog(instanceId);
+    this.emit('instance:stateChange', instanceId, 'idle');
   }
 
   async hibernate(instanceId: string): Promise<void> {

@@ -6,6 +6,7 @@ import { getInstanceThreadId } from '../../../features/instance-list/instance-li
 import { InstanceListStore } from './instance-list.store';
 import { InstanceStateService } from './instance-state.service';
 import { INTERACTIVE_LAUNCH_MODE_AVAILABLE } from '../../../../../shared/types/instance.types';
+import { REASONING_EFFORTS } from '../../../../../shared/types/provider.types';
 
 describe('InstanceListStore', () => {
   let store: InstanceListStore;
@@ -235,6 +236,21 @@ describe('InstanceListStore', () => {
       if (intentionallyExcluded.has(key)) continue;
       expect(instance[key], `field "${key}" should survive deserializeInstance()`).toEqual(value);
     }
+  });
+
+  it('keeps every shared reasoning effort, including max, ultra and workflow', () => {
+    // A hand-written subset dropped `max` here, so a Max session's chip read
+    // "Provider default" until a later state-update, and again after reload.
+    for (const effort of REASONING_EFFORTS) {
+      const instance = store.deserializeInstance({
+        id: `instance-${effort}`, createdAt: 1, status: 'initializing', provider: 'claude',
+        workingDirectory: '/tmp/project', outputBuffer: [], reasoningEffort: effort,
+      });
+      expect(instance.reasoningEffort).toBe(effort);
+    }
+    expect(store.deserializeInstance({
+      id: 'instance-bogus', createdAt: 1, provider: 'claude', outputBuffer: [], reasoningEffort: 'bogus',
+    }).reasoningEffort).toBeUndefined();
   });
 
   /**

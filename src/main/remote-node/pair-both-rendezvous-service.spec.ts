@@ -60,10 +60,17 @@ describe('PairBothRendezvousService', () => {
       },
       machineName: 'James MacBook',
     });
+    // The hook must run before the new pairing lands, so the in-app worker can
+    // be stopped while the old config is still on disk.
+    let authTokenSeenByHook: unknown;
+    const beforeWorkerConfigWrite = vi.fn(async () => {
+      authTokenSeenByHook = (JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>)['authToken'];
+    });
     const worker = new PairBothRendezvousService({
       auth: { issuePairingCredential: vi.fn() },
       machineName: 'Noah PC',
       workerConfigPath: configPath,
+      beforeWorkerConfigWrite,
     });
     services.push(coordinator, worker);
 
@@ -100,6 +107,8 @@ describe('PairBothRendezvousService', () => {
     });
     expect(persisted).not.toHaveProperty('nodeToken');
     expect(persisted).not.toHaveProperty('recoveryToken');
+    expect(beforeWorkerConfigWrite).toHaveBeenCalledTimes(1);
+    expect(authTokenSeenByHook).toBe('old-token');
   });
 
   it('allows coordinator approval before worker confirmation and releases payload after both confirm', async () => {

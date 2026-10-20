@@ -10,6 +10,19 @@ import { formatCommandResponse, type OrchestratorAction } from './orchestration-
 
 const logger = getLogger('OrchestrationResponseDelivery');
 
+/**
+ * Confirm-callback error for a response that was not delivered for a reason
+ * that passes, so it is queued again instead of failing: the provider refused
+ * it on a usage limit a park or account switch now owns (`provider-limited`),
+ * or an account switch replaced the adapter before it was sent (`respawning`).
+ */
+export class OrchestrationResponseHeldError extends Error {
+  constructor(message: string, readonly reason: 'provider-limited' | 'respawning' = 'provider-limited') {
+    super(message);
+    this.name = 'OrchestrationResponseHeldError';
+  }
+}
+
 export function isParentUnavailableSuppression(reason: SuppressReason): boolean {
   return reason === 'respawning' || reason === 'terminal' || reason === 'unknown-instance';
 }
@@ -17,6 +30,12 @@ export function isParentUnavailableSuppression(reason: SuppressReason): boolean 
 export interface OrchestrationResponseDeliveryOptions {
   emit: (instanceId: string, response: string, confirm: (error?: Error) => void) => void;
   onChildCompletionRedelivered: (parentId: string, childId: string) => void;
+  /**
+   * A child completion requeued because its parent was respawning, so restart
+   * reconciliation can account for it. A limit-held one is not reported: like
+   * an awaiting-human suppression, it is still delivered later.
+   */
+  onChildCompletionRequeuedForRespawn?: (parentId: string, childId: string, admissionId: string) => void;
 }
 
 /** Admission, redelivery, audit hooks, and final emission for command responses. */
@@ -36,14 +55,15 @@ export class OrchestrationResponseDelivery {
     options: { alreadyAdmitted?: boolean; admissionId?: string; onDelivered?: () => void } = {},
   ): AdmissionOutcome | null {
     const response = formatCommandResponse(action as OrchestratorAction, success, data);
+    const request = {
+      instanceId,
+      origin: 'orchestration' as const,
+      message: response,
+      sourceMetadata: { action, success, data },
+    };
     let admission: AdmissionOutcome | null = null;
     if (!options.alreadyAdmitted) {
-      const outcome = getSessionAdmissionService().admitAutomatedWrite({
-        instanceId,
-        origin: 'orchestration',
-        message: response,
-        sourceMetadata: { action, success, data },
-      });
+      const outcome = getSessionAdmissionService().admitAutomatedWrite(request);
       if (outcome.kind === 'suppressed') {
         logger.warn('Orchestration response injection suppressed pending instance readiness', {
           instanceId,
@@ -60,6 +80,14 @@ export class OrchestrationResponseDelivery {
       if (confirmed) return;
       confirmed = true;
       const admissionId = admission?.admissionId ?? options.admissionId;
+      if (error instanceof OrchestrationResponseHeldError) {
+        const requeuedId = getSessionAdmissionService().requeueUndelivered(admissionId, request, error.reason);
+        const childId = action === 'child_completed' ? childIdFromResponseData(data) : null;
+        if (error.reason === 'respawning' && childId && requeuedId) {
+          this.options.onChildCompletionRequeuedForRespawn?.(instanceId, childId, requeuedId);
+        }
+        return;
+      }
       if (error) {
         if (admissionId) getSessionAdmissionService().markFailed(admissionId, error.message);
         return;

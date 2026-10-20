@@ -84,7 +84,7 @@ import {
   isCopilotRoutingError,
   stampCopilotRouteOnInstance,
 } from './lifecycle/copilot-route-preflight';
-import { attachAccountRoute, persistedAccountProfileId, restoreAccountStamp, stampAccountRouteOnInstance } from './lifecycle/account-route-preflight';
+import { attachAccountRoute, persistedAccountProfileId, restoreAccountStamp, stampAccountRouteOnInstance, type AttachAccountRouteOptions } from './lifecycle/account-route-preflight';
 import {
   buildInstanceRecord,
 } from './lifecycle/instance-create-builder';
@@ -813,18 +813,17 @@ export class InstanceLifecycleManager extends EventEmitter {
    * The single adapter-construction chokepoint for this instance's whole
    * lifecycle: first spawn, hibernate/wake, unexpected-exit respawn, native
    * resume, fresh restart, runtime/model change, and deferred-permission
-   * respawn all land here.
-   *
-   * Async purely so Copilot account routing can run. A respawn must keep the
-   * account the session was created under (`instance.copilotAccountProfileId`)
-   * AND re-verify that the profile is still signed in as the expected
-   * identity — a `/user switch` inside that profile home between two spawns
-   * would otherwise silently move the session to another GitHub account.
+   * respawn all land here. Async so account routing can run: a respawn keeps
+   * its Copilot profile AND re-verifies its signed-in identity (a `/user
+   * switch` in that home would otherwise move the session to another GitHub
+   * account). `routing.moveOffLimitedAccount` is for restarts only, so they
+   * never land on a known-limited account; a handoff keeps its chosen one.
    */
   private async createRuntimeAdapter(
     cliType: CliType,
     options: UnifiedSpawnOptions,
     executionLocation?: ExecutionLocation,
+    routing?: Pick<AttachAccountRouteOptions, 'moveOffLimitedAccount'>,
   ): Promise<CliAdapter> {
     const instance = options.instanceId ? this.deps.getInstance(options.instanceId) : undefined;
     const harnessCliEnv = this.spawnConfigBuilder.getHarnessCliEnv(
@@ -846,6 +845,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     const accountRoutedOptions = await attachAccountRoute(cliType, routedOptions, routeOrigin, {
       persistedProfileId: persistedAccountProfileId(instance, durableOptions.resume),
       restrictTo: instance?.allowedAccountProfileIds,
+      moveOffLimitedAccount: routing?.moveOffLimitedAccount,
       executionNodeId: executionLocation?.type === 'remote' ? executionLocation.nodeId : undefined,
       instanceId: options.instanceId,
     });
@@ -2506,7 +2506,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
           rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       },
-      instance.executionLocation
+      instance.executionLocation, { moveOffLimitedAccount: true },
     );
 
     this.deps.setupAdapterEvents(instanceId, adapter);
@@ -2584,7 +2584,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
           rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       },
-      instance.executionLocation
+      instance.executionLocation, { moveOffLimitedAccount: true },
     );
 
     this.deps.setupAdapterEvents(instanceId, adapter);
@@ -2885,7 +2885,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
           rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
         },
-        instance.executionLocation
+        instance.executionLocation, { moveOffLimitedAccount: true },
       );
 
       this.deps.setupAdapterEvents(instanceId, adapter);

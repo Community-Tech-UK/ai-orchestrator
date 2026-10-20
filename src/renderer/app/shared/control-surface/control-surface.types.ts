@@ -71,6 +71,7 @@ export type ControlSurfaceId =
   | 'semantic-search'
   | 'channels'
   | 'remote-nodes'
+  | 'worker-mode'
   | 'ask-council'
   | 'workboard'
   | 'compare-split';

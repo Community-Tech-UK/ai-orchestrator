@@ -3,6 +3,7 @@ import type { Instance, OutputMessage } from '../../shared/types/instance.types'
 import { buildVerifiedRecoveryBuffer } from '../instance/lifecycle/continuity-revival';
 import { normalizeRecoveryNodePlacement } from '../session/session-recovery-node-placement';
 import { normalizeRecoveryExecutionLocation } from '../session/session-recovery-execution-location';
+import { automationMetadataFromProvenance } from '../session/continuity-automation-provenance';
 import type { ArchiveInstanceOptions, ArchiveInstanceOutcome } from './should-archive-instance';
 import type {
   ResolvedRecoveryCandidate,
@@ -53,6 +54,11 @@ export function buildArchiveInstanceFromRecovery(
   const sessionId = state.sessionId?.trim() || undefined;
   const modelId = state.modelId?.trim() || undefined;
   const executionLocation = normalizeRecoveryExecutionLocation(state.executionLocation);
+  // History derives its hidden and automation flags from metadata.
+  const metadata = {
+    ...(state.hideFromProjectRail === true ? { hideFromProjectRail: true } : {}),
+    ...automationMetadataFromProvenance(state.automation),
+  };
   const instance = createInstance({
     displayName: state.displayName,
     isRenamed: state.isRenamed,
@@ -64,6 +70,7 @@ export function buildArchiveInstanceFromRecovery(
     historyThreadId,
     sessionId,
     copilotAccountProfileId: state.copilotAccountProfileId,
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
   });
   // Keep the original runtime id: History records it as the source, and the
   // archive folds in any output that runtime spilled to disk before it died.

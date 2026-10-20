@@ -192,7 +192,31 @@ export class ExtensionRelayNativeRegistration {
     if (!fs.existsSync(paths.wrapperPath)) {
       return 'wrapper_missing';
     }
+    if (!this.wrapperLaunchesCurrentHost(paths.wrapperPath)) {
+      return 'wrapper_host_mismatch';
+    }
     return undefined;
+  }
+
+  /**
+   * The wrapper embeds the host executable's absolute path. A worker that
+   * moved — Harness's Windows sign-in worker runs from a per-build copy and
+   * prunes the previous build's folder after an update — left the wrapper
+   * launching a deleted exe, and nothing else here would notice.
+   */
+  private wrapperLaunchesCurrentHost(wrapperPath: string): boolean {
+    let content: string;
+    try {
+      content = fs.readFileSync(wrapperPath, 'utf-8');
+    } catch {
+      return false;
+    }
+    const exe = this.hostCommand.exe;
+    if (process.platform === 'win32') {
+      return content.toLowerCase().includes(exe.toLowerCase());
+    }
+    // The sh wrapper single-quotes the path (an apostrophe becomes '\'').
+    return content.includes(`'${exe.replace(/'/g, `'\\''`)}'`);
   }
 
   private validateRuntimeConfig(

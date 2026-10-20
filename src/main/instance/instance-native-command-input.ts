@@ -17,7 +17,9 @@ export async function dispatchNativeOpenCodeCommand(context: {
       throw new Error('The selected native command is no longer available in this session.');
     }
   };
-  const userMessage: OutputMessage = { id: generateId(), timestamp: Date.now(), type: 'user', content: context.originalInput };
+  const userMessage: OutputMessage = { id: generateId(), timestamp: Date.now(), type: 'user', content: context.originalInput,
+    metadata: { command: { name: command.command.name, resolved: true, executionType: command.execution.type,
+      providerNativeCommandId: command.command.id } } };
   if (!options?.isRetry && !context.deferredCommit) context.emitUser(userMessage);
   await context.send(command.resolvedPrompt, { ...options, providerNativeCommandId: command.command.id,
     beforeProviderDispatch: () => {

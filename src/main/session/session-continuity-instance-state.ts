@@ -1,8 +1,10 @@
 import type { Instance } from '../../shared/types/instance.types';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { normalizeOpenCodeAdditionalDirectories } from '../../shared/utils/opencode-additional-directories';
+import { isProjectRailHiddenSession } from '../../shared/utils/project-rail-hidden-session';
 import { hasFreshInitialSubmission } from '../instance/lifecycle/initial-submission-capture';
 import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
+import { automationProvenanceFromMetadata } from './continuity-automation-provenance';
 import { outputMessagesToContinuityEntries } from './continuity-message-projection';
 import { normalizeConversationHistory, normalizeStateForContinuity } from './session-continuity-state';
 import { normalizeRecoveryNodePlacement } from './session-recovery-node-placement';
@@ -12,12 +14,15 @@ import type { ContinuityConfig, SessionState } from './session-continuity.types'
 /** Capture explicit new-session provenance; buffer length can only disqualify it. */
 export function instanceToContinuityState(instance: Instance, config: Pick<ContinuityConfig, 'persistSessionContent' | 'redactToolOutputs'>): SessionState {
   const persistContent = config.persistSessionContent;
+  const automation = automationProvenanceFromMetadata(instance.metadata);
 
   const state: SessionState = {
     instanceId: instance.id,
     sessionId: instance.sessionId,
     historyThreadId: instance.historyThreadId,
     parentId: instance.parentId ?? null,
+    ...(isProjectRailHiddenSession(instance.metadata) ? { hideFromProjectRail: true } : {}),
+    ...(automation ? { automation } : {}),
     nativeResumeFailedAt: null,
     displayName: instance.displayName,
     isRenamed: instance.isRenamed,

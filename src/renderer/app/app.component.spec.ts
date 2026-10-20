@@ -1,4 +1,5 @@
 import {
+  computed,
   CUSTOM_ELEMENTS_SCHEMA,
   ɵresolveComponentResources as resolveComponentResources,
   signal,
@@ -76,7 +77,10 @@ function createRouterMock(url = '/'): RouterMock {
   };
 }
 
-async function setupAppComponent(platform = 'darwin'): Promise<{
+async function setupAppComponent(
+  platform = 'darwin',
+  options: { settingsStore?: Record<string, unknown>; router?: RouterMock } = {},
+): Promise<{
   fixture: ComponentFixture<AppComponent>;
   component: AppComponent;
 }> {
@@ -97,7 +101,7 @@ async function setupAppComponent(platform = 'darwin'): Promise<{
   await TestBed.configureTestingModule({
     imports: [AppComponent],
     providers: [
-      { provide: Router, useValue: createRouterMock() },
+      { provide: Router, useValue: options.router ?? createRouterMock() },
       {
         provide: IpcFacadeService,
         useValue: {
@@ -124,7 +128,7 @@ async function setupAppComponent(platform = 'darwin'): Promise<{
       },
       {
         provide: SettingsStore,
-        useValue: {
+        useValue: options.settingsStore ?? {
           initialize: vi.fn(async () => void 0),
           isInitialized: signal(false).asReadonly(),
           get: vi.fn(() => false),
@@ -445,5 +449,46 @@ describe('AppComponent title bar layout', () => {
     expect(container?.classList.contains('macos')).toBe(false);
     expect(styles).toContain('.app-container.windows');
     expect(styles).toContain('padding-top: 40px');
+  });
+});
+
+describe('AppComponent computer role', () => {
+  function settingsWithRole(role: 'unset' | 'coordinator' | 'worker') {
+    const workerMode = signal({ role, startWorkerOnLaunch: true, installWorkerService: false });
+    return {
+      initialize: vi.fn(async () => void 0),
+      isInitialized: signal(true).asReadonly(),
+      get: vi.fn(() => false),
+      workerMode: workerMode.asReadonly(),
+      harnessRole: computed(() => workerMode().role),
+      set: vi.fn(async (_key: string, value: { role: typeof role }) => {
+        workerMode.set({ ...workerMode(), role: value.role });
+      }),
+    };
+  }
+
+  it('keeps the full app for a worker computer instead of a worker-only screen', async () => {
+    const { fixture } = await setupAppComponent('win32', { settingsStore: settingsWithRole('worker') });
+    const main = fixture.nativeElement.querySelector('main.app-main') as HTMLElement;
+
+    expect(main.querySelector('router-outlet')).not.toBeNull();
+    expect(main.querySelector('app-worker-mode')).toBeNull();
+    expect(main.querySelector('app-role-choice')).toBeNull();
+  });
+
+  it('opens the Worker Mode page after choosing the worker role', async () => {
+    const router = createRouterMock();
+    const settingsStore = settingsWithRole('unset');
+    const { fixture, component } = await setupAppComponent('win32', { settingsStore, router });
+    expect(fixture.nativeElement.querySelector('app-role-choice')).not.toBeNull();
+
+    await (component as unknown as {
+      selectHarnessRole(role: 'worker'): Promise<void>;
+    }).selectHarnessRole('worker');
+    fixture.detectChanges();
+
+    expect(settingsStore.set).toHaveBeenCalledWith('workerMode', expect.objectContaining({ role: 'worker' }));
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/worker-mode');
+    expect(fixture.nativeElement.querySelector('router-outlet')).not.toBeNull();
   });
 });

@@ -1,0 +1,203 @@
+/* The Control Center content cell clips overflow; this page scrolls itself. */
+:host {
+  display: block;
+  overflow-y: auto;
+}
+
+.worker-mode-shell {
+  width: 100%;
+  padding: 24px;
+  box-sizing: border-box;
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+h2,
+p {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+h2 {
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.panel-intro,
+.candidate-detail,
+.field-label,
+.connected-panel p {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.action-panel,
+.status-panel,
+.manual-panel,
+.code-panel,
+.connected-panel,
+.candidate-list,
+.advanced-panel {
+  width: min(720px, 100%);
+}
+
+.action-panel,
+.manual-panel,
+.code-panel,
+.connected-panel,
+.advanced-panel {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.status-panel,
+.notice {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  padding: 14px 16px;
+  font-size: 0.9375rem;
+}
+
+.notice.error {
+  border-color: var(--pill-error-border);
+  background: var(--pill-error-bg);
+  color: var(--pill-error-fg);
+}
+
+.notice.guidance {
+  border-color: var(--pill-warn-border, var(--border-color));
+  background: var(--pill-warn-bg, var(--bg-secondary));
+  color: var(--pill-warn-fg, var(--text-primary));
+}
+
+.status-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.primary-action,
+.primary-small,
+.secondary-small,
+.candidate-row {
+  font: inherit;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.primary-action {
+  min-height: 72px;
+  border: none;
+  background: var(--primary-color);
+  color: var(--button-on-primary);
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.primary-small,
+.secondary-small {
+  min-height: 36px;
+  padding: 0 14px;
+}
+
+.secondary-small {
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.primary-small {
+  border: none;
+  background: var(--primary-color);
+  color: var(--button-on-primary);
+  font-weight: 650;
+}
+
+.candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.candidate-row {
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: inherit;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.candidate-name {
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.text-area {
+  min-height: 112px;
+  resize: vertical;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 10px;
+  font: 0.8125rem var(--font-family-mono, monospace);
+}
+
+.button-row,
+.connection-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.code-label {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.pairing-code {
+  font: 700 42px var(--font-family-mono, monospace);
+  letter-spacing: 0;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.worker-status {
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+}
+
+.worker-status.status-warning {
+  color: var(--pill-warn-fg, var(--text-primary));
+}
+
+.connection-meta span {
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.advanced-panel summary {
+  cursor: pointer;
+  font-weight: 650;
+}

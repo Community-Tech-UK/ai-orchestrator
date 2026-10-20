@@ -1,5 +1,6 @@
 import { isAutomaticCopilotOrigin, type CopilotInvocationOrigin } from '../types/copilot-account.types';
-export type MachineSessionReason = 'loop' | 'review' | 'verification' | 'consensus' | 'workflow' | 'automation' | 'failover' | 'internal' | 'child' | 'plan-queue' | 'ping-pong-review' | 'node-run' | 'repo-job';
+export const MACHINE_SESSION_REASONS = ['loop', 'review', 'verification', 'consensus', 'workflow', 'automation', 'failover', 'internal', 'child', 'plan-queue', 'ping-pong-review', 'node-run', 'repo-job'] as const;
+export type MachineSessionReason = typeof MACHINE_SESSION_REASONS[number];
 export function machineSessionReasonForOrigin(origin: CopilotInvocationOrigin): MachineSessionReason | null {
   return isAutomaticCopilotOrigin(origin) ? origin as MachineSessionReason : null;
 }

@@ -102,7 +102,7 @@ import { getContextEngine } from '../context/context-engine.js';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
 import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
-import { createProviderLimitCommunicationCallbacks } from './instance-provider-limit-runtime';
+import { createProviderLimitCommunicationCallbacks, holdQueuedOrchestrationResponse, holdRejectedOrchestrationResponse } from './instance-provider-limit-runtime';
 import { createAuthRepairAccountDeps, createAuthRepairCommunicationCallbacks } from './instance-auth-repair-runtime';
 import { getInstanceAuthRepairHandler } from './instance-auth-repair-handler';
 import {
@@ -298,6 +298,8 @@ export class InstanceManager extends EventEmitter {
       terminateInstance: (id, graceful) => this.terminateInstance(id, graceful),
       getAdapter: (id) => this.state.getAdapter(id),
       recordTaskOutcome: (taskId, success, score) => this.context.recordTaskOutcome(taskId, success, score),
+      holdRejectedResponse: (id, adapter, error) => holdRejectedOrchestrationResponse(this.state.getInstance(id), adapter, error),
+      holdQueuedResponse: (id) => holdQueuedOrchestrationResponse(id),
     });
     this.childCompletion = new InstanceChildCompletionHandler({
       getInstance: (id) => this.state.getInstance(id),

@@ -23,6 +23,7 @@ vi.mock('child_process', async (importOriginal) => {
 });
 
 import { ProviderAccountStore } from './provider-account-store';
+import { emitProviderAccountEvent } from './provider-account-events';
 import { quotaEvidenceFromSnapshot } from './account-quota-evidence';
 import { ProviderAccountRoutingService, type ProviderAccountRoutingDeps } from './provider-account-routing-service';
 import { ProviderAccountBindingService } from './provider-account-binding-service';
@@ -256,5 +257,105 @@ describe('ProviderAccountRoutingService', () => {
     const outcome = await service().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive', executionNodeId: 'node-1' });
     expect(outcome).toMatchObject({ ok: true, route: { profileId: 'legacy', executionNodeId: 'node-1' } });
     expect(checkBinding).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProviderAccountRoutingService: restarting a session whose account is limited', () => {
+  function automatic(overrides: Partial<ReturnType<typeof defaultProviderAccountPools>['claude']> = {}, deps: Partial<ProviderAccountRoutingDeps> = {}) {
+    const pools = defaultProviderAccountPools();
+    pools.claude = { ...pools.claude, failoverMode: 'automatic', acknowledgedOwnershipAt: 1, ...overrides };
+    return service({ store: new ProviderAccountStore({ read: () => ({ profiles, pools }), write: () => undefined }), ...deps });
+  }
+
+  beforeEach(() => {
+    profiles = [profile('legacy', 0), profile('max-b', 1), profile('max-c', 2)];
+  });
+
+  it('moves the restart to the failover target instead of the account that refuses every turn', async () => {
+    parked = ['max-b'];
+    const outcome = await automatic().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive', persistedProfileId: 'max-b', moveOffLimitedAccount: true });
+    expect(outcome).toMatchObject({ ok: true, route: { profileId: 'legacy', source: 'failover' } });
+  });
+
+  it('tells the user, and records the failover, when a restart moves the session', async () => {
+    parked = ['max-b'];
+    const notify = vi.fn();
+    vi.mocked(emitProviderAccountEvent).mockClear();
+    await automatic({}, { notify }).resolveRouteForSpawn({
+      provider: 'claude', origin: 'interactive', persistedProfileId: 'max-b', moveOffLimitedAccount: true, instanceId: 'inst-1',
+    });
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'account-switched', instanceId: 'inst-1', body: expect.stringContaining('Label max-b → Label legacy'),
+    }));
+    expect(emitProviderAccountEvent).toHaveBeenCalledWith(expect.objectContaining({
+      event: 'account_failover_performed', profileId: 'legacy', fromProfileId: 'max-b', instanceId: 'inst-1',
+    }));
+  });
+
+  it('does not notify when a restart keeps its account', async () => {
+    parked = [];
+    const notify = vi.fn();
+    await automatic({}, { notify }).resolveRouteForSpawn({
+      provider: 'claude', origin: 'interactive', persistedProfileId: 'max-b', moveOffLimitedAccount: true, instanceId: 'inst-1',
+    });
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('never redirects an account handoff onto a limited account the user or failover just chose', async () => {
+    parked = ['max-b'];
+    const outcome = await automatic().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive', persistedProfileId: 'max-b' });
+    expect(outcome).toMatchObject({ ok: true, route: { profileId: 'max-b', source: 'persisted' } });
+  });
+
+  it('keeps the persisted account when it has no known limit', async () => {
+    parked = ['legacy'];
+    const outcome = await automatic().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive', persistedProfileId: 'max-b', moveOffLimitedAccount: true });
+    expect(outcome).toMatchObject({ ok: true, route: { profileId: 'max-b', source: 'persisted' } });
+  });
+
+  it.each([
+    ['the pool asks first', { failoverMode: 'ask' as const }],
+    ['failover is off', { failoverMode: 'off' as const }],
+    ['ownership is not acknowledged', { acknowledgedOwnershipAt: null }],
+    ['the pool replays instead of sharing the session store, and the restart resumes its thread', { continuation: 'replay' as const }],
+  ])('keeps the persisted account when %s', async (_label, overrides) => {
+    parked = ['max-b'];
+    const outcome = await automatic(overrides).resolveRouteForSpawn({ provider: 'claude', origin: 'interactive', persistedProfileId: 'max-b', moveOffLimitedAccount: true, resume: true });
+    expect(outcome).toMatchObject({ ok: true, route: { profileId: 'max-b', source: 'persisted' } });
+  });
+
+  it('moves a fresh-session restart even in a replay pool: there is no thread to keep', async () => {
+    parked = ['max-b'];
+    const outcome = await automatic({ continuation: 'replay' }).resolveRouteForSpawn({
+      provider: 'claude', origin: 'interactive', persistedProfileId: 'max-b', moveOffLimitedAccount: true, resume: false,
+    });
+    expect(outcome).toMatchObject({ ok: true, route: { profileId: 'legacy', source: 'failover' } });
+  });
+
+  it('keeps the persisted account when newer usage evidence lifted its limit', async () => {
+    parked = ['max-b'];
+    quota = { 'max-b': { usable: true, observedAt: 2000 } };
+    const outcome = await automatic({}, { getParkedSince: () => new Map([['max-b', 1000]]) })
+      .resolveRouteForSpawn({ provider: 'claude', origin: 'interactive', persistedProfileId: 'max-b', moveOffLimitedAccount: true });
+    expect(outcome).toMatchObject({ ok: true, route: { profileId: 'max-b', source: 'persisted' } });
+  });
+
+  it('keeps the persisted account when no other account is usable', async () => {
+    parked = ['max-b', 'legacy'];
+    bindingStates = { 'max-c': 'unauthenticated' };
+    const outcome = await automatic().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive', persistedProfileId: 'max-b', moveOffLimitedAccount: true });
+    expect(outcome).toMatchObject({ ok: true, route: { profileId: 'max-b', source: 'persisted' } });
+  });
+
+  it('never moves outside the session\'s account fence', async () => {
+    parked = ['max-b'];
+    const fenced = await automatic().resolveRouteForSpawn({
+      provider: 'claude', origin: 'interactive', persistedProfileId: 'max-b', moveOffLimitedAccount: true, restrictTo: ['max-b', 'max-c'],
+    });
+    expect(fenced).toMatchObject({ ok: true, route: { profileId: 'max-c', source: 'failover' } });
+    const onlyOwn = await automatic().resolveRouteForSpawn({
+      provider: 'claude', origin: 'interactive', persistedProfileId: 'max-b', moveOffLimitedAccount: true, restrictTo: ['max-b'],
+    });
+    expect(onlyOwn).toMatchObject({ ok: true, route: { profileId: 'max-b', source: 'persisted' } });
   });
 });

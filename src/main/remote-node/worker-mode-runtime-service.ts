@@ -1,6 +1,14 @@
-import { spawn as defaultSpawn, type SpawnOptions } from 'node:child_process';
-import { existsSync as defaultExistsSync, rmSync } from 'node:fs';
+import { spawn as defaultSpawn, spawnSync, type SpawnOptions } from 'node:child_process';
+import {
+  existsSync as defaultExistsSync,
+  readFileSync as defaultReadFileSync,
+  rmSync,
+} from 'node:fs';
 import * as path from 'node:path';
+import type {
+  WorkerModeConfigSummary,
+  WorkerModeRuntimeSnapshot,
+} from '../../shared/types/pair-both.types';
 import type { WorkerConfig } from '../../worker-agent/worker-config';
 
 export interface WorkerModeRuntimeCommand {
@@ -16,12 +24,10 @@ export interface ResolveWorkerModeRuntimeCommandOptions {
   existsSync?: (candidate: string) => boolean;
 }
 
-export interface WorkerModeRuntimeStatus {
-  state: 'running' | 'stopped' | 'service-installed';
-  pid?: number;
-  command?: string;
-  error?: string;
-}
+export type WorkerModeRuntimeStatus = WorkerModeRuntimeSnapshot;
+
+/** How long a stop waits for the worker to exit before moving on. */
+const STOP_WAIT_TIMEOUT_MS = 5_000;
 
 export interface WorkerModeRuntimeStartOptions {
   configPath: string;
@@ -46,14 +52,19 @@ type SpawnWorker = (
   options: SpawnOptions,
 ) => ChildProcessLike;
 
+/** Stops the spawned worker and everything it launched. */
+type KillWorkerTree = (child: ChildProcessLike) => void;
+
 export interface WorkerModeRuntimeServiceOptions {
   spawn?: SpawnWorker;
   resolveCommand?: () => WorkerModeRuntimeCommand;
+  killTree?: KillWorkerTree;
 }
 
 export class WorkerModeRuntimeService {
   private readonly spawn: SpawnWorker;
   private readonly resolveCommand: () => WorkerModeRuntimeCommand;
+  private readonly killTree: KillWorkerTree;
   private child: ChildProcessLike | null = null;
   private activeCommand: string | undefined;
   private lastError: string | undefined;
@@ -61,6 +72,7 @@ export class WorkerModeRuntimeService {
   constructor(options: WorkerModeRuntimeServiceOptions = {}) {
     this.spawn = options.spawn ?? defaultSpawn;
     this.resolveCommand = options.resolveCommand ?? (() => resolveWorkerModeRuntimeCommand());
+    this.killTree = options.killTree ?? defaultKillWorkerTree;
   }
 
   start(options: WorkerModeRuntimeStartOptions): WorkerModeRuntimeStatus {
@@ -73,15 +85,25 @@ export class WorkerModeRuntimeService {
     const child = this.spawn(resolved.command, args, {
       detached: false,
       stdio: 'ignore',
+      // Without this, Windows gives the console-subsystem worker its own
+      // visible console window, and closing that window kills the worker.
+      windowsHide: true,
       env: buildWorkerRuntimeEnv(),
     });
     this.child = child;
     this.activeCommand = resolved.command;
     this.lastError = undefined;
 
-    child.once('exit', () => {
+    child.once('exit', (code, signal) => {
       if (this.child === child) {
         this.child = null;
+        // Only an exit we did not ask for reaches here (stop() clears
+        // this.child first). The supervisor exits 0 when it stops on purpose
+        // — including when another worker for this node already holds the
+        // single-instance lock — and non-zero when it gave up on crashes.
+        if (code !== 0) {
+          this.lastError = `The worker stopped unexpectedly (${code !== null ? `exit code ${code}` : `signal ${signal ?? 'unknown'}`}).`;
+        }
       }
     });
     child.once('error', (error) => {
@@ -117,6 +139,7 @@ export class WorkerModeRuntimeService {
     ], {
       detached: false,
       stdio: 'ignore',
+      windowsHide: true,
       env: {
         ...buildWorkerRuntimeEnv(),
         [tokenEnvName]: token,
@@ -133,8 +156,35 @@ export class WorkerModeRuntimeService {
   }
 
   stop(): WorkerModeRuntimeStatus {
-    this.child?.kill('SIGTERM');
+    const child = this.child;
     this.child = null;
+    if (child) {
+      this.killTree(child);
+    }
+    return this.status();
+  }
+
+  /**
+   * Stop and wait for the worker to exit. Use this before rewriting or deleting
+   * its config: a still-running worker keeps its old credential in memory and
+   * persists that config back to disk (enrollment, rejection, advertised URLs),
+   * which silently undid a re-pair or an unpair. Waiting also frees the
+   * single-instance lock so an immediate restart is not refused.
+   */
+  async stopAndWait(timeoutMs = STOP_WAIT_TIMEOUT_MS): Promise<WorkerModeRuntimeStatus> {
+    const child = this.child;
+    if (!child) {
+      return this.status();
+    }
+    let timer: NodeJS.Timeout | undefined;
+    const exited = new Promise<void>((resolve) => {
+      child.once('exit', () => resolve());
+      timer = setTimeout(resolve, timeoutMs);
+      timer.unref?.();
+    });
+    this.stop();
+    await exited;
+    clearTimeout(timer);
     return this.status();
   }
 
@@ -155,6 +205,102 @@ export class WorkerModeRuntimeService {
 
 export function clearWorkerModeConfig(configPath: string): void {
   rmSync(configPath, { force: true });
+}
+
+export interface WorkerModePairing {
+  paired: boolean;
+  enrolled: boolean;
+  config: WorkerModeConfigSummary | null;
+}
+
+export interface ReadWorkerModePairingOptions {
+  existsSync?: (candidate: string) => boolean;
+  readFileSync?: (candidate: string, encoding: 'utf-8') => string;
+}
+
+/**
+ * Read the saved pairing without side effects. Throws when the file exists but
+ * cannot be parsed. `loadWorkerConfig()` is not usable here: it writes the
+ * file back, mints a node id, and applies the calling process's CLI flags —
+ * none of which a status poll may do.
+ */
+export function readWorkerModePairing(
+  configPath: string,
+  options: ReadWorkerModePairingOptions = {},
+): WorkerModePairing {
+  const existsSync = options.existsSync ?? defaultExistsSync;
+  const readFileSync = options.readFileSync ?? defaultReadFileSync;
+  const unpaired: WorkerModePairing = { paired: false, enrolled: false, config: null };
+  if (!existsSync(configPath)) {
+    return unpaired;
+  }
+
+  // A parse failure throws rather than reporting "unpaired": the worker
+  // rewrites this file in place (enrollment, advertised URLs), so a read can
+  // land mid-write, and calling that "unpaired" is the very symptom this
+  // status exists to rule out. Callers keep their last known state instead.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(configPath, 'utf-8').replace(/^\uFEFF/, ''));
+  } catch {
+    // Fixed message: JSON.parse errors quote a snippet of the file, which
+    // holds the worker's credentials, and this message reaches logs and the UI.
+    throw new Error('The worker config could not be read. It may be mid-save; try again shortly.');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return unpaired;
+  }
+  const raw = parsed as Record<string, unknown>;
+
+  const coordinatorUrl = nonEmptyString(raw['coordinatorUrl'])
+    ?? (Array.isArray(raw['coordinatorUrls'])
+      ? raw['coordinatorUrls'].map(nonEmptyString).find((url): url is string => Boolean(url))
+      : undefined);
+  const nodeToken = nonEmptyString(raw['nodeToken']);
+  const credential = nodeToken ?? nonEmptyString(raw['authToken']) ?? nonEmptyString(raw['token']);
+  if (!coordinatorUrl || !credential) {
+    return unpaired;
+  }
+
+  return {
+    paired: true,
+    enrolled: Boolean(nodeToken),
+    config: {
+      nodeId: nonEmptyString(raw['nodeId']) ?? '',
+      name: nonEmptyString(raw['name']) ?? '',
+      coordinatorUrl,
+      namespace: nonEmptyString(raw['namespace']) ?? 'default',
+      maxConcurrentInstances: typeof raw['maxConcurrentInstances'] === 'number'
+        ? raw['maxConcurrentInstances']
+        : 0,
+      workingDirectories: Array.isArray(raw['workingDirectories'])
+        ? raw['workingDirectories'].filter((entry): entry is string => typeof entry === 'string')
+        : [],
+    },
+  };
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+/**
+ * Stop the supervisor and the worker it launched. On POSIX the supervisor
+ * forwards SIGTERM to its child. On Windows `kill()` is TerminateProcess on
+ * the supervisor alone, which orphaned the real worker — it stayed connected
+ * after "Stop Worker" and after Harness quit — so take the whole tree down.
+ */
+function defaultKillWorkerTree(child: ChildProcessLike): void {
+  if (process.platform === 'win32' && child.pid) {
+    const result = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+      timeout: 5000,
+      windowsHide: true,
+    });
+    if (!result.error && result.status === 0) {
+      return;
+    }
+  }
+  child.kill('SIGTERM');
 }
 
 function buildWorkerRuntimeEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {

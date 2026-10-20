@@ -92,7 +92,11 @@ export class WindowsServiceManager implements ServiceManager {
         pid: pidMatch ? Number(pidMatch[1]) : undefined,
       };
     } catch (e) {
-      if (e instanceof ExecFileError && e.stderr.includes('1060')) {
+      // ERROR_SERVICE_DOES_NOT_EXIST. sc.exe exits with the Win32 code and
+      // prints "OpenService FAILED 1060" to stdout, not stderr, so match the
+      // exit code and both streams; checking stderr alone made a missing
+      // service look like a failed check.
+      if (e instanceof ExecFileError && (e.exitCode === 1060 || /\b1060\b/.test(`${e.stdout}\n${e.stderr}`))) {
         return { state: 'not-installed' };
       }
       throw e;

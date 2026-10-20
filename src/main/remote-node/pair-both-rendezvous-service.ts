@@ -58,6 +58,8 @@ export interface PairBothRendezvousServiceOptions {
   auth: PairBothAuthPort;
   machineName?: string;
   workerConfigPath?: string;
+  /** Runs before a newly delivered pairing overwrites the worker config. */
+  beforeWorkerConfigWrite?: () => Promise<unknown> | unknown;
   now?: () => number;
   workerHandshakeTimeoutMs?: number;
   workerResultTimeoutMs?: number;
@@ -83,6 +85,7 @@ export class PairBothRendezvousService {
   private readonly store: PairBothSessionStore;
   private readonly machineName: string;
   private readonly workerConfigPath: string;
+  private readonly beforeWorkerConfigWrite: () => Promise<unknown> | unknown;
   private readonly now: () => number;
   private readonly workerHandshakeTimeoutMs: number;
   private readonly workerResultTimeoutMs: number;
@@ -105,6 +108,7 @@ export class PairBothRendezvousService {
   constructor(options: PairBothRendezvousServiceOptions) {
     this.machineName = options.machineName ?? os.hostname();
     this.workerConfigPath = options.workerConfigPath ?? DEFAULT_CONFIG_PATH;
+    this.beforeWorkerConfigWrite = options.beforeWorkerConfigWrite ?? (() => undefined);
     this.now = options.now ?? Date.now;
     this.workerHandshakeTimeoutMs = Math.max(
       1,
@@ -506,6 +510,7 @@ export class PairBothRendezvousService {
       hashPairBothTranscript(transcript),
     );
     const parsed = parsePairingConfigInput(JSON.stringify(decrypted));
+    await this.beforeWorkerConfigWrite();
     this.workerResult = writePairedWorkerConfig(this.workerConfigPath, parsed);
     this.clearWorkerResultTimer();
     sendMessage(this.requireOpenWorkerSocket(), {

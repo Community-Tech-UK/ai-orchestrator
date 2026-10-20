@@ -23,6 +23,7 @@
  * `currentPeriodEnd` is naive UTC, exactly as the console parses it.
  */
 
+import { setTimeout as delay } from 'node:timers/promises';
 import type {
   ProviderQuotaSnapshot,
   ProviderQuotaWindow,
@@ -47,6 +48,7 @@ const USAGE_URL = `${PLATFORM}/api/v1/tokenPlan/usage`;
 const DETAIL_URL = `${PLATFORM}/api/v1/tokenPlan/detail`;
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)';
 const DEFAULT_TIMEOUT_MS = 10_000;
+const CREDENTIAL_RETRY_DELAYS_MS = [250, 750] as const;
 
 export type MimoTokenPlanFetch = (
   session: MimoConsoleSession,
@@ -59,6 +61,8 @@ export type MimoTokenPlanFetch = (
 /** Cookie source: the console session plus (optionally) Xiaomi account SSO. */
 export interface MimoCredentialSource {
   read(): Promise<MimoCredentialResult>;
+  /** Saved storage can briefly be locked; Chrome access must not repeat Keychain prompts. */
+  readonly retryDeniedRead?: boolean;
   readAccountSso?(): Promise<{ cookieHeader: string }>;
   /** Non-secret connection identity for invalidating quota after reconnects. */
   readonly quotaSource?: string;
@@ -154,16 +158,12 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
       };
     }
     const takenAt = this.now();
-    let credential: MimoCredentialResult;
-    try {
-      credential = await this.reader.read();
-    } catch {
-      credential = { session: null, reason: 'malformed' };
-    }
-    if (!this.isCurrent(signal)) return null;
+    const credential = await this.readCredential(signal);
+    if (!credential || !this.isCurrent(signal)) return null;
     if (!credential.session) {
       return failedSnapshot(takenAt, this.reader.reauthError?.(credential.reason) ?? reauthErrorFor(credential.reason), {
-        needsReauth: !!this.reader.reauthError || credential.reason === 'not-found' || credential.reason === 'malformed',
+        needsReauth: credential.reason !== 'denied' && credential.reason !== 'unsupported'
+          && (!!this.reader.reauthError || credential.reason === 'not-found' || credential.reason === 'malformed'),
       });
     }
 
@@ -188,15 +188,21 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
       // re-mints instantly (verified live 2026-09-25).
       const revived = await this.attemptSessionRenewal(usage.body, detail.body, credential.session, signal);
       if (!this.isCurrent(signal)) return null;
+      if (revived === 'unavailable') {
+        return failedSnapshot(takenAt, 'MiMo usage session refresh is temporarily unavailable. Try Refresh again shortly.');
+      }
       if (revived) {
         try {
           const retry = await this.fetchPlans(revived.session, { signal, timeoutMs: this.timeoutMs });
           if (!this.isCurrent(signal)) return null;
-          const parsedRetry = retry.usage.status >= 200 && retry.usage.status < 300
-            && retry.detail.status >= 200 && retry.detail.status < 300
-            ? parseMimoTokenPlanResponses(retry.usage.body, retry.detail.body)
-            : null;
-          if (parsedRetry && parsedRetry.windows.length > 0) {
+          if (retry.usage.status === 401 || retry.usage.status === 403 || retry.detail.status === 401 || retry.detail.status === 403) {
+            return this.rejectedSnapshot(takenAt);
+          }
+          if (retry.usage.status < 200 || retry.usage.status >= 300 || retry.detail.status < 200 || retry.detail.status >= 300) {
+            return failedSnapshot(takenAt, 'MiMo Token Plan request failed after session refresh. Try Refresh again shortly.');
+          }
+          const parsedRetry = parseMimoTokenPlanResponses(retry.usage.body, retry.detail.body);
+          if (parsedRetry.windows.length > 0) {
             // Persist the rotated login/refresh cookies, but never let a store
             // failure discard live numbers or demand a sign-in that is not needed.
             try {
@@ -215,16 +221,13 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
               ...(parsedRetry.plan ? { plan: parsedRetry.plan } : {}),
             };
           }
-        } catch {
+          return failedSnapshot(takenAt, 'MiMo Token Plan endpoints returned no usage windows after session refresh');
+        } catch (error) {
           if (!this.isCurrent(signal)) return null;
-          logger.debug('MiMo quota re-pull after session renewal failed');
+          return failedSnapshot(takenAt, classifyFetchError(error));
         }
       }
-      return failedSnapshot(
-        takenAt,
-        this.reader.reauthError?.('rejected') ?? 'MiMo console session rejected (401/403) — sign in to the MiMo console in Chrome again',
-        { needsReauth: true },
-      );
+      return this.rejectedSnapshot(takenAt);
     }
     if (usage.status < 200 || usage.status >= 300) {
       return failedSnapshot(takenAt, `MiMo Token Plan usage endpoint returned HTTP ${usage.status}`);
@@ -248,12 +251,39 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
     };
   }
 
+  private rejectedSnapshot(takenAt: number): ProviderQuotaSnapshot {
+    return failedSnapshot(takenAt,
+      this.reader.reauthError?.('rejected') ?? 'MiMo console session rejected (401/403) — sign in to the MiMo console in Chrome again',
+      { needsReauth: true });
+  }
+
+  /** Brief storage readiness failures must not turn a saved login into a sign-in warning. */
+  private async readCredential(signal: AbortSignal): Promise<MimoCredentialResult | null> {
+    for (let attempt = 0; ; attempt++) {
+      if (!this.isCurrent(signal)) return null;
+      let result: MimoCredentialResult;
+      try {
+        result = await this.reader.read();
+      } catch {
+        return { session: null, reason: 'malformed' };
+      }
+      const waitMs = CREDENTIAL_RETRY_DELAYS_MS[attempt];
+      if (result.session || result.reason !== 'denied' || !this.reader.retryDeniedRead || waitMs === undefined) return result;
+      try {
+        await delay(waitMs, undefined, { signal });
+      } catch (error) {
+        if (!signal.aborted) throw error;
+        return null;
+      }
+    }
+  }
+
   /**
    * Walk the platform's SSO renewal URL with the account cookies already in
    * the selected credential source. Returns the session to retry with (merging
    * any rotated platform cookies the walk minted) plus the rotated account SSO
-   * cookies to persist on success, or null when renewal is impossible — no
-   * loginUrl in the body, throttled, or the walk failed. The SSO cookie read
+   * cookies to persist on success, null when there is no login URL, or
+   * 'unavailable' when the walk was skipped or failed. The SSO cookie read
    * is a lazy supplier so skipped walks never pay a Keychain/cookie-DB read.
    */
   private async attemptSessionRenewal(
@@ -261,7 +291,7 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
     detailBody: unknown,
     session: MimoConsoleSession,
     signal: AbortSignal,
-  ): Promise<{ session: MimoConsoleSession; ssoCookies: MimoRenewedSsoCookie[] } | null> {
+  ): Promise<{ session: MimoConsoleSession; ssoCookies: MimoRenewedSsoCookie[] } | 'unavailable' | null> {
     const loginUrl = extractLoginUrl(usageBody) ?? extractLoginUrl(detailBody);
     if (!loginUrl) return null;
     let result;
@@ -273,10 +303,10 @@ export class MimoTokenPlanProbe implements ProviderQuotaProbe {
       }, { signal });
     } catch {
       logger.debug('MiMo session renewal failed');
-      return null;
+      return 'unavailable';
     }
     if (!this.isCurrent(signal)) return null;
-    if (!result.completed) return null;
+    if (!result.completed) return 'unavailable';
     return {
       session: {
         cookieHeader: mergeSessionCookies(session.cookieHeader, result.setCookies),

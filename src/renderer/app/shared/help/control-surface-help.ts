@@ -66,6 +66,7 @@ import {
   REMOTE_ACCESS_HELP,
   REMOTE_CONFIG_HELP,
   REMOTE_NODES_SURFACE_HELP,
+  WORKER_MODE_SURFACE_HELP,
 } from './content/integrations.help';
 import {
   ARCHIVE_HELP,
@@ -125,6 +126,7 @@ export const CONTROL_SURFACE_HELP: Record<ControlSurfaceId, HelpEntry> = {
   'semantic-search': SEMANTIC_SEARCH_HELP,
   'channels': CHANNELS_HELP,
   'remote-nodes': REMOTE_NODES_SURFACE_HELP,
+  'worker-mode': WORKER_MODE_SURFACE_HELP,
   'ask-council': ASK_COUNCIL_HELP,
   'workboard': WORKBOARD_HELP,
   'compare-split': COMPARE_SPLIT_HELP,

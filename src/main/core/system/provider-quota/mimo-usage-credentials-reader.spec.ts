@@ -42,6 +42,7 @@ describe('MimoUsageCredentialsReader', () => {
     expect(await reader.readAccountSso()).toEqual({ cookieHeader: 'passToken=placeholder-sso' });
     expect(fallback.calls).toEqual({ read: 0, sso: 0 });
     expect(reader.quotaSource).toBe('saved:1');
+    expect(reader.retryDeniedRead).toBe(true);
   });
 
   it('refuses Chrome fallback when a saved connection is corrupt', async () => {
@@ -59,6 +60,7 @@ describe('MimoUsageCredentialsReader', () => {
     const reader = new MimoUsageCredentialsReader({ accountProfileId: 'mimo-a', savedStore: store, chromeProfile: 'Profile 1', chromeReader: fallback.reader });
     expect((await reader.read()).session?.userId).toBe('placeholder-chrome-user');
     expect(reader.quotaSource).toBe('chrome:Profile 1');
+    expect(reader.retryDeniedRead).toBe(false);
   });
 
   it('does not use a Default Chrome login for a pooled account with no association', async () => {

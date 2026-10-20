@@ -32,7 +32,6 @@ import { ScratchDirectoryService } from './core/services/scratch-directory.servi
 import { RemoteNodeStore } from './core/state/remote-node.store';
 import { getControlSurface } from './shared/control-surface/control-surface-nav';
 import { RoleChoiceComponent } from './features/worker-mode/role-choice.component';
-import { WorkerModeComponent } from './features/worker-mode/worker-mode.component';
 import type { HarnessRole } from '../../shared/types/pair-both.types';
 import type { ProviderId } from '../../shared/types/provider-quota.types';
 import { AppUpdateStore } from './core/state/app-update.store';
@@ -113,7 +112,6 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
     PauseDetectorErrorModalComponent,
     TerminalDrawerComponent,
     RoleChoiceComponent,
-    WorkerModeComponent,
     AppUpdateBannerComponent,
     BrowserApprovalsBannerComponent,
     PendingApprovalsBannerComponent,
@@ -212,6 +210,9 @@ export class AppComponent implements OnInit, OnDestroy {
       ...this.settingsStore.workerMode(),
       role,
     });
+    if (role === 'worker') {
+      void this.router.navigateByUrl(getControlSurface('worker-mode').path);
+    }
   }
 
   constructor() {

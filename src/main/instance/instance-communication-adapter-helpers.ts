@@ -1,4 +1,5 @@
-import { BaseCliAdapter, type AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
+import type { BaseCliAdapter, AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
+import { isStatelessExecAdapter as isStatelessExecClassification } from '../cli/adapters/stateless-exec-adapter';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { InstanceStatus } from '../../shared/types/instance.types';
 import { getErrorRecoveryManager } from '../core/error-recovery';
@@ -55,27 +56,7 @@ export function getAdapterRuntimeCapabilities(adapter: CliAdapter): AdapterRunti
 }
 
 export function isStatelessExecAdapter(adapter: CliAdapter): boolean {
-  const runtimeCapabilities = getAdapterRuntimeCapabilities(adapter);
-  if (
-    runtimeCapabilities.supportsNativeCompaction
-    || runtimeCapabilities.supportsPermissionPrompts
-    || runtimeCapabilities.supportsDeferPermission
-  ) {
-    return false;
-  }
-  // A resident session is definitionally not exec-per-message (WS14: copilot
-  // server mode; also codex app-server, which additionally escapes above).
-  if (adapter instanceof BaseCliAdapter && adapter.getAdapterCapabilities().residentSession) {
-    return false;
-  }
-  const adapterName = adapter.getName().toLowerCase();
-  return [
-    'antigravity-cli',
-    'codex-cli',
-    'copilot-cli',
-    'cursor-cli',
-    'gemini-cli',
-  ].includes(adapterName);
+  return isStatelessExecClassification(adapter);
 }
 
 export function isRecoverableStatelessExecTurnError(adapter: CliAdapter, error: Error): boolean {

@@ -25,6 +25,7 @@ import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter
 import { JsonChunkAssembler } from '../../../shared/utils/json-chunks';
 import type { AcpHistoryReplay } from './acp-session-replay';
 import type { RemoteInstanceTelemetry } from '../../remote-node/instance-telemetry-rpc';
+import { remoteClaudeSpawnPolicyFor } from './remote-claude-spawn-policy';
 const logger = getLogger('RemoteCliAdapter');
 /**
  * Max time to wait for a terminal remote event after an interrupt before the
@@ -211,6 +212,7 @@ export class RemoteCliAdapter extends EventEmitter {
         throw new Error('This OpenCode operation needs a worker running OpenCode 2.0.30 or newer. Update OpenCode on that worker or choose another worker.');
       }
     }
+    const claudeSpawnPolicy = remoteClaudeSpawnPolicyFor(this.requestedCliType, this.spawnOptions, this.registry.getNode?.(this.targetNodeId)?.capabilities);
     // Set the expected remote instance ID and attach registry listeners BEFORE
     // sending the spawn RPC. This eliminates the window where early output from
     // the remote instance could be missed because listeners weren't registered yet.
@@ -272,6 +274,7 @@ export class RemoteCliAdapter extends EventEmitter {
                 },
               }
             : {}),
+          ...(claudeSpawnPolicy ? { claudeSpawnPolicy } : {}),
         },
       );
       acknowledged = true;

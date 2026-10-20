@@ -25,6 +25,7 @@ import { reconcilePrivateCodexRolloutPaths } from '../cli/adapters/codex/codex-p
 import { cleanupLeakedAioCodexThreads } from '../cli/adapters/codex/codex-state-cleanup';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import { getSessionAdmissionService } from '../session/session-admission-service';
+import { getInstanceProviderLimitHandler } from '../instance/instance-provider-limit-handler';
 import { initializeArtifactCleanupMaintenance } from '../session/artifact-cleanup-maintenance';
 import { registerBuiltinTerminationGates } from '../session/builtin-termination-gates';
 import { initializeSessionRecoveryRuntime } from './session-recovery-initialization';
@@ -577,6 +578,11 @@ export function createLateRuntimeInitializationSteps(
         // those doesn't matter since they only resolve the singleton lazily at
         // call time.
         getSessionAdmissionService().setInstanceManager(instanceManager);
+        // Orchestration responses skip the send preflight, so admission asks
+        // the limit handler before delivering one to a limited account.
+        getSessionAdmissionService().setProviderLimitHold(
+          (instanceId) => getInstanceProviderLimitHandler().holdAutomatedTurn(instanceId),
+        );
       },
     },
     {

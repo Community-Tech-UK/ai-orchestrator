@@ -368,3 +368,30 @@ export const REMOTE_NODES_SURFACE_HELP: HelpEntry = {
     },
   ],
 };
+
+export const WORKER_MODE_SURFACE_HELP: HelpEntry = {
+  sections: [
+    {
+      kind: 'callout',
+      variant: 'info',
+      heading: 'What this does',
+      body: 'Lets your main Harness send work to this computer. Harness stays fully usable here while the worker runs.',
+    },
+    {
+      kind: 'steps',
+      heading: 'Pairing this computer',
+      items: [
+        'On the main Harness, open Remote Nodes settings and start pairing.',
+        'Here, choose Pair With Harness, or paste the invitation if it is not found.',
+        'Check the code matches on both computers, then approve on the main Harness.',
+        'Choose how it runs. On Windows, "Keep working when Harness is closed" starts it whenever you sign in; otherwise tick "Open Harness when I sign in" so it comes back after a restart.',
+      ],
+    },
+    {
+      kind: 'callout',
+      variant: 'tip',
+      heading: 'Pausing the worker',
+      body: 'Stop Worker pauses it: until Harness next opens, or, for a worker that keeps working with Harness closed, until you press Start Worker. Turn Off Worker Mode keeps the pairing but stops the worker until you switch it back on.',
+    },
+  ],
+};

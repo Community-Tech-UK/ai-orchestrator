@@ -197,6 +197,12 @@ export interface WorkerNodeCapabilities {
   /** Selected supported OpenCode generation; absent on older workers. */
   openCodeMajor?: 1 | 2;
   /**
+   * 1 = `instance.spawn` honours `claudeSpawnPolicy` (machine session, context
+   * ceiling, turn/budget caps, read-only review). Absent on older workers, which
+   * would silently drop it, so policy-bearing Claude is refused there.
+   */
+  claudeSpawnPolicy?: 1;
+  /**
    * GitHub Copilot account profiles this node is signed in to.
    *
    * Reported by the node because a Copilot binding is NODE-LOCAL: the

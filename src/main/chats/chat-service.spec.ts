@@ -38,7 +38,7 @@ describe('ChatService', () => {
     closeLoops.cancelLoop.mockReset().mockResolvedValue(true);
   });
 
-  it.each(['archive', 'delete'] as const)('%s stops the runtime-owned loop before closing its session', async (action) => {
+  it.each(['archive', 'delete'] as const)('%s stops chat and runtime loops before closing its session', async (action) => {
     const { service, instanceManager } = createHarness();
     const chat = await service.createChat({ provider: 'claude', currentCwd: '/work/project' });
     const active = await service.sendMessage({ chatId: chat.chat.id, text: 'Start work' });
@@ -46,6 +46,7 @@ describe('ChatService', () => {
     closeLoops.states = [
       { id: 'runtime-loop', chatId: instanceId, status: 'paused', endedAt: null },
       { id: 'chat-loop', chatId: chat.chat.id, status: 'running', endedAt: null },
+      { id: 'unrelated-loop', chatId: 'another-chat', status: 'running', endedAt: null },
     ];
     const events: string[] = [];
     closeLoops.cancelLoop.mockImplementation(async (id) => { events.push(`stop:${id}`); return true; });
@@ -53,14 +54,103 @@ describe('ChatService', () => {
     instanceManager.terminateInstance = async (id) => { events.push(`close:${id}`); await terminate(id); };
     if (action === 'archive') await service.archiveChat(chat.chat.id);
     else await service.deleteChat(chat.chat.id);
-    expect(events).toEqual(['stop:runtime-loop', `close:${instanceId}`]);
+    expect(events).toEqual(['stop:runtime-loop', 'stop:chat-loop', `close:${instanceId}`]);
+  });
+
+  it.each(['archive', 'delete'] as const)('%s stops owning chat loops without a runtime and skips terminal or unrelated loops', async (action) => {
+    const { service } = createHarness();
+    const { chat } = await service.createChat({ provider: 'claude', currentCwd: '/work/project' });
+    expect(chat.currentInstanceId).toBeNull();
+    closeLoops.states = [
+      { id: 'paused-chat-loop', chatId: chat.id, status: 'paused', endedAt: null },
+      { id: 'running-chat-loop', chatId: chat.id, status: 'running', endedAt: null },
+      { id: 'waiting-chat-loop', chatId: chat.id, status: 'provider-limit', endedAt: null },
+      { id: 'ended-chat-loop', chatId: chat.id, status: 'provider-limit', endedAt: 100 },
+      { id: 'completed-chat-loop', chatId: chat.id, status: 'completed', endedAt: 100 },
+      { id: 'unrelated-loop', chatId: 'another-chat', status: 'running', endedAt: null },
+    ];
+
+    if (action === 'archive') await service.archiveChat(chat.id);
+    else await service.deleteChat(chat.id);
+
+    expect(closeLoops.cancelLoop.mock.calls.map(([id]) => id)).toEqual([
+      'paused-chat-loop', 'running-chat-loop', 'waiting-chat-loop',
+    ]);
+  });
+
+  it.each(['archive', 'delete'] as const)('%s awaits chat loop cleanup before changing runtime, ledger or visible chat', async (action) => {
+    const { service, ledger, instanceManager, deletionCalls } = createHarness();
+    const created = await service.createChat({ provider: 'claude', currentCwd: '/work/project' });
+    const { chat } = await service.sendMessage({ chatId: created.chat.id, text: 'Work' });
+    service.setUiState({ selectedChatId: chat.id, openChatIds: [chat.id] });
+    closeLoops.states = [{ id: 'chat-loop', chatId: chat.id, status: 'running', endedAt: null }];
+    let resolveCleanup!: (stopped: boolean) => void;
+    let signalCleanupStarted!: () => void;
+    const cleanupStarted = new Promise<void>((resolve) => { signalCleanupStarted = resolve; });
+    closeLoops.cancelLoop.mockImplementation(() => {
+      signalCleanupStarted();
+      return new Promise<boolean>((resolve) => { resolveCleanup = resolve; });
+    });
+    const events: ChatEvent[] = [];
+    service.events.on('chat:event', (event: ChatEvent) => events.push(event));
+
+    const closing = action === 'archive' ? service.archiveChat(chat.id) : service.deleteChat(chat.id);
+    await cleanupStarted;
+
+    expect(service.tryGetChat(chat.id)).toMatchObject({ archivedAt: null, currentInstanceId: chat.currentInstanceId });
+    expect(service.getUiState().selectedChatId).toBe(chat.id);
+    expect(await ledger.getThread(chat.ledgerThreadId)).not.toBeNull();
+    expect(instanceManager.terminations).toEqual([]);
+    expect(deletionCalls).toEqual([]);
+    expect(events).toEqual([]);
+
+    resolveCleanup(true);
+    await closing;
+
+    expect(instanceManager.terminations).toEqual([chat.currentInstanceId]);
+    expect(service.getUiState().openChatIds).not.toContain(chat.id);
+    if (action === 'archive') expect(service.tryGetChat(chat.id)?.archivedAt).not.toBeNull();
+    else expect(service.tryGetChat(chat.id)).toBeNull();
+  });
+
+  it.each(['archive', 'delete'] as const)('%s stops a persistent chat loop after restart clears its stale runtime link', async (action) => {
+    const { service, db, ledger } = createHarness();
+    const created = await service.createChat({ provider: 'claude', currentCwd: '/work/project' });
+    const active = await service.sendMessage({ chatId: created.chat.id, text: 'Work before restart' });
+    expect(active.chat.currentInstanceId).not.toBeNull();
+    service.dispose();
+    const restored = new ChatService({
+      db,
+      ledger,
+      instanceManager: new FakeInstanceManager() as never,
+      eventBus: new EventEmitter(),
+      evidenceDeletion: {
+        revokeConversation: (conversationId) => ledger.softDeleteConversationWithEvidence({
+          conversationId,
+          deletedAt: new Date(100).toISOString(),
+          graceDeadline: 100 + 10 * 60 * 1000,
+        }),
+      },
+    });
+    services.push(restored);
+    await restored.whenReady();
+    expect(restored.tryGetChat(created.chat.id)?.currentInstanceId).toBeNull();
+    closeLoops.states = [{ id: 'restored-chat-loop', chatId: created.chat.id, status: 'paused', endedAt: null }];
+
+    if (action === 'archive') await restored.archiveChat(created.chat.id);
+    else await restored.deleteChat(created.chat.id);
+
+    expect(closeLoops.cancelLoop.mock.calls.map(([id]) => id)).toEqual(['restored-chat-loop']);
   });
 
   it.each(['provider', 'model', 'reasoning', 'cwd'] as const)('%s runtime swap leaves its loop running', async (action) => {
     const { service, ledger } = createHarness();
     const chat = await service.createChat({ provider: 'claude', currentCwd: '/work/project' });
     const active = await service.sendMessage({ chatId: chat.chat.id, text: 'Start work' });
-    closeLoops.states = [{ id: 'runtime-loop', chatId: active.chat.currentInstanceId!, status: 'running', endedAt: null }];
+    closeLoops.states = [
+      { id: 'runtime-loop', chatId: active.chat.currentInstanceId!, status: 'running', endedAt: null },
+      { id: 'chat-loop', chatId: chat.chat.id, status: 'paused', endedAt: null },
+    ];
     if (action === 'provider') {
       // The regular provider setter permits a swap only before any ledger turn.
       vi.spyOn(ledger, 'hasMessages').mockResolvedValueOnce(false);

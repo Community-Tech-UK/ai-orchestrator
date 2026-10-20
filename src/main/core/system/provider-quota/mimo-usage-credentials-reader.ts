@@ -14,6 +14,7 @@ export interface MimoUsageCredentialsReaderOptions {
 /** One connection generation; old requests cannot survive a reconnect or disconnect. */
 export class MimoUsageCredentialsReader implements MimoCredentialSource {
   readonly quotaSource: string;
+  readonly retryDeniedRead: boolean;
   private readonly store: MimoSavedSessionStore;
   private readonly generation: number;
   private readonly saved: boolean;
@@ -23,6 +24,7 @@ export class MimoUsageCredentialsReader implements MimoCredentialSource {
     this.store = opts.savedStore ?? getMimoSavedSessionStore();
     this.generation = this.store.generation(opts.accountProfileId);
     this.saved = this.store.exists(opts.accountProfileId);
+    this.retryDeniedRead = this.saved;
     const chromeProfile = opts.chromeProfile ?? (opts.allowDefaultChrome ? 'Default' : undefined);
     this.quotaSource = this.saved ? `saved:${this.generation}` : `chrome:${chromeProfile ?? ''}`;
     // A saved login is authoritative, even when corrupt or expired. Reading
@@ -65,6 +67,8 @@ export class MimoUsageCredentialsReader implements MimoCredentialSource {
   }
 
   reauthError(reason?: string): string {
+    if (reason === 'denied') return 'MiMo saved usage login could not be unlocked. Try Refresh again shortly.';
+    if (reason === 'unsupported') return 'MiMo saved usage login cannot be read on this system.';
     return reason === 'rejected'
       ? 'MiMo usage login expired (401/403). Choose Connect usage in Accounts to sign in again.'
       : 'MiMo usage login is unavailable. Choose Connect usage in Accounts to sign in.';

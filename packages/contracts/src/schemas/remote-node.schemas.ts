@@ -229,7 +229,9 @@ export const PairBothManualPairingPayloadSchema = z.object({
 }).strict();
 
 export const PairBothWorkerRunModePayloadSchema = z.object({
-  mode: z.enum(['run-while-open', 'background-service']),
+  mode: z.enum(['run-while-open', 'background-service', 'sign-in-task']),
+  /** Also open Harness at sign-in so the worker returns after a reboot. */
+  openAtLogin: z.boolean().optional(),
 }).strict();
 
 export type ValidatedSetTokenPayload = z.infer<typeof RemoteNodeSetTokenPayloadSchema>;

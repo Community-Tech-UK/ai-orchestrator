@@ -21,6 +21,15 @@ import type {
 } from '../../shared/types/pair-both.types';
 
 const DEFAULT_PAIR_BOTH_TTL_MS = 5 * 60_000;
+/**
+ * Lifetime of the enrollment credential handed to a code-confirmed, approved
+ * worker. It is deliberately independent of the short rendezvous window: the
+ * worker only spends it when the user picks how the worker should run, so tying
+ * it to the window's remaining seconds made a slow choice (or a failed service
+ * install followed by "Run while Harness is open") fail registration with
+ * "Invalid or expired pairing token" — a pairing that never stuck.
+ */
+const PAIR_BOTH_ENROLLMENT_TTL_MS = 30 * 60_000;
 const DEFAULT_MAX_CONCURRENT_INSTANCES = 10;
 const MAX_FAILED_ATTEMPTS_PER_REMOTE = 5;
 const FAILED_ATTEMPT_WINDOW_MS = 60_000;
@@ -173,6 +182,7 @@ export class PairBothSessionStore {
 
   rejectCoordinator(sessionId: string): PairBothSessionState {
     const record = this.requireSession(sessionId);
+    this.revokeUnusedPairingCredential(record);
     record.status = 'rejected';
     record.error = 'Coordinator rejected the pairing request';
     return this.toState(record);
@@ -180,6 +190,7 @@ export class PairBothSessionStore {
 
   cancel(sessionId: string): PairBothSessionState {
     const record = this.requireSession(sessionId);
+    this.revokeUnusedPairingCredential(record);
     record.status = 'cancelled';
     record.error = 'Pairing was cancelled';
     return this.toState(record);
@@ -221,10 +232,9 @@ export class PairBothSessionStore {
     }
 
     if (!record.pairingCredentialToken) {
-      const ttlMs = Math.max(1_000, record.expiresAt - this.now());
       const credential = this.options.auth.issuePairingCredential({
         label: record.workerHello.machineName,
-        ttlMs,
+        ttlMs: PAIR_BOTH_ENROLLMENT_TTL_MS,
       });
       record.pairingCredentialToken = credential.token;
     }
@@ -267,10 +277,7 @@ export class PairBothSessionStore {
     if (record.payloadDelivered || record.status === 'completed') {
       return this.toState(record);
     }
-    if (record.pairingCredentialToken) {
-      this.options.auth.revokePairingCredential?.(record.pairingCredentialToken);
-      record.pairingCredentialToken = undefined;
-    }
+    this.revokeUnusedPairingCredential(record);
     record.status = 'rejected';
     record.error = reason;
     return this.toState(record);
@@ -285,10 +292,7 @@ export class PairBothSessionStore {
     ) {
       return this.toState(record);
     }
-    if (record.pairingCredentialToken) {
-      this.options.auth.revokePairingCredential?.(record.pairingCredentialToken);
-      record.pairingCredentialToken = undefined;
-    }
+    this.revokeUnusedPairingCredential(record);
     record.status = 'expired';
     record.error = 'Pairing session expired';
     return this.toState(record);
@@ -327,6 +331,7 @@ export class PairBothSessionStore {
   private requireActive(sessionId: string): PairBothSessionRecord {
     const record = this.requireSession(sessionId);
     if (record.expiresAt <= this.now()) {
+      this.revokeUnusedPairingCredential(record);
       record.status = 'expired';
       record.error = 'Pairing session expired';
       throw new Error('Pairing session expired');
@@ -338,6 +343,23 @@ export class PairBothSessionStore {
       throw new Error('Pairing session was rejected');
     }
     return record;
+  }
+
+  /**
+   * Drops the enrollment credential of a session that ended without handing it
+   * over, so a 30 minute token does not outlive a cancelled, rejected or
+   * expired pairing. Does nothing once the payload reached the worker: that
+   * credential is the one the worker is about to register with. Safe to call
+   * repeatedly; the auth service treats an already-consumed token as a no-op.
+   */
+  private revokeUnusedPairingCredential(record: PairBothSessionRecord): void {
+    // payloadDelivered is set together with 'completed' and survives a later
+    // cancel/reject overwriting the status, so it is the reliable marker.
+    if (!record.pairingCredentialToken || record.payloadDelivered) {
+      return;
+    }
+    this.options.auth.revokePairingCredential?.(record.pairingCredentialToken);
+    record.pairingCredentialToken = undefined;
   }
 
   private requireSession(sessionId: string): PairBothSessionRecord {
@@ -352,6 +374,7 @@ export class PairBothSessionStore {
     const now = this.now();
     for (const record of this.sessions.values()) {
       if (record.expiresAt <= now && record.status !== 'completed') {
+        this.revokeUnusedPairingCredential(record);
         record.status = 'expired';
         record.error = 'Pairing session expired';
       }

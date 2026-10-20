@@ -289,7 +289,7 @@ describe('MimoTokenPlanProbe', () => {
     expect(fetchSessions[1].cookieHeader).toContain('api-platform_serviceToken=fresh-token');
   });
 
-  it('still reports needsReauth when the SSO renewal cannot revive the session', async () => {
+  it('reports a temporary refresh failure when the SSO renewal is incomplete', async () => {
     let fetches = 0;
     const probe = new MimoTokenPlanProbe({
       isTokenPlanModel: () => true,
@@ -307,8 +307,8 @@ describe('MimoTokenPlanProbe', () => {
     const snap = await probe.probe({ signal: new AbortController().signal });
 
     expect(snap!.ok).toBe(false);
-    expect(snap!.needsReauth).toBe(true);
-    expect(snap!.error).toMatch(/401/);
+    expect(snap!.needsReauth).toBeUndefined();
+    expect(snap!.error).toBe('MiMo usage session refresh is temporarily unavailable. Try Refresh again shortly.');
     expect(fetches).toBe(1);
   });
 
@@ -390,7 +390,9 @@ describe('MimoTokenPlanProbe', () => {
       renewer: { renew: async () => ({ attempted: true, completed: true, setCookies: new Map(), ssoCookies: [] }) },
     });
     const snapshot = await probe.probe({ signal: new AbortController().signal });
-    expect(snapshot?.needsReauth).toBe(true);
+    expect(snapshot?.ok).toBe(false);
+    expect(snapshot?.needsReauth).toBeUndefined();
+    expect(snapshot?.error).toBe('MiMo Token Plan endpoints returned no usage windows after session refresh');
     expect(persisted).toBe(false);
   });
 
@@ -493,6 +495,8 @@ describe('MimoTokenPlanProbe', () => {
       fetchPlans: async () => ({ usage: { status: 401, body: { loginUrl: 'https://account.xiaomi.com/pass/serviceLogin' } }, detail: { status: 401, body: {} } }),
       renewer: { renew: async () => { throw new Error('placeholder-sensitive'); } },
     });
-    expect(await probe.probe({ signal: new AbortController().signal })).toMatchObject({ ok: false, needsReauth: true, windows: [] });
+    const snapshot = await probe.probe({ signal: new AbortController().signal });
+    expect(snapshot).toMatchObject({ ok: false, error: 'MiMo usage session refresh is temporarily unavailable. Try Refresh again shortly.', windows: [] });
+    expect(snapshot?.needsReauth).toBeUndefined();
   });
 });

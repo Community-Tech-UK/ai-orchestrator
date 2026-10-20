@@ -237,6 +237,9 @@ export class MimoConsoleSessionRenewer {
           },
           signal,
         });
+        if (response.status === 429 || response.status >= 500) {
+          return { attempted: true, completed: false, setCookies, ssoCookies: [...renewedSsoCookies.values()] };
+        }
         collectSetCookies(response.headers, url, setCookies, renewedSsoCookies);
         // The platform's own follow-up hop (the `followup` the 401's loginUrl
         // carries) is plain http. Stop as soon as the session is re-minted so

@@ -5,7 +5,10 @@
  * (spec §8.1):
  *
  *   1. a persisted profile wins (restore, respawn, native resume): changed pool
- *      settings never move a live thread;
+ *      settings never move a live thread. The one exception is a restart onto
+ *      a persisted profile with a known active limit in an automatic pool:
+ *      it would only be refused and switched on its first turn, so it lands
+ *      on the failover target now;
  *   2. an explicit profile wins for a new session;
  *   3. otherwise the pool's default: the first eligible profile in priority
  *      order, skipping parked and (pre-emptively) over-threshold profiles;
@@ -42,6 +45,7 @@ import {
 } from './provider-account-binding-service';
 import { emitProviderAccountEvent } from './provider-account-events';
 import {
+  evidenceLiftsPark,
   selectAccount,
   type AccountQuotaEvidence,
   type ConsideredAccount,
@@ -75,6 +79,14 @@ export interface AccountRouteRequest {
   restrictTo?: readonly string[];
   /** Source to stamp when the default selection runs on behalf of failover. */
   defaultSource?: Extract<AccountRouteSource, 'default' | 'failover' | 'preemptive'>;
+  /**
+   * A restart of the session: a persisted profile with a known active limit
+   * routes to the failover target (see `moveOffParkedPersisted`). Absent for
+   * every other respawn, notably an account handoff onto a chosen profile.
+   */
+  moveOffLimitedAccount?: boolean;
+  /** The spawn resumes the provider's own thread (false: a fresh provider session). */
+  resume?: boolean;
   /** Correlation only. */
   instanceId?: string;
 }
@@ -93,6 +105,8 @@ export interface ProviderAccountRoutingDeps {
   getParkedSince?: (provider: PooledProvider, model: string | null) => ReadonlyMap<string, number>;
   getSoonestResumeAt?: (provider: PooledProvider, model: string | null, profileIds: readonly string[]) => number | null;
   getQuotaEvidence?: (provider: PooledProvider, profileId: string) => AccountQuotaEvidence | null;
+  /** Tell the user a restart moved the session off a limited account (the same notice a failover gives). */
+  notify?: (input: { kind: string; instanceId: string; title: string; body: string }) => void;
   now?: () => number;
 }
 
@@ -153,6 +167,9 @@ export class ProviderAccountRoutingService {
     const outcome = preview.outcome;
     if (outcome.ok) {
       this.noteUsed(request.provider, outcome.route.profileId);
+      if (request.persistedProfileId && outcome.route.source === 'failover' && outcome.route.profileId !== request.persistedProfileId) {
+        this.reportRestartMove(request, request.persistedProfileId, outcome.route.profileId);
+      }
       emitProviderAccountEvent({
         event: 'account_route_resolved',
         provider: request.provider,
@@ -173,6 +190,37 @@ export class ProviderAccountRoutingService {
       });
     }
     return outcome;
+  }
+
+  /** A restart landed on another account: record it as the failover it is and tell the user. */
+  private reportRestartMove(request: AccountRouteRequest, fromProfileId: string, toProfileId: string): void {
+    emitProviderAccountEvent({
+      event: 'account_failover_performed',
+      provider: request.provider,
+      profileId: toProfileId,
+      fromProfileId,
+      handoffKind: 'failover',
+      instanceId: request.instanceId,
+    });
+    if (!request.instanceId || !this.deps.notify) return;
+    let from = fromProfileId;
+    let to = toProfileId;
+    try {
+      from = this.store().getProfile(request.provider, fromProfileId)?.label ?? from;
+      to = this.store().getProfile(request.provider, toProfileId)?.label ?? to;
+    } catch {
+      // Labels are cosmetic; the profile ids still say which accounts.
+    }
+    try {
+      this.deps.notify({
+        kind: 'account-switched',
+        instanceId: request.instanceId,
+        title: 'Account switched',
+        body: `${from} → ${to} (usage limit; restarted on the account with usage left).`,
+      });
+    } catch {
+      // Notifications are best-effort.
+    }
   }
 
   /** The route a spawn would get, with the selector's reasoning. No side effects beyond binding checks. */
@@ -212,6 +260,8 @@ export class ProviderAccountRoutingService {
           considered: [],
         };
       }
+      const moved = request.moveOffLimitedAccount ? await this.moveOffParkedPersisted(request, persisted, profiles, nodeId) : null;
+      if (moved) return moved;
       return { outcome: await this.admit(persisted, 'persisted', nodeId), considered: [] };
     }
 
@@ -341,6 +391,54 @@ export class ProviderAccountRoutingService {
     return { outcome, considered: selection.considered };
   }
 
+  /**
+   * A restart of a session whose account has a known active limit: in a pool that switches automatically and shares the
+   * session store, resolve the failover target instead of re-spawning onto an
+   * account that refuses every turn. Null keeps the persisted profile: no
+   * limit, newer usage evidence lifted it, the pool asks first or is off, a
+   * replay pool resuming its thread (the thread cannot move there; the first
+   * refused turn's failover still moves it), or no other account is usable.
+   * A fresh provider session (replay fallback, restart fresh) moves in any pool.
+   */
+  private async moveOffParkedPersisted(
+    request: AccountRouteRequest,
+    persisted: ProviderAccountProfile,
+    profiles: ProviderAccountProfile[],
+    nodeId: string,
+  ): Promise<AccountRoutePreview | null> {
+    let policy;
+    try {
+      policy = this.store().getPoolPolicy(request.provider);
+    } catch {
+      return null;
+    }
+    if (policy.failoverMode !== 'automatic' || policy.acknowledgedOwnershipAt === null) return null;
+    if (policy.continuation !== 'shared-store' && request.resume !== false) return null;
+    const model = request.model ?? null;
+    if (!this.readParked(request.provider, model).includes(persisted.id)) return null;
+    const parkedSince = this.readParkedSince(request.provider, model)?.get(persisted.id);
+    if (evidenceLiftsPark(this.readQuota(request.provider, persisted.id), parkedSince, { allowCredits: true })) return null;
+
+    const fence = request.restrictTo?.length ? new Set(request.restrictTo) : null;
+    const candidates = fence ? profiles.filter((profile) => fence.has(profile.id)) : profiles;
+    const preview = await this.resolveDefault({
+      ...request,
+      persistedProfileId: undefined,
+      moveOffLimitedAccount: undefined,
+      newSession: false,
+      exclude: [...(request.exclude ?? []), persisted.id],
+      defaultSource: 'failover',
+    }, candidates, nodeId);
+    if (!preview.outcome.ok) return null;
+    logger.info('Restarting a session on another account: its own account has a known usage limit', {
+      instanceId: request.instanceId,
+      provider: request.provider,
+      fromProfileId: persisted.id,
+      toProfileId: preview.outcome.route.profileId,
+    });
+    return preview;
+  }
+
   private pickSoonestReset(provider: PooledProvider, model: string | null, profileIds: string[]): string | null {
     if (!this.deps.getSoonestResumeAt || profileIds.length === 0) return profileIds[0] ?? null;
     let best: { id: string; at: number } | null = null;
@@ -440,6 +538,14 @@ export function getProviderAccountRoutingService(): ProviderAccountRoutingServic
       getSoonestResumeAt: (provider, model, profileIds) =>
         getProviderLimitLedgerPort().getSoonestResumeAt({ provider, model, profileIds }),
       getQuotaEvidence: (provider, profileId) => readAccountQuotaEvidence(provider, profileId),
+      // Loaded on use: the notification service pulls in Electron, which this module otherwise avoids.
+      notify: (input) => {
+        void import('../../notifications/notification-service')
+          .then(({ getNotificationService }) => getNotificationService().notify({ ...input, urgency: 'normal' }))
+          .catch((error: unknown) => logger.debug('Could not show the account-switch notice', {
+            error: error instanceof Error ? error.message : String(error),
+          }));
+      },
     });
     unsubscribe = onProviderAccountsChanged(() => instance?.invalidate());
   }

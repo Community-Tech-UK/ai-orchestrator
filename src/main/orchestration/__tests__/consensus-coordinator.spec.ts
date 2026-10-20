@@ -48,6 +48,7 @@ vi.mock('../utils/coordinator-error-handler', () => ({
 import { subscribeCostAttribution, type CostAttributionRecord } from '../../core/system/cost-attribution';
 import { ConsensusCoordinator } from '../consensus-coordinator';
 import { registerProviderModelRates, clearModelRateOverlay } from '../../../shared/data/model-pricing';
+import { markProviderDispatchNotStarted } from '../../cli/adapters/provider-dispatch-status';
 
 class MockConsensusAdapter extends EventEmitter {
   spawn = vi.fn().mockResolvedValue(1234);
@@ -103,6 +104,27 @@ describe('ConsensusCoordinator', () => {
       await ConsensusCoordinator.getInstance().query('question', undefined, { providers: [{ provider: 'claude' }] });
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ purpose: 'consensus', outcome: 'error', costSource: 'unknown' });
+      expect(adapter.listenerCount('complete')).toBe(0);
+    } finally { stop(); }
+  });
+
+  it.each([0.25, 0])('retains native cost %s when failure also carries a local refusal marker', async cost => {
+    const adapter = new MockConsensusAdapter();
+    adapter.sendInput = vi.fn(async () => {
+      throw Object.assign(markProviderDispatchNotStarted(new Error('Refusal with native usage evidence')), {
+        partialUsage: { cost, inputTokens: 12, outputTokens: 4 },
+      });
+    });
+    createAdapterMock.mockReturnValue(adapter);
+    detectAllMock.mockResolvedValue({ available: [{ name: 'claude' }] });
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    try {
+      await ConsensusCoordinator.getInstance().query('question', undefined, { providers: [{ provider: 'claude' }] });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ purpose: 'consensus', outcome: 'error', costSource: 'provider', costKnown: true,
+        usage: { cost, inputTokens: 12, outputTokens: 4 } });
+      expect(adapter.listenerCount('usage')).toBe(0);
       expect(adapter.listenerCount('complete')).toBe(0);
     } finally { stop(); }
   });

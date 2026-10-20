@@ -104,6 +104,28 @@ describe('InstanceProviderLimitHandler account failover', () => {
     h.db.close();
   });
 
+  it('still parks, until the hour the account is benched for, when a failed switch had no reset time', async () => {
+    const h = setup({ kind: 'switch' }, { outcome: 'not-switched', reason: 'busy', considered: [] });
+    const before = Date.now();
+    expect(h.handler.maybePark({ ...base, resetAtHint: null })).toBe('switching-account');
+    await h.performDone;
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(h.handler.isParked('i1')).toBe(true);
+    expect(h.waitReasons.get('i1')).toMatchObject({ kind: 'quota-park' });
+    const resumeAt = (h.waitReasons.get('i1') as { resumeAt: number }).resumeAt;
+    expect(resumeAt).toBeGreaterThanOrEqual(before + ASSUMED_ACCOUNT_LIMIT_MS);
+    // The switch itself was told no reset time: the assumed hour is a park ceiling, not a provider fact.
+    expect(h.performed[0]?.resumeAt).toBeNull();
+    h.db.close();
+  });
+
+  it('parks on an offered switch even with no reset time', () => {
+    const h = setup({ kind: 'offer', toProfileId: 'max-b' }, { outcome: 'offered', toProfileId: 'max-b' });
+    expect(h.handler.maybePark({ ...base, resetAtHint: null })).toBe('parked');
+    expect(h.offered).toEqual(['max-b']);
+    h.db.close();
+  });
+
   it('parks and explains when the pool switched to asking while the switch waited', async () => {
     const h = setup({ kind: 'switch' }, { outcome: 'offered', toProfileId: 'max-b' });
     h.handler.maybePark({ ...base, resetAtHint: Date.now() + 60_000 });
@@ -362,5 +384,84 @@ describe('InstanceProviderLimitHandler pre-emptive live-session switch', () => {
     // The re-sent turn is not held for another pre-emptive attempt.
     expect(handler.maybeParkKnown(base)).toBe('skipped');
     db.close();
+  });
+});
+
+describe('InstanceProviderLimitHandler.holdAutomatedTurn', () => {
+  function holdSetup(plan: AccountFailoverPlan, outcome: AccountFailoverOutcome, autoResume = true) {
+    const h = setup(plan, outcome);
+    const shouldSwitchPreemptively = vi.fn(() => true);
+    const perform = vi.fn(async (params: AccountFailoverParams) => {
+      h.performed.push(params);
+      return outcome;
+    });
+    h.handler.configure({
+      isEnabled: () => autoResume,
+      setWaitReason: (id, reason) => h.waitReasons.set(id, reason),
+      resendInput: vi.fn(),
+      getQuotaSnapshot: () => null,
+      getWorkspaceCwd: () => '/tmp/w',
+      scheduleResume: () => () => undefined,
+      providerLimitLedger: h.ledger,
+      getProviderModel: () => ({ provider: 'codex', model: null, accountProfileId: 'max-a' }),
+      accountFailover: {
+        plan: () => plan,
+        perform,
+        offer: (_params, to) => h.offered.push(to),
+        shouldSwitchPreemptively,
+        release: (id) => h.released.push(id),
+      },
+      emitSystemMessage: (_id, content) => h.messages.push(content),
+    });
+    return { ...h, shouldSwitchPreemptively, perform };
+  }
+
+  function recordLimit(ledger: ProviderLimitLedger): void {
+    ledger.record({
+      provider: 'codex', model: null, accountProfileId: 'max-a', detectedAt: Date.now(),
+      resumeAt: Date.now() + 60 * 60_000, source: 'provider-limit-signal', instanceId: 'i1',
+    });
+  }
+
+  it('lets automated turns through when the account has no known limit, without a pre-emptive switch', () => {
+    const h = holdSetup({ kind: 'switch' }, { outcome: 'switched', toProfileId: 'max-b', continuity: 'native-resume' });
+    expect(h.handler.holdAutomatedTurn('i1')).toBe(false);
+    expect(h.shouldSwitchPreemptively).not.toHaveBeenCalled();
+    expect(h.perform).not.toHaveBeenCalled();
+    h.db.close();
+  });
+
+  it('holds on a known limit and starts the account switch with nothing to re-send', async () => {
+    const h = holdSetup({ kind: 'switch' }, { outcome: 'switched', toProfileId: 'max-b', continuity: 'native-resume' });
+    recordLimit(h.ledger);
+    expect(h.handler.holdAutomatedTurn('i1')).toBe(true);
+    await vi.waitFor(() => expect(h.perform).toHaveBeenCalledOnce());
+    expect(h.performed[0]).toMatchObject({ exhaustedProfileId: 'max-a', resumePrompt: null });
+    // A second held response while the switch runs neither restarts it nor adds a "not sent" note.
+    expect(h.handler.holdAutomatedTurn('i1')).toBe(true);
+    expect(h.perform).toHaveBeenCalledOnce();
+    expect(h.messages).toEqual([]);
+    h.db.close();
+  });
+
+  it('holds on a known limit with no switch available by parking the session', () => {
+    const h = holdSetup({ kind: 'none', reason: 'no-candidate' }, { outcome: 'not-switched', reason: 'no-candidate', considered: [] });
+    recordLimit(h.ledger);
+    expect(h.handler.holdAutomatedTurn('i1')).toBe(true);
+    expect(h.handler.isParked('i1')).toBe(true);
+    expect(h.perform).not.toHaveBeenCalled();
+    expect(h.handler.holdAutomatedTurn('i1')).toBe(true);
+    h.db.close();
+  });
+
+  it('with automatic resume off, a refused automated turn is still held on the limit it recorded', () => {
+    const h = holdSetup({ kind: 'none', reason: 'no-pool' }, { outcome: 'not-switched', reason: 'no-pool', considered: [] }, false);
+    // The refusal's own park attempt is declined: automatic resume is off and nothing forces a hold.
+    expect(h.handler.maybePark({ ...base, provider: 'codex', resumePrompt: null, resetAtHint: Date.now() + 60 * 60_000 })).toBe('skipped');
+    expect(h.handler.isParked('i1')).toBe(false);
+    // The ledger row it recorded makes the hold check park hold-only, so the response can wait.
+    expect(h.handler.holdAutomatedTurn('i1')).toBe(true);
+    expect(h.handler.isParked('i1')).toBe(true);
+    h.db.close();
   });
 });

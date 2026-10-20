@@ -6,6 +6,10 @@ import {
 } from "../spawn-worker/cli-spawn-worker-gateway";
 import { CliAdapterWorkerProxy } from "../spawn-worker/cli-adapter-worker-proxy";
 import { spawn } from "node:child_process";
+import type { CliResponse } from "./base-cli-adapter";
+import type { Instance } from "../../../shared/types/instance.types";
+import { recordCompletionCost } from "../../instance/communication-completion-cost";
+import { getCostTracker } from "../../core/system/cost-tracker";
 import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../logging/logger", () => ({
   getLogger: () => ({
@@ -14,6 +18,9 @@ vi.mock("../../logging/logger", () => ({
     error: vi.fn(),
     debug: vi.fn(),
   }),
+}));
+vi.mock("../../context/cache-analytics-service", () => ({
+  getCacheAnalyticsService: () => ({ recordTurn: vi.fn() }),
 }));
 import { ClaudeCliAdapter } from "./claude-cli-adapter";
 import { sendAbortableReviewerMessage } from "../../review/review-execution-host";
@@ -667,4 +674,123 @@ describe("direct resident native fragment shutdown", () => {
       await adapter.terminate(false);
     }
   }, 10000);
+});
+
+
+// A subordinate assistant is not a main-turn billing boundary. Keep this on
+// real child-process NDJSON and the communication layer's real accounting seam.
+describe("resident main-turn settlement around subagent output", () => {
+  const subagent = {
+    ...paid,
+    parent_tool_use_id: "fixture-subagent-tool",
+    message: {
+      content: [{ type: "text", text: "Subagent work" }],
+      usage: { input_tokens: 25, output_tokens: 5 },
+    },
+  };
+  const receipt = (cost: number, input: number, output: number) => ({
+    type: "result", subtype: "success", total_cost_usd: cost,
+    usage: { input_tokens: 100, output_tokens: 10 },
+    modelUsage: { "claude-opus-5": { inputTokens: input, outputTokens: output, costUSD: cost } },
+  });
+  function account(adapter: ClaudeCliAdapter) {
+    getCostTracker().clearEntries();
+    const instance = {
+      sessionId: "subagent-settlement-fixture", provider: "claude",
+      currentModel: "claude-opus-5", agentId: "build", parentId: null,
+      metadata: {}, contextUsage: { used: 0, total: 200000, percentage: 0 },
+    } as unknown as Instance;
+    const completions: CliResponse[] = [];
+    const rows: CostAttributionRecord[] = [];
+    const stop = subscribeCostAttribution(row => rows.push(row));
+    adapter.on("complete", response => {
+      completions.push(response);
+      recordCompletionCost("subagent-settlement-instance", instance, response);
+    });
+    return { instance, completions, rows, stop };
+  }
+
+  it.each([
+    { withSubagent: false, split: false },
+    { withSubagent: false, split: true },
+    { withSubagent: true, split: false },
+    { withSubagent: true, split: true },
+  ])("retains final native main-turn dollars ($withSubagent subagent, $split split)", async ({ withSubagent, split }) => {
+    const frames = [receipt(0.5, 100, 10), paid, failure,
+      ...(withSubagent ? [subagent] : []), receipt(0.75, 200, 20)];
+    const { adapter } = create(frames, true);
+    if (split) {
+      const chunks = frames.map(frame => JSON.stringify(frame) + "\n");
+      vi.mocked((adapter as unknown as { spawnProcess(args: string[]): ReturnType<typeof spawn> }).spawnProcess)
+        .mockImplementation(() => spawn(process.execPath, ["-e",
+          `process.stdin.once('data',()=>{const chunks=${JSON.stringify(chunks)};const next=()=>{const chunk=chunks.shift();if(chunk===undefined){process.stdin.destroy();return;}process.stdout.write(chunk,()=>setImmediate(next));};next();});process.stdin.resume();`,
+        ], { stdio: ["pipe", "pipe", "pipe"], detached: true }));
+    }
+    const { instance, completions, rows, stop } = account(adapter);
+    try {
+      await adapter.spawn();
+      await adapter.sendInput("Disposable main-turn settlement fixture");
+      await vi.waitFor(() => expect(adapter.isRunning()).toBe(false));
+      expect(completions).toHaveLength(2);
+      expect(completions[1].metadata?.['turnErrored']).toBe(true);
+      expect(rows).toHaveLength(2);
+      expect(rows.map(row => row.usage?.cost)).toEqual([0.5, 0.25]);
+      expect(rows.every(row => row.costSource === "provider")).toBe(true);
+      expect(completions[1].usage?.byModel).toEqual([{
+        model: "claude-opus-5", inputTokens: 100, outputTokens: 10,
+        cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.25,
+      }]);
+      expect(getCostTracker().getEntries()).toHaveLength(2);
+      expect(getCostTracker().getSummary().totalCost).toBeCloseTo(0.75, 8);
+      expect(instance.contextUsage.costEstimate).toBeCloseTo(0.75, 8);
+    } finally {
+      stop(); await adapter.terminate(false); getCostTracker().clearEntries();
+    }
+  });
+
+  it("uses the next main assistant as the fallback boundary when the old result is absent", async () => {
+    const { adapter } = create([receipt(0.5, 100, 10), paid, failure, subagent, paid, receipt(0.75, 200, 20)], true);
+    const { completions, rows, stop } = account(adapter);
+    try {
+      await adapter.spawn(); await adapter.sendInput("Disposable boundary fixture");
+      await vi.waitFor(() => expect(adapter.isRunning()).toBe(false));
+      expect(completions).toHaveLength(3);
+      expect(rows).toHaveLength(3);
+      expect(rows[1]).toMatchObject({ costSource: "priced", usage: { inputTokens: 100, outputTokens: 10 } });
+      expect(rows[1].usage?.cost).toBeGreaterThan(0);
+      expect(rows[2]).toMatchObject({ costSource: "provider", usage: { cost: 0.25 } });
+      expect(completions[2].metadata?.['turnErrored']).not.toBe(true);
+      expect(getCostTracker().getEntries()).toHaveLength(3);
+    } finally {
+      stop(); await adapter.terminate(false); getCostTracker().clearEntries();
+    }
+  });
+
+  it.each(["exit", "terminate"] as const)("settles missing-result fallback once on %s after subagent output", async ending => {
+    const { adapter } = create([paid, failure, subagent], true);
+    if (ending === "terminate") {
+      const chunk = [paid, failure, subagent].map(frame => JSON.stringify(frame)).join("\n") + "\n";
+      vi.mocked((adapter as unknown as { spawnProcess(args: string[]): ReturnType<typeof spawn> }).spawnProcess)
+        .mockImplementation(() => spawn(process.execPath, ["-e",
+          `process.stdin.once('data',()=>process.stdout.write(${JSON.stringify(chunk)}));process.stdin.resume();setInterval(()=>{},1000);`,
+        ], { stdio: ["pipe", "pipe", "pipe"], detached: true }));
+    }
+    const { completions, rows, stop } = account(adapter);
+    try {
+      await adapter.spawn(); await adapter.sendInput("Disposable missing-result fixture");
+      if (ending === "terminate") {
+        await vi.waitFor(() => expect(completions).toHaveLength(1));
+        await adapter.terminate(false);
+      }
+      await vi.waitFor(() => expect(adapter.isRunning()).toBe(false));
+      await adapter.terminate(false);
+      expect(completions).toHaveLength(1);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ costSource: "priced", usage: { inputTokens: 100, outputTokens: 10 } });
+      expect(rows[0].usage?.cost).toBeGreaterThan(0);
+      expect(getCostTracker().getEntries()).toHaveLength(1);
+    } finally {
+      stop(); await adapter.terminate(false); getCostTracker().clearEntries();
+    }
+  });
 });

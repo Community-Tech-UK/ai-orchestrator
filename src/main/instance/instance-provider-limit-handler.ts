@@ -230,6 +230,7 @@ export class InstanceProviderLimitHandler {
     const failoverPlan = failoverParams ? deps.accountFailover?.plan(failoverParams) : undefined;
     const pooled = failoverPlan !== undefined && !(failoverPlan.kind === 'none' && failoverPlan.reason === 'no-pool');
 
+    let assumedResumeAt: number | null = null;
     if (scope.recordable && detectedResumeAt !== null) {
       deps.providerLimitLedger?.record({
         provider: providerId,
@@ -242,28 +243,33 @@ export class InstanceProviderLimitHandler {
         instanceId: params.instanceId,
       });
     } else if (scope.recordable && pooled && knownLimit === null) {
+      assumedResumeAt = now + ASSUMED_ACCOUNT_LIMIT_MS;
       deps.providerLimitLedger?.record({
         provider: providerId,
         model: scope.recordModel,
         accountProfileId,
         detectedAt: now,
-        resumeAt: now + ASSUMED_ACCOUNT_LIMIT_MS,
+        resumeAt: assumedResumeAt,
         source: 'provider-limit-assumed',
         instanceId: params.instanceId,
       });
     }
 
+    // With no reset time from any source, a pooled limit still parks until the
+    // hour the ledger benches the account for (re-probed meanwhile), so a turn
+    // that could not switch always has something to resume it.
+    const parkAt = resumeAt ?? assumedResumeAt;
     if (failoverParams && failoverPlan?.kind === 'switch') {
-      this.startAccountFailover(failoverParams, effectiveParams, providerId, resumeAt, { forceHold: effectiveParams.allowCredits === false });
+      this.startAccountFailover(failoverParams, effectiveParams, providerId, parkAt, { forceHold: effectiveParams.allowCredits === false });
       return 'switching-account';
     }
     if (failoverParams && failoverPlan?.kind === 'offer') {
-      const parked = resumeAt === null ? 'skipped' : this.park(effectiveParams, providerId, resumeAt, { forceHold: effectiveParams.allowCredits === false });
+      const parked = parkAt === null ? 'skipped' : this.park(effectiveParams, providerId, parkAt, { forceHold: effectiveParams.allowCredits === false });
       deps.accountFailover?.offer(failoverParams, failoverPlan.toProfileId);
       return parked;
     }
 
-    if (resumeAt === null) {
+    if (parkAt === null) {
       // Every hint source came up empty — prime the snapshot for next time
       // instead of leaving this provider's quota view stale until the next
       // scheduled poll.
@@ -271,7 +277,7 @@ export class InstanceProviderLimitHandler {
       return 'skipped';
     }
 
-    return this.park(effectiveParams, providerId, resumeAt, { forceHold: effectiveParams.allowCredits === false });
+    return this.park(effectiveParams, providerId, parkAt, { forceHold: effectiveParams.allowCredits === false });
   }
 
   /** Stop paid overage first, then honour the pool policy using included usage only. */
@@ -313,7 +319,7 @@ export class InstanceProviderLimitHandler {
    * Unlike {@link maybePark}, a miss is intentionally silent: preflight runs
    * for every send, so it must not start a quota probe or write another row.
    */
-  maybeParkKnown(params: MaybeParkKnownParams): ProviderLimitTurnOutcome {
+  maybeParkKnown(params: MaybeParkKnownParams, opts?: { preemptive?: boolean }): ProviderLimitTurnOutcome {
     const deps = this.deps;
     if (!deps) return 'skipped';
     if (this.isSwitchingAccount(params.instanceId, params.accountProfileId)) {
@@ -326,7 +332,8 @@ export class InstanceProviderLimitHandler {
       return 'switching-account';
     }
     if (this.parked.has(params.instanceId)) return 'already-parked';
-    deps.accountFailover?.observeInput?.(params.instanceId, params.resumePrompt);
+    // An automated turn is not a new user turn: it must not reset the per-turn switch cap.
+    if (opts?.preemptive !== false) deps.accountFailover?.observeInput?.(params.instanceId, params.resumePrompt);
 
     const providerId = toProviderId(params.provider);
     if (!providerId) return 'skipped';
@@ -339,11 +346,14 @@ export class InstanceProviderLimitHandler {
       ...scope.ledgerOptions,
       now: Date.now(),
     }) ?? null;
-    if (!knownLimit) return this.maybeSwitchPreemptively(params, providerId, accountProfileId);
+    // A pre-emptive switch is a user-turn-boundary decision, never an automated turn's.
+    const noLimit = (next: MaybeParkKnownParams): ProviderLimitTurnOutcome => opts?.preemptive === false
+      ? 'skipped' : this.maybeSwitchPreemptively(next, providerId, accountProfileId);
+    if (!knownLimit) return noLimit(params);
     const effectiveParams = knownLimit.source === 'usage-overage' ? { ...params, allowCredits: false } : params;
     const quotaBlind = params.quotaBlind || (providerId === 'copilot' && knownLimit.source === COPILOT_RATE_LIMIT_SOURCE);
     if (scope.quotaApplies && !quotaBlind && this.clearLimitLiftedSinceRecorded(effectiveParams, providerId, accountProfileId)) {
-      return this.maybeSwitchPreemptively(effectiveParams, providerId, accountProfileId);
+      return noLimit(effectiveParams);
     }
 
     // This session's account is known-limited but another account of the pool
@@ -361,6 +371,28 @@ export class InstanceProviderLimitHandler {
     const parked = this.park({ ...effectiveParams, quotaBlind }, providerId, knownLimit.resumeAt, { forceHold: true });
     if (failoverParams && plan?.kind === 'offer') deps.accountFailover?.offer(failoverParams, plan.toProfileId);
     return parked;
+  }
+
+  /**
+   * Whether an automated turn that skips the send preflight (orchestration
+   * responses) must wait: the session is moving account or parked, or its
+   * account has a known limit. A known limit starts the preflight's own
+   * switch-or-hold with nothing to re-send, so the switch's respawn or the
+   * park's resume releases what was held.
+   */
+  holdAutomatedTurn(instanceId: string): boolean {
+    if (!this.deps) return false;
+    if (this.parked.has(instanceId) || this.isSwitchingAccount(instanceId)) return true;
+    const info = this.deps.getProviderModel?.(instanceId);
+    if (!info) return false;
+    return this.maybeParkKnown({
+      instanceId,
+      provider: info.provider,
+      model: info.model,
+      reason: 'Known active provider limit; holding automated turns until the session can continue',
+      resumePrompt: null,
+      accountProfileId: info.accountProfileId ?? null,
+    }, { preemptive: false }) !== 'skipped';
   }
 
   /** A recorded limit newer quota evidence contradicts stops holding the send (see provider-limit-lift.ts). */
@@ -466,6 +498,15 @@ export class InstanceProviderLimitHandler {
       ? coordinator.perform(failoverParams) : null)
       .then((outcome) => {
         if (!outcome || this.switching.get(params.instanceId)?.token !== token) return;
+        logger.info('Account failover finished', {
+          instanceId: params.instanceId,
+          provider: providerId,
+          fromProfileId: failoverParams.exhaustedProfileId,
+          outcome: outcome.outcome,
+          ...(outcome.outcome === 'not-switched'
+            ? { reason: outcome.reason, considered: outcome.considered.map((entry) => `${entry.profileId}:${entry.vetoReason}`) }
+            : { toProfileId: outcome.toProfileId }),
+        });
         const waits = outcome.outcome === 'not-switched' || outcome.outcome === 'offered';
         noteAfterFailure(outcome, waits && parkAfterFailure());
       })

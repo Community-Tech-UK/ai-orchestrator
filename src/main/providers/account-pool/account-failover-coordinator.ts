@@ -49,7 +49,16 @@ const logger = getLogger('AccountFailoverCoordinator');
 const STORM_WINDOW_MS = 30_000;
 const STORM_STEP_MS = 250;
 const STORM_MAX_DELAY_MS = 5_000;
+/** Under the provider lock: the session settled before the lock, so this only covers a send racing the switch. */
 const IDLE_WAIT_MS = 5_000;
+/**
+ * Before the provider lock: how long a switch waits for the session to finish
+ * whatever is running. A limited account rejects every turn within seconds,
+ * but a restart can deliver several queued turns back to back, keeping the
+ * session busy far longer than one rejection. Waiting here does not hold up
+ * other sessions' switches.
+ */
+export const SETTLE_WAIT_MS = 60_000;
 const IDLE_POLL_MS = 50;
 /** Upper bound on the pre-switch usage re-check; past it the cached evidence decides. */
 export const FRESH_QUOTA_TIMEOUT_MS = 12_000;
@@ -250,6 +259,11 @@ export class AccountFailoverCoordinator {
       this.offer(params, plan.toProfileId);
       return { outcome: 'offered', toProfileId: plan.toProfileId };
     }
+    // A pre-emptive switch holds a turn the user just sent: it keeps the short wait.
+    const settleMs = params.handoffKind === 'preemptive' ? IDLE_WAIT_MS : SETTLE_WAIT_MS;
+    if (!(await this.waitForSwitchableInstance(params.instanceId, signal, settleMs))) {
+      return { outcome: 'not-switched', reason: signal.aborted ? 'cancelled' : 'busy', considered: [] };
+    }
     return this.withProviderLock(params.provider, () => this.performLocked(params, signal));
   }
 
@@ -312,7 +326,7 @@ export class AccountFailoverCoordinator {
     }
     const toProfileId = selection.profileId;
 
-    if (!(await this.waitForSwitchableInstance(params.instanceId, signal))) {
+    if (!(await this.waitForSwitchableInstance(params.instanceId, signal, IDLE_WAIT_MS))) {
       return { outcome: 'not-switched', reason: signal.aborted ? 'cancelled' : 'busy', considered: selection.considered };
     }
 
@@ -539,8 +553,8 @@ export class AccountFailoverCoordinator {
     });
   }
 
-  private async waitForSwitchableInstance(instanceId: string, signal: AbortSignal): Promise<boolean> {
-    const deadline = this.now() + IDLE_WAIT_MS;
+  private async waitForSwitchableInstance(instanceId: string, signal: AbortSignal, waitMs: number): Promise<boolean> {
+    const deadline = this.now() + waitMs;
     for (;;) {
       if (signal.aborted) return false;
       const instance = this.deps.getInstance(instanceId);

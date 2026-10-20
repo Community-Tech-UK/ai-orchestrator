@@ -9,7 +9,7 @@ vi.mock('../../logging/logger', () => ({
 const events = vi.hoisted(() => [] as Array<{ event: string }>);
 vi.mock('./provider-account-events', () => ({ emitProviderAccountEvent: (event: { event: string }) => events.push(event) }));
 
-import { AccountFailoverCoordinator, currentAccountProfileId, FRESH_QUOTA_TIMEOUT_MS, type AccountFailoverParams } from './account-failover-coordinator';
+import { AccountFailoverCoordinator, currentAccountProfileId, FRESH_QUOTA_TIMEOUT_MS, SETTLE_WAIT_MS, type AccountFailoverParams } from './account-failover-coordinator';
 import type { AccountQuotaEvidence } from './provider-account-selector';
 import { ProviderAccountStore } from './provider-account-store';
 import type { ProviderAccountBindingService } from './provider-account-binding-service';
@@ -335,6 +335,84 @@ describe('AccountFailoverCoordinator', () => {
       sleep: async () => { clock.now += 1_000; },
     });
     expect(await coordinator.perform(params('i1'))).toMatchObject({ outcome: 'not-switched', reason: 'busy' });
+  });
+
+  it('waits for a session that stays busy past the in-lock wait, then switches', async () => {
+    // A restart can deliver queued turns back to back: each is rejected within
+    // seconds, but together they keep the session busy for longer than 5s.
+    const h = harness();
+    addInstance(h, 'i1');
+    h.instances.get('i1')!.status = 'busy';
+    const clock = h.clock;
+    const settleAt = clock.now + 20_000;
+    const coordinator = new AccountFailoverCoordinator({
+      ...(h.coordinator as unknown as { deps: ConstructorParameters<typeof AccountFailoverCoordinator>[0] }).deps,
+      sleep: async () => {
+        clock.now += 1_000;
+        if (clock.now >= settleAt) h.instances.get('i1')!.status = 'idle';
+      },
+    });
+    expect(await coordinator.perform(params('i1'))).toMatchObject({ outcome: 'switched', toProfileId: 'max-b' });
+    expect(h.resent).toEqual([{ id: 'i1', prompt: 'keep going' }]);
+  });
+
+  it('gives up once the settle wait runs out', async () => {
+    const h = harness();
+    addInstance(h, 'i1');
+    h.instances.get('i1')!.status = 'busy';
+    const clock = h.clock;
+    const start = clock.now;
+    const coordinator = new AccountFailoverCoordinator({
+      ...(h.coordinator as unknown as { deps: ConstructorParameters<typeof AccountFailoverCoordinator>[0] }).deps,
+      sleep: async () => { clock.now += 1_000; },
+    });
+    expect(await coordinator.perform(params('i1'))).toMatchObject({ outcome: 'not-switched', reason: 'busy' });
+    expect(clock.now - start).toBeGreaterThanOrEqual(SETTLE_WAIT_MS);
+    expect(h.applied).toHaveLength(0);
+  });
+
+  it('keeps the short wait for a pre-emptive switch, which holds a turn the user just sent', async () => {
+    const h = harness();
+    addInstance(h, 'i1');
+    h.instances.get('i1')!.status = 'busy';
+    const clock = h.clock;
+    const start = clock.now;
+    const coordinator = new AccountFailoverCoordinator({
+      ...(h.coordinator as unknown as { deps: ConstructorParameters<typeof AccountFailoverCoordinator>[0] }).deps,
+      sleep: async () => { clock.now += 1_000; },
+    });
+    expect(await coordinator.perform(params('i1', { handoffKind: 'preemptive' }))).toMatchObject({ outcome: 'not-switched', reason: 'busy' });
+    expect(clock.now - start).toBeLessThan(SETTLE_WAIT_MS);
+  });
+
+  it('does not hold up another session\'s switch while one waits to settle', async () => {
+    const h = harness();
+    addInstance(h, 'busy-one');
+    addInstance(h, 'idle-one');
+    h.instances.get('busy-one')!.status = 'busy';
+    let releaseWait!: () => void;
+    const waiting = new Promise<void>((resolve) => { releaseWait = resolve; });
+    const coordinator = new AccountFailoverCoordinator({
+      ...(h.coordinator as unknown as { deps: ConstructorParameters<typeof AccountFailoverCoordinator>[0] }).deps,
+      sleep: () => waiting,
+    });
+    const slow = coordinator.perform(params('busy-one'));
+    expect(await coordinator.perform(params('idle-one'))).toMatchObject({ outcome: 'switched' });
+    h.instances.get('busy-one')!.status = 'idle';
+    releaseWait();
+    expect(await slow).toMatchObject({ outcome: 'switched' });
+  });
+
+  it('a cancelled settle wait reports cancelled, not busy', async () => {
+    const h = harness();
+    addInstance(h, 'i1');
+    h.instances.get('i1')!.status = 'busy';
+    const coordinator: AccountFailoverCoordinator = new AccountFailoverCoordinator({
+      ...(h.coordinator as unknown as { deps: ConstructorParameters<typeof AccountFailoverCoordinator>[0] }).deps,
+      sleep: async () => { coordinator.release('i1'); },
+    });
+    expect(await coordinator.perform(params('i1'))).toMatchObject({ outcome: 'not-switched', reason: 'cancelled' });
+    expect(h.applied).toHaveLength(0);
   });
 
   it('re-checks the signed-in candidates\' usage before choosing, and skips one that ran out since the last poll', async () => {

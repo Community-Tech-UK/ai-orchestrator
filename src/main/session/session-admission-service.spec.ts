@@ -479,6 +479,166 @@ describe('SessionAdmissionService', () => {
     });
   });
 
+  describe('provider-limit hold (orchestration responses)', () => {
+    it('holds an orchestration response while the hold applies, and redelivers it once it lifts', () => {
+      let limited = true;
+      getSessionAdmissionService().setProviderLimitHold(() => limited);
+      im.setInstance('i1', { status: 'idle' as never });
+      const outcome = getSessionAdmissionService().admitAutomatedWrite({
+        instanceId: 'i1', origin: 'orchestration', message: 'child done', sourceMetadata: { action: 'child_completed' },
+      });
+      expect(outcome).toMatchObject({ kind: 'suppressed', reason: 'provider-limited' });
+
+      const handler = vi.fn();
+      getSessionAdmissionService().registerRedeliveryHandler('orchestration', handler);
+      im.emitStateUpdate('i1', 'idle');
+      expect(handler).not.toHaveBeenCalled();
+
+      limited = false; // the account switch finished, or the park resumed
+      im.emitStateUpdate('i1', 'idle');
+      expect(handler).toHaveBeenCalledOnce();
+      expect(handler.mock.calls[0][0]).toMatchObject({ instanceId: 'i1', message: 'child done' });
+    });
+
+    it('does not consult the hold for writers that use the send path and its own preflight', () => {
+      const hold = vi.fn(() => true);
+      getSessionAdmissionService().setProviderLimitHold(hold);
+      im.setInstance('i1', { status: 'idle' as never });
+      const outcome = getSessionAdmissionService().admitAutomatedWrite({ instanceId: 'i1', origin: 'reaction', message: 'nudge' });
+      expect(outcome.kind).toBe('admitted');
+      expect(hold).not.toHaveBeenCalled();
+    });
+
+    it('fails open when the hold check throws', () => {
+      getSessionAdmissionService().setProviderLimitHold(() => { throw new Error('ledger unreadable'); });
+      im.setInstance('i1', { status: 'idle' as never });
+      const outcome = getSessionAdmissionService().admitAutomatedWrite({ instanceId: 'i1', origin: 'orchestration', message: 'child done' });
+      expect(outcome.kind).toBe('admitted');
+    });
+
+    it('requeues an admitted response the provider refused, and redelivers it on a later ready edge', () => {
+      let limited = false;
+      getSessionAdmissionService().setProviderLimitHold(() => limited);
+      im.setInstance('i1', { status: 'idle' as never });
+      const request: AdmitAutomatedWriteRequest = {
+        instanceId: 'i1', origin: 'orchestration', message: 'child done', sourceMetadata: { action: 'child_completed' },
+      };
+      const outcome = getSessionAdmissionService().admitAutomatedWrite(request);
+      expect(outcome.kind).toBe('admitted');
+
+      limited = true; // the refusal handed the limit to a switch or park
+      getSessionAdmissionService().requeueUndelivered(outcome.admissionId, request, 'provider-limited');
+      expect(SessionAdmissionStore.getInstance(testDb).get(outcome.admissionId))
+        .toMatchObject({ state: 'suppressed', suppressReason: 'provider-limited' });
+
+      const handler = vi.fn();
+      getSessionAdmissionService().registerRedeliveryHandler('orchestration', handler);
+      im.emitStateUpdate('i1', 'idle');
+      expect(handler).not.toHaveBeenCalled();
+      limited = false;
+      im.emitStateUpdate('i1', 'idle');
+      expect(handler).toHaveBeenCalledOnce();
+      expect(handler.mock.calls[0][0]).toMatchObject({ admissionId: outcome.admissionId, message: 'child done' });
+    });
+  });
+
+  describe('provider-limit requeue without an admission row', () => {
+    it('creates a suppressed row and redelivers it once the hold lifts', () => {
+      let limited = true;
+      getSessionAdmissionService().setProviderLimitHold(() => limited);
+      im.setInstance('i1', { status: 'idle' as never });
+      getSessionAdmissionService().requeueUndelivered(undefined, {
+        instanceId: 'i1', origin: 'orchestration', message: 'consensus done', sourceMetadata: { action: 'consensus_query' },
+      }, 'provider-limited');
+      expect(SessionAdmissionStore.getInstance(testDb).list({ instanceId: 'i1' }))
+        .toEqual([expect.objectContaining({ state: 'suppressed', suppressReason: 'provider-limited', origin: 'orchestration' })]);
+
+      const handler = vi.fn();
+      getSessionAdmissionService().registerRedeliveryHandler('orchestration', handler);
+      im.emitStateUpdate('i1', 'idle');
+      expect(handler).not.toHaveBeenCalled();
+      limited = false;
+      im.emitStateUpdate('i1', 'idle');
+      expect(handler).toHaveBeenCalledOnce();
+      expect(handler.mock.calls[0][0]).toMatchObject({ message: 'consensus done', sourceMetadata: { action: 'consensus_query' } });
+    });
+  });
+
+  describe('consensus results and replaced adapters', () => {
+    it('holds a consensus result while the provider-limit hold applies', () => {
+      let limited = true;
+      getSessionAdmissionService().setProviderLimitHold(() => limited);
+      im.setInstance('i1', { status: 'idle' as never });
+      expect(getSessionAdmissionService().admitAutomatedWrite({ instanceId: 'i1', origin: 'consensus', message: 'consensus done' }))
+        .toMatchObject({ kind: 'suppressed', reason: 'provider-limited' });
+      const handler = vi.fn();
+      getSessionAdmissionService().registerRedeliveryHandler('consensus', handler);
+      limited = false;
+      im.emitStateUpdate('i1', 'idle');
+      expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it('redelivers a write whose adapter was replaced as soon as the session can already take it', async () => {
+      im.setInstance('i1', { status: 'idle' as never });
+      const request: AdmitAutomatedWriteRequest = { instanceId: 'i1', origin: 'orchestration', message: 'child done' };
+      const outcome = getSessionAdmissionService().admitAutomatedWrite(request);
+      const handler = vi.fn();
+      getSessionAdmissionService().registerRedeliveryHandler('orchestration', handler);
+      expect(getSessionAdmissionService().requeueUndelivered(outcome.admissionId, request, 'respawning')).toBe(outcome.admissionId);
+      expect(handler).not.toHaveBeenCalled(); // the caller records the id first
+      await Promise.resolve();
+      expect(handler).toHaveBeenCalledOnce();
+      expect(handler.mock.calls[0][0]).toMatchObject({ admissionId: outcome.admissionId, message: 'child done' });
+    });
+
+    it('keeps a replaced-adapter write pending while the replacement is still starting, then delivers it', async () => {
+      // An account switch and a restart both respawn through `initializing`, not `respawning`.
+      im.setInstance('i1', { status: 'initializing' as never });
+      const request: AdmitAutomatedWriteRequest = { instanceId: 'i1', origin: 'orchestration', message: 'child done' };
+      const handler = vi.fn();
+      getSessionAdmissionService().registerRedeliveryHandler('orchestration', handler);
+      getSessionAdmissionService().requeueUndelivered('row-2', request, 'respawning');
+      await Promise.resolve();
+      expect(handler).not.toHaveBeenCalled();
+      im.setInstance('i1', { status: 'busy' as never });
+      im.setRuntimeSnapshot('i1', { activeTurnId: 'turn-1', turnPhase: 'running' });
+      im.emitStateUpdate('i1', 'ready');
+      expect(handler).not.toHaveBeenCalled();
+      im.setInstance('i1', { status: 'idle' as never });
+      im.setRuntimeSnapshot('i1', { activeTurnId: null, turnPhase: 'idle' });
+      im.emitStateUpdate('i1', 'idle');
+      expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it('fails a requeued write whose session is gone instead of keeping it forever', async () => {
+      im.setInstance('i1', { status: 'idle' as never });
+      const request: AdmitAutomatedWriteRequest = { instanceId: 'i1', origin: 'orchestration', message: 'child done' };
+      const outcome = getSessionAdmissionService().admitAutomatedWrite(request);
+      im.removeInstanceRecord('i1');
+      const handler = vi.fn();
+      getSessionAdmissionService().registerRedeliveryHandler('orchestration', handler);
+      expect(getSessionAdmissionService().requeueUndelivered(outcome.admissionId, request, 'respawning')).toBeNull();
+      expect(SessionAdmissionStore.getInstance(testDb).get(outcome.admissionId)).toMatchObject({ state: 'failed' });
+      im.setInstance('i1', { status: 'idle' as never });
+      im.emitStateUpdate('i1', 'idle');
+      await Promise.resolve();
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('keeps a replaced-adapter write pending while the session is still respawning', async () => {
+      im.setInstance('i1', { status: 'respawning' as never });
+      const request: AdmitAutomatedWriteRequest = { instanceId: 'i1', origin: 'orchestration', message: 'child done' };
+      const handler = vi.fn();
+      getSessionAdmissionService().registerRedeliveryHandler('orchestration', handler);
+      getSessionAdmissionService().requeueUndelivered('row-1', request, 'respawning');
+      await Promise.resolve();
+      expect(handler).not.toHaveBeenCalled();
+      im.setInstance('i1', { status: 'idle' as never });
+      im.emitStateUpdate('i1', 'idle');
+      expect(handler).toHaveBeenCalledOnce();
+    });
+  });
+
   describe('recordUserSend (observe-only)', () => {
     it('records a user send and transitions it to delivered', () => {
       const rec = getSessionAdmissionService().recordUserSend('i1', 'hello there', undefined, null);

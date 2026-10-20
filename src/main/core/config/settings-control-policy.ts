@@ -282,6 +282,8 @@ const workerModeSchema = z.object({
   role: z.enum(['unset', 'coordinator', 'worker']),
   startWorkerOnLaunch: z.boolean(),
   installWorkerService: z.boolean(),
+  openAtLogin: z.boolean().optional(),
+  runAtSignIn: z.boolean().optional(),
   lastCoordinatorName: z.string().max(255).optional(),
   lastCoordinatorUrl: z.string().max(2048).optional(),
 }).strict();

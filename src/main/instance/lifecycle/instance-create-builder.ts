@@ -133,6 +133,13 @@ export function buildInstanceRecord(
       : config.modelOverride?.trim()
         ? { currentModel: config.modelOverride.trim() }
         : {}),
+    // Same for an explicit effort pick (e.g. Max), which Phase 2 keeps verbatim;
+    // otherwise the chip reads "Provider default" until init resolves it. `null`
+    // (provider decides) and unset (app default) are left for Phase 2, as are
+    // local-model runtimes, which never carry an effort.
+    ...(!localModelTarget && config.reasoningEffort
+      ? { reasoningEffort: config.reasoningEffort }
+      : {}),
     ...(runtimeSummary
       ? { runtimeSummary }
       : {}),

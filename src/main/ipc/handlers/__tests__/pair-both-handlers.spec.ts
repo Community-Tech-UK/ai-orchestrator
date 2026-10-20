@@ -33,7 +33,20 @@ const mocks = vi.hoisted(() => ({
   stopRuntime: vi.fn(),
   installService: vi.fn(),
   clearWorkerConfig: vi.fn(),
+  runtimeStatus: vi.fn(),
+  stopAndWait: vi.fn(),
+  readPairing: vi.fn(),
+  sendToRenderer: vi.fn(),
+  signInSupported: vi.fn(() => true),
+  signInInstall: vi.fn(),
+  signInStop: vi.fn(),
+  signInRemove: vi.fn(),
+  lockHeld: vi.fn(() => false),
   watcherStart: vi.fn(),
+  // Options each PairBothRendezvousService was constructed with. A plain array
+  // (not a mock) so vi.clearAllMocks() leaves it alone: the handler module
+  // builds its service once and caches it across tests.
+  rendezvousOptions: [] as Array<{ beforeWorkerConfigWrite?: () => Promise<unknown> | unknown }>,
 }));
 
 vi.mock('electron', () => ({
@@ -91,17 +104,20 @@ vi.mock('../../../../worker-agent/worker-config', () => ({
 }));
 
 vi.mock('../../../remote-node/pair-both-rendezvous-service', () => ({
-  PairBothRendezvousService: vi.fn().mockImplementation(() => ({
-    shutdown: mocks.shutdown,
-    startCoordinatorPairing: mocks.startCoordinatorPairing,
-    getLocalCandidate: mocks.getLocalCandidate,
-    getCoordinatorState: mocks.getCoordinatorState,
-    approveCoordinatorPairing: mocks.approveCoordinatorPairing,
-    rejectCoordinatorPairing: mocks.rejectCoordinatorPairing,
-    connectWorkerToCandidate: mocks.connectWorkerToCandidate,
-    confirmWorkerCode: mocks.confirmWorkerCode,
-    waitForWorkerPairingResult: mocks.waitForWorkerPairingResult,
-  })),
+  PairBothRendezvousService: vi.fn().mockImplementation((options) => {
+    mocks.rendezvousOptions.push(options);
+    return {
+      shutdown: mocks.shutdown,
+      startCoordinatorPairing: mocks.startCoordinatorPairing,
+      getLocalCandidate: mocks.getLocalCandidate,
+      getCoordinatorState: mocks.getCoordinatorState,
+      approveCoordinatorPairing: mocks.approveCoordinatorPairing,
+      rejectCoordinatorPairing: mocks.rejectCoordinatorPairing,
+      connectWorkerToCandidate: mocks.connectWorkerToCandidate,
+      confirmWorkerCode: mocks.confirmWorkerCode,
+      waitForWorkerPairingResult: mocks.waitForWorkerPairingResult,
+    };
+  }),
 }));
 
 vi.mock('../../../remote-node/pair-both-discovery', () => ({
@@ -116,11 +132,27 @@ vi.mock('../../../remote-node/pair-both-discovery', () => ({
 
 vi.mock('../../../remote-node/worker-mode-runtime-service', () => ({
   clearWorkerModeConfig: mocks.clearWorkerConfig,
+  readWorkerModePairing: mocks.readPairing,
   getWorkerModeRuntimeService: () => ({
     start: mocks.startRuntime,
     stop: mocks.stopRuntime,
     installService: mocks.installService,
+    status: mocks.runtimeStatus,
+    stopAndWait: mocks.stopAndWait,
   }),
+}));
+
+vi.mock('../../../remote-node/worker-sign-in-task', () => ({
+  getWorkerSignInTask: () => ({
+    isSupported: mocks.signInSupported,
+    install: mocks.signInInstall,
+    stop: mocks.signInStop,
+    remove: mocks.signInRemove,
+  }),
+}));
+
+vi.mock('../../../../worker-agent/single-instance-lock', () => ({
+  isSingleInstanceLockHeld: mocks.lockHeld,
 }));
 
 type HandlerFn = (
@@ -189,7 +221,8 @@ describe('pair-both IPC handlers', () => {
       startWorkerOnLaunch: true,
       installWorkerService: false,
     });
-    registerPairBothHandlers();
+    mocks.stopAndWait.mockResolvedValue({ state: 'stopped' });
+    registerPairBothHandlers({ windowManager: { sendToRenderer: mocks.sendToRenderer } });
   });
 
   it('returns LAN discovery candidates from the pair-both discovery browser', async () => {
@@ -300,6 +333,7 @@ describe('pair-both IPC handlers', () => {
       data: { state: 'running', pid: 1234 },
     });
     expect(mocks.setSetting).toHaveBeenCalledWith('workerMode', expect.objectContaining({
+      role: 'worker',
       startWorkerOnLaunch: true,
       installWorkerService: false,
     }));
@@ -335,10 +369,78 @@ describe('pair-both IPC handlers', () => {
       config,
     });
     expect(mocks.setSetting).toHaveBeenCalledWith('workerMode', expect.objectContaining({
+      role: 'worker',
       startWorkerOnLaunch: false,
       installWorkerService: true,
     }));
     expect(JSON.stringify(response)).not.toContain('one-time-token');
+  });
+
+  it('restores the previous worker settings when the service install fails', async () => {
+    const previous = {
+      role: 'worker',
+      startWorkerOnLaunch: true,
+      installWorkerService: false,
+    };
+    mocks.getSetting.mockReturnValue(previous);
+    mocks.loadWorkerConfig.mockReturnValueOnce({
+      nodeId: 'node-1',
+      authToken: 'one-time-token',
+      coordinatorUrl: 'ws://192.168.1.20:4878',
+    });
+    mocks.installService.mockRejectedValueOnce(new Error('Access is denied'));
+
+    const response = await handlerFor('pair-both:worker:run-mode')({}, {
+      mode: 'background-service',
+    });
+
+    expect(response.success).toBe(false);
+    expect(response.error?.message).toMatch(/administrator permission/);
+    expect(mocks.setSetting).toHaveBeenLastCalledWith('workerMode', previous);
+  });
+
+  it('reports saved pairing and live runtime state for the Worker Mode page', async () => {
+    mocks.getSetting.mockReturnValue({
+      role: 'worker',
+      startWorkerOnLaunch: true,
+      installWorkerService: false,
+    });
+    mocks.readPairing.mockReturnValueOnce({
+      paired: true,
+      enrolled: true,
+      config: { nodeId: 'node-1', name: 'Noah PC', coordinatorUrl: 'ws://mac:4878', namespace: 'default', maxConcurrentInstances: 10, workingDirectories: [] },
+    });
+    mocks.runtimeStatus.mockReturnValueOnce({ state: 'running', pid: 42 });
+
+    const response = await handlerFor(IPC_CHANNELS.PAIR_BOTH_WORKER_STATUS)({});
+
+    expect(mocks.readPairing).toHaveBeenCalledWith('/tmp/worker-node.json');
+    expect(response).toEqual({
+      success: true,
+      data: expect.objectContaining({
+        paired: true,
+        enrolled: true,
+        runtime: { state: 'running', pid: 42 },
+        backgroundService: false,
+      }),
+    });
+  });
+
+  it('reports the background service as owning the worker when it is selected', async () => {
+    mocks.getSetting.mockReturnValue({
+      role: 'worker',
+      startWorkerOnLaunch: false,
+      installWorkerService: true,
+    });
+    mocks.readPairing.mockReturnValueOnce({ paired: true, enrolled: false, config: null });
+    mocks.runtimeStatus.mockReturnValueOnce({ state: 'stopped' });
+
+    const response = await handlerFor(IPC_CHANNELS.PAIR_BOTH_WORKER_STATUS)({});
+
+    expect(response.data).toMatchObject({
+      runtime: { state: 'service-installed' },
+      backgroundService: true,
+    });
   });
 
   it('stops the worker runtime through pair-both IPC', async () => {
@@ -350,22 +452,248 @@ describe('pair-both IPC handlers', () => {
     expect(mocks.stopRuntime).toHaveBeenCalledTimes(1);
   });
 
+  it('stops the running worker before writing pasted pairing details', async () => {
+    const parsed = { authToken: 'new-pass', coordinatorUrl: 'ws://mac:4878', namespace: 'default', maxConcurrentInstances: 10, workingDirectories: [] };
+    mocks.parsePairingConfigInput.mockReturnValueOnce(parsed);
+    mocks.writePairedWorkerConfig.mockReturnValueOnce({
+      nodeId: 'node-1',
+      name: 'Noah PC',
+      ...parsed,
+    });
+
+    const response = await handlerFor(IPC_CHANNELS.PAIR_BOTH_WORKER_APPLY_MANUAL)({}, { input: 'pairing link' });
+
+    expect(response.success).toBe(true);
+    expect(mocks.stopAndWait).toHaveBeenCalledTimes(1);
+    expect(mocks.stopAndWait.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.writePairedWorkerConfig.mock.invocationCallOrder[0],
+    );
+    expect(JSON.stringify(response)).not.toContain('new-pass');
+  });
+
+  it('stops every worker before the QR/LAN rendezvous writes the new worker config', async () => {
+    mocks.getSetting.mockReturnValue({
+      role: 'worker',
+      startWorkerOnLaunch: true,
+      installWorkerService: false,
+      runAtSignIn: true,
+    });
+    const order: string[] = [];
+    mocks.stopAndWait.mockImplementation(async () => {
+      order.push('stop-in-app-worker');
+      return { state: 'stopped' };
+    });
+    mocks.signInStop.mockImplementationOnce(async () => {
+      order.push('stop-sign-in-worker');
+    });
+    // Stands in for the real rendezvous service: it runs the callback the
+    // handler handed it, then writes the delivered config.
+    mocks.connectWorkerToCandidate.mockImplementationOnce(async () => {
+      await mocks.rendezvousOptions.at(-1)?.beforeWorkerConfigWrite?.();
+      order.push('write-worker-config');
+      return makeState(makeCandidate());
+    });
+
+    const response = await handlerFor(IPC_CHANNELS.PAIR_BOTH_WORKER_CONNECT)({}, {
+      candidate: makeCandidate(),
+    });
+
+    expect(response.success).toBe(true);
+    expect(mocks.rendezvousOptions.at(-1)?.beforeWorkerConfigWrite).toBeTypeOf('function');
+    expect(order).toEqual(['stop-in-app-worker', 'stop-sign-in-worker', 'write-worker-config']);
+  });
+
+  it('saves the open-at-sign-in choice with the run-while-open start', async () => {
+    mocks.loadWorkerConfig.mockReturnValueOnce({ nodeId: 'node-1', authToken: 'pass', coordinatorUrl: 'ws://mac:4878' });
+    mocks.startRuntime.mockReturnValueOnce({ state: 'running', pid: 1 });
+
+    await handlerFor('pair-both:worker:run-mode')({}, { mode: 'run-while-open', openAtLogin: true });
+
+    expect(mocks.setSetting).toHaveBeenCalledWith('workerMode', expect.objectContaining({
+      role: 'worker',
+      startWorkerOnLaunch: true,
+      installWorkerService: false,
+      openAtLogin: true,
+    }));
+  });
+
+  it('leaves the open-at-sign-in choice alone when the start does not mention it', async () => {
+    mocks.getSetting.mockReturnValue({ role: 'worker', startWorkerOnLaunch: true, installWorkerService: false, openAtLogin: true });
+    mocks.loadWorkerConfig.mockReturnValueOnce({ nodeId: 'node-1', authToken: 'pass', coordinatorUrl: 'ws://mac:4878' });
+    mocks.startRuntime.mockReturnValueOnce({ state: 'running', pid: 1 });
+
+    await handlerFor('pair-both:worker:run-mode')({}, { mode: 'run-while-open' });
+
+    expect(mocks.setSetting).toHaveBeenCalledWith('workerMode', expect.objectContaining({ openAtLogin: true }));
+  });
+
+  it('tells the renderer about workerMode changes it saves', async () => {
+    mocks.loadWorkerConfig.mockReturnValueOnce({ nodeId: 'node-1', authToken: 'pass', coordinatorUrl: 'ws://mac:4878' });
+    mocks.startRuntime.mockReturnValueOnce({ state: 'running', pid: 1 });
+    const saved = { role: 'worker', startWorkerOnLaunch: true, installWorkerService: false };
+    mocks.getSetting.mockReturnValue(saved);
+
+    await handlerFor('pair-both:worker:run-mode')({}, { mode: 'run-while-open' });
+
+    expect(mocks.sendToRenderer).toHaveBeenCalledWith(IPC_CHANNELS.SETTINGS_CHANGED, {
+      key: 'workerMode',
+      value: saved,
+    });
+  });
+
   it('unpairs the worker without exposing persisted credentials', async () => {
-    mocks.stopRuntime.mockReturnValueOnce({ state: 'stopped' });
     mocks.clearWorkerConfig.mockReturnValueOnce(undefined);
 
     const response = await handlerFor(IPC_CHANNELS.PAIR_BOTH_WORKER_UNPAIR)({});
 
     expect(response).toEqual({ success: true, data: { state: 'stopped' } });
-    expect(mocks.stopRuntime).toHaveBeenCalledTimes(1);
+    // Waits for the worker to exit so it cannot write the config back.
+    expect(mocks.stopAndWait).toHaveBeenCalledTimes(1);
+    expect(mocks.stopAndWait.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.clearWorkerConfig.mock.invocationCallOrder[0],
+    );
+    expect(mocks.sendToRenderer).toHaveBeenCalledWith(
+      IPC_CHANNELS.SETTINGS_CHANGED,
+      expect.objectContaining({ key: 'workerMode' }),
+    );
     expect(mocks.setSetting).toHaveBeenCalledWith('workerMode', expect.objectContaining({
-      role: 'unset',
       lastCoordinatorName: undefined,
       lastCoordinatorUrl: undefined,
     }));
+    // Unpairing leaves the role alone so the window is not swapped for the
+    // full-screen role picker.
+    expect(mocks.setSetting.mock.calls[0]?.[1]).toMatchObject({ role: 'worker' });
     expect(mocks.setSetting.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.clearWorkerConfig.mock.invocationCallOrder[0],
     );
     expect(JSON.stringify(response)).not.toMatch(/token|credential/i);
   });
+
+  describe('sign-in worker (Windows)', () => {
+    const paired = {
+      paired: true,
+      enrolled: true,
+      config: { nodeId: 'node-1', name: 'PC', coordinatorUrl: 'ws://mac:4878', namespace: 'default', maxConcurrentInstances: 10, workingDirectories: [] },
+    };
+
+    it('hands the worker to the sign-in task, then saves the mode', async () => {
+      mocks.loadWorkerConfig.mockReturnValueOnce({ nodeId: 'node-1', authToken: 'pass', coordinatorUrl: 'ws://mac:4878' });
+      mocks.signInInstall.mockResolvedValueOnce(undefined);
+      mocks.runtimeStatus.mockReturnValue({ state: 'stopped' });
+
+      const response = await handlerFor('pair-both:worker:run-mode')({}, { mode: 'sign-in-task' });
+
+      expect(response.success).toBe(true);
+      expect(mocks.stopAndWait.mock.invocationCallOrder[0]).toBeLessThan(mocks.signInInstall.mock.invocationCallOrder[0]);
+      expect(mocks.signInInstall).toHaveBeenCalledWith('/tmp/worker-node.json');
+      expect(mocks.signInInstall.mock.invocationCallOrder[0]).toBeLessThan(mocks.setSetting.mock.invocationCallOrder[0]);
+      expect(mocks.setSetting).toHaveBeenCalledWith('workerMode', expect.objectContaining({
+        role: 'worker',
+        runAtSignIn: true,
+        installWorkerService: false,
+        openAtLogin: false,
+      }));
+      expect(mocks.startRuntime).not.toHaveBeenCalled();
+    });
+
+    it('cleans up and restores the previous worker when the task cannot be set up', async () => {
+      mocks.loadWorkerConfig.mockReturnValueOnce({ nodeId: 'node-1', authToken: 'pass', coordinatorUrl: 'ws://mac:4878' });
+      mocks.runtimeStatus.mockReturnValueOnce({ state: 'running', pid: 7 });
+      mocks.signInInstall.mockRejectedValueOnce(new Error('Windows task setup failed: Access is denied.'));
+      mocks.signInRemove.mockResolvedValueOnce(undefined);
+
+      const response = await handlerFor('pair-both:worker:run-mode')({}, { mode: 'sign-in-task' });
+
+      expect(response.success).toBe(false);
+      expect(response.error?.message).toContain('Access is denied');
+      expect(mocks.setSetting).not.toHaveBeenCalled();
+      expect(mocks.signInRemove).toHaveBeenCalledTimes(1);
+      expect(mocks.startRuntime).toHaveBeenCalledWith({ configPath: '/tmp/worker-node.json' });
+    });
+
+    it('keeps an existing sign-in setup when re-choosing the mode fails', async () => {
+      mocks.getSetting.mockReturnValue({ role: 'worker', startWorkerOnLaunch: true, installWorkerService: false, runAtSignIn: true });
+      mocks.loadWorkerConfig.mockReturnValueOnce({ nodeId: 'node-1', authToken: 'pass', coordinatorUrl: 'ws://mac:4878' });
+      mocks.runtimeStatus.mockReturnValueOnce({ state: 'stopped' });
+      mocks.signInInstall.mockRejectedValueOnce(new Error('Windows task setup failed: busy'));
+
+      const response = await handlerFor('pair-both:worker:run-mode')({}, { mode: 'sign-in-task' });
+
+      expect(response.success).toBe(false);
+      expect(mocks.signInRemove).not.toHaveBeenCalled();
+      expect(mocks.startRuntime).not.toHaveBeenCalled();
+    });
+
+    it('refuses the mode where it is not supported', async () => {
+      mocks.signInSupported.mockReturnValueOnce(false);
+      mocks.loadWorkerConfig.mockReturnValueOnce({ nodeId: 'node-1' });
+
+      const response = await handlerFor('pair-both:worker:run-mode')({}, { mode: 'sign-in-task' });
+
+      expect(response.error?.message).toMatch(/only available on Windows/);
+      expect(mocks.signInInstall).not.toHaveBeenCalled();
+    });
+
+    it('retires the task when switching back to only-while-open', async () => {
+      mocks.getSetting.mockReturnValue({ role: 'worker', startWorkerOnLaunch: true, installWorkerService: false, runAtSignIn: true });
+      mocks.loadWorkerConfig.mockReturnValueOnce({ nodeId: 'node-1', authToken: 'pass', coordinatorUrl: 'ws://mac:4878' });
+      mocks.startRuntime.mockReturnValueOnce({ state: 'running', pid: 1 });
+
+      await handlerFor('pair-both:worker:run-mode')({}, { mode: 'run-while-open' });
+
+      expect(mocks.signInRemove).toHaveBeenCalledTimes(1);
+      expect(mocks.signInRemove.mock.invocationCallOrder[0]).toBeLessThan(mocks.startRuntime.mock.invocationCallOrder[0]);
+      expect(mocks.setSetting).toHaveBeenCalledWith('workerMode', expect.objectContaining({ runAtSignIn: false }));
+    });
+
+    it('Stop pauses the sign-in worker', async () => {
+      mocks.getSetting.mockReturnValue({ role: 'worker', startWorkerOnLaunch: true, installWorkerService: false, runAtSignIn: true });
+      mocks.stopRuntime.mockReturnValueOnce({ state: 'stopped' });
+
+      const response = await handlerFor(IPC_CHANNELS.PAIR_BOTH_WORKER_STOP)({});
+
+      expect(response.success).toBe(true);
+      expect(mocks.signInStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('pauses the sign-in worker before pasted pairing details are written', async () => {
+      mocks.getSetting.mockReturnValue({ role: 'worker', startWorkerOnLaunch: true, installWorkerService: false, runAtSignIn: true });
+      mocks.parsePairingConfigInput.mockReturnValueOnce({ authToken: 'p', coordinatorUrl: 'ws://mac:4878', namespace: 'default', maxConcurrentInstances: 10, workingDirectories: [] });
+      mocks.writePairedWorkerConfig.mockReturnValueOnce({ nodeId: 'node-1', name: 'PC', coordinatorUrl: 'ws://mac:4878', namespace: 'default', maxConcurrentInstances: 10, workingDirectories: [] });
+
+      await handlerFor(IPC_CHANNELS.PAIR_BOTH_WORKER_APPLY_MANUAL)({}, { input: 'link' });
+
+      expect(mocks.signInStop.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.writePairedWorkerConfig.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('unpair removes the task before deleting the config', async () => {
+      mocks.getSetting.mockReturnValue({ role: 'worker', startWorkerOnLaunch: true, installWorkerService: false, runAtSignIn: true });
+
+      await handlerFor(IPC_CHANNELS.PAIR_BOTH_WORKER_UNPAIR)({});
+
+      expect(mocks.signInRemove.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.clearWorkerConfig.mock.invocationCallOrder[0],
+      );
+      expect(mocks.setSetting).toHaveBeenCalledWith('workerMode', expect.objectContaining({ runAtSignIn: false }));
+    });
+
+    it('reports the sign-in worker as running from its lock, not a Harness child', async () => {
+      mocks.getSetting.mockReturnValue({ role: 'worker', startWorkerOnLaunch: true, installWorkerService: false, runAtSignIn: true });
+      mocks.readPairing.mockReturnValueOnce(paired);
+      mocks.runtimeStatus.mockReturnValueOnce({ state: 'stopped' });
+      mocks.lockHeld.mockReturnValueOnce(true);
+
+      const response = await handlerFor(IPC_CHANNELS.PAIR_BOTH_WORKER_STATUS)({});
+
+      expect(mocks.lockHeld).toHaveBeenCalledWith({ key: 'default:node-1' });
+      expect(response.data).toMatchObject({
+        runtime: { state: 'running' },
+        runAtSignIn: true,
+        runAtSignInAvailable: true,
+      });
+    });
+  });
 });
+

@@ -1,6 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Instance } from '../../shared/types/instance.types';
+
+const continuity = vi.hoisted(() => ({ updateState: vi.fn(async () => undefined) }));
+vi.mock('../session/session-continuity', () => ({
+  getSessionContinuityManagerIfInitialized: () => continuity,
+}));
+
 import { revealHiddenAutomationSession, stampHiddenAutomationOutcome } from './automation-hidden-outcome';
+
+beforeEach(() => continuity.updateState.mockClear());
 
 function makeManager(metadata?: Record<string, unknown>) {
   const instance = { id: 'i1', metadata } as unknown as Instance;
@@ -72,5 +80,35 @@ describe('stampHiddenAutomationOutcome', () => {
       expect(instance.metadata?.['automationRunSucceeded'], status).toBeUndefined();
       expect(instance.metadata?.['automationRevealed'], status).toBe(true);
     }
+  });
+});
+
+describe('automation outcome persistence', () => {
+  it('mirrors a clean finish into the autosave so a crash-recovered run is filed hidden', () => {
+    const { manager } = makeManager({ automationId: 'a1', automationHidden: true });
+
+    stampHiddenAutomationOutcome(manager, 'i1', 'succeeded');
+
+    expect(continuity.updateState).toHaveBeenCalledWith('i1', {
+      automation: { automationId: 'a1', hidden: true, runSucceeded: true },
+    });
+  });
+
+  it('mirrors a takeover into the autosave so a crash-recovered run stays visible', () => {
+    const { manager } = makeManager({ automationId: 'a1', automationHidden: true, automationRunSucceeded: true });
+
+    revealHiddenAutomationSession(manager, 'i1');
+
+    expect(continuity.updateState).toHaveBeenCalledWith('i1', {
+      automation: { automationId: 'a1', hidden: true, runSucceeded: true, revealed: true },
+    });
+  });
+
+  it('writes nothing for visible automations or ordinary sessions', () => {
+    const visible = makeManager({ automationId: 'a1' });
+    stampHiddenAutomationOutcome(visible.manager, 'i1', 'succeeded');
+    revealHiddenAutomationSession(visible.manager, 'i1');
+
+    expect(continuity.updateState).not.toHaveBeenCalled();
   });
 });

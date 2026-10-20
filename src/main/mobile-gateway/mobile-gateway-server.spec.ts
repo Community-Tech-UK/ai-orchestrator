@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { generateKeyPairSync } from 'crypto';
 import { WebSocket } from 'ws';
@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
+import { generate } from 'selfsigned';
 import {
   MobileGatewayServer,
   serializeInstance,
@@ -2144,31 +2145,35 @@ describe('MobileGatewayServer', () => {
   });
 });
 
-// A self-signed EC cert with SAN DNS:test-mac.tailnet.ts.net (+ an IP SAN), used
-// to exercise the optional-TLS path without shelling out to openssl at test time.
-const FIXTURE_CERT = `-----BEGIN CERTIFICATE-----
-MIIBxDCCAWmgAwIBAgIUOWCT7g6FPeqQHMnZcWM9rxrgV2YwCgYIKoZIzj0EAwIw
-IjEgMB4GA1UEAwwXdGVzdC1tYWMudGFpbG5ldC50cy5uZXQwHhcNMjYwNjAyMjM1
-MTU4WhcNMzYwNTMwMjM1MTU4WjAiMSAwHgYDVQQDDBd0ZXN0LW1hYy50YWlsbmV0
-LnRzLm5ldDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABHZoldfgT3+GrFaLbS9k
-e4vLcjZ0XLE6rNxbgWDojj72hS6d83biGm6wKMcFxUbj5mgA6ra65Fv9IXs+JEsB
-mDmjfTB7MB0GA1UdDgQWBBQe7tFZTHI/YI+pJuyzG4LViw28njAfBgNVHSMEGDAW
-gBQe7tFZTHI/YI+pJuyzG4LViw28njAPBgNVHRMBAf8EBTADAQH/MCgGA1UdEQQh
-MB+CF3Rlc3QtbWFjLnRhaWxuZXQudHMubmV0hwRkZWZnMAoGCCqGSM49BAMCA0kA
-MEYCIQCADP29HmKvJILyDYiP+3jDvnQNSt3MlIechvwv4GKouAIhAKAeHn6a58bd
-TSC73vl/J/khiFKBNt1QtvTBrDlKpxyp
------END CERTIFICATE-----
-`;
-const FIXTURE_KEY = `-----BEGIN PRIVATE KEY-----
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg5W/il3RWWeGYPUUH
-2ByVNLYN+WQWj7nUYNy1qe/2Ro+hRANCAAR2aJXX4E9/hqxWi20vZHuLy3I2dFyx
-OqzcW4Fg6I4+9oUunfN24hpusCjHBcVG4+ZoAOq2uuRb/SF7PiRLAZg5
------END PRIVATE KEY-----
-`;
+// Throwaway TLS credentials generated once per test file, never stored in the repository.
+let fixtureCert: string;
+let fixtureKey: string;
+
+beforeAll(async () => {
+  const now = Date.now();
+  const fixture = await generate([{ name: 'commonName', value: 'test-mac.tailnet.ts.net' }], {
+    keyType: 'ec',
+    curve: 'P-256',
+    algorithm: 'sha256',
+    notBeforeDate: new Date(now - 60_000),
+    notAfterDate: new Date(now + 24 * 60 * 60_000),
+    extensions: [
+      { name: 'basicConstraints', cA: false },
+      { name: 'keyUsage', digitalSignature: true },
+      { name: 'extKeyUsage', serverAuth: true },
+      { name: 'subjectAltName', altNames: [
+        { type: 2, value: 'test-mac.tailnet.ts.net' },
+        { type: 7, ip: '127.0.0.1' },
+      ] },
+    ],
+  });
+  fixtureCert = fixture.cert;
+  fixtureKey = fixture.private;
+});
 
 describe('extractCertHostname', () => {
   it('returns the first DNS SAN from a PEM cert', () => {
-    expect(extractCertHostname(FIXTURE_CERT)).toBe('test-mac.tailnet.ts.net');
+    expect(extractCertHostname(fixtureCert)).toBe('test-mac.tailnet.ts.net');
   });
 
   it('returns null for non-cert input', () => {
@@ -2192,8 +2197,8 @@ describe('MobileGatewayServer TLS (wss)', () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-tls-'));
     certPath = path.join(dir, 'cert.pem');
     keyPath = path.join(dir, 'key.pem');
-    fs.writeFileSync(certPath, FIXTURE_CERT);
-    fs.writeFileSync(keyPath, FIXTURE_KEY);
+    fs.writeFileSync(certPath, fixtureCert);
+    fs.writeFileSync(keyPath, fixtureKey, { mode: 0o600 });
   });
 
   afterEach(async () => {

@@ -3,6 +3,7 @@ import type { Instance } from '../../core/state/instance.store';
 import { resolveEffectiveInstanceTitle } from '../../../../shared/types/history.types';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 import { ProjectGroupComputationService } from './project-group-computation.service';
 import { HistoryRailService } from './history-rail.service';
 import { ProjectRailPathService } from './project-rail-path.service';
@@ -692,7 +693,6 @@ export class ProjectRailBuilderService {
 
   private isProjectRailHiddenInstance(instance: Instance): boolean {
     return (instance.cancelledForEdit === true && !!instance.supersededBy)
-      || instance.metadata?.['hideFromProjectRail'] === true
-      || typeof instance.metadata?.['spawnDepth'] === 'number';
+      || isProjectRailHiddenSession(instance.metadata);
   }
 }

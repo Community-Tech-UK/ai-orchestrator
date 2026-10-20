@@ -18,12 +18,8 @@ import {
   getSessionContinuityManagerIfInitialized,
 } from './session/session-continuity';
 import { getLoadBalancer } from './process/load-balancer';
-import {
-  getWorkerNodeRegistry,
-  getWorkerNodeConnectionServer,
-  getWorkerNodeHealth,
-} from './remote-node';
-import { getThinClientWsServer } from './event-bus/thin-client-ws-server';
+import { getWorkerNodeRegistry } from './remote-node';
+import { stopRemoteServices } from './app/stop-remote-services';
 import { teardownAll } from './bootstrap';
 import { BaseCliAdapter } from './cli/adapters/base-cli-adapter';
 import { runCleanupFunctions } from './util/cleanup-registry';
@@ -153,11 +149,7 @@ class HarnessApp {
         try { getPlanQueueCoordinator().shutdown(); } catch { /* best effort */ }
         BaseCliAdapter.killAllActiveProcesses();
       },
-      stopRemoteServices: async () => {
-        try { getWorkerNodeHealth().stopAll(); } catch { /* best effort */ }
-        try { getWorkerNodeConnectionServer().stop(); } catch { /* best effort */ }
-        try { await getThinClientWsServer().stop(); } catch { /* best effort */ }
-      },
+      stopRemoteServices,
       terminateInstances: () => {
         try { getPlanQueueCoordinator().shutdown(); } catch { /* best effort */ }
         return this.instanceManager.terminateAll();

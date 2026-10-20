@@ -103,10 +103,10 @@
   <app-terminate-confirm-dialog />
 
   <main class="app-main">
+    <!-- Worker role keeps the full app: Worker Mode is a Control Center page,
+         not a takeover, so a worker computer can still run its own sessions. -->
     @if (settingsStore.isInitialized() && settingsStore.harnessRole() === 'unset') {
       <app-role-choice (roleSelected)="selectHarnessRole($event)" />
-    } @else if (settingsStore.isInitialized() && settingsStore.harnessRole() === 'worker') {
-      <app-worker-mode />
     } @else {
       <router-outlet />
     }

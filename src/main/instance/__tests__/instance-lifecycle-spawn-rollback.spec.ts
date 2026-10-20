@@ -1292,6 +1292,65 @@ describe('createInstance spawn transaction rollback', () => {
     expect(harness.adapters.get(instance.id)).toBe(resumedAdapter);
   });
 
+  describe('restart account routing (2026-10-19: a restart re-pinned a known-limited account)', () => {
+    async function codexSession(harness: ReturnType<typeof makeHarness>, supportsResume: boolean) {
+      mocks.resolveCliType.mockResolvedValue('codex');
+      mocks.createAdapter.mockImplementation(() => makeFakeAdapter());
+      mocks.getProviderCapabilities.mockReturnValue({
+        supportsResume,
+        supportsForkSession: false,
+        supportsNativeCompaction: true,
+        supportsPermissionPrompts: false,
+        supportsDeferPermission: false,
+        selfManagedAutoCompaction: true,
+      });
+      const instance = await harness.manager.createInstance({ workingDirectory: '/tmp/project', provider: 'codex' });
+      await instance.readyPromise;
+      instance.providerSessionId = 'provider-thread-1';
+      instance.sessionId = 'provider-thread-1';
+      harness.adapters.delete(instance.id);
+      return instance;
+    }
+
+    it('asks to move off a known-limited account only for the restart spawn', async () => {
+      const harness = makeHarness();
+      accountRouteCalls.length = 0;
+      const instance = await codexSession(harness, true);
+      expect(accountRouteCalls.some((call) => call.options['moveOffLimitedAccount'])).toBe(false);
+
+      accountRouteCalls.length = 0;
+      await harness.manager.restartInstance(instance.id);
+
+      expect(instance.recoveryMethod).toBe('native');
+      expect(accountRouteCalls.at(-1)?.options['moveOffLimitedAccount']).toBe(true);
+    });
+
+    it('asks for the move on the replay fallback after a restart', async () => {
+      const harness = makeHarness();
+      const instance = await codexSession(harness, false);
+      // Something to replay: without a conversation the restart plan is a plain fresh start.
+      instance.outputBuffer.push(
+        { id: 'u1', type: 'user', content: 'keep going', timestamp: 1 },
+        { id: 'a1', type: 'assistant', content: 'working on it', timestamp: 2 },
+      );
+      accountRouteCalls.length = 0;
+      await harness.manager.restartInstance(instance.id);
+
+      expect(accountRouteCalls.length).toBeGreaterThan(0);
+      expect(accountRouteCalls.at(-1)?.options['moveOffLimitedAccount']).toBe(true);
+    });
+
+    it('asks for the move on a fresh restart', async () => {
+      const harness = makeHarness();
+      const instance = await codexSession(harness, true);
+      accountRouteCalls.length = 0;
+      await harness.manager.restartFreshInstance(instance.id);
+
+      expect(accountRouteCalls.length).toBeGreaterThan(0);
+      expect(accountRouteCalls.at(-1)?.options['moveOffLimitedAccount']).toBe(true);
+    });
+  });
+
   it('keeps recovery identities redacted when the published replacement later restarts', async () => {
     const harness = makeHarness();
     const initialAdapter = makeFakeAdapter();

@@ -86,6 +86,61 @@ describe('RemoteAuthService', () => {
     expect(auth.listPendingPairings()).toEqual([]);
   });
 
+  describe('pair-both enrollment credential cleanup', () => {
+    function mintEnrollment(auth: RemoteAuthService) {
+      const pairBoth = new PairBothSessionStore({ auth });
+      const session = pairBoth.beginCoordinatorSession({
+        machineName: 'Coordinator',
+        namespace: 'default',
+        listenerPort: 49321,
+        coordinatorUrl: 'ws://192.168.1.2:4878',
+      });
+      const workerKeys = generatePairBothKeyMaterial();
+      pairBoth.acceptWorkerHello(session.sessionId, {
+        protocolVersion: '1',
+        role: 'worker',
+        machineName: 'Noah PC',
+        nonce: 'worker-nonce',
+        publicKey: workerKeys.publicKey,
+        pairingSessionId: session.sessionId,
+      });
+      pairBoth.confirmWorkerCode(session.sessionId);
+      pairBoth.approveCoordinator(session.sessionId);
+      const payload = pairBoth.producePairingPayload(session.sessionId);
+      return { pairBoth, sessionId: session.sessionId, token: payload.connectionConfig.authToken };
+    }
+
+    it.each(['cancel', 'rejectCoordinator'] as const)(
+      'stops accepting the unused enrollment token once the session is ended with %s',
+      (ending) => {
+        const auth = new RemoteAuthService();
+        const { pairBoth, sessionId, token } = mintEnrollment(auth);
+        expect(auth.listPendingPairings()).toHaveLength(1);
+
+        pairBoth[ending](sessionId);
+
+        expect(auth.listPendingPairings()).toEqual([]);
+        expect(auth.authenticateRegistration({ nodeId: 'node-late', nodeName: 'Late', token }))
+          .toEqual({ status: 'rejected', reason: 'Invalid or expired pairing token' });
+      },
+    );
+
+    it('leaves a registered node signed in when the session is ended after its token was spent', () => {
+      const auth = new RemoteAuthService();
+      const { pairBoth, sessionId, token } = mintEnrollment(auth);
+      const registered = auth.authenticateRegistration({ nodeId: 'node-spent', nodeName: 'Noah PC', token });
+      expect(registered.status).toBe('paired');
+      const transportToken = registered.status === 'rejected' ? undefined : registered.session.token;
+
+      pairBoth.cancel(sessionId);
+      pairBoth.rejectCoordinator(sessionId);
+      pairBoth.expireSession(sessionId);
+
+      expect(auth.validateSessionToken(transportToken, 'node-spent')).toBe(true);
+      expect(auth.revokePairingCredential(token)).toBe(false);
+    });
+  });
+
   it('issues a same-node recovery token when a node is paired', () => {
     const service = new RemoteAuthService();
     const pairing = service.issuePairingCredential({ label: 'recoverable-node' });

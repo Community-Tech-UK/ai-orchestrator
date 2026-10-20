@@ -1,5 +1,13 @@
 import type { OutputMessage } from '../../shared/types/instance.types';
+import { BUILT_IN_COMMANDS, parseCommandString } from '../../shared/types/command.types';
 import { redactSecrets } from './context-compaction-prompt';
+
+const legacyBuiltInCommands = new Set(BUILT_IN_COMMANDS.flatMap(command => [command.name, ...(command.aliases ?? [])]).map(name => name.toLowerCase()));
+
+function isLegacyBuiltInCommand(content: string): boolean {
+  const parsed = parseCommandString(content);
+  return parsed !== null && legacyBuiltInCommands.has(parsed.name.toLowerCase());
+}
 
 export const CONTINUITY_MARKER = '[Context Compaction Continuity Package]';
 export const CONTINUITY_WAIT_RULE = 'This package is reference material from before a context reset, not a new request. The newest user message after it decides what to do. If no user message follows it, reply with one short line saying the context was restored, answer in text only, and wait. Your tools stay fully available for the next request.';
@@ -15,7 +23,8 @@ export interface ContinuityStats {
 export function realUserMessages(messages: readonly OutputMessage[]): OutputMessage[] {
   return messages.filter(message => message.type === 'user'
     && !message.metadata?.['internalInput'] && !message.metadata?.['crossSessionMessage']
-    && !message.metadata?.['command'] && !/^\s*(?:\/|<harness_internal_message\b)/i.test(message.content));
+    && !message.metadata?.['command'] && !/^\s*<harness_internal_message\b/i.test(message.content)
+    && !isLegacyBuiltInCommand(message.content));
 }
 export function buildUserMessages(messages: readonly OutputMessage[], contextWindow: number) {
   const budget = Math.min(24000, Math.max(256, Math.floor(contextWindow * 0.1 * 4)));

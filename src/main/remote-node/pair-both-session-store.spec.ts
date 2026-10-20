@@ -88,6 +88,39 @@ describe('PairBothSessionStore', () => {
     });
   });
 
+  it('issues an enrollment credential that outlives the rendezvous window', () => {
+    let now = 1_000;
+    const issuePairingCredential = vi.fn(() => ({
+      token: 'one-time-pairing-token',
+      createdAt: now,
+      expiresAt: now + 30 * 60_000,
+    }));
+    const store = new PairBothSessionStore({
+      auth: { issuePairingCredential },
+      now: () => now,
+    });
+    const session = store.beginCoordinatorSession({
+      machineName: 'James MacBook',
+      namespace: 'default',
+      listenerPort: 49321,
+      coordinatorUrl: 'ws://192.168.1.2:4878',
+      ttlMs: 60_000,
+    });
+    const workerKeys = generatePairBothKeyMaterial();
+    store.acceptWorkerHello(session.sessionId, workerHello(session.sessionId, workerKeys.publicKey));
+    store.confirmWorkerCode(session.sessionId);
+    store.approveCoordinator(session.sessionId);
+    // Approved with only 5 seconds of the rendezvous window left.
+    now = 56_000;
+
+    store.produceEncryptedPairingPayload(session.sessionId);
+
+    expect(issuePairingCredential).toHaveBeenCalledWith({
+      label: expect.any(String),
+      ttlMs: 30 * 60_000,
+    });
+  });
+
   it('revokes an issued credential when payload delivery fails before acknowledgement', () => {
     const revokePairingCredential = vi.fn(() => true);
     const store = new PairBothSessionStore({
@@ -303,5 +336,134 @@ describe('PairBothSessionStore', () => {
       workerHello(blockedSession.sessionId, 'not-a-valid-x25519-key'),
       remoteAddress,
     )).toThrow(/too many pairing attempts/i);
+  });
+
+  describe('enrollment credential cleanup', () => {
+    // Walks a session to the point where the credential has been minted and
+    // sent, but the worker has not yet acknowledged it.
+    function mintCredential(now: () => number) {
+      const revokePairingCredential = vi.fn(() => true);
+      const store = new PairBothSessionStore({
+        auth: {
+          issuePairingCredential: vi.fn(() => ({
+            token: 'enrollment-token',
+            createdAt: 1_000,
+            expiresAt: 1_000 + 30 * 60_000,
+          })),
+          revokePairingCredential,
+        },
+        now,
+      });
+      const session = store.beginCoordinatorSession({
+        machineName: 'James MacBook',
+        namespace: 'default',
+        listenerPort: 49321,
+        coordinatorUrl: 'ws://192.168.1.2:4878',
+        ttlMs: 5_000,
+      });
+      const workerKeys = generatePairBothKeyMaterial();
+      store.acceptWorkerHello(session.sessionId, workerHello(session.sessionId, workerKeys.publicKey));
+      store.confirmWorkerCode(session.sessionId);
+      store.approveCoordinator(session.sessionId);
+      store.produceEncryptedPairingPayload(session.sessionId);
+      return { store, sessionId: session.sessionId, revokePairingCredential };
+    }
+
+    it('revokes the unused credential when the session is cancelled', () => {
+      const { store, sessionId, revokePairingCredential } = mintCredential(() => 1_000);
+
+      store.cancel(sessionId);
+      store.cancel(sessionId);
+
+      expect(revokePairingCredential).toHaveBeenCalledOnce();
+      expect(revokePairingCredential).toHaveBeenCalledWith('enrollment-token');
+    });
+
+    it('revokes the unused credential when the session is expired by its timer', () => {
+      const { store, sessionId, revokePairingCredential } = mintCredential(() => 1_000);
+
+      store.expireSession(sessionId);
+      store.expireSession(sessionId);
+
+      expect(revokePairingCredential).toHaveBeenCalledOnce();
+      expect(revokePairingCredential).toHaveBeenCalledWith('enrollment-token');
+    });
+
+    it('revokes the unused credential when the coordinator rejects after minting', () => {
+      const { store, sessionId, revokePairingCredential } = mintCredential(() => 1_000);
+
+      store.rejectCoordinator(sessionId);
+      store.rejectCoordinator(sessionId);
+
+      expect(revokePairingCredential).toHaveBeenCalledOnce();
+      expect(revokePairingCredential).toHaveBeenCalledWith('enrollment-token');
+    });
+
+    it('revokes the unused credential when a request finds the session expired', () => {
+      let now = 1_000;
+      const { store, sessionId, revokePairingCredential } = mintCredential(() => now);
+
+      now = 7_000;
+      expect(() => store.confirmWorkerCode(sessionId)).toThrow(/expired/i);
+      expect(() => store.confirmWorkerCode(sessionId)).toThrow(/expired/i);
+
+      expect(revokePairingCredential).toHaveBeenCalledOnce();
+      expect(revokePairingCredential).toHaveBeenCalledWith('enrollment-token');
+    });
+
+    it('revokes the unused credential when starting a new session prunes the expired one', () => {
+      let now = 1_000;
+      const { store, revokePairingCredential } = mintCredential(() => now);
+
+      now = 7_000;
+      store.beginCoordinatorSession({
+        machineName: 'James MacBook',
+        namespace: 'default',
+        listenerPort: 49322,
+        coordinatorUrl: 'ws://192.168.1.2:4878',
+      });
+
+      expect(revokePairingCredential).toHaveBeenCalledOnce();
+      expect(revokePairingCredential).toHaveBeenCalledWith('enrollment-token');
+    });
+
+    it('never revokes a credential the worker has already acknowledged', () => {
+      let now = 1_000;
+      const { store, sessionId, revokePairingCredential } = mintCredential(() => now);
+      store.markPayloadDelivered(sessionId);
+
+      store.cancel(sessionId);
+      store.rejectCoordinator(sessionId);
+      store.expireSession(sessionId);
+      now = 7_000;
+      store.beginCoordinatorSession({
+        machineName: 'James MacBook',
+        namespace: 'default',
+        listenerPort: 49322,
+        coordinatorUrl: 'ws://192.168.1.2:4878',
+      });
+
+      expect(revokePairingCredential).not.toHaveBeenCalled();
+    });
+
+    it('does not call revoke for sessions that never minted a credential', () => {
+      const revokePairingCredential = vi.fn(() => true);
+      const store = new PairBothSessionStore({
+        auth: { issuePairingCredential: vi.fn(), revokePairingCredential },
+        now: () => 1_000,
+      });
+      const session = store.beginCoordinatorSession({
+        machineName: 'James MacBook',
+        namespace: 'default',
+        listenerPort: 49321,
+        coordinatorUrl: 'ws://192.168.1.2:4878',
+      });
+
+      store.cancel(session.sessionId);
+      store.rejectCoordinator(session.sessionId);
+      store.expireSession(session.sessionId);
+
+      expect(revokePairingCredential).not.toHaveBeenCalled();
+    });
   });
 });

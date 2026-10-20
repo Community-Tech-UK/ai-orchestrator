@@ -113,6 +113,31 @@ describe('continuity recovery metadata index', () => {
     ]);
   });
 
+  it('carries the internal-session flag from state through a persisted sidecar', async () => {
+    expect(buildContinuityRecoveryMetadata({ ...state('hidden', 100), hideFromProjectRail: true }, 100)
+      .hideFromProjectRail).toBe(true);
+    expect('hideFromProjectRail' in buildContinuityRecoveryMetadata(state('own', 100), 100)).toBe(false);
+
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'recovery-hidden-'));
+    tempDirs.push(root);
+    const stateDir = path.join(root, 'states');
+    const metadataDir = path.join(root, 'metadata');
+    await fs.promises.mkdir(stateDir);
+    await fs.promises.mkdir(metadataDir);
+    const stateFile = path.join(stateDir, 'instance-0.json');
+    await fs.promises.writeFile(stateFile, '{}');
+    const stat = await fs.promises.stat(stateFile);
+    await fs.promises.writeFile(path.join(metadataDir, 'instance-0.json'), envelope({
+      ...metadata(0), hideFromProjectRail: true, stateFileGeneration: stateFileGeneration(stat),
+    }));
+
+    const result = await enumerateContinuityRecoveryMetadata({
+      stateDir, metadataDir, modifiedSince: 0, preferredInstanceIds: [], normalizeState: (value) => value,
+    });
+
+    expect(result.records.map((record) => record.hideFromProjectRail)).toEqual([true]);
+  });
+
   it('falls back to the newer state when an older valid sidecar survived an interrupted write', async () => {
     const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'recovery-stale-sidecar-'));
     tempDirs.push(root);

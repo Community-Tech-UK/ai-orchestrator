@@ -58,8 +58,8 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'crossModelReviewTypes',
-    label: 'What to review',
-    description: 'Which kinds of agent output get reviewed automatically.',
+    label: 'Which kinds of change get an automatic second opinion',
+    description: 'Choose which kinds of file change trigger an automatic second opinion.',
     type: 'multi-select',
     category: 'review',
     options: [

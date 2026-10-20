@@ -48,6 +48,15 @@ describe('isTrustedLoginUrl', () => {
 });
 
 describe('MimoConsoleSessionRenewer', () => {
+  it.each([429, 500, 503])('does not treat HTTP %i as a completed authentication walk', async (status) => {
+    const { fetch, calls } = scriptFetch([response(status)]);
+    const renewer = new MimoConsoleSessionRenewer({ fetchImpl: fetch });
+    const result = await renewer.renew('https://account.xiaomi.com/pass/serviceLogin', SSO);
+    expect(result).toMatchObject({ attempted: true, completed: false, ssoCookies: [] });
+    expect(result.setCookies.size).toBe(0);
+    expect(calls).toHaveLength(1);
+  });
+
   it.each(['""', '"PLACEHOLDER', 'PLACEHOLDER"', '"PLACEHOLDER"TAIL', 'PLACEHOLDER\r\nINJECTED', 'X'.repeat(8193)])(
     'rejects malformed renewal cookie values (case %#)', async (value) => {
       const { fetch } = scriptFetch([response(200, { setCookies: [

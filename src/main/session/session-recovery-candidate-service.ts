@@ -22,6 +22,8 @@ export interface ContinuityRecoveryMetadata {
   sessionId?: string;
   /** See `SessionState.parentId`: null = top-level, string = child, absent = unknown. */
   parentId?: string | null;
+  /** See `SessionState.hideFromProjectRail`. */
+  hideFromProjectRail?: boolean;
   provider: InstanceProvider;
   modelId?: string;
   displayName?: string;
@@ -90,6 +92,8 @@ interface CandidateRecord {
   shutdownLive: boolean;
   /** The autosave positively records a top-level session (not a legacy record). */
   topLevel: boolean;
+  /** Internal session: archived to History hidden, never offered to the user. */
+  hidden: boolean;
 }
 
 export function getRecoveryIdentityKeys(identity: {
@@ -150,12 +154,16 @@ export class SessionRecoveryCandidateService {
 
   constructor(private readonly deps: SessionRecoveryCandidateDependencies) {}
 
+  /** What the user is offered to recover. Internal sessions are never listed. */
   async listCandidates(): Promise<SessionRecoveryCandidate[]> {
     const records = await this.getCandidateRecords();
-    return records.map((record) => record.candidate);
+    return records.filter((record) => !record.hidden).map((record) => record.candidate);
   }
 
-  /** Candidates known to be top-level sessions, which is what History holds. */
+  /**
+   * Candidates known to be top-level sessions, which is what History holds.
+   * Includes internal sessions, so they reach History (hidden) instead of being lost.
+   */
   async listTopLevelCandidates(): Promise<SessionRecoveryCandidate[]> {
     const records = await this.getCandidateRecords();
     return records.filter((record) => record.topLevel).map((record) => record.candidate);
@@ -227,10 +235,13 @@ export class SessionRecoveryCandidateService {
       };
       const existing = byKey.get(session.recoveryKey);
       if (!existing || compareMetadata(fromSnapshot, existing) < 0) {
-        // The snapshot does not carry parent identity; keep what the autosave knew.
-        byKey.set(session.recoveryKey, existing?.parentId === undefined
-          ? fromSnapshot
-          : { ...fromSnapshot, parentId: existing.parentId });
+        // The snapshot carries neither parent identity nor the internal-session
+        // flag; keep what the autosave knew.
+        byKey.set(session.recoveryKey, {
+          ...fromSnapshot,
+          ...(existing?.parentId !== undefined ? { parentId: existing.parentId } : {}),
+          ...(existing?.hideFromProjectRail === true ? { hideFromProjectRail: true } : {}),
+        });
       }
     }
 
@@ -245,9 +256,14 @@ export class SessionRecoveryCandidateService {
       && (record.hasUserPrompt || record.hasAssistantOutput)
       && !this.deps.isSuppressedByHistory(record))
       .sort(compareMetadata);
+    const visible = eligible.filter((record) => record.hideFromProjectRail !== true);
     const coverageRecords = [
-      ...eligible.filter((record) => shutdownLiveKeys.has(record.recoveryKey)),
-      ...eligible.filter((record) => !shutdownLiveKeys.has(record.recoveryKey))
+      ...visible.filter((record) => shutdownLiveKeys.has(record.recoveryKey)),
+      ...visible.filter((record) => !shutdownLiveKeys.has(record.recoveryKey))
+        .slice(0, MAX_SESSION_RECOVERY_CANDIDATES),
+      // Bounded on their own, so a burst of internal sessions can never crowd
+      // the user's own sessions out of the list.
+      ...eligible.filter((record) => record.hideFromProjectRail === true)
         .slice(0, MAX_SESSION_RECOVERY_CANDIDATES),
     ];
     const identities = coverageRecords.map((record) => ({
@@ -293,15 +309,20 @@ export class SessionRecoveryCandidateService {
         historyEntryId: history?.historyEntryId,
         shutdownLive: shutdownLiveKeys.has(record.recoveryKey),
         topLevel: record.parentId === null,
+        hidden: record.hideFromProjectRail === true,
       });
     }
 
     candidates.sort(compareCandidateRecords);
-    const shutdownLive = candidates.filter((record) => record.shutdownLive);
-    const ordinary = candidates.filter((record) => !record.shutdownLive);
+    const shutdownLive = candidates.filter((record) => record.shutdownLive && !record.hidden);
+    const ordinary = candidates.filter((record) => !record.shutdownLive && !record.hidden);
+    const hidden = candidates.filter((record) => record.hidden);
     if (discoveryEpoch !== this.discoveryEpoch) return this.getCandidateRecords();
-    this.cachedRecords = [...shutdownLive, ...ordinary.slice(0, MAX_SESSION_RECOVERY_CANDIDATES)]
-      .sort(compareCandidateRecords);
+    this.cachedRecords = [
+      ...shutdownLive,
+      ...ordinary.slice(0, MAX_SESSION_RECOVERY_CANDIDATES),
+      ...hidden,
+    ].sort(compareCandidateRecords);
     return this.cachedRecords;
   }
 }

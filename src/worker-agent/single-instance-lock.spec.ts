@@ -2,7 +2,11 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { acquireSingleInstanceLock } from './single-instance-lock';
+import {
+  acquireSingleInstanceLock,
+  isSingleInstanceLockHeld,
+  singleInstanceLockPath,
+} from './single-instance-lock';
 
 describe('acquireSingleInstanceLock', () => {
   let dir: string;
@@ -92,5 +96,33 @@ describe('acquireSingleInstanceLock', () => {
     expect(a).not.toBeNull();
     expect(b).not.toBeNull();
     expect(a!.path).not.toBe(b!.path);
+  });
+});
+
+describe('isSingleInstanceLockHeld', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-worker-lock-probe-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('reports a live holder without touching the lockfile', () => {
+    const lock = acquireSingleInstanceLock({ key: 'ns:node-1', dir, pid: 4321, isProcessAlive: () => true });
+    expect(lock?.path).toBe(singleInstanceLockPath('ns:node-1', dir));
+
+    expect(isSingleInstanceLockHeld({ key: 'ns:node-1', dir, isProcessAlive: (pid) => pid === 4321 })).toBe(true);
+    expect(fs.readFileSync(lock!.path, 'utf8').trim()).toBe('4321');
+  });
+
+  it('reports not held when the file is missing or its holder is dead', () => {
+    expect(isSingleInstanceLockHeld({ key: 'ns:node-1', dir, isProcessAlive: () => true })).toBe(false);
+
+    acquireSingleInstanceLock({ key: 'ns:node-1', dir, pid: 4321, isProcessAlive: () => true });
+    expect(isSingleInstanceLockHeld({ key: 'ns:node-1', dir, isProcessAlive: () => false })).toBe(false);
+    expect(fs.existsSync(singleInstanceLockPath('ns:node-1', dir))).toBe(true);
   });
 });

@@ -71,6 +71,24 @@ function readLockPid(lockPath: string): number | null {
   }
 }
 
+/** Where the lockfile for `key` lives. */
+export function singleInstanceLockPath(key: string, dir: string = os.tmpdir()): string {
+  return path.join(dir, `orchestrator-worker-${sanitizeKey(key)}.lock`);
+}
+
+/**
+ * Read-only liveness probe for another process (e.g. Harness checking a worker
+ * it did not start): is a live process holding the lock for `key`? Never
+ * creates, takes over or deletes the lockfile.
+ */
+export function isSingleInstanceLockHeld(
+  options: Pick<SingleInstanceLockOptions, 'key' | 'dir' | 'isProcessAlive'>,
+): boolean {
+  const isAlive = options.isProcessAlive ?? defaultIsProcessAlive;
+  const holderPid = readLockPid(singleInstanceLockPath(options.key, options.dir));
+  return holderPid !== null && isAlive(holderPid);
+}
+
 /**
  * Attempt to acquire the single-instance lock.
  *
@@ -83,7 +101,7 @@ export function acquireSingleInstanceLock(
   const dir = options.dir ?? os.tmpdir();
   const pid = options.pid ?? process.pid;
   const isAlive = options.isProcessAlive ?? defaultIsProcessAlive;
-  const lockPath = path.join(dir, `orchestrator-worker-${sanitizeKey(options.key)}.lock`);
+  const lockPath = singleInstanceLockPath(options.key, dir);
 
   const tryCreate = (): boolean => {
     try {

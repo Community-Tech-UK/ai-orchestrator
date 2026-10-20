@@ -42,6 +42,18 @@ export interface ResumeCursor {
   configFingerprint?: string;
 }
 
+/** Mirrors the automation keys of `instance.metadata`; see continuity-automation-provenance.ts. */
+export interface ContinuityAutomationProvenance {
+  automationId: string;
+  automationRunId?: string;
+  /** The automation was hidden when this run fired. */
+  hidden?: boolean;
+  /** The runner recorded a clean finish (hidden automations only). */
+  runSucceeded?: boolean;
+  /** The operator took the session over, or hiding stopped being safe. */
+  revealed?: boolean;
+}
+
 export interface SessionState {
   instanceId: string;
   sessionId?: string;
@@ -53,6 +65,19 @@ export interface SessionState {
    * tell "not in history" apart from "never belonged in history".
    */
   parentId?: string | null;
+  /**
+   * An internal worker/probe session the project rail never shows (see
+   * `isProjectRailHiddenSession`). `instance.metadata` is not persisted here,
+   * so without this recovery would offer these back as the user's own work and
+   * archive them to History unhidden. Absent on records written before it.
+   */
+  hideFromProjectRail?: boolean;
+  /**
+   * Set when an automation started this session. Without it, an autosave filed
+   * into History after a crash loses its automation identity, and runs of a
+   * hidden automation land in the project rail. Absent on older records.
+   */
+  automation?: ContinuityAutomationProvenance;
   nativeResumeFailedAt?: number | null;
   displayName: string;
   isRenamed?: boolean;

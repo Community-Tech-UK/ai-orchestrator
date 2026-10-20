@@ -426,6 +426,63 @@ describe('SessionRecoveryCandidateService', () => {
     expect(topLevel.map((item) => item.sourceInstanceId)).toEqual(['root']);
   });
 
+  it('never offers internal sessions but still lists them for archiving', async () => {
+    const { service } = harness({
+      records: [
+        metadata('node-run', { parentId: null, hideFromProjectRail: true }),
+        metadata('own', { parentId: null }),
+      ],
+    });
+
+    expect((await service.listCandidates()).map((item) => item.sourceInstanceId)).toEqual(['own']);
+    expect((await service.listTopLevelCandidates()).map((item) => item.sourceInstanceId).sort())
+      .toEqual(['node-run', 'own']);
+  });
+
+  it('does not let a burst of internal sessions crowd out the user\'s own sessions', async () => {
+    const internal = Array.from({ length: MAX_SESSION_RECOVERY_CANDIDATES + 10 }, (_, index) => metadata(
+      `internal-${String(index).padStart(3, '0')}`,
+      { parentId: null, hideFromProjectRail: true, lastActivityAt: NOW - index },
+    ));
+    const own = metadata('own', { parentId: null, lastActivityAt: NOW - 100_000 });
+    const { service, deps } = harness({ records: [...internal, own] });
+
+    expect((await service.listCandidates()).map((item) => item.sourceInstanceId)).toEqual(['own']);
+    expect(await service.listTopLevelCandidates()).toHaveLength(MAX_SESSION_RECOVERY_CANDIDATES + 1);
+    expect((deps.getHistoryCoverage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0])
+      .toHaveLength(MAX_SESSION_RECOVERY_CANDIDATES + 1);
+  });
+
+  it('keeps the internal-session flag when a newer snapshot record replaces the autosave', async () => {
+    const record = metadata('snap-hidden', {
+      parentId: null,
+      hideFromProjectRail: true,
+      lastActivityAt: NOW - 5_000,
+    });
+    const snapshot: LastStopSnapshot = {
+      version: 2,
+      writtenAt: NOW - 100,
+      sessions: [{
+        instanceId: record.sourceInstanceId,
+        historyThreadId: record.historyThreadId,
+        provider: record.provider,
+        modelId: record.modelId,
+        displayName: record.displayName ?? '',
+        workingDirectory: record.workingDirectory ?? '',
+        capturedAt: NOW - 100,
+        recoveryKey: record.recoveryKey,
+        lastActivityAt: NOW - 1_000,
+        isLive: true,
+        messageCount: record.messageCount,
+        hasAssistantOutput: record.hasAssistantOutput,
+      }],
+    };
+    const { service } = harness({ snapshot, records: [record] });
+
+    expect(await service.listCandidates()).toEqual([]);
+    expect((await service.listTopLevelCandidates()).map((item) => item.lastActivityAt)).toEqual([NOW - 1_000]);
+  });
+
   it('keeps autosave parent identity when a newer snapshot record replaces it', async () => {
     const record = metadata('snap', { parentId: null, lastActivityAt: NOW - 5_000 });
     const snapshot: LastStopSnapshot = {

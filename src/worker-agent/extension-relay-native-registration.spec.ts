@@ -102,6 +102,74 @@ describe('ExtensionRelayNativeRegistration', () => {
     expect(registry.registerHost).not.toHaveBeenCalled();
   });
 
+  it('repairs a wrapper that still launches a host from an older, moved copy', () => {
+    const registry = makeRegistry();
+    const userDataPath = path.join(scratchRoot, 'worker');
+    const chromeNativeMessagingDir = path.join(scratchRoot, 'Chrome', 'NativeMessagingHosts');
+    const config = {
+      enabled: true,
+      socketPath: path.join(scratchRoot, 'relay.sock'),
+      extensionToken: 'extension-token',
+      legacyNameRegistration: true,
+    };
+    const oldHost = 'C:\\Users\\x\\AppData\\Local\\Harness\\worker\\versions\\aaa\\aio-worker.exe';
+    const newHost = 'C:\\Users\\x\\AppData\\Local\\Harness\\worker\\versions\\bbb\\aio-worker.exe';
+    const before = new ExtensionRelayNativeRegistration({
+      userDataPath,
+      chromeNativeMessagingDir,
+      hostCommand: { exe: oldHost, args: ['native-host'] },
+      registry,
+      logger: makeLogger(),
+      now: () => now,
+    });
+    const first = before.checkAndRepair(config);
+    registry.readManifestPath.mockReturnValue(first.manifestPath);
+    registry.registerHost.mockClear();
+
+    const after = new ExtensionRelayNativeRegistration({
+      userDataPath,
+      chromeNativeMessagingDir,
+      hostCommand: { exe: newHost, args: ['native-host'] },
+      registry,
+      logger: makeLogger(),
+      now: () => now,
+    });
+    const second = after.checkAndRepair(config);
+    const { wrapperPath } = browserExtensionNativeHostPaths({
+      userDataPath,
+      chromeNativeMessagingDir,
+      hostName: BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
+    });
+
+    expect(second.registration).toBe('repaired');
+    expect(fs.readFileSync(wrapperPath, 'utf-8')).toContain(newHost);
+    expect(fs.readFileSync(wrapperPath, 'utf-8')).not.toContain(oldHost);
+  });
+
+  it('accepts its own POSIX wrapper even when the host path has an apostrophe', () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    const registry = makeRegistry();
+    const manager = new ExtensionRelayNativeRegistration({
+      userDataPath: path.join(scratchRoot, 'worker'),
+      chromeNativeMessagingDir: path.join(scratchRoot, 'Chrome', 'NativeMessagingHosts'),
+      hostCommand: { exe: "/opt/O'Brien/aio-worker", args: ['native-host'] },
+      registry,
+      logger: makeLogger(),
+      now: () => now,
+    });
+    const config = {
+      enabled: true,
+      socketPath: path.join(scratchRoot, 'relay.sock'),
+      extensionToken: 'extension-token',
+      legacyNameRegistration: true,
+    };
+
+    manager.checkAndRepair(config);
+    now += 1_000;
+
+    expect(manager.checkAndRepair(config).registration).toBe('ok');
+  });
+
   it('repairs stale runtime config when the relay socket or token changes', () => {
     const registry = makeRegistry();
     const logger = makeLogger();

@@ -14,6 +14,7 @@
 
 import { EventEmitter } from 'events';
 import type { CliAdapter, UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
+import type { CliResponse } from '../cli/adapters/base-cli-adapter';
 import { CliDetectionService, type CliType } from '../cli/cli-detection';
 import { isProviderNotice } from '../cli/provider-notice';
 import { toCliType, buildConsensusPrompt } from './consensus-prompt-utils';
@@ -30,6 +31,7 @@ import { handleCoordinatorError } from './utils/coordinator-error-handler';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 import { recordModelCall } from '../core/system/model-call-recorder';
+import { observeModelCallUsage } from '../core/system/observed-model-call-usage';
 import { observeAdapterRuntimeEvents } from '../providers/adapter-runtime-event-bridge';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
@@ -207,7 +209,9 @@ export class ConsensusCoordinator extends EventEmitter {
 
     let adapter: CliAdapter | null = null;
     let stopAttribution: (() => void) | undefined;
-    let usage: unknown;
+    let observation: ReturnType<typeof observeModelCallUsage> | undefined;
+    let completion: CliResponse | undefined;
+    let providerFailed = false;
     let dispatched = false;
     let outcome: 'success' | 'error' | 'cancelled' | 'budget-exceeded' = 'error';
 
@@ -237,10 +241,12 @@ export class ConsensusCoordinator extends EventEmitter {
       await adapter.spawn();
 
       // Keep completion observation alive when collection settles on idle first.
+      observation = observeModelCallUsage(adapter);
       stopAttribution = observeAdapterRuntimeEvents(adapter, runtime => {
         if (runtime.kind === 'complete') {
-          usage = { ...runtime.rawPayload.usage, ...runtime.event, cost: runtime.event.costUsd, totalTokens: runtime.event.tokensUsed, metadata: runtime.rawPayload.metadata };
+          completion = runtime.rawPayload;
         }
+        if (runtime.kind === 'error') providerFailed = true;
       });
       dispatched = true;
       // Collect output
@@ -274,7 +280,7 @@ export class ConsensusCoordinator extends EventEmitter {
         };
       }
 
-      if ((usage as { metadata?: { budgetExceeded?: boolean } } | undefined)?.metadata?.budgetExceeded) {
+      if (completion?.metadata?.['budgetExceeded']) {
         outcome = 'budget-exceeded';
         return { provider: spec.provider, model: spec.model, content: '', success: false, error: 'Provider budget exceeded', durationMs };
       }
@@ -299,6 +305,7 @@ export class ConsensusCoordinator extends EventEmitter {
       outcome = 'success';
       return consensusResponse;
     } catch (error) {
+      observation?.observeError(error);
       if (isAborted()) outcome = 'cancelled';
       const durationMs = Date.now() - providerStart;
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -338,8 +345,6 @@ export class ConsensusCoordinator extends EventEmitter {
 
       return response;
     } finally {
-      stopAttribution?.();
-      if (dispatched) recordModelCall({ purpose: 'consensus', provider: cliType, model: spec.model, usage, outcome, correlationId: queryId });
       // Always terminate the ephemeral adapter
       if (adapter) {
         try {
@@ -348,6 +353,15 @@ export class ConsensusCoordinator extends EventEmitter {
           /* intentionally ignored: adapter cleanup errors should not mask the original result */
         }
       }
+      // Failed resident completions keep their response identity while the
+      // native receipt drains during termination. Read its final usage now.
+      observation?.observe(completion?.usage);
+      observation?.dispose();
+      stopAttribution?.();
+      if (isAborted() || completion?.degradedReason === 'cancelled') outcome = 'cancelled';
+      else if (completion?.metadata?.['budgetExceeded']) outcome = 'budget-exceeded';
+      else if (providerFailed || completion?.metadata?.['turnErrored']) outcome = 'error';
+      if (dispatched && observation?.dispatched) recordModelCall({ purpose: 'consensus', provider: cliType, model: spec.model, usage: observation.usage, outcome, correlationId: queryId });
     }
   }
 

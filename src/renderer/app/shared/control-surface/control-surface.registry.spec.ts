@@ -61,6 +61,7 @@ const EXPECTED_PATHS = [
   '/semantic-search',
   '/channels',
   '/remote-nodes',
+  '/worker-mode',
   '/ask-council',
   '/work',
   '/compare/split',

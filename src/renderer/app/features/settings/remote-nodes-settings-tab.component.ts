@@ -12,6 +12,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { Router } from '@angular/router';
 import * as QRCode from 'qrcode';
 import { SettingsStore } from '../../core/state/settings.store';
 import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
@@ -48,6 +49,7 @@ import {
 } from './remote-nodes-browser-automation';
 import { type AndroidAutomationConfigDraft } from './remote-node-android-config.component';
 import { CoordinatorPairingComponent } from './coordinator-pairing.component';
+import { getControlSurface } from '../../shared/control-surface/control-surface-nav';
 import { RemoteNodeListComponent } from './remote-node-list.component';
 import { RemoteNodeDetailComponent, type RemoteNodeDetailAction } from './remote-node-detail.component';
 import {
@@ -86,6 +88,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   protected readonly store = inject(SettingsStore);
   private readonly ipc = inject(RemoteNodeIpcService);
   private readonly clipboard = inject(CLIPBOARD_SERVICE);
+  private readonly router = inject(Router);
 
   protected readonly serverStatus = signal<RemoteNodeServerStatus>({ running: false });
 
@@ -306,6 +309,10 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
       ...this.store.workerMode(),
       role,
     });
+  }
+
+  openWorkerMode(): void {
+    void this.router.navigateByUrl(getControlSurface('worker-mode').path);
   }
 
   async applyAndRestart(): Promise<void> {

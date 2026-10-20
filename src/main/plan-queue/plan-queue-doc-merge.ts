@@ -190,8 +190,12 @@ async function prepareDocuments(input: DirtyOverlapInput, itemId: string) {
       if (await currentHash(repoRoot, file.entry.path) !== file.entry.oursHash) throw new Error(`Couldn't merge ${file.entry.path}: it changed while Harness checked it; your edits were left untouched.`);
     }
     if (await gitExec(['rev-parse', 'HEAD'], repoRoot) !== input.baseTip) throw new Error('The base checkout moved while documents were being prepared.');
-    const statuses = new Map<string, string>();
-    await readGitStatusPaths(repoRoot, (file, status) => statuses.set(file, status));
+    const statuses = new Map<string, string | undefined>(
+      files.map((file) => [file.entry.path, undefined]),
+    );
+    await readGitStatusPaths(repoRoot, (file, status) => {
+      if (statuses.has(file)) statuses.set(file, status);
+    });
     for (const file of files) {
       if (statuses.get(file.entry.path) !== file.entry.status) throw new Error(`Couldn't merge ${file.entry.path}: its status changed while Harness checked it; resolve staged or moved files first.`);
       if (await currentHash(repoRoot, file.entry.path) !== file.entry.oursHash) throw new Error(`Couldn't merge ${file.entry.path}: it changed while Harness checked it; your edits were left untouched.`);

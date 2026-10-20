@@ -85,6 +85,7 @@ export const COMMUNICATION_CHANNELS = {
   PAIR_BOTH_WORKER_RUN_MODE: 'pair-both:worker:run-mode',
   PAIR_BOTH_WORKER_STOP: 'pair-both:worker:stop',
   PAIR_BOTH_WORKER_UNPAIR: 'pair-both:worker:unpair',
+  PAIR_BOTH_WORKER_STATUS: 'pair-both:worker:status',
 
   // Remote Filesystem operations
   REMOTE_FS_READ_DIR: 'remote-fs:read-dir',

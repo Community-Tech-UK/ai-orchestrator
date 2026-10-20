@@ -51,10 +51,12 @@ describe('attachAccountRoute', () => {
       persistedProfileId: 'pro-b',
       executionNodeId: 'node-1',
       instanceId: 'inst-1',
+      moveOffLimitedAccount: true,
     });
     expect(result.accountRoute).toEqual(route);
     expect(resolveRouteForSpawn).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'codex', model: 'gpt-x', persistedProfileId: 'pro-b', origin: 'loop', executionNodeId: 'node-1', newSession: false, instanceId: 'inst-1',
+      moveOffLimitedAccount: true, resume: true,
     }));
   });
 

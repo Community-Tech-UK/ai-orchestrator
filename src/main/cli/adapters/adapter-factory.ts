@@ -30,6 +30,8 @@ import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 import type { CliType as SettingsCliType } from '../../../shared/types/settings.types';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
+import { getWorkerNodeRegistry } from '../../remote-node/worker-node-registry';
+import { remoteClaudeSpawnPolicyFor } from './remote-claude-spawn-policy';
 import { getLogger } from '../../logging/logger';
 import { configureHardenedAdapter } from './hardened-adapter-config';
 import { hardenedModeUnsupportedMessage, isHardenedModeSupported } from '../../../shared/hardened-mode-support';
@@ -689,19 +691,15 @@ export function createCliAdapter(
   // BEFORE the cliType switch below, so the Copilot fail-closed check has to
   // run here too — otherwise a remote Copilot spawn would skip it entirely.
   if (executionLocation?.type === 'remote') {
-    // The remote RPC schema and worker mapping do not carry these Claude
-    // policies. Refuse protected requests before the transport can silently
-    // discard them; ordinary remote sessions remain supported.
-    if (cliType === 'claude' && (
-      effectiveOptions.readOnlyReview === true
-      || Boolean(effectiveOptions.machineSession)
-      || (effectiveOptions.contextCeilingTokens ?? 0) > 0
-      || (effectiveOptions.maxTurns ?? 0) > 0
-    )) {
-      throw new Error(
-        'Remote Claude execution cannot enforce read-only review, machine-session policy or turn/context limits yet. Use local execution for this session.',
-      );
-    }
+    // Claude policies (read-only review, machine session, context ceiling,
+    // turn/budget caps) travel to the worker, whose own Claude adapter applies
+    // them. A worker that does not advertise that would silently drop them, so
+    // refuse a policy-bearing session there before any transport exists.
+    remoteClaudeSpawnPolicyFor(
+      cliType,
+      effectiveOptions,
+      getWorkerNodeRegistry().getNode(executionLocation.nodeId)?.capabilities,
+    );
     if (cliType === 'copilot') {
       requireCopilotAccountRoute(effectiveOptions, 'remote');
     }

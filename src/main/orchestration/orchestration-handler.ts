@@ -127,6 +127,7 @@ export class OrchestrationHandler extends EventEmitter {
         }
       },
       onChildCompletionRedelivered: (parentId, childId) => this.forgetSuppressedChildCompletion(parentId, childId),
+      onChildCompletionRequeuedForRespawn: (parentId, childId, admissionId) => this.trackSuppressedChildCompletion(parentId, childId, admissionId),
     });
     // Refire a suppressed consensus_query result injection once the
     // requesting instance is ready again (see injectConsensusResult).
@@ -1012,6 +1013,12 @@ export class OrchestrationHandler extends EventEmitter {
     return this.responseDelivery.inject(instanceId, action, success, data, options);
   }
 
+  private trackSuppressedChildCompletion(parentId: string, childId: string, admissionId: string): void {
+    const children = this.suppressedChildCompletions.get(parentId) ?? new Map<string, string>();
+    children.set(childId, admissionId);
+    this.suppressedChildCompletions.set(parentId, children);
+  }
+
   private forgetSuppressedChildCompletion(parentId: string, childId: string): void {
     const children = this.suppressedChildCompletions.get(parentId);
     if (!children) return;
@@ -1108,12 +1115,7 @@ export class OrchestrationHandler extends EventEmitter {
 
     const injection = this.injectResponse(parentId, 'child_completed', true, responseData);
     if (injection?.kind === 'suppressed' && isParentUnavailableSuppression(injection.reason)) {
-      let children = this.suppressedChildCompletions.get(parentId);
-      if (!children) {
-        children = new Map<string, string>();
-        this.suppressedChildCompletions.set(parentId, children);
-      }
-      children.set(childId, injection.admissionId);
+      this.trackSuppressedChildCompletion(parentId, childId, injection.admissionId);
     }
 
     const remainingChildren = ctx ? ctx.childrenIds.length : 0;

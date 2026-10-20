@@ -1,7 +1,12 @@
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
-import type { PairBothCandidate } from '../../../shared/types/pair-both.types';
+import type {
+  PairBothCandidate,
+  WorkerModeSettings,
+  WorkerModeStatus,
+} from '../../../shared/types/pair-both.types';
+import type { WindowManager } from '../../window-manager';
 import {
   DEFAULT_CONFIG_PATH,
   loadWorkerConfig,
@@ -25,6 +30,7 @@ import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-con
 import {
   getWorkerModeRuntimeService,
   clearWorkerModeConfig,
+  readWorkerModePairing,
   type WorkerModeRuntimeStatus,
 } from '../../remote-node/worker-mode-runtime-service';
 import {
@@ -42,14 +48,24 @@ import {
   writePairedWorkerConfig,
 } from '../../../worker-agent/cli/pairing-config';
 import { getActiveCoordinatorTailscaleWatcher } from '../../remote-node/coordinator-tailscale-watcher';
+import { broadcastSettingsChanged } from './settings-broadcast';
+import { getWorkerSignInTask } from '../../remote-node/worker-sign-in-task';
+import { isSingleInstanceLockHeld } from '../../../worker-agent/single-instance-lock';
 
 const logger = getLogger('PairBothHandlers');
 
 let service: PairBothRendezvousService | null = null;
 let discoveryPublisher: PairBothDiscoveryPublisher | null = null;
 let discoveryBrowser: PairBothDiscoveryBrowser | null = null;
+let settingsWindow: Pick<WindowManager, 'sendToRenderer'> | null = null;
 
-export function registerPairBothHandlers(): void {
+export interface PairBothHandlerDependencies {
+  /** Used to tell the renderer about workerMode changes made here. */
+  windowManager?: Pick<WindowManager, 'sendToRenderer'>;
+}
+
+export function registerPairBothHandlers(deps: PairBothHandlerDependencies = {}): void {
+  settingsWindow = deps.windowManager ?? null;
   ipcMain.handle(
     IPC_CHANNELS.PAIR_BOTH_COORDINATOR_START,
     async (_event, payload: unknown): Promise<IpcResponse> => {
@@ -202,6 +218,7 @@ export function registerPairBothHandlers(): void {
       try {
         const { input } = PairBothManualPairingPayloadSchema.parse(payload);
         const parsed = parsePairingConfigInput(input);
+        await stopEveryWorker();
         const config = writePairedWorkerConfig(DEFAULT_CONFIG_PATH, parsed);
         return { success: true, data: sanitizeWorkerConfig(config) };
       } catch (error) {
@@ -214,8 +231,8 @@ export function registerPairBothHandlers(): void {
     IPC_CHANNELS.PAIR_BOTH_WORKER_RUN_MODE,
     async (_event, payload: unknown): Promise<IpcResponse> => {
       try {
-        const { mode } = PairBothWorkerRunModePayloadSchema.parse(payload);
-        const runtime = await startWorkerRuntimeForMode(mode);
+        const { mode, openAtLogin } = PairBothWorkerRunModePayloadSchema.parse(payload);
+        const runtime = await startWorkerRuntimeForMode(mode, openAtLogin);
         return { success: true, data: runtime };
       } catch (error) {
         return failure('PAIR_BOTH_WORKER_RUN_MODE_FAILED', error);
@@ -227,6 +244,10 @@ export function registerPairBothHandlers(): void {
     IPC_CHANNELS.PAIR_BOTH_WORKER_STOP,
     async (): Promise<IpcResponse> => {
       try {
+        if (signInWorkerSelected()) {
+          // Pauses the sign-in task too, so its keep-alive does not restart it.
+          await getWorkerSignInTask().stop();
+        }
         return {
           success: true,
           data: getWorkerModeRuntimeService().stop(),
@@ -238,14 +259,30 @@ export function registerPairBothHandlers(): void {
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.PAIR_BOTH_WORKER_STATUS,
+    async (): Promise<IpcResponse> => {
+      try {
+        return { success: true, data: buildWorkerModeStatus() };
+      } catch (error) {
+        return failure('PAIR_BOTH_WORKER_STATUS_FAILED', error);
+      }
+    },
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.PAIR_BOTH_WORKER_UNPAIR,
     async (): Promise<IpcResponse> => {
       try {
-        const runtime = getWorkerModeRuntimeService().stop();
+        const runtime = await getWorkerModeRuntimeService().stopAndWait();
+        if (signInWorkerSelected()) {
+          await getWorkerSignInTask().remove();
+        }
         const workerMode = getSettingsManager().get('workerMode');
-        getSettingsManager().set('workerMode', {
+        // Keep the role: resetting it to 'unset' swapped the whole window for
+        // the role picker. An unpaired worker simply shows the pair actions.
+        persistWorkerMode({
           ...workerMode,
-          role: 'unset',
+          runAtSignIn: false,
           lastCoordinatorName: undefined,
           lastCoordinatorUrl: undefined,
         });
@@ -261,8 +298,42 @@ export function registerPairBothHandlers(): void {
 function getService(): PairBothRendezvousService {
   service ??= new PairBothRendezvousService({
     auth: getRemoteAuthService(),
+    // A re-pair must not leave the old worker running on the old credential.
+    beforeWorkerConfigWrite: () => stopEveryWorker(),
   });
   return service;
+}
+
+function signInWorkerSelected(): boolean {
+  return getSettingsManager().get('workerMode').runAtSignIn === true
+    && getWorkerSignInTask().isSupported();
+}
+
+/**
+ * Stop whichever worker is running — Harness's own child and, on Windows, the
+ * sign-in task's (paused, so its keep-alive does not restart it) — and wait
+ * for both, before the worker config is rewritten.
+ */
+async function stopEveryWorker(): Promise<void> {
+  await getWorkerModeRuntimeService().stopAndWait();
+  if (signInWorkerSelected()) {
+    await getWorkerSignInTask().stop();
+  }
+}
+
+/**
+ * Save workerMode and tell the renderer. Writes made here bypass the settings
+ * IPC handlers, which are what normally broadcast, so without this the
+ * renderer kept a stale role and later wrote it back.
+ */
+function persistWorkerMode(next: WorkerModeSettings): void {
+  getSettingsManager().set('workerMode', next);
+  if (settingsWindow) {
+    broadcastSettingsChanged(settingsWindow, {
+      key: 'workerMode',
+      value: getSettingsManager().get('workerMode'),
+    });
+  }
 }
 
 function getDiscoveryPublisher(): PairBothDiscoveryPublisher {
@@ -302,13 +373,59 @@ function selectReachableHost(configuredHost: string): string {
 }
 
 async function startWorkerRuntimeForMode(
-  mode: 'run-while-open' | 'background-service',
+  mode: 'run-while-open' | 'background-service' | 'sign-in-task',
+  openAtLogin?: boolean,
 ): Promise<WorkerModeRuntimeStatus | undefined> {
   const config = loadWorkerConfig(DEFAULT_CONFIG_PATH);
   const workerMode = getSettingsManager().get('workerMode');
-  if (mode === 'background-service') {
-    getSettingsManager().set('workerMode', {
+  if (mode === 'sign-in-task') {
+    const signInTask = getWorkerSignInTask();
+    if (!signInTask.isSupported()) {
+      throw new Error('Keeping the worker running with Harness closed is only available on Windows.');
+    }
+    // One worker per computer: hand over from Harness's own child first. The
+    // task is set up before the settings change, so the role listener (which
+    // resumes the task on entering the worker role) finds it registered.
+    const runtime = getWorkerModeRuntimeService();
+    const inAppWasRunning = runtime.status().state === 'running';
+    const hadSignInWorker = signInWorkerSelected();
+    await runtime.stopAndWait();
+    try {
+      await signInTask.install(DEFAULT_CONFIG_PATH);
+    } catch (error) {
+      // Leave things as they were: no half-made task (settings would not
+      // point at it, so nothing would ever remove it) competing with
+      // Harness's own worker for the single-instance lock.
+      if (!hadSignInWorker) {
+        await signInTask.remove().catch(() => undefined);
+      }
+      if (inAppWasRunning) {
+        runtime.start({ configPath: DEFAULT_CONFIG_PATH });
+      }
+      throw error;
+    }
+    persistWorkerMode({
       ...workerMode,
+      role: 'worker',
+      runAtSignIn: true,
+      installWorkerService: false,
+      // The task brings the worker back at sign-in; opening Harness as well
+      // is not needed, and its checkbox is hidden in this mode.
+      openAtLogin: false,
+    });
+    return getWorkerModeRuntimeService().status();
+  }
+  if (mode === 'run-while-open' && signInWorkerSelected()) {
+    // Switching back to "only while Harness is open": retire the task and its
+    // worker so Harness's own child can take the single-instance lock.
+    await getWorkerSignInTask().remove();
+  }
+  // Running the worker makes this computer a worker. Without the role the
+  // next launch skips autostart, so the pairing looked lost after a restart.
+  if (mode === 'background-service') {
+    persistWorkerMode({
+      ...workerMode,
+      role: 'worker',
       startWorkerOnLaunch: false,
       installWorkerService: true,
     });
@@ -318,16 +435,52 @@ async function startWorkerRuntimeForMode(
         config,
       });
     } catch (error) {
+      // No service exists, so do not leave settings claiming one does: that
+      // disabled launch autostart and reported a service that never ran.
+      persistWorkerMode(workerMode);
       throw new Error(toGuidedServiceInstallMessage(error));
     }
   }
 
-  getSettingsManager().set('workerMode', {
+  persistWorkerMode({
     ...workerMode,
+    role: 'worker',
     startWorkerOnLaunch: true,
     installWorkerService: false,
+    runAtSignIn: false,
+    ...(openAtLogin === undefined ? {} : { openAtLogin }),
   });
   return getWorkerModeRuntimeService().start({ configPath: DEFAULT_CONFIG_PATH });
+}
+
+export function buildWorkerModeStatus(): WorkerModeStatus {
+  const pairing = readWorkerModePairing(DEFAULT_CONFIG_PATH);
+  const backgroundService = getSettingsManager().get('workerMode').installWorkerService;
+  const runAtSignInAvailable = getWorkerSignInTask().isSupported();
+  const runAtSignIn = signInWorkerSelected();
+  const runtime = getWorkerModeRuntimeService().status();
+  return {
+    ...pairing,
+    runtime: runAtSignIn
+      // The task's worker is not a Harness child; its own single-instance
+      // lock (same user, same temp folder) says whether it is alive.
+      ? { state: isPairedWorkerRunning(pairing.config) ? 'running' : 'stopped' }
+      // The OS service keeps its own copy of the config and is not a child of
+      // Harness, so the in-app runtime reads "stopped" while the service works.
+      : backgroundService && runtime.state === 'stopped' && !runtime.error
+        ? { state: 'service-installed' }
+        : runtime,
+    backgroundService,
+    runAtSignIn,
+    runAtSignInAvailable,
+  };
+}
+
+function isPairedWorkerRunning(config: WorkerModeStatus['config']): boolean {
+  if (!config?.nodeId) {
+    return false;
+  }
+  return isSingleInstanceLockHeld({ key: `${config.namespace}:${config.nodeId}` });
 }
 
 function isLoopbackHost(host: string): boolean {

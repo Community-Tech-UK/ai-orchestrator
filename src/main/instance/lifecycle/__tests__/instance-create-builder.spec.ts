@@ -186,6 +186,28 @@ describe('buildInstanceRecord', () => {
     expect(instance.currentModel).toBe('composer-2.5');
   });
 
+  it('seeds an explicit reasoningEffort before async init, leaving defaults to Phase 2', () => {
+    const deps = { defaultYoloMode: false, getParent: () => undefined };
+    expect(buildInstanceRecord(buildConfig({ provider: 'claude', reasoningEffort: 'max' }), buildAgent(), deps).reasoningEffort)
+      .toBe('max');
+    expect('reasoningEffort' in buildInstanceRecord(buildConfig({ provider: 'claude', reasoningEffort: null }), buildAgent(), deps))
+      .toBe(false);
+    expect('reasoningEffort' in buildInstanceRecord(buildConfig({ provider: 'claude' }), buildAgent(), deps)).toBe(false);
+    const localModel = buildInstanceRecord(buildConfig({
+      provider: 'claude',
+      reasoningEffort: 'max',
+      modelRuntimeTarget: {
+        kind: 'local-model',
+        source: 'worker-node',
+        selectorId: 'lm://worker-node/node-win/ollama/ollama/qwen',
+        endpointProvider: 'ollama',
+        endpointId: 'ollama',
+        modelId: 'qwen',
+      },
+    }), buildAgent(), deps);
+    expect('reasoningEffort' in localModel).toBe(false);
+  });
+
   it('seeds currentModel and runtimeSummary for local-model runtime targets', () => {
     const instance = buildInstanceRecord(
       buildConfig({

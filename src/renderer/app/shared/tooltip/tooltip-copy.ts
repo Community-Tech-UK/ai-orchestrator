@@ -232,8 +232,8 @@ export const TOOLTIP_COPY = {
   // ---- Loop configuration honesty (T1/T3/T11) ----
   'loop.recycleToggle': {
     label: 'Recycle context on long runs',
-    meaning: 'Starts a fresh model window mid-run when the current one fills up.',
-    consequence: 'Only providers that report their live window can do this.',
+    meaning: 'Starts a fresh model window when measured context use reaches the threshold.',
+    consequence: 'Resume-capable providers also use iteration or token limits when context use cannot be measured or a fresh window would still be full.',
   },
   'loop.isolation': {
     label: 'Work in an isolated copy',

@@ -309,6 +309,12 @@ const controlSurfaceRoutes: Routes = [
       import('./features/remote-nodes/remote-nodes-page.component').then((m) => m.RemoteNodesPageComponent),
   },
   {
+    path: 'worker-mode',
+    data: controlSurfaceRouteData('worker-mode'),
+    loadComponent: () =>
+      import('./features/worker-mode/worker-mode.component').then((m) => m.WorkerModeComponent),
+  },
+  {
     path: 'ask-council',
     data: controlSurfaceRouteData('ask-council'),
     loadComponent: () =>

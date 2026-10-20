@@ -1,6 +1,7 @@
 import { z } from 'zod/v4';
 import { InstanceSendRawParamsSchema } from './instance-interaction-schemas';
 import { REASONING_EFFORTS } from '../../shared/types/provider.types';
+import { RemoteClaudeSpawnPolicySchema } from './claude-spawn-policy-schema';
 import {
   FsReadDirectoryParamsSchema,
   FsStatParamsSchema,
@@ -94,6 +95,7 @@ const WorkerNodeCapabilitiesSchema = z.object({
   gpuMemoryMB: z.number().int().optional(),
   supportedClis: z.array(z.string()),
   openCodeMajor: z.union([z.literal(1), z.literal(2)]).optional(),
+  claudeSpawnPolicy: z.literal(1).optional().catch(undefined), // Malformed reads as absent: policy-bearing Claude is refused.
   hasBrowserRuntime: z.boolean(),
   hasBrowserMcp: z.boolean(),
   browserAutomation: z.object({
@@ -279,6 +281,7 @@ export const InstanceSpawnParamsSchema = z.object({
     source: z.string().max(32).optional(),
     region: z.enum(['ams', 'sgp', 'cn']).optional(),
   }).optional(),
+  claudeSpawnPolicy: RemoteClaudeSpawnPolicySchema.optional(),
 });
 
 export const InstanceSendInputParamsSchema = z.object({

@@ -109,6 +109,18 @@ describe('initializeSessionRecoveryRuntime', () => {
     expect(ingested).toEqual(['root', 'unreadable']);
   });
 
+  it('leaves internal and automation last-stop sessions to the autosave archive, which labels them', async () => {
+    snapshotSessions.value = [lastStopSession('root'), lastStopSession('node-run'), lastStopSession('automation')];
+
+    await initialize(continuityWith({
+      root: { parentId: null },
+      'node-run': { parentId: null, hideFromProjectRail: true },
+      automation: { parentId: null, automation: { automationId: 'auto-1', hidden: true, runSucceeded: true } },
+    }));
+
+    expect(history.archiveInstance.mock.calls.map(([instance]) => instance.id)).toEqual(['root']);
+  });
+
   function crashedState(): SessionState {
     return {
       instanceId: 'crashed',

@@ -56,6 +56,16 @@
               Ask on launch
             </button>
           </div>
+          @if (store.harnessRole() === 'worker') {
+            <p class="field-hint section-inline-hint">
+              This computer still works as a normal Harness. Pair it and start or stop the worker on the Worker Mode page.
+            </p>
+            <div class="role-choice-row">
+              <button class="btn btn-primary" type="button" (click)="openWorkerMode()">
+                Open Worker Mode
+              </button>
+            </div>
+          }
         </div>
 
         <div class="connection-card">

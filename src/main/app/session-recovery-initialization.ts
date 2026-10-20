@@ -112,6 +112,9 @@ async function ingestMissingLastStopHistory(
         // either. An unreadable state only means the parent is unknown.
         const state = await continuity.loadRecoveryState(session.instanceId).catch(() => null);
         if (typeof state?.parentId === 'string') return false;
+        // This path files a bare entry. The autosave archive that runs next
+        // keeps internal sessions hidden and automation runs labelled.
+        if (state?.hideFromProjectRail === true || state?.automation) return false;
         const messages = await getOutputStorageManager().loadMessages(session.instanceId);
         return messages.some((message) => message.type === 'user' || message.type === 'assistant');
       },

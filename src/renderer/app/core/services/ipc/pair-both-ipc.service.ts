@@ -3,6 +3,9 @@ import { ElectronIpcService } from './electron-ipc.service';
 import type {
   PairBothCandidate,
   PairBothSessionState,
+  WorkerModeConfigSummary,
+  WorkerModeRuntimeSnapshot,
+  WorkerModeStatus,
 } from '../../../../../shared/types/pair-both.types';
 
 interface IpcResult<T = unknown> {
@@ -25,22 +28,11 @@ export interface PairBothWorkerPairingState {
   candidate: PairBothCandidate;
 }
 
-export interface PairBothWorkerConfigSummary {
-  nodeId: string;
-  name: string;
-  coordinatorUrl?: string;
-  namespace: string;
-  maxConcurrentInstances: number;
-  workingDirectories: string[];
-  runtime?: {
-    state: string;
-    pid?: number;
-    command?: string;
-    error?: string;
-  };
+export interface PairBothWorkerConfigSummary extends WorkerModeConfigSummary {
+  runtime?: WorkerModeRuntimeSnapshot;
 }
 
-export type PairBothWorkerRunMode = 'run-while-open' | 'background-service';
+export type PairBothWorkerRunMode = 'run-while-open' | 'background-service' | 'sign-in-task';
 
 @Injectable({ providedIn: 'root' })
 export class PairBothIpcService {
@@ -135,9 +127,12 @@ export class PairBothIpcService {
     return result;
   }
 
-  async runWorker(mode: PairBothWorkerRunMode): Promise<PairBothWorkerConfigSummary['runtime']> {
+  async runWorker(
+    mode: PairBothWorkerRunMode,
+    options: { openAtLogin?: boolean } = {},
+  ): Promise<PairBothWorkerConfigSummary['runtime']> {
     return await this.invoke<PairBothWorkerConfigSummary['runtime']>(
-      () => this.api?.pairBothWorkerRunMode(mode),
+      () => this.api?.pairBothWorkerRunMode(mode, options),
       'Failed to start worker',
     ) ?? { state: 'stopped' };
   }
@@ -154,6 +149,14 @@ export class PairBothIpcService {
       () => this.api?.pairBothWorkerUnpair(),
       'Failed to unpair worker',
     ) ?? { state: 'stopped' };
+  }
+
+  /** Saved pairing plus live worker state; null outside Electron. */
+  async getWorkerStatus(): Promise<WorkerModeStatus | null> {
+    return await this.invoke<WorkerModeStatus>(
+      () => this.api?.pairBothWorkerStatus(),
+      'Failed to read worker status',
+    );
   }
 
   parseInvitation(input: string): PairBothCandidate {

@@ -1261,10 +1261,13 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       case 'assistant': {
         const streamError = parseClaudeStreamError(raw);
         if (streamError) { this.emitClassifiedError(streamError.error); break; }
-        this.residentSettlement.settle();
-        if (!this.awaitingOneShotCompletion && !(raw as { parent_tool_use_id?: unknown }).parent_tool_use_id) this.residentTurnActive = true;
-        // LT-105: assistant output after an errored turn means the CLI started a new turn itself.
-        this.residentTurnCompletedByError = false;
+        if (!(raw as { parent_tool_use_id?: unknown }).parent_tool_use_id) {
+          // Only main-thread output establishes a new main-turn boundary;
+          // subagent output can precede the failed turn's native receipt.
+          this.residentSettlement.settle();
+          if (!this.awaitingOneShotCompletion) this.residentTurnActive = true;
+          this.residentTurnCompletedByError = false;
+        }
         processClaudeAssistantMessage(this as unknown as ClaudeAssistantMessageHost, message, raw);
         break;
       }

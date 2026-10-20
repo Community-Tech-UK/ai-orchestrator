@@ -33,4 +33,29 @@ describe('WindowsServiceManager', () => {
     const s = await mgr.status();
     expect(s.state).toBe('not-installed');
   });
+
+  it('recognises a missing service from the exit code and stdout, as sc.exe reports it', async () => {
+    vi.spyOn(execFileMod, 'execFileCapture').mockRejectedValue(
+      new ExecFileError(
+        'sc.exe',
+        ['queryex', 'ai-orchestrator-worker'],
+        1060,
+        null,
+        '[SC] EnumQueryServicesStatus:OpenService FAILED 1060:\r\n\r\nThe specified service does not exist as an installed service.\r\n',
+        '',
+      ),
+    );
+    const mgr = new WindowsServiceManager();
+
+    await expect(mgr.isInstalled()).resolves.toBe(false);
+  });
+
+  it('still surfaces other sc.exe failures', async () => {
+    vi.spyOn(execFileMod, 'execFileCapture').mockRejectedValue(
+      new ExecFileError('sc.exe', ['queryex', 'ai-orchestrator-worker'], 5, null, '[SC] OpenSCManager FAILED 5:\r\n\r\nAccess is denied.\r\n', ''),
+    );
+    const mgr = new WindowsServiceManager();
+
+    await expect(mgr.status()).rejects.toBeInstanceOf(ExecFileError);
+  });
 });

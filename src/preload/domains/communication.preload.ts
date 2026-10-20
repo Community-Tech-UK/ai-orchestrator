@@ -233,14 +233,20 @@ export function createCommunicationDomain(
     pairBothWorkerApplyManual: (input: string): Promise<unknown> =>
       ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_APPLY_MANUAL, { input }),
 
-    pairBothWorkerRunMode: (mode: 'run-while-open' | 'background-service'): Promise<unknown> =>
-      ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_RUN_MODE, { mode }),
+    pairBothWorkerRunMode: (
+      mode: 'run-while-open' | 'background-service' | 'sign-in-task',
+      options: { openAtLogin?: boolean } = {},
+    ): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_RUN_MODE, { mode, ...options }),
 
     pairBothWorkerStop: (): Promise<unknown> =>
       ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_STOP),
 
     pairBothWorkerUnpair: (): Promise<unknown> =>
       ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_UNPAIR),
+
+    pairBothWorkerStatus: (): Promise<unknown> =>
+      ipcRenderer.invoke(ch.PAIR_BOTH_WORKER_STATUS),
 
     onRemoteNodeEvent: (callback: (event: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) =>

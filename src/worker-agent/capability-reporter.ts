@@ -105,6 +105,8 @@ export async function reportCapabilities(
     gpuMemoryMB: gpu.memoryMB,
     supportedClis,
     ...(openCodeMajor ? { openCodeMajor } : {}),
+    // This worker applies the carried Claude spawn policy (see SpawnParams).
+    claudeSpawnPolicy: 1,
     hasBrowserRuntime,
     // True only when browser automation is explicitly enabled in worker config
     // AND a Chrome/Chromium executable is resolvable — i.e. the worker can

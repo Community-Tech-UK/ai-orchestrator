@@ -91,6 +91,11 @@ export interface AttachAccountRouteOptions {
   restrictTo?: readonly string[];
   /** Source stamped when the default selection runs on behalf of a handoff. */
   defaultSource?: Extract<AccountRouteSource, 'default' | 'failover' | 'preemptive'>;
+  /**
+   * A restart: route a persisted profile with a known limit to the failover
+   * target. Never set for an account handoff, whose target was just chosen.
+   */
+  moveOffLimitedAccount?: boolean;
   instanceId?: string;
   routingService?: ProviderAccountRoutingService;
 }
@@ -133,6 +138,8 @@ export async function attachAccountRoute(
     exclude: attachOptions.exclude,
     restrictTo: attachOptions.restrictTo,
     defaultSource: attachOptions.defaultSource,
+    moveOffLimitedAccount: attachOptions.moveOffLimitedAccount,
+    resume: Boolean(options.resume),
     instanceId: attachOptions.instanceId ?? options.instanceId,
   });
   if (!outcome.ok) {

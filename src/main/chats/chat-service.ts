@@ -293,6 +293,10 @@ export class ChatService {
   async archiveChat(chatId: string): Promise<ChatRecord> {
     this.initialize();
     const existing = this.requireChat(chatId);
+    // A loop can belong to the durable chat even when no runtime is linked.
+    await stopLoopsForSessions(existing.currentInstanceId
+      ? [existing.id, existing.currentInstanceId]
+      : [existing.id]);
     const previousInstanceId = await this.terminateRuntimeIfRunning(existing, 'archive');
     const chat = this.store.update(chatId, {
       currentInstanceId: null,
@@ -309,6 +313,9 @@ export class ChatService {
   async deleteChat(chatId: string): Promise<void> {
     this.initialize();
     const chat = this.requireChat(chatId);
+    await stopLoopsForSessions(chat.currentInstanceId
+      ? [chat.id, chat.currentInstanceId]
+      : [chat.id]);
     if (chat.currentInstanceId) {
       await this.flushTranscript();
       await this.drainEvidenceCapture(chat.currentInstanceId);
@@ -594,7 +601,6 @@ export class ChatService {
     instanceId: string,
     reason: 'provider' | 'model' | 'reasoning' | 'archive' | 'cwd' | 'delete' | 'failed' | 'policy',
   ): Promise<void> {
-    if (reason === 'archive' || reason === 'delete') await stopLoopsForSessions([instanceId]);
     const inst = this.instanceManager.getInstance(instanceId);
     if (inst && inst.status !== 'terminated') {
       try {

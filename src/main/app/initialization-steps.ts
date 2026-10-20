@@ -26,7 +26,13 @@ import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { initializeUnifiedModelCatalogRuntime } from './unified-model-catalog-initialization';
-import { maybeStartWorkerModeOnLaunch } from '../remote-node/worker-mode-autostart';
+import {
+  bindWorkerModeRoleLifecycle,
+  ensureSignInWorkerOnLaunch,
+  maybeStartWorkerModeOnLaunch,
+  reconcileStaleWorkerServiceFlag,
+} from '../remote-node/worker-mode-autostart';
+import { bindWorkerModeLoginItem } from '../remote-node/worker-mode-login-item';
 import { initializeContextEvidenceRuntime, startContextEvidenceMaintenance } from '../context-evidence/evidence-maintenance-service';
 import { initializeLocalAiGuardRuntime } from '../local-ai-guard';
 import { initializeInstanceContinuationRuntime } from '../instance/instance-continuation-runtime';
@@ -415,7 +421,18 @@ export function createInitializationSteps(
       },
     },
     { name: 'Pause feature', fn: () => initializePauseFeatureRuntime() },
-    { name: 'Worker mode autostart', fn: () => { maybeStartWorkerModeOnLaunch(); } },
+    {
+      name: 'Worker mode autostart',
+      fn: async () => {
+        await reconcileStaleWorkerServiceFlag();
+        maybeStartWorkerModeOnLaunch();
+        bindWorkerModeRoleLifecycle();
+        bindWorkerModeLoginItem();
+        // Not awaited: it can take a few PowerShell round trips on Windows and
+        // the sign-in worker runs independently of this window anyway.
+        void ensureSignInWorkerOnLaunch();
+      },
+    },
     { name: 'Hook approvals', fn: () => getHookManager().loadApprovals() },
     {
       name: 'Remote observer',

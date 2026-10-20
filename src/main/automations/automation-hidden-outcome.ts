@@ -1,5 +1,10 @@
 import type { AutomationRunStatus } from '../../shared/types/automation.types';
 import type { Instance } from '../../shared/types/instance.types';
+import { getLogger } from '../logging/logger';
+import { automationProvenanceFromMetadata } from '../session/continuity-automation-provenance';
+import { getSessionContinuityManagerIfInitialized } from '../session/session-continuity';
+
+const logger = getLogger('AutomationHiddenOutcome');
 
 /**
  * The slice of InstanceManager these stamps need. `queueInstanceUpdate` is
@@ -48,6 +53,7 @@ export function stampHiddenAutomationOutcome(
     return;
   }
   instance.metadata = { ...instance.metadata, automationRunSucceeded: true };
+  persistAutomationStamp(instance);
 }
 
 /**
@@ -80,4 +86,22 @@ export function revealHiddenAutomationSession(
   }
   instance.metadata = { ...instance.metadata, automationRevealed: true };
   manager.queueInstanceUpdate?.(instanceId, {});
+  persistAutomationStamp(instance);
+}
+
+/**
+ * Mirror a stamp into the session's autosave. A session filed into History
+ * after a crash is rebuilt from that copy, so without this a succeeded run would
+ * land in the rail, and one the operator took over could be filed hidden.
+ */
+function persistAutomationStamp(instance: Instance): void {
+  const automation = automationProvenanceFromMetadata(instance.metadata);
+  if (!automation) return;
+  getSessionContinuityManagerIfInitialized()?.updateState(instance.id, { automation })
+    .catch((error: unknown) => {
+      logger.warn('Failed to record automation outcome in session continuity', {
+        instanceId: instance.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 }

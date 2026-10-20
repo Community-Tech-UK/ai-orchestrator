@@ -47,6 +47,7 @@ import { createArchiveInstanceSummary, getArchiveHistoryIdentity, redactArchiveI
 import { getArchiveSerializationKey, KeyedSerialTaskQueue } from './history-archive-serialization';
 import { isSameHistoryEntryForIdentityBackfill } from './history-identity-backfill';
 import { isRecoverySuppressedByHistory, tombstoneDeletedHistoryEntry } from './history-recovery-suppression';
+import { isProjectRailHiddenSession } from '../../shared/utils/project-rail-hidden-session';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -319,7 +320,7 @@ export class HistoryManager {
             && instance.metadata?.['automationRevealed'] !== true) // operator took it over
           || undefined,
         hideFromProjectRail:
-          this.shouldHideInstanceFromProjectRail(instance)
+          isProjectRailHiddenSession(instance.metadata)
           || previousEntries.some((e) => e.hideFromProjectRail)
           || undefined,
       };
@@ -1377,11 +1378,6 @@ export class HistoryManager {
     if (changed > 0) {
       logger.info('Backfilled automation flags for legacy history entries', { count: changed });
     }
-  }
-
-  private shouldHideInstanceFromProjectRail(instance: Instance): boolean {
-    return instance.metadata?.['hideFromProjectRail'] === true
-      || typeof instance.metadata?.['spawnDepth'] === 'number';
   }
 
   /**

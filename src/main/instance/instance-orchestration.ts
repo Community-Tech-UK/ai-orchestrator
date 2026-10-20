@@ -49,6 +49,8 @@ import { evaluateSpawn } from '../orchestration/subagent-spawn-guard';
 import type { InternalInputSource } from '../../shared/types/input-provenance.types';
 import type { ChildInfo } from '../orchestration/orchestration-handler.types';
 import type { OrchestrationResponseAdapter } from './orchestration/orchestration-response-adapter.types';
+import { assertQueuedResponseDeliverable, orchestrationDeliveryFailureNote } from './orchestration/orchestration-delivery-failure';
+import { OrchestrationResponseHeldError } from '../orchestration/orchestration-response-delivery';
 import { errorFromIdentity } from '../util/error-utils';
 import {
   routeRole,
@@ -68,6 +70,10 @@ export interface OrchestrationDependencies {
   getAdapter: (id: string) => OrchestrationResponseAdapter | undefined;
   recordTaskOutcome: (taskId: string, success: boolean, score: number) => void;
   indexedCodebaseContext?: Pick<IndexedCodebaseContextService, 'buildFastPathResult'>;
+  /** True when an undelivered response should wait for redelivery: a limit refusal, or the session is parked or known-limited. */
+  holdRejectedResponse?: (instanceId: string, adapter: OrchestrationResponseAdapter, error: Error) => boolean;
+  /** True when a queued response must not be sent yet: the session went limited, parked or is switching accounts. */
+  holdQueuedResponse?: (instanceId: string) => boolean;
 }
 
 const logger = getLogger('InstanceOrchestration');
@@ -568,9 +574,7 @@ export class InstanceOrchestrationManager {
           const prev = this.writeQueues.get(instanceId) ?? Promise.resolve();
           const next = prev.catch(() => undefined).then(async () => {
             try {
-              if (this.deps.getAdapter(instanceId) !== adapter) {
-                throw new Error('Instance adapter changed before orchestration response delivery');
-              }
+              assertQueuedResponseDeliverable(this.deps.getAdapter(instanceId) === adapter, () => this.deps.holdQueuedResponse?.(instanceId) === true);
               if (typeof adapter.sendOrchestrationResponse === 'function') {
                 await adapter.sendOrchestrationResponse(response, () => {
                   const childId = typeof data['childId'] === 'string' ? data['childId'] : undefined;
@@ -589,19 +593,15 @@ export class InstanceOrchestrationManager {
               }
               confirm();
             } catch (err) {
-              logger.error('Failed to inject response to instance', err instanceof Error ? err : undefined, { instanceId });
               const error = err instanceof Error ? err : new Error(String(err));
+              // Never sent (adapter replaced), a limit refusal, or any failure while parked or known-limited: redeliver later.
+              const held = err instanceof OrchestrationResponseHeldError || this.deps.holdRejectedResponse?.(instanceId, adapter, error) === true;
+              if (!held) logger.error('Failed to inject response to instance', error, { instanceId });
               const childId = typeof data['childId'] === 'string' ? data['childId'] : undefined;
-              const deliveryError: OutputMessage = {
-                id: `orch-error-${Date.now()}`,
-                timestamp: Date.now(),
-                type: 'error',
-                content: `Orchestration ${action} response${childId ? ` for child ${childId}` : ''} was not delivered to the agent: ${error.message}`,
-                metadata: { source: 'orchestration', action, deliveryFailure: true, childId },
-              };
-              addToOutputBuffer(instance, deliveryError);
-              publishOutput(instanceId, deliveryError);
-              confirm(error);
+              const note = orchestrationDeliveryFailureNote(action, childId, error, held);
+              addToOutputBuffer(instance, note);
+              publishOutput(instanceId, note);
+              confirm(held && !(err instanceof OrchestrationResponseHeldError) ? new OrchestrationResponseHeldError(error.message) : error);
             }
           });
           this.writeQueues.set(instanceId, next);

@@ -53,6 +53,7 @@ function metadataFor(state: SessionState): ContinuityRecoveryMetadata {
     historyThreadId: state.historyThreadId,
     sessionId: state.sessionId,
     ...(state.parentId !== undefined ? { parentId: state.parentId } : {}),
+    ...(state.hideFromProjectRail === true ? { hideFromProjectRail: true } : {}),
     provider: state.provider ?? 'claude',
     modelId: state.modelId,
     displayName: state.displayName,
@@ -452,6 +453,42 @@ describe('archiveRecoverableSessionsToHistory', () => {
     expect(archiveInstance).not.toHaveBeenCalled();
     expect(history.getEntries()).toEqual([]);
     expect((await service.listCandidates()).map((item) => item.sourceInstanceId)).toEqual(['legacy']);
+  });
+
+  it('files an internal session in History hidden and never offers it for recovery', async () => {
+    const { history, service, run } = await setup([
+      continuityState('node-run', { hideFromProjectRail: true }),
+      continuityState('own'),
+    ]);
+    expect((await service.listCandidates()).map((item) => item.sourceInstanceId)).toEqual(['own']);
+
+    const result = await run();
+
+    expect(result).toEqual({ archived: 2, declined: 0, skipped: 0, failed: [] });
+    const byInstance = new Map(history.getEntries().map((item) => [item.originalInstanceId, item]));
+    expect(byInstance.get('node-run')?.hideFromProjectRail).toBe(true);
+    expect(byInstance.get('own')?.hideFromProjectRail).toBeUndefined();
+    expect(await service.listCandidates()).toEqual([]);
+  });
+
+  it('files crash-recovered automation runs with the labels a clean shutdown would give them', async () => {
+    const { history, run } = await setup([
+      continuityState('quiet', { automation: { automationId: 'auto-1', hidden: true, runSucceeded: true } }),
+      continuityState('taken-over', {
+        automation: { automationId: 'auto-1', hidden: true, runSucceeded: true, revealed: true },
+      }),
+      continuityState('unfinished', { automation: { automationId: 'auto-1', hidden: true } }),
+      continuityState('visible-automation', { automation: { automationId: 'auto-2' } }),
+    ]);
+
+    await run();
+
+    const byInstance = new Map(history.getEntries().map((item) => [item.originalInstanceId, item]));
+    expect(byInstance.get('quiet')).toMatchObject({ isAutomation: true, isHiddenAutomation: true });
+    for (const visible of ['taken-over', 'unfinished', 'visible-automation']) {
+      expect(byInstance.get(visible), visible).toMatchObject({ isAutomation: true });
+      expect(byInstance.get(visible)?.isHiddenAutomation, visible).toBeUndefined();
+    }
   });
 
   it('does not resurrect a thread the user deleted from History', async () => {

@@ -33,5 +33,8 @@ describe('capability-reporter', () => {
   it('includes provided working directories', async () => {
     const caps = await reportCapabilities(['/tmp/project']);
     expect(caps.workingDirectories).toContain('/tmp/project');
+    // Without this the coordinator refuses every policy-bearing remote Claude
+    // session (including plain run_on_node) on this worker.
+    expect(caps.claudeSpawnPolicy).toBe(1);
   });
 });

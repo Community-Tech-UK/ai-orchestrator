@@ -71,6 +71,8 @@ export type SuppressReason =
   | 'not-ready'
   | 'active-turn'
   | 'quota-parked'
+  /** Orchestration and consensus only: the session's account is at a known limit, parked, or moving account. */
+  | 'provider-limited'
   | 'auth-required'
   | 'terminal'
   | 'unknown-instance';
@@ -173,6 +175,7 @@ export class SessionAdmissionService {
   private redeliveryHandlers = new Map<AdmissionOrigin, RedeliveryHandler>();
   private pendingRedeliveries = new Map<string, PendingRedelivery>();
   private heldRespawningChildCompletions = new Map<string, number>();
+  private providerLimitHold: ((instanceId: string) => boolean) | null = null;
 
   private readonly onStateUpdate = (payload: unknown): void => this.handleStateUpdate(payload);
   private readonly onBatchUpdate = (payload: unknown): void => this.handleBatchUpdate(payload);
@@ -213,6 +216,19 @@ export class SessionAdmissionService {
       off?.call(this.instanceManager, 'instance:removed', this.onInstanceRemoved);
     }
     this.instanceManager = null;
+  }
+
+  /**
+   * Inject the provider-limit hold for orchestration responses and consensus
+   * results. They go straight to the adapter, so unlike writers that use
+   * `InstanceManager.sendInput()` they never meet its known-limit preflight:
+   * after a restart a parent on a limited account was sent every queued child
+   * report, each one refused, keeping it too busy for an account switch.
+   * The hold may itself start that switch or a park; either one ends in a
+   * ready edge that redelivers what it held.
+   */
+  setProviderLimitHold(hold: ((instanceId: string) => boolean) | null): void {
+    this.providerLimitHold = hold;
   }
 
   /** Register the redelivery callback for one origin. Last registration wins. */
@@ -259,6 +275,7 @@ export class SessionAdmissionService {
   private decide(
     instanceId: string,
     requireReadyForInput = false,
+    origin?: AdmissionOrigin,
   ): { kind: 'admitted' } | { kind: 'suppressed'; reason: SuppressReason } {
     if (!this.instanceManager) {
       logger.warn('admitAutomatedWrite called before setInstanceManager(); suppressing', { instanceId });
@@ -290,6 +307,9 @@ export class SessionAdmissionService {
     if (instance.waitReason?.kind === 'auth-required') {
       return { kind: 'suppressed', reason: 'auth-required' };
     }
+    if ((origin === 'orchestration' || origin === 'consensus') && this.isHeldByProviderLimit(instanceId)) {
+      return { kind: 'suppressed', reason: 'provider-limited' };
+    }
     if (instance.interruptPhase === 'requested' || instance.interruptPhase === 'accepted') {
       return { kind: 'suppressed', reason: 'interrupting' };
     }
@@ -313,6 +333,16 @@ export class SessionAdmissionService {
     return { kind: 'admitted' };
   }
 
+  /** Fails open: an unreadable limit state must not hold a response forever. */
+  private isHeldByProviderLimit(instanceId: string): boolean {
+    try {
+      return this.providerLimitHold?.(instanceId) === true;
+    } catch (err) {
+      logger.warn('Provider-limit hold check failed; delivering', { instanceId, error: errorMessageOf(err) });
+      return false;
+    }
+  }
+
   /**
    * Gate an automated (non-user) write. Re-reads live instance state
    * synchronously; the caller performs its own existing send exactly as
@@ -320,7 +350,7 @@ export class SessionAdmissionService {
    * itself.
    */
   admitAutomatedWrite(request: AdmitAutomatedWriteRequest): AdmissionOutcome {
-    const decision = this.decide(request.instanceId, request.requireReadyForInput);
+    const decision = this.decide(request.instanceId, request.requireReadyForInput, request.origin);
     const admissionId = this.persist({
       admissionId: generateId(),
       instanceId: request.instanceId,
@@ -448,6 +478,45 @@ export class SessionAdmissionService {
     this.transition(admissionId, 'delivered');
   }
 
+  /**
+   * Queue an admitted write again when it was not delivered for a reason that
+   * passes: the provider refused it on a usage limit a park or account switch
+   * now owns (`provider-limited`), or an account switch replaced the adapter
+   * before it was sent (`respawning`). It is redelivered as soon as the
+   * session can already take it (on a microtask, after the caller has
+   * recorded the returned id), otherwise on a later ready edge. A write sent
+   * without its own admission row (a consensus result, admitted under the
+   * `consensus` origin) gets a fresh one. Returns the pending row's id, or null
+   * when the session is gone and the write was failed instead.
+   */
+  requeueUndelivered(
+    admissionId: string | undefined,
+    request: AdmitAutomatedWriteRequest,
+    reason: Extract<SuppressReason, 'provider-limited' | 'respawning'>,
+  ): string | null {
+    if (!this.instanceManager?.getInstance(request.instanceId)) {
+      // The session is gone: nothing will ever take it.
+      if (admissionId) this.markFailed(admissionId, 'Session closed before the response could be delivered');
+      return null;
+    }
+    if (admissionId) {
+      this.transition(admissionId, 'suppressed', { suppressReason: reason });
+    } else {
+      admissionId = this.persist({ ...request, admissionId: generateId(), state: 'suppressed', suppressReason: reason });
+    }
+    // A replaced or still-starting adapter cannot take it: wait for a real ready edge with no active turn.
+    this.rememberForRedelivery(admissionId, { ...request, requireReadyForInput: true }, reason);
+    logger.info('Undelivered automated write queued again', {
+      reason,
+      instanceId: request.instanceId,
+      origin: request.origin,
+      admissionId,
+    });
+    // A replaced adapter's ready edge may already have passed: re-decide now.
+    queueMicrotask(() => this.tryRefire(request.instanceId));
+    return admissionId;
+  }
+
   markFailed(admissionId: string, errorText?: string): void {
     this.pendingRedeliveries.delete(admissionId);
     this.transition(admissionId, 'failed', { errorText });
@@ -457,7 +526,7 @@ export class SessionAdmissionService {
     this.transition(admissionId, 'expired');
   }
 
-  private transition(admissionId: string, state: AdmissionState, extra?: { errorText?: string }): void {
+  private transition(admissionId: string, state: AdmissionState, extra?: { errorText?: string; suppressReason?: SuppressReason }): void {
     const store = this.getStore();
     if (!store) return;
     try {
@@ -545,7 +614,7 @@ export class SessionAdmissionService {
       // strict new-turn writer also requires the provider runtime to have
       // released ownership, while legacy mid-turn writers retain their
       // existing admission policy.
-      const decision = this.decide(instanceId, entry.requireReadyForInput);
+      const decision = this.decide(instanceId, entry.requireReadyForInput, entry.origin);
       if (decision.kind !== 'admitted') continue;
 
       const handler = this.redeliveryHandlers.get(entry.origin);
