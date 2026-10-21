@@ -72,7 +72,10 @@ export function registerBrowserGatewayHandlers(
     const manager = deps.instanceManager;
     const describeSession = (instanceId: string) => {
       const instance = manager.getInstance(instanceId);
-      if (!instance || !instance.historyThreadId || instance.status === 'terminated' || instance.status === 'failed') return undefined;
+      // Edit-and-resend retains its source in the instance map with the same
+      // conversation identity. It no longer owns that conversation's consent.
+      if (!instance || !instance.historyThreadId || instance.supersededBy ||
+        instance.status === 'superseded' || instance.status === 'terminated' || instance.status === 'failed') return undefined;
       return {
         instanceId: instance.id,
         taskScope: `conversation:${instance.historyThreadId}`,

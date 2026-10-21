@@ -1,6 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BrowserApprovalRequest } from '@contracts/types/browser';
 import type { IpcResponse } from '../../validated-handler';
 import type { AdmissionOutcome } from '../../../session/session-admission-service';
+import {
+  findCredentialAccessSession,
+  notifyCredentialAccessDecision,
+  resetCredentialAccessSessionResolverForTesting,
+  resolveCredentialAccessSession,
+} from '../../../browser-gateway/browser-credential-access-session';
 
 type IpcHandler = (event: unknown, payload?: unknown) => Promise<IpcResponse>;
 
@@ -75,6 +82,8 @@ import { registerBrowserGatewayHandlers } from '../browser-gateway-handlers';
 const fakeEvent = {};
 
 describe('registerBrowserGatewayHandlers', () => {
+  afterEach(() => resetCredentialAccessSessionResolverForTesting());
+
   beforeEach(() => {
     electronMocks.handlers.clear();
     vi.clearAllMocks();
@@ -211,6 +220,80 @@ describe('registerBrowserGatewayHandlers', () => {
       undefined,
       { automatedInput: true, internalSource: 'browser-gateway' },
     );
+  });
+
+  describe('saved-login conversation ownership after edit-and-resend', () => {
+    const current = {
+      id: 'current-placeholder', historyThreadId: 'conversation-placeholder',
+      displayName: 'Current conversation', status: 'idle',
+    };
+
+    function registerSessions(older: { status: string; supersededBy?: string }) {
+      const instances = [
+        { ...current, id: 'older-placeholder', ...older },
+        current,
+      ];
+      const sendInput = vi.fn().mockResolvedValue(undefined);
+      registerBrowserGatewayHandlers({
+        instanceManager: {
+          getInstance: (id: string) => instances.find((instance) => instance.id === id),
+          getAllInstances: () => instances,
+          sendInput,
+        } as never,
+      });
+      return { sendInput };
+    }
+
+    it.each([
+      { status: 'superseded' },
+      { status: 'idle', supersededBy: 'current-placeholder' },
+      { status: 'hibernated', supersededBy: 'current-placeholder' },
+    ])('routes consent only to the replacement when the old runtime is %j', async (older) => {
+      const { sendInput } = registerSessions(older);
+
+      expect(resolveCredentialAccessSession('older-placeholder')).toBeUndefined();
+      expect(findCredentialAccessSession('conversation:conversation-placeholder')).toEqual({
+        instanceId: 'current-placeholder', taskScope: 'conversation:conversation-placeholder',
+        sessionName: 'Current conversation',
+      });
+
+      await notifyCredentialAccessDecision({
+        requestId: 'request-placeholder', status: 'approved',
+        credentialAccess: { taskScope: 'conversation:conversation-placeholder' },
+      } as BrowserApprovalRequest);
+
+      expect(sendInput).toHaveBeenCalledExactlyOnceWith(
+        'current-placeholder', expect.stringContaining('approved by the user'),
+        undefined, { automatedInput: true, internalSource: 'browser-gateway' },
+      );
+    });
+
+    it('refuses consent routing when two eligible runtimes share a conversation', async () => {
+      const { sendInput } = registerSessions({ status: 'idle' });
+      expect(findCredentialAccessSession('conversation:conversation-placeholder')).toBeUndefined();
+
+      await notifyCredentialAccessDecision({
+        requestId: 'request-placeholder', status: 'approved',
+        credentialAccess: { taskScope: 'conversation:conversation-placeholder' },
+      } as BrowserApprovalRequest);
+
+      expect(sendInput).not.toHaveBeenCalled();
+    });
+
+    it('keeps a hibernated owner eligible after its replaced predecessor is excluded', () => {
+      const instances = [
+        { ...current, id: 'older-placeholder', status: 'superseded' },
+        { ...current, status: 'hibernated' },
+      ];
+      registerBrowserGatewayHandlers({
+        instanceManager: {
+          getInstance: (id: string) => instances.find((instance) => instance.id === id),
+          getAllInstances: () => instances,
+        } as never,
+      });
+      expect(findCredentialAccessSession('conversation:conversation-placeholder')?.instanceId)
+        .toBe('current-placeholder');
+    });
   });
 
   it('resumes the originating instance after the user denies a request', async () => {
