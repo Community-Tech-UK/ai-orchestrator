@@ -3,13 +3,17 @@ import * as path from 'node:path';
 
 /**
  * Folders too broad to index as one workspace: the filesystem root, the home
- * folder and its parent, `~/work`, and the system temp folder (`/tmp`,
- * `/private/tmp`). Indexing one of these walks every project and cache
- * beneath it; a session started in the home folder once grew codemem.sqlite
- * to ~97 GB, mostly free pages left behind when the oversized index was
- * pruned.
+ * folder and its parent, `~/work`, and the temp folders (`/tmp`,
+ * `/private/tmp` and the user temp folder). Indexing one of these walks every
+ * project and cache beneath it; a session started in the home folder once grew
+ * codemem.sqlite to ~97 GB, mostly free pages left behind when the oversized
+ * index was pruned.
  */
-export function isBroadWorkspaceRoot(workspacePath: string, homeDir = os.homedir()): boolean {
+export function isBroadWorkspaceRoot(
+  workspacePath: string,
+  homeDir = os.homedir(),
+  tempDir = os.tmpdir(),
+): boolean {
   const normalized = path.resolve(workspacePath);
   if (normalized === path.parse(normalized).root) {
     return true;
@@ -22,5 +26,6 @@ export function isBroadWorkspaceRoot(workspacePath: string, homeDir = os.homedir
     || normalized === path.join(home, 'work')
     || normalized === '/private/tmp'
     || normalized === '/tmp'
+    || normalized === path.resolve(tempDir)
   );
 }

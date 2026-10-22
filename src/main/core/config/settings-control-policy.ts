@@ -351,7 +351,8 @@ export const SETTINGS_TOOL_POLICY = {
   outputBufferSize: open(numberSettingSchema('outputBufferSize')),
   enableDiskStorage: open(z.boolean()),
   maxDiskStorageMB: open(numberSettingSchema('maxDiskStorageMB')),
-  scratchRetentionDays: open(numberSettingSchema('scratchRetentionDays')),
+  // Governs deleting folders, so only the user changes it (Settings screen).
+  scratchRetentionDays: readOnly(),
   memoryWarningThresholdMB: open(numberSettingSchema('memoryWarningThresholdMB')),
   autoTerminateOnMemoryPressure: open(z.boolean()),
   recordProviderEvents: open(z.boolean()),

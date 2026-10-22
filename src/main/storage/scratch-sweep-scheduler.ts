@@ -5,6 +5,7 @@ import { getRecentDirectoriesManager } from '../core/config/recent-directories-m
 import { getSettingsManager } from '../core/config/settings-manager';
 import { gitExec } from '../workspace/git/git-exec';
 import { sweepScratchFolders, type ScratchEntryDecision } from './scratch-sweep';
+import { wasNotificationShown } from './low-disk-space-watcher';
 
 const logger = getLogger('ScratchSweep');
 
@@ -62,17 +63,20 @@ export async function runScratchSweep(): Promise<ScratchEntryDecision[]> {
 
 function notifyNewUnsavedWork(paths: readonly string[], retentionDays: number): void {
   const fresh = paths.filter((entryPath) => !reportedUnsavedPaths.has(entryPath));
-  for (const entryPath of fresh) reportedUnsavedPaths.add(entryPath);
   if (fresh.length === 0) return;
   const listed = fresh.slice(0, MAX_PATHS_IN_NOTIFICATION).join(', ');
   const more = fresh.length > MAX_PATHS_IN_NOTIFICATION ? ` and ${fresh.length - MAX_PATHS_IN_NOTIFICATION} more` : '';
-  getNotificationService().notify({
+  const record = getNotificationService().notify({
     kind: 'scratch-unsaved-work',
     title: 'Old scratch folders kept: they hold unsaved work',
     body: `Harness did not delete ${fresh.length} scratch folder(s) older than ${retentionDays} days because they contain `
       + `changes that are not in the project yet: ${listed}${more}. Save what you need, then delete them.`,
     fingerprintFields: { paths: fresh },
   });
+  // A notice held back by quiet hours or cooldown is offered again next sweep.
+  if (wasNotificationShown(record.delivery)) {
+    for (const entryPath of fresh) reportedUnsavedPaths.add(entryPath);
+  }
 }
 
 export function startScratchSweepScheduler(): void {

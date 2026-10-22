@@ -17,8 +17,11 @@ import { gitExec } from '../workspace/git/git-exec';
 
 /** How deep below a project root to look for `_scratch/` folders. */
 const SCRATCH_SEARCH_DEPTH = 3;
-/** How deep inside a scratch entry to look for git checkouts. */
-const CHECKOUT_SEARCH_DEPTH = 6;
+/**
+ * Most folders walked inside one entry while looking for git repositories. An
+ * entry too large to inspect fully is kept rather than deleted unchecked.
+ */
+const MAX_FOLDERS_INSPECTED = 200_000;
 /** Folders never searched for `_scratch/`. */
 const SCRATCH_SEARCH_SKIP = new Set(['node_modules', '.git', '.worktrees', '_archive', '.venv', 'venv', '__pycache__']);
 /**
@@ -89,6 +92,12 @@ async function decideAndSweep(
   try {
     if (await hasActivitySince(entryPath, options.cutoffMs, options.activityTimeMs)) {
       return { kind: 'kept-recent', path: entryPath };
+    }
+    if ((await fs.lstat(entryPath)).isSymbolicLink()) {
+      // Remove only the link. Its target may be a real checkout elsewhere;
+      // following it into git (or `git worktree remove`) would delete that.
+      if (!options.dryRun) await fs.unlink(entryPath);
+      return { kind: 'removed', path: entryPath };
     }
     const inspection = await inspectEntry(entryPath, ownerRepo);
     if (inspection.unsaved) return { kind: 'kept-unsaved-work', path: entryPath, reason: inspection.unsaved };
@@ -174,11 +183,19 @@ interface RepoInEntry {
 async function inspectEntry(entryPath: string, ownerRepo: string | null): Promise<EntryInspection> {
   const linkedWorktrees: EntryInspection['linkedWorktrees'] = [];
   const entryRealPath = await fs.realpath(entryPath);
-  for (const repo of await findRepos(entryPath, CHECKOUT_SEARCH_DEPTH)) {
+  const search = { repos: [] as RepoInEntry[], foldersLeft: MAX_FOLDERS_INSPECTED };
+  await findRepos(entryPath, search);
+  if (search.foldersLeft < 0) return unsaved(`${entryPath} is too large to check for unsaved git work`);
+  for (const repo of search.repos) {
     if (!repo.bare) {
-      // --untracked-files=all overrides a status.showUntrackedFiles=no config;
-      // gitignored files (node_modules, build output) still do not show.
-      const status = await gitExec(['status', '--porcelain', '--untracked-files=all'], repo.path).catch(() => null);
+      // --untracked-files=all overrides a status.showUntrackedFiles=no config,
+      // and --ignore-submodules=none a diff.ignoreSubmodules one. Gitignored
+      // files (node_modules, build output) still do not show; repositories
+      // nested inside ignored folders are found and checked on their own.
+      const status = await gitExec(
+        ['status', '--porcelain', '--untracked-files=all', '--ignore-submodules=none'],
+        repo.path,
+      ).catch(() => null);
       if (status === null) return unsaved(`could not read git status in ${repo.path}`);
       if (status.length > 0) return unsaved(`uncommitted changes in ${repo.path}`);
     }
@@ -197,6 +214,9 @@ async function inspectEntry(entryPath: string, ownerRepo: string | null): Promis
       linkedWorktrees.push({ checkout: repo.path, commonDir });
       continue;
     }
+
+    const outsideWorktree = await findWorktreeOutside(commonDir, entryRealPath);
+    if (outsideWorktree) return unsaved(`${repo.path} has a linked worktree outside this folder at ${outsideWorktree}`);
 
     const local = await gitExec(['rev-list', '--all', '--not', '--remotes'], repo.path).catch(() => null);
     if (local === null) return unsaved(`could not list commits in ${repo.path}`);
@@ -240,18 +260,39 @@ function isInside(target: string, dir: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-async function findRepos(dir: string, depth: number): Promise<RepoInEntry[]> {
+/**
+ * Collect every git repository under `dir`, including ones nested inside
+ * another checkout (an ignored `vendor/` clone, a `.worktrees/` worktree, a
+ * submodule). Symlinks are not followed. `foldersLeft` going negative means
+ * the walk stopped early.
+ */
+async function findRepos(dir: string, search: { repos: RepoInEntry[]; foldersLeft: number }): Promise<void> {
+  if (--search.foldersLeft < 0) return;
   const entries = await readDirSafe(dir);
   const names = new Set(entries.map((entry) => entry.name));
-  if (names.has('.git')) return [{ path: dir, bare: false }];
-  if (names.has('HEAD') && names.has('objects') && names.has('refs')) return [{ path: dir, bare: true }];
-  if (depth <= 0) return [];
-  const found: RepoInEntry[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name === 'node_modules') continue;
-    found.push(...await findRepos(path.join(dir, entry.name), depth - 1));
+  if (names.has('.git')) {
+    search.repos.push({ path: dir, bare: false });
+  } else if (names.has('HEAD') && names.has('objects') && names.has('refs')) {
+    search.repos.push({ path: dir, bare: true });
+    return;
   }
-  return found;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === 'node_modules' || entry.name === '.git') continue;
+    await findRepos(path.join(dir, entry.name), search);
+    if (search.foldersLeft < 0) return;
+  }
+}
+
+/** A worktree registered in `commonDir` whose checkout still exists outside the entry. */
+async function findWorktreeOutside(commonDir: string, entryRealPath: string): Promise<string | null> {
+  for (const worktree of await readDirSafe(path.join(commonDir, 'worktrees'))) {
+    const gitdirFile = path.join(commonDir, 'worktrees', worktree.name, 'gitdir');
+    const pointer = (await fs.readFile(gitdirFile, 'utf-8').catch(() => '')).trim();
+    if (!pointer) continue;
+    const checkout = await fs.realpath(path.dirname(path.resolve(commonDir, pointer))).catch(() => null);
+    if (checkout && !isInside(checkout, entryRealPath)) return checkout;
+  }
+  return null;
 }
 
 async function gitToplevel(dir: string): Promise<string | null> {

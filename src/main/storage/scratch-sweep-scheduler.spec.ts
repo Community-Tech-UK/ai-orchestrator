@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ScratchEntryDecision } from './scratch-sweep';
 
 const mocks = vi.hoisted(() => ({
-  notify: vi.fn(),
+  notify: vi.fn(() => ({ delivery: 'desktop' })),
   retentionDays: 14,
   directories: [] as { path: string; nodeId?: string }[],
   decisions: [] as ScratchEntryDecision[],
@@ -31,6 +31,7 @@ describe('runScratchSweep', () => {
   beforeEach(() => {
     _resetForTesting();
     mocks.notify.mockReset();
+    mocks.notify.mockImplementation(() => ({ delivery: 'desktop' }));
     mocks.retentionDays = 14;
     mocks.directories = [];
     mocks.decisions = [];
@@ -74,6 +75,19 @@ describe('runScratchSweep', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('offers a held-back unsaved-work notice again on the next sweep', async () => {
+    mocks.decisions = [
+      { kind: 'kept-unsaved-work', path: '/work/app/_scratch/gate-1', reason: 'uncommitted changes in …' },
+    ];
+    mocks.notify.mockImplementationOnce(() => ({ delivery: 'quiet-hours' }));
+
+    await runScratchSweep();
+    await runScratchSweep();
+    await runScratchSweep();
+
+    expect(mocks.notify).toHaveBeenCalledTimes(2);
   });
 
   it('does not sweep when retention is turned off', async () => {

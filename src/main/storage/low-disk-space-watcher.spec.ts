@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  wasNotificationShown,
   LOW_DISK_CRITICAL_BYTES,
   LOW_DISK_WARNING_BYTES,
   LowDiskSpaceWatcher,
@@ -14,7 +15,7 @@ const GB = 1024 * 1024 * 1024;
 
 function watcherWith(freeBytes: number[], clock = { now: Date.UTC(2026, 9, 22) }) {
   const readings = [...freeBytes];
-  const notify = vi.fn();
+  const notify = vi.fn((): boolean => true);
   const watcher = new LowDiskSpaceWatcher({
     getFreeBytes: async () => readings.shift() ?? 0,
     notify,
@@ -28,6 +29,16 @@ describe('diskSpaceLevel', () => {
     expect(diskSpaceLevel(LOW_DISK_WARNING_BYTES)).toBe('ok');
     expect(diskSpaceLevel(LOW_DISK_WARNING_BYTES - 1)).toBe('low');
     expect(diskSpaceLevel(LOW_DISK_CRITICAL_BYTES - 1)).toBe('critical');
+  });
+});
+
+describe('wasNotificationShown', () => {
+  it('treats held-back deliveries as not shown', () => {
+    expect(wasNotificationShown('desktop')).toBe(true);
+    expect(wasNotificationShown('desktop-unavailable')).toBe(true);
+    expect(wasNotificationShown('quiet-hours')).toBe(false);
+    expect(wasNotificationShown('cooldown-suppressed')).toBe(false);
+    expect(wasNotificationShown('fingerprint-suppressed')).toBe(false);
   });
 });
 
@@ -86,8 +97,22 @@ describe('LowDiskSpaceWatcher', () => {
     expect(notify).toHaveBeenCalledTimes(2);
   });
 
+  it('retries an hour later when quiet hours held the notice back', async () => {
+    const clock = { now: Date.UTC(2026, 9, 22) };
+    const { watcher, notify } = watcherWith([30 * GB, 30 * GB, 30 * GB], clock);
+    notify.mockReturnValueOnce(false);
+
+    await watcher.check();
+    clock.now += 30 * 60 * 1000;
+    await watcher.check();
+    clock.now += 30 * 60 * 1000;
+    await watcher.check();
+
+    expect(notify).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps the previous level when free space cannot be read', async () => {
-    const notify = vi.fn();
+    const notify = vi.fn((): boolean => true);
     const watcher = new LowDiskSpaceWatcher({
       getFreeBytes: async () => { throw new Error('statfs failed'); },
       notify,

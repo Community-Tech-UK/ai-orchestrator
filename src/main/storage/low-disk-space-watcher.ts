@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import { getLogger } from '../logging/logger';
 import { getNotificationService } from '../notifications/notification-service';
 import type { NotificationInput } from '../notifications/notification-service';
+import type { NotificationDelivery } from '../../shared/types/notification.types';
 
 const logger = getLogger('LowDiskSpaceWatcher');
 
@@ -11,6 +12,8 @@ export const LOW_DISK_CRITICAL_BYTES = 10 * GB;
 const LOW_DISK_POLL_MS = 10 * 60 * 1000;
 /** Repeat while space stays low: quiet hours or cooldown may have hidden the first notice. */
 const LOW_DISK_REMINDER_MS = 24 * 60 * 60 * 1000;
+/** Retry a held-back notice hourly; every attempt adds an entry to the in-app list. */
+const LOW_DISK_RETRY_MS = 60 * 60 * 1000;
 
 export type DiskSpaceLevel = 'ok' | 'low' | 'critical';
 
@@ -22,8 +25,14 @@ export function diskSpaceLevel(freeBytes: number): DiskSpaceLevel {
 
 export interface LowDiskSpaceWatcherDeps {
   getFreeBytes: () => Promise<number>;
-  notify: (input: NotificationInput) => void;
+  /** Returns false when the notice was held back (quiet hours, cooldown, duplicate). */
+  notify: (input: NotificationInput) => boolean;
   now?: () => number;
+}
+
+/** Whether a notification actually reached the user rather than being held back. */
+export function wasNotificationShown(delivery: NotificationDelivery): boolean {
+  return delivery === 'desktop' || delivery === 'desktop-unavailable';
 }
 
 /**
@@ -32,7 +41,8 @@ export interface LowDiskSpaceWatcherDeps {
  * agents kept writing repo copies and the code index kept growing.
  *
  * Notifies when the level gets worse (ok → low → critical) and once a day
- * while it stays low, not on every poll, and resets once space recovers.
+ * while it stays low, not on every poll, and resets once space recovers. A
+ * notice held back by quiet hours or cooldown is retried an hour later.
  */
 export class LowDiskSpaceWatcher {
   private lastLevel: DiskSpaceLevel = 'ok';
@@ -67,12 +77,12 @@ export class LowDiskSpaceWatcher {
     const worsened = severity(level) > severity(this.lastLevel);
     const reminderDue = level !== 'ok' && now - this.lastNotifiedAt >= LOW_DISK_REMINDER_MS;
     this.lastLevel = level;
+    if (level === 'ok') this.lastNotifiedAt = 0;
     if (!worsened && !reminderDue) return level;
-    this.lastNotifiedAt = now;
 
     const freeGb = Math.max(0, Math.floor(freeBytes / GB));
     logger.warn('Disk space is running low', { freeBytes, level });
-    this.deps.notify({
+    const shown = this.deps.notify({
       kind: 'low-disk-space',
       title: level === 'critical' ? 'Your disk is almost full' : 'Your disk is getting full',
       body: level === 'critical'
@@ -81,6 +91,8 @@ export class LowDiskSpaceWatcher {
       urgency: level === 'critical' ? 'critical' : 'normal',
       fingerprintFields: { level },
     });
+    // Held back: try again in an hour rather than waiting a day.
+    this.lastNotifiedAt = shown ? now : now - LOW_DISK_REMINDER_MS + LOW_DISK_RETRY_MS;
     return level;
   }
 }
@@ -99,7 +111,7 @@ export function startLowDiskSpaceWatcher(dataPath: string): LowDiskSpaceWatcher 
         const disk = await fs.statfs(dataPath);
         return disk.bavail * disk.bsize;
       },
-      notify: (input) => { getNotificationService().notify(input); },
+      notify: (input) => wasNotificationShown(getNotificationService().notify(input).delivery),
     });
     instance.start();
   }

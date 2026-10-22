@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, lutimesSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -244,6 +246,92 @@ describe('sweepScratchFolders', () => {
 
     expect(await sweepScratchFolders({ projectRoots: [project], retentionDays: Number.NaN, now: NOW })).toEqual([]);
     expect(existsSync(join(scratch, 'old-gate'))).toBe(true);
+  });
+
+  it('checks a repository nested inside an ignored folder of another checkout', async () => {
+    const outer = join(scratch, 'outer-gate');
+    git(base, 'clone', '-q', project, outer);
+    writeFileSync(join(outer, '.gitignore'), 'vendor/\n');
+    git(outer, 'add', '.gitignore');
+    git(outer, 'commit', '-q', '-m', 'ignore vendor');
+    git(project, 'fetch', '-q', outer, 'main:outer-main');
+    const inner = join(outer, 'vendor', 'lib');
+    mkdirSync(join(outer, 'vendor'));
+    git(base, 'clone', '-q', project, inner);
+    writeFileSync(join(inner, 'fix.ts'), 'export {};\n');
+    git(inner, 'add', 'fix.ts');
+    git(inner, 'commit', '-q', '-m', 'only in the nested clone');
+    ageTree(outer, OLD);
+
+    const [decision] = await sweep();
+
+    expect(decision).toMatchObject({ kind: 'kept-unsaved-work', reason: expect.stringContaining(inner) });
+  });
+
+  it('checks repositories however deeply they are nested', async () => {
+    const deep = join(scratch, 'deep-gate', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'repo');
+    mkdirSync(join(scratch, 'deep-gate', 'a', 'b', 'c', 'd', 'e', 'f', 'g'), { recursive: true });
+    git(base, 'clone', '-q', project, deep);
+    writeFileSync(join(deep, 'fix.ts'), 'export {};\n');
+    git(deep, 'add', 'fix.ts');
+    git(deep, 'commit', '-q', '-m', 'deep commit');
+    ageTree(join(scratch, 'deep-gate'), OLD);
+
+    const [decision] = await sweep();
+
+    expect(decision).toMatchObject({ kind: 'kept-unsaved-work' });
+  });
+
+  it('removes only the link when an entry is a symlink to a real worktree', async () => {
+    const realWorktree = join(base, 'real-worktree');
+    git(project, 'worktree', 'add', '-q', '--detach', realWorktree, 'HEAD');
+    symlinkSync(realWorktree, join(scratch, 'latest'));
+    ageTree(realWorktree, OLD);
+    lutimesSync(join(scratch, 'latest'), OLD, OLD);
+
+    const [decision] = await sweep();
+
+    expect(decision).toMatchObject({ kind: 'removed', path: join(scratch, 'latest') });
+    expect(existsSync(join(scratch, 'latest'))).toBe(false);
+    expect(existsSync(join(realWorktree, 'README.md'))).toBe(true);
+    expect(git(project, 'worktree', 'list')).toContain('real-worktree');
+  });
+
+  it('keeps an old clone that a worktree outside the folder still depends on', async () => {
+    const clone = join(scratch, 'shared-clone');
+    git(base, 'clone', '-q', project, clone);
+    git(clone, 'worktree', 'add', '-q', '--detach', join(base, 'outside-worktree'), 'HEAD');
+    ageTree(clone, OLD);
+
+    const [decision] = await sweep();
+
+    expect(decision).toMatchObject({ kind: 'kept-unsaved-work', reason: expect.stringContaining('outside this folder') });
+    expect(existsSync(clone)).toBe(true);
+  });
+
+  it('keeps an old clone whose submodule has a branch the project does not have', async () => {
+    const library = join(base, 'library');
+    mkdirSync(library);
+    git(library, 'init', '-q', '-b', 'main');
+    writeFileSync(join(library, 'lib.ts'), 'export {};\n');
+    git(library, 'add', 'lib.ts');
+    git(library, 'commit', '-q', '-m', 'library');
+    const clone = join(scratch, 'submodule-gate');
+    git(base, 'clone', '-q', project, clone);
+    git(clone, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', library, 'lib');
+    git(clone, 'commit', '-q', '-m', 'add submodule');
+    git(project, 'fetch', '-q', clone, 'main:with-submodule');
+    const submodule = join(clone, 'lib');
+    git(submodule, 'checkout', '-q', '-b', 'mywork');
+    writeFileSync(join(submodule, 'fix.ts'), 'export {};\n');
+    git(submodule, 'add', 'fix.ts');
+    git(submodule, 'commit', '-q', '-m', 'submodule-only work');
+    git(submodule, 'checkout', '-q', '--detach', 'HEAD~1');
+    ageTree(clone, OLD);
+
+    const [decision] = await sweep();
+
+    expect(decision).toMatchObject({ kind: 'kept-unsaved-work' });
   });
 
   it('removes old entries that agents sealed read-only', async () => {

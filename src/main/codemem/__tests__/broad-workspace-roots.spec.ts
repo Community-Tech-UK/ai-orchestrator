@@ -22,6 +22,11 @@ describe('isBroadWorkspaceRoot', () => {
     '/Users/alex/Documents',
     '/private/tmp/checkout',
   ])('allows %s', (workspacePath) => {
-    expect(isBroadWorkspaceRoot(workspacePath, home)).toBe(false);
+    expect(isBroadWorkspaceRoot(workspacePath, home, '/var/folders/xy/T')).toBe(false);
+  });
+
+  it('treats the user temp folder itself as too broad, but not folders inside it', () => {
+    expect(isBroadWorkspaceRoot('/var/folders/xy/T/', home, '/var/folders/xy/T')).toBe(true);
+    expect(isBroadWorkspaceRoot('/var/folders/xy/T/checkout', home, '/var/folders/xy/T')).toBe(false);
   });
 });

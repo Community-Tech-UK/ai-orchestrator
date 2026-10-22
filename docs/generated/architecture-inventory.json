@@ -7206,12 +7206,12 @@
       "lines": 871
     },
     {
-      "path": "src/main/instance/lifecycle/__tests__/interrupt-respawn-handler.spec.ts",
+      "path": "src/main/core/config/settings-control-policy.ts",
       "lines": 870
     },
     {
-      "path": "src/main/core/config/settings-control-policy.ts",
-      "lines": 869
+      "path": "src/main/instance/lifecycle/__tests__/interrupt-respawn-handler.spec.ts",
+      "lines": 870
     },
     {
       "path": "src/renderer/app/features/verification/config/api-key-manager.component.ts",
