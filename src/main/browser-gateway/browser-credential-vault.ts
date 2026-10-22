@@ -1,5 +1,7 @@
 import { generateStrongPassword, hostOf, originsMatch, safeJson } from './browser-credential-secret-utils';
+import { isStaleSessionFailure } from './browser-credential-stale-session';
 export { generateStrongPassword, secretVerificationDigest, verifyFilledSecret } from './browser-credential-secret-utils';
+export { isStaleSessionFailure } from './browser-credential-stale-session';
 
 /**
  * Agent Credential Vault (ACV) — main-process-only Bitwarden bridge for
@@ -322,6 +324,11 @@ export class CredentialVault {
   async enrolExistingCredential(
     input: EnrolExistingCredentialInput,
   ): Promise<EnrolExistingCredentialResult> {
+    // `bw edit item` (the move below) sends the whole local body, and the server
+    // refuses one older than its own copy. Without this, an item changed elsewhere
+    // (another device, a move into an organization) can never be enrolled. If the
+    // sync fails, the edit fails closed rather than overwriting newer data.
+    await this.syncBestEffort();
     const existingFolderId = await this.findFolderId();
     const item = await this.resolveExistingItem(input.item);
     if (input.expectedVaultItemRef !== undefined && item.id !== input.expectedVaultItemRef) {
@@ -368,6 +375,7 @@ export class CredentialVault {
 
   /** Read only the non-secret facts needed by a human approval. No vault mutation. */
   async inspectExistingCredential(input: { item: string; origin: string }): Promise<ExistingCredentialInspection> {
+    await this.syncBestEffort();
     const item = await this.resolveExistingItem(input.item);
     const binding = this.assertExistingBinding(item.id, input.origin);
     const folderId = await this.findFolderId();
@@ -558,6 +566,19 @@ export class CredentialVault {
     await this.bw(['sync']);
   }
 
+  /**
+   * Refresh the CLI's local vault copy before a read a human will rely on, so a
+   * login created or changed elsewhere is seen. An unreachable server is not
+   * fatal: the cached copy still answers, as it did before this refresh existed.
+   */
+  private async syncBestEffort(): Promise<void> {
+    try {
+      await this.bw(['sync']);
+    } catch (error) {
+      if (!(error instanceof CredentialVaultError) || error.code !== 'bw_command_failed') throw error;
+    }
+  }
+
   private async bw(args: string[], input?: string): Promise<string> {
     let attempt = await this.runOnce(args, input);
     let result = attempt.result;
@@ -634,39 +655,6 @@ export class CredentialVault {
   }
 }
 
-/**
- * Does this failure look like the session we hold is no longer valid?
- *
- * Deliberately narrow. Retrying every failure would double the work on a genuine
- * error (a missing item, a malformed edit) and could repeat a mutation. These
- * are the messages the Bitwarden CLI emits when the session key it was handed is
- * rejected, matched case-insensitively.
- *
- * Command output is inspected but never logged or returned: a failed command
- * can echo an encoded item body containing a password. Stdout is scanned only
- * when it is not valid JSON so ordinary item bodies cannot trigger recovery.
- */
-export function isStaleSessionFailure(result: BwCommandResult): boolean {
-  if (containsStaleSessionSignal(result.stderr)) {
-    return true;
-  }
-  const stdout = result.stdout.trim();
-  return stdout !== '' && !isJsonText(stdout) && containsStaleSessionSignal(stdout);
-}
-
-function containsStaleSessionSignal(value: string): boolean {
-  const text = value.toLowerCase();
-  return (
-    text.includes('not logged in')
-    || text.includes('vault is locked')
-    || text.includes('session key is invalid')
-    || text.includes('invalid session')
-    || text.includes('mac failed')
-    || text.includes('master password: [input is hidden]')
-    || text.includes('err_use_after_close')
-  );
-}
-
 function recoveryFailure(
   reason: CredentialVaultReauthenticationFailureReason,
 ): CredentialVaultError {
@@ -675,15 +663,6 @@ function recoveryFailure(
     `Credential vault re-lock recovery failed (${code})`,
     code,
   );
-}
-
-function isJsonText(value: string): boolean {
-  try {
-    JSON.parse(value);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function isFolderSummaryArray(value: unknown): value is { id: string; name: string }[] {

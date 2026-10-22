@@ -44,6 +44,22 @@ describe('pair-cli', () => {
     expect(stdout.mock.calls.map((call) => String(call[0])).join('\n')).not.toContain('pair-token');
   });
 
+  it("removes the previous pairing's worker report", async () => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    const reportPath = path.join(tempDir, 'worker-node.status.json');
+    fs.writeFileSync(reportPath, JSON.stringify({ state: 'failed', message: 'old pairing' }));
+
+    await runPairCommand([
+      'ai-orchestrator://remote-node/pair?host=mac&port=4878&namespace=default&token=pair-token&requireTls=false',
+      '--config',
+      configPath,
+      '--no-probe',
+      '--no-start',
+    ], { stdout: vi.fn() });
+
+    expect(fs.existsSync(reportPath)).toBe(false);
+  });
+
   it('prompts for display name and working directories during interactive pairing', async () => {
     const configPath = path.join(tempDir, 'worker-node.json');
     const prompt = vi.fn()

@@ -59,6 +59,7 @@ export interface WorkerModeRuntimeServiceOptions {
   spawn?: SpawnWorker;
   resolveCommand?: () => WorkerModeRuntimeCommand;
   killTree?: KillWorkerTree;
+  now?: () => number;
 }
 
 export class WorkerModeRuntimeService {
@@ -68,11 +69,14 @@ export class WorkerModeRuntimeService {
   private child: ChildProcessLike | null = null;
   private activeCommand: string | undefined;
   private lastError: string | undefined;
+  private stopRequestedAt: number | null = null;
+  private readonly now: () => number;
 
   constructor(options: WorkerModeRuntimeServiceOptions = {}) {
     this.spawn = options.spawn ?? defaultSpawn;
     this.resolveCommand = options.resolveCommand ?? (() => resolveWorkerModeRuntimeCommand());
     this.killTree = options.killTree ?? defaultKillWorkerTree;
+    this.now = options.now ?? Date.now;
   }
 
   start(options: WorkerModeRuntimeStartOptions): WorkerModeRuntimeStatus {
@@ -93,6 +97,7 @@ export class WorkerModeRuntimeService {
     this.child = child;
     this.activeCommand = resolved.command;
     this.lastError = undefined;
+    this.stopRequestedAt = null;
 
     child.once('exit', (code, signal) => {
       if (this.child === child) {
@@ -159,9 +164,15 @@ export class WorkerModeRuntimeService {
     const child = this.child;
     this.child = null;
     if (child) {
+      this.stopRequestedAt = this.now();
       this.killTree(child);
     }
     return this.status();
+  }
+
+  /** Harness stopped its worker within the last few seconds (it may still be exiting). */
+  stoppedRecently(windowMs = STOP_WAIT_TIMEOUT_MS): boolean {
+    return this.stopRequestedAt !== null && this.now() - this.stopRequestedAt < windowMs;
   }
 
   /**

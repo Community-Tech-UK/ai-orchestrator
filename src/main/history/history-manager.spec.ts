@@ -630,6 +630,62 @@ describe('HistoryManager', () => {
     expect(conversation?.messages).toEqual([]);
   });
 
+  it('does not let a failed restore attempt with no conversation replace the saved thread', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+    const savedEntry = {
+      id: 'entry-saved-thread',
+      displayName: 'Saved thread',
+      createdAt: 50,
+      endedAt: 300,
+      historyThreadId: 'thread-saved',
+      workingDirectory: '/tmp/project',
+      messageCount: 2,
+      firstUserMessage: 'Saved prompt',
+      lastUserMessage: 'Saved prompt',
+      status: 'completed' as const,
+      originalInstanceId: 'instance-before-restore',
+      parentId: null,
+      sessionId: 'session-saved',
+      provider: 'copilot' as const,
+      currentModel: 'claude-opus-5.5',
+    };
+    const savedMessages = [
+      message('saved-user', 'user', 'Saved prompt', 100),
+      message('saved-assistant', 'assistant', 'Saved answer', 200),
+    ];
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, lastUpdated: Date.now(), entries: [savedEntry] })
+    );
+    fs.writeFileSync(
+      path.join(storageDir, `${savedEntry.id}.json.gz`),
+      zlib.gzipSync(JSON.stringify({ entry: savedEntry, messages: savedMessages }))
+    );
+
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+    await manager.startupTasks;
+
+    // A native-resume attempt whose CLI exited during startup: the restore
+    // coordinator empties its buffer and terminates it, which archives it.
+    const outcome = await manager.archiveInstance(makeInstance({
+      id: 'instance-failed-resume',
+      historyThreadId: 'thread-saved',
+      sessionId: 'session-saved',
+      provider: 'copilot',
+      status: 'error',
+      outputBuffer: [],
+    }), 'error');
+
+    expect(outcome).toBe('covered');
+    expect(manager.getEntries()).toEqual([
+      expect.objectContaining({ id: 'entry-saved-thread', messageCount: 2 }),
+    ]);
+    const conversation = await manager.loadConversation('entry-saved-thread');
+    expect(conversation?.messages.map((item) => item.id)).toEqual(['saved-user', 'saved-assistant']);
+  });
+
   it('logs duplicate archive skips without raw instance identifiers', async () => {
     const { HistoryManager } = await import('./history-manager');
     const manager = track(new HistoryManager());

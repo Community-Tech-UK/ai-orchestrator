@@ -1042,11 +1042,16 @@ describe('InstanceManager', () => {
     return instance;
   }
 
-  function seedConversation(instance: { outputBuffer: Array<{ id: string; timestamp: number; type: string; content: string }> }): void {
+  function seedConversation(instance: {
+    outputBuffer: Array<{ id: string; timestamp: number; type: string; content: string }>;
+    providerSessionPersisted?: boolean;
+  }): void {
     instance.outputBuffer.push(
       { id: 'm1', timestamp: 1, type: 'user', content: 'hello' },
       { id: 'm2', timestamp: 2, type: 'assistant', content: 'hi there' },
     );
+    // A settled turn is what marks the provider session stored (busy → idle).
+    instance.providerSessionPersisted = true;
   }
 
   describe('requestYoloModeToggle (reconciler-backed)', () => {

@@ -162,6 +162,17 @@ describe('announceRuntimeChangeSet (LT-030)', () => {
     expect(adapter.sendInput).not.toHaveBeenCalled();
   });
 
+  it('renders transcript-only notices without sending or queueing anything', async () => {
+    const emitted: string[] = [];
+    const adapter = { sendInput: vi.fn(async () => undefined), queueNextPromptContext: vi.fn() };
+    await announceRuntimeChangeSet({ instance, adapter, emitSystemNotice: (_instance, text) => { emitted.push(text); },
+      notices: [notice('ACCOUNT', 'account-changed')], preamble: 'REPLAY', delivery: 'transcript-only',
+    } as Parameters<typeof announceRuntimeChangeSet>[0]);
+    expect(emitted).toEqual(['ACCOUNT']);
+    expect(adapter.sendInput).not.toHaveBeenCalled();
+    expect(adapter.queueNextPromptContext).not.toHaveBeenCalled();
+  });
+
   it('renders the divergence line too, and sends nothing when there is no body', async () => {
     const emitSystemNotice = vi.fn();
     const adapter = { sendInput: vi.fn() } as never;

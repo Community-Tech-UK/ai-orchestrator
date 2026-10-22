@@ -16,6 +16,8 @@ import {
   pruneUnreferencedChunks as pruneUnreferencedChunksFromDb,
   type WorkspaceIndexStats,
   vacuumFreelistPages as vacuumFreelistPagesInDb,
+  type VacuumFreelistOptions,
+  type VacuumFreelistResult,
 } from './cas-workspace-index-maintenance';
 
 const logger = getLogger('CasStore');
@@ -603,8 +605,8 @@ export class CasStore {
     optimizeSearchIndexInDb(this.db);
   }
 
-  vacuumFreelistPages(): void {
-    vacuumFreelistPagesInDb(this.db);
+  vacuumFreelistPages(options?: VacuumFreelistOptions): VacuumFreelistResult {
+    return vacuumFreelistPagesInDb(this.db, options);
   }
 
   upsertIndexStatus(status: CodeIndexStatusRecord): void {

@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnDestroy,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import QRCode from 'qrcode';
 import {
   PairBothIpcService,
@@ -6,6 +14,15 @@ import {
 } from '../../core/services/ipc/pair-both-ipc.service';
 import type { PairBothSessionState } from '../../../../shared/types/pair-both.types';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
+
+/**
+ * After pairing, refresh the node list this often until the paired computer
+ * shows up (or ten minutes pass): the store's live updates may not be running
+ * if its first load failed.
+ */
+const WATCH_INTERVAL_MS = 5_000;
+const WATCH_ATTEMPTS = 120;
 
 type CoordinatorPairingUiState =
   | 'idle'
@@ -79,7 +96,16 @@ type CoordinatorPairingUiState =
       }
 
       @if (uiState() === 'completed') {
-        <div class="pair-notice success">Pairing approved. The worker can now register normally.</div>
+        @if (newlyConnectedNode(); as node) {
+          <div class="pair-notice success" role="status">
+            {{ node.name }} is connected. Your main Harness can now send it work.
+          </div>
+        } @else {
+          <div class="pair-notice success" role="status">
+            <strong>Paired with {{ pairedMachineName() }}.</strong>
+            <span>Now press Start Worker on {{ pairedMachineName() }}. This message will change once it connects.</span>
+          </div>
+        }
       }
     </section>
   `,
@@ -222,6 +248,7 @@ type CoordinatorPairingUiState =
 export class CoordinatorPairingComponent implements OnDestroy {
   private readonly pairBoth = inject(PairBothIpcService);
   private readonly clipboard = inject(CLIPBOARD_SERVICE);
+  private readonly remoteNodes = inject(RemoteNodeStore);
 
   protected readonly uiState = signal<CoordinatorPairingUiState>('idle');
   protected readonly active = signal<PairBothCoordinatorStartResult | null>(null);
@@ -229,14 +256,55 @@ export class CoordinatorPairingComponent implements OnDestroy {
   protected readonly error = signal<string | null>(null);
   protected readonly qrCodeDataUrl = signal('');
   protected readonly discoveryNotice = signal<string | null>(null);
+  protected readonly pairedMachineName = signal('the other computer');
+  /**
+   * Computers already online when pairing finished. Pairing does not tell this
+   * Harness the new worker's node id, so "connected" means a computer that was
+   * not online then has come online since. One that goes offline (a re-paired
+   * worker restarting) leaves the set, so its return counts too.
+   */
+  private readonly onlineAtCompletion = signal<ReadonlySet<string> | null>(null);
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private destroyed = false;
+
+  protected readonly newlyConnectedNode = computed(() => {
+    const before = this.onlineAtCompletion();
+    if (!before) {
+      return null;
+    }
+    // The pairing gives the worker this machine name as its node name
+    // (pair-both-session-store.ts), so a match is the computer just paired.
+    // Anything else coming online is some other computer: never name it.
+    const paired = hostLabel(this.pairedMachineName());
+    const matches = this.remoteNodes.connectedNodes()
+      .filter((node) => !before.has(node.id) && hostLabel(node.name) === paired);
+    // Two new computers with the same name: do not guess which one paired.
+    return matches.length === 1 ? matches[0] : null;
+  });
+
+  constructor() {
+    void this.remoteNodes.initialize().catch(() => undefined);
+    effect(() => {
+      const before = this.onlineAtCompletion();
+      if (!before) {
+        return;
+      }
+      const online = new Set(this.remoteNodes.connectedNodes().map((node) => node.id));
+      const stillOnline = [...before].filter((id) => online.has(id));
+      if (stillOnline.length !== before.size) {
+        this.onlineAtCompletion.set(new Set(stillOnline));
+      }
+    });
+  }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     this.clearPoll();
   }
 
   protected async startPairing(): Promise<void> {
     this.error.set(null);
+    this.onlineAtCompletion.set(null);
     try {
       const active = await this.pairBoth.startCoordinatorPairing();
       this.active.set(active);
@@ -311,6 +379,32 @@ export class CoordinatorPairingComponent implements OnDestroy {
     this.applySessionUiState(latest);
   }
 
+  /**
+   * Snapshot the computers online now, from a fresh list (the store may not
+   * have loaded yet, and an empty snapshot would make every computer already
+   * online look newly connected), then keep refreshing until the paired
+   * computer appears.
+   */
+  private async watchForPairedComputer(): Promise<void> {
+    for (let attempt = 0; attempt < WATCH_ATTEMPTS; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, WATCH_INTERVAL_MS));
+      }
+      if (this.destroyed || this.uiState() !== 'completed' || this.newlyConnectedNode()) {
+        return;
+      }
+      try {
+        await this.remoteNodes.refresh();
+      } catch {
+        // Without a trustworthy list, name nobody yet; try again shortly.
+        continue;
+      }
+      if (this.uiState() === 'completed' && !this.onlineAtCompletion()) {
+        this.onlineAtCompletion.set(new Set(this.remoteNodes.connectedNodes().map((node) => node.id)));
+      }
+    }
+  }
+
   private clearPoll(): void {
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
@@ -345,7 +439,14 @@ export class CoordinatorPairingComponent implements OnDestroy {
 
   private applySessionUiState(latest: PairBothSessionState): void {
     if (latest.status === 'completed' || latest.payloadDelivered) {
+      const justCompleted = this.uiState() !== 'completed';
+      if (justCompleted) {
+        this.pairedMachineName.set(latest.workerHello?.machineName ?? 'the other computer');
+      }
       this.uiState.set('completed');
+      if (justCompleted) {
+        void this.watchForPairedComputer();
+      }
       this.clearPoll();
       return;
     }
@@ -355,4 +456,9 @@ export class CoordinatorPairingComponent implements OnDestroy {
       );
     }
   }
+}
+
+/** The registered node name is the exact machine name; only case and spacing at the ends can differ. */
+function hostLabel(name: string): string {
+  return name.trim().toLowerCase();
 }

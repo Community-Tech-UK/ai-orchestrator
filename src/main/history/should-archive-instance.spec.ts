@@ -16,6 +16,7 @@ function summary(overrides: Partial<ReturnType<typeof createArchiveInstanceSumma
     sessionId: 'session-placeholder-alpha',
     supersededBy: undefined,
     outputMessageCount: 2,
+    conversationMessageCount: 2,
     lastMeaningfulMessageAt: 200,
     metadata: {},
     ...overrides,
@@ -178,6 +179,30 @@ describe('shouldArchiveInstance', () => {
     }));
   });
 
+  it.each([
+    ['error' as InstanceStatus, 0],
+    ['idle' as InstanceStatus, 1],
+  ])('never lets a %s generation without user or assistant messages replace saved history', (status, outputMessageCount) => {
+    expect(shouldArchiveInstance(
+      summary({ status, outputMessageCount, conversationMessageCount: 0, lastMeaningfulMessageAt: undefined }),
+      matchingCoverage({ coveredThrough: 100, messageCount: 320 }),
+    )).toEqual(expect.objectContaining({
+      shouldArchive: false,
+      reason: 'empty-transcript-over-history',
+    }));
+  });
+
+  it.each([
+    ['saved history is empty', matchingCoverage({ messageCount: 0 })],
+    ['coverage is unknown', undefined],
+    ['coverage belongs to another thread', matchingCoverage({ historyThreadId: 'thread-placeholder-beta' })],
+  ])('still archives a generation without conversation when %s', (_label, coverage) => {
+    expect(shouldArchiveInstance(
+      summary({ status: 'error', outputMessageCount: 0, conversationMessageCount: 0, lastMeaningfulMessageAt: undefined }),
+      coverage,
+    )).toEqual(expect.objectContaining({ shouldArchive: true }));
+  });
+
   it('archives when there is no meaningful message to compare against coverage', () => {
     expect(shouldArchiveInstance(
       summary({ outputMessageCount: 1, lastMeaningfulMessageAt: undefined }),
@@ -207,6 +232,7 @@ describe('shouldArchiveInstance', () => {
 
     expect(built).toEqual(expect.objectContaining({
       outputMessageCount: 3,
+      conversationMessageCount: 2,
       lastMeaningfulMessageAt: 250,
     }));
     expect(JSON.stringify(built)).not.toContain('prompt content');

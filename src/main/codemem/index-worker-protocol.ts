@@ -131,4 +131,11 @@ export interface CodememMaintenanceSnapshot {
   retainedWorkspaceHashes: string[];
   deletedOrphanChunks: number;
   deletedLegacyMerkleNodes: number;
+  vacuum: {
+    freedPages: number;
+    remainingFreePages: number;
+    stoppedReason: string;
+  };
+  /** False when an open read kept the final WAL checkpoint from completing. */
+  walTruncated: boolean;
 }

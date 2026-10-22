@@ -11,6 +11,7 @@ import {
   writePairedWorkerConfig,
   type ParsedPairingConfig,
 } from './pairing-config';
+import { clearWorkerConnectionStatus } from '../worker-connection-status';
 
 export interface PairCommandResult {
   exitCode: number;
@@ -59,6 +60,8 @@ export async function runPairCommand(
   }
 
   const config = writePairedWorkerConfig(options.configPath, merged);
+  // Any report beside the config is about the previous pairing.
+  clearWorkerConnectionStatus(options.configPath);
   const coordinator = safeCoordinatorDisplay(config.coordinatorUrl);
   stdout(`Paired ${config.name} with ${coordinator}.\n`);
   if (options.startWorker) {

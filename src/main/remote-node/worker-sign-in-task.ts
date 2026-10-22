@@ -181,6 +181,20 @@ ${PAUSE_TASK}`);
     });
   }
 
+  /**
+   * End the task's worker processes and nothing else: the last resort when
+   * Windows will not let Harness remove or disable the task. Ending processes
+   * this user started needs no task-scheduler rights, so it can work where
+   * those failed. The task may start the worker again later; it then exits at
+   * once if Harness's own worker holds the one-worker-per-computer lock.
+   */
+  async endWorker(): Promise<void> {
+    if (!this.isSupported()) {
+      return;
+    }
+    await this.serialised(() => this.stopWorkerProcesses());
+  }
+
   /** Remove the task and end the worker. The version folders are pruned. */
   async remove(): Promise<void> {
     if (!this.isSupported()) {

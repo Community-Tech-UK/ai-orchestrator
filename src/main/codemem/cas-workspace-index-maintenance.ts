@@ -95,15 +95,112 @@ export function optimizeSearchIndex(db: SqliteDriver): void {
   db.prepare("INSERT INTO code_fts(code_fts) VALUES('optimize')").run();
 }
 
-export function vacuumFreelistPages(db: SqliteDriver): void {
+/** Pages released per incremental-vacuum step: 64 MiB at the default 4 KiB page size. */
+export const INCREMENTAL_VACUUM_STEP_PAGES = 16_384;
+/** Stop starting new vacuum steps after this long; later maintenance runs carry on. */
+export const INCREMENTAL_VACUUM_TIME_BUDGET_MS = 60_000;
+
+export interface VacuumFreelistOptions {
+  stepPages?: number;
+  timeBudgetMs?: number;
+  now?: () => number;
+  /**
+   * Allow the one-off full VACUUM that converts a legacy database to
+   * incremental mode. It rewrites the whole file and needs about its size in
+   * spare disk, so only maintenance runs allow it, not the periodic reclaim.
+   */
+  allowFullVacuum?: boolean;
+}
+
+export interface VacuumFreelistResult {
+  freedPages: number;
+  remainingFreePages: number;
+  stoppedReason:
+    | 'done'
+    | 'checkpoint-busy'
+    | 'time-budget'
+    | 'no-progress'
+    | 'full-vacuum'
+    | 'full-vacuum-needed'
+    | 'not-incremental';
+}
+
+/**
+ * Checkpoint and truncate the WAL. Returns false when another connection's
+ * open read kept the checkpoint from completing. Does not wait for that read
+ * to finish: the connection's busy timeout is lifted for the call, because
+ * the worker is single-threaded and every RPC queues behind the wait.
+ */
+export function checkpointAndTruncateWal(db: SqliteDriver): boolean {
+  const previousTimeout = Number(db.pragma('busy_timeout', { simple: true }) ?? 0);
+  db.pragma('busy_timeout = 0');
+  try {
+    const rows = db.pragma('wal_checkpoint(TRUNCATE)');
+    const row = Array.isArray(rows) ? rows[0] as { busy?: unknown } | undefined : undefined;
+    return Number(row?.busy ?? 0) === 0;
+  } finally {
+    db.pragma(`busy_timeout = ${Number.isFinite(previousTimeout) ? previousTimeout : 0}`);
+  }
+}
+
+/**
+ * Release free pages in bounded steps, checkpointing after each one. Every
+ * page a vacuum moves is written to the WAL first, and the main file only
+ * shrinks once a checkpoint completes, so a single unbounded vacuum run while
+ * another connection is reading parks the whole move in the WAL. That left a
+ * 41 GB WAL beside a 97 GB file that was 83 GB free pages. A checkpoint is
+ * tried before the first step and after every step, and the run stops at the
+ * first busy one, so repeated runs against a long-lived reader add nothing to
+ * the WAL and a reader that appears mid-run costs at most one step.
+ */
+export function vacuumFreelistPages(
+  db: SqliteDriver,
+  options: VacuumFreelistOptions = {},
+): VacuumFreelistResult {
   const mode = Number(db.pragma('auto_vacuum', { simple: true }) ?? 0);
   if (mode === 0) {
+    if (options.allowFullVacuum === false) {
+      return { freedPages: 0, remainingFreePages: freelistCount(db), stoppedReason: 'full-vacuum-needed' };
+    }
     db.pragma('auto_vacuum = INCREMENTAL');
     db.exec('VACUUM');
-    return;
+    return { freedPages: 0, remainingFreePages: 0, stoppedReason: 'full-vacuum' };
   }
   if (mode !== 2) {
-    return;
+    // auto_vacuum = FULL releases free pages on every commit.
+    return { freedPages: 0, remainingFreePages: 0, stoppedReason: 'not-incremental' };
   }
-  db.pragma('incremental_vacuum');
+
+  const stepPages = Math.max(1, Math.floor(options.stepPages ?? INCREMENTAL_VACUUM_STEP_PAGES));
+  const timeBudgetMs = options.timeBudgetMs ?? INCREMENTAL_VACUUM_TIME_BUDGET_MS;
+  const now = options.now ?? Date.now;
+  const startedAt = now();
+  const initialFreePages = freelistCount(db);
+  let remainingFreePages = initialFreePages;
+  if (remainingFreePages > 0 && !checkpointAndTruncateWal(db)) {
+    return { freedPages: 0, remainingFreePages, stoppedReason: 'checkpoint-busy' };
+  }
+
+  while (remainingFreePages > 0) {
+    if (now() - startedAt >= timeBudgetMs) {
+      return { freedPages: initialFreePages - remainingFreePages, remainingFreePages, stoppedReason: 'time-budget' };
+    }
+    db.pragma(`incremental_vacuum(${Math.min(stepPages, remainingFreePages)})`);
+    const checkpointed = checkpointAndTruncateWal(db);
+    const freeAfterStep = freelistCount(db);
+    const progressed = freeAfterStep < remainingFreePages;
+    remainingFreePages = freeAfterStep;
+    if (!checkpointed) {
+      return { freedPages: initialFreePages - remainingFreePages, remainingFreePages, stoppedReason: 'checkpoint-busy' };
+    }
+    if (!progressed) {
+      return { freedPages: initialFreePages - remainingFreePages, remainingFreePages, stoppedReason: 'no-progress' };
+    }
+  }
+
+  return { freedPages: initialFreePages - remainingFreePages, remainingFreePages, stoppedReason: 'done' };
+}
+
+function freelistCount(db: SqliteDriver): number {
+  return Number(db.pragma('freelist_count', { simple: true }) ?? 0);
 }

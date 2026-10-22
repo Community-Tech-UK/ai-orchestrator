@@ -29,6 +29,8 @@ export interface ArchiveInstanceSummary {
   sessionId?: string;
   supersededBy?: string;
   outputMessageCount: number;
+  /** User and assistant messages: what makes a transcript a conversation. */
+  conversationMessageCount: number;
   lastMeaningfulMessageAt?: number;
   metadata?: Record<string, unknown>;
 }
@@ -40,7 +42,8 @@ export type ArchiveInstanceDecisionReason =
   | 'coverage-identity-mismatch'
   | 'not-covered'
   | 'automation-needs-visibility'
-  | 'no-meaningful-message';
+  | 'no-meaningful-message'
+  | 'empty-transcript-over-history';
 
 /** What `HistoryManager.archiveInstance` did with an instance it was handed. */
 export type ArchiveInstanceOutcome = 'archived' | 'already-archived' | 'covered';
@@ -90,6 +93,9 @@ export function createArchiveInstanceSummary(instance: Pick<
     sessionId: instance.sessionId,
     supersededBy: instance.supersededBy,
     outputMessageCount: instance.outputBuffer.length,
+    conversationMessageCount: instance.outputBuffer.filter(
+      (message) => message.type === 'user' || message.type === 'assistant',
+    ).length,
     lastMeaningfulMessageAt,
     metadata: instance.metadata,
   };
@@ -126,6 +132,22 @@ export function shouldArchiveInstance(
   summary: ArchiveInstanceSummary,
   historyCoverage?: ArchiveHistoryCoverage,
 ): ArchiveInstanceDecision {
+  // Archiving replaces every entry on the thread. A generation that holds no
+  // conversation (a native-resume attempt whose CLI died at startup is emptied
+  // and terminated by the restore coordinator) would otherwise overwrite the
+  // saved transcript with nothing (2026-10-22: a 320-message entry rewritten
+  // as empty after a Copilot CLI update broke every spawn).
+  if (
+    summary.conversationMessageCount === 0
+    && (historyCoverage?.messageCount ?? 0) > 0
+    && coverageMatchesSummary(summary, historyCoverage!)
+  ) {
+    return {
+      shouldArchive: false,
+      reason: 'empty-transcript-over-history',
+      logData: createArchiveDecisionLogData('empty-transcript-over-history', summary, historyCoverage),
+    };
+  }
   if (!isSkippableGeneration(summary)) {
     return archive('current-generation', summary, historyCoverage);
   }
@@ -233,6 +255,7 @@ function createArchiveDecisionLogData(
     historyMessageCount: coverage?.messageCount,
     lastMeaningfulMessageAt: summary.lastMeaningfulMessageAt,
     outputMessageCount: summary.outputMessageCount,
+    conversationMessageCount: summary.conversationMessageCount,
   };
 }
 

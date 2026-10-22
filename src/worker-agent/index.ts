@@ -12,6 +12,7 @@ import { runBrowserExtensionNativeHost } from '../main/browser-gateway/browser-e
 import { installWorkerFileLogging } from './worker-file-logger';
 import { runWorkerSupervisor } from './worker-supervisor';
 import { acquireSingleInstanceLock } from './single-instance-lock';
+import { WorkerConnectionStatusWriter } from './worker-connection-status';
 import { captureRuntimeVitals, startRuntimeVitalsLogging } from './worker-runtime-vitals';
 import { startHostHealthSampling } from './host-health-sampler';
 import { runWorkerSelfCheck, startWorkerSelfUpdate } from './worker-self-update-wiring';
@@ -80,10 +81,13 @@ async function main(): Promise<void> {
 
   const activeConfigPath = configPath ?? DEFAULT_CONFIG_PATH;
   const config = loadWorkerConfig(activeConfigPath);
-  assertWorkerConfigHasCoordinator(config);
-
-  console.log(`Worker node "${config.name}" (${config.nodeId})`);
-  console.log(`Connecting to coordinator at ${getConfiguredCoordinatorUrl(config)}...`);
+  // Tells Harness's Worker Mode page how this worker is doing (connecting,
+  // connected, cannot reach the main Harness, refused). Written only once this
+  // process holds the lock below: otherwise the report is the live worker's.
+  const connectionStatus = new WorkerConnectionStatusWriter(activeConfigPath, config.nodeId, {
+    secrets: () => [config.authToken, config.nodeToken, config.recoveryToken],
+    heartbeatIntervalMs: config.heartbeatIntervalMs,
+  });
 
   // Single-instance guard: a second worker for the same node id would register
   // under the same identity and evict the primary's coordinator socket in a
@@ -96,6 +100,19 @@ async function main(): Promise<void> {
     );
     process.exit(0);
   }
+  try {
+    assertWorkerConfigHasCoordinator(config);
+  } catch (error) {
+    lock.release();
+    connectionStatus.set('failed', {
+      message: 'This computer has no address for the main Harness. Pair it again.',
+    });
+    throw error;
+  }
+
+  console.log(`Worker node "${config.name}" (${config.nodeId})`);
+  console.log(`Connecting to coordinator at ${getConfiguredCoordinatorUrl(config)}...`);
+
   // Exit forensics. A worker that vanishes silently is impossible to diagnose
   // after the fact: on 2026-09-03 this process stopped mid-log-line and stayed
   // dead for 23 hours with no shutdown line, no crash handler line and no
@@ -124,7 +141,7 @@ async function main(): Promise<void> {
     }
   });
 
-  const agent = new WorkerAgent(config, activeConfigPath);
+  const agent = new WorkerAgent(config, activeConfigPath, connectionStatus);
 
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
@@ -170,7 +187,14 @@ async function main(): Promise<void> {
     }
   });
 
-  await agent.connect();
+  try {
+    await agent.connect();
+  } catch (error) {
+    connectionStatus.set('failed', {
+      message: 'The worker hit an internal error while connecting and stopped.',
+    });
+    throw error;
+  }
   console.log('Worker agent started. Listening for work.');
 
   startWorkerSelfUpdate({

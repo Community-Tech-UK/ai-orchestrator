@@ -151,6 +151,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   outputBufferSize: 500, // keep 500 messages in memory per instance
   enableDiskStorage: true, // save older output to disk
   maxDiskStorageMB: 500, // 500MB max disk storage
+  scratchRetentionDays: 14,
   memoryWarningThresholdMB: 1024, // warn at 1GB heap
   autoTerminateOnMemoryPressure: true,
   recordProviderEvents: false,

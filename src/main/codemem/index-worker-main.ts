@@ -18,6 +18,8 @@ import { getElectronParentPort } from '../runtime/electron-parent-port';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { migrate } from './cas-schema';
 import { CasStore } from './cas-store';
+import { checkpointAndTruncateWal } from './cas-workspace-index-maintenance';
+import { isBroadWorkspaceRoot } from './broad-workspace-roots';
 import { runCodememMaintenance } from './codemem-pruner';
 import { CodeIndexManager } from './code-index-manager';
 import { PeriodicScan } from './periodic-scan';
@@ -100,6 +102,12 @@ const userDataPath =
 
 const dbPath = path.join(userDataPath, 'codemem.sqlite');
 
+// The vacuum is synchronous, so RPCs wait while it runs: short, frequent
+// bursts keep code search responsive while a large backlog drains.
+const STARTUP_VACUUM_TIME_BUDGET_MS = 10_000;
+const SPACE_RECLAIM_INTERVAL_MS = 5 * 60 * 1000;
+const SPACE_RECLAIM_TIME_BUDGET_MS = 10_000;
+
 // ── SQLite + store ─────────────────────────────────────────────────────────────
 
 const db = defaultDriverFactory(dbPath);
@@ -109,7 +117,9 @@ migrate(db);
 
 const store = new CasStore(db);
 try {
-  runMaintenance();
+  // Short budget: RPCs queue behind startup maintenance. The periodic space
+  // reclaim below finishes any remaining shrink in the background.
+  runMaintenance(STARTUP_VACUUM_TIME_BUDGET_MS);
 } catch (error) {
   logger.warn('Codemem maintenance skipped', { error: error instanceof Error ? error.message : String(error) });
 }
@@ -130,6 +140,7 @@ const watchedWorkspacePaths = new Map<string, string>();
 // while unwatched must be reconciled on the next warm.
 const reconciledWorkspaces = new Set<string>();
 let periodicScanTimer: ReturnType<typeof setInterval> | null = null;
+let spaceReclaimTimer: ReturnType<typeof setInterval> | null = null;
 let periodicScanRunning = false;
 
 indexManager.on('code-index:changed', (event: { workspaceHash: string; paths: string[] }) => {
@@ -261,7 +272,8 @@ async function handleControlMessage(msg: Exclude<IndexWorkerInboundMsg, HeavyInd
 
     case 'run-maintenance': {
       try {
-        respond(msg.id, runMaintenance());
+        // Same short budget as startup: other RPCs queue behind this call.
+        respond(msg.id, runMaintenance(SPACE_RECLAIM_TIME_BUDGET_MS));
       } catch (err) {
         respond(msg.id, undefined, err instanceof Error ? err.message : String(err));
       }
@@ -271,6 +283,7 @@ async function handleControlMessage(msg: Exclude<IndexWorkerInboundMsg, HeavyInd
     case 'shutdown': {
       shuttingDown = true;
       stopPeriodicDriftScan();
+      stopSpaceReclaim();
       await indexManager.stop().catch(() => undefined);
       db.close();
       respond(msg.id);
@@ -282,6 +295,11 @@ async function handleControlMessage(msg: Exclude<IndexWorkerInboundMsg, HeavyInd
 
 async function warmWorkspace(msg: WarmWorkspaceMsg): Promise<void> {
   const normalizedPath = path.resolve(msg.workspacePath);
+  if (isBroadWorkspaceRoot(normalizedPath)) {
+    logger.info('Codemem warm-up skipped broad filesystem root', { workspacePath: normalizedPath });
+    respond(msg.id, degradedWarmWorkspaceResult(normalizedPath));
+    return;
+  }
   const workspaceHash = workspaceHashForPath(normalizedPath);
 
   let workspaceRoot = store.getWorkspaceRootByPath(normalizedPath);
@@ -327,6 +345,11 @@ async function warmWorkspace(msg: WarmWorkspaceMsg): Promise<void> {
 
 async function rebuildIndex(msg: RebuildIndexMsg): Promise<void> {
   const normalizedPath = path.resolve(msg.workspacePath);
+  if (isBroadWorkspaceRoot(normalizedPath)) {
+    logger.info('Codemem rebuild skipped broad filesystem root', { workspacePath: normalizedPath });
+    respond(msg.id, degradedWarmWorkspaceResult(normalizedPath));
+    return;
+  }
   const workspaceHash = workspaceHashForPath(normalizedPath);
   store.clearCancel(workspaceHash);
   await indexManager.coldIndex(normalizedPath);
@@ -403,14 +426,54 @@ function degradedWarmWorkspaceResult(normalizedPath: string): WarmWorkspaceResul
   };
 }
 
-function runMaintenance(): CodememMaintenanceSnapshot {
+function startSpaceReclaim(): void {
+  if (spaceReclaimTimer) {
+    return;
+  }
+  spaceReclaimTimer = setInterval(reclaimFreeSpace, SPACE_RECLAIM_INTERVAL_MS);
+  spaceReclaimTimer.unref?.();
+}
+
+function stopSpaceReclaim(): void {
+  if (!spaceReclaimTimer) {
+    return;
+  }
+  clearInterval(spaceReclaimTimer);
+  spaceReclaimTimer = null;
+}
+
+/** Give free pages back to the filesystem between full maintenance runs. */
+function reclaimFreeSpace(): void {
+  if (shuttingDown) {
+    return;
+  }
+  try {
+    const result = store.vacuumFreelistPages({ timeBudgetMs: SPACE_RECLAIM_TIME_BUDGET_MS, allowFullVacuum: false });
+    if (result.freedPages > 0 || result.stoppedReason === 'checkpoint-busy') {
+      logger.info('Codemem space reclaim ran', { ...result });
+    }
+  } catch (error) {
+    logger.warn('Codemem space reclaim failed', { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+function runMaintenance(vacuumTimeBudgetMs?: number): CodememMaintenanceSnapshot {
   const result = runCodememMaintenance(store, {
     maxWorkspaces: Number(process.env['AIO_CODEMEM_MAX_WORKSPACES'] ?? 10),
     maxManifestEntriesPerWorkspace: Number(process.env['AIO_CODEMEM_MAX_MANIFEST_ENTRIES'] ?? 500_000),
+    vacuumTimeBudgetMs,
   });
-  db.pragma('wal_checkpoint(TRUNCATE)');
-  return result;
+  const walTruncated = checkpointAndTruncateWal(db);
+  if (!walTruncated || result.vacuum.stoppedReason === 'checkpoint-busy') {
+    logger.warn('Codemem maintenance could not finish shrinking the database; an open read held the WAL', {
+      remainingFreePages: result.vacuum.remainingFreePages,
+      walTruncated,
+    });
+  }
+  return { ...result, walTruncated };
 }
+
+startSpaceReclaim();
 
 // Signal readiness after all synchronous initialisation is complete.
 transport.postMessage({ type: 'ready' } satisfies IndexWorkerOutboundMsg);

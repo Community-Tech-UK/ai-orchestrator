@@ -863,6 +863,7 @@ vi.mock('../../codemem', () => {
 
 import { InstanceManager } from '../instance-manager';
 import { getInstanceProviderLimitHandler } from '../instance-provider-limit-handler';
+import { getAccountFailoverCoordinator, type AccountFailoverDeps } from '../../providers/account-pool/account-failover-coordinator';
 import { buildReplayContinuityMessage } from '../../session/replay-continuity';
 import { buildFallbackHistoryMessage } from '../../session/fallback-history';
 import { WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
@@ -1674,6 +1675,24 @@ describe('InstanceManager', () => {
         ]);
         const resent = mockAdapterSendInput.mock.calls.at(-1)?.[0] as string;
         expect(resent.match(/<harness_internal_message /g)).toHaveLength(1);
+        expect(mockPromptHistoryRecord).not.toHaveBeenCalled();
+      });
+
+      it('re-sends a held user turn after an account switch without showing it twice', async () => {
+        const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+        await instance.readyPromise;
+        await manager.sendInput(instance.id, 'copy Jim on the daily email');
+        mockAdapterSendInput.mockClear();
+        mockPromptHistoryRecord.mockClear();
+
+        // The account-switch wiring re-sends the held turn on the new account.
+        const coordinator = getAccountFailoverCoordinator() as unknown as { deps: AccountFailoverDeps };
+        await coordinator.deps.resendInput(instance.id, 'copy Jim on the daily email');
+
+        expect(mockAdapterSendInput).toHaveBeenCalledOnce();
+        expect(mockAdapterSendInput.mock.calls[0]?.[0]).toContain('copy Jim on the daily email');
+        expect(instance.outputBuffer.filter((message) => message.type === 'user').map((message) => message.content))
+          .toEqual(['copy Jim on the daily email']);
         expect(mockPromptHistoryRecord).not.toHaveBeenCalled();
       });
 

@@ -351,6 +351,7 @@ export const SETTINGS_TOOL_POLICY = {
   outputBufferSize: open(numberSettingSchema('outputBufferSize')),
   enableDiskStorage: open(z.boolean()),
   maxDiskStorageMB: open(numberSettingSchema('maxDiskStorageMB')),
+  scratchRetentionDays: open(numberSettingSchema('scratchRetentionDays')),
   memoryWarningThresholdMB: open(numberSettingSchema('memoryWarningThresholdMB')),
   autoTerminateOnMemoryPressure: open(z.boolean()),
   recordProviderEvents: open(z.boolean()),

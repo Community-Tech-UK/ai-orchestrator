@@ -39,11 +39,12 @@ describe('pruneCodememWorkspaces', () => {
       pruneUnreferencedChunks: vi.fn(() => 3),
       clearLegacyMerkleNodes: vi.fn(() => 2),
       optimizeSearchIndex: vi.fn(),
-      vacuumFreelistPages: vi.fn(),
+      vacuumFreelistPages: vi.fn(() => ({ freedPages: 4, remainingFreePages: 0, stoppedReason: 'done' as const })),
     };
     const result = runCodememMaintenance(store, {
       maxWorkspaces: 10,
       maxManifestEntriesPerWorkspace: 500_000,
+      vacuumTimeBudgetMs: 1_000,
     });
 
     expect(result).toMatchObject({
@@ -51,7 +52,9 @@ describe('pruneCodememWorkspaces', () => {
       retainedWorkspaceHashes: [],
       deletedOrphanChunks: 3,
       deletedLegacyMerkleNodes: 2,
+      vacuum: { freedPages: 4, remainingFreePages: 0, stoppedReason: 'done' },
     });
+    expect(store.vacuumFreelistPages).toHaveBeenCalledWith({ timeBudgetMs: 1_000 });
     expect(store.pruneUnreferencedChunks).toHaveBeenCalledTimes(1);
     expect(store.clearLegacyMerkleNodes).toHaveBeenCalledTimes(1);
     expect(store.optimizeSearchIndex).toHaveBeenCalledTimes(1);

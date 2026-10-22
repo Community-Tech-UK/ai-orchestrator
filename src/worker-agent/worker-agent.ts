@@ -55,6 +55,8 @@ import {
   prepareLegacyExtensionRelayNativeHostRuntime,
 } from './extension-relay-native-registration';
 import type { RpcMessage } from './worker-rpc-types';
+import { INTERNAL_CONNECT_ERROR_MESSAGE, NO_SAVED_ADDRESS_MESSAGE, noAnswerMessage, SILENT_COORDINATOR_MESSAGE, type WorkerConnectionReporter } from './worker-connection-status';
+import { resolveWorkerChildCommand } from './worker-supervisor';
 import type { DiscoveredCoordinator } from './discovery-client';
 import {
   buildCoordinatorCandidates,
@@ -66,6 +68,8 @@ export { buildCoordinatorCandidates } from './coordinator-network-readiness';
 const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-node.json');
 
 const CONNECT_TIMEOUT_MS = 8_000;
+/** Matches the connection report's silence budget for an established link. */
+const REGISTRATION_ANSWER_TIMEOUT_MS = 45_000;
 const REDISCOVERY_TIMEOUT_MS = 4_000;
 const EXTENSION_RELAY_REGISTRATION_CHECK_INTERVAL_MS = 60_000;
 
@@ -114,6 +118,7 @@ export class WorkerAgent extends EventEmitter {
   constructor(
     private readonly config: WorkerConfig,
     private readonly configPath = DEFAULT_CONFIG_PATH,
+    private readonly connectionStatus?: WorkerConnectionReporter,
   ) {
     super();
     // Always construct the manager (even when disabled) so browser automation
@@ -202,6 +207,7 @@ export class WorkerAgent extends EventEmitter {
     if (this.hasLiveSocket()) return;
     this.connecting = true;
     this.isShuttingDown = false;
+    this.connectionStatus?.set('connecting');
 
     try {
       await this.runExtensionRelayStep('startup', () => this.extensionRelay.start());
@@ -227,6 +233,7 @@ export class WorkerAgent extends EventEmitter {
           console.warn(
             `mDNS discovery found no coordinator for namespace "${this.config.namespace}" — will retry`
           );
+          this.connectionStatus?.set('unreachable', { message: NO_SAVED_ADDRESS_MESSAGE });
           this.scheduleReconnect();
           return;
         }
@@ -253,6 +260,7 @@ export class WorkerAgent extends EventEmitter {
 
       // Every known address failed — re-probe mDNS in case the host moved and
       // is advertising a fresh address, then retry on the usual backoff.
+      this.connectionStatus?.set('unreachable', { coordinatorUrl: candidates[0], message: noAnswerMessage(candidates) });
       const rediscovered = await new DiscoveryClient().discover(
         this.config.namespace,
         REDISCOVERY_TIMEOUT_MS
@@ -314,14 +322,18 @@ export class WorkerAgent extends EventEmitter {
         this.registrationAccepted = false;
         this.activeCoordinatorUrl = url;
         console.log(`Connected to coordinator at ${url}`);
+        this.connectionStatus?.set('registering', { coordinatorUrl: url });
+        this.armRegistrationWatchdog(ws);
         this.sendRegistration();
         this.startContinuousDiscovery();
         resolve(true);
       });
 
       ws.on('message', (data: Buffer | string) => {
+        if (ws === this.ws) this.connectionStatus?.noteContact();
         this.handleMessage(data.toString(), ws);
       });
+      ws.on('pong', () => { if (ws === this.ws) this.connectionStatus?.noteContact(); });
 
       ws.on('close', (code?: number, reason?: Buffer) => {
         if (!opened) {
@@ -341,6 +353,7 @@ export class WorkerAgent extends EventEmitter {
         this.ws = null;
         this.resetCoordinatorSession('coordinator_disconnected');
         if (!this.isShuttingDown) {
+          this.connectionStatus?.set('reconnecting', { coordinatorUrl: url });
           this.scheduleReconnect();
         }
       });
@@ -376,8 +389,24 @@ export class WorkerAgent extends EventEmitter {
     });
   }
 
+  /**
+   * A main Harness that accepts the socket but never answers the registration
+   * is as dead as one that went silent later: say so and reconnect, rather than
+   * sit on "Connecting..." with no retry (heartbeats only start once accepted).
+   */
+  private armRegistrationWatchdog(ws: WebSocket): void {
+    const timer = setTimeout(() => {
+      if (ws !== this.ws || this.registrationAccepted || this.isShuttingDown) return;
+      console.warn('[WorkerAgent] Coordinator never answered registration; reconnecting');
+      this.connectionStatus?.set('unreachable', { message: SILENT_COORDINATOR_MESSAGE });
+      this.forceCloseSocket(ws);
+    }, REGISTRATION_ANSWER_TIMEOUT_MS);
+    ws.on('close', () => clearTimeout(timer));
+  }
+
   async disconnect(): Promise<void> {
     this.isShuttingDown = true;
+    this.connectionStatus?.set('stopped'); // first: cleanup below can take a while, and Harness reads this
     this.stopHeartbeat();
     this.stopContinuousDiscovery();
     if (this.reconnectTimer) {
@@ -552,6 +581,7 @@ export class WorkerAgent extends EventEmitter {
   }
 
   private async sendHeartbeat(): Promise<void> {
+    if (this.connectionStatus?.heartbeat(() => this.ws?.ping())) return this.forceCloseSocket(this.ws); // silent link: reconnect
     this.checkExtensionRelayRegistration();
     this.capabilities = await reportCapabilities(
       this.config.workingDirectories,
@@ -687,7 +717,7 @@ export class WorkerAgent extends EventEmitter {
       try {
         await this.connect();
       } catch {
-        // connect() failed — close handler schedules next retry
+        this.connectionStatus?.set('unreachable', { message: INTERNAL_CONNECT_ERROR_MESSAGE }); this.scheduleReconnect(); // threw before any socket existed: no close handler retries
       }
     }, delay);
   }
@@ -804,6 +834,7 @@ export class WorkerAgent extends EventEmitter {
           enrolled: changed,
         });
         this.notifier.flushCriticalQueue(); // Deliver queued state changes only after registration is accepted.
+        this.connectionStatus?.set('connected', { coordinatorUrl: this.activeCoordinatorUrl ?? this.config.coordinatorUrl });
         this.startHeartbeat();
       }
       if (msg.id !== undefined && this.resolvePendingRequest(msg)) {
@@ -859,6 +890,7 @@ export class WorkerAgent extends EventEmitter {
     }
 
     console.warn(`Registration rejected (${message})`);
+    this.connectionStatus?.set('rejected', { message });
   }
 
   private async handleRpcRequest(msg: RpcMessage): Promise<void> {
@@ -947,17 +979,8 @@ export class WorkerAgent extends EventEmitter {
   }
 
   private currentWorkerNativeHostCommand(): { exe: string; args: string[] } {
-    const entrypoint = process.argv[1];
-    if (entrypoint && path.resolve(entrypoint) !== path.resolve(process.execPath)) {
-      return {
-        exe: process.execPath,
-        args: [entrypoint, 'native-host'],
-      };
-    }
-    return {
-      exe: process.execPath,
-      args: ['native-host'],
-    };
+    // Same resolution as the supervisor's child: re-invoke the script, or the packaged binary.
+    return resolveWorkerChildCommand(['native-host']);
   }
 
   private getSyncHandler(): SyncHandler {

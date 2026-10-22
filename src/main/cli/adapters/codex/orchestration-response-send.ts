@@ -12,6 +12,13 @@ export function isActiveTurnCollision(error: unknown): error is CodexAppServerRu
     && error.message === 'Codex app-server runtime already has an active turn';
 }
 
+/**
+ * Outcome of adding a response to the running turn. `not-running` means no
+ * turn could take it right now; `failed` means the provider refused it, so
+ * delivery falls back to waiting for the turn to end.
+ */
+export type RunningTurnInjection = 'delivered' | 'not-running' | 'failed';
+
 /** The caller owns the provider state checks; only a pre-turn collision is safe to retry. */
 export async function sendCodexOrchestrationResponse(
   message: string,
@@ -21,6 +28,8 @@ export async function sendCodexOrchestrationResponse(
     hasActiveTurn: () => boolean;
     isCompactionRunning?: () => boolean;
     awaitCompactionSettled?: () => Promise<CompactionGateOutcome>;
+    /** Adds the response to the running turn, which can run for hours, instead of waiting for it. */
+    injectIntoActiveTurn?: (message: string) => Promise<RunningTurnInjection>;
     sendInput: (message: string) => Promise<void>;
     onDelayed?: () => void;
   },
@@ -28,6 +37,7 @@ export async function sendCodexOrchestrationResponse(
   if (!deps.isAppServerMode()) return deps.sendInput(message);
   const startedAt = Date.now();
   let warned = false;
+  let canInject = true;
   while (true) {
     if (!deps.isReady()) {
       throw new Error('Codex app-server ended before the orchestration response could be delivered');
@@ -47,6 +57,10 @@ export async function sendCodexOrchestrationResponse(
         // The runtime rejects this before turn/start. No provider input was sent.
         if (!isActiveTurnCollision(error)) throw error;
       }
+    } else if (canInject && deps.injectIntoActiveTurn) {
+      const injected = await deps.injectIntoActiveTurn(message);
+      if (injected === 'delivered') return;
+      canInject = injected !== 'failed';
     }
     const elapsed = Date.now() - startedAt;
     if (!warned && elapsed >= READY_WARNING_MS) {

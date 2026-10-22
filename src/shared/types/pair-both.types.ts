@@ -37,6 +37,50 @@ export interface WorkerModeRuntimeSnapshot {
 }
 
 /**
+ * Where the worker process says it is with the main Harness:
+ * - `connecting`: started, looking for the main Harness for the first time.
+ * - `registering`: reached it and is waiting for it to accept this computer.
+ * - `connected`: the main Harness accepted this computer and can send it work.
+ * - `reconnecting`: was connected, lost the connection, trying again.
+ * - `unreachable`: none of the main Harness's addresses answered; still trying.
+ * - `rejected`: the main Harness refused this computer's credential.
+ * - `stopped`: the worker shut down on purpose.
+ * - `failed`: the worker could not start at all (`message` says why).
+ */
+export type WorkerConnectionState =
+  | 'connecting'
+  | 'registering'
+  | 'connected'
+  | 'reconnecting'
+  | 'unreachable'
+  | 'rejected'
+  | 'stopped'
+  | 'failed';
+
+/**
+ * The `unreachable` reason a worker gives when the fault was on its own side
+ * (an internal error while connecting), not the network or the main Harness.
+ */
+export const WORKER_INTERNAL_CONNECT_ERROR = 'Something went wrong on this computer while connecting.';
+
+/** The worker's own report of its connection, as the Worker Mode page sees it. */
+export interface WorkerConnectionSnapshot {
+  state: WorkerConnectionState;
+  /** The main Harness address being tried, or the one it is connected to. */
+  coordinatorUrl?: string;
+  /** Short reason for `rejected`, `unreachable` and `failed`. Never holds a credential. */
+  message?: string;
+  /** When the current state began. */
+  since: number;
+  /** When the worker last wrote its report. */
+  updatedAt: number;
+  /** The process that wrote the report is still running. */
+  alive: boolean;
+  /** A live worker that has not refreshed its report for a while (it may be stuck). */
+  stale: boolean;
+}
+
+/**
  * What the Worker Mode page needs to rebuild itself after a relaunch or
  * navigation: whether this computer holds a pairing, whether the main Harness
  * has accepted it yet, and what the in-app worker process is doing.
@@ -61,6 +105,11 @@ export interface WorkerModeStatus {
   runAtSignIn: boolean;
   /** This computer can run the worker independently of Harness (Windows). */
   runAtSignInAvailable: boolean;
+  /**
+   * The worker's own report of whether it reached the main Harness. Null when
+   * no worker for this pairing has reported yet.
+   */
+  connection: WorkerConnectionSnapshot | null;
 }
 
 export type PairBothRole = 'coordinator' | 'worker';

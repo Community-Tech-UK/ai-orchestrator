@@ -258,8 +258,11 @@ export async function announceRuntimeChangeSet(params: {
     queueNextPromptContext?(text: string): void;
     getCapabilities?(): { vision?: boolean };
   };
-  /** ACP account handoffs must never start a notice-only model turn. */
-  delivery?: 'immediate' | 'next-prompt';
+  /**
+   * ACP account handoffs must never start a notice-only model turn
+   * (`next-prompt`); `transcript-only` renders the notices and sends nothing.
+   */
+  delivery?: 'immediate' | 'next-prompt' | 'transcript-only';
   notices: RuntimeChangeNotice[];
   emitSystemNotice(
     instance: Instance,
@@ -315,6 +318,7 @@ export async function announceRuntimeChangeSet(params: {
     }
     params.assertCurrent?.();
   }
+  if (params.delivery === 'transcript-only') return;
 
   // Then ONE delivery for the whole set — see `preamble` for why it cannot be
   // several. Images from the replayed turns ride in that same delivery.

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WarmWorkspaceResult } from '../index-worker-protocol';
@@ -73,7 +74,7 @@ describe('codemem index worker main', () => {
       pruneUnreferencedChunks: vi.fn(() => 0),
       clearLegacyMerkleNodes: vi.fn(() => 0),
       optimizeSearchIndex: vi.fn(),
-      vacuumFreelistPages: vi.fn(),
+      vacuumFreelistPages: vi.fn(() => ({ freedPages: 0, remainingFreePages: 0, stoppedReason: 'done' })),
     };
     indexManager = Object.assign(new EventEmitter(), {
       coldIndex: vi.fn().mockResolvedValue(undefined),
@@ -288,6 +289,81 @@ describe('codemem index worker main', () => {
         deletedLegacyMerkleNodes: 2,
       }),
     }));
+  });
+
+  it('keeps vacuum bursts short at startup and for requested maintenance', async () => {
+    await importWorker();
+    expect(store.vacuumFreelistPages).toHaveBeenCalledWith({ timeBudgetMs: 10_000 });
+    store.vacuumFreelistPages.mockClear();
+
+    parentPort.emit('message', { type: 'run-maintenance', id: 79 });
+    await flushMicrotasks();
+
+    expect(store.vacuumFreelistPages).toHaveBeenCalledWith({ timeBudgetMs: 10_000 });
+  });
+
+  it('reclaims free space on a timer without ever starting a full VACUUM', async () => {
+    vi.useFakeTimers();
+    try {
+      await importWorker();
+      store.vacuumFreelistPages.mockClear();
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+
+      expect(store.vacuumFreelistPages).toHaveBeenCalledTimes(1);
+      expect(store.vacuumFreelistPages).toHaveBeenCalledWith({ timeBudgetMs: 10_000, allowFullVacuum: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports maintenance that could not truncate the WAL because a read was open', async () => {
+    db.pragma.mockImplementation((source: string) => (
+      source === 'wal_checkpoint(TRUNCATE)' ? [{ busy: 1, log: 10, checkpointed: 0 }] : undefined
+    ));
+
+    await importWorker();
+    parentPort.emit('message', {
+      type: 'run-maintenance',
+      id: 78,
+    });
+    await flushMicrotasks();
+
+    expect(parentPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'rpc-response',
+      id: 78,
+      result: expect.objectContaining({ walTruncated: false }),
+    }));
+  });
+
+  it('refuses to rebuild an index for the home folder', async () => {
+    await importWorker();
+    parentPort.emit('message', {
+      type: 'rebuild-index',
+      id: 6,
+      workspacePath: os.homedir(),
+    });
+    await flushMicrotasks();
+
+    expect(indexManager.coldIndex).not.toHaveBeenCalled();
+    expect(rpcResult(6)).toEqual(expect.objectContaining({ indexed: false }));
+  });
+
+  it.each([
+    ['the filesystem root', path.parse(process.cwd()).root],
+    ['the home folder', os.homedir()],
+  ])('refuses to index %s on warm-up', async (_label, workspacePath) => {
+    await importWorker();
+    parentPort.emit('message', {
+      type: 'warm-workspace',
+      id: 5,
+      workspacePath,
+    });
+    await flushMicrotasks();
+
+    expect(indexManager.coldIndex).not.toHaveBeenCalled();
+    expect(indexManager.start).not.toHaveBeenCalled();
+    expect(rpcResult(5)).toEqual(expect.objectContaining({ indexed: false }));
   });
 
   it('accepts child-process IPC when launched outside worker_threads', async () => {

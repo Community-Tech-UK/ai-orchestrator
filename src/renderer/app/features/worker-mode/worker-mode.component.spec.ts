@@ -4,7 +4,7 @@ import { By } from '@angular/platform-browser';
 import { vi, type Mocked } from 'vitest';
 import { PairBothIpcService } from '../../core/services/ipc/pair-both-ipc.service';
 import { SettingsStore } from '../../core/state/settings.store';
-import type { WorkerModeStatus } from '../../../../shared/types/pair-both.types';
+import type { WorkerConnectionSnapshot, WorkerModeStatus } from '../../../../shared/types/pair-both.types';
 import { WorkerModeComponent } from './worker-mode.component';
 
 // The stylesheet is irrelevant to these behaviour tests; stub it blank.
@@ -32,6 +32,22 @@ function status(overrides: Partial<WorkerModeStatus> = {}): WorkerModeStatus {
     backgroundService: false,
     runAtSignIn: false,
     runAtSignInAvailable: false,
+    connection: null,
+    ...overrides,
+  };
+}
+
+function report(
+  state: WorkerConnectionSnapshot['state'],
+  overrides: Partial<WorkerConnectionSnapshot> = {},
+): WorkerConnectionSnapshot {
+  return {
+    state,
+    coordinatorUrl: 'ws://mac:4878',
+    since: Date.now(),
+    updatedAt: Date.now(),
+    alive: true,
+    stale: false,
     ...overrides,
   };
 }
@@ -44,6 +60,7 @@ const UNPAIRED: WorkerModeStatus = {
   backgroundService: false,
   runAtSignIn: false,
   runAtSignInAvailable: false,
+  connection: null,
 };
 
 function buttonWithText(root: HTMLElement, text: string): HTMLButtonElement | undefined {
@@ -156,7 +173,7 @@ describe('WorkerModeComponent', () => {
   it('offers start plus open-at-sign-in after pairing, and no background service install', async () => {
     const root = await renderServiceChoice('Win32');
 
-    expect(root.textContent).toContain('The worker runs while Harness is open on this computer.');
+    expect(root.textContent).toContain('Press Start Worker so your main Harness can send work to this computer.');
     expect(root.textContent).toContain('Open Harness when I sign in');
     expect(buttonWithText(root, 'Start Worker')).toBeDefined();
     // A normal Harness cannot install an OS service (needs administrator
@@ -251,19 +268,93 @@ describe('WorkerModeComponent', () => {
   }
 
   it('restores the paired view after a relaunch instead of asking to pair again', async () => {
-    const root = await renderWithStatus(status());
+    const root = await renderWithStatus(status({ connection: report('connected') }));
 
     expect(root.textContent).toContain('Paired with your main Harness');
-    expect(root.textContent).toContain('Working. The main Harness has accepted this computer.');
+    expect(root.textContent).toContain('Working. Connected to your main Harness at mac:4878');
     expect(root.textContent).toContain('ws://mac:4878');
     expect(root.textContent).not.toContain('Pair With Harness');
     expect(buttonWithText(root, 'Stop Worker')).toBeDefined();
   });
 
-  it('says when the worker is still waiting to be accepted', async () => {
-    const root = await renderWithStatus(status({ enrolled: false }));
+  it('says the worker is connecting until it reports that it is connected', async () => {
+    const root = await renderWithStatus(status({ enrolled: false, connection: report('registering') }));
 
-    expect(root.textContent).toContain('waiting for the main Harness to accept this computer');
+    expect(root.textContent).toContain('Connecting to your main Harness at mac:4878...');
+    expect(root.querySelector('.worker-status')?.classList.contains('status-warning')).toBe(false);
+  });
+
+  it('does not claim the worker is working before it has reported in', async () => {
+    const root = await renderWithStatus(status());
+
+    expect(root.textContent).toContain('Starting the worker...');
+    expect(root.textContent).not.toContain('Working');
+  });
+
+  it('says plainly when the main Harness cannot be reached', async () => {
+    const root = await renderWithStatus(status({
+      connection: report('unreachable', { message: 'No answer from ws://mac:4878.' }),
+    }));
+
+    expect(root.textContent).toContain('Cannot reach your main Harness at mac:4878. No answer from ws://mac:4878.');
+    expect(root.textContent).toContain('same network');
+    expect(root.querySelector('.worker-status')?.classList.contains('status-warning')).toBe(true);
+  });
+
+  it('says when a connected main Harness stopped answering', async () => {
+    const root = await renderWithStatus(status({
+      connection: report('unreachable', { message: 'It stopped answering.' }),
+    }));
+
+    expect(root.textContent).toContain('Cannot reach your main Harness at mac:4878. It stopped answering. Check that Harness is open');
+  });
+
+  it('says when the main Harness refused this computer, and how to fix it', async () => {
+    const root = await renderWithStatus(status({
+      connection: report('rejected', { message: 'pairing token expired' }),
+    }));
+
+    expect(root.textContent).toContain('Your main Harness turned this computer away (pairing token expired). Press Pair Again');
+  });
+
+  it('flags a running worker that stopped reporting, and offers the Stop it mentions', async () => {
+    const root = await renderWithStatus(status({ connection: report('connected', { stale: true }) }));
+
+    expect(root.textContent).toContain('has not reported for a few minutes');
+    expect(root.textContent).toContain('press Stop Worker and then Start Worker');
+    expect(buttonWithText(root, 'Stop Worker')).toBeDefined();
+  });
+
+  it('does not tell the user to press buttons it hides for a stuck outside worker', async () => {
+    const root = await renderWithStatus(status({
+      runtime: { state: 'stopped' },
+      connection: report('connected', { stale: true }),
+    }));
+
+    expect(root.textContent).toContain('A worker started outside Harness is running on this computer but has not reported');
+    expect(root.textContent).not.toContain('press Stop Worker');
+    expect(buttonWithText(root, 'Start Worker')).toBeUndefined();
+    expect(buttonWithText(root, 'Stop Worker')).toBeUndefined();
+  });
+
+  it('explains a worker started outside Harness instead of offering Start or Stop', async () => {
+    const root = await renderWithStatus(status({
+      runtime: { state: 'stopped' },
+      connection: report('connected'),
+    }));
+
+    expect(root.textContent).toContain('A worker started outside Harness is running on this computer. Working.');
+    expect(buttonWithText(root, 'Start Worker')).toBeUndefined();
+    expect(buttonWithText(root, 'Stop Worker')).toBeUndefined();
+  });
+
+  it('shows why the worker could not start', async () => {
+    const root = await renderWithStatus(status({
+      runtime: { state: 'stopped', error: 'The worker stopped unexpectedly (exit code 1).' },
+      connection: report('failed', { alive: false, message: 'This computer has no address for the main Harness. Pair it again.' }),
+    }));
+
+    expect(root.textContent).toContain('The worker could not start: This computer has no address for the main Harness. Pair it again.');
   });
 
   it('offers Start Worker when the paired worker is stopped, and starts it', async () => {
@@ -271,7 +362,7 @@ describe('WorkerModeComponent', () => {
       runtime: { state: 'stopped', error: 'The worker stopped unexpectedly (exit code 1).' },
     }));
 
-    expect(root.textContent).toContain('The worker stopped unexpectedly (exit code 1). Start the worker to try again.');
+    expect(root.textContent).toContain('The worker stopped unexpectedly (exit code 1). Press Start Worker to try again.');
     pairBoth.getWorkerStatus.mockResolvedValue(status());
     buttonWithText(root, 'Start Worker')?.click();
     await fixture.whenStable();
@@ -334,18 +425,18 @@ describe('WorkerModeComponent', () => {
 
   it('refreshes the paired status while the page is open', async () => {
     vi.useFakeTimers();
-    pairBoth.getWorkerStatus.mockResolvedValue(status({ enrolled: false }));
+    pairBoth.getWorkerStatus.mockResolvedValue(status({ enrolled: false, connection: report('connecting') }));
     fixture = TestBed.createComponent(WorkerModeComponent);
     fixture.detectChanges();
     await vi.advanceTimersByTimeAsync(0);
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('waiting for the main Harness');
+    expect(fixture.nativeElement.textContent).toContain('Connecting to your main Harness');
 
-    pairBoth.getWorkerStatus.mockResolvedValue(status({ enrolled: true }));
-    await vi.advanceTimersByTimeAsync(5_000);
+    pairBoth.getWorkerStatus.mockResolvedValue(status({ enrolled: true, connection: report('connected') }));
+    await vi.advanceTimersByTimeAsync(2_500);
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('The main Harness has accepted this computer.');
+    expect(fixture.nativeElement.textContent).toContain('Working. Connected to your main Harness');
     fixture.destroy();
     const callsAfterDestroy = pairBoth.getWorkerStatus.mock.calls.length;
     await vi.advanceTimersByTimeAsync(15_000);
@@ -442,27 +533,126 @@ describe('WorkerModeComponent', () => {
       return fixture.nativeElement as HTMLElement;
     }
 
-    it('recommends keeping the worker running with Harness closed after pairing', async () => {
+    it('offers one Start Worker button, keeping the worker running with Harness closed by default', async () => {
       const root = await renderWindowsChoice();
 
-      expect(root.textContent).toContain('How should this worker run?');
-      expect(buttonWithText(root, 'Keep working when Harness is closed')).toBeDefined();
-      expect(buttonWithText(root, 'Only while Harness is open')).toBeDefined();
+      expect(root.textContent).toContain('Keep working when Harness is closed (recommended)');
+      expect(root.querySelector<HTMLInputElement>('.check-row input')?.checked).toBe(true);
+      // The background worker survives a restart by itself; no Harness login item needed.
+      expect(root.textContent).not.toContain('Open Harness when I sign in');
       expect(buttonWithText(root, 'Cancel')).toBeUndefined();
 
-      buttonWithText(root, 'Keep working when Harness is closed')?.click();
+      buttonWithText(root, 'Start Worker')?.click();
       await fixture.whenStable();
 
+      expect(pairBoth.runWorker).toHaveBeenCalledTimes(1);
       expect(pairBoth.runWorker).toHaveBeenCalledWith('sign-in-task', {});
     });
 
-    it('still offers the Harness-open mode with the sign-in option', async () => {
+    it('runs only while Harness is open when the box is unticked', async () => {
       const root = await renderWindowsChoice();
+      const backgroundBox = root.querySelector<HTMLInputElement>('.check-row input');
+      backgroundBox!.checked = false;
+      backgroundBox!.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+      expect(root.textContent).toContain('Open Harness when I sign in');
 
-      buttonWithText(root, 'Only while Harness is open')?.click();
+      buttonWithText(root, 'Start Worker')?.click();
       await fixture.whenStable();
 
       expect(pairBoth.runWorker).toHaveBeenCalledWith('run-while-open', { openAtLogin: true });
+    });
+
+    it('falls back to running while Harness is open when Windows will not set up the background worker', async () => {
+      const root = await renderWindowsChoice();
+      pairBoth.runWorker
+        .mockRejectedValueOnce(new Error('Windows task setup failed: access denied'))
+        .mockResolvedValueOnce({ state: 'running', pid: 99 });
+
+      buttonWithText(root, 'Start Worker')?.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(pairBoth.runWorker).toHaveBeenNthCalledWith(1, 'sign-in-task', {});
+      expect(pairBoth.runWorker).toHaveBeenNthCalledWith(2, 'run-while-open', { openAtLogin: true });
+      expect(root.textContent).toContain('Windows would not let Harness set the worker up to keep working with Harness closed, so it is running while Harness is open instead. Harness will open when you sign in');
+      // The raw scheduler text stays out of the page.
+      expect(root.textContent).not.toContain('Windows task setup failed: access denied');
+      expect(root.textContent).toContain('Paired with your main Harness');
+      expect(buttonWithText(root, 'Stop Worker')).toBeDefined();
+    });
+
+    it("shows the background worker's own reason when it could not start", async () => {
+      stubPlatform('Win32');
+      const root = await renderWithStatus(windowsStatus({
+        runAtSignIn: true,
+        runtime: { state: 'stopped' },
+        connection: report('failed', { alive: false, message: 'This computer has no address for the main Harness. Pair it again.' }),
+      }));
+
+      expect(root.textContent).toContain('The background worker could not start: This computer has no address for the main Harness. Pair it again.');
+    });
+
+    it('falls back the same way when Start Worker is pressed on the paired page', async () => {
+      stubPlatform('Win32');
+      const root = await renderWithStatus(windowsStatus({ runAtSignIn: true, runtime: { state: 'stopped' } }));
+      pairBoth.runWorker
+        .mockRejectedValueOnce(new Error('Windows task setup failed: access denied'))
+        .mockResolvedValueOnce({ state: 'running', pid: 99 });
+
+      buttonWithText(root, 'Start Worker')?.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(pairBoth.runWorker).toHaveBeenNthCalledWith(1, 'sign-in-task', {});
+      expect(pairBoth.runWorker).toHaveBeenNthCalledWith(2, 'run-while-open', { openAtLogin: true });
+      expect(root.textContent).toContain('so it is running while Harness is open instead');
+      expect(root.textContent).toContain('Paired with your main Harness');
+    });
+
+    it('gives no pairing advice when starting fails for a network or permission reason', async () => {
+      const root = await renderWindowsChoice();
+      pairBoth.runWorker
+        .mockRejectedValueOnce(new Error('Windows task setup failed: permission denied'))
+        .mockRejectedValueOnce(new Error('The worker could not open its network port.'));
+
+      buttonWithText(root, 'Start Worker')?.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(root.textContent).toContain('The worker could not open its network port.');
+      expect(root.textContent).not.toContain('Try QR or paste pairing');
+    });
+
+    it('shows the error and stays on the start screen when both ways of starting fail', async () => {
+      const root = await renderWindowsChoice();
+      pairBoth.runWorker
+        .mockRejectedValueOnce(new Error('Windows task setup failed: access denied'))
+        .mockRejectedValueOnce(new Error('Worker runtime binary was not found.'));
+
+      buttonWithText(root, 'Start Worker')?.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(root.textContent).toContain('Worker runtime binary was not found.');
+      expect(buttonWithText(root, 'Start Worker')).toBeDefined();
+    });
+
+    it('sends one start request however often Start Worker is pressed', async () => {
+      const root = await renderWindowsChoice();
+      let finish: () => void = () => undefined;
+      pairBoth.runWorker.mockImplementationOnce(() => new Promise((resolve) => {
+        finish = () => resolve({ state: 'running' });
+      }));
+
+      buttonWithText(root, 'Start Worker')?.click();
+      fixture.detectChanges();
+      expect(buttonWithText(root, 'Starting...')?.disabled).toBe(true);
+      buttonWithText(root, 'Starting...')?.click();
+      finish();
+      await fixture.whenStable();
+
+      expect(pairBoth.runWorker).toHaveBeenCalledTimes(1);
     });
 
     it('describes the background worker and restarts it through the sign-in task', async () => {
@@ -481,7 +671,7 @@ describe('WorkerModeComponent', () => {
       const root = await renderWindowsChoice();
       pairBoth.getWorkerStatus.mockResolvedValue(windowsStatus({ runAtSignIn: true, runtime: { state: 'stopped' } }));
 
-      buttonWithText(root, 'Keep working when Harness is closed')?.click();
+      buttonWithText(root, 'Start Worker')?.click();
       await fixture.whenStable();
       fixture.detectChanges();
 
@@ -492,7 +682,7 @@ describe('WorkerModeComponent', () => {
 
     it('reports a running background worker that the main Harness accepted', async () => {
       stubPlatform('Win32');
-      const root = await renderWithStatus(windowsStatus({ runAtSignIn: true }));
+      const root = await renderWithStatus(windowsStatus({ runAtSignIn: true, connection: report('connected') }));
 
       expect(root.textContent).toContain('Working in the background, even with Harness closed.');
       expect(buttonWithText(root, 'Stop Worker')).toBeDefined();
@@ -504,12 +694,14 @@ describe('WorkerModeComponent', () => {
 
       buttonWithText(root, 'Change How It Runs')?.click();
       fixture.detectChanges();
-      expect(root.textContent).toContain('How should this worker run?');
+      expect(root.textContent).toContain('Press Start Worker so your main Harness');
+      // Reopened for a computer that runs only while Harness is open.
+      expect(root.querySelector<HTMLInputElement>('.check-row input')?.checked).toBe(false);
 
       buttonWithText(root, 'Cancel')?.click();
       fixture.detectChanges();
       expect(root.textContent).toContain('Paired with your main Harness');
-      expect(root.textContent).not.toContain('How should this worker run?');
+      expect(root.textContent).not.toContain('Press Start Worker so your main Harness');
     });
   });
 });

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildClaudeMcpConfig,
+  getAdapterGuidanceBlocks,
   withBrowserGatewaySystemPrompt,
 } from './adapter-spawn-helpers';
 import { COMPUTER_USE_MCP_SERVER_NAME } from '../../desktop-gateway/desktop-mcp-config';
@@ -111,6 +112,37 @@ describe('withBrowserGatewaySystemPrompt', () => {
     // The share-tab handoff survives for its real case: a working channel with
     // an already-authenticated tab that must not be reopened.
     expect(result.systemPrompt).toContain('Only ask the user to share the current tab');
+  });
+
+  it('tells every agent to remove throwaway copies, even with no tool bridges attached', () => {
+    const result = withBrowserGatewaySystemPrompt({ systemPrompt: 'Base instructions' } as UnifiedSpawnOptions);
+
+    expect(result.systemPrompt).toMatch(/^Base instructions\n\n---\n\n\[Disk Hygiene\]/);
+    expect(result.systemPrompt).toContain('Make one copy per task and reuse it');
+    expect(result.systemPrompt).toContain('Where your instructions allow worktrees');
+    expect(result.systemPrompt).toContain('whether the check passed or failed');
+    expect(getAdapterGuidanceBlocks({} as UnifiedSpawnOptions).map((block) => block.kind)).toEqual([
+      'adapter-disk-hygiene',
+    ]);
+  });
+
+  it('appends disk hygiene after tool guidance and only once', () => {
+    const options = {
+      browserGatewayMcp: {
+        aioMcpCliPath: '/tmp/aio-mcp',
+        socketPath: '/tmp/browser-gateway.sock',
+        instanceId: 'instance-browser',
+        exists: () => true,
+      },
+    } as UnifiedSpawnOptions;
+
+    expect(getAdapterGuidanceBlocks(options).map((block) => block.kind)).toEqual([
+      'adapter-browser-gateway',
+      'adapter-disk-hygiene',
+    ]);
+    const once = withBrowserGatewaySystemPrompt(options);
+    const twice = withBrowserGatewaySystemPrompt(once);
+    expect(twice.systemPrompt).toBe(once.systemPrompt);
   });
 
   it('steers Computer Use input through accessibility targets and escalation', () => {

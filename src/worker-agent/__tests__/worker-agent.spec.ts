@@ -15,6 +15,7 @@ const wsMockState = vi.hoisted(() => ({
     emit: (event: string, ...args: unknown[]) => boolean;
     send: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
+    ping: ReturnType<typeof vi.fn>;
   }[],
 }));
 
@@ -54,6 +55,7 @@ vi.mock('ws', () => {
     options?: unknown;
     send = vi.fn((_data: string, cb?: (err?: Error) => void) => cb?.());
     close = vi.fn();
+    ping = vi.fn();
 
     constructor(url: string, options?: unknown) {
       this.url = url;
@@ -1631,6 +1633,283 @@ describe('WorkerAgent', () => {
       instanceId: 'inst-1',
       response,
       token: 'test-token',
+    });
+  });
+
+  describe('connection status report', () => {
+    function statusRecorder() {
+      const states: string[] = [];
+      const details: Record<string, unknown>[] = [];
+      return {
+        states,
+        details,
+        writer: {
+          set: vi.fn((state: string, detail: Record<string, unknown> = {}) => {
+            states.push(state);
+            details.push(detail);
+          }),
+          heartbeat: vi.fn((ping: () => void) => {
+            ping();
+            return false;
+          }),
+          noteContact: vi.fn(),
+        },
+      };
+    }
+
+    function acceptRegistration(socket: (typeof wsMockState.instances)[number]): void {
+      const registration = JSON.parse(socket.send.mock.calls[0][0] as string) as { id: string };
+      socket.emit('message', JSON.stringify({
+        jsonrpc: '2.0',
+        id: registration.id,
+        result: { nodeId: 'test-node-1' },
+      }));
+    }
+
+    it('reports connecting, registering, connected, then reconnecting after a drop', async () => {
+      const status = statusRecorder();
+      agent = new WorkerAgent(mockConfig, '/tmp/aio-worker-node-test.json', status.writer);
+
+      const connect = agent.connect();
+      const socket = await waitForSocket();
+      socket.emit('open');
+      await connect;
+      acceptRegistration(socket);
+
+      expect(status.states).toEqual(['connecting', 'registering', 'connected']);
+      expect(status.details[2]).toEqual({ coordinatorUrl: 'ws://localhost:4878' });
+
+      socket.emit('close', 1006);
+      expect(status.states.at(-1)).toBe('reconnecting');
+
+      await vi.advanceTimersByTimeAsync(mockConfig.heartbeatIntervalMs);
+      await agent.disconnect();
+      expect(status.states.at(-1)).toBe('stopped');
+    });
+
+    it('reports stopped before the slow part of shutting down', async () => {
+      const status = statusRecorder();
+      agent = new WorkerAgent(mockConfig, '/tmp/aio-worker-node-test.json', status.writer);
+      const connect = agent.connect();
+      const socket = await waitForSocket();
+      socket.emit('open');
+      await connect;
+      acceptRegistration(socket);
+      let stateDuringCleanup: string | undefined;
+      const instances = (agent as unknown as { instanceManager: { terminateAll: () => Promise<void> } }).instanceManager;
+      vi.spyOn(instances, 'terminateAll').mockImplementation(async () => {
+        stateDuringCleanup = status.states.at(-1);
+      });
+
+      await agent.disconnect();
+
+      expect(stateDuringCleanup).toBe('stopped');
+    });
+
+    it('refreshes the report on each heartbeat and counts coordinator messages and pongs as contact', async () => {
+      const status = statusRecorder();
+      agent = new WorkerAgent(mockConfig, '/tmp/aio-worker-node-test.json', status.writer);
+      const connect = agent.connect();
+      const socket = await waitForSocket();
+      socket.emit('open');
+      await connect;
+      acceptRegistration(socket);
+      expect(status.writer.noteContact).toHaveBeenCalledTimes(1);
+
+      socket.emit('pong');
+      expect(status.writer.noteContact).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(mockConfig.heartbeatIntervalMs + 10);
+
+      expect(status.writer.heartbeat).toHaveBeenCalled();
+      expect(socket.ping).toHaveBeenCalledTimes(1);
+    });
+
+    it('ignores pongs and messages from a socket that has been replaced', async () => {
+      const status = statusRecorder();
+      agent = new WorkerAgent(mockConfig, '/tmp/aio-worker-node-test.json', status.writer);
+      const connect = agent.connect();
+      const first = await waitForSocket();
+      first.emit('open');
+      await connect;
+      acceptRegistration(first);
+      first.emit('close', 1006);
+      await vi.advanceTimersByTimeAsync(1_000);
+      const second = await waitForSocket(1);
+      second.emit('open');
+      const contactBefore = status.writer.noteContact.mock.calls.length;
+
+      first.emit('pong');
+      first.emit('message', JSON.stringify({ jsonrpc: '2.0', method: 'noop' }));
+      expect(status.writer.noteContact).toHaveBeenCalledTimes(contactBefore);
+
+      second.emit('pong');
+      expect(status.writer.noteContact).toHaveBeenCalledTimes(contactBefore + 1);
+    });
+
+    it('keeps retrying when a connection attempt throws before any socket exists', async () => {
+      const status = statusRecorder();
+      agent = new WorkerAgent(mockConfig, '/tmp/aio-worker-node-test.json', status.writer);
+      networkReadinessMockState.firstReachableCoordinatorCandidate.mockResolvedValueOnce(null);
+      await agent.connect(); // unreachable: arms the reconnect timer
+      vi.mocked(reportCapabilities).mockRejectedValueOnce(new Error('probe failed'));
+
+      await vi.advanceTimersByTimeAsync(1_000); // retry throws inside connect()
+      expect(wsMockState.instances).toHaveLength(0);
+      expect(status.states.at(-1)).toBe('unreachable');
+      expect(status.details.at(-1)).toEqual({ message: 'Something went wrong on this computer while connecting.' });
+      await vi.advanceTimersByTimeAsync(30_000); // and is retried again
+
+      expect(wsMockState.instances.length).toBeGreaterThan(0);
+    });
+
+    it('terminates a silent socket when it can, and reconnects', async () => {
+      const status = statusRecorder();
+      agent = new WorkerAgent(mockConfig, '/tmp/aio-worker-node-test.json', status.writer);
+      const connect = agent.connect();
+      const socket = await waitForSocket() as (typeof wsMockState.instances)[number] & { terminate?: () => void };
+      socket.emit('open');
+      await connect;
+      acceptRegistration(socket);
+      const terminate = vi.fn(() => { socket.emit('close', 1006); });
+      socket.terminate = terminate;
+      status.writer.heartbeat.mockImplementationOnce(() => true);
+
+      await vi.advanceTimersByTimeAsync(mockConfig.heartbeatIntervalMs + 10);
+      expect(terminate).toHaveBeenCalledTimes(1);
+      expect(status.states.at(-1)).toBe('reconnecting');
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(wsMockState.instances.length).toBeGreaterThan(1);
+    });
+
+    it('gives up on a main Harness that never answers the registration, and reconnects', async () => {
+      const status = statusRecorder();
+      agent = new WorkerAgent(mockConfig, '/tmp/aio-worker-node-test.json', status.writer);
+      const connect = agent.connect();
+      const socket = await waitForSocket();
+      socket.close.mockImplementation(() => socket.emit('close', 1006));
+      socket.emit('open');
+      await connect;
+
+      await vi.advanceTimersByTimeAsync(44_000);
+      expect(status.states.at(-1)).toBe('registering');
+      await vi.advanceTimersByTimeAsync(1_500);
+
+      expect(status.states).toContain('unreachable');
+      expect(status.details[status.states.lastIndexOf('unreachable')]).toEqual({ message: 'It stopped answering.' });
+      expect(socket.close).toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(wsMockState.instances.length).toBeGreaterThan(1);
+    });
+
+    it('leaves an answered registration alone', async () => {
+      const status = statusRecorder();
+      agent = new WorkerAgent(mockConfig, '/tmp/aio-worker-node-test.json', status.writer);
+      const connect = agent.connect();
+      const socket = await waitForSocket();
+      socket.emit('open');
+      await connect;
+      acceptRegistration(socket);
+
+      await vi.advanceTimersByTimeAsync(50_000);
+
+      expect(status.states).not.toContain('unreachable');
+      expect(socket.close).not.toHaveBeenCalled();
+    });
+
+    it('drops a socket that went silent and reconnects', async () => {
+      const status = statusRecorder();
+      agent = new WorkerAgent(mockConfig, '/tmp/aio-worker-node-test.json', status.writer);
+      const connect = agent.connect();
+      const socket = await waitForSocket();
+      socket.emit('open');
+      await connect;
+      acceptRegistration(socket);
+      status.writer.heartbeat.mockImplementationOnce(() => true);
+      socket.close.mockImplementation(() => socket.emit('close', 1006));
+
+      await vi.advanceTimersByTimeAsync(mockConfig.heartbeatIntervalMs + 10);
+      expect(socket.close).toHaveBeenCalled();
+      expect(status.states.at(-1)).toBe('reconnecting');
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(wsMockState.instances.length).toBeGreaterThan(1);
+    });
+
+    it('never hands a credential to the report writer (the writer also redacts; see worker-connection-status.spec)', async () => {
+      const status = statusRecorder();
+      agent = new WorkerAgent(
+        { ...mockConfig, nodeToken: 'node-pass-value', recoveryToken: 'recovery-pass-value' },
+        '/tmp/aio-worker-node-test.json',
+        status.writer,
+      );
+      const connect = agent.connect();
+      const socket = await waitForSocket();
+      socket.emit('open');
+      await connect;
+      acceptRegistration(socket);
+      socket.emit('close', 1006);
+
+      expect(JSON.stringify(status.details)).not.toMatch(/test-token|node-pass-value|recovery-pass-value/);
+    });
+
+    it('reports the main Harness as unreachable when no address answers', async () => {
+      networkReadinessMockState.firstReachableCoordinatorCandidate.mockResolvedValue(null);
+      const status = statusRecorder();
+      agent = new WorkerAgent(mockConfig, '/tmp/aio-worker-node-test.json', status.writer);
+
+      await agent.connect();
+
+      expect(status.states).toEqual(['connecting', 'unreachable']);
+      expect(status.details[1]).toEqual({
+        coordinatorUrl: 'ws://localhost:4878',
+        message: 'No answer from localhost:4878.',
+      });
+    });
+
+    it('reports a refusal once there is no other credential left to try', async () => {
+      const status = statusRecorder();
+      agent = new WorkerAgent(
+        { ...mockConfig, nodeToken: undefined, recoveryToken: undefined },
+        '/tmp/aio-worker-node-test.json',
+        status.writer,
+      );
+      const connect = agent.connect();
+      const socket = await waitForSocket();
+      socket.emit('open');
+      await connect;
+
+      const registration = JSON.parse(socket.send.mock.calls[0][0] as string) as { id: string };
+      socket.emit('message', JSON.stringify({
+        jsonrpc: '2.0',
+        id: registration.id,
+        error: { code: -32001, message: 'pairing token expired' },
+      }));
+
+      expect(status.states.at(-1)).toBe('rejected');
+      expect(status.details.at(-1)).toEqual({ message: 'pairing token expired' });
+    });
+
+    it('does not report a refusal while a recovery credential is still being tried', async () => {
+      const status = statusRecorder();
+      agent = new WorkerAgent(
+        { ...mockConfig, nodeToken: 'node-token', recoveryToken: 'recovery-token' },
+        '/tmp/aio-worker-node-test.json',
+        status.writer,
+      );
+      const connect = agent.connect();
+      const socket = await waitForSocket();
+      socket.emit('open');
+      await connect;
+
+      const registration = JSON.parse(socket.send.mock.calls[0][0] as string) as { id: string };
+      socket.emit('message', JSON.stringify({
+        jsonrpc: '2.0',
+        id: registration.id,
+        error: { code: -32001, message: 'node token revoked' },
+      }));
+
+      expect(status.states).not.toContain('rejected');
     });
   });
 });

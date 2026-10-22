@@ -8,7 +8,9 @@ import {
 } from '../../core/services/ipc/pair-both-ipc.service';
 import { CLIPBOARD_SERVICE, type ClipboardService } from '../../core/services/clipboard.service';
 import { CoordinatorPairingComponent } from './coordinator-pairing.component';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import type { PairBothCandidate, PairBothSessionState } from '../../../../shared/types/pair-both.types';
+import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 
 vi.mock('qrcode', () => ({
   default: {
@@ -26,8 +28,13 @@ describe('CoordinatorPairingComponent', () => {
     | 'rejectCoordinatorPairing'
     | 'getCoordinatorState'
   >>;
+  const connectedNodes = signal<Pick<RemoteNodeRosterEntry, 'id' | 'name'>[]>([]);
+  /** What the next store refresh loads (null: leave the list as it is; 'fail': reject). */
+  let nodesOnRefresh: Pick<RemoteNodeRosterEntry, 'id' | 'name'>[] | null | 'fail' = null;
 
   beforeEach(async () => {
+    connectedNodes.set([]);
+    nodesOnRefresh = null;
     pairBoth = {
       startCoordinatorPairing: vi.fn(),
       stopCoordinatorPairing: vi.fn().mockResolvedValue(undefined),
@@ -46,6 +53,17 @@ describe('CoordinatorPairingComponent', () => {
       providers: [
         { provide: PairBothIpcService, useValue: pairBoth },
         { provide: CLIPBOARD_SERVICE, useValue: clipboard },
+        {
+          provide: RemoteNodeStore,
+          useValue: {
+            connectedNodes,
+            initialize: vi.fn().mockResolvedValue(undefined),
+            refresh: vi.fn(async () => {
+              if (nodesOnRefresh === 'fail') throw new Error('Remote node list unavailable');
+              if (nodesOnRefresh) connectedNodes.set(nodesOnRefresh);
+            }),
+          },
+        },
       ],
     }).compileComponents();
 
@@ -90,6 +108,168 @@ describe('CoordinatorPairingComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('Pairing approved. The worker can now register normally.');
   });
 
+  it('tells the user to start the worker, then says when it connects', async () => {
+    connectedNodes.set([{ id: 'windows-pc', name: 'windows-pc' }]);
+    const candidate = makeCandidate();
+    const workerHello = {
+      protocolVersion: '1',
+      role: 'worker' as const,
+      machineName: 'Noah PC',
+      nonce: 'worker-nonce',
+      publicKey: 'worker-public-key-material',
+      pairingSessionId: candidate.pairingSessionId,
+    };
+    const component = fixture.componentInstance as unknown as {
+      applySessionUiState(state: PairBothSessionState): void;
+    };
+    component.applySessionUiState(makeState(candidate, {
+      status: 'completed',
+      payloadDelivered: true,
+      workerHello,
+    }));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const text = (): string => fixture.nativeElement.textContent;
+    expect(text()).toContain('Paired with Noah PC.');
+    expect(text()).toContain('Now press Start Worker on Noah PC.');
+    expect(text()).not.toContain('register normally');
+
+    connectedNodes.set([
+      { id: 'windows-pc', name: 'windows-pc' },
+      { id: 'other', name: 'other-laptop' },
+      { id: 'node-9', name: 'Noah PC' },
+    ]);
+    fixture.detectChanges();
+
+    // Prefers the computer named like the one that just paired.
+    expect(text()).toContain('Noah PC is connected. Your main Harness can now send it work.');
+  });
+
+  it('does not mistake an already-online computer for the new one when the list loads late', async () => {
+    // The store has not loaded yet; the refresh at completion loads windows-pc.
+    nodesOnRefresh = [{ id: 'windows-pc', name: 'windows-pc' }];
+    const component = fixture.componentInstance as unknown as {
+      applySessionUiState(state: PairBothSessionState): void;
+    };
+    component.applySessionUiState(makeState(makeCandidate(), { status: 'completed', payloadDelivered: true }));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Now press Start Worker on the other computer.');
+    expect(fixture.nativeElement.textContent).not.toContain('is connected');
+  });
+
+  it('names no computer when the node list could not be loaded', async () => {
+    nodesOnRefresh = 'fail';
+    const component = fixture.componentInstance as unknown as {
+      applySessionUiState(state: PairBothSessionState): void;
+    };
+    component.applySessionUiState(makeState(makeCandidate(), { status: 'completed', payloadDelivered: true }));
+    await fixture.whenStable();
+    connectedNodes.set([{ id: 'windows-pc', name: 'windows-pc' }]);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Now press Start Worker on the other computer.');
+    expect(fixture.nativeElement.textContent).not.toContain('is connected');
+  });
+
+  it('does not treat a similar but different name as the paired computer', async () => {
+    const component = fixture.componentInstance as unknown as {
+      applySessionUiState(state: PairBothSessionState): void;
+    };
+    component.applySessionUiState(makeState(makeCandidate(), {
+      status: 'completed',
+      payloadDelivered: true,
+      workerHello: workerHelloFor('Noah PC'),
+    }));
+    await fixture.whenStable();
+    connectedNodes.set([{ id: 'other', name: 'Noah-PC.local' }]);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('is connected');
+  });
+
+  it('names nobody when two new computers share the paired name', async () => {
+    const component = fixture.componentInstance as unknown as {
+      applySessionUiState(state: PairBothSessionState): void;
+    };
+    component.applySessionUiState(makeState(makeCandidate(), {
+      status: 'completed',
+      payloadDelivered: true,
+      workerHello: workerHelloFor('Noah PC'),
+    }));
+    await fixture.whenStable();
+    connectedNodes.set([{ id: 'a', name: 'Noah PC' }, { id: 'b', name: 'Noah PC' }]);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('is connected');
+  });
+
+  it('never names a different computer that happens to come online', async () => {
+    const component = fixture.componentInstance as unknown as {
+      applySessionUiState(state: PairBothSessionState): void;
+    };
+    component.applySessionUiState(makeState(makeCandidate(), {
+      status: 'completed',
+      payloadDelivered: true,
+      workerHello: workerHelloFor('Noah PC'),
+    }));
+    await fixture.whenStable();
+    connectedNodes.set([{ id: 'laptop', name: 'laptop' }]);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Now press Start Worker on Noah PC.');
+    expect(fixture.nativeElement.textContent).not.toContain('is connected');
+  });
+
+  it('tries the node list again when it could not be loaded at first', async () => {
+    vi.useFakeTimers();
+    try {
+      nodesOnRefresh = 'fail';
+      const component = fixture.componentInstance as unknown as {
+        applySessionUiState(state: PairBothSessionState): void;
+      };
+      component.applySessionUiState(makeState(makeCandidate(), {
+        status: 'completed',
+        payloadDelivered: true,
+        workerHello: workerHelloFor('Noah PC'),
+      }));
+      await vi.advanceTimersByTimeAsync(0);
+      nodesOnRefresh = [{ id: 'windows-pc', name: 'windows-pc' }];
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      connectedNodes.set([{ id: 'windows-pc', name: 'windows-pc' }, { id: 'node-9', name: 'NOAH PC' }]);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).toContain('NOAH PC is connected.');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('counts a re-paired computer that drops off and comes back as connected', async () => {
+    connectedNodes.set([{ id: 'node-9', name: 'Noah PC' }]);
+    const candidate = makeCandidate();
+    const component = fixture.componentInstance as unknown as {
+      applySessionUiState(state: PairBothSessionState): void;
+    };
+    component.applySessionUiState(makeState(candidate, {
+      status: 'completed',
+      payloadDelivered: true,
+      workerHello: workerHelloFor('Noah PC'),
+    }));
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Now press Start Worker on Noah PC.');
+
+    connectedNodes.set([]);
+    fixture.detectChanges();
+    connectedNodes.set([{ id: 'node-9', name: 'Noah PC' }]);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Noah PC is connected.');
+  });
+
   it('shows a QR fallback alongside the copyable pairing invitation', async () => {
     const candidate = makeCandidate();
     const state = makeState(candidate);
@@ -108,6 +288,17 @@ describe('CoordinatorPairingComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Copy Invitation');
   });
 });
+
+function workerHelloFor(machineName: string): NonNullable<PairBothSessionState['workerHello']> {
+  return {
+    protocolVersion: '1',
+    role: 'worker',
+    machineName,
+    nonce: 'worker-nonce',
+    publicKey: 'worker-public-key-material',
+    pairingSessionId: 'session-1',
+  };
+}
 
 function makeCandidate(): PairBothCandidate {
   return {

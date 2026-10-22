@@ -498,7 +498,9 @@ export class InstanceManager extends EventEmitter {
         applyRuntimeChange: (id, desired) => this.applyAccountHandoff(id, desired),
         resendInput: (id, prompt) => {
           const resend = automatedResendInput(prompt);
-          return this.sendInput(id, resend.message, undefined, resend.options);
+          // A user's held turn is already in the transcript: re-send it without a second bubble.
+          return this.sendInput(id, resend.message, undefined,
+            resend.options.internalSource ? resend.options : { ...resend.options, isRetry: true });
         },
         reportResendFailure: (id) => this.emitSystemMessage(id,
           'The account switched, but the interrupted message could not be confirmed. Check the conversation before sending it again.',

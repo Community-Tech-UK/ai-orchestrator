@@ -1,5 +1,9 @@
 import type { WorkspaceHash } from './types';
-import type { WorkspaceIndexStats } from './cas-workspace-index-maintenance';
+import type {
+  VacuumFreelistOptions,
+  VacuumFreelistResult,
+  WorkspaceIndexStats,
+} from './cas-workspace-index-maintenance';
 
 export interface CodememPrunerStore {
   listWorkspaceIndexStats(): WorkspaceIndexStats[];
@@ -10,12 +14,16 @@ export interface CodememMaintenanceStore extends CodememPrunerStore {
   pruneUnreferencedChunks(): number;
   clearLegacyMerkleNodes(): number;
   optimizeSearchIndex(): void;
-  vacuumFreelistPages(): void;
+  vacuumFreelistPages(options?: VacuumFreelistOptions): VacuumFreelistResult;
 }
 
 export interface CodememPruneOptions {
   maxWorkspaces: number;
   maxManifestEntriesPerWorkspace: number;
+}
+
+export interface CodememMaintenanceOptions extends CodememPruneOptions {
+  vacuumTimeBudgetMs?: number;
 }
 
 export interface CodememPruneResult {
@@ -26,6 +34,7 @@ export interface CodememPruneResult {
 export interface CodememMaintenanceResult extends CodememPruneResult {
   deletedOrphanChunks: number;
   deletedLegacyMerkleNodes: number;
+  vacuum: VacuumFreelistResult;
 }
 
 export function pruneCodememWorkspaces(
@@ -63,16 +72,19 @@ export function pruneCodememWorkspaces(
 
 export function runCodememMaintenance(
   store: CodememMaintenanceStore,
-  options: CodememPruneOptions,
+  options: CodememMaintenanceOptions,
 ): CodememMaintenanceResult {
   const pruneResult = pruneCodememWorkspaces(store, options);
   const deletedOrphanChunks = store.pruneUnreferencedChunks();
   const deletedLegacyMerkleNodes = store.clearLegacyMerkleNodes();
   store.optimizeSearchIndex();
-  store.vacuumFreelistPages();
+  const vacuum = store.vacuumFreelistPages(
+    options.vacuumTimeBudgetMs === undefined ? undefined : { timeBudgetMs: options.vacuumTimeBudgetMs },
+  );
   return {
     ...pruneResult,
     deletedOrphanChunks,
     deletedLegacyMerkleNodes,
+    vacuum,
   };
 }

@@ -8,10 +8,13 @@ import {
 } from '../../core/services/ipc/pair-both-ipc.service';
 import type {
   PairBothCandidate,
+  WorkerConnectionSnapshot,
   WorkerModeStatus,
 } from '../../../../shared/types/pair-both.types';
+import { describeWorkerStatus } from './worker-mode-status';
 
-const STATUS_POLL_INTERVAL_MS = 5_000;
+/** Short, so pressing Start Worker shows "Connecting..." then "Working" promptly. */
+const STATUS_POLL_INTERVAL_MS = 2_500;
 /** How long a just-started sign-in worker may take to take its lock. */
 const SIGN_IN_START_GRACE_MS = 30_000;
 
@@ -39,6 +42,10 @@ type WorkerModeState =
 
       @if (networkHelp()) {
         <div class="notice guidance" role="status">{{ networkHelp() }}</div>
+      }
+
+      @if (notice()) {
+        <div class="notice guidance" role="status">{{ notice() }}</div>
       }
 
       @if (state() === 'loading') {
@@ -124,21 +131,19 @@ type WorkerModeState =
       @if (state() === 'service-choice' && pairedConfig()) {
         <div class="connected-panel">
           <h2>Paired with your main Harness</h2>
+          <p>Press Start Worker so your main Harness can send work to this computer.</p>
           @if (workerStatus()?.runAtSignInAvailable) {
-            <p>How should this worker run?</p>
-            <div class="button-row">
-              <button class="primary-small" type="button" (click)="chooseRunAtSignIn()">
-                Keep working when Harness is closed
-              </button>
-            </div>
-            <p class="field-label">
-              Recommended. Starts when you sign in to Windows and restarts itself if it stops.
-            </p>
-            <p>Or run it only while Harness is open on this computer:</p>
-          } @else {
-            <p>This computer is paired. The worker runs while Harness is open on this computer.</p>
+            <label class="check-row">
+              <input
+                type="checkbox"
+                [checked]="runAtSignInChoice()"
+                (change)="runAtSignInChoice.set($any($event.target).checked)"
+              />
+              Keep working when Harness is closed (recommended). The worker starts when you sign in
+              to Windows and restarts itself if it stops.
+            </label>
           }
-          @if (canOpenAtLogin) {
+          @if (canOpenAtLogin && !backgroundChosen()) {
             <label class="check-row">
               <input
                 type="checkbox"
@@ -149,13 +154,8 @@ type WorkerModeState =
             </label>
           }
           <div class="button-row">
-            <button
-              type="button"
-              [class.primary-small]="!workerStatus()?.runAtSignInAvailable"
-              [class.secondary-small]="workerStatus()?.runAtSignInAvailable"
-              (click)="chooseRunWhileOpen()"
-            >
-              {{ workerStatus()?.runAtSignInAvailable ? 'Only while Harness is open' : 'Start Worker' }}
+            <button class="primary-action" type="button" [disabled]="starting()" (click)="startFromChoice()">
+              {{ starting() ? 'Starting...' : 'Start Worker' }}
             </button>
             @if (runChoiceReopened()) {
               <button class="secondary-small" type="button" (click)="resetPairing()">Cancel</button>
@@ -190,11 +190,13 @@ type WorkerModeState =
             <span>{{ config.namespace }}</span>
           </div>
           <div class="button-row">
-            @if (!workerStatus()?.backgroundService) {
+            @if (!workerStatus()?.backgroundService && !externalWorker()) {
               @if (workerRunning() || signInStarting()) {
                 <button class="primary-small" type="button" (click)="stopWorker()">Stop Worker</button>
               } @else {
-                <button class="primary-small" type="button" (click)="startWorker()">Start Worker</button>
+                <button class="primary-small" type="button" [disabled]="starting()" (click)="startWorker()">
+                  {{ starting() ? 'Starting...' : 'Start Worker' }}
+                </button>
               }
             }
             @if (workerStatus()?.runAtSignInAvailable) {
@@ -246,6 +248,14 @@ export class WorkerModeComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly networkHelp = signal<string | null>(null);
   protected readonly openAtLoginChoice = signal(true);
+  /** Windows: run the worker from a sign-in task so it keeps working with Harness closed. */
+  protected readonly runAtSignInChoice = signal(true);
+  /** A start request is in flight; the Start button is disabled so it is not sent twice. */
+  protected readonly starting = signal(false);
+  /** When Start Worker was last pressed: an older "could not start" report is out of date. */
+  private readonly lastStartAt = signal<number | null>(null);
+  /** Information that is not an error, such as falling back to the Harness-open mode. */
+  protected readonly notice = signal<string | null>(null);
   /** The run-mode choice was reopened from the paired view, so it offers Cancel. */
   protected readonly runChoiceReopened = signal(false);
   /**
@@ -260,6 +270,10 @@ export class WorkerModeComponent {
   private statusRequestId = 0;
 
   protected readonly workerRunning = computed(() => this.workerStatus()?.runtime.state === 'running');
+
+  protected readonly backgroundChosen = computed(
+    () => this.workerStatus()?.runAtSignInAvailable === true && this.runAtSignInChoice(),
+  );
 
   /**
    * The sign-in worker reports "running" only once it holds its lock, a few
@@ -277,43 +291,40 @@ export class WorkerModeComponent {
     );
   });
 
-  protected readonly statusIsWarning = computed(() => {
-    const status = this.workerStatus();
-    if (!status || status.backgroundService || this.signInStarting()) {
-      return false;
-    }
-    return status.runtime.state !== 'running' || !status.enrolled;
+  /** The worker's own report, while the worker that wrote it is still running. */
+  private readonly aliveConnection = computed<WorkerConnectionSnapshot | null>(() => {
+    const connection = this.workerStatus()?.connection;
+    return connection?.alive && connection.state !== 'stopped' && connection.state !== 'failed'
+      ? connection
+      : null;
   });
 
-  protected readonly statusLine = computed(() => {
+  /**
+   * A worker Harness did not start (for example one launched by hand or by an
+   * older setup) is already working for this pairing. Harness's own Start would
+   * exit at once (one worker per computer) and its Stop cannot reach it.
+   */
+  protected readonly externalWorker = computed(() => {
     const status = this.workerStatus();
-    if (!status) {
-      return 'Checking the worker...';
-    }
-    if (status.backgroundService) {
-      return 'The background service runs this worker, even when Harness is closed.';
-    }
-    if (status.runAtSignIn) {
-      if (this.signInStarting()) {
-        return 'Starting the background worker...';
-      }
-      if (status.runtime.state !== 'running') {
-        return 'The background worker is stopped. Press Start Worker to start it; it then also starts whenever you sign in to Windows.';
-      }
-      return status.enrolled
-        ? 'Working in the background, even with Harness closed. The main Harness has accepted this computer.'
-        : 'Running in the background and waiting for the main Harness to accept this computer. If this does not change within a minute, pair again.';
-    }
-    if (status.runtime.state === 'running') {
-      return status.enrolled
-        ? 'Working. The main Harness has accepted this computer.'
-        : 'Starting up and waiting for the main Harness to accept this computer. If this does not change within a minute, pair again.';
-    }
-    if (status.runtime.error) {
-      return `${status.runtime.error} Start the worker to try again.`;
-    }
-    return 'The worker is stopped. Start it to take work from the main Harness.';
+    return Boolean(
+      status
+      && !status.backgroundService
+      && !status.runAtSignIn
+      && status.runtime.state !== 'running'
+      && this.aliveConnection(),
+    );
   });
+
+  private readonly statusView = computed(() => describeWorkerStatus(this.workerStatus(), {
+    connection: this.aliveConnection(),
+    externalWorker: this.externalWorker(),
+    signInStarting: this.signInStarting(),
+    startedAt: this.lastStartAt(),
+  }));
+
+  protected readonly statusIsWarning = computed(() => this.statusView().warning);
+
+  protected readonly statusLine = computed(() => this.statusView().text);
 
   constructor() {
     void this.refreshStatus({ restoreState: true });
@@ -432,29 +443,88 @@ export class WorkerModeComponent {
     });
   }
 
+  /** The post-pairing Start Worker button: start in the mode the boxes describe. */
+  protected async startFromChoice(): Promise<void> {
+    if (this.backgroundChosen()) {
+      await this.chooseRunAtSignIn();
+      return;
+    }
+    await this.chooseRunWhileOpen();
+  }
+
   /** Windows: hand the worker to a sign-in task so it runs with Harness closed. */
   protected async chooseRunAtSignIn(): Promise<void> {
-    await this.runWorker('sign-in-task', 'service-choice');
+    await this.startInBackground('service-choice');
+  }
+
+  /**
+   * Start the sign-in task's worker. If Windows will not set the task up, run
+   * the worker while Harness is open instead (opening Harness at sign-in, so it
+   * still survives a restart) rather than leaving a paired computer that does
+   * no work. Used by both Start Worker buttons.
+   */
+  private async startInBackground(
+    stateOnFailure: Extract<WorkerModeState, 'connected' | 'service-choice'>,
+  ): Promise<void> {
+    if (this.starting()) {
+      return;
+    }
+    this.error.set(null);
+    this.notice.set(null);
+    this.starting.set(true);
+    this.lastStartAt.set(Date.now());
+    try {
+      await this.pairBoth.runWorker('sign-in-task', {});
+      this.signInStartedAt.set(Date.now());
+      this.runChoiceReopened.set(false);
+      this.state.set('connected');
+    } catch (error) {
+      // The raw reason can be a page of Windows task-scheduler output: keep it
+      // for diagnosis, show a plain sentence.
+      console.warn('[WorkerMode] Background worker setup failed', error);
+      try {
+        await this.pairBoth.runWorker('run-while-open', { openAtLogin: this.canOpenAtLogin });
+        this.signInStartedAt.set(null);
+        this.runChoiceReopened.set(false);
+        this.notice.set(
+          'Windows would not let Harness set the worker up to keep working with Harness closed, so it is running while Harness is open instead. Harness will open when you sign in, so it keeps working after a restart.',
+        );
+        this.state.set('connected');
+      } catch (fallbackError) {
+        this.error.set(startErrorMessage(fallbackError));
+        this.state.set(stateOnFailure);
+      }
+    } finally {
+      this.starting.set(false);
+    }
+    await this.refreshStatus();
   }
 
   protected async startWorker(): Promise<void> {
-    await this.runWorker(this.workerStatus()?.runAtSignIn ? 'sign-in-task' : 'run-while-open', 'connected');
+    if (this.workerStatus()?.runAtSignIn) {
+      await this.startInBackground('connected');
+      return;
+    }
+    await this.runWorker('run-while-open', 'connected');
   }
 
   /** Show the run-mode choice again for an already paired computer. */
   protected changeRunMode(): void {
     this.error.set(null);
+    this.notice.set(null);
+    this.runAtSignInChoice.set(this.workerStatus()?.runAtSignIn === true);
     this.runChoiceReopened.set(true);
     this.state.set('service-choice');
   }
 
   protected async stopWorker(): Promise<void> {
     this.error.set(null);
+    this.notice.set(null);
     this.signInStartedAt.set(null);
     try {
       await this.pairBoth.stopWorker();
     } catch (error) {
-      this.error.set(this.toFriendlyPairingError(error));
+      this.error.set(startErrorMessage(error));
     }
     await this.refreshStatus();
   }
@@ -503,15 +573,23 @@ export class WorkerModeComponent {
     stateOnFailure: Extract<WorkerModeState, 'connected' | 'service-choice'>,
     options: { openAtLogin?: boolean } = {},
   ): Promise<void> {
+    if (this.starting()) {
+      return;
+    }
     this.error.set(null);
+    this.notice.set(null);
+    this.starting.set(true);
+    this.lastStartAt.set(Date.now());
     try {
       await this.pairBoth.runWorker(mode, options);
       this.signInStartedAt.set(mode === 'sign-in-task' ? Date.now() : null);
       this.runChoiceReopened.set(false);
       this.state.set('connected');
     } catch (error) {
-      this.error.set(this.toFriendlyPairingError(error));
+      this.error.set(startErrorMessage(error));
       this.state.set(stateOnFailure);
+    } finally {
+      this.starting.set(false);
     }
     await this.refreshStatus();
   }
@@ -578,4 +656,9 @@ export class WorkerModeComponent {
     }
     return message;
   }
+}
+
+/** A start failure, without the pairing advice (QR, paste) that does not apply to it. */
+function startErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

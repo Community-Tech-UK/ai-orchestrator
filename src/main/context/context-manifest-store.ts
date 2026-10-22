@@ -121,6 +121,7 @@ const ADAPTER_GUIDANCE_ORDER: readonly AdapterGuidanceBlock['kind'][] = [
   'adapter-chrome-devtools',
   'adapter-mobile-mcp',
   'adapter-computer-use',
+  'adapter-disk-hygiene',
 ];
 
 /** Complete the latest pre-spawn snapshot with the blocks the adapter appends. */

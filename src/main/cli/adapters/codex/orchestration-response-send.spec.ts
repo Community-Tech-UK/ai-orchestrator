@@ -58,6 +58,60 @@ describe('Codex orchestration response send', () => {
     expect(sendInput).not.toHaveBeenCalled();
   });
 
+  // Session x3po7817o: one Harness-started turn ran for eight hours, so a
+  // consensus result waited for it to end and timed out undelivered.
+  it('adds the response to a running turn instead of waiting for the turn to end', async () => {
+    const sendInput = vi.fn(async () => undefined);
+    const injectIntoActiveTurn = vi.fn(async () => 'delivered' as const);
+
+    await sendCodexOrchestrationResponse('Action: consensus_query', {
+      isAppServerMode: () => true,
+      isReady: () => true,
+      hasActiveTurn: () => true,
+      injectIntoActiveTurn,
+      sendInput,
+    });
+
+    expect(injectIntoActiveTurn).toHaveBeenCalledExactlyOnceWith('Action: consensus_query');
+    expect(sendInput).not.toHaveBeenCalled();
+  });
+
+  it('keeps trying the running turn until it can take the response', async () => {
+    const injectIntoActiveTurn = vi.fn(async () => (
+      injectIntoActiveTurn.mock.calls.length === 1 ? 'not-running' as const : 'delivered' as const
+    ));
+    const sendInput = vi.fn(async () => undefined);
+
+    await sendCodexOrchestrationResponse('Action: consensus_query', {
+      isAppServerMode: () => true,
+      isReady: () => true,
+      hasActiveTurn: () => true,
+      injectIntoActiveTurn,
+      sendInput,
+    });
+
+    expect(injectIntoActiveTurn).toHaveBeenCalledTimes(2);
+    expect(sendInput).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a new turn after the provider refuses the running-turn item', async () => {
+    let active = true;
+    const injectIntoActiveTurn = vi.fn(async () => 'failed' as const);
+    const sendInput = vi.fn(async () => undefined);
+    setTimeout(() => { active = false; }, 600);
+
+    await sendCodexOrchestrationResponse('Action: consensus_query', {
+      isAppServerMode: () => true,
+      isReady: () => true,
+      hasActiveTurn: () => active,
+      injectIntoActiveTurn,
+      sendInput,
+    });
+
+    expect(injectIntoActiveTurn).toHaveBeenCalledOnce();
+    expect(sendInput).toHaveBeenCalledExactlyOnceWith('Action: consensus_query');
+  });
+
   it('holds orchestration delivery until provider compaction settles', async () => {
     let compacting = true;
     let release!: (outcome: 'observed') => void;

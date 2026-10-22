@@ -165,6 +165,28 @@ describe('WorkerModeRuntimeService', () => {
     expect(service.status()).toEqual({ state: 'stopped' });
   });
 
+  it('remembers for a few seconds that Harness stopped its worker, until the next start', () => {
+    let now = 1_000;
+    const service = new WorkerModeRuntimeService({
+      spawn: vi.fn(() => fakeChild(2222)),
+      resolveCommand: () => ({ command: '/bin/aio-worker', args: [] }),
+      killTree: vi.fn(),
+      now: () => now,
+    });
+    expect(service.stoppedRecently()).toBe(false);
+    service.start({ configPath: '/config.json' });
+    service.stop();
+    expect(service.stoppedRecently()).toBe(true);
+    now += 6_000;
+    expect(service.stoppedRecently()).toBe(false);
+
+    now = 20_000;
+    service.start({ configPath: '/config.json' });
+    service.stop();
+    service.start({ configPath: '/config.json' });
+    expect(service.stoppedRecently()).toBe(false);
+  });
+
   it('reports a worker that exits on its own with a failure code', () => {
     const child = fakeChild(2222);
     const service = new WorkerModeRuntimeService({

@@ -172,6 +172,17 @@ describe('WorkerSignInTask', () => {
     expect(scripts.at(-1)).toContain('Start-ScheduledTask');
   });
 
+  it('can end the worker without touching the task (when Windows refuses task changes)', async () => {
+    const task = makeTask();
+
+    await task.endWorker();
+
+    expect(scripts).toHaveLength(1);
+    expect(scripts[0]).toContain('taskkill.exe');
+    expect(scripts[0]).not.toMatch(/ScheduledTask/);
+    expect(scripts[0]).toContain(psQuote(`${task.paths().versionsDir}${path.sep}`));
+  });
+
   it('remove unregisters the task, ends the worker and deletes the copies', async () => {
     const task = makeTask();
     await task.install('/c.json');

@@ -66,6 +66,7 @@ export const SETTING_SURFACING = {
   outputBufferSize: 'tab',
   enableDiskStorage: 'tab',
   maxDiskStorageMB: 'tab',
+  scratchRetentionDays: 'tab',
   memoryWarningThresholdMB: 'tab',
   autoTerminateOnMemoryPressure: 'tab',
   recordProviderEvents: 'tab',

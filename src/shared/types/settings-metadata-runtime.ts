@@ -33,6 +33,15 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     max: 10000,
   },
   {
+    key: 'scratchRetentionDays',
+    label: 'Clear old scratch folders after (days)',
+    description: "Delete agents' throwaway folders in a project's _scratch folder once nothing in them has changed for this many days. Folders holding unsaved code are kept and reported. 0 turns this off.",
+    type: 'number',
+    category: 'memory',
+    min: 0,
+    max: 365,
+  },
+  {
     key: 'memoryWarningThresholdMB',
     label: 'Memory warning threshold (MB)',
     description: "Warn when the app's memory use climbs above this many megabytes. 0 turns the warning off.",

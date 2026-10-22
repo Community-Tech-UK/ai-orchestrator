@@ -20,6 +20,22 @@ export const BROWSER_GATEWAY_SYSTEM_PROMPT = [
   'chrome-devtools.* drives a SEPARATE Chrome instance and cannot see the user\'s shared authenticated tabs, so never try to hand a browser.* authenticated tab over to chrome-devtools.*. The two tools control different browsers.',
 ].join('\n');
 
+/**
+ * Every agent gets this. Gate and verification runs that cloned the repo and
+ * installed dependencies per round, then never deleted the copies, filled the
+ * user's 4 TB disk in October 2026 (one project's `_scratch/` alone held
+ * ~520 GB across ~2,500 runs).
+ */
+export const DISK_HYGIENE_SYSTEM_PROMPT = [
+  '[Disk Hygiene]',
+  'Throwaway copies of a project fill the user\'s disk quickly. When a task needs an isolated or clean checkout, a test copy, or other bulky temporary files:',
+  '- Make one copy per task and reuse it across rounds rather than a fresh copy each time. Where your instructions allow worktrees, a temporary `git worktree add --detach <path> <ref>` is the lightest copy; otherwise use a local clone. Reuse installed dependencies when the check allows it.',
+  '- Create them in the project\'s `_scratch/` folder or the system temp folder.',
+  '- Remove them as soon as the task finishes, whether the check passed or failed: `git worktree remove --force <path>` for worktrees; delete clones, copies and their dependency folders such as `node_modules`. Keep only small evidence such as logs and reports.',
+  '- Before deleting a copy, bring any commits or edits that exist only in that copy back into the main project.',
+  '- Leave Harness-managed worktrees under `.worktrees/` in place; Harness removes those itself.',
+].join('\n');
+
 export const CHROME_DEVTOOLS_ATTACH_PROMPT = [
   '[chrome-devtools attached to a managed browser profile]',
   'The chrome-devtools.* tools are attached to a Harness-managed Chrome profile — the SAME browser the browser.* tools open and control. This is the one case where browser.* and chrome-devtools.* share a browser.',

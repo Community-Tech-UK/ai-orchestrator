@@ -3304,7 +3304,9 @@ describe('CodexCliAdapter', () => {
       expect(statuses).toEqual(['busy', 'idle', 'busy', 'idle']);
     });
 
-    it('delivers an orchestration child ID once after the parent app-server turn settles', async () => {
+    // Session x3po7817o: a consensus result waited 30 minutes for an
+    // eight-hour parent turn to end and was never delivered.
+    it('delivers an orchestration child ID into the running parent turn without waiting for it to end', async () => {
       const adapter = await spawnExecAdapter();
       const client = createSyntheticTurnClient([]);
       (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
@@ -3314,25 +3316,10 @@ describe('CodexCliAdapter', () => {
       const firstTurn = adapter.sendInput('spawn a child');
       await vi.waitFor(() => expect(client.request).toHaveBeenCalledTimes(1));
 
-      const confirmation = adapter.sendOrchestrationResponse('Action: spawn_child\nchildId: child-42');
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      expect(client.request).toHaveBeenCalledTimes(1);
-
-      client.notificationHandler?.({
-        method: 'turn/completed',
-        params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } },
-      });
-      await firstTurn;
-      await vi.waitFor(() => expect(client.request).toHaveBeenCalledTimes(3));
-
-      client.notificationHandler?.({
-        method: 'turn/completed',
-        params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } },
-      });
-      await confirmation;
-      expect(client.request).toHaveBeenCalledTimes(3);
+      await adapter.sendOrchestrationResponse('Action: spawn_child\nchildId: child-42');
+      expect(client.request).toHaveBeenCalledTimes(2);
       // LT-657: the orchestrator response (child results) reaches the parent as
-      // a developer item, and the turn it starts carries no user input.
+      // a developer item, never as user input.
       expect(client.request.mock.calls[1]?.[0]).toBe('thread/inject_items');
       expect(client.request.mock.calls[1]?.[1]?.['items']).toEqual([
         expect.objectContaining({
@@ -3340,8 +3327,51 @@ describe('CodexCliAdapter', () => {
           content: [expect.objectContaining({ text: expect.stringContaining('child-42') })],
         }),
       ]);
-      expect(client.request.mock.calls[2]?.[0]).toBe('turn/start');
-      expect(client.request.mock.calls[2]?.[1]?.['input']).toEqual([]);
+
+      // A tool call finishing afterwards proves the parent sampled again with the item in view.
+      client.notificationHandler?.({
+        method: 'item/completed',
+        params: { threadId: 'thread-1', turnId: 'turn-1', item: { id: 'command-1', type: 'commandExecution', exitCode: 0 } },
+      });
+      client.notificationHandler?.({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } },
+      });
+      await firstTurn;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(client.request).toHaveBeenCalledTimes(2);
+    });
+
+    it('re-delivers an orchestration response as a new turn when the parent turn ends before reading it', async () => {
+      const adapter = await spawnExecAdapter();
+      const client = createSyntheticTurnClient([]);
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      (adapter as unknown as { appServerClient: SyntheticTurnClient }).appServerClient = client;
+      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+      const firstTurn = adapter.sendInput('spawn a child');
+      await vi.waitFor(() => expect(client.request).toHaveBeenCalledTimes(1));
+      await adapter.sendOrchestrationResponse('Action: spawn_child\nchildId: child-42');
+
+      client.notificationHandler?.({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } },
+      });
+      await firstTurn;
+      await vi.waitFor(() => expect(client.request).toHaveBeenCalledTimes(4));
+      expect(client.request.mock.calls[2]?.[0]).toBe('thread/inject_items');
+      const redelivered = (client.request.mock.calls[2]?.[1]?.['items'] as { content: { text: string }[] }[])[0]?.content[0]?.text;
+      expect(redelivered).toContain('Harness re-delivery');
+      expect(redelivered).toContain('child-42');
+      expect(client.request.mock.calls[3]?.[0]).toBe('turn/start');
+      expect(client.request.mock.calls[3]?.[1]?.['input']).toEqual([]);
+
+      client.notificationHandler?.({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(client.request).toHaveBeenCalledTimes(4);
     });
 
     it('emits status=idle in app-server mode for response stream disconnect failures', async () => {

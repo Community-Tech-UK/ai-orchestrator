@@ -196,6 +196,12 @@ export class CodexAppServerThreadRuntime {
   getCurrentTurnId(): string | null { return this.activeTurn?.turnId ?? null; }
   getActiveTurnOrigin(): CodexAppServerTurnOrigin | null { return this.activeTurn?.origin ?? null; }
   hasActiveTurn(): boolean { return this.activeTurn !== null; }
+  /** The running turn of either origin, while a developer item can still reach it. */
+  getRunningTurn(): { turnId: string; state: TurnCaptureState } | null {
+    const active = this.activeTurn;
+    if (!active?.turnId || this.turnPhase !== 'running' || active.state.completed) return null;
+    return { turnId: active.turnId, state: active.state };
+  }
   isRunning(): boolean { return this.connectionPhase === 'ready' && (this.client?.isRunning?.() ?? true); }
   getPid(): number | null { return this.isRunning() ? this.client?.getPid?.() ?? null : null; }
 

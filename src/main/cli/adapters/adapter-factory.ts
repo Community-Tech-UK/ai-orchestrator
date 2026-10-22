@@ -60,6 +60,7 @@ import {
 import type { UnifiedSpawnOptions, CliAdapter } from './adapter-factory.types';
 import { COPILOT_LEGACY_PROFILE_ID } from '../../../shared/types/copilot-account.types';
 import { resolveCopilotProfileHome } from './copilot/copilot-account-home-resolver';
+import { prepareCopilotSpawn } from './copilot/copilot-session-sync-args';
 import {
   assertRoutableCopilotLaunchShape,
   requireCopilotAccountRoute,
@@ -388,7 +389,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
   // sends the child to ~/.copilot — an account this app never resolved. Once
   // account routing owns the home, every Copilot spawn gets its profile's home
   // regardless of `ephemeral`; `ephemeral` keeps its original meaning for the
-  // `--no-remote` session-visibility flag only.
+  // session-sync-off flag only (version-dependent, chosen in prepareSpawn).
   const isolateProviderState = options.ephemeral ?? true;
   const copilotHomeDir = resolveCopilotProfileHome(route.profileId, {
     isLegacy: route.profileId === COPILOT_LEGACY_PROFILE_ID,
@@ -396,7 +397,6 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
   const providerStateArgs = [
     '--config-dir',
     copilotHomeDir,
-    ...(isolateProviderState ? ['--no-remote'] : []),
   ];
   const env = mergeSpawnEnv(options, buildCopilotSpawnEnv());
   // `mergeSpawnEnv` layers `options.env` over the sanitized base, so re-strip:
@@ -459,6 +459,27 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
   const privateMcpConfig = additionalMcpConfig
     ? createPrivateCliJsonConfig(additionalMcpConfig)
     : null;
+  const args = [
+    ...launch.argsPrefix,
+    '--acp',
+    '--stdio',
+    '--no-auto-update',
+    // `info`, not `none`/`error`: the CLI's three clean-shutdown triggers are
+    // only visible at info or via raw stderr — stdin EOF logs at info
+    // ("Received EOF on stdin, shutting down ACP server"), stdin error at
+    // error ("Shutting down after receiving stdin error"), and a caught
+    // SIGTERM/INT/HUP/QUIT writes " Exiting… " to stderr. With `none` a
+    // mid-turn self-exit is undiagnosable (all process-*.log were 0 bytes).
+    '--log-level',
+    'info',
+    '--allow-all-tools',
+    '--allow-all-paths',
+    '--allow-all-urls',
+    '--no-ask-user',
+    ...providerStateArgs,
+    ...modelArgs,
+    ...(privateMcpConfig ? ['--additional-mcp-config', privateMcpConfig.argument] : []),
+  ];
   return new AcpCliAdapter({
     adapterName: 'copilot-acp',
     contextCapabilityProfile: 'copilot-acp',
@@ -469,27 +490,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     // `gh` configured runs every routed session under the wrong identity.
     envRemove: COPILOT_STRIPPED_AUTH_ENV_VARS,
     command: launch.command,
-    args: [
-      ...launch.argsPrefix,
-      '--acp',
-      '--stdio',
-      '--no-auto-update',
-      // `info`, not `none`/`error`: the CLI's three clean-shutdown triggers are
-      // only visible at info or via raw stderr — stdin EOF logs at info
-      // ("Received EOF on stdin, shutting down ACP server"), stdin error at
-      // error ("Shutting down after receiving stdin error"), and a caught
-      // SIGTERM/INT/HUP/QUIT writes " Exiting… " to stderr. With `none` a
-      // mid-turn self-exit is undiagnosable (all process-*.log were 0 bytes).
-      '--log-level',
-      'info',
-      '--allow-all-tools',
-      '--allow-all-paths',
-      '--allow-all-urls',
-      '--no-ask-user',
-      ...providerStateArgs,
-      ...modelArgs,
-      ...(privateMcpConfig ? ['--additional-mcp-config', privateMcpConfig.argument] : []),
-    ],
+    args,
     workingDirectory: options.workingDirectory ?? process.cwd(),
     sessionId: options.sessionId,
     resume: options.resume,
@@ -516,9 +517,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     // the 5+ parallel-children fan-out pattern that amplified the hang.
     concurrencyLimiter: getProviderConcurrencyLimiter(),
     concurrencyKey: 'copilot',
-    ...(privateMcpConfig ? {
-      prepareSpawn: privateMcpConfig.prepare,
-    } : {}),
+    prepareSpawn: prepareCopilotSpawn(args, launch, isolateProviderState, privateMcpConfig?.prepare),
     ...(options.concurrencyPriority === 'overflow' ? { concurrencyPriority: 'overflow' as const } : {}),
   });
 }

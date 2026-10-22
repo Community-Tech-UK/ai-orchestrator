@@ -42,7 +42,8 @@ export interface SingleInstanceLock {
   release(): void;
 }
 
-function defaultIsProcessAlive(pid: number): boolean {
+/** True when `pid` is a live process (EPERM counts: it exists but is not ours). */
+export function isProcessAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) {
     return false;
   }
@@ -84,7 +85,7 @@ export function singleInstanceLockPath(key: string, dir: string = os.tmpdir()): 
 export function isSingleInstanceLockHeld(
   options: Pick<SingleInstanceLockOptions, 'key' | 'dir' | 'isProcessAlive'>,
 ): boolean {
-  const isAlive = options.isProcessAlive ?? defaultIsProcessAlive;
+  const isAlive = options.isProcessAlive ?? isProcessAlive;
   const holderPid = readLockPid(singleInstanceLockPath(options.key, options.dir));
   return holderPid !== null && isAlive(holderPid);
 }
@@ -100,7 +101,7 @@ export function acquireSingleInstanceLock(
 ): SingleInstanceLock | null {
   const dir = options.dir ?? os.tmpdir();
   const pid = options.pid ?? process.pid;
-  const isAlive = options.isProcessAlive ?? defaultIsProcessAlive;
+  const isAlive = options.isProcessAlive ?? isProcessAlive;
   const lockPath = singleInstanceLockPath(options.key, dir);
 
   const tryCreate = (): boolean => {

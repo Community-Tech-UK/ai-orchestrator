@@ -38,6 +38,7 @@ import {
   CHROME_DEVTOOLS_ATTACH_PROMPT,
   MOBILE_MCP_ATTACH_PROMPT,
   COMPUTER_USE_SYSTEM_PROMPT,
+  DISK_HYGIENE_SYSTEM_PROMPT,
 } from './adapter-guidance-prompts';
 
 export const COPILOT_ORCHESTRATOR_HOME_ENV = 'AI_ORCHESTRATOR_COPILOT_HOME';
@@ -302,7 +303,8 @@ export type AdapterGuidanceBlockKind =
   | 'adapter-browser-gateway'
   | 'adapter-chrome-devtools'
   | 'adapter-mobile-mcp'
-  | 'adapter-computer-use';
+  | 'adapter-computer-use'
+  | 'adapter-disk-hygiene';
 
 export interface AdapterGuidanceBlock {
   kind: AdapterGuidanceBlockKind;
@@ -312,9 +314,6 @@ export interface AdapterGuidanceBlock {
 /** The exact blocks this adapter will append to the supplied system prompt. */
 export function getAdapterGuidanceBlocks(options: UnifiedSpawnOptions): AdapterGuidanceBlock[] {
   const computerUse = hasComputerUseBridge(options);
-  if (!options.browserGatewayMcp && !options.chromeDevtoolsMcp && !options.mobileMcp && !computerUse) {
-    return [];
-  }
   const existingPrompt = options.systemPrompt?.trim() ?? '';
   const blocks: AdapterGuidanceBlock[] = [];
   if (
@@ -341,6 +340,9 @@ export function getAdapterGuidanceBlocks(options: UnifiedSpawnOptions): AdapterG
     !existingPrompt.includes('[Harness Computer Use]')
   ) {
     blocks.push({ kind: 'adapter-computer-use', content: COMPUTER_USE_SYSTEM_PROMPT });
+  }
+  if (!existingPrompt.includes('[Disk Hygiene]')) {
+    blocks.push({ kind: 'adapter-disk-hygiene', content: DISK_HYGIENE_SYSTEM_PROMPT });
   }
   return blocks;
 }

@@ -38,6 +38,7 @@ import { createCodexTurnFailure } from './codex/turn-failure';
 import { codexLimitResetAt, parseCodexAccountRateLimitsRead } from './codex/account-rate-limits';
 import { readChildRolloutUsage } from './codex/child-rollout-usage';
 import { sendCodexOrchestrationResponse } from './codex/orchestration-response-send';
+import { injectOrchestrationIntoRunningTurn } from './codex/orchestration-turn-injection';
 import { getLogger } from '../../logging/logger';
 import { errorDiagnostic } from '../../logging/source-diagnostics';
 import { readCodexActiveGoal, readCodexContinuationOwnership } from './codex/native-continuation-ownership';
@@ -67,7 +68,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
   /** Last goal status Codex reported, keyed to the thread it was reported for. */
   private threadGoal: { threadId: string; status: ThreadGoalStatus | null } | null = null;
 
-  /** Deliver an orchestration response after the resident turn releases its slot. */
+  /** Deliver an orchestration response into the running turn, or as a new turn once idle. */
   async sendOrchestrationResponse(message: string, onDelayed?: () => void): Promise<void> {
     return sendCodexOrchestrationResponse(message, {
       isAppServerMode: () => this.useAppServer,
@@ -75,6 +76,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       hasActiveTurn: () => this.appServerRuntime.hasActiveTurn(),
       isCompactionRunning: () => this.contextCostController.isCompactionRunning(),
       awaitCompactionSettled: () => this.contextCostController.awaitCompactionSettled(),
+      injectIntoActiveTurn: (content) => injectOrchestrationIntoRunningTurn(content, this.appServerRuntime, (text) => this.sendOrchestrationResponse(text)),
       sendInput: (content) => this.sendInput(content, undefined, { internalSource: 'orchestrator-response' }),
       onDelayed,
     });

@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { CredentialVault, type BwRunner, type VaultOriginBinding } from './browser-credential-vault';
 
-function setup(options: { folderExists?: boolean; names?: string[]; locked?: boolean; stale?: boolean } = {}) {
+function setup(options: { folderExists?: boolean; names?: string[]; locked?: boolean; stale?: boolean; savedElsewhere?: boolean; syncFails?: boolean } = {}) {
   const commands: string[][] = [];
+  // savedElsewhere: the login exists on the server but not yet in the CLI's local copy.
+  let localCopyCurrent = !options.savedElsewhere;
   const bindings = new Map<string, VaultOriginBinding>();
   const runner: BwRunner = {
     run: async (args) => {
       commands.push(args);
+      if (args[0] === 'sync') {
+        if (options.syncFails) return { stdout: '', stderr: 'fetch failed', code: 1 };
+        localCopyCurrent = true;
+        return { stdout: 'Syncing complete.', stderr: '', code: 0 };
+      }
+      if (args[0] !== 'list' && !localCopyCurrent) return { stdout: '', stderr: 'Not found.', code: 1 };
       const items = (options.names ?? ['Saved test login']).map((name, index) => ({
         id: `item-${index}`, name, folderId: 'personal-folder',
         login: { username: 'TEST_ONLY_USERNAME', password: 'TEST_ONLY_PASSWORD' },
@@ -40,7 +48,40 @@ describe('saved login consent preview', () => {
     });
     expect(JSON.stringify(preview)).not.toContain('TEST_ONLY_USERNAME');
     expect(JSON.stringify(preview)).not.toContain('TEST_ONLY_PASSWORD');
-    expect(commands.every((args) => ['get', 'list'].includes(args[0]!))).toBe(true);
+    expect(commands.every((args) => ['sync', 'get', 'list'].includes(args[0]!))).toBe(true);
+  });
+
+  it('refreshes the local vault copy so a login saved elsewhere can be approved', async () => {
+    const { vault, commands } = setup({ savedElsewhere: true });
+    const preview = await vault.inspectExistingCredential({ item: 'item-0', origin: 'https://test.example' });
+    expect(preview.vaultItemRef).toBe('item-0');
+    expect(commands[0]).toEqual(['sync']);
+  });
+
+  it('enrols a login saved elsewhere through the direct enrol routes too', async () => {
+    const { vault, bindings } = setup({ savedElsewhere: true, folderExists: true });
+    await expect(vault.enrolExistingCredential({ item: 'item-0', origin: 'https://test.example', moveIntoFolder: true }))
+      .resolves.toMatchObject({ vaultItemRef: 'item-0', movedIntoFolder: true });
+    expect(bindings.get('item-0')?.origin).toBe('https://test.example');
+  });
+
+  it('does not hide a failed vault re-unlock behind the cached copy', async () => {
+    const commands: string[][] = [];
+    const vault = new CredentialVault({
+      runner: { run: async (args) => { commands.push(args); return { stdout: '', stderr: 'Vault is locked.', code: 1 }; } },
+      bindings: { get: () => undefined, put: () => undefined },
+      getSession: () => 'TEST_ONLY_SESSION',
+      reauthenticate: async () => ({ unlocked: false, reason: 'bw_unlock_failed' }),
+    });
+    await expect(vault.inspectExistingCredential({ item: 'item-0', origin: 'https://test.example' }))
+      .rejects.toMatchObject({ code: 'vault_relock_failed:bw_unlock_failed' });
+    expect(commands).toEqual([['sync']]);
+  });
+
+  it('falls back to the cached copy when the vault server cannot be reached', async () => {
+    const { vault } = setup({ syncFails: true });
+    await expect(vault.inspectExistingCredential({ item: 'item-0', origin: 'https://test.example' }))
+      .resolves.toMatchObject({ vaultItemRef: 'item-0' });
   });
 
   it('refuses names shared by several vault items', async () => {
@@ -74,7 +115,7 @@ describe('saved login consent preview', () => {
     await expect(vault.enrolExistingCredential({
       item: 'item-0', expectedVaultItemRef: 'different-item', origin: 'https://test.example', moveIntoFolder: true,
     })).rejects.toMatchObject({ code: 'item_changed' });
-    expect(commands.every((args) => ['get', 'list'].includes(args[0]!))).toBe(true);
+    expect(commands.every((args) => ['sync', 'get', 'list'].includes(args[0]!))).toBe(true);
   });
 
   it('drops a secret read completing after an explicit lock, even if unlocked again', async () => {

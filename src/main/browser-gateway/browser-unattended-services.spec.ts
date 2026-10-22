@@ -244,6 +244,8 @@ describe('stale-session reauthentication failure', () => {
       args: string[],
       options?: { session?: string },
     ) => {
+      // Enrolment refreshes the local vault copy first; the stale race under test is on `list`.
+      if (args[0] === 'sync') return { stdout: 'Syncing complete.', stderr: '', code: 0 };
       if (args[0] === 'list' && options?.session === 'PRE-LOCK-SESSION') {
         staleCommandStarted = true;
         await staleCommandGate;
@@ -367,6 +369,8 @@ describe('stale-session reauthentication failure', () => {
       args: string[],
       options?: { session?: string },
     ) => {
+      // Enrolment refreshes the local vault copy first; the stale race under test is on `list`.
+      if (args[0] === 'sync') return { stdout: 'Syncing complete.', stderr: '', code: 0 };
       if (args[0] === 'unlock') {
         unlockCalls += 1;
         return { stdout: '', stderr: 'TEST-ONLY-UNLOCK-FAILURE', code: 1 };
@@ -437,6 +441,8 @@ describe('stale-session reauthentication failure', () => {
       args: string[],
       options?: { session?: string },
     ) => {
+      // Enrolment refreshes the local vault copy first; the stale race under test is on `list`.
+      if (args[0] === 'sync') return { stdout: 'Syncing complete.', stderr: '', code: 0 };
       if (args[0] === 'unlock') {
         unlockCalls += 1;
         return { stdout: `SESSION-${unlockCalls}\n`, stderr: '', code: 0 };

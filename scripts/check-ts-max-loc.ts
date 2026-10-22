@@ -612,7 +612,10 @@ const ALLOWLIST: Record<string, number> = {
   'src/shared/types/settings.types.ts': 839,
   // Worker agent
   // Raised 989 -> 990 (one-line drift; re-tighten at the next worker split).
-  'src/worker-agent/worker-agent.ts': 990,
+  // Raised 990 -> 1060 for the Worker Mode connection report and the
+  // registration-answer watchdog (2026-10-21 worker start button plan); the
+  // file was already 45 lines past 990. Re-tighten at the next worker split.
+  'src/worker-agent/worker-agent.ts': 1060,
 };
 
 function countLines(filePath: string): number {

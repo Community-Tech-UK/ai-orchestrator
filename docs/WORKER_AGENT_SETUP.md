@@ -891,6 +891,40 @@ If you want to run the full orchestrator UI on Windows (not just the worker agen
 
 **Note:** Packaging the app for Windows with `electron-builder` may fail without admin privileges due to symlink creation during code signing. For local development, `npm run dev` is the recommended approach.
 
+## Worker Mode in the Installed Harness App
+
+A computer with the installed Harness app can be a worker without a checkout: open **Worker Mode**
+(Control Center, or **Settings → Remote Nodes → Computer Role → Open Worker Mode**), pair, then
+choose how the worker runs. Harness stays fully usable on that computer either way.
+
+- **Keep working when Harness is closed (Windows, recommended).** Harness copies its bundled worker
+  to `%LOCALAPPDATA%\Harness\worker\versions\<build>\`, writes the hidden launcher
+  `%LOCALAPPDATA%\Harness\worker\run-worker-hidden.vbs`, and registers the per-user scheduled task
+  `\Harness\Harness Worker` (no administrator rights). It is the same shape as the checkout launcher
+  above: a logon trigger, a separate 5-minute keep-alive trigger, `IgnoreNew`, and a blocking hidden
+  launcher, so the task stays *Running* for the worker's lifetime. The worker runs as you, with your
+  CLI logins, and keeps running when Harness is closed. **Stop Worker** disables the task and ends
+  the worker; **Start Worker** re-enables and starts it. On each launch Harness moves the task onto
+  the worker build it ships with, so an app update reaches the worker, and the worker's private copy
+  never blocks the app installer. Unpairing, or choosing "Only while Harness is open", removes the
+  task.
+- **Only while Harness is open.** Harness runs the worker as its own child and stops it when it
+  quits. Tick **Open Harness when I sign in** (Windows/macOS) so it comes back after a restart.
+
+The OS-service install (`--install-service`) is no longer offered in Worker Mode: it needs an
+elevated process, the Windows path needs a WinSW wrapper the app does not ship, and the service
+account cannot see your CLI logins. On launch Harness clears a leftover "background service" flag
+from older builds when no service is actually installed.
+
+Logs for the sign-in worker are in `%USERPROFILE%\.orchestrator\logs\` (`worker-supervisor.log`
+and `worker-agent.log`), the same place as a checkout worker.
+
+**Uninstalling Harness does not remove the sign-in worker.** The task and its private copy live
+outside the install folder. Before uninstalling, unpair in Worker Mode (or choose "Only while
+Harness is open"), which removes the task and the copy. If Harness is already gone, delete the task
+`\Harness\Harness Worker` in Task Scheduler, end `aio-worker.exe` in Task Manager, and delete
+`%LOCALAPPDATA%\Harness\worker`.
+
 ## Architecture Reference
 
 For the full design doc, see `docs/superpowers/specs/2026-04-04-remote-nodes-settings-design.md`. Key source files:

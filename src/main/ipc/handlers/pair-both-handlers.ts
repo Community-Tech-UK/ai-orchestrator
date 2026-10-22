@@ -51,6 +51,10 @@ import { getActiveCoordinatorTailscaleWatcher } from '../../remote-node/coordina
 import { broadcastSettingsChanged } from './settings-broadcast';
 import { getWorkerSignInTask } from '../../remote-node/worker-sign-in-task';
 import { isSingleInstanceLockHeld } from '../../../worker-agent/single-instance-lock';
+import {
+  clearWorkerConnectionStatus,
+  readWorkerConnectionStatus,
+} from '../../../worker-agent/worker-connection-status';
 
 const logger = getLogger('PairBothHandlers');
 
@@ -244,14 +248,21 @@ export function registerPairBothHandlers(deps: PairBothHandlerDependencies = {})
     IPC_CHANNELS.PAIR_BOTH_WORKER_STOP,
     async (): Promise<IpcResponse> => {
       try {
-        if (signInWorkerSelected()) {
-          // Pauses the sign-in task too, so its keep-alive does not restart it.
-          await getWorkerSignInTask().stop();
+        const selected = signInWorkerSelected();
+        // Pauses the sign-in task too, so its keep-alive does not restart it
+        // (failing that, ends its worker directly).
+        const selectedOutcome = selected ? await retireSignInWorkerBestEffort() : 'none';
+        // Wait (bounded) for the worker to exit, so the page's next status
+        // check does not still see it running.
+        const runtime = await getWorkerModeRuntimeService().stopAndWait();
+        // Then retire any leftover task Windows earlier refused to remove (after
+        // the wait, so Harness's own worker no longer holds the lock).
+        const outcome = selected ? selectedOutcome : await pauseLeftoverSignInTask();
+        if (outcome === 'ended' || outcome === 'failed' || (selected && pairedWorkerHoldsLock())) {
+          // Stop must not look done while a schedule can bring the worker back.
+          throw new Error(SIGN_IN_TASK_LEFT_ENABLED_MESSAGE);
         }
-        return {
-          success: true,
-          data: getWorkerModeRuntimeService().stop(),
-        };
+        return { success: true, data: runtime };
       } catch (error) {
         return failure('PAIR_BOTH_WORKER_STOP_FAILED', error);
       }
@@ -275,7 +286,17 @@ export function registerPairBothHandlers(deps: PairBothHandlerDependencies = {})
       try {
         const runtime = await getWorkerModeRuntimeService().stopAndWait();
         if (signInWorkerSelected()) {
-          await getWorkerSignInTask().remove();
+          try {
+            await getWorkerSignInTask().remove();
+          } catch (error) {
+            // Unpairing must still work; at least pause the task or end its worker.
+            logger.warn('Could not remove the sign-in worker task while unpairing', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+            await retireSignInWorkerBestEffort();
+          }
+        } else {
+          await pauseLeftoverSignInTask();
         }
         const workerMode = getSettingsManager().get('workerMode');
         // Keep the role: resetting it to 'unset' swapped the whole window for
@@ -287,6 +308,7 @@ export function registerPairBothHandlers(deps: PairBothHandlerDependencies = {})
           lastCoordinatorUrl: undefined,
         });
         clearWorkerModeConfig(DEFAULT_CONFIG_PATH);
+        clearWorkerConnectionStatus(DEFAULT_CONFIG_PATH);
         return { success: true, data: runtime };
       } catch (error) {
         return failure('PAIR_BOTH_WORKER_UNPAIR_FAILED', error);
@@ -317,8 +339,13 @@ function signInWorkerSelected(): boolean {
 async function stopEveryWorker(): Promise<void> {
   await getWorkerModeRuntimeService().stopAndWait();
   if (signInWorkerSelected()) {
-    await getWorkerSignInTask().stop();
+    // Best effort: a re-pair must not fail because Windows refused the pause.
+    await retireSignInWorkerBestEffort();
+  } else {
+    await pauseLeftoverSignInTask();
   }
+  // The old worker's report (say, "could not start") is about the old pairing.
+  clearWorkerConnectionStatus(DEFAULT_CONFIG_PATH);
 }
 
 /**
@@ -334,6 +361,85 @@ function persistWorkerMode(next: WorkerModeSettings): void {
       value: getSettingsManager().get('workerMode'),
     });
   }
+}
+
+/**
+ * Pause a sign-in task the settings no longer point at: one Windows would not
+ * let Harness remove (the fallback above). Left enabled, its keep-alive would
+ * start a worker after Stop or with Harness closed. Never throws.
+ */
+async function pauseLeftoverSignInTask(): Promise<SignInRetireOutcome> {
+  const signInTask = getWorkerSignInTask();
+  if (!signInTask.isSupported()) {
+    return 'none';
+  }
+  let state = { present: true, enabled: true }; // Unknown: assume the worst and try.
+  try {
+    state = await signInTask.getTaskState();
+  } catch {
+    // Fall through: ending its worker needs no task-scheduler rights.
+  }
+  if (!state.present) {
+    return 'none';
+  }
+  if (state.enabled) {
+    return retireSignInWorkerBestEffort();
+  }
+  // Disabled, but a worker from a half-finished pause may still be running.
+  if (pairedWorkerHoldsLock()) {
+    return (await endSignInWorkerBestEffort()) ? 'paused' : 'failed';
+  }
+  return 'none';
+}
+
+/** Whether some worker process holds this computer's one-worker lock for the saved pairing. */
+function pairedWorkerHoldsLock(): boolean {
+  try {
+    const config = readWorkerModePairing(DEFAULT_CONFIG_PATH).config;
+    return config?.nodeId
+      ? isSingleInstanceLockHeld({ key: `${config.namespace}:${config.nodeId}` })
+      : false;
+  } catch {
+    return false;
+  }
+}
+
+async function endSignInWorkerBestEffort(): Promise<boolean> {
+  try {
+    await getWorkerSignInTask().endWorker();
+    return true;
+  } catch (error) {
+    logger.warn('Could not end the sign-in worker', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
+/**
+ * How far retiring a sign-in task got: `paused` (task disabled, worker ended),
+ * `ended` (Windows refused the pause, but its worker was ended, so the task's
+ * schedule can start it again), or `failed` (neither). `none`: nothing to do.
+ */
+type SignInRetireOutcome = 'none' | 'paused' | 'ended' | 'failed';
+
+/** Plain advice for a task Windows would not let Harness pause. */
+const SIGN_IN_TASK_LEFT_ENABLED_MESSAGE =
+  'Windows would not let Harness pause the background worker\'s schedule, so the worker may start again by itself. To stop it for good, open Task Scheduler and disable "Harness Worker" in the Harness folder.';
+
+async function retireSignInWorkerBestEffort(): Promise<SignInRetireOutcome> {
+  const signInTask = getWorkerSignInTask();
+  try {
+    await signInTask.stop();
+    return 'paused';
+  } catch (error) {
+    logger.warn('Could not pause the sign-in worker task; ending its worker', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  // If this fails too, the lock wait before any start says plainly that
+  // another worker is running.
+  return (await endSignInWorkerBestEffort()) ? 'ended' : 'failed';
 }
 
 function getDiscoveryPublisher(): PairBothDiscoveryPublisher {
@@ -376,7 +482,14 @@ async function startWorkerRuntimeForMode(
   mode: 'run-while-open' | 'background-service' | 'sign-in-task',
   openAtLogin?: boolean,
 ): Promise<WorkerModeRuntimeStatus | undefined> {
-  const config = loadWorkerConfig(DEFAULT_CONFIG_PATH);
+  let config: WorkerConfig;
+  try {
+    config = loadWorkerConfig(DEFAULT_CONFIG_PATH);
+  } catch {
+    // Fixed message: a JSON parse error quotes part of the file, which holds
+    // the worker's credentials, and this message is shown on the page.
+    throw new Error('The worker config could not be read. Pair this computer again.');
+  }
   const workerMode = getSettingsManager().get('workerMode');
   if (mode === 'sign-in-task') {
     const signInTask = getWorkerSignInTask();
@@ -391,13 +504,24 @@ async function startWorkerRuntimeForMode(
     const hadSignInWorker = signInWorkerSelected();
     await runtime.stopAndWait();
     try {
+      // A worker started some other way (by hand, an older setup) would keep
+      // the lock, and the task's worker would exit at once while the page
+      // showed the other one's report as the background worker. End the
+      // task's own worker first (install restarts it), then any lock still
+      // held is someone else's.
+      if (hadSignInWorker) {
+        await endSignInWorkerBestEffort();
+      } else {
+        await pauseLeftoverSignInTask();
+      }
+      await waitForPreviousWorkerToExit(config);
       await signInTask.install(DEFAULT_CONFIG_PATH);
     } catch (error) {
       // Leave things as they were: no half-made task (settings would not
       // point at it, so nothing would ever remove it) competing with
       // Harness's own worker for the single-instance lock.
       if (!hadSignInWorker) {
-        await signInTask.remove().catch(() => undefined);
+        await signInTask.remove().catch(() => retireSignInWorkerBestEffort());
       }
       if (inAppWasRunning) {
         runtime.start({ configPath: DEFAULT_CONFIG_PATH });
@@ -417,8 +541,26 @@ async function startWorkerRuntimeForMode(
   }
   if (mode === 'run-while-open' && signInWorkerSelected()) {
     // Switching back to "only while Harness is open": retire the task and its
-    // worker so Harness's own child can take the single-instance lock.
-    await getWorkerSignInTask().remove();
+    // worker so Harness's own child can take the single-instance lock. This is
+    // also the fallback when Windows refused the task, so a failure to remove
+    // it must not stop the worker from starting.
+    try {
+      await getWorkerSignInTask().remove();
+    } catch (error) {
+      logger.warn('Could not remove the sign-in worker task; pausing it and starting the worker anyway', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // Pause the task and end its worker, so its keep-alive cannot bring the
+      // old worker back to hold the lock; failing that, just end the worker.
+      await retireSignInWorkerBestEffort();
+    }
+  } else if (mode === 'run-while-open') {
+    // A task the settings no longer point at (Windows refused to remove it
+    // earlier) may be running its worker: pause it, or at least end it.
+    await pauseLeftoverSignInTask();
+  }
+  if (mode === 'run-while-open' && getWorkerModeRuntimeService().status().state !== 'running') {
+    await waitForPreviousWorkerToExit(config);
   }
   // Running the worker makes this computer a worker. Without the role the
   // next launch skips autostart, so the pairing looked lost after a restart.
@@ -453,6 +595,30 @@ async function startWorkerRuntimeForMode(
   return getWorkerModeRuntimeService().start({ configPath: DEFAULT_CONFIG_PATH });
 }
 
+const PREVIOUS_WORKER_EXIT_WAIT_MS = 10_000;
+const PREVIOUS_WORKER_POLL_MS = 250;
+
+/**
+ * One worker per computer: a new worker exits at once (silently) while an
+ * earlier one still holds the lock, for example one still shutting down after
+ * Stop. Give it a few seconds; then say plainly why Start cannot work yet.
+ */
+async function waitForPreviousWorkerToExit(config: WorkerConfig): Promise<void> {
+  if (!config.nodeId) {
+    return;
+  }
+  const key = `${config.namespace}:${config.nodeId}`;
+  const deadline = Date.now() + PREVIOUS_WORKER_EXIT_WAIT_MS;
+  while (isSingleInstanceLockHeld({ key })) {
+    if (Date.now() >= deadline) {
+      throw new Error(
+        'Another copy of the worker is still running on this computer, so a new one cannot start yet. Wait a moment and press Start Worker again.',
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, PREVIOUS_WORKER_POLL_MS));
+  }
+}
+
 export function buildWorkerModeStatus(): WorkerModeStatus {
   const pairing = readWorkerModePairing(DEFAULT_CONFIG_PATH);
   const backgroundService = getSettingsManager().get('workerMode').installWorkerService;
@@ -473,6 +639,11 @@ export function buildWorkerModeStatus(): WorkerModeStatus {
     backgroundService,
     runAtSignIn,
     runAtSignInAvailable,
+    // Harness just asked its worker to stop: until it has exited, its last
+    // report would read as a worker started outside Harness.
+    connection: pairing.paired && !getWorkerModeRuntimeService().stoppedRecently()
+      ? readWorkerConnectionStatus(DEFAULT_CONFIG_PATH, { expectedNodeId: pairing.config?.nodeId })
+      : null,
   };
 }
 

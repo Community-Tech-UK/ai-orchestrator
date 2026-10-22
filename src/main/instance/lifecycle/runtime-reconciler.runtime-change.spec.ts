@@ -286,6 +286,12 @@ describe('RuntimeReconciler.applyRuntimeChange — fork resume source (LT-008)',
     expect(createCalls[0].options['forkSession']).toBe(false);
     expect(createCalls[0].options['sessionId']).toBe(LIVE_SESSION_ID);
   });
+
+  it('does not resume a session the provider has not stored yet', async () => {
+    const { reconciler, createCalls } = makeHarness(makeInstance({ providerSessionPersisted: false } as Partial<Instance>), [makeAdapter()]);
+    await reconciler.applyRuntimeChange('inst-1', yoloOnly(true));
+    expect(createCalls[0].options).toMatchObject({ resume: false, forkSession: false });
+  });
 });
 
 describe('RuntimeReconciler — captured instance ownership', () => {
@@ -959,6 +965,41 @@ describe('RuntimeReconciler.applyRuntimeChange — account-pool handoff', () => 
     await reconciler.applyRuntimeChange('inst-1', handoff('failover'));
     expect(createCalls[0].options['resume']).toBe(true);
     expect(createCalls[0].options['sessionId']).toBe(LIVE_SESSION_ID);
+  });
+
+  it.each(['claude', 'codex'] as const)('starts a fresh %s session when the provider never stored the held first turn', async (provider) => {
+    // A known limit held the create-time prompt before it was sent: the
+    // transcript shows it, but the provider has no session to resume.
+    const adapter = makeAdapter();
+    const { reconciler, createCalls, instance, deps } = makeHarness(makeInstance({
+      provider,
+      providerSessionPersisted: false,
+      outputBuffer: [{ type: 'user', content: 'held first turn' }],
+    } as Partial<Instance>), [adapter]);
+    await reconciler.applyRuntimeChange('inst-1', { ...handoff('failover'), provider, accountHandoffReason: 'usage limit' } as DesiredRuntime);
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0].options).toMatchObject({ resume: false, sessionId: 'minted-fork-id' });
+    expect(deps.evaluateResumeHealth).not.toHaveBeenCalled();
+    expect(instance).toMatchObject({ accountProfileId: 'b', recoveryMethod: 'fresh', sessionId: 'minted-fork-id' });
+    // The user still sees the switch; the model is not handed a notice-only turn.
+    expect(deps.emitSystemNotice).toHaveBeenCalledWith(instance, expect.stringContaining('Account switched'), { kind: 'account-changed' });
+    expect(adapter.sendInput).not.toHaveBeenCalled();
+  });
+
+  it('still delivers replay context when an unstored session already shows a reply', async () => {
+    const adapter = makeAdapter();
+    const { reconciler, createCalls } = makeHarness(makeInstance({ provider: 'codex', providerSessionPersisted: false } as Partial<Instance>), [adapter]);
+    await reconciler.applyRuntimeChange('inst-1', { ...handoff('failover'), provider: 'codex' } as DesiredRuntime);
+    expect(createCalls[0].options).toMatchObject({ resume: false });
+    expect(adapter.sendInput).toHaveBeenCalledWith(expect.stringContaining('replay preamble'));
+  });
+
+  it('still natively resumes once the provider has stored the session', async () => {
+    const adapter = makeAdapter();
+    const { reconciler, createCalls } = makeHarness(makeInstance({ provider: 'codex', providerSessionPersisted: true } as Partial<Instance>), [adapter]);
+    await reconciler.applyRuntimeChange('inst-1', { ...handoff('failover'), provider: 'codex' } as DesiredRuntime);
+    expect(createCalls[0].options).toMatchObject({ resume: true, sessionId: LIVE_SESSION_ID });
+    expect(adapter.sendInput).toHaveBeenCalledWith(expect.stringContaining('Account switched'));
   });
 
   it('replays under the replay continuation policy', async () => {

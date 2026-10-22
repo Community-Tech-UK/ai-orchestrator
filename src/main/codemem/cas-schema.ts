@@ -121,9 +121,16 @@ const VERSIONED_DATA_MIGRATIONS: Record<number, string[]> = {
   ],
 };
 
+/**
+ * Without a limit SQLite reuses the WAL file at its peak size forever, so one
+ * large write burst keeps its disk space after every later checkpoint.
+ */
+export const CODEMEM_JOURNAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024;
+
 export function migrate(db: SqliteDriver): void {
   db.pragma('auto_vacuum = INCREMENTAL');
   db.pragma('journal_mode = WAL');
+  db.pragma(`journal_size_limit = ${CODEMEM_JOURNAL_SIZE_LIMIT_BYTES}`);
   for (const statements of Object.values(MIGRATIONS)) {
     for (const statement of statements) {
       db.prepare(statement).run();

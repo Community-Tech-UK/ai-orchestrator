@@ -210,6 +210,10 @@ export class RuntimeReconciler {
       const hasConversation = instance.outputBuffer.some(
         (msg) => msg.type === 'user' || msg.type === 'assistant'
       );
+      // The transcript can show a turn the provider never stored: a fresh
+      // session whose first turn has not settled (e.g. held by a known usage
+      // limit before it was sent). Resuming that id fails ("no rollout found").
+      const providerHasConversation = hasConversation && instance.providerSessionPersisted !== false;
 
       // Terminate existing adapter
       const oldAdapter = this.deps.getAdapter(instanceId);
@@ -287,13 +291,13 @@ export class RuntimeReconciler {
         const cliType = await this.deps.resolveCliTypeForInstance(instance);
         assertCurrent();
         const continuity = isYoloOnlyChange
-          ? (hasConversation && oldAdapterCapabilities.supportsResume
+          ? (providerHasConversation && oldAdapterCapabilities.supportsResume
               ? (oldAdapterCapabilities.supportsForkSession ? 'native-resume-fork' : 'native-resume')
               : 'replay')
           : planContinuity({
               diff,
               capabilities: oldAdapterCapabilities,
-              hasConversation,
+              hasConversation: providerHasConversation,
               cliType,
               isLocalModelTarget: !!localModelTarget,
               accountContinuation,
@@ -474,7 +478,7 @@ export class RuntimeReconciler {
         }
 
         instance.processId = pid;
-        if (diff.accountProfileChanged) instance.recoveryMethod = actuallyResumed ? 'native' : hasConversation ? 'replay' : 'fresh';
+        if (diff.accountProfileChanged) instance.recoveryMethod = actuallyResumed ? 'native' : providerHasConversation ? 'replay' : 'fresh';
         this.deps.transitionState(instance, 'idle');
         assertCurrent();
         logger.info('Runtime change applied', {
@@ -529,7 +533,12 @@ export class RuntimeReconciler {
           instance,
           adapter,
           assertCurrent,
-          ...(diff.accountProfileChanged && instance.provider === 'opencode' ? { delivery: 'next-prompt' as const } : {}),
+          // An account-only handoff before the provider stored anything (and before
+          // any reply) leaves the model nothing to reconcile; a notice turn would
+          // only start a run on the notice alone.
+          ...(isAccountOnlyChange(diff) && !providerHasConversation
+            && !instance.outputBuffer.some((msg) => msg.type === 'assistant') ? { delivery: 'transcript-only' as const }
+            : diff.accountProfileChanged && instance.provider === 'opencode' ? { delivery: 'next-prompt' as const } : {}),
           emitSystemNotice: this.deps.emitSystemNotice.bind(this.deps),
           notices: runtimeChangeNoticesFor({
             isYoloOnlyChange,

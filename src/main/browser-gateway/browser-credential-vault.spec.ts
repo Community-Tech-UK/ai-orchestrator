@@ -25,9 +25,12 @@ class FakeBw implements BwRunner {
   private readonly fieldsById = new Map<string, { name: string; value: string }[]>();
   private folderExists = true;
   private nextId = 1;
+  /** Models a local copy older than the server's until `bw sync` runs. */
+  private localCopyStale: boolean;
 
-  constructor(opts: { folderExists?: boolean } = {}) {
+  constructor(opts: { folderExists?: boolean; localCopyStale?: boolean } = {}) {
     this.folderExists = opts.folderExists ?? true;
+    this.localCopyStale = opts.localCopyStale ?? false;
   }
 
   /** Directly seed an item (used to plant an out-of-folder / personal item). */
@@ -66,6 +69,10 @@ class FakeBw implements BwRunner {
       if (!existing) {
         return { stdout: '', stderr: 'Not found.', code: 1 };
       }
+      if (this.localCopyStale) {
+        // The real server rejects a body whose revision is older than its own.
+        return { stdout: '', stderr: 'The cipher you are updating is out of date. Please save your changes and sync before trying again.', code: 1 };
+      }
       const decoded = JSON.parse(Buffer.from(opts?.input ?? '', 'base64').toString('utf-8'));
       // `bw edit item <id> <json>` REPLACES the item, it does not patch it.
       // This fake previously rebuilt the item from its own prior state
@@ -97,6 +104,7 @@ class FakeBw implements BwRunner {
       return ok(JSON.stringify({ id: args[2], folderId: decoded.folderId, login: decoded.login }));
     }
     if (args[0] === 'sync') {
+      this.localCopyStale = false;
       return ok('Syncing complete.');
     }
     if (args[0] === 'get' && args[1] === 'item') {
@@ -364,6 +372,25 @@ describe('CredentialVault.enrolExistingCredential', () => {
         kind: 'password',
       }),
     ).resolves.toBe('Real-Password-1!');
+  });
+
+  it('syncs before moving, so an item changed elsewhere can still be moved', async () => {
+    const bw = new FakeBw({ localCopyStale: true });
+    bw.seedItem('item-changed-elsewhere', 'folder-personal', 'u@example.com', 'Real-Password-1!');
+    const { vault, bindings } = makeVault(bw);
+
+    const result = await vault.enrolExistingCredential({
+      item: 'item-changed-elsewhere',
+      origin: 'https://portal.example.gov.uk',
+      moveIntoFolder: true,
+    });
+
+    expect(result.movedIntoFolder).toBe(true);
+    expect(bindings.get('item-changed-elsewhere')?.origin).toBe('https://portal.example.gov.uk');
+    const verbs = bw.commands.map((c) => c[0]);
+    expect(verbs.indexOf('sync')).toBeLessThan(verbs.indexOf('edit'));
+    // The body sent must be read after the sync, not before it.
+    expect(verbs.lastIndexOf('get', verbs.indexOf('edit'))).toBeGreaterThan(verbs.indexOf('sync'));
   });
 
   it('makes a previously unfillable hand-registered login fillable', async () => {

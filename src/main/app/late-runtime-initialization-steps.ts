@@ -22,6 +22,9 @@ import { initCodexCommandOutputArchiveCleanup } from '../cli/adapters/codex/code
 import { initAcpAttachmentStoreCleanup } from '../cli/adapters/acp-attachment-store';
 import { sweepStaleCodexTempHomes } from '../cli/adapters/codex/codex-home-manager';
 import { reconcilePrivateCodexRolloutPaths } from '../cli/adapters/codex/codex-private-rollout-reconcile';
+import { pruneCodexStateBackups } from '../cli/adapters/codex/codex-state-backup-retention';
+import { startLowDiskSpaceWatcher } from '../storage/low-disk-space-watcher';
+import { startScratchSweepScheduler } from '../storage/scratch-sweep-scheduler';
 import { cleanupLeakedAioCodexThreads } from '../cli/adapters/codex/codex-state-cleanup';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import { getSessionAdmissionService } from '../session/session-admission-service';
@@ -288,8 +291,11 @@ export function createLateRuntimeInitializationSteps(
     { name: 'ACP attachment store cleanup', fn: () => { initAcpAttachmentStoreCleanup(); } },
     { name: 'Leaked AIO Codex thread cleanup', fn: () => { cleanupLeakedAioCodexThreads(); } },
     { name: 'Private Codex rollout-path reconcile', fn: () => { reconcilePrivateCodexRolloutPaths(); } },
+    { name: 'Codex state backup pruning', fn: () => { pruneCodexStateBackups(); } },
     { name: 'Stale Codex temp home sweep', fn: () => { sweepStaleCodexTempHomes(); } },
     { name: 'Artifact cleanup maintenance', fn: () => { initializeArtifactCleanupMaintenance(); } },
+    { name: 'Low disk space watcher', fn: () => { startLowDiskSpaceWatcher(app.getPath('userData')); } },
+    { name: 'Scratch folder sweep', fn: () => { startScratchSweepScheduler(); } },
     {
       name: 'Resource governor',
       fn: () => {
@@ -310,7 +316,8 @@ export function createLateRuntimeInitializationSteps(
           const codemem = getCodemem();
           const decision = longRunGovernor.evaluate({
             rssBytes: process.memoryUsage().rss,
-            codememDbBytes: safeFileSize(path.join(userDataPath, 'codemem.sqlite')),
+            codememDbBytes: safeFileSize(path.join(userDataPath, 'codemem.sqlite'))
+              + safeFileSize(path.join(userDataPath, 'codemem.sqlite-wal')),
             rlmDbBytes: safeFileSize(path.join(userDataPath, 'rlm', 'rlm.db'))
               + safeFileSize(path.join(userDataPath, 'rlm', 'rlm.db-wal')),
             contextWorkerDegraded: getContextWorkerClient().getMetrics().degraded,

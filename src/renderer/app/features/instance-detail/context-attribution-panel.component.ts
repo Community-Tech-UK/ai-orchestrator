@@ -58,6 +58,7 @@ const MANIFEST_BLOCK_LABELS: Record<ContextManifestBlockKind, string> = {
   'adapter-chrome-devtools': 'Chrome DevTools adapter',
   'adapter-mobile-mcp': 'Mobile MCP adapter',
   'adapter-computer-use': 'Computer Use adapter',
+  'adapter-disk-hygiene': 'Disk hygiene guidance',
 };
 
 const MANIFEST_TRIGGER_LABELS: Record<ContextManifestTrigger, string> = {

@@ -132,6 +132,7 @@ export interface AppSettings extends DesktopComputerUseSettings {
   outputBufferSize: number; // messages kept in memory per instance
   enableDiskStorage: boolean; // save older output to disk
   maxDiskStorageMB: number; // max disk space for output storage (0 = unlimited)
+  scratchRetentionDays: number; // delete untouched _scratch/ entries after this many days (0 = never)
   memoryWarningThresholdMB: number; // warn when heap exceeds this (0 = disabled)
   autoTerminateOnMemoryPressure: boolean; // terminate idle instances when memory critical
   recordProviderEvents: boolean;

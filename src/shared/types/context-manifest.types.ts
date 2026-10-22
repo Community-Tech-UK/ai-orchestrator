@@ -25,7 +25,8 @@ export type ContextManifestBlockKind =
   | 'adapter-browser-gateway'
   | 'adapter-chrome-devtools'
   | 'adapter-mobile-mcp'
-  | 'adapter-computer-use';
+  | 'adapter-computer-use'
+  | 'adapter-disk-hygiene';
 
 export type ContextManifestEntryStatus = 'supplied' | 'skipped-empty' | 'unavailable';
 

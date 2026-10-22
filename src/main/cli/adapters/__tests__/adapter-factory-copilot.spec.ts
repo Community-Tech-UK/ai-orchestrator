@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from 'fs';
 import { dirname, join } from 'path';
 import { tmpdir } from 'os';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCliAdapter, getCliDisplayName, mapSettingsToDetectionType } from '../adapter-factory';
 import { PermissionRegistry } from '../../../orchestration/permission-registry';
 import { CHROME_DEVTOOLS_MCP_VERSION } from '../../../browser-gateway/chrome-devtools-mcp-config';
@@ -31,6 +31,23 @@ function legacyRoute(
 
 const CHROME_DEVTOOLS_MCP_PACKAGE = `chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}`;
 
+// `prepareSpawn` asks the installed CLI's `--help` which session-sync-off flag
+// it accepts; answer as Copilot 1.0.103 does instead of running a real binary.
+const copilotHelp = vi.hoisted(() => ({ text: '      --sync-session[=<on|off>]' }));
+vi.mock('child_process', async (importOriginal) => {
+  const mocked = {
+    ...await importOriginal<typeof import('child_process')>(),
+    execFile: (_command: string, _args: string[], _options: unknown,
+      callback: (error: Error | null, stdout: string, stderr: string) => void) => {
+      callback(null, copilotHelp.text, '');
+      return { stdin: { end: () => undefined } };
+    },
+  };
+  return { ...mocked, default: mocked };
+});
+
+type PrepareSpawn = () => Promise<() => void>;
+
 describe('adapter factory — copilot', () => {
   const preparedConfigCleanups: Array<() => void> = [];
   const testCopilotHome = join(tmpdir(), 'ai-orchestrator-test-copilot-home');
@@ -54,12 +71,12 @@ describe('adapter factory — copilot', () => {
     return (adapter as unknown as { getConfig(): CliAdapterConfig }).getConfig();
   }
 
-  function readAdditionalMcpConfig(adapter: ReturnType<typeof createCliAdapter>) {
-    const lifecycle = (adapter as unknown as {
-      acpConfig: { prepareSpawn?: () => () => void };
-    }).acpConfig;
-    const cleanup = lifecycle.prepareSpawn?.();
-    if (cleanup) preparedConfigCleanups.push(cleanup);
+  function prepareSpawnOf(adapter: ReturnType<typeof createCliAdapter>): PrepareSpawn {
+    return (adapter as unknown as { acpConfig: { prepareSpawn: PrepareSpawn } }).acpConfig.prepareSpawn;
+  }
+
+  async function readAdditionalMcpConfig(adapter: ReturnType<typeof createCliAdapter>) {
+    preparedConfigCleanups.push(await prepareSpawnOf(adapter)());
     const args = configOf(adapter).args ?? [];
     const configIdx = args.indexOf('--additional-mcp-config');
     expect(configIdx).toBeGreaterThanOrEqual(0);
@@ -68,7 +85,7 @@ describe('adapter factory — copilot', () => {
     return JSON.parse(readFileSync(argument.slice(1), 'utf8'));
   }
 
-  it('keeps workspace MCP placeholder values out of Copilot argv', () => {
+  it('keeps workspace MCP placeholder values out of Copilot argv', async () => {
     const adapter = createCliAdapter('copilot', {
       copilotAccountRoute: legacyRoute(),
       workingDirectory: '/tmp',
@@ -79,10 +96,7 @@ describe('adapter factory — copilot', () => {
     const configArg = args[configIdx + 1];
     expect(configArg).toMatch(/^@.+\.json$/);
     expect(args.join(' ')).not.toContain('PLACEHOLDER_ONLY');
-    const lifecycle = (adapter as unknown as {
-      acpConfig: { prepareSpawn: () => () => void };
-    }).acpConfig;
-    preparedConfigCleanups.push(lifecycle.prepareSpawn());
+    preparedConfigCleanups.push(await prepareSpawnOf(adapter)());
     expect(JSON.parse(readFileSync(configArg.slice(1), 'utf8')).mcpServers.demo.env.KEY).toBe('PLACEHOLDER_ONLY');
     expect(statSync(configArg.slice(1)).mode & 0o777).toBe(0o600);
     expect(statSync(dirname(configArg.slice(1))).mode & 0o777).toBe(0o700);
@@ -206,22 +220,38 @@ describe('adapter factory — copilot', () => {
     expect(args).toContain('--no-ask-user');
   });
 
-  it('isolates Copilot CLI state from the default VS Code-visible Copilot home', () => {
+  it('isolates Copilot CLI state from the default VS Code-visible Copilot home', async () => {
     const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp', copilotAccountRoute: legacyRoute() });
     const args = configOf(adapter).args ?? [];
     const configDirIdx = args.indexOf('--config-dir');
     expect(configDirIdx).toBeGreaterThanOrEqual(0);
     expect(args[configDirIdx + 1]).toBe(testCopilotHome);
-    expect(args).toContain('--no-remote');
+    preparedConfigCleanups.push(await prepareSpawnOf(adapter)());
+    expect(args).toContain('--sync-session=off');
+    expect(args).not.toContain('--no-remote');
 
     const env = configOf(adapter).env ?? {};
     expect(env['COPILOT_HOME']).toBe(testCopilotHome);
   });
 
-  it('applies the profile home even when ephemeral is false', () => {
+  it('turns session sync off with the flag the installed CLI still accepts', async () => {
+    // Copilot 1.0.102 and older reject --sync-session; 1.0.103 rejects --no-remote.
+    copilotHelp.text = '      --no-remote\n      --no-remote-export';
+    try {
+      const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp', copilotAccountRoute: legacyRoute() });
+      preparedConfigCleanups.push(await prepareSpawnOf(adapter)());
+      const args = configOf(adapter).args ?? [];
+      expect(args).toContain('--no-remote');
+      expect(args).not.toContain('--sync-session=off');
+    } finally {
+      copilotHelp.text = '      --sync-session[=<on|off>]';
+    }
+  });
+
+  it('applies the profile home even when ephemeral is false', async () => {
     // `ephemeral: false` used to drop --config-dir and COPILOT_HOME entirely,
     // sending the child to ~/.copilot — an account this app never resolved.
-    // It now controls only the --no-remote session-visibility flag.
+    // It now controls only the session-sync-off flag.
     const adapter = createCliAdapter('copilot', {
       copilotAccountRoute: legacyRoute(),
       workingDirectory: '/tmp',
@@ -233,7 +263,9 @@ describe('adapter factory — copilot', () => {
     expect(configDirIdx).toBeGreaterThanOrEqual(0);
     expect(args[configDirIdx + 1]).toBe(testCopilotHome);
     expect(env['COPILOT_HOME']).toBe(testCopilotHome);
+    preparedConfigCleanups.push(await prepareSpawnOf(adapter)());
     expect(args).not.toContain('--no-remote');
+    expect(args).not.toContain('--sync-session=off');
   });
 
 
@@ -386,7 +418,7 @@ describe('adapter factory — copilot', () => {
     expect(env['NODE_OPTIONS']).toMatch(/--use-openssl-ca/);
   });
 
-  it('passes Browser Gateway MCP config to Copilot through --additional-mcp-config', () => {
+  it('passes Browser Gateway MCP config to Copilot through --additional-mcp-config', async () => {
     const adapter = createCliAdapter('copilot', {
       copilotAccountRoute: legacyRoute(),
       workingDirectory: '/tmp',
@@ -394,7 +426,7 @@ describe('adapter factory — copilot', () => {
       browserGatewayMcp: browserGatewayMcp(),
     });
 
-    const config = readAdditionalMcpConfig(adapter);
+    const config = await readAdditionalMcpConfig(adapter);
     const browserGateway = config.mcpServers['browser-gateway'];
 
     expect(browserGateway).toMatchObject({
@@ -411,7 +443,7 @@ describe('adapter factory — copilot', () => {
     }).acpConfig.mcpServers).toEqual([]);
   });
 
-  it('passes inline Orchestrator Tools MCP config to Copilot through --additional-mcp-config', () => {
+  it('passes inline Orchestrator Tools MCP config to Copilot through --additional-mcp-config', async () => {
     const adapter = createCliAdapter('copilot', {
       copilotAccountRoute: legacyRoute(),
       workingDirectory: '/tmp',
@@ -432,7 +464,7 @@ describe('adapter factory — copilot', () => {
       ],
     });
 
-    const config = readAdditionalMcpConfig(adapter);
+    const config = await readAdditionalMcpConfig(adapter);
     expect(config.mcpServers.orchestrator).toEqual({
       command: testAioMcp,
       args: ['orchestrator-tools'],
@@ -443,7 +475,7 @@ describe('adapter factory — copilot', () => {
     });
   });
 
-  it('passes chrome-devtools attach config to Copilot through --additional-mcp-config', () => {
+  it('passes chrome-devtools attach config to Copilot through --additional-mcp-config', async () => {
     // chrome-devtools' command is `npx` on POSIX and `cmd /c npx` on Windows;
     // pin POSIX so the canonical command is asserted regardless of host.
     const originalPlatform = process.platform;
@@ -456,7 +488,7 @@ describe('adapter factory — copilot', () => {
         chromeDevtoolsMcp: { browserUrl: 'http://127.0.0.1:31234' },
       });
 
-      const config = readAdditionalMcpConfig(adapter);
+      const config = await readAdditionalMcpConfig(adapter);
       expect(config.mcpServers['chrome-devtools']).toMatchObject({
         command: 'npx',
         args: ['-y', CHROME_DEVTOOLS_MCP_PACKAGE, '--browserUrl', 'http://127.0.0.1:31234'],
@@ -510,7 +542,7 @@ describe('adapter factory — copilot', () => {
     expect(systemPrompt).toContain('cannot see the user\'s shared authenticated tabs');
   });
 
-  it('merges caller-provided Copilot MCP servers with Browser Gateway', () => {
+  it('merges caller-provided Copilot MCP servers with Browser Gateway', async () => {
     const adapter = createCliAdapter('copilot', {
       copilotAccountRoute: legacyRoute(),
       workingDirectory: '/tmp',
@@ -525,7 +557,7 @@ describe('adapter factory — copilot', () => {
       browserGatewayMcp: browserGatewayMcp(),
     });
 
-    const config = readAdditionalMcpConfig(adapter);
+    const config = await readAdditionalMcpConfig(adapter);
 
     expect(Object.keys(config.mcpServers)).toEqual(['existing', 'browser-gateway']);
     expect(config.mcpServers.existing).toEqual({

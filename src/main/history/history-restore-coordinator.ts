@@ -608,7 +608,9 @@ export class HistoryRestoreCoordinator {
    * Terminate a native-resume attempt that did not take. Sessions adopted
    * under it while it was live (a Plan Queue run follows its restored parent
    * as soon as the session appears) are released, not terminated with it:
-   * the replacement restore of the same thread adopts them.
+   * the replacement restore of the same thread adopts them. Its buffer is
+   * emptied so the archive on termination is refused by `shouldArchiveInstance`
+   * (`empty-transcript-over-history`) instead of replacing the thread's entry.
    */
   private async discardRestoreAttempt(instanceManager: InstanceManager, instanceId: string): Promise<void> {
     const attempt = instanceManager.getInstance(instanceId);
