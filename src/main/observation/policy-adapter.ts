@@ -58,6 +58,7 @@ export class PolicyAdapter {
     instanceId?: string,
     taskType?: string
   ): Promise<string> {
+    if (!this.config.enabled) return '';
     try {
       this.logger.debug('Building observation context', { instanceId, taskType });
 
@@ -67,6 +68,7 @@ export class PolicyAdapter {
         minConfidence: 0.5,
       });
 
+      if (!this.config.enabled) return '';
       if (reflections.length === 0) {
         this.logger.debug('No relevant reflections found');
         return '';

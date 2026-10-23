@@ -1,5 +1,6 @@
 import type { McpServerToolDefinition } from '../mcp/mcp-server-tools';
 import type { AgentLspFacade } from './agent-lsp-facade';
+import { isTemporaryWorktreePath } from './worktree-index-policy';
 import {
   CodememCallHierarchyArgsSchema,
   CodememDiagnosticsArgsSchema,
@@ -18,7 +19,10 @@ function schema(properties: Record<string, unknown>, required: string[] = []): R
   };
 }
 
-export function createCodememMcpTools(resolveFacade: () => AgentLspFacade): McpServerToolDefinition[] {
+export function createCodememMcpTools(resolveFacade: () => AgentLspFacade, warmWorkspace?: (workspacePath: string) => Promise<unknown>): McpServerToolDefinition[] {
+  const prepareWorkspace = async (workspacePath?: string): Promise<void> => {
+    if (workspacePath && isTemporaryWorktreePath(workspacePath)) await warmWorkspace?.(workspacePath);
+  };
   return [
     {
       name: 'find_symbol',
@@ -34,6 +38,7 @@ export function createCodememMcpTools(resolveFacade: () => AgentLspFacade): McpS
       ),
       handler: async (args) => {
         const validated = CodememFindSymbolArgsSchema.parse(args);
+        await prepareWorkspace(validated.workspacePath);
         return resolveFacade().findSymbol(validated.name, validated);
       },
     },
@@ -50,6 +55,7 @@ export function createCodememMcpTools(resolveFacade: () => AgentLspFacade): McpS
       ),
       handler: async (args) => {
         const validated = CodememFindReferencesArgsSchema.parse(args);
+        await prepareWorkspace(validated.workspacePath);
         return resolveFacade().findReferences(validated.symbolId, validated);
       },
     },
@@ -80,6 +86,7 @@ export function createCodememMcpTools(resolveFacade: () => AgentLspFacade): McpS
       ),
       handler: async (args) => {
         const validated = CodememWorkspaceSymbolsArgsSchema.parse(args);
+        await prepareWorkspace(validated.workspacePath);
         return resolveFacade().workspaceSymbols(validated.query, validated);
       },
     },
@@ -97,6 +104,7 @@ export function createCodememMcpTools(resolveFacade: () => AgentLspFacade): McpS
       ),
       handler: async (args) => {
         const validated = CodememCallHierarchyArgsSchema.parse(args);
+        await prepareWorkspace(validated.workspacePath);
         return resolveFacade().callHierarchy(validated.symbolId, validated);
       },
     },
@@ -112,6 +120,7 @@ export function createCodememMcpTools(resolveFacade: () => AgentLspFacade): McpS
       ),
       handler: async (args) => {
         const validated = CodememSymbolLookupArgsSchema.parse(args);
+        await prepareWorkspace(validated.workspacePath);
         return resolveFacade().findImplementations(validated.symbolId, validated);
       },
     },
@@ -127,6 +136,7 @@ export function createCodememMcpTools(resolveFacade: () => AgentLspFacade): McpS
       ),
       handler: async (args) => {
         const validated = CodememSymbolLookupArgsSchema.parse(args);
+        await prepareWorkspace(validated.workspacePath);
         return resolveFacade().hover(validated.symbolId, validated);
       },
     },

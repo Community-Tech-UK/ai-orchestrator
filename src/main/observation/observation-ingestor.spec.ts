@@ -25,6 +25,7 @@ describe('ObservationIngestor', () => {
   beforeEach(() => {
     ObservationIngestor._resetForTesting();
     ingestor = getObservationIngestor();
+    ingestor.configure({ enabled: true });
     mockInstanceManager = new EventEmitter() as unknown as InstanceManager;
   });
 
@@ -75,6 +76,43 @@ describe('ObservationIngestor', () => {
 
       expect(listenerCountAfter1).toBe(listenerCountAfter2);
     });
+  });
+
+  it.each([
+    { planQueueRunId: 'queue-1' },
+    { loopRunId: 'loop-1' },
+    { automationId: 'schedule-1' },
+  ])('never captures machine sessions: %j', metadata => {
+    Object.assign(mockInstanceManager, { getInstance: () => ({ metadata }) });
+    ingestor.configure({ enabled: true });
+    ingestor.initialize(mockInstanceManager);
+    emitOutput('machine output');
+    mockInstanceManager.emit('instance:state-update', { instanceId: 'inst-1', status: 'idle' });
+    ingestor.captureEvent('manual', 'event', 'direct machine event', {}, 'inst-1');
+    expect(ingestor.getBufferSize()).toBe(0);
+  });
+
+  it('excludes children of machine sessions and a chat with an active loop', () => {
+    Object.assign(mockInstanceManager, {
+      getInstance: (id: string) => id === 'child'
+        ? { parentId: 'queue-parent' }
+        : { metadata: { planQueueRunId: 'queue-1' } },
+    });
+    ingestor.initialize(mockInstanceManager, id => id === 'loop-chat');
+    ingestor.captureEvent('manual', 'event', 'child event', {}, 'child');
+    ingestor.captureEvent('manual', 'event', 'loop event', {}, 'loop-chat');
+    expect(ingestor.getBufferSize()).toBe(0);
+  });
+
+  it('discards buffered events when memory is switched off', () => {
+    ingestor.captureEvent('manual', 'event', 'old event', {});
+    expect(ingestor.getBufferSize()).toBe(1);
+    ingestor.configure({ enabled: false });
+    const flush = vi.fn();
+    ingestor.on('ingestor:flush-ready', flush);
+    ingestor.forceFlush();
+    expect(ingestor.getBufferSize()).toBe(0);
+    expect(flush).not.toHaveBeenCalled();
   });
 
   describe('event capture', () => {

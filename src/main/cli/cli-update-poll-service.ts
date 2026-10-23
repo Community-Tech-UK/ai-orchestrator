@@ -73,6 +73,12 @@ export class CliUpdatePollService {
     return () => this.events.off('change', listener);
   }
 
+  setWaitingSessionCount(count: number): void {
+    if ((this.state.waitingSessionCount ?? 0) === count) return;
+    this.state = { ...this.state, waitingSessionCount: count };
+    this.events.emit('change', this.state);
+  }
+
   async refresh(): Promise<CliUpdatePillState> {
     if (this.refreshPromise) {
       return this.refreshPromise;
@@ -140,6 +146,7 @@ export class CliUpdatePollService {
 
       this.state = {
         generatedAt: Date.now(),
+        waitingSessionCount: this.state.waitingSessionCount,
         count: entries.filter((entry) => entry.updateAvailable === true).length,
         entries,
       };

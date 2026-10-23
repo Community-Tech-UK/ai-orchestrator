@@ -26,6 +26,7 @@ export interface RtkCommandStat {
 
 export interface RtkSavingsSummary {
   commands: number;
+  projectBursts?: { projectPath: string; commands: number }[];
   totalInput: number;
   totalOutput: number;
   totalSaved: number;
@@ -46,6 +47,8 @@ export interface RtkCommandRecord {
 @Injectable({ providedIn: 'root' })
 export class RtkIpcService {
   private base = inject(ElectronIpcService);
+  /** Last successful result survives tab destruction while a new result loads. */
+  readonly lastSummary = { value: null as RtkSavingsSummary | null };
 
   private get api() {
     return this.base.getApi();
@@ -62,7 +65,9 @@ export class RtkIpcService {
     topN?: number;
   }): Promise<IpcResponse<RtkSavingsSummary | null>> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.rtkGetSummary(opts) as Promise<IpcResponse<RtkSavingsSummary | null>>;
+    const response = await this.api.rtkGetSummary(opts) as IpcResponse<RtkSavingsSummary | null>;
+    if (response.success) this.lastSummary.value = response.data ?? null;
+    return response;
   }
 
   async getHistory(opts?: {

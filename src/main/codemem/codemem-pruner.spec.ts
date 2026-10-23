@@ -2,12 +2,23 @@ import { describe, expect, it, vi } from 'vitest';
 import { pruneCodememWorkspaces, runCodememMaintenance } from './codemem-pruner';
 
 describe('pruneCodememWorkspaces', () => {
+  it('retries retired-worktree cleanup on worker maintenance after an unavailable worker', () => {
+    const store = { listWorkspaceIndexStats: () => [{ workspaceHash: 'retired', absPath: '/repo/.worktrees/queue/retired', lastIndexedAt: 0, manifestEntries: 1, workspaceChunks: 1, workspaceSymbols: 1 }], deleteWorkspaceIndex: vi.fn() };
+    expect(pruneCodememWorkspaces(store, { maxWorkspaces: 10, maxManifestEntriesPerWorkspace: 100, workspaceExists: () => false }).deletedWorkspaceHashes).toEqual(['retired']);
+  });
+  it('keeps ordinary project roots outside the temporary workspace count', () => {
+    const store = {
+      listWorkspaceIndexStats: () => ['project', 'old', 'new'].map((id, i) => ({ workspaceHash: id, absPath: i === 0 ? '/project' : `/repo/.worktrees/${id}`, lastIndexedAt: i, manifestEntries: 1, workspaceChunks: 1, workspaceSymbols: 1 })),
+      deleteWorkspaceIndex: vi.fn(),
+    };
+    expect(pruneCodememWorkspaces(store, { maxWorkspaces: 1, maxManifestEntriesPerWorkspace: 100 }).deletedWorkspaceHashes).toEqual(['old']);
+  });
   it('prunes least-recently-indexed workspaces until workspace count is within quota', () => {
     const deleted: string[] = [];
     const store = {
       listWorkspaceIndexStats: vi.fn(() => [
-        { workspaceHash: 'old', absPath: '/old', lastIndexedAt: 1, manifestEntries: 10, workspaceChunks: 10, workspaceSymbols: 1 },
-        { workspaceHash: 'new', absPath: '/new', lastIndexedAt: 2, manifestEntries: 10, workspaceChunks: 10, workspaceSymbols: 1 },
+        { workspaceHash: 'old', absPath: '/repo/.worktrees/old', lastIndexedAt: 1, manifestEntries: 10, workspaceChunks: 10, workspaceSymbols: 1 },
+        { workspaceHash: 'new', absPath: '/repo/.worktrees/new', lastIndexedAt: 2, manifestEntries: 10, workspaceChunks: 10, workspaceSymbols: 1 },
       ]),
       deleteWorkspaceIndex: vi.fn((workspaceHash: string) => deleted.push(workspaceHash)),
     };

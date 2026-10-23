@@ -128,6 +128,7 @@ export const SETTING_SURFACING = {
   workspaceSecretsEnabled: 'tab',
   workspaceSecretsAllowAgentRequests: 'tab',
   providerSignalFenceEnabled: 'tab',
+  observationMemoryEnabled: 'tab',
   codebaseAutoIndexEnabled: 'tab',
   instanceProviderLimitResumeEnabled: 'tab',
   loopAllowProviderOverage: 'tab',

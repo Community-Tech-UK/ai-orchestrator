@@ -46,6 +46,8 @@ export class ObservationIngestor extends EventEmitter {
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private flushDeferredUntil = 0;
   private initialized = false;
+  private instanceManager?: InstanceManager;
+  private isMachineSession: (id: string) => boolean = () => false;
   private totalCaptured = 0;
 
   private constructor() {
@@ -56,12 +58,14 @@ export class ObservationIngestor extends EventEmitter {
    * Initialize the ingestor by attaching event listeners to the instance manager.
    * Should only be called once.
    */
-  initialize(instanceManager: InstanceManager): void {
+  initialize(instanceManager: InstanceManager, isMachineSession: (id: string) => boolean = () => false): void {
     if (this.initialized) {
       this.logger.warn('ObservationIngestor already initialized, skipping');
       return;
     }
 
+    this.instanceManager = instanceManager;
+    this.isMachineSession = isMachineSession;
     this.logger.info('Initializing ObservationIngestor');
 
     // Attach listeners to instance manager events
@@ -144,9 +148,7 @@ export class ObservationIngestor extends EventEmitter {
     instanceId?: string,
     sessionId?: string
   ): void {
-    if (!this.config.enabled) {
-      return;
-    }
+    if (!this.config.enabled || this.isMachineCapture(instanceId, metadata)) return;
 
     // Check if level meets minimum threshold
     if (this.levelToNumber(level) < this.levelToNumber(this.config.minLevel)) {
@@ -273,6 +275,23 @@ export class ObservationIngestor extends EventEmitter {
     return filtered;
   }
 
+  private isMachineCapture(instanceId: string | undefined, metadata: Record<string, unknown>): boolean {
+    const keys = ['planQueueRunId', 'planQueueRole', 'loopRunId', 'loopId', 'automationId', 'automationRunId'];
+    if (keys.some(key => metadata[key] !== undefined)) return true;
+    const visited = new Set<string>();
+    let id = instanceId;
+    while (id && !visited.has(id)) {
+      visited.add(id);
+      if (this.isMachineSession(id)) return true;
+      const instance = this.instanceManager?.getInstance?.(id);
+      if (!instance) break;
+      if ((instance.accountRouteOrigin && instance.accountRouteOrigin !== 'interactive')
+        || keys.some(key => instance.metadata?.[key] !== undefined)) return true;
+      id = instance.parentId ?? undefined;
+    }
+    return false;
+  }
+
   private summarizeOutputMessage(message: unknown): {
     content: string;
     metadata: Record<string, unknown>;
@@ -384,6 +403,10 @@ export class ObservationIngestor extends EventEmitter {
     const oldTimeThreshold = this.config.observeTimeThresholdMs;
     this.config = { ...this.config, ...partialConfig };
 
+    if (!this.config.enabled) {
+      this.ringBuffer = [];
+      this.cumulativeTokenCount = 0;
+    }
     this.logger.info('Configuration updated', { config: this.config });
 
     // Restart timer if time threshold changed

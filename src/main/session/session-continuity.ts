@@ -28,6 +28,7 @@ import { getLastStopSnapshotIfInitialized } from './last-stop-snapshot';
 import type { RecoverableSessionSelectionInput } from './recoverable-session-selection';
 import { getSafeStorage } from './safe-storage-accessor';
 import { stringifyContinuityEnvelope } from './continuity-payload-envelope';
+import { boundSessionStateForPersistence, assertSessionStatePayloadSize } from './session-state-size-limit';
 import { getProjectStoragePaths } from '../storage/project-storage-paths';
 import { SessionAutoSaveCoordinator } from './autosave-coordinator';
 import { getSessionPersistenceQueue } from './session-persistence-queue';
@@ -1306,12 +1307,12 @@ export class SessionContinuityManager extends EventEmitter {
       state.lastWriteSource = 'auto-save';
 
       const stateFile = path.join(this.stateDir, `${instanceId}.json`);
-      const normalizedState = normalizeStateForContinuity(state, this.config.redactToolOutputs);
+      const normalizedState = boundSessionStateForPersistence(normalizeStateForContinuity(state, this.config.redactToolOutputs));
       this.sessionStates.set(instanceId, normalizedState);
       const isCurrent = (): boolean => this.persistenceEpochs.isCurrent(instanceId, epoch);
       const stateCommitted = await measureAsync('session.save', () =>
         this.persistenceOperations.writePayloadAtomic(
-          stateFile, this.serializePayload(normalizedState), isCurrent,
+          stateFile, assertSessionStatePayloadSize(this.serializePayload(normalizedState)), isCurrent,
         ));
       if (!stateCommitted || !isCurrent()) return false;
       const stateStat = await this.persistenceOperations.statStateFile(stateFile);
@@ -1619,12 +1620,14 @@ export class SessionContinuityManager extends EventEmitter {
       if (!state) continue;
       try {
         const stateFile = path.join(this.stateDir, `${instanceId}.json`);
-        const serialized = this.serializePayload(state);
+        const boundedState = boundSessionStateForPersistence(state);
+        this.sessionStates.set(instanceId, boundedState);
+        const serialized = assertSessionStatePayloadSize(this.serializePayload(boundedState));
         writeContinuityPayloadSyncAtomic(stateFile, serialized);
         this.persistenceEpochs.advance(instanceId);
         writeContinuityPayloadSyncAtomic(
           path.join(this.recoveryMetadataDir, `${instanceId}.json`),
-          this.serializePayload(buildBoundContinuityRecoveryMetadata(state, fs.statSync(stateFile))),
+          this.serializePayload(buildBoundContinuityRecoveryMetadata(boundedState, fs.statSync(stateFile))),
         );
       } catch (error) {
         logger.error('Failed to save session state during shutdown', error instanceof Error ? error : undefined, { instanceId });

@@ -41,6 +41,22 @@ describe('old session file retention', () => {
     expect(await listSessionActivityLogCandidates(join(root, 'projects'), new Set(), now)).toEqual([]);
     await expect(fs.access(external)).resolves.toBeUndefined();
   });
+
+  it('keeps states still represented in history by instance or logical session identity', async () => {
+    const stateDir = join(root, 'states');
+    const metadataDir = join(root, 'metadata');
+    await file('states/archived-instance.json');
+    await file('states/resumed-instance.json');
+    await file('states/orphan.json');
+    await fs.writeFile(join(stateDir, 'resumed-instance.json'), JSON.stringify({ instanceId: 'resumed-instance', historyThreadId: 'logical-history' }));
+    await fs.writeFile(join(stateDir, 'orphan.json'), JSON.stringify({ instanceId: 'orphan', historyThreadId: 'removed-history' }));
+    for (const id of ['resumed-instance', 'orphan']) await fs.utimes(join(stateDir, `${id}.json`), old, old);
+    const history = [{ originalInstanceId: 'archived-instance', historyThreadId: 'logical-history' }];
+    const candidates = await listSessionStateCandidates(stateDir, metadataDir, new Set(), now, history);
+    expect(candidates.map(file => file.instanceId)).toEqual(['orphan']);
+    await expect(removeSessionStateCandidates(candidates, stateDir, metadataDir, () => new Set(), now,
+      [...history, { originalInstanceId: 'orphan' }])).rejects.toThrow('list changed');
+  });
   it('keeps live and recent activity logs and ignores unrelated project files', async () => {
     const oldPath = await file('projects/fixture/session-events/old.jsonl');
     const kept = await Promise.all([file('projects/fixture/session-events/live.jsonl'), file('projects/fixture/session-events/recent.jsonl', false), file('projects/fixture/checkpoints/old.jsonl')]);

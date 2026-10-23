@@ -30,6 +30,10 @@ export interface WakeHint {
   usageCount: number;
 }
 
+export function normalizeWakeHintContent(content: string): string {
+  return content.toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
 export interface WakeContext {
   identity: ContextLayer;
   essentialStory: ContextLayer;

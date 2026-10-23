@@ -9,6 +9,11 @@ function makeLogger(): { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof
 }
 
 describe('warmCodememWithTimeout', () => {
+  it.each(['/repo/.worktrees/queue/job', 'C:\\repo\\.worktrees\\task-old'])('leaves %s unindexed until code search requests it', async workspacePath => {
+    const target: WarmCodememTarget = { isEnabled: () => true, warmWorkspace: vi.fn().mockResolvedValue({ ready: false, filePath: null }) };
+    await warmCodememWithTimeout(target, { workspacePath, timeoutMs: 2500, logger: makeLogger() });
+    expect(target.warmWorkspace).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.useFakeTimers();
   });

@@ -143,6 +143,12 @@ describe('CodeRetrievalService', () => {
   });
 
   describe('off-thread index worker search', () => {
+    it('does not create a worktree index for automatic context retrieval', async () => {
+      const warmWorkspace = vi.fn(async () => ({ indexed: true, absPath: workspacePath, primaryLanguage: 'typescript' }));
+      const service = new CodeRetrievalService({ store, indexWorkerGateway: { warmWorkspace, searchWorkspaceChunks: async () => ({ indexed: false, results: [] }) } as never, runFallbackSearch: async () => [] });
+      await service.search({ workspacePath, query: 'issue session', allowIndexWarm: false });
+      expect(warmWorkspace).not.toHaveBeenCalled();
+    });
     const makeResult = (overrides: Record<string, unknown> = {}) => ({
       workspacePath,
       relativePath: 'src/auth.ts',

@@ -95,7 +95,7 @@
       {
         "from": "resources/rtk/darwin-${arch}/",
         "to": "rtk/darwin-${arch}/",
-        "filter": ["rtk"]
+        "filter": ["rtk", "LICENSE"]
       }
     ]
   },
@@ -112,7 +112,7 @@
       {
         "from": "resources/rtk/linux-${arch}/",
         "to": "rtk/linux-${arch}/",
-        "filter": ["rtk"]
+        "filter": ["rtk", "LICENSE"]
       }
     ]
   },
@@ -133,7 +133,7 @@
       {
         "from": "resources/rtk/win32-${arch}/",
         "to": "rtk/win32-${arch}/",
-        "filter": ["rtk.exe"]
+        "filter": ["rtk.exe", "LICENSE"]
       }
     ]
   },

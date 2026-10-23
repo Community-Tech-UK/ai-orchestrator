@@ -2,6 +2,7 @@ import { createReadStream, openSync, readSync, closeSync, readdirSync, statSync 
 import { join } from 'path';
 import { createInterface } from 'readline';
 import { homedir } from 'os';
+import { createZstdDecompress } from 'node:zlib';
 import { getLogger } from '../../../logging/logger';
 import { crossPlatformPathsEqual } from '../../../../shared/utils/cross-platform-path';
 import { getAioCodexSessionsDir } from './codex-home-manager';
@@ -54,10 +55,10 @@ export class CodexSessionScanner {
         break;
       }
       scanned++;
-      if (!this.headerMatchesCwd(filePath, workspacePath)) {
+      if (!filePath.endsWith('.zst') && !this.headerMatchesCwd(filePath, workspacePath)) {
         continue;
       }
-      const result = await this.streamParseJsonl(filePath, workspacePath);
+      const result = await this.streamParseJsonl(filePath, workspacePath, undefined, deadline);
       if (result) {
         this.cache.set(workspacePath, result);
         return result;
@@ -66,7 +67,7 @@ export class CodexSessionScanner {
 
     // Only cache null when the scan completed fully; a timed-out scan may have
     // missed a valid session file — leave the cache empty so the next call retries.
-    if (!timedOut) {
+    if (!timedOut && Date.now() < deadline) {
       this.cache.set(workspacePath, null);
     }
     return null;
@@ -82,7 +83,7 @@ export class CodexSessionScanner {
         break;
       }
       scanned++;
-      const result = await this.streamParseJsonl(filePath, null, threadId);
+      const result = await this.streamParseJsonl(filePath, null, threadId, deadline);
       if (result) {
         return result;
       }
@@ -111,7 +112,7 @@ export class CodexSessionScanner {
           const stat = statSync(full);
           if (stat.isDirectory()) {
             walk(full, depth + 1);
-          } else if (entry.startsWith('rollout-') && entry.endsWith('.jsonl')) {
+          } else if (entry.startsWith('rollout-') && /\.jsonl(?:\.zst)?$/.test(entry)) {
             files.push({ path: full, mtime: stat.mtimeMs });
           }
         } catch {
@@ -161,7 +162,8 @@ export class CodexSessionScanner {
   private async streamParseJsonl(
     filePath: string,
     targetCwd: string | null,
-    targetThreadId?: string
+    targetThreadId?: string,
+    deadline = Date.now() + SCAN_TIMEOUT_MS,
   ): Promise<CodexSessionScanResult | null> {
     return new Promise((resolve) => {
       let threadId: string | null = null;
@@ -179,10 +181,32 @@ export class CodexSessionScanner {
         return;
       }
 
+      const source = createReadStream(filePath);
+      const decompressor = filePath.endsWith('.zst') ? createZstdDecompress() : null;
+      const input = decompressor ?? source;
+      let failed = false;
+      const finishRead = (): void => {
+        clearTimeout(timeout);
+        source.destroy();
+        input.destroy();
+      };
+      const fail = (error?: Error): void => {
+        failed = true;
+        if (error) logger.warn('Error reading Codex session file', { filePath, error: String(error) });
+        finishRead();
+        rl.close();
+        resolve(null);
+      };
+      // Bound decompression as well as the directory scan; never load a whole
+      // rollout into memory or write an uncompressed copy beside user data.
+      const timeout = setTimeout(() => fail(), Math.max(1, deadline - Date.now()));
+      source.on('error', fail);
+      decompressor?.on('error', fail);
       const rl = createInterface({
-        input: createReadStream(filePath, { encoding: 'utf8' }),
+        input,
         crlfDelay: Infinity,
       });
+      if (decompressor) source.pipe(decompressor);
 
       rl.on('line', (line) => {
         if (!line.trim()) return;
@@ -191,6 +215,12 @@ export class CodexSessionScanner {
           const payload = asRecord(entry.payload) ?? entry;
           if (entry.type === 'session_meta') {
             const cwd = typeof payload.cwd === 'string' ? payload.cwd : null;
+            const id = typeof payload.id === 'string' ? payload.id : null;
+            if ((targetCwd && cwd && !crossPlatformPathsEqual(cwd, targetCwd))
+              || (targetThreadId && id && id !== targetThreadId)) {
+              fail();
+              return;
+            }
             if (cwd) {
               workspacePath = cwd;
             }
@@ -230,6 +260,8 @@ export class CodexSessionScanner {
       });
 
       rl.on('close', () => {
+        finishRead();
+        if (failed) { resolve(null); return; }
         const matchesThread = !targetThreadId || threadId === targetThreadId;
         if (matchesCwd && matchesThread && threadId) {
           resolve({
@@ -246,10 +278,7 @@ export class CodexSessionScanner {
         }
       });
 
-      rl.on('error', (err) => {
-        logger.warn('Error reading Codex session file', { filePath, error: String(err) });
-        resolve(null);
-      });
+      rl.on('error', fail);
     });
   }
 }

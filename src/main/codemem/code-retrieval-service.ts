@@ -14,6 +14,8 @@ export interface CodeRetrievalSearchOptions {
   query: string;
   limit?: number;
   maxTokens?: number;
+  /** Automatic prompt context must not create an index for a queue worktree. */
+  allowIndexWarm?: boolean;
 }
 
 /** The index-worker gateway surface this service depends on. */
@@ -62,7 +64,7 @@ export class CodeRetrievalService {
 
     const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 8), 50));
     const workspacePath = path.resolve(options.workspacePath);
-    const results = await this.searchInternal(query, workspacePath, limit, options.maxTokens);
+    const results = await this.searchInternal(query, workspacePath, limit, options.maxTokens, options.allowIndexWarm !== false);
     // WS16: recall trace (raw + sanitized retained locally for offline analysis).
     try {
       getRecallTraceStore().record({
@@ -84,6 +86,7 @@ export class CodeRetrievalService {
     workspacePath: string,
     limit: number,
     maxTokens: number | undefined,
+    allowIndexWarm: boolean,
   ): Promise<CodeRetrievalResult[]> {
     const options = { maxTokens };
 
@@ -95,7 +98,7 @@ export class CodeRetrievalService {
       if (response?.indexed && response.results.length > 0) {
         return response.results.slice(0, limit).map((r) => this.trimResult(r, options.maxTokens));
       }
-      if (response && !response.indexed) {
+      if (allowIndexWarm && response && !response.indexed) {
         // Warm in the background so the next search hits the index; serve ripgrep
         // now rather than blocking this request on a cold index.
         void this.indexWorkerGateway.warmWorkspace?.(workspacePath).catch(() => undefined);
@@ -111,7 +114,7 @@ export class CodeRetrievalService {
     const store = this.store ?? this.codemem?.store;
     if (store) {
       let local = searchHydratedChunks(store, workspacePath, query, limit);
-      if (!local.indexed) {
+      if (allowIndexWarm && !local.indexed) {
         await this.indexWorkerGateway?.warmWorkspace?.(workspacePath, 2500).catch(() => undefined);
         local = searchHydratedChunks(store, workspacePath, query, limit);
       }

@@ -18,6 +18,7 @@ import {
   getRtkTrackingReader,
   RtkTrackingReader,
 } from '../../cli/rtk/rtk-tracking-reader';
+import { getRtkTrackingClient } from '../../cli/rtk/rtk-tracking-client';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
 
@@ -65,7 +66,7 @@ export function registerRtkHandlers(): void {
       RtkSummaryPayloadSchema,
       async (payload): Promise<IpcResponse> => ({
         success: true,
-        data: getReader().getSummary({
+        data: await getRtkTrackingClient().getSummary({
           projectPath: payload.projectPath,
           sinceMs: payload.sinceMs,
           topN: payload.topN,
@@ -81,7 +82,7 @@ export function registerRtkHandlers(): void {
       RtkHistoryPayloadSchema,
       async (payload): Promise<IpcResponse> => ({
         success: true,
-        data: getReader().getRecentHistory({
+        data: await getRtkTrackingClient().getRecentHistory({
           projectPath: payload.projectPath,
           limit: payload.limit,
         }),

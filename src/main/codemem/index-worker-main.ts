@@ -14,6 +14,7 @@
 import { parentPort, isMainThread, workerData } from 'node:worker_threads';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { existsSync } from 'node:fs';
 import { getElectronParentPort } from '../runtime/electron-parent-port';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { migrate } from './cas-schema';
@@ -35,6 +36,7 @@ import type {
   IndexWorkerInboundMsg,
   IndexWorkerOutboundMsg,
   RebuildIndexMsg,
+  RemoveWorkspaceIndexMsg,
   WarmWorkspaceMsg,
   WarmWorkspaceResult,
 } from './index-worker-protocol';
@@ -171,7 +173,7 @@ function exitAfterMessageFlush(): void {
 
 // ── Message routing ───────────────────────────────────────────────────────────
 
-type HeavyIndexWorkerMsg = WarmWorkspaceMsg | RebuildIndexMsg;
+type HeavyIndexWorkerMsg = WarmWorkspaceMsg | RebuildIndexMsg | RemoveWorkspaceIndexMsg;
 
 let heavyWorkQueue: Promise<void> = Promise.resolve();
 let shuttingDown = false;
@@ -185,7 +187,7 @@ transport.onMessage((msg: IndexWorkerInboundMsg) => {
 });
 
 function isHeavyMessage(msg: IndexWorkerInboundMsg): msg is HeavyIndexWorkerMsg {
-  return msg.type === 'warm-workspace' || msg.type === 'rebuild-index';
+  return msg.type === 'warm-workspace' || msg.type === 'rebuild-index' || msg.type === 'remove-workspace-index';
 }
 
 function queueHeavyMessage(msg: HeavyIndexWorkerMsg): void {
@@ -201,6 +203,22 @@ function queueHeavyMessage(msg: HeavyIndexWorkerMsg): void {
 
 async function handleHeavyMessage(msg: HeavyIndexWorkerMsg): Promise<void> {
   switch (msg.type) {
+    case 'remove-workspace-index': {
+      try {
+        const workspaceHash = workspaceHashForPath(path.resolve(msg.workspacePath));
+        await indexManager.stop(workspaceHash);
+        watchedWorkspaces.delete(workspaceHash);
+        watchedWorkspacePaths.delete(workspaceHash);
+        reconciledWorkspaces.delete(workspaceHash);
+        if (watchedWorkspaces.size === 0) stopPeriodicDriftScan();
+        store.deleteWorkspaceIndex(workspaceHash);
+        store.pruneUnreferencedChunks();
+        respond(msg.id, true);
+      } catch (err) {
+        respond(msg.id, undefined, err instanceof Error ? err.message : String(err));
+      }
+      break;
+    }
     case 'warm-workspace': {
       try {
         await warmWorkspace(msg);
@@ -385,7 +403,11 @@ function startPeriodicDriftScan(): void {
     return;
   }
   periodicScanTimer = setInterval(() => {
-    void runPeriodicDriftScan();
+    // Serialize repairs with index deletion so an in-flight scan cannot
+    // recreate rows belonging to a retired worktree.
+    heavyWorkQueue = heavyWorkQueue.then(runPeriodicDriftScan).catch(error => {
+      logger.warn('Codemem periodic drift scan failed', { error: String(error) });
+    });
   }, PERIODIC_SCAN_INTERVAL_MS);
   periodicScanTimer.unref?.();
 }
@@ -461,6 +483,7 @@ function runMaintenance(vacuumTimeBudgetMs?: number): CodememMaintenanceSnapshot
   const result = runCodememMaintenance(store, {
     maxWorkspaces: Number(process.env['AIO_CODEMEM_MAX_WORKSPACES'] ?? 10),
     maxManifestEntriesPerWorkspace: Number(process.env['AIO_CODEMEM_MAX_MANIFEST_ENTRIES'] ?? 500_000),
+    workspaceExists: existsSync,
     vacuumTimeBudgetMs,
   });
   const walTruncated = checkpointAndTruncateWal(db);

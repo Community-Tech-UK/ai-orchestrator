@@ -304,8 +304,14 @@ async function handleMessage(msg: ContextWorkerInboundMsg): Promise<void> {
       break;
     }
 
+    case 'configure-observation-memory': {
+      getPolicyAdapter().configure({ enabled: msg.enabled });
+      break;
+    }
+
     case 'build-observation-context': {
       try {
+        getPolicyAdapter().configure({ enabled: msg.enabled === true });
         respond(
           msg.id,
           await getPolicyAdapter().buildObservationContext(

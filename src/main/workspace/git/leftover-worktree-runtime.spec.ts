@@ -36,12 +36,12 @@ describe('leftover owner discovery', () => {
     database.queueRoots = ['/queue-workspace', '/old-loop-workspace', '/old-loop-workspace/.worktrees/old'];
     let statusReads = 0;
     const report = await listRuntimeLeftoverWorktrees({ owners: () => [], liveSessions: () => [],
-      now: () => Date.parse('2026-10-13T12:00:00Z'), size: async () => 0,
+      processCheck: async () => ({ checked: true, live: false }), now: () => Date.parse('2026-10-13T12:00:00Z'), size: async () => 0,
       git: async (args, cwd) => {
         const root = cwd.split('/.worktrees/')[0];
         if (args[1] === 'worktree') return `worktree ${root}\0HEAD fixture-main\0branch refs/heads/main\0\0worktree ${root}/.worktrees/old\0HEAD fixture-tip\0branch refs/heads/old\0\0`;
         if (args[1] === 'status') { statusReads++; return ''; }
-        if (args[1] === 'rev-list') return '0\t1';
+        if (args[1] === 'rev-list') return args.includes('--left-right') ? '0\t1' : '1';
         if (args[1] === 'cherry') return '+ fixture-tip';
         if (args[1] === 'diff') return '1 file changed, 1 insertion(+)';
         if (args[1] === 'show') return String(Date.parse('2026-09-01T12:00:00Z') / 1000);

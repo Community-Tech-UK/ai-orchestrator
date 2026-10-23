@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,6 +22,8 @@ import {
   getRtkTrackingDbPath,
   RtkTrackingReader,
 } from '../rtk-tracking-reader';
+
+import { RtkDailyRollup } from '../rtk-daily-rollup';
 
 interface FixtureRow {
   timestamp: string;
@@ -355,16 +357,31 @@ describe('rtk-tracking-reader', () => {
       reader.close();
     });
 
-    it('does not retry opening the DB after a failed first attempt', () => {
-      // No file present — first call returns null and remembers the failure
+    it('reopens an atomically replaced source rather than caching the old connection under its new identity', () => {
+      const first = buildSharedDriver([{ timestamp: '2026-10-20T10:00:00.000Z', original: 'x', rewritten: 'rtk x', inputTokens: 10, outputTokens: 1 }]);
+      const second = buildSharedDriver([{ timestamp: '2026-10-20T11:00:00.000Z', original: 'y', rewritten: 'rtk y', inputTokens: 50, outputTokens: 5 }]);
+      const factory = vi.fn().mockImplementationOnce(first).mockImplementationOnce(second);
+      writeFileSync(dbPath, 'old source');
+      const reader = new RtkTrackingReader({ dbPathOverride: dbPath, driverFactory: factory });
+      expect(reader.getSummary()?.totalSaved).toBe(9);
+      const replacement = path.join(tempRoot, 'replacement.db');
+      writeFileSync(replacement, 'new source');
+      renameSync(replacement, dbPath);
+      expect(reader.getSummary()?.totalSaved).toBe(45);
+      expect(factory).toHaveBeenCalledTimes(2);
+      reader.close();
+    });
+
+    it('opens a database that appears after the first query', () => {
+      // No file is present until RTK runs its first command.
       const reader = new RtkTrackingReader({
         dbPathOverride: dbPath,
         driverFactory: buildSharedDriver([]),
       });
       expect(reader.getSummary()).toBeNull();
-      // Even if the file appears later, the cached failure prevents reopen
+      // Refresh picks up the new file without an app restart.
       writeFileSync(dbPath, '');
-      expect(reader.getSummary()).toBeNull();
+      expect(reader.getSummary()?.commands).toBe(0);
     });
   });
 });
@@ -418,7 +435,7 @@ describe('RtkTrackingReader.getCompliance (T5)', () => {
           (rows.withFailuresTable === false ? [] : [{ name: 'parse_failures' }]),
       }),
       pragma: () => [{ name: 'project_path' }],
-      close: () => {},
+      close: () => { /* in-memory compliance fixture has no resources */ },
     } as unknown as SqliteDriver;
 
     return new RtkTrackingReader({
@@ -474,5 +491,70 @@ describe('RtkTrackingReader.getCompliance (T5)', () => {
     const result = readerWith({ commands: [] }).getCompliance();
     expect(result?.proxyRatePct).toBeNull();
     expect(result?.parseFailureRatePct).toBeNull();
+  });
+});
+
+
+describe('incremental daily rollup', () => {
+  it('matches exact raw summaries across the partial-day boundary, projects and restarts', () => {
+    const rows: FixtureRow[] = [
+      { timestamp: '2026-10-13T09:59:00.000Z', original: 'git status', rewritten: 'rtk git status', inputTokens: 100, outputTokens: 10, projectPath: '/a' },
+      { timestamp: '2026-10-13T10:01:00.000Z', original: 'git status', rewritten: 'rtk git status', inputTokens: 100, outputTokens: 30, projectPath: '/a' },
+      { timestamp: '2026-10-14T12:00:00.000Z', original: 'git status', rewritten: 'rtk git status', inputTokens: 300, outputTokens: 60, projectPath: '/a' },
+      { timestamp: '2026-10-14T13:00:00.000Z', original: 'cargo test', rewritten: 'rtk cargo test', inputTokens: 1000, outputTokens: 10, projectPath: '/b' },
+    ];
+    const source = buildSharedDriver(rows)(':memory:');
+    const cache = createSqliteWasmDatabase(':memory:') as unknown as SqliteDriver;
+    const now = Date.parse('2026-10-20T10:00:00.000Z');
+    const opts = { sinceMs: now - 7 * 86_400_000 };
+    const rollup = new RtkDailyRollup(cache);
+    expect(rollup.getSummary(source, 'source-1', true, opts, now)).toMatchObject({ commands: 3, totalSaved: 1300 });
+    expect(rollup.getSummary(source, 'source-1', true, { ...opts, projectPath: '/a' }, now))
+      .toMatchObject({ commands: 2, totalSaved: 310, avgSavingsPct: 75 });
+    source.prepare(`INSERT INTO commands (timestamp, original_cmd, rtk_cmd, input_tokens, output_tokens, saved_tokens, savings_pct, project_path)
+      VALUES (?, 'git status', 'rtk git status', 100, 50, 50, 50, '/a')`).run('2026-10-20T09:00:00.000Z');
+    const restarted = new RtkDailyRollup(cache);
+    expect(restarted.getSummary(source, 'source-1', true, opts, now)).toMatchObject({ commands: 4, totalSaved: 1350 });
+    expect(restarted.getSummary(source, 'source-1', true, opts, now)).toMatchObject({ commands: 4, totalSaved: 1350 });
+    // A replacement file with the same IDs must discard its predecessor's aggregates.
+    const replacement = buildSharedDriver([rows[2]])(':memory:');
+    expect(restarted.getSummary(replacement, 'source-2', true, opts, now)).toMatchObject({ commands: 1, totalSaved: 240 });
+    expect(restarted.getSummary(source, 'source-1', true, {}, now)).toBeUndefined();
+    expect(restarted.getSummary(source, 'source-1', true, { sinceMs: now - 30 * 86_400_000 }, now)).toBeUndefined();
+    cache.close();
+  });
+
+  it('supports legacy schemas and bounds retention to eight days', () => {
+    const source = buildSharedDriver([
+      { timestamp: '2026-09-01T10:00:00.000Z', original: 'x', rewritten: 'rtk x', inputTokens: 1, outputTokens: 0 },
+      { timestamp: '2026-10-20T10:00:00.000Z', original: 'x', rewritten: 'rtk x', inputTokens: 2, outputTokens: 0 },
+    ], { withProjectColumn: false })(':memory:');
+    const cache = createSqliteWasmDatabase(':memory:') as unknown as SqliteDriver;
+    const now = Date.parse('2026-10-20T12:00:00.000Z');
+    const rollup = new RtkDailyRollup(cache);
+    expect(rollup.getSummary(source, 'legacy', false, { sinceMs: now - 7 * 86_400_000, projectPath: '/ignored' }, now))
+      .toMatchObject({ commands: 1, totalSaved: 2 });
+    expect(cache.prepare('SELECT COUNT(*) AS n FROM daily').get()).toEqual({ n: 1 });
+    cache.close();
+  });
+});
+
+describe('hourly project burst notices', () => {
+  it('warns strictly above 2,000 per project and ignores older invocations', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'rtk-bursts-'));
+    const dbPath = path.join(root, 'history.db');
+    writeFileSync(dbPath, '');
+    try {
+      const row = { timestamp: '2026-10-20T11:30:00.000Z', original: 'git cat-file', rewritten: 'rtk git cat-file', inputTokens: 1, outputTokens: 0 };
+      const rows = [
+        ...Array.from({ length: 2001 }, () => ({ ...row, projectPath: '/burst' })),
+        ...Array.from({ length: 2000 }, () => ({ ...row, projectPath: '/threshold' })),
+        ...Array.from({ length: 2001 }, () => ({ ...row, projectPath: '/old', timestamp: '2026-10-20T10:59:00.000Z' })),
+      ];
+      const reader = new RtkTrackingReader({ dbPathOverride: dbPath, driverFactory: buildSharedDriver(rows) });
+      expect(reader.getProjectBursts(Date.parse('2026-10-20T12:00:00.000Z')))
+        .toEqual([{ projectPath: '/burst', commands: 2001 }]);
+      reader.close();
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

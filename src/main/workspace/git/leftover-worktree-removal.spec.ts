@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CleanupTicketStore } from '../../storage/cleanup-ticket';
+import { LeftoverWorktreeArchiveService } from './leftover-worktree-archive';
 import { LeftoverWorktreeRemoval } from './leftover-worktree-removal';
 import type { LeftoverReportDependencies } from './leftover-worktree-report';
 import { GitWriteQueue } from './git-write-queue';
@@ -33,7 +34,7 @@ beforeEach(() => {
   path = join(root, '.worktrees', 'saved'); git(['worktree', 'add', '-b', 'saved', path]);
   writeFileSync(join(path, 'change'), 'saved'); git(['add', '.'], path); git(['commit', '-m', 'rescue'], path);
   now = Date.parse('2026-10-13T12:00:00Z');
-  deps = { currentCheckout: root, now: () => now, liveSessions: () => [],
+  deps = { processCheck: async () => ({ checked: true, live: false }), currentCheckout: root, now: () => now, liveSessions: () => [],
     owners: () => [{ repoRoot: root, path, kind: 'loop', id: 'old-run', status: 'cap-reached', phase: 'blocked', inUse: false }] };
   service = new LeftoverWorktreeRemoval(deps, new CleanupTicketStore(() => now));
 });
@@ -125,5 +126,76 @@ describe('ask-first leftover removal', () => {
     expect(clear).toHaveBeenCalledTimes(phase === 'cleaned' ? 1 : 0);
     expect(git(['rev-parse', 'main'])).toBe(mainTip);
     expect(git(['branch', '--list', 'integration/*'])).toBe('');
+  });
+});
+
+
+describe('recoverable private archives', () => {
+  let archiveRoot: string;
+  beforeEach(() => {
+    archiveRoot = realpathSync(mkdtempSync(join(tmpdir(), 'leftover-private-archives-')));
+    deps.archiveRoot = archiveRoot;
+  });
+  afterEach(() => rmSync(archiveRoot, { recursive: true, force: true }));
+
+  it('round-trips tracked, untracked, ignored and symlink contents after service restart', async () => {
+    writeFileSync(join(path, 'base'), 'unsaved tracked edit');
+    writeFileSync(join(path, 'untracked.txt'), 'unsaved untracked edit');
+    writeFileSync(join(path, '.gitignore'), 'private.local\n');
+    writeFileSync(join(path, 'private.local'), 'obvious ignored fixture placeholder');
+    symlinkSync('untracked.txt', join(path, 'link'));
+    const ignoredBlob = git(['hash-object', '--', 'private.local'], path);
+    const input = { repoRoot: root, path, action: 'archive-and-remove' as const };
+    const preview = await service.previewLeftoverRemoval(input);
+    expect(preview.consequence).toContain('ignored files');
+    await service.runLeftoverRemoval({ ...input, previewId: preview.previewId });
+    expect(existsSync(path)).toBe(false);
+    expect(git(['branch', '--list', 'saved'])).toContain('saved');
+    const archive = new LeftoverWorktreeArchiveService(archiveRoot);
+    const listed = await archive.list(root);
+    expect(listed).toHaveLength(1);
+    // Private file contents are never copied into any Git object by archival.
+    expect(() => git(['cat-file', '-e', ignoredBlob])).toThrow();
+    service = new LeftoverWorktreeRemoval(deps, new CleanupTicketStore(() => now));
+    const restore = { repoRoot: root, path, action: 'restore-folder' as const, archiveId: listed[0].id };
+    const recovery = await service.previewLeftoverRemoval(restore);
+    await service.runLeftoverRemoval({ ...restore, previewId: recovery.previewId });
+    expect(readFileSync(join(path, 'base'), 'utf8')).toBe('unsaved tracked edit');
+    expect(readFileSync(join(path, 'untracked.txt'), 'utf8')).toBe('unsaved untracked edit');
+    expect(readFileSync(join(path, 'private.local'), 'utf8')).toBe('obvious ignored fixture placeholder');
+    expect(readFileSync(join(path, 'link'), 'utf8')).toBe('unsaved untracked edit');
+    expect(git(['rev-parse', '--abbrev-ref', 'HEAD'], path)).toBe('HEAD');
+    await expect(service.previewLeftoverRemoval(restore)).rejects.toThrow(/already exists/i);
+    expect(await new LeftoverWorktreeArchiveService(archiveRoot).list(root)).toHaveLength(1);
+  });
+
+  it('rejects same-count file edits after preview, unknown processes and live queue owners', async () => {
+    writeFileSync(join(path, 'base'), 'first edit');
+    const input = { repoRoot: root, path, action: 'archive-and-remove' as const };
+    const preview = await service.previewLeftoverRemoval(input);
+    writeFileSync(join(path, 'base'), 'second edit');
+    await expect(service.runLeftoverRemoval({ ...input, previewId: preview.previewId })).rejects.toThrow(/changed/i);
+    expect(existsSync(path)).toBe(true);
+    deps.processCheck = async () => ({ checked: false, live: false });
+    await expect(service.previewLeftoverRemoval(input)).rejects.toThrow(/processes/i);
+    deps.processCheck = async () => ({ checked: true, live: false });
+    deps.owners = () => [{ repoRoot: root, path, kind: 'queue', id: 'active', status: 'working', inUse: true }];
+    await expect(service.previewLeftoverRemoval(input)).rejects.toThrow(/in use/i);
+  });
+
+  it('keeps the folder when its private archive is changed before recovery', async () => {
+    const input = { repoRoot: root, path, action: 'archive-and-remove' as const };
+    const preview = await service.previewLeftoverRemoval(input);
+    await service.runLeftoverRemoval({ ...input, previewId: preview.previewId });
+    const archive = new LeftoverWorktreeArchiveService(archiveRoot);
+    const listed = await archive.list(root);
+    // A recovery request cannot target another path even with a valid archive ID.
+    await expect(archive.recoveryRow(root, listed[0].id, join(root, '.worktrees', 'different'))).rejects.toThrow(/different/i);
+    const { readdirSync } = await import('node:fs');
+    const repositoryDirectory = join(archiveRoot, readdirSync(archiveRoot)[0]);
+    writeFileSync(join(repositoryDirectory, listed[0].id, 'files.tgz'), 'corrupted fixture');
+    await expect(service.previewLeftoverRemoval({ repoRoot: root, path, action: 'restore-folder', archiveId: listed[0].id }))
+      .rejects.toThrow(/checksum/i);
+    expect(existsSync(path)).toBe(false);
   });
 });

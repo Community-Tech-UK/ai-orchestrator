@@ -22,6 +22,8 @@ AI Orchestrator is an Electron 42 + Angular 22 desktop app that coordinates Clau
 
 ## Before Writing Code
 
+Before proposing a feature or starting a research sweep, read docs/decisions/rejected/.
+
 1. Read the relevant implementation, callers, types, adjacent tests, and architecture notes.
 2. State what will change, why, what could break, and which checks cover it.
 3. For a bug, reproduce it and form a root-cause hypothesis.
@@ -109,6 +111,8 @@ Every `*_livetest.md` carries a header block pointing at the remediation flow â€
 - Angular components are standalone and `OnPush`; use `inject()` and signals.
 
 The complete repo-local Angular conventions are in `docs/angular-conventions.md`. Prompt changes must follow `docs/prompt-engineering-house-style.md`.
+
+@docs/angular-conventions.md
 
 ## Architecture Patterns
 

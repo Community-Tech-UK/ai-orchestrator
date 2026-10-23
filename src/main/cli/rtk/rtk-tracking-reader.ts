@@ -14,7 +14,7 @@
  * own connection. Our reads never lock the DB.
  */
 
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync, statSync } from 'fs';
 import { homedir } from 'os';
 import path from 'path';
 
@@ -27,12 +27,16 @@ import type {
 } from '../../db/sqlite-driver';
 import { getLogger } from '../../logging/logger';
 
+import { RtkDailyRollup } from './rtk-daily-rollup';
+
 const logger = getLogger('RtkTrackingReader');
 
 /** Aggregate summary for the savings UI. */
 export interface RtkSavingsSummary {
   /** Number of commands recorded in the queried window. */
   commands: number;
+  /** Projects exceeding 2,000 recorded invocations in the last hour. */
+  projectBursts?: { projectPath: string; commands: number }[];
   /** Sum of input_tokens (raw command output before filtering). */
   totalInput: number;
   /** Sum of output_tokens (filtered output sent to LLM). */
@@ -119,6 +123,8 @@ export interface RtkTrackingReaderOptions {
   dbPathOverride?: string;
   /** Override the SqliteDriver factory (testing only). */
   driverFactory?: SqliteDriverFactory;
+  /** Disposable Harness-owned sidecar, used only by the analytics worker. */
+  rollupCachePath?: string;
 }
 
 /**
@@ -175,11 +181,14 @@ export class RtkTrackingReader {
   private readonly dbPath: string;
   private readonly factory: SqliteDriverFactory;
   private driver: SqliteDriver | null = null;
-  private openAttempted = false;
+  private sourceIdentity: string | null = null;
+  private rollup: RtkDailyRollup | null = null;
+  private readonly rollupCachePath?: string;
 
   constructor(options: RtkTrackingReaderOptions = {}) {
     this.dbPath = options.dbPathOverride ?? getRtkTrackingDbPath();
     this.factory = options.driverFactory ?? defaultDriverFactory;
+    this.rollupCachePath = options.rollupCachePath;
   }
 
   /** True if the tracking DB exists on disk. Cheap; safe to call repeatedly. */
@@ -192,23 +201,26 @@ export class RtkTrackingReader {
     return this.dbPath;
   }
 
-  /**
-   * Lazy connection accessor. Returns null if the file doesn't exist or
-   * couldn't be opened (in which case openAttempted is set so we don't
-   * retry on every query call).
-   */
+  /** Reopen atomically replaced files; a missing history may appear after RTK first runs. */
   private getDriver(): SqliteDriver | null {
-    if (this.driver) return this.driver;
-    if (this.openAttempted) return null;
-    this.openAttempted = true;
-    if (!this.isAvailable()) {
-      logger.debug('rtk tracking DB not present', { path: this.dbPath });
-      return null;
-    }
+    const identity = () => {
+      try {
+        const stat = statSync(this.dbPath);
+        return `${this.dbPath}:${stat.dev}:${stat.ino}:${stat.birthtimeMs}`;
+      } catch { return null; }
+    };
+    const before = identity();
+    if (this.driver && before === this.sourceIdentity) return this.driver;
+    if (this.driver) this.close();
+    if (!before) return null;
     try {
-      this.driver = this.factory(this.dbPath, { readonly: true });
+      const driver = this.factory(this.dbPath, { readonly: true });
+      // Never associate a connection with a different file's cache checkpoint.
+      if (identity() !== before) { driver.close(); return null; }
+      this.driver = driver;
+      this.sourceIdentity = before;
       logger.info('rtk tracking DB opened (read-only)', { path: this.dbPath });
-      return this.driver;
+      return driver;
     } catch (err) {
       logger.warn('Failed to open rtk tracking DB read-only', {
         path: this.dbPath,
@@ -347,6 +359,20 @@ export class RtkTrackingReader {
     const driver = this.getDriver();
     if (!driver) return null;
 
+    if (this.rollupCachePath) {
+      try {
+        if (!this.rollup) {
+          mkdirSync(path.dirname(this.rollupCachePath), { recursive: true });
+          this.rollup = new RtkDailyRollup(this.factory(this.rollupCachePath));
+        }
+        const result = this.rollup.getSummary(driver, this.sourceIdentity!,
+          this.hasProjectColumn(driver), opts);
+        if (result) return result;
+      } catch (error) {
+        logger.warn('RTK rollup unavailable; reading source in worker', { error: String(error) });
+      }
+    }
+
     const topN = opts.topN ?? 10;
     const hasProject = this.hasProjectColumn(driver);
     const filter = this.buildFilter(opts, hasProject);
@@ -469,8 +495,24 @@ export class RtkTrackingReader {
     }
   }
 
+  /** The hourly notice is scoped to each recorded project, never a global count. */
+  getProjectBursts(now = Date.now()): { projectPath: string; commands: number }[] {
+    const driver = this.getDriver();
+    if (!driver || !this.hasProjectColumn(driver)) return [];
+    try {
+      return driver.prepare(`SELECT project_path AS projectPath, COUNT(*) AS commands FROM commands
+        WHERE timestamp >= ? AND project_path IS NOT NULL AND project_path != ''
+        GROUP BY project_path HAVING COUNT(*) > 2000 ORDER BY commands DESC`)
+        .all<{ projectPath: string; commands: number }>(new Date(now - 3_600_000).toISOString());
+    } catch { return []; }
+  }
+
   /** Release the SQLite connection. Safe to call multiple times. */
   close(): void {
+    this.sourceIdentity = null;
+    this.hasProjectColumnCache = null;
+    this.rollup?.close();
+    this.rollup = null;
     if (this.driver) {
       try {
         this.driver.close();

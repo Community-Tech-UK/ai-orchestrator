@@ -101,6 +101,7 @@ export class KnowledgeBridge {
       const room = reflection.applicability[0] || 'general';
       const content = `${reflection.title}: ${reflection.insight}`.slice(0, 300);
 
+      if (wake.isHintRemoved(content, room)) return;
       wake.addHint(content, {
         importance: Math.max(1, Math.min(10, importance)),
         room,

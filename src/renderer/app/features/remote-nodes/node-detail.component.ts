@@ -4,6 +4,7 @@ import type {
   WorkerLocalModelCapability,
 } from '../../../../shared/types/worker-node.types';
 import { NodeServicePanelComponent } from './node-service-panel/node-service-panel.component';
+import { CLAUDE_CLI_FEATURE_FLOORS, COPILOT_CLI_MIN_VERSION } from '../../../../shared/utils/cli-version-floors';
 
 @Component({
   selector: 'app-node-detail',
@@ -82,6 +83,17 @@ import { NodeServicePanelComponent } from './node-service-panel/node-service-pan
         } @else {
           <p class="muted">No local model endpoints advertised by this node.</p>
         }
+      </div>
+
+      <div class="detail-section">
+        <h4>CLI versions on this computer</h4>
+        <p class="muted">Update the CLI on {{ node().name }} to meet these minimum versions.</p>
+        <ul>
+          @for (floor of claudeFloors; track floor.label) {
+            <li>Claude {{ floor.minimumVersion }} or newer: {{ floor.label }}</li>
+          }
+          <li>Copilot {{ copilotMinimumVersion }} or newer</li>
+        </ul>
       </div>
 
       <div class="detail-section">
@@ -215,6 +227,8 @@ import { NodeServicePanelComponent } from './node-service-panel/node-service-pan
 })
 export class NodeDetailComponent {
   readonly node = input.required<RemoteNodeRosterEntry>();
+  readonly claudeFloors = Object.values(CLAUDE_CLI_FEATURE_FLOORS);
+  readonly copilotMinimumVersion = COPILOT_CLI_MIN_VERSION;
 
   readonly projectPaths = computed(() =>
     this.node().capabilities.discoveredProjects

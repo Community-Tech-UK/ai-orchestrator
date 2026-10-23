@@ -2,6 +2,13 @@ import { AUTOMATION_PROVIDER_DEFINITIONS } from './automation-provider.types';
 import type { SettingMetadata } from './settings-metadata.types';
 
 export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
+  {
+    key: 'observationMemoryEnabled',
+    label: 'Observation memory',
+    description: 'Capture observations from your chats and include learned reflections in new prompts. Queue, loop and scheduled work are excluded. Expired rows are removed at startup and daily even while this is off.',
+    type: 'boolean',
+    category: 'advanced',
+  },
   { key:'ownChatContextCeilingTokens',label:'Context ceiling for your chats',description:'Claude summarizes before this token count. 0 uses the provider window; otherwise enter 100,000 to 1,000,000.',type:'number',category:'memory',min:0,max:1_000_000 },
   { key:'machineContextCeilingTokens',label:'Context ceiling for Harness work',description:'Claude summarizes Harness-started sessions before this token count. 0 uses the provider window; otherwise enter 100,000 to 1,000,000.',type:'number',category:'memory',min:0,max:1_000_000 },
   { key:'codexHelperAgentsChats',label:'Codex helpers in your chats',description:'Choose helper behavior for chats. Trial keeps related sessions on one comparison arm; explicit helper model choices still win.',type:'select',category:'advanced',options:[{value:'economy',label:'Cheaper defaults'},{value:'full',label:'Full'},{value:'off',label:'Off'},{value:'trial',label:'Trial'}] },

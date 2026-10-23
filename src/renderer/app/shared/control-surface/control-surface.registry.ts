@@ -134,12 +134,12 @@ export function getControlSurface(id: ControlSurfaceId): ControlSurfaceItem {
   return item;
 }
 
-export function listControlNavGroups(): readonly ControlSurfaceNavGroup[] {
-  return groupSurfaces(CONTROL_SURFACES.filter((item) => item.showInControlNav));
+export function listControlNavGroups(observationMemoryEnabled = false): readonly ControlSurfaceNavGroup[] {
+  return groupSurfaces(CONTROL_SURFACES.filter((item) => item.showInControlNav && (item.id !== 'observations' || observationMemoryEnabled)));
 }
 
-export function listDashboardNavGroups(): readonly ControlSurfaceNavGroup[] {
-  return groupSurfaces(CONTROL_SURFACES.filter((item) => item.showInDashboardNav));
+export function listDashboardNavGroups(observationMemoryEnabled = false): readonly ControlSurfaceNavGroup[] {
+  return groupSurfaces(CONTROL_SURFACES.filter((item) => item.showInDashboardNav && (item.id !== 'observations' || observationMemoryEnabled)));
 }
 
 export function listSettingsExternalLinks(): readonly ControlSurfaceItem[] {

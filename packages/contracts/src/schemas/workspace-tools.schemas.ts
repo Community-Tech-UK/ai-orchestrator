@@ -8,7 +8,7 @@ import {
 
 // One folder per explicit confirmation; no bulk cleanup endpoint.
 export const LeftoverRemovalActionSchema = z.enum([
-  'remove-folder', 'remove-folder-and-branch', 'discard-saved-work',
+  'remove-folder', 'remove-folder-and-branch', 'discard-saved-work', 'archive-and-remove', 'restore-folder',
 ]);
 export const WorktreeLeftoversListPayloadSchema = z.object({
   workingDirectory: WorkingDirectorySchema.optional(),
@@ -17,6 +17,7 @@ export const WorktreeLeftoversPreviewPayloadSchema = z.object({
   repoRoot: WorkingDirectorySchema,
   path: DirectoryPathSchema,
   action: LeftoverRemovalActionSchema,
+  archiveId: z.string().uuid().optional(),
 }).strict();
 export const WorktreeLeftoversRemovePayloadSchema = WorktreeLeftoversPreviewPayloadSchema.extend({
   previewId: z.string().min(1).max(200),
@@ -43,6 +44,10 @@ export interface LeftoverWorktreeRow {
   leftover: boolean;
   category: 'saved-work' | 'nothing-to-save' | 'in-use';
   removableByHarness: boolean;
+  archivableByHarness?: boolean;
+  processChecked?: boolean;
+  liveProcess?: boolean;
+  unpushedCount?: number;
   reason: string | null;
   dirtyCount: number;
   ahead: number;
@@ -55,11 +60,14 @@ export interface LeftoverWorktreeRow {
   bytes: number;
   sentence: string;
 }
+export interface LeftoverWorktreeArchive { id: string; row: LeftoverWorktreeRow; createdAt: number; bytes: number }
 export interface LeftoverWorktreeReport {
+  archives?: LeftoverWorktreeArchive[];
   rows: LeftoverWorktreeRow[];
   errors: { repoRoot: string; message: string }[];
 }
 export interface LeftoverRemovalPreview {
+  archiveId?: string;
   previewId: string;
   action: LeftoverRemovalAction;
   row: LeftoverWorktreeRow;

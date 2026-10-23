@@ -17,6 +17,8 @@ export interface StorageCleanupProgress {
 }
 export interface StorageUsage {
   measuredAt: number;
+  totalBytes?: number;
+  weeklyGrowthBytes?: number | null;
   rows: StorageUsageRow[];
   reclaimableBytes: number;
   progress: StorageCleanupProgress | null;

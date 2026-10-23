@@ -20,7 +20,7 @@ const run = vi.fn(async () => { /* noop */ });
 const review = vi.fn(async (r: LeftoverWorktreeRow, action: LeftoverRemovalPreview['action']) => {
   preview.set({ previewId: 'preview', row: r, action, consequence: 'The saved work stays on its branch.' });
 });
-const store = { rows, preview, busy: signal(false), error: signal<string | null>(null),
+const store = { rows, preview, archives: signal([]), busy: signal(false), error: signal<string | null>(null),
   reportErrors: signal([]), load: vi.fn(async () => { /* noop */ }), review, run,
   cancel: () => preview.set(null) };
 

@@ -64,6 +64,25 @@ describe('CodebaseMiner', () => {
   });
 
   describe('mineDirectory', () => {
+    it('does not recreate a removed note after changed sources force a fresh mining run', async () => {
+      let readme = '# My App\n\nA useful project description.';
+      mockedFs.readFile.mockImplementation(async file => {
+        if (String(file).endsWith('README.md')) return readme;
+        throw new Error('ENOENT');
+      });
+      const miner = CodebaseMiner.getInstance();
+      const wake = WakeContextBuilder.getInstance();
+      await miner.mineDirectory('/fake/removed');
+      const note = wake.listHints('/fake/removed')[0]!;
+      wake.removeHint(note.id);
+      WakeContextBuilder._resetForTesting();
+      readme += '\n\n## Changed source metadata';
+      const result = await miner.mineDirectory('/fake/removed');
+      expect(result.skipped).not.toBe(true);
+      expect(result.hintsCreated).toBe(0);
+      expect(WakeContextBuilder.getInstance().listHints('/fake/removed')).toEqual([]);
+    });
+
     it('should extract tech stack facts from package.json', async () => {
       const miner = CodebaseMiner.getInstance();
       const kg = KnowledgeGraphService.getInstance();

@@ -38,7 +38,7 @@
           <path d="M15 18l-6-6 6-6" />
         </svg>
       </button>
-      @for (group of navGroups; track group.id) {
+      @for (group of navGroups(); track group.id) {
         <section class="control-nav-group">
           <h2>{{ group.label }}</h2>
           @for (item of group.items; track item.id) {

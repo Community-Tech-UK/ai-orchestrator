@@ -438,6 +438,7 @@ export const SETTINGS_TOOL_POLICY = {
   workspaceSecretsAllowAgentRequests: readOnly(),
   // An agent that could turn the fence off could kill sibling sessions.
   providerSignalFenceEnabled: readOnly(),
+  observationMemoryEnabled: open(z.boolean()),
   codebaseAutoIndexEnabled: open(z.boolean()),
   instanceProviderLimitResumeEnabled: open(z.boolean()),
   loopAllowProviderOverage: open(z.boolean()),

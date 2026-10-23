@@ -256,6 +256,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   quotaPacingLatestElapsedPercent: 72,
 
   // Codebase auto-index defaults
+  observationMemoryEnabled: false,
   codebaseAutoIndexEnabled: false,
   codebaseAutoIndexMaxFiles: 3_000,
   codebaseAutoIndexMaxBytes: 150 * 1024 * 1024,

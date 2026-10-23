@@ -107,6 +107,11 @@ describe('NodeDetailComponent', () => {
     expect(text).toContain('LM Studio');
     expect(text).toContain('qwen2.5-coder-32b-instruct');
     expect(text).toContain('32768 ctx');
+    expect(text).toContain('CLI versions on this computer');
+    expect(text).toContain('Claude 2.1.300 or newer: Reliable resumed sessions');
+    expect(text).toContain('Claude 2.1.299 or newer: Side questions');
+    expect(text).toContain('Claude 2.1.302 or newer: Stable tool-search caching');
+    expect(text).toContain('Copilot 1.0.100 or newer');
   });
 
   it('labels unhealthy advertised local model endpoints as installed but not running', async () => {

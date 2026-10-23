@@ -291,6 +291,16 @@ describe('codemem index worker main', () => {
     }));
   });
 
+  it('removes a retired worktree index after stopping its watcher', async () => {
+    const workspacePath = path.resolve('/repo/.worktrees/queue/retired');
+    await importWorker();
+    parentPort.emit('message', { type: 'remove-workspace-index', id: 88, workspacePath });
+    await flushMicrotasks();
+    expect(indexManager.stop).toHaveBeenCalledWith(`hash:${workspacePath}`);
+    expect(store.deleteWorkspaceIndex).toHaveBeenCalledWith(`hash:${workspacePath}`);
+    expect(parentPort.postMessage).toHaveBeenCalledWith({ type: 'rpc-response', id: 88, result: true, error: undefined });
+  });
+
   it('keeps vacuum bursts short at startup and for requested maintenance', async () => {
     await importWorker();
     expect(store.vacuumFreelistPages).toHaveBeenCalledWith({ timeBudgetMs: 10_000 });

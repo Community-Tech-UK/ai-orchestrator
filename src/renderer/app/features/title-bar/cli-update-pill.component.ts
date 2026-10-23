@@ -15,7 +15,11 @@ import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
         (click)="openCliHealth()"
       >
         <span class="dot" aria-hidden="true"></span>
-        <span>Update {{ store.state().count === 1 ? 'CLI' : 'CLIs' }}</span>
+        @if (store.state().waitingSessionCount; as waiting) {
+          <span>Update waiting: {{ waiting }} {{ waiting === 1 ? 'session is' : 'sessions are' }} mid-turn</span>
+        } @else {
+          <span>Update {{ store.state().count === 1 ? 'CLI' : 'CLIs' }}</span>
+        }
       </button>
     }
   `,

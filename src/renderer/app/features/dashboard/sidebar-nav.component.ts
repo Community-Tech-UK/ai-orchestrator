@@ -6,11 +6,13 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   inject,
   signal,
 } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
+import { SettingsStore } from '../../core/state/settings.store';
 import { AutomationStore } from '../../core/state/automation.store';
 import { DocReviewStore } from '../doc-review/doc-review.store';
 import { listDashboardNavGroups } from '../../shared/control-surface/control-surface-nav';
@@ -37,7 +39,7 @@ import { listDashboardNavGroups } from '../../shared/control-surface/control-sur
 
       @if (expanded()) {
         <nav class="nav-menu" role="navigation" aria-label="Feature navigation">
-          @for (group of groups; track group.id) {
+          @for (group of groups(); track group.id) {
             <div class="nav-group">
               <span class="group-label">{{ group.label }}</span>
               @for (item of group.items; track item.id) {
@@ -70,7 +72,8 @@ export class SidebarNavComponent {
   private readonly automationStore = inject(AutomationStore);
   private readonly docReviewStore = inject(DocReviewStore);
   readonly expanded = signal(true);
-  readonly groups = listDashboardNavGroups();
+  private readonly settings = inject(SettingsStore);
+  readonly groups = computed(() => listDashboardNavGroups(this.settings.settings().observationMemoryEnabled));
   readonly unreadAutomations = this.automationStore.unreadCount;
   readonly pendingDocReviews = this.docReviewStore.pendingCount;
 }

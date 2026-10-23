@@ -148,6 +148,7 @@ export class ContextWorkerClient implements
   private readonly rpcTracker = new ContextWorkerRpcTracker();
   private inflight = 0;
   private isDegraded = false;
+  private observationMemoryEnabled = false;
   private restartAttempts = 0;
   private shuttingDown = false;
   private readonly prewarmLifecycle = new ContextWorkerPrewarmLifecycle(
@@ -387,25 +388,24 @@ export class ContextWorkerClient implements
     return typeof result === 'string' ? result : null;
   }
 
-  async buildObservationContext(
-    taskContext: string,
-    instanceId?: string,
-    taskType?: string,
-  ): Promise<string | null> {
-    if (this.isDegraded) {
-      return null;
-    }
+  setObservationMemoryEnabled(enabled: boolean): void {
+    this.observationMemoryEnabled = enabled;
+    this.postFireAndForget({ type: 'configure-observation-memory', enabled });
+  }
+  async buildObservationContext(taskContext: string, instanceId?: string, taskType?: string): Promise<string | null> {
+    if (!this.observationMemoryEnabled) return '';
+    if (this.isDegraded) return null;
     const id = this.nextId();
     const result = await this.postRpc({
       type: 'build-observation-context',
+      enabled: true,
       id,
       taskContext,
       instanceId,
       taskType,
     });
-    return typeof result === 'string' ? result : null;
+    return this.observationMemoryEnabled ? (typeof result === 'string' ? result : null) : '';
   }
-
   async buildProjectMemoryBrief(
     request: ProjectMemoryBriefRequest,
   ): Promise<ProjectMemoryBrief | null> {

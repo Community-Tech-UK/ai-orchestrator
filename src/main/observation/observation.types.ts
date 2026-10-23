@@ -88,7 +88,7 @@ export interface ObservationConfig {
 }
 
 export const DEFAULT_OBSERVATION_CONFIG: ObservationConfig = {
-  enabled: true,
+  enabled: false,
   observeTokenThreshold: 30_000,
   observeTimeThresholdMs: 5 * 60 * 1000,
   ringBufferSize: 500,

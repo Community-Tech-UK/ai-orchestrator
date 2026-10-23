@@ -39,4 +39,16 @@ export const RLM_MIGRATIONS_076_080: Migration[] = [
       DROP TABLE maintenance_markers;
     `,
   },
+  {
+    name: '078_wake_hint_tombstones',
+    up: `
+      CREATE TABLE wake_hint_tombstones (
+        room TEXT NOT NULL,
+        content_key TEXT NOT NULL,
+        removed_at INTEGER NOT NULL,
+        PRIMARY KEY (room, content_key)
+      );
+    `,
+    down: `DROP TABLE wake_hint_tombstones;`,
+  },
 ];

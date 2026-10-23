@@ -14,12 +14,14 @@ import { getLoopStoreService } from '../orchestration/loop-store';
 import { reconcileManagedWorktreeLifecycles } from '../orchestration/loop-worktree-lifecycle-reconcile';
 import { reconcileOrphanedWorktrees } from '../orchestration/loop-worktree-reconcile';
 import { getOrchestratorPluginManager } from '../plugins/plugin-manager';
-import { getObservationIngestor, getObserverAgent, getReflectorAgent } from '../observation';
+import { getReflectorAgent } from '../observation';
+import { initializeObservationRuntime } from '../observation/observation-runtime';
 import { initializePathValidator } from '../security/path-validator';
 import { getLogger } from '../logging/logger';
 import { initTruncationCleanup } from '../util/tool-output-truncation';
 import { initCodexCommandOutputArchiveCleanup } from '../cli/adapters/codex/codex-command-output-archive';
 import { initAcpAttachmentStoreCleanup } from '../cli/adapters/acp-attachment-store';
+import { initializeCodexTempHomeMaintenance } from '../cli/adapters/codex/codex-temp-home-maintenance';
 import { sweepStaleCodexTempHomes } from '../cli/adapters/codex/codex-home-manager';
 import { reconcilePrivateCodexRolloutPaths } from '../cli/adapters/codex/codex-private-rollout-reconcile';
 import { pruneCodexStateBackups } from '../cli/adapters/codex/codex-state-backup-retention';
@@ -34,6 +36,7 @@ import { registerBuiltinTerminationGates } from '../session/builtin-termination-
 import { initializeSessionRecoveryRuntime } from './session-recovery-initialization';
 import { getResourceGovernor } from '../process/resource-governor';
 import { getCliAutoUpdateService } from '../cli/cli-auto-update-service';
+import { countUpdateBlockingSessions } from '../cli/cli-update-session-guard';
 import {
   applyProviderConcurrencyLimits,
   getProviderConcurrencyLimiter,
@@ -278,9 +281,7 @@ export function createLateRuntimeInitializationSteps(
         settings.on('setting:concurrencyLimitByProvider', apply);
       },
     },
-    { name: 'Observation ingestor', fn: () => getObservationIngestor().initialize(instanceManager) },
-    { name: 'Observer agent', fn: () => { getObserverAgent(); } },
-    { name: 'Reflector agent', fn: () => { getReflectorAgent(); } },
+    { name: 'Observation memory and expiry cleanup', fn: () => initializeObservationRuntime(instanceManager) },
     { name: 'Path validator', fn: () => initializePathValidator() },
     {
       name: 'Compaction coordinator',
@@ -292,7 +293,7 @@ export function createLateRuntimeInitializationSteps(
     { name: 'Leaked AIO Codex thread cleanup', fn: () => { cleanupLeakedAioCodexThreads(); } },
     { name: 'Private Codex rollout-path reconcile', fn: () => { reconcilePrivateCodexRolloutPaths(); } },
     { name: 'Codex state backup pruning', fn: () => { pruneCodexStateBackups(); } },
-    { name: 'Stale Codex temp home sweep', fn: () => { sweepStaleCodexTempHomes(); } },
+    { name: 'Stale Codex temp home sweep', fn: () => { sweepStaleCodexTempHomes(); initializeCodexTempHomeMaintenance(); } },
     { name: 'Artifact cleanup maintenance', fn: () => { initializeArtifactCleanupMaintenance(); } },
     { name: 'Low disk space watcher', fn: () => { startLowDiskSpaceWatcher(app.getPath('userData')); } },
     { name: 'Scratch folder sweep', fn: () => { startScratchSweepScheduler(); } },
@@ -344,13 +345,20 @@ export function createLateRuntimeInitializationSteps(
     },
     {
       // Phase 2 of the provider-model-auto-update plan: when the user opts into
-      // `cliUpdatePolicy: 'auto'`, apply safe CLI updates unattended. The active-
-      // instance count is injected (InstanceManager is intentionally not a
-      // singleton) so updates never run while a session is live.
+      // `cliUpdatePolicy: 'auto'`, apply safe CLI updates once turns and pending
+      // approvals settle. Logical idle/hibernated sessions can stay open.
       name: 'CLI auto-update',
       fn: () => {
         getCliAutoUpdateService().start({
-          getActiveInstanceCount: () => instanceManager.getInstanceCount(),
+          getActiveInstanceCount: () => countUpdateBlockingSessions(
+            instanceManager.getAllInstances(),
+            new Set(instanceManager.getOrchestrationHandler().getPendingUserActions().map(request => request.instanceId)),
+          ),
+          subscribeSessionChanges: (callback) => {
+            const events = ['instance:state-update', 'instance:batch-update', 'instance:removed', 'permission:lifecycle'];
+            for (const event of events) instanceManager.on(event, callback);
+            return () => { for (const event of events) instanceManager.off(event, callback); };
+          },
         });
       },
     },

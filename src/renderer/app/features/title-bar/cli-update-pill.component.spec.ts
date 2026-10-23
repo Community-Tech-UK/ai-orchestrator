@@ -112,6 +112,16 @@ describe('CliUpdatePillComponent', () => {
     expect(fixture.nativeElement.querySelector('.cli-update-pill')).toBeNull();
   });
 
+  it('explains why automatic updates are waiting for a turn to finish', () => {
+    state.set({ ...state(), waitingSessionCount: 2 });
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('.cli-update-pill') as HTMLButtonElement;
+    expect(button.textContent).toContain('Update waiting: 2 sessions are mid-turn');
+    state.set({ ...state(), waitingSessionCount: 1 });
+    fixture.detectChanges();
+    expect(button.textContent).toContain('Update waiting: 1 session is mid-turn');
+  });
+
   it('hides when entries exist but none have updateAvailable=true', () => {
     state.set({
       generatedAt: 4,

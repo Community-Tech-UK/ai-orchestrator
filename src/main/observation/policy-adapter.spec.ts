@@ -55,6 +55,7 @@ describe('PolicyAdapter', () => {
     PolicyAdapter._resetForTesting();
     vi.clearAllMocks();
     adapter = getPolicyAdapter();
+    adapter.configure({ enabled: true });
   });
 
   afterEach(() => {
@@ -70,6 +71,12 @@ describe('PolicyAdapter', () => {
   });
 
   describe('buildObservationContext', () => {
+    it('omits the prompt block and never queries while disabled', async () => {
+      adapter.configure({ enabled: false });
+      expect(await adapter.buildObservationContext('test context')).toBe('');
+      expect(mockStore.queryRelevantReflections).not.toHaveBeenCalled();
+    });
+
     it('should build observation context with reflections', async () => {
       const context = await adapter.buildObservationContext('test context', 'inst-1');
 

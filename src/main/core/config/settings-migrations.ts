@@ -519,6 +519,12 @@ function readLegacyCopilotIdentity(): { login?: string; host?: string } | null {
 }
 
 export function runSettingsMigrations(store: SettingsMigrationStore): void {
+  const observationOffMarker = '__migration_observation_memory_off_20261020';
+  if (store.get(observationOffMarker) !== true) {
+    store.persistSetting('observationMemoryEnabled', false);
+    store.persistRawSetting(observationOffMarker, true);
+    logger.info('Switched observation memory off by default');
+  }
   // Migrate stale model names to bare shorthand names
   migrateModelNames(store);
   // Migrate legacy CLI alias to canonical provider key

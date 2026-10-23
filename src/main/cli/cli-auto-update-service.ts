@@ -29,12 +29,12 @@ export interface CliAutoUpdateServiceDeps {
   /** Current update policy. Defaults to the persisted `cliUpdatePolicy` setting. */
   getPolicy?: () => CliUpdatePolicy;
   /**
-   * Number of live instances. Auto-update is skipped while any instance is
-   * running so we never swap a CLI binary out from under an active session.
+   * Number of sessions mid-turn or holding a pending approval. Idle and
+   * hibernated sessions do not block an opted-in safe update.
    * Defaults to 0 (no liveness gating) until wired via {@link CliAutoUpdateService.start}.
    */
   getActiveInstanceCount?: () => number;
-  pollService?: Pick<CliUpdatePollService, 'onChange' | 'getState' | 'refresh'>;
+  pollService?: Pick<CliUpdatePollService, 'onChange' | 'getState' | 'refresh' | 'setWaitingSessionCount'>;
   updateService?: Pick<CliUpdateService, 'updateOne'>;
   /** Subscribe to policy changes (so flipping to 'auto' evaluates immediately). */
   subscribePolicyChanges?: (cb: () => void) => () => void;
@@ -50,6 +50,7 @@ export interface CliAutoUpdateServiceDeps {
  */
 export interface CliAutoUpdateStartOptions {
   getActiveInstanceCount?: () => number;
+  subscribeSessionChanges?: (cb: () => void) => () => void;
 }
 
 /**
@@ -64,7 +65,7 @@ export interface CliAutoUpdateStartOptions {
  *  - Only applies strategies classified safe by {@link isAutoApplySafe}
  *    (npm/bun/pnpm global installs + a CLI's own self-update). Never an
  *    unattended `brew`/`sudo`.
- *  - Never updates while any instance is running.
+ *  - Waits while a session is mid-turn or holding an approval.
  *  - Serialises through the per-package-manager lock in `CliUpdateService`
  *    (so a manual "Update all" and the auto pass can't run npm concurrently).
  *  - Backs off per `cli@version` target so a failing or no-op update can't loop.
@@ -82,6 +83,7 @@ export class CliAutoUpdateService {
 
   private pollUnsubscribe: (() => void) | null = null;
   private policyUnsubscribe: (() => void) | null = null;
+  private sessionUnsubscribe: (() => void) | null = null;
   /** Re-entrancy guard: only one apply pass runs at a time. */
   private applying = false;
   /** `${cli}@${version}` → epoch ms until which we won't retry that target. */
@@ -122,6 +124,9 @@ export class CliAutoUpdateService {
     this.policyUnsubscribe = this.subscribePolicyChanges(() => {
       void this.handleState(this.pollService.getState());
     });
+    this.sessionUnsubscribe = options.subscribeSessionChanges?.(() => {
+      void this.handleState(this.pollService.getState());
+    }) ?? null;
     // Evaluate whatever the poller already detected before we subscribed.
     void this.handleState(this.pollService.getState());
   }
@@ -131,6 +136,8 @@ export class CliAutoUpdateService {
     this.pollUnsubscribe = null;
     this.policyUnsubscribe?.();
     this.policyUnsubscribe = null;
+    this.sessionUnsubscribe?.();
+    this.sessionUnsubscribe = null;
   }
 
   /**
@@ -139,6 +146,7 @@ export class CliAutoUpdateService {
    */
   async handleState(state: CliUpdatePillState): Promise<void> {
     if (this.getPolicy() !== 'auto') {
+      this.pollService.setWaitingSessionCount(0);
       return;
     }
     if (this.applying) {
@@ -149,20 +157,23 @@ export class CliAutoUpdateService {
       (entry) => entry.updateAvailable && isAutoApplySafe(entry.updatePlan),
     );
     if (candidates.length === 0) {
+      this.pollService.setWaitingSessionCount(0);
       return;
     }
 
     const active = this.getActiveInstanceCount();
-    if (active > 0) {
-      logger.info('Skipping CLI auto-update while instances are active', {
-        activeInstances: active,
-        pending: candidates.length,
-      });
-      return;
-    }
-
+    // Publishing the wait count emits a poll delta synchronously. Hold the
+    // re-entrancy guard before publishing so that delta cannot start a pass.
     this.applying = true;
     try {
+      this.pollService.setWaitingSessionCount(active);
+      if (active > 0) {
+        logger.info('Waiting for sessions to finish before CLI auto-update', {
+          activeInstances: active,
+          pending: candidates.length,
+        });
+        return;
+      }
       await this.applyUpdates(candidates);
     } catch (error) {
       logger.warn('CLI auto-update pass failed', {
@@ -187,7 +198,8 @@ export class CliAutoUpdateService {
       // Re-check liveness before each install — a session may have started
       // during a previous (potentially multi-minute) update in this pass.
       if (this.getActiveInstanceCount() > 0) {
-        logger.info('Aborting remaining CLI auto-updates; an instance started');
+        this.pollService.setWaitingSessionCount(this.getActiveInstanceCount());
+        logger.info('Aborting remaining CLI auto-updates; a session began a turn');
         break;
       }
 

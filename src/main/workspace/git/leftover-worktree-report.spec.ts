@@ -32,7 +32,7 @@ beforeEach(() => {
   writeFileSync(join(saved, 'saved.txt'), 'saved work');
   git(['add', '.'], saved); git(['commit', '-m', 'rescue: saved work'], saved);
   git(['worktree', 'add', '-b', 'merged', merged, 'main']);
-  deps = { git: gitExec, now: () => Date.parse('2026-10-13T12:00:00Z'), currentCheckout: root,
+  deps = { processCheck: async () => ({ checked: true, live: false }), git: gitExec, now: () => Date.parse('2026-10-13T12:00:00Z'), currentCheckout: root,
     owners: () => [saved, merged].map((path) => ({ path, repoRoot: root, kind: 'loop' as const,
       id: path, status: 'completed-needs-review', phase: 'blocked', inUse: false })),
     liveSessions: () => [],
@@ -62,6 +62,23 @@ describe('leftover work folder report', () => {
     const report = await buildLeftoverWorktreeReport(root, deps);
     expect(report.rows.find((r) => r.path === saved)).toMatchObject({ dirtyCount: 1, removableByHarness: false });
     expect(report.rows.find((r) => r.path === merged)).toMatchObject({ category: 'in-use', inUse: true, removableByHarness: false });
+  });
+  it('recognises old task folders and reports unpushed commits while failing closed on process visibility', async () => {
+    const task = join(root, '.worktrees', 'task-old');
+    git(['worktree', 'add', '-b', 'task-old', task]);
+    deps.owners = () => [];
+    let report = await buildLeftoverWorktreeReport(root, deps);
+    expect(report.rows.find(row => row.path === task)).toMatchObject({ createdBy: 'harness', unpushedCount: 1, processChecked: true });
+    deps.processCheck = async () => ({ checked: false, live: false });
+    report = await buildLeftoverWorktreeReport(root, deps);
+    expect(report.rows.find(row => row.path === task)).toMatchObject({ removableByHarness: false, processChecked: false });
+  });
+  it('blocks removal when the unpushed probe returns no usable result', async () => {
+    deps.git = (args, cwd) => args.includes('rev-list') && !args.includes('--left-right')
+      ? Promise.resolve('') : gitExec(args, cwd);
+    const report = await buildLeftoverWorktreeReport(root, deps);
+    expect(report.errors).toHaveLength(2);
+    expect(report.rows.every(row => !row.removableByHarness && !row.archivableByHarness)).toBe(true);
   });
   it('only executes read-only git commands', async () => {
     const commands: string[][] = [];

@@ -229,7 +229,7 @@ export class CodememService extends EventEmitter {
     }
 
     const server = McpServer.getInstance();
-    server.registerTools(createCodememMcpTools(() => this.facade));
+    server.registerTools(createCodememMcpTools(() => this.facade, workspacePath => this.warmWorkspace(workspacePath)));
     if (!server.isStarted()) {
       server.start();
     }

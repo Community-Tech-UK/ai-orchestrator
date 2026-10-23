@@ -5,6 +5,11 @@
   @if (store.error(); as error) { <p role="alert">{{ error }}</p> }
   @if (store.loading() && !store.usage()) { <p role="status">Measuring Harness's files…</p> }
   @if (store.usage(); as usage) {
+    <p>Total: {{ bytes(usage.totalBytes ?? 0) }}.
+      @if (usage.weeklyGrowthBytes !== null && usage.weeklyGrowthBytes !== undefined) {
+        Change over the past week: {{ usage.weeklyGrowthBytes >= 0 ? '+' : '−' }}{{ bytes(usage.weeklyGrowthBytes >= 0 ? usage.weeklyGrowthBytes : -usage.weeklyGrowthBytes) }}.
+      } @else { Weekly change will appear once a full week has been measured. }
+    </p>
     @if (usage.reclaimableBytes > 10 * 1024 * 1024 * 1024) {
       <p class="reclaim-summary">Harness can give back {{ bytes(usage.reclaimableBytes) }} of old files; the biggest part takes two steps. Review below.</p>
     }
@@ -15,7 +20,7 @@
       </div>
       @if (row.target) {
         <div class="row-actions"><button type="button" [appTooltip]="reviewHint" [disabled]="store.busy() || row.reclaimableBytes === 0" (click)="store.review(row.target)">{{ row.target === 'event-record' ? 'Review and clear' : 'Review and clean up' }}</button>
-          @if (row.shrinkAvailable) { <button type="button" [disabled]="store.busy()" (click)="store.review('event-record-shrink')">Shrink the file</button> }
+          @if (row.shrinkAvailable) { <button type="button" [disabled]="store.busy()" (click)="store.review('event-record-shrink')">Shrink now (frees about {{ bytes(row.diskReclaimableBytes ?? 0) }})</button> }
         </div>
       }
       </article>
@@ -25,6 +30,7 @@
     }
   }
 </section>
+<app-leftover-worktrees-card />
 @if (store.preview(); as preview) {
   <div class="dialog-overlay" (click)="store.cancel()" role="presentation">
     <section #dialog class="cleanup-dialog" role="dialog" aria-modal="true" aria-labelledby="disk-cleanup-heading" aria-describedby="disk-cleanup-consequence"

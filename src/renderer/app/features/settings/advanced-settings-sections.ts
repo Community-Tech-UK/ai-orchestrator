@@ -32,6 +32,13 @@ export interface AdvancedSectionDefinition {
 export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] = [
   // --- Runtime ---
   {
+    id: 'observation-memory-heading',
+    title: 'Observation memory',
+    description: 'Optional learned reflections from your chats. Expired rows are removed even while this is off.',
+    group: 'runtime',
+    keys: ['observationMemoryEnabled'],
+  },
+  {
     id: 'runtime-controls-heading',
     title: 'Runtime controls',
     description: 'Low-level tuning for the model, output parser, diagnostics, and how far instruction files scan. Leave these unless you\'re debugging a specific issue.',

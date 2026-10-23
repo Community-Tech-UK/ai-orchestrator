@@ -4,6 +4,7 @@ import type {
   VacuumFreelistResult,
   WorkspaceIndexStats,
 } from './cas-workspace-index-maintenance';
+import { isTemporaryWorktreePath } from './worktree-index-policy';
 
 export interface CodememPrunerStore {
   listWorkspaceIndexStats(): WorkspaceIndexStats[];
@@ -20,6 +21,7 @@ export interface CodememMaintenanceStore extends CodememPrunerStore {
 export interface CodememPruneOptions {
   maxWorkspaces: number;
   maxManifestEntriesPerWorkspace: number;
+  workspaceExists?: (workspacePath: string) => boolean;
 }
 
 export interface CodememMaintenanceOptions extends CodememPruneOptions {
@@ -45,13 +47,16 @@ export function pruneCodememWorkspaces(
   const deleteSet = new Set<WorkspaceHash>();
 
   for (const row of stats) {
-    if (row.manifestEntries > options.maxManifestEntriesPerWorkspace) {
+    if (row.manifestEntries > options.maxManifestEntriesPerWorkspace ||
+      (isTemporaryWorktreePath(row.absPath) && options.workspaceExists?.(row.absPath) === false)) {
       deleteSet.add(row.workspaceHash);
     }
   }
 
   const remaining = stats
-    .filter((row) => !deleteSet.has(row.workspaceHash))
+    // Ordinary project roots may have been opened explicitly. Conservatively
+    // retain them; only disposable worktree indexes compete for the count cap.
+    .filter((row) => !deleteSet.has(row.workspaceHash) && isTemporaryWorktreePath(row.absPath))
     .sort((left, right) => left.lastIndexedAt - right.lastIndexedAt);
   while (remaining.length > options.maxWorkspaces) {
     const row = remaining.shift();

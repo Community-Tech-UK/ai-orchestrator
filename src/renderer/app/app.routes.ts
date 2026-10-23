@@ -7,6 +7,7 @@
 
 import { Routes } from '@angular/router';
 
+import { observationMemoryGuard } from './features/observations/observation-memory.guard';
 import { controlSurfaceRouteData } from './shared/control-surface/control-surface-route-data';
 
 const controlSurfaceRoutes: Routes = [
@@ -231,6 +232,7 @@ const controlSurfaceRoutes: Routes = [
   },
   {
     path: 'observations',
+    canMatch: [observationMemoryGuard],
     data: controlSurfaceRouteData('observations'),
     loadComponent: () =>
       import('./features/observations/observations-page.component').then((m) => m.ObservationsPageComponent),

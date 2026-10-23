@@ -49,6 +49,22 @@ afterEach(async () => {
 });
 
 describe('durable complete-conversation checkpoints', () => {
+  it('caps both asynchronous and shutdown state files while retaining the newest recovery text', async () => {
+    const value = await manager(); const instance = await fresh(value);
+    await value.addConversationEntry(instance.id, { ...entry('large'), content: 'x'.repeat(9 * 1024 * 1024) });
+    await value.addConversationEntry(instance.id, { ...entry('recent'), content: 'recent recovery text' });
+    await value.prepareForProviderTurn(instance.id);
+    const filePath = join(value.getRetentionContext().stateDir, `${instance.id}.json`);
+    expect(Buffer.byteLength(await readFile(filePath, 'utf8'))).toBeLessThanOrEqual(8 * 1024 * 1024);
+    expect((await disk(value, instance.id)).conversationHistory.at(-1)?.content).toBe('recent recovery text');
+    expect((await disk(value, instance.id)).conversationHistoryOriginKnown).toBe(false);
+    await value.addConversationEntry(instance.id, { ...entry('large-shutdown'), content: 'y'.repeat(9 * 1024 * 1024) + 'shutdown tail' });
+    value.shutdown();
+    expect(Buffer.byteLength(await readFile(filePath, 'utf8'))).toBeLessThanOrEqual(8 * 1024 * 1024);
+    expect((await disk(value, instance.id)).conversationHistory.at(-1)?.content).toContain('shutdown tail');
+    expect((await disk(value, instance.id)).conversationHistoryComplete).toBe(false);
+  });
+
   it('retains complete fresh public current-submission capture through disk and native revival, but never unknown seeded records', async () => {
     const value = await manager(); let created!: Instance;
     const publicManager = { createInstance: async (config: InstanceCreateConfig) => {

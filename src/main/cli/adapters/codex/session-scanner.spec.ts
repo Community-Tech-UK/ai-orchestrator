@@ -3,6 +3,7 @@ import { CodexSessionScanner } from './session-scanner';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { zstdCompressSync } from 'node:zlib';
 
 describe('CodexSessionScanner', () => {
   let scanner: CodexSessionScanner;
@@ -39,6 +40,26 @@ describe('CodexSessionScanner', () => {
     expect(result!.threadId).toBe('thread_abc123');
     expect(result!.workspacePath).toBe('/projects/my-app');
     expect(result!.model).toBe('gpt-5.5');
+  });
+
+  it('finds compressed rollouts by workspace and thread without changing the source', async () => {
+    const filePath = join(sessionsDir, 'rollout-compressed.jsonl.zst');
+    const content = [
+      { type: 'session_meta', payload: { id: 'compressed-thread', cwd: '/projects/compressed', source: 'appServer' } },
+      { type: 'turn_context', payload: { model: 'gpt-5.5' } },
+    ].map(entry => JSON.stringify(entry)).join('\n') + '\n';
+    writeFileSync(filePath, zstdCompressSync(content));
+    expect(await scanner.findSessionForWorkspace('/projects/compressed')).toMatchObject({
+      threadId: 'compressed-thread', sessionFilePath: filePath, model: 'gpt-5.5',
+    });
+    expect(await scanner.findSessionByThreadId('compressed-thread')).toMatchObject({
+      workspacePath: '/projects/compressed', sessionFilePath: filePath,
+    });
+  });
+
+  it('skips corrupt compressed rollouts without rejecting the lookup', async () => {
+    writeFileSync(join(sessionsDir, 'rollout-corrupt.jsonl.zst'), 'not zstd');
+    await expect(scanner.findSessionByThreadId('missing')).resolves.toBeNull();
   });
 
   it('finds current nested-shape Codex sessions by workspace and thread id', async () => {

@@ -11,12 +11,22 @@ import {
   writeFileSync,
 } from 'fs';
 import { tmpdir } from 'os';
+import { threadId } from 'node:worker_threads';
+import { execFileSync } from 'node:child_process';
 import { join } from 'path';
 import { getLogger } from '../../../logging/logger';
 import { CodexTomlEditor } from '../../../mcp/adapters/codex-toml-editor';
 import { preserveHarnessCliShellPolicy } from './codex-harness-shell-policy';
 
 const logger = getLogger('CodexHomeManager');
+const OWNER_FILE = '.aio-codex-home-owner.json';
+const activeTempHomes = new Set<string>();
+
+function claimTempHome(directory: string): void {
+  activeTempHomes.add(directory);
+  writeFileSync(join(directory, OWNER_FILE), JSON.stringify({ pid: process.pid, threadId, createdAt: Date.now() }), { mode: 0o600 });
+}
+
 
 /**
  * Session-history artifacts inside CODEX_HOME. These are never symlinked to
@@ -99,6 +109,7 @@ export class CodexHomeManager {
       const writePrivateConfig = stripConfig || nextConfig !== (configContent ?? '');
 
       tempDir = mkdtempSync(join(tmpdir(), opts.stripUserMcp ? 'codex-nomcp-' : 'codex-aio-'));
+      claimTempHome(tempDir);
       if (existsSync(codexDir)) {
         this.symlinkCodexHomeEntries(codexDir, tempDir, { includeConfig: !writePrivateConfig });
       }
@@ -113,7 +124,10 @@ export class CodexHomeManager {
       logger.info('Created session-isolated CODEX_HOME', { path: tempDir, mcpStripped: stripConfig });
       return tempDir;
     } catch (err) {
-      if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+      if (tempDir) {
+        activeTempHomes.delete(tempDir);
+        rmSync(tempDir, { recursive: true, force: true });
+      }
       logger.warn('Failed to create session-isolated CODEX_HOME', {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -129,6 +143,7 @@ export class CodexHomeManager {
 
     try {
       tempDir = mkdtempSync(join(tmpdir(), 'codex-browser-mcp-'));
+      claimTempHome(tempDir);
       if (existsSync(codexDir)) {
         this.symlinkCodexHomeEntries(codexDir, tempDir);
       }
@@ -149,7 +164,10 @@ export class CodexHomeManager {
       logger.info('Created Browser Gateway MCP CODEX_HOME', { path: tempDir });
       return tempDir;
     } catch (err) {
-      if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+      if (tempDir) {
+        activeTempHomes.delete(tempDir);
+        rmSync(tempDir, { recursive: true, force: true });
+      }
       logger.warn('Failed to create Browser Gateway MCP CODEX_HOME', {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -168,6 +186,7 @@ export class CodexHomeManager {
     } catch {
       // Best-effort cleanup; OS will reclaim temp dir eventually.
     }
+    activeTempHomes.delete(this.codexHomeDir);
     this.codexHomeDir = undefined;
   }
 
@@ -182,6 +201,7 @@ export class CodexHomeManager {
       ...THREAD_STATE_FILES,
     ];
     for (const entry of readdirSync(codexDir)) {
+      if (entry === OWNER_FILE) continue;
       if (entry === 'config.toml' && !opts.includeConfig) continue;
       // A profile-routed home takes its sign-in from the profile (linkProfileAuth).
       if (entry === 'auth.json' && this.options.authSourceDir) continue;
@@ -321,26 +341,63 @@ export function stripMcpServers(config: string): string {
 /** Temp-dir prefixes created by CodexHomeManager. */
 const TEMP_HOME_PREFIXES = ['codex-nomcp-', 'codex-browser-mcp-', 'codex-aio-'] as const;
 
-/**
- * Only sweep temp homes that haven't been touched for a day. Cleanup during
- * normal operation is per-instance and best-effort (`cleanup()`), so crashes
- * and force-kills leak directories; anything this old cannot belong to a
- * codex process spawned by the current app run.
- */
+/** Unmarked homes from older builds retain the one-day grace period. */
 const STALE_TEMP_HOME_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
+interface TempHomeOwner { pid: number; threadId: number; createdAt: number; }
+export interface CodexTempHomeSweepSafety {
+  isProcessAlive?: (pid: number) => boolean;
+  /** Fail closed if process inspection cannot prove Codex is idle. */
+  isCodexIdle?: () => boolean;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
+}
+
+/** Process names only; never read command lines or process environments. */
+function isCodexIdle(): boolean {
+  try {
+    const output = process.platform === 'win32'
+      ? execFileSync('tasklist.exe', ['/FI', 'IMAGENAME eq codex*.exe', '/FO', 'CSV', '/NH'], { encoding: 'utf8', timeout: 2_000, stdio: ['ignore', 'pipe', 'ignore'] })
+      : execFileSync('pgrep', ['-ix', 'codex([.-].*)?'], { encoding: 'utf8', timeout: 2_000, stdio: ['ignore', 'pipe', 'ignore'] });
+    return process.platform === 'win32' ? !/"codex[^"\r\n]*\.exe"/i.test(output) : output.trim() === '';
+  } catch (error) {
+    // pgrep returns 1 when no process matched; all other failures are unknown.
+    return process.platform !== 'win32' && (error as { status?: number }).status === 1;
+  }
+}
+
+function readTempHomeOwner(directory: string): TempHomeOwner | 'legacy' | 'unknown' {
+  try {
+    const marker = join(directory, OWNER_FILE);
+    const stat = lstatSync(marker);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1_024) return 'unknown';
+    const owner = JSON.parse(readFileSync(marker, 'utf8')) as Partial<TempHomeOwner>;
+    return Number.isSafeInteger(owner.pid) && owner.pid! > 0 && owner.pid! <= 2_147_483_647
+      && Number.isSafeInteger(owner.threadId) && owner.threadId! >= 0
+      && Number.isFinite(owner.createdAt) && owner.createdAt! > 0
+      ? owner as TempHomeOwner : 'unknown';
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'legacy' : 'unknown';
+  }
+}
+
 /**
- * Startup sweep for leaked temporary CODEX_HOME directories.
- * Returns the number of directories removed. Never throws.
- *
- * @param baseDir Injectable for tests — sweeping the real tmpdir with a tiny
- *   maxAgeMs in a spec could delete CODEX_HOMEs of live codex processes.
+ * Reclaim abandoned private homes at startup and hourly. Registry/PID ownership
+ * protects active managers, including homes untouched for days. Dead owners and
+ * old unmarked homes additionally require Codex to be stopped: an orphaned child
+ * can outlive its Harness parent. Unknown ownership or process state is retained.
+ * baseDir and safety probes let fixture tests avoid inspecting/deleting real homes.
  */
 export function sweepStaleCodexTempHomes(
   maxAgeMs: number = STALE_TEMP_HOME_MAX_AGE_MS,
   baseDir?: string,
+  safety: CodexTempHomeSweepSafety = {},
 ): number {
   let removed = 0;
+  let codexIdle: boolean | undefined;
   try {
     const base = baseDir ?? tmpdir();
     for (const entry of readdirSync(base)) {
@@ -348,19 +405,23 @@ export function sweepStaleCodexTempHomes(
       const fullPath = join(base, entry);
       try {
         const stat = lstatSync(fullPath);
-        if (!stat.isDirectory()) continue;
-        if (Date.now() - stat.mtimeMs < maxAgeMs) continue;
+        if (!stat.isDirectory() || activeTempHomes.has(fullPath)) continue;
+        const owner = readTempHomeOwner(fullPath);
+        if (owner === 'unknown') continue;
+        if (owner === 'legacy') {
+          if (Date.now() - stat.mtimeMs < maxAgeMs) continue;
+        } else if ((safety.isProcessAlive ?? isProcessAlive)(owner.pid)) continue;
+        codexIdle ??= (safety.isCodexIdle ?? isCodexIdle)();
+        if (!codexIdle) continue;
         rmSync(fullPath, { recursive: true, force: true });
         removed++;
       } catch {
-        // Best-effort per entry; a racing process or permissions issue is fine.
+        // A racing process or uncertain ownership must not lead to deletion.
       }
     }
   } catch {
     // Best-effort overall — never block startup on temp cleanup.
   }
-  if (removed > 0) {
-    logger.info('Swept stale temporary CODEX_HOME directories', { removed });
-  }
+  if (removed > 0) logger.info('Swept abandoned temporary CODEX_HOME directories', { removed });
   return removed;
 }

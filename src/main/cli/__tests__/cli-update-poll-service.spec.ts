@@ -119,4 +119,16 @@ describe('CliUpdatePollService', () => {
 
     expect(listener).toHaveBeenCalledWith(expect.objectContaining({ count: 0 }));
   });
+
+  it('publishes waiting session counts without a registry refresh', () => {
+    const service = new CliUpdatePollService();
+    const listener = vi.fn();
+    service.onChange(listener);
+    service.setWaitingSessionCount(2);
+    expect(service.getState().waitingSessionCount).toBe(2);
+    expect(listener).toHaveBeenCalledOnce();
+    service.setWaitingSessionCount(2);
+    expect(listener).toHaveBeenCalledOnce();
+    expect(detectAll).not.toHaveBeenCalled();
+  });
 });

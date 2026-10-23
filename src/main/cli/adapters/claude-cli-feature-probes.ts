@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'child_process';
 import { getCliDetectionService } from '../cli-detection';
+export { CLAUDE_CLI_FEATURE_FLOORS } from '../../../shared/utils/cli-version-floors';
 
 /** The optional, version-dependent prompt-cache optimization flag. */
 export const EXCLUDE_DYNAMIC_SECTIONS_FLAG = '--exclude-dynamic-system-prompt-sections';

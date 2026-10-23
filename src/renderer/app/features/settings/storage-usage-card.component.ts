@@ -5,10 +5,11 @@ import type { StorageCleanupTarget } from '../../../../shared/types/storage.type
 import { createFocusTrap, type FocusTrapHandle } from '../../shared/utils/focus-trap';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
+import { LeftoverWorktreesCardComponent } from './leftover-worktrees-card.component';
 
 @Component({
   selector: 'app-storage-usage-card', standalone: true,
-  imports: [AioTooltipDirective], changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [AioTooltipDirective, LeftoverWorktreesCardComponent], changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './storage-usage-card.component.html', styleUrl: './storage-usage-card.component.scss',
 })
 export class StorageUsageCardComponent implements OnInit, OnDestroy {

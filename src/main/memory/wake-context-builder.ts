@@ -20,7 +20,7 @@ import type {
   WakeHint,
   WakeContextConfig,
 } from '../../shared/types/wake-context.types';
-import { DEFAULT_WAKE_CONTEXT_CONFIG } from '../../shared/types/wake-context.types';
+import { DEFAULT_WAKE_CONTEXT_CONFIG, normalizeWakeHintContent } from '../../shared/types/wake-context.types';
 import type { WakeHintRow } from '../persistence/rlm-database.types';
 import { normalizeProjectMemoryKey } from './project-memory-key';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
@@ -135,8 +135,20 @@ export class WakeContextBuilder extends EventEmitter {
   }
 
   removeHint(id: string): void {
-    this.db.prepare('DELETE FROM wake_hints WHERE id = ?').run(id);
+    const db = this.db;
+    db.transaction(() => {
+      const hint = this.getHint(id);
+      if (!hint) return;
+      db.prepare(`INSERT OR IGNORE INTO wake_hint_tombstones (room, content_key, removed_at)
+        VALUES (?, ?, ?)`).run(hint.room, normalizeWakeHintContent(hint.content), Date.now());
+      db.prepare('DELETE FROM wake_hints WHERE id = ?').run(id);
+    })();
     this.invalidateCache();
+  }
+
+  isHintRemoved(content: string, room = 'general'): boolean {
+    return !!this.db.prepare(`SELECT 1 FROM wake_hint_tombstones WHERE room = ? AND content_key = ?`)
+      .get(room, normalizeWakeHintContent(content));
   }
 
   listHints(room?: string): WakeHint[] {

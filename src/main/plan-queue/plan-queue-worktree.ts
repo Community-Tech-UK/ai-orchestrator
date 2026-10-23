@@ -28,6 +28,7 @@ import {
 import { UnresolvedMergeError, unresolvedMergeFiles } from './plan-queue-git';
 import { assertQueueCheckout, retainedQueuePathExists } from './plan-queue-orphan-checkout';
 import type { PlanQueueItem } from './plan-queue.types';
+import { getCodemem } from '../codemem';
 
 const logger = getLogger('PlanQueueWorktree');
 
@@ -228,6 +229,16 @@ export class PlanQueueWorktreeService {
       return refuse('not-owned', detail);
     }
 
+    // The filesystem removal is authoritative. A failed index-worker cleanup
+    // must not resurrect lifecycle ownership of a folder that no longer exists.
+    try {
+      const codemem = getCodemem();
+      if (codemem.isIndexingEnabled() && !await codemem.indexWorkerGateway.removeWorkspaceIndex(worktreePath)) {
+        logger.info('Retired worktree index cleanup deferred to worker maintenance');
+      }
+    } catch (error) {
+      logger.warn('Retired worktree code-index cleanup failed', { error: String(error) });
+    }
     this.deps.saveItem({ ...item, worktreePath: null });
     return { removed: true };
   }

@@ -5,7 +5,8 @@ import { getConversationLedgerService } from '../conversation-ledger/conversatio
 import { listBackupSetsAsync, removeBackupSetByName } from '../rlm/rlm-backup-retention';
 import { getRlmStorageMaintenance } from '../rlm/rlm-storage-maintenance-runtime';
 import { getSessionContinuityManager } from '../session/session-continuity';
-import { listSessionStateCandidates } from '../session/session-state-retention';
+import { getHistoryManager } from '../history/history-manager';
+import { listSessionStateCandidates, sessionStateHistoryIds, sessionStateIsAbsentFromHistory } from '../session/session-state-retention';
 import { listSessionActivityLogCandidates } from '../session/session-activity-log-retention';
 import { getSessionMutex } from '../session/session-mutex';
 import { StorageCleanupService, type StorageCleanupDependencies } from './storage-cleanup-service';
@@ -29,7 +30,9 @@ export function createStorageRuntime(getLiveIds: () => ReadonlySet<string>) {
       const continuity = getSessionContinuityManager();
       await continuity.waitForRecoveryDiscoveryReady();
       const { stateDir, metadataDir } = continuity.getRetentionContext();
-      return target === 'session-records' ? listSessionStateCandidates(stateDir, metadataDir, protectedIds(), now)
+      const history = getHistoryManager();
+      await history.startupTasks;
+      return target === 'session-records' ? listSessionStateCandidates(stateDir, metadataDir, protectedIds(), now, history.getEntries())
         : listSessionActivityLogCandidates(projectsRoot, protectedIds(), now);
     },
     removeRecords: async (target, files) => {
@@ -44,6 +47,11 @@ export function createStorageRuntime(getLiveIds: () => ReadonlySet<string>) {
       for (const [id, group] of groups) {
         const release = await getSessionMutex().acquire(id, 'storage-cleanup');
         try {
+          if (target === 'session-records') {
+            const stateFile = group.find(file => path.dirname(file.path) === stateDir);
+            const sidecar = group.find(file => path.dirname(file.path) === metadataDir);
+            if (!stateFile || !await sessionStateIsAbsentFromHistory(stateFile, sidecar, sessionStateHistoryIds(getHistoryManager().getEntries()))) throw new Error('A session is now in history. Review again.');
+          }
           removed += await removeStorageFiles(group, target === 'session-records' ? [stateDir, metadataDir] : [projectsRoot], protectedIds);
           if (target === 'session-records') continuity.forgetRetainedSession(id);
         } finally { release(); }

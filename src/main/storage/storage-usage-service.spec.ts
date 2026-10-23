@@ -8,6 +8,21 @@ const stats = { pageSize: 4096, pageCount: 10, freePages: 0, autoVacuum: 0, data
 let root: string;
 afterEach(async () => { if (root) await fs.rm(root, { recursive: true, force: true }); });
 describe('disk usage measurement', () => {
+  it('reports total size and a measured weekly change across restarts', async () => {
+    root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'harness-usage-')));
+    const file = join(root, 'fixture');
+    await fs.writeFile(file, Buffer.alloc(100));
+    let now = 1;
+    const create = () => new StorageUsageService({ userDataRoot: root, getLedgerStats: async () => stats, listBackups: () => [], listRecords: async () => [], getProgress: () => null, now: () => now });
+    const first = await create().getUsage();
+    expect(first.totalBytes).toBe(100);
+    expect(first.weeklyGrowthBytes).toBeNull();
+    await fs.writeFile(file, Buffer.alloc(300));
+    now += 7 * 86_400_000;
+    const weekly = await create().getUsage();
+    expect(weekly.totalBytes).toBeGreaterThanOrEqual(300);
+    expect(weekly.weeklyGrowthBytes).toBe(weekly.totalBytes! - 100);
+  });
   it('measures fixture files and caches normal scans for sixty seconds', async () => {
     root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'harness-usage-')));
     await fs.mkdir(join(root, 'conversation-ledger'));

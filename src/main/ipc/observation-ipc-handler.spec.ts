@@ -31,6 +31,8 @@ vi.mock('electron', () => ({
   },
 }));
 
+vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ get: () => false, set: vi.fn() }) }));
+
 vi.mock('../observation/observation-store', () => ({
   getObservationStore: () => mocks.store,
 }));

@@ -70,6 +70,10 @@ vi.mock('../../../cli/rtk/rtk-tracking-reader', () => ({
   }),
 }));
 
+vi.mock('../../../cli/rtk/rtk-tracking-client', () => ({
+  getRtkTrackingClient: () => readerMocks,
+}));
+
 vi.mock('../../../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
     get: (key: string) => settingsMocks.values.get(key),

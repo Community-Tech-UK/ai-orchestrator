@@ -1,3 +1,6 @@
+import { app } from 'electron';
+import { join } from 'node:path';
+import { LeftoverWorktreeArchiveService } from './leftover-worktree-archive';
 import type { PlanQueueItemState } from '@contracts/schemas/plan-queue';
 import type { LeftoverWorktreeReport } from '@contracts/schemas/workspace-tools';
 import { getLoopStoreService } from '../../orchestration/loop-store-service';
@@ -40,6 +43,7 @@ export function collectLeftoverOwners(store: OwnerStore, queueItems: QueueOwnerI
 export function createLeftoverRuntimeDependencies(getLiveSessions: () => LeftoverLiveSession[]): LeftoverReportDependencies {
   return {
     currentCheckout: process.cwd(),
+    archiveRoot: join(app.getPath('userData'), 'work-folder-archives'),
     owners: () => {
       const service = getLoopStoreService();
       const db = service.getDb();
@@ -94,6 +98,10 @@ export async function listRuntimeLeftoverWorktrees(deps: LeftoverReportDependenc
         if (!seen.has(key)) { seen.add(key); result.rows.push(row); }
       }
       result.errors.push(...report.errors);
+      if (deps.archiveRoot) {
+        result.archives ??= [];
+        result.archives.push(...await new LeftoverWorktreeArchiveService(deps.archiveRoot).list(mainRoot));
+      }
     } catch (error) {
       result.errors.push({ repoRoot: root, message: error instanceof Error ? error.message : String(error) });
     }

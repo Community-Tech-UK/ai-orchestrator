@@ -46,6 +46,8 @@ interface Harness {
   firePolicyChange: () => void;
   setPolicy: (p: CliUpdatePolicy) => void;
   setActive: (n: number) => void;
+  fireSessionChange: () => void;
+  waitingCount: () => number;
 }
 
 function makeHarness(opts: {
@@ -58,6 +60,7 @@ function makeHarness(opts: {
   let active = opts.active ?? 0;
   let onChangeCb: ((s: CliUpdatePillState) => void) | null = null;
   let policyCb: (() => void) | null = null;
+  let sessionCb: (() => void) | null = null;
   let current: CliUpdatePillState = state([]);
 
   const updateOne = vi.fn(async (cli: CliType) => ({
@@ -81,6 +84,11 @@ function makeHarness(opts: {
       },
       getState: () => current,
       refresh,
+      setWaitingSessionCount: (count) => {
+        if ((current.waitingSessionCount ?? 0) === count) return;
+        current = { ...current, waitingSessionCount: count };
+        onChangeCb?.(current);
+      },
     },
     updateService: { updateOne },
     subscribePolicyChanges: (cb) => {
@@ -93,7 +101,10 @@ function makeHarness(opts: {
   };
 
   const service = new CliAutoUpdateService(deps);
-  service.start();
+  service.start({ subscribeSessionChanges: (callback) => {
+    sessionCb = callback;
+    return () => { sessionCb = null; };
+  } });
 
   return {
     service,
@@ -110,6 +121,8 @@ function makeHarness(opts: {
     setActive: (n) => {
       active = n;
     },
+    fireSessionChange: () => sessionCb?.(),
+    waitingCount: () => current.waitingSessionCount ?? 0,
   };
 }
 
@@ -161,6 +174,27 @@ describe('CliAutoUpdateService (provider-model Phase 2)', () => {
     const h = makeHarness({ policy: 'auto', active: 1 });
     await h.service.handleState(state([entry('codex', 'npm')]));
     expect(h.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('retries immediately when the last mid-turn session settles and clears waiting state', async () => {
+    const h = makeHarness({ active: 2 });
+    h.emit(state([entry('codex', 'npm')]));
+    expect(h.waitingCount()).toBe(2);
+    expect(h.updateOne).not.toHaveBeenCalled();
+    h.setActive(0);
+    h.fireSessionChange();
+    await vi.waitFor(() => expect(h.refresh).toHaveBeenCalledOnce());
+    expect(h.waitingCount()).toBe(0);
+    expect(h.updateOne).toHaveBeenCalledOnce();
+  });
+
+  it('removes the wait explanation when automatic updates are disabled', async () => {
+    const h = makeHarness({ active: 1 });
+    h.emit(state([entry('codex', 'npm')]));
+    expect(h.waitingCount()).toBe(1);
+    h.setPolicy('notify');
+    h.firePolicyChange();
+    expect(h.waitingCount()).toBe(0);
   });
 
   it('ignores entries that are not flagged updateAvailable', async () => {

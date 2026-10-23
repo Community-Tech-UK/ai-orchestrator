@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { NotificationInput } from '../notifications/notification-service';
 import {
   wasNotificationShown,
   LOW_DISK_CRITICAL_BYTES,
@@ -15,7 +16,7 @@ const GB = 1024 * 1024 * 1024;
 
 function watcherWith(freeBytes: number[], clock = { now: Date.UTC(2026, 9, 22) }) {
   const readings = [...freeBytes];
-  const notify = vi.fn((): boolean => true);
+  const notify = vi.fn((_input: NotificationInput): boolean => true);
   const watcher = new LowDiskSpaceWatcher({
     getFreeBytes: async () => readings.shift() ?? 0,
     notify,
@@ -112,7 +113,7 @@ describe('LowDiskSpaceWatcher', () => {
   });
 
   it('keeps the previous level when free space cannot be read', async () => {
-    const notify = vi.fn((): boolean => true);
+    const notify = vi.fn((_input: NotificationInput): boolean => true);
     const watcher = new LowDiskSpaceWatcher({
       getFreeBytes: async () => { throw new Error('statfs failed'); },
       notify,

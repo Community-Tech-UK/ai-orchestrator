@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { NotificationInput } from '../notifications/notification-service';
 import type { ScratchEntryDecision } from './scratch-sweep';
 
 const mocks = vi.hoisted(() => ({
-  notify: vi.fn(() => ({ delivery: 'desktop' })),
+  notify: vi.fn((_input: NotificationInput) => ({ delivery: 'desktop' })),
   retentionDays: 14,
   directories: [] as { path: string; nodeId?: string }[],
   decisions: [] as ScratchEntryDecision[],

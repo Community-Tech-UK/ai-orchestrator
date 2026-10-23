@@ -18,6 +18,7 @@ import {
 import type { ControlSurfaceId, ControlSurfaceItem } from './control-surface.types';
 import { HelpPaneComponent } from '../help/help-pane.component';
 import { CONTROL_SURFACE_HELP } from '../help/control-surface-help';
+import { SettingsStore } from '../../core/state/settings.store';
 import type { HelpEntry } from '../help/help-content.types';
 
 /** localStorage key remembering whether the Control Center help pane is collapsed. */
@@ -37,7 +38,8 @@ export class ControlSurfaceShellComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
 
-  protected readonly navGroups = listControlNavGroups();
+  private readonly settings = inject(SettingsStore);
+  protected readonly navGroups = computed(() => listControlNavGroups(this.settings.settings().observationMemoryEnabled));
   private readonly activeSurfaceId = signal<ControlSurfaceId | null>(null);
   protected readonly activeSurface = computed<ControlSurfaceItem>(() => {
     const id = this.activeSurfaceId();

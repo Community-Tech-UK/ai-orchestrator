@@ -6407,7 +6407,7 @@
     },
     {
       "path": "src/main/session/session-continuity.ts",
-      "lines": 1761
+      "lines": 1764
     },
     {
       "path": "src/renderer/app/features/browser/browser-page.component.spec.ts",
@@ -7171,7 +7171,7 @@
     },
     {
       "path": "src/shared/types/settings.types.ts",
-      "lines": 887
+      "lines": 888
     },
     {
       "path": "src/main/memory/skills-loader.spec.ts",
@@ -7207,7 +7207,7 @@
     },
     {
       "path": "src/main/core/config/settings-control-policy.ts",
-      "lines": 870
+      "lines": 871
     },
     {
       "path": "src/main/instance/lifecycle/__tests__/interrupt-respawn-handler.spec.ts",

@@ -48,7 +48,7 @@ export class StorageCleanupService {
       'event-record': 'This removes the detailed debug record of AI messages. Harness does not use it. Developer scripts that replay captured messages will find nothing until you switch the record on again. This cannot be undone. The conversation file stays the same size until you also choose Shrink the file.',
       'event-record-shrink': 'Harness will rebuild the conversation file. While it runs, Harness cannot save new conversation records; your sessions keep running and the records are saved afterwards. Nothing in your conversation history is removed.',
       'rlm-backups': 'These are copies Harness made before earlier clean-ups. Your newest backup stays. Deleted backups cannot be brought back.',
-      'session-records': 'These are saved states of sessions last saved more than 30 days ago. Harness could use them to put a session back exactly where it was. After removal, those sessions cannot be restored from these records. This cannot be undone.',
+      'session-records': 'These are saved states more than 30 days old, no longer in History and outside live, hibernated or unsaved sessions. After removal, those sessions cannot be restored from these records. This cannot be undone.',
       'activity-logs': 'These are logs last changed more than 30 days ago. Harness does not read them. This cannot be undone.',
     }[target];
     for (const [id, old] of this.previews) if (old.cutoff + 600_000 <= cutoff) this.previews.delete(id);
@@ -115,7 +115,7 @@ export class StorageCleanupService {
     }
     const stats = await this.deps.getLedgerStats();
     if (target === 'event-record-shrink') {
-      if (stats.freeBytes <= 5 * 1024 ** 3 || stats.freePages * 2 < stats.pageCount) throw new Error('Clear the old debug record first; more than 5 GiB and half the file must be free.');
+      if (stats.freePages <= 0 || stats.freePages * 2 < stats.pageCount) throw new Error('At least half the conversation file must be free before shrinking.');
       if (await this.deps.getAvailableDiskBytes() < stats.liveBytes * 2 + 1024 ** 3) throw new Error('There is not enough free disk space to shrink the file.');
       return { stats, items: [], binding: { pageCount: stats.pageCount, freePages: stats.freePages, autoVacuum: stats.autoVacuum } };
     }

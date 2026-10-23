@@ -47,12 +47,12 @@ export class LeftoverWorktreesCardComponent implements OnDestroy {
       : row.owner ? `${row.owner.kind === 'queue' ? 'Plan queue' : row.owner.kind === 'loop' ? 'Loop' : 'Session'}: ${row.owner.status}` : '';
   }
   size(bytes: number): string { return bytes >= 1_000_000_000 ? `${(bytes / 1_000_000_000).toFixed(2)} GB` : `${(bytes / 1_000_000).toFixed(1)} MB`; }
-  async review(row: LeftoverWorktreeRow, action: LeftoverRemovalAction = 'remove-folder'): Promise<void> {
+  async review(row: LeftoverWorktreeRow, action: LeftoverRemovalAction = row.archivableByHarness ? 'archive-and-remove' : 'remove-folder'): Promise<void> {
     this.discardConfirmed.set(false); await this.store.review(row, action);
   }
   async changeAction(event: Event, row: LeftoverWorktreeRow): Promise<void> {
     const value = (event.target as HTMLSelectElement).value;
-    if (value === 'remove-folder' || value === 'remove-folder-and-branch' || value === 'discard-saved-work') {
+    if (value === 'archive-and-remove' || value === 'remove-folder' || value === 'remove-folder-and-branch' || value === 'discard-saved-work') {
       await this.review(row, value);
     }
   }

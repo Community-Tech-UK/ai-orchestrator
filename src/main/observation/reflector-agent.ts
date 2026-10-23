@@ -62,6 +62,7 @@ export class ReflectorAgent extends EventEmitter {
    */
   configure(config: Partial<ObservationConfig>): void {
     this.config = { ...this.config, ...config };
+    if (!this.config.enabled) this.pendingObservations = [];
     this.logger.info('ReflectorAgent configured', { config: this.config });
   }
 

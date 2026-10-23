@@ -32,6 +32,12 @@ export interface RebuildIndexMsg {
   workspacePath: string;
 }
 
+export interface RemoveWorkspaceIndexMsg {
+  type: 'remove-workspace-index';
+  id: number;
+  workspacePath: string;
+}
+
 export interface SearchWorkspaceChunksMsg {
   type: 'search-workspace-chunks';
   id: number;
@@ -67,6 +73,7 @@ export type IndexWorkerRpcMsg =
   | GetIndexStatusMsg
   | CancelIndexMsg
   | RebuildIndexMsg
+  | RemoveWorkspaceIndexMsg
   | SearchWorkspaceChunksMsg
   | GetStatsMsg
   | RunMaintenanceMsg

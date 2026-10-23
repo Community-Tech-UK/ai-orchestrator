@@ -268,6 +268,12 @@ export class IndexWorkerGateway extends EventEmitter {
     }
   }
 
+  async removeWorkspaceIndex(workspacePath: string): Promise<boolean> {
+    if (!this.worker || this.isDegraded) return false;
+    const result = await this.postRpc({ type: 'remove-workspace-index', id: this.nextId(), workspacePath });
+    return result === true;
+  }
+
   /**
    * Ask the worker to stop watching a workspace (fire-and-forget).
    */

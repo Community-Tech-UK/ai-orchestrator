@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, ut
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { afterEach, describe, expect, it } from 'vitest';
+import '../codex-cli-adapter.test-helpers';
 import {
   CodexHomeManager,
   getAioCodexSessionsDir,
@@ -324,7 +325,7 @@ describe('sweepStaleCodexTempHomes', () => {
     const fresh = makeAgedDir(base, 'codex-browser-mcp-fresh', 0);
     const unrelated = makeAgedDir(base, 'some-other-dir', 48 * 60 * 60 * 1000);
 
-    const removed = sweepStaleCodexTempHomes(24 * 60 * 60 * 1000, base);
+    const removed = sweepStaleCodexTempHomes(24 * 60 * 60 * 1000, base, { isCodexIdle: () => true });
 
     expect(removed).toBe(3);
     expect(existsSync(staleNoMcp)).toBe(false);
@@ -334,6 +335,44 @@ describe('sweepStaleCodexTempHomes', () => {
     expect(existsSync(unrelated)).toBe(true);
   });
 
+  it('preserves an old home whose owner is still alive', () => {
+    const base = makeSandbox();
+    const active = makeAgedDir(base, 'codex-nomcp-active', 48 * 60 * 60 * 1000);
+    writeFileSync(join(active, '.aio-codex-home-owner.json'), JSON.stringify({ pid: process.pid, threadId: 0, createdAt: 1 }));
+    const aged = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    utimesSync(active, aged, aged);
+    expect(sweepStaleCodexTempHomes(0, base)).toBe(0);
+    expect(existsSync(active)).toBe(true);
+  });
+
+  it('reclaims a fresh dead-owner home once Codex is stopped, without waiting a day', () => {
+    const base = makeSandbox();
+    const abandoned = makeAgedDir(base, 'codex-nomcp-abandoned', 0);
+    writeFileSync(join(abandoned, '.aio-codex-home-owner.json'), JSON.stringify({ pid: 123, threadId: 0, createdAt: Date.now() }));
+    expect(sweepStaleCodexTempHomes(undefined, base, { isProcessAlive: () => false, isCodexIdle: () => true })).toBe(1);
+    expect(existsSync(abandoned)).toBe(false);
+  });
+
+  it('retains dead-owner and legacy homes while a Codex child may still be using them', () => {
+    const base = makeSandbox();
+    const abandoned = makeAgedDir(base, 'codex-nomcp-abandoned', 48 * 60 * 60 * 1000);
+    writeFileSync(join(abandoned, '.aio-codex-home-owner.json'), JSON.stringify({ pid: 123, threadId: 0, createdAt: 1 }));
+    const legacy = makeAgedDir(base, 'codex-nomcp-legacy', 48 * 60 * 60 * 1000);
+    expect(sweepStaleCodexTempHomes(undefined, base, { isProcessAlive: () => false, isCodexIdle: () => false })).toBe(0);
+    expect(existsSync(abandoned)).toBe(true);
+    expect(existsSync(legacy)).toBe(true);
+  });
+
+  it('retains unknown owner markers even when old and process inspection says idle', () => {
+    const base = makeSandbox();
+    const unknown = makeAgedDir(base, 'codex-nomcp-unknown', 48 * 60 * 60 * 1000);
+    writeFileSync(join(unknown, '.aio-codex-home-owner.json'), '{malformed');
+    const aged = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    utimesSync(unknown, aged, aged);
+    expect(sweepStaleCodexTempHomes(0, base, { isCodexIdle: () => true })).toBe(0);
+    expect(existsSync(unknown)).toBe(true);
+  });
+
   it('ignores matching non-directory entries', () => {
     const base = makeSandbox();
     const filePath = join(base, 'codex-nomcp-file');
@@ -341,7 +380,7 @@ describe('sweepStaleCodexTempHomes', () => {
     const aged = new Date(Date.now() - 48 * 60 * 60 * 1000);
     utimesSync(filePath, aged, aged);
 
-    expect(sweepStaleCodexTempHomes(24 * 60 * 60 * 1000, base)).toBe(0);
+    expect(sweepStaleCodexTempHomes(24 * 60 * 60 * 1000, base, { isCodexIdle: () => true })).toBe(0);
     expect(existsSync(filePath)).toBe(true);
   });
 

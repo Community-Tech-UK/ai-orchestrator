@@ -3,6 +3,7 @@ import { resolve, join } from 'node:path';
 import type { LeftoverWorktreeOwner, LeftoverWorktreeReport, LeftoverWorktreeRow } from '@contracts/schemas/workspace-tools';
 import { isInsideOrEqual, pathCompareKey } from '../../util/path-helpers';
 import { gitExec } from './git-exec';
+import { checkWorktreeProcesses } from './leftover-worktree-processes';
 
 export interface RecordedWorktreeOwner extends LeftoverWorktreeOwner {
   path: string;
@@ -15,6 +16,8 @@ export interface LeftoverReportDependencies {
   owners: () => RecordedWorktreeOwner[];
   liveSessions: () => { id: string; cwd: string; status?: string }[];
   size?: (path: string) => Promise<number>;
+  archiveRoot?: string;
+  processCheck?: typeof checkWorktreeProcesses;
 }
 const sizes = new Map<string, { at: number; value: Promise<number> }>();
 
@@ -85,10 +88,12 @@ export async function buildLeftoverWorktreeReport(
       : recorded ? { kind: recorded.kind, id: recorded.id, status: recorded.status,
         phase: recorded.phase, inUse: recorded.inUse } : null;
     const inUse = Boolean(inCurrentCheckout || live || matchingOwners.some((o) => o.inUse));
+    const legacyTask = /^task-[^/\\]+$/.test(tree.path.slice(join(mainRoot, '.worktrees').length + 1))
+      && isInsideOrEqual(join(mainRoot, '.worktrees'), tree.path);
     const createdBy = isInsideOrEqual(join(mainRoot, '.claude', 'worktrees'), tree.path) ? 'claude-code'
-      : recorded && isInsideOrEqual(join(mainRoot, '.worktrees'), tree.path) ? 'harness' : 'other';
+      : (recorded || legacyTask) && isInsideOrEqual(join(mainRoot, '.worktrees'), tree.path) ? 'harness' : 'other';
     try {
-      const [status, counts, cherry, stat, date, bytes, mergedIntoMain] = await Promise.all([
+      const [status, counts, cherry, stat, date, bytes, mergedIntoMain, unpushed] = await Promise.all([
         git(['status', '--porcelain=v2', '-z'], tree.path),
         git(['rev-list', '--left-right', '--count', `main...${tree.tip}`]),
         git(['cherry', 'main', tree.tip]),
@@ -99,7 +104,11 @@ export async function buildLeftoverWorktreeReport(
           if (exitCode(error) === 1) return false;
           throw error;
         }),
+        git(['rev-list', '--count', tree.tip, '--not', '--remotes']),
       ]);
+      const processes = await (deps.processCheck ?? checkWorktreeProcesses)(tree.path);
+      const unpushedCount = Number(unpushed);
+      if (!/^\d+$/.test(unpushed.trim()) || !Number.isSafeInteger(unpushedCount) || unpushedCount < 0) throw new Error('Unpushed changes could not be checked');
       // Rename records have two paths; only fields beginning with a status count.
       const dirtyCount = status.split('\0').filter((part) => /^[12u?] /.test(part)).length;
       const [behind, ahead] = counts.trim().split(/\s+/).map(Number);
@@ -113,12 +122,17 @@ export async function buildLeftoverWorktreeReport(
       const leftover = !inUse && ageDays >= 14;
       const reason = inUse ? live ? 'In use by a live session' : inCurrentCheckout ? 'This is the current checkout'
         : owner?.kind === 'queue' ? 'In use by a plan queue item that is still open' : 'In use by a loop that is still open'
-        : dirtyCount ? 'Has unsaved changes. Save or review them before removing this folder.'
+        : !processes.checked ? 'Live processes could not be checked. Removal is blocked.'
+        : processes.live ? 'A live process is using this folder'
+        : dirtyCount ? 'Has unsaved changes. Archive them before removing this folder.'
         : ageDays < 14 ? 'Its newest saved change is less than 14 days old'
         : createdBy === 'claude-code' ? 'Made by Claude Code. Harness will not remove it.'
         : createdBy === 'other' ? 'Not made by a Harness loop. Harness will not remove it.'
         : !tree.branch ? 'This folder has no local branch' : null;
+      const archivableByHarness = Boolean(deps.archiveRoot && !inUse && processes.checked && !processes.live
+        && ageDays >= 14 && createdBy === 'harness' && tree.branch);
       rows.push({ repoRoot: mainRoot, ...tree, createdBy, owner, inUse, leftover,
+        archivableByHarness, processChecked: processes.checked, liveProcess: processes.live, unpushedCount,
         category: inUse ? 'in-use' : patchCount ? 'saved-work' : 'nothing-to-save',
         removableByHarness: !reason, reason, dirtyCount, ahead, behind, patchCount, fileCount,
         mergedIntoMain, lastCommitAt, ageDays, bytes,

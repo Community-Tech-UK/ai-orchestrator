@@ -1,12 +1,15 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   OnInit,
   inject,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import type { WakeHint } from '../../../../shared/types/wake-context.types';
+import { summarizeWakeHints } from '../../../../shared/types/wake-hint-summary';
 import { KnowledgeStore } from '../../core/state/knowledge.store';
 
 @Component({
@@ -121,20 +124,43 @@ import { KnowledgeStore } from '../../core/state/knowledge.store';
           </div>
         }
 
-        @if (store.wakeHints().length > 0) {
+        <p class="muted">{{ store.hintCount() }} notes, {{ hintSummary().different }} different,
+          {{ hintSummary().shownThisWeek }} shown this week</p>
+        <div class="hint-meta" role="group" aria-label="Wake note visibility">
+          <button class="btn btn-sm" type="button" [attr.aria-pressed]="!showHidden()"
+            (click)="showHidden.set(false)">Notes ({{ hintSummary().visible.length }})</button>
+          <button class="btn btn-sm" type="button" [attr.aria-pressed]="showHidden()"
+            (click)="showHidden.set(true)">Hidden ({{ hintSummary().hidden.length }})</button>
+        </div>
+        @if (showHidden()) {
+          <p class="muted">Legacy notes last shown before 4 May 2026, and duplicate copies.</p>
+        }
+        @if (pendingRemoval(); as note) {
+          <div class="inline-form" role="alertdialog" aria-labelledby="remove-wake-note-title">
+            <strong id="remove-wake-note-title">Remove this note?</strong>
+            <p class="hint-content">{{ note.content }}</p>
+            <p class="muted">Removes 1 note ({{ note.content.length }} characters). The miner will remember the removal.</p>
+            <div class="hint-meta">
+              <button class="btn btn-sm" type="button" (click)="pendingRemoval.set(null)">Cancel</button>
+              <button class="btn btn-sm btn-danger" type="button" [disabled]="store.loading()"
+                (click)="removeHint(note.id)">Remove note</button>
+            </div>
+          </div>
+        }
+        @if (displayedHints().length > 0) {
           <ul class="hint-list">
-            @for (hint of store.wakeHints(); track hint.id) {
+            @for (hint of displayedHints(); track hint.id) {
               <li class="hint-item">
                 <div class="hint-main">
                   <span class="hint-content">{{ hint.content }}</span>
                   <div class="hint-meta">
                     <span class="badge">{{ hint.room }}</span>
                     <span class="muted">imp: {{ hint.importance }}</span>
-                    <span class="muted">used: {{ hint.usageCount }}x</span>
+                    <span class="muted">shown: {{ hint.usageCount }}x</span>
                   </div>
                 </div>
                 <button class="btn btn-sm btn-danger" type="button"
-                  (click)="removeHint(hint.id)">
+                  (click)="pendingRemoval.set(hint)">
                   Remove
                 </button>
               </li>
@@ -369,6 +395,10 @@ export class WakeManagementComponent implements OnInit {
   protected identityDraft = signal('');
   protected wakeWing = signal('');
 
+  protected pendingRemoval = signal<WakeHint | null>(null);
+  protected showHidden = signal(false);
+  protected hintSummary = computed(() => summarizeWakeHints(this.store.wakeHints()));
+  protected displayedHints = computed(() => this.showHidden() ? this.hintSummary().hidden : this.hintSummary().visible);
   protected showAddHint = signal(false);
   protected newHintContent = signal('');
   protected newHintImportance = signal(5);
@@ -412,6 +442,6 @@ export class WakeManagementComponent implements OnInit {
   }
 
   async removeHint(id: string): Promise<void> {
-    await this.store.removeHint(id);
+    if (await this.store.removeHint(id)) this.pendingRemoval.set(null);
   }
 }

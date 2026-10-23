@@ -270,5 +270,7 @@ export interface CliUpdatePillState {
   generatedAt: number;
   count: number;
   entries: CliUpdatePillEntry[];
+  /** Sessions holding a safe, opted-in automatic update until their turn settles. */
+  waitingSessionCount?: number;
   error?: string;
 }

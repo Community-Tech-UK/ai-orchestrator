@@ -14,6 +14,7 @@
  * 30+ modules.
  */
 import type { SubsystemLogger } from '../logging/logger';
+import { isTemporaryWorktreePath } from '../codemem/worktree-index-policy';
 
 export interface WarmCodememTarget {
   isEnabled(): boolean;
@@ -40,7 +41,7 @@ export async function warmCodememWithTimeout(
   codemem: WarmCodememTarget,
   options: WarmCodememOptions,
 ): Promise<void> {
-  if (!codemem.isEnabled()) {
+  if (!codemem.isEnabled() || isTemporaryWorktreePath(options.workspacePath)) {
     return;
   }
 

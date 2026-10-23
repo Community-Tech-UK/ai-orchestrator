@@ -104,6 +104,13 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
       }
 
       @if (summary(); as s) {
+        <p class="section-desc">Last 7 days @if (loading()) { <span role="status">· Refreshing…</span> }</p>
+        @for (burst of s.projectBursts ?? []; track burst.projectPath) {
+          <p class="error-banner" role="status">
+            {{ burst.projectPath }} called RTK {{ burst.commands | number }} times in the last hour.
+            Check for repeated shell commands, especially git cat-file.
+          </p>
+        }
         <div class="summary-grid">
           <div class="summary-card">
             <div class="summary-label">Shell commands compressed</div>
@@ -167,7 +174,7 @@ export class RtkSavingsTabComponent implements OnInit {
   protected readonly loading = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly status = signal<RtkStatusData | null>(null);
-  protected readonly summary = signal<RtkSavingsSummary | null>(null);
+  protected readonly summary = signal<RtkSavingsSummary | null>(this.ipc.lastSummary.value);
 
   ngOnInit(): void {
     void this.refresh();
@@ -181,12 +188,13 @@ export class RtkSavingsTabComponent implements OnInit {
   }
 
   async refresh(): Promise<void> {
+    if (this.loading()) return;
     this.loading.set(true);
     this.error.set(null);
     try {
       const [statusResp, summaryResp] = await Promise.all([
         this.ipc.getStatus(),
-        this.ipc.getSummary({ topN: 10 }),
+        this.ipc.getSummary({ topN: 10, sinceMs: Date.now() - 7 * 86_400_000 }),
       ]);
 
       if (!statusResp.success) {

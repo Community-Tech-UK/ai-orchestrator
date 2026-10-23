@@ -291,6 +291,7 @@ describe('assembleInstanceSystemPrompt observation retrieval (MEM-4)', () => {
     };
     promptMocks.queryReflections.mockResolvedValue([reflection]);
     const adapter = PolicyAdapter.getInstance();
+    adapter.configure({ enabled: true });
     const deps = makeDeps();
     deps.buildObservationContext.mockImplementation((...args: Parameters<PolicyAdapter['buildObservationContext']>) => adapter.buildObservationContext(...args));
 
@@ -300,6 +301,22 @@ describe('assembleInstanceSystemPrompt observation retrieval (MEM-4)', () => {
     expect(getContextManifestHistory('inst-1')[0].entries.find((entry) => entry.kind === 'observation-memory')?.status).toBe('supplied');
     expect(promptMocks.queryReflections).toHaveBeenCalledWith('Fix auth middleware race conditions', expect.any(Object));
     expect(promptMocks.logInfo).toHaveBeenCalledWith('Injected observation memory context into system prompt', { noteCount: 1 });
+  });
+
+  it('injects nothing and never queries under the opt-out default', async () => {
+    promptMocks.queryReflections.mockResolvedValue([{
+      id: 'reflection-1', title: 'Auth middleware race', insight: 'Serialize refresh requests before retrying.',
+      confidence: 0.9, applicability: ['auth', 'middleware'], patterns: [], observationIds: [],
+      createdAt: 1, ttl: 100000, usageCount: 0, effectivenessScore: 0.8, promotedToProcedural: false,
+    } satisfies Reflection]);
+    const adapter = PolicyAdapter.getInstance();
+    const deps = makeDeps();
+    deps.buildObservationContext.mockImplementation((...args: Parameters<PolicyAdapter['buildObservationContext']>) => adapter.buildObservationContext(...args));
+
+    const result = await assemble('Fix auth middleware race conditions', deps);
+    expect(result.systemPrompt).not.toContain('**Auth middleware race**');
+    expect(promptMocks.queryReflections).not.toHaveBeenCalled();
+    expect(getContextManifestHistory('inst-1')[0].entries.find((entry) => entry.kind === 'observation-memory')?.status).toBe('skipped-empty');
   });
 
   it('uses the sanitized question for a long pasted first message', async () => {

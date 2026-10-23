@@ -599,6 +599,7 @@ export class CodebaseMiner extends EventEmitter {
     }
 
     const wake = getWakeContextBuilder();
+    if (wake.isHintRemoved(trimmed, room)) return undefined;
     const existing = wake
       .listHints(room)
       .find((hint) => (

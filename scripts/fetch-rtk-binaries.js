@@ -31,10 +31,11 @@ const crypto = require('node:crypto');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 
-const RTK_VERSION = '0.51.0';
+const RTK_VERSION = '0.52.0';
 const projectRoot = path.resolve(__dirname, '..');
 const outputRoot = path.join(projectRoot, 'resources', 'rtk');
 const manifestPath = path.join(__dirname, 'rtk-binaries.sha256.json');
+const licensePath = path.join(__dirname, 'licenses', `rtk-${RTK_VERSION}-LICENSE`);
 
 /**
  * Mapping of our internal (platform, arch) → RTK release asset name.
@@ -189,6 +190,14 @@ async function ensureTarget(target, manifest) {
   const targetDir = path.join(outputRoot, target.key);
   const finalBinary = path.join(targetDir, target.binary);
   const expectedHash = manifest.hashes[target.key];
+  // Restore a missing licence even on the already-downloaded fast path.
+  fs.mkdirSync(targetDir, { recursive: true });
+  const license = fs.readFileSync(licensePath, 'utf8');
+  if (!license.includes('Apache License') || !license.includes('Version 2.0')) {
+    throw new Error('Pinned RTK Apache licence is missing or invalid');
+  }
+  fs.writeFileSync(path.join(targetDir, 'LICENSE'), license);
+
 
   if (fs.existsSync(finalBinary) && expectedHash) {
     const actualHash = sha256OfFile(finalBinary);
@@ -209,6 +218,10 @@ async function ensureTarget(target, manifest) {
   console.log(`[rtk] ${target.key}: downloading ${url}`);
   try {
     await download(url, archivePath);
+    const archiveHash = manifest.archiveHashes?.[target.key];
+    if (archiveHash && sha256OfFile(archivePath) !== archiveHash) {
+      throw new Error(`${target.key}: downloaded archive sha256 does not match the pinned release`);
+    }
 
     if (target.archive === 'tar.gz') {
       extractTarGz(archivePath, tmpDir);
@@ -291,7 +304,8 @@ async function main() {
     process.exit(1);
   }
   if (errors.length > 0) {
-    console.warn(`[rtk] ${errors.length} target(s) failed; ${results.length - errors.length} succeeded`);
+    console.error(`[rtk] ${errors.length} target(s) failed; ${results.length - errors.length} succeeded`);
+    process.exitCode = 1;
   }
 }
 

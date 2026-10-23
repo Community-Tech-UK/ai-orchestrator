@@ -29,6 +29,7 @@ import { getRecentDirectoriesManager } from '../core/config/recent-directories-m
 import { getSettingsManager } from '../core/config/settings-manager';
 import type { AppSettings } from '../../shared/types/settings.types';
 import type { RecentDirectoryEntry } from '../../shared/types/recent-directories.types';
+import { isTemporaryWorktreePath } from './worktree-index-policy';
 
 const DEFAULT_MAX_CONCURRENT = 2;
 const DEFAULT_DEBOUNCE_MS = 1500;
@@ -150,7 +151,7 @@ export class CodememPrewarmCoordinator {
    */
   hintActiveWorkspace(workspacePath: string | null | undefined): void {
     const normalized = this.normalizePath(workspacePath);
-    if (!normalized) return;
+    if (!normalized || isTemporaryWorktreePath(normalized)) return;
 
     if (!this.isPrewarmEnabled()) return;
 
@@ -229,7 +230,7 @@ export class CodememPrewarmCoordinator {
     if (!this.isPrewarmEnabled()) return;
 
     const normalized = this.normalizePath(entry.path);
-    if (!normalized) return;
+    if (!normalized || isTemporaryWorktreePath(normalized)) return;
 
     if (!this.pathExistsAsDirectory(normalized)) return;
     if (isBroadWorkspaceRoot(normalized)) {

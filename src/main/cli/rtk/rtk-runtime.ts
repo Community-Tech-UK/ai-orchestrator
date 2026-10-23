@@ -26,7 +26,7 @@ import { getLogger } from '../../logging/logger';
 const logger = getLogger('RtkRuntime');
 
 /** Pinned by scripts/fetch-rtk-binaries.js. */
-export const RTK_BUNDLED_VERSION = '0.51.0';
+export const RTK_BUNDLED_VERSION = '0.52.0';
 /** Minimum acceptable system-installed rtk version. Their `rtk rewrite` API was added in 0.23.0. */
 export const RTK_MIN_VERSION = '0.23.0';
 /** Default timeout for rtk rewrite invocations — RTK benchmarks <10ms; 2s is generous safety margin. */

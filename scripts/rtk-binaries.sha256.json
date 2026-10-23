@@ -1,11 +1,18 @@
 {
   "_comment": "SHA256 manifest for bundled rtk binaries. Update when bumping RTK_VERSION in fetch-rtk-binaries.js. Empty hashes are populated on first run; copy printed values back into this file.",
-  "version": "0.51.0",
+  "version": "0.52.0",
   "hashes": {
-    "darwin-arm64": "02866e65968c0359b19495a5dc2d3ec643a1553fdd1c83c0ad33a8ad33bac3c9",
-    "darwin-x64": "a9b029bfc6a4c4d567f8403e8c02f802c613e005a809a986005415cd9f7a2f1a",
-    "linux-x64": "b947215511bfd8f5f6eb12c6b6d4a9f70b72e9ce37442cfa4df2352b033cd0ea",
-    "linux-arm64": "c9a048412139955ce48f85f82065067b524e98b86bf34f012a92a45d719816b5",
-    "win32-x64": "b45ff8d76fe5f16fead41b9151bb52d357e9f8621d5d1e53932ea90a396760c2"
+    "linux-arm64": "fa1ef29137a3b3d4d388af12bdd51b31a09ef19e3ee0644eea423719d10b1888",
+    "darwin-x64": "934d7de165063dc420883a58211b50a66337ed14a332881ca3069a5cb95af092",
+    "win32-x64": "b69af060bfa8c75f5cd60edc6592e7ddff631d7cd45735595ff330de941c0c89",
+    "darwin-arm64": "23abc049cbe546dc861e20b2fb3417097721e8fb1cc74d9b765fa27cb873e227",
+    "linux-x64": "287e5a7910d422093388e62ad51f26ca802162ce21e98570a769a412a842f91a"
+  },
+  "archiveHashes": {
+    "darwin-arm64": "49ac56bc5edd58ce0c03bf7cc137f8cf2a6253e7707b8236e07321ad66cdc043",
+    "darwin-x64": "81748ec5557b21965097531653fc5198bf734cdf240484816f6d9cfa9e816034",
+    "linux-x64": "46765d4e570ccb3d759e95bcec11feb42fceed5ab2453eac8d787f81d4a0cdab",
+    "linux-arm64": "b1de881a0381f1f059ce9dbb0cfb97e0f94f22460965f39aaff77b2956024fa9",
+    "win32-x64": "76055258f531830e7ae25c9152c2428ed9932533df4ad07ad74e684e25e1b125"
   }
 }

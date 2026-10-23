@@ -16,6 +16,13 @@ function fixture() {
   return { service: new StorageCleanupService(deps), deps, stats, backups, removeBackup, advance: () => { now += 600_000; } };
 }
 describe('ask-first disk cleanup', () => {
+  it('offers shrink for a small ledger once half its pages are free', async () => {
+    const f = fixture();
+    Object.assign(f.stats, { freeBytes: 20_480, freePages: 5 });
+    const preview = await f.service.preview('event-record-shrink');
+    expect(preview.bytes).toBe(20_480);
+    expect(f.deps.rebuildLedger).not.toHaveBeenCalled();
+  });
   it('rejects calls without a valid preview', async () => {
     const f = fixture();
     await expect(f.service.run('rlm-backups', '')).rejects.toThrow();
@@ -54,7 +61,7 @@ describe('ask-first disk cleanup', () => {
     release();
     await running;
   });
-  it('only offers rebuild above 5 GiB with half the pages free and enough disk', async () => {
+  it('only offers rebuild with half the pages free and enough disk', async () => {
     const f = fixture();
     await expect(f.service.preview('event-record-shrink')).rejects.toThrow();
     Object.assign(f.stats, { freeBytes: 6 * 1024 ** 3, freePages: 6, pageCount: 10 });

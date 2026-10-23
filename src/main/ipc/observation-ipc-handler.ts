@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import { getObservationStore } from '../observation/observation-store';
 import { getObservationIngestor } from '../observation/observation-ingestor';
+import { getSettingsManager } from '../core/config/settings-manager';
 import { getReflectorAgent } from '../observation/reflector-agent';
 import {
   ObservationConfigurePayloadSchema,
@@ -87,8 +88,11 @@ export function registerObservationHandlers(deps: RegisterObservationHandlersDep
       IPC_CHANNELS.OBSERVATION_CONFIGURE,
       ObservationConfigurePayloadSchema,
       async (payload) => {
-        getObservationStore().configure(payload ?? {});
-        getObservationIngestor().configure(payload ?? {});
+        const settings = getSettingsManager();
+        if (typeof payload?.enabled === 'boolean') settings.set('observationMemoryEnabled', payload.enabled);
+        const config = { ...payload, enabled: settings.get('observationMemoryEnabled') === true };
+        getObservationStore().configure(config);
+        getObservationIngestor().configure(config);
         return { success: true };
       },
       options('OBSERVATION_CONFIGURE_FAILED'),

@@ -110,3 +110,14 @@ describe('auxiliary title fallback migration', () => {
     expect(titleBudget(store)).toBe(256);
   });
 });
+
+describe('observation memory off migration', () => {
+  it('disables existing installs once and preserves later deliberate opt-in', () => {
+    const store = createStore({ observationMemoryEnabled: true });
+    runSettingsMigrations(store);
+    expect(store.values['observationMemoryEnabled']).toBe(false);
+    store.values['observationMemoryEnabled'] = true;
+    runSettingsMigrations(store);
+    expect(store.values['observationMemoryEnabled']).toBe(true);
+  });
+});

@@ -84,6 +84,7 @@ export interface BuildWakeContextTextMsg {
 export interface BuildObservationContextMsg {
   type: 'build-observation-context';
   id: number;
+  enabled?: boolean;
   taskContext: string;
   instanceId?: string;
   taskType?: string;
@@ -215,7 +216,13 @@ export type ContextWorkerRpcMsg =
   | UnifiedMemoryRequestMsg
   | ShutdownMsg;
 
+export interface ConfigureObservationMemoryMsg {
+  type: 'configure-observation-memory';
+  enabled: boolean;
+}
+
 export type ContextWorkerFireForgetMsg =
+  | ConfigureObservationMemoryMsg
   | EndRlmSessionMsg
   | IngestRlmMsg
   | IngestUnifiedMemoryMsg
