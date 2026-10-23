@@ -16,6 +16,7 @@ import { LoopStore } from '../../core/state/loop.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { LoopPanelOpenerService } from './loop-panel-opener.service';
 import { LoopControlComponent } from './loop-control.component';
+import { HelpDrawerService } from '../../shared/help/help-drawer.service';
 
 // Angular verifies standalone component resources before TestBed applies the
 // metadata override below, so resolve the extracted stylesheet for JIT tests.
@@ -270,6 +271,15 @@ describe('LoopControlComponent', () => {
 
     expect(ipc.pause).toHaveBeenCalledWith('loop-1');
     expect(fixture.nativeElement.textContent).toContain('Resume');
+  });
+
+  it('opens Loop Mode help from the active loop actions', () => {
+    listeners.stateChanged.forEach(cb => cb({ loopRunId: 'loop-1', state: activeState() }));
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('.ls-actions app-help-link button') as HTMLButtonElement;
+    expect(button.getAttribute('aria-label')).toBe('Help: Loop Mode');
+    button.click();
+    expect(TestBed.inject(HelpDrawerService).target()).toEqual({ topic: 'loop' });
   });
 
   it('shows resume controls for a restored provider-limit checkpoint', async () => {

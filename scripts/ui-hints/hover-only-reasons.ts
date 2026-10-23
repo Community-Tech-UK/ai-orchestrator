@@ -1,0 +1,10 @@
+const prefix = 'src/renderer/app/features/';
+export const HOVER_ONLY_REASONS: Record<string, string> = {
+  [prefix + 'instance-list/instance-row.component.ts#span.approval-chip']: 'visible text already reads Awaiting approval',
+  [prefix + 'instance-list/instance-row.component.ts#span.remote-badge']: 'visible text carries offline when disconnected',
+  [prefix + 'instance-list/instance-row.component.ts#div.diff-stats']: 'visible text is the +N/-N counts themselves',
+  [prefix + 'loop/loop-control.component.ts#span.ls-pill']: 'visible text is the status label',
+  [prefix + 'loop/loop-control.component.ts#span.ls-text']: 'visible text is the metric numbers being explained',
+  [prefix + 'loop/loop-control.component.ts#span.lp-badge']: 'visible text is the chip/badge wording being explained',
+  [prefix + 'loop/loop-control.component.ts#div.loop-gate']: 'visible text is the gate step labels',
+};

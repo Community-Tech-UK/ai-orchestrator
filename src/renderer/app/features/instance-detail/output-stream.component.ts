@@ -648,7 +648,7 @@ export class OutputStreamComponent {
 
       this.viewportCleanup = () => {
         if (clickBinding) {
-          clickBinding.element.removeEventListener('click', clickBinding.listener);
+          clickBinding.cleanup();
         }
         if (scrollBinding) {
           scrollBinding.element.removeEventListener('scroll', scrollBinding.listener);
@@ -841,13 +841,24 @@ export class OutputStreamComponent {
    * This replaces per-element querySelectorAll scanning that ran every 100ms.
    * Returns the element and bound listener so the caller can remove it on destroy.
    */
-  private setupDelegatedClickHandler(): { element: HTMLElement; listener: EventListener } | null {
+  private setupDelegatedClickHandler(): { element: HTMLElement; listener: EventListener; cleanup: () => void } | null {
     const el = this.getViewportElement();
     if (!el) return null;
 
     const listener: EventListener = (event: Event) => {
       const mouseEvent = event as MouseEvent;
-      const target = mouseEvent.target as HTMLElement;
+      if (!(event.target instanceof Element)) return;
+      const target = event.target;
+      if (event instanceof KeyboardEvent) {
+        if (event.defaultPrevented || (event.key !== 'Enter' && event.key !== ' ')) return;
+        const path = target.closest('code.file-path[data-file-path]');
+        if (!path || !el.contains(path)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const filePath = path.getAttribute('data-file-path');
+        if (filePath) this.onFilePathClick(filePath);
+        return;
+      }
 
       const followupButton = target.closest<HTMLButtonElement>('button[data-followup-prompt]');
       if (followupButton) {
@@ -880,7 +891,11 @@ export class OutputStreamComponent {
     };
 
     el.addEventListener('click', listener);
-    return { element: el, listener };
+    el.addEventListener('keydown', listener);
+    return { element: el, listener, cleanup: () => {
+      el.removeEventListener('click', listener);
+      el.removeEventListener('keydown', listener);
+    } };
   }
 
   private classifyLinkTarget(target: HTMLElement): LinkKind | null {

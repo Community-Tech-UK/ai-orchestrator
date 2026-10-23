@@ -5,6 +5,7 @@ import { describeLoopEnd } from '../../../../shared/loop/loop-end-wording';
 import { SlicePipe } from '@angular/common';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
+import { HelpLinkComponent } from '../../shared/help/help-link.component';
 import { chipTooltipFor, metricStripTooltipFor, resumeTooltipFor } from './loop-tooltip-copy.util';
 import {
   ChangeDetectionStrategy,
@@ -94,7 +95,7 @@ import { terminalSummaryRefreshKey } from './loop-terminal-summary-key';
 @Component({
   selector: 'app-loop-control',
   standalone: true,
-  imports: [LoopQuestionsChipComponent, InlineHintComponent, LoopBranchEpisodeCardComponent, LoopFreshEyesFindingsPanelComponent, LoopCausalTimelineComponent, AioTooltipDirective, SlicePipe, LoopInspectorProgressComponent, LoopIssueCardComponent, LoopIterationEvidenceComponent, LoopPastRunsPanelComponent, PromptModalComponent, RlmStorageMaintenanceComponent, VerificationRunHistoryComponent],
+  imports: [LoopQuestionsChipComponent, InlineHintComponent, LoopBranchEpisodeCardComponent, LoopFreshEyesFindingsPanelComponent, LoopCausalTimelineComponent, AioTooltipDirective, SlicePipe, LoopInspectorProgressComponent, LoopIssueCardComponent, LoopIterationEvidenceComponent, LoopPastRunsPanelComponent, PromptModalComponent, RlmStorageMaintenanceComponent, VerificationRunHistoryComponent, HelpLinkComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './loop-control.component.html',
   styleUrl: './loop-control.component.scss',

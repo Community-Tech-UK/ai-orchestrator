@@ -12,13 +12,15 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 
 import { InlineHelpComponent } from './inline-help.component';
 import type { HelpEntry, HelpLiveStatus, HelpSection } from './help-content.types';
+import { GLOSSARY, type GlossaryEntry, type GlossaryTermId } from '../glossary/glossary';
+import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 
 const EMPTY_ENTRY: HelpEntry = { sections: [] };
 
 @Component({
   selector: 'app-help-pane',
   standalone: true,
-  imports: [InlineHelpComponent],
+  imports: [InlineHelpComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './help-pane.component.html',
   styleUrl: './help-pane.component.scss',
@@ -27,6 +29,7 @@ const EMPTY_ENTRY: HelpEntry = { sections: [] };
   },
 })
 export class HelpPaneComponent {
+  protected glossaryEntry(id: GlossaryTermId): GlossaryEntry { return GLOSSARY[id]; }
   /** The help content to render. */
   readonly entry = input<HelpEntry>(EMPTY_ENTRY);
   /** Whether the pane is collapsed to a thin rail. */

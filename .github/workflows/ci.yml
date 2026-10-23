@@ -63,6 +63,17 @@ jobs:
       - name: Verify package exports
         run: npm run verify:exports
 
+      - name: Check UI hints ratchet
+        run: npm run check:ui-hints
+
+      - name: Check UI hints records against PR base
+        if: github.event_name == 'pull_request'
+        env:
+          UI_HINTS_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --depth=1 origin "$UI_HINTS_BASE_SHA"
+          npm run check:ui-hints -- --against "$UI_HINTS_BASE_SHA"
+
       - name: Check TypeScript file size ratchet
         run: npm run check:ts-max-loc
 

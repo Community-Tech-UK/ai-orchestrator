@@ -7,6 +7,8 @@
  * compiler can enforce full coverage via `Record<Id, HelpEntry>` registries.
  */
 
+import type { GlossaryTermId } from '../glossary/glossary';
+
 export type HelpCalloutVariant = 'info' | 'tip' | 'warning';
 
 /** A variant-styled note (info explanation, tip, or warning). */
@@ -49,7 +51,8 @@ export type HelpSection =
   | HelpCalloutSection
   | HelpListSection
   | HelpCodeSection
-  | HelpRecommendSection;
+  | HelpRecommendSection
+  | { readonly kind: 'terms'; readonly heading: string; readonly terms: readonly GlossaryTermId[] };
 
 /** The full help content for one page or settings tab. */
 export interface HelpEntry {

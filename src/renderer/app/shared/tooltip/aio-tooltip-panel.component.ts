@@ -24,8 +24,9 @@ import { ChangeDetectionStrategy, Component, input, type TemplateRef } from '@an
       @if (template(); as content) {
         <ng-container [ngTemplateOutlet]="content" />
       } @else {
-        {{ text() }}
+        <ng-container>{{ text() }}</ng-container>
       }
+      @if (shortcut()) { <kbd class="aio-tooltip-kbd" aria-hidden="true">{{ shortcut() }}</kbd> }
     </div>
   `,
   styles: [`
@@ -53,6 +54,11 @@ import { ChangeDetectionStrategy, Component, input, type TemplateRef } from '@an
       white-space: pre-wrap;
       text-align: left;
     }
+    .aio-tooltip-kbd {
+      display: inline-block; margin-left: 4px; padding: 1px 4px;
+      font-family: var(--font-mono, monospace); font-size: 11px;
+      border: 1px solid var(--tooltip-border, rgba(255, 255, 255, 0.12)); border-radius: 3px;
+    }
 
     @keyframes aio-tooltip-in {
       from { opacity: 0; transform: scale(0.96); }
@@ -69,4 +75,5 @@ export class AioTooltipPanelComponent {
   readonly template = input<TemplateRef<unknown> | null>(null);
   readonly format = input<TooltipFormat>('text');
   readonly tooltipId = input('');
+  readonly shortcut = input('');
 }

@@ -24,6 +24,7 @@ import type {
   WorktreeStatus,
 } from '../../../../shared/types/worktree.types';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { GlossaryTermComponent } from '../../shared/glossary/glossary-term.component';
 
 // Simple pipe for truncating paths
 @Pipe({
@@ -47,13 +48,13 @@ interface WorktreeAction {
 @Component({
   selector: 'app-worktree-panel',
   standalone: true,
-  imports: [TruncatePathPipe, AioTooltipDirective],
+  imports: [TruncatePathPipe, AioTooltipDirective, GlossaryTermComponent],
   template: `
     <div class="worktree-container">
       <!-- Header -->
       <div class="worktree-header">
         <div class="header-left">
-          <span class="worktree-title">Worktrees</span>
+          <span class="worktree-title"><app-term term="worktree">Worktrees</app-term></span>
           <span class="worktree-count">{{ sessions().length }} active</span>
         </div>
         @if (sessions().length > 0) {

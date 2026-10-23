@@ -12,6 +12,13 @@ describe('KeybindingService — conflicts + import/export (Task 13)', () => {
     service.resetAllBindings();
   });
 
+  it('exposes live ARIA shortcuts for every single-combo binding', () => {
+    expect(service.ariaShortcutsByAction('send-message')).toBe('Enter Control+Enter');
+    service.customizeBinding('toggle-history', { key: 'k', modifiers: ['meta', 'shift'] });
+    expect(service.ariaShortcutsByAction('toggle-history')).toBe('Control+Shift+K');
+    expect(service.ariaShortcutsByAction('missing')).toBeNull();
+  });
+
   it('reports no conflicts for the default bindings', () => {
     expect(service.conflicts()).toEqual([]);
   });

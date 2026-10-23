@@ -117,6 +117,7 @@
           <button type="button" (click)="onInjectHint()" [appTooltip]="copy('loop.hint')" aria-label="Inject a hint into the next iteration">Hint</button>
           <button type="button" (click)="onQueueFollowUp()" [appTooltip]="copy('loop.followUp')" aria-label="Queue a follow-up before the loop finishes">Follow-up</button>
           <button type="button" class="ls-stop" (click)="onStop()" [appTooltip]="copy('loop.stop')" aria-label="Stop loop">Stop</button>
+          <app-help-link topic="loop" label="Help: Loop Mode" />
         </span>
       </div>
 

@@ -18,6 +18,8 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { PromptModalComponent } from '../../shared/components/prompt-modal/prompt-modal.component';
 import {
   ProviderAccountIpcService,
@@ -63,7 +65,7 @@ const SIGN_IN_POLL_LIMIT = 60;
   standalone: true,
   selector: 'app-provider-accounts-tab',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, PromptModalComponent],
+  imports: [FormsModule, PromptModalComponent, AioTooltipDirective],
   templateUrl: './provider-accounts-tab.component.html',
   styles: [`
     :host { display: block; min-width: 0; }
@@ -144,6 +146,7 @@ export class ProviderAccountsTabComponent implements OnInit {
 
   readonly providers = PROVIDERS;
   readonly signInOnlyProviders = SIGN_IN_ONLY_PROVIDERS;
+  protected readonly copy = copyFor;
 
   private readonly accountsSignal = signal<ProviderAccountView[]>([]);
   private readonly poolsSignal = signal<ProviderAccountPools | null>(null);

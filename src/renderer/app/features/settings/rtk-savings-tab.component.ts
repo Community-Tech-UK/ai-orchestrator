@@ -23,17 +23,18 @@ import {
 import { SettingsStore } from '../../core/state/settings.store';
 import { SettingRowComponent } from './setting-row.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
+import { GlossaryTermComponent } from '../../shared/glossary/glossary-term.component';
 
 @Component({
   selector: 'app-rtk-savings-tab',
   standalone: true,
-  imports: [DecimalPipe, SettingRowComponent],
+  imports: [DecimalPipe, SettingRowComponent, GlossaryTermComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="rtk-tab">
       <header class="rtk-header">
         <div>
-          <h3 class="section-title">Output compression savings</h3>
+          <h3 class="section-title"><app-term term="rtk">Output compression</app-term> savings</h3>
           <p class="section-desc">
             When an AI agent runs a shell command, the output can be very long.
             <a href="https://github.com/rtk-ai/rtk" target="_blank" rel="noopener">RTK</a>

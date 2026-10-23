@@ -83,6 +83,7 @@
               <button
                 type="button"
                 class="open-menu-backdrop"
+                data-ui-hints-exempt="backdrop"
                 aria-label="Close open menu"
                 (click)="showOpenMenu.set(false)"
               ></button>
@@ -138,6 +139,7 @@
               }
             </button>
           }
+          <app-help-link topic="session" label="Help: working in a session" />
         </div>
       </div>
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { toHeadlessFindings } from './headless-review-findings';
 import { EVIDENCE_TAIL_MARKER } from './review-prompts';
 import type { ReviewResult } from '../../shared/types/cross-model-review.types';
+import { isBlockingFreshEyesFinding } from './loop-fresh-eyes-reviewer';
 
 function baseReview(over: Partial<ReviewResult> = {}): ReviewResult {
   return {
@@ -23,6 +24,21 @@ function baseReview(over: Partial<ReviewResult> = {}): ReviewResult {
 }
 
 describe('toHeadlessFindings (WS-A3 evidence extraction)', () => {
+  it.each([1, 3])('keeps screen notes advisory at score %s, with evidence preserved', (score) => {
+    const review = baseReview();
+    review.scores.consistency = { reasoning: 'screen', score: score as 1 | 3,
+      issues: [`UI: missing tooltip\n${EVIDENCE_TAIL_MARKER}\n{"file":"src/renderer/app/app.component.html","lines":[1,1],"quote":"<button>×</button>"}`] };
+    const [finding] = toHeadlessFindings(review);
+    expect(finding).toMatchObject({ title: 'codex screen and wording note', body: 'missing tooltip', severity: 'low', advisory: true });
+    expect(finding.anchor?.quote).toBe('<button>×</button>');
+    expect(isBlockingFreshEyesFinding(finding, ['critical', 'high', 'medium', 'low'])).toBe(false);
+  });
+
+  it('keeps critical_issues screen notes advisory', () => {
+    const [finding] = toHeadlessFindings(baseReview({ criticalIssues: ['UI: missing accessible name'] }));
+    expect(finding).toMatchObject({ severity: 'low', advisory: true, body: 'missing accessible name' });
+    expect(isBlockingFreshEyesFinding(finding, ['critical', 'high', 'medium', 'low'])).toBe(false);
+  });
   it('parses an evidence tail on a critical issue into an anchor and marks it localized', () => {
     const review = baseReview({
       criticalIssues: [

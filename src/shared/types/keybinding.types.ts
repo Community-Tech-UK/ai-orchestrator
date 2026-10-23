@@ -573,9 +573,10 @@ export function parseKeyCombo(keyString: string): KeyCombo {
 export function formatKeyCombo(combo: KeyCombo, isMac = true): string {
   const modifierSymbols: Record<KeyModifier, string> = isMac
     ? { ctrl: '⌃', alt: '⌥', shift: '⇧', meta: '⌘', cmd: '⌘' }
-    : { ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift', meta: 'Win', cmd: 'Win' };
+    : { ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift', meta: 'Ctrl', cmd: 'Ctrl' };
 
-  const parts = combo.modifiers.map((m) => modifierSymbols[m]);
+  const symbols = combo.modifiers.map((m) => modifierSymbols[m]);
+  const parts = isMac ? symbols : [...new Set(symbols)];
   parts.push(combo.key.length === 1 ? combo.key.toUpperCase() : combo.key);
 
   return isMac ? parts.join('') : parts.join('+');

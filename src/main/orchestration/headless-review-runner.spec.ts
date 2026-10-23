@@ -56,6 +56,37 @@ function fakeCacheHook(hit?: { review: ReviewResult; activationReason: string })
 }
 
 describe('runHeadlessReviewCommand — WS-B9 coverage + cache', () => {
+  it.each(['structured', 'tiered'] as const)('adds the screen section to every %s reviewer without extra required angles', async (reviewDepth) => {
+    const dispatchReviewerPrompt = vi.fn(async () => reviewerJson('UI: missing tooltip'));
+    const deps = baseDeps({
+      host: { dispatchReviewerPrompt } as unknown as ReviewExecutionHost,
+      resolveReviewers: async () => [
+        { provider: 'gemini', rationale: 'unchanged' as const },
+        { provider: 'codex', rationale: 'unchanged' as const },
+      ],
+    });
+    // Tiered responses use the scores container; both are actual parser input.
+    if (reviewDepth === 'tiered') dispatchReviewerPrompt.mockImplementation(async () => {
+      const structured = JSON.parse(reviewerJson('UI: missing tooltip')) as Record<string, unknown>;
+      return JSON.stringify({ scores: structured, overall_verdict: 'CONCERNS', summary: 'screen', critical_issues: [] });
+    });
+    const result = await runHeadlessReviewCommand(baseRequest({ reviewDepth,
+      content: 'diff --git a/src/renderer/app/app.component.html b/src/renderer/app/app.component.html\n+<button>×</button>' }), deps);
+    expect(dispatchReviewerPrompt).toHaveBeenCalledTimes(2);
+    for (const call of dispatchReviewerPrompt.mock.calls) {
+      expect((call as unknown as [string, string])[1].split('## Screen and wording check').length - 1).toBe(1);
+    }
+    expect(result.reviewers).toHaveLength(2);
+    expect(result.reviewers.every((reviewer) => reviewer.required === true)).toBe(true);
+    expect(result.findings).toContainEqual(expect.objectContaining({ advisory: true, severity: 'low' }));
+  });
+  it('does not activate the UI check for a renderer header truncated out of the reviewed payload', async () => {
+    const dispatchReviewerPrompt = vi.fn(async () => reviewerJson('finding'));
+    await runHeadlessReviewCommand(baseRequest({ content: 'x'.repeat(33000) + '\n+++ b/src/renderer/app/app.component.html' }),
+      baseDeps({ host: { dispatchReviewerPrompt } as unknown as ReviewExecutionHost }));
+    const prompt = (dispatchReviewerPrompt.mock.calls[0] as unknown as [string, string])[1];
+    expect(prompt).not.toContain('## Screen and wording check');
+  });
   it('returns the usage of dispatched calls and never invents a cached call', async () => {
     const host = {dispatchReviewerPrompt: async (_provider:string,_prompt:string,_cwd:string,_signal:AbortSignal,options?:ReviewerDispatchOptions) => {
       options?.onUsage?.({provider:'gemini',tokens:30,costUsd:0.2,costSource:'provider'}); return reviewerJson('finding');

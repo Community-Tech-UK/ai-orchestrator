@@ -180,6 +180,12 @@ button {
   }
 }
 
+.aio-reason-disabled,
+a.aio-reason-disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 // ============================================
 // FORM INPUTS - Refined styling
 // ============================================

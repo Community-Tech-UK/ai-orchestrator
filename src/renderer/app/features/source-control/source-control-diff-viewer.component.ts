@@ -32,6 +32,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
   template: `
     <div
       class="diff-backdrop"
+      data-ui-hints-exempt="backdrop"
       (click)="onBackdropClick($event)"
       (keydown.escape)="closeRequested.emit()"
       tabindex="-1"
@@ -67,6 +68,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
           <button
             type="button"
             class="diff-close"
+            data-ui-hints-exempt="local-key"
             (click)="closeRequested.emit()"
             appTooltip="Close (Esc)"
             aria-label="Close"

@@ -23,22 +23,14 @@ import { createLoopPresetController } from './loop-config-panel-presets';
 import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
+import { HelpLinkComponent } from '../../shared/help/help-link.component';
 
 import {
-  DEFAULT_CAPS,
-  DEFAULT_MAX_TURNS_PER_ITERATION,
-  MIN_MAX_TOKENS,
-  MAX_MAX_TOKENS,
-  DEFAULT_MAX_WALL_TIME_HOURS,
-  MAX_WALL_TIME_HOURS,
-  DEFAULT_COMPLETION,
-  DEFAULT_PROGRESS_THRESHOLDS,
-  DEFAULT_SEMANTIC_PROGRESS,
-  DEFAULT_EXPLORATION,
-  DEFAULT_NEXT_OBJECTIVE_PLANNING,
-  DEFAULT_AUDIT,
+  DEFAULT_CAPS, DEFAULT_MAX_TURNS_PER_ITERATION, MIN_MAX_TOKENS, MAX_MAX_TOKENS,
+  DEFAULT_MAX_WALL_TIME_HOURS, MAX_WALL_TIME_HOURS, DEFAULT_COMPLETION,
+  DEFAULT_PROGRESS_THRESHOLDS, DEFAULT_SEMANTIC_PROGRESS, DEFAULT_EXPLORATION,
+  DEFAULT_NEXT_OBJECTIVE_PLANNING, DEFAULT_AUDIT, type PlanPacketMode,
 } from './loop-config-panel.defaults';
-type PlanPacketMode = 'off' | 'prompted';
 
 /**
  * Inline accordion panel for configuring and starting a loop.
@@ -52,7 +44,7 @@ type PlanPacketMode = 'off' | 'prompted';
 @Component({
   selector: 'app-loop-config-panel',
   standalone: true,
-  imports: [InlineHintComponent, FormsModule, LoopPresetPickerComponent, AioTooltipDirective],
+  imports: [InlineHintComponent, FormsModule, LoopPresetPickerComponent, AioTooltipDirective, HelpLinkComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './loop-config-panel.component.html',
   styleUrl: './loop-config-panel.component.scss',

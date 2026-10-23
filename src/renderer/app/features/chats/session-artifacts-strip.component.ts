@@ -181,6 +181,7 @@ const STATUS_SYMBOL: Record<ArtifactStatus, string> = {
         <button
           type="button"
           class="ctx-menu-backdrop"
+          data-ui-hints-exempt="backdrop"
           aria-label="Close menu"
           (click)="contextMenu.set(null)"
           (keydown.escape)="contextMenu.set(null)"

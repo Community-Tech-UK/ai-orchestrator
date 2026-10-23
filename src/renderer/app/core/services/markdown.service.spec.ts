@@ -34,6 +34,24 @@ describe('MarkdownService.renderSync command stripping', () => {
     expect(html).toContain('<strong>world</strong>');
   });
 
+  it('makes inline file paths focusable links after sanitising', () => {
+    const container = document.createElement('div');
+    container.innerHTML = service.renderSync('`src/app.ts`');
+    const path = container.querySelector('code.file-path')!;
+    expect(path.getAttribute('tabindex')).toBe('0');
+    expect(path.getAttribute('role')).toBe('link');
+  });
+
+  it('keeps authored focus, role and unsafe attributes outside the sanitiser allowlist', () => {
+    const container = document.createElement('div');
+    container.innerHTML = service.renderSync('<div tabindex="3" role="button" id="custom" style="color:red" onclick="alert(1)">Text</div>\n\n<code class="file-path" data-file-path="src/app.ts" tabindex="3" role="button">src/app.ts</code>');
+    const plain = container.querySelector('div')!;
+    for (const attribute of ['tabindex', 'role', 'id', 'style', 'onclick']) expect(plain.hasAttribute(attribute)).toBe(false);
+    const path = container.querySelector('code')!;
+    expect(path.getAttribute('tabindex')).toBe('0');
+    expect(path.getAttribute('role')).toBe('link');
+  });
+
   it('renders the reported follow-up list as labelled copy buttons', () => {
     const content = [
       'Both requests are achievable.',

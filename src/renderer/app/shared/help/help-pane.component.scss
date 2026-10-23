@@ -137,6 +137,16 @@
   color: var(--settings-group-fg);
 }
 
+.help-terms {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  dt { font-weight: 600; }
+  dd { margin: var(--spacing-xs) 0 var(--spacing-sm); }
+  > div:focus { outline: 2px solid var(--primary-color); outline-offset: 3px; }
+  .help-term-aliases { color: var(--text-muted); }
+}
+
 .help-code {
   margin: 0;
   padding: var(--spacing-sm) var(--spacing-md);

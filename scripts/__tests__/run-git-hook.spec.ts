@@ -38,6 +38,7 @@ describe('run-git-hook', () => {
       { command: 'npm', args: ['run', 'lint:fast'] },
       { command: 'npm', args: ['run', 'verify:exports'] },
       { command: 'npm', args: ['run', 'check:provider-parity'] },
+      { command: 'npm', args: ['run', 'check:ui-hints', '--', '--warn'] },
       { command: 'npm', args: ['run', 'verify:ipc'] },
       { command: 'npm', args: ['run', 'check:contracts'] },
       { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },

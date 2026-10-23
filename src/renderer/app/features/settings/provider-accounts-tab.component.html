@@ -130,15 +130,15 @@
               <div class="account-actions">
                 @if (isSignedIn(account)) {
                   <button type="button" class="btn btn-secondary" (click)="signIn(account, true)" [disabled]="busy()"
-                    title="Opens a terminal already running the sign-in command">Sign in again</button>
+                    [appTooltip]="copy('accounts.signIn')">Sign in again</button>
                   <button type="button" class="btn btn-secondary" (click)="verify(account)" [disabled]="busy()">Check sign-in</button>
                   <button type="button" class="btn btn-secondary" (click)="signIn(account)" [disabled]="busy()"
-                    title="Copies a sign-in command to paste in your terminal">{{ provider.id === 'opencode' ? 'Copy coding sign-in command' : 'Copy sign-in command' }}</button>
+                    [appTooltip]="copy('accounts.copySignIn')">{{ provider.id === 'opencode' ? 'Copy coding sign-in command' : 'Copy sign-in command' }}</button>
                 } @else {
                   <button type="button" class="btn btn-primary" (click)="signIn(account, true)" [disabled]="busy()"
-                    title="Opens a terminal already running the sign-in command">Sign in</button>
+                    [appTooltip]="copy('accounts.signIn')">Sign in</button>
                   <button type="button" class="btn btn-secondary" (click)="signIn(account)" [disabled]="busy()"
-                    title="Copies a sign-in command to paste in your terminal">{{ provider.id === 'opencode' ? 'Copy coding sign-in command' : 'Copy sign-in command' }}</button>
+                    [appTooltip]="copy('accounts.copySignIn')">{{ provider.id === 'opencode' ? 'Copy coding sign-in command' : 'Copy sign-in command' }}</button>
                   <button type="button" class="btn btn-secondary" (click)="verify(account)" [disabled]="busy()">Check sign-in</button>
                 }
                 <span class="action-divider" aria-hidden="true"></span>

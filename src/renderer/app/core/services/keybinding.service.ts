@@ -29,6 +29,7 @@ import {
   hasNewConflicts,
   type KeybindingConflict,
 } from './keybinding-conflicts';
+import { ariaKeyShortcuts } from '../keybindings/shortcut-display';
 import { eligibleBindings } from '../keybindings/resolver';
 import {
   assertRegistryIsSafe,
@@ -393,6 +394,11 @@ export class KeybindingService implements OnDestroy {
   formatBindingByAction(action: string): string {
     const binding = this.getBindingByAction(action);
     return binding ? this.formatBinding(binding) : '';
+  }
+
+  /** Live, machine-readable shortcuts; absent for unbound actions and sequences. */
+  ariaShortcutsByAction(action: string): string | null {
+    return ariaKeyShortcuts(this.allBindings().filter(binding => binding.action === action), this.isMac) || null;
   }
 
   /**

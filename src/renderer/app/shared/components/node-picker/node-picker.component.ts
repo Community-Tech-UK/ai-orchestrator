@@ -81,6 +81,7 @@ import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
           <button
             type="button"
             class="node-picker-backdrop"
+            data-ui-hints-exempt="backdrop"
             aria-label="Close node picker"
             (click)="isOpen.set(false)"
           ></button>

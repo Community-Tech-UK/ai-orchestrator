@@ -78,11 +78,12 @@ import {
 } from './instance-list-preferences';
 import { getSystemFileManagerLabel } from '../instance-detail/output-stream.utils';
 import { computeProjectMenuPosition, type ProjectMenuPosition } from './project-menu-position';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 @Component({
   selector: 'app-instance-list',
   standalone: true,
-  imports: [NgTemplateOutlet, ScrollingModule, InstanceRowComponent, DragDropModule, ContextMenuComponent, PromptModalComponent, CopilotProjectRoutingMenuComponent],
+  imports: [NgTemplateOutlet, ScrollingModule, InstanceRowComponent, DragDropModule, ContextMenuComponent, PromptModalComponent, CopilotProjectRoutingMenuComponent, AioTooltipDirective],
   templateUrl: './instance-list.component.html',
   styleUrl: './instance-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

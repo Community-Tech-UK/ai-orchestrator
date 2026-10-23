@@ -540,9 +540,9 @@ describe('loopErrorSummary', () => {
  * A colour-blind or screen-reader user saw "declared verify rename review stop"
  * with no way to tell which step was blocking the loop (WCAG 1.4.1).
  *
- * The tooltip guard in `icon-control-tooltip.spec.ts` could not catch this: it
- * only inspects elements that already carry `[appTooltip]`, and these steps
- * carry none. Colour-only state is a wider class than tooltip reachability.
+ * The hint guard in `scripts/check-ui-hints.ts` checks names and hints, but
+ * cannot decide whether colour-only state needs visible explanatory text.
+ * Colour-only state is a wider class than tooltip reachability.
  */
 describe('completionGateSteps — state is in the text, not only the colour', () => {
   function stepsFor(overrides: Parameters<typeof completionGateSteps>[0]) {

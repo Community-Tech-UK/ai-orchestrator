@@ -4,6 +4,8 @@ import { CONTROL_SURFACES } from '../control-surface/control-surface.registry';
 import { CONTROL_SURFACE_HELP } from './control-surface-help';
 import { SETTINGS_TAB_HELP } from '../../features/settings/help/settings-help';
 import type { HelpEntry } from './help-content.types';
+import { HELP_TOPICS } from './help-topics';
+import { UI_TERMS } from '../../../../shared/copy/ui-vocabulary';
 
 /**
  * Content-quality guardrails for the Help & tips registries. The Record types
@@ -48,6 +50,23 @@ describe('SETTINGS_TAB_HELP', () => {
   it('every entry is genuinely useful', () => {
     for (const [id, entry] of Object.entries(SETTINGS_TAB_HELP)) {
       expectUsefulEntry(id, entry);
+    }
+  });
+});
+
+describe('HELP_TOPICS', () => {
+  it('provides useful in-app help and keeps loop and session copy in the canonical vocabulary', () => {
+    for (const [id, topic] of Object.entries(HELP_TOPICS)) {
+      expectUsefulEntry(id, topic.entry);
+      if (id === 'glossary') continue; // Alias lines deliberately preserve search names.
+      const text = topic.entry.sections.map(section => {
+        if (section.kind === 'callout') return `${section.heading} ${section.body}`;
+        if (section.kind === 'list' || section.kind === 'steps') return `${section.heading} ${section.items.join(' ')}`;
+        return '';
+      }).join(' ');
+      for (const term of UI_TERMS) {
+        for (const pattern of term.never) expect(text, `${id}: ${term.id}`).not.toMatch(pattern);
+      }
     }
   });
 });

@@ -146,3 +146,8 @@ export function unmergeDescribedBy(existing: string | null, tooltipId: string): 
   const ids = (existing ?? '').split(/\s+/).filter(Boolean).filter((id) => id !== tooltipId);
   return ids.length > 0 ? ids.join(' ') : null;
 }
+
+/** A tooltip that only repeats the host's own accessible name adds a second announcement of the same words. */
+export function shouldDescribeHost(tooltipText: string | null | undefined, hostAriaLabel: string | null | undefined): boolean {
+  return !!tooltipText?.trim() && !isRedundantWithLabel(tooltipText, hostAriaLabel);
+}

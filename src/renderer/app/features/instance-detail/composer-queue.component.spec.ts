@@ -3,9 +3,10 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { ComposerQueueComponent } from './composer-queue.component';
+import { glossaryPlain } from '../../shared/glossary/glossary';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const template = readFileSync(resolve(specDirectory, './composer-queue.component.html'), 'utf8');
@@ -18,6 +19,21 @@ await resolveComponentResources((url) => {
 });
 
 describe('ComposerQueueComponent', () => {
+  it('shows the steering definition on keyboard-visible focus', async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({ imports: [ComposerQueueComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(ComposerQueueComponent);
+    fixture.componentRef.setInput('messages', [{ message: 'change approach', kind: 'steer' }]);
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('app-term button') as HTMLElement;
+    const original = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible' || original(selector));
+    button.dispatchEvent(new FocusEvent('focus'));
+    fixture.detectChanges();
+    expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent?.trim())
+      .toBe(`${glossaryPlain('steer')} Select for more.`);
+    fixture.destroy();
+  });
   it('renders queue metadata and emits edit/cancel/steer indexes', async () => {
     TestBed.resetTestingModule();
     await TestBed.configureTestingModule({ imports: [ComposerQueueComponent] }).compileComponents();

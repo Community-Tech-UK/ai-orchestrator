@@ -1,12 +1,15 @@
 # Shell Component Standards
 
-Standards for the AI Orchestrator desktop shell — the rails, panels, cards,
+Standards for the Harness desktop shell — the rails, panels, cards,
 headers, badges, empty states, and toolbars that frame every feature. The goal
 is one coherent system: dashboard, settings, setup, and feature pages should
 feel designed together, not assembled from separate kits.
 
 This document is the reference for **copilot_todo.md item 16**. Read it before
 adding or restyling shell-level UI.
+
+Words, tooltips and status rules live in [the screen and wording guide](screen-and-wording-guide.md).
+This file keeps tokens and layout.
 
 ---
 
@@ -66,8 +69,8 @@ All are standalone, `OnPush`, and styled with the semantic tokens above.
 
 ### Workspace rail (`app-workspace-rail`)
 A slim **56px** icon rail, leftmost in the dashboard. Holds global destinations
-and the control-plane toggle. Tooltip-first (`title` on every button). Icon
-buttons are 40px, square, with hover, `:active` press (scale 0.94), and
+and the control-plane toggle. Every icon button uses `appTooltip` and an accessible name
+with the same words; never a native `title`. Icon buttons are 40px, square, with hover, `:active` press (scale 0.94), and
 `:focus-visible` outline. Router destinations use `routerLinkActive="active"`;
 the active treatment is shared with toggle buttons via `.rail-btn.active`.
 
@@ -149,3 +152,5 @@ widgets. New title-bar widgets join the cluster and match its ~28px height.
 - [ ] Honors reduced motion.
 - [ ] Loading and empty states are designed, not afterthoughts.
 - [ ] Inline styles extracted to a co-located `.scss` once non-trivial.
+
+- [ ] Every icon-only control has a tooltip and an accessible name; every control that stays disabled says why; no native `title`.

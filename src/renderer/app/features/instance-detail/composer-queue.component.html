@@ -23,7 +23,7 @@
           {{ truncate(queuedMsg.message) }}
         </span>
         @if (queuedMsg.kind === 'steer') {
-          <span class="queued-kind queued-kind-steer" title="Will send before passive queued messages">steer</span>
+          <span class="queued-kind queued-kind-steer"><app-term term="steer">steer</app-term></span>
         }
         @if (queuedMsg.files && queuedMsg.files.length > 0) {
           <span class="queued-file-count" title="Attached files">

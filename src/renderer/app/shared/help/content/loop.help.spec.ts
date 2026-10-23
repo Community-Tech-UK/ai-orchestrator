@@ -14,13 +14,14 @@ function listItems(heading: string): readonly string[] {
 describe('LOOP_MODE_HELP (L15)', () => {
   it('does not claim every cap takes a wrap-up iteration', () => {
     const items = listItems('When the loop stops');
-    expect(items.some((item) => /Every tripped cap currently takes/.test(item))).toBe(false);
-    expect(items.some((item) => /token or cost cap stops immediately/.test(item))).toBe(true);
+    expect(items.some((item) => /only when enabled.*provider.*restrict tools/.test(item))).toBe(true);
+    expect(items.some((item) => /supported by Claude/.test(item))).toBe(true);
+    expect(items.some((item) => /token or cost limit stops the loop straight away/.test(item))).toBe(true);
   });
 
   it('explains the degraded replay-unsafe pause', () => {
     const items = listItems('When the loop stops');
-    expect(items.some((item) => /replay would be unsafe/.test(item))).toBe(true);
+    expect(items.some((item) => /Trying again could make things worse/.test(item))).toBe(true);
     expect(items.some((item) => /not the loop being stuck/.test(item))).toBe(true);
   });
 });

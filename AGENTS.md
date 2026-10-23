@@ -40,6 +40,7 @@ npx tsc --noEmit
 npm run typecheck:spec
 npm run lint
 npm run check:ts-max-loc
+npm run check:ui-hints
 npm run build:main
 npm run build:renderer
 npm run test:quiet
@@ -110,7 +111,7 @@ Every `*_livetest.md` carries a header block pointing at the remediation flow â€
 - Remove unused imports.
 - Angular components are standalone and `OnPush`; use `inject()` and signals.
 
-The complete repo-local Angular conventions are in `docs/angular-conventions.md`. Prompt changes must follow `docs/prompt-engineering-house-style.md`.
+The complete repo-local Angular conventions are in `docs/angular-conventions.md`. Prompt changes must follow `docs/prompt-engineering-house-style.md`. Before changing anything under `src/renderer/` or any text a user can see, read `docs/screen-and-wording-guide.md`; when reviewing a renderer change, apply its section 6.
 
 @docs/angular-conventions.md
 

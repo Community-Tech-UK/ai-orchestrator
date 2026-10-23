@@ -1,0 +1,1217 @@
+[
+  {
+    "id": "d193d1b465adf482",
+    "owner": "src/renderer/app/app.component.ts",
+    "text": "Remote terminal (open a shell on a connected worker node)",
+    "why": "long"
+  },
+  {
+    "id": "4463cfe970a5fc13",
+    "owner": "src/renderer/app/features/automations/automations-page.component.ts",
+    "text": "Keeps this automation's sessions out of the project rail. Runs still appear here with their full output, and a run that fails or stops for permission is always shown in the rail.",
+    "why": "consequence"
+  },
+  {
+    "id": "5a801670ec84d438",
+    "owner": "src/renderer/app/features/campaign/campaign-page.component.ts",
+    "text": "Click two nodes to draw an edge",
+    "why": "long"
+  },
+  {
+    "id": "f076e53d1a572fcc",
+    "owner": "src/renderer/app/features/campaign/campaign-page.component.ts",
+    "text": "Click the canvas to add a loop node",
+    "why": "long"
+  },
+  {
+    "id": "555437ac0e018997",
+    "owner": "src/renderer/app/features/codebase/codebase-search.component.ts",
+    "text": "Filter by file patterns (comma-separated glob patterns)",
+    "why": "long"
+  },
+  {
+    "id": "6857584984321702",
+    "owner": "src/renderer/app/features/codebase/codebase-search.component.ts",
+    "text": "Hypothetical Document Embedding - generates better semantic queries",
+    "why": "long"
+  },
+  {
+    "id": "00570687e64c1286",
+    "owner": "src/renderer/app/features/cost/cost-page.component.ts",
+    "text": "Total includes one or more estimated entries — not a fully measured figure",
+    "why": "long"
+  },
+  {
+    "id": "1b63a65eb2229fec",
+    "owner": "src/renderer/app/features/cost/cost-page.component.ts",
+    "text": "Includes at least one estimated entry (no provider-reported usage for that turn)",
+    "why": "long"
+  },
+  {
+    "id": "c75a360dad6253d0",
+    "owner": "src/renderer/app/features/cost/cost-page.component.ts",
+    "text": " estimated (no provider-reported usage for those turns)",
+    "why": "long"
+  },
+  {
+    "id": "dcef88274fac17ce",
+    "owner": "src/renderer/app/features/cost/cost-page.component.ts",
+    "text": "No provider-reported usage for this turn — tokens/cost are a heuristic estimate",
+    "why": "consequence"
+  },
+  {
+    "id": "17922d2faa71f362",
+    "owner": "src/renderer/app/features/dashboard/dashboard.component.ts",
+    "text": "Close control plane",
+    "why": "consequence"
+  },
+  {
+    "id": "9172910be2efe717",
+    "owner": "src/renderer/app/features/dashboard/sidebar-footer.component.ts",
+    "text": "Close all sessions",
+    "why": "consequence"
+  },
+  {
+    "id": "d0d323649b55b81a",
+    "owner": "src/renderer/app/features/history/history-sidebar.component.ts",
+    "text": "Delete all conversation history",
+    "why": "consequence"
+  },
+  {
+    "id": "04bf9d839044d143",
+    "owner": "src/renderer/app/features/instance-detail/composer-banners.component.ts",
+    "text": "Restart the session in the same sandbox without granting anything new",
+    "why": "consequence"
+  },
+  {
+    "id": "0eb4a206ddb6a997",
+    "owner": "src/renderer/app/features/instance-detail/composer-banners.component.ts",
+    "text": "Move this conversation to a different account for the same provider (e.g. one you just topped up)",
+    "why": "long"
+  },
+  {
+    "id": "683a5306382834a7",
+    "owner": "src/renderer/app/features/instance-detail/composer-banners.component.ts",
+    "text": "Cancel the auto-resume for this session",
+    "why": "consequence"
+  },
+  {
+    "id": "7678a1c637a6919b",
+    "owner": "src/renderer/app/features/instance-detail/composer-banners.component.ts",
+    "text": "Dismiss this banner and stop watching for a sign-in",
+    "why": "consequence"
+  },
+  {
+    "id": "78b9df50a85699c8",
+    "owner": "src/renderer/app/features/instance-detail/composer-banners.component.ts",
+    "text": "Grant this path as a writable root and restart the session inside the rebuilt sandbox",
+    "why": "consequence"
+  },
+  {
+    "id": "7b85963035ea92b0",
+    "owner": "src/renderer/app/features/instance-detail/composer-banners.component.ts",
+    "text": "Resume this session now instead of waiting",
+    "why": "long"
+  },
+  {
+    "id": "7f83fb7c4872fb48",
+    "owner": "src/renderer/app/features/instance-detail/composer-banners.component.ts",
+    "text": " credentials expired during this session. Sign in and the interrupted turn is re-sent automatically; \"Retry now\" checks immediately.",
+    "why": "consequence"
+  },
+  {
+    "id": "83f2e195433f1f06",
+    "owner": "src/renderer/app/features/instance-detail/composer-banners.component.ts",
+    "text": "Move this conversation to the next configured fallback provider instead of waiting",
+    "why": "long"
+  },
+  {
+    "id": "8ef27a6568ec92f8",
+    "owner": "src/renderer/app/features/instance-detail/composer-banners.component.ts",
+    "text": "Check again and resume the interrupted turn",
+    "why": "long"
+  },
+  {
+    "id": "a32c37a1a11e63bf",
+    "owner": "src/renderer/app/features/instance-detail/composer-banners.component.ts",
+    "text": " limit. Re-checks the live quota every few minutes and resumes as soon as the limit lifts; resumes at ",
+    "why": "long"
+  },
+  {
+    "id": "e89f4d9bab6e663d",
+    "owner": "src/renderer/app/features/instance-detail/composer-banners.component.ts",
+    "text": "Open a terminal running this provider's sign-in command",
+    "why": "long"
+  },
+  {
+    "id": "3e8954fbed37d678",
+    "owner": "src/renderer/app/features/instance-detail/composer-queue.component.ts",
+    "text": "Cancel and restore to input",
+    "why": "consequence"
+  },
+  {
+    "id": "b3a99c530514ca4a",
+    "owner": "src/renderer/app/features/instance-detail/composer-queue.component.ts",
+    "text": "Attachments could not be restored for this queued message",
+    "why": "long"
+  },
+  {
+    "id": "d2e89cae7059e747",
+    "owner": "src/renderer/app/features/instance-detail/composer-queue.component.ts",
+    "text": "Not yet saved for crash recovery — a renderer crash right now could lose this message",
+    "why": "consequence"
+  },
+  {
+    "id": "6294683fb2b5eb16",
+    "owner": "src/renderer/app/features/instance-detail/composer-toolbar.component.ts",
+    "text": "(this provider does not report context-window occupancy)",
+    "why": "long"
+  },
+  {
+    "id": "c50336b68c47beed",
+    "owner": "src/renderer/app/features/instance-detail/composer-toolbar.component.ts",
+    "text": " when the current turn finishes. Click to cancel.",
+    "why": "consequence"
+  },
+  {
+    "id": "dc9db223157bdaf9",
+    "owner": "src/renderer/app/features/instance-detail/context-attribution-panel.component.ts",
+    "text": "Char-heuristic estimates (same family as the compactor); the provider-owned system prompt is not observable and lands in Other.",
+    "why": "long"
+  },
+  {
+    "id": "de747a4bda3bd080",
+    "owner": "src/renderer/app/features/instance-detail/context-attribution-panel.component.ts",
+    "text": "AIO can only prove what it composed and sent — never what the provider's own process actually kept or used from it.",
+    "why": "consequence"
+  },
+  {
+    "id": "04cb80c9cbfbf5e5",
+    "owner": "src/renderer/app/features/instance-detail/context-bar.component.ts",
+    "text": "this provider does not report context-window occupancy",
+    "why": "long"
+  },
+  {
+    "id": "65a32c3763b0b547",
+    "owner": "src/renderer/app/features/instance-detail/context-bar.component.ts",
+    "text": "Estimated from aggregate token spend — actual context occupancy may be lower",
+    "why": "consequence"
+  },
+  {
+    "id": "7508821340969db6",
+    "owner": "src/renderer/app/features/instance-detail/context-bar.component.ts",
+    "text": "This provider has not reported context occupancy for this session",
+    "why": "long"
+  },
+  {
+    "id": "b087e9fd6b6e6d27",
+    "owner": "src/renderer/app/features/instance-detail/context-bar.component.ts",
+    "text": "Tokens used this session. This provider does not report context-window occupancy, so no percentage is shown.",
+    "why": "long"
+  },
+  {
+    "id": "2c3cfe3eb701ed8d",
+    "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
+    "text": "Remote reviewers flagged concerns — click to view.",
+    "why": "long"
+  },
+  {
+    "id": "58ab79ec3c28a442",
+    "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
+    "text": "Cross-model review skipped because no secondary reviewers were available",
+    "why": "long"
+  },
+  {
+    "id": "93d7897a9c755e34",
+    "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
+    "text": "Local review completed as advisory; no remote reviewer completed.",
+    "why": "long"
+  },
+  {
+    "id": "04002a391cef1307",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Fast Mode OFF — standard output. Click to enable faster output",
+    "why": "long"
+  },
+  {
+    "id": "0b414c9bcc3794ec",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Fast Mode ON — faster output at some capability cost. Click to disable",
+    "why": "consequence"
+  },
+  {
+    "id": "0dbba00cf9829e2a",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Interactive: human-driven Claude terminal session; workflows and Loop Mode are unavailable",
+    "why": "long"
+  },
+  {
+    "id": "286cdb74bdb502be",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Hardened ON — CLI runs inside the macOS Seatbelt sandbox (writes confined to the workspace)",
+    "why": "long"
+  },
+  {
+    "id": "340a3a4bec7720aa",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "YOLO mode ON — auto-approve all actions",
+    "why": "consequence"
+  },
+  {
+    "id": "43d1f0cebfefe5cc",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Stop current turn (Esc)",
+    "why": "consequence"
+  },
+  {
+    "id": "798fa536cae577d6",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Voice is available after the session starts",
+    "why": "long"
+  },
+  {
+    "id": "a252628f732955fb",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "YOLO mode OFF — will prompt for approvals",
+    "why": "consequence"
+  },
+  {
+    "id": "b664604de894119e",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Remove folder reference",
+    "why": "consequence"
+  },
+  {
+    "id": "b87fc6b80a3e1f43",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": " yet. Click to turn it off, or choose Claude",
+    "why": "long"
+  },
+  {
+    "id": "cc1e9a9d27daa086",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Stop voice conversation",
+    "why": "consequence"
+  },
+  {
+    "id": "eb76fafa3fae95b7",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Orchestrated: full Harness routing, workflows, Loop Mode, and managed approvals",
+    "why": "long"
+  },
+  {
+    "id": "098e13c932f5e8aa",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": " when the current turn finishes. Click to cancel.",
+    "why": "consequence"
+  },
+  {
+    "id": "10c6f9654f32322a",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "YOLO will turn OFF when the current turn finishes. Click to cancel.",
+    "why": "consequence"
+  },
+  {
+    "id": "4abf1c8a29093348",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Cannot toggle YOLO mode while the session is starting or recovering",
+    "why": "consequence"
+  },
+  {
+    "id": "509a57f2c6ce5535",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "YOLO Mode: Auto-approve all tool calls without prompting. Click to disable",
+    "why": "consequence"
+  },
+  {
+    "id": "717397e3fff3de97",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Cannot change mode while instance is running or recovering",
+    "why": "consequence"
+  },
+  {
+    "id": "7f1900b487b47c76",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Fast Mode: faster output (Opus / Codex priority tier). Click to disable",
+    "why": "long"
+  },
+  {
+    "id": "915dbc129d58747e",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "YOLO will turn ON when the current turn finishes. Click to cancel.",
+    "why": "consequence"
+  },
+  {
+    "id": "d9ef61505eed1019",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Fast Mode: faster output at some capability cost. Click to enable",
+    "why": "consequence"
+  },
+  {
+    "id": "ec7bfbfa059f5282",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Cannot toggle fast mode while instance is running or recovering",
+    "why": "consequence"
+  },
+  {
+    "id": "f134df89a3a85ef9",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "YOLO Mode: Requires manual approval for tool calls. Click to enable auto-approve",
+    "why": "consequence"
+  },
+  {
+    "id": "2ed39562bae87071",
+    "owner": "src/renderer/app/features/instance-detail/output-stream.component.ts",
+    "text": "Cannot edit a loop prompt — start a new loop to change it",
+    "why": "consequence"
+  },
+  {
+    "id": "5be1fda3489c472a",
+    "owner": "src/renderer/app/features/instance-detail/output-stream.component.ts",
+    "text": "Queue preserved context for the next turn",
+    "why": "long"
+  },
+  {
+    "id": "781e25dc5244c224",
+    "owner": "src/renderer/app/features/instance-detail/session-computer-use-control.component.ts",
+    "text": " This session is more restricted than the global default.",
+    "why": "long"
+  },
+  {
+    "id": "a753a3a043f5dc87",
+    "owner": "src/renderer/app/features/instance-detail/session-computer-use-control.component.ts",
+    "text": " Elevated permissions are active for this session.",
+    "why": "long"
+  },
+  {
+    "id": "e2577b518abbb9b3",
+    "owner": "src/renderer/app/features/instance-detail/session-computer-use-control.component.ts",
+    "text": "). Changes apply to the next call, need no restart, and end with the session.",
+    "why": "consequence"
+  },
+  {
+    "id": "3c854e63131592a3",
+    "owner": "src/renderer/app/features/instance-detail/session-skills-badge.component.ts",
+    "text": "Skills injected into this session — click for details",
+    "why": "long"
+  },
+  {
+    "id": "e115cd4f882fbd06",
+    "owner": "src/renderer/app/features/instance-detail/session-skills-badge.component.ts",
+    "text": "Disable this skill everywhere (takes effect next turn)",
+    "why": "long"
+  },
+  {
+    "id": "597bda62eccb57ae",
+    "owner": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
+    "text": "Enable YOLO mode to auto-approve all permissions for this session",
+    "why": "consequence"
+  },
+  {
+    "id": "b912ee03fe26d3f7",
+    "owner": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
+    "text": "Approve with the edited input (requires CLI support for modify)",
+    "why": "long"
+  },
+  {
+    "id": "d97b80363ef2605f",
+    "owner": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
+    "text": "Inspect or edit the tool's input before approving (experimental — requires CLI support)",
+    "why": "long"
+  },
+  {
+    "id": "f45ec329286b549f",
+    "owner": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
+    "text": "How long this allow or deny is remembered: once, this session, or always.",
+    "why": "long",
+    "retired": "Replaced by permissions.scope: the current picker explains Once, This session and Always command matching and lifetimes explicitly, including the one-hour identical-command allowance."
+  },
+  {
+    "id": "9b4504b43bd461b9",
+    "owner": "src/renderer/app/features/instance-list/instance-list.component.ts",
+    "text": "Limit projects and threads by recent activity",
+    "why": "long"
+  },
+  {
+    "id": "b2ea7f675e09a012",
+    "owner": "src/renderer/app/features/instance-list/instance-list.component.ts",
+    "text": "Hidden automations stay out of the rail while they are working normally. A run that fails, or stops for permission, is always shown.",
+    "why": "consequence"
+  },
+  {
+    "id": "f26b5f812a07e7af",
+    "owner": "src/renderer/app/features/instance-list/instance-list.component.ts",
+    "text": "Start a new conversation in this project",
+    "why": "long"
+  },
+  {
+    "id": "f70dfdfe4fa93cc6",
+    "owner": "src/renderer/app/features/instance-list/instance-list.component.ts",
+    "text": "Choose how much imported history appears in the project rail",
+    "why": "long"
+  },
+  {
+    "id": "149804a95d40c69c",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "hibernated — send a message to wake",
+    "why": "consequence"
+  },
+  {
+    "id": "1ce54ddc29aecbe9",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "Restart and resume the conversation",
+    "why": "consequence"
+  },
+  {
+    "id": "2b7e3c4b74455fc0",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "Close session — stops the agent and moves this thread to history",
+    "why": "consequence"
+  },
+  {
+    "id": "5245d028aebdafa0",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "This instance has a pending permission request",
+    "why": "long"
+  },
+  {
+    "id": "628a2051b9406821",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "Child instances — use the arrow to expand",
+    "why": "long"
+  },
+  {
+    "id": "640da151e81fce8b",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "' disconnected — session may be interrupted",
+    "why": "consequence"
+  },
+  {
+    "id": "df14aab4d37f322a",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "Restart with fresh context — the conversation so far is not carried over",
+    "why": "consequence"
+  },
+  {
+    "id": "e47df676c030faf9",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "Close session — stops this child agent and removes it from the tree",
+    "why": "consequence"
+  },
+  {
+    "id": "4e7b9227f40bc061",
+    "owner": "src/renderer/app/features/local-ai-guard/local-ai-status-chip.component.ts",
+    "text": "Local AI Guard: Status unavailable. Open Local AI health centre.",
+    "why": "long"
+  },
+  {
+    "id": "652105c82803b580",
+    "owner": "src/renderer/app/features/loop/loop-config-panel.component.ts",
+    "text": "Removes this prompt from the recent list.",
+    "why": "consequence"
+  },
+  {
+    "id": "db07b44e87757e4b",
+    "owner": "src/renderer/app/features/loop/loop-config-panel.component.ts",
+    "text": "Plan file, quick verify, audit, provider, context, stalls, isolation",
+    "why": "long"
+  },
+  {
+    "id": "f347f3f86fdae5f4",
+    "owner": "src/renderer/app/features/loop/loop-config-panel.component.ts",
+    "text": "Fills the prompt with the canonical default directive.",
+    "why": "long"
+  },
+  {
+    "id": "010594bf3d8dd5ac",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "The loop noticed it was not progressing and nudged the agent to change approach. After two attempts it stops nudging.",
+    "why": "consequence"
+  },
+  {
+    "id": "14be6a9f2b29110d",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "A second model is reviewing each completion claim until it agrees.",
+    "why": "long"
+  },
+  {
+    "id": "18218d614570a435",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Items the loop could not finish and set aside with a reason. The work is kept, not dropped.",
+    "why": "long"
+  },
+  {
+    "id": "2b9f84edfe42a1cf",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Stops the review rounds and hands the open issues to you.",
+    "why": "consequence"
+  },
+  {
+    "id": "2da16d1d814cefd0",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "What the loop must clear before it is allowed to stop.",
+    "why": "consequence"
+  },
+  {
+    "id": "3eb4b831e2130cca",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Sends a direction the agent reads at the start of its NEXT iteration. It does not interrupt the turn that is running.",
+    "why": "consequence"
+  },
+  {
+    "id": "611ba2a69df975f8",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Estimated spend for this run. An estimate from token counts, not a bill.",
+    "why": "consequence"
+  },
+  {
+    "id": "63553d9f5e69143b",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Skips the next reviewer round; the loop continues without it.",
+    "why": "long"
+  },
+  {
+    "id": "86525aee94c2dc01",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Signs off the work yourself and ends the run as complete.",
+    "why": "long"
+  },
+  {
+    "id": "b174629cebff3c72",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "What the agent appears to be doing right now, inferred from its commands. Advisory — nothing stops or continues because of it.",
+    "why": "consequence"
+  },
+  {
+    "id": "b75a26aed728c00d",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Iterations run so far, against the cap for this run. An iteration or wall-time cap can add one wrap-up turn on top; a token or cost cap stops immediately.",
+    "why": "consequence"
+  },
+  {
+    "id": "c0fce216a5ce4a04",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Hides this summary. The run and its record are kept.",
+    "why": "long"
+  },
+  {
+    "id": "c4913d512713b90b",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Continues a paused loop from where it stopped.",
+    "why": "consequence"
+  },
+  {
+    "id": "c5687a3415628bfe",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Continues even though the loop paused because it was not making progress. Nothing about the situation has changed, so it may stall again.",
+    "why": "long"
+  },
+  {
+    "id": "d01d74d32243ca23",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Stops the loop after the current iteration finishes. Work already done is kept.",
+    "why": "consequence"
+  },
+  {
+    "id": "d617c556c3614960",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Opens the iteration-by-iteration trace of what the loop did.",
+    "why": "long"
+  },
+  {
+    "id": "e13aafd51c8a3489",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Tokens this run has spent, as reported by the provider. The current turn is not counted until it settles.",
+    "why": "long"
+  },
+  {
+    "id": "f9dcb90069893d13",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "The run hit a cap and is spending one final turn writing its hand-off notes.",
+    "why": "consequence"
+  },
+  {
+    "id": "fba9397f888b0df9",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Queues a message the loop must handle before it is allowed to finish.",
+    "why": "long"
+  },
+  {
+    "id": "19f42bb0d9544d5c",
+    "owner": "src/renderer/app/features/loop/loop-outstanding-panel.component.ts",
+    "text": "The loop drafted this. Edit if needed, then Save or Resolve to record it.",
+    "why": "long"
+  },
+  {
+    "id": "22a11fc8a98fafa8",
+    "owner": "src/renderer/app/features/loop/loop-outstanding-panel.component.ts",
+    "text": "Resume needs a session — open this from an instance",
+    "why": "long"
+  },
+  {
+    "id": "2ae9f2fb796b1de0",
+    "owner": "src/renderer/app/features/loop/loop-outstanding-panel.component.ts",
+    "text": "Sets the item aside. It is not going to be done.",
+    "why": "long"
+  },
+  {
+    "id": "83b44ed5ab38c063",
+    "owner": "src/renderer/app/features/loop/loop-outstanding-panel.component.ts",
+    "text": "Saves the answer if any, then marks the item resolved.",
+    "why": "long"
+  },
+  {
+    "id": "8637ccb14d55b1f9",
+    "owner": "src/renderer/app/features/loop/loop-outstanding-panel.component.ts",
+    "text": "Saves the answer if any, then marks the question answered.",
+    "why": "long",
+    "retired": "The old question-answered action was removed by the unified questions integration. Earlier items use loop.outstanding.resolve, which saves the answer and marks the item resolved; live questions use the separate answer delivery controls."
+  },
+  {
+    "id": "88f78b244751d509",
+    "owner": "src/renderer/app/features/loop/loop-outstanding-panel.component.ts",
+    "text": "Start a new loop run that applies your answers",
+    "why": "long"
+  },
+  {
+    "id": "8a200da2dc3063cb",
+    "owner": "src/renderer/app/features/loop/loop-outstanding-panel.component.ts",
+    "text": "Puts the item back on the open list.",
+    "why": "long"
+  },
+  {
+    "id": "b85306ccd3f74c6b",
+    "owner": "src/renderer/app/features/loop/loop-outstanding-panel.component.ts",
+    "text": "Saves your answer. The item stays open until you resolve or dismiss it.",
+    "why": "long"
+  },
+  {
+    "id": "c1dd4c6f1876c115",
+    "owner": "src/renderer/app/features/loop/loop-outstanding-panel.component.ts",
+    "text": "Type an answer on an item first",
+    "why": "long"
+  },
+  {
+    "id": "e7ec3bef63ce735e",
+    "owner": "src/renderer/app/features/loop/loop-outstanding-panel.component.ts",
+    "text": "Toggles whether resolved and dismissed items are shown.",
+    "why": "long"
+  },
+  {
+    "id": "edaea1f6cbd5caf6",
+    "owner": "src/renderer/app/features/loop/loop-outstanding-panel.component.ts",
+    "text": "Write open items to <workspace>/OUTSTANDING.md",
+    "why": "long"
+  },
+  {
+    "id": "bf05ab33a7525f4f",
+    "owner": "src/renderer/app/features/loop/loop-past-runs-panel.component.ts",
+    "text": "A loop is already running for this chat — stop it first",
+    "why": "consequence"
+  },
+  {
+    "id": "d7bcd0f3fa42c25c",
+    "owner": "src/renderer/app/features/loop/loop-past-runs-panel.component.ts",
+    "text": "Record that you have dealt with this blocked workspace yourself, so AIO stops retrying it. Nothing is deleted.",
+    "why": "consequence"
+  },
+  {
+    "id": "ec3ddecadd784f83",
+    "owner": "src/renderer/app/features/loop/loop-past-runs-panel.component.ts",
+    "text": "Open the loop config pre-filled with this prompt",
+    "why": "long"
+  },
+  {
+    "id": "1491e04cff3f2a50",
+    "owner": "src/renderer/app/features/loop/loop-toggle.component.ts",
+    "text": "Loop ON — click to stop",
+    "why": "consequence"
+  },
+  {
+    "id": "98adcdc0321e8eb2",
+    "owner": "src/renderer/app/features/loop/loop-toggle.component.ts",
+    "text": "Click to close the loop config panel",
+    "why": "consequence"
+  },
+  {
+    "id": "c6cf4567be2007d9",
+    "owner": "src/renderer/app/features/loop/loop-toggle.component.ts",
+    "text": "Pick a working folder to enable Loop Mode",
+    "why": "long"
+  },
+  {
+    "id": "d0c0ae635b3ee571",
+    "owner": "src/renderer/app/features/loop/loop-toggle.component.ts",
+    "text": "Click to open the loop config panel",
+    "why": "long"
+  },
+  {
+    "id": "167fcfb73a2911c4",
+    "owner": "src/renderer/app/features/memory-review/memory-review-page.component.ts",
+    "text": "Manually scan settled sessions for repeated command corrections. Nothing auto-promotes — results appear below as reviewable proposals.",
+    "why": "long"
+  },
+  {
+    "id": "167a9565fc12100f",
+    "owner": "src/renderer/app/features/models/model-selection-panel.component.ts",
+    "text": "Remove from favorites",
+    "why": "consequence"
+  },
+  {
+    "id": "5b5bfe50f96079f2",
+    "owner": "src/renderer/app/features/plugins/plugins-page.component.ts",
+    "text": "Provider plugin files installed in your app data folder",
+    "why": "long"
+  },
+  {
+    "id": "d6cafc24ddeff10a",
+    "owner": "src/renderer/app/features/plugins/plugins-page.component.ts",
+    "text": "Provider plugins discovered on disk via the Discover tab",
+    "why": "long"
+  },
+  {
+    "id": "f7813336186c8888",
+    "owner": "src/renderer/app/features/plugins/plugins-page.component.ts",
+    "text": "Provider plugins currently loaded into memory and usable as a model backend",
+    "why": "long"
+  },
+  {
+    "id": "2ac4e9de45a97e4d",
+    "owner": "src/renderer/app/features/settings/advanced-settings-tab.component.ts",
+    "text": "How to let agents control a real web browser",
+    "why": "long"
+  },
+  {
+    "id": "2c5b39900a747604",
+    "owner": "src/renderer/app/features/settings/advanced-settings-tab.component.ts",
+    "text": "Reset all settings",
+    "why": "consequence"
+  },
+  {
+    "id": "05ab740b2f15732f",
+    "owner": "src/renderer/app/features/settings/auxiliary-models-settings-tab.component.ts",
+    "text": "Which tier model this slot uses by default (quick = small/fast, quality = larger). Set the two tier models in Models.",
+    "why": "long"
+  },
+  {
+    "id": "5e65e2d448bc83aa",
+    "owner": "src/renderer/app/features/settings/auxiliary-models-settings-tab.component.ts",
+    "text": "When on, this slot may escalate to the main frontier model if no auxiliary model produces output. Turn off to cap this slot at your configured auxiliary endpoints — if none is available it uses a deterministic local summary. Note: this only blocks the frontier model; content is still sent to whatever auxiliary endpoints you configure, which may be cloud.",
+    "why": "consequence"
+  },
+  {
+    "id": "d9a48faa2a0ce39a",
+    "owner": "src/renderer/app/features/settings/auxiliary-models-settings-tab.component.ts",
+    "text": "No feature consumes this slot yet — the Test button still works, but nothing in normal operation routes through it.",
+    "why": "long"
+  },
+  {
+    "id": "e1f70ccce7fad8fd",
+    "owner": "src/renderer/app/features/settings/auxiliary-models-settings-tab.component.ts",
+    "text": "Override the tier model for this slot with a specific model. Auto = use the slot's tier model (or first available if no tier model is set).",
+    "why": "long"
+  },
+  {
+    "id": "621790dee62f0340",
+    "owner": "src/renderer/app/features/settings/cli-health-settings-tab.component.ts",
+    "text": "Update it from where it was installed.",
+    "why": "long"
+  },
+  {
+    "id": "65d0156bc822e8e5",
+    "owner": "src/renderer/app/features/settings/copilot-accounts-tab.component.ts",
+    "text": "A failed match here blocks Copilot rather than falling back",
+    "why": "long"
+  },
+  {
+    "id": "38dbc0899a6f5634",
+    "owner": "src/renderer/app/features/settings/doctor-settings-tab.component.ts",
+    "text": "Opens a terminal already running the sign-in command",
+    "why": "long"
+  },
+  {
+    "id": "48c672e660ff9ef1",
+    "owner": "src/renderer/app/features/settings/doctor-settings-tab.component.ts",
+    "text": "Pin this file at its current content hash; it re-flags if it changes again",
+    "why": "long"
+  },
+  {
+    "id": "77875b692a8256c4",
+    "owner": "src/renderer/app/features/settings/provider-accounts-tab.component.ts",
+    "text": "Copies a sign-in command to paste in your terminal",
+    "why": "long"
+  },
+  {
+    "id": "d65ca8618180242d",
+    "owner": "src/renderer/app/features/settings/provider-accounts-tab.component.ts",
+    "text": "At least one account must stay enabled",
+    "why": "long"
+  },
+  {
+    "id": "164e2224350ee790",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "Android SDK/ADB is detected, but automation is not ready on this node.",
+    "why": "long"
+  },
+  {
+    "id": "21ad095a102267e7",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "No Chrome/Chromium runtime detected on this node.",
+    "why": "long"
+  },
+  {
+    "id": "51ff5b0fc2456bcd",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "No Android SDK/ADB state reported by this node.",
+    "why": "long"
+  },
+  {
+    "id": "624866aae4f08dc6",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "Agents spawned on this node can receive mobile-mcp Android tools.",
+    "why": "long"
+  },
+  {
+    "id": "7467982b728487fb",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "Chrome extension native-host relay is listening on this node.",
+    "why": "long"
+  },
+  {
+    "id": "89109a25039baed0",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "Chrome is installed but automation is not enabled on this node.",
+    "why": "long"
+  },
+  {
+    "id": "ad876171d5fb09fc",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "Close this computer's live connection without revoking it. It reconnects by itself.",
+    "why": "consequence"
+  },
+  {
+    "id": "c7cb86be2df1a91b",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "Chrome extension relay is enabled but not currently running.",
+    "why": "long"
+  },
+  {
+    "id": "ddb564dd82a8724a",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "Agents spawned on this node get chrome-devtools browser tools.",
+    "why": "long"
+  },
+  {
+    "id": "eed511e774a00fa5",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "Chrome extension relay is off on this node.",
+    "why": "long"
+  },
+  {
+    "id": "10bda22346c8d94b",
+    "owner": "src/renderer/app/features/settings/review-settings-tab.component.ts",
+    "text": ". Skipped and its slot handed to the next reviewer.",
+    "why": "long"
+  },
+  {
+    "id": "1b7567936a5797a5",
+    "owner": "src/renderer/app/features/settings/review-settings-tab.component.ts",
+    "text": "Hit a rate or usage limit on its last run; skipped until it recovers.",
+    "why": "long"
+  },
+  {
+    "id": "589f46266444214f",
+    "owner": "src/renderer/app/features/settings/review-settings-tab.component.ts",
+    "text": "Not detected; skipped and its slot handed to the next reviewer.",
+    "why": "long"
+  },
+  {
+    "id": "c895179febce5e28",
+    "owner": "src/renderer/app/features/settings/routing-matrix.component.ts",
+    "text": "Reset to the default (",
+    "why": "consequence"
+  },
+  {
+    "id": "b261c5b5cee0ec52",
+    "owner": "src/renderer/app/features/settings/setting-row.component.ts",
+    "text": "Reset to the default (",
+    "why": "consequence"
+  },
+  {
+    "id": "b8b26f77b20bc453",
+    "owner": "src/renderer/app/features/settings/settings.component.ts",
+    "text": "Close settings navigation",
+    "why": "consequence"
+  },
+  {
+    "id": "5b61848caa046074",
+    "owner": "src/renderer/app/features/side-chat/side-chat-panel.component.ts",
+    "text": "Archive this sidechat (keeps history, removes it from the list)",
+    "why": "consequence"
+  },
+  {
+    "id": "9681f6776c7f14a6",
+    "owner": "src/renderer/app/features/side-chat/side-chat-panel.component.ts",
+    "text": "Close panel (⌥⌘S). Running sidechats keep going.",
+    "why": "consequence"
+  },
+  {
+    "id": "9f75ef4128995d64",
+    "owner": "src/renderer/app/features/side-chat/side-chat-panel.component.ts",
+    "text": "Stop this sidechat's answer (the main session is not affected)",
+    "why": "consequence"
+  },
+  {
+    "id": "58963d3740b9f243",
+    "owner": "src/renderer/app/features/source-control/source-control-repo-actions.component.ts",
+    "text": " commit(s) from upstream (fast-forward only)",
+    "why": "long"
+  },
+  {
+    "id": "4a8a64fb3d397503",
+    "owner": "src/renderer/app/features/source-control/source-control.component.ts",
+    "text": "Close source control",
+    "why": "consequence"
+  },
+  {
+    "id": "832e696642fd3349",
+    "owner": "src/renderer/app/features/source-control/source-control.component.ts",
+    "text": "Discard changes (revert to HEAD)",
+    "why": "consequence"
+  },
+  {
+    "id": "a99d1ccf497e6841",
+    "owner": "src/renderer/app/features/source-control/source-control.component.ts",
+    "text": " — click to open diff · ⌘/⇧-click to multi-select · drag to attach",
+    "why": "long"
+  },
+  {
+    "id": "329bef8e4ee3d8d7",
+    "owner": "src/renderer/app/features/title-bar/notification-center.component.ts",
+    "text": "Clear all notifications",
+    "why": "consequence"
+  },
+  {
+    "id": "c4a66c471182cece",
+    "owner": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.ts",
+    "text": "Select a folder for agents to scan",
+    "why": "long"
+  },
+  {
+    "id": "e9146aafe6bc4c20",
+    "owner": "src/renderer/app/shared/components/node-picker/node-picker.component.ts",
+    "text": "Node is disconnected",
+    "why": "consequence"
+  },
+  {
+    "id": "833e230c83e87d71",
+    "owner": "src/renderer/app/shared/components/provider-account-chip.component.ts",
+    "text": "The account a new session will use. Harness moves to the next account if this one hits its limit.",
+    "why": "long"
+  },
+  {
+    "id": "8ad899f6c5f24957",
+    "owner": "src/renderer/app/shared/components/provider-account-chip.component.ts",
+    "text": "The account this conversation runs on. Pick another to move it there.",
+    "why": "long"
+  },
+  {
+    "id": "42e6ef92cc5f35e9",
+    "owner": "src/renderer/app/features/instance-detail/composer-queue.component.ts",
+    "text": "Will send before passive queued messages",
+    "why": "consequence",
+    "retired": "Glossary entry steer now explains sending ahead of other queued messages and is keyboard accessible."
+  },
+  {
+    "id": "9da21bd41e6008e0",
+    "owner": "src/renderer/app/features/instance-detail/context-bar.component.ts",
+    "text": "Cost of this session so far at API prices, including subagents. Your Claude and Codex plans bill differently. Copilot is billed in AI credits and is not included.",
+    "why": "consequence"
+  },
+  {
+    "id": "04271284932f59c3",
+    "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
+    "text": " automatic second opinions used today. Resets at midnight. You can still ask for one from a reply's menu.",
+    "why": "consequence"
+  },
+  {
+    "id": "3b243615710ccb89",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Fence OFF — this session can stop any program you own, including other sessions. Click to turn the fence back on",
+    "why": "consequence"
+  },
+  {
+    "id": "460b349c52c3d327",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Fence OFF for every session (Settings > Advanced > Security)",
+    "why": "long"
+  },
+  {
+    "id": "90f9edc66799e1e8",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Fence ON — this session can only stop programs it started. Click to let it stop any program you own",
+    "why": "consequence"
+  },
+  {
+    "id": "a44d62c242ef14a1",
+    "owner": "src/renderer/app/features/instance-detail/output-stream.component.ts",
+    "text": "Restarts the agent with a summary of older turns, full recent turns, user messages, and an anchor index. The earlier conversation stays in history; the agent waits for your next message.",
+    "why": "consequence"
+  },
+  {
+    "id": "5efd3e282d9ef9f9",
+    "owner": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
+    "text": "Once: just this command (an identical one in the next hour is allowed too). This session: this exact command until the session closes. Always: this exact command in every session.",
+    "why": "consequence"
+  },
+  {
+    "id": "0cffdad15dd10b8a",
+    "owner": "src/renderer/app/features/loop/loop-config-panel.component.ts",
+    "text": "Starts a fresh model window when measured context use reaches the threshold. Resume-capable providers also use iteration or token limits when context use cannot be measured or a fresh window would still be full.",
+    "why": "consequence"
+  },
+  {
+    "id": "d15255ed6a5fd111",
+    "owner": "src/renderer/app/features/loop/loop-config-panel.component.ts",
+    "text": "How long Harness lets the full check run. A check that runs out of time counts as failed, so the loop cannot finish on it.",
+    "why": "consequence"
+  },
+  {
+    "id": "2aa9cfcc349ddc42",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "A step failed and the loop stopped without merging. Check the files.",
+    "why": "consequence"
+  },
+  {
+    "id": "2e229ab89440d91f",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "The loop thinks it's done. Check the work, then Accept or Resume.",
+    "why": "long"
+  },
+  {
+    "id": "392be4963d0f816a",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "The loop ended. Read its notes: it may have finished, stalled, or stopped for a final check.",
+    "why": "consequence"
+  },
+  {
+    "id": "6563e43b83fc879e",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "A step failed and the loop paused. Check the files, then Resume or Stop.",
+    "why": "consequence"
+  },
+  {
+    "id": "dd1bc5d39011c0aa",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Shows the current state of this loop.",
+    "why": "long"
+  },
+  {
+    "id": "eaca8c9d9501a47a",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "Stops the loop. Asks first.",
+    "why": "consequence"
+  },
+  {
+    "id": "ee13ec942871b685",
+    "owner": "src/renderer/app/features/loop/loop-past-runs-panel.component.ts",
+    "text": "Mark this run as finished. It will not be resumed.",
+    "why": "long"
+  },
+  {
+    "id": "5a5f6d18353f2a88",
+    "owner": "src/renderer/app/features/loop/loop-question-row.component.ts",
+    "text": "Sends the suggested answer to the loop.",
+    "why": "consequence"
+  },
+  {
+    "id": "e3e5ecab408ed319",
+    "owner": "src/renderer/app/features/loop/loop-question-row.component.ts",
+    "text": "Clears this question. Work that depends on it stays undone.",
+    "why": "consequence"
+  },
+  {
+    "id": "ea3ec2add2cd4841",
+    "owner": "src/renderer/app/features/loop/loop-question-row.component.ts",
+    "text": "Asks the loop to undo this decision.",
+    "why": "long"
+  },
+  {
+    "id": "f0f59ce7bc3eb828",
+    "owner": "src/renderer/app/features/loop/loop-question-row.component.ts",
+    "text": "Sends your typed answer to the loop.",
+    "why": "consequence"
+  },
+  {
+    "id": "db63bc0bf80fdd98",
+    "owner": "src/renderer/app/features/loop/loop-questions-chip.component.ts",
+    "text": "Shows the loop’s current questions and decisions.",
+    "why": "long"
+  },
+  {
+    "id": "69538d22efa1f40e",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-parked-list.component.ts",
+    "text": "Retries the blocked merge using the item’s passing verification result.",
+    "why": "long"
+  },
+  {
+    "id": "77d5a6d470a8c3ee",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-parked-list.component.ts",
+    "text": "Opens the confirmation to discard this item’s work.",
+    "why": "consequence"
+  },
+  {
+    "id": "94fe09ae838b9128",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-parked-list.component.ts",
+    "text": "Opens the confirmation to merge this branch without the final checks.",
+    "why": "long"
+  },
+  {
+    "id": "f899b253d7708ac4",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-parked-list.component.ts",
+    "text": "Puts this document back in the queue to start work on it again.",
+    "why": "long"
+  },
+  {
+    "id": "91135f42c3d0ad56",
+    "owner": "src/renderer/app/features/settings/leftover-worktrees-card.component.ts",
+    "text": "Reads the folders and their current saved changes again.",
+    "why": "long"
+  },
+  {
+    "id": "c37c5d6989efe059",
+    "owner": "src/renderer/app/features/settings/leftover-worktrees-card.component.ts",
+    "text": "Shows what would be removed and what would stay before you decide.",
+    "why": "consequence"
+  },
+  {
+    "id": "57f298596f67eb7c",
+    "owner": "src/renderer/app/features/settings/provider-accounts-tab.component.ts",
+    "text": "Opens a terminal already running the sign-in command",
+    "why": "long"
+  },
+  {
+    "id": "b349580357af30a0",
+    "owner": "src/renderer/app/features/settings/storage-usage-card.component.ts",
+    "text": "Shows the current list and its consequence before you decide.",
+    "why": "long"
+  },
+  {
+    "id": "2535dae8328a3e1c",
+    "owner": "src/renderer/app/features/title-bar/keep-awake-chip.component.ts",
+    "text": "Harness is stopping your computer from going to sleep on its own while work runs. The screen can still turn off, and closing the lid still puts the computer to sleep. Click to change this in Settings.",
+    "why": "consequence"
+  },
+  {
+    "id": "95662780704218d6",
+    "owner": "src/renderer/app/features/title-bar/keep-awake-chip.component.ts",
+    "text": "Harness is stopping your Mac from going to sleep on its own while work runs. The screen can still turn off, and closing the lid still puts the Mac to sleep. Click to change this in Settings.",
+    "why": "consequence"
+  },
+  {
+    "id": "625b48071601dcef",
+    "owner": "src/renderer/app/shared/components/provider-account-chip.component.ts",
+    "text": "The account this conversation will continue on. Pick another to continue there.",
+    "why": "long"
+  }
+]

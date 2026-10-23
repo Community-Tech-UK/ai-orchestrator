@@ -11,6 +11,7 @@ import {
   provideZonelessChangeDetection,
 } from '@angular/core';
 import { provideRouter } from '@angular/router';
+import { TitleTooltipBridge } from './shared/tooltip/title-tooltip-bridge';
 import { routes } from './app.routes';
 import { CLIPBOARD_TOAST } from './core/services/clipboard-toast.token';
 import { ToastService } from './core/services/toast.service';
@@ -34,6 +35,8 @@ export const appConfig: ApplicationConfig = {
     provideAppInitializer(() => {
       inject(RendererHeartbeatService).start();
     }),
+
+    provideAppInitializer(() => { inject(TitleTooltipBridge).start(); }),
 
     {
       provide: CLIPBOARD_TOAST,

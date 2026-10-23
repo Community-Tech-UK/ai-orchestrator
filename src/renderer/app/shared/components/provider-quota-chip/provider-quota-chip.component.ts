@@ -29,6 +29,7 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 import { ProviderQuotaStore } from '../../../core/state/provider-quota.store';
 import { ProviderAccountIpcService } from '../../../core/services/ipc/provider-account-ipc.service';
 import type {
@@ -89,7 +90,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
 @Component({
   selector: 'app-provider-quota-chip',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <span class="quota-shell">
@@ -103,7 +104,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
         [class.open]="popoverOpen()"
         [style.color]="palette().fg"
         [style.background]="palette().bg"
-        [title]="tooltip()"
+        [appTooltip]="tooltip()"
         [attr.aria-expanded]="popoverOpen()"
         aria-label="Provider quota details"
         (click)="togglePopover()"

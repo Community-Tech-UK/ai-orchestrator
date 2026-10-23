@@ -47,6 +47,7 @@ import { KeepAwakeChipComponent } from './features/title-bar/keep-awake-chip.com
 import { LocalAiStatusChipComponent } from './features/local-ai-guard/local-ai-status-chip.component';
 import { LocalAiFallbackBannerComponent } from './features/local-ai-guard/local-ai-fallback-banner.component';
 import { BrowserComputerOfflineBannerComponent } from './features/remote-nodes/browser-computer-offline-banner.component';
+import { HelpDrawerComponent } from './shared/help/help-drawer.component';
 
 const STARTUP_BANNER_DISMISSAL_STORAGE_KEY = 'startup-capabilities-banner:dismissed-fingerprint';
 
@@ -123,6 +124,7 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
     KeepAwakeChipComponent,
     LocalAiFallbackBannerComponent,
     BrowserComputerOfflineBannerComponent,
+    HelpDrawerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.component.html',

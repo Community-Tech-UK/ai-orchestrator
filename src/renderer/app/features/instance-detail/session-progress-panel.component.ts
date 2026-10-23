@@ -145,6 +145,7 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
           <button
             type="button"
             class="ctx-menu-backdrop"
+            data-ui-hints-exempt="backdrop"
             aria-label="Close menu"
             (click)="outputMenu.set(null)"
             (keydown.escape)="outputMenu.set(null)"

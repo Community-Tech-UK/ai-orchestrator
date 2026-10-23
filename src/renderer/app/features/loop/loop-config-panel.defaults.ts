@@ -67,3 +67,4 @@ export const DEFAULT_AUDIT = {
   planPacketMode: 'off' as const,
   cleanlinessScan: true,
 };
+export type PlanPacketMode = 'off' | 'prompted';

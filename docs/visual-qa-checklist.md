@@ -76,3 +76,6 @@ node scripts/visual-qa-screenshots.mjs --all
       cards; `:focus-visible` outlines are visible.
 - [ ] **Status pills** — ok / warn / error / info / neutral bands are
       distinguishable in both themes.
+
+- [ ] **Tooltips**: tab through the rail, sidebar and session header; every icon shows its tooltip on focus and every greyed-out control says why.
+- [ ] **Help**: the ? buttons open the side panel, Escape closes it and focus returns to the button.

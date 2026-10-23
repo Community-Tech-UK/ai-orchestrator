@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_KEYBINDING_ELIGIBILITY_STATE,
   matchesKeybindingWhen,
+  formatKeyCombo,
 } from './keybinding.types';
 
 describe('matchesKeybindingWhen', () => {
@@ -39,5 +40,17 @@ describe('matchesKeybindingWhen', () => {
       ...DEFAULT_KEYBINDING_ELIGIBILITY_STATE,
       chatSelected: false,
     })).toBe(false);
+  });
+});
+
+
+describe('formatKeyCombo platform labels', () => {
+  it('displays meta and cmd as Control off the Mac', () => {
+    expect(formatKeyCombo({ key: 'h', modifiers: ['meta'] }, false)).toBe('Ctrl+H');
+    expect(formatKeyCombo({ key: 'h', modifiers: ['cmd'] }, false)).toBe('Ctrl+H');
+    expect(formatKeyCombo({ key: 'k', modifiers: ['ctrl', 'meta', 'shift'] }, false)).toBe('Ctrl+Shift+K');
+  });
+  it('preserves Mac symbols', () => {
+    expect(formatKeyCombo({ key: 'h', modifiers: ['meta'] }, true)).toBe('⌘H');
   });
 });

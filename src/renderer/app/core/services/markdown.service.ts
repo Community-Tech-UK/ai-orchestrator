@@ -87,6 +87,13 @@ export class MarkdownService {
 
     // Configure DOMPurify to allow specific elements and attributes
     DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+      // Only a recognised inline path gains keyboard semantics, after the
+      // allowlist has stripped authored role/tabindex (including positive ones).
+      if (node.nodeName.toLowerCase() === 'code' && node.classList.contains('file-path')
+        && node.hasAttribute('data-file-path')) {
+        node.setAttribute('tabindex', '0');
+        node.setAttribute('role', 'link');
+      }
       // Allow data attributes for copy functionality
       if (node.hasAttribute('data-copy-id') || node.hasAttribute('data-code-id')) {
         return;

@@ -1,3 +1,6 @@
+Architecture overview. For screens and wording see [the screen and wording guide](screen-and-wording-guide.md).
+This document describes architecture, not UI standards.
+
 # AI Orchestrator - Design Document
 
 ## Overview

@@ -1,45 +1,38 @@
 import type { HelpEntry } from '../help-content.types';
 
-/** Loop Mode help, folded into the Orchestration settings tab (no Control Center surface id). */
+/** Describes the current engine. Refresh finish rules when Phase 2 changes them. */
 export const LOOP_MODE_HELP: HelpEntry = {
   sections: [
     {
-      kind: 'callout',
-      variant: 'info',
-      heading: 'Loop Mode',
-      body:
-        'Loop Mode runs a child CLI toward a goal until a completion gate fires, a cap trips, or you stop it. ' +
-        'There is no token cap by default — that is not a 1 million token budget. Caps that exist are iterations (50) and wall time (50 hours).',
+      kind: 'callout', variant: 'info', heading: 'Loop Mode',
+      body: 'Loop Mode keeps an agent working towards a goal until its checks pass, a limit is reached or you stop it. There is no token or cost limit unless you set one. Round and time limits still apply.',
     },
     {
-      kind: 'list',
-      heading: 'Same session vs fresh child',
+      kind: 'list', heading: 'Same session vs fresh child',
       items: [
-        'Same session (default): one persistent CLI conversation. Occupancy recycle fires on a provider-reported current-window sample (Claude resident, Codex app-server, Copilot server mode). Resume-capable adapters without occupancy recycle every 8 iterations or 100k aggregate tokens. Gemini and Antigravity cannot recycle.',
-        'Fresh child: each iteration starts a new process and reloads state from disk. Gemini and Antigravity always behave this way even if the toggle says same-session.',
-        'Hybrid is not implemented; picking it would have fallen through to fresh-child, so it is hidden.',
+        'Same session keeps one conversation going between rounds where the provider supports it. When it gets full, supported providers can start a fresh conversation with a summary.',
+        'Fresh child starts a new conversation each round and reloads progress from files. Gemini and Antigravity use this approach even when same session is selected.',
       ],
     },
     {
-      kind: 'list',
-      heading: 'When the loop stops',
+      kind: 'list', heading: 'When the loop stops',
       items: [
-        'Review-driven: consecutive clean self-reviews (and optional independent fresh-eyes). Ping-pong review is a different model reviewing each builder done-declaration until both agree.',
-        'Gated: verify command, declared-done, optional plan rename. Recipe and stage prompts apply only here.',
-        'Review ping-pong is not the tool-loop detector. A TOOL LOOP warning means the child is repeating the same tool calls.',
-        'An iteration or wall-time cap can take one extra wrap-up iteration so the child can write LOOP_TASKS.md and NOTES.md — only when wrap-up is on and the provider enforces the wrap-up tools-disable (today Claude). A token or cost cap stops immediately.',
-        'Auto-unstick tries a change of approach twice on some CRITICAL progress signals, then the loop follows its terminal policy.',
-        'A failed attempt that already changed files (or whose workspace state cannot be proved) pauses for review instead of replaying — replay would be unsafe. That is not the loop being stuck.',
+        'Finish by reviews requires consecutive clean self-reviews with no new work changes. Configured checks and any enabled independent review must pass too.',
+        'Finish by checks looks for completion evidence, runs the check command and requires a plan rename if configured. The recipe and work stages apply to this mode.',
+        'Back-and-forth review asks a second model to check each completion claim until it agrees. A repeated-tool warning means the agent keeps calling the same tools, which is a different problem.',
+        'A round or time limit may allow one final tidy-up round to write hand-off notes, only when enabled and the provider can restrict tools for that round. Currently this is supported by Claude. A token or cost limit stops the loop straight away.',
+        'When no progress is detected, Harness can ask the agent to change approach. Attempts are limited; if they fail, the loop pauses or stops according to its settings.',
+        'If a failed attempt already changed files, or Harness cannot tell whether it did, the loop pauses for your review. Trying again could make things worse. That is not the loop being stuck.',
       ],
     },
     {
-      kind: 'list',
-      heading: 'State files',
+      kind: 'list', heading: 'State files',
       items: [
-        'OUTSTANDING.md holds needs-human items and open questions.',
-        'LOOP_TASKS.md is the structured ledger the loop treats as done only on a close transition.',
-        'Verify failures in an isolated worktree may be missing node_modules, not a failed test. A red suite that is green when re-run in isolation is not a child defect.',
+        'OUTSTANDING.md holds questions and work that needs your input.',
+        'LOOP_TASKS.md records the work and its progress. Finishing a check does not by itself close every item.',
+        'A separate working copy may need its dependencies installed before tests can run. Inspect the failure before deciding the agent’s work is wrong.',
       ],
     },
+    { kind: 'callout', variant: 'tip', heading: 'Check before resuming', body: 'Read the pause reason and inspect the work. A review pause can protect changes that would be unsafe to repeat.' },
   ],
 };

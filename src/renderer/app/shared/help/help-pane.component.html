@@ -4,7 +4,7 @@
     type="button"
     (click)="toggled.emit()"
     aria-expanded="false"
-    title="Show help &amp; tips"
+    appTooltip="Show help &amp; tips"
   >
     <span class="help-pane-rail-icon" aria-hidden="true">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -23,7 +23,7 @@
         (click)="toggled.emit()"
         aria-expanded="true"
         aria-label="Hide help panel"
-        title="Hide help panel"
+        appTooltip="Hide help panel"
       >
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M9 6l6 6-6 6" />
@@ -33,6 +33,22 @@
     <div class="help-pane-body">
       @for (section of renderSections(); track $index) {
         @switch (section.kind) {
+          @case ('terms') {
+            <div class="help-block">
+              <p class="help-subhead">{{ section.heading }}</p>
+              <dl class="help-terms">
+                @for (id of section.terms; track id) {
+                  <div [id]="'term-' + id" tabindex="-1">
+                    <dt>{{ glossaryEntry(id).label }}</dt>
+                    <dd>{{ glossaryEntry(id).plain }}</dd>
+                    @if (glossaryEntry(id).aliases; as aliases) {
+                      <dd class="help-term-aliases">Also called: {{ aliases.join(', ') }}</dd>
+                    }
+                  </div>
+                }
+              </dl>
+            </div>
+          }
           @case ('callout') {
             <app-inline-help [variant]="section.variant" [heading]="section.heading">
               {{ section.body }}

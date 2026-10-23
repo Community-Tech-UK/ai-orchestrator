@@ -184,6 +184,7 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
         <button
           type="button"
           class="backdrop"
+          data-ui-hints-exempt="backdrop"
           aria-label="Close dropdown"
           (click)="closeDropdown()"
         ></button>

@@ -44,7 +44,7 @@
  *    it missed the remote-node badge, whose text is the node name in BOTH the
  *    healthy and disconnected states, with the difference carried by an amber
  *    class and a hover string. The test is whether the visible text conveys what
- *    the tooltip conveys. `icon-control-tooltip.spec.ts` pins the set of hosts
+ *    the tooltip conveys. `scripts/check-ui-hints.ts` pins the set of hosts
  *    exempted from this so a new one cannot be added silently.
  *
  *    Note the wider class this sits inside: **state carried by colour alone**.
@@ -54,6 +54,8 @@
  * 3. Say what the control DOES, not what it is called. "Resume anyway" already
  *    tells you the name; the tooltip's job is "the loop paused for a reason —
  *    this ignores it".
+ * 5. Keys are `<area>.<control>`. Add a key in the same change as its template
+ *    use, so the registry cannot silently accumulate dead text.
  */
 
 export interface TooltipCopyEntry {
@@ -78,6 +80,14 @@ export function tooltipText(entry: TooltipCopyEntry): string {
  * control does not silently orphan its copy.
  */
 export const TOOLTIP_COPY = {
+  'accounts.signIn': {
+    label: 'Sign in',
+    meaning: 'Opens a terminal already running the sign-in command',
+  },
+  'accounts.copySignIn': {
+    label: 'Copy sign-in command',
+    meaning: 'Copies a sign-in command to paste in your terminal',
+  },
   'compaction.freshSession': {
     label: 'Fresh session',
     meaning: 'Restarts the agent with a summary of older turns, full recent turns, user messages, and an anchor index. The earlier conversation stays in history; the agent waits for your next message.',
@@ -235,18 +245,9 @@ export const TOOLTIP_COPY = {
     meaning: 'Starts a fresh model window when measured context use reaches the threshold.',
     consequence: 'Resume-capable providers also use iteration or token limits when context use cannot be measured or a fresh window would still be full.',
   },
-  'loop.isolation': {
-    label: 'Work in an isolated copy',
-    meaning: 'The agent edits a separate worktree instead of your checkout.',
-  },
   'loop.verifyTimeout': {
     label: 'Check time limit',
     meaning: 'How long Harness lets the full check run. A check that runs out of time counts as failed, so the loop cannot finish on it.',
-  },
-  'loop.verifyTwice': {
-    label: 'Run verify twice',
-    meaning: 'Re-runs the verify command to catch a flaky result.',
-    consequence: 'Doubles how long a completion check takes.',
   },
   'loop.advancedToggle': {
     label: 'Advanced',
@@ -282,10 +283,6 @@ export const TOOLTIP_COPY = {
   'loop.outstanding.resolve': {
     label: 'Resolve',
     meaning: 'Saves the answer if any, then marks the item resolved.',
-  },
-  'loop.outstanding.answered': {
-    label: 'Answered',
-    meaning: 'Saves the answer if any, then marks the question answered.',
   },
   'loop.outstanding.dismiss': {
     label: 'Dismiss',

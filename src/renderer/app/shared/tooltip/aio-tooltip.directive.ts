@@ -9,6 +9,13 @@
  * The timing and suppression RULES live in `tooltip-policy.ts` so they can be
  * unit-tested without a DOM; this directive is the adapter that applies them.
  *
+ * Native `title` attributes are shown through `TitleTooltipBridge`; they still
+ * count as debt in the ratchet until migrated to `appTooltip`.
+ * Lasting conditions use `appTooltipDisabledReason` and keep the control focusable.
+ * Disabled controls can receive hover; native disabled controls cannot receive keyboard focus.
+ * Short busy states keep `disabled` and say it in the label ("Saving…").
+ * A tooltip equal to the host's aria-label skips the description so its name is read once.
+ *
  * Deliberate behaviours, each of which is a bug somewhere else if omitted:
  *
  * - Hover works on disabled controls, but keyboard focus does not.
@@ -26,6 +33,12 @@
 
 import {
   Directive,
+  computed,
+  afterRenderEffect,
+  type ComponentRef,
+  effect,
+  Injector,
+  type Signal,
   ElementRef,
   inject,
   input,
@@ -38,13 +51,16 @@ import { DOCUMENT } from '@angular/common';
 import {
   Overlay,
   OverlayPositionBuilder,
-  type ConnectedPosition,
   type OverlayRef,
 } from '@angular/cdk/overlay';
 import { ComponentPortal } from '@angular/cdk/portal';
-import { visibleTextOf } from './tooltip-visible-text';
 import { AioTooltipPanelComponent } from './aio-tooltip-panel.component';
+import { KeybindingService } from '../../core/services/keybinding.service';
+import { createTooltipOverlay } from './tooltip-overlay';
+import { visibleTextOf } from './tooltip-visible-text';
+import { getLastTooltipClosedAt, markTooltipClosed, hideBridgeTooltip, tooltipHostElements } from './tooltip-registry';
 import {
+  shouldDescribeHost,
   openDelayFor,
   POST_CLICK_BLOCK_MS,
   shouldOpenOnFocus,
@@ -58,41 +74,18 @@ import {
   type TooltipFormat,
 } from './tooltip-policy';
 
-/**
- * Shared across every instance: once one tooltip has shown, the next opens
- * without re-paying the delay. This is what makes an icon rail feel like one
- * control rather than a dozen independent ones (hermes' skip-delay).
- */
-let lastTooltipClosedAt = 0;
-
-const POSITIONS: Readonly<Record<'above' | 'below' | 'before' | 'after', ConnectedPosition[]>> = {
-  above: [
-    { originX: 'center', originY: 'top', overlayX: 'center', overlayY: 'bottom', offsetY: -8 },
-    { originX: 'center', originY: 'bottom', overlayX: 'center', overlayY: 'top', offsetY: 8 },
-  ],
-  below: [
-    { originX: 'center', originY: 'bottom', overlayX: 'center', overlayY: 'top', offsetY: 8 },
-    { originX: 'center', originY: 'top', overlayX: 'center', overlayY: 'bottom', offsetY: -8 },
-  ],
-  before: [
-    { originX: 'start', originY: 'center', overlayX: 'end', overlayY: 'center', offsetX: -8 },
-    { originX: 'end', originY: 'center', overlayX: 'start', overlayY: 'center', offsetX: 8 },
-  ],
-  after: [
-    { originX: 'end', originY: 'center', overlayX: 'start', overlayY: 'center', offsetX: 8 },
-    { originX: 'start', originY: 'center', overlayX: 'end', overlayY: 'center', offsetX: -8 },
-  ],
-};
-
 let tooltipIdCounter = 0;
 
 /** Every live directive, so nested hosts can resolve to the innermost one. */
 const liveTooltips = new Set<AioTooltipDirective>();
 
 @Directive({
-  selector: '[appTooltip], [appTooltipTpl]',
+  selector: '[appTooltip], [appTooltipTpl], [appTooltipDisabledReason]',
   standalone: true,
   host: {
+    '[attr.aria-keyshortcuts]': 'ariaShortcuts()',
+    '[attr.aria-disabled]': 'reasonActive() ? \'true\' : null',
+    '[class.aio-reason-disabled]': 'reasonActive()',
     '(mouseenter)': 'onPointerEnter()',
     '(mouseleave)': 'onPointerLeave($event)',
     '(focus)': 'onFocus()',
@@ -115,6 +108,23 @@ export class AioTooltipDirective implements OnDestroy {
   readonly appTooltipFormat = input<TooltipFormat>('text');
   readonly appTooltipPosition = input<'above' | 'below' | 'before' | 'after'>('above');
   readonly appTooltipDisabled = input(false);
+  readonly appTooltipShortcut = input<string | null>(null);
+  readonly appTooltipDisabledReason = input<string | null>(null);
+  readonly appTooltipShowWhenExpanded = input(false);
+  private readonly injector = inject(Injector);
+  protected readonly reasonActive = computed(() => !!this.appTooltipDisabledReason()?.trim());
+  protected readonly ariaShortcuts = computed(() => {
+    const action = this.appTooltipShortcut();
+    return action ? this.injector.get(KeybindingService).ariaShortcutsByAction(action) : null;
+  });
+  private textSource: Signal<string | null> | null = null;
+  registerTextSource(source: Signal<string | null>): void { this.textSource = source; }
+  private effectiveText(): string | null | undefined {
+    return this.appTooltipDisabledReason()?.trim() || this.appTooltip() || this.textSource?.() || null;
+  }
+  private readonly clickGuard = (event: Event): void => {
+    event.preventDefault(); event.stopImmediatePropagation();
+  };
   /**
    * The trigger's visible label, when it has one. Used to suppress a tooltip
    * that would merely repeat text the user can already read.
@@ -129,14 +139,46 @@ export class AioTooltipDirective implements OnDestroy {
   private readonly document = inject(DOCUMENT);
 
   private overlayRef: OverlayRef | null = null;
+  private panelRef: ComponentRef<AioTooltipPanelComponent> | null = null;
   private openTimer: ReturnType<typeof setTimeout> | null = null;
   private touchHideTimer: ReturnType<typeof setTimeout> | null = null;
   private clickedAt = 0;
-  private previousDescribedBy: string | null = null;
+  private describedByApplied = false;
   private readonly tooltipId = `aio-tooltip-${++tooltipIdCounter}`;
 
   constructor() {
     liveTooltips.add(this);
+    tooltipHostElements.add(this.host.nativeElement);
+    effect(onCleanup => {
+      if (!this.reasonActive()) return;
+      const element = this.host.nativeElement;
+      element.addEventListener('click', this.clickGuard, true);
+      onCleanup(() => element.removeEventListener('click', this.clickGuard, true));
+    });
+    effect(() => {
+      // Read live input/registry dependencies even before a panel is attached.
+      const template = this.reasonActive() ? null : this.appTooltipTpl();
+      const text = this.effectiveText();
+      const format = this.appTooltipFormat();
+      const action = this.appTooltipShortcut();
+      const shortcut = action ? this.injector.get(KeybindingService).formatBindingByAction(action) : '';
+      const suppressed = this.isSuppressed();
+      if (!this.panelRef) return;
+      if (suppressed) { this.hide(); return; }
+      this.panelRef.setInput('template', template);
+      this.panelRef.setInput('text', text ?? '');
+      this.panelRef.setInput('format', format);
+      this.panelRef.setInput('shortcut', shortcut);
+      this.restoreDescribedBy();
+    });
+    afterRenderEffect({ write: () => {
+      // Companion directives may update aria-label later in the same render.
+      // Compare against the finished host binding rather than its previous value.
+      const text = !this.reasonActive() && this.appTooltipTpl() ? 'template' : this.effectiveText();
+      if (!this.panelRef) return;
+      this.restoreDescribedBy();
+      this.applyDescribedBy(text);
+    } });
     // Teardown is `ngOnDestroy` only. Registering a DestroyRef callback as well
     // ran `dispose()` twice on every destroy (Angular's onDestroy hooks and its
     // cleanup pass are separate) — harmless because dispose is idempotent, but
@@ -148,7 +190,7 @@ export class AioTooltipDirective implements OnDestroy {
   }
 
   protected onPointerEnter(): void {
-    const skipActive = Date.now() - lastTooltipClosedAt < SKIP_WINDOW_MS;
+    const skipActive = Date.now() - getLastTooltipClosedAt() < SKIP_WINDOW_MS;
     this.scheduleShow(openDelayFor(this.appTooltipVariant(), skipActive));
   }
 
@@ -183,6 +225,7 @@ export class AioTooltipDirective implements OnDestroy {
   }
 
   protected onClick(): void {
+    if (this.reasonActive()) return;
     this.clickedAt = Date.now();
     this.hide();
   }
@@ -207,23 +250,28 @@ export class AioTooltipDirective implements OnDestroy {
     if (this.hasNestedTooltipPending()) return;
     this.hideAncestorTooltips();
 
+    hideBridgeTooltip();
     const overlayRef = this.ensureOverlay();
-    const portal = new ComponentPortal(AioTooltipPanelComponent, this.viewContainer);
-    const ref = overlayRef.attach(portal);
-    ref.setInput('text', this.appTooltip() ?? '');
-    ref.setInput('template', this.appTooltipTpl());
-    ref.setInput('format', this.appTooltipFormat());
+    const ref = overlayRef.attach(new ComponentPortal(AioTooltipPanelComponent, this.viewContainer));
+    this.panelRef = ref;
+    const template = this.reasonActive() ? null : this.appTooltipTpl();
+    ref.setInput('template', template);
+    ref.setInput('text', this.effectiveText() ?? '');
     ref.setInput('tooltipId', this.tooltipId);
-    this.applyDescribedBy();
+    ref.setInput('format', this.appTooltipFormat());
+    const action = this.appTooltipShortcut();
+    ref.setInput('shortcut', action ? this.injector.get(KeybindingService).formatBindingByAction(action) : '');
+    this.applyDescribedBy(template ? 'template' : this.effectiveText());
   }
 
   hide(): void {
     this.clearTimer('openTimer');
     this.clearTimer('touchHideTimer');
     if (!this.overlayRef?.hasAttached()) return;
+    this.panelRef = null;
     this.overlayRef.detach();
     this.restoreDescribedBy();
-    lastTooltipClosedAt = Date.now();
+    markTooltipClosed();
   }
 
   private scheduleShow(delayMs: number, onShown?: () => void): void {
@@ -271,10 +319,10 @@ export class AioTooltipDirective implements OnDestroy {
 
   private isSuppressed(): boolean {
     return shouldSuppressTooltip({
-      text: this.appTooltipTpl() ? 'template' : this.appTooltip(),
+      text: !this.reasonActive() && this.appTooltipTpl() ? 'template' : this.effectiveText(),
       visibleLabel: this.appTooltipLabel() ?? visibleTextOf(this.host.nativeElement),
       truncated: this.isTruncated(),
-      expanded: this.host.nativeElement.getAttribute('aria-expanded') === 'true',
+      expanded: !this.appTooltipShowWhenExpanded() && this.host.nativeElement.getAttribute('aria-expanded') === 'true',
       disabled: this.appTooltipDisabled(),
       recentlyClicked: Date.now() - this.clickedAt < POST_CLICK_BLOCK_MS,
     });
@@ -287,17 +335,11 @@ export class AioTooltipDirective implements OnDestroy {
 
   private ensureOverlay(): OverlayRef {
     if (this.overlayRef) return this.overlayRef;
-    this.overlayRef = this.overlay.create({
-      positionStrategy: this.positionBuilder
-        .flexibleConnectedTo(this.host)
-        .withPositions(POSITIONS[this.appTooltipPosition()])
-        .withPush(true),
-      scrollStrategy: this.overlay.scrollStrategies.close(),
-      // A tooltip must never take the pointer: hovering it would keep it open
-      // over the control it describes.
-      hasBackdrop: false,
-      panelClass: 'aio-tooltip-panel',
-      disposeOnNavigation: true,
+    this.overlayRef = createTooltipOverlay(this.overlay, this.positionBuilder, this.host, this.appTooltipPosition());
+    this.overlayRef.detachments().subscribe(() => {
+      this.panelRef = null;
+      this.restoreDescribedBy();
+      markTooltipClosed();
     });
     return this.overlayRef;
   }
@@ -306,18 +348,20 @@ export class AioTooltipDirective implements OnDestroy {
    * Point the trigger at the tooltip for assistive technology, preserving any
    * description it already had.
    */
-  private applyDescribedBy(): void {
+  private applyDescribedBy(text: string | null | undefined): void {
     const el = this.host.nativeElement;
-    this.previousDescribedBy = el.getAttribute('aria-describedby');
-    this.renderer.setAttribute(el, 'aria-describedby', mergeDescribedBy(this.previousDescribedBy, this.tooltipId));
+    if (!shouldDescribeHost(text, el.getAttribute('aria-label'))) return;
+    this.describedByApplied = true;
+    this.renderer.setAttribute(el, 'aria-describedby', mergeDescribedBy(el.getAttribute('aria-describedby'), this.tooltipId));
   }
 
   private restoreDescribedBy(): void {
+    if (!this.describedByApplied) return;
     const el = this.host.nativeElement;
     const remaining = unmergeDescribedBy(el.getAttribute('aria-describedby'), this.tooltipId);
     if (remaining === null) this.renderer.removeAttribute(el, 'aria-describedby');
     else this.renderer.setAttribute(el, 'aria-describedby', remaining);
-    this.previousDescribedBy = null;
+    this.describedByApplied = false;
   }
 
   private clearTimer(which: 'openTimer' | 'touchHideTimer'): void {
@@ -330,8 +374,10 @@ export class AioTooltipDirective implements OnDestroy {
 
   private dispose(): void {
     liveTooltips.delete(this);
+    tooltipHostElements.delete(this.host.nativeElement);
     this.clearTimer('openTimer');
     this.clearTimer('touchHideTimer');
+    this.panelRef = null;
     this.overlayRef?.dispose();
     this.overlayRef = null;
     // The host may already be detached; guard so teardown never throws.

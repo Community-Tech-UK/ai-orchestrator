@@ -186,7 +186,8 @@ export function aggregateReviewFindings(
       reviewer,
       source: cluster.reviewerProvenance.get(reviewer) ?? 'remote',
     }));
-    const advisory = !reviewerProvenance.some(({ source }) => source === 'remote');
+    const advisory = !reviewerProvenance.some(({ source }) => source === 'remote')
+      || cluster.members.every((member) => member.advisory === true);
     const maxConfidence = cluster.members.reduce((acc, m) => Math.max(acc, m.confidence ?? 0), 0);
     const confidence = Math.min(1, maxConfidence + 0.05 * (agreementCount - 1));
 

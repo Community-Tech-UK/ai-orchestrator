@@ -13,6 +13,7 @@ import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import type { Instance } from '../../core/state/instance.store';
+import { HelpDrawerService } from '../../shared/help/help-drawer.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 
@@ -95,6 +96,14 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
     expect(button.title).not.toContain('Claude');
   });
 
+  it('opens session help from the header action cluster', () => {
+    fixture.componentRef.setInput('instance', instance('codex'));
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('.header-actions app-help-link button') as HTMLButtonElement;
+    expect(button.getAttribute('aria-label')).toBe('Help: working in a session');
+    button.click();
+    expect(TestBed.inject(HelpDrawerService).target()).toEqual({ topic: 'session' });
+  });
   it.each([true, false])('allows the cost setting to control the header cost (%s)', (enabled) => {
     showCost = enabled;
     fixture.componentRef.setInput('instance', instance('claude'));

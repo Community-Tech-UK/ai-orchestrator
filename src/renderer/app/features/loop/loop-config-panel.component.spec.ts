@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { LoopConfigPanelComponent } from './loop-config-panel.component';
 import { defaultLoopContextConfig } from '../../../../shared/types/loop.types';
+import { HelpDrawerService } from '../../shared/help/help-drawer.service';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const template = readFileSync(resolve(specDirectory, './loop-config-panel.component.html'), 'utf8');
@@ -89,6 +90,13 @@ describe('LoopConfigPanelComponent', () => {
 
     expect(config?.planFile).toBe('PLAN.md');
     expect(config?.completion?.requireCompletedFileRename).toBe(true);
+  });
+
+  it('opens Loop Mode help beside the close action', () => {
+    const button = fixture.nativeElement.querySelector('header app-help-link button') as HTMLButtonElement;
+    expect(button.getAttribute('aria-label')).toBe('Help: Loop Mode');
+    button.click();
+    expect(TestBed.inject(HelpDrawerService).target()).toEqual({ topic: 'loop' });
   });
 
   it('does not require completed-plan renames for no-plan loops by default', () => {

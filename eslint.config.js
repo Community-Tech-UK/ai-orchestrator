@@ -3,6 +3,7 @@ const eslint = require("@eslint/js");
 const { defineConfig } = require("eslint/config");
 const tseslint = require("typescript-eslint");
 const angular = require("angular-eslint");
+const uiHints = require("./eslint-rules/ui-hints");
 
 module.exports = defineConfig([
   {
@@ -95,5 +96,15 @@ module.exports = defineConfig([
       angular.configs.templateAccessibility,
     ],
     rules: {},
+  },
+  {
+    // Keep severities linked to the ratchet: scripts/__tests__/ui-hints-lint-link.spec.ts.
+    files: ["src/renderer/**/*.html"],
+    plugins: { "ui-hints": uiHints },
+    rules: {
+      "ui-hints/no-hardcoded-shortcut": "off",
+      "ui-hints/no-native-title": ["off", { scope: "controls" }],
+      "ui-hints/icon-control-needs-name-and-tooltip": "off",
+    },
   }
 ]);

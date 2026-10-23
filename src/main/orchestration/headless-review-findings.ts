@@ -8,10 +8,16 @@ import { parseEvidenceTail } from './review-artifact-anchor';
  * finding with no locatable quote is always `unlocalized-advisory` — it can
  * be shown, but the completion gate can never let it block on severity alone.
  */
-function withEvidence(base: Omit<HeadlessReviewFinding, 'body' | 'anchor' | 'evidenceClass'>, rawIssue: string): HeadlessReviewFinding {
-  const { text, anchor } = parseEvidenceTail(rawIssue);
+function withEvidence(base: Omit<HeadlessReviewFinding, 'body' | 'anchor' | 'evidenceClass'>, rawIssue: string, reviewerId: string): HeadlessReviewFinding {
+  const screenNote = /^UI:\s*/.test(rawIssue);
+  const { text, anchor } = parseEvidenceTail(screenNote ? rawIssue.replace(/^UI:\s*/, '') : rawIssue);
   return {
     ...base,
+    ...(screenNote ? {
+      title: `${reviewerId} screen and wording note`,
+      severity: 'low' as const,
+      advisory: true,
+    } : {}),
     body: text,
     ...(anchor ? { anchor, evidenceClass: 'localized' as const } : { evidenceClass: 'unlocalized-advisory' as const }),
   };
@@ -24,7 +30,7 @@ export function toHeadlessFindings(review: ReviewResult): HeadlessReviewFinding[
       title: `${review.reviewerId} critical issue`,
       severity: 'high',
       confidence: 0.9,
-    }, issue));
+    }, issue, review.reviewerId));
   }
   for (const [dimension, score] of Object.entries(review.scores)) {
     if (!score || score.issues.length === 0) continue;
@@ -33,7 +39,7 @@ export function toHeadlessFindings(review: ReviewResult): HeadlessReviewFinding[
         title: `${review.reviewerId} ${dimension} concern`,
         severity: severityForScore(dimension, score.score),
         confidence: Math.max(0.1, Math.min(1, (5 - score.score) / 4)),
-      }, issue));
+      }, issue, review.reviewerId));
     }
   }
   if (findings.length === 0 && review.overallVerdict !== 'APPROVE') {

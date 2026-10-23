@@ -13,6 +13,20 @@ function f(partial: Partial<AggregatableFinding> & { reviewer: string }): Aggreg
 }
 
 describe('aggregateReviewFindings', () => {
+  it('preserves advisory status when every remote member is advisory', () => {
+    const [finding] = aggregateReviewFindings([
+      f({ reviewer: 'codex', advisory: true }), f({ reviewer: 'gemini', advisory: true }),
+    ], { totalReviewers: 2 });
+    expect(finding.advisory).toBe(true);
+  });
+
+  it('keeps mixed advisory and blocking remote clusters authoritative', () => {
+    const [finding] = aggregateReviewFindings([
+      f({ reviewer: 'codex', advisory: true }), f({ reviewer: 'gemini', severity: 'high' }),
+    ], { totalReviewers: 2 });
+    expect(finding.advisory).toBe(false);
+    expect(finding.severity).toBe('high');
+  });
   it('passes a single reviewer through with no agreement prefix', () => {
     const out = aggregateReviewFindings(
       [f({ reviewer: 'gemini', title: 'Null check', body: 'Add a null check before reading payload.value.', severity: 'medium' })],
