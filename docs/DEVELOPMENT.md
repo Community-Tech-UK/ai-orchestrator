@@ -227,7 +227,7 @@ src/
 ## Running the App
 
 ### Prerequisites
-- Node.js 24.15.0 (see `.nvmrc`)
+- Node.js 24.22.1 (see `.nvmrc`)
 - npm 10+
 - At least one CLI installed: `claude`, `gemini`, `codex`, `copilot`, `cursor-agent`, `grok`, or `opencode`
 

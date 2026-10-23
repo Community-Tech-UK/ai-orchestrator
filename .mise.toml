@@ -6,7 +6,7 @@
 # compatibility; this file adds explicit pinning for mise users.
 
 [tools]
-node = "24.15.0"
+node = "24.22.1"
 
 [env]
 # Default renderer port — override per-instance for multi-dev scenarios.

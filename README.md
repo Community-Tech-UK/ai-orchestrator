@@ -21,7 +21,7 @@ A high-performance desktop application for managing, monitoring, and coordinatin
 
 ## Prerequisites
 
-- Node.js 24.15.0 (see `.nvmrc`)
+- Node.js 24.22.1 (see `.nvmrc`)
 - npm 10+
 - At least one supported AI CLI installed and configured, such as Claude, Codex, Gemini/Antigravity, Copilot, or Cursor
 

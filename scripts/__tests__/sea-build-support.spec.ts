@@ -29,7 +29,7 @@ describe('SEA build support', () => {
     const binaryPath = join(scratchDirectory, 'node');
     writeFileSync(binaryPath, 'not SEA capable');
 
-    expect(() => assertSeaBuildSupported(binaryPath)).toThrow(/does not contain the Node SEA fuse/);
+    expect(() => assertSeaBuildSupported(binaryPath, 'v24.22.1')).toThrow(/does not contain the Node SEA fuse/);
     expect(canBuildSeaWithNode(binaryPath)).toBe(false);
   });
 
@@ -40,12 +40,32 @@ describe('SEA build support', () => {
     writeFileSync(binaryPath, `header bytes ${NODE_SEA_FUSE}:0 trailer bytes`);
 
     expect(canBuildSeaWithNode(binaryPath)).toBe(true);
-    expect(() => assertSeaBuildSupported(binaryPath)).not.toThrow();
+    expect(() => assertSeaBuildSupported(binaryPath, 'v24.22.1')).not.toThrow();
+  });
+
+  it.each(['v24.22.0', 'v24.15.0', 'v22.22.3', 'v25.6.0', 'v26.12.0'])(
+    'refuses to build on Node %s, which is below the security floor, even when the fuse is present',
+    (version) => {
+      const scratchDirectory = mkdtempSync(join(tmpdir(), 'aio-sea-support-'));
+      scratchDirectories.push(scratchDirectory);
+      const binaryPath = join(scratchDirectory, 'node');
+      writeFileSync(binaryPath, `header bytes ${NODE_SEA_FUSE}:0 trailer bytes`);
+
+      expect(() => assertSeaBuildSupported(binaryPath, version)).toThrow(
+        new RegExp(`SEA build refuses Node ${version.replace(/\./g, '\\.')}`),
+      );
+    },
+  );
+
+  it('rejects an unpatched Node before reading the executable', () => {
+    expect(() => assertSeaBuildSupported('/nonexistent/path/to/node', 'v24.22.0')).toThrow(
+      /below the security floor/,
+    );
   });
 
   it('treats a missing executable as unsupported rather than throwing from the read', () => {
     expect(canBuildSeaWithNode('/nonexistent/path/to/node')).toBe(false);
-    expect(() => assertSeaBuildSupported('/nonexistent/path/to/node')).toThrow(
+    expect(() => assertSeaBuildSupported('/nonexistent/path/to/node', 'v24.22.1')).toThrow(
       /does not contain the Node SEA fuse/,
     );
   });
