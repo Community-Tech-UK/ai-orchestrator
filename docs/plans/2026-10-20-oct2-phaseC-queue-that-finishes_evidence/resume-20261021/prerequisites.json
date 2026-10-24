@@ -1,0 +1,18 @@
+{
+  "at": "2026-10-21T11:16:06.986575+00:00",
+  "worktreeHead": "317e0c91f549c905e90fdbb10729a84ad79c37c5",
+  "base": "542f1f690fae155ecec3e6dddfc901c008fec3b7",
+  "rootHead": "86970a6b97c11fe0b9aeb462fa18063c0332cd01",
+  "requiredFiles": {
+    "src/main/plan-queue/plan-queue-checkout-guard.ts": false,
+    "src/main/plan-queue/plan-queue-verdict-nudge.ts": false,
+    "src/main/cli/adapters/codex/codex-ephemeral-usage-log.ts": false,
+    "src/main/cli/adapters/codex-ephemeral-usage-log.ts": false
+  },
+  "activeDocumentPattern": "const ACTIVE_DOCUMENT_RE = /(_spec|_spec_planned|_plan|_livetest)\\.md$/i;",
+  "rootRegisterNumstat": "9\t0\tdocs/plans/livetest-remediation-register.md",
+  "rootRegisterSha256": "22d746679fe7469f0959fbde6fe9e5e86a8c5c7d8479c77b743fb52f9b4dea58",
+  "rootPlanStatus": "?? docs/plans/2026-10-20-oct2-phaseC-queue-that-finishes_plan.md",
+  "phaseA-safety-and-truthStatus": "Implementation in the supplied queue worktree; not integrated or installed. Steps 0\u20136 and 8\u201313 code is implemented;\nStep 14's 70-path candidate list is prepared, with index removal reserved for James's explicit commit request.\nStep 7 has a tested current pass-rate companion; integration into Phase 1's missing report awaits AIO's Phase B landing.\nAll canonical static checks and both builds pass; focused queue/runtime checks pass. A fresh Step 1 review passed;\ncombined fresh code-handoff review passed with no actionable findings (182 independent focused tests). Full repository suite belongs to the queue's independent verifier.\n\nRead-only evidence confirms the old repair already ran: **LT-707**, 338 changed Claude rows, **$676.24** reduction.\nThe cutoff is the audited **1792222279000 (08:31:19 BST)**. Prevention is fixed; existing-history restoration remains open.\nNo real database/settings writes, restart, integration, commit or completion rename. See [history](2026-10-20-oct2-phaseA-safety-and-truth_history.md)\nand [pending live checks](2026-10-20-oct2-phaseA-safety-and-truth_livetest.md).",
+  "phaseB-land-built-workStatus": "On main: no (`queue/2026-10-20-oct2-phaseb-land-bu-863a90`).\nRevision 2 correction-code review PASS; full Phase B remains FAIL / OPEN.\nFindings 2\u20134 fixed: missing-step failures park safely across worker entry points and FAIL handling; exact branch\nidentity survives park/land (including hex-like, punctuation and Unicode names); unused backup-card API removed,\nlegacy retention filters once. Future follow-ups integration must bring its card API with its callers (Steps 6/8).\nSteps 2/4 fulfilled; Steps 5/6/7 code tested. Finding 1 remains OPEN: Step 3 is 1/6; Step 7.1 has 19 legacy Status\ncandidates; Step 5.2 size refusal activation awaits Step 3; all seven Step 8 landings remain unperformed.\nPhase A still says not integrated/installed. Queue controls belong to the existing parent; this worker cannot\nresume/adopt those runs. Foreign tracked root plan edits are preserved. These operations are not live deferrals.\nOnly Step 6's first installed prune stays in the sibling livetest. No commit, restart, prune or completion rename.\nIndependent final review: 258 tests, both typechecks/builds, lint, LOC, 816 Git-valid refs / 4,080 assertions pass;\nno actionable correction findings. Full suite/install/broad inherited audit are not certified. Generators pass.\nEvidence and exact remaining actions: [history](2026-10-20-oct2-phaseB-land-built-work_history.md),\n[revision 2 report/seal/receipts](../../_scratch/phaseb-handoff-863a90/revision-2/)."
+}

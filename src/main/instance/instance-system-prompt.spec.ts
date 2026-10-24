@@ -109,6 +109,15 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
     promptMocks.indexedBuildContext.mockResolvedValue(null);
   });
 
+  it.each(['codex', 'claude', 'auto', undefined] as const)('leaves resolved-provider background instructions to runtime binding (%s)', async (provider) => {
+    const result = await assembleInstanceSystemPrompt({
+      instance: makeInstance(), config: { workingDirectory: '/tmp/project', provider },
+      resolvedAgent: baseAgent, instructionPrompts: [], initialUserMessageContent: undefined, deps: makeDeps(),
+    });
+    expect(result.systemPrompt).not.toContain('[Background commands]');
+    expect(result.systemPrompt).toContain(baseAgent.systemPrompt);
+  });
+
   it('bounds initial indexed store lookup by the create-enricher deadline', async () => {
     await assembleInstanceSystemPrompt({
       instance: makeInstance(),

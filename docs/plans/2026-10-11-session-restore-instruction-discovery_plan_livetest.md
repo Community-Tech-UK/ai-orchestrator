@@ -6,7 +6,7 @@ Plan: [session restore instruction discovery](2026-10-11-session-restore-instruc
 
 Prerequisites: install a Harness build containing this change and restart it at a suitable time. Use James's normal history profile, the original Codex work-finding session and the Claude session whose working directory is the parent Communitytech workspace. Use the same provider accounts as the archived sessions; no special feature flags or settings are required.
 
-Remediation flow: [live-test campaign runbook](livetest-campaign-runbook.md). Record any reproduced defect in [remediation register](livetest-remediation-register.md), with corresponding implementation status in `2026-07-19-livetest-failure-remediation_plan.md`. Keep per-check evidence here; rename this document `_livetest_completed.md` only after every check passes. Do not add content to a closed document; reopen or create a follow-up first.
+Remediation flow: [live-test campaign runbook](livetest-campaign-runbook.md). Record any reproduced defect in [remediation register](livetest-remediation-register.md), with corresponding implementation status in `2026-07-19-livetest-failure-remediation-followup_plan.md`. Keep per-check evidence here; rename this document `_livetest_completed.md` only after every check passes. Do not add content to a closed document; reopen or create a follow-up first.
 
 ## Checks
 

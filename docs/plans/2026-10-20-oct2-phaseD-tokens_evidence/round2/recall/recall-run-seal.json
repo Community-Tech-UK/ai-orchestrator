@@ -1,0 +1,15 @@
+{
+  "sealedAt": "2026-10-20T22:42:51.965Z",
+  "head": "0861b30273aeefb5a2fad65000615c0c28a3b126",
+  "files": {
+    "_scratch/oct2-phaseD-round2/recall-run-receipt.json": "1b9b615dbc5f57e41ba5de67317ebb4d5d28d41b9f19a9ec8db0d5a0e3fa34fe",
+    "_scratch/oct2-phaseD-round2/recall-evidence.json": "9b0010d8e2e8b8e4d2f4efb48e577ffb9f98e0b541d2932f8ff46f118d762bce",
+    "scripts/audit/recall-replay.ts": "63a5bffb34890f4318fc295c3560887157eb211a32ff86fd689684ca7da4193a",
+    "src/main/context/recall-replay/recall-cli-env.ts": "a3fcf930904f2c607981c2d8cda20250b7052d8251faff6e24e8248bcb1f9458",
+    "src/main/context/recall-replay/recall-evidence.ts": "a2dd5ed97490c373257aca9c1fcf2e830eeb1d00eb9740960667468f0349e17a",
+    "src/main/context/recall-replay/recall-pipeline.ts": "15dd6084ed60e652c3ecf62cf23a2314d15d47a576d90b1a218aca8504a1a82d",
+    "src/main/context/recall-replay/recall-questions.ts": "94a3d6b5066e3a1b5436d3ef0c758f5507949401796076151cbb604e178edc2d",
+    "src/main/context/recall-replay/recall-transcript.ts": "6a0afb41638d34fa96a3b9dc399767b285b52bb2ec4130dfb20bb46d47944e37",
+    "src/main/context/recall-replay/recall-types.ts": "d7b2c75e9f13ecbca24663b5a918e2cfd882fa2782c865211e3b9e44da6e491c"
+  }
+}

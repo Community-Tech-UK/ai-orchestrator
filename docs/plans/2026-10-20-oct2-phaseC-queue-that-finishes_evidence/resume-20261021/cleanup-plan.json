@@ -1,0 +1,19 @@
+{
+  "verificationStartedAt": "2026-10-21T11:11:06.680421+00:00",
+  "ownedRuntimeRoots": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phasec-queue-t-cf5944/dist",
+      "createdAt": "2026-10-21T11:11:59.671024+00:00",
+      "files": 22049
+    }
+  ],
+  "preexistingPreserved": [
+    "node_modules",
+    "node_modules/.vite",
+    "build"
+  ],
+  "databaseClusterStarted": false,
+  "browserStarted": false,
+  "dependencyInstalled": false,
+  "copiedSourceTrees": false
+}

@@ -87,6 +87,21 @@ describe.skipIf(process.platform === 'win32')('runInProcessGroup', () => {
     await expectStopped(pidFile);
   }, 20_000);
 
+  it('stops a leftover in the group that has already let go of the output', async () => {
+    // `cmd > /dev/null 2>&1 &`: nothing holds the pipes, so `close` arrives before the grace timer.
+    const pidFile = join(dir, 'quiet.pid');
+    fixtures.trackPidFile(pidFile);
+    const script = "const c=require('node:child_process').spawn('sleep',['60'],{stdio:'ignore'});"
+      + `require('node:fs').writeFileSync(${JSON.stringify(pidFile)},String(c.pid));c.unref();`
+      + "console.log('done');process.exit(0);";
+
+    const result = await runNode(script);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain('left processes running; stopping them');
+    await expectStopped(pidFile);
+  }, 20_000);
+
   describe('a process that moved itself out of the group', () => {
     it('does not hold the result after the command exits', async () => {
       const pidFile = join(dir, 'escaped.pid');

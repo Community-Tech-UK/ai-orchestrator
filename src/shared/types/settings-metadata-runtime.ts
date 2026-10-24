@@ -65,6 +65,19 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'memory',
   },
   {
+    key: 'leftoverProcessCleanup',
+    label: 'Programs agents leave running',
+    description: 'What to do with programs a session started and left running after its command finished. Stopping runaway ones ends a leftover that keeps using half a CPU core for 10 minutes after its session was closed, or for an hour while the session is still open. Leftovers in a plan queue folder are also stopped when Harness removes the folder. Idle leftovers from closed sessions are only reported unless you choose to stop them too.',
+    type: 'select',
+    category: 'memory',
+    options: [
+      { value: 'stop-cpu-hogs', label: 'Stop runaway ones, report the rest' },
+      { value: 'stop-all', label: 'Stop runaway ones and those from finished sessions' },
+      { value: 'notify', label: 'Only report them' },
+      { value: 'off', label: 'Do nothing' },
+    ],
+  },
+  {
     key: 'cumulativeTokenCompactionTrigger',
     label: 'Compact after token spend',
     description: 'Automatically compact an agent once it has spent this many tokens since its last compaction, regardless of how full its context window is — a cost cap for long sessions. 0 turns it off.',

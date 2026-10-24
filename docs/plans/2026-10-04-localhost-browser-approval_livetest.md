@@ -4,7 +4,7 @@ Status: pending. Prerequisite: run a rebuilt Harness instance containing this ch
 
 Plan: [localhost browser approval](2026-10-04-localhost-browser-approval_plan_completed.md).
 
-Remediation flow: read [live-test campaign runbook](livetest-campaign-runbook.md) before executing. A reproduced defect belongs in [live-test remediation register](livetest-remediation-register.md) and the matching implementation-status section of [live-test failure remediation plan](2026-07-19-livetest-failure-remediation_plan.md). Keep evidence here; rename this file `_livetest_completed.md` only after every check passes.
+Remediation flow: read [live-test campaign runbook](livetest-campaign-runbook.md) before executing. A reproduced defect belongs in [live-test remediation register](livetest-remediation-register.md) and the matching implementation-status section of [live-test failure remediation plan](2026-07-19-livetest-failure-remediation-followup_plan.md). Keep evidence here; rename this file `_livetest_completed.md` only after every check passes.
 
 ## Deferred check: rebuilt app startup and visible approval banner
 

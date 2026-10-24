@@ -1,6 +1,25 @@
-# October Phase 3: a calmer, clearer screen
+## Verifier finding to fix next (23 Oct, coordinator handoff; medium)
 
-**Status:** active, partially implemented (13 Oct 2026). Step 1 (A14-UX Second opinion naming) is complete. Steps 2-4 have their new pure/shared modules created and tested. Steps 5-17 remain open. Many steps depend on Phase 0/1/2 work that has not landed on this base; see the queue worker preflight and 13 Oct as-built notes. Written 2026-10-10. Keep this root-checkout file untracked; the coordinator owns its completion rename.
+`src/renderer/app/features/cost/cost-page.component.ts:221` - a model used by BOTH Copilot and a dollar-priced provider
+shows only the AI-credits portion in the per-model Costs table (the summary builder merges both units into one row; the
+label drops the dollar part at the unconditional return). Preserve both units or separate provider/billing rows.
+
+
+## Status
+
+On main: no (`queue/2026-10-10-oct-phase3-calm-scr-5d08d9`).
+All 17 steps' code implemented and worker verification-round-5 findings fixed. Round-4 findings remain fixed.
+Implementation ready for the queue's independent verifier (round 6). Awaiting full suite, fresh-eyes
+`task-completion-gate` PASS and coordinator completion rename. `claudeLivePermissionPrompts` still ships false.
+Twenty-one open live checks in [livetest](2026-10-10-oct-phase3-calm-screen_livetest.md).
+Dated status, verifier findings and as-built sections: [history](2026-10-10-oct-phase3-calm-screen_history.md).
+
+> Earlier dated status, verifier findings and as-built sections moved to [history](2026-10-10-oct-phase3-calm-screen_history.md).
+
+The dated 12–20 October notes below are historical evidence from earlier queue attempts, not
+current verification of this checkout. Their dependency blockers and parked-branch statuses are superseded
+by the 23 October as-built notes. The root plan was already tracked and modified (` M`) when this
+worker began; its existing content/index state was preserved rather than forcing it to `??`.
 
 **Source:** the "Phase 3" row of the approved backlog [`claude_oct-todo.md`](../../claude_oct-todo.md) (James approved
 it on 10 Oct 2026 and answered decisions 1-7). The row reads: "3: calm screen (2-3 weeks) | C2, C4, C5, C6+C7 as one
@@ -686,9 +705,7 @@ to act on it names the agent you are talking to ("Ask Codex to fix these"), not 
 - In a Codex session the button reads "Ask Codex to fix these", and its message wraps the notes in `<second_opinion>`.
 - A manual second opinion shows its result with automatic reviews switched off.
 
-**Live checks:**
-- On the Windows PC, with automatic reviews off, ask for a second opinion from a reply's menu in a Codex session. The
-  header shows the result and the fix button names Codex.
+**Deferred live checks:** see check(s) 1 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 2. C2a: One header row, one home for model, account and context, and one Stop (S-M)
 
@@ -867,11 +884,7 @@ to act on it names the agent you are talking to ("Ask Codex to fix these"), not 
 - There is one Stop control, available whenever the session is busy.
 - `npm run check:ts-max-loc` passes with no ceiling raised, and `instance-header.component.ts` is under 500 lines.
 
-**Live checks:**
-- On the Windows PC, open a busy Claude session and a Copilot session. Confirm the header is one row, the Copilot
-  account badge is beside the message box, Stop works with text typed, and Context details opens from the ring by mouse
-  and by keyboard.
-- Queue a model change from the composer while a turn runs. The pending chip appears and cancelling it works.
+**Deferred live checks:** see check(s) 2 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 3. C8: Say what a session may do, in one sentence (S-M)
 
@@ -998,9 +1011,7 @@ note left in the conversation when you switch it says the same in plain words. S
   model still receives the old notice text.
 - A provider that refuses Fast keeps saying so in the menu, not only in a toast.
 
-**Live checks:**
-- On the Windows PC, switch Auto-approve during a Claude turn. The chip shows the queued arrow, then the plain receipt
-  appears once the turn ends.
+**Deferred live checks:** see check(s) 3 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 4. C9: The busy line says what the agent is thinking about (S, then S-M)
 
@@ -1114,9 +1125,7 @@ Claude it shows only when Claude shares its thinking, which is about one time in
 - A Claude turn with visible thinking shows "Thinking · <first sentence>" after that block arrives.
 - Busy sessions in the list show the same short line; idle rows are unchanged.
 
-**Live checks:**
-- On the Windows PC, run a Codex task that reasons for a while (for example "plan a refactor of X, then do step 1"). The
-  busy row changes from a tool label to "Thinking · …" mid-turn and the session row matches.
+**Deferred live checks:** see check(s) 4 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 5. C2b: One status strip above the message box (M)
 
@@ -1148,6 +1157,19 @@ outside the strip, so collapsing it can never hide a decision.
      more" overflow rule and checks the typed list); the "Agents" label stays for child sessions only. The Tasks chip
      moves here unchanged. Phase 5's part 13b removes it later, once the Progress panel always shows the running task;
      removing it here would hide the running step of a long list.
+
+> **Handoff to this step from Phase 5 step 16 (C13.12, 15 Oct 2026).** Phase 5 owns these two rules and hands them
+> here, because the strip does not exist yet and Phase 5 forbids building a second one:
+> 1. **Overflow:** show the five most urgent chips and fold the rest into a "+N more" control that opens the list (the
+>    cap is five because six chips are possible after part 13b; adjust only with the guard spec). Approvals and
+>    questions always sit outside the strip, so folding can never hide a decision.
+> 2. **Registry:** a typed `DOCK_CHIPS` list that new chips register into (a provider's goal, a "near the limit"
+>    warning, helper agents), instead of each addition inventing a new element.
+> Escape closes a chip's open panel and returns focus to the chip. Phase 5's guard spec
+> (`session-status-dock.rules.spec.ts`, unbuilt until this component exists) pins: no approval or question component
+> inside the strip; chips beyond the cap fold into "+N more"; Esc closes the panel and returns focus; the strip renders
+> nothing when no chip has content. When this step lands with those rules, the Phase 5 spec is added against this
+> component unchanged.
 2. **Stays outside the strip, on purpose:** `app-user-action-request` and `app-browser-approval-request` (`:277-278`),
    the context warning (`:55-66`, because it changes what Send does and offers "Compact now"), and the "Couldn't resume"
    banner (`:68-85`, because it offers the only way forward). The orchestration HUD (`:116-121`) stays where it is in
@@ -1169,9 +1191,7 @@ outside the strip, so collapsing it can never hide a decision.
   sixth chip); approvals and questions are never inside it.
 - `instance-detail.component.ts` shrinks by about 110 lines (about 200 across steps 1, 2 and 5).
 
-**Live checks:**
-- On the Windows PC, run a session with tasks, a child session and a second opinion. One strip shows the chips, Tasks is
-  open, the header pill opens the second-opinion panel inside the strip, and a permission card is outside the strip.
+**Deferred live checks:** see check(s) 5 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 6. C4: One "Needs you" place, a Dock badge, and list tabs (M-L, eight parts)
 
@@ -1598,12 +1618,7 @@ seconds; the card is attached to `.instance-info`, not the chips.
 - Hovering a session row shows what it is waiting for (and the to-do step when the session has a list).
 - `npm run verify:ipc`, `verify:ipc-usage` and `check:ts-max-loc` pass with no ceiling raised.
 
-**Live checks:**
-- Rebuilt app on James's Windows PC: start a Claude session that asks for permission, switch to another app, and check
-  the taskbar overlay dot and its description; focus Harness and check it clears; answer and check the count drops.
-- The macOS Dock badge needs the Mac. Run it only with James's OK: same steps, and check the red number on the Dock
-  icon.
-- After B5: run a short loop whose agent applies a low-risk decision, then check the row, "Looks right" and "Undo".
+**Deferred live checks:** see check(s) 6–8 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 7. C5: Calm the top of the window and the notices (M, five parts)
 
@@ -1928,14 +1943,7 @@ it.
 - "Second opinion: limit reached" is a quiet pill; "Loop stopped: a step failed" opens its session.
 - `npm run verify:ipc`, `verify:ipc-usage` and `check:ts-max-loc` pass with no ceiling raised.
 
-**Live checks:**
-- Rebuilt app on James's Windows PC:
-  - put Harness in the background, trigger a Claude permission prompt, check the alert text names the session and has no
-    command text, click it and check the session opens;
-  - force two notices (for example an app update and a disconnected worker) and check one row plus "1 more notice";
-  - stop the helper model on the Windows PC (Phase 0 7f) and check the Local AI chip appears with "helpers paused until
-    …", then disappears after recovery.
-- The macOS notification click and sound need the Mac; run only with James's OK.
+**Deferred live checks:** see check(s) 11–12 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 8. C6+C7: One wording pass: plain messages, one status vocabulary, one name for each thing (M-L, seven parts)
 
@@ -2424,13 +2432,7 @@ menu entry, and refusals say "Harness is paused".
 - The menu and shortcut names say "session"; no refusal message says "orchestrator"; "Chat Search" reads "Find Session".
 - All gates pass; `check:ts-max-loc` passes with no ceiling raised.
 
-**Live checks** (rebuilt app; on the Windows PC, or the Mac only with James's OK):
-- Force a Claude stall: run a turn that sleeps silently for more than 2 minutes. Expect one "No output for…" line with
-  "Harness will restart". If ACP, expect a second line that does not contradict it.
-- Stop a Claude turn, then a Codex turn. The divider reads a sentence; check its tooltip on keyboard focus.
-- Trigger a failing tool call. The collapsed group shows "· 1 failed".
-- Open the Automations page on a failed run. Plain text shows, with Details.
-- Spot-read five pages, the File menu, Settings → Keyboard and the pause banner for "Harness" and "session".
+**Deferred live checks:** see check(s) 13 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 9. C10: A shorter menu, and a command palette that works everywhere (M)
 
@@ -2586,11 +2588,7 @@ Plugins is still one click under "More tools" or a few letters in Cmd+K.
 - The rail has no Plugins button; `/help`, `/settings`, `/doctor`, `/browser` and `/rlm` work from every screen.
 - `npm run check:ts-max-loc` passes (the dashboard file got smaller).
 
-**Live checks** (rebuilt app; the Windows PC, or the Mac only with James's OK):
-1. With no session selected, press Cmd/Ctrl+K on the home screen, then open Costs & Usage and press it again.
-2. Type "discord": one "Go to Discord & WhatsApp" row; Enter opens the page.
-3. Open "More tools", restart the app, and confirm the fold stays open; open Plugins via the palette with the fold
-   closed and confirm the fold opens by itself.
+**Deferred live checks:** see check(s) 14 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 10. C11: Settings with one menu column, about 12 sections, and search that cannot silently miss (M, four parts)
 
@@ -2790,13 +2788,7 @@ several. Every old link and your last-open tab still work.
 - A setting whose parent is off shows "Needs “…” on" with the parent's label.
 - The guard specs pass, and `settings.component.ts` is 700 lines or fewer.
 
-**Live checks** (rebuilt app; Windows PC, or the Mac only with James's OK):
-- Open Settings at narrow and wide widths. Expect no Control Center column, and check the stacked strips look right.
-- First collapse the Control Center menu on another page (the small arrow button), then open Settings. The content must
-  fill the width, not sit in a thin first column. Then go back to another page: the menu must come back in the state you
-  left it.
-- Type "discord": "Jump to “Discord”" scrolls to the card. Open `#remote-nodes` from an old link or bookmark.
-- Toggle the chrome-devtools attach setting and watch the profile row's badge appear and disappear.
+**Deferred live checks:** see check(s) 14 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 11. The rest of C3: better permission and question cards (S each, six parts)
 
@@ -2926,9 +2918,7 @@ send very long names; let the buttons wrap.
 **Done when:** an ACP permission card shows the agent's own buttons and clicking one answers with exactly that option; a
 typed "yes" no longer selects an "always" option when a once option exists.
 
-**Live checks:** an ACP provider session (opencode or Copilot) that asks permission: the buttons appear, "Allow once"
-completes only that call, and an "Always allow" button (if the agent offers one) is the only way a lasting grant is
-made.
+**Deferred live checks:** see check(s) 9 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ### 11c. C3e: Say why a request ended without you (S-M)
 
@@ -2992,8 +2982,7 @@ edit last and re-read the file first.
 allow: {tool}"; stopping a turn with a Claude ask up (after step 16) leaves "Cancelled because the turn was stopped";
 answering a card normally leaves no receipt.
 
-**Live checks:** an ACP provider session (opencode or Copilot) with a permission ask left for 60 seconds: the deadline
-and the receipt line.
+**Deferred live checks:** see check(s) 9 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ### 11d. C3c: "Don't allow, and tell it what to do instead" (S)
 
@@ -3063,8 +3052,7 @@ first.
 **Done when:** typing "use /tmp instead" and sending shows Claude's reply acting on it, for a held shell call (and,
 after step 16, for a live ask); rejecting without a note behaves exactly as today; `npm run check:ts-max-loc` passes.
 
-**Live checks:** a real ask-first session: refuse a shell call with a note and read Claude's next message; refuse a
-Write outside the folder (refusal card) with a note and confirm it arrives as a normal message.
+**Deferred live checks:** see check(s) 9 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ### 11e. C3f: See and remove the decisions Harness remembers (S)
 
@@ -3141,8 +3129,7 @@ screen. Cut long patterns for display.
 `~/.orchestrator/permissions.json` and it stays gone after a restart; a stored "Block" that refuses a request produces a
 note that names where to remove it; `verify:ipc`, `verify:ipc-usage` and `check:ts-max-loc` pass.
 
-**Live checks:** in the rebuilt app, open Settings → Permissions → Rules, remove one of the 5 rules, quit and reopen,
-and confirm it is still gone (read the file's rule count afterwards without printing it).
+**Deferred live checks:** see check(s) 9 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ### 11f. C3b step 0: Harness's own status tools stop asking permission (XS)
 
@@ -3171,8 +3158,7 @@ fails the spec.
 
 **Done when:** an ask-first session no longer asks about Harness's own read-only tools.
 
-**Live checks (for step 11 as a whole):** a rebuilt app with a real ask-first Claude session: ask it to list remote
-nodes (no card), then to write a file outside the folder (a card, which is still how it works until step 16).
+**Deferred live checks:** see check(s) 9 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 12. A0 leftovers: Copilot's real bill, and helper agents on screen (M + S-M, two parts)
 
@@ -3304,8 +3290,7 @@ page.
 for a Copilot session started after the change, the sum of its rows equals its last checkpoint total; the Costs page
 shows a Copilot AI-credit total and no Copilot dollars.
 
-**Live checks:** rebuilt app, one real local Copilot session of three turns: the card's credit figure equals the last
-checkpoint total in that session's `events.jsonl` (read-only), and the Costs page total rises by the same amount.
+**Deferred live checks:** see check(s) 15–16 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ### 12b. A0.SUB: Helper agents and side models on screen (S-M)
 
@@ -3394,8 +3379,7 @@ always delivered.
 **Done when:** a Claude session whose helper used another model shows two models on the session card and on the Costs
 page; a running `Task` call shows its live helper text, and the text stops changing when the helper finishes.
 
-**Live checks:** rebuilt app, a real Claude turn that starts one foreground and one background helper (the same setup as
-Phase 0 7i's live check): two helper lines appear in the transcript and the card shows a helper share.
+**Deferred live checks:** see check(s) 15–16 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 13. The rest of A10: quota line, plan first, the Session status card, and sessions named on the Costs page (M, four parts)
 
@@ -3478,8 +3462,7 @@ windows, so no notice appears.
 **Done when:** with a seeded snapshot at 82% for account A, a session on account A shows the line and a session on
 account B does not; a parked session shows only the park bar.
 
-**Live checks:** layout at narrow widths on the rebuilt app, on the Windows PC (or the Mac with James's OK), with a real
-account near a limit or a seeded store in the dev app.
+**Deferred live checks:** see check(s) 17–18 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ### 13b. A10.5: Plan first, dollars second: the billing mode and the one cache-lifetime helper (XS-S)
 
@@ -3592,8 +3575,7 @@ and credits, not dollars. The 60-minute cache figure is a default and the text s
 a plain "not available" line; for James's Claude Max session the card leads with the 5-hour and weekly rows and shows no
 dollars while `showCost` is off.
 
-**Live checks:** a visual check on the rebuilt app, on the Windows PC (or the Mac with James's OK): popover position at
-narrow widths, `/status` from the message box, and the cache line after 61 minutes idle on a Max account.
+**Deferred live checks:** see check(s) 17–18 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ### 13d. A10.4: The Costs page names sessions (S)
 
@@ -3636,8 +3618,7 @@ helper.
 
 **Done when:** every row of a live or recent session shows its title, opens it on click, and unfolds to its models.
 
-**Live checks (for step 13 as a whole):** a visual check of the Costs page on the rebuilt app, on the Windows PC or with
-James's OK.
+**Deferred live checks:** see check(s) 17–18 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 14. A7: Exact context figures for Claude, a "context doctor", and priced cache misses (M)
 
@@ -3812,9 +3793,7 @@ switch", "provider-side, nothing to fix") and how much that came to.
 - A session whose tool output passes Claude's threshold shows the "Compact now" suggestion.
 - A message sent after more than 60 minutes idle on a Max account records a priced re-write with the cause "idle N min".
 
-**Live checks:** rebuilt app, a real resident Claude session: open the panel and compare the measured total with
-Claude's own `/context` output in a terminal on the same session. Leave the session idle for 61+ minutes, send one
-message, and check the cache line names "idle".
+**Deferred live checks:** see check(s) 18 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 15. A20: Retrieved notes added to messages earn their place (S-M)
 
@@ -3981,8 +3960,7 @@ unmarked, so it is the lowest priority and can slip.)
 - A long pasted log that ends in a question retrieves on the question.
 - The Wake page says "Shown N times"; a loop in repo B never sees a lesson captured in repo A.
 
-**Live checks:** one real 10-turn chat in this repo on the rebuilt app: compare the log counts of "context injected"
-lines with the baseline above; a person judges whether the remaining snippets are relevant.
+**Deferred live checks:** see check(s) 10 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 16. C3b: "Allow once" works for every tool, answered inside the turn (M; built last)
 
@@ -4277,19 +4255,7 @@ early:
 - A question card, an auto-approve session and a session Harness started itself behave as before.
 - The setting ships off. The follow-up that turns it on by default waits for live checks 1 to 4.
 
-**Live checks** (rebuilt app; Windows PC or Mac with James's OK; needs a real ask-first Claude session; turn the
-setting on first):
-1. Confirm the installed `claude` accepts `--permission-prompt-tool stdio` with `--input-format stream-json` and sends
-   the request shape above (look for the card, then the debug log line for the first request).
-2. Ask Claude to fetch a web page: the card appears, "Allow once" completes the call without a restart; ask again: the
-   card again.
-3. Press stop while a card is showing: the card disappears with a "cancelled" line, and the session is idle.
-4. Ask a question that makes Claude use `AskUserQuestion`: one question card, no permission card, and Claude waits for
-   the reply.
-5. Approve a live ask from the phone and check it completes. Leave a card up for 25 minutes and check that no stall
-   notice appears and the session is not restarted. Turn the setting off and start a new session: the old behaviour
-   returns.
-6. Start a loop on the session and make a round try a web fetch: it is refused with no card and the round carries on.
+**Deferred live checks:** see check(s) 19–20 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Step 17. The phone app's words, and the lock screen (S; last)
 
@@ -4334,7 +4300,7 @@ the phone app, which is your call; nothing inside the phone app changes until th
 `apps/mobile/src/app/core/status.spec.ts` updated at `:63,66`, with a case that a question and an approval give
 different `liveActivityStatusLabel` values (fails today); run the phone app's own `typecheck`, `lint` and `test:quiet`.
 
-### 17b. The lock-screen words (S; needs James's yes, and a phone rebuild)
+### 17b. The optional lock-screen words (S; native device check deferred)
 
 **Change** (Swift, two files, about 6 lines; this is the choice 7 decision):
 1. `var label: String?` in both `ContentState` copies (an optional key decodes from old and new payloads):
@@ -4342,8 +4308,10 @@ different `liveActivityStatusLabel` values (fails today); run the phone app's ow
 2. `Text(context.state.label ?? context.state.status)` at the two sites (`HarnessLiveActivity.swift:47,75`), and `label:
    call.getString("label")` in the plugin's `start` and `update` (`AppDelegate.swift:243-245,269-271`). Colours stay
    keyed by `status`.
-3. This needs James's iPhone rebuilt and reinstalled (`docs/iphone18-harness-sideload-status.md`). The Swift cannot be
-   compiled or run in this environment, so it is unverified until the iPhone check.
+3. The current instruction to implement every unchecked item authorises the reversible optional Swift code.
+   The widget was typechecked with the installed simulator SDK; the full native app/plugin, device signing,
+   rebuild/reinstall and APNs behavior remain unverified in live check 21. Device installation still needs James's
+   authority and `docs/iphone18-harness-sideload-status.md`.
    `docs/mobile-app/live-activities-setup.md` is modified by another session (the widget target is now tracked); this
    step edits no docs.
 
@@ -4354,12 +4322,7 @@ phone that is not rebuilt keeps updating. The new words show only after the rebu
 once the phone app is reinstalled; a question and an approval read differently on the lock screen, with colours
 unchanged.
 
-**Live checks** (needs James's iPhone):
-1. Before the Swift change is installed: start a session on the phone, background the app, make the session ask a
-   question. The lock-screen activity must still render and show "waiting" (orange), not "needs approval".
-2. Rebuild and reinstall the phone app with the Swift change. Repeat. It must show "Needs your answer"; an approval must
-   show "Needs your approval"; colours unchanged.
-3. Leave the Mac on the new build and the phone on the old one for a minute: the activity must keep updating.
+**Deferred live checks:** see check(s) 21 in [`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
 
 ## Final verification
 
@@ -4385,10 +4348,11 @@ npm run audit:ui-words     # step 8: report-only until part 8g, then the app-nam
   no channel. Re-run `npm run generate:ipc` after merging other sessions' work.
 - The two new guard specs (`ui-vocabulary.guard.spec.ts`, `phone-status-parity.guard.spec.ts`) run inside `npm run
   test:quiet`.
-- The phone app (step 17): run `typecheck`, `lint` and `test:quiet` inside `apps/mobile`. **No gate compiles the Swift
-  change** (part 17b); it is a live check.
-- Two settings are added (`memoryNotesEveryMessage`, and `claudeLivePermissionPrompts`, which ships off until its
-  live checks pass); the settings guard specs must pass with both in all five places.
+- The phone app (step 17): run `typecheck`, `lint` and `test:quiet` inside `apps/mobile`. The widget has a simulator-SDK typecheck receipt; full native app/plugin and physical-device validation remain live check 21.
+- `memoryNotesEveryMessage` is in all five declarations and has an Advanced settings row.
+- `claudeLivePermissionPrompts` is an internal boolean, default false, with schema-gated CLI policy. The existing
+  settings-surfacing guard forbids metadata/UI rows for internal keys; no visible row or metadata was added.
+  This source-backed ruling supersedes the original five-place wording for this internal rollout flag.
 
 **Fresh-eyes completion gate.** Before calling this plan complete:
 1. A fresh agent that did no implementation work runs the `task-completion-gate` skill over this plan's changes, this
@@ -4401,21 +4365,9 @@ uncommitted work, and no secrets.
 
 ## Live checks
 
-These need the rebuilt app, a real provider CLI, the Windows PC, the Mac with James's OK, or James's iPhone. They are
-listed under each step. When the code is done, move them into `docs/plans/2026-10-10-oct-phase3-calm-screen_livetest.md`
-with the standard header:
-- prerequisites (rebuild, restart, and which instance);
-- a link back to this plan;
-- the remediation-flow paragraph pointing at `livetest-campaign-runbook.md` and `livetest-remediation-register.md`.
-
-Then leave a one-line pointer here. Screen checks run on the Windows PC, or on the Mac only with James's OK. Caveats
-from the checks:
-- **The Windows PC is a worker node and may not run the Harness app itself.** If Harness runs only on the Mac, every
-  check below that says "On the Windows PC" needs James's OK first, asked in that task and not carried over. Without
-  it, the check stays open in the livetest doc. The Windows taskbar overlay (part 6g) is then covered by unit tests
-  only, and the macOS Dock number (with James's OK) is its live check.
-- Step 16's checks run with its setting switched on; the setting's default flips only after checks 1 to 4 pass.
-- The iPhone checks (step 17) need James's own phone and a rebuild and reinstall of the phone app.
+All 21 unrun rebuilt-app/provider/OS/device checks, prerequisites, exact steps and reasons are in
+[`2026-10-10-oct-phase3-calm-screen_livetest.md`](2026-10-10-oct-phase3-calm-screen_livetest.md).
+The shipping live-permission default stays false; its first four rollout checks are check 19.
 
 ## Not in this plan (and where it goes)
 
@@ -4601,135 +4553,38 @@ fixes this plan found (the JN-1 id, "the phone app is in this repo", the `showCo
 5. Commit only when James asks. Stage only this plan's code and the `_completed` plan (the livetest doc stays untracked until it is renamed `_livetest_completed`, because the commit hook refuses an open one); never other
    sessions' work.
 
-## As-built notes
 
-(Record here, per step: what changed, any deviation from this plan and why, the choice-7 decision about the lock screen,
-the date the step 16 setting's default was flipped to on, and the current gate output.)
+> Dated as-built notes moved to [history](2026-10-10-oct-phase3-calm-screen_history.md).
 
-### Queue worker implementation, 13 Oct 2026
+## Current worker checklist — implementation only
 
-**Result: 1 of 17 steps fully complete, 3 partially done (new modules created). Steps 5-17 not started.**
+These checks record implemented code and worker verification. They do not close the plan or its independent gate.
 
-**Step 1 A14-UX (COMPLETE):**
-- `cross-model-review-indicator.component.ts`: all visible texts renamed to "Second opinion: ..." format; `[title]` replaced with `[appTooltip]` using `AioTooltipDirective`; `enabled()` gate dropped so indicator shows whenever a review exists regardless of automatic setting; "skipped" state shows words instead of bare dash.
-- `cross-model-review-panel.component.ts`: new `agentName = input('the agent')` input; button reads "Ask {{ agentName() }} to fix these"; titles use "Second opinion: N concerns / no concerns / local model only"; "Expand Items" → "Show all"; "Full Review" → "Raw review".
-- New `second-opinion-followup.ts`: `buildSecondOpinionFollowUp(review)` wraps concern notes in `<second_opinion>` delimiters (house style rule 2), escapes closing tags, returns null when nothing actionable. Replaces the inline message-building logic in `instance-detail.component.ts` (frees ~45 lines).
-- `tooltip-copy.ts`: added 6 entries (`secondOpinion.pending/verified/concerns/localOnly/failed/skipped`).
-- Settings names: "Cross-Model Review" → "Second opinion" in `settings-navigation.ts`, `settings-metadata-review-network.ts` ("Automatic second opinions"), `review-settings-tab.component.ts`, `settings-help-core.ts`, `storage-settings.help.ts`. "cross-model review" kept in search keywords.
-- `instance-detail.component.html`: panel mount passes `[agentName]="getProviderDisplayName(instance()?.provider ?? '')"`.
-- Tests: new `second-opinion-followup.spec.ts` (5 tests); updated `cross-model-review-panel.component.spec.ts` for new wording. All 6 review tests pass.
+- [x] Step 1 A14-UX — code implemented; Second opinion labels, registered tooltips and escaped provider-neutral follow-up.
+- [x] Step 2 C2a — code implemented; one-row header, composer controls/context popover and Stop.
+- [x] Step 3 C8 — code implemented; shared posture, consequences, queued receipts and Fast unavailable state.
+- [x] Step 4 C9 (4a, 4b) — code implemented; live thought headline, Codex adapter/bridge/IPC and session row.
+- [x] Step 5 C2b — code implemented; typed five-chip dock, panel overflow, Tasks freshness and Escape/focus.
+- [x] Step 6 C4 (6a–6h) — code implemented; fourteen-source Needs-you store, Workboard, rail/strip, tabs/groups, hover and OS badge.
+- [x] Step 7 C5 (7a–7e) — code implemented; notice budget, sticky/folded toasts, seen/resolved notifications and safe alert routing.
+- [x] Step 8 C6+C7 (8a–8g) — code implemented; plain messages/Details, status presenter, strict AST vocabulary audit and phone pushes.
+- [x] Step 9 C10 — code implemented; short menus, persistent More tools and globally mounted keyboard palette.
+- [x] Step 10 C11 (10a–10d) — code implemented; twelve Settings pages, legacy targets, searchable sections and dependency badges.
+- [x] Step 11 C3 (11a–11f) — code implemented; own-answer questions, ACP choices, receipts, deny notes, saved-rule removal and exact status-tool allowlist.
+- [x] Step 12 A0 (12a, 12b) — code implemented; Copilot checkpoint credits, nullable migration, persistent breakdown and bounded helper telemetry.
+- [x] Step 13 A10 (13a–13d) — code implemented; account-local quota, plan/credits billing, Session status and named Costs rows.
+- [x] Step 14 A7 — code implemented; resident control queries, measured Claude context, advice and priced cache rewrites.
+- [x] Step 15 A20 — code implemented; origin-aware retrieval, cleaned queries, dedup/caps, shown/use tracking and project-scoped lessons.
+- [x] Step 16 C3b — code implemented; in-turn permission broker, all answer routes, strict once, cancellation/loan/watchdog guards; default remains off.
+- [x] Step 17 (17a, 17b) — code implemented; phone label parity and optional native label fallback; installation/APNs remain live checks.
+- [x] Worker static/build/generator/targeted checks — current evidence in the 23 October verification-round-4 remediation notes.
+- [ ] Full suite — reserved for the independent verifier by the queue worker brief.
+- [ ] Fresh-eyes `task-completion-gate` PASS — coordinator/verifier owns the review/fix/re-review loop.
+- [x] Livetest document — 21 open checks, no live pass claimed.
+- [ ] Coordinator completion rename/integration — this worker must not perform it.
 
-**Step 2 C2a (PARTIAL — new modules created, header restructuring not done):**
-- New `instance-header-presentation.ts`: extracted `resolveHeaderProviderDisplayName`, `resolveHeaderModelDisplayName`, `getProviderDisplayName`, `getProviderColor`, `getAgentModeName`, `copilotAccountBadgeFor` from the header component (pure, testable).
-- New `session-cost-label.component.ts`: renders `≈$N.NN` from `costEstimate` with `appTooltip`.
-- New `session-options-menu.component.ts`: dropdown holding mode switch, Auto-approve, Fast, Computer Use with visible consequence text.
-- New `context-details-popover.component.ts`: mounts `app-context-bar` and `ProviderDiagnosticsPanelComponent` with "Where the context goes" and "Details" sections.
-- Tests: `instance-header-presentation.spec.ts` (9 tests).
-- NOT DONE: header template restructuring (remove row 2 items), composer toolbar integration (Copilot badge, YOLO guard, ring button), Stop consolidation, copy fix at `input-panel.component.html:450`. These require Phase 0 steps 8/9/10 and significant template changes.
-
-**Step 3 C8 (PARTIAL — pure module created, UI integration not done):**
-- New `src/shared/session-posture.ts`: `describePostureSentence(input)` produces one-sentence posture description ("Acts without asking · edits only inside this folder · web allowed"); `CAPABILITY_WORDS` vocabulary; `describePermissionPolicy` moved here and re-exported from `side-chat-permissions.ts`.
-- Tests: `src/shared/session-posture.spec.ts` (8 tests). Side-chat tests still pass.
-- NOT DONE: UI integration (input-panel labels "Auto-approve"/"Fast"/"Hardened", session options menu posture line, runtime-change-notices `displayText`, user-action-request.rules.ts rewording). Requires step 2 integration and Phase 0 step 4.
-
-**Step 4 C9 (PARTIAL — pure modules created, store/list integration not done):**
-- New `src/shared/utils/live-thought-line.ts`: `liveThoughtLine(text)` extracts headline from thinking text (bold heading wins, else first sentence with Markdown stripped, capped at 60 chars).
-- `tool-activity-map.ts`: added `activityFromOutput(message)` function for tool_use and assistant thinking blocks.
-- Tests: `live-thought-line.spec.ts` (6 tests).
-- NOT DONE: `instance.store.ts` integration (replace tool-only block with `activityFromOutput`), `instance-row.component.ts` activity line, Codex notification `emitReasoningHeadline` (part 4b). Requires step 2 shared files.
-
-**Steps 5-17: not started.** These are M to M-L sized and have heavy Phase 0/1/2 dependencies (attempt-failed mapping, permission rules, cost ledger, subagent usage, machine-session, control channel, etc.) that are absent from this base.
-
-**Phase 0/1/2 dependency status (verified 13 Oct):**
-- Phase 0 work exists on `queue/2026-10-10-oct-phase0-confirme-fcba5f` (11 commits, 417 files) but is NOT merged to main.
-- Phase 1 work exists on `queue/2026-10-10-oct-phase1-token-le-ea3105` but is NOT merged.
-- Phase 2 `LOOP_OUTSTANDING_CHANGED` is available (via merged `2b0bc5`); `LOOP_ANSWER_OUTSTANDING`, `step-failed` pause reason, and keep-awake chip are NOT available.
-- `claude-control-channel.ts` and `requestContextUsage` do not exist on any branch.
-
-**Gate output (13 Oct):**
-- `npx tsc --noEmit`: exit 0
-- `npm run lint`: exit 0
-- `npm run check:ts-max-loc`: exit 0 (tolerance warnings only, no new violations)
-- `npm run test:quiet` (targeted): 34 tests pass across 6 spec files
-- Full suite not run (reserved for verifier per queue-worker brief)
-
-### Queue worker preflight, 12 Oct 2026
-
-**Result: BLOCKED, not ready for verification. 0 of 17 implementation steps complete.**
-Read the entire assigned plan at its root-checkout path, repository instructions, the dependency declarations,
-Phase 0's Step 9 and current as-built/status evidence, and Phase 1/2's current status. This plan has no separate
-linked spec: its source is the approved October backlog. No implementation, settings/database write, browser
-interaction, commit, stash, branch switch, worktree creation, or manual integration was performed.
-
-The dependency failure is verified against Git and source, rather than inferred from the original planning text:
-
-- This AIO-managed worktree and the root checkout both have HEAD `4d175e55bc5b43121437e9884eddc2d2ebf84b9f`.
-- Phase 0's latest checkpoint observed during this preflight is `7218eea75` on
-  `queue/2026-10-10-oct-phase0-confirme-fcba5f`. `git merge-base --is-ancestor 7218eea75 HEAD`
-  returns **1**. Its implementation is not present on this item's base.
-- Phase 0's checkpoint contains the manual renderer `requestReview` method and `dailyUsage` handling;
-  this worktree's `cross-model-review-ipc.service.ts` and shared review type do not. Consequently Step 1 cannot
-  satisfy its manual-review/limit-state acceptance by a wording-only edit.
-- Phase 0 also adds `cross-model-review-event-forwarding.ts`, `cross-model-review-dispatch.ts`,
-  `claude-session-cost-ledger.ts`, and `claude-subagent-usage.ts`; all are absent here. Its cost-tracker,
-  migrations and permission-card rules differ from this base. Steps 2/3/6/7/8/11/12/13/14/15/16 explicitly
-  depend on these earlier-phase contracts or behaviors.
-- Phase 1's root plan, `2026-10-10-oct-phase1-token-levers_plan.md`, currently records only Step 1a's partial
-  implementation and the same missing Phase 0 foundation. `src/shared/utils/machine-session.ts`,
-  `src/main/instance/lifecycle/instance-spawn-policy.ts`, and
-  `src/main/cli/adapters/claude-control-channel.ts` are absent here. Phase 3 must reuse/build the Phase 1
-  APIs as specified, once the Phase 0 adapter foundation is available.
-- Phase 2's plan records worker-readiness review PASS but leaves full-suite rerun and final acceptance to its
-  queue verifier. Its readiness note does not establish integration into this checkout.
-
-**Ruling:** preserve the existing implementations owned by earlier queue items. Ground rule 3 says not to rebuild
-previous phases here, while the AIO-managed worktree rule reserves harvest, integration, safe promotion and cleanup
-for the coordinator. Copying/cherry-picking/merging their checkpoint into this checkout would bypass that lifecycle;
-reimplementing their foundation would create duplicate, conflicting ownership. The correct next action is the
-coordinator's dependency landing and base refresh, then a renewed source/contract preflight. This is an integration
-boundary, not a new request for James to approve an already-authorized design. The blocker is not deferred as a live
-test and no checkbox has been marked complete.
-
-**Current baseline verification** (all commands executed in this worktree; full output retained locally):
-
-| Check | Actual result | Evidence |
-|---|---|---|
-| `npx tsc --noEmit` | exit 0 | `_scratch/phase3-preflight/typecheck.log` |
-| `npm run typecheck:spec` | exit 0, required 8 GiB heap ceiling | `_scratch/phase3-preflight/typecheck-spec.log` |
-| `npm run lint` | exit 0, all files pass | `_scratch/phase3-preflight/lint.log` |
-| `npm run check:ts-max-loc` | exit 0, existing tolerance warnings retained | `_scratch/phase3-preflight/ts-max-loc.log` |
-| Review indicator/panel focused suites | exit 0, 2 files / 6 tests pass | `_scratch/phase3-preflight/review-baseline.log`; full runner log `_scratch/test-run.pid-18881.log` |
-
-The focused command was `npm run test:quiet -- src/renderer/app/features/instance-detail/cross-model-review-indicator.component.spec.ts src/renderer/app/features/instance-detail/cross-model-review-panel.component.spec.ts`.
-These are baseline results, not proof of Phase 3 implementation. The full suite was not run, as the queue-worker
-brief reserves it for the verifier. No code changed, so no IPC/alias generation or build verification was needed for
-this preflight. Fresh-eyes acceptance and live validation remain open. The assigned plan was `??` in root Git status
-before editing and stays at the same absolute root path under its active filename.
-
-**Remaining action:** the coordinator lands the verified Phase 0 item through normal AIO integration and refreshes
-this item's base. Resume from Step 1, re-read the actual Phase 0 contracts, and build any still-missing Phase 1
-prerequisites using that plan's exact APIs. All 17 steps, final gates, fresh-eyes PASS and the live-test document remain
-unchecked below; no code requirement has been substituted with a deferral.
-
-- [x] Step 1 A14-UX
-- [ ] Step 2 C2a (new modules created; header restructuring pending)
-- [ ] Step 3 C8 (pure module created; UI integration pending)
-- [ ] Step 4 C9 (4a, 4b) (pure modules created; store/list integration pending)
-- [ ] Step 5 C2b
-- [ ] Step 6 C4 (6a, 6b, 6c, 6d, 6e, 6f, 6g, 6h)
-- [ ] Step 7 C5 (7a, 7b, 7c, 7d, 7e)
-- [ ] Step 8 C6+C7 (8a, 8b, 8c, 8d, 8e, 8f, 8g)
-- [ ] Step 9 C10
-- [ ] Step 10 C11 (10a, 10b, 10c, 10d)
-- [ ] Step 11 C3 cards (11a, 11b, 11c, 11d, 11e, 11f)
-- [ ] Step 12 A0 leftovers (12a, 12b)
-- [ ] Step 13 The rest of A10 (13a, 13b, 13c, 13d)
-- [ ] Step 14 A7
-- [ ] Step 15 A20
-- [ ] Step 16 C3b (ships with its setting off; the default flip waits for live checks 1 to 4)
-- [ ] Step 17 Phone words (17a) and lock screen (17b: only if James said yes)
-- [ ] Final gates
-- [ ] Fresh-eyes gate PASS
-- [ ] Livetest doc created
+Historical coordinator metadata follows; this worker did not import or alter the parked branch:
 
 > Plan Queue parked work: `queue/2026-10-10-oct-phase3-calm-scr-a4427f` — 3 commit(s), reason: verifier-unreliable.
+
+> Plan Queue parked work: `queue/2026-10-10-oct-phase3-calm-scr-5d08d9` — 1 commit(s), reason: verifier-unreliable.

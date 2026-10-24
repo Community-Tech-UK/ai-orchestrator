@@ -1,0 +1,76 @@
+{
+  "cleanedAt": "2026-10-21T00:21:25.324137+00:00",
+  "reportAndSealWrittenBeforeCleanup": true,
+  "removed": [
+    {
+      "path": "_scratch/phasee-evidence/count-tests.mjs",
+      "kind": "file"
+    },
+    {
+      "path": "_scratch/phasee-evidence/names-scope.tsconfig.json",
+      "kind": "file"
+    },
+    {
+      "path": "_scratch/phasee-evidence/prune-error-baselines.ts",
+      "kind": "file"
+    },
+    {
+      "path": "_scratch/phasee-evidence/questions-tsconfig.json",
+      "kind": "file"
+    },
+    {
+      "path": "_scratch/phasee-evidence/run-check.py",
+      "kind": "file"
+    },
+    {
+      "path": "_scratch/phasee-evidence/swap-input-required-handler.py",
+      "kind": "file"
+    },
+    {
+      "path": "apps/mobile/node_modules",
+      "kind": "directory"
+    },
+    {
+      "path": "apps/mobile/www",
+      "kind": "directory"
+    },
+    {
+      "path": "_scratch/names-status",
+      "kind": "directory"
+    },
+    {
+      "path": "_scratch/turn-summary-ngc",
+      "kind": "directory"
+    },
+    {
+      "path": "_scratch/turn-summary-probe",
+      "kind": "directory"
+    },
+    {
+      "path": "_scratch/usage-insight-tsc",
+      "kind": "directory"
+    },
+    {
+      "path": "dist",
+      "kind": "directory"
+    }
+  ],
+  "remainingOwnedRuntime": [],
+  "protectedDependenciesBefore": {
+    "inode": 1313455030,
+    "entriesSha256": "7be5b19ca1c43e4d208a8e2c85b102cf4cdeb61f88c6d9b8769ea651178eea1f",
+    "count": 807,
+    "viteLinkSha256": "e971738bc328a5ddaccf36574eff1fc02d732ca56c821ebd495e422bb0277f40"
+  },
+  "protectedDependenciesAfter": {
+    "inode": 1313455030,
+    "entriesSha256": "7be5b19ca1c43e4d208a8e2c85b102cf4cdeb61f88c6d9b8769ea651178eea1f",
+    "count": 807,
+    "viteLinkSha256": "e971738bc328a5ddaccf36574eff1fc02d732ca56c821ebd495e422bb0277f40"
+  },
+  "protectedScratchUnchanged": true,
+  "sourceHashMismatches": [],
+  "branchUnchanged": true,
+  "headUnchanged": true,
+  "stagedPaths": []
+}

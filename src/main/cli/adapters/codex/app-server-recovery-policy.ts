@@ -1,3 +1,4 @@
+import { isCodexInputTooLargeError } from './exec-error-classifier';
 import {
   classifyCodexAppServerFailure,
   type CodexAppServerFailureKind,
@@ -48,4 +49,12 @@ export function planCodexAppServerRecovery(error: unknown): CodexAppServerRecove
     return { action: 'retry-turn', failure, keepInstanceUsable: true };
   }
   return { action: 'restart-runtime', failure, keepInstanceUsable: false };
+}
+
+export function isRecoverableCodexTurnError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  if (isCodexInputTooLargeError(message) || /per-turn size limit/i.test(message)) {
+    return true;
+  }
+  return planCodexAppServerRecovery(error).keepInstanceUsable;
 }

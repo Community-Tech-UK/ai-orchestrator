@@ -136,6 +136,7 @@ export interface AppSettings extends DesktopComputerUseSettings, ObservationSett
   scratchRetentionDays: number; // delete untouched _scratch/ entries after this many days (0 = never)
   memoryWarningThresholdMB: number; // warn when heap exceeds this (0 = disabled)
   autoTerminateOnMemoryPressure: boolean; // terminate idle instances when memory critical
+  leftoverProcessCleanup: 'off' | 'notify' | 'stop-cpu-hogs' | 'stop-all'; // orphaned programs agent sessions left running
   recordProviderEvents: boolean;
   persistSessionContent: boolean; // persist session content (conversation/tool output) to disk
   /**

@@ -1,0 +1,14 @@
+{
+  "command": [
+    "rtk",
+    "proxy",
+    "node",
+    "scripts/rtk-trial-report.mjs",
+    "--since",
+    "2026-10-17",
+    "--json"
+  ],
+  "exit": 0,
+  "durationSeconds": 0.12,
+  "log": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phased-tokens-0e371d/_scratch/oct2-phaseD-round2/guidance-rtk-report-local.log"
+}

@@ -1,0 +1,30 @@
+{
+  "base": "542f1f690",
+  "pathsReviewed": 380,
+  "newSpecFiles": 77,
+  "addedSuppressionOrSkipMatches": [
+    {
+      "file": "src/main/cli/adapters/claude-helper-arm-log.ts",
+      "line": "  // eslint-disable-next-line @typescript-eslint/no-require-imports"
+    },
+    {
+      "file": "src/main/cli/adapters/remote-codex-spawn-policy.ts",
+      "line": "    // eslint-disable-next-line @typescript-eslint/no-require-imports"
+    },
+    {
+      "file": "src/main/cli/rtk/rtk-harm-check.ts",
+      "line": "  // eslint-disable-next-line @typescript-eslint/no-require-imports"
+    },
+    {
+      "file": "src/main/core/system/session-policy-log.ts",
+      "line": "  // eslint-disable-next-line @typescript-eslint/no-require-imports"
+    }
+  ],
+  "guardFilesUnchanged": {
+    "scripts/__tests__/check-ts-max-loc.spec.ts": true,
+    "scripts/check-ts-max-loc.ts": true,
+    "src/main/instance/__tests__/context-worker-import-isolation.spec.ts": true
+  },
+  "note": "Diff-scoped diagnostic, not independent completion review",
+  "reviewedMatches": "Four narrow no-require-import exceptions retain lazy main-only Electron directory lookups or controller-only settings lookup. No added test skip/only/todo, TypeScript suppression, coverage exclusion or guard weakening."
+}

@@ -69,6 +69,7 @@ export const SETTING_SURFACING = {
   scratchRetentionDays: 'tab',
   memoryWarningThresholdMB: 'tab',
   autoTerminateOnMemoryPressure: 'tab',
+  leftoverProcessCleanup: 'tab',
   recordProviderEvents: 'tab',
   persistSessionContent: 'tab',
   cumulativeTokenCompactionTrigger: 'tab',

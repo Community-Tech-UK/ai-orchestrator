@@ -1,0 +1,88 @@
+{
+  "capturedAt": "2026-10-20T19:10:15.515241+00:00",
+  "worktree": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-later-fae157",
+  "branch": "queue/2026-10-20-oct2-later-fae157",
+  "head": "542f1f690fae155ecec3e6dddfc901c008fec3b7",
+  "worktreeStatus": "",
+  "phasePlans": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-20-oct2-phaseA-safety-and-truth_plan.md",
+      "sha256": "bbc100ddd97cc75ee400d8ba7bb8e5a0657ccef57953597375e98da76d488625",
+      "status": "Not started (20 Oct 2026). On main: no. **Next: Step 1 (K1), then Step 0. Harness must not be restarted on current\n`main` until Step 1 is built, reviewed and the app rebuilt.** Decisions used: 2, 3, 6, 8, 13, 15, 18, all answered (a) by James\non 20 Oct (\"go with your recommendations\"), so every step may proceed. Open issues: none. Rewrite this block in place; no dated sections. Round evidence goes in\n`2026-10-20-oct2-phaseA-safety-and-truth_history.md`, which nobody reads unless this block points there."
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-20-oct2-phaseB-land-built-work_plan.md",
+      "sha256": "339b698efee29dc31937018761538e46a171dbfcfc4294e7cc215a724e4b7f71",
+      "status": "Not started (20 Oct 2026). On main: no. Next: Step 2 (status-block rule), then Step 3 (diet, Decision 7). Needs first:\nPhase A Steps 0 and 3 (history-file guard; queue identity guard) built, installed and running in James's Harness\n(after his restart) before any stranded job is resumed; being on `main` is not enough. Decisions used: 1, 7,\n19, all answered (a) by James on 20 Oct. Open issue: the Phase 1 job is live and owned by another session\n(checkpoint \"paused\" at 00:06 on 20 Oct); coordinate, do not take it over. Rewrite this block in place; no dated sections.\nRound evidence goes in `2026-10-20-oct2-phaseB-land-built-work_history.md`."
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-20-oct2-phaseC-queue-that-finishes_plan.md",
+      "sha256": "aa15d8c7a6511f0cacf0e5d24dc77d5ec08ac5afe08b6b9f09716278e6be12bc",
+      "status": "Not started (20 Oct 2026). On main: no. Next: Step 1 (event and verdict history), because Steps 2, 4 and 5 read it.\nNeeds first: Phase A Steps 0, 3 and 4 (room in the queue files, identity guard, checkers that wait) on main. Decisions used: 5, 6 (Phase A), 17 (scheduled-job\nlimits), all answered (a) on 20 Oct. Open issues: none. Rewrite this block in place; do not add dated sections. Round evidence goes in\n`2026-10-20-oct2-phaseC-queue-that-finishes_history.md` beside this file, which nobody reads unless this block points there."
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-20-oct2-phaseD-tokens_plan.md",
+      "sha256": "7a7aae2839e6d5b5b3d285eeb49d37c0c88854683020a7f979b77b54cd038fac",
+      "status": "Not started (20 Oct 2026). On main: no. Next: Step 1 (Codex runaway-turn ceiling, Decision 16). Needs first: Phase A on\nmain and running (K2's numbers are the baseline every step is judged against), Phase B Step 5 (the `stopped-by-harness` reason) for Step 1, and Phase B's Phase 1 landing for Steps 4-6.\nDecisions used: 3, 4, 10, 13, 16, all answered (a) on 20 Oct. Open issues: none. Rewrite this block in place; no dated sections. Evidence goes in\n`2026-10-20-oct2-phaseD-tokens_history.md`."
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-20-oct2-phaseE-calm-screen_plan.md",
+      "sha256": "3ae3c22393490206cbb6a24c98df95faf346618e34c280b5d3a3a573240359f0",
+      "status": "Not started (20 Oct 2026). On main: no. Next: Step 1 (U10, fold routine notices by flag), which must come before any\nrewording. Needs first: Phase B's Phase 3 landing (calm-screen work: steps 1-6, 11 and 15 are built on its branch; steps\n7-10 and 16-17 are not started there). This plan supersedes Phase 3's step 8b and the notice and wording slices of its\nsteps 7 and 8 (U1-U4); Phase 3's plan stays active for its other open steps. Decisions used: 8, answered (a) on 20 Oct. Open issues: none. Rewrite this block in place; no dated\nsections. Evidence goes in `2026-10-20-oct2-phaseE-calm-screen_history.md`."
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-20-oct2-phaseF-tooltips_plan.md",
+      "sha256": "ecf29bb72209f152b6f69ef09ca980bd74e5ffb532da6526f3e4328f938bbaa6",
+      "status": "Not started (20 Oct 2026). On main: no. Next: Step 1 (make the tooltip ratchet survive parallel work). Needs first: Phase B's\nPhase 4 stack (part 1's ratchet, glossary, help drawer, wording guide and `appIconButton`, then parts 2 and 3). Decisions\nused: none. Open issues: none. Rewrite this block in place; no dated sections. Evidence goes in\n`2026-10-20-oct2-phaseF-tooltips_history.md`."
+    }
+  ],
+  "sources": [
+    {
+      "path": "src/main/core/system/cost-entries-a0-repair.ts",
+      "worktreeSha256": "9f42cbc43617538a50dd2e3d01a9277d2d0c85472e867e6f0fed90c8f4396219",
+      "rootSha256": "9f42cbc43617538a50dd2e3d01a9277d2d0c85472e867e6f0fed90c8f4396219"
+    },
+    {
+      "path": "src/main/pause/pause-coordinator.ts",
+      "worktreeSha256": "df63bd34536c7fa6f93056d592941e568d7a06752c18640372f9e7f7cbb455ce",
+      "rootSha256": "df63bd34536c7fa6f93056d592941e568d7a06752c18640372f9e7f7cbb455ce"
+    },
+    {
+      "path": "src/main/pause/pause-persistence.ts",
+      "worktreeSha256": "d6f3d4668c477dbf8cca4b1b8e4682b06e1e4e4c47b4cd32f0128e6470c56632",
+      "rootSha256": "d6f3d4668c477dbf8cca4b1b8e4682b06e1e4e4c47b4cd32f0128e6470c56632"
+    },
+    {
+      "path": "src/main/app/pause-feature-bootstrap.ts",
+      "worktreeSha256": "97e9067e8e7e28467ec8617e352aa4191ac2a4370553f3b8c8f55ac46ec6c6f7",
+      "rootSha256": "97e9067e8e7e28467ec8617e352aa4191ac2a4370553f3b8c8f55ac46ec6c6f7"
+    },
+    {
+      "path": "src/renderer/app/core/state/pause/pause-renderer-controller.service.ts",
+      "worktreeSha256": "6762d93d7b852f08af5521285f461c9918a68cc644bca5ca50acad88ec068857",
+      "rootSha256": "6762d93d7b852f08af5521285f461c9918a68cc644bca5ca50acad88ec068857"
+    },
+    {
+      "path": "packages/contracts/src/schemas/pause.schemas.ts",
+      "worktreeSha256": "b283dc9b917ca0e242ae71cc5f9e9d0b28186a29c243325527d377182e8f42d6",
+      "rootSha256": "b283dc9b917ca0e242ae71cc5f9e9d0b28186a29c243325527d377182e8f42d6"
+    },
+    {
+      "path": "src/main/context/restart-compaction.ts",
+      "worktreeSha256": "b6f5c41bae7ef4e23851005dbd594596c09836a6eee10560923cd38a115783da",
+      "rootSha256": "b6f5c41bae7ef4e23851005dbd594596c09836a6eee10560923cd38a115783da"
+    }
+  ],
+  "queueCheckoutGuardExists": {
+    "worktree": false,
+    "root": false
+  },
+  "runtimeBeforeChecks": {
+    "node_modules": "pre-existing directory",
+    "node_modules/.vite": "pre-existing symlink",
+    "dist": "absent",
+    "_scratch": "absent",
+    ".angular/cache": "absent",
+    "node_modules/.cache": "absent"
+  }
+}

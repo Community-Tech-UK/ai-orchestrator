@@ -130,11 +130,23 @@ interface PsRow {
   command: string;
 }
 
-type Marker = { kind: 'none' } | { kind: 'id'; id: string } | { kind: 'invalid' };
+export type Marker = { kind: 'none' } | { kind: 'id'; id: string } | { kind: 'invalid' };
 interface Snapshot {
   rows: Map<number, PsRow>;
   /** Absent when the environment table could not be read. */
   markers: Map<number, Marker> | null;
+}
+
+/**
+ * The ps `time` (cumulative CPU) column. BSD/macOS prints `MMM:SS.ss` with unbounded minutes;
+ * procps prints `[DD-]HH:MM:SS`. Both read as base-60 fields after an optional day count.
+ */
+export function parseCpuSeconds(value: string): number | null {
+  const match = /^(?:(\d+)-)?((?:\d+:){1,2})(\d+(?:\.\d+)?)$/u.exec(value);
+  if (!match) return null;
+  const fields = match[2]!.split(':').filter(Boolean).map(Number);
+  const base = fields.reduce((total, field) => total * 60 + field, 0) * 60 + Number(match[3]);
+  return Number(match[1] ?? 0) * 86400 + base;
 }
 
 export function parseElapsedSeconds(value: string): number | null {
@@ -213,8 +225,19 @@ async function takeSnapshot(runtime: HostProcessRuntime): Promise<{ snapshot: Sn
   if (envOut.status === 'rejected') {
     return { snapshot: { rows, markers: null }, envError: errorText(envOut.reason) };
   }
+  return { snapshot: { rows, markers: resolveEnvMarkers(envOut.value, rows) } };
+}
+
+/**
+ * Markers from `ps axeww` output, checked against the environment-free table `rows`.
+ * Shared with the leftover sweeper so both apply the same proof rules.
+ */
+export function resolveEnvMarkers(
+  envStdout: string,
+  rows: ReadonlyMap<number, { ppid: number; command: string }>,
+): Map<number, Marker> {
   const markers = new Map<number, Marker>();
-  for (const [pid, entry] of parseEnvMarkers(envOut.value)) {
+  for (const [pid, entry] of parseEnvMarkers(envStdout)) {
     // A pid that changed parent between the two reads may have been reused: treat as unmarked.
     const row = rows.get(pid);
     if (row?.ppid !== entry.ppid) continue;
@@ -223,10 +246,10 @@ async function takeSnapshot(runtime: HostProcessRuntime): Promise<{ snapshot: Sn
     const inArgv = row.command.split(/\s+/u).some((token) => token.startsWith(MARKER_PREFIX));
     markers.set(pid, inArgv ? { kind: 'invalid' } : entry.marker);
   }
-  return { snapshot: { rows, markers } };
+  return markers;
 }
 
-function programLabel(command: string): string {
+export function programLabel(command: string): string {
   const label = sanitizeProcessLabel(command);
   if (label === SHELL_LABEL) return label;
   return label.split(' ')[0] || 'unknown';

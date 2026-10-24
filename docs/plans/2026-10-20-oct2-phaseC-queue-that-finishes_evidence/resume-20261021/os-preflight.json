@@ -1,0 +1,14 @@
+{
+  "command": [
+    "ps",
+    "-A",
+    "-o",
+    "pid=,ppid=,pgid=,stat=,lstart="
+  ],
+  "at": "2026-10-21T11:15:39.815504+00:00",
+  "execution": "spawn rejected",
+  "errno": 1,
+  "error": "PermissionError: Operation not permitted: ps",
+  "identityRowCount": null,
+  "probeStarted": false
+}

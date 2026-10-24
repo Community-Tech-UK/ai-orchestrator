@@ -1,0 +1,11 @@
+{
+  "trackedFileCount": 8078,
+  "changedSinceResume": [
+    "src/main/automations/automation-thread-budget.spec.ts",
+    "src/main/automations/thread-wakeup-runner.spec.ts"
+  ],
+  "unchangedTrackedFiles": 8076,
+  "productionBytesUnchanged": true,
+  "headUnchanged": true,
+  "indexUnchanged": true
+}

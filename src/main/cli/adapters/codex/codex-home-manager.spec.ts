@@ -263,6 +263,80 @@ describe('CodexHomeManager', () => {
     manager.cleanup();
   });
 
+  it('disables Claude callback tools only in the generated session home and preserves other configuration', () => {
+    const config = [
+      'model = "PLACEHOLDER_MODEL"',
+      '[mcp_servers."claude-code"] # keep this comment',
+      'command = "/opt/tools/claude"',
+      'args = [',
+      '  "mcp", "serve",',
+      ']',
+      'disabled_tools = [',
+      '  "ExistingDisabled", "Monitor",',
+      ']',
+      'enabled_tools = ["Read", "Monitor"]',
+      'tool_timeout_sec = 120',
+      '[mcp_servers."claude-code".tools.Read]',
+      'approval_mode = "prompt"',
+      '[mcp_servers.other]',
+      'command = "other-mcp"',
+      'args = ["mcp", "serve"]',
+      '[mcp_servers.not_serve]',
+      'command = "claude"',
+      'args = ["mcp", "list"]',
+    ].join('\n');
+    const home = makeSandboxCodexHome(config);
+    const manager = new CodexHomeManager();
+    try {
+      const generated = manager.prepareSessionIsolatedHome();
+      const prepared = readFileSync(join(generated!, 'config.toml'), 'utf-8');
+      expect(prepared).toContain('"ExistingDisabled", "Monitor", "ScheduleWakeup"');
+      expect(prepared).toContain('"CronCreate", "CronDelete", "CronList", "RemoteTrigger", "Workflow", "PushNotification", "SendMessage", "ListAgents", "TaskStop"');
+      expect(prepared).toContain('enabled_tools = ["Read", "Monitor"]');
+      expect(prepared).toContain('[mcp_servers."claude-code".tools.Read]\napproval_mode = "prompt"');
+      expect(prepared.slice(prepared.indexOf('[mcp_servers.other]'))).toBe(config.slice(config.indexOf('[mcp_servers.other]')));
+      expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf-8')).toBe(config);
+    } finally { manager.cleanup(); }
+  });
+
+  it('prepares a home with valid TOML Unicode escapes while still filtering Claude callback tools', () => {
+    const unrelated = String.raw`[mcp_servers.other]
+command = "node"
+args = ["\U0001F600"]
+`;
+    const config = unrelated + String.raw`[mcp_servers.claude]
+command = "cl\u0061ude"
+args = ["\U0000006Dcp", "serve"]
+`;
+    const home = makeSandboxCodexHome(config);
+    const manager = new CodexHomeManager();
+    try {
+      const generated = manager.prepareSessionIsolatedHome();
+      expect(generated).not.toBeNull();
+      const prepared = readFileSync(join(generated!, 'config.toml'), 'utf-8');
+      expect(prepared.startsWith(unrelated)).toBe(true);
+      expect(prepared).toContain('disabled_tools = ["Monitor", "ScheduleWakeup"');
+      expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf-8')).toBe(config);
+    } finally { manager.cleanup(); }
+  });
+
+  it('filters both retained user inline servers and injected servers in the composed MCP home', () => {
+    const original = '# user comment\nmcp_servers.retained = { command = "claude", args = ["mcp", "serve"], enabled_tools = ["Read", "Monitor"], tool_timeout_sec = 120 }\n';
+    const home = makeSandboxCodexHome(original);
+    const injected = '[mcp_servers.injected]\ncommand = "claude"\nargs = ["mcp", "serve"]\nenabled_tools = ["Read", "Monitor"]\n';
+    const manager = new CodexHomeManager();
+    try {
+      const generated = manager.prepareHomeWithMcpConfig(injected);
+      expect(generated).not.toBeNull();
+      const prepared = readFileSync(join(generated!, 'config.toml'), 'utf-8');
+      expect(prepared.match(/"Monitor", "ScheduleWakeup"/g)).toHaveLength(2);
+      expect(prepared.match(/enabled_tools = \["Read", "Monitor"\]/g)).toHaveLength(2);
+      expect(prepared).toContain('# user comment');
+      expect(prepared).toContain('tool_timeout_sec = 120');
+      expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf-8')).toBe(original);
+    } finally { manager.cleanup(); }
+  });
+
   it('prepareMcpFreeHome strips user MCP servers when present', () => {
     makeSandboxCodexHome([
       'model = "gpt-5.3-codex"',

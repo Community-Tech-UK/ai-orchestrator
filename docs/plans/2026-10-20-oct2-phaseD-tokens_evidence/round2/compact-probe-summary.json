@@ -1,0 +1,412 @@
+{
+ "sessionId": "5b31a113-79f0-440f-b1ec-4e3afb8f87fa",
+ "results": [
+  {
+   "phase": "seed",
+   "exitCode": 1,
+   "seconds": 10.147,
+   "stderrBytes": 0,
+   "events": [
+    {
+     "type": "system",
+     "subtype": "hook_started",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "hook_started",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "hook_response",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "hook_response",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "init",
+     "sessionIdSame": true,
+     "init": {
+      "model": "claude-haiku-5-5",
+      "keys": [
+       "type",
+       "subtype",
+       "cwd",
+       "session_id",
+       "tools",
+       "mcp_servers",
+       "model",
+       "permissionMode",
+       "slash_commands",
+       "terminal_slash_commands",
+       "apiKeySource",
+       "claude_code_version",
+       "output_style",
+       "agents",
+       "skills",
+       "plugins",
+       "capabilities",
+       "analytics_disabled",
+       "product_feedback_disabled",
+       "uuid",
+       "memory_paths",
+       "original_cwd",
+       "additional_directories",
+       "messaging_socket_path",
+       "fast_mode_state",
+       "fast_mode_disabled_reason",
+       "per_turn_effort_active",
+       "view_mode"
+      ]
+     }
+    },
+    {
+     "type": "system",
+     "subtype": "thinking_tokens",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "thinking_tokens",
+     "sessionIdSame": true
+    },
+    {
+     "type": "assistant",
+     "subtype": null,
+     "sessionIdSame": true
+    },
+    {
+     "type": "assistant",
+     "subtype": null,
+     "sessionIdSame": true
+    },
+    {
+     "type": "result",
+     "subtype": "error_max_budget_usd",
+     "sessionIdSame": true,
+     "result": {
+      "subtype": "error_max_budget_usd",
+      "is_error": true,
+      "num_turns": 1,
+      "total_cost_usd": 0.28127599999999997,
+      "duration_ms": 6365,
+      "usage": {
+       "input_tokens": 0,
+       "cache_creation_input_tokens": 0,
+       "cache_read_input_tokens": 0,
+       "output_tokens": 0
+      },
+      "keys": [
+       "duration_api_ms",
+       "stop_reason",
+       "session_id",
+       "total_cost_usd",
+       "usage",
+       "modelUsage",
+       "permission_denials",
+       "terminal_reason",
+       "fast_mode_state",
+       "fast_mode_disabled_reason",
+       "subagent_stats",
+       "safety_stops",
+       "is_error",
+       "num_turns",
+       "subtype",
+       "errors",
+       "type",
+       "duration_ms",
+       "uuid",
+       "queued_turn_count",
+       "result_index"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "phase": "compact",
+   "exitCode": 0,
+   "seconds": 18.312,
+   "stderrBytes": 0,
+   "events": [
+    {
+     "type": "system",
+     "subtype": "hook_started",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "hook_started",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "hook_response",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "hook_response",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "status",
+     "sessionIdSame": true,
+     "status": "compacting"
+    },
+    {
+     "type": "rate_limit_event",
+     "subtype": null,
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "hook_started",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "hook_started",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "hook_response",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "status",
+     "sessionIdSame": true,
+     "status": null
+    },
+    {
+     "type": "system",
+     "subtype": "init",
+     "sessionIdSame": true,
+     "init": {
+      "model": "claude-haiku-5-5",
+      "keys": [
+       "type",
+       "subtype",
+       "cwd",
+       "session_id",
+       "tools",
+       "mcp_servers",
+       "model",
+       "permissionMode",
+       "slash_commands",
+       "terminal_slash_commands",
+       "apiKeySource",
+       "claude_code_version",
+       "output_style",
+       "agents",
+       "skills",
+       "plugins",
+       "capabilities",
+       "analytics_disabled",
+       "product_feedback_disabled",
+       "uuid",
+       "memory_paths",
+       "original_cwd",
+       "additional_directories",
+       "messaging_socket_path",
+       "fast_mode_state",
+       "fast_mode_disabled_reason",
+       "per_turn_effort_active",
+       "view_mode"
+      ]
+     }
+    },
+    {
+     "type": "system",
+     "subtype": "compact_boundary",
+     "sessionIdSame": true,
+     "compact_metadata": {
+      "trigger": "manual",
+      "pre_tokens": 280921,
+      "post_tokens": 2197,
+      "cumulative_dropped_tokens": 278724,
+      "duration_ms": 14959
+     }
+    },
+    {
+     "type": "user",
+     "subtype": null,
+     "sessionIdSame": true,
+     "userContentKinds": "string"
+    },
+    {
+     "type": "user",
+     "subtype": null,
+     "sessionIdSame": true,
+     "userContentKinds": "string"
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "sessionIdSame": true,
+     "result": {
+      "subtype": "success",
+      "is_error": false,
+      "num_turns": 0,
+      "total_cost_usd": 0.47953625,
+      "duration_ms": 15047,
+      "usage": {
+       "input_tokens": 0,
+       "cache_creation_input_tokens": 0,
+       "cache_read_input_tokens": 0,
+       "output_tokens": 0
+      },
+      "keys": [
+       "is_error",
+       "duration_api_ms",
+       "num_turns",
+       "stop_reason",
+       "session_id",
+       "total_cost_usd",
+       "usage",
+       "modelUsage",
+       "permission_denials",
+       "fast_mode_state",
+       "fast_mode_disabled_reason",
+       "subagent_stats",
+       "safety_stops",
+       "subtype",
+       "result",
+       "local_command",
+       "type",
+       "duration_ms",
+       "uuid",
+       "queued_turn_count",
+       "result_index"
+      ]
+     }
+    },
+    {
+     "type": "system",
+     "subtype": "hook_response",
+     "sessionIdSame": true
+    }
+   ]
+  },
+  {
+   "phase": "followup",
+   "exitCode": 1,
+   "seconds": 8.95,
+   "stderrBytes": 0,
+   "events": [
+    {
+     "type": "system",
+     "subtype": "hook_started",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "hook_started",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "hook_response",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "hook_response",
+     "sessionIdSame": true
+    },
+    {
+     "type": "system",
+     "subtype": "init",
+     "sessionIdSame": true,
+     "init": {
+      "model": "claude-haiku-5-5",
+      "keys": [
+       "type",
+       "subtype",
+       "cwd",
+       "session_id",
+       "tools",
+       "mcp_servers",
+       "model",
+       "permissionMode",
+       "slash_commands",
+       "terminal_slash_commands",
+       "apiKeySource",
+       "claude_code_version",
+       "output_style",
+       "agents",
+       "skills",
+       "plugins",
+       "capabilities",
+       "analytics_disabled",
+       "product_feedback_disabled",
+       "uuid",
+       "memory_paths",
+       "original_cwd",
+       "additional_directories",
+       "messaging_socket_path",
+       "fast_mode_state",
+       "fast_mode_disabled_reason",
+       "per_turn_effort_active",
+       "view_mode"
+      ]
+     }
+    },
+    {
+     "type": "assistant",
+     "subtype": null,
+     "sessionIdSame": true
+    },
+    {
+     "type": "result",
+     "subtype": "error_max_budget_usd",
+     "sessionIdSame": true,
+     "result": {
+      "subtype": "error_max_budget_usd",
+      "is_error": true,
+      "num_turns": 1,
+      "total_cost_usd": 0.78687875,
+      "duration_ms": 5777,
+      "usage": {
+       "input_tokens": 0,
+       "cache_creation_input_tokens": 0,
+       "cache_read_input_tokens": 0,
+       "output_tokens": 0
+      },
+      "keys": [
+       "duration_api_ms",
+       "stop_reason",
+       "session_id",
+       "total_cost_usd",
+       "usage",
+       "modelUsage",
+       "permission_denials",
+       "terminal_reason",
+       "fast_mode_state",
+       "fast_mode_disabled_reason",
+       "subagent_stats",
+       "safety_stops",
+       "is_error",
+       "num_turns",
+       "subtype",
+       "errors",
+       "type",
+       "duration_ms",
+       "uuid",
+       "queued_turn_count",
+       "result_index"
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}

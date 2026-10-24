@@ -1,0 +1,29 @@
+[
+  {
+    "role": "queue-worker",
+    "status": 0,
+    "stdoutBytes": 324,
+    "canonicalByteMatch": true,
+    "windowsCommandChars": 3818,
+    "stdinBytes": 294912,
+    "nodePathUnavailable": true
+  },
+  {
+    "role": "loop",
+    "status": 0,
+    "stdoutBytes": 370,
+    "canonicalByteMatch": true,
+    "windowsCommandChars": 3810,
+    "stdinBytes": 294912,
+    "nodePathUnavailable": true
+  },
+  {
+    "role": "automation",
+    "status": 0,
+    "stdoutBytes": 361,
+    "canonicalByteMatch": true,
+    "windowsCommandChars": 3818,
+    "stdinBytes": 294912,
+    "nodePathUnavailable": true
+  }
+]

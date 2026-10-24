@@ -1,0 +1,6 @@
+{
+  "changedSinceStart": [
+    "src/main/automations/automation-thread-budget.spec.ts",
+    "src/main/automations/thread-wakeup-runner.spec.ts"
+  ]
+}

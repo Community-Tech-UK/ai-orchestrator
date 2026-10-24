@@ -5,9 +5,15 @@
  * `child.kill('SIGKILL')` ends that shell and leaves npm/vitest as `ppid=1`
  * orphans, which then contend with the next iteration's verify and blow the
  * 600s coordinator budget. Kill descendants, wait, then settle timeout.
+ *
+ * On POSIX the shell also leads its own process group, and that group is
+ * killed whenever the verify ends, including a normal pass: anything the
+ * command backgrounded (`server &`) has been reparented to launchd by then,
+ * where a parent-pid walk can no longer find it, but it keeps the group.
  */
 
 import { spawn } from 'node:child_process';
+import { killProcessGroupOnly } from '../cli/adapters/base-cli-process-utils';
 import type { VerifyFailureKind, VerifyOutcome } from './loop-completion-detector';
 import {
   killProcessTree,
@@ -51,9 +57,11 @@ export function spawnVerifyCommand(
   const started = Date.now();
   return new Promise<VerifyOutcome>((resolve) => {
     const inv = helpers.buildInvocation(cmd);
+    const ownGroup = process.platform !== 'win32';
     const child = spawn(inv.file, inv.args, {
       cwd: executionCwd,
       shell: inv.useShellOption,
+      detached: ownGroup,
       env: {
         ...process.env,
         CI: '1',
@@ -96,7 +104,10 @@ export function spawnVerifyCommand(
 
     const reapAndFinish = async (reason: 'timeout' | 'cancelled'): Promise<void> => {
       const pid = child.pid;
+      // Walk the live tree first: once the group is gone the shell is too, and descendants that
+      // left the group (setsid, detached spawns) could no longer be found by parent pid.
       killProcessTree(pid);
+      if (ownGroup) killProcessGroupOnly(pid, 'SIGKILL');
       try {
         child.kill('SIGKILL');
       } catch {
@@ -133,6 +144,12 @@ export function spawnVerifyCommand(
       },
     });
 
+    // As soon as the shell exits, stop anything it left in its group (ESRCH when nothing is left).
+    // Doing it on `exit` rather than `close` also frees output pipes a leftover still holds, so a
+    // passing verify is not held until its timeout and then reported as timed out.
+    child.on('exit', () => {
+      if (ownGroup) killProcessGroupOnly(child.pid, 'SIGKILL');
+    });
     child.on('close', (code) => {
       if (timedOut || cancelledExternally || settled) return;
       const output = `${stdout}${stderr ? `\n--- stderr ---\n${stderr}` : ''}`;

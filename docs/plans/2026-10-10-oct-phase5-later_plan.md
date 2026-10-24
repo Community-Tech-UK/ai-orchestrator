@@ -1,7 +1,24 @@
+## Verifier finding to fix next (23 Oct, coordinator handoff; medium)
+
+`session-status-dock.component.scss:2` - the dock's final focus fallback calls `tryFocus(host)` but
+`:host { display: contents }` cannot receive focus in Chromium: closing a cold Review with no chips and a disabled
+composer drops focus to BODY. Keep a focusable host (or move the focus target) and cover it with a real-browser guard;
+the jsdom spec blanks the stylesheet and misses this.
+
+
 # October Phase 5: later items
 
-**Status:** active implementation in queue worktree, started 2026-10-12. Implemented subset under fresh review; missing prior-phase modules keep Steps 1b, 10 root-store handoff and 16 open. Written 2026-10-10. Keep this file untracked until every step is implemented and
-verified (see [Finishing](#finishing)).
+## Status
+
+On main: no (`queue/2026-10-10-oct-phase5-later-3e8047`).
+All 17 steps implemented and their focused checks pass; steps 18–21 parked/unbuilt (moved to
+`2026-10-12-oct-phase5-parked-followups_plan.md`). The full test-suite gate is re-run green unpinned
+(2,786 files / 35,232 passed | 8 skipped, 0 failed). Three verifier round-5 findings fixed. Awaiting the
+coordinator's independent verification and fresh-eyes gate. Do not rename this plan.
+Twenty-one unrun live checks in [livetest](2026-10-10-oct-phase5-later_livetest.md).
+Dated status, as-built and remediation sections: [history](2026-10-10-oct-phase5-later_history.md).
+
+> Earlier dated status and hand-off sections moved to [history](2026-10-10-oct-phase5-later_history.md).
 
 **Source:** the "later (P2)" row of the approved backlog [`claude_oct-todo.md`](../../claude_oct-todo.md):
 "later (P2) | A11, B11, B12, B13, C12, C13, D11 | Useful, but not before the items above". James approved the backlog on
@@ -51,14 +68,6 @@ leaves the steps that wait for Phase 3 until after it.
 
 ---
 
-> **Coordinator handover (13 Oct 2026, Plan Queue parent).** The complete prior implementation for
-> this plan is on the parked branch `queue/2026-10-10-oct-phase5-later-e9f577` (209 files vs `main`);
-> it is not on `main`, and a fresh worktree cut from `main` does not contain it. Before anything else,
-> bring that branch's content into your worktree (`git merge --squash queue/2026-10-10-oct-phase5-later-e9f577`,
-> or `git diff $(git merge-base HEAD main) queue/2026-10-10-oct-phase5-later-e9f577 | git apply`),
-> reconcile it with the as-built notes below, then finish the remaining unchecked items — do not
-> reimplement from scratch. Some steps also await prior-phase modules; integrate what has landed and
-> record what still waits. Delete this handover note once the port is in place.
 
 ## In plain English (what James will notice)
 
@@ -2227,7 +2236,7 @@ done).
 
 ## Live checks
 
-Rebuilt-app, provider and real-keyboard checks for the implemented subset are recorded in [2026-10-10-oct-phase5-later_livetest.md](2026-10-10-oct-phase5-later_livetest.md). Missing implementation is not deferred there; Step 1b's live check remains with its open implementation requirement.
+Rebuilt-app, provider and real-keyboard checks for the implemented subset are recorded in [2026-10-10-oct-phase5-later_livetest.md](2026-10-10-oct-phase5-later_livetest.md), including step 1b's check (implemented 15 Oct). Missing implementation is not deferred there; step 16's acceptance stays here until Phase 3's C2b exists.
 
 ## Not in this plan (and where it goes)
 
@@ -2391,7 +2400,9 @@ not fixed here.
 - **C13.10:** the "what memory did this session get" view in the backlog item is not part of this change; it needs Phase 3's
   memory counters and C2's Context details. Retiring unused or source-changed notes (backlog A20.3), which Phase 3 hands to
   this page, is not built here either (see Not in this plan).
-- **C13.12:** no separate strip; the work is two added rules in Phase 3's status strip plus a guard test.
+- **C13.12:** no separate strip; the work is two added rules in a status strip plus a guard test. (23 Oct remediation:
+  with Phase 3's C2b absent from this branch, the strip itself is delivered here as `session-status-dock.*` carrying
+  those rules — still one strip, no duplicate.)
 - **D11:** confirmed as approved (Decision 5). One refinement: each tip's recorded feature is an action id for the four
   shortcut features, and the catalogue guard also checks that each of those actions is registered with the dispatcher.
 
@@ -2411,106 +2422,5 @@ not fixed here.
 6. Commit only when James asks. Stage only this plan's code and the `_completed` plan (the livetest doc stays untracked until it is renamed `_livetest_completed`, because the commit hook refuses an open one); never other
    sessions' work.
 
-## As-built notes
 
-Checked active steps below mean their code and focused worker verification are complete in this checkout. Full-suite/coordinator verification and rebuilt-app observations remain separate. A parked checkbox means its required disposition was recorded, not that the feature was built. Steps 1, 10 and 16 stay open for missing implementation.
-
-- [ ] Step 1 A11 (1a tool, 1b Compact-now pointer, 1c `@session` chip)
-- [x] Step 2 B13 wording and the Codex goal log line
-- [x] Step 3 C13.4
-- [x] Step 4 C13.1
-- [x] Step 5 C13.9
-- [x] Step 6 C13.8
-- [x] Step 7 C12B (batch 1, batch 2, batch 3; note whether `provider-accounts-tab.component.ts` was migrated)
-- [x] Step 8 C13.2
-- [x] Step 9 C13.7 code/focused checks; actual `TodoWrite` versus `TaskCreate` remains a deferred provider check
-- [ ] Step 10 C12A
-- [x] Step 11 C13.3
-- [x] Step 12 C13.5
-- [x] Step 13 C13.6 (13a, 13b, 13c)
-- [x] Step 14 C13.10
-- [x] Step 15 C13.11
-- [ ] Step 16 C13.12
-- [x] Step 17 D11
-- [x] Step 18 B12: handled as parked, unbuilt; moved unchanged to `2026-10-12-oct-phase5-parked-followups_plan.md`
-- [x] Step 19 B13: handled as parked, unbuilt; moved unchanged to the follow-up; loop-use threshold passes, A4 is absent
-- [x] Step 20 B11a: handled as parked, unbuilt; moved unchanged to the follow-up; no OpenCode loop usage, so paid live probe not started
-- [x] Step 21 A3.OC: handled as parked, unbuilt; moved unchanged to the follow-up; installed signal/prerequisites and OpenCode loop usage absent
-- [ ] Final gates
-- [ ] Fresh-eyes gate PASS
-- [x] Livetest doc created
-
-## Queue implementation ledger (12 October 2026)
-
-- Worktree: `.worktrees/queue/2026-10-10-oct-phase5-later-e9f577`; initial `git status --short` clean. Root plan remains untracked. No branch operations or commits permitted.
-- No separate Phase 5 spec is linked. The approved backlog is root-only/untracked; this plan is the implementation authority.
-- Preflight: `compaction-continuity-package.ts`, `session-status-dock.*`, Phase 0 automatic-review scope helper, and Phase 3 root needs-you store are absent in this checkout. Step 1b and step 16 require those exact prior-phase modules. Keep dependent requirements open; do not silently rebuild earlier phases or certify their absence as completion.
-- Ruling: worker runs targeted tests and static/build checks; the queue verifier owns the full suite and final independent completion gate. Coordinator owns document rename and commits. These explicit queue instructions override generic finishing steps.
-
-### As-built implementation and integration decisions
-
-1. **Step 1: partial.** `read_session` is wired into tool search, deferred discovery/forwarding and authenticated RPC caller identity; the reader is initialised after cross-session messaging. Live/history projection uses the extracted full-message merge. Source filtering, paging/cursors, item/page caps, redaction before clipping, caller character budgets, title ambiguity, real-user chip grants and audit rows are implemented. Tool/RPC/projection/reader tests pass, including switch revocation during load and archived-parent identity. `@session:` offers live and past sessions, current-project first; rapid typing now waits for the shared history load and rejects stale results. **1b remains unimplemented:** `compaction-continuity-package.ts` and `ContinuityStats` do not exist in this checkout. The current runtime's old package is not the Phase 0 named-block/identifier-index/wait-rule package this step modifies. No unused recovery block or invented substitute package was added. Integrate Phase 0 step 10, then add and wire the recovery block, bridge predicate and compaction-to-reader integration test. Its live requirement remains under 1b, not deferred as completed code.
-2. **Step 2:** neutral fresh-context round wording; Codex goal-change logs contain status only, including `unknown` for malformed/unrecognised statuses. Focused invoker/provider regression tests cover reset wording, foreign thread and malformed goal events.
-3. **Steps 3–4:** Training, Instance Messaging and the old chat-search menu entry are hidden through the registry without deleting routes. Search wording names names/prompts/folders. Find session matches bounded first/last prompt snippets and the rail action opens that same picker; focused registry/controller/rail tests pass.
-4. **Step 5:** event-age fallback says Working quietly after ten seconds and keeps elapsed time/hover; existing detailed activity wins. Component tests exercise this transition.
-5. **Step 6:** connected MCP cards show tool count and bounded rough schema-token cost; disconnected cards ask to connect. Central hover copy explains Claude's deferred tool loading. Helper and actual component tests pass.
-6. **Step 7:** all 23 native-confirm sites, including provider accounts, migrated to the root queued Harness dialog; zero-entry native-confirm ratchet passes. Destructive dialogs start on Cancel, block Enter, trap Tab, consume Escape and restore focus. Overlapping ecosystem requests do not share an affirmative result; remote uninstall captures its target before awaiting confirmation. Existing terminate/Close-all ownership was preserved; absent Phase 0 additions were not rebuilt here.
-7. **Step 8:** Council prefill is one-shot, editable and never sends automatically. Reply question matching handles older/history slices; payload closing tags are escaped with existing helpers and budgets are bounded. Phase 0's Get a second opinion item is absent, so the new item follows the existing Copy/Fork entries; no competing second-opinion implementation was added.
-8. **Step 9:** all five settings surfaces include `claudeShowTaskList`, default false. One shared main-chat classifier was established because Phase 0's helper is absent; Phase 0 must reuse it rather than create a second scope rule. A bounded registry follows resolved provider/location at spawn and respawn, cleans up on rollback/removal, and enables the environment flag only for eligible local Claude chats. Warm-start/worker shortcuts are bypassed when the flag must be injected. The actual returned CLI tool (`TodoWrite` versus `TaskCreate`) is **not known from source/tests** and remains a rebuilt-provider check in the livetest document.
-9. **Step 10: partial.** Keyed/action toasts and `UndoService` provide five seconds, hover/focus pause, one entry per kind, stale-action protection, atomic consumption and failed-restore feedback. Root dispatch/palette and Ctrl/Cmd+Z avoid text fields. Archive/unarchive contract, generated channel, validated handler, preload, renderer store and rail helpers are wired. Project Undo restores only newly archived thread IDs plus folder/pin. New-session discard snapshots text/folders/files/agent and restores without overwriting newer text. Queued-message cancellation and table append merge with existing text and distinct hidden edit/recall drafts. Workboard Snooze Undo, count and Show-all work in today's store. **Phase 3 C4 root `NeedsYouStore` is absent:** root lifetime delegation and cross-page Snooze ownership remain open, not live-test deferrals. Composer recovery-discard Undo was optional and was not added. No changes to termination confirmations.
-10. **Step 11:** request IDs and raw provider stop values fold into Details/Copy; only abnormal stops warn. Money uses cents/plain amounts, with exact values in Details. Browser grants show site and unattended/user-approved wording while raw IDs/tool/selector remain in Details. Existing money/pricing/IPC shapes remain unchanged. Focused component, formatting and browser-label tests pass.
-11. **Step 12:** child navigation derives siblings from live `parentId`, sorted by creation, with Parent/Previous/Next and disabled end/missing-parent states; component tests pass. No header rewrite.
-12. **Step 13:** one primary New session plus keyboard-accessible Quick chat menu; Quick chat explicitly uses Scratch. Task window keeps the active/pending task visible and expands a scrollable full list; duplicate Tasks inspector/state removed. **Integration decision:** move the one existing Progress-panel mount into InstanceDetail so Workboard-embedded conversations also retain task visibility; do not rely on Dashboard-only mounting. Obsolete auto-expand tests replaced with task-window and real DOM visibility/expansion assertions. One state-derived composer hint preserves quota mount and avoids provider-specific compaction wording. The Phase 3 strip is absent, so no nonexistent strip chip was modified.
-13. **Step 14:** Project notes wording, central hover help, created/source metadata, Last shown and Shown N times. Remove Undo re-adds through the unchanged API as a new user-added note. Known generated L1 heading prefix is stripped only for display, never rewritten in persistence. Focused tests pass.
-14. **Step 15:** numbered tables get accessible row selection and bounded plain-text append into the existing composer. No automatic send. Attribute payloads use JSON/unicode escaping to survive existing DOMPurify SAFE_FOR_XML; sanitisation was not relaxed. Completed-assistant-only guard covers final ACP data and settled local/Copilot metadata; streaming/user/unknown states are excluded. The fresh-review nested reasoning/system finding was fixed: controls default disabled, only completed assistant hosts opt in, and reasoning/system ancestors always deny. Actual renderer/delegated-listener regressions pass.
-15. **Step 16: unimplemented dependency.** `session-status-dock.*` is absent. Required handoff to Phase 3 C2b: typed `DOCK_CHIPS`; show the five most urgent chips and `+N more`; approvals/questions always outside; Escape closes panel and returns focus; render nothing when empty. The guard spec must exercise the actual C2b component after integration. This plan expressly forbids a second strip; none was built.
-16. **Step 17:** versioned feature-use lifetime storage, successful action recording, conservative composer/modal/queue eligibility, thirty-second start, ten-minute gap, two-per-launch and three-per-feature cap; one busy-period impression counted only after render. Keyboard shortcut text uses current bindings; typing hides it, Got it retires it, Tab can reach Got it. Missing composer suppresses tips. `showWorkingTips` default true is in all settings surfaces. **Compact-preview catalogue entry is dormant** until Phase 0 exposes the referenced control; source tests pin this exclusion.
-17. **Parked Steps 18–21:** moved verbatim to [2026-10-12-oct-phase5-parked-followups_plan.md](2026-10-12-oct-phase5-parked-followups_plan.md), still untracked and unbuilt. Read-only evidence: seven recent loop runs meet Step 19's usage threshold, but A4 is absent; zero OpenCode loops fail Steps 20/21 thresholds; the installed OpenCode does not have the compaction signal. Structured Codex goal-tool activity was not found in the available corpus; the short rotating app-log window is not presented as thirty-day absence evidence.
-
-The root implementation plan, live-test document and parked follow-up are all untracked (`??`). No separate spec exists. The coordinator owns renaming, committing and lifecycle integration. This worker does not claim the complete plan ready to close while the three predecessor-dependent requirements remain open.
-
-### Worker verification evidence (12 October 2026, final corrected source)
-
-- `npx tsc --noEmit`: exit 0, `_scratch/phase5-main-final.log`.
-- `npm run typecheck:spec`: exit 0, `_scratch/phase5-spec-final.log`; canonical 8 GiB heap command used.
-- `npm run lint`: exit 0, `_scratch/phase5-lint-final.log`. Focused main-process ESLint was also run by implementing agents; no diagnostics were suppressed.
-- `npm run check:ts-max-loc`: exit 0, `_scratch/phase5-loc-final.log`; no ceilings/tolerances changed.
-- `npm run build:main`: exit 0, `_scratch/phase5-build-main-final.log`; Electron compilation, asset sync and preload bundle ran.
-- `npm run build:renderer`: exit 0, `_scratch/phase5-build-renderer-final.log`; Angular AOT bundle generated in 10.077 s on the final rerun.
-- `npm run build:aio-mcp-cli`: exit 0, `_scratch/phase5-build-mcp-final.log`; bundled deferred session reader discovery/forwarding.
-- `generate:ipc` and `generate:aliases`: exit 0, `_scratch/phase5-generate-ipc-final.log` and `_scratch/phase5-generate-aliases-final.log`; 1,187 IPC channels and 59 exact/3 prefix aliases. Alias output unchanged; unarchive generated channel current.
-- `verify:ipc`, `verify:ipc-usage`, `verify:exports`, `check:contracts`: exit 0, corresponding `_scratch/phase5-*-final.log`; 1,187-channel sync, 5,717-file export scan, 38 schema subpaths. IPC usage remains the existing warn-level inventory; zero exit does not claim strict coverage.
-- Latest focused main/IPC regression gate: 9 files / 128 tests PASS, `_scratch/test-run.pid-35825.log`. It covers archive/unarchive, real index-queue retry, complete history manager, archive integrity, transcript cap/cursor/reader scope, MCP/RPC and validated IPC plus renderer unarchive state. Earlier focused domains and independent reruns are recorded by the agents and reviewer, with retained `_scratch/test-run.*.log`; counts overlap and are not summed.
-- Final Step 15 nested-boundary and composer regressions: 4 files / 76 tests PASS, `_scratch/test-run.pid-29830.log`; independent rerun `_scratch/test-run.phase5-fresh-review-table-final.log` PASS.
-- Rapid-history-load plus actual history/recovery/resume regressions: 7 files / 56 tests PASS, `_scratch/test-run.pid-23422.log`.
-- Quick-chat menu focus/Escape regression: 2 files / 6 tests PASS, `_scratch/test-run.pid-16639.log`.
-- `git diff --check`: exit 0. No package/lockfile, compiler config or Vitest configuration changed. No commits, stashes, branch switches or worktrees created. Nothing staged.
-- **Full suite intentionally not run:** explicit Plan Queue worker instruction assigns it to the independent coordinator verifier. Final gates checkbox remains open.
-
-### Fresh review and corrected defects
-
-First genuinely fresh `task-completion-gate` context reviewed tracked and untracked changes from base `4d175e55`; its full-plan **VERDICT: FAIL** is correct because Steps 1b, 10 root-store handoff and 16 are incomplete. Implemented subset received provisional PASS, with no remaining actionable finding. Independently exercised domains include 34 files/352 tests; 12 files/227 tests; 4 files/22 tests; 4 files/76 tests; 7 files/121 tests; stable final 8 files/50 tests, all exit 0. Logs `_scratch/test-run.phase5-fresh-review-*.log` overlap; they are not a full-suite substitute.
-
-Six concrete findings were reproduced, fixed and independently rechecked: archived-parent original identity; Quick-chat keyboard focus/Escape; autocomplete history-load race; reasoning/system table selection boundary; failed/missing unarchive false success; oversized tool-name item cap/cursor loss. Unarchive now types the real conversation result, refuses missing/corrupt conversations, serializes per entry, changes index only after conversation success, compensates conversation/index on index-save failure, preserves the original error and retains unrelated latest timestamps. The real HistoryManager index ordering tail releases even when its own caller fails, allowing explicit retry instead of poisoning later writes. Regression tests cover the real method and compensation failure.
-
-A second genuinely fresh review confirmed a High redaction defect inherited from the shared helper and affecting the new reader. That snapshot received FAIL. The defect and a further archive persistence issue were then fixed; a third genuinely fresh post-remediation review and the escalated `repo-health-audit` are checking the current stable source. The gate skill requires escalation for session-handling changes and multiple Medium findings. Do not check Fresh-eyes PASS or close this plan while whole acceptance remains incomplete. The coordinator must integrate the missing predecessor code, rerun the affected focused/static/build checks, run the full suite, and obtain a fresh whole-plan PASS before renaming.
-
-### Security and persistence remediation found by the escalation
-
-- **Redaction boundary:** the audit and second fresh reviewer reproduced partial disclosure through the actual new transcript projector when registered exact values overlapped. The existing shared `redactSecrets` applied overlapping original offsets after changing the string. Reuse the already-correct range-union helper from `content-egress-gate` by exporting it once from `secret-detector`; both egress paths now use that same helper. Existing egress markers/audit and detection patterns are unchanged. Indexed `matchAll` also fixes repeated connection/JWT/private-key occurrences that previously reused the first `indexOf` position. Exact matching advances one character so overlapping occurrences of the same value are all unioned. Tests use obvious placeholders only. Final detector/egress/scanner/actual reader/MCP focused gate: 6 files/65 tests PASS, `_scratch/test-run.pid-54914.log`. Original failing regressions retained in `_scratch/test-run.pid-50509.log`, `pid-51762.log` and `pid-54117.log`.
-- **Archive failure truthfulness:** the same baseline mutate-before-persist defect remained on archive even after unarchive was fixed. This directly undermined the new Undo caller. The shared archive/unarchive transaction now delays index mutation until the conversation write succeeds, compensates both persistence surfaces after index-write failure and preserves the original error. Legacy index-only archive of a missing/orphan transcript remains allowed; restoring it correctly reports unavailable. Latest archive/history/index retry/IPC/store/rail gate: 7 files/107 tests PASS, `_scratch/test-run.pid-59134.log`; original two failure cases reproduced in `_scratch/test-run.pid-58046.log`.
-- These are required corrections to load-bearing dependencies of Steps 1a and 10, not unrelated cleanup. No dependency/lockfile, validation scope or test harness was loosened.
-- Post-remediation typechecks, renderer lint, main/shared/preload lint and LOC pass again. Final main/renderer/MCP builds all pass against this corrected source. The third fresh review found no unresolved actionable code defect and retains whole-plan FAIL for the documented acceptance gaps. The full suite remains assigned to the coordinator.
-
-### Final independent review and escalated audit disposition
-
-- **Third genuinely fresh post-security review:** implemented-code finding clearance; no unresolved actionable findings. Four independent focused runs (29 files / 317 tests across the runs) pass; 1,045 additional in-memory adversarial redaction checks pass. Logs `_scratch/test-run.pid-57614.log`, `pid-60138.log`, `pid-60760.log`, `pid-61236.log`; run counts are not a full-suite substitute. The reviewer checked RPC capability/resource scope, reader/paging/audit/redaction, archive/unarchive compensation and queue release, Undo/confirm/tips, table/composer boundaries and task-tool scoping. **Whole-plan VERDICT: FAIL** remains correct for Steps 1b, 10 root-store handoff and 16, plus the coordinator-owned full-suite and pending rebuilt/provider observations. Do not close this plan from implemented-subset clearance.
-- **Escalated repo-health-audit:** all rubric passes 0–6 performed with a risk-prioritised whole-repository inventory (5,718 TypeScript files; 3,315 production files), broad scans and selected execution-path review. This is not certification of every repository path. Import-boundary/dead-export checks pass. Independent runtime 6 files/78 tests, post-fix security/projector 3 files/30 tests and post-fix history/IPC 4 files/54 tests pass. All 86 directly locked packages exist on the official npm registry; maintenance status was not comprehensively proved. No remaining introduced auth/resource defect, test tampering or weakened sanitisation was established. Audit logs and actual exit statuses: `_scratch/phase5-local_scan-*`.
-- **Baseline remediation queue, outside this Phase 5 implementation:** (1) High: the build dependency audit exits 1 with two critical advisory entries through unchanged `concurrently@9.2.4` -> `shell-quote@1.9.0` ([GHSA-pqg4-j6r4-53mv](https://github.com/advisories/GHSA-pqg4-j6r4-53mv)); fix in a separate dependency task. (2) Reviewed production dependency risk: five high entries through extract-zip/Puppeteer and one low DOMPurify entry; production audit gate passes with existing documented exceptions and inspected caller compensations. This is not blanket immunity. (3) Existing architecture cycles: the diagnostic exits 1, but independent HEAD/current comparison reports the same 35 strongly connected components / 270 cyclic files, with no added/expanded component. These baseline diagnostic failures were not hidden as passing Phase 5 checks.
-- **Performance follow-up, not a reproduced acceptance failure:** the reader currently projects/redacts the complete merged transcript before selecting a page, as this plan specifies. Audit's 10,000-message / 85.5-million-character placeholder probe returned a bounded 4,000-character result in about 129 ms. Consider page-first projection during later large-session optimisation; do not claim the current page cap bounds all input work.
-- All final worker typechecks, renderer/main lint, LOC, main/renderer/MCP builds, generators, IPC/exports/contracts checks and focused tests are green. No full suite run, no live UI/provider validation, no commits/stashes, no branches/worktrees created/switched, no active document rename. Final branch remains `queue/2026-10-10-oct-phase5-later-e9f577`, HEAD `4d175e55b`, with nothing staged. No Phase 5 plan/spec copy exists in the worktree.
-- Final dependency check also found the three predecessor modules absent in the **root source checkout**, as well as this queue worktree. The coordinator must land the owning phases before finishing these requirements; importing another AIO worktree or inventing parallel state/strips is not an integration substitute.
-
-**Worker handoff:** 14 of 17 active steps code-complete (2–9, 11–15, 17), Step 1 partial (1a/1c done; 1b open), Step 10 partial (root Snooze handoff open), Step 16 blocked on the owning status strip. Parked 18–21 dispositions complete, features unbuilt. Implementation plan, live-test document and parked follow-up remain untracked in the root checkout. Safe implemented work is reviewable; whole plan is **not complete** and must not be renamed or certified until the open code requirements and coordinator gates pass.
-
-> Plan Queue parked work: `queue/2026-10-10-oct-phase5-later-e9f577` — 1 commit(s), reason: worker-error.
+> Dated as-built, remediation and verification sections moved to [history](2026-10-10-oct-phase5-later_history.md).

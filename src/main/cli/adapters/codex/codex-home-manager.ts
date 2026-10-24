@@ -17,6 +17,7 @@ import { join } from 'path';
 import { getLogger } from '../../../logging/logger';
 import { CodexTomlEditor } from '../../../mcp/adapters/codex-toml-editor';
 import { preserveHarnessCliShellPolicy } from './codex-harness-shell-policy';
+import { disableClaudeCallbackTools } from './codex-claude-mcp-policy';
 
 const logger = getLogger('CodexHomeManager');
 const OWNER_FILE = '.aio-codex-home-owner.json';
@@ -85,8 +86,8 @@ export class CodexHomeManager {
   }
 
   /**
-   * Session-isolated home with config.toml mirrored untouched (user MCP
-   * servers keep working). For app-server mode.
+   * Session-isolated home retaining user MCP servers, with Claude-only
+   * callback tools disabled. For app-server mode.
    */
   prepareSessionIsolatedHome(): string | null {
     return this.prepareHome({ stripUserMcp: false });
@@ -103,7 +104,7 @@ export class CodexHomeManager {
       const configContent = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : null;
       const stripConfig = opts.stripUserMcp && configContent !== null && configContent.includes('[mcp_servers');
       const nextConfig = preserveHarnessCliShellPolicy(
-        stripConfig ? stripMcpServers(configContent) : configContent ?? '',
+        stripConfig ? stripMcpServers(configContent) : disableClaudeCallbackTools(configContent ?? ''),
         this.options.harnessCliEnv,
       );
       const writePrivateConfig = stripConfig || nextConfig !== (configContent ?? '');
@@ -153,9 +154,9 @@ export class CodexHomeManager {
       const baseConfig = existsSync(configPath)
         ? stripMcpServers(readFileSync(configPath, 'utf-8')).trim()
         : '';
-      const nextConfig = preserveHarnessCliShellPolicy([baseConfig, mcpConfigToml.trim()]
+      const nextConfig = preserveHarnessCliShellPolicy(disableClaudeCallbackTools([baseConfig, mcpConfigToml.trim()]
         .filter(Boolean)
-        .join('\n\n'), this.options.harnessCliEnv);
+        .join('\n\n')), this.options.harnessCliEnv);
       writeFileSync(join(tempDir, 'config.toml'), nextConfig, { encoding: 'utf-8', mode: 0o600 });
       this.linkSessionStore(tempDir);
       this.linkThreadStateStore(tempDir);

@@ -1,0 +1,16 @@
+{
+  "command": [
+    "rtk",
+    "proxy",
+    "npx",
+    "vitest",
+    "run",
+    "src/main/cli/adapters/claude-trial-native-compaction.spec.ts",
+    "src/main/cli/adapters/__tests__/claude-trial-lifetime.integration.spec.ts",
+    "src/main/cli/adapters/remote-cli-adapter.spec.ts",
+    "--reporter=verbose"
+  ],
+  "exit": 1,
+  "durationSeconds": 5.64,
+  "log": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phased-tokens-0e371d/_scratch/oct2-phaseD-round2/guidance-native-compact-trial.log"
+}

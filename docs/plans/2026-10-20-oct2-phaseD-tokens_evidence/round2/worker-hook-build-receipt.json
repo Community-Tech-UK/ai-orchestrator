@@ -1,0 +1,15 @@
+{
+  "node": "v26.3.0",
+  "canonicalSourceBytes": 2023,
+  "canonicalSourceSha256": "cb5e78a0238224d47240671fa0b8ae68f8c2f44ea9a00d233e268fe1a85b80c5",
+  "bundleContainsExactCanonicalBase64": true,
+  "bundleBytes": 4551851,
+  "selfCheck": {
+    "status": 0,
+    "stdout": "Worker self-check ok",
+    "stderr": "",
+    "cwd": "owned asset-free scratch directory",
+    "config": "explicit absent scratch config"
+  },
+  "nativeSeaPackagingRun": false
+}

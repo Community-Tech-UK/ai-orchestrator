@@ -1,0 +1,13 @@
+{
+  "command": [
+    "rtk",
+    "npm",
+    "run",
+    "typecheck:spec"
+  ],
+  "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phased-tokens-0e371d",
+  "startedAt": "2026-10-21T00:03:17.864951+00:00",
+  "exitCode": 0,
+  "durationSeconds": 37.65807166596642,
+  "log": "_scratch/oct2-phaseD-round2/trial-integrity-spec-types-final.log"
+}

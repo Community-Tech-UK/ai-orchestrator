@@ -1,0 +1,8 @@
+{
+  "canonicalSourceBytes": 2023,
+  "canonicalSourceSha256": "cb5e78a0238224d47240671fa0b8ae68f8c2f44ea9a00d233e268fe1a85b80c5",
+  "bundleBytes": 4551851,
+  "bundleSha256": "3b490956bbfab52323a0389072664ee488b4e70926053d5cbdf742aebe53a141",
+  "bundleContainsExactCanonicalBase64": true,
+  "nativeSeaPackagingRun": false
+}

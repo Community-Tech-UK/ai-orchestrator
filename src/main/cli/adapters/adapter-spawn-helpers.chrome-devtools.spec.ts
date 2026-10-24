@@ -123,7 +123,19 @@ describe('withBrowserGatewaySystemPrompt', () => {
     expect(result.systemPrompt).toContain('whether the check passed or failed');
     expect(getAdapterGuidanceBlocks({} as UnifiedSpawnOptions).map((block) => block.kind)).toEqual([
       'adapter-disk-hygiene',
+      'adapter-process-hygiene',
     ]);
+  });
+
+  it('tells every agent to stop the background programs it starts, in a way that works in zsh', () => {
+    const result = withBrowserGatewaySystemPrompt({ systemPrompt: 'Base instructions' } as UnifiedSpawnOptions);
+
+    expect(result.systemPrompt).toContain('[Process Hygiene]');
+    expect(result.systemPrompt).toContain('without CPU or memory stress');
+    expect(result.systemPrompt).toContain('kill "${pids[@]}"');
+    expect(result.systemPrompt).toContain('`pkill -P` can no longer find them');
+    const prompt = result.systemPrompt ?? '';
+    expect(prompt.indexOf('[Process Hygiene]')).toBeGreaterThan(prompt.indexOf('[Disk Hygiene]'));
   });
 
   it('appends disk hygiene after tool guidance and only once', () => {
@@ -139,6 +151,7 @@ describe('withBrowserGatewaySystemPrompt', () => {
     expect(getAdapterGuidanceBlocks(options).map((block) => block.kind)).toEqual([
       'adapter-browser-gateway',
       'adapter-disk-hygiene',
+      'adapter-process-hygiene',
     ]);
     const once = withBrowserGatewaySystemPrompt(options);
     const twice = withBrowserGatewaySystemPrompt(once);

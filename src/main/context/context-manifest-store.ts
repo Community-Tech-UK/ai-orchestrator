@@ -122,6 +122,7 @@ const ADAPTER_GUIDANCE_ORDER: readonly AdapterGuidanceBlock['kind'][] = [
   'adapter-mobile-mcp',
   'adapter-computer-use',
   'adapter-disk-hygiene',
+  'adapter-process-hygiene',
 ];
 
 /** Complete the latest pre-spawn snapshot with the blocks the adapter appends. */

@@ -321,6 +321,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-704 | P1 | **CODE VERIFIED 2026-10-13 — independent completion-gate PASS; queue re-verified 2026-10-14; packaged smokes pending.** Candidate discovery now inherits the trusted environment before caller overrides, retaining the working NVM CLI and confirming `aio-mimo-comtechspare-f7a6/mimo-v2.6-pro`. Source and independently checked compiled default/High replies, six canonical gates and full suite pass. The install/restart prerequisite is satisfied (installed 2026-10-14 13:00 UTC, booted 13:08 UTC, compiled launcher byte-identical to the verified build); the two packaged smoke checks remain unrun and their exact deferred procedure is recorded inline in [LT-704 detail](#lt-704-deferred-packaged-acceptance) (branch-resident) and mirrored in the untracked root-checkout [startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md). This is not confirmed fixed live. | [LT-704 detail](#lt-704) | [Plan-owned packaged default/High checks](2026-10-13-opencode-launch-environment_livetest.md); [original failure evidence](2026-10-13-opencode-effort-variant-startup_livetest.md#evidence-run--2026-10-13-rebuilt-packaged-app) |
 | LT-705 | P1 | **MACHINE REPAIR + CODE VERIFIED 2026-10-13 — gates and full suite pass, independent reviews PASS; queue re-verified 2026-10-14; packaged smoke pending.** OpenCode 1 failed in `~/work/communitytech` (`no such column: project_id`) after OpenCode 2 rebuilt the shared `workspace` table, so selection fell back to OpenCode 2, whose `acp` ignores the per-spawn overlay and lacked the second account's key. Added nullable `workspace.project_id` (backed up); selection now refuses OpenCode 2 and explains why. The install/restart prerequisite is satisfied as for LT-704; the communitytech packaged smoke remains unrun and its exact deferred procedure is recorded inline in [LT-705 detail](#lt-705-deferred-packaged-acceptance) (branch-resident) and mirrored in the untracked root-checkout [startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md). | [LT-705 detail](#lt-705) | [Plan-owned packaged checks](2026-10-13-opencode-launch-environment_livetest.md) |
 | LT-706 | P2 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); live re-check pending.** A MiMo step that spends the whole combined cap on reasoning (OpenCode `finish: "length"`, ACP `end_turn`) was classified `completed` (or `dangling_tool_result`), so the session stopped silently. LT-690's saturation check skipped empty text, judged from whole-turn text while usage covers only the final step, and the shared observation layer could not see the cap. MiMo cap raised 16384 → 32000 at James's request. | [LT-706 detail](#lt-706) | [MiMo reasoning-cap live checks](2026-10-14-mimo-reasoning-cap-cutoff_livetest.md) |
+| LT-707 | P2 | **FIXED + REGRESSION-TESTED 2026-10-24 (working tree); live cell re-run pending (Windows PC outage #5).** `finalizeScoredRun` persists the record before best-effort cleanup and `cleanupWorkspace` retries transient ENOTEMPTY/EBUSY; regression tests cover record-survives-cleanup-throw and the retry paths. Implementation status lives in [the active plan](2026-10-14-local-model-plan-execute-ab_plan.md). Original report: reproduced 2026-10-24 (benchmark campaign harness, `benchmarks/plan-execute-ab/` — experiment tooling, not app code; owned by plan 2026-10-14-local-model-plan-execute-ab).** A completed scored pilot run is discarded when workspace cleanup flakes: `runArm` calls `cleanupWorkspace` (bare `rmSync` recursive) BEFORE `appendRunRecord`, so a transient `ENOTEMPTY` (macOS removal race) lost the AIO-05 C1 run after coding, patch capture and scoring — the batch logged `run failed: ENOTEMPTY, Directory not empty` and the leftover workspace then blocks re-export (`workspace already exists`). | [LT-707 detail](#lt-707) | [Local-model plan/execute deferred checks A5/A6](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
@@ -2275,6 +2276,15 @@ path grant. For a routed Claude account, Sign in opens that exact account profil
 login result cannot update a different selected instance. These code paths have focused regression
 tests. The rebuilt-app, long-session refresh check is
 [Check 7](2026-09-23-outstanding-plans-sweep_livetest.md#check-7--lt-029-hardened-credential-refresh-and-repair).
+
+**Update 2026-10-17 — the jailed refresh was observed, and it is worse than a failed session.** Both
+pooled Claude accounts were revoked (`OAuth token revoked`) after hardened sessions ran on them; each
+account's `.credentials.json` fallback was rewritten at the minute of its revoke. Claude Code 2.1.302
+stores a refresh it cannot write to the Keychain in that file, the Keychain keeps the spent
+single-use refresh token, and the next refresh from the Keychain gets the whole login revoked for
+every session on the account. The Keychain stays out of the jail; instead hardened Claude spawns are
+handed the access token through `CLAUDE_CODE_OAUTH_TOKEN` and never hold a refresh token. See
+[2026-10-17-claude-signout-failover-and-hardened-login_plan_completed.md](2026-10-17-claude-signout-failover-and-hardened-login_plan_completed.md).
 
 
 ## LT-030: A swap on a looping session cannot deliver its own notices
@@ -13249,3 +13259,49 @@ saturation out, so a failed turn is never auto-continued.
   runtime observation and `acp-turn-completion` cases fail on the previous classifier and pass; negative cases (finished answer,
   open tool, error, empty under cap) stay out of saturation.
 - Live: [MiMo reasoning-cap live checks](2026-10-14-mimo-reasoning-cap-cutoff_livetest.md).
+
+## LT-707 — benchmark runner loses a scored run when workspace cleanup flakes
+
+Scope note: this defect is in the experiment harness (`benchmarks/plan-execute-ab/`), not app
+code. It was reproduced while running deferred check A6 of
+[2026-10-14-local-model-plan-execute-ab_plan_livetest.md](2026-10-14-local-model-plan-execute-ab_plan_livetest.md)
+and is tracked/remediated in the active plan
+[2026-10-14-local-model-plan-execute-ab_plan.md](2026-10-14-local-model-plan-execute-ab_plan.md)
+(same pattern as LT-704/LT-705 being tracked in their active plan). It is registered here
+because the operating rule requires every reproduced defect to be indexed before it is fixed.
+
+### Observed behavior
+
+2026-10-24, `runner.ts run --local-only --phase pilot --session pilot-2026-10-15 --arms C1
+--tasks AIO-03,...,12ST-04`: the AIO-05 coder run completed and the runner had captured its
+patch, applied hidden tests and scored it, then aborted with `run failed: ENOTEMPTY, Directory
+not empty: '<workRoot>/AIO-05-C1-1'` before `appendRunRecord`. The scored run left no
+`runs.jsonl` record (the batch matrix lost the cell and the batch exits 1), and the leftover
+workspace directory makes the re-run fail with `workspace already exists`.
+
+### Root cause
+
+`runArm` (`benchmarks/plan-execute-ab/runner.ts`) runs `cleanupWorkspace(workspace.dir)`
+between scoring and building/writing the RunRecord. `cleanupWorkspace`
+(`benchmarks/plan-execute-ab/task-export.ts`) is a bare `rmSync(dir, { recursive: true,
+force: true })`; Node's recursive removal can fail transiently with ENOTEMPTY/EBUSY (removal
+races — files appearing during rm, e.g. `.DS_Store` on macOS). Because cleanup runs before the
+record write, any such flake discards a fully completed run and misreports it as "failed before
+scoring".
+
+### Required behavior
+
+1. A run that reached scoring always persists its RunRecord (and patch), whatever happens to its
+   throwaway workspace afterwards.
+2. Workspace cleanup tolerates transient removal races (bounded retries) and never turns a
+   completed run into a batch failure; a persistent leftover is reported as a warning/note.
+3. A leftover workspace from a crashed/killed run still refuses silent reuse (existing
+   behaviour) but the error identifies the stale directory for manual clearing.
+
+### Acceptance
+
+- Regression tests pin: (a) the run record is appended even when cleanup throws; (b)
+  `cleanupWorkspace` retries through a transient ENOTEMPTY and then succeeds; (c) a cleanup
+  failure that persists is surfaced as a note/warning without dropping the record.
+- The AIO-05 C1 cell is re-run and recorded normally after the fix; the benchmark suite and the
+  canonical static gates stay green.

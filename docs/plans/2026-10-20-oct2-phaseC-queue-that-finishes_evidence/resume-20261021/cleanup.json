@@ -1,0 +1,26 @@
+{
+  "at": "2026-10-21T11:23:29.224130+00:00",
+  "status": "OWNED_FILESYSTEM_RUNTIME_REMOVED_OS_ABSENCE_NOT_CERTIFIED",
+  "sealSha256": "ee86896b63a56be98253d40b8bdabd9c94d8e434638e941863460fd5ea6b2a36",
+  "removed": [
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phasec-queue-t-cf5944/dist",
+    "_scratch/phasec-resume-20261021",
+    "_scratch/test-run.phasec-resume-20261021.log",
+    "_scratch/test-results.phasec-resume-20261021.json",
+    "_scratch/test-run.phasec-resume-correction.log",
+    "_scratch/test-results.phasec-resume-correction.json",
+    "_scratch/test-run.phasec-resume-final.log",
+    "_scratch/test-results.phasec-resume-final.json"
+  ],
+  "preservedPreexisting": [
+    "node_modules",
+    "node_modules/.vite",
+    "build"
+  ],
+  "ownedDistAbsent": true,
+  "databaseClusterStarted": false,
+  "browserStarted": false,
+  "dependencyInstallCreated": false,
+  "copiedCheckoutCreated": false,
+  "osInventory": "EPERM at spawn; no live process-tree probe started; older fixture absence remains unknown"
+}

@@ -8,7 +8,7 @@ Status: pending. 0 of 2 checks passed.
 
 **Owning plan:** [Codex follow-up local package](2026-09-30-codex-followup-local-package_plan_completed.md).
 
-**Remediation:** Read [Live-test campaign runbook](livetest-campaign-runbook.md) first. A reproduced defect requires a new numbered entry in [the remediation register](livetest-remediation-register.md) and a matching implementation-status section in `2026-07-19-livetest-failure-remediation_plan.md`. Keep per-check evidence here. Never edit a closed `_completed` document to add a new requirement; open a follow-up or reopen its lifecycle first.
+**Remediation:** Read [Live-test campaign runbook](livetest-campaign-runbook.md) first. A reproduced defect requires a new numbered entry in [the remediation register](livetest-remediation-register.md) and a matching implementation-status section in `2026-07-19-livetest-failure-remediation-followup_plan.md`. Keep per-check evidence here. Never edit a closed `_completed` document to add a new requirement; open a follow-up or reopen its lifecycle first.
 
 ## LC-1. Follow-up buttons work in the running Harness
 

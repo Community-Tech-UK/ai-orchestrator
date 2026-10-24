@@ -29,6 +29,7 @@ import { UnresolvedMergeError, unresolvedMergeFiles } from './plan-queue-git';
 import { assertQueueCheckout, retainedQueuePathExists } from './plan-queue-orphan-checkout';
 import type { PlanQueueItem } from './plan-queue.types';
 import { getCodemem } from '../codemem';
+import { stopAttributedLeftoversIn } from '../process/leftover-process-sweeper';
 
 const logger = getLogger('PlanQueueWorktree');
 
@@ -67,6 +68,8 @@ export interface PlanQueueWorktreeDeps {
   /** Persist the item. Must throw on failure. */
   saveItem: (item: PlanQueueItem) => void;
   skipInstall?: boolean;
+  /** Stop leftover programs a session left working in the folder; defaults to the leftover sweeper. */
+  stopLeftoversIn?: (folder: string) => Promise<number>;
 }
 
 export type RemovalRefusal = 'dirty-tree' | 'head-not-checkpoint' | 'not-owned';
@@ -204,6 +207,14 @@ export class PlanQueueWorktreeService {
     const head = await gitExec(['rev-parse', 'HEAD'], worktreePath);
     if (!item.checkpointCommit || head !== item.checkpointCommit) {
       return refuse('head-not-checkpoint', `HEAD ${head} != checkpoint ${item.checkpointCommit ?? 'none'}`);
+    }
+
+    // A program an agent left running here would carry on in a deleted folder. Best effort only.
+    try {
+      const stopped = await (this.deps.stopLeftoversIn ?? stopAttributedLeftoversIn)(worktreePath);
+      if (stopped > 0) logger.info('Stopped leftover programs before removing a worktree', { itemId: item.id, stopped });
+    } catch (error) {
+      logger.warn('Could not check the worktree for leftover programs', { itemId: item.id, error: String(error) });
     }
 
     const session = this.deps.creator

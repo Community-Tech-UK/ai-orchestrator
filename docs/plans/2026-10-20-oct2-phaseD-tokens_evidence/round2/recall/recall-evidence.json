@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "generatedAt": "2026-10-20T22:42:51.913Z",
+  "method": "cli-replay",
+  "model": "claude-sonnet-5-5[1m]",
+  "targetTokens": 300000,
+  "chats": [
+    {
+      "chatKey": "85f27b9a",
+      "conversationKey": "9fe41427926d",
+      "contextTokensAtCut": 298240,
+      "humanPrompts": 46,
+      "questionCount": 15,
+      "before": {
+        "correct": 15,
+        "partial": 0,
+        "wrong": 0,
+        "unknown": 0
+      },
+      "after": {
+        "correct": 6,
+        "partial": 2,
+        "wrong": 0,
+        "unknown": 7
+      },
+      "compaction": {
+        "boundaries": 1,
+        "preTokens": 298446,
+        "postTokens": 3347
+      },
+      "costUsd": 1.6766426
+    },
+    {
+      "chatKey": "7618c3b8",
+      "conversationKey": "38f10a148f35",
+      "contextTokensAtCut": 275401,
+      "humanPrompts": 36,
+      "questionCount": 15,
+      "before": {
+        "correct": 8,
+        "partial": 1,
+        "wrong": 4,
+        "unknown": 2
+      },
+      "after": {
+        "correct": 6,
+        "partial": 2,
+        "wrong": 0,
+        "unknown": 7
+      },
+      "compaction": {
+        "boundaries": 1,
+        "preTokens": 278330,
+        "postTokens": 4454
+      },
+      "costUsd": 1.6059466000000002
+    },
+    {
+      "chatKey": "d7a06912",
+      "conversationKey": "57108d822f27",
+      "contextTokensAtCut": 295774,
+      "humanPrompts": 34,
+      "questionCount": 10,
+      "before": {
+        "correct": 10,
+        "partial": 0,
+        "wrong": 0,
+        "unknown": 0
+      },
+      "after": {
+        "correct": 5,
+        "partial": 0,
+        "wrong": 0,
+        "unknown": 5
+      },
+      "compaction": {
+        "boundaries": 1,
+        "preTokens": 296587,
+        "postTokens": 5927
+      },
+      "costUsd": 1.7790826000000002
+    }
+  ]
+}

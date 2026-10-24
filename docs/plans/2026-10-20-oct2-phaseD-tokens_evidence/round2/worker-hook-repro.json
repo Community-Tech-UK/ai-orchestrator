@@ -1,0 +1,11 @@
+{
+  "node": "v26.3.0",
+  "status": 0,
+  "stdout": "[{\"role\":\"plan-queue\",\"settings\":{\"precomputeCompactionEnabled\":false}},{\"role\":\"loop\",\"settings\":{\"precomputeCompactionEnabled\":false}},{\"role\":\"automation\",\"settings\":{\"precomputeCompactionEnabled\":false}}]",
+  "stderr": "",
+  "assetFiles": [
+    "resolver.cjs"
+  ],
+  "workerContainsCanonicalBase64": false,
+  "workerContainsRoleBlock": false
+}

@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-21T00:56:43.964786+00:00",
+  "headUnchanged": "0861b30273aeefb5a2fad65000615c0c28a3b126",
+  "branchUnchanged": "queue/2026-10-20-oct2-phased-tokens-0e371d",
+  "sourceHashCountVerified": 380,
+  "rootDocumentHashesVerified": true,
+  "sealedEvidenceHashesVerified": true,
+  "rootDocumentStatus": "?? docs/plans/2026-10-20-oct2-phaseD-tokens_history.md\n?? docs/plans/2026-10-20-oct2-phaseD-tokens_livetest.md\n?? docs/plans/2026-10-20-oct2-phaseD-tokens_plan.md\n",
+  "stagedPaths": [],
+  "diffCheckExit": 0,
+  "ownedRuntimeRemovalVerified": true,
+  "cleanupReceiptSha256": "d2eaf0329262f4d877bf67ce64cc3623c367dc38748155c8d6fbfa488747319a",
+  "planCopiedIntoWorktree": false,
+  "sourceOrDependencyTreeCopiedIntoPlanFolder": false,
+  "independentCompletionVerdict": null,
+  "handoff": "ready for coordinator independent verification; full suite reserved for verifier"
+}

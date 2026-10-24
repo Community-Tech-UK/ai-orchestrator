@@ -1,0 +1,13 @@
+{
+  "command": [
+    "rtk",
+    "npm",
+    "run",
+    "check:ts-max-loc"
+  ],
+  "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phased-tokens-0e371d",
+  "startedAt": "2026-10-21T00:03:42.279296+00:00",
+  "exitCode": 0,
+  "durationSeconds": 0.6000797500018962,
+  "log": "_scratch/oct2-phaseD-round2/trial-integrity-loc-final.log"
+}

@@ -1,0 +1,14 @@
+{
+  "command": [
+    "rtk",
+    "proxy",
+    "npx",
+    "vitest",
+    "run",
+    "src/main/cli/hooks/__tests__/rtk-defer-hook.binary.spec.ts",
+    "--reporter=verbose"
+  ],
+  "exit": 0,
+  "durationSeconds": 11.91,
+  "log": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phased-tokens-0e371d/_scratch/oct2-phaseD-round2/guidance-local-binary.log"
+}

@@ -84,6 +84,8 @@ export interface AdapterCapabilities {
   residentSession: boolean;
   liveInterrupt: boolean;
   liveSteer: boolean;
+  /** Whether the provider can start its own turn when background work completes. */
+  supportsAsyncWorkAutoResume?: boolean;
 }
 
 /**

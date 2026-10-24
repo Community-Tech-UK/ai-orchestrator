@@ -65,6 +65,29 @@ describe('InstanceAsyncWorkContinuation', () => {
     expect(registry.hasInhibitor('instance-1')).toBe(false);
   });
 
+
+  it.each(['idle', 'hibernated'] as const)('wakes a %s session without grace when the adapter cannot resume itself', async (status) => {
+    vi.useFakeTimers();
+    continuation.stop();
+    instance.status = status;
+    host.getAdapter = () => ({ getAdapterCapabilities: () => ({ supportsAsyncWorkAutoResume: false }) });
+    continuation = new InstanceAsyncWorkContinuation(registry, host);
+    continuation.start();
+    registry.observe('instance-1', { ...terminal('codex-term:1'), detail: 'sleep 300' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sendInput).toHaveBeenCalledTimes(1);
+    expect(sendInput.mock.calls[0]?.[1]).toBe(
+      'A background command you started has finished: `sleep 300`. Check its output, then continue the work you were waiting to complete.',
+    );
+  });
+
+  it('bounds the command detail in the completion prompt', async () => {
+    registry.observe('instance-1', { ...terminal('codex-term:1'), detail: 'x'.repeat(200) });
+    await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
+    expect(sendInput.mock.calls[0]?.[1]).toContain('`' + 'x'.repeat(120) + '`');
+    expect(sendInput.mock.calls[0]?.[1]).not.toContain('x'.repeat(121));
+  });
+
   it('coalesces a burst of terminal results into one continuation', async () => {
     registry.observe('instance-1', terminal('bg-1'));
     registry.observe('instance-1', { ...terminal('agent-1'), kind: 'subagent' });
@@ -80,6 +103,43 @@ describe('InstanceAsyncWorkContinuation', () => {
     await vi.waitFor(() => expect(registry.hasInhibitor('instance-1')).toBe(false));
     expect(host.waitForInstanceSettled).not.toHaveBeenCalled();
     expect(sendInput).not.toHaveBeenCalled();
+  });
+
+
+  it('queues a completion during a busy turn for a provider that cannot resume itself', async () => {
+    continuation.stop();
+    const events = new EventEmitter();
+    const adapter = { getAdapterCapabilities: () => ({ supportsAsyncWorkAutoResume: false }) };
+    Object.assign(host, { on: events.on.bind(events), off: events.off.bind(events), getAdapter: () => adapter });
+    continuation = new InstanceAsyncWorkContinuation(registry, host);
+    continuation.start();
+    instance.status = 'busy';
+    registry.observe('instance-1', { ...terminal('codex-term:1'), detail: 'sleep 300' });
+    expect(registry.hasInhibitor('instance-1')).toBe(true);
+    expect(sendInput).not.toHaveBeenCalled();
+    instance.requestCount += 1;
+    instance.status = 'idle';
+    events.emit('instance:state-changed', { instanceId: 'instance-1', status: 'idle' });
+    await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
+    expect(sendInput.mock.calls[0]?.[1]).toContain('sleep 300');
+    expect(registry.hasInhibitor('instance-1')).toBe(false);
+  });
+
+  it('does not deliver a queued busy completion to a replacement adapter', async () => {
+    continuation.stop();
+    const events = new EventEmitter();
+    let adapter = { getAdapterCapabilities: () => ({ supportsAsyncWorkAutoResume: false }) };
+    Object.assign(host, { on: events.on.bind(events), off: events.off.bind(events), getAdapter: () => adapter });
+    continuation = new InstanceAsyncWorkContinuation(registry, host);
+    continuation.start();
+    instance.status = 'busy';
+    registry.observe('instance-1', terminal('codex-term:1'));
+    adapter = { getAdapterCapabilities: () => ({ supportsAsyncWorkAutoResume: false }) };
+    instance.status = 'idle';
+    events.emit('instance:state-changed', { instanceId: 'instance-1', status: 'idle' });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(sendInput).not.toHaveBeenCalled();
+    expect(registry.hasInhibitor('instance-1')).toBe(false);
   });
 
   it('suppresses continuation when a user turn starts during the grace period', async () => {

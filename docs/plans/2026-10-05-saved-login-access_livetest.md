@@ -8,7 +8,7 @@ Status: pending. This is not evidence of successful sign-in.
 
 **Owning plan:** [Saved login access implementation](2026-10-05-saved-login-access_plan_completed.md).
 
-**Remediation:** Read [Live-test campaign runbook](livetest-campaign-runbook.md) first. A reproduced defect requires a new numbered entry in [the remediation register](livetest-remediation-register.md) and a matching implementation-status section in `2026-07-19-livetest-failure-remediation_plan.md`. Keep per-check evidence here. Never edit a closed `_completed` document to add a new requirement; open a follow-up or reopen its lifecycle first.
+**Remediation:** Read [Live-test campaign runbook](livetest-campaign-runbook.md) first. A reproduced defect requires a new numbered entry in [the remediation register](livetest-remediation-register.md) and a matching implementation-status section in `2026-07-19-livetest-failure-remediation-followup_plan.md`. Keep per-check evidence here. Never edit a closed `_completed` document to add a new requirement; open a follow-up or reopen its lifecycle first.
 
 ## 1. Activate without interrupting unrelated work
 

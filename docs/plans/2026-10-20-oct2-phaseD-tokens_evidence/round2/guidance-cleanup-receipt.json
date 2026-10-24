@@ -1,0 +1,12 @@
+{
+  "removedOwnedRuntimes": [
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phased-tokens-0e371d/_scratch/oct2-phaseD-round2/rtk-native-policy-probe",
+    "/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/aio-claude-tmp/native-placeholder-b",
+    "/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/aio-claude-tmp/remote-adopted-placeholder"
+  ],
+  "preservedNonemptyRuntimes": [],
+  "remainingOwnedTestRuntimes": [],
+  "paidProbeExecuted": false,
+  "futureProbeRuntimePrefix": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phased-tokens-0e371d/_scratch/oct2-phaseD-round2/guidance-rtk-live-",
+  "finalOwnedTmpdirCheckPassed": true
+}

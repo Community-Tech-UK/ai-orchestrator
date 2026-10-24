@@ -67,6 +67,7 @@ describe('late runtime Hibernation manager step', () => {
         fakeInstance({ id: 'parked-loop-chat' }),
         fakeInstance({ id: 'finished-loop-chat' }),
       ],
+      getAdapter: () => undefined,
       hibernateInstance,
       terminateInstance,
     } as unknown as InstanceManager;
@@ -115,6 +116,27 @@ describe('late runtime Hibernation manager step', () => {
 
     getHibernationManager().emit('check-idle');
 
+    expect(hibernateInstance).not.toHaveBeenCalled();
+  });
+
+  it('rechecks a refreshed session directly without rebuilding all instances', async () => {
+    let current: Instance | undefined = fakeInstance({ id: 'refreshed-root' });
+    const getAllInstances = vi.fn(() => [current!]);
+    const getInstance = vi.fn(() => current);
+    const hibernateInstance = vi.fn(async () => undefined);
+    const adapter = { refreshBackgroundWork: async () => { current = undefined; return false; } };
+    const steps = createLateRuntimeInitializationSteps({
+      instanceManager: { getAllInstances, getInstance, getAdapter: () => adapter, hibernateInstance } as unknown as InstanceManager,
+      windowManager: {} as WindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+      syncRemoteNodeMetricsToLoadBalancer: () => undefined,
+    });
+    await steps.find((candidate) => candidate.name === 'Hibernation manager')!.fn();
+    getHibernationManager().emit('check-idle');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(getInstance).toHaveBeenCalledWith('refreshed-root');
+    expect(getAllInstances).toHaveBeenCalledTimes(1);
     expect(hibernateInstance).not.toHaveBeenCalled();
   });
 });

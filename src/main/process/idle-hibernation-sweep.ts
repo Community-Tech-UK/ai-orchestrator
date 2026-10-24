@@ -5,6 +5,8 @@ import type { InstanceStatus } from '../../shared/types/instance.types';
 import type { HibernationManager } from './hibernation-manager';
 
 const logger = getLogger('IdleHibernationSweep');
+const REFRESH_TIMEOUT_MS = 5_000;
+const pendingRefreshes = new Set<string>();
 
 export interface IdleSweepInstance {
   id: string;
@@ -19,6 +21,8 @@ export interface IdleSweepInstance {
 export interface IdleHibernationSweepDeps {
   hibernation: Pick<HibernationManager, 'getConfig' | 'configure' | 'getHibernationCandidates'>;
   getInstances: () => IdleSweepInstance[];
+  /** Direct lookup avoids rebuilding every session after each asynchronous refresh. */
+  getInstance?: (instanceId: string) => IdleSweepInstance | undefined;
   /** The `autoTerminateIdleMinutes` setting. 0 disables the sweep. */
   getIdleMinutes: () => number;
   hibernateInstance: (instanceId: string) => Promise<void>;
@@ -36,6 +40,8 @@ export interface IdleHibernationSweepDeps {
    * one, losing the same-session continuity it was configured for.
    */
   hasLiveLoop?: (instanceId: string) => boolean;
+  /** Adapters with background commands must confirm it is safe to close them. */
+  getAdapter?: (instanceId: string) => unknown;
   now?: () => number;
 }
 
@@ -95,17 +101,54 @@ export function runIdleHibernationSweep(deps: IdleHibernationSweepDeps): void {
     const instance = byId.get(candidate.id);
     if (!instance) continue;
 
-    logger.info('Auto-hibernating idle root session', {
-      instanceId: instance.id,
-      displayName: typeof instance.displayName === 'string' ? textDiagnostic(instance.displayName) : undefined,
-      idleMs: now - instance.lastActivity,
-      idleMinutes,
-    });
-    deps.hibernateInstance(instance.id).catch((err) => {
-      logger.warn('Failed to hibernate idle root session', {
+    const hibernate = (): void => {
+      logger.info('Auto-hibernating idle root session', {
         instanceId: instance.id,
-        ...errorDiagnostic(err),
+        displayName: typeof instance.displayName === 'string' ? textDiagnostic(instance.displayName) : undefined,
+        idleMs: now - instance.lastActivity,
+        idleMinutes,
       });
+      deps.hibernateInstance(instance.id).catch((err) => {
+        logger.warn('Failed to hibernate idle root session', {
+          instanceId: instance.id,
+          ...errorDiagnostic(err),
+        });
+      });
+    };
+    const adapter = deps.getAdapter?.(instance.id) as { refreshBackgroundWork?(): Promise<boolean> } | undefined;
+    if (!adapter?.refreshBackgroundWork) {
+      hibernate();
+      continue;
+    }
+    if (pendingRefreshes.has(instance.id)) continue;
+    pendingRefreshes.add(instance.id);
+    const activityAtRefresh = instance.lastActivity;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    void Promise.race([
+      Promise.resolve().then(() => adapter.refreshBackgroundWork!()),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error('Background-work refresh timed out')), REFRESH_TIMEOUT_MS);
+        timeout.unref?.();
+      }),
+    ]).then((hasWork) => {
+      if (hasWork || deps.getAdapter?.(instance.id) !== adapter) return;
+      // The refresh yields to other events: activity, ownership or settings may change.
+      const current = deps.getInstance
+        ? deps.getInstance(instance.id)
+        : deps.getInstances().find((entry) => entry.id === instance.id);
+      const checkedAt = deps.now?.() ?? Date.now();
+      if (!current || current.status !== 'idle' || current.parentId || current.isRemote
+        || current.lastActivity !== activityAtRefresh || onLoan(current.id) || hasLiveLoop(current.id)
+        || deps.getIdleMinutes() !== idleMinutes
+        || !deps.hibernation.getHibernationCandidates([current], checkedAt).some((entry) => entry.id === current.id)) return;
+      hibernate();
+    }).catch((error) => {
+      logger.warn('Keeping idle session awake because background work could not be checked', {
+        instanceId: instance.id, ...errorDiagnostic(error),
+      });
+    }).finally(() => {
+      if (timeout) clearTimeout(timeout);
+      pendingRefreshes.delete(instance.id);
     });
   }
 }

@@ -188,4 +188,88 @@ describe('runIdleHibernationSweep', () => {
     expect(hibernateInstance).toHaveBeenCalledWith('root-1');
     expect(hibernateInstance).toHaveBeenCalledWith('root-2');
   });
+  it.each([true, false])('refreshes provider background work before sleep (live=%s)', async (live) => {
+    const refreshBackgroundWork = vi.fn(async () => live);
+    const adapter = { refreshBackgroundWork };
+    runIdleHibernationSweep({
+      hibernation, getInstances: () => [instance({ id: 'codex' })],
+      getIdleMinutes: () => 30, hibernateInstance, now: () => NOW,
+      getAdapter: () => adapter,
+    });
+    await vi.waitFor(() => expect(refreshBackgroundWork).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    expect(hibernateInstance).toHaveBeenCalledTimes(live ? 0 : 1);
+  });
+
+  it('keeps the session awake if the background-work refresh fails', async () => {
+    runIdleHibernationSweep({
+      hibernation, getInstances: () => [instance({ id: 'codex' })],
+      getIdleMinutes: () => 30, hibernateInstance, now: () => NOW,
+      getAdapter: () => ({ refreshBackgroundWork: async () => { throw new Error('timeout'); } }),
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(hibernateInstance).not.toHaveBeenCalled();
+  });
+
+  it('rechecks session activity after the asynchronous refresh', async () => {
+    const current = instance({ id: 'codex' });
+    const adapter = { refreshBackgroundWork: async () => { current.status = 'busy'; return false; } };
+    runIdleHibernationSweep({
+      hibernation, getInstances: () => [current],
+      getIdleMinutes: () => 30, hibernateInstance, now: () => NOW,
+      getAdapter: () => adapter,
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(hibernateInstance).not.toHaveBeenCalled();
+  });
+
+  it.each(['unchanged', 'removed', 'active'] as const)('uses direct lookup after refresh when the session is %s', async (state) => {
+    const original = instance({ id: `codex-direct-${state}` });
+    const getInstances = vi.fn(() => [original]);
+    const getInstance = vi.fn(() => state === 'removed' ? undefined
+      : state === 'active' ? { ...original, lastActivity: NOW } : original);
+    const adapter = { refreshBackgroundWork: async () => false };
+    runIdleHibernationSweep({
+      hibernation, getInstances, getInstance,
+      getIdleMinutes: () => 30, hibernateInstance, now: () => NOW,
+      getAdapter: () => adapter,
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(getInstance).toHaveBeenCalledWith(original.id);
+    expect(getInstances).toHaveBeenCalledTimes(1);
+    expect(hibernateInstance).toHaveBeenCalledTimes(state === 'unchanged' ? 1 : 0);
+  });
+
+  it('fails closed when the provider never answers the refresh', async () => {
+    vi.useFakeTimers();
+    try {
+      const adapter = { refreshBackgroundWork: () => new Promise<boolean>(() => undefined) };
+      runIdleHibernationSweep({
+        hibernation, getInstances: () => [instance({ id: 'codex-timeout' })],
+        getIdleMinutes: () => 30, hibernateInstance, now: () => NOW,
+        getAdapter: () => adapter,
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(hibernateInstance).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores an old refresh after the adapter is replaced', async () => {
+    let finish!: (hasWork: boolean) => void;
+    const original = { refreshBackgroundWork: () => new Promise<boolean>((resolve) => { finish = resolve; }) };
+    let adapter = original;
+    runIdleHibernationSweep({
+      hibernation, getInstances: () => [instance({ id: 'codex-replaced' })],
+      getIdleMinutes: () => 30, hibernateInstance, now: () => NOW,
+      getAdapter: () => adapter,
+    });
+    await Promise.resolve();
+    adapter = { refreshBackgroundWork: async () => false };
+    finish(false);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(hibernateInstance).not.toHaveBeenCalled();
+  });
+
 });

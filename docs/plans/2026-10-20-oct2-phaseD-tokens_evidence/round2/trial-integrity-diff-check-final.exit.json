@@ -1,0 +1,13 @@
+{
+  "command": [
+    "rtk",
+    "git",
+    "diff",
+    "--check"
+  ],
+  "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phased-tokens-0e371d",
+  "startedAt": "2026-10-21T00:03:42.279217+00:00",
+  "exitCode": 0,
+  "durationSeconds": 0.11549925000872463,
+  "log": "_scratch/oct2-phaseD-round2/trial-integrity-diff-check-final.log"
+}

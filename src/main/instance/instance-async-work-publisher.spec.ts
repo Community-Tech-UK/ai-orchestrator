@@ -18,4 +18,19 @@ describe('bindInstanceAsyncWorkPublisher', () => {
       ['i1', { backgroundWork: null }],
     ]);
   });
+  it('publishes a Codex terminal snapshot and clears it on completion', () => {
+    const registry = new InstanceAsyncWorkRegistry(() => 42);
+    const queueInstanceUpdate = vi.fn();
+    const unbind = bindInstanceAsyncWorkPublisher(registry, { queueInstanceUpdate });
+    registry.observe('codex-session', {
+      phase: 'snapshot', work: [{ workId: 'codex-term:1', kind: 'background-shell' }],
+    });
+    expect(queueInstanceUpdate).toHaveBeenLastCalledWith('codex-session', { backgroundWork: { count: 1, since: 42 } });
+    registry.observe('codex-session', {
+      phase: 'terminal', workId: 'codex-term:1', kind: 'background-shell', status: 'completed', detail: 'sleep 300',
+    });
+    expect(queueInstanceUpdate).toHaveBeenLastCalledWith('codex-session', { backgroundWork: null });
+    unbind();
+  });
+
 });

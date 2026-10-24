@@ -1,0 +1,11 @@
+{
+  "command": [
+    "rtk",
+    "npm",
+    "run",
+    "typecheck:spec"
+  ],
+  "exit": 2,
+  "durationSeconds": 52.32,
+  "log": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phased-tokens-0e371d/_scratch/oct2-phaseD-round2/guidance-spec-types.log"
+}

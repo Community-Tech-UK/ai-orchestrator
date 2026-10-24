@@ -36,6 +36,22 @@ export const DISK_HYGIENE_SYSTEM_PROMPT = [
   '- Leave Harness-managed worktrees under `.worktrees/` in place; Harness removes those itself.',
 ].join('\n');
 
+/**
+ * Every agent gets this. On 20 and 23 October 2026 agents load-tested the
+ * user's Mac with busy loops, "cleaned up" with `kill $PIDS` (which zsh does
+ * not split into words), hid the error, and left the loops running for hours.
+ * Harness's leftover sweeper is the enforcement; this lowers how often it fires.
+ */
+export const PROCESS_HYGIENE_SYSTEM_PROMPT = [
+  '[Process Hygiene]',
+  'Programs you start in the background can outlive your command and keep running on the user\'s computer for hours. When a command starts one:',
+  '- Test timing or flakiness without CPU or memory stress, load generators, or busy loops; the user\'s computer is shared with their own work and other agents.',
+  '- Stop background programs before the command that started them ends, while your shell still owns them: `pkill -P $$`, or kill the PIDs you saved. Once that command has ended they have no parent, and `pkill -P` can no longer find them.',
+  '- The shell may be zsh, which does not split `$VAR` into separate words. Save PIDs in an array (`pids+=($!)`, then `kill "${pids[@]}"`), and let `kill` errors show instead of sending them to /dev/null.',
+  '- Confirm by PID that each one is gone (`kill -0 <pid>` fails).',
+  '- A program the user wants kept running, such as a dev server, is fine: say in your final message that it is still running and how to stop it.',
+].join('\n');
+
 export const CHROME_DEVTOOLS_ATTACH_PROMPT = [
   '[chrome-devtools attached to a managed browser profile]',
   'The chrome-devtools.* tools are attached to a Harness-managed Chrome profile — the SAME browser the browser.* tools open and control. This is the one case where browser.* and chrome-devtools.* share a browser.',

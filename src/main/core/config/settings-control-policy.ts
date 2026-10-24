@@ -355,6 +355,7 @@ export const SETTINGS_TOOL_POLICY = {
   scratchRetentionDays: readOnly(),
   memoryWarningThresholdMB: open(numberSettingSchema('memoryWarningThresholdMB')),
   autoTerminateOnMemoryPressure: open(z.boolean()),
+  leftoverProcessCleanup: open(z.enum(['off', 'notify', 'stop-cpu-hogs', 'stop-all'])),
   recordProviderEvents: open(z.boolean()),
   persistSessionContent: open(z.boolean()),
   cumulativeTokenCompactionTrigger: open(numberSettingSchema('cumulativeTokenCompactionTrigger')),

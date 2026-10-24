@@ -1,7 +1,24 @@
-# October follow-ups: retire old docs, and the work no other plan builds
+## Verifier findings to fix next (23 Oct, coordinator handoff; both high)
 
-**Status:** active, partial worker handoff after verification-round-2 remediation (13 Oct 2026): 22 parts implemented, 5 partial, 22 open/parked. Five further code parts are implemented and part 7j now has its push/store foundation. Whole-plan acceptance remains blocked by missing owning-plan foundations, preserved authority boundaries and live checks. Current round verification and fresh-review outcomes are recorded below. The coordinator owns the full suite, integration and completion renaming. Written 2026-10-11. Keep this file untracked until every step is implemented and
-verified, or explicitly dropped by James (see [Finishing](#finishing)).
+1. `src/main/storage/storage-runtime.ts:46` - attachment cleanup protects Harness instance IDs while attachment folders
+   use PROVIDER session IDs (generated independently), so it can delete a LIVE session's attachments. Protect both
+   identities with a real-identity-split regression.
+2. `src/main/orchestration/loop-review-driven-terminal.ts:43` - the final-audit merge hold is gated on
+   `status === 'completed'`, so `completed-needs-review` outcomes (missing plan rename, known failures, follow-ups) merge
+   without operator review. Hold on that outcome too when `finalAuditMode='gate'`.
+
+
+## Status
+
+On main: no (`queue/2026-10-11-oct-followups-bad1a7`).
+49 parts: 42 built, 7i deliberately not built, 5f skipped on its own terms, five Step 8 parts parked
+(non-blocking triggers). Both queue-verification round-2 findings repaired and re-tested; ready for
+re-verification. Awaiting coordinator full suite, queue-verifier acceptance and completion rename.
+Do not close or rename this document.
+Live checks in [livetest](2026-10-11-oct-followups_livetest.md).
+Dated status and as-built sections: [history](2026-10-11-oct-followups_history.md).
+
+> Earlier dated status and as-built sections moved to [history](2026-10-11-oct-followups_history.md).
 
 **Source:** James, 11 Oct 2026. He was offered "every left-out piece in one short follow-up list" and replied:
 - "definitely need to retire old docs.  We have FAR too many docs."
@@ -75,18 +92,6 @@ which makes room in files that the other plans are about to add to.
 - **Phase 4:** step 4 (7f), step 4b (7e), and part 3 step 1f (7f).
 - **Phase 5:** step 3 (5h), step 7 (7i), step 11 (7g), step 14 (7b) and step 16 (7c).
 - **Housekeeping:** steps 4a and 4b (the disk space card: parts 5a to 5d and 5g), step 5 (6g) and step 6 (3c, ideally built with it).
-
----
-
-> **Coordinator handover (13 Oct 2026, Plan Queue parent).** The complete prior implementation for
-> this plan is on the parked branch `queue/2026-10-11-oct-followups-6f4138` (151 files vs `main`);
-> it is not on `main`, and a fresh worktree cut from `main` does not contain it. Before anything else,
-> bring that branch's content into your worktree (`git merge --squash queue/2026-10-11-oct-followups-6f4138`,
-> or `git diff $(git merge-base HEAD main) queue/2026-10-11-oct-followups-6f4138 | git apply`),
-> reconcile it with the as-built notes below, then finish the remaining unchecked items — do not
-> reimplement from scratch. Parts that genuinely wait on owning-plan foundations stay open until those
-> land on `main`; integrate what has landed and record what still waits. Delete this handover note
-> once the port is in place.
 
 ## In plain English (what James will notice)
 
@@ -527,7 +532,7 @@ approve it before anything changes. This is the work you asked for on 11 Oct.
   `scripts/check-provider-parity.js:19`, the standing register (`livetest-remediation-register.md`, the only doc with the
   "Type: standing register" marker, 1,018,484 bytes) and the 11 packaged runbooks.
 - **Broken today (re-read by the plan writer on 11 Oct).** `AGENTS.md:101` names
-  `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`; only the `_plan_completed.md` file exists. `AGENTS.md:142`
+  `docs/plans/2026-07-19-livetest-failure-remediation-followup_plan.md`; only the `_plan_completed.md` file exists. `AGENTS.md:142`
   (the report said `:141`) names `code-index-watcher.ts` for `DEFAULT_CODE_INDEX_IGNORES`, which is defined in
   `code-index-ignores.ts` and only re-exported at `code-index-watcher.ts:10`. `docs/plans/README.md` still describes the
   `completed/` folder, last used on 12 Jul (`9c8800c1b`).
@@ -563,7 +568,7 @@ rewrites the out-of-date how-to in the plans folder, and adds a small check so a
 
 **Change:**
 1. `AGENTS.md:101`: that sentence tells agents to add "a matching implementation-status section" to
-   `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. Only `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md` exists now,
+   `docs/plans/2026-07-19-livetest-failure-remediation-followup_plan.md`. Only `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md` exists now,
    and it is closed (the register calls it "(closed)"; it already holds 6 implementation-status sections). Swapping the name alone would send agents to edit
    a closed file, which the closed-file rule and this plan's Ground rule 4 forbid. So fix the name and reword the clause: the completed plan is history only,
    and a new item's status goes in its own row in the register's Remediation Index ("Per-item status lives in the Remediation Index", register header).
@@ -781,7 +786,10 @@ Deleting here cannot be undone, because git does not hold these folders.
 **Change:**
 1. `npm run docs:retire -- --scratch` (dry run): list `_scratch/` top-level entries whose newest file (recursive) is more than 30
    days old, and `.aio-review/` files older than 14 days, with counts and sizes. Write the list to the OS temp folder, not inside
-   `_scratch/`. `--scratch --apply` deletes exactly that list, and refuses anything touched in the last 14 days.
+   `_scratch/`. The dry run also writes a unique repository-bound, digest-named manifest. Only
+   `--scratch --apply --manifest '<exact path printed by that approved dry run>'` may delete that reviewed list; bare apply
+   is refused. It never adds newly eligible entries and rechecks physical containment, unchanged generation, current
+   protection and age, including fresh empty directories. Anything touched in the last 14 days is refused.
 2. Today: `_scratch/` is 32 GiB, 146,591 files and 12,204 top-level entries (3,457 untouched at top level for 30 or more days,
    by directory time, so recompute with newest-file age); `.aio-review/` is 83 files, 6.7 MiB, 47 older than 30 days.
 3. **Protect `_scratch/oct-phases/` and `_scratch/oct-audit/`.** They hold the research and the reports behind the October
@@ -3036,186 +3044,5 @@ These are wrong or changed claims in the backlog or in the other nine plans. The
    - Step 1 has its own two commits (1d), each only when James says so.
    - Never stage other sessions' work, and never stage a removal of James's data.
 
-## As-built notes
 
-(Record here, per part: what changed, any deviation from this plan and why, the landing date of Step 1's batch (1d), and the current gate output.)
-
-- [ ] Step 1: 1a pointer, check and README; 1b dry run; 1c apply, index, `.ignore`; 1d first batch (landing date: …); 1e check line; 1f scratch sweep (optional)
-- [x] Step 2: 2a settings room; 2b `instance-lifecycle.ts` room
-- [ ] Step 3: 3a held shell command; 3b remote-session reads; 3c dirty work folder; 3d automatic closes; 3e phone Stop and Cancel; 3f held campaign step; 3g stalled loops (only if James said yes)
-- [ ] Step 4: 4a paused loops and notice; 4b plan-file check; 4c plan-queue findings
-- [ ] Step 5: 5a Codex safety copies (code half; card half); 5b RTK history; 5c trace files (code half; card half); 5d old data folder (dead code; card half); 5e RTK programs out of git; 5f no-session-persistence;
-  5g attachments (exclude half; card half); 5h Training Data and Instance Messaging; 5i small clean-ups
-- [ ] Step 6: 6a helper tokens; 6b context ring; 6c permission-text rule; 6d overnight reminder; 6e connector input; 6f hidden switch; 6g saved-session lookup (timing line; index)
-- [ ] Step 7: 7a attach control; 7b "Shown N times"; 7c helper chip; 7d mode-switch line; 7e Tab stops; 7f input names; 7g cents; 7h Settings rows; 7i Auto-approve question (only if James said yes); 7j instant "Needs you"
-- [ ] Step 8: 8a phone "Needs you"; 8b Allow-once follow-ups; 8c Everyday / Full; 8d trigger tidy-ups; 8e Copilot counter (each only when built or dropped)
-- [ ] Final gates (worker focused/static/build gates pass; coordinator full suite remains)
-- [ ] Fresh-eyes gate PASS for the whole plan (implemented subset PASS; open requirements prevent whole-plan acceptance)
-- [x] Livetest doc created, root-only and untracked
-- [x] Still-wanted lines of "The rest of the list" and all five Step 8 parts preserved in [13 October parked follow-ups](2026-10-13-oct-parked-followups_plan.md); source sections retained while this plan is active
-
-
-### Worker ledger — 13 Oct 2026 (active, not completion evidence)
-
-- Scope: code only in `queue/2026-10-11-oct-followups-6f4138`; this plan stays in the root checkout. No separate spec is linked. No commits, staging of real work, branch switches or new worktrees.
-- Read all 3,045 lines of the plan. Dependency inspection found the Phase 2 finish/merge-hold/attention framework, Phase 3 posture/Needs-you/live-permission/strip framework, Phase 5 shared money formatter, and Housekeeping storage services/index foundation absent from this checkout. Root plans reporting work in other queue worktrees are not landed code here; AIO must integrate and refresh before dependent work. Do not invent duplicate replacements or mark those requirements complete.
-- 1a/1b/1c/1e: tooling, pointer correction, README, archive bootstrap/index and search-ignore implemented. Focused temp-repository rehearsals pass; real root batch untouched. Initial real root dry run at `--as-of 2026-10-11`: 356 eligible documents, 8.7 MiB, 4.32 seconds, root porcelain status byte-identical before/after. Markdown: `/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/retire-docs/2026-10-11.md`. Review: `/Users/suas/work/orchestrat0r/ai-orchestrator/.aio-review/2026-10-13-oct-doc-retirement.html`. The named portable doc-review skill is absent; used the repository's canonical `renderPlanArtifact` and v1 template, checked review markers. No Mac browser opened.
-- 1d remains open: actual cutoff, approved groups/hold list/reference review and commit require James/coordinator. 1f remains optional, off and unbuilt; no scratch deletion authority supplied.
-- 2a design inventory: Phase 0 `crossModelReviewDailyLimit`; Phase 1 nine provider-cost/ceiling/output/cold-cache/RTK switches; Phase 2 `keepAwakeMode`; Phase 3 `memoryNotesEveryMessage` and `claudeLivePermissionPrompts`; Phase 5 `claudeShowTaskList` and `showWorkingTips`; Housekeeping `recordProviderEvents` (optional `claudeSelfWakeups` kept as further margin). Extracted review/account and auxiliary groups from types; auxiliary schemas/policy use injected existing builders, preserving all restrictions. Headroom regression requires >=130 lines in both original files, no raised ceiling. Existing reviewer/guard tests pass.
-- 2b: extracted unchanged agent-mode flow and prompts to `lifecycle/agent-mode-change.ts`, preserved public signature; fresh/fork/busy/error/no-op tests pass. Receipt 7d stays open until Phase 3 posture helper lands.
-- 3b: reproduced non-remote buffer disclosure initially and after polling; both now return not-found. Shared existing spawnDepth marker with termination; three new regressions and 1,531 existing integration cases pass.
-- 3e: inline Stop/Cancel confirmation rows implemented, two phone tests pass. Installed phone's own lockfile dependencies (ignore-scripts); rebuilt-device check remains pending.
-- 4c: shared finding split (shared layer, re-exported from main to avoid a renderer-to-main import), serious-only fix prompts, all-low FAIL fallback, blocking-first round limit, optional suggestion details. Runtime tests and renderer test pass; saved verdict keeps every finding.
-- 5g exclude half: temp-repository tests pass; idempotent local exclude via git-path handles nested projects, no tracked ignore edit. Storage card half remains open until Housekeeping4.
-- 5i items4/5: stale Codex ceiling reduced to160; helper lists cached+untracked files and warns without failing for untracked oversize. Meaningful CLI regression passes. Items1–3 remain open choices; no deletion inferred.
-- 6b: reproduced helper usage overwriting main occupancy and suppressing result fallback; corrected helper filtering and verified main frame/result behavior. Live helper/ring check remains pending.
-- 6f: inert switch hidden in registry and metadata; key/default/CLI policy retained. Landed before Phase1 ceiling additions: those must explicitly use category `memory` and surfacing `tab`, rather than copying the now-hidden key.
-- 5d investigation refuted behavior-neutral deletion: supported dev/smoke user-data overrides ending `ai-orchestrator` still invoke the migration and copy legacy settings/history/RLM. Preserve until compatibility removal is explicitly in scope; card remains dependent on Housekeeping4.
-- 3a: current IPC and deferred-permission APIs already accept refusal, so Phase0 step4 was a shared-line ordering concern, not an API prerequisite. Missing decisions now warn, refuse and clear the pending prompt without persisting allowance or enabling Auto-approve. Existing explicit Allow/Modify/Refuse behavior is retained.
-- 3c code half: the existing boot path harvested dirty cancelled/failed runs before cleanup. It now blocks that harvest for preserved runs, retains files/branch/pointer, and rechecks cleanliness before removal. Git inspection errors fail closed. Three real temporary-repository regressions failed before the fix and pass afterwards; helper tests cover staged/untracked/modified/error cases. Housekeeping card remains dependent.
-- 3d: existing runtime loop APIs suffice; Phase0 step3 was ordering, not a hard API dependency. Shared ownership predicate protects idle and memory/governor selection before candidate caps, logs skips and preserves sessions if lookup fails. Continuation callbacks share the predicate. Lazy coordinator resolution follows the existing `createRequire` idiom to avoid eager cycles; injected test predicates preserve ordinary-session fixtures. Five behavioral failures reproduced, then eight focused files/84 tests passed. Compiled default-dependency smoke exercises the actual coordinator and both automatic cleanup paths (`_scratch/3d-runtime-smoke.cjs`).
-- 6c: source-derived refusal signatures and short legacy fallbacks require known tool-use context on the adapter path. Corrected adjacent Read path extraction. Local measurement scanned 4,314 JSONL files and 4,650 string error results: all nine source-signature matches retained, zero lost, three unclassified broad matches rejected. Skipped 305 malformed lines; no raw transcript or credential content retained. Report: `_scratch/oct-followups/claude-denial-measurement.md`.
-- 6e probe only: installed Claude Code2.1.296 emitted a nested `control_request` elicitation; after a 1,001ms hold, the correlated success envelope containing `{action:'cancel'}` reached the mock MCP server and the CLI exited0. No app dispatcher was added. Report/evidence: `_scratch/oct-followups/elicitation-probe-report.md` and `elicitation-probe-evidence.json`. Form/Cancel verified; URL/sign-in and Accept/content remain untested. Process-group cleanup attempted; independent `ps` inspection was rejected by macOS, so only CLI exit is confirmed.
-- 6g timing only: fallback scan logs `{scanned,ms,found}` on hits and misses, while direct hits emit no scan. Index/backfill remains dependent on Housekeeping5.
-- 7a: shared capability predicate and tooltip/visible reason protect Attach, paste and drop across active, history, welcome and Chats, including archived local-model chats. Supported-provider behavior remains covered.
-- 7b change1: rendered hint IDs are cached separately, so every cold-start build counts the notes actually rendered, including cache hits. Preview, Rebuild, unified retrieval, compaction and restored/replay starts pass `recordUsage:false` through the typed worker port. **Bounded claim:** counts cold-start build requests, not confirmed provider delivery. A result discarded at the parent's deadline or an aborted create may still count. SQLite-driver-backed lifecycle/builder tests cover cold versus restored starts; removal suggestions remain dependent.
-- 7e: all eight backdrops have `tabindex=-1` and `aria-hidden=true`; four missing Escape routes use a capture-phase dismissal directive with teardown and top-overlay ordering. Existing Escape handlers remain. Phase4 explicitly exempts this attribute pair without a marker, so its missing marker foundation does not block this change.
-- 1c safety additions: apply rejects symlinked destination parents, INDEX and scratch outputs before moves, and only a regular legacy README is eligible. Actual ripgrep fixture proves default text search skips retired content and `--no-ignore` finds it. Qualification: existing git file-listing and git-grep fallback paths do not honor `.ignore`; the implemented claim is default ripgrep text search. No real document was moved or staged.
-- Preliminary checks: 16 focused files /117 tests PASS, log `_scratch/test-run.pid-39598.log`; main typecheck and lint PASS. Spec typecheck found two new fixture type mistakes (`drafting` state and missing `lastAssistantOutput`); corrected, rerun required. These checks used AIO's root dependency symlinks; worktree-owned installation and final rerun are still required for independent reproducibility.
-- Full suite intentionally not run: direct Plan Queue worker instruction assigns it to verifier. No claim of full-plan completion or whole-plan fresh-eyes PASS.
-- Stable worker verification after all source edits: `npx tsc --noEmit`, `npm run typecheck:spec`, `npm run lint`, `npm run check:ts-max-loc`, `npm run build:main`, `npm run build:renderer` all exit0. Combined targeted batch: **58 files /2,164 tests PASS**, 179.9s, raw `_scratch/test-run.pid-84714.log`. Phone typecheck/lint/build and two confirmation tests all exit0. Structured commands/exits: `_scratch/oct-followups/gates/stable-results.json`; full logs beside it. Compiled actual-coordinator cleanup smoke also exit0.
-- Aliases and IPC generators ran with no tracked output diff. IPC/export/CWD-discipline/architecture-inventory checks exit0. Extra aggregate architecture gate exits1 on three pre-existing renderer-test imports present in HEAD (`update-batcher.service.spec.ts:3`, `history-preview-session.service.spec.ts:13/14`), all untouched by this task. Do not report that extra gate as passing.
-- First independent gate reviewed the original subset and found a retirement test fixture using a browser-transformed URL as a filesystem path. Replaced with the established `process.cwd()` path without weakening assertions; independent15-test rerun passed. Its bounded report is `_scratch/oct-followups/fresh-review.md`.
-- Second genuinely fresh gate after the fix and completed3d changes: **VERDICT: PASS for the implemented subset**, no unresolved actionable findings. Independently reran all six static/build gates (exit0), 24 focused root files/363 tests, two phone tests and the actual compiled-coordinator cleanup smoke (all exit0). Acceptance/security/async/state/performance/accessibility mapping and limitations: `_scratch/oct-followups/fresh-final-review.md`. No source/test edit followed that stable review. This does not replace the coordinator's full suite or certify the 27 open and six partial parts.
-- Plan and [live-test document](2026-10-11-oct-followups_livetest.md) are both untracked in the root checkout (`??` verified). No completion rename, commit, real staging, stash, branch switch or new worktree. Queue HEAD remains `6956a89d8709ecce2b039e620857a632bb21f795`; index empty. Repository branch names are unchanged; an unrelated pre-existing Mimo queue worktree disappeared during concurrent work elsewhere, so the final registry is not byte-identical to the initial snapshot. This worker did not alter it.
-
-### Per-part handoff status (49 parts; plan remains active)
-
-"Implemented" below means the code is present, worker checks and a genuinely fresh independent gate passed, subject to the coordinator's full suite and recorded live checks. It does not mean the plan has been closed. Live checks for implemented paths are in [the live-test document](2026-10-11-oct-followups_livetest.md). Missing code and decisions are kept open here.
-
-| Part | Actual status and remaining requirement |
-|---|---|
-| 1a | Implemented: pointer/check/README. |
-| 1b | Implemented: read-only inventory and real root dry run/review. |
-| 1c | Implemented: temporary-repository apply/index/search guards; real batch untouched. Optional architecture archive exclusion not selected. |
-| 1d | Open: James/coordinator must review the actual cutoff/groups/holds and authorize the batch/commit. |
-| 1e | Implemented: count/check instruction. |
-| 1f | Open: optional scratch deletion remains off; no deletion authority inferred. |
-| 2a | Implemented: settings extraction/headroom, all existing policy gates retained. |
-| 2b | Implemented: mode-change extraction and runtime delegate. |
-| 3a | Implemented: absent decisions refuse across desktop/thin-client paths. |
-| 3b | Implemented: both initial and post-poll reads require remote-spawn ownership. |
-| 3c | Partial: dirty preserved boot worktrees guarded; storage card needs Housekeeping4. |
-| 3d | Implemented: active-loop ownership protects all automatic cleanup selection paths, ordinary sessions remain eligible. |
-| 3e | Implemented: phone Stop/Cancel confirmation; device check pending. |
-| 3f | Open: Phase2 step8b landing outcome/merge-hold API absent. |
-| 3g | Open: Phase0/Phase2 merge-hold framework absent and optional stalled-loop choice unresolved. |
-| 4a | Open: Phase2 reasoned-pause/notice helper and automation finish ownership absent. |
-| 4b | Implemented: current review-driven terminal path supports needs-review without a competing finish phase. Missing required rename returns that status, records rename-gate, retains human follow-up details and still passes through final audit. Fresh independent bounded PASS; whole plan remains incomplete. |
-| 4c | Implemented: serious finding triage and optional detail display. |
-| 5a | Open: keep-3 automatic backup deletion choice unresolved; card needs Housekeeping4. |
-| 5b | Open: cleanup tickets/storage schema absent; history trim is an ask-first data operation. |
-| 5c | Open: trace cap/retention choice unresolved; card needs Housekeeping4. |
-| 5d | Open: migration deletion premise refuted by supported overrides; card needs Housekeeping4 and compatibility removal needs a changed scope. |
-| 5e | Open: tracked binary/CI delivery choice and explicit commit authority unresolved; no binaries removed. |
-| 5f | Open/optional: Phase0 step7g true-one-shot eligibility not landed; no blanket persistence flag added. |
-| 5g | Partial: local exclude implemented; cleanup card needs Housekeeping4. |
-| 5h | Open: feature deletion choice unresolved; no screens/channels deleted. |
-| 5i | Partial: items4/5 size gate implemented; deletion items1–3 remain choices. |
-| 6a | Open: current Claude result path still uses cumulative/occupancy fallback; Phase0 per-turn spend ledger/API not landed. Existing cost tracker alone cannot supply the promised accurate total. |
-| 6b | Implemented: helper frames no longer overwrite parent occupancy/fallback state. |
-| 6c | Implemented: measured refusal classifier and known-tool context. |
-| 6d | Implemented: reliable live wait clock, shared durable/live reminder and banner input, deduplication, user/machine/YOLO/loop/repo-job exclusions. Current runtime status/ownership APIs suffice; no new renderer aggregator is claimed. Rebuilt-app reminder remains a live check. |
-| 6e | Implemented first version: nested connector requests receive the probe-verified correlated Cancel response through the desktop adapter and a display-only receipt after stdin accepts it. Real subprocess tests cover form and URL modes; rebuilt installed-CLI visual integration remains a live check. One-shot utility EOF behavior is unchanged. |
-| 6f | Implemented: inert switch hidden, key/default/CLI policy retained. |
-| 6g | Implemented: persisted identifier index wired into current saves/deletes/startup, generation-bound sidecars reused, throttled loop-aware backfill, incomplete fallback and 10-minute negative cache. Transient/unreadable identities remain unresolved and retryable. Complete misses read no transcript JSON but validate file generations; real-folder latency remains unverified. |
-| 7a | Implemented: provider/runtime attachment gating and reasons. |
-| 7b | Partial: counting option/wiring implemented with the build-request limit above; source-aware removal fold/Undo awaits Phase5 memory page/source IDs. |
-| 7c | Open: Phase3 header and Phase5 helper strip foundation absent. |
-| 7d | Implemented: existing resolved mode permissions provide a truthful display-only receipt after successful mode-message delivery. Existing neutral system rendering is reused; model-facing bytes remain unchanged. |
-| 7e | Implemented: backdrop Tab exemption and Escape routes; Windows live check blocked by preview connectivity. |
-| 7f | Open: Phase4 accessible-name guard/counter foundation absent. |
-| 7g | Open: Phase5 shared money formatter and Phase0 format policy absent. |
-| 7h | Implemented with the recommended safe default under current task autonomy: repository-map and experimental transcript-speed rows in existing Advanced/Runtime sections. Existing defaults/policies retained; other three switches unchanged. Repository map applies to new sessions; virtualization applies immediately. |
-| 7i | Open/optional: Phase5 live Auto-approve path absent; optional confirmation choice unresolved. |
-| 7j | Partial: typed validated push events and throttled create/resolve forwarding refresh existing memory-review/repo-job stores, preserve polls, ignore stale responses and tear down subscriptions. The Phase3 Needs-you aggregator/count remains absent, so immediate display in that count is still open. |
-| 8a | Parked/open: Needs-you foundations and phone summary design/choice missing. |
-| 8b | Parked/open: Phase3 live-permission default flip and its live evidence missing. |
-| 8c | Parked/open: Phase3 menu plus usage observation/design trigger missing. |
-| 8d | Parked/open: individual triggers not supplied; preserve all nine items. |
-| 8e | Parked/open: Copilot loop usage and Phase0 counter foundation not present. |
-
-No parked part or unanswered choice has been silently dropped. All five parked parts and the 76 rest-of-list entries are also preserved in [13 October parked follow-ups](2026-10-13-oct-parked-followups_plan.md). Required open Steps 1–7 remain here. Completion rename and backlog-completion updates remain coordinator-owned and must wait for whole-plan acceptance.
-
-
-### Verification round 1 remediation — 13 October 2026 (round 2 worker, active)
-
-The independent findings are accepted as evidence that this plan is still incomplete. This ledger does not close it or certify the whole plan.
-
-1. **Incomplete plan:** rechecked the current merged queue HEAD `d41143662`, the `main...HEAD` diff and current source symbols. The Phase 2 merge-hold field/helper, automation needs-attention status, reasoned-pause notifier; Phase 3 posture/Needs-you/live-permission/typed-strip foundations; Phase 4 accessible-name reader/guard; Phase 5 money formatter and source-aware note-removal page; and Housekeeping storage services/schema and continuity metadata index are still absent. An automation currently has only pending/running/succeeded/failed/skipped/cancelled status, so treating a pause as failed would change the circuit-breaker behavior rather than implement the requested needs-attention outcome. There is no applicable landed replacement under a different name (targeted source searches). Snapshot: `_scratch/oct-followups/round2/dependencies.json`. AIO must integrate those owning plan items and refresh this checkout before the dependent parts can use them. No manual merge, branch switch, or duplicate framework was created.
-2. **4b progressed independently:** the real review-driven gate already returns `completed-needs-review`, and the coordinator emits its terminal event and terminates it through the normal final-audit path. Added `loop-plan-rename-check.ts` and called it at clean-review convergence, after existing verify/fresh-eyes gates. It reads the same run-scoped `completedFileRenameObserved` evidence as the gated detector. A missing required rename records `lastCompletionOutcome: rename-gate`, returns needs-review, and preserves any human OUTSTANDING details. Ordinary loops and observed renames remain eligible for clean completion. This bypasses only the plan's ordering assumption, not its requested behavior. Three new failures reproduced before the implementation (`_scratch/test-run.pid-36949.log`); six focused files / 165 tests pass (`_scratch/test-run.pid-59377.log`), including an actual scratch coordinator run finishing after one iteration without renaming its plan. After correcting the complete VerifyOutcome fixture, the eight direct gate cases pass (`_scratch/test-run.pid-58489.log`). Fresh independent bounded gate PASS: `_scratch/oct-followups/round2/fresh-review.md`; no unresolved actionable findings.
-3. **All ten full-suite failures:** read the verifier's full JSON (`_scratch/test-results.pid-49850.json`): all ten come from Electron child processes in five test files. Reproduced the missing better-sqlite3 binding in the RLM restart test (`_scratch/test-run.pid-47425.log`). Ran the documented `npm run rebuild:native`; it installed the worktree-owned prebuilt binary for Electron 40.10.6 and verified NODE_MODULE_VERSION 143. Re-ran all five previously failing files: **100/100 tests PASS, exit 0**, `_scratch/test-run.pid-29399.log`. No test was skipped/weakened and no tracked dependency or test-harness file changed. The coordinator/verifier still owns the full-suite rerun; this is a bounded repair of its ten reported failures, not a new full-suite PASS claim. A fresh ignore-scripts dependency install must run `npm run rebuild:native` before the Electron-backed tests.
-4. **Finishing:** created `/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-13-oct-parked-followups_plan.md` in the root checkout. Verified exact section preservation of all five parked parts and all 76 rest-of-list entries, including their triggers and authority boundaries. This prepares Finishing item 2 without dropping required open Steps 1–7. Original plan, live-test document and carry-over document all show `??` in root status. No separate spec is linked. The requested `_completed` rename cannot be performed by this worker: the current queue instructions expressly reserve it for the coordinator after independent acceptance. The lack of a rename is not a worker code defect. Whole-plan completion and the backlog's completed-plan pointer stay open.
-
-Required authority boundaries remain specific: James must choose the real archive cutoff/groups/hold list and authorize that actual batch (1d); supply optional scratch-deletion approval (1f); decide stalled/final-audit merge handling (3g); approve the automatic Codex keep-three rule, trace rotation deletion, and RTK history trim (choice 7); decide RTK tracking/delivery (choice 8), feature removal (choice 11), the three code-removal items (choice 10), Settings rows (12b) and optional live Auto-approve confirmation (14a). The automatic safe-work readiness record explicitly preserved these choices. No answer or destructive authority is inferred here; the existing real dry-run review remains available. Device/app checks stay in the existing live-test document. Missing code is not moved into a live-test deferral.
-
-
-Round 2 verification after the fixture correction: main typecheck, spec typecheck, lint, LOC gate, main build and Angular production build all exit 0; IPC contract and usage checks exit 0; alias and preload generators run without source diff. Initial fixture/type-check failures are retained in the logs and superseded by `typecheck-spec-corrected.log` (exit 0). Command/exits: `_scratch/oct-followups/round2/stable-results.json`. The architecture inventory was stale after the coordinator checkpoint changed the git index; canonical regeneration updated `docs/generated/architecture-inventory.json` to the checkpoint's counts, and `--check` now exits 0. The generator deliberately reads index content; the coordinator's normal hook must regenerate again after staging this round's new files. Loop CWD discipline and `git diff --check` exit 0. No full-suite run was made by this worker, as instructed.
-
-`npm run check:docs-retire` exits 0 and reports **due: 358 eligible closed documents, 9.0 MB, no previous batch**. No real document was moved or staged. Carry-over review artifact: `/Users/suas/work/orchestrat0r/ai-orchestrator/.aio-review/2026-10-13-oct-parked-followups.html`, generated with the repository's `renderPlanArtifact` and checked for the v1 review markers. No browser or desktop was opened. The root Markdown remains canonical and untracked.
-
-
-Round 2 fresh-eyes result: **VERDICT: PASS for part 4b, the native-test repair and carry-over preservation only**, no unresolved actionable findings. A genuinely fresh reviewer independently ran both typechecks, lint, LOC, main/renderer builds, native ABI and architecture-inventory checks (all exit 0), four loop files / 141 tests (`_scratch/test-run.pid-22343.log`) and all five previously failing native files / 100 tests (`_scratch/test-run.pid-33412.log`). It independently verified all five full Step 8 parts and all 76 multiline rest-of-list entries, and traced observer → review-driven gate → final audit → terminal event/terminate. Its report explicitly gives **whole-plan FAIL / INCOMPLETE**; no clean-reinstall/full-suite or remaining-part acceptance is implied. Report: `_scratch/oct-followups/round2/fresh-review.md`. No source/test edit followed this fresh pass.
-
-Final round-1 finding checklist:
-- [ ] Finding 1, whole-plan incompleteness: still open. One further required part (4b) is now implemented; actual total is **17 implemented, 6 partial, 26 open/parked of 49**. The per-part table identifies every remaining requirement. Missing owning-plan foundations must land through AIO, and the specific data/merge decisions above remain James's boundaries. This worker cannot manual-merge or declare those choices supplied.
-- [x] Finding 2, the ten reported full-suite failures: reproduced the absent native binary, rebuilt through the documented pipeline, verified ABI143, and all ten failures' owning five files pass both worker and fresh reviewer reruns. The full-suite rerun remains coordinator-owned.
-- [x] Finding 3, follow-up carry-over: prepared and independently verified in the root-only untracked dated follow-up document. Completion rename is intentionally not performed: the current direct queue-worker instruction prohibits it and assigns it to the coordinator after whole-plan acceptance. Other whole-plan finishing steps remain open; this checked item certifies carry-over preparation only.
-
-All edits remain in the supplied queue worktree except untracked root planning documents and ignored root review artifacts. Final worktree status has only three modified tracked files (completion gate, its integration spec, canonical generated inventory) and two new rename-check files; the index is empty. Root plan, live-test document and follow-up document each remain `??`. Current branch is still `queue/2026-10-11-oct-followups-6f4138`, HEAD `d41143662`. No commit, stash, staging of real work, branch switch/creation, new worktree, real archive move, data deletion, or browser/desktop interaction occurred in this round. The source plan is **not ready for whole-plan acceptance or coordinator closure**.
-
-
-### Verification round 2 remediation — 13 October 2026 (round 3 worker, active)
-
-This round implements safe work beyond the previous subset. It does not resolve whole-plan acceptance by changing open boxes or treating readiness data as authorization.
-
-1. **Re-investigation and scope:** read the complete source plan and previous as-built ledger, current queue history (`71005aa7a`, coordinator checkpoint) and `main...HEAD` diff. No separate spec is linked. Missing names alone are not treated as a blocker: current Advanced/Runtime sections, resolved agent permissions, status-update seam, persistence operations and generation-bound recovery sidecars support parts 6d/6e/6g/7d/7h without duplicating other plans' frameworks. The current task authorizes those routine safe adaptations. No main merge, branch switch, worktree creation, real archive apply or data deletion was performed.
-2. **6d:** added a runtime-only WeakMap clock at `InstanceStateManager.queueUpdate`; activity/output changes cannot reset a wait. Both banner and reminder merge durable approvals with live waits, retain the oldest unexpired wait per session and exclude Auto-approve, machine markers/waits, loop ownership and repository-job roots. Unknown restored waits start conservatively at first observation. Behavioral RED: live-only banner missing (`_scratch/test-run.pid-39139.log`) and untagged repo-job wrongly counted (`_scratch/test-run.pid-80564.log`); focused five-file/54-test rerun passes (`_scratch/test-run.pid-81170.log`).
-3. **6e:** a self-contained cancel-only nested control-request handler is wired into the existing desktop adapter; no permission dispatcher or form-accept path is invented. Two real subprocesses waiting for the probe's exact correlated response previously timed out; now both exit 0. Failed stdin writes produce an error instead of a false cancellation receipt. Connector URLs, forms and prompt text are not copied into output. Eight direct tests and adjacent adapter tests pass. Existing utility `sendMessage`/`sendMessageStream` paths close stdin after their one-shot prompt and are unchanged; this round certifies desktop `spawn`/`sendInput` handling only.
-4. **6g:** added `SessionContinuityLookupIndex`, using current generation-bound recovery sidecars when valid, and read-only transcript decoding otherwise. Atomic two-second-debounced persistence contains identifiers/file generations only. Background batches pause during active/paused/provider-parked loops, process small/newer files first and yield every 20 records. Save/remove/discard/startup are wired; shutdown cancels background/persistence work. Direct filename hits preserve the previous fast path. Complete misses validate small file generations and read no transcript JSON; this is not a demonstrated constant-time real-folder latency claim. Incomplete repeated misses have a ten-minute negative cache. A first fresh reviewer reproduced a HIGH defect: a transient read/decryption failure could persist empty keys and become an authoritative miss. The fix keeps those files unresolved, retries them, and rejects empty-key cache entries on reload. EIO/EACCES regressions failed before the fix (`_scratch/test-run.pid-45770.log`); five continuity files /97 tests pass after it (`_scratch/test-run.pid-47473.log`). The prior permissive malformed-record completeness assertion was corrected to require incomplete status while still indexing healthy records; no original repository test was removed or weakened. Fresh re-review is required after this fix.
-5. **7d and 7h:** mode switches emit one neutral display-only receipt after successful model-message delivery using actual resolved permissions/session overrides; model-facing strings are unchanged. The facade supplies its existing system-notice callback. The two recommended Settings rows reuse existing Runtime sections and open boolean policies; repo maps affect new-session prompts, experimental virtualization updates immediately. Eight initial behavior failures reproduced; six-file/73-test rerun passes (`_scratch/test-run.pid-25733.log`). This is a routine safe choice under the current scope; obsolete notes treating Settings sections/choice12b as a required new approval are superseded.
-6. **7j foundation only:** existing governed-proposal and repository-job services already emit persisted lifecycle changes. Two typed push channels, renderer validation, diagnostics preload subscriptions and service/store hooks now refresh those lists within the one-second throttle; existing polls remain. Revision guards prevent stale poll responses from overwriting a newer pushed list. Shutdown clears timers and exact listeners, and Angular destruction unsubscribes. Original store/main/validation failures and a new shutdown regression were reproduced. The Needs-you aggregator/count is still absent, so its visible-count acceptance remains **unimplemented**, not a live-test deferral.
-7. **Finding 2/live boundaries:** Browser Gateway preflight and health were repeated; `windows-pc` is online with a fresh deliverable extension channel. This establishes channel health only, not keyboard/UI behavior. The phone is not running a rebuilt copy of this checkout, and the desktop integration/restart is coordinator-owned. The existing 3e phone, 6b helper-ring and 7e Windows checks remain open with exact actions in the root live-test document. No Mac browser/desktop was used. New rebuilt-app checks for 6d/6e/6g/7d/7h and the implemented 7j store paths are appended there; absent card/count implementation stays here.
-
-Current round final check results and fresh-review reports are appended after the stable reruns. The source plan and live-test document remain active and untracked in the root checkout. This worker must not rename either to `_completed`.
-
-
-Round 3 fresh-review remediation (still active):
-- First index gate found and reproduced empty-key persistence after a temporary read/decrypt failure; fixed as described above.
-- Second index gate independently found a foreground null read being cached for ten minutes and fixed-one-second rereads of permanently unresolved files. The foreground scan now records a negative only when every candidate identity was readable. Unresolved files have generation-bound exponential retry delays of 30 seconds to five minutes; a generation change or successful upsert retries immediately. Both new regressions failed before the fix (`_scratch/test-run.pid-68623.log`, `_scratch/test-run.pid-84408.log`).
-- The other-parts fresh gate reproduced the new 7d receipt promising edit approval despite Claude's existing `acceptEdits`/allowlisted edit configuration. It now describes enabled edits and says shell commands **may** require approval, preserving deny restrictions and every model-facing byte. The new runtime-option/receipt regression failed before the fix (`_scratch/test-run.pid-25061.log`). Existing newly-added receipt assertions were corrected to this supported runtime contract; original repository behavior tests remain intact.
-- Stable rerun after those fixes: six files /110 tests PASS (`_scratch/test-run.pid-69360.log`), including all 14 index cases and 11 mode-change cases; both typechecks, lint, LOC and main build exit 0. Compiled actual-coordinator/index smoke exits 0 with explicit logging-worker teardown (`runtime-after-review.log`). Earlier smoke output reached its assertions but left a logging worker alive; that process was stopped (exit143) and is **not** used as passing command evidence.
-- IPC and alias generators are current. The architecture generator updated the canonical tracked inventory for two added channels and the coordinator's previous checkpoint; it reads index file content and must run again under the coordinator's normal staging/hook lifecycle. No real file is staged by this worker.
-- Extra `verify:renderer-events` stays exit1 for **pre-existing** uncovered `local-ai-guard:status-delta` and `plan-queue:state-changed`, plus the existing dynamic cost-handler site. This round's newly-added inbox callback was corrected to explicit channel sends and is now statically recognized; its final three-file/39-test run passes (`_scratch/test-run.pid-51181.log`). No allowlist, suppression or gate weakening was added.
-- Worker evidence matrix: `_scratch/oct-followups/round3/stable-results.json`. Whole-suite/clean-install checks remain external-verifier-owned by the direct queue instruction. A further fresh gate is in progress; no whole-plan or final subset PASS is claimed yet.
-
-Round 3 metadata-boundary remediation (fresh gate still pending):
-- The next fresh gate independently reproduced two remaining 6g failures in compiled production code: transient `lstat` errors silently omitted an existing file and cached its absent alias for ten minutes; a failed post-read generation stat repeatedly decoded the unchanged transcript without retry backoff. Report: `_scratch/oct-followups/round3/fresh-final-review.md`. It found no other actionable findings in the six-part bounded scope, but returned FAIL because these remained.
-- Enumeration now ignores only an actually vanished file (`ENOENT`); unknown metadata errors propagate and cannot commit the validated directory generation, clear known entries, or create a negative cache. Post-read validation failures record a retry bound to the pre-read generation, using the same 30-second-to-five-minute backoff as unreadable identities. A changed generation is eligible immediately. Scheduler-level enumeration failures also back off rather than retry every second. Starting background work is owned by `start`/foreground lookup, avoiding redundant scheduling from a backfill's own invalidation pass.
-- Correct EIO/EACCES metadata-boundary tests and post-read-stat backoff tests were added. The immutable native ESM export required a test-only forwarding wrapper to the actual mutable Node promises API; initial non-intercepting spy attempts are retained as failed evidence, not behavior proof. Both behavioral regressions then failed against unchanged production code (`_scratch/test-run.pid-73628.log`), and pass after the fix. Six affected continuity/mode files now pass **94 tests**, exit 0 (`_scratch/test-run.pid-89681.log`), including 17 direct index cases.
-- Main typecheck, spec typecheck, lint, LOC, main build and Angular build all exit 0 after these fixes; exact logs are `tsc-stat-fix.log`, `spec-stat-fix.log`, `lint-stat-fix.log`, `loc-stat-fix.log`, `main-stat-fix.log`, and `renderer-stat-fix.log` beside the worker evidence matrix. The compiled actual-coordinator/index smoke also exits 0 (`runtime-stat-fix.log`). Another genuinely fresh independent agent is reviewing the frozen updated sources; acceptance remains open until its result.
-- Refreshed the real root-checkout retirement dry run without applying or staging it: **356 eligible closed documents, 8.7 MB**, review Markdown `/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/retire-docs/2026-10-13.md`; command log `round3-dry-run.log` beside it. This inventory supersedes earlier counts for the current review only. The actual archive approval and coordinator-owned commit remain open.
-
-Round 3 final independent result and handoff:
-- **VERDICT: PASS for 6d, the first desktop-cancel version of 6e, 6g, 7d, 7h and the 7j push/store foundation only.** A genuinely fresh verifier independently reviewed all 41 changed/new files and their runtime call paths, with no unresolved actionable findings. Its SHA-256 snapshot confirms that the sources stayed frozen throughout review. Report: `_scratch/oct-followups/round3/fresh-metadata-final-review.md`; raw evidence: `_scratch/oct-followups/round3/metadata-final-evidence/`.
-- Independent verification: **20 focused files /251 tests pass** (`_scratch/test-run.pid-28728.log`, `_scratch/test-run.pid-11339.log`); both typechecks, lint, LOC, main/renderer builds, compiled actual-coordinator/index smoke, separately authored compiled metadata recovery/retry probes, IPC contracts/usage and secrets scan all exit 0. The independent probes prove EIO/EACCES enumeration recovery without a cached absence/manifest commit; post-read retry delays of 30 then 60 seconds; immediate eligibility for a changed generation; and background enumeration retry delays of 30 then 60 seconds. The caps and wider security/state/performance/conditional-UI review are recorded in the report. No source edit followed this PASS.
-- No clean install or full-suite run is claimed: the direct queue instruction reserves those for the external verifier. No real-folder millisecond latency, installed desktop/device behavior, or absent Needs-you count is claimed. The extra renderer-event check's unchanged baseline failure remains recorded above; no gate was weakened.
-- Root-only review artifacts are `/Users/suas/work/orchestrat0r/ai-orchestrator/.aio-review/2026-10-13-oct-followups-round3.html` and the refreshed `/Users/suas/work/orchestrat0r/ai-orchestrator/.aio-review/2026-10-13-oct-doc-retirement.html`. They are ignored disposable renders; Markdown is canonical. No browser/desktop was opened.
-
-Final round-2 finding checklist:
-- [ ] **Finding 1, whole-plan incompleteness: partially remediated, still open.** Five further parts and the 7j foundation were implemented and independently passed. Verified table total: **22 implemented, 5 partial, 22 open/parked of 49**. The missing Phase0/2/3/4/5 and Housekeeping owning-plan foundations, explicit archive/retention/removal decisions and parked triggers are identified by part above. AIO must integrate the owning foundations before dependent implementation; this worker is forbidden to manual-merge or replace AIO lifecycle ownership. The Needs-you count and storage-card halves remain missing code, not live-test deferrals.
-- [ ] **Finding 2, pending live checks/storage foundations: still open.** 3e phone Stop/Cancel, 6b parent/helper ring and 7e Windows keyboard checks remain unverified against a coordinator-integrated rebuilt app. Windows gateway health is available but proves no application behavior. Exact steps, expected results and prerequisites remain in `2026-10-11-oct-followups_livetest.md`. Housekeeping4/5 integration is still required for the outstanding storage-card halves; the current generation sidecars allowed independent 6g index work, which now passes the bounded gate.
-
-This is a verified partial worker handoff, **not ready for whole-plan acceptance or closure**. All code/generated changes remain unstaged in the supplied worktree; all three root planning documents remain untracked. Branch and HEAD remain `queue/2026-10-11-oct-followups-6f4138` / `71005aa7adb3f4efa642a775ed9b01a9e475ede2`. No commit, stash, branch switch/creation, worktree creation, real archive move, deletion or `_completed` rename was performed.
-
-> Plan Queue parked work: `queue/2026-10-11-oct-followups-6f4138` — 4 commit(s), reason: cancelled.
+> Dated as-built notes moved to [history](2026-10-11-oct-followups_history.md).

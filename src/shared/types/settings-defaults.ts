@@ -154,6 +154,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   scratchRetentionDays: 14,
   memoryWarningThresholdMB: 1024, // warn at 1GB heap
   autoTerminateOnMemoryPressure: true,
+  leftoverProcessCleanup: 'stop-cpu-hogs', // stop runaway leftovers; only report idle ones
   recordProviderEvents: false,
   persistSessionContent: true,
   ownChatContextCeilingTokens: 0, // Replay evidence is unavailable; ceiling remains disabled.

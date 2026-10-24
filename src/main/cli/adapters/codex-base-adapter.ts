@@ -18,11 +18,16 @@ import type { ResumeCursor } from '../../session/session-continuity';
 import { CodexUsageAccounting } from './codex/usage-accounting';
 
 const logger = getLogger('CodexBaseAdapter');
+const BACKGROUND_WORK_INSTRUCTIONS = '[Background commands]\n'
+  + 'Start long commands as your own background command and end the turn. Harness keeps the session awake while the command runs and messages you when it exits; check its output, then continue the work you were waiting to complete. '
+  + "Do not use another agent's monitor or schedule tools to watch your work. "
+  + 'Only claim the work is being monitored when Harness shows it as background work.';
 
 /** Shared process configuration and isolated CODEX_HOME lifecycle. */
 export abstract class CodexBaseAdapter extends BaseCliAdapter {
   protected readonly cliConfig: CodexCliConfig;
   private readonly codexHome: CodexHomeManager;
+  private harnessBackgroundWorkManaged = false;
   /** Which config.toml treatment the current prepared CODEX_HOME has, if any. */
   protected preparedHomeKind: 'mcp-toml' | 'app-server' | 'exec' | null = null;
   protected cumulativeTokensUsed = 0;
@@ -65,7 +70,7 @@ export abstract class CodexBaseAdapter extends BaseCliAdapter {
       ...(config.envRemove && config.envRemove.length > 0 ? { envRemove: config.envRemove } : {}),
     };
     super(adapterConfig);
-    this.cliConfig = config;
+    this.cliConfig = { ...config };
     this.codexHome = new CodexHomeManager({
       ...(config.authSourceDir ? { authSourceDir: config.authSourceDir } : {}),
       ...(config.env ? { harnessCliEnv: Object.fromEntries(
@@ -73,6 +78,21 @@ export abstract class CodexBaseAdapter extends BaseCliAdapter {
       ) } : {}),
     });
     this.sessionId = config.sessionId || `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  /** Record Harness ownership; only persistent app-server mode may promise background delivery. */
+  enableHarnessBackgroundWorkInstructions(): void {
+    this.harnessBackgroundWorkManaged = true;
+    // Warmed adapters are bound after spawn; their first turn still needs the rule.
+    if (this.getAdapterCapabilities().residentSession) this.applyHarnessBackgroundWorkInstructions();
+  }
+
+  protected applyHarnessBackgroundWorkInstructions(): void {
+    if (!this.harnessBackgroundWorkManaged) return;
+    const prompt = this.cliConfig.systemPrompt ?? '';
+    if (!prompt.includes(BACKGROUND_WORK_INSTRUCTIONS)) {
+      this.cliConfig.systemPrompt = prompt ? `${prompt}\n\n${BACKGROUND_WORK_INSTRUCTIONS}` : BACKGROUND_WORK_INSTRUCTIONS;
+    }
   }
 
   getName(): string {

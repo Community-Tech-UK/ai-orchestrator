@@ -3,7 +3,7 @@
 > **Found a defect while running these checks?** Record reproduced defects in
 > `docs/plans/livetest-remediation-register.md` as a new `LT-NNN` item (index row,
 > observed behaviour, root cause, required behaviour, acceptance), and add a matching
-> implementation-status section in `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`.
+> implementation-status section in `docs/plans/2026-07-19-livetest-failure-remediation-followup_plan.md`.
 > Per-check evidence stays here. Read `docs/plans/livetest-campaign-runbook.md` before a campaign.
 
 Prerequisites: rebuild the installed Harness app through the normal local build/install pipeline,

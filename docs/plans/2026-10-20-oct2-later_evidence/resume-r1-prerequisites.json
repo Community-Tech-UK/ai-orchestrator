@@ -1,0 +1,170 @@
+{
+  "status": "BLOCKED_PREREQUISITES",
+  "checkedAt": "2026-10-20T19:28:54.439463+00:00",
+  "worktree": {
+    "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-later-fae157",
+    "head": {
+      "exitCode": 0,
+      "stdout": "542f1f690fae155ecec3e6dddfc901c008fec3b7",
+      "stderr": ""
+    },
+    "base": {
+      "exitCode": 0,
+      "stdout": "542f1f690fae155ecec3e6dddfc901c008fec3b7",
+      "stderr": ""
+    },
+    "mergeBase": {
+      "exitCode": 0,
+      "stdout": "542f1f690fae155ecec3e6dddfc901c008fec3b7",
+      "stderr": ""
+    },
+    "diff": {
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "status": {
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  },
+  "rootHead": {
+    "exitCode": 0,
+    "stdout": "542f1f690fae155ecec3e6dddfc901c008fec3b7",
+    "stderr": ""
+  },
+  "phases": [
+    {
+      "phase": "A",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-20-oct2-phaseA-safety-and-truth_plan.md",
+      "sha256": "84c5ca2d3d25a3a243ae32704576b1204667d6ef0ef07130e7241482ed4dc856",
+      "status": "In progress in the AIO queue worktree (20 Oct 2026); not integrated. Decisions 2, 3, 6, 8, 13, 15 and 18 are (a).\nCost repair, queue identity/checker safety and Codex policy have separate implementation owners. Root owns integration\nand focused/static verification. Evidence: [history](2026-10-20-oct2-phaseA-safety-and-truth_history.md).\nRead-only evidence shows the original cost repair already ran today; recovery of affected real rows requires a separately\nverified remediation, never a script write. No restart or packaged build from the worktree. Full suite and completion\nrename belong to the independent verifier/coordinator under the queue-worker instructions."
+    },
+    {
+      "phase": "B",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-20-oct2-phaseB-land-built-work_plan.md",
+      "sha256": "339b698efee29dc31937018761538e46a171dbfcfc4294e7cc215a724e4b7f71",
+      "status": "Not started (20 Oct 2026). On main: no. Next: Step 2 (status-block rule), then Step 3 (diet, Decision 7). Needs first:\nPhase A Steps 0 and 3 (history-file guard; queue identity guard) built, installed and running in James's Harness\n(after his restart) before any stranded job is resumed; being on `main` is not enough. Decisions used: 1, 7,\n19, all answered (a) by James on 20 Oct. Open issue: the Phase 1 job is live and owned by another session\n(checkpoint \"paused\" at 00:06 on 20 Oct); coordinate, do not take it over. Rewrite this block in place; no dated sections.\nRound evidence goes in `2026-10-20-oct2-phaseB-land-built-work_history.md`."
+    },
+    {
+      "phase": "C",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-20-oct2-phaseC-queue-that-finishes_plan.md",
+      "sha256": "aa15d8c7a6511f0cacf0e5d24dc77d5ec08ac5afe08b6b9f09716278e6be12bc",
+      "status": "Not started (20 Oct 2026). On main: no. Next: Step 1 (event and verdict history), because Steps 2, 4 and 5 read it.\nNeeds first: Phase A Steps 0, 3 and 4 (room in the queue files, identity guard, checkers that wait) on main. Decisions used: 5, 6 (Phase A), 17 (scheduled-job\nlimits), all answered (a) on 20 Oct. Open issues: none. Rewrite this block in place; do not add dated sections. Round evidence goes in\n`2026-10-20-oct2-phaseC-queue-that-finishes_history.md` beside this file, which nobody reads unless this block points there."
+    },
+    {
+      "phase": "D",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-20-oct2-phaseD-tokens_plan.md",
+      "sha256": "7a7aae2839e6d5b5b3d285eeb49d37c0c88854683020a7f979b77b54cd038fac",
+      "status": "Not started (20 Oct 2026). On main: no. Next: Step 1 (Codex runaway-turn ceiling, Decision 16). Needs first: Phase A on\nmain and running (K2's numbers are the baseline every step is judged against), Phase B Step 5 (the `stopped-by-harness` reason) for Step 1, and Phase B's Phase 1 landing for Steps 4-6.\nDecisions used: 3, 4, 10, 13, 16, all answered (a) on 20 Oct. Open issues: none. Rewrite this block in place; no dated sections. Evidence goes in\n`2026-10-20-oct2-phaseD-tokens_history.md`."
+    },
+    {
+      "phase": "E",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-20-oct2-phaseE-calm-screen_plan.md",
+      "sha256": "3ae3c22393490206cbb6a24c98df95faf346618e34c280b5d3a3a573240359f0",
+      "status": "Not started (20 Oct 2026). On main: no. Next: Step 1 (U10, fold routine notices by flag), which must come before any\nrewording. Needs first: Phase B's Phase 3 landing (calm-screen work: steps 1-6, 11 and 15 are built on its branch; steps\n7-10 and 16-17 are not started there). This plan supersedes Phase 3's step 8b and the notice and wording slices of its\nsteps 7 and 8 (U1-U4); Phase 3's plan stays active for its other open steps. Decisions used: 8, answered (a) on 20 Oct. Open issues: none. Rewrite this block in place; no dated\nsections. Evidence goes in `2026-10-20-oct2-phaseE-calm-screen_history.md`."
+    },
+    {
+      "phase": "F",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-20-oct2-phaseF-tooltips_plan.md",
+      "sha256": "ecf29bb72209f152b6f69ef09ca980bd74e5ffb532da6526f3e4328f938bbaa6",
+      "status": "Not started (20 Oct 2026). On main: no. Next: Step 1 (make the tooltip ratchet survive parallel work). Needs first: Phase B's\nPhase 4 stack (part 1's ratchet, glossary, help drawer, wording guide and `appIconButton`, then parts 2 and 3). Decisions\nused: none. Open issues: none. Rewrite this block in place; no dated sections. Evidence goes in\n`2026-10-20-oct2-phaseF-tooltips_history.md`."
+    }
+  ],
+  "sources": [
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-later-fae157",
+      "path": "src/main/plan-queue/plan-queue-checkout-guard.ts",
+      "exists": false
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-later-fae157",
+      "path": "src/main/core/system/cost-entries-a0-repair.ts",
+      "exists": true,
+      "sha256": "9f42cbc43617538a50dd2e3d01a9277d2d0c85472e867e6f0fed90c8f4396219"
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-later-fae157",
+      "path": "src/main/context/restart-compaction.ts",
+      "exists": true,
+      "sha256": "b6f5c41bae7ef4e23851005dbd594596c09836a6eee10560923cd38a115783da"
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-later-fae157",
+      "path": "src/renderer/app/shared/components/empty-state/empty-state.component.ts",
+      "exists": true,
+      "sha256": "58246f7edf160a4efab67767e51d4f356e562e6a910c3e550aa7f4ca93ffbf83"
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator",
+      "path": "src/main/plan-queue/plan-queue-checkout-guard.ts",
+      "exists": false
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator",
+      "path": "src/main/core/system/cost-entries-a0-repair.ts",
+      "exists": true,
+      "sha256": "9f42cbc43617538a50dd2e3d01a9277d2d0c85472e867e6f0fed90c8f4396219"
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator",
+      "path": "src/main/context/restart-compaction.ts",
+      "exists": true,
+      "sha256": "b6f5c41bae7ef4e23851005dbd594596c09836a6eee10560923cd38a115783da"
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator",
+      "path": "src/renderer/app/shared/components/empty-state/empty-state.component.ts",
+      "exists": true,
+      "sha256": "58246f7edf160a4efab67767e51d4f356e562e6a910c3e550aa7f4ca93ffbf83"
+    }
+  ],
+  "searches": {
+    "pause-start-gates": {
+      "command": [
+        "rtk",
+        "proxy",
+        "rg",
+        "-n",
+        "getPauseCoordinator|PauseCoordinator",
+        "src/main/plan-queue",
+        "src/main/automations"
+      ],
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": ""
+    },
+    "context-menu-capabilities": {
+      "command": [
+        "rtk",
+        "proxy",
+        "rg",
+        "-n",
+        "disabledReason|children|export interface ContextMenuItem",
+        "src/renderer/app/shared/components/context-menu/context-menu.component.ts"
+      ],
+      "exitCode": 0,
+      "stdout": "19:export interface ContextMenuItem {\n",
+      "stderr": ""
+    },
+    "compaction-labelling": {
+      "command": [
+        "rtk",
+        "proxy",
+        "rg",
+        "-n",
+        "composeRequest|turn.type|harness",
+        "src/main/context/restart-compaction.ts"
+      ],
+      "exitCode": 0,
+      "stdout": "25:  const composeRequest = (sample: readonly { type: string; content: string }[]) => ({\n27:    user: buildCompactionPrompt(sample.map(turn => `[${turn.type}]: ${turn.content}`).join('\\n\\n'), priorSummary, fileOperations, branches, evidence),\n30:  const fitted = head.length ? fitCompactionSummary(head, options.maxInputTokens, composeRequest)\n39:    const result = await compactor.compact({ force: true, priorSummary, preserveRecentOverride: recent.length, summaryPrompt: composeRequest(fitted.turns).user });\n",
+      "stderr": ""
+    }
+  },
+  "planningVisibility": {
+    "exitCode": 0,
+    "stdout": "?? docs/plans/2026-10-20-oct2-later_history.md\n?? docs/plans/2026-10-20-oct2-later_plan.md",
+    "stderr": ""
+  }
+}

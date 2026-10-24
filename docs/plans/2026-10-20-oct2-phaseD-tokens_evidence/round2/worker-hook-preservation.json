@@ -1,0 +1,14 @@
+{
+  "baselineFilesChecked": 297,
+  "changedBaselineFiles": [
+    "src/main/cli/hooks/__tests__/hook-path-resolver.spec.ts",
+    "src/main/cli/hooks/hook-path-resolver.ts"
+  ],
+  "unexpectedChanges": [],
+  "remainingOwnedTempDirectories": [],
+  "focusedTests": {
+    "passed": 51,
+    "failed": 0,
+    "success": true
+  }
+}

@@ -106,6 +106,7 @@ import { InstanceToolResultProcessor } from './instance-tool-result-processor';
 import { readClaudeSelfWakeupNotice } from '../cli/adapters/claude-cli-self-wakeup';
 import { getSelfWakeupTracker, appendLostSelfWakeupNotice } from './self-wakeup-tracker';
 import { getInstanceAsyncWorkRegistry } from './instance-async-work-registry';
+import { bindBackgroundWorkTerminationReporter, observeInstanceBackgroundWork } from './instance-background-work-runtime';
 import { throwIfInstanceInputAborted, type InstanceSendInputOptions } from './instance-input-cancellation';
 import { InstanceInputFailureScopes, type InstanceInputFailureScope } from './instance-input-failure-scope';
 import { OutputPublicationOrder, type OutputPublicationTicket } from './instance-communication-output-order';
@@ -1105,6 +1106,8 @@ export class InstanceCommunicationManager extends EventEmitter {
     if (instanceAtSubscribe) {
       instanceAtSubscribe.adapterGeneration = adapterGenerationAtSubscribe;
     }
+    bindBackgroundWorkTerminationReporter(instanceId, adapter, this.deps,
+      (message) => this.emitSystemOutput(instanceId, this.withRuntimeMetadata(message, adapterGenerationAtSubscribe)));
     // Notify the turn supervisor so it mirrors the generation for the interruptSeq fence.
     getOrCreateTurnSupervisor(instanceId).recordAdapterSetup(adapterGenerationAtSubscribe);
     const isStaleAdapterEvent = (eventName: string): boolean => {
@@ -1479,13 +1482,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         this.toolResultProcessor.captureRawEvidence(instance, toolCall);
       },
       observeSelfWakeup: (event) => getSelfWakeupTracker().observe(instanceId, event),
-      observeAsyncWork: (event) => {
-        const instance = this.deps.getInstance(instanceId);
-        if (!instance) return;
-        instance.lastActivity = Date.now();
-        this.deps.onOutput?.(instanceId);
-        getInstanceAsyncWorkRegistry().observe(instanceId, event);
-      },
+      observeAsyncWork: (event) => observeInstanceBackgroundWork(instanceId, event, this.deps),
     });
 
     adapter.on('status', (status: InstanceStatus) => {

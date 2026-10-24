@@ -1,0 +1,19 @@
+{
+  "base": "542f1f690",
+  "baselineVerifierExit": 1,
+  "registered": 134,
+  "staticallySentChannels": 124,
+  "uncovered": [
+    "instance:transcript-chunk",
+    "local-ai-guard:status-delta",
+    "plan-queue:state-changed"
+  ],
+  "dynamic": [
+    "src/main/app/cross-model-review-event-forwarding.ts:20",
+    "src/main/ipc/handlers/cost-handlers.ts:349"
+  ],
+  "baselineCandidateFiles": 50,
+  "verifierAndAllFailureSitesUnchanged": true,
+  "matchesCurrentFailure": true,
+  "sourceCopiesWritten": false
+}

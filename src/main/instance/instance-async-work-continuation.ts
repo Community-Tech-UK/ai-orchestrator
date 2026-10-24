@@ -1,3 +1,4 @@
+import type { AdapterCapabilities } from '../cli/adapters/base-cli-adapter.types';
 import type { Instance } from '../../shared/types/instance.types';
 import type {
   InstanceAsyncWorkProviderResumedEvent,
@@ -47,6 +48,10 @@ export interface InstanceAsyncWorkContinuationOptions {
   isManagedLoopInstance?: (instanceId: string) => boolean;
 }
 
+interface AsyncWorkAdapter {
+  getAdapterCapabilities?(): Pick<AdapterCapabilities, 'supportsAsyncWorkAutoResume'>;
+}
+
 interface PendingDelivery {
   reservation?: ContinuationReservation;
   providerResumed: boolean;
@@ -55,6 +60,25 @@ interface PendingDelivery {
 
 export class InstanceAsyncWorkContinuation {
   private readonly pending = new Map<string, PendingDelivery>();
+  private readonly busyCompletions = new Map<string, { notification: InstanceAsyncWorkTerminalEvent; adapter: AsyncWorkAdapter }>();
+  private readonly onInstanceState = ({ instanceId }: { instanceId: string }): void => {
+    const deferred = this.busyCompletions.get(instanceId);
+    if (!deferred) return;
+    const instance = this.host.getInstance(instanceId);
+    if (!instance || this.host.getAdapter?.(instanceId) !== deferred.adapter
+      || ['terminated', 'failed', 'error', 'cancelled', 'superseded'].includes(instance.status)) {
+      this.busyCompletions.delete(instanceId);
+      this.registry.finishCompletionDelivery(instanceId);
+      return;
+    }
+    if (!READY_FOR_AUTOMATIC_INPUT.has(instance.status)) return;
+    this.busyCompletions.delete(instanceId);
+    this.onTerminal(deferred.notification);
+  };
+  private readonly onInstanceRemoved = (instanceId: string): void => {
+    this.busyCompletions.delete(instanceId);
+    this.registry.finishCompletionDelivery(instanceId);
+  };
   /** Work-set signature each instance was last checked in about, so a check-in never repeats. */
   private readonly checkedInWork = new Map<string, string>();
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
@@ -68,6 +92,12 @@ export class InstanceAsyncWorkContinuation {
 
     const instance = this.host.getInstance(instanceId);
     if (!instance || !READY_FOR_AUTOMATIC_INPUT.has(instance.status)) {
+      const adapter = this.host.getAdapter?.(instanceId) as AsyncWorkAdapter | undefined;
+      if (instance && ['busy', 'processing', 'thinking_deeply'].includes(instance.status)
+        && adapter?.getAdapterCapabilities?.().supportsAsyncWorkAutoResume === false) {
+        if (!this.busyCompletions.has(instanceId)) this.busyCompletions.set(instanceId, { notification, adapter });
+        return;
+      }
       // Mid-turn, Claude CLI owns delivery: it feeds the notification into the
       // running turn, drops it when the model already read that task's output,
       // or starts its own turn afterwards (probed live and in local transcripts
@@ -80,7 +110,9 @@ export class InstanceAsyncWorkContinuation {
     this.pending.set(instanceId, delivery);
     delivery.reservation = this.dispatch.reserve({
       instanceId, trigger: 'async-result', requestCount: instance.requestCount,
-      prompt: ASYNC_WORK_CONTINUATION_PROMPT, internalSource: 'async-work-continuation',
+      prompt: notification.event.detail
+        ? `A background command you started has finished: \`${notification.event.detail.slice(0, 120)}\`. Check its output, then continue the work you were waiting to complete.`
+        : ASYNC_WORK_CONTINUATION_PROMPT, internalSource: 'async-work-continuation',
       isCurrent: () => this.started && this.pending.get(instanceId) === delivery && !delivery.providerResumed,
     });
     if (!delivery.reservation) {
@@ -123,6 +155,8 @@ export class InstanceAsyncWorkContinuation {
     this.started = true;
     if (this.ownsDispatch) this.dispatch.start();
     this.registry.on('work:terminal', this.onTerminal);
+    this.host.on?.('instance:state-changed', this.onInstanceState);
+    this.host.on?.('instance:removed', this.onInstanceRemoved);
     this.registry.on('work:provider-resumed', this.onProviderResumed);
     this.sweepTimer = setInterval(() => {
       void this.checkStalledWork(Date.now());
@@ -135,6 +169,8 @@ export class InstanceAsyncWorkContinuation {
     this.started = false;
     if (this.ownsDispatch) this.dispatch.stop();
     this.registry.off('work:terminal', this.onTerminal);
+    this.host.off?.('instance:state-changed', this.onInstanceState);
+    this.host.off?.('instance:removed', this.onInstanceRemoved);
     this.registry.off('work:provider-resumed', this.onProviderResumed);
     if (this.sweepTimer) {
       clearInterval(this.sweepTimer);
@@ -146,6 +182,8 @@ export class InstanceAsyncWorkContinuation {
       this.registry.finishCompletionDelivery(instanceId);
     }
     this.pending.clear();
+    for (const instanceId of this.busyCompletions.keys()) this.registry.finishCompletionDelivery(instanceId);
+    this.busyCompletions.clear();
     this.checkedInWork.clear();
   }
 
@@ -155,6 +193,7 @@ export class InstanceAsyncWorkContinuation {
    * never sends a completion, so without this the session waits forever.
    */
   async checkStalledWork(now: number): Promise<void> {
+    for (const instanceId of this.busyCompletions.keys()) this.onInstanceState({ instanceId });
     for (const instanceId of this.registry.instancesWithActiveWork()) {
       const summary = this.registry.backgroundWorkSummary(instanceId);
       const instance = this.host.getInstance(instanceId);
@@ -192,7 +231,8 @@ export class InstanceAsyncWorkContinuation {
     if (!delivery) return;
 
     try {
-      if (!hibernated) {
+      const adapter = this.host.getAdapter?.(instanceId) as AsyncWorkAdapter | undefined;
+      if (!hibernated && adapter?.getAdapterCapabilities?.().supportsAsyncWorkAutoResume !== false) {
         await this.waitForProviderResumeGrace(delivery);
       }
       if (!this.started || this.pending.get(instanceId) !== delivery) {

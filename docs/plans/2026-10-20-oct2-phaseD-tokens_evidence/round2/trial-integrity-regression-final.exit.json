@@ -1,0 +1,30 @@
+{
+  "command": [
+    "rtk",
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/worker-agent/__tests__/remote-claude-trial-execution.spec.ts",
+    "src/main/cli/adapters/claude-trial-execution.spec.ts",
+    "src/main/cli/adapters/__tests__/claude-trial-lifetime.integration.spec.ts",
+    "src/main/cli/adapters/__tests__/adapter-factory-claude-remote-policy.spec.ts",
+    "src/main/remote-node/worker-node-claude-spawn-policy.spec.ts",
+    "src/main/cli/adapters/claude-helper-agent-trial.spec.ts",
+    "src/main/cli/adapters/claude-rtk-harm-check.spec.ts",
+    "src/main/cli/adapters/claude-helper-arm-log.spec.ts",
+    "src/main/cli/adapters/claude-trial-native-compaction.spec.ts",
+    "src/worker-agent/__tests__/remote-instance-telemetry.spec.ts",
+    "src/worker-agent/__tests__/remote-codex-policy-wire.spec.ts",
+    "src/main/cli/adapters/remote-cli-adapter.spec.ts",
+    "src/worker-agent/local-instance-manager.spawn-policy.spec.ts",
+    "src/main/instance/__tests__/context-worker-import-isolation.spec.ts",
+    "scripts/__tests__/rtk-trial-report.spec.ts",
+    "scripts/__tests__/codex-helper-trial-report.spec.ts"
+  ],
+  "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phased-tokens-0e371d",
+  "startedAt": "2026-10-21T00:03:17.864976+00:00",
+  "exitCode": 0,
+  "durationSeconds": 27.91817733400967,
+  "log": "_scratch/oct2-phaseD-round2/trial-integrity-regression-final.log"
+}

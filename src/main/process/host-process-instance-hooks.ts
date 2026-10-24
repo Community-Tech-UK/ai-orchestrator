@@ -40,3 +40,26 @@ export function createInstanceManagerHostProcessHooks(source: HostProcessInstanc
     },
   };
 }
+
+/** The leftover sweeper's view of a session: unknown ids may belong to a crashed run or another Harness app. */
+export function sessionOwnerState(source: HostProcessInstanceSource, instanceId: string): 'live' | 'ended' | 'unknown' {
+  const instance = source.getInstance(instanceId);
+  if (!instance) return 'unknown';
+  return DEAD_STATUSES.has(instance.status) ? 'ended' : 'live';
+}
+
+/**
+ * Lineage roots for the leftover sweeper: the running CLI pid of each session that is not
+ * terminated or failed, mapped to its instance id. Unlike `getLiveSessionPids` (which only
+ * protects), this attributes ownership, so it trusts only the adapter's live process and
+ * never a stored `processId` that may have been reused by an unrelated program.
+ */
+export function liveSessionRoots(source: HostProcessInstanceSource): Map<number, string> {
+  const roots = new Map<number, string>();
+  for (const instance of source.getAllInstances()) {
+    if (DEAD_STATUSES.has(source.getInstance(instance.id)?.status ?? 'terminated')) continue;
+    const pid = adapterPid(source.getAdapter(instance.id));
+    if (pid !== null && pid > 1) roots.set(pid, instance.id);
+  }
+  return roots;
+}

@@ -9,7 +9,7 @@ Prerequisites:
 
 Plan: [Windows PC outage visibility](2026-10-08-windows-pc-outage-visibility_plan_completed.md).
 
-Remediation flow: [live-test campaign runbook](livetest-campaign-runbook.md). Record any reproduced defect in [remediation register](livetest-remediation-register.md), with corresponding implementation status in `2026-07-19-livetest-failure-remediation_plan.md`. Keep per-check evidence here; rename this document `_livetest_completed.md` only after these checks pass.
+Remediation flow: [live-test campaign runbook](livetest-campaign-runbook.md). Record any reproduced defect in [remediation register](livetest-remediation-register.md), with corresponding implementation status in `2026-07-19-livetest-failure-remediation-followup_plan.md`. Keep per-check evidence here; rename this document `_livetest_completed.md` only after these checks pass.
 
 ## Checks
 

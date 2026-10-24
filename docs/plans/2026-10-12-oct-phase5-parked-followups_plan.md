@@ -1,5 +1,7 @@
 # October Phase 5 parked follow-ups
 
+On main: no.
+
 **Status:** active, parked; not implemented. Created 12 October 2026.
 
 Source: [Phase 5 plan](2026-10-10-oct-phase5-later_plan.md). The four sections below were moved unchanged from that plan. They are not completed requirements. Re-evaluate each trigger against current evidence before implementing.

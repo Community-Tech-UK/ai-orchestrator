@@ -1,0 +1,31 @@
+{
+  "command": [
+    "rtk",
+    "proxy",
+    "npx",
+    "vitest",
+    "run",
+    "src/main/cli/adapters/__tests__/claude-trial-lifetime.integration.spec.ts",
+    "src/main/core/config/settings-control-policy.token-trials.spec.ts",
+    "src/main/core/config/settings-control-policy.codex-turn-ceiling.spec.ts",
+    "src/main/cli/adapters/claude-cli-argv-builder.spec.ts",
+    "src/main/cli/adapters/__tests__/adapter-factory-claude-remote-policy.spec.ts",
+    "src/worker-agent/local-instance-manager.spawn-policy.spec.ts",
+    "src/worker-agent/remote-interaction.integration.spec.ts",
+    "src/main/cli/adapters/remote-cli-adapter.spec.ts",
+    "src/main/cli/adapters/claude-loop-continuation.spec.ts",
+    "src/main/cli/adapters/__tests__/claude-cli-adapter-session-id-fallback.spec.ts",
+    "src/main/instance/__tests__/context-worker-import-isolation.spec.ts",
+    "src/main/cli/hooks/__tests__/rtk-defer-hook.binary.spec.ts",
+    "src/main/cli/hooks/__tests__/rtk-defer-hook.rewrite-only.spec.ts",
+    "src/main/cli/hooks/__tests__/rtk-defer-hook.spec.ts",
+    "src/main/cli/adapters/claude-helper-agent-trial.spec.ts",
+    "src/main/cli/adapters/claude-subagent-policy.spec.ts",
+    "src/main/cli/adapters/claude-rtk-harm-check.spec.ts",
+    "scripts/__tests__/rtk-trial-report.spec.ts",
+    "--reporter=verbose"
+  ],
+  "exit": 0,
+  "durationSeconds": 11.71,
+  "log": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phased-tokens-0e371d/_scratch/oct2-phaseD-round2/guidance-final-targeted.log"
+}

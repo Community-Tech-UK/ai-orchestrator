@@ -1,0 +1,14 @@
+{
+  "command": [
+    "rtk",
+    "proxy",
+    "npx",
+    "tsc",
+    "--noEmit",
+    "-p",
+    "tsconfig.electron.json"
+  ],
+  "exit": 0,
+  "durationSeconds": 20.56,
+  "log": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phased-tokens-0e371d/_scratch/oct2-phaseD-round2/guidance-main-types-final.log"
+}

@@ -3,9 +3,10 @@
  * commit's hooks, the post-merge gate). Each runs in its own process group so
  * nothing it starts outlives it there:
  *   - on the timeout, the whole group is killed, not just the top process;
- *   - once the top process exits, anything left in its group is killed after a
- *     short grace, so a stray background process can neither keep the result
- *     waiting on its output pipe nor keep writing to the worktree;
+ *   - once the top process exits, anything left in its group is killed: after a
+ *     short grace if it still holds the output, or as soon as the output closes
+ *     if it does not, so a stray background process can neither keep the result
+ *     waiting on its output pipe nor keep running in the worktree;
  *   - on app shutdown (the cleanup registry), a running group is killed.
  *
  * The result never waits on a process it cannot kill: a short while after any
@@ -17,7 +18,7 @@
  */
 
 import { spawn } from 'child_process';
-import { killProcessGroup } from '../cli/adapters/base-cli-process-utils';
+import { killProcessGroup, killProcessGroupOnly } from '../cli/adapters/base-cli-process-utils';
 import { registerCleanup } from '../util/cleanup-registry';
 
 /** How long after the top process exits its leftovers may keep the output open. */
@@ -96,6 +97,11 @@ export function runInProcessGroup(
       finish({ exitCode: 1, output: `${output}\n${error.message}` });
     });
     child.on('close', (code) => {
+      // `close` beats the grace timer when a leftover has already let go of the output
+      // (`cmd > /dev/null 2>&1 &`). Stop the group now, or `finish` would cancel the only kill.
+      if (exitCode !== null && !settle && killProcessGroupOnly(child.pid, 'SIGKILL')) {
+        output += `\n[plan queue] ${options.label} left processes running; stopping them`;
+      }
       finish({ exitCode: exitCode ?? code ?? 1, output });
     });
   });

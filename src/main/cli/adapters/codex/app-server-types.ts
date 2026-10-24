@@ -495,6 +495,7 @@ export interface AppServerMethodMap {
   'thread/list': { params: ThreadListParams; result: ThreadListResponse };
   'thread/read': { params: ThreadReadParams; result: ThreadReadResponse };
   'thread/turns/list': { params: ThreadTurnsListParams; result: ThreadTurnsListResponse };
+  'thread/backgroundTerminals/list': { params: { threadId: string; cursor?: string | null; limit?: number }; result: { data: { itemId: string; processId: string; command: string; cwd: string }[]; nextCursor?: string | null } };
   'thread/compact/start': { params: ThreadCompactStartParams; result: ThreadCompactStartResponse };
   'review/start': { params: ReviewStartParams; result: ReviewStartResponse };
   'model/list': { params: ModelListParams; result: ModelListResponse };

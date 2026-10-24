@@ -1,0 +1,12 @@
+{
+  "workerClosureModules": 155,
+  "electronValueImporters": [],
+  "ownedRuntimePathsRemaining": [],
+  "sourceLineCounts": {
+    "src/main/cli/adapters/claude-cli-adapter.ts": 2118,
+    "src/main/cli/adapters/remote-cli-adapter.ts": 694,
+    "src/main/remote-node/rpc-schemas.ts": 758,
+    "src/worker-agent/worker-rpc-dispatcher.ts": 700,
+    "src/shared/types/settings.types.ts": 887
+  }
+}

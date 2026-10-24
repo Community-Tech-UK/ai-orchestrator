@@ -10,6 +10,8 @@ import type {
   ProviderRuntimeSnapshot,
   ResumeAttemptResult,
 } from './base-cli-adapter';
+import { CodexBackgroundWorkTermination } from './codex/codex-background-work-termination';
+import { CodexBackgroundTerminalTracker } from './codex/codex-background-terminals';
 import { CodexExecAdapter } from './codex-exec-adapter';
 import type { CodexCliConfig } from './codex-adapter-config';
 import type { AppServerClient } from './codex/app-server-client';
@@ -19,22 +21,18 @@ import {
 } from './codex/app-server-thread-runtime';
 import { CODEX_TIMEOUTS } from '../../../shared/constants/limits';
 import { getClampedLoadWatchdogMultiplier } from '../../runtime/system-load-monitor';
-import type { FileAttachment, InstanceStatus } from '../../../shared/types/instance.types';
+import type { FileAttachment, InstanceStatus, OutputMessage } from '../../../shared/types/instance.types';
 import { getLogger } from '../../logging/logger';
 import { errorDiagnostic } from '../../logging/source-diagnostics';
 import { generateId } from '../../../shared/utils/id-generator';
-import {
-  isCodexInputTooLargeError,
-} from './codex/exec-error-classifier';
-import { planCodexAppServerRecovery } from './codex/app-server-recovery-policy';
+import { isRecoverableCodexTurnError } from './codex/app-server-recovery-policy';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 import type { ResumeCursor } from '../../session/session-continuity';
 import type {
   AppServerNotification,
   UserInput,
 } from './codex/app-server-types';
-import { buildMessageWithFiles, processAttachments } from '../file-handler';
-import { supportsCodexInlineImage } from './codex/attachments';
+import { prepareCodexAppServerAttachments } from './codex/codex-app-server-attachments';
 import { startCodexThread, buildCodexThreadStartParams } from './codex/codex-thread-requests';
 import { codexThreadPolicyForConfig } from './codex/codex-thread-policy';
 import {
@@ -89,6 +87,11 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   protected readonly appServerRuntime = new CodexAppServerThreadRuntime();
   protected appServerInitEpoch = 0;
   protected isSpawned = false;
+  private readonly backgroundWorkTermination = new CodexBackgroundWorkTermination((message) => this.emit('output', message));
+  private readonly backgroundTerminals = new CodexBackgroundTerminalTracker(
+    (event) => this.emit('async_work', event),
+    (count, commands) => this.backgroundWorkTermination.report(count, commands),
+  );
   private readonly sessionScanner = new CodexSessionScanner();
   protected readonly contextDiagnostics: CodexContextPressureCollector | null;
   protected readonly contextCostController: CodexContextCostController;
@@ -197,6 +200,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     this.appServerThreadId = result.threadId;
     if (!result.threadId) return;
 
+    this.backgroundTerminals.bind(result.client, result.threadId);
     this.sessionId = result.threadId;
     this.appServerRuntime.attach(
       result.client,
@@ -207,6 +211,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       },
       (notification) => this.handleIdleAppServerNotification(notification),
       (exitError) => {
+        this.backgroundTerminals.reportStopped();
         this.flushPartialUsage();
         this.contextCostController.handleRuntimeExit();
         if (!this.isSpawned) return;
@@ -283,6 +288,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   }
 
   protected handleIdleAppServerNotification(notification: AppServerNotification): void {
+    this.backgroundTerminals.observe(notification);
     if (!this.appServerRuntime.hasActiveTurn()) this.handleIdleUsage(notification);
     if (notification.method === 'serverRequest/resolved') {
       const requestId = notification.params['requestId'];
@@ -418,6 +424,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
         : 'Codex adapter using exec mode (app-server not available)');
     }
 
+    if (this.useAppServer) this.applyHarnessBackgroundWorkInstructions();
     this.isSpawned = true;
     const fakePid = this.getAppServerClient()
       ? (this.appServerRuntime.getPid()
@@ -463,6 +470,9 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   }
 
   protected ensureAppServerRuntimeAttached(): void {
+    const client = this.getAppServerClient();
+    const threadId = this.getAppServerThreadId();
+    if (client && threadId) this.backgroundTerminals.bind(client, threadId);
     if (this.appServerRuntime.getClient()) return;
     if (!this.appServerClient || !this.appServerThreadId) {
       throw new Error('App-server not initialized');
@@ -471,7 +481,20 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       threadId: this.appServerThreadId,
       resumeCursor: this.resumeCursor,
       resumeProof: this.lastResumeAttemptResult,
-    });
+    }, undefined, () => this.backgroundTerminals.reportStopped());
+  }
+
+  setBackgroundWorkTerminationReporter(reporter: ((message: OutputMessage) => void | Promise<void>) | null): void {
+    this.backgroundWorkTermination.setReporter(reporter);
+  }
+
+  /** Final authoritative check used by idle hibernation; read errors fail closed. */
+  async refreshBackgroundWork(stopping = false): Promise<boolean> {
+    const client = this.getAppServerClient();
+    const threadId = this.getAppServerThreadId();
+    if (!this.useAppServer || !client || !threadId) return false;
+    this.backgroundTerminals.bind(client, threadId);
+    return this.backgroundTerminals.refresh(stopping);
   }
 
   protected async connectAppServer(cwd: string): Promise<AppServerClient> {
@@ -492,31 +515,8 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     return this.cliConfig.sandboxMode || 'read-only';
   }
 
-  protected async prepareAttachmentsForAppServer(
-    message: string,
-    attachments: FileAttachment[],
-  ): Promise<{ input: UserInput[]; text: string }> {
-    if (attachments.length === 0) return { input: [], text: message };
-    const workingDirectory = this.cliConfig.workingDir || process.cwd();
-    const processed = await processAttachments(
-      attachments,
-      this.sessionId || generateId(),
-      workingDirectory,
-    );
-    if (processed.length === 0) return { input: [], text: message };
-
-    const imageInputs: UserInput[] = processed
-      .filter((attachment) => attachment.isImage && supportsCodexInlineImage(attachment.mimeType))
-      .map((attachment) => ({ type: 'localImage', path: attachment.filePath }));
-    const fileAttachments = processed.filter(
-      (attachment) => !attachment.isImage || !supportsCodexInlineImage(attachment.mimeType),
-    );
-    return {
-      input: imageInputs,
-      text: fileAttachments.length > 0
-        ? buildMessageWithFiles(message, fileAttachments)
-        : message,
-    };
+  protected async prepareAttachmentsForAppServer(message: string, attachments: FileAttachment[]): Promise<{ input: UserInput[]; text: string }> {
+    return prepareCodexAppServerAttachments(message, attachments, this.cliConfig.workingDir || process.cwd(), this.sessionId);
   }
 
   protected async reopenAppServerThread(): Promise<void> {
@@ -549,6 +549,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
         resumeProof: this.lastResumeAttemptResult,
       });
     }
+    this.backgroundTerminals.bind(this.appServerClient, newThreadId);
     this.appServerThreadId = newThreadId;
     this.effectiveServiceTier = startResult.serviceTier ?? null;
     this.sessionId = newThreadId;
@@ -589,7 +590,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       hasAppServerClient: () => !!this.getAppServerClient(),
       hasActiveTurn: () => this.appServerRuntime.hasActiveTurn(),
       isProviderCompacting: () => this.contextCostController.isCompactionRunning(),
-      isRecoverableTurnError: (error) => this.isRecoverableTurnError(error),
+      isRecoverableTurnError: isRecoverableCodexTurnError,
       sendAppServer: () => this.appServerSendMessage(message, attachments, metadata, admission),
       sendExec: () => this.execSendMessage(message, attachments, admission),
       emitStatus: (status) => this.emit('status', status),
@@ -624,6 +625,11 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   }
 
   override async terminate(graceful = true): Promise<void> {
+    try { await this.refreshBackgroundWork(true); } catch (error) {
+      logger.warn('Could not check background commands before stopping session', errorDiagnostic(error));
+    }
+    this.backgroundTerminals.reportStopped();
+    await this.backgroundWorkTermination.settle();
     this.flushPartialUsage();
     this.mcpElicitationBridge.cancelAll();
     this.contextCostController.handleRuntimeExit();
@@ -651,6 +657,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   override getAdapterCapabilities(): AdapterCapabilities {
     const resident = this.useAppServer;
     return {
+      supportsAsyncWorkAutoResume: false,
       residentSession: resident,
       liveInterrupt: resident,
       liveSteer: resident,
@@ -735,13 +742,6 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     );
   }
 
-  private isRecoverableTurnError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error);
-    if (isCodexInputTooLargeError(message) || /per-turn size limit/i.test(message)) {
-      return true;
-    }
-    return planCodexAppServerRecovery(error).keepInstanceUsable;
-  }
 
   protected abstract appServerSendMessageInner(
     message: string,

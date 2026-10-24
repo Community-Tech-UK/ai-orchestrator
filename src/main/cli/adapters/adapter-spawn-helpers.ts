@@ -39,6 +39,7 @@ import {
   MOBILE_MCP_ATTACH_PROMPT,
   COMPUTER_USE_SYSTEM_PROMPT,
   DISK_HYGIENE_SYSTEM_PROMPT,
+  PROCESS_HYGIENE_SYSTEM_PROMPT,
 } from './adapter-guidance-prompts';
 
 export const COPILOT_ORCHESTRATOR_HOME_ENV = 'AI_ORCHESTRATOR_COPILOT_HOME';
@@ -304,7 +305,8 @@ export type AdapterGuidanceBlockKind =
   | 'adapter-chrome-devtools'
   | 'adapter-mobile-mcp'
   | 'adapter-computer-use'
-  | 'adapter-disk-hygiene';
+  | 'adapter-disk-hygiene'
+  | 'adapter-process-hygiene';
 
 export interface AdapterGuidanceBlock {
   kind: AdapterGuidanceBlockKind;
@@ -343,6 +345,9 @@ export function getAdapterGuidanceBlocks(options: UnifiedSpawnOptions): AdapterG
   }
   if (!existingPrompt.includes('[Disk Hygiene]')) {
     blocks.push({ kind: 'adapter-disk-hygiene', content: DISK_HYGIENE_SYSTEM_PROMPT });
+  }
+  if (!existingPrompt.includes('[Process Hygiene]')) {
+    blocks.push({ kind: 'adapter-process-hygiene', content: PROCESS_HYGIENE_SYSTEM_PROMPT });
   }
   return blocks;
 }

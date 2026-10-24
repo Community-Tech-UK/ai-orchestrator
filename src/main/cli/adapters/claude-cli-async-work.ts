@@ -23,6 +23,8 @@ export type CliAsyncWorkEvent =
       kind: CliAsyncWorkKind;
       status: CliAsyncWorkTerminalStatus;
       continueOnCompletion?: boolean;
+      /** Command description for a completion prompt; treated as data, never instructions. */
+      detail?: string;
     }
   | {
       /** The provider's complete list of live background work; replaces the tracked set. */

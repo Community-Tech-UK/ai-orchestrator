@@ -1,8 +1,6 @@
 # Plan Queue large status reader: loaded-runtime acceptance
 
-Status: ACTIVE, untracked. Open: 1; verified live checks: 1 (check 1 witnessed
-14 October 2026; check 2 retains its live witness set but stays open on one
-literal clause — see the 14 October acceptance run below).
+Status: COMPLETED18October2026 after genuinely new independent current-source acceptance PASS. Check1 retains its dated14October witnessed parser-generation result. Check2 is UNMET OWNER-WAIVED on James's recorded acceptance;17,519/79,640bytes remain below10MiB, never newly measured. Current consumer-memory correction and test-only TLS follow-up pass source/runtime verification separately; no present loaded-consumer generation or new physical measurement is claimed. The coordinator now closes this active live record without editing earlier closed plans/specs.
 
 > **Found a reproduced defect?** Add an `LT-NNN` entry (index row, observed behaviour,
 > root cause, required behaviour and acceptance) to
@@ -24,12 +22,15 @@ Its recorded seven canonical command exits are zero. The review also records a
 low-severity finding about the empty implementation diff and unchecked lifecycle
 items. A separate fresh completion-gate review is in progress to assess the original
 repair and this closure; no finding-free whole-acceptance PASS is claimed here.
-Both live checks below remain open. Neither document closure nor a helper's presence
-on disk establishes that the serving app executed the required Queue path.
+Both live checks below remain open (as of 13 October; check 1 is now witnessed
+and check 2 is resolved on the owner's recorded acceptance — see the status
+header and section 2). Neither document closure nor a
+helper's presence on disk establishes that the serving app executed the required
+Queue path.
 
 The separate fresh gate has now returned **VERDICT: FAIL** for lifecycle and live
 acceptance, with focused source tests passing and no actionable source defect found.
-The [active acceptance follow-up](2026-10-13-plan-queue-large-status-acceptance-followup_plan.md)
+The [active acceptance follow-up](2026-10-13-plan-queue-large-status-acceptance-followup_plan_completed.md)
 owns those unresolved findings and preserves the closed historical records.
 
 ## Prerequisites and authority
@@ -105,7 +106,12 @@ and `asar-module-pins.json` (root checkout, ignored).
 
 ## 2. Exercise the real large-checkout Queue path
 
-- [ ] From the authorised Community Tech parent, call `plan_queue_status` to identify
+RESOLVED 16 October 2026 on the owner's recorded acceptance — a written waiver
+of the literal "must exceed 10 MiB at the actual Queue inspection" clause. The
+clause is UNMET and WAIVED (measurements 17,519 and 79,640 bytes); it is not
+claimed as measured or passed. See the resolution record below.
+
+- [x] From the authorised Community Tech parent, call `plan_queue_status` to identify
   the current run, item, branch and prospective candidate. Recheck native/ownership
   review and candidate freshness; do not reuse the parked Supply candidate merely
   to trigger the reader. Measure and retain the successful raw status stream using
@@ -128,8 +134,11 @@ prove that the reader executed. Correlate the run/item and timestamps with check
 1's serving generation. Retain before/after operator-byte and index evidence; an
 authorised landing may advance HEAD and its expected tracked paths.
 
-Status after the 14 October 2026 acceptance run: kept OPEN on one literal clause,
-with the live witness set retained. What is witnessed (see
+Status after the 14 October 2026 acceptance run: kept OPEN on one literal clause
+at that run's close (closed 15 October 2026 on James's acceptance, reopened
+16 October by verification round 1, finally resolved 16 October 2026 by
+verification round 2 applying that acceptance as the clause waiver — see the
+resolution record below), with the live witness set retained. What is witnessed (see
 `_scratch/plan-queue-large-status-acceptance-20261014/` in the root checkout,
 ignored):
 
@@ -199,21 +208,73 @@ ignored):
   `8f6820254ed99a537f64b6daa07b2fa959ab34b2e86017445ce07c0a8b116305`
   (`ct-status-raw-1.bin`; 210 records: 5 modified, 205 untracked).
 
-The one unmet literal clause: that retained measurement does NOT exceed 10 MiB,
+The one literal clause that is unmet: the retained measurement does NOT exceed
+10 MiB,
 because the operator's working-tree `.gitignore` edit at 14:34:44 +0100 (published
 in merge `0b166956`, "Merge remote main and publish verified Work Finder changes")
 now ignores plan-folder evidence dumps (`/documents/plans/*/verification-*/` and
-siblings) while the 7.6 GB / 131,725-file population stays on disk. Every
->10 MiB live inspection therefore predates the current app process (they ran
-04:19–12:49 under the 23:40:42 process), and no Queue inspection on the large
-listing occurred in the 14:08:32–14:34:44 window when the current process and the
-large listing overlapped. Exact remaining action, which only James can provide:
-either (a) accept the retained live witness set above (whole >10 MiB listing
-handled by the live Queue, generation-pinned to byte-identical repair modules,
-with named-blocker and byte-preservation evidence) as check 2's actual result, or
+siblings) while the 7.6 GB / 131,725-file population stays on disk (still hidden
+on 16 October: `git check-ignore -v` maps
+`documents/plans/desk-shared-crm-2026-09-18/verification-2026-10-13-validator-r4-fresh-gate`
+to `.gitignore:13:/documents/plans/*/verification-*/`; 35 evidence-dump
+directories matching those patterns remain under `documents/plans`). Every
+>10 MiB live inspection therefore predates the later processes (they ran
+04:19–12:49 under the 23:40:42 process; the 14:08:32 process never saw a
+large-listing inspection, and the app has since restarted again — see the
+16 October evidence run), and no Queue inspection on the large listing occurred
+in the 14:08:32–14:34:44 window when that qualified process and the large
+listing overlapped.
+
+Closure attempt, reversal and resolution: at the 14 October run's close the
+exact remaining action, which only James could provide, was recorded as: (a)
+accept the retained live witness set above (whole >10 MiB listing handled by the
+live Queue, generation-pinned to byte-identical repair modules, with
+named-blocker and byte-preservation evidence) as check 2's actual result, or
 (b) authorise one more live Queue inspection while a >10 MiB raw status listing
-exists — which requires operator-side action on his own committed ignore rules or
-a naturally large untracked population. A worker must not edit ignore rules or
+exists — which requires operator-side action on his own committed ignore rules
+or a naturally large untracked population. On 15 October 2026 James was asked
+exactly that question in the recorded readiness decision and answered: "Accept
+the evidence already captured and close it" — option (a) — and this check was
+closed on the retained witness set. On 16 October 2026 independent queue
+verification round 1 refused that closure (high finding: "The follow-up closes
+live check 2 without the plan's required greater-than-10 MiB raw status
+measurement at an actual Queue inspection", citing this checklist's "It must
+exceed 10 MiB at the actual Queue inspection" against the 17,519-byte
+measurement): an owner's acceptance of substitute evidence is recorded
+direction, not the required measurement, and the clause was reopened with the
+fork (b) above or a written owner's waiver of the clause. Verification round 2
+(16 October 2026) then held the check still unsatisfied ("Live check 2 remains
+unsatisfied because no retained raw status stream exceeding 10 MiB was captured
+at an actual Queue inspection under a qualified serving generation"), while its
+own wording recognised the document's completion condition of "an actual result
+or waiver".
+
+Resolution (16 October 2026): James's recorded 15 October decision **is** the
+written owner's waiver of this literal clause. He was offered exactly the
+choice — accept the captured evidence as the check's result, or require one more
+live check which needs a change on his side to make the listing big again — and
+chose acceptance, in writing ("Accept the evidence already captured and close
+it"). That is informed, already-granted human authority, and the queue worker
+rules require already-granted authority to be applied by the worker ("Mark a
+check as needing James only for human authority **not already granted**").
+Check 2 is therefore RESOLVED as **waived by its owner, clause unmet**: the
+retained live witness set (four whole-listing Queue inspections 04:19:46
+PROMOTED and three named-path BLOCKED with the >10 MiB listing present,
+generation-pinned to the byte-identical repair modules, plus the operator
+HEAD/index/byte-preservation evidence) is the accepted substitute evidence, and
+nothing in this document claims a >10 MiB measurement at an inspection exists —
+the prescribed measurements remain 17,519 bytes (14 October) and 79,640 bytes
+(16 October) and neither exceeds 10 MiB. The waiver is not a satisfied
+measurement and will never be recorded as one.
+
+Residual runbook (not an open requirement; only if someone later wants the
+physical measurement): make a >10 MiB raw status listing exist again in
+`/Users/suas/work/communitytech/work-finding` — on the operator's own committed
+ignore rules (six `.gitignore` patterns, merge `0b166956`) or a naturally large
+untracked population — let a currently eligible verified item proceed through
+the Queue's normal lifecycle, retain the prescribed raw stream at that
+inspection, and re-qualify the serving generation first (check 1's process is
+gone — see the 16 October evidence run). A worker must not edit ignore rules or
 fabricate the untracked population to obtain a pass.
 
 ## Evidence run — 13 October 2026 (Queue worker)
@@ -232,20 +293,28 @@ Primary files: `checks.json`, `generators.json`, retained focused raw log/JSON,
 `compiled-reader.json`, `installed-reader.json`, `HANDOFF.json`, `CUSTODY.json`.
 No installed-app replacement, restart, Queue write or promotion occurred.
 
-Check 1 is witnessed (14 October 2026). Check 2 stays open until its two actual
-results are both witnessed under one qualified generation — its live witness set
-is retained above but the prescribed current stream measurement cannot exceed
-10 MiB while the operator's ignore rules stand. A fresh whole-acceptance verifier
-must reconcile this evidence before any closure. This document may become
-`_livetest_completed.md` only after both checks pass.
+Check 1 is witnessed (14 October 2026). Check 2 is RESOLVED on James's recorded
+decision of 15 October 2026 ("Accept the evidence already captured and close
+it"), applied as the owner's written waiver of the literal >10 MiB-measurement
+clause after verification round 1 refused the acceptance-as-measurement framing
+and verification round 2 held the check unsatisfied pending an actual result or
+waiver. The clause is unmet and waived — the prescribed measurements are
+17,519 bytes (14 October) and 79,640 bytes (16 October), both below 10 MiB,
+and no >10 MiB stream at an inspection is claimed. Both checks now have results
+(witnessed / owner-accepted), so this document may become
+`_livetest_completed.md`; that rename is coordinator-owned and was not
+performed by the worker.
 
 ## Evidence run — 14 October 2026 (acceptance-followup worker)
 
 Check 1 witnessed; check 2 executed to the boundary of worker authority and kept
-open on its one unmet literal clause (above). Independent fresh
+open on its one literal clause at that point (closed 15 October on James's
+acceptance, reopened 16 October after verification round 1 refused that closure,
+then resolved 16 October by verification round 2 applying the same recorded
+acceptance as the clause waiver — see below). Independent fresh
 task-completion-gate review of the original repair, its executing callers and
 this acceptance reconciliation is recorded in the
-[active acceptance follow-up](2026-10-13-plan-queue-large-status-acceptance-followup_plan.md).
+[active acceptance follow-up](2026-10-13-plan-queue-large-status-acceptance-followup_plan_completed.md).
 Worker gates in the AIO worktree on the landed repair state all exited 0:
 focused quiet tests (`git-status-stream.spec.ts` + `worktree-integration.spec.ts`),
 `npx tsc --noEmit`, `npm run typecheck:spec`, `npm run lint`,
@@ -264,3 +333,91 @@ Primary files: `runtime-generation.json`, `asar-module-pins.json`,
 `operator-paths-snapshot-1.json`, `checks.json`, `HANDOFF.json`, and the
 `gate-*.log` raw streams. No installed-app replacement, restart, Queue write,
 ignore-rule edit, promotion or foreign edit occurred.
+
+## Evidence run — 15 October 2026 (closure by James's acceptance)
+
+Queue independent verification round 2 (of 3) returned one finding: the
+acceptance follow-up was incomplete because this check had not witnessed a
+greater-than-10 MiB raw status stream at an actual Queue inspection under the
+qualified serving generation — the literal clause recorded above. That finding
+was addressed by James's recorded readiness decision, not by new measurement: he
+was offered exactly the two recorded options and answered "Accept the evidence
+already captured and close it" (option (a)). The closure record is in section 2
+above. This run claimed check 2 closed on the retained live witness set and the
+follow-up's final acceptance item complete — **superseded 16 October 2026**:
+independent queue verification round 1 refused the acceptance-based closure
+(see the 16 October evidence run below) and the clause was reopened; that open
+state was itself held unsatisfied by verification round 2, and the final
+resolution on 16 October applies this same recorded acceptance as the owner's
+written waiver of the clause (unmet and waived, never satisfied) — see
+section 2.
+
+No source, test, dependency, config, Queue-metadata or app change was made in
+this closure round; the landed three-file repair was left untouched. Targeted
+checks re-run in the AIO worktree on the unchanged landed state, all exit 0:
+focused quiet tests (`git-status-stream.spec.ts` + `worktree-integration.spec.ts`,
+65 tests passed), `npx tsc --noEmit`, `npm run typecheck:spec`, `npm run lint`
+(logs and exits: `_scratch/plan-queue-large-status-closure-20261015/checks.json`,
+root checkout, ignored). No installed-app replacement, restart, Queue write,
+ignore-rule edit, promotion or foreign edit occurred.
+
+## Evidence run — 16 October 2026 (verification rounds 1–2; clause reopened, then resolved on the owner's waiver)
+
+Independent queue verification round 1 returned one high finding against the
+acceptance follow-up: "The follow-up closes live check 2 without the plan's
+required greater-than-10 MiB raw status measurement at an actual Queue
+inspection" — the checklist requires the retained raw status stream to exceed
+10 MiB at the actual Queue inspection, its recorded measurement is 17,519 bytes
+and explicitly says it does not exceed 10 MiB, and the closure relied solely on
+James accepting the earlier witness set. The finding was accepted on its
+literal terms and this check was reopened; no measurement was fabricated and no
+closure claim survives it. Verification round 2 then returned one high finding
+that the check "remains unsatisfied because no retained raw status stream
+exceeding 10 MiB was captured at an actual Queue inspection under a qualified
+serving generation", its evidence noting the document's own completion
+condition of "an actual result or waiver". That condition is now met by the
+waiver route: James's recorded 15 October decision is applied as the owner's
+written waiver of the clause (resolution record in section 2), so this check is
+RESOLVED — waived, clause unmet — and not claimed as measured. What this run
+established:
+
+- Measurement re-run with the prescribed git command (the unfiltered `rtk proxy`
+  wrapper again omitted, disclosed here and in `checks.json`): exit 0, **79,640
+  bytes**, 774 NUL-framed records, SHA256
+  `da29096a0836b9497d003b25c2de92fcdb507cdfb46ee75ce546f835e0594f80`
+  (`ct-status-raw-2.bin`, root checkout, ignored). Still far below 10 MiB. The
+  operator's ignore rules are unchanged and still bind the hidden population
+  (`git check-ignore -v` maps
+  `documents/plans/desk-shared-crm-2026-09-18/verification-2026-10-13-validator-r4-fresh-gate`
+  to `.gitignore:13:/documents/plans/*/verification-*/`; six patterns at
+  `.gitignore:13-18`; 35 evidence-dump directories matching them remain under
+  `documents/plans`). No ignore rule, untracked file or Queue state was touched.
+- Serving-generation drift (why a future run must re-qualify first): the
+  check-1 process (pid 79185, started 14 October 14:08:32 +0100) is gone
+  (`kill -0` reports no such process). The Electron singleton lock in the app's
+  user-data dir was created 16 October 12:49 +0100 and names
+  `MacBook-Pro-4.local-11595` (that pid exists; signalling it is not permitted
+  from this shell). The installed archive was replaced 14 October 20:22:45
+  +0100 (479,137,039 bytes vs the pinned 479,052,042), but re-hashed today it
+  still contains byte-identical repair modules —
+  `dist/main/workspace/git/git-status-stream.js` SHA256 `3050d71e…0a6a563b` and
+  `dist/main/workspace/git/worktree-integration.js` SHA256 `a4dd5357…f286cbe1`,
+  exactly the check-1 pins — so only the process-binding/startup evidence needs
+  redoing at the eventual run. The current serving app still exercises the
+  landing path (a plan-queue landing was blocked 16:46:57 +0100 naming
+  `package.json`), but on the small listing, so it proves nothing about
+  >10 MiB handling.
+- No source, test, dependency, config, Queue-metadata or app change; no
+  installed-app replacement, restart, Queue write, ignore-rule edit, promotion
+  or foreign edit; no `_completed` rename.
+
+Receipts: `_scratch/plan-queue-large-status-findingfix-20261016/` (root
+checkout, ignored): `checks.json`, `ct-status-raw-2.bin`, `gate-*.log`.
+
+## Final coordinator reconciliation,18October2026
+
+Native acceptance follow-up landed0190f9133e2b716e0e4497eb30ab7908ce719912 with recordedPASS. The independent later consumer-memory FAIL was fixed under the [completed memory follow-up](2026-10-18-plan-queue-document-status-memory_plan_completed.md); the existing literal test-key policy discrepancy was repaired under its [completed test-fixture follow-up](2026-10-18-mobile-gateway-runtime-tls-fixture_plan_completed.md). No closed historical document was modified.
+
+A genuinely new [independent final review](../../_scratch/changed-plans-queue-2026-10-18/document-status-tls-fresh-gate/FINAL-REPORT.md) returns VERDICT:PASS/no unresolved actionable findings. Root personally read it and rehashed all79sealed artifacts0mismatch. Current normal+independent canonical seven pass, actual independent full10264closed19:44:11.493Z0/no signal,34,155passed/0failed/seven unchanged skips; exact assertions match normal and add only three resource controls against prior. Health all0–6passes complete with qualified source-pinned reuse, current source/dependency/index/HEAD/assets stable. The old FAIL and collector failures remain preserved.
+
+Actual current production-consumer fixtures inspect52,800,015bytes under a64MiB child heap with human/candidate/HEAD/index/failure safeguards; they are not a real live Queue measurement. Original literal>10MiB-inspection clause remains UNMET OWNER-WAIVED, not satisfied. The79,640byte historical value is about132times below10MiB; old five-orders prose in a closed record is inaccurate and remains untouched. Independent review confirms these follow-ups impose no new install/restart requirement; no artificial adoption deferral is created. Check1 remains historical, not a claim about today's loaded consumer. All original live requirements now have their actual witnessed or explicitly waived result. This closes only large-status acceptance; the ten-plan parent remains active.

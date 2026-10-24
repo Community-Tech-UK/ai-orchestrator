@@ -1,0 +1,24 @@
+{
+  "command": [
+    "rtk",
+    "proxy",
+    "npx",
+    "vitest",
+    "run",
+    "src/main/cli/adapters/claude-trial-native-compaction.spec.ts",
+    "src/main/cli/adapters/__tests__/claude-trial-lifetime.integration.spec.ts",
+    "src/main/cli/adapters/remote-cli-adapter.spec.ts",
+    "src/main/cli/adapters/__tests__/adapter-factory-claude-remote-policy.spec.ts",
+    "src/worker-agent/remote-interaction.integration.spec.ts",
+    "src/worker-agent/local-instance-manager.spawn-policy.spec.ts",
+    "src/main/instance/__tests__/context-worker-import-isolation.spec.ts",
+    "scripts/__tests__/rtk-trial-report.spec.ts",
+    "src/main/cli/hooks/__tests__/rtk-defer-hook.binary.spec.ts",
+    "src/main/cli/hooks/__tests__/rtk-defer-hook.rewrite-only.spec.ts",
+    "src/main/cli/hooks/__tests__/rtk-defer-hook.spec.ts",
+    "--reporter=verbose"
+  ],
+  "exit": 0,
+  "durationSeconds": 28.0,
+  "log": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phased-tokens-0e371d/_scratch/oct2-phaseD-round2/guidance-final-integration.log"
+}

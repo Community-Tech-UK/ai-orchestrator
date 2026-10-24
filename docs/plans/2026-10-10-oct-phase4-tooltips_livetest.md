@@ -6,7 +6,7 @@
 
 **Routing:** browser and desktop work run on `windows-pc` through the approved gateway after worker/channel health checks. No local Mac browser or desktop use without James's task-specific permission. If Windows is unavailable, report health evidence and leave these checks pending.
 
-**Remediation flow:** read [the live-test campaign runbook](livetest-campaign-runbook.md) before the campaign. A reproduced defect becomes a new LT-NNN entry in [the remediation register](livetest-remediation-register.md) plus the matching implementation-status section in `2026-07-19-livetest-failure-remediation_plan.md`. Keep per-check evidence here. Rename this document `_livetest_completed.md` only after every applicable check passes.
+**Remediation flow:** read [the live-test campaign runbook](livetest-campaign-runbook.md) before the campaign. A reproduced defect becomes a new LT-NNN entry in [the remediation register](livetest-remediation-register.md) plus the matching implementation-status section in `2026-07-19-livetest-failure-remediation-followup_plan.md`. Keep per-check evidence here. Rename this document `_livetest_completed.md` only after every applicable check passes.
 
 **Why deferred:** these checks require native Chromium/Electron event behaviour, a rebuilt/restarted designated app, visual judgement, a screen reader, or fresh real provider sessions. Agent-runnable DOM, source-analysis, sanitiser, binding and focus-trap checks are covered by targeted tests and are not deferred here. The queue verifier owns the full suite and completion verdict.
 

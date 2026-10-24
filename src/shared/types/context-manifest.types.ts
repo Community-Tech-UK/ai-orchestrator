@@ -26,7 +26,8 @@ export type ContextManifestBlockKind =
   | 'adapter-chrome-devtools'
   | 'adapter-mobile-mcp'
   | 'adapter-computer-use'
-  | 'adapter-disk-hygiene';
+  | 'adapter-disk-hygiene'
+  | 'adapter-process-hygiene';
 
 export type ContextManifestEntryStatus = 'supplied' | 'skipped-empty' | 'unavailable';
 

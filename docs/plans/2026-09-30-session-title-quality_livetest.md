@@ -14,7 +14,7 @@ Remediation flow: before running a campaign, read
 new LT-NNN index row and full entry in
 [the remediation register](livetest-remediation-register.md), plus its matching
 implementation-status section in
-[the remediation plan](2026-07-19-livetest-failure-remediation_plan.md).
+[the remediation plan](2026-07-19-livetest-failure-remediation-followup_plan.md).
 Keep per-check evidence here. Rename this file `_livetest_completed.md` only
 after every check passes.
 

@@ -348,8 +348,9 @@ describe('InstanceRowComponent — waiting on background work', () => {
     return (fixture.nativeElement.querySelector('.leading-indicator') as HTMLElement).getAttribute('aria-label') ?? '';
   }
 
-  it('marks an idle session that still owns background work, and names it', () => {
+  it.each(['claude', 'codex'] as const)('marks an idle %s session that still owns background work, and names it', (provider) => {
     fixture.componentInstance.instance.set(makeInstance({
+      provider,
       status: 'idle',
       backgroundWork: { count: 2, since: Date.now() - 5_000 },
     }));

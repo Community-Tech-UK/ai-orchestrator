@@ -4,7 +4,7 @@ Status: pending. Requires James to run Harness after loading the rebuilt main pr
 
 Plan: [provider swap account scope](2026-10-14-provider-swap-account-scope_plan_completed.md).
 
-Remediation flow: [live-test campaign runbook](livetest-campaign-runbook.md). Record a reproduced defect in [remediation register](livetest-remediation-register.md), with a matching implementation-status section in `2026-07-19-livetest-failure-remediation_plan.md`. Keep per-check evidence here and rename this document `_livetest_completed.md` only when every check passes.
+Remediation flow: [live-test campaign runbook](livetest-campaign-runbook.md). Record a reproduced defect in [remediation register](livetest-remediation-register.md), with a matching implementation-status section in `2026-07-19-livetest-failure-remediation-followup_plan.md`. Keep per-check evidence here and rename this document `_livetest_completed.md` only when every check passes.
 
 ## 1. Switch the reported MiMo chat to Codex
 

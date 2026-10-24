@@ -1,11 +1,1054 @@
-# October Phase 1: the biggest token savings
+## Verifier findings to fix next (23 Oct, coordinator handoff; six medium, all reproduced)
 
-**Status:** active, partially implemented; not ready for full-plan verification (14 Oct 2026). Steps 1a, 1b and 1c are
-implemented in `queue/2026-10-10-oct-phase1-token-le-ea3105`. Phase 0 foundation is NOT on `main` (it lives on unmerged
-branch `queue/2026-10-10-oct-phase0-confirme-6dc50c`); steps with hard Phase 0 dependencies cannot proceed until the
-coordinator integrates it. Steps 1a-1c have no Phase 0 dependency and are done. All other steps remain open or blocked.
-Written 2026-10-10. Keep this file untracked until every step is implemented and
-verified (see [Finishing](#finishing)).
+1. `scripts/claude-cost-audit-report.mjs:796` - the Claude helper trial counts plan-queue landings after `--until`
+   (bound `landed` by `updated_at` to the cutoff).
+2. `:730` - the waiting-rule verdict accepts `runtimeRise === null` as satisfying its runtime guard; missing runtime
+   evidence must NOT pass Step 2's <=20% rise check.
+3. `:426` - helper run time comes from first/last request timestamps instead of joining the recorded `durationMs` /
+   `toolUses` by `toolUseId` (recorded in `instance-communication-provider-events.ts:51`) as Step 2 requires.
+4. `:521` - long-wait rewrites price one-hour cache writes at the five-minute rate; keep the 5m/1h split.
+5. `scripts/codex-helper-trial-report.mjs:415` - O(N^2) scans over usage snapshots/turns (14s at 64k turns) violate the
+   no-super-linear-outside-data bar; index the scans.
+6. `src/main/ipc/rtk-trial-info.ts:88` - managed Claude profile transcript stores
+   (`<userData>/claude-cli-profiles/<profile>/projects`) are never discovered, so Savings-tab trial counts miss them.
+
+Each has a runnable repro in the queue item's finding text.
+
+**STATUS (23 October 2026, six-findings remediation `4a3cd3`): all six findings above are repaired in the
+worktree, each with targeted regression controls shown RED against the pre-fix code and green after the
+repair; targeted tests (10 files / 228 tests, zero failed) and every fast static gate are green; READY FOR
+INDEPENDENT RE-VERIFICATION. READ THIS FIRST; it supersedes every older status paragraph below.**
+No commit, stash, branch change or `_completed` rename was performed; the coordinator commits this work. The
+six findings this dispatch carried and their as-built repair:
+
+- **Finding 1 (medium) — the Claude helper trial counted plan-queue landings after `--until`.**
+  `planQueueShare` counted `item.landed_commit` with no time bound and the row SELECT had no `updated_at`, so a
+  landing that settled after the reporting cutoff still counted as landed in the A18 landed-share metric.
+  Repair, bounding the share exactly like the Codex report's plan-queue rule (the same `plan_queue_items`
+  rows): the SELECT gains `updated_at` and `planQueueShare(policyEntries, items, untilMs)` counts a landing
+  only when `updated_at` is usable and settles before the cutoff (`updated_at < untilMs`, exclusive, matching
+  the cost rows and policy records). One that settles at or after it is listed in `landedAfterWindow`; one
+  without a usable `updated_at` cannot be placed before the cutoff and is listed in `landedUnplaced` (unknown,
+  never counted as landed — the bad-timestamps fail-closed rule). `aggregateSubagentMetrics` passes its window
+  and the report prints both counters beside the mixed/unassigned line. With no `--until` every placeable
+  landing counts as before. Regression controls (RED pre-fix): "groups each item by its first logged worker
+  and counts mixed-group items" (existing test, extended with the cutoff counters) and "bounds landings by
+  updated_at to the window cutoff; later and unplaceable landings are never landed" (a landing at exactly
+  `untilMs` is outside, one ms earlier is inside, after-cutoff/unplaceable landings never count).
+- **Finding 2 (medium) — the waiting-rule verdict accepted `runtimeRise === null` as passing its runtime
+  guard.** `evaluateSubagentVerdict` kept the waiting rule when run-time evidence was missing. Repair: keep
+  now needs both criteria measured (`rewriteHeld && runtimeRise !== null && runtimeRise <= 20%`); missing
+  run-time evidence yields `pending (runtime evidence)` with an explicit note ("the ≤20% rise check cannot
+  pass without it") instead of `keep`, a measured miss still reports, and a rewrite drop below 30% still
+  reports. `runtimeRise` is computed only from finite medians with a non-zero before-half. Same-class
+  hardening while reviewing this comparator family: the rewrite-drop and runtime-rise edges carry the file's
+  own `+ 1e-9` epsilon (as `spendDrop` already had) so an exact threshold never fails on floating-point
+  noise. Regression control (RED pre-fix at `keep`): "does not keep the waiting rule without run-time
+  evidence; a missing median never passes the rise check" (missing-after and missing-before medians both
+  pend with the note; measured 20% edge still keeps; drop-misses still report).
+- **Finding 3 (medium) — helper run time came from first/last request timestamps instead of the recorded
+  join.** `collectSubagentSessions` set `runMs: last.at - first.at` instead of joining the recorded
+  `durationMs`/`toolUses` by `toolUseId` as Step 2 requires. The records are the `subagentUsage`
+  cost-attribution rows written at `src/main/instance/instance-communication-provider-events.ts:51`.
+  Repair: `indexSubagentUsage` indexes those rows by `toolUseId` (one final sample per helper, first record
+  wins), `collectSubagentSessions(..., { subagentUsage })` joins `durationMs`→`runMs` and
+  `toolUses`→`toolUses` per helper's `.meta.json` `toolUseId`, and a helper without a record keeps both
+  unknown (null, never the timestamp span, never zero). `runSubagents` passes the windowed attribution rows
+  the report already reads; the waiting-rule medians use recorded durations only, and a new arm-table row
+  ("tool uses / run time (7i records, joined on toolUseId)") shows the join with the recorded-run-time count.
+  Regression controls (RED pre-fix at `360000`): "takes helper run time and tool uses from the recorded final
+  joined on toolUseId" (1,234 ms/7 uses recorded over a six-minute transcript span; duplicate record
+  first-wins; non-`subagentUsage` row ignored) and "keeps run time and tool uses unknown for a helper without
+  a recorded final", plus the zero-fill guard and the end-to-end row assertion.
+- **Finding 4 (medium) — long-wait rewrites priced one-hour cache writes at the five-minute rate.**
+  `longWaitCacheMetric` priced the whole rewrite at `CACHE_WRITE_5M_MULT` although the token stream carries
+  the 5m/1h split and one-hour writes are 2x. Repair: `activityReturns` returns
+  `rewrittenTokens5m`/`rewrittenTokens1h` beside the whole `rewrittenTokens`, the helper record carries the
+  split, and the metric prices `5m * 1.25x + 1h * 2x` (a legacy entry carrying only the total is read as one
+  5-minute write — the split-missing idiom in `parseTranscript`). Counts and token totals unchanged.
+  Regression control (RED pre-fix at `$0.011250`): "keeps the 5-minute/1-hour split when pricing rewrites;
+  one-hour writes are 2x" — 1,000 five-minute + 2,000 one-hour sonnet tokens price at $0.015750.
+- **Finding 5 (medium) — O(N²) scans over usage snapshots/turns in the Codex trial report.**
+  `parseRolloutSync` resolved each snapshot's containing turn with `turns.findIndex`/`turns.find` walks (and
+  `attributedRollouts` walked every root turn per child turn and root option). Repair ("index the scans"): a
+  new exported `indexTurnContainment(turns, ats)` answers every query with the exact first-match rule of the
+  old walk — queries are painted in turn order (each turn claims the still-unclaimed timestamps in its
+  window; a union-find skips claimed positions), near-linear in turns plus queries. `parseRolloutSync`
+  computes each snapshot's `turnIndex` once (capped turn ends cannot change containment for the queried
+  `at < untilMs` snapshots) and `attributedRollouts` resolves child-turn starts through one index per root.
+  Benchmark on the finding's own repro shape: 64,000 turns parse in 12,569–16,849 ms with the old scans vs
+  ~130 ms indexed — the "14s at 64k turns" reproduced. Regression controls: the seeded equivalence control
+  against a verbatim copy of the old predicate ("matches the old turns.findIndex walk exactly on overlapping,
+  open and closed windows"), the overlap rule ("keeps the earliest turn when windows overlap, like the old
+  scan"), the timed 64k-turn control "answers snapshots over 64,000 turns in linear time, not a
+  per-snapshot turn walk" (assert < 3 s; RED pre-fix at 16,849 ms), and the parse-level overlap wiring guard.
+- **Finding 6 (medium) — managed Claude profile transcript stores were never discovered.**
+  `src/main/ipc/rtk-trial-info.ts` read only the default `$CLAUDE_CONFIG_DIR|~/.claude/projects`, so
+  sessions whose transcripts live under `<userData>/claude-cli-profiles/<profile>/projects` (linked by
+  `claude-profile-seed.ts`) were missed in the Savings-tab trial counts. Repair: `transcriptProjectRoots`
+  mirrors `transcriptProjectsDirs` (default root plus every profile's `projects` store; directories only; an
+  explicit `options.projectsDir` replaces discovery entirely), the transcript walk scans each root, a missing
+  store is skipped (ENOENT, like `readHookDecisionNames`) and anything else still fails safe. Sessions are
+  counted per session id, so a profile store symlinked at the shared store cannot double-count. Regression
+  control (RED pre-fix at `sessionsWithout: 1`): "discovers managed Claude profile transcript stores
+  alongside the default root" (one session in the default store and one only in a profile store must both
+  count).
+
+Current evidence for this dispatch: targeted tests **10 files / 228 tests passed, zero failed** (the Claude
+cost audit report 30, the Codex helper trial report 116 and their consumer suites, the replay/transcript
+suites and `rtk-trial-info`), cache-bypassed; RED runs retained (7 of 30, 1 of 116 and 1 of 11 against the
+pre-fix code, post-fix restored byte-identical). Static and build gates all exit 0: `npx tsc --noEmit`,
+`npm run typecheck:spec`, `npm run lint`, `npm run check:ts-max-loc`, `npm run check:ui-hints`,
+`npm run generate:architecture` + `npm run verify:architecture` (the only inventory deltas are the Codex spec's
+`largeFiles` entry 2,301 → 2,394 lines, re-sorted, and a new 806-line entry for the subagents spec, which
+crossed the 800-line scan threshold), `npm run verify:ipc`, `npm run verify:ipc-usage`,
+`npm run verify:exports`, `npm run check:contracts`, `npm run build:main`, `npm run build:renderer`,
+`npm run verify:codex-protocol`. The full suite was not run — it is verifier-owned. No new live-test
+deferral (all six repairs verified in-loop). Remaining: the coordinator's landing of this remediation work,
+the verifier's full suite and fresh `task-completion-gate` PASS, and the unchanged live checks in the root
+livetest.
+Evidence: [remediation report](../../_scratch/changed-plans-queue-2026-10-18/phase1-six-findings-remediation-4a3cd3-20261023/FINAL-REPORT.md),
+[seal](../../_scratch/changed-plans-queue-2026-10-18/phase1-six-findings-remediation-4a3cd3-20261023/FINAL-SEAL.json),
+[command receipts](../../_scratch/changed-plans-queue-2026-10-18/phase1-six-findings-remediation-4a3cd3-20261023/command-receipts.md)
+and [logs](../../_scratch/changed-plans-queue-2026-10-18/phase1-six-findings-remediation-4a3cd3-20261023/logs/).
+
+
+
+**Verifier remediation round-5 findings (23 Oct; dispatch label "verification round 2 of 3" — two medium code
+findings) — both repaired; see the round-5 remediation status directly below:**
+1. `scripts/rtk-trial-report.mjs:90` — RTK guardrail G1 rejects an allowed increase of exactly one percentage
+   point and incorrectly recommends turning the trial off. `evaluateG1` compares `deltaPp <= rules.maxDeltaPp`
+   on raw floating-point subtraction: `100*49/1000 - 100*39/1000` is `1.0000000000000004`, so step 18b's "at
+   most 1.0 percentage point" fails at its own edge and `recommendTrial` returns `off` even before the sample
+   matures (the verifier's isolated cost/hook/transcript fixtures reproduce it end to end).
+2. `src/main/orchestration/default-loop-native-finality.spec.ts:109` — the required full-suite gate is red on
+   the inherited native-finality fixture race: `'partial-no-final-lf'` failed `expect(finalWritten).toBe(true)`
+   under full-suite load (1 of 36,971) while a focused rerun passed 8/8. Root cause (now confirmed): the fixture
+   child wrote its final result and its FINAL_WRITTEN marker through async write callbacks while the parent
+   SIGKILLs at its 150 ms timeout, and under parallel load the kill lands at the exact moment of the child's own
+   delayed writes (the watchdog's activity extension pins it at last output + 25 ms — the fixture's write delay).
+
+
+**STATUS (23 October 2026, verifier remediation round-5 `4a3cd3`): both findings are repaired in the worktree —
+finding 1 with targeted rule-edge controls (four new tests: three unit oracles and one actual-CLI reproduction of
+the verifier's exact fixture shape, all four shown RED against the pre-fix script and green after the repair, plus
+G2/G3 same-class hardening) and finding 2 with the accepted fixture-only repair; targeted tests and every fast
+static gate are green and the full suite is green (2,924 files / 36,967 tests, exit 0) — the clean full-suite
+result this dispatch asked for; READY FOR INDEPENDENT RE-VERIFICATION. READ THIS FIRST; it supersedes every older
+status paragraph below.**
+No commit, stash, branch change or `_completed` rename was performed; the coordinator commits this work. The two
+findings this dispatch carried and their as-built repair:
+
+- **Finding 1 (medium) — G1 rejects an allowed increase of exactly one percentage point and recommends `off`.**
+  `evaluateG1` judged the rule edge with a raw float subtraction: `rewrittenRate - otherRate` for 49/1000 against
+  39/1000 is `1.0000000000000004`, so `deltaPp <= 1.0` failed at exactly the allowed 1.0pp (the printed detail
+  even read `Δ 1.0pp; limit 1pp`) and `recommendTrial`'s measured-breach rule returned `off` before maturity.
+  Repair, using the file's own boundary idiom (`evaluateCost`'s epsilon comment and all): the comparison is
+  `deltaPp <= rules.maxDeltaPp + 1e-9`, so an increase of exactly 1.0pp passes and only a real increase fails
+  (50/1000 against 39/1000 is 1.1pp and still fails); the detail string is unchanged and now agrees with the
+  verdict. Same-class hardening while reviewing this comparator family: `evaluateG2`/`evaluateG3` divide two
+  averages and misfire at their own edge too (21/19 sessions against 20/19 is mathematically exactly 1.05 but
+  computes `1.0500000000000003` and failed the `<= 1.05` compare), so both carry the same epsilon. G5's exclusive
+  "under 3%" bound is integer-granularity-safe at its edge and is unchanged; cost's +2% ceiling already had the
+  epsilon (its existing exactly-+2% boundary test passes only because of it) and benefit's exactly-30% edge is
+  already pinned green by an existing test. Regression controls (RED pre-fix — exactly these four fail, 4 of 52):
+  unit "G1 allows the exactly-1.0pp rule edge and fails only past it" (RED at the edge's `pass: false`),
+  unit "an exactly-1.0pp G1 edge does not turn an immature trial off" (RED at `off`; post-fix `pending` before
+  maturity, `sessions-only` once mature), unit "G2 and G3 allow the 1.05 ratio at the rule edge exactly" (RED at
+  `ratio 1.05; limit 1.05` failing), and CLI "actual CLI allows the G1 rule edge of exactly 1.0pp" — the
+  verifier's isolated cost/hook/transcript shape end to end (one on-arm session, 1000 rewritten calls with 49
+  failures against 1000 other calls with 39 failures), asserting G1 `pass: true` with detail
+  `rewritten 4.9% vs other 3.9% (Δ 1.0pp; limit 1pp)` and recommendation `pending` (pre-fix: `pass: false`,
+  recommendation `off` — the verifier's exact repro, also captured standalone in `pre-fix/` and `post-fix/`).
+- **Finding 2 (medium) — the full-suite gate is red on the inherited native-finality fixture race.** The fixture
+  child scheduled its final result 25 ms after its first write and issued FINAL_WRITTEN in that write's async
+  callback, while the adapter SIGKILLs at its 150 ms timeout; when a loaded machine delays the child's start,
+  the watchdog's activity extension (`activeTimeoutMs: 25`) pins the kill at last output + 25 ms — the exact
+  millisecond of the child's delayed writes — so the marker can be cut off (the failure was `'partial-no-final-lf'`
+  at 164 ms in the verifier's run; `'partial-zero'` failed the same assertion in an earlier full-suite run). This
+  signature was root-caused and repaired once before on the sibling remediation branch (`2026-07-19-livetest-
+  failure-remediation-followup_plan.md` finding 3 → commit `0c4850d8d` on `queue/2026-07-19-livetest-failure-re-
+  ffb4df`, cut after this branch); this branch's copy kept the racing fixture. Repair (fixture only, no production
+  code), applied as the same accepted content so the branches merge textually clean (`git diff 0c4850d8d` on the
+  file is empty): the kill window is 1,000 ms (adapter `timeout: 1_000` and `iterationTimeoutMs: 1_000`) instead
+  of 150 ms, and the final result plus FINAL_WRITTEN are synchronous `writeSync` writes in one turn — SIGKILL can
+  only land before or after both, never between the result and its completion marker. The child's 25 ms inter-write
+  delay, the pause structure, `activeTimeoutMs: 25`, the SIGKILL assertion and the partial-capture semantics under
+  test are unchanged. Evidence: focused 8/8 three times (12.9 s / 11.8 s / 12.7 s), and the full suite green under
+  load with all seven native-finality modes passing at ~1.0–1.3 s each. The suite population reconciles with the
+  verifier's failing run: comparing `test-results.pid-43979.json` with the clean run's report, the only test-count
+  difference is `scripts/__tests__/rtk-trial-report.spec.ts` 48 → 52 (finding 1's four new controls); their run's
+  1 failed + 10 skipped becomes 0 failed + 8 skipped — the two skip deltas are `sea-build-repeatability`'s
+  SEA-fuse-conditional tests, skipped in that environment and executed green in this one.
+
+Current evidence for this remediation round: `npx tsc --noEmit` 0, `npm run typecheck:spec` 0, `npm run lint` 0,
+`npm run check:ts-max-loc` 0 (pre-existing tolerance notes only), `npm run check:ui-hints` 0,
+`npm run verify:architecture` 0 (no inventory drift — none of the three changed files is tracked in the
+inventory's `largeFiles` set), `npm run build:main` 0, `npm run build:renderer` 0 (pre-existing initial-bundle
+budget warning). Targeted tests: the RTK trial report 52/52 (including the four new controls) with its consumer
+suite `rtk-trial-cost-regression` 3/3 — 2 files / 55 tests passed — and the native-finality spec 8/8 in three
+focused runs. RED evidence: with the pre-fix script in place exactly the four new controls fail
+(`pre-fix-red-run.log`) and the fixed script passes 52/52 (`post-fix-green-run.log`); the verifier's exact CLI
+shape reproduces pre-fix (`pre-fix/g1-cli-report.json`: G1 FAIL, recommendation `off`) and is repaired post-fix
+(`post-fix/g1-cli-report.json`: G1 PASS at `Δ 1.0pp`, recommendation `pending`). The full suite — owed as
+finding 2's own evidence, the precedent set for this same finding class in the follow-up plan — passes:
+`npm run test:quiet` 2,924 files / 36,967 tests green in 2,711.8 s, exit 0 (worktree log
+`_scratch/test-run.pid-15707.log`, summary in `logs/full-suite-stdout.log`). No new live-test deferral was
+created (finding 2's fix and evidence were in-loop). Remaining: the coordinator's landing of this remediation
+work, the verifier's fresh full-suite run and `task-completion-gate` PASS, and the unchanged live checks in the
+root livetest.
+Evidence: [remediation report](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round5-remediation-4a3cd3-20261023/FINAL-REPORT.md),
+[seal](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round5-remediation-4a3cd3-20261023/FINAL-SEAL.json),
+[command receipts](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round5-remediation-4a3cd3-20261023/command-receipts.md)
+and [logs](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round5-remediation-4a3cd3-20261023/logs/).
+
+**Verifier remediation round-4 findings (23 Oct; dispatch label "verification round 1 of 3" — two medium code
+findings and one low documentation follow-up) — all three repaired; see the round-4 remediation status directly
+below:**
+1. `scripts/codex-helper-trial-report.mjs:485` — helpers spawned after `--until` could change the verdict of an
+   earlier fixed reporting window. `readThreadGraph` loaded every current spawn edge without applying the
+   reporting cutoff, so a helper whose thread creation and rollout are after `--until` failed
+   `hasMeasuredRolloutTree` for its parent (39 measured Full roots and one unknown, flipping chats to `pending`)
+   and counted as a false in-window Off helper-spawn breach under an Off queue thread (flipping Harness work to
+   `pending`).
+2. `scripts/codex-helper-trial-report.mjs:1059` — the 35-day fallback recommended Off for the other Harness kinds
+   without checking their observed outcome degradation: the `apply-defaults` return bypassed the child/automation
+   ten-point checks, so with 19 decided plan-queue items per arm the required `Kind "automation" completes more
+   than 10 points worse with Off` warning disappeared although the same 20-point automation regression remained.
+   Step 1d item 4 explicitly requires a kind more than ten points worse with Off to return to the chats setting.
+3. `docs/plans/2026-10-10-oct-phase1-token-levers_livetest.md:171` (low, documentation) — the deferred budget
+   check pressed **Compact now** and expected the paid compression fallback to be blocked at $0.01, but explicit
+   user compactions bypass the limit by design (Step 7 item 5; round-7 Y3). The probe now drives an automatic
+   compaction and records the manual exemption separately, so the later live campaign cannot misclassify intended
+   behaviour as a defect.
+
+
+**STATUS (23 October 2026, verifier remediation round-4 `4a3cd3`): all three findings are repaired — the two code
+findings in the worktree with targeted regression controls (six new tests: four behavioural oracles shown RED
+against the pre-fix script and green after the repair, plus two over-restriction / healthy-kind guards) and the
+documentation finding in the root livetest document; targeted tests and every fast static gate are green; READY FOR
+INDEPENDENT RE-VERIFICATION. READ THIS FIRST; it supersedes every older status paragraph below.**
+No commit, stash, branch change or `_completed` rename was performed; the coordinator commits this work. The three
+findings this dispatch carried and their as-built repair:
+
+- **Finding 1 (medium) — helpers spawned after `--until` could change the verdict of an earlier fixed reporting
+  window.** `readThreadGraph` loaded every spawn edge `thread_spawn_edges` currently holds with no reporting
+  cutoff. A helper whose thread creation and rollout are on 2026-10-02 then changed a `--until 2026-10-01` report
+  two ways: `hasMeasuredRolloutTree` required the helper's rollout (all its turns post-cutoff parse to none), so
+  its parent left the measured sample as unknown — 39 measured Full roots flipped `chats` from `cheaper-justified`
+  to `pending` — and `observedOffBreaches` counted the helper as trial exposure, so the same edge under an Off
+  queue thread produced a false in-window breach and flipped `harnessWork` to `pending`, quarantining its queue
+  item. Policy records, in-window rollouts and cost rows were unchanged. Repair, bounding the spawn graph like
+  every other measurement: `readThreadGraph(stateDb, untilMs = Number.MAX_SAFE_INTEGER)` drops an edge whose child
+  thread was created at or after `untilMs` (cutoff exclusive, matching `updated_at`/`finished_at` and the
+  helper-count bound from the previous round). Creation comes from the state database's own thread timestamps —
+  `created_at_ms` (milliseconds) or `created_at` (Unix seconds, the Codex schema and the verifier's fixture) —
+  discovered with fallback SELECTs (`created_at_ms, created_at` → `created_at` → neither), so the live schema, the
+  verifier's fixture and older tables all read. A child that cannot be placed in time (no usable timestamp, an
+  older table without the columns, or a dangling edge) fails **closed** as in-window exposure, keeping the
+  Off-breach guard and the measured-rollout rule as strict as before; with no `--until` nothing is cut.
+  `runReport` passes `options.untilMs`, the `.d.mts` carries the new signature, and every graph consumer
+  (`hasMeasuredRolloutTree`, `observedOffBreaches`, `attributedRollouts`, the recursive rollout load) is fixed by
+  construction. Regression controls (RED pre-fix): unit "drops a helper created at or after --until and keeps
+  in-window and unplaceable ones" (RED at `[ Array(3) ]` where `['in-window', 'unplaceable']` belongs), unit
+  "keeps every edge when the threads table carries no creation timestamps" (over-restriction guard, green on both
+  sides), CLI "does not let a helper spawned after --until change an earlier fixed window" (the verifier's
+  reproduction shape end to end — both placements leave the whole verdict object deeply equal with 40 measured
+  Full roots and `offGraphBreaches: []`; RED at the `chats: 'pending'` flip with one unknown chat root and at the
+  Harness-work flip with a false breach), and the verifier's own fixture through `verify-fixed-behaviour.py`
+  (green post-fix with deeply equal verdicts for `cutoff-{before,future-full-helper,future-off-helper}`; RED
+  pre-fix at exactly their documented flip).
+- **Finding 2 (medium) — the 35-day fallback recommended Off for the other Harness kinds without checking their
+  observed outcome degradation.** `decideHarnessWork`'s `apply-defaults` return for a sample still short at 35
+  days bypassed the child/automation ten-point checks, so with 19 decided plan-queue items per arm (one still
+  verifying) the report recommended "Off for loops and the plan queue, and for the other kinds while choice 2
+  stands" and printed no warning although automation's run records showed Off 8 succeeded / 2 failed against Full
+  10 / 0 — a 20-point regression Step 1d item 4 sends back to the chats setting. Repair, extracting the rule to
+  `noteKindOutcomeRegressions(notes, kinds)` (the existing loop verbatim — unknown-comparison notes and the
+  ten-point call at rule precision — plus a `degraded` return) and running it on **every** Harness-work path: the
+  complete-sample path (output unchanged) and the 35-day fallback, where its warnings name the kinds moving back
+  to the chats setting and the defaults line gains `and their outcomes hold` when any kind is degraded. Unknown
+  outcome comparisons still print their note and withhold the ten-point call; healthy kinds keep the original
+  wording; the chats fallback is untouched. Regression controls (RED pre-fix): unit "applies the choice-2 kind
+  outcome rule at the 35-day fallback too" (degraded and healthy controls; RED at the missing warning), CLI
+  "applies the choice-2 kind outcome rule at the 35-day fallback, not only on a complete sample" (the verifier's
+  `--since 2026-09-01 --until 2026-10-10` reproduction shape: `apply-defaults` with `decided: 19` per arm plus the
+  required warning, the chats-setting call and `their outcomes hold`; RED at `expected 'Counts are still short at
+  35 days: ap…' to contain '"automation" completes more than 10 p…'`) and CLI "does not flag a kind at the 35-day
+  fallback when its outcomes hold"; the verifier's fixture confirms both `choice2` variants print the warning.
+- **Finding 3 (low, documentation) — the deferred budget check expected manual Compact now to be blocked.** The
+  root livetest's Step 7 probe pressed **Compact now** and expected the paid compression fallback to be blocked at
+  $0.01, while Step 7 item 5 and the round-7 Y3 repair exempt explicit user compactions on purpose
+  (`compaction-runtime.ts:548` sends `trigger:'manual'`, `:375` carries `userInitiated`;
+  `auxiliary-daily-spend-cap.ts:45` records rather than refuses; `local-ai-routing-guard.ts:200` omits the shared
+  limit). The probe now drives a compaction the app performs itself (force an overflow, or let the automatic
+  compaction policy fire) for the capped check, and a second check records the manual exemption as intended
+  behaviour (a block there would be the defect); the "Why deferred" paragraph records the correction. Edited at
+  the root path the verifier cited (the plan/livetest pair is maintained in the root checkout — the worktree's
+  tracked copy is a stale stub without these sections — the same arrangement as this document). Non-blocking
+  documentation follow-up under the option-2 finish bar.
+
+Current evidence for this remediation round: `npx tsc --noEmit` 0, `npm run typecheck:spec` 0, `npm run lint` 0,
+`npm run check:ts-max-loc` 0, `npm run verify:architecture` 0 (the four changed paths staged so the
+index-derived generator sees the final content; its only delta is the spec's `largeFiles` entry 2,145 → 2,301
+lines, re-sorted), `npm run verify:ipc` 0, `npm run verify:ipc-usage` 0, `npm run verify:exports` 0,
+`npm run check:contracts` 0, `npm run verify:codex-protocol` 0, `npm run check:ui-hints` 0. Targeted tests:
+**8 files / 166 tests passed, zero failed** — the Codex helper trial report (112, including the six new controls)
+plus its consumer suites (outcomes, audit regressions, review coverage, mail cache, audit-sqlite-readonly,
+session-policy-log and the reviewer-verdict-ledger integration). RED evidence: with the pre-fix script in place
+exactly the four behavioural controls fail (`pre-fix-red-run.log`) and the fixed script passes 112/112
+(`post-fix-green-run.log`); the verifier's own reproduction fixture passes post-fix and reproduces their exact
+flip pre-fix (`verifier-fixture-{post,pre}-fix.log`). No other generated output drifts.
+`build:main`/`build:renderer` were not run (no `src/`, tsconfig, asset or dependency change; this worker is
+scoped to targeted tests and fast static checks, as in the earlier rounds). The full suite was not run — it is
+verifier-owned. The root livetest's live checks are otherwise unchanged; no new deferral was created (finding 3
+corrected a probe's expected behaviour and deferred nothing new). Remaining: the coordinator's landing of this
+remediation work, the verifier's full suite and fresh `task-completion-gate` PASS, and the unchanged live checks
+in the root livetest.
+Evidence: [remediation report](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round4-remediation-4a3cd3-20261023/FINAL-REPORT.md),
+[seal](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round4-remediation-4a3cd3-20261023/FINAL-SEAL.json),
+[command receipts](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round4-remediation-4a3cd3-20261023/command-receipts.md)
+and [logs](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round4-remediation-4a3cd3-20261023/logs/).
+
+**Verifier round-3 findings (23 Oct, both medium, confidence 100) — both repaired; see the round-3 remediation
+status directly below:**
+1. `scripts/codex-helper-trial-report.mjs:1265` — known FAILED automation runs vanish from the quality comparison when
+   their token rollouts are incomplete (membership is gated on `hasMeasuredRolloutTree`), which silently drops the
+   required "Off performs >10 points worse" warning. Outcome eligibility must use valid policy/instance identities
+   independently of token-measurement eligibility (as the child-outcome path already does).
+2. `scripts/codex-helper-trial-report.mjs:1467` — automation outcomes settled AFTER `--until` still change the
+   fixed-window recommendation (the query filters `started_at` only and reads current status). Bound settled outcomes to
+   the cutoff (`finished_at`) and keep unusable decision timestamps explicitly unknown.
+
+
+**STATUS (23 October 2026, verifier round-3 remediation `4a3cd3`): both independent-verifier findings are
+repaired in the worktree, each with targeted regression controls (eight new tests, all shown RED against the pre-fix
+script and green after the repair); targeted tests and every fast static gate are green; READY FOR INDEPENDENT
+RE-VERIFICATION. READ THIS FIRST; it supersedes every older status paragraph below.**
+No commit, stash, branch change or `_completed` rename was performed; the coordinator commits this work. The two
+findings the round-3 dispatch carried and their as-built repair:
+
+- **Finding 1 (medium) — known FAILED automation runs vanished from the quality comparison when their token
+  rollouts were incomplete.** `attachAutomationRunOutcomes` gated membership on
+  `automationArms[entry.arm]?.threadIds?.includes(entry.threadId)`, and `threadIds` is `aggregateKind`'s
+  `hasMeasuredRolloutTree` filter, so a failed run whose rollout was crash-truncated, missing or without usage had
+  its authoritative outcome silently dropped from `kindTable.automation.*.runs` — which dropped the required
+  `Kind "automation" completes more than 10 points worse with Off` warning (choice 2). The child path
+  (`attachChildOutcomes`) already kept outcomes on valid policy/instance identities independently of rollout
+  availability; automation runs had not. Repair, mirroring the child path: `attachAutomationRunOutcomes` now builds
+  its own exposure population (eligible automation threads of consistent policy exposure, Off-breach threads
+  excluded) **independent of `threadIds`/`hasMeasuredRolloutTree`**; exposed-but-unmeasured arms get a bucket
+  (`??=`) so an arm with known failures and no measured token bucket prints its runs beside null token measures,
+  each arm records `unmeasuredThreadIds`, and exposed ids are never added to the measured `threadIds`. The identity
+  join (`instance_id` + `automation_id === armKey`, valid exposure, consistent arm/armKey) is unchanged apart from
+  the removed `threadIds` gate and an explicit breach exclusion. Regression controls (all CLI through the actual
+  script, RED pre-fix): "keeps known automation-run failures in the quality comparison when the token rollout is
+  incomplete" (crash-truncated Off rollout; `runs: { succeeded: 2, failed: 1, decided: 3 }` with `threadIds: []`
+  and `unmeasuredThreadIds: ['automation-off']`; RED at a missing arm bucket), "warns when Off automation outcomes
+  are more than 10 points worse even with incomplete token rollouts" (full 20+20 sample; the ten-point warning must
+  fire with `failed: 2, decided: 10`; RED at `failed: 0, decided: 8` and no warning) and "prints known automation
+  failures with unknown token measures when the whole Off arm has no measured rollout" (render row
+  `| automation | off | 0 | 0 | — | 0/0 | 8/2/0 | — | — |`; RED at no bucket at all).
+- **Finding 2 (medium) — automation outcomes settled after `--until` still changed the fixed-window
+  recommendation.** The `automation_runs` SELECT filtered `started_at` only and read current `status`, so a run
+  that started in-window but settled after the cutoff counted as decided inside it, and decided runs with unusable
+  decision timestamps were counted or dropped by `started_at` accident. Repair, windowing the outcomes like every
+  other measurement and like the round-2-of-3 plan-queue fix: the rows are read **whole** (no date bound; the
+  SELECT carries the same "judge each outcome as of the cutoff; keep an untimestamped row visible as unknown"
+  comment as `plan_queue_items`) and each settled outcome is placed in time by `finished_at` (the exact mirror of
+  a plan-queue item's `updated_at`): a decided run with usable, consistent timestamps and `finished_at < untilMs`
+  counts (`succeeded`/`failed` + `decided`); one that settles at or after `untilMs` is `settledAfterWindow` —
+  outside the window, **neither decided nor unknown** (cutoff exclusive, like the cost rows and policy records);
+  a decided run whose `started_at`/`finished_at` is unusable or reversed is **explicitly unknown** (`unknown`),
+  never counted and never silently dropped (the `bad-timestamps` fail-closed rule); runs still
+  pending/running/skipped/cancelled have no settled outcome and are not counted. The runs bucket is
+  `{ succeeded, failed, decided, unknown, settledAfterWindow }`. The choice-2 verdict loop fails closed like the
+  child path: any `unknown` in either arm prints `Automation outcome comparison unknown: decided runs with unusable
+  decision timestamps remain.` and withholds the ten-point call (unknown outcomes are never zero-filled into a
+  rate); `settledAfterWindow` withholds nothing. The kind-table cell renders `succeeded/failed/unknown` (mirroring
+  the child column) and the measures paragraph states both rules. With no `--until` every settled outcome counts as
+  before. Regression controls (all RED pre-fix): CLI "does not change the fixed-window recommendation for
+  automation outcomes settled after --until" (the verifier's reproduction shape end to end — 20 runs per arm
+  running at `--until 2026-10-01` give no quality note; then only their DB state changes to decided with
+  `finished_at = 2026-10-02`; the settled report's verdict must deeply equal the running report's — RED at the
+  verdict flip with `decided: 20` counted from current status), CLI "leaves an automation outcome settled at or
+  after --until undecided; the cutoff is exclusive" (settled at exactly `untilMs` outside, one millisecond earlier
+  inside and decided, no `--until` unchanged — RED at `decided: 3` where 0 belongs), CLI "keeps a decided
+  automation run with unusable decision timestamps explicitly unknown" (NULL `finished_at`, reversed timestamps and
+  NULL `started_at` give `unknown: 3`, untouched arm `decided: 3` — RED at `decided: 2` with one silently
+  dropped), CLI "keeps automation runs with unusable decision timestamps explicitly unknown and withholds the
+  comparison" (full sample, all 20 `finished_at` NULL → `unknown: 10` per arm, unknown note, no warning — RED at
+  `decided: 10` and the warning) and unit "withholds the automation outcome comparison when decision timestamps
+  are unusable" (`computeVerdict`; RED at the warning). Design choices recorded in the remediation report for the
+  verifier: the whole read (mirroring `plan_queue_items`), unknown outcomes withholding the comparison (mirroring
+  the child path and "Unknown, never zero"), and both timestamps being required usable (mirroring
+  `measurePlanQueueItem`'s `bad-timestamps`).
+
+Current evidence for this remediation round: `npx tsc --noEmit` 0, `npm run typecheck:spec` 0, `npm run lint` 0,
+`npm run check:ts-max-loc` 0 (existing tolerance warnings only), `npm run verify:architecture` 0 (the four changed
+paths staged so the index-derived generator sees the final content; its only delta is the spec's `largeFiles` entry
+1,904 → 2,145 lines, re-sorted), `npm run verify:ipc` 0, `npm run verify:ipc-usage` 0, `npm run verify:exports` 0,
+`npm run check:contracts` 0, `npm run verify:codex-protocol` 0. Targeted tests: **7 files / 147 tests passed, zero
+failed** — the Codex helper trial report (106, including the eight new regression controls) plus its six consumer
+suites (audit regressions, outcomes, review-coverage, mail-cache, session-policy-log and the reviewer-verdict-
+ledger integration). RED evidence: with the pre-fix script in place exactly the eight new tests fail
+(`pre-fix-red-run.log`, behavioural oracles only) and the fixed script passes 106/106 (`post-fix-green-run.log`).
+No other generated output drifts (`.mjs`/`.d.mts` outside the inventory's `largeFiles` scan; the regenerated entry
+is the spec's only). `build:main`/`build:renderer` were not run this round (no `src/`, tsconfig, asset or
+dependency change; the queue brief scopes this worker to targeted tests and fast static checks). The full suite was
+not run — it is verifier-owned. The root livetest's live checks are unchanged (the repaired report runs standalone
+and was exercised end to end through the actual CLI in the controls); no new deferral was created. Remaining: the
+coordinator's landing of this remediation work, the verifier's full suite and fresh `task-completion-gate` PASS,
+and the unchanged live checks in the root livetest.
+Evidence: [remediation report](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round3-remediation-4a3cd3-20261023/FINAL-REPORT.md),
+[seal](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round3-remediation-4a3cd3-20261023/FINAL-SEAL.json),
+[command receipts](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round3-remediation-4a3cd3-20261023/command-receipts.md)
+and [logs](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round3-remediation-4a3cd3-20261023/logs/).
+
+**STATUS (23 October 2026, verifier round-2-of-3 remediation `4a3cd3`): all three independent-verifier findings are
+repaired in the worktree, each with a targeted regression control (three new tests, all shown RED against the pre-fix
+script and green after the repair); targeted tests and every fast static gate are green; READY FOR INDEPENDENT
+RE-VERIFICATION. Superseded by the round-3 remediation block above; retained as history.**
+No commit, stash, branch change or `_completed` rename was performed; the coordinator commits this work. The three
+findings the round-2-of-3 dispatch carried and their as-built repair:
+
+- **Finding 1 (medium) — the Codex trial report counted queue outcomes settled after `--until` against token costs cut
+  off at `--until`.** The `plan_queue_items` SELECT has no date bound and `aggregatePlanQueue` counted the rows'
+  current landed/parked states without checking `updated_at` against the reporting cutoff, so an item that landed
+  after the window still counted as decided and measured landed inside it. The verifier's actual-CLI reproduction
+  (20 items per arm, in-window input costs 50 Off vs 100 Full, `--since 2026-09-01 --until 2026-09-30`): while the
+  items were running the verdict was `pending`; changing only their DB state to landed with `updated_at=2026-10-01`
+  turned it into `off-justified` with 20 measured landed items per arm — none had finished by the cutoff, and the
+  post-cutoff costs stayed excluded. Repair, windowing the outcomes like every other measurement:
+  `aggregatePlanQueue(logEntries, items, usage, graph, untilMs)` (and `buildComparisons(..., untilMs)`, passed from
+  `runReport` as `options.untilMs`) treats a row whose state settles at or after `untilMs` as **outside the window**:
+  it is listed in `settledAfterWindowItems`, counted per arm as `settledAfterWindow`, and counts as neither decided,
+  measured nor unknown — exactly Step 1d's rule "Queued or running items are neither decided nor unknown" applied as
+  of the cutoff. The cutoff is exclusive (`updated_at < untilMs`), matching the cost rows and policy records; only
+  `updated_at` can place a decision in time, and a finished row without a usable `updated_at` keeps its existing
+  fail-closed `bad-timestamps` unknown. The row read deliberately stays undated (a comment at the SELECT records
+  why): the rows are needed to judge each outcome as of the cutoff and to keep an untimestamped row visible as
+  unknown, and dropping them by date would silently shrink the sample instead. With no `--until` every settled
+  outcome counts as before (the default `Number.MAX_SAFE_INTEGER` never trips the gate). The report gains a
+  "settled after until" table column, the counted line "outcome settled at or after --until (outside this window,
+  neither decided nor unknown)", the JSON field `settledAfterWindowItems`, and a measures-paragraph sentence. As of
+  the cutoff such items behave exactly like in-flight ones, so the plan's 35-day short-sample rule (Decision 3
+  defaults, "keep the report running") still applies when counts are short — the plan's designed fallback for an
+  unfinished sample, not a measured verdict. Regression controls (both CLI ones RED pre-fix):
+  "does not count a queue outcome settled after --until against costs cut off at --until" runs the verifier's
+  reproduction end to end through the actual CLI — 40 items in `verifying` state give `pending` with 0 decided and
+  20 in flight per arm; then `UPDATE plan_queue_items SET state='landed', updated_at=2026-10-02` alone (the window
+  ends 2026-10-01) must leave `pending` with 0 decided/landed/measured, 20 `settledAfterWindow` per arm and null
+  input per landed item (RED pre-fix at `off-justified` with 20 measured landed per arm) — and unit "leaves an
+  outcome settled at or after --until undecided; the cutoff is exclusive" (settled at exactly `untilMs` is outside,
+  one millisecond earlier is inside and measured, no `--until` is unchanged; RED pre-fix at `decided: 1`).
+- **Finding 2 (medium) — the committed architecture inventory was stale**, so `npm run verify:architecture` exits 1
+  ("Architecture inventory is out of date.") on the reviewed checkout. The round-1-of-3 remediation added its
+  regression tests to `scripts/__tests__/codex-helper-trial-report.spec.ts` without regenerating the generated entry
+  (its status block's claim that `.spec.ts` files are outside the inventory's scan is wrong: the file is a tracked
+  `largeFiles` entry once it crosses 800 lines). Reproduced on arrival, then repaired: the three changed source files
+  are **staged but not committed** — the generator reads file content from the git index by design
+  (`readIndexedFileContents`), so the final content must be in the index for the regenerated entry to match the tree
+  the coordinator will commit — and `npm run generate:architecture` regenerated
+  `docs/generated/architecture-inventory.json`. The only delta is that one entry, 1,516 → 1,904 lines (re-sorted by
+  size). `npm run verify:architecture` now exits 0 on this checkout.
+- **Finding 3 (low) — helper-count records after `--until` could retroactively change a historical verdict.** The
+  helper-count reader passed `Number.MAX_SAFE_INTEGER` as its upper bound (`runReport`), unlike the policy, usage,
+  rollout and automation readers, so a `helper-count` record written after the cutoff could raise an Off-breach and
+  withhold a verdict for a window that ended earlier (the verifier's fixture: `off-justified` with no breaches →
+  adding one helper-count record dated 2026-10-01 → `pending` and `fixture-off-0-thread` excluded). Repair: the
+  follow-up records are now read with `parsePolicyLog(policyDir, options.sinceMs, options.untilMs, 'helper-count')`,
+  the same `[sinceMs, untilMs)` bound as every other reader; they remain follow-ups (written after the thread's own
+  record, still inside the window) and the comment says so. Regression control (RED pre-fix at breach
+  `['w-item-off-0']` and `pending`): CLI "bounds helper-count records to --until so a later record cannot change a
+  historical verdict" — 40 items landed in-window report `off-justified` with no breaches; a record dated after the
+  window's end (2026-10-02 against `--until 2026-10-01`) must change nothing; a record dated 2026-09-15 inside the
+  window still breaches `w-item-off-1` and withholds the verdict, so the bound does not over-restrict.
+
+Current evidence for this remediation round: `npx tsc --noEmit` 0, `npm run typecheck:spec` 0, `npm run lint` 0,
+`npm run check:ts-max-loc` 0 (existing tolerance warnings only), `npm run check:ui-hints` 0, `npm run build:main` 0,
+`npm run build:renderer` 0 (pre-existing initial-bundle budget warning retained), `npm run verify:architecture` 0,
+`npm run verify:ipc` 0, `npm run verify:ipc-usage` 0, `npm run verify:exports` 0, `npm run check:contracts` 0,
+`npm run verify:codex-protocol` 0 (no protocol-snapshot drift from `build:main` on this machine). Targeted tests:
+**7 files / 139 tests passed, zero failed** — the Codex helper trial report (98, including the three new regression
+controls) plus its six consumer suites (audit regressions, outcomes, review-coverage, mail-cache,
+session-policy-log and the reviewer-verdict-ledger integration). RED evidence: with the pre-fix script in place,
+exactly the three new tests fail (`pre-fix-red-run.log` — unit `decided: 1` where 0 belongs, CLI `off-justified`
+where `pending` belongs, CLI breach `['w-item-off-0']` where none belongs, the verifier's own oracles); the fixed
+script passes 98/98 (`post-fix-green-run.log`). No other generated output drifts (the `.mjs` and `.d.mts` are
+outside the inventory's `largeFiles` scan; the regenerated entry is the spec's only). The full suite was not run —
+it is verifier-owned. The root livetest's live checks are unchanged (the repaired report runs standalone and was
+exercised live in the verifier's own reproductions); no new deferral was created. Remaining: the coordinator's
+landing of this remediation work, the verifier's full suite and fresh `task-completion-gate` PASS, and the unchanged
+live checks in the root livetest.
+Evidence: [remediation report](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round2of3-remediation-4a3cd3-20261023/FINAL-REPORT.md),
+[seal](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round2of3-remediation-4a3cd3-20261023/FINAL-SEAL.json),
+[command receipts](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round2of3-remediation-4a3cd3-20261023/command-receipts.md)
+and [logs](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round2of3-remediation-4a3cd3-20261023/logs/).
+
+**STATUS (23 October 2026, verifier round-1-of-3 remediation `4a3cd3`): all three independent-verifier findings are
+repaired in the worktree, each with targeted regression controls (seven new tests shown RED on a pre-fix path, restored
+byte for byte afterwards); targeted tests and every fast static gate are green; READY FOR INDEPENDENT RE-VERIFICATION.
+Superseded by the round-2-of-3 remediation block above; retained as history.**
+No commit, stash, branch change or `_completed` rename was performed; the coordinator commits this work. The findings
+the dispatch carried (its two medium findings plus the low toolchain finding; an earlier draft of this header listed only
+the two medium ones and mis-numbered the round) and their as-built repair:
+
+- **Finding 1 (medium) — the trial clock started at `--since` (or 1970) instead of each comparison's first eligible
+  exposure.** `daysElapsed` was `(min(until, now) − sinceMs)` and shared by both comparisons, so an omitted or earlier
+  `--since` made a brand-new or never-started comparison recommend the 35-day defaults immediately (the verifier's
+  one-hour-old trial returned `apply-defaults` for both). Repair in `scripts/codex-helper-trial-report.mjs`: each
+  comparison now runs **its own** clock from **its own** first eligible logged exposure — chats from the first eligible
+  `sessionKind: 'chat'` exposure, Harness work from the first eligible `plan-queue` exposure (the Harness-work verdict
+  rules read only plan-queue counts per the 20 Oct "Separate samples" amendment, so the comparison's own sample starts
+  its clock; this interpretation is recorded for the verifier). A comparison with no eligible exposure has age 0 and can
+  never reach the 35-day stop — "a comparison that never started" stays `pending` with "after 0 days". Ages measure to
+  `min(--until, now)`, so a fixed `--until` pins the clock. The requested window is also validated now: an unreadable
+  `--since`/`--until` throws (`--since is not a readable date: …`) instead of silently producing NaN and an empty
+  window, and `--since` must be earlier than `--until`. The JSON report and the header carry `trialAgeDays` and
+  `firstExposureAt` per comparison. Regression controls (all RED pre-fix except the window-validation unit): CLI "runs
+  each comparison's clock from its first eligible exposure, not from `--since`" (one chat per arm exposed one hour
+  earlier, empty readable queue — omitting `--since` and requesting 90 days both return the identical `pending` verdict
+  the exposure-anchored control returns, exactly the verifier's `codex-clock-window-current.json` oracle, RED pre-fix at
+  `apply-defaults` for both; `firstExposureAt.harnessWork` null and `trialAgeDays.harnessWork` 0), CLI "keeps the
+  Harness-work clock on plan-queue exposure even when chats are 35+ days old" (chats `apply-defaults`, Harness work
+  `pending` "after 0 days" — RED pre-fix at Harness `apply-defaults`, the independent-sampling requirement), and unit
+  "trial clocks per comparison" (either comparison alone reaches its stop; a zero-exposure comparison never does). The
+  R2E 35-day controls now place their fixture exposure 40 days back (pre-fix they relied on a long `--since` and would
+  have mis-fired the moment the clock moved to exposure) and "prints both comparisons" pins `--until` so its
+  incomplete-sample verdict cannot age into `apply-defaults` on a future calendar date (a latent time bomb in the
+  fixture, defused).
+- **Finding 2 (medium) — rollout turns and queue cost rows after `--until` were counted.** Repair, windowing every
+  measurement to `[sinceMs, untilMs)` while keeping cumulative-counter baselines: `parseRolloutSync(path, sinceMs,
+  untilMs)` returns only turns that **start** in-window, never counts usage snapshots at/after the cutoff, keeps
+  pre-window snapshots in the delta chain as the baseline (an in-window turn measures its own growth — 150 − 100 = 50,
+  not the whole cumulative 150), bounds compaction markers and helper-mail receipts, caps a turn that runs past
+  `--until` at the cutoff for wall clock, and keeps a turn whose start cannot be parsed regardless of window (it makes
+  the thread unmeasurable, failing closed). `readCostAttribution(dir, sinceMs, untilMs, wanted)` filters `row.ts` into
+  the window (out-of-window rows are simply not measured) and treats a row without a usable `ts` as invalid — unknown,
+  never absent or zero; the file walk is bounded to the window's days. Sample qualification is bounded with it: the
+  3+-turns chat gate now counts in-window turns. `runReport` passes the window to both readers. Regression controls,
+  reproducing the verifier's numbers (all RED pre-fix): CLI "bounds rollout turns and sample qualification to `--until`"
+  (40 roots per arm, two turns before Sep 22 and a third on Sep 23 — pre-fix 120 turns per arm and `cheaper-justified`;
+  post-fix 80 turns per arm at mean 80/100 and `pending` "needs 40 chat threads with 3+ turns per group", the
+  verifier's `codex-cutoff-premature-verdict-current.json` fixture and oracle), CLI "bounds plan-queue cost receipts to
+  `--until`" (adding only an Oct 3 13:00 cost row leaves input per landed item at 100 — RED pre-fix at 10,100, the
+  verifier's `codex-cost-cutoff-current.json` figure), unit "bounds turns, usage and compactions to the window and keeps
+  the cumulative baseline", unit "counts a turn that runs past `--until` only up to the cutoff", unit "counts only rows
+  inside the requested window" and unit "fails closed on a row without a usable timestamp". One latent reliance on the
+  unbounded reader was repaired with it: the R3J1 harness-records fixture's cost rows carried the fixture default `ts`
+  after its own `--until`; they are now placed inside the window.
+- **Finding 3 (low) — the two SEA repeatability tests fail under a Node without the SEA fuse** (the verifier's Homebrew
+  Node 26.3.0), so the full-suite gate exited 1 even though the focused file passes on the `.nvmrc`-pinned Node
+  (v24.15.0). `scripts/__tests__/sea-build-repeatability.spec.ts` now gates on `canBuildSeaWithNode()` — the same
+  precondition idiom as `hasSqlite3()` and `nodePtyAvailable` — and states the reason in the suite title; the production
+  fail-fast `assertSeaBuildSupported` is unchanged, so a SEA build on a fuse-less Node still fails loudly. Evidence:
+  under the verifier's `/opt/homebrew/Cellar/node/26.3.0` the file exits 0 with `2 tests | 2 skipped`; under the pinned
+  v24.15.0 both tests execute and pass. The full suite was not run in this worker (verifier-owned per the queue brief);
+  in the verifier's own full run the only failures were these two tests, so the gate now passes as a whole on either
+  runtime.
+
+Current evidence for this remediation round: `npx tsc --noEmit` 0, `npm run typecheck:spec` 0, `npm run lint` 0,
+`npm run check:ts-max-loc` 0 (existing tolerance warnings only), `npm run check:ui-hints` 0, `npm run build:main` 0,
+`npm run build:renderer` 0 (pre-existing initial-bundle budget warning retained), `npm run verify:architecture` 0,
+`npm run verify:ipc` 0, `npm run verify:ipc-usage` 0, `npm run verify:codex-protocol` 0. Targeted tests: 8 files /
+148 tests passed, zero failed — the Codex helper trial report (95, including the seven new regression controls), the
+audit regressions, outcomes, review-coverage and mail-cache suites, both SEA suites and the audit read-only
+integration — plus the four Codex-protocol suites (20 tests) after `build:main`'s `prebuild:main` refreshed the
+committed protocol snapshot for the machine's installed Codex CLI 0.164.0 (committed state was 0.163.0; generated
+output kept current per AGENTS.md, `verify:codex-protocol` green). RED evidence: with a pre-fix simulation (shared
+`--since` clock, unwindowed rollouts, unfiltered `row.ts`) restored in place, exactly the seven new tests fail —
+`pre-fix-red-run.log` — and the fixed file was restored byte for byte (`cmp` clean) before the green run
+(`post-fix-green-run.log`, 95/95). No generated output drifts from this diff otherwise (`.mjs`/`.spec.ts` outside the
+architecture inventory's scan; `verify:architecture` confirms). The full suite was not run — it is verifier-owned. The
+root livetest's live checks are unchanged (the repaired report runs standalone and was exercised live in the verifier's
+reproductions); no new deferral was created. Remaining: the coordinator's landing of this remediation work, the
+verifier's full suite and fresh `task-completion-gate` PASS, and the unchanged live checks in the root livetest.
+Evidence: [remediation report](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1of3-remediation-4a3cd3-20261023/FINAL-REPORT.md),
+[seal](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1of3-remediation-4a3cd3-20261023/FINAL-SEAL.json),
+[command receipts](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1of3-remediation-4a3cd3-20261023/command-receipts.md)
+and [logs](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1of3-remediation-4a3cd3-20261023/logs/).
+
+
+**STATUS (23 October 2026, verifier round 2 remediation `4a3cd3`): the one independent-verifier finding is repaired
+in the worktree with four targeted regression controls (three shown RED on the pre-fix path, plus an over-merge guard);
+targeted tests and every fast static gate are green; READY FOR INDEPENDENT RE-VERIFICATION. Superseded by the
+round-1-of-3 remediation block above; retained as history.**
+No commit, stash, branch change or `_completed` rename was performed; the coordinator commits this work. As-built detail:
+
+- **Finding (medium) — shared-store account profiles double-counted helpers and spend in the A18 helper trial.**
+  Root cause: `collectSubagentSessions` (`scripts/claude-cost-audit-report.mjs`) flattened every root
+  `transcriptProjectsDirs` returns and deduplicated only main sessions (by session id, first root wins), while every
+  subagent transcript was appended unconditionally. The real shared-store profile seeder
+  (`src/main/providers/account-pool/claude-profile-seed.ts:136-147`, `CLAUDE_SESSION_STORE_ENTRY = 'projects'`) links a
+  managed profile's `projects` back into the shared store, so one physical transcript surfaced under two roots: the same
+  helper and its spend were counted twice, which also fed `sample.gp` and the 300-helper-per-group readiness checks and
+  could allow premature trial decisions. Repair, in two layers in `collectSubagentSessions`: (1) discovered transcripts
+  are deduplicated by canonical path (`realpathSync`, the same idiom and intent as `context-ceiling-replay.mjs`'s
+  "resolve aliases before selection" step) before grouping — this alone removes every symlink alias, including
+  macOS `/tmp` → `/private/tmp` path aliases; (2) within a parent session, a helper's identity is its Task `tool_use` id
+  from the sidecar `agent-*.meta.json` (file name when the meta cannot say), so a **copied** — not just symlinked — store
+  cannot bill the same helper twice either. Distinct `tool_use` ids always survive both layers. Main-session first-wins
+  semantics are unchanged. Sibling multi-root consumers were audited and already self-protect: `rtk-trial-report.mjs`
+  reads only main transcripts and is first-wins per session id, `compareTranscriptCosts` walks canonical paths and
+  deduplicates message ids, and the replay already resolves aliases before selection.
+  Reproduction (actual CLI, fixture: one parent transcript + one general-purpose helper costing exactly $0.0045 —
+  1000 input + 100 output tokens at sonnet-class $3/$15 per MTok): single root reported `| helper agents | 1
+  (general-purpose 1) |` and `| spend | $0.0045 ($0.0045/session, $0.0045/general-purpose helper) |`; adding **only** the
+  managed-profile `projects` symlink changed the same rows to `2 (general-purpose 2)` and `$0.0090` pre-fix (both
+  commands exit 0), exactly matching the verifier's reproduction, and the aliased run is row-identical to the single-root
+  run post-fix. Regressions in `scripts/__tests__/claude-cost-audit-report.subagents.spec.ts`:
+  "counts one helper once when a managed profile aliases the shared transcript store" (actual-CLI end-to-end; run without
+  and with the seeder-shaped `claude-cli-profiles/<profile>/projects` symlink and require identical `helper agents`/
+  `spend` rows — RED pre-fix at `2 (general-purpose 2)` / `$0.0090`), "counts one helper once when two roots are symlink
+  aliases of one store" and "keeps one helper identity when a store is copied into a second root" (both against
+  `collectSubagentSessions` directly — RED pre-fix at 2 subagents), plus the over-merge guard "keeps two helpers that
+  share only a file name and nothing else" (two distinct `tool_use` ids survive; green before and after, pinning the
+  identity rule). 24/24 tests in the file pass.
+
+Current evidence for this remediation round: `npx tsc --noEmit` 0, `npm run typecheck:spec` 0, `npm run lint` 0,
+`npm run check:ts-max-loc` 0 (existing tolerance warnings only), `npm run check:ui-hints` 0, `npm run build:main` 0,
+`npm run build:renderer` 0 (pre-existing initial-bundle budget warning retained), `npm run verify:architecture` 0.
+Targeted tests: 13 files / 160 tests passed, zero failed — the A18 subagents/reports/respawn-ownership suites, the shared
+price table, the transcript comparison and resume suites, and the RTK trial report + cost regression + effort/unknown-cost
+integrations. No generated output drifts from this diff (`.mjs` is outside the architecture inventory's `largeFiles`
+scan and the spec stays under its 800-line threshold); no generator needed a re-run. The full suite was not run — it is
+verifier-owned. The root livetest's live checks are unchanged (the repaired report runs standalone and was exercised
+live in the reproduction); no new deferral was created. Remaining: the coordinator's landing of this remediation work,
+the verifier's full suite and fresh `task-completion-gate` PASS, and the unchanged live checks in the root livetest.
+Evidence: [remediation report](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round2-remediation-4a3cd3-20261023/FINAL-REPORT.md),
+[seal](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round2-remediation-4a3cd3-20261023/FINAL-SEAL.json),
+[command receipts](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round2-remediation-4a3cd3-20261023/command-receipts.md)
+and [logs](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round2-remediation-4a3cd3-20261023/logs/).
+
+**STATUS (23 October 2026, verifier round 1 remediation `4a3cd3`): all five independent-verifier findings are repaired
+in the worktree, each with a targeted regression control; targeted tests and every fast static gate are green;
+READY FOR INDEPENDENT RE-VERIFICATION. Superseded by the round 2 remediation block above; retained as history.**
+No commit, stash, branch change or `_completed` rename was performed; the coordinator commits this work. The
+coordinator's `main` merge (committed at `7ef15ae8e`; the previous status block wrote it as staged) is untouched. Finding-by-finding as-built detail:
+
+- **Finding 1 (high) — one shared Claude price table.** `scripts/lib/claude-transcripts.mjs` now owns the single price
+  table Step 3 requires: Phase 0 step 7b's `--compare-transcripts` resolution was moved in as `rateForModel()` (family
+  rates opus $5/$25, sonnet $3/$15, haiku $1/$5, fable $10/$50; per-id rows `sonnet-5` $2/$10, `claude-3-opus` $15/$75,
+  `claude-3-5-haiku` $0.8/$4, `claude-3-haiku` $0.25/$1.25, `claude-3-sonnet` $3/$15), extended with the
+  `MODEL_PRICING` full-id rates where Phase 0's family fallback would price them differently: `claude-opus-5-5`
+  $4/$20, `claude-haiku-5-5` $0.1/$0.5 and the legacy dated Opus 4 (`claude-opus-4-2025*`) $15/$75
+  (`src/shared/types/provider.types.ts:432-444`). `priceFor()` resolves through that one table and keeps its existing
+  public shape (`{ inputPerMTok, outputPerMTok, known }`, `--prices` overrides keyed by lowercased model, unpriced →
+  Sonnet-class numbers with `known: false`), so `realSessionUsd`, `requestUsd` and the long-wait metric now price Opus
+  4.6/5 at $5/$25 and Sonnet 5 at $2/$10 like the comparison and `MODEL_PRICING`. `scripts/claude-transcript-cost-comparison.mjs`
+  imports the shared resolver (its `--prices` validation, `{ input, output }` shape and `unpricedModels` reporting are
+  unchanged). Bare family names keep Phase 0's family rates — the comparison's own spec pins bare `haiku` at $1/$5, and
+  transcript `message.model` values are full ids. New `scripts/__tests__/claude-transcripts-shared.spec.ts` pins the
+  per-id rates and reproduces the verifier's evidence shape: one 1M-input-token request costs the same dollar figure in
+  `realSessionUsd`, `compareTranscriptCosts` and `requestUsd` ($5 for both Opus ids, $2 for Sonnet 5), while unpriced
+  models are still reported rather than guessed.
+- **Finding 2 (medium) — managed account-profile transcript homes.** New `transcriptProjectsDirs(userData, explicit?)`
+  in `scripts/lib/claude-transcripts.mjs` returns the default projects root plus each
+  `<userData>/claude-cli-profiles/<profile>/projects` directory (the account adapter routes derived profiles there;
+  directories only — a `projects`-named non-directory is rejected; an explicit override replaces discovery). The A18
+  helper trial (`claude-cost-audit-report.mjs --subagents`, `collectSubagentSessions` now accepts one root or several),
+  the RTK trial (`rtk-trial-report.mjs`; first root wins when the same session id appears twice), the replay's
+  `parseArgs` and `--compare-transcripts` all share this one discovery path; the comparison is now also
+  `CLAUDE_CONFIG_DIR`-aware like the other sections. Two end-to-end regressions place a valid session solely under a
+  disposable managed profile home with no override: `claude-cost-audit-report.subagents.spec.ts` ("counts sessions whose
+  transcripts live only under a managed account profile") and `rtk-trial-cost-regression.spec.ts` ("admits sessions whose
+  transcripts live only under a managed account profile"). Both were shown RED on the pre-fix single-root path (A18
+  printed zero sessions; RTK reported `sessions {withHook: 0, withoutHook: 0}` instead of `{3, 1}`) and are GREEN now.
+- **Finding 3 (medium) — architecture inventory current.** `npm run generate:architecture` regenerated
+  `docs/generated/architecture-inventory.json` from the final checkpoint (41 preload domains including
+  `quick-ask.preload.ts`, current largeFiles entries/lengths). `npm run verify:architecture` now exits 0.
+- **Finding 4 (medium) — RTK Savings integration boundary repaired.** `src/tests/renderer-integration/rtk-savings-compatibility.spec.ts`
+  no longer injects the obsolete `getRtkTrackingReader` seam. The fixture replaces only the worker thread seam: a stub
+  worker behind the **real** `RtkTrackingClient` answers exactly what `rtk-tracking-worker.ts` computes
+  (`getSummary()` plus `projectBursts`) from the **real** `RtkTrackingReader` over the fixture SQLite DB. The real
+  client request path, registered handlers, preload domain, `RtkIpcService` and the Savings template all run, so the
+  declared DB → IPC → preload → Savings boundary reaches its DOM assertions again (capped 7,500 rendering twice, no raw
+  49,990/39,990, no error banner). The focused run passes.
+- **Finding 5 (low) — portable capture-server parity check executes.** The parent-provisioned ignored link is
+  re-provisioned in this managed checkout: `.claude/skills/doc-review-artifact/references/serve-review.mjs` and
+  `artifact-template.html` are symlinks to the root checkout's skill files (the parent-provisioned source). SHA256 of
+  `serve-review.mjs` is `5db17e360ceb066f3f57238fc8eaf6088498e395d18ddce62c1b3a94bd0b09af`, byte-identical to
+  `src/main/doc-review/assets/serve-review.mjs` and to the hash already recorded in the 19 October verification notes
+  below; `artifact-template.html` matches its
+  in-app asset too. The `serve-review.spec.ts` parity assertion now runs (no skip) and the `artifact-template.spec.ts`
+  portable-runtime assertion executes: both doc-review suites pass with zero pending. If a replacement checkout is ever
+  supplied, re-provision with
+  `mkdir -p .claude/skills/doc-review-artifact/references && ln -s <root-checkout>/.claude/skills/doc-review-artifact/references/serve-review.mjs .claude/skills/doc-review-artifact/references/serve-review.mjs`
+  (and the same for `artifact-template.html`) before final verification.
+
+Current evidence for this remediation round: `npx tsc --noEmit` 0, `npm run typecheck:spec` 0, `npm run lint` 0,
+`npm run check:ts-max-loc` 0 (existing tolerance warnings only), `npm run check:ui-hints` 0, `npm run build:main` 0,
+`npm run build:renderer` 0 (pre-existing initial-bundle budget warning retained), `npm run verify:architecture` 0.
+Targeted tests: 20 files / 190 tests passed, zero failed and zero pending — the new pricing/discovery spec, the
+comparison, A18 subagents (incl. the new managed-profile e2e), RTK trial report + effort/unknown-cost integrations +
+the new discovery e2e, replay/ownership/population/resume/respawn suites, the RTK Savings compatibility and
+shortened-population integration boundaries, both savings-tab specs, `rtk-tracking-client`, `rtk-handlers`, and both
+doc-review suites with the portable parity assertions executing. The full suite was not run — it is verifier-owned.
+The root livetest's live checks are unchanged; no new deferral was created. Remaining: the coordinator's landing of
+this remediation work, the verifier's full suite and fresh `task-completion-gate` PASS, and the unchanged live checks
+in the root livetest.
+Evidence: [remediation report](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1-remediation-4a3cd3-20261023/FINAL-REPORT.md),
+[seal](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1-remediation-4a3cd3-20261023/FINAL-SEAL.json),
+[command receipts](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1-remediation-4a3cd3-20261023/command-receipts.md)
+and [logs](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1-remediation-4a3cd3-20261023/logs/).
+
+**STATUS (23 October 2026, merge resume `4a3cd3` round 2): the coordinator's `main` merge is fully resolved and staged
+(not committed — the coordinator finishes the merge); all worker gates green; READY FOR INDEPENDENT QUEUE VERIFICATION.
+Superseded by the remediation block above; retained as history.**
+The coordinator merged `main` at `0c4b7de7a` ("Plan: 2026-10-10-oct-phase4-tooltips_plan", carrying `6afb32a52`
+housekeeping, the Phase 4 tooltips guard and the 0.52.0 RTK pin) into this queue branch; the merge arrived in progress
+with seven conflicted paths. This resume resolved all seven so both sides' intent survives, removed every conflict
+marker and `git add`ed the resolution together with the merge-integration fixes the clean merges could not see (detail in
+the "Merge resume" as-built entry below). Per the queue brief no commit, stash, abort, branch or rename was performed;
+`git status` reports "merge in progress. no conflicts". Conflicts: `rtk-tracking-reader.ts` and `rtk-ipc.service.ts`
+(union of both summary field groups), `rlm-migrations-076-080.ts` (all four migrations kept; the two `078_` names are
+deliberately not renumbered — migrations are tracked by name and both may already be applied on real databases),
+`settings-metadata-runtime.ts` (main's `observationMemoryEnabled` entry plus Phase 1's reworded settings copy),
+`instance-header.component.spec.ts` (union of imports and both test blocks), and `rtk-savings-tab.component.ts` plus its
+spec (the window selector with main's burst banners, last-summary seeding and the "Last 7 days" default the housekeeping
+plan specifies). Clean-merge fallout repaired: `rtk-daily-rollup.ts` now computes the honest split/capped fields the
+merged interface requires (typecheck was red on it), the bundled-pin assertion follows main's 0.52.0, the savings-tab
+trial spec and the renderer integration spec were updated for the merged `RtkIpcService` (`lastSummary`) and for main's
+`loading()` refresh skip — the latter is deliberately dropped, because a skip-while-loading return blocked the
+programmatic refresh the integration boundary awaits and the plan's P1-RTK-WINDOW-1 epoch fence already guarantees no
+stale response can overwrite current state. The merge also brought `npm run check:ui-hints`; Phase 1's renderer text was
+remediated the way the Phase 4 plan records: five hover-only hosts get exact reasons, the savings-tab tooltips bind
+through the reader-visible `copy()` idiom, model-row-facts' note binds as a plain data read, the quick-ask close control
+uses `appIconButton`, three automations pre-check native titles moved to `appTooltip` with their exact sentences kept,
+and `--record-wording --against MERGE_HEAD` registered 13 sentences with **no baseline count increased**. Gates all exit
+0: `tsc --noEmit`, `typecheck:spec`, `lint`, `check:ts-max-loc`, `check:ui-hints`, `build:main`, `build:renderer`.
+Targeted tests green (RTK reader/runtime/rollup/rollout/defer-hook/tracking-client/worker/pins/version-pins/awareness,
+all three savings-tab specs plus the renderer integration boundary, migrations including wake-hint tombstones and the
+helper budget notice, helper-limit runtime, rtk-handlers, instance-header, quick-ask, model-row-facts, automations
+(10 files / 111 tests), settings + tooltip suites, shared types, storage, instance-system-prompt, and the scripts
+tooling (738 tests)). The full suite was not run — it is verifier-owned. Remaining: the coordinator's merge commit and
+landing, the verifier's full suite and fresh `task-completion-gate` PASS, and the unchanged live checks in the root
+livetest.
+
+**STATUS (23 October 2026, queue resume `4a3cd3`): implementation RECOVERED into the supplied checkout; all worker
+gates green; READY FOR INDEPENDENT QUEUE VERIFICATION. Superseded by the round-1-of-3 remediation block above;
+retained as history.**
+This resumed item was supplied at `1ee52cbd8` with **no Phase 1 code in the checkout**; the accepted implementation
+lives on retained branch `queue/2026-10-10-oct-phase1-token-le-528c17` at checkpoint `96473b151`. The worker recovered
+all **587 changed paths** (256 additions, 331 modifications) into this worktree as uncommitted working-tree state via a
+file-level 3-way merge (base `542f1f690`, ours `1ee52cbd8`, theirs `96473b151`): 330 clean merges, one generated-file
+conflict (`docs/generated/architecture-inventory.json`) resolved by regeneration. **No commit, stash, merge, branch
+switch or index change was used.** All 17 paths changed on both sides were reviewed bidirectionally; both intents survive
+(`adapter-factory`, `adapter-spawn-helpers`, `settings-control-policy`, `instance-manager` + its specs,
+`runtime-change-notices`/`runtime-reconciler` + specs, `context-attribution-panel`, `context-manifest.types` and the
+four settings type files). Two base-defect specs (`low-disk-space-watcher.spec.ts`, `scratch-sweep-scheduler.spec.ts`)
+were adopted **byte-identical** from main `6afb32a52`, repairing three pre-existing TS2493 errors introduced by
+`1ee52cbd8`; that is base maintenance, not plan scope. Generators re-run: aliases (61+3), IPC (1,205 channels),
+architecture inventory (index-derived; the coordinator regenerates after staging, as already recorded). Current gates
+all exit 0: `tsc --noEmit`, `typecheck:spec`, `lint`, `check:ts-max-loc`, `build:main`, `build:renderer`, plus
+`verify:ipc`, `verify:ipc-usage`, `verify:architecture`. Targeted tests: **32 files / 565 tests, zero failed**
+(batch lifecycle incl. the P1-FRESH-BATCH-LIFECYCLE-1 repair surfaces, overlap/alignment surfaces, report-script
+fixtures, RTK/settings). The full suite was not run — it is verifier-owned. Remaining: verifier's full suite and fresh
+`task-completion-gate` PASS, coordinator landing/AIO completion, base sync of `6afb32a52` (18 further overlap paths may
+raise ordinary merge-resume conflicts), and the unchanged live checks in the root livetest. The plan's unchecked boxes
+are exactly those coordinator/verifier gates; no worker-implementable unchecked item remains, and none was discovered.
+Evidence: [recovery report](../../_scratch/changed-plans-queue-2026-10-18/phase1-recovery-4a3cd3-20261023/FINAL-REPORT.md),
+[seal](../../_scratch/changed-plans-queue-2026-10-18/phase1-recovery-4a3cd3-20261023/FINAL-SEAL.json),
+[logs and receipts](../../_scratch/changed-plans-queue-2026-10-18/phase1-recovery-4a3cd3-20261023/logs/),
+[cleanup receipt](../../_scratch/changed-plans-queue-2026-10-18/phase1-recovery-4a3cd3-20261023/runtime-cleanup.json).
+
+**STATUS (20 October 2026, resumed worker verification). Superseded by the 23 October recovery block above; retained as history.**
+Implementation was ACCEPTED under James's option-2 bar at queue checkpoint `eb952dba2` (see "Eighth fresh gate" below).
+The coordinator has now committed the base merge as `96473b151` (parents `eb952dba2` and main `542f1f690`, "October updates").
+The resumed worker verified that checkpoint and is **READY FOR INDEPENDENT QUEUE VERIFICATION**. No code changes were needed.
+James's request to land Phase 1 remains coordinator-owned; this worker did not merge, commit, stage, switch branches or rename this document.
+
+**Current merge-only worker checklist:**
+
+1. [x] Verified the committed resolutions of all eight conflicts: architecture inventory, preload channels, consensus coordinator and its spec,
+   compaction continuity spec, mobile gateway spec, document streaming spec and instance-list store spec. Main is an ancestor of HEAD;
+   no unmerged entries or conflict markers remain. Both parents' test declaration titles survive in the five conflicted specs.
+   Direct review retains final native consensus usage through termination, the real-factory read-only check, request continuity,
+   bounded streamed-status checks, TLS key permissions, resident-Claude state and all shared reasoning efforts.
+2. [x] Ran `npm run generate:architecture` and `npm run generate:ipc`: both exited 0 and reproduced the committed bytes exactly.
+   IPC retains all 1,205 combined channels. Neither generated file was hand-edited.
+3. [x] Ran the current worker gates below on unchanged checkpoint `96473b151`. Full logs and individual command/exit receipts are retained.
+
+| Command | Current result |
+|---|---|
+| `npx tsc --noEmit` | Exit 0 |
+| `npm run typecheck:spec` | Exit 0 |
+| `npm run lint` | Exit 0 |
+| `npm run check:ts-max-loc` | Exit 0 |
+| `npm run build:main` | Exit 0 |
+| `npm run build:renderer` | Exit 0 |
+| `npm run verify:ipc` | Exit 0 |
+| `npm run verify:architecture` | Exit 0 |
+| `npm run test:quiet -- <13 explicit merge-related spec files>` | Exit 0; 13 files, 255 passed, zero failed/pending; cache bypassed |
+| `npm run test:quiet` (full repository suite) | NOT RUN in this worker, as required by the current Plan Queue dispatch; independent verifier owns it |
+
+4. [x] Updated this root plan's status/as-built notes and retained the report, seal, raw test output and receipts at
+   [the worker evidence directory](/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-oct-phase1-token-le-528c17/_scratch/merge-verification-20261020). Runtime cleanup is recorded there. No new implementation scope or test deferral was added.
+
+The renderer production build retains the existing initial-bundle warning (1.36 MB against a 1.00 MB warning budget); it exited 0.
+The LOC gate retains existing tolerance warnings and exited 0. This resume's source review is a worker review, not a fresh independent verdict.
+The coordinator still owns the final full suite, independent post-merge completion gate, landing and any completed rename.
+Remaining provider/rebuilt-app/Windows/time-dependent live checks stay in
+[2026-10-10-oct-phase1-token-levers_livetest.md](2026-10-10-oct-phase1-token-levers_livetest.md).
+
+
+**Current Steps 16c / 8b renderer-boundary repair (19 October 2026): WORKER CHECKS PASSED; WHOLE-ITEM ACCEPTANCE OPEN.**
+Step 16c completed events now project only the existing public fields. Internal resume-delivery and native-fallback diagnostics
+remain on main-process results; real transport controls verify accepted, parked, native, manual and failed restart outcomes.
+Step 8b run snapshots accept complete persisted check-amended prompts without applying the authored prompt limit again.
+Authored action/create/update/preflight inputs retain 500,000 characters; original prompt bytes, escaped notes and retry copies
+remain intact. Actual runner/check/SQLite/forwarding/transport controls reproduce the dropped update and verify the repair.
+No installed UI/provider execution, real user database/history or settings mutation is claimed. Earlier setup failures are retained.
+All six static/build gates and explicit architecture verification passed serially, then the post-build focused run passed
+27 files / 458 tests, zero failed or pending, including 13 audit-readonly and all seven portable controls; child and wrapper closed 0/no signal.
+[Compaction boundary evidence](../../_scratch/changed-plans-queue-2026-10-18/phase1-compaction-renderer-boundary-repair/FINAL-REPORT.md) and
+[automation snapshot evidence](../../_scratch/changed-plans-queue-2026-10-18/phase1-automation-runtime-prompt-boundary-repair/FINAL-REPORT.md) retain scope and source-review qualifications.
+The interrupted parent full run is not a PASS. New full normal verification, a genuinely new whole-item gate and AIO closure remain **OPEN**.
+All original 53 criteria/history, conditional/live decisions and filenames remain intact; no completed rename.
+
+**Current Steps 18a / 16c repair status (19 October 2026): WORKER CHECKS PASSED; WHOLE-ITEM ACCEPTANCE OPEN.**
+Step 18a shortened-command counts, per-program counts and weighted savings now share the positive persisted-savings subset.
+Raw zero/negative evidence and explicit proxy/fallback counts remain intact; compliance still measures routing separately.
+Actual disposable SQLite and a mounted renderer integration reproduce the prior dilution and verify the corrected values.
+Step 16c restart success now carries a separate confirmed resume-delivery receipt. Handled late parking and surviving
+known-limit gates no longer falsely acknowledge the original request. Actual manager/communication controls retain accepted
+fresh restarts and later parked-package replay, with its own admission/receipt; no permanent-loss or original-later-delivery claim.
+All six static/build gates and explicit architecture verification passed serially, followed by the post-build quiet focused run:
+15 files, 249 passed, zero failed or pending, including 13 audit-readonly controls, all 19 early-guardrail controls and seven
+portable assertions. Actual Vitest child and wrapper closed code 0/no signal. No installed provider trial or real user database used.
+[RTK repair evidence](../../_scratch/changed-plans-queue-2026-10-18/phase1-rtk-shortened-population-repair/FINAL-REPORT.md) and
+[compaction repair evidence](../../_scratch/changed-plans-queue-2026-10-18/phase1-compaction-resume-receipt-repair/FINAL-REPORT.md) retain setup failures and scope qualifications.
+Full normal verification, a genuinely new whole-item gate and AIO closure remain **OPEN**; all 53 criteria/history remain intact.
+
+**Current Step 18b recommendation repair (19 October 2026): WORKER CHECKS PASSED; WHOLE-ITEM ACCEPTANCE OPEN.**
+The read-only RTK trial report now recommends off immediately for an already measured G1/G2/G3/G5 failure, including
+before 14 days/150 sessions per arm. Healthy, unknown, benefit-only and cost-only early evidence still waits; mature,
+28-day stop and G4-only sessions-only decisions retain their existing rules. No settings, hook behavior or trial activation changed.
+Paired actual CLI controls reproduce the former pending recommendation and verify off in JSON and text after repair;
+all inputs were synthetic and explicitly isolated. The original environment-override qualification and corrected ordinary-environment
+reruns are preserved in [the repair report](../../_scratch/changed-plans-queue-2026-10-18/phase1-rtk-early-guardrail-repair/FINAL-REPORT.md).
+All six static/build gates passed, then the post-build quiet focused run passed 70 tests, zero failed or pending,
+including 19 new controls, 13 audit-readonly controls and all seven portable assertions; actual Vitest closed code 0/no signal.
+The full normal suite, genuinely new whole-item gate and AIO closure remain **OPEN**. All original 53 criteria/history remain intact.
+
+**Current audit-readonly repair status (19 October 2026, follow-up to the fresh `a33` FAIL): WORKER CHECKS PASSED; WHOLE-ITEM ACCEPTANCE OPEN.**
+Existing ground rule 10 and Steps 1d/2/3 now enforce SQLite engine read-only mode in all three audit CLI fallbacks.
+The repair adds only `-readonly` to the existing argv; native readonly/fileMustExist options, escaped parameters, report
+metrics/verdicts/ownership joins and defaults are unchanged. Disposable hot-journal controls reproduce all three prior
+mutations and then verify byte-identical database/journal preservation with fail-soft unavailable reads; healthy controls pass.
+Permanent real-CLI coverage also checks default-driver behavior and quoted parameters. The deliberate transaction-writer
+crash has its own SIGKILL close receipt, separate from the successful test runner. No app/user database or real history was used.
+All six static/build gates passed, followed sequentially by the normal quiet focused run: 14 files,149 passed, zero failed or
+pending, including all seven portable assertions; actual Vitest child and wrapper closed code 0 without a signal.
+[Repair evidence and setup-failure qualifications](../../_scratch/changed-plans-queue-2026-10-18/phase1-audit-readonly-repair/FINAL-REPORT.md).
+The coordinator's new normal seven-command/full-suite gate, genuinely new whole-item gate and AIO closure remain **OPEN**.
+All original 53 criteria, historical evidence, conditional/live/trial choices and filenames remain intact; no completed rename.
+
+**Current repair status (19 October 2026, follow-up to the fresh `6a157` FAIL): WORKER CHECKS PASSED; WHOLE-ITEM ACCEPTANCE OPEN.**
+The prior normal gate and fresh failure remain historical evidence. This narrow follow-up repairs existing criteria:
+- **Step 8d:** thread start counts now require both actual dispatch and the existing successful-send receipt. Handled late
+  provider refusals remain uncertain; early no-send stays false. Initial/redelivery lifecycle status and monotonic identity
+  fences are preserved. Accepted recovery and attachment fallback retain one receipt; observer failure does not resend.
+- **Step 10 item 5:** detailed scheduling guidance commits only on that successful receipt. Early known-limit and late
+  parked/account-switch returns leave it available for the next accepted intent.
+- **Step 4 item 4:** Council/compare and multi-verify synthesis now pass the prescribed read-only flag through the actual
+  runtime/factory/Claude argument path. Ordinary Claude callers retain their permissions. Inert producer controls reproduce
+  the old acceptEdits arguments and verify dontAsk plus the read-only tool list after repair; no provider call was made.
+- **Step 4 item 6:** the two header notes record the original cache measurement/git-safety cost and security-plugin rationale.
+  Comment-stripped executable output is unchanged; this is not a new installed-CLI measurement.
+Current normal quiet focused verification: 29 selected files, 467 passed, zero failed or pending, including all seven portable
+assertions; actual Vitest child and wrapper both closed code 0 without a signal. Both type programs, lint, file-size checks and
+both builds passed on the frozen repair. [Repair evidence and qualifications](../../_scratch/changed-plans-queue-2026-10-18/phase1-late-provider-refusal-repair/FINAL-REPORT.md).
+The coordinator's new normal seven-command/full-suite gate, genuinely new whole-item completion gate and AIO closure remain
+**OPEN**. All original 53 criteria, conditional/live/trial decisions, prior evidence and filenames remain unchanged.
+
+**Current coordinator status (19 October 2026, corrective candidate after `08f1851`): WORKER CHECKS PASSED; WHOLE-ITEM ACCEPTANCE OPEN.**
+This current block supersedes the older worker-ready summaries and replay/default choices below without changing their historical evidence.
+The managed checkout remains uncommitted. All original 53 criteria, conditional/dropped/live/trial decisions and AIO-only checkpoint,
+integration and promotion ownership remain intact. No completed rename, whole-item PASS, live provider trial or installed-app check is claimed.
+
+- **Current worker verification:** the normal quiet focused runner executed all 59 selected files: 963 tests passed, zero failed,
+  and two pre-existing interactive-launch controls were skipped. All seven portable-server assertions passed. Both the actual
+  Vitest child and wrapper closed with code 0 and no signal. Production/spec types, lint, file-size checks and both builds passed.
+  The [worker report](../../_scratch/changed-plans-queue-2026-10-18/phase1-helper-budget-notice-repair/FINAL-REPORT.md)
+  separates failed intermediate runs, focused checks, actual CLI receipts, source review and remaining coordinator gates.
+- **Existing acceptance repairs:** daily helper-budget notice claims now survive runtime/service recreation in the same ledger
+  and renew next UTC day; chip state still refreshes when that day's notice was already claimed. Storage/notification failures
+  do not alter authoritative admission decisions. Nullable thread-delivery evidence distinguishes accepted sends, proven no-send
+  and uncertain attempts, including real manager/communication no-op branches. Late evidence updates refresh only loaded rows
+  without changing unread counts or bounded history order. Cached child diagnostics recheck current pending children after awaits.
+  Native compaction's ordinary metadata binding and typed mounted paste controls are retained.
+- **Report evidence remains conservative:** RTK reports keep missing tool results unknown and include observed zero output in
+  matched benefit populations. No RTK cost/adoption claim or hook-rewrite change is inferred from those local controls. Codex
+  review verdict counts now use the existing reliable typed review boundary, the actual pre-teardown reviewer identity and the
+  existing session-policy ledger. Successful format repair uses its own instance/thread identity; duplicate receipts count once,
+  and missing, foreign or conflicting receipts remain unknown. These counts are separate from usage completeness and transport
+  completion; no negative outcome is fabricated from absence and no new adoption threshold is introduced.
+
+**Refreshed Step 3 / Step 5a choice:** after correcting the shared one-hour cache-write split, the same read-only replay command
+`node scripts/context-ceiling-replay.mjs --since 2026-09-14 --json` completed on 19 October against the then-current local history.
+The earlier replay remains historical evidence; this is a refreshed corpus, not a byte-identical rerun. The 4,150 transcripts split
+into 1,057 owned-chat and 3,093 Harness transcripts, with child ownership resolved for this corpus. Applying the existing smallest
+ceiling retaining at least 80% of 200K savings and the existing per-cohort p90 limits selects:
+
+| Cohort | Selected ceiling | Replay saving | Share of 200K saving | p90 summaries |
+|---|---:|---:|---:|---:|
+| James's owned chats | 250,000 tokens | $6,774.70 | approximately 85.3% | 2 |
+| Harness work | 200,000 tokens | $40,383.83 | 100% | 3 |
+
+The existing defaults and prescribed expectation now match those choices; stored settings were not rewritten. Savings use the
+replay's pricing assumptions and selected mtime/history window, not observed billing or a prospective provider trial. The replay
+JSON and independent arithmetic are retained with the worker evidence. Older own-chat `0`/none choices below are superseded by
+this refreshed application of the same rule, not removed from history.
+
+- [ ] **Coordinator normal gate:** run all seven canonical commands on the final AIO checkpoint, including the full suite and
+  its actual child-exit evidence. This worker ran focused verification and six static/build commands, not the full suite.
+- [ ] **Genuinely fresh whole-item gate:** obtain a new `task-completion-gate` PASS over the complete final range and all 53 criteria.
+  Scoped source reviews do not replace that acceptance decision.
+- [ ] **AIO completion:** native verification, harvest/integration/promotion and documentation closure remain coordinator-owned.
+
+
+**Current coordinator status (19 October 2026): WORKER REPAIR VERIFIED — final coordinator gates remain open.**
+This supersedes worker-ready/no-actionable-issue wording below for checkpoint `edf4d45dbe8b978fc4f99a025cd8178d13572ae5`.
+The normal canonical seven commands passed on that checkpoint, including an actual full-suite child exit 0 / no signal;
+those historical results do not verify the new repair. Phase 1 remains active and unaccepted.
+The uncommitted lifecycle correction now clears expired batches, fences removed/disposed parents across awaits and callback re-entry,
+unsubscribes the owned listener, and runs through actual manager removal plus both registered app-shutdown callbacks.
+Current worker checks: both type programs, lint, LOC and both builds passed; final direct Vitest closed code 0 / no signal,
+11 files / 163 passed / zero failed or pending, including all seven portable assertions. Full-suite and genuinely new
+independent whole-item acceptance remain coordinator-owned. [Repair report and receipts](../../_scratch/changed-plans-queue-2026-10-18/phase1-batch-lifecycle-repair/FINAL-REPORT.md),
+[current source pins](../../_scratch/changed-plans-queue-2026-10-18/phase1-batch-lifecycle-repair/final-sources.json) and
+[repair evidence seal](../../_scratch/changed-plans-queue-2026-10-18/phase1-batch-lifecycle-repair/FINAL-SEAL.json).
+
+- [ ] **P1-FRESH-BATCH-LIFECYCLE-1 (Medium; existing Step 13c item 2; worker repaired, independent acceptance pending):** original confirmed finding at `edf4`: the new batcher's strong `parents` map has no
+  parent-removal path. Its actual timeout target `releaseAllHeld` releases held values and clears the timer but retains
+  burst/member/running/open-burst state. `dispose()` clears all state, but the production child-completion handler and
+  manager do not call it; the handler's new `child-spawned` listener is not removed. Manager removal and destruction
+  therefore do not release this new state. Existing Step 13c already requires batch state dropped on completion/timeout
+  and disposal for app shutdown. This is an unmet existing requirement, not new product scope.
+- **Required repair boundary:** clean expired batch membership/open-burst/running state without duplicate or lost delivery;
+  release this parent's new batcher-owned state on actual parent removal, and wire handler disposal/listener removal into
+  actual manager shutdown. Preserve reported-ID deduplication while a live parent can spawn later waves (Step 13b),
+  immediate failure delivery, independent older siblings, exactly-once bookkeeping and stored/on-screen results.
+  Do not clear a live parent's reported IDs merely because `noteParentSettled` runs. The pre-existing
+  `completedChildNotifications` set is not counted as a new defect in this finding.
+- **Source and reproduction:** [fresh independent FAIL report](../../_scratch/changed-plans-queue-2026-10-18/phase1-edf4-fresh-completion-gate/FINAL-REPORT.md),
+  [actual production-class probe](../../_scratch/changed-plans-queue-2026-10-18/phase1-edf4-fresh-completion-gate/batcher-retention-probe.ts),
+  [receipt](../../_scratch/changed-plans-queue-2026-10-18/phase1-edf4-fresh-completion-gate/batcher-retention-receipt.json)
+  and [sealed evidence](../../_scratch/changed-plans-queue-2026-10-18/phase1-edf4-fresh-completion-gate/FINAL-SEAL.json).
+  The probe directly invokes the real timeout callback target, not an elapsed ten-minute wall-clock check: one delivered
+  result leaves one parent, two burst entries and an open burst. A separate 10,000-parent settled-history control retains
+  10,000 parents/reported IDs until explicit disposal. The handoff preparer independently traced the whole batcher,
+  handler and manager plus adjacent tests; it did not rerun the probe or claim final acceptance.
+  [Lifecycle race guidance](../../_scratch/changed-plans-queue-2026-10-18/phase1-batch-lifecycle-native-handoff/race-guidance/IMPLEMENTATION-GUIDANCE.md) records source-backed repair hazards and verification guidance, not additional reproduced findings or new scope.
+- **Native checker: SOURCE FIRST, before expensive canonical gates.** Read this exact ROOT canonical file, then the
+  linked finding/probe and current executing lifecycle paths in the managed checkout. If this known source gap remains,
+  return the native verifier's actual FAIL immediately so normal AIO repair dispatch can run; do not rerun the full suite
+  before acknowledging an already open source acceptance failure. Do not fake a verdict or alter Queue records.
+  After production RED → repair → GREEN, run appropriate focused and normal canonical verification, then obtain a
+  genuinely new whole-item `task-completion-gate` PASS. The prior fresh verifier stopped at this actionable preflight
+  failure and did not certify the other 52 criteria or the full 412-path range.
+- **Preserved custody and scope:** all original 53 criteria, 19 accepted root corrections, conditional/dropped/live/trial
+  decisions and AIO-only integration/checkpoint ownership remain unchanged. Keep the parent-provisioned ignored
+  `.claude/skills/doc-review-artifact/references/serve-review.mjs` link in the managed checkout through corrective/final
+  verification: the full suite must retain only the established seven pending controls, with all seven portable-asset
+  assertions passing. Its absence previously introduced an additional skip. No new live deferral is created here.
+
+**Worker repair status (19 October 2026, verifier round 1 follow-up): READY FOR INDEPENDENT VERIFICATION.**
+Worker-owned acceptance continuations below are implemented and verified. Whole-item acceptance remains coordinator-owned;
+the two unchecked coordinator gates are deliberately open until its full suite and fresh independent verdict. No PASS,
+integration or completed rename is claimed by this worker.
+The worker-ready inventory below is an implementation handoff, not a whole-item verdict. The broader source audit
+of checkpoint `1c1f5f224819dc4e26b1155560996623243f61ed` against base `0190f9133` is unfinished; its
+374-path checkpoint coverage and all 53 source classifications are recorded; repaired-source, acceptance and final-delta reconciliation remain incomplete. The following findings concern existing acceptance criteria.
+The original source descriptions below are retained for traceability. All 21 currently listed findings have worker repairs:
+20 behavioral findings have controlled runtime evidence, including the Codex mail-measure continuation below. The Step 13a
+dead-code cleanup has source closure and existing checks without new tests. Independent acceptance remains pending.
+See [19 October remediation evidence](#native-audit-remediation-19-october-2026) and the original
+[audit index](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/findings-index.md).
+
+| Audited finding (worker repaired; verifier pending) | Severity | Original criterion and source issue | Original source evidence |
+|---|---|---|---|
+| P1-AUTO-CONTAINMENT-1 | High | Step 8b: shallow IPC validation and nested store merging can retain a host pre-check on a contained job. | [Security source trace](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/security-subset/S1-S2-SOURCE-VALIDATION.md) |
+| P1-AUTO-ONETIME-1 | Medium | Step 8b: an MCP schedule-only update can retain a check when changing a job to oneTime. | [Security source trace](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/security-subset/SECURITY-SUBSET-REPORT.md) |
+| P1-LIVE-NULL-1 | Medium | Step 14d / DesiredRuntime: an effort-only null reset can report success without resetting the resident CLI's effort. | [Finding](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-LIVE-NULL-1.md) |
+| P1-RTK-ZERO-1 | Medium | Step 18b: the top-level cost interval drops measured zero-dollar turns retained by its verdict and strata. | [Finding](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-RTK-ZERO-1.md) |
+| P1-STANDING-CAP-1 | Medium | Step 1e: single-note 6,000-character bound bypass; parent store-only RED reproduced, integration/fix pending. | [Finding and original RED](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-STANDING-CAP-1.md) |
+| P1-STANDING-THREAD-1 | Medium | Step 1e: same-conversation input-cap recovery replaces the provider thread without clearing its standing-note cache. | [Finding](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-STANDING-THREAD-1.md) |
+| P1-NATIVE-SEARCH-WIRING-1 | Medium | Step 13d: the native-search detector is uncalled; actual spawn/config resolvers retain the second tool-deferral layer. | [Finding](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-NATIVE-SEARCH-WIRING-1.md) |
+| P1-REPLAY-P90-1 | Medium | Step 3: the combined Harness ceiling decision uses p90 of class medians instead of per-session summary counts. | [Finding](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-REPLAY-P90-1.md) |
+| P1-A18-RESPAWN-1 | Medium | Step 2: the trial re-spawn metric flattens different parents and counts overlapping starts before a helper returns. | [Finding](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-A18-RESPAWN-1.md) |
+| P1-RTK-WINDOW-1 | Medium | Step 18a: a late prior-window response can overwrite the currently selected RTK summary (attributed renderer source review). | [Source trace; runtime pending](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/renderer-subset/RTK-SOURCE-FINDINGS.md#r1) |
+| P1-RTK-COMMANDS-1 | Medium | Step 18a: the command table still displays inflated raw compatibility savings beside capped totals (attributed renderer source review). | [Source trace; runtime pending](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/renderer-subset/RTK-SOURCE-FINDINGS.md#r2) |
+| P1-CODEX-UNKNOWN-1 | Medium | Step 1d: missing chat usage receipts can become eligible zero-token turns and support a favorable Cheaper verdict (attributed report source review). | [Source trace; runtime pending](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-CODEX-UNKNOWN-1.md) |
+| P1-CODEX-OUTCOME-1 | Medium | Step 1d: child quality uses final-turn completion instead of the required Harness success/failure records (attributed report source review). | [Source trace; runtime pending](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-CODEX-OUTCOME-1.md) |
+| P1-CODEX-MEASURES-1 | Medium | Step 1d: helper threads per turn and cache misses following helper mail are absent from the required trial measures (attributed report source review). | [Source trace; runtime pending](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-CODEX-MEASURES-1.md) |
+| P1-COLD-FIRST-1 | Medium | Step 5b: an owned persistent loop sends its first cold-cache resumed round before queuing the reset for the following round; preserve borrowed/unknown/threshold and anti-thrash guards. | [Source trace; runtime pending](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-COLD-FIRST-1.md) |
+| P1-MCP-STABLE-EVIDENCE-1 | Medium | Step 9b: the Codex stable execute wrapper loses the selected evidence tool’s null output-cap exemption (attributed source review; runtime pending). | [Finding](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-MCP-STABLE-EVIDENCE-1.md) |
+| P1-CONSENSUS-READONLY-1 | High | Step 4.4: Claude consensus omits the required readOnlyReview flag and reaches acceptEdits instead of dontAsk/read-only tools (attributed source review; runtime pending). | [Finding](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-CONSENSUS-READONLY-1.md) |
+| P1-ACP-COMPACT-FAIL-1 | Medium | Step 11b: accepted ACP turn failures can resolve the native compact send, falsely emit completed and suppress restart-summary fallback (source-backed; runtime pending). | [Finding](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-ACP-COMPACT-FAIL-1.md) |
+| P1-DEAD-PERSISTENCE-1 | Low | Step 13a: the required unused adapter persistence method/option/mock cleanup remains in the candidate; reconcile MiMo and run existing adapter/type/LOC gates (no new tests). | [Source acceptance gap](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-DEAD-PERSISTENCE-1.md) |
+
+- [x] **Existing P1-CODEX-MEASURES-1 continuation (Step 1d):** implemented structural helper-mail/cache correlation in the actual rollout parser and report. Typed descendant-to-parent delivered input is paired with the next measured request after an earlier request in the same turn. Explicit zero-cache counts, measured denominators and unknown coverage appear in JSON/text. Equal-total before/after-mail CLI controls are RED → GREEN; a bounded read-only real sample has 330 deliveries / 234 measured next requests / zero zero-cache misses. No mail-based verdict condition was added. Source producer hashes and current receipts are in the remediation report; historical unsupported formats remain unknown.
+
+- [x] **Existing P1-CODEX-OUTCOME-1 continuation (Step 1d):** keep known Harness child success/failure counts independent of complete billed-rollout eligibility. Valid exact instance/thread/arm exposure plus an authoritative failed exit must still count as failed when its rollout has no final boundary or usage; retain unknown token measures and their existing pending criteria. Add paired complete/partial/crashed-rollout controls, missing/conflicting/foreign-identity outcome controls, and an arm with known failures but no measured token bucket. This is the existing quality-count requirement, not a new verdict rule. [Source reconciliation](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-CODEX-OUTCOME-1.md).
+
+- [x] **Existing P1-REPLAY-P90-1 continuation (Step 3):** preserve the subagent display class and inherit the decision cohort from the exact same-project parent path, including provenance-only parents outside the selected mtime window. Parent usage and child usage are priced once each, with pooled positive per-transcript summary counts. Own-chat children, marker-positive unclassified parents, missing/malformed parents, same-named sessions in different projects/config roots and repeated roots have actual CLI controls. Unresolved child ownership is printed separately and withholds an adoption claim. The correctly owned real replay, including both discovered local config roots, selects 200K machine / none own-chat; code defaults now match (200,000 / 0), without changing stored settings. [Original criterion](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/mcp-remaining-subset/replay-cohort-closure/SOURCE-REVIEW.md). See the current repair table/evidence below; the older parent-only 0 / 0 decision is superseded.
+
+- [x] **Replay evidence wording:** the historical retained report's `floorTokens: 15694.5` is **15,694.5 tokens**, the post-summary context floor F. It is not dollars or the economic 80% saving threshold. The current owned Harness cohort's dollar threshold is $33,787.60 (80% of $42,234.51); its selected 200K ceiling has p90 3. These are actual replay results, independently retained from the changed default expectation.
+
+**Additional coordinator findings — worker repaired, independent verification pending (original source descriptions retained):**
+
+| Worker-repaired finding | Severity | Existing criterion and source issue | Evidence |
+|---|---|---|---|
+| P1-HANDOFF-MODEL-1 | Medium | Step 15b: the dialog leaves pending selection null, so its real model picker cannot commit an alternate model; preserve Same as planning and source-provider-safe choices. | [Source finding; runtime pending](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-HANDOFF-MODEL-1.md) |
+| P1-PLAN-DRAFT-1 | Medium | Step 15a: routine five-second state polling replaces an unsaved editable plan with persisted text; preserve same-session drafts and intentional switch/update transitions. | [Source finding; runtime pending](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/finding-P1-PLAN-DRAFT-1.md) |
+
+- [x] **Native remediation of additional existing criteria:** real dialog/picker/controller/main-service tests reproduce and repair model commitment with source-provider restrictions and Same as planning controls. Actual five-second scheduler tests reproduce and repair unsaved-plan loss; update, approval, failure, clean-draft and session-transition controls pass. Current checks below include both repairs and the Codex mail-measure continuation. Full-suite and independent acceptance remain coordinator-owned.
+
+- [x] **Historical first-18 native gate:** 124 files / 1,614 tests passed with zero skips; actual Vitest close code 0, signal null. The later Codex mail-measure continuation is now implemented and verified in the final current selection below; the historical gate alone did not close it.
+- [x] **Current worker gate after all 21 listed repairs:** 142 selected files / 1,786 tests passed, zero failed, one existing non-macOS Seatbelt control skipped on macOS; all selected files executed. Actual Vitest child close code 0, signal null. Portable asset parity passed. Both type checks, lint, LOC, both builds and structural gates passed after the last repair. Full-suite and independent acceptance remain verifier-owned.
+**Additional prescribed verification gap — worker verified; independent review pending:**
+
+| Repaired verification gap | Severity | Existing criterion and required boundary | Original evidence |
+|---|---|---|---|
+| P1-STEP9-TEST-BOUNDARIES-1 | Low | Steps 9a/9c/9d explicitly require actual positive Bash-cap argv, compact browser RPC versus full IPC listing, and actual snapshot registration through McpServer without a second spill. Existing isolated controls do not cover these boundaries; no product behavior failure is claimed. | [Source-only test review](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/mcp-remaining-subset/acceptance-test-gap-closure/SOURCE-REVIEW.md) |
+
+- [x] **Prescribed Step 9 boundary verification:** implement and execute all three existing requirements above with paired ordinary/version/unknown/override/resume and serialization/authority controls. Preserve meaningful existing assertions; these are agent-runnable fixture checks, not deferred provider/browser work. All three boundaries now execute in 32 added tests; the final integrated selection also includes their adjacent controls. Current focused/static gates pass with actual Vitest close code 0 and signal null. The native verifier owns the full suite.
+
+- [x] **Preapproved accepted-root correction integration — existing scope, no new finding count:** all 19 pinned root paths have semantic reconciliation and hashes in `root19-final.json`/the root19 report. Dynamic command provenance, resolved native IDs and accepted controls are restored, while newer overflow `resumeTurn`, escaped interrupted requests, reference bounds, original submission and attachments remain. Runtime-generated short-lived EC-P256/SHA256 TLS fixtures, SANs, private-key mode and cleanup replace the old literal. Existing selfsigned declaration/lock coexist with Phase 1 scripts; no install/manifest edit was needed. Direct-parent failure and consensus accounting survive, with both accepted accounting suites and the new read-only control. Archive/delete await stable-chat and distinct-runtime loop cancellation, including no-runtime/restart/order controls. Document preparation retains only watched statuses, refuses missing status, drains complete child output and waits for close; its bounded-heap resource suite is present. Both accepted UI-copy changes reach their real bindings and all ten newer tooltips remain. Root source files and unrelated MiMo were preserved. Current focused, static and production-build receipts pass. Final independent integrated-source acceptance remains coordinator-owned. [Original source trace](../../_scratch/changed-plans-queue-2026-10-18/phase1-postsync-health-audit/accepted-root19-main-source-continuation.md).
+
+- [ ] **Verifier preflight before whole-item acceptance:** independently inspect the delivered CODEX-OUTCOME continuation, owned REPLAY-P90 cohorts/default evidence, all three Step 9 boundary tests and the completed semantic accepted-root overlay reconciliation. The worker reproduced and repaired these items; this checkbox records the next verifier’s independent action, not unfinished implementation. If actionable work remains, return FAIL to the implementation worker before expensive full verification. No PASS, completed rename or integration while actionable findings remain or the coordinator’s independent final-source reconciliation is incomplete. The newer helper-mail implementation supersedes the former null-only complaint but still needs final source/evidence review; no cache-based verdict condition is added.
+
+- [ ] **Coordinator acceptance:** reconcile the broader audit's findings, coverage and final source delta; run the full suite with actual inner Vitest close code 0 and no signal, then obtain a fresh independent completion-gate PASS and perform AIO integration. The worker repairs do not close this gate.
+
+Native execution owns reproduction and any fixes. Acceptance still requires the complete broader audit, remediation
+of actionable findings, current focused/full canonical verification and a genuinely new independent
+`task-completion-gate` PASS, followed by AIO integration. Rejected and unconfirmed leads remain separate in the audit
+index. Existing conditional, dropped and external live-check decisions remain as specified; this status adds no scope.
+
+On main: no.
+
+**Status (19 Oct 2026, parked-item resume): WORKER-READY — required implementation across all 18 steps is
+present, subject to the deliberate conditional gates below.** Independent queue re-verification and whole-item acceptance
+remain pending. Code is in the supplied AIO checkout `queue/2026-10-10-oct-phase1-token-le-528c17` at checkpoint
+`e40401bd7` plus the uncommitted 19 October verifier round 1 follow-up; the coordinator owns the full suite, final independent completion gate, integration and any completed rename.
+The [current worker checklist](#current-worker-checklist-19-october-2026) is authoritative for current implementation status.
+
+**Verifier document routing:** read this exact canonical file at
+`/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-10-oct-phase1-token-levers_plan.md`.
+The same relative path inside the AIO worktree is a stale, 3,913-line tracked snapshot. Round 2's quoted status and
+lines 3839/3846/3885/3889 match that snapshot exactly. The dispatch requires root-document edits and forbids copying
+it into the worktree, so that snapshot stays unchanged. Review code/run checks in the worktree, but assess acceptance
+against this root document and its root [livetest](2026-10-10-oct-phase1-token-levers_livetest.md).
+All four allegedly missing Phase 0 modules are present in the worktree and tracked in HEAD; see current evidence below.
+
+Deliberate gates remain 16b, 17b, 17c, 18c, 18d (probe only), 13f and the 9b deletion choice 11; 12d is dropped by
+choice 16. The Claude waiting-rule flag stays disabled pending fork-cache proof. The historical RTK rewrite-only
+observation is partial, not complete pipeline/deny proof or a trial start. No live gate/trial verdict is newly claimed.
+Both root documents were already tracked and modified on arrival; that state is preserved. Written 2026-10-10;
+current worker status updated 2026-10-19.
 
 **Source:** the "Phase 1" row of the approved backlog [`claude_oct-todo.md`](../../claude_oct-todo.md) ("Suggested
 order"; James approved the backlog on 10 Oct 2026 and answered decisions 1-7): "1: biggest token levers (1-2 weeks) |
@@ -111,8 +1154,8 @@ plan "Phase 0 step N" means that plan's step, and "Step N" means a step of this 
 11. **OpenCode gets the same levers Claude has.** No hidden title call, a "stop after N steps" limit for loop rounds,
     "Compact now" that shrinks the conversation in place, and "retrying" notices instead of what looks like a stall.
 12. **The message box gets a few cheaper defaults.** The model picker shows Fast, Balanced or Powerful, size and list
-    price, and says what a switch will do. The same file attached twice is kept once. Very large pastes can optionally
-    become a file for Claude and Codex.
+    price, and says what a switch will do. The same file attached twice is kept once. Very large pastes could optionally
+    have become a file for Claude and Codex *(12d was dropped under choice 16; not built)*.
 13. **Side jobs use the live Claude session.** You can ask a quick question about a running Claude session without
     interrupting it. New Claude chats stop starting a whole extra Claude session just to name themselves. Chats on
     other providers (Codex, Gemini, Copilot, OpenCode) have no live Claude session to ask, so when the small helper
@@ -900,6 +1943,35 @@ caveats, against the fixture and against this Mac's real data.
 **Live checks:** end of trial: James reads the verdict and answers one question, "were Codex's answers in your chats any
 worse?" (a live check; it needs weeks of use).
 
+**Amendment (20 October 2026, after the third fresh gate):** plan-queue items are measured from Harness's own records,
+not rollouts. Plan-queue worker and verifier threads are ephemeral (`adapter-factory.ts` defaults `ephemeral` to true for
+non-root threads), so Codex keeps no rollout or state-database row for them; all 167 real plan-queue threads in the
+policy log had neither. The log's `armKey` (the item id) and `instanceId` join to `plan_queue_items` and to the
+cost-attribution rows (`<userData>/cost-attribution/cost-attribution-YYYY-MM-DD.jsonl`, `source: "instance-turn"`).
+This amends items 1, 2 and 4 for the plan queue only:
+
+- **Input tokens per landed item:** the sum of `usage.inputTokens + usage.cacheReadTokens` over every cost row of every
+  instance the policy log ties to the item (all rounds' workers and verifiers). Helper-thread tokens count only as far
+  as Codex reports them in thread totals (a live check). Rows marked `isEstimated` are counted and the report says how
+  many items rest on any. The queue's own `tokens` / `cost_usd` columns are not used (34 of 137 landed items had them).
+- **Landed share and rounds:** `plan_queue_items.state` and `round`. **Wall-clock per item:** `updated_at − created_at`
+  for decided items; it includes queue waiting and pauses, so it is elapsed time, compared Off against Full only.
+- **Helper threads per root:** the Codex adapter appends a `helper-count` record (`recordType: "helper-count"`,
+  `threadId`, `instanceId`, `helperThreads`) to the session-policy log when it first sees a new helper thread
+  (`collabAgentToolCall` receivers, `subAgentActivity`). It sees only helpers that reach the root's notifications; a
+  missing record means none was observed, not proof of none.
+- **Unknown, never zero:** a finished plan-queue item is unknown when its Harness records are missing or unreadable
+  (cost directory unreadable, a policy line without `instanceId`, an instance with no cost rows, a row lacking
+  `inputTokens` or `cacheReadTokens`, unusable timestamps). Any unknown item withholds the Harness-work verdict and the
+  35-day Off default. Queued or running items are neither decided nor unknown.
+- **Separate samples:** the chat verdict depends only on the chat sample (21 days, 40 chat roots with 3+ turns per
+  group, no unknown chat roots); the Harness-work verdict depends only on 21 days, 20 decided and 20 measured landed
+  items per group and no unknown items. Either may use its 35-day default on its own.
+- **Off breach:** a helper observed under an Off thread, in Codex's spawn graph or in `helper-count` records, excludes
+  that item and withholds the Off verdict.
+- Chats, scheduled jobs, loops, children and reviews keep the rollout-based measures; their threads are durable or are
+  not read by the verdict rules.
+
 ### 1e. Re-send Harness's standing notes after Codex summarises (S-M)
 
 **For James:** when Codex summarises a long conversation, notes Harness gave it earlier (a plan-queue follow-up, a child
@@ -1442,7 +2514,7 @@ is about to summarise.
      `cumulativeTokenCompactionTrigger` entry (category `memory`, `settings-metadata-runtime.ts:46-54`; surfacing `'tab'`,
      `settings-surfacing.ts:69`). Defaults come from Step 3's decision rule (expected 400,000 and 300,000); if the replay cannot
      run, both are 0.
-2. **New `src/main/context/context-ceiling-policy.ts`.**
+2. **New `src/main/context/context-ceiling-policy.ts`.** *(As built: the tree's existing `src/main/cli/adapters/context-ceiling.ts` and the setting name `ownChatContextCeilingTokens` were kept instead of `context-ceiling-policy.ts` / `claudeContextCeilingTokens`; see the Step 5 as-built note.)*
    - `resolveContextCeilingTokens(machine: boolean): number | undefined` reads the settings through an injectable reader, the same
      pattern as `claude-env-pack.ts:25-43`. It returns undefined for 0, raises 1 to 99,999 to 100,000 and caps anything above
      1,000,000, so Harness and the CLI agree on the value actually used. The validator refuses 1 to 99,999 on write; the clamp
@@ -2541,11 +3613,11 @@ profile. A forwarding spec: "an ACP output with threadCompacted records an obser
 
 **Change:**
 1. New `src/main/cli/adapters/opencode-acp-markers.ts` (about 60 lines): `readOpenCodeSessionInfoMarker(rawUpdate)` returns `{ kind: 'retry', update:
-   AcpRetryStateUpdate }` (mapping `attempt` and `error.message` to `{ sessionUpdate: 'retry_state', type: 'retrying', attempt, reason }`), `{ kind: 'retry-cleared' }`,
+   AcpRetryStateUpdate }` (mapping `attempt` and `error.message` to `{ sessionUpdate: 'retry_state', type: 'retrying', attempt, reason }`; *as built 19 Oct, `reason` is the privacy-bounded `Provider returned HTTP N.` from `error.status`, never the message text, see item 2*), `{ kind: 'retry-cleared' }`,
    `{ kind: 'compaction', status }`, or `null`. In the `session_info_update` case (`acp-cli-adapter.ts:1518`), about +4 lines: retry goes to `handleRetryState`;
    retry-cleared goes to `resolveRetryNotice` for the current turn; compaction `completed` emits the same system message as 11b (2.0.2x and later only). Other ACP
    agents never send these keys.
-2. **A6.6 (stream timeouts): no code now.** 11c's notices carry OpenCode's error text, so a live check can see a timeout retry. If confirmed, write a provider timeout into
+2. **A6.6 (stream timeouts): no code now.** *(Amended 19 Oct: for privacy, the built notices carry only a bounded `Provider returned HTTP N.` reason, because provider error text can contain prompt text, keys or URLs. A timeout retry has no HTTP status, so it shows a "retrying" notice with no reason; the live check confirms the timeout from OpenCode's own log.)* Originally: 11c's notices carry OpenCode's error text, so a live check can see a timeout retry. If confirmed, write a provider timeout into
    the overlay (the 1.x key is `provider.<id>.options.chunkTimeout`; the 2.x HTTP equivalent is unverified).
 3. **A6.7 (a cheaper `explore` model): deferred** (see "Not in this plan").
 
@@ -2572,7 +3644,7 @@ today); "an opencode/compaction completed marker emits a threadCompacted notice"
 - OpenCode loop with `maxTurnsPerIteration: 3` on a task that needs more steps: the round ends with a text-only summary after 3 steps.
 - "Compact now" on an OpenCode session with history: same OpenCode session id afterwards, one "OpenCode compacted this conversation." notice, no restart-with-summary in `app.log`
   for that instance, and a lower context reading after the next turn. Note whether the summary streams into the chat as an assistant message (decides whether to hide it).
-- A long MiMo turn (more than 5 minutes silent): look for "retrying" notices whose reason mentions a timeout (A6.6).
+- A long MiMo turn (more than 5 minutes silent): look for "retrying" notices; a timeout retry shows no HTTP reason, and OpenCode's log confirms the timeout (A6.6; amended 19 Oct for the privacy-bounded reason).
 
 **Size and order:** M overall. 11a should land with or right after Phase 0 step 12 (it makes the first message large); 11b gives Phase 0 step 11 (A3) a real OpenCode compaction signal. **Keep the names `opencode-acp-markers.ts` and the `opencode-acp` profile: Phase 5's parked steps 20 and 21 build on A6.3, A6.4 and A6.5.**
 
@@ -2744,7 +3816,7 @@ off nothing is shown.
 **Live checks:** a real Claude session of 100K or more tokens, left for over 70 minutes (or the two constants lowered in a dev build): the chip appears; compare the cache-write size of the next request with and
 without the chip (transcript `usage` counters). Failure path: stop the helper model and confirm the text returns to the box. Screen check on the Windows PC, or the Mac with James's OK.
 
-### 12d. Big pastes become a file attachment (S-M; backlog A9.1; narrowed to Claude and Codex; optional, build last)
+### 12d. Big pastes become a file attachment (S-M; backlog A9.1; narrowed to Claude and Codex; optional, build last) — DROPPED under choice 16, not built
 
 **For James:** when you paste a very large block of text (about 32 KB or more), Harness can attach it as a file instead of putting all of it in your message, so Claude or Codex reads what it needs. Holding
 Cmd+Shift+V pastes it into the message as before. Other providers keep the text in the message, because they either cannot take files or would still receive the whole text.
@@ -3809,13 +4881,911 @@ The step-level "Verified" sections carry the evidence; this is the index of clai
 
 ## As-built notes
 
-(Record here, per step: what changed, any deviation from this plan and why, probe results, and the current gate output.)
+### Six-findings remediation, 23 October 2026 — plan-queue cutoff, waiting-rule evidence, 7i join, 5m/1h split, indexed containment, profile discovery
+
+Detail lives in the six-findings STATUS block at the top of this document (read that first); this entry
+records the as-built shape for the notes index. Six dispatch findings across three surfaces: the Claude A18
+helper-trial report (`scripts/claude-cost-audit-report.mjs` — plan-queue landed bound by `updated_at` to
+`--until`, waiting-rule verdict never passing on missing run-time evidence, helper run time/tool uses joined
+from the 7i `subagentUsage` records by `toolUseId`, long-wait rewrites priced with the 5m/1h split), the
+Codex helper-trial report (`scripts/codex-helper-trial-report.mjs` — the snapshot/turn and child/root
+containment scans replaced by the exported `indexTurnContainment`, exact first-match semantics preserved),
+and the Savings-tab trial count (`src/main/ipc/rtk-trial-info.ts` — managed Claude profile transcript stores
+now discovered beside the default root). `scripts/lib/claude-transcripts.mjs`'s `activityReturns` carries the
+cache-write split; the two `.d.mts` files carry the new shapes (`LongWait`, `ActivityReturn`,
+`indexTurnContainment`, `SubagentRecord.runMs`/`toolUses` nullable). Regression controls live in
+`scripts/__tests__/claude-cost-audit-report.subagents.spec.ts`, `scripts/__tests__/codex-helper-trial-report.spec.ts`
+and `src/main/ipc/rtk-trial-info.spec.ts`; each behavioural control was shown RED against the pre-fix code
+(`git show HEAD:` generations, byte-identical restore afterwards) and the 64k-turn benchmark reproduces the
+finding's own 14s figure (12.6–16.8 s pre-fix vs ~130 ms indexed).
+
+### Verifier round-5 remediation, 23 October 2026 — RTK G1 rule-edge comparison and the native-finality fixture race
+
+Detail lives in the round-5 STATUS block at the top of this document (read that first); this entry records the
+as-built shape for the notes index. Two verifier findings: one in the RTK trial report's G1 guardrail arithmetic,
+one inherited fixture race that reddens the full-suite gate. No product/runtime code changed — the whole diff is
+`scripts/rtk-trial-report.mjs` (rule-edge comparisons), its spec and
+`src/main/orchestration/default-loop-native-finality.spec.ts` (fixture only).
+
+- **Guardrail rule edges are judged at the edge.** `evaluateG1` compares the failure-rate increase with the
+  file's existing boundary epsilon (`evaluateCost`'s idiom) so an increase of exactly 1.0 percentage point passes
+  "at most 1.0pp" instead of failing on `4.9 - 3.9 = 1.0000000000000004`; `evaluateG2`/`evaluateG3` carry the same
+  epsilon at their 1.05 ratio edge (reachable misfire before: 21/19 over 20/19 computes `1.0500000000000003`).
+  G5's exclusive "under 3%" bound and cost's already-epsilon'd +2% ceiling are unchanged.
+- **The native-finality fixture cannot be cut between its writes.** The fixture child's final result and
+  FINAL_WRITTEN marker are synchronous writes in one turn and the kill window is 1,000 ms — byte-identical to the
+  sibling remediation commit `0c4850d8d` on `queue/2026-07-19-livetest-failure-re-ffb4df`, which root-caused the
+  same race on its `partial-zero` failure, so the two branches merge textually clean on this file. The pause
+  structure, `activeTimeoutMs: 25`, the SIGKILL assertion and the partial-capture semantics are unchanged.
+- **Controls:** four new tests in `scripts/__tests__/rtk-trial-report.spec.ts` (two unit G1 rule-edge oracles
+  including the immature-trial recommendation, one unit G2/G3 rule-edge oracle, one actual-CLI reproduction of the
+  verifier's isolated cost/hook/transcript shape) — all four RED against the pre-fix script at the verifier's own
+  oracle values, green after the repair; 52/52 in the file, 55 tests with the consumer suite. The full suite is
+  green (2,924 files / 36,967 tests, exit 0). Full gates and receipts are listed in the STATUS block and the
+  evidence folder.
+
+### Verifier round-2-of-3 remediation, 23 October 2026 — trial-report window bounds and the inventory entry
+
+Detail lives in the round-2-of-3 STATUS block at the top of this document (read that first); this entry records the
+as-built shape for the notes index. Three verifier findings, all in the Codex helper trial report's measurement
+window or its generated bookkeeping; no product/runtime code outside `scripts/codex-helper-trial-report.mjs` and its
+`.d.mts`/spec changed.
+
+- **Queue outcomes now honor `--until`.** `aggregatePlanQueue` takes `untilMs` (default
+  `Number.MAX_SAFE_INTEGER`, so every existing call site is unchanged) and classifies a row whose state settled at or
+  after the cutoff as `settledAfterWindow` — listed in `settledAfterWindowItems`, counted per arm, and neither
+  decided, measured nor unknown, the plan's queued-or-running rule applied as of `--until`. The cutoff is exclusive
+  like the cost rows; `buildComparisons` forwards `untilMs`; `runReport` passes `options.untilMs`; the report prints
+  a "settled after until" column, the counted line and the JSON field, and the SELECT keeps its undated read with a
+  comment (rows must be judged as of the cutoff, not dropped).
+- **Helper counts now honor `--until`.** The `helper-count` follow-up records are read with the same
+  `[sinceMs, untilMs)` bound as every other reader instead of `Number.MAX_SAFE_INTEGER`, so a record written after
+  the cutoff can no longer raise an Off-breach or exclude a thread in a historical report.
+- **The architecture inventory is current.** The three edited files are staged (not committed) so the index-derived
+  generator sees the final content; `npm run generate:architecture` moved the one stale `largeFiles` entry
+  (`scripts/__tests__/codex-helper-trial-report.spec.ts`, 1,516 → 1,904) and `npm run verify:architecture` exits 0.
+- **Controls:** three new tests in `scripts/__tests__/codex-helper-trial-report.spec.ts` (two actual-CLI
+  reproductions of the verifier's fixtures, one unit boundary test) — all three RED against the pre-fix script at the
+  verifier's own oracle values, green after the repair; 98/98 in the file, 7 files / 139 tests across the report's
+  consumer suites. Full gates and receipts are listed in the STATUS block and the evidence folder.
+
+### Merge resume `4a3cd3` round 2, 23 October 2026 — coordinator `main` merge resolved, integrated and staged
+
+Starting state: the supplied worktree had the coordinator's merge of `main` `0c4b7de7a` into `276e47bf0` in progress
+with seven unresolved paths. This resume edits this root plan (same absolute path, active filename preserved) and code
+only inside the worktree; no commit, stash, abort, branch, worktree or rename action was taken. There is no separate
+linked spec.
+
+- [x] **Seven conflicts resolved, both intents preserved.** `src/main/cli/rtk/rtk-tracking-reader.ts` and
+  `src/renderer/app/core/services/ipc/rtk-ipc.service.ts`: the merged `RtkSavingsSummary` carries Phase 1's
+  `commandsFiltered`/`commandsRanInFull`/`savedTokensCapped`/`weightedReductionPct`/`windowDays`/`byProgram` fields and
+  main's optional `projectBursts` side by side (the worker already attaches bursts).
+  `src/main/persistence/rlm/rlm-migrations-076-080.ts`: all four migrations kept — main's `078_wake_hint_tombstones`
+  then Phase 1's `078_automation_pre_check`, `079_automation_thread_prompt_delivery`, `080_helper_budget_notice_day`.
+  The duplicate `078_` numbering is deliberate and commented: `runMigrations` tracks names, and either pair may already
+  be applied on real databases, so renumbering would orphan an applied row and re-run a `CREATE TABLE`.
+  `src/shared/types/settings-metadata-runtime.ts`: main's `observationMemoryEnabled` entry plus Phase 1's detailed
+  rewordings and the `claudeHelperAgentModel`/`claudeBashOutputMaxChars` entries (main's compact duplicates of the five
+  shared keys dropped in favour of the reworded versions; key set verified duplicate-free).
+  `src/renderer/app/features/instance-detail/instance-header.component.spec.ts`: both import blocks and both new test
+  blocks kept (resident-Claude model-switch notes and main's session help link).
+  `src/renderer/app/features/settings/rtk-savings-tab.component.ts` + `.spec.ts`: the 7/30/90/all selector (default 7
+  days per the housekeeping plan's "Default the tab to 7 days"; the range line is now the selected window's label so
+  "Last 7 days" still shows on load), main's burst banners, `lastSummary` seeding and the "Refreshing…" indicator, and
+  Phase 1's refresh-epoch fencing; both spec suites kept in one file with their mocks completed for the merged service
+  shape and with the seeded-value markers moved onto displayed fields (the merged cards show split counts, not the raw
+  `commands` total main's assertions were written against).
+- [x] **Clean-merge integration the markers could not flag.** `src/main/cli/rtk/rtk-daily-rollup.ts` (main's cache) now
+  aggregates Phase 1's row-level semantics — shortened/ran-in-full counts, the 7,500-token capped saving, the weighted
+  reduction base, first-seen timestamps and per-program figures — through the shared SQL clauses exported from
+  `rtk-summary-queries.ts`, so a cached answer equals the source path exactly; an earlier build's disposable cache
+  schema is dropped and rebuilt. Proof: `rtk-tracking-reader.spec.ts` "incremental daily rollup" now asserts
+  `rollup.getSummary(...) === reader.getSummary(...)` across the partial-day boundary and a project filter. A stale
+  pin assertion in `rtk-runtime.spec.ts` was corrected to main's bundled 0.52.0 (binaries, sha256 manifest, licence and
+  `rtk-version-pins.spec.ts` all agree). `rtk-savings-tab.trial.spec.ts` and the renderer-integration boundary spec were
+  updated for the merged `RtkIpcService` (`lastSummary` on the mocks) and for main's `if (this.loading()) return` skip:
+  that skip made `refresh()` a no-op while a request was in flight, breaking the integration spec's awaited refresh, and
+  it also blocked window switches mid-load. The skip is dropped; P1-RTK-WINDOW-1's epoch fence (stale success/error
+  cannot overwrite current state) subsumes main's no-overlap intent, which main's own tests do not assert.
+- [x] **UI-hint integration remediation (the merge brought `npm run check:ui-hints`).** Before remediation the merged
+  tree failed with H1b on quick-ask's icon-only close control, H2b/H4 on four automations hosts, H4 on five savings-tab
+  hosts and one model-row-facts host, and unreadable-marker growth on those two files (red log `_scratch/test-run`
+  capture of `check:ui-hints` at resume start). Fixes, following the Phase 4 plan's recorded remediation pattern:
+  `appIconButton="Close quick ask"` supplies the close control's name and hint; the three Phase 1 pre-check titles in
+  `automations-page.component.html` moved from native `[title]` to `[appTooltip]` with their exact runtime sentences
+  kept (`AioTooltipDirective` imported by the owner; main's grandfathered fourth title untouched); the savings-tab
+  tooltip bindings now use the repository's `copy('key')` idiom (`protected readonly copy = copyFor`) so the static
+  reader resolves the TOOLTIP_COPY text instead of counting it unreadable; `model-row-facts`' price note binds as a
+  plain data read through an `@if` alias; and five exact hover-only reasons were recorded in
+  `scripts/ui-hints/hover-only-reasons.ts` (definitions on visible metric labels, elaborations on visible field labels
+  and the visible price line — no hint carries state or consequence alone). `npm run check:ui-hints -- --record-wording
+  --against MERGE_HEAD` then registered 13 sentences and exited 0, proving no record increased against main's
+  (`baseline.json` untouched; the ledger is additive: 202 → 215 active entries). The final gate reports the exact
+  recorded totals (H1a 24; H1b 91; H2a 210; H2b 138; H2c 32; H3 20; H4 135; H5 12; H11 8; 10 markers).
+- [x] **Gates and targeted tests after resolution (all exit 0).** `npx tsc --noEmit`, `npm run typecheck:spec`,
+  `npm run lint`, `npm run check:ts-max-loc` (tolerance notes unchanged from the merge), `npm run check:ui-hints`,
+  `npm run build:main`, `npm run build:renderer` (the pre-existing 1.48 MB bundle-budget warning is retained, no
+  threshold changed). Targeted suites: `src/main/cli/rtk` (reader incl. the new equivalence check, runtime, rollout,
+  defer-hook, tracking-client/worker, version-pins, awareness), savings-tab component + trial + renderer-integration,
+  migrations (076–080 including wake-hint tombstones and the helper budget notice), helper-limit-runtime, rtk-handlers,
+  instance-header, quick-ask-panel, model-row-facts, automations (10 files), settings + tooltip suites, shared types,
+  storage (low-disk watcher, scratch sweep), instance-system-prompt, and `scripts/__tests__` (738 tests). Two failures
+  found and fixed during this sweep are recorded above (the pin assertion and the trial/integration mock+skip issues);
+  green logs: `_scratch/test-run.pid-90253.log`, `pid-90804.log`, `pid-91547.log`, `pid-65027.log` and the final
+  batches. The full suite was not run — it is verifier-owned.
+- [ ] **Coordinator/verifier-owned (unchanged):** the coordinator's merge commit and landing of the staged tree, the
+  verifier's full suite and independent `task-completion-gate` verdict, and the live checks in the root livetest
+  document.
+
+### Queue resume `4a3cd3`, 23 October 2026 — recovered into the supplied checkout
+
+Source checkout: supplied `queue/2026-10-10-oct-phase1-token-le-4a3cd3` at `1ee52cbd8` (clean). The item was resumed
+empty: `git diff` against the base branch contained only main's own `1ee52cbd8` work (scratch-sweep, low-disk watcher,
+broad-workspace roots), none of this plan's implementation. The accepted implementation was retained on
+`queue/2026-10-10-oct-phase1-token-le-528c17` at `96473b151` (the coordinator's merge of accepted tip `eb952dba2` and
+main `542f1f690`). Following the pattern this run's other resumed items record (follow-ups recovery as uncommitted file
+edits; Phase 5 coordinator restoration), the worker recovered the retained work and continued as normal queue work.
+
+- [x] **Recovery:** every path of `git diff --name-status 542f1f690 96473b151` (587: 256 A, 331 M) written to the
+  working tree via per-file 3-way merge (base `542f1f690`, ours `1ee52cbd8`, theirs `96473b151`). 330 clean merges,
+  1 conflict (`docs/generated/architecture-inventory.json`, generated) resolved by `npm run generate:architecture`.
+  Uncommitted working-tree state only: 256 untracked + 333 modified paths (331 recovered + 2 base-defect specs below).
+  No `git add`, commit, stash, merge, branch or worktree operation; the worktree's stale tracked plan snapshot is
+  untouched (the recovery set contains no `docs/plans/` path).
+- [x] **Overlap reconciliation:** the 17 paths changed by both the recovery and main's newer `86970a6b9`/`68a187c3f`/
+  `1ee52cbd8` work were checked in both directions — vs `96473b151` only main-side changes appear; vs `1ee52cbd8` only
+  Phase 1 changes appear. Both intents survive in `adapter-factory.ts`, `adapter-spawn-helpers.ts`,
+  `settings-control-policy.ts`, `instance-manager.ts` + `instance-manager.send-input.spec.ts` +
+  `instance-manager.yolo-mode.spec.ts`, `runtime-change-notices.ts` + spec, `runtime-reconciler.ts` + spec,
+  `context-attribution-panel.component.ts`, `context-manifest.types.ts`, `settings.types.ts`, `settings-defaults.ts`,
+  `settings-metadata-runtime.ts`, `settings-surfacing.ts` (the seventeenth is the regenerated inventory).
+- [x] **Base-defect alignment (not plan scope):** `typecheck:spec` on arrival failed with three TS2493 errors in
+  `src/main/storage/low-disk-space-watcher.spec.ts` (x2) and `src/main/storage/scratch-sweep-scheduler.spec.ts` —
+  pre-existing in base `1ee52cbd8` (typed zero-arg mocks then `mock.calls[0]![0]`), untouched by the recovery. Current
+  main `6afb32a52` fixes exactly these lines; both files adopted byte-identical from `6afb32a52`, which also makes the
+  future base sync trivial for them.
+- [x] **Generated output:** `generate:aliases` (61 exact + 3 prefix), `generate:ipc` (1,205 channels — matches the
+  recorded combined count), `generate:architecture`. The inventory is git-index derived and currently reflects the
+  unstaged recovery; the coordinator regenerates after staging the recovered paths (already recorded in the checklist).
+- [x] **Current worker gates:** `npx tsc --noEmit` 0; `npm run typecheck:spec` 0; `npm run lint` 0;
+  `npm run check:ts-max-loc` 0 (existing tolerance warnings); `npm run build:main` 0; `npm run build:renderer` 0
+  (pre-existing 1.36 MB initial-bundle warning vs 1.00 MB budget); `verify:ipc` 0; `verify:ipc-usage` 0;
+  `verify:architecture` 0.
+- [x] **Targeted tests (cache-bypassed quiet runner, all groups exit 0):** 32 files / 565 tests, zero failed —
+  batch lifecycle (6 files / 48: `child-completion-batcher`, `instance-child-completion-handler` + timer-release +
+  parent-settled, `instance-manager.child-completion-lifecycle`, cached-wave integration — the P1-FRESH-BATCH-LIFECYCLE-1
+  repair surfaces); overlap/alignment (13 files / 312: instance-manager send-input + yolo-mode, runtime-change-notices,
+  runtime-reconciler.runtime-change, instance-system-prompt, rtk-handlers, rtk-tracking-reader, rtk-savings-tab,
+  settings-defaults, both aligned storage specs, adapter-factory-context-ceiling, harness-guidance); report-script
+  fixtures (10 files / 168: codex helper trial/outcomes/mail-cache/review-coverage/audit-regressions, context-ceiling
+  ownership/population/replay, claude-cost subagents, codex protocol generator); RTK/settings (3 files / 37:
+  rtk-runtime incl. the bundled 0.51.0 pin assertion, rtk-version-pins, settings-control-policy.machine-session).
+  The full repository suite was not run; the verifier owns it.
+- [ ] **Remaining (owner-named):** verifier — full suite with actual inner close evidence and a fresh independent
+  `task-completion-gate` PASS over the complete final range; coordinator — AIO landing/integration and any completed
+  rename, plus regeneration of the index-derived architecture inventory after staging. Base sync will merge current main
+  `6afb32a52`; 18 further paths change on both sides (rtk-runtime, rtk-tracking-reader + spec, rtk-handlers + spec,
+  rtk-ipc.service, rtk-savings-tab + spec, instance-system-prompt.spec, advanced-settings-sections,
+  rlm-migrations-076-080, settings-control-policy, the four settings type files, package.json, architecture-inventory)
+  and may raise ordinary merge-resume conflicts for a later worker round; nothing was pre-merged from `6afb32a52`
+  beyond the two byte-identical base-defect spec files. Live/provider/trial checks remain open in the root livetest,
+  unchanged; no trial clock started. Evidence: [report](../../_scratch/changed-plans-queue-2026-10-18/phase1-recovery-4a3cd3-20261023/FINAL-REPORT.md),
+  [seal](../../_scratch/changed-plans-queue-2026-10-18/phase1-recovery-4a3cd3-20261023/FINAL-SEAL.json),
+  [logs/receipts](../../_scratch/changed-plans-queue-2026-10-18/phase1-recovery-4a3cd3-20261023/logs/),
+  [cleanup](../../_scratch/changed-plans-queue-2026-10-18/phase1-recovery-4a3cd3-20261023/runtime-cleanup.json).
+  This resume added no new product scope: every unchecked box in this document is a coordinator/verifier gate (or the
+  already-repaired P1-FRESH-BATCH-LIFECYCLE-1 awaiting independent acceptance), and no worker-implementable unchecked
+  item exists in the plan.
+
+### Current worker checklist, 19 October 2026
+
+**18 of 18 steps have their required implementation delivered**, within the explicit conditional/dropped decisions.
+This is the worker inventory plus the 19 October native audit repairs, not an independent completion verdict. Gated parts and external
+checks remain open in the root livetest, not counted as tested features. There is no separate linked Phase 1 spec;
+the approved backlog and this plan are the requirements.
+
+- [x] **Step 1:** A16/E3.1: generated Codex protocol, shared session classifier, thread policy/config/log, trial report and standing notes.
+- [x] **Step 2:** A18: Claude helper model policy, reviewer rule and subagent report. Waiting-rule code exists but its flag stays disabled pending fork-cache proof.
+- [x] **Step 3:** A4 replay: combined percentiles use actual per-transcript counts in parent-owned decision cohorts, retaining subagent display classes and separate unresolved provenance. Both discovered local config roots are read once per physical path. The refreshed owned-corpus replay ("Refreshed Step 3 / Step 5a choice" at the top of this plan) selects 200K machine / 250K own-chat, and the Step 5 code defaults are 200,000 machine / 250,000 own-chat. *(Corrected 19 Oct: this line previously said 200,000 / 0, which predates the refreshed replay.)*
+- [x] **Step 4:** A5: read-only Claude reviewer profiles, turn caps and machine-session security-plugin controls.
+- [x] **Step 5:** A4: ceiling settings/env, absolute loop ceiling, cold-cache recycle before the first resumed dispatch and quiet context note; defaults 200K machine / 250K own-chat *(corrected 19 Oct; previously said 0 own-chat)*. Existing stored settings are untouched.
+- [x] **Step 6:** A0-S: spend-purpose resolver, metadata tags, recorder integration and Costs labels. Phase 0 recording/Costs interfaces are now present.
+- [x] **Step 7:** A0-H: combined helper daily budget, priced/unknown fallback reservations and compression-slot fallback integration. Paid title CLI spawning is off.
+- [x] **Step 8:** A15: check command/origin guard, baseline/retry/cancel semantics, quiet outcomes, cadence reminder and form/run display; migration 078.
+- [x] **Step 9:** A19/A17.4: Claude/MCP/browser output caps and compact agent tab listings. The destructive old-folder sweep remains gated on choice 11.
+- [x] **Step 10:** A12: short guide, conditional scheduling/consensus rules, first/later-message delivery and provider-session latch.
+- [x] **Step 11:** A6: OpenCode title/step levers, native compaction and retry/compaction markers.
+- [x] **Step 12:** A9: model facts/switch note, attachment deduplication and compact-first cold return. Optional 12d remains dropped under choice 16.
+- [x] **Step 13:** A17: dead persistence path removed, helper result batching and native-tool-search guard; duplicate-tool decision recorded. 13f remains gated on measured triggers.
+- [x] **Step 14:** A8: Claude control channel, live title source/no paid title CLI, Quick ask and verified live runtime switching with truthful replay fallback notices.
+- [x] **Step 15:** A21: Plan Mode preserves unsaved drafts during polling and approves current edits; preview/edit/start handoff commits provider-scoped model choices with Same as planning semantics, IPC/preload and both entry points.
+- [x] **Step 16:** A1: local-model in-place history compaction and overflow summary recovery carrying the interrupted request once. Conditional 16b remains gated on the real Claude compact probe.
+- [x] **Step 17:** A2: resolved-CLI instruction ownership, including auto/fallback. Conditional 17b/17c remain gated on Copilot proof/the label trial.
+- [x] **Step 18:** A13: RTK 0.51 foundations, honest savings and Claude rewrite-only trial plumbing/report. The trial setting defaults to **Off** (19 Oct repair) until complete Live check 1, including the deny-rule checks, passes; complete Live check 1 remains open. 18c is gated; 18d is probe-only.
+
+- [x] **Current focused checks (verifier round 1 follow-up):** 38 explicit affected files / 554 tests passed, zero failed, zero pending/skipped, cache bypassed; all selected files executed. Actual direct Vitest process closed code 0, signal null. This is a focused integration selection, not the full suite. The earlier 142-file phase-wide worker selection remains historical evidence in the native remediation section. Both TypeScript checks, lint, LOC, both production builds, IPC contracts/usage, exports, contract aliases and architecture returned zero. The exact accepted UI bindings additionally passed an isolated Angular smoke selection.
+- [x] **Generated output:** IPC and alias generators reproduced their files; the architecture inventory check passed.
+  Generators reproduced tracked output. The architecture inventory is Git-index derived: the coordinator must regenerate
+  after staging the new source paths. No dependency manifest or checker ceiling changed.
+- [x] **Live-test record:** the existing root livetest retains provider, rebuilt-app, human and elapsed-trial checks.
+  No new deferral, provider probe, release, trial start or elapsed-trial default-verdict application occurred in this repair.
+  The owned replay changed the code default only (now 200K machine / 250K own-chat after the refreshed replay; *corrected 19 Oct*); stored settings are untouched, and existing ceiling-dependent live probes retain their disposable-setting instructions.
+- [ ] **Coordinator gates:** full suite and fresh independent `task-completion-gate` PASS, then AIO integration and any
+  completed rename. This worker did not run the full suite or rename, stage, commit or change branches.
+
+### Verifier round 1 follow-up, 19 October 2026 — worker-ready for independent verification
+
+Source checkout: supplied `queue/2026-10-10-oct-phase1-token-le-528c17`, HEAD `e40401bd73a5cf4791586a053aa25061dc675ba5` plus the uncommitted repair. Base remains `0190f9133`. No commit, staging, stash, branch/worktree operation or completed rename was performed. No separate linked spec exists. The root plan is edited in place; its tracked worktree snapshot remains unchanged.
+
+- [x] **CODEX-OUTCOME continuation:** actual CLI paired controls reproduced known failures disappearing when rollouts were incomplete. Quality now uses valid exact policy exposure/instance/thread outcomes independently of complete billed usage. Complete, no-final, no-usage, crash-truncated, missing/unreadable rollouts, missing/conflicting/reversed/foreign/legacy identities, duplicate records, nonzero exits and rejected exposures are covered. An all-unmeasured arm prints known failures and null token measures without manufacturing measured Harness totals. Existing pending/no-data/verdict rules remain. Four report files / 66 tests passed before the integrated selection.
+- [x] **REPLAY-P90 owned cohort:** resolve parents by exact physical same-project main path, independently of usage mtime selection. Preserve subagent display; assign children only from parent provenance. Pooled positive per-transcript counts determine p90; zero-summary sessions remain in the share denominator. Each transcript’s requests are priced once. Missing/malformed provenance is unknown and withholds a default claim. CLI controls cover marker-positive unclassified and joined parents, stale/no-usage parents, own-chat children, orphans, same-named sessions under separate projects/config roots, duplicate roots and default account-profile discovery. Existing economic/inclusive percentile edge controls remain.
+- [x] **Step 9 prescribed boundaries:** ten final-argv Bash-cap cases, seven serialized RPC/full IPC tab-list cases, and fifteen actual browser-tool/McpServer registration cases (eager/deferred/stable) close the three missing boundaries. Exact preview/spill-file equality proves no second spill; ordinary large results, image output, argument validation, authoritative connection identity and refusals remain covered. No browser was launched; fixtures use inert service seams and local sockets.
+- [x] **Accepted root19 integration:** all 19 pins compared and root sources preserved. Twelve scoped source/test paths were semantically reconciled; seven retained newer compatible source. Dynamic command metadata, TLS generation/cleanup, direct-parent and consensus billing, stable-chat/runtime loop cleanup, bounded watched-status memory and exact bound UI copy are verified. Original resource controls plus missing-status refusal use 64-MiB children and 200,000 unrelated paths. All ten newer tooltips and MiMo stay intact. Root19 separately passed 26 distinct selections / 571 tests, including three real headless Angular binding controls; this is worker evidence, not independent acceptance.
+- [x] **Current integrated focused gate:** 38 explicit affected files / 554 passed / zero failed / zero pending or skipped, cache disabled. Direct Vitest child code 0, signal null; complete results and exact selection retained. This is not a full-suite run. Current `tsc --noEmit`, `typecheck:spec` (configured 8-GiB ceiling), lint, LOC and both production builds pass. IPC/aliases/architecture generators ran; IPC contracts/usage, exports, contracts and architecture pass. The index-derived architecture inventory needs the coordinator’s usual refresh after staging new source paths. Existing renderer bundle/LOC tolerance/IPC warning-level notes remain.
+- [x] **Implementer review:** reviewed current source/test delta and semantic preservation guards; no unresolved actionable repair finding. This is not a fresh independent completion-gate PASS.
+- [ ] **Coordinator only:** next verifier preflight, full suite with actual inner close evidence, broader independent final-source reconciliation/PASS, then AIO integration and any completed rename. These required future owner actions are not incomplete worker implementation and have not been self-certified.
+
+**Correctly owned local replay (read-only, 19 October):** current file-mtime selection `--since 2026-09-14`, not an immutable historical/per-request date window. Both discovered roots are included: legacy Claude history plus the existing Harness account-profile history; repeated physical paths are deduplicated. 4,150 selected transcripts: 723 own-chat mains, 490 automation mains, 64 queue mains, 466 marker-positive unclassified mains and 2,407 children. Children inherit 2,077 Harness / 330 own-chat / 0 unresolved; inherited parent labels are unclassified 1,902, automation 143, queue 32, own-chat 330. Decision populations are 3,097 Harness-owned and 1,053 own-chat-owned transcripts. Marker provenance is not a reconstruction of every current live machine-session metadata field. Unknown model prices retain the existing Sonnet fallback and long-context-pricing caveat.
+
+**F = 15,694.5 tokens**, measured from 48 post-summary records; median summary output = 444 tokens. F is not a dollar threshold. The economic thresholds are **$33,787.60 Harness / $6,481.23 own-chat** (80% of each cohort’s 200K saving). The smallest qualifying Harness ceiling is 200K (saving $42,234.51, p90 3 inclusive); no own-chat ceiling qualifies (200K p90 3 exceeds 2; later economic/summary combinations also fail). `DEFAULT_SETTINGS` therefore used **200,000 machine / 0 own-chat** at that point. *(Superseded 19 Oct: after the cache-write correction, the refreshed replay at the top of this plan selected 250K for own chats, and the shipped defaults are 200,000 machine / 250,000 own-chat.)* No stored setting, provider/trial default migration or elapsed-trial verdict was changed.
+
+| Owned cohort | Ceiling | Real USD | Simulated USD | Saving USD | Summaries p50 | p90 |
+|---|---:|---:|---:|---:|---:|---:|
+| harness | 200000 | 87,577.09 | 45,342.58 | 42,234.51 | 1 | 3 |
+| harness | 250000 | 87,577.09 | 52,391.48 | 35,185.61 | 1 | 3 |
+| harness | 300000 | 87,577.09 | 58,008.50 | 29,568.59 | 1 | 3 |
+| harness | 400000 | 87,577.09 | 65,381.93 | 22,195.16 | 1 | 3 |
+| harness | 600000 | 87,577.09 | 74,680.77 | 12,896.32 | 1 | 3 |
+| harness | none | 87,577.09 | 87,577.09 | 0.00 | — | — |
+| own-chat | 200000 | 16,424.66 | 8,323.12 | 8,101.54 | 1 | 3 |
+| own-chat | 250000 | 16,424.66 | 9,310.44 | 7,114.22 | 1 | 4 |
+| own-chat | 300000 | 16,424.66 | 10,113.30 | 6,311.36 | 1 | 4 |
+| own-chat | 400000 | 16,424.66 | 11,320.74 | 5,103.92 | 1 | 3 |
+| own-chat | 600000 | 16,424.66 | 12,966.41 | 3,458.25 | 1 | 5 |
+| own-chat | none | 16,424.66 | 16,424.66 | 0.00 | — | — |
+
+Persistent evidence: [final report](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1-2026-10-19-528c17/FINAL-REPORT.md), [seal](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1-2026-10-19-528c17/seal.json), [command receipts and full logs](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1-2026-10-19-528c17/receipts/), [runtime cleanup](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1-2026-10-19-528c17/runtime-cleanup.json). Historical RED failures, setup errors and superseded intermediate typecheck failures remain recorded; only actual behavioral pairs support reproduction claims. The final clean checks supersede the disjoint transient TS4111 diagnostics. Current source and aggregate replay are hashed; raw user transcripts and databases are not copied.
+
+After sealing, remove newly generated scratch runtime/compile outputs and the build outputs regenerated for this repair; preserve the supplied dependency installation and unrelated pre-existing worker bundle. Existing live/provider/trial/choice requirements remain in the root livetest; no new human/provider deferral or live-verification claim is added. The coordinator must rebuild any compiled-worker fixtures before its full suite.
+
+### Native audit remediation, 19 October 2026
+
+Worker handoff only, on supplied HEAD `adbc6f0f16245118fbba9a61acf8d18bb7a0782b`, base `0190f9133`.
+All changes remain uncommitted in the supplied worktree. The broader source audit and independent whole-item verdict
+are coordinator-owned and remain open. No separate Phase 1 spec exists.
+
+Persistent evidence: [report](../../_scratch/changed-plans-queue-2026-10-18/phase1-audit-remediation-528c17/REPORT.md),
+[seal](../../_scratch/changed-plans-queue-2026-10-18/phase1-audit-remediation-528c17/seal.json),
+[command receipts](../../_scratch/changed-plans-queue-2026-10-18/phase1-audit-remediation-528c17/command-receipts/).
+Original audit findings are retained unchanged. RED fixture/setup failures and corrected reruns remain in the evidence;
+only the stated paired behavior failures support each reproduction claim.
+
+| Finding | As-built repair and controlled verification |
+|---|---|
+| P1-AUTO-CONTAINMENT-1 | Validate the merged effective action/schedule at AutomationStore create/update, before attachment side effects. The gate rejects unsafe legacy snapshots before check persistence or shell dispatch. Registered IPC, real migrated SQLite store, real MCP implementation and benign shell controls exercised. |
+| P1-AUTO-ONETIME-1 | The same central policy prevents schedule-only MCP updates retaining a host pre-check on oneTime actions. Explicit clearing and valid scheduled standard actions remain supported. |
+| P1-LIVE-NULL-1 | Null effort returns a truthful live-switch refusal before any control call or partial model change; existing replay owns the provider-default reset. Known non-null effort still applies live. |
+| P1-RTK-ZERO-1 | Include measured zero-dollar turns in the mean and bootstrap interval. Missing costs stay null; unknown rows do not become zero. |
+| P1-STANDING-CAP-1 | Evict complete notes until the 6,000-character bound holds, including an oversized sole note. Verify actual adapter compaction injection, not just the store. |
+| P1-STANDING-THREAD-1 | Clear on real provider-thread replacement and check binding before recording or reinjection, including a binding change before another send. Recovery/reopen and stale/new notification controls pass. |
+| P1-NATIVE-SEARCH-WIRING-1 | Finalize Harness MCP bridge modes after Claude account routing, using the actual model/profile/env precedence. Claude native search on removes the second deferral layer; unknown/off, Haiku, non-Anthropic hosts, Codex stable and other providers retain their policies. Host matching uses actual Anthropic domain boundaries. |
+| P1-REPLAY-P90-1 | Preserve and combine actual per-session summary-count samples. Fixture p90 5 is no longer class-median p90 1. Corrected current-corpus replay below supersedes the old default decision. |
+| P1-A18-RESPAWN-1 | Match starts to an earlier helper return in the same parent session and parent turn within ten minutes. Task and Agent metadata are supported. Overlaps, separate turns/parents, early background receipts and absent chronology cannot establish a re-spawn; unknown lifecycle evidence withholds adoption. |
+| P1-RTK-WINDOW-1 | Refresh epochs fence summary, status, errors and loading, including destruction; calculate the time window per request. Deferred paired responses prove stale success/error cannot overwrite current state. |
+| P1-RTK-COMMANDS-1 | Remove the raw compatibility command table; only capped totals and program figures render. A real SQLite reader → registered IPC → preload → Angular service/component fixture preserves raw compatibility fields while excluding them from displayed savings. |
+| P1-CODEX-UNKNOWN-1 | Require usage receipts for every complete root/descendant turn before comparison; genuine recorded zero remains measured. Forty roots per arm / three turns and twenty landed queue items per arm prove missing usage blocks Cheaper, including after day 35. |
+| P1-CODEX-OUTCOME-1 | Record content-free Codex child exit outcomes through the existing 60-day session-policy writer. Join by exact Harness instance and provider thread, separately from policy exposure. Explicit failure/nonzero exit counts as failure; unmatched/conflicting/missing records stay unknown. Actual handler and CLI fixtures distinguish 8/10 from 10/10 despite identical completed rollouts. Old logs cannot supply outcomes retroactively. |
+| P1-CODEX-MEASURES-1 | Count distinct helper threads per root turn. Correlate typed delivered descendant-to-parent mail with the next positive-input request, requiring an earlier request in the same turn and explicit cache counters. Report observed zero-cache misses, measured request denominator, unmeasured deliveries and turns without receipts in JSON/text. Unknown history remains unknown; no cache-based verdict condition. CLI paired chronology and real read-only sample controls pass. |
+| P1-COLD-FIRST-1 | A per-coordinator tracker retains trusted occupancy from the last settled owned Claude turn. Before prompt construction it queues the existing context reset and emits the cold reason. Real coordinator/registered invoker tests prove terminate-before-first-resumed-send, parent replay/goal bootstrap, and no immediate second recycle. Warm, small, unknown, untrusted and borrowed controls pass. Fresh compaction suppresses the old post-seal cold reset. |
+| P1-MCP-STABLE-EVIDENCE-1 | Resolve the selected tool's server-owned result policy at the serialization boundary. Actual forwarder runtime/factory/server preserves complete bounded evidence/citations; eager/deferred controls agree. Ordinary large results still spill, and model arguments cannot opt them out. Conversation/argument denial controls remain enforced. |
+| P1-CONSENSUS-READONLY-1 | Claude consensus explicitly sets readOnlyReview. Real route/factory/argv coverage proves dontAsk and Read,Grep,Glob,ToolSearch,Skill; ordinary Claude chat remains acceptEdits and other provider/billing controls pass. |
+| P1-ACP-COMPACT-FAIL-1 | Await the actual sendMessage RPC result, requiring end_turn without turnErrored, through the native-compaction helper. Actual accepted-write RPC failure, timeout, exit, server/client cancellation all return false and emit no completion notice; the real configured coordinator selects restart-with-summary. Ordinary sendInput event ownership stays intact. |
+| P1-DEAD-PERSISTENCE-1 | Delete the unused Base adapter method/docs/import, remove persistLargeOutputs together from its type, Scripted constructor and ACP forwarding, and remove the obsolete Copilot mock. The current committed ACP/MiMo overlay is retained. Source closure proves no adapter method/option remains; outputBuffer, independent loop-output-externalize manager/spec and unrelated worker notifier remain. Per Step 13a, no new test is added. |
+| P1-HANDOFF-MODEL-1 | Initialize the real pending picker with the source provider/model; restrict rows and guard commits to that provider. Same as planning sends no override and can be restored after another choice. Real rendered Claude/Codex/OpenCode row → controller → dialog → main-service tests prove the build config changes model while retaining provider/accounts/effort and parentId null. |
+| P1-PLAN-DRAFT-1 | Preserve dirty drafts during same-session polling and save echoes, including edits made while a save is pending. Clean drafts follow server changes; session/mode transitions seed content. Approval uses the edited draft, with empty-draft button guards. Real scheduler callback and DOM update/approval controls pass. A selected-session reply guard is preventive, not evidence of a live ordering incident. |
+
+**Codex mail producer and runtime evidence:** the existing local Codex reference at `4bad6d78e9b50f9fa8bd941f1db012ed491ad2da` records delivered `TurnInput::InterAgentCommunication` through `record_inter_agent_communication` into typed `response_item.agent_message` history with author/recipient paths. The report inspects structural fields and counters only. A bounded read-only scan of the 100 most recently updated thread rows read 18 Codex 0.163.0 files (29 exceeded the size budget; 53 missing), finding 330 descendant-to-parent receipts. Running the actual parser on that bounded sample measured 234 next requests, zero zero-cache misses and 49 unmeasured deliveries; 81 of 91 turns had no typed mail. These are observed sample counts, not a trial result, causal claim or whole-corpus estimate. Legacy/prose-only formats, cold first requests, missing counters, counter resets and dangling deliveries remain unknown. `mail-producer-evidence.json`, `codex-mail-source-receipts`, `codex-mail-real-runtime`, `codex-mail-red` and `codex-mail-final-green` retain evidence.
+
+**Implementation rulings:** native-search finalization belongs after account routing, where model and effective profile
+environment are available, rather than the earlier provisional SpawnConfigBuilder pass. Automation policy belongs at
+the persistence boundary so both IPC and MCP share it. RTK compatibility counters remain in IPC but are not displayed.
+Missing trial evidence remains unknown; neither Codex historical child outcomes nor helper-mail chronology is invented.
+
+**Corrected replay:** ran read-only against the current local corpus with `--since 2026-09-14` on 19 October.
+The existing reader uses file mtime selection, not a per-request date filter; this is a current-corpus rerun, not a
+reconstruction of an immutable historical 31-day window. It read 4,148 sessions (own-chat 720, unclassified 466,
+automation 493, plan-queue 64, subagent 2,405). The measured post-summary context floor F was **15,694.5 tokens** (`floorTokens`), not dollars. The dollar saving threshold is a separate 80%-of-200K calculation. This historical table excludes child ownership and is superseded by the owned-cohort replay in the current follow-up below.
+
+| Machine ceiling | Observed cost | Simulated cost | Saving | Summaries/session p50 | p90 |
+|---|---:|---:|---:|---:|---:|
+| 200K | 47,882.04 | 23,272.06 | 24,609.99 | 1 | 5 |
+| 250K | 47,882.04 | 26,015.33 | 21,866.71 | 1 | 4 |
+| 300K | 47,882.04 | 28,203.78 | 19,678.27 | 1 | 4 |
+| 400K | 47,882.04 | 31,854.28 | 16,027.76 | 1 | 4 |
+| 600K | 47,882.04 | 36,965.86 | 10,916.19 | 1 | 4 |
+| None | 47,882.04 | 47,882.04 | 0 | — | — |
+
+For this historical parent-only cohort no positive machine ceiling satisfied both rules; own-chat was also none. Its then-current
+0 / 0 code decision is superseded by the owned-cohort follow-up below (200K / 0). No saved user setting or trial verdict was applied.
+The earlier 200K conclusion below is historical and invalidated by the corrected population percentile.
+
+**Verification and boundaries:** after all 21 repairs and the mail-measure continuation, 142 selected files / 1,786 passed / zero failed / one existing
+non-macOS Seatbelt control skipped on macOS. The actual child receipt records code 0 and signal null. Earlier runs
+(124 files / 1,614 tests with zero skips and the 119-test ACP extraction check) are retained as historical receipts.
+The portable asset assertion passed against the existing root skill file (SHA256
+`5db17e360ceb066f3f57238fc8eaf6088498e395d18ddce62c1b3a94bd0b09af`), linked temporarily into the worktree; no test skip
+was added. Both type checks, lint, LOC, main/renderer builds, IPC/usage, exports, contracts, architecture and whitespace
+passed. Existing renderer bundle and LOC-tolerance warnings remain; IPC usage is warn-level. Generators reproduced
+tracked output; the coordinator must refresh index-derived architecture inventory after staging new paths.
+
+The worker did not run the full suite, launch paid providers, use a browser/desktop, alter real databases/settings,
+stage/commit, or create/switch branches/worktrees. Browser/live checks and trial clocks remain in the root livetest.
+Created build/cache/runtime fixtures are removed after report/seal/receipts; cleanup evidence is retained with the seal.
+The supplied AIO worktree and its pre-existing dependency links remain for the coordinator.
+
+### Historical parked-item resume checkpoint, 19 October 2026 (superseded by native remediation above)
+
+The supplied checkout was clean at `1c1f5f224`, based on `0190f9133`. The four queue checkpoints already contain the
+implementation and prior verifier repairs (373 changed paths against the base). The only unchecked current worker
+checklist item is coordinator acceptance; older unchecked implementation/dependency notes remain historical. There is
+no separate linked Phase 1 spec. This resume required fresh verification and this root-document update, with no new
+product-code change. The worktree's tracked plan snapshot was left untouched as required.
+
+**Fresh command evidence:** the 139 changed spec files passed 2,662 tests, with two existing conditional Claude-launch
+mode skips. A disjoint 22-file selection covering the classifier, Codex policy/request contract, spawn preflight,
+reviewer/tool configuration, automation runner, fallback ledger, OpenCode and local-model paths passed 288 tests.
+Both runs bypassed the test cache. `npx tsc --noEmit`, `npm run typecheck:spec`, lint, LOC, both production builds,
+IPC/usage, exports, contract aliases, architecture and merge-base-to-HEAD whitespace validation returned zero.
+The renderer retains its initial-bundle budget warning; IPC usage remains warn-level. No full suite was run.
+
+**Two verification prerequisites were resolved without code/test changes:**
+1. The initial focused run failed three compiled-worker cases because
+   `dist/main/cli/spawn-worker/cli-spawn-worker-main.js` was absent. `build:main` produced the required fixture runtime;
+   all 20 tests in that worker spec and then the complete 139-file selection passed. The verifier must build main before
+   those tests, because this resume's compiled output is removed after sealing evidence.
+2. The ordinary protocol check detected installed Codex **0.163.0**, versus this plan's required **0.162.1** snapshot.
+   A temporary, worktree-local 0.162.1 install passed the unchanged check. The newer installed CLI was not replaced and
+   the pinned manifest was not regenerated against a different version. The initial drift receipt remains in the report.
+
+**Review and boundaries:** the implementer's final review checked current checklist/gate consistency, generated-file
+reproducibility, receipt exits, conditional skips and the absence of any new tracked code diff. It is not an independent
+`task-completion-gate` PASS. Existing live checks and conditional/dropped choices remain in the root
+[livetest](2026-10-10-oct-phase1-token-levers_livetest.md). No provider probe, app/browser action, release, setting
+change or trial start occurred. Complete RTK pipeline/deny proof is still required before release/trial interpretation;
+the waiting-rule flag remains disabled pending fork-cache proof.
+
+**Evidence:** [resume report](../../.worktrees/queue/2026-10-10-oct-phase1-token-le-528c17/_scratch/phase1-resume-2026-10-19/FINAL-REPORT.md),
+[seal](../../.worktrees/queue/2026-10-10-oct-phase1-token-le-528c17/_scratch/phase1-resume-2026-10-19/seal.json),
+[receipts and full logs](../../.worktrees/queue/2026-10-10-oct-phase1-token-le-528c17/_scratch/phase1-resume-2026-10-19/),
+and [runtime cleanup](../../.worktrees/queue/2026-10-10-oct-phase1-token-le-528c17/_scratch/phase1-resume-2026-10-19/runtime-cleanup.json).
+The report enumerates all 18 step statuses and preserves the exact test selections. Only resume-created build output,
+temporary pinned tooling and runner files are removed; pre-existing dependencies/caches are preserved. AIO retains
+checkpoint, full-suite verification, independent acceptance, integration, cleanup and completed-rename ownership.
+
+### Verifier round 2 repair, 18 October 2026
+
+1. **Finding 1 — stale progress:** the quoted lines reproduce exactly in the worktree snapshot, not this canonical root
+   plan. The snapshot is 3,913 lines, SHA-256
+   `564b88bc1404987efe2e7f92de06e2553310c101aa9917c72052037ba3fa161e`.
+   The canonical root document on arrival was 4,441 lines, SHA-256
+   `a161c982f8801246411b04c1722dde3bb7b390de0b2dc343f2716639f42518b1`, and already described all 18 steps.
+   This repair puts one current checklist first and labels old checkbox/progress/dependency records as historical.
+   The worktree snapshot stays byte-identical as instructed; the verifier must read the absolute root path above.
+2. **Finding 2 — Phase 0 files absent:** not reproduced in current HEAD. All four are tracked and used by real runtime
+   paths. No branch integration or replacement code is needed:
+
+   | Module in this worktree | Runtime use checked | Current test evidence |
+   |---|---|---|
+   | `src/main/core/system/model-call-recorder.ts` | orchestration call recording, Quick ask | recorder / consensus usage |
+   | `src/main/core/system/observed-model-call-usage.ts` | per-dispatch usage observation | consensus usage |
+   | `src/main/context/compaction-continuity.ts` | restart package / interrupted request | continuity / compaction runtime |
+   | `src/main/context/compaction-summary-fit.ts` | restart summary input fitting | summary-fit / restart compaction |
+
+**Current verification:** `rtk proxy npx tsc --noEmit`, `rtk npm run typecheck:spec`, `rtk npm run lint`,
+`rtk npm run check:ts-max-loc`, `verify:ipc`, `verify:exports` and `check:contracts` returned zero. Explicit batches:
+33 files / 319 tests; 5 integration files / 57 tests; 1 generator file / 8 tests. The extra architecture check first
+reproduced stale metadata (exit 1). Regeneration changed only `acp-cli-adapter.ts` 2580→2579 and
+`instance-manager.normalized-event.spec.ts` 879→880 in the generated inventory; the final architecture check returned
+zero. The last code builds remain the round 1 receipts below; this documentation/metadata repair did not rebuild the
+app. Full suite and final independent acceptance remain coordinator-owned.
+
+**Evidence:** [round 2 report](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round2-repair-528c17/FINAL-REPORT.md),
+[seal](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round2-repair-528c17/seal.json),
+[command receipts](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round2-repair-528c17/command-receipts),
+[document/dependency identities](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round2-repair-528c17/provenance-before.json)
+and [runtime cleanup](../../_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round2-repair-528c17/runtime-cleanup.json).
+These retain exact command exits, full logs, the two document identities and a per-step file inventory.
+
+### Historical worker checkpoints (superseded; 12–18 October 2026)
+
+The dated records below describe their capture state only, including statements labelled "current" within them.
+Their counts, missing-dependency assessments, pending work and historical RTK PASS wording are not the current checklist.
+Use the current sections immediately above for present scope, code presence, evidence limits and remaining gates.
+
+
+
+### Worker checkpoint, 16 Oct 2026 (resume after park): Steps 10-18 built, gates recorded, Live check 1 passed
+
+The previous worker parked with `worker-error` mid-round (commit `8567695b0`) after building much of Steps 10, 11, 12c
+and 14 without writing notes. This round verified that work, found and fixed one missing import it left
+(`applyClaudeLiveRuntime` in `claude-cli-adapter.ts`), wired the missing 14d half, and built Steps 15-18 and the
+remainder of 16 and 17.
+
+**Step 10 (A12) — verified complete.** `harness-guidance.ts` + spec, the three texts (`HARNESS_GUIDE`, the scheduling
+rules with the send-time clock, `CONSENSUS_RULES`), the `harness-guide` block kind (last in `SYSTEM_PROMPT_BLOCK_ORDER`,
+after `claude-helper-rules`), first-message delivery for `current-submission` creates, later-turn delivery with the
+`WeakMap` latch keyed on `providerSessionId` and `adoptProviderSessionId`, and the dead `getOrchestrationPrompt` /
+`getLaterTurnReminderIfRelevant` plumbing deleted (the room Step 13/15b needed). Rewritten specs pass
+(`harness-guidance.spec.ts`, `instance-system-prompt.spec.ts`, `orchestration-protocol.spec.ts`).
+
+**Step 11 (A6) — verified complete, then reduced.** `opencode-session-levers.ts` (title off, `steps`, 1.x `prune`),
+`acp-native-compaction.ts` (`/compact` + the `opencode-acp` capability profile), `opencode-acp-markers.ts` (retry and
+compaction markers). The parked worker had pushed `acp-cli-adapter.ts` 27 lines past its LOC ceiling; this round moved
+the marker dispatch into `dispatchOpenCodeSessionInfoMarker` and condensed the adapter's delegates (2607 → 2579, under
+the 2530+50 limit, **no ceiling changed**).
+
+**Step 12c (A9.3) — verified complete.** `cold-cache-resume.ts` + service + chip, `compactInstance` returns success, the
+composer hook `onComposerSend`, and the `coldCacheCompactFirst` setting. One fix: the restore fallback used `??` on a
+void call (it always ran the draft fallback too); now a plain branch (`instance-detail.component.ts`).
+
+**Step 14 (A8) — 14a/14b/14c verified complete; 14d completed this round.** The parked worker left
+`claude-control-channel.ts`, `claude-live-runtime.ts` (`set_model` / `apply_flag_settings` / `get_settings` verify),
+`live-title-source.ts` + the `TITLE_CLI_SPAWN_ENABLED = false` gate on the title-CLI escalation, and the quick-ask stack
+(service, handler, preload domain, panel, IPC channel + schema). This round finished 14d: the live-switch branch in
+`runtime-reconciler.ts` right after the account in-place branch (`tryLiveClaudeSwitch` — same pid, same session id, no
+`sendInput`, context floor re-based), the truthful notices (`userText` on `RuntimeChangeNotice`, `describeReplayWindow`
+in `replay-continuity.ts`, the honest "restarted from a summary of the last N messages" user wording while the model
+keeps its own text), and the `model-switch-note.ts` live sentence + rule (resident, local Claude only). Tests:
+`runtime-live-switch.spec.ts` (new), `runtime-reconciler.runtime-change.spec.ts` (+2: live switch does not
+terminate/respawn/sendInput; a refusal falls back to replay with the model applied), `runtime-change-notices.spec.ts`
+(+4), `replay-continuity.spec.ts` (+3), `claude-cli-adapter.spec.ts` (+3: the 1M→200K floor re-base — the hidden trap),
+`model-switch-note.spec.ts` (rule cases). The renderer `Instance` type gained `residentClaude` (it was on the
+serialised record already). The protocol probe (Step 14's live check 1) is still open — the `side_question` reply shape
+remains inferred; recorded in the livetest doc.
+
+**Step 15 (A21) — built this round.** 15a: the Plan Mode page now opens on the selected session (picker over
+`InstanceStore.instances()`, no typing, no Load State), maps main's real `{enabled, state, planContent}` shape
+(`!enabled`→idle, `planning`→planning with Approve when content exists, `approved`→approved with the build button), and
+the never-sent version/history/entered-at panels are gone. 15b: `src/main/instance/plan-handoff/` (`extract-plan-text`,
+`build-plan-seed`, `PlanBuildHandoff`), `dismissUserAction` on the orchestration handler (silent dismiss via
+`suppressInjectResponse`), `PLAN_HANDOFF_PREVIEW`/`PLAN_HANDOFF_START` channels + schemas + handlers + preload +
+`plan-mode-ipc.service` methods, the dialog (plain token numbers, editable plan, "Same as planning" model default via
+`CompactModelPickerComponent`, select-new-session + toast), and both entry points (the `switch_mode`/`build` card
+button; the approved Plan Mode state). Tests: the three module specs (17 tests), `plan-page.component.spec.ts` (4 —
+the "shows Approve" case fails on the old page by construction), `plan-handoff-dialog.component.spec.ts` (4),
+`user-action-request.component.spec.ts` (+1), `orchestration-handler.spec.ts` (+2), `instance.schemas.spec.ts` (+2).
+**Deviations:** (1) `PlanBuildHandoff` takes `approvePlan` as an optional dep and calls the manager's public
+`approvePlan`/`emitSystemMessage`/`getOrchestrationHandler().dismissUserAction` from the handlers file — no new manager
+API. (2) The hand-off's `createInstance` call is a person-started site; it is classified in the A0-S guard spec
+(`PERSON_SITES`). (3) The dialog shows the model default as visible text ("Same as planning") beside the picker rather
+than a separate model list.
+
+**Step 16 (A1) — 16a and 16c built; 16b gated.** 16a: `local-model-history-compaction.ts` (`compactLocalHistory` with
+the quarter-window tail budget and injected `summarise`; `buildBasicLocalSummary` is the plan's "basic package" fallback)
+and `BaseLocalModelChatAdapter` gained `compactContext` (refuses mid-request), `nativeCompactionKnownUnsupported()`
+and `supportsNativeCompaction: true`. **Deviation:** Phase 0's `compaction-tail.ts`, user-messages/identifier-index and
+isolated compactor are not in this tree (as with Steps 5-7), so the tail rule is inlined (window tokens ≈ chars/4) and
+`summarise` is injected — the real compactor drops in where it exists. 16c: `overflow-compaction-route.ts` (the three
+rules: adapter-native → buffers-trim; Claude/OpenCode → buffers only; everyone else → the real summary path with the
+interrupted request carried **once**), the `instance-manager` hook now delegates to it (net −12 lines in that file),
+`CompactionBoundaryOptions` gained `trigger`/`resumeTurn`, `restartCompact`'s continuity package gained the
+`<interrupted_request>` block (closing tag escaped), the "quoted as data" note and the "Carry it out now" rule
+(`continuation: 'continue'`), sends the original attachments and provenance, and the overflow policy skips its own
+retry when `resumeDelivered` (marking `markRetried` and settling the instance). **Deviation:** Phase 0's
+`compaction-continuity-package.ts` is absent, so the package turn stays inline in `compaction-runtime.ts` and gained the
+resume block there. *(Superseded 20 Oct: this note describes the earlier `-ea3105` branch. At `-528c17` the Phase 0 modules are present and used, the resume wording lives in `compaction-continuity.ts` (`CONTINUITY_RESUME_RULE`, plan item 5 verbatim), and the adapter tests are `local-model-chat-adapter.compact-context.spec.ts`; see the 19-20 Oct repair sections.)* Tests: `local-model-history-compaction.spec.ts` (5), `local-model-input-dispatch.spec.ts` (+4),
+`overflow-compaction-route.spec.ts` (6), `instance-communication-overflow-policy.spec.ts` (+3, including the
+"fails today: the retry is dropped" case), `compaction-runtime.spec.ts` (+2: the carried request + escaped tag + continue
+rule; the manual path keeps the wait rule). 16b stays un-built: Phase 0 step 10's `/compact` probe never ran.
+
+**Step 17 (A2) — 17a built; 17b and 17c gated.** 17a: the "Resolve CLI provider type" block moved above the
+instruction-hierarchy load in `instance-lifecycle.ts` and `loadPromptHierarchy` now receives `resolvedCliType` (net 0
+lines; the log line gained `requested`); `native-instruction-ownership.ts` doc updated. Tests:
+`instance-lifecycle-system-prompt-contract.spec.ts` (+3, including the two "fails today" cases). 17b/17c stay un-built
+(Copilot probe never ran; the label trial needs the rebuilt app).
+
+**Step 18 (A13) — 18a and 18b built; 18c gated; 18d probe-only.**
+- *18a:* the version pins were already at **0.51.0** (the parked round-2 worker bumped them); this round added
+  `RTK_MIN_REWRITE_VERSION = '0.49.0'` + `supportsRewriteVersion()` + `supportsRewrite()` on the runtime, the rollout
+  module (`isRtkHookEligible` cached by settings key, `rtkArmFor` FNV-1a arm hash, `shouldUseRtkYoloHook`,
+  `describeRtkCoverage`, `buildClaudeRtkEnv`), honest savings numbers (`rtk-summary-queries.ts`: per-row 7,500-token
+  cap over shortened rows only; `commandsFiltered`/`commandsRanInFull`/`savedTokensCapped`/`weightedReductionPct`/
+  `windowDays`/`byProgram`; `getCompliance` now counts `rtk fallback%` as bypass), the Savings tab rewrite (split cards,
+  7/30/90/all selector, "Where it applies" table from `describeRtkCoverage`, glossary naming "RTK (Rust Token Killer)",
+  "Changes apply to new sessions", the plain bill-flat note), the settings copy fixes, and the awareness text replaced
+  with RTK 0.51.0's `hooks/rtk-awareness-full.md` wording (*19 Oct: this replacement was missing from `-528c17`, which still carried the proxy invitation, until the repair applied it and added `rtk-awareness.spec.ts`*) plus the one Harness sentence ("Do not put `rtk` inside
+  scripts, subprocess calls, pipelines, or any command whose output a program reads" — the cat-file-script fix).
+- *18b:* the `rtkAutoApproveScope` setting (five places, default **`trial`** at the time; **`off` since the 19 Oct repair**), rewrite-only mode in `rtk-defer-hook.mjs`
+  (exit 0/3 → allow with `updatedInput`; 1/2/timeout/missing/thrown → nothing, exit 0; decision directory never read) and
+  the per-day decision log (`{ts, session_id, tool_use_id, decision, rtkExit, elapsedMs, mode}`, 60-day sweep),
+  `resolveBashHookCommand` as the one owner for both overlay builders (they had drifted), the env block moved into
+  `buildClaudeRtkEnv` (with `ORCHESTRATOR_RTK_LOG_DIR` under `<userData>/rtk/hook-decisions`), interactive spawns keyed
+  by `instance.id` with `stampRtkArm` (cost rows carry `rtkArm` and `sessionId`), loops keyed by correlation id / loop
+  run id (`getAutomationRtk`, undefined under `off`/`sessions-only`), the trial report (`npm run audit:rtk-trial`;
+  bootstrap CI + G1-G5 + benefit + cost verdicts, fixture spec) and the tab's trial line.
+- **Corrected 19 Oct: Live check 1 is PARTIAL, not passed.** The livetest doc records the pipeline and deny-rule receipts as missing, and a fresh review found RTK 0.51.0's own deny detection misses wrapper forms (`FOO=1 git push`, `timeout 5 git push`, `git -C /tmp push`) while Claude evaluates deny rules on the rewritten command. The `rtkAutoApproveScope` code default is therefore `off`, not `trial`. The original 16 Oct note follows unchanged for history.
+- *(Historical, superseded)* **Live check 1 PASSED (16 Oct 2026, command line):** the rewrite-only hook under `claude -p
+  --dangerously-skip-permissions` rewrote `git status` and allowed it (`decision: rewritten, rtkExit: 3` — the 0.51
+  "no rule matched" case), the model's output was intact, a failing command kept its real exit code, and the old 0.42.4
+  `rtk gain` still opens the shared history DB. Full evidence in the livetest doc. This is why the default ships
+  `trial` rather than the plan's "otherwise `off`" fallback.
+- **Deviation:** the decision-log line gains `mode: 'rewrite-only' | 'defer'` beyond the plan's shape — the trial join
+  must distinguish trial-hook sessions from ordinary defer-hook sessions; and `cost-attribution` rows gain `sessionId`
+  (the plan's join key "by session id" had no carrier on the rows). The trial report's G4 stays "not measured" (needs
+  Phase 2's B6 loop telemetry). 18c is not built at all (its gate is Live check 4 + a clean first week of the trial);
+  18d is a probe recorded in the livetest doc.
+
+**Late fixes (this round):** the A0-S create-instance guard needed `instance/plan-handoff/plan-build-handoff.ts`
+classified as a person site; three spec files needed typed mocks for the spec program; `default-invokers.ts` paid for
+its `getAutomationRtk` import by collapsing an over-wide import (1705 lines, under its 1706 limit, **no ceiling
+changed**).
+
+**Gates (this round, worktree):** `npx tsc --noEmit` clean; `npm run typecheck:spec` clean; `npm run lint` clean
+(after three fixes: an unused import, the `??` expression above, an unused spec import); `npm run check:ts-max-loc`
+clean (exit 0 — `instance-manager.ts` 2455 ≤ 2467 after the 16c hook swap; `acp-cli-adapter.ts` 2579 ≤ 2580; no
+ceilings changed); `build:main` passed; `build:renderer` passed (the known initial-bundle budget warning only);
+`verify:ipc` passed (1200 channels); `verify:ipc-usage` warn-level only. Targeted tests, three sweeps:
+**367** (cli/rtk + hooks + adapters + spawn-worker + compaction-runtime), **466** (plan-handoff + overflow + runtime
++ lifecycle + orchestration + core/config), **2,555** (renderer + shared + contracts + scripts + core/system, 1
+failure = the A0-S guard, fixed) — all green after the fixes. The full suite, `verify:codex-protocol` (needs Codex
+0.162.1 on PATH) and the fresh-eyes gate remain coordinator/verifier-owned.
+
+### Worker checkpoint, 15 Oct 2026 (fix round after verifier round 2): findings fixed; Steps 2, 4-9, 12a/12b and 13 implemented
+
+**Verifier findings (round 2) — both code findings fixed:**
+1. **Plan incomplete (finding 1).** The checklist above now reflects the real state: Steps 2, 4, 5, 6, 7, 8, 9 and 13
+   were implemented or finished this round (Step 9 and parts of 12 were built by the earlier round-2 worker but never
+   checked off; their code and tests are in the branch and re-verified here). Steps 10, 11, 12c and 14-18 remain open —
+   they are genuine remaining work, not blockers, and are listed unchecked above with their gates named.
+2. **Duplicate settings rows (finding 2).** `advanced-settings-sections.ts` listed `codexHelperAgentsChats`,
+   `codexHelperAgentsHarnessWork` and `codexContextTuning` in BOTH the Runtime-controls card and the "Codex helpers &
+   context tuning" card (merge artifact — both sides added them). Removed the Runtime-controls copy; the dedicated card
+   is the plan's Step 1c home. `advanced-settings-tab.component.spec.ts` ("renders every non-hidden advanced-category
+   setting exactly once") now passes (52 rows / 52 settings).
+3. **LOC ratchet (finding 3).** `browser-gateway-rpc-server.ts` was 755 lines (ceiling 704 + 50 slack). Fixed by widening
+   `compactAgentTargetListing` to accept `unknown` (so the Step 9c call is one line, the planned net +1) and collapsing
+   one over-wide import: 755 → 750, back to its pre-branch size. `npm run check:ts-max-loc` passes (exit 0); no ceiling
+   changed.
+
+**Step 2 (A18) finished.** The policy module, env wiring, waiting-rule flag file, reviewer-rule block, `claudeHelperAgentModel`
+setting and trial logging were already in the branch (round 2); this round added the measurement: `--subagents` on
+`scripts/claude-cost-audit-report.mjs` (group tables, quality signs, the reviewer guard, the long-wait cache metric with
+its before/after halves, the plan-queue landing join and the verdict implementing the plan's rules at their thresholds),
+`scripts/claude-cost-audit-report.d.mts`, and the fixture spec `scripts/__tests__/claude-cost-audit-report.subagents.spec.ts`
+(13 tests: the split, pricing, respawn detection, keyword guard, plan-queue grouping, verdict edges at exactly 30%/5/3/10
+points and 2% guard, sample gates, waiting-rule edges, and the end-to-end fixture the plan names). Reader additions in
+`scripts/lib/claude-transcripts.mjs`: `readSubagentMeta`, `parseTaskToolOutcomes` (Task `tool_use`/`tool_result`
+`is_error` only — no message text) and `modelFamily`; `activityReturns` now carries the return timestamp. The Claude
+session-policy log line gained `armKey`/`armSource` (the raw trial key), and `ClaudeCliSpawnOptions`/`createClaudeAdapter`
+carry `trialKey`/`trialKeySource`, so the report can group plan-queue items by their first logged worker.
+**Deviations:** (1) subagent tool-uses/run-time come from the transcripts themselves — Phase 0 7i never landed, so the
+report derives run time from timestamps and says tool-use counts are not joined from 7i. (2) "Partial" endings are not
+recorded in transcripts; only parent-side `tool_result is_error` outcomes are counted, and the report prints the unknown
+count. (3) The plan-queue "mixed groups" count covers items whose logged workers span both arms (the armKey join); items
+whose rounds changed instance without a logged worker are unassigned.
+
+**Step 4 (A5) finished.** `readOnlyReview: true, maxTurns: CLAUDE_REVIEWER_MAX_TURNS` now reaches all five reviewer
+call sites: `review-execution-host.ts` and `cross-model-review-service.ts` (already wired), plus `multi-verify-coordinator.ts`
+(merge synthesis), `consensus-coordinator.ts` and `council-provider-invoke.ts` (added this round, one line each). The
+Claude ping-pong overlay, the security-plugin off switch (`enabledPlugins` overlay + `SECURITY_GUIDANCE_DISABLE`), the
+warm-start guard and the resume-cache check were already in place; the `claude-env-pack.ts` header now records the two A5
+notes the plan asks for (why `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS` is deliberately not set, with the 24-of-26 cache
+numbers, and the security-plugin switch). Tests added: reviewer spawn-option cases for consensus, multi-verify and
+Council (one focused spec `reviewer-readonly-spawn.spec.ts` + `council-provider-invoke.spec.ts`), a read-only-profile case
+in `review-execution-host.spec.ts`, and the three `--settings` overlay cases (machineSession plugins off / interactive
+untouched / hook + plugins coexist) in `claude-cli-argv-builder.spec.ts` plus the three `SECURITY_GUIDANCE_DISABLE` cases
+in `claude-env-pack.spec.ts`. *(Corrected 20 Oct: those six cases did not exist at `-528c17`; the round-3 repair adds them.)*
+**Deviation:** the plan names `maxTurns` only for review-execution-host and cross-model; the three sites added this round
+carry the same cap as those two (one consistent Claude reviewer profile, matching the merged instance-policy overlay that
+caps every readOnlyReview spawn at 8 turns). The turn-cap live check (a real review returns its verdict inside 8 turns)
+is in the livetest doc.
+
+**Step 5 (A4 parts 2-7) done.** 5a: the tree's existing names are kept (`src/main/cli/adapters/context-ceiling.ts`,
+setting `ownChatContextCeilingTokens` — Phase 2's port landed on main first; no duplicate module created). Pure maths
+lives in `src/shared/utils/context-occupancy.ts` (`selfCompactThreshold`, `formatTokensK`) so the renderer can use it.
+Defaults per Step 3's decision rule: `machineContextCeilingTokens: 200_000`, `ownChatContextCeilingTokens: 0`. *(Superseded 19 Oct: the refreshed replay at the top of this plan sets `ownChatContextCeilingTokens: 250_000`, which is the shipped code default; the next sentence describes the earlier replay.)*
+**The own-chat default is the replay rule's answer (no ceiling qualifies: every ceiling keeping ≥80% of the 200K saving
+has p90 summaries-per-summarising-session 5-7, above the cap of 2), NOT the proposed 400K** — James can set 400K in
+Settings in one click; the disagreement is recorded rather than silently picked. 5b: `LoopChildResult.contextOccupancy`,
+an absolute loop ceiling (`absoluteCeilingTokens`; known trusted occupancy recycles with the plan's reason text; Codex
+exempt; 0 = today) and the cold-cache restart (idle > 55 min holding ≥ 150K → `forceContextReset`). `default-invokers.ts`
+stayed net-zero (it was at its ceiling; a duplicate const paid for the one added line). 5c: `resolveClaudeContextNote` +
+`buildClaudeContextNoteSentence` in `context-warning-level.ts`, rendered as quiet plain text beside the context banner.
+Tests: `context-ceiling.spec.ts` (5), `loop-context-discipline.spec.ts` (+6), `loop-context-survival.spec.ts` (+4),
+`context-warning-level.spec.ts` (+5), settings-control-policy defaults (2). The metadata `step: 10,000` the plan mentions
+does not exist in this tree's metadata type (noted, harmless).
+
+**Step 6 (A0-S) done.** New `src/main/core/system/spend-purpose.ts` (resolver in the plan's order + the Costs label map
+`SPEND_PURPOSE_LABELS`, including "Plan queue", "Repo jobs", "Remote machines"). `communication-completion-cost.ts` files
+every turn under `resolveSpendPurpose(instance)` (with `purposeDetail` for plan-queue sub-roles; `cost-attribution.ts`
+carries `purposeDetail` through). `orchestrator-tools-step.ts` tags its run-on-node instances `spendPurpose: 'remote-node'`;
+`channel-message-router.ts`'s two spawns got Phase 0 7a's `spendPurpose: 'channel'` tag (7a never landed; the automation
+spawns already carried `automationId` markers, which the resolver and `machineSessionReasonOf` both map). The resolver
+mirrors Step 1b's marker checks so the two agree on Harness-started; a shared-fixture table pins it (12 rows).
+**Deviations:** (1) the plan's resolver list is extended with the `planQueueRunId`/`automationId`/`spawnParentInstanceId`
+marker rules so the shared-fixture agreement holds (explicit tags still win). (2) The Costs-page purpose breakdown UI is
+Phase 0 7h's, which never landed; the label map is exported and ready, and the recording side is what "Done when" needs
+(a read-only count of today's rows by `purpose`). Tests: `spend-purpose.spec.ts` (19 incl. the shared fixture),
+`communication-completion-cost.spec.ts` (4, new), and a createInstance guard spec (`spend-purpose.create-instance-guard.spec.ts`; *19 Oct: this spec existed only on the earlier `-ea3105` branch and was missing from `-528c17` until the repair re-added it, now classifying each call with the real resolver against a pinned per-file table*)
+that classifies every `createInstance({` call site in `src/main` — machine sites must carry their exact tag string, person
+sites are listed, and a new unclassified site fails the test.
+
+**Step 7 (A0-H) done (choice 13, option 1: one limit).** New `src/main/local-ai-guard/helper-daily-budget.ts`
+(`resolveHelperDailyBudgetUsd` = fallback budget ?? auxiliary cap ?? null; `fallbackPriceFor` prices CLI-escalated slots
+Haiku-class on the pinned id `claude-haiku-4-6-20260401` whatever the default chat model is, summary-ladder slots from
+the ladder's real rung — free at cost 0 with no Anthropic/OpenAI key, the key's cheap model with one; `estimateFallbackCallUsd`
+never NaN, five cents when unpriced; `UNKNOWN_FALLBACK_COST_USD = 0.05`). The guard prices with the rung (never the
+default chat model), resolves the global ceiling through `resolveHelperDailyBudgetUsd`, and gained
+`fallbackSpendTodayUsd()`. `exceedsConfiguredCeiling` is the plan's arithmetic (known + estimated + unknown×0.05 +
+(estimate ?? 0.05)), not the old fail-closed rule. The two ledgers sum: the fallback ceiling is the limit minus
+`getReservedAuxiliarySpendToday()` (new export on `cost-attribution.ts`) and `AuxiliaryDailySpendCap` reserves against
+the limit minus `fallbackSpendTodayUsd()` (new hook on `local-ai-auxiliary-bridge.ts`). Settings text updated
+(`localAiGuardDailyFallbackBudgetUsd` description; the auxiliary tab's field is now "Daily limit for helper spend").
+**Phantom-reservation guard (the plan's "must land after 7e" risk — 7e never landed):** a read-only count of the real DB
+before the change found **12,892 open allowed/pending rows with no known and no estimated cost** (12,472 older than a
+day). Under the plan's arithmetic those would count five cents each every day and permanently block every fallback. The
+completion marking 7e was meant to add is already partly present in the tree (the cost-correlation seam completes 21k
+rows); for the backlog, `getLocalAiFallbackSpend`'s unknown-cost count now only counts un-completed unpriced rows within
+24 hours of creation (`UNKNOWN_RESERVATION_FRESH_MS`; *19 Oct: missing from `-528c17` until the repair restored it — before that, 13,124 stale rows on the real database would have blocked every paid helper call*) — estimated and completed rows keep the plan's semantics, including
+the pinned behaviour that an unresolved prior-day reservation with a real estimate still counts against the new day.
+**Deviations:** (1) the 24h unknown-reservation freshness bound above (with its rationale in the code). (2) The plan's
+`intendedProvider`/`intendedModel` are one `intendedFallbackModel` on the authorization input. (3) The "plain title is
+used" half of the plan's integration case is the title caller's pre-existing blocked-fallback handling; the integration
+test drives the service half ("with the limit at 0.01 a title fallback is blocked"). Tests: `helper-daily-budget.spec.ts`
+(12), `auxiliary-daily-spend-cap.spec.ts` (4, new), `local-ai-fallback-store.spec.ts` (+4), `local-ai-routing-guard.spec.ts`
+(+3; the two old fail-closed cases were rewritten to the plan's new contract — "a configured budget does not block when the
+estimate is missing" is exactly the reversal the plan's test list asks for), `local-ai-auxiliary-integration.spec.ts` (+1).
+**Order note:** Step 14b turns the title CLI escalation off; when it lands, move the title-specific cases to the
+`compression` slot as the plan says.
+
+**Step 8 (A15) done (six parts).** Retry/failure classification (`automation-run-failure-class.ts`), the user-only check
+command with its comparison baseline (`automation-pre-check.ts`, `automation-pre-check-gate.ts`, `automation-pre-check-guard.ts`,
+`automation-check-store.ts`), quiet replies (`automation-run-quiet.ts`), the screen/form/cadence surface
+(`automation-run-display.ts`, `automation-cadence.ts` in `src/shared/automations/` — the renderer cannot import
+`src/main`), and the >24/day agent reminder via `confirmedByUser` on the automation tools. **Migration 078**
+(`078_automation_pre_check`: `automation_runs.outcome` + `automation_check_state`). 275 targeted tests across 17 spec
+files. Deviations the implementing worker recorded: `wait`-class failures are still retried (governor pause; the plan's
+own test requires it) while busy conversations end `skipped` and are redelivered; the check-failure notice is one per
+failure streak (the plan's wording), not literally per run; 8f's guidance sentence waits for Step 10's guidance module
+(the plan itself defers it: "until then, leave the guidance alone") and the `confirmedByUser` tool description carries
+the teaching text meanwhile. One flaky timing test (kill-at-200ms under parallel load) was hardened to a 1s budget.
+
+**Step 9 (A19/A17.4) verified (built by the earlier round-2 worker).** 9a `claude-output-caps.ts` +
+`claudeBashOutputMaxChars` in the `--settings` overlay; 9b `tool-output-truncation.ts` backstop for Harness tools (the
+evidence tools exempt) — **the old tool-output folder sweep (choice 11, deletes ~7,000 files) stays gated on James's
+agreement and is NOT built**; 9c `browser-agent-target-listing.ts` projection on the agent RPC path (this round fixed its
+LOC overshoot); 9d the 12,000-character page cap on both browser paths. 151 tests across these modules pass.
+
+**Step 12 (A9) partial.** 12a (model facts rows, switch note, picker/instance-header wiring) and 12b (byte-identical
+attachment de-duplication, `attachment-identity.ts`) were built by the earlier round-2 worker and their specs pass (151
+with the Step 9 batch). 12c ("Compact first" on a cold return) is NOT built. 12d (big pastes → file) is **dropped**
+per choice 16 ("built last, and dropped first if time is short").
+
+**Step 13 (A17) done.** 13a dead output-persistence path deleted (`flushOutputBuffer` + `persistLargeOutputs`, proved
+unused; `base-cli-adapter.ts` 1,017 → 992); 13b/13c `child-completion-batcher.ts` + `instance-child-completion-handler.ts`
+(one report per 30s burst after the last finish, immediate on failure, 10-minute hung release, each result carried once;
+`orchestration-handler.ts` net −4); 13d `claude-native-tool-search.ts` (Harness's own tools stop being hidden twice when
+Claude's own tool search is on); 13e decision record in the bundled-MCP guard spec (IMAP is not a duplicate; code
+navigation is duplicated but not worth a build); 13f gated (17.2/17.6/17.7 specified, not built). 401 tests across 14
+files. The one guide sentence went into today's parent guide (`orchestration-protocol.prompts.ts`); its move into
+Step 10's guidance module (with the length-test bump) is pending Step 10.
+
+**Late fixes found by the wider sweep:** (1) `model-token-guard.spec.ts` forbids hardcoded Claude model-id literals in
+app code — `helper-daily-budget.ts` now takes `FALLBACK_HAIKU_MODEL` from `CLAUDE_PINNED_MODELS.HAIKU_46` and the OpenAI
+rung from `OPENAI_MODELS.GPT55_MINI`. (2) Step 13's `child-spawned` subscription in `instance-manager.ts` assumed the
+orchestration handler always implements `.on`; minimal test doubles broke 20 InstanceManager construction tests — the
+subscription is now duck-typed (`on?.`), production behaviour unchanged. (3) Step 8's kill-at-timeout test used a 200 ms
+budget that flaked under parallel load; raised to 1 s.
+
+**Gates (this round, worktree, final):** `npx tsc --noEmit` clean; `npm run typecheck:spec` clean; `npm run lint` clean;
+`npm run check:ts-max-loc` clean (exit 0); `build:main` passed; `build:renderer` passed (the known initial-bundle budget
+warning only). Targeted tests (the full touched surface, two batches): **609 files / 8,944 tests** (models + settings +
+instance-detail + cli adapters + browser gateway + instance + shared + scripts) and **373 files / 4,870 tests**
+(automations + orchestration + local-ai + rlm + core/system + compare + review) — 0 failures. The full suite and the
+fresh-eyes gate remain coordinator/verifier-owned.
+
+### Worker checkpoint, 15 Oct 2026 (later): main merged into this branch — all conflicts resolved, both sides' intent kept
+
+The coordinator merged `main` (`06201b4b0`, "Plan: 2026-10-10-oct-phase2-loops-converge_plan") into this branch.
+16 files conflicted (10 modified-both, 6 added-both — main's phase2 work independently built ports of Steps 1b/1c/4
+machinery). All conflicts are resolved and staged; the merge is left in progress for the coordinator to finish (no
+commit made). How the overlap was settled:
+
+1. **Trial-arm naming, policy shape and the request helpers stay as this plan specifies** (arm `'cheaper' | 'full' |
+   'off' | 'unassigned'`, `resolveTrialArm` key-hash, `resolveCodexThreadPolicy` with an agents-only `config` map and
+   `outputLimit`/`postTurnCompactPercent` fields merged into the request by `buildCodexThreadConfig`, 3-arg
+   `startCodexThread`/`resumeCodexThread` returning `CodexThreadRequestResult` with `applied`). Reason: the trial
+   report groups threads by these arm names (`chats.cheaper ?? chats.economy`, off-vs-full) and joins the log's
+   **raw** `armKey` to `plan_queue_items`; main's `'control' | 'candidate'` arms and hashed `armKey` would break both
+   and have no consumer on main. Main's `codexTrialArm`/`logPolicy` naming is superseded; their test intents
+   (deterministic arm per key; unknown key → `unassigned`) are kept under `resolveTrialArm`.
+2. **`session-policy-log.ts` is this plan's class-based log** (`getSessionPolicyLog()?.append`, `AIO_SESSION_POLICY_DIR`
+   override, 60-day retention). Main's own `claude-env-pack.ts` port already calls `getSessionPolicyLog()?.append`
+   with this plan's entry shape, so the two sides' log consumers only work against this version. Main's `recordSessionPolicy`
+   (hashed armKey) is superseded for the report-join reason above.
+3. **Main's fail-closed settings read is adopted (their Finding 2, a defect fix):** `resolvePolicyForConfig` (re-exported
+   as `codexThreadPolicyForConfig`) now statically imports `getSettingsManager().getAll()` and logs + rethrows on
+   failure instead of resolving trial defaults from empty settings — a thread never starts on a policy the user never
+   configured. Specs that reach the seam mock `getAll`.
+4. **Main's stricter no-config-fallback matcher is adopted** (`isConfigRejection` now requires both an "invalid" word
+   and a config-key word), so a timeout or transport failure never triggers the without-config retry. This plan's
+   RPC-error message extraction is kept.
+5. **Call sites stay on this plan's `*FromConfig` wrappers** (`app-server-initializer.ts` three resumes + one start,
+   `codex-app-server-adapter.ts` `reopenAppServerThread`): per-thread policy resolution, arm fixation on the adapter
+   config, one session-policy line per start/resume. Main's `threadId || thread?.id` fallback already lives inside
+   the helpers; `resolveCodexAppServerApprovalPolicy` stays in `codex-thread-requests.ts` (the recorded move).
+6. **`instance-spawn-policy.ts` = this plan's stamping (machineSession/sessionKind/trialKey/trialKeySource, caller
+   values kept) + main's Claude reviewer overlay** (`readOnlyReview: true, yoloMode: false, maxTurns ??
+   CLAUDE_REVIEWER_MAX_TURNS` for Claude ping-pong-review/readOnlyReview spawns — main's port of A5's profile).
+   Both spec suites kept, including main's replacement-pin case.
+7. **`codex-cli-adapter.ts` keeps both sides' methods**: this plan's standing-notes re-inject after compaction AND
+   main's `hasActiveTurn()` (duck-typed by `stuck-process-detector.ts`).
+8. **`claude-cli-argv-builder.ts`**: the `ClaudeSettingsOverlaySpawnOptions` Pick includes both `bashOutputMaxChars`
+   (Step 9a) and `machineSession` (main disables the security plugin on machine sessions) — the merged body uses both.
+9. **Clean-merge artifacts fixed** (both sides added the same settings keys/fields; git auto-merged duplicates that
+   do not compile): `codex-adapter-config.ts`, `adapter-factory.types.ts` (`trialArm` unified to `CodexTrialArm`),
+   `adapter-factory.ts`, `provider-route-preflight.ts`, `instance-spawn-preflight-chain.ts`, `claude-env-pack.ts`,
+   `codex/app-server-types.ts` (`ThreadResumeParams.config` once), and the five settings-plumbing files. For the
+   three Codex settings, one copy each is kept: the plan-worded labels/options in `settings-metadata-runtime.ts` and
+   `settings.types.ts`, defaults `'trial'/'trial'/'harness'`, surfacing `'tab'`, and control policy
+   `open(z.enum([...]))` **without** `restartRequired` (the plan: "applies to new sessions and at the next resume").
+10. **Generators re-run after the merge**: `generate:architecture` rewrote the inventory (22 lines);
+    `generate:aliases` and `generate:ipc` reproduced their staged output byte-identically. `verify:ipc`,
+    `verify:ipc-usage`, `verify:exports`, `verify:architecture`, `check:contracts` and `check:dead` all pass.
+11. **Two pre-existing branch type errors fixed to make type-check green** (NOT merge fallout — every involved file
+    is byte-identical to this branch's pre-merge HEAD): `runtime-reconciler-plan.spec.ts` imported
+    `ContinuityPlan`/`RuntimeDiff` from a module that never exported them (now re-exported), and
+    `browser-agent-target-listing.spec.ts`'s `as const` fixture made `data` a `readonly []` (`[] as object[]`).
+12. **Pre-existing, left alone (out of merge scope), for the verifier's awareness:**
+    - `check:ts-max-loc` fails: `browser-gateway-rpc-server.ts` is 755 lines against 704 + 50 slack, grown by this
+      branch's round-2 Step 9c wiring (+3). Remedy per the tool's own message: raise the ceiling intentionally or
+      refactor; this merge did not touch the file.
+    - `check:circular` (its header: "a local diagnostic, not a CI gate") reports 100+ pre-existing type-graph cycles
+      through the `adapter-factory.types` hub (e.g. `settings-manager > settings-migrations > adapter-spawn-helpers >
+      adapter-factory.types > …`). The fail-closed static `settings-manager` import adds one more chain to that hub
+      (`… > app-server-initializer > codex-thread-requests`); it crosses type-only edges, so there is no runtime
+      require cycle. Main's own port had the same hub chain through `codex-thread-policy`.
+
+**Gates re-run after resolution (this worktree):** `npx tsc --noEmit` clean; `npm run typecheck:spec` clean;
+`npm run lint` clean; `build:main` passed; `build:renderer` passed (the known initial-bundle budget warning only).
+Targeted tests: codex dir + instance-spawn-policy + machine-session **713 passed**; adapters + core/config +
+shared/types + instance/lifecycle + browser listing **4,925 passed**; `src/main/instance` + `src/shared`
+**5,104 passed**; trial-report fixture + standing-notes **14 passed**. Full suite and the fresh-eyes gate remain
+coordinator/verifier-owned.
+
+### Worker checkpoint, 15 Oct 2026: Step 1 complete (1c wiring, 1d, 1e) and Step 3 complete; Phase 0 still blocks the rest
+
+- **Historical checkpoint (superseded):** **Step 1c wiring finished (all three remaining items).**
+  - `codex-app-server-adapter.ts` `reopenAppServerThread` now sends the policy `config`: the 8-line `startThreadWithRetry`
+    literal became one `startCodexThreadFromConfig(this.appServerClient, buildCodexThreadStartParams(...), this.cliConfig)`
+    call. Net −8 lines (the unused `startThreadWithRetry`/`SERVICE_NAME`/`resolveCodexAppServerApprovalPolicy` imports
+    went with it), so the file sits at 746 lines against its 754 ceiling.
+  - **Deviation (recorded):** `resolveCodexAppServerApprovalPolicy` moved from `app-server-initializer.ts` to
+    `codex-thread-requests.ts` so `buildCodexThreadStartParams` could derive the approval policy without an import cycle
+    (`app-server-initializer` already imports the request helpers; `check:circular` is a gate). Nothing else changed
+    behaviour; the initializer imports it from the new home.
+  - `createCodexAdapter` copies `sessionKind`, `trialKey` and `trialKeySource` into `CodexCliConfig` (3 lines; room 27 → 24).
+  - The session-policy log is now invoked: every `startCodexThreadFromConfig`/`resumeCodexThreadFromConfig` appends one
+    line (skipped when no thread id came back or no log dir resolves). `resolvePolicyForConfig` now returns the level and
+    arm alongside the config map and stores the computed `trialArm` on the adapter config, so a resumed adapter keeps its
+    arm for life (ground rule 11).
+  - `UnifiedSpawnOptions`/`CodexCliConfig` gained `trialKeySource`; `applyInstanceSpawnPolicy` stamps it beside
+    `trialKey` (explicit values are kept).
+  - **Deviation (recorded):** `session-policy-log.ts` resolves its directory the way `cost-attribution.ts` does —
+    `AIO_SESSION_POLICY_DIR` (the JSONL directory itself) overrides Electron's `<userData>/session-policy`, and writing
+    is skipped silently where neither resolves (worker/test contexts). The plan's `<userData>/session-policy/<date>.jsonl`
+    layout is unchanged on the real app.
+  - New tests: `codex-thread-requests.spec.ts` (builder derivation; four log-wiring cases including `applied: false` and
+    the unassigned arm), `instance-spawn-policy.spec.ts` ("worker round 1, verifier round 1 and worker round 2 of one item
+    get the same trialKey and arm" — was the plan's fails-today case; loop-run key; explicit key kept),
+    `app-server-client.spawn.spec.ts` ("a thread opened after the no-cap retry still carries tool_output_token_limit" —
+    was the plan's fails-today case; it drives the real retry path and asserts the `thread/start` params over the wire).
+- **Historical checkpoint (superseded):** **Step 1d: the Codex trial report.** New read-only `scripts/codex-helper-trial-report.mjs`
+  (`npm run audit:codex-helpers -- --since <date> [--until] [--json]`), with `scripts/codex-helper-trial-report.d.mts`
+  for the spec. Inputs: the session-policy log (groups and kinds; `unassigned` excluded), Codex's `state_5.sqlite`
+  (`threads`, `thread_spawn_edges` — helper descendants), the rollouts under `~/.ai-orchestrator/codex/sessions` (cumulative
+  token counters de-duped across `token_usage_record`/`token_count`, turn boundaries, compaction markers; no message
+  text), `loop-mode.db` `plan_queue_items` (item grouping through `armKey`), and `rlm.db` `automation_runs` (counts only).
+  Per group it prints input/turn including helpers, uncached input and output per turn, helper input share, requests/turn,
+  wall-clock med/p90, compactions per turn (mid-task/between), the plan-queue landing table, and the per-kind counts for
+  choice 2. The verdict implements Step 1d item 4 exactly (25%/10-point/1.5x for Harness work, 15%/1.25x for chats,
+  21/35-day sample gates, Decision 3 defaults at 35 short days, the choice-2 kind rule and the counts caveat).
+  **Deviation (recorded):** children finished-vs-failed and review verdicts have no persistent outcome record in these
+  sources, so the per-kind "completed/not" column derives from turn-complete markers in the rollouts (and
+  `automation_runs.status` where present) and the report says so. The interrupt-or-steer share is not recorded anywhere
+  ready; the report prints that and relies on James's verdict, as the plan allows.
+  Fixture spec `scripts/__tests__/codex-helper-trial-report.spec.ts` (11 tests): verdict rules at their edges (24% vs
+  25%; 10 vs 11 points; 1.25/1.5 wall ratios), the item-grouping rules (three rounds of one item = one group; two-arm
+  item listed and excluded; unassigned excluded), rollout de-duplication, and an end-to-end fixture run (both comparison
+  tables, mixed-arm listing, unassigned count, "pending" verdict at fixture sample sizes). Against this Mac's real data
+  the script runs clean and currently reports `no-data` (the policy log is empty until the rebuilt app with Step 1c runs),
+  which is the honest pre-trial state, not an "apply defaults" verdict.
+- **Historical checkpoint (superseded):** **Step 1e: standing notes after a Codex summarise.** New `src/main/cli/adapters/codex/codex-standing-notes.ts`
+  (durable kinds exactly as planned; newest-first store capped at 6,000 chars with whole-note drops; closing-tag
+  escaping per the house style; the rendered prompt with a complete example in the doc comment). `CodexCliAdapter`
+  overrides `sendInput` (records durable notes, then super) and `handleObservedThreadCompaction` (super, then one
+  `thread/inject_items` developer item via `developerMessageItem`). Tests: `codex-standing-notes.spec.ts` (durable-only,
+  cap/wholeness, thread-change clear, rendering shape, escaping) and `codex-cli-adapter.standing-notes.spec.ts`
+  (the plan's two fails-today cases: "a compaction that completes during an active turn re-injects the standing notes
+  once" and "the same for an idle compaction", plus transient-only/no-notes behaviour).
+  **Settled:** mid-turn compactions DO reach `handleObservedThreadCompaction` — the notification path
+  (`acceptCompactionSignal` with the running turn as the inline turn) is exercised end-to-end in the spec, which starts a
+  real provider turn and feeds the inline `contextCompaction` completion through it. The idle (tracked compaction-turn)
+  path arrives as `observed-running` and also re-injects; both are tested.
+- **Historical checkpoint (superseded):** **Step 3: the A4 replay.** New `scripts/lib/claude-transcripts.mjs` (the one Claude transcript reader: assistant
+  entries de-duplicated by `message.id`, `<synthetic>` model entries dropped, `message.usage` per request with the
+  5-minute/1-hour write split, `compact_boundary` metadata, return-gap detection; price table with `--prices` override)
+  and `scripts/context-ceiling-replay.mjs` (`npm run audit:context-ceiling -- [--since] [--resume-cache] [--cold-returns]
+  [--json]`). Simulation: the sawtooth at {200K, 250K, 300K, 400K, 600K, none} with the 33K margin, one summary call
+  (read C at the cache-read price + the median measured summary output), the context dropped to F; requests are priced at
+  their simulated context (cached history read at 0.1x, cold-cache writes re-priced at the simulated size, writes at
+  1.25x/2x by the measured split). Validation anchor: until the first simulated summary a request is priced exactly as
+  recorded, so the `none` row's saving is exactly $0 in every class (a deliberately wrong model is visible at once).
+  **Deviations (recorded):** (1) **F** is measured from `compactMetadata.postTokens` first — the Verified section's
+  "Claude's real post-summary size" — with the plan's "first request after a compact_boundary" as fallback and 40K last;
+  on this data postTokens exists on 60 boundaries and gives F = 16,072 (the first-request-after proxy gave 120,323,
+  which inflates summary counts at small ceilings). (2) The "median measured summary output" is proxied by the last
+  request's output before each boundary (502 tokens median here); the metadata carries no summary-size field. Its price
+  effect is small next to the C×0.1 read. (3) `--resume-cache` counts every return (gap ≥ 5 minutes, < 55) that kept ≥90%
+  of the previous context in cache; "after edits" is not distinguishable in transcripts and the output says so. *(Corrected 19 Oct: that was wrong. Claude writes a `cost-state` record at every process end, which marks the restart, and edits are readable from Edit/Write/MultiEdit/NotebookEdit tool calls, a Bash `git commit`, or growth in the record's line totals. `--resume-cache` now counts only restarts within 55 minutes after edits, reports unknowns separately with a lower bound, and excludes no-edit and cold restarts. Real corpus `--since 2026-09-14`: 266 restarts; 23 within 55 minutes after edits; 21 kept ≥90% (91.3%); 0 unknown; 58 no-edit and 185 cold excluded. Evidence: `_scratch/changed-plans-queue-2026-10-18/phase1-06b9a87-fresh-whole-gate-20261019/repair-I-7A/`.)*
+  Fixture spec `scripts/__tests__/context-ceiling-replay.spec.ts` (10 tests): the known sawtooth answer, no-ceiling
+  equality, cold-write re-pricing at the simulated size, message-id de-dup + `<synthetic>` drop + floor from fixture
+  `compact_boundary` records, warm/cold return counts, the class split (subagent / joined purpose / unclassified /
+  own-chat), the decision rule at its edges (80% inclusive, 79.9% not; p90 cap blocking), and an end-to-end fixture tree.
+
+  **The replay table (this Mac, 31 days to 15 Oct 2026, 4,335 sessions: own-chat 642, unclassified 472, subagent 2,739,
+  automation 429, plan-queue 53; F = 16,072 from 60 `compact_boundary` records; median summary output 502 tokens;
+  `claude-fable-5*` prices unknown, treated as Sonnet-class):**
+
+  | class | ceiling | real spend | simulated spend | saving | sessions summarising | summaries p50/p90 |
+  |---|---|---:|---:|---:|---:|---|
+  | own-chat | 200K | $8,713.61 | $3,998.72 | $4,714.89 | 8.1% | 2/7 |
+  | own-chat | 250K | $8,713.61 | $4,210.06 | $4,503.55 | 5.9% | 3/7 |
+  | own-chat | 300K | $8,713.61 | $4,579.87 | $4,133.74 | 5.5% | 3/6 |
+  | own-chat | 400K | $8,713.61 | $5,079.95 | $3,633.66 | 4.8% | 2/5 |
+  | own-chat | 600K | $8,713.61 | $5,800.58 | $2,913.03 | 3.3% | 1/3 |
+  | own-chat | none | $8,713.61 | $8,713.61 | $0.00 | 0.0% | —/— |
+  | unclassified (Harness) | 200K | $43,141.24 | $18,354.38 | $24,786.86 | 53.2% | 2/7 |
+  | unclassified (Harness) | 400K | $43,141.24 | $24,818.37 | $18,322.87 | 32.4% | 2/4 |
+  | subagent | 200K | $49,091.41 | $28,104.66 | $20,986.76 | 49.3% | 1/2 |
+  | automation | 200K | $6,300.94 | $4,874.11 | $1,426.83 | 29.6% | 2/4 |
+  | plan-queue | 200K | $2,796.63 | $1,593.72 | $1,202.91 | 56.6% | 1/2 |
+
+  (Full per-ceiling rows for every class are in `_scratch/phase1-step3/replay-real.log`, the run's raw output; the `none`
+  rows are $0.00 in every class.)
+
+  **The defaults chosen (decision rule, Step 3 item 1):** Harness-started classes together → **200K** (keeps 100% of the
+  200K saving, p90 summaries 2 ≤ 3). Own chats → **no ceiling qualifies**: every ceiling that keeps ≥80% of the 200K
+  saving has p90 summaries-per-summarising-session of 5-7, above the cap of 2. This disagrees with the plan's proposed
+  400K/300K ("if the replay agrees" — it does not, for own chats; TR-1's saving heuristic and the p90 rule pull apart on
+  this data). **Open decision for Step 5a / James:** take the rule's answer (own chats: leave summarisation to Claude),
+  the proposed 400K, or re-tune the rule's p90 cap. Step 5a must not silently pick.
+  Supporting numbers for Step 4/12c *(the `--resume-cache` figure here used the superseded every-gap measure; the 19 Oct plan-definition result is 21 of 23, 91.3%)*: `--resume-cache` — 3,972 returns within 55 minutes, 71.7% kept ≥90% of the context
+  in cache; `--cold-returns` — 408 returns after 55 idle minutes re-writing 281,357,006 tokens in 31 days.
+
+- **Historical checkpoint (superseded):** **Gates (15 Oct, this worktree):** `npx tsc --noEmit` clean; `npm run typecheck:spec` clean; `npm run lint` ("All
+  files pass linting"); `npm run check:ts-max-loc` passed (ratchet, no ceiling raised); `npm run build:main` passed.
+  Targeted tests: the Codex adapter + lifecycle + shared sweep (315 files / 4,844 tests) passed before Step 3; the final
+  focused run (codex dir + all four new spec files + spawn policy) passed 44 files / 461 tests. The full suite and the
+  fresh-eyes gate remain coordinator/verifier-owned.
+
+- **Historical checkpoint (superseded):** **Phase 0 dependency (re-checked 15 Oct): still NOT integrated.** `model-call-recorder.ts`, `compaction-continuity.ts`,
+  `compaction-summary-fit.ts`, `observed-model-call-usage.ts` remain absent from `main`; the Phase 0 queue worktree
+  `.worktrees/queue/2026-10-10-oct-phase0-confirme-73f6a1` is active. The blocked list is unchanged: Steps 2's trial start
+  (7b, 7i), 4-5 (7a, 7g, Phase 0 steps 2.5/9/10/11), 6-7 (7a, 7e, 7f), 8/10/11/12/14/15/16/17/18 (various). Step 2's code
+  itself (waiting rule, reviewer rule, the shared `resolveClaudeCliVersion` helper) and Step 9a are the next
+  prerequisite-free pieces.
+
+- **Historical checkpoint (superseded):** **Full-plan completion:** 2 of 18 overall steps complete (Step 1 and Step 3). Full suite and independent completion
+  gate were not run; they remain coordinator/verifier-owned. The plan stays at its original active filename in the root
+  checkout (earlier checkpoints recorded it as untracked; the coordinator's park commit `3be08c73a` has since tracked it
+  and this round's plan/livetest edits are working-tree changes for the coordinator's next checkpoint commit).
 
 ### Worker checkpoint, 14 Oct 2026: Steps 1a-1c; Phase 0 blocks the rest
 
-- [x] **Step 1a ported from parked branch.** Applied `git diff $(git merge-base HEAD queue/2026-10-10-oct-phase1-token-le-7072dd) queue/2026-10-10-oct-phase1-token-le-7072dd | git apply` to bring the 5-file Codex protocol generation work (247 insertions) into this worktree. TypeScript compiles clean.
+- **Historical checkpoint (superseded):** **Step 1a ported from parked branch.** Applied `git diff $(git merge-base HEAD queue/2026-10-10-oct-phase1-token-le-7072dd) queue/2026-10-10-oct-phase1-token-le-7072dd | git apply` to bring the 5-file Codex protocol generation work (247 insertions) into this worktree. TypeScript compiles clean.
 
-- [x] **Step 1b: machine-session identification (complete).**
+- **Historical checkpoint (superseded):** **Step 1b: machine-session identification (complete).**
   - New `src/shared/utils/machine-session.ts`: `MachineSessionReason` union, `machineSessionReasonForOrigin()`, `machineSessionReasonOf()` with full marker priority order, `resolveTrialKey()` and `TrialKeySource`.
   - New `src/shared/types/session-kind.types.ts`: `SessionKind` union and `sessionKindOf()` mapping.
   - `UnifiedSpawnOptions` extended with `sessionKind`, `machineSession`, `trialKey`.
@@ -3826,7 +5796,7 @@ The step-level "Verified" sections carry the evidence; this is the index of clai
   - `instance-spawn-preflight-chain.ts` `warmStartBlocked` now includes `|| machineSessionReasonOf(config) !== null`.
   - Tests: `machine-session.spec.ts` (30 tests), `session-kind.spec.ts` (14), `instance-spawn-policy.spec.ts` (7), `provider-route-preflight.spec.ts` (6), `instance-spawn-preflight-chain.spec.ts` (5 new warm-start guard tests), `repo-job-service.spec.ts` (1 new metadata tag test). All 67+ pass.
 
-- [x] **Step 1c: Codex thread policy (core complete, wiring partial).**
+- **Historical checkpoint (superseded):** **Step 1c: Codex thread policy (core complete, wiring partial).**
   - New `src/main/cli/adapters/codex/codex-thread-policy.ts`: `resolveCodexThreadPolicy()`, `resolveTrialArm()`, `CODEX_HARNESS_WORK_KINDS`. 26 tests pass.
   - New `src/main/cli/adapters/codex/codex-thread-requests.ts`: `buildCodexThreadConfig()`, `startCodexThread()`, `resumeCodexThread()` with config-rejection fallback; `resolvePolicyForConfig()` reads settings; `startCodexThreadFromConfig()` / `resumeCodexThreadFromConfig()` convenience wrappers. 9 tests pass.
   - New `src/main/core/system/session-policy-log.ts`: `SessionPolicyLog` daily-JSONL writer with 60-day retention.
@@ -3836,31 +5806,31 @@ The step-level "Verified" sections carry the evidence; this is the index of clai
   - `app-server-initializer.ts` wired: all 3 resume paths and 1 start path now call `resumeCodexThreadFromConfig` / `startCodexThreadFromConfig` which send `config` to Codex. Protocol test updated for `config` key.
   - **Remaining for 1c:** `codex-app-server-adapter.ts` `reopenAppServerThread` swap (8-line literal → one call); `createCodexAdapter` in `adapter-factory.ts` should copy `sessionKind`/`trialKey`; session-policy log needs to be actually invoked on thread events.
 
-- [ ] **Phase 0 dependency (confirmed NOT on main):** `model-call-recorder.ts`, `compaction-continuity.ts`, `compaction-summary-fit.ts`, `observed-model-call-usage.ts` are all absent from this tree. They exist on `queue/2026-10-10-oct-phase0-confirme-6dc50c` (467 files, 15K insertions). Steps with hard Phase 0 dependencies cannot proceed:
+- **Historical checkpoint (superseded):** **Phase 0 dependency (confirmed NOT on main):** `model-call-recorder.ts`, `compaction-continuity.ts`, `compaction-summary-fit.ts`, `observed-model-call-usage.ts` are all absent from this tree. They exist on `queue/2026-10-10-oct-phase0-confirme-6dc50c` (467 files, 15K insertions). Steps with hard Phase 0 dependencies cannot proceed:
   - Step 1e: Phase 0 step 11 (loop re-anchor)
   - Step 2: trial start needs 7b, 7i
   - Steps 4-5: need 7a, 7g, Phase 0 steps 2.5, 10, 11
   - Steps 6-7: need 7a, 7e, 7f
   - Steps 8, 10, 11, 12, 14, 15, 16, 17, 18: various Phase 0 prerequisites
 
-- [ ] **Full-plan completion:** 2.5 of 18 overall steps complete (1a ported, 1b complete, 1c core+wiring done). Full suite and independent completion gate were not run; they remain coordinator/verifier-owned. The plan stays at its original active filename, untracked in the root checkout.
+- **Historical checkpoint (superseded):** **Full-plan completion:** 2.5 of 18 overall steps complete (1a ported, 1b complete, 1c core+wiring done). Full suite and independent completion gate were not run; they remain coordinator/verifier-owned. The plan stays at its original active filename, untracked in the root checkout.
 
 ### Worker checkpoint, 12 Oct 2026: Step 1a only; dependency blocked
 
-- [x] **Step 1a code and worker checks:** regenerated from the installed `codex-cli 0.162.1`; `thread/rollback` is replaced by
+- **Historical checkpoint (superseded):** **Step 1a code and worker checks:** regenerated from the installed `codex-cli 0.162.1`; `thread/rollback` is replaced by
   `thread/revert`, and queue, prediction, turn-settings and memory-status methods are present. Reviewed the three generated
   parameter source files: start adds only `projectId` and `daybreakEnabled`; resume keys are unchanged; turn adds seven
   top-level keys. None of Harness's sent keys was removed, and no nested property leaked into the key lists. The deprecated
   `multiAgentMode` is retained as generated metadata and is not used by a sender.
-- [x] **Request coverage:** the new `app-server-client-protocol.spec.ts` exercises the real fresh-thread initializer,
+- **Historical checkpoint (superseded):** **Request coverage:** the new `app-server-client-protocol.spec.ts` exercises the real fresh-thread initializer,
   metadata-only resume helper and turn-option builder against `validateGeneratedRequest`, including `config` on both thread
   requests and rejection of unsupported top-level fields. The generated-manifest regression covers the newly added methods.
-- [x] **Stale-check evidence:** `--check` now prints `snapshot 0.144.4, installed 0.162.1; minor-version gap 18` and leaves
+- **Historical checkpoint (superseded):** **Stale-check evidence:** `--check` now prints `snapshot 0.144.4, installed 0.162.1; minor-version gap 18` and leaves
   the file untouched. Generator fixtures cover stale versions, same-version contract drift and successful generation/check.
   After correcting the test's built-in-module mock, three assertions failed for the intended missing behavior before the fix
   (`_scratch/phase1-step1a/red-tests-corrected.log`). The original real stale check and the improved real diagnostic are retained
   in `protocol-before.log` and `protocol-drift.log` in that directory.
-- [x] **Focused verification:** generator plus Codex helper directory: 38 files / 380 tests passed, exit 0
+- **Historical checkpoint (superseded):** **Focused verification:** generator plus Codex helper directory: 38 files / 380 tests passed, exit 0
   (`_scratch/phase1-step1a/tests-final.log`; raw `_scratch/test-run.pid-18820.log`). The other 15 Codex adapter/factory
   files passed 273 tests, exit 0 (`_scratch/phase1-step1a/adapter-regressions.log`; raw `_scratch/test-run.pid-30168.log`).
   These groups are disjoint: 53 files / 653 tests passed. Both type checks, full lint, LOC ratchet,
@@ -3868,9 +5838,9 @@ The step-level "Verified" sections carry the evidence; this is the index of clai
   `typecheck.log`, `typecheck-spec-final.log`, `lint-final.log`, `ts-max-loc.log`, `build-main.log`, `build-renderer.log`,
   `verify-protocol.log`. An initial spec typecheck caught a test-only structural parameter mismatch; the typed wrapper fixes it,
   and the final spec typecheck and focused tests pass. No LOC ceilings, aliases, IPC contracts or dependencies changed.
-- [ ] **Step 1a rebuilt-app acceptance:** recorded in the root live-test document; neither a new nor resumed real Harness chat
+- **Historical checkpoint (superseded):** **Step 1a rebuilt-app acceptance:** recorded in the root live-test document; neither a new nor resumed real Harness chat
   is claimed verified. All other live checks remain with their unimplemented owning steps in this active plan.
-- [ ] **Phase 0 dependency:** this worktree and root checkout are still at `4d175e55b`. The Phase 0 queue branch exists at
+- **Historical checkpoint (superseded):** **Phase 0 dependency:** this worktree and root checkout are still at `4d175e55b`. The Phase 0 queue branch exists at
   `7218eea7548bb8717e5290df5104783b58ce7272`, but it is not an ancestor of this worktree. Its code includes
   `model-call-recorder.ts`, `claude-system-message.ts`, `claude-compaction-observer.ts`, `acp-system-prompt-delivery.ts` and
   `compaction-tail.ts`; all five are absent here and in the root checkout. The old Phase 0 worktree is no longer present.
@@ -3882,32 +5852,519 @@ The step-level "Verified" sections carry the evidence; this is the index of clai
   coordinator integration, continue from Step 1b and recheck every hard prerequisite against the refreshed checkout. There
   is no separate linked Phase 1 spec; the approved backlog and this plan supply the requirements. No old “needs James” note
   was treated as a new approval gate.
-- [ ] **Full-plan completion:** 0 of 18 overall steps complete. Full suite and independent completion gate were not run;
+- **Historical checkpoint (superseded):** **Full-plan completion:** 0 of 18 overall steps complete. Full suite and independent completion gate were not run;
   they remain coordinator/verifier-owned under the worker instruction. The plan stays at its original active filename,
   untracked in the root checkout; no code or documents were committed, staged or copied into another checkout.
 
-- [ ] Step 1 A16 (1a E3.1 ported; 1b classifier and stamps complete; 1c thread policy, requests, log, settings complete; 1c wiring partial — adapter reopen and factory copy remain; 1d report; 1e standing notes)
-- [ ] Step 2 A18
-- [ ] Step 3 A4 replay (record the table: ceilings, simulated saving, summaries per session, the defaults chosen)
-- [ ] Step 4 A5 (record the resume-cache guard result)
-- [ ] Step 5 A4 parts 2-7 (5a, 5b, 5c)
-- [ ] Step 6 A0-S
-- [ ] Step 7 A0-H
-- [ ] Step 8 A15 (8a, 8b, 8c, 8d, 8e, 8f; record the migration number used)
-- [ ] Step 9 A19 and A17.4 (9a, 9b, 9c, 9d)
-- [ ] Step 10 A12
-- [ ] Step 11 A6 (11a, 11b, 11c)
-- [ ] Step 12 A9 (12a, 12b, 12c, 12d; record whether 12d was built or dropped)
-- [ ] Step 13 A17 (13a, 13b, 13c, 13d, 13e; 13f recorded as gated)
-- [ ] Step 14 A8 (14a with the protocol probe result, 14b, 14c, 14d)
-- [ ] Step 15 A21 (15a, 15b)
-- [ ] Step 16 A1 follow-ups (16a, 16b only if Phase 0's probe passed: record the probe result, 16c)
-- [ ] Step 17 A2 follow-ups (17a, 17b only if the Copilot probe passed: record the result, 17c only after its trial)
-- [ ] Step 18 A13 (18a, 18b with Live check 1 result before the default became "trial", 18c only after Live check 4, 18d probe result)
-- [ ] Final gates
-- [ ] Fresh-eyes gate PASS
-- [x] Livetest doc created for Step 1a only; remaining live checks stay with their unimplemented owning steps.
 
 > Plan Queue parked work: `queue/2026-10-10-oct-phase1-token-le-7072dd` — 1 commit(s), reason: verifier-unreliable.
 
 > Plan Queue parked work: `queue/2026-10-10-oct-phase1-token-le-ea3105` — 1 commit(s), reason: verifier-unreliable.
+
+
+### Native continuation handoff, 18 October 2026 (preparation only)
+
+Phase1 remains active and unaccepted. The18-step implementation statements above describe the retained worker branch; they are not a current-root completion verdict. The complete4,391-line plan and305-line livetest were read for this handoff. Full source identities, exact14 accepted correction paths, source-read limits and integration instructions: [`phase1-native-handoff/integration-handoff.md`](../../_scratch/changed-plans-queue-2026-10-18/phase1-native-handoff/integration-handoff.md), with `source-identities.json` and `read-ledger.md` beside it. No tests, probes, builds, dependencies, Queue actions, browser/app/database operations or source changes were performed by this preparer.
+
+1. Continue original run `2f0bf6c2-6ee1-4d9c-bfbf-e3b28c06c198`, item `7f1217b1-892e-477d-bb73-48acf0528c17`, through supported native adopt/resume controls and the AIO-supplied checkout. Recheck live coordinator disposition. Reference identities: current fresh `528c17` at `81755b3fa441c8c741e13db4c894f61a0de4620b`; substantial retained `ea3105` at `1e29848daaa062779ec2dbc2ab84d18a3229e1a4`. No manual merges, cherry-picks, ref promotion or wholesale source copying. Ordinary reconciliation/reimplementation from read-only retained/current references inside that native checkout is allowed; absence of a seed API is not a permission blocker. AIO owns checkpoint, integration and cleanup.
+2. Root at capture is `0190f9133e2b716e0e4497eb30ab7908ce719912`. Corrected current Phase0 is accepted separately in [`phase0-landed-review/FINAL-REPORT.md`](../../_scratch/changed-plans-queue-2026-10-18/phase0-landed-review/FINAL-REPORT.md), with ordinary receipts in `further-corrections-dispatch-verification/` and independent eight-path PASS in [`dispatch-corrections-fresh-gate/FINAL-REPORT.md`](../../_scratch/changed-plans-queue-2026-10-18/dispatch-corrections-fresh-gate/FINAL-REPORT.md). All14 accepted uncommitted source/spec correction hashes matched at capture; preserve them and foreign MiMo work. Earlier missing-Phase0 notes are historical. Original landed failures and genuine live deferrals remain recorded.
+3. Reconcile same-filename contracts before porting intent: current classifier versus retained trial-key additions; current Codex `control/candidate`+hashed log key versus retained report-facing `cheaper/full/off`+raw item key/class log; current named `compaction-continuity.ts`/tail/summary-fit versus retained missing-prerequisite inline/basic-summary substitutions; current interrupt/resident billing owner versus retained general control channel. Preserve path-leading asks/command provenance, failed-parent final receipt settlement, consensus drain/no-child/paid/zero/unknown accounting, stable-chat loop ownership and corrected interface copy. Root RLM registry contains076+077, retained same file076+078: keep077 intact;078 is currently next free, to recheck at implementation. Do not replace the migration file wholesale.
+4. Existing choice/live gates remain as specified:16b native compact probe,17b Copilot proof,17c label trial,18c Livecheck4+clean week,18d probe-only,13f measured triggers,12d dropped,9b deletion only with choice11 authority. Fork-cache flag is a ship-or-not gate. Historical RTK Livecheck1 is not a new probe here and starts no trial clock. When14b disables title CLI spawn, exercise7's paid-limit behavior through compression. Agent-runnable report fixtures, deterministic integration paths and seeded renderer checks still run in-loop, then canonical seven+IPC/protocol checks and fresh task-completion-gate PASS; current runtime verifier has exclusive execution ownership until root releases it. Only genuinely external/rebuilt-app/human/time checks may remain deferred in the existing livetest. Browser work requires Gateway health/preflight and explicit `windows-pc`; never default to Mac or Harness desktop control.
+
+Current coordinator acceptance addendum,18October2026: large-status caller memory and TLSfixture correction now pass both canonical seven runs and genuinely new independent review, report SHA256a0dde90bc04bad2c3be170522efafd2897954c6d8116f36e8c72721f23235d6e. The reviewer's actual full10264closed19:44:11.493Z0/no signal, all old assertions/statuses preserved plus three new passed resource tests. All processes closed before this continuation. Root14accepted corrections PLUS five memory/TLS source/spec/manifest paths are pinned in `/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-handoff/current-accepted-corrections.json`; use that absolute root path. They are uncommitted current-root baseline intent, not all necessarily on the stale native branch. Preserve behavior/regressions while intentionally integrating authorized feature edits; do not overwrite root code, stash/reset/commit it or bypass a later overlap refusal. Historical TLSsource has a private-key fixture: never print raw historical/diff PEM; currentroot fixture generates at runtime via explicit existing selfsigned5.5.0dev declaration, no graph-version change.
+
+The preparer personally read all4,391plan lines/all305livetest lines; root verified the exact plan hash still matched before appending this prepared handoff. Read-ledger attribution remains explicit. Current service reattaches the saved branch without synchronizing main before worker spawn; the AIO coordinator performs base synchronization before verification (`plan-queue-item-flow.ts:startVerification` -> `syncItemWithBase`). Do not manually merge/rebase/switch refs to compensate. Work through normal AIO lifecycle and report concrete blockers honestly. Original18-step acceptance, live/time/choice gates and existing routing remain authoritative; this handoff adds no new product scope or owner approval. The parent ten-plan batch remains active.
+
+### Native worker as-built, 18 October 2026 — ready for independent queue verification
+
+**Current status:** the AIO-supplied checkout at HEAD `81755b3fa` contains an uncommitted 400-file candidate for Steps 1–18. The native worker's focused checks and two bounded fresh reviews passed; this is **worker-ready**, not whole-item acceptance. The coordinator still must synchronize the accepted base, run the full suite and independent whole-item completion gate, and integrate through AIO. No plan/livetest completed rename, trial start, release, browser/app/provider probe, commit, merge or branch operation is claimed. Earlier 12–16 October checkboxes and missing-Phase-0 statements above are historical checkpoints, not current blockers or current verification receipts. The current accepted Phase 0 interfaces were reconciled by name; all 19 protected root source hashes stayed unchanged and migration 077's body matched the accepted root exactly.
+
+**As built across the 18 steps:** Steps 1–5 reconcile Codex start/resume policy and fail-closed trial reporting, Claude helper exposure with the waiting-rule flag **off by default**, the qualifying replay defaults (200K machine; own-chat 250K after the refreshed replay, superseding the 0 recorded here at the time), read-only reviewer profiles and context ceiling behavior. Steps 6–10 add reconciled cost purposes and paid/zero/unknown settlement, compression-slot daily-budget fallback, checked-job retry/cancel baseline handling, bounded tool output and the short guide with a real IANA scheduling zone. Steps 11–15 cover OpenCode controls, attachment byte-fingerprint ingress and both draft stores, compact-first send with failure restoration, helper batching, Claude live control/Quick ask and an awaited, request-owned plan handoff. Steps 16–18 use real isolated forced summaries for local and overflow compaction with original turn/attachments/source carried once, resolved-CLI instruction ownership, and RTK trial plumbing that requires observed hook/Bash exposure and quarantines mixed native sessions. The [native worker report](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-worker-528c17/FINAL-REPORT.md) has the per-step inventory and evidence limits. The 18 October 92-session replay was a short smoke, not a replacement for the historical qualifying defaults. The old paid-title live exercise is superseded by the compression-slot $0.01 exercise; title CLI spawning is off. No fork-cache evidence was produced, so the Claude waiting-rule flag cannot ship enabled.
+
+**Worker checks and review:** 177 explicit spec files passed with **3,129 passed, zero failed and two pre-existing conditional interactive-Claude skips**. `npx tsc --noEmit`, `npm run typecheck:spec`, lint, the existing LOC ratchet, both production builds, IPC/usage, architecture, exports/contracts and pinned Codex protocol all have exit-zero worker receipts. The renderer build retained an existing bundle-budget warning; the IPC-usage check is warn-level. Bounded integration reviews 1–3 found report/graph defects that were repaired; [review 4](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-worker-528c17/reports/integration-review-4-report.md) returned scoped PASS. A separate [manifest follow-up](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-worker-528c17/reports/manifest-fresh-review-report.md) passed after restoring the accepted `selfsigned` direct development declaration and matching lock metadata; no versioned dependency changed or install ran. Neither scoped PASS is the final whole-item gate. No full repository suite ran in this worker.
+
+**Exact handoff evidence:** [persistent report](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-worker-528c17/FINAL-REPORT.md), [initial seal](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-worker-528c17/seal.json), [artifact index](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-worker-528c17/evidence-manifest.json) and [cleanup record](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-worker-528c17/runtime-cleanup.json). Exact canonical receipts: [main typecheck](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-worker-528c17/command-receipts/final-baseline-tsc-receipt.json), [spec typecheck](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-worker-528c17/command-receipts/final-baseline-spec-types-receipt.json), [lint](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-worker-528c17/command-receipts/final-baseline-lint-receipt.json), [LOC](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-worker-528c17/command-receipts/graph-fixed-loc-receipt.json), [main build](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-worker-528c17/command-receipts/final-baseline-build-main-receipt.json), [renderer build](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-worker-528c17/command-receipts/final-baseline-build-renderer-receipt.json) and [focused specs](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-native-worker-528c17/command-receipts/graph-fixed-focused-receipt.json). The artifact index enumerates every IPC, architecture, protocol, export and contract receipt and raw log. The AIO checkout's `_scratch/phase1-resume/READY_FOR_DOCS.json` explicitly says `fullSuiteRun: false`, `wholeItemAccepted: false`.
+
+**Remaining gates:** 16b waits for the real Claude `/compact` probe; 17b for Copilot instruction-folder proof; 17c for its provider label trial; 18c for RTK Live check 4 and a clean first week; 18d remains a probe; 13f needs its measured triggers; 9b's destructive old-folder sweep still needs choice 11. Step 12d remains dropped. The fork-cache probe is a ship-or-not gate for enabling the waiting-rule flag. The 16 October RTK rewrite-only command-line observation remains partial without full pipeline/deny receipts. Rebuilt-app, provider, human and elapsed-trial checks remain in the [livetest doc](2026-10-10-oct-phase1-token-levers_livetest.md); none has started a release or trial clock here.
+
+
+### Merge-resume as-built, 18 October 2026 — conflicts staged for coordinator verification
+
+The resumed worker reconciled all **57 merge conflicts** from main `0190f9133` into the supplied queue checkout at unchanged HEAD `2d4c442b4`. All original conflicts now have stage-zero index entries, conflict markers are absent from the 73 reconciliation paths, no unstaged code remains, and staged whitespace validation passes. The merge remains in progress for the coordinator; no commit, abort, branch/worktree operation or completed rename was performed.
+
+The combination keeps interrupted-turn compaction/attachments/source and ordinary user-request protection alongside main's archive/session provenance and helper-budget refusal, Codex standing-note reinjection alongside per-turn compaction counting, resolved-provider instruction ownership alongside remote placement, and RTK/native-session metadata alongside one-row per-dispatch accounting. Billing identity remains captured before context drain and cost refreshes occur for both synchronous and deferred settlement. Unmarked auto-merge duplicates in IPC registrations, types, stores and tests were removed. Legacy CostTracker fallback remains available; strict namespace pricing is explicit, and completion attribution retains unknown versus genuine free costs. Incoming title telemetry tests were reconciled with approved step 14b's no-CLI policy: all eight cases remain enabled and assert no title CLI dispatch or charge. No checker ceilings, dependency versions or lockfiles were changed.
+
+**Current checks:** the final explicit focused run passed **58 files / 1,593 tests / zero failures**. Both typechecks, Angular lint, fast lint, the LOC ratchet, both production builds, IPC synchronization/handler contracts, IPC usage, exports, contract aliases and architecture checks returned zero. IPC usage remains warn-level; fast lint and the renderer bundle budget retain warnings. Two review regressions (ordinary compaction request retention and free estimated-token execution) were reproduced red and passed after repair. The worker did not run the full repository suite or claim an independent completion-gate PASS. The coordinator retains those gates and merge ownership.
+
+Persistent evidence: [merge-resume report](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-merge-resume-528c17/FINAL-REPORT.md), [seal](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-merge-resume-528c17/seal.json), [integrity receipt](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-merge-resume-528c17/merge-integrity.json), [command receipts](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-merge-resume-528c17/command-receipts) and [cleanup receipt](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-merge-resume-528c17/runtime-cleanup.json). Generated IPC channels, aliases and architecture inventory are current. Resume-created compiled output is removed after evidence is sealed; the verifier must rebuild compiled-worker fixtures. Pre-existing dependencies are preserved. Existing live/trial/choice gates and the disabled waiting-rule default remain as recorded above and in the existing livetest. This note supersedes earlier worker check counts only for this merge-resume candidate; whole-item acceptance remains pending.
+
+
+### Verifier round 1 repair, 18 October 2026 — local corrections verified; queue re-verification pending
+
+The verifier's full-suite failure was reproduced against checkpoint `1f08d0143`: the five explicit suites showed **27 failing tests plus the normalized-event suite-load error**. The renderer failures came from incomplete fixtures exposed by the real ColdCacheResumeService dependency chain; their messaging/settings dependencies and overridden component imports now match the runtime. The normalized-event command mock now preserves real exports, including BUILT_IN_COMMANDS, and all eleven tests execute. No original behavior assertion was removed or relaxed, and ProviderStateService was not changed.
+
+The ACP standard compaction update now completes its existing status row, records its boundary on that row once, and ignores repeated completed packets while retaining boundary metadata. Distinct compactions and reused provider keys across prompt turns remain separate. Review found that buffer replacement and the adapter-output handler both published a streaming update; the adapter-output path now owns one publication with raw provenance, while direct buffer callers keep their update emission. The real cold-cache chip also exposed NG0600 on its initial computed read: the clock's initial signal write now runs untracked, with a real-chip first-render/tick regression. These defects were reproduced before correction; regression receipts are retained.
+
+**Current worker verification:** final explicit focused run **29 files / 356 tests passed / zero failed**. Both TypeScript checks, Angular lint, fast lint, the unchanged LOC ratchet, both production builds, IPC synchronization/handler contract, architecture, exports and contract aliases returned zero. The IPC, alias and architecture generators ran with no generated-file diff. Existing fast-lint and renderer initial-bundle warnings are retained in the logs. The implementer's review pass has no unresolved actionable repair finding; it is not an independent completion-gate PASS. Per this dispatch, the worker did not run the full suite. The coordinator still owns the full suite, independent verification, index-derived inventory refresh if staging requires it, integration and any completed rename. Existing live/trial/choice gates remain open as recorded in the livetest; no new live-test deferral or trial start is claimed.
+
+Persistent evidence: [repair report](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1-repair-528c17/FINAL-REPORT.md), [seal](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1-repair-528c17/seal.json), [command receipts](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1-repair-528c17/command-receipts), [full logs](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1-repair-528c17/logs) and [runtime cleanup](/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/changed-plans-queue-2026-10-18/phase1-verifier-round1-repair-528c17/runtime-cleanup.json). Generated runtime output is removed after sealing; the verifier must rebuild compiled-worker fixtures. Existing dependency installations are preserved. All code changes remain uncommitted in the supplied AIO checkout; this root plan stays active at its original filename.
+
+> Plan Queue parked work: `queue/2026-10-10-oct-phase1-token-le-528c17` — 4 commit(s), reason: worker-error.
+
+## Fresh whole gate on `06b9a873` and repair, 19 October 2026 (Claude continuation)
+
+**Gate result: FAIL.** Five genuinely fresh reviewers checked the whole range `0190f913..06b9a873`:
+- **Clean rebuild and forensics: PASS.** The copy was rebuilt from scratch and all seven canonical gates passed, including the full suite (2,789 files, 35,125 tests). There were no secrets, tampering, config or dependency problems, and six findings, all Low.
+- **Unit reviews: FAIL.** Four reviewers covered the 53 units and found:
+  - High: 1d unknown items, 2 reviewer rule, 7 stale reservations, 18a awareness text;
+  - several missing plan-required tests and wiring-removal gaps: 1b, 1c, 6, 7, 8c, 8e, 11b, 13b, 14a–d, 15b and 16a;
+  - code defects: 10 (guidance shown as user text on re-import), 9d (quadratic redaction), and the Step 3 `--resume-cache` definition;
+  - doc errors.
+
+The worklist, R1–R26, is at `_scratch/changed-plans-queue-2026-10-18/phase1-06b9a87-fresh-whole-gate-20261019/REPAIR-WORKLIST.md`, with each reviewer's report beside it.
+
+**Shared root cause.** The first Phase 1 attempt (`queue/…-ea3105`, 14–16 Oct) was re-implemented on a newer base as `-528c17`. The rewrite dropped 12 test files, the Step 7 freshness bound, the Step 2 `claude-helper-rules` block and the 18a awareness text. The as-built notes above still described the earlier branch, and inline 19 Oct corrections now mark each one.
+
+**Repair, now checkpoint `ec2159c9d`** (via supported Queue pause; parents `0c8c8cc4f` → `e64e73c85` architecture inventory → `ec2159c9d` label). Every behaviour fix was shown RED before GREEN. Every new test was shown to fail when its guarded production line is removed, with the file restored byte-for-byte (shasums recorded per implementer under `repair-I-*/`).
+- **1d:** unknown plan-queue items or chat threads now withhold the verdict even with a complete sample. Fully measured trials are unchanged.
+- **1c:** tests cover all three initializer resumes, the fresh start and `reopenAppServerThread` sending the policy `config`, plus loop trial keys and the protocol generator.
+- **2:** the `claude-helper-rules` block is composed for Claude sessions, including default-provider sessions via `resolvedProvider: resolvedCliType` in `instance-lifecycle.ts`. Exposure now records `reviewerRuleDelivered: true`. The panel label is "Helper agent rules", as item 5 says.
+- **1b/4:**
+  - `automatic-review-skip.ts` now uses `machineSessionReasonOf` (Step 4 item 7).
+  - New tests cover session-kind, every machine-session origin, the provider-route stamps, the warm-adoption block, the repo-job tag, and read-only reviewers at all five sites (consensus, multi-verify, Council, `review-execution-host`, `cross-model-review-service`).
+- **3/4:** `--resume-cache` now implements the plan definition. Restarts come from `cost-state` process-end records; edits from edit tool calls, `git commit` or line-total growth; unknowns are reported separately. On the real corpus: 21 of 23 kept ≥90% (91.3%), against the 24-of-26 baseline.
+- **6:** the `createInstance` guard spec (real resolver, pinned per-file table) and repo-job, remote-node and reviewer tag tests are added.
+- **7:** the 24-hour unknown-reservation bound is restored. On the real database (counted read-only) that is 3 fresh unknown rows, not 13,124. Store, cap and budget tests are added.
+- **8c/8e:** tests cover quiet-run seen-before-terminal and the mid-reply sentinel. The Sonnet preselect is tested, and clearing the check now reverts the automatic Sonnet suggestion.
+- **8b/8f:** the marker `create_automation` path now has the same cadence guard as the tools (one shared `assertAgentCadenceAllowed`), and `confirmedByUser` is declared on the command. There is a refusal test for a marker carrying `preCheck`.
+- **9b:** `tool-output-truncation.spec.ts` is added. The sweep is still gated by choice 11.
+- **9d:** the redaction regexes are now linear (400K adversarial input in under 250ms). Equivalence was checked on 60,000 random inputs.
+- **10:** native re-import and ACP replay strip only Harness-added guidance blocks, using the same builders. "Harness guidance added" now logs once per delivered addition, and dead test stubs are removed.
+- **11b:** tests cover the factory wiring. **11c:** the privacy-bounded retry reason (HTTP status only) is kept, and the plan and livetest wording are amended.
+- **13b:** tests cover the payload single-copy behaviour. **12a:** `runtime-reconciler-plan.spec.ts` is added.
+- **14a/14d:** tests cover control-response routing, `failAll` and the window-floor re-base in both directions. **14b/14c/15b:** tests cover the IPC registrations. **16a:** tests cover the adapter-level local compaction and the "native" label.
+- **18a:** the awareness text is now RTK 0.51.0's full wording plus the plan sentence, with `rtk-awareness.spec.ts`.
+- **18b:** `rtkAutoApproveScope` defaults to `off` until complete Live check 1 passes, including the new deny-rule preconditions in the livetest doc. Stored user values are untouched.
+
+**Not changed in Phase 1:** `run_on_node` Claude refused as remote is owned by the completed (uncommitted) remote-worker plan `2026-10-19-remote-worker-claude-policy-and-codex-exit_plan_completed.md`. Recorded Lows are listed in the worklist.
+
+**Implementer verification on `e64e73c85`** (the `ec2159c9d` label change additionally passed `tsc` and its panel spec):
+- tsc 0, typecheck:spec 0, lint 0, LOC 0, build:main 0, build:renderer 0;
+- verify:architecture 0 after regenerating the inventory; verify:ipc, ipc-usage, exports and contracts all 0;
+- full `test:quiet` exit 0: 2,812 files, 35,382 tests.
+
+This is implementer evidence, not acceptance. A NEW fresh whole gate (reviewers not used before) is next. The plan stays active and uncommitted.
+
+## Second fresh whole gate on `ec2159c9d` and round-2 repair, 19–20 October 2026
+
+**Gate result: FAIL.** Five new reviewers:
+- **Clean rebuild:** all canonical gates and the full suite passed on a clean copy (2,812 files, 35,381 tests), with one Medium finding.
+- **Units:** every unit group failed.
+
+All round-1 repairs held, except where noted below. The new findings, with the worklist at `_scratch/changed-plans-queue-2026-10-18/phase1-ec2159c-fresh-whole-gate-20261019/REPAIR-WORKLIST-2.md` (S1–S24):
+
+- **High, 14a:** `ClaudeControlChannel` resolved the reply envelope, not its data. Against the real CLI 2.1.303 shape, live titles were always null, Quick ask always said "no answer", and the live switch's `get_settings` check never matched. Every spec had fed the unwrapped shape.
+- **High, 9d:** the `authorization` redaction regex was still quadratic (84s at 400K characters).
+- **Medium:**
+  - the marker `create_automation` dedup ignored `confirmedByUser`, so a confirmed retry within 30s was silently dropped;
+  - the Codex trial report dropped the old build's log lines (numeric `at`, `control`/`candidate` arms), so pre-existing threads entered the trial;
+  - Cancel on compact-first restored the text only after compaction returned;
+  - the 16c resume wording missed plan item 5's sentences;
+  - the Step 7 setting description was false;
+  - the livetest lacked the Step 8 and Step 9 live checks;
+  - wiring tests were missing for 8a, 8c, 5a, 5b, 10 (later-turn and assembly gates), 12c, 14a fields and the 14d meter re-base.
+
+**Round-2 repair:** eight implementers plus the parent. Behaviour fixes were shown RED before GREEN, and each new test fails when its guarded production line is removed (mutation and byte-identical restore recorded under `repair-I-*/`). Changes:
+- **14a:** the control channel now resolves `payload` with the data object. Every spec now feeds the real envelope, and there is one real-shape test per consumer.
+- **14b:** a phantom `helper/claude/error` row is no longer recorded when no title request was made.
+- **9d:** the authorization regex is now linear. It passed 1.79M exhaustive plus 80K fuzz equivalence checks, and every regex in the file was re-audited up to 1M characters.
+- **8f:** the dedup signature carries `confirmedByUser` and the whole automation body.
+- **Step 10:** re-import strips Harness's memory, retrieved and goal blocks and guidance by their builders' exact shapes.
+- **13b:** a partial helper batch now reads "N children completed (other helpers are still running)", using an explicit `othersStillRunning` payload flag.
+- **1c/1d:**
+  - the trial report treats any thread with an old-format or pre-`--since` record as pre-existing (on the real log, 56 threads are excluded);
+  - an unreadable loop database is now unknown, not empty.
+- **Step 1c `session-policy-log.ts`:** one failing prune unlink no longer aborts the day's append.
+- **16c:** the plan's exact resume rule and data-note sentence.
+- **12c:** Cancel restores the text immediately, and a late result never sends.
+- **12a:** sub-dollar prices show three significant figures, and the switch note needs a real user or assistant message (header and composer toolbar).
+- **Step 7:** the description now reads "Leave empty to use the daily helper limit."
+- **Docs:** the livetest gained the Step 8 and Step 9 live checks and the 9b gated entry, and the stale lines at 362, 2792, 4110 and 4862 are corrected.
+
+**Dispositions:**
+- **Remote Claude refused when a ceiling is set:** this predates Phase 1. The fix is the separate completed remote-worker plan, uncommitted in the main checkout, and it is a **landing precondition** for Phase 1.
+- **James's stored ceilings are both 0:** the plan leaves stored settings untouched. This becomes a question for James at completion.
+
+**Checkpoints:** `1a7c55706` (repair) and `af57eecca` (architecture inventory).
+
+**Implementer verification on `af57eecca`:** tsc, typecheck:spec, lint, LOC, build:main and build:renderer all 0; verify:architecture, ipc, ipc-usage, exports and contracts all 0. The full suite is running. A third set of fresh reviewers follows. This plan stays active and uncommitted.
+
+*Round-2 full-suite follow-up (20 Oct):* the full suite on `af57eecca` failed 3 tests in `instance-context-port.spec.ts`. `harness-guidance.ts` built the re-import goal-block pattern at module load by calling the real goal builder, so any test that mocks the goal module broke on import. The patterns are now built on first use, with identical regexes. That spec and the four re-import and guidance specs pass (128 tests). Checkpoint `86dfa655e`. The full suite is re-running before the third fresh gate.
+
+## Third fresh whole gate on `86dfa655e` and round-3 repair, 20 October 2026
+
+**Gate result: FAIL.**
+- **A (forensics): PASS.** Clean rebuild, all canonical gates and the full suite green (2,821 files / 35,535 tests). The Claude reply envelope was confirmed against the real 2.1.303 binary, and the redaction was confirmed linear and equivalent.
+- **B, C, D, E (units): FAIL.** Every round-1 and round-2 repair was re-verified. Worklist T1–T14: `_scratch/changed-plans-queue-2026-10-18/phase1-af57eec-fresh-whole-gate-20261020/REPAIR-WORKLIST-3.md`.
+  - **High, 1d:** non-root Codex threads are ephemeral, so plan-queue Harness work was unmeasurable (167/167 real threads had no rollout or state row).
+  - **High, 1c:** the Codex thread policy threw in the plain-Node worker bundle, so Codex could not start on the Windows worker.
+  - **Medium:**
+    - missing wiring tests for 4, 2, 1c, 12a, 13c and 18b, including Step 4's as-built note claiming six tests that did not exist;
+    - 14d: `residentClaude` never reached the renderer for in-run sessions, so the pre-click note was the opposite of true;
+    - 10: doubled continuity context sets on re-import;
+    - 8d/8f: the cadence estimate took up to 1.2 s per render or agent call;
+    - 8a: a terminal-target test was missing;
+    - 14b: the creation-path live-title race, which was unverified.
+
+**Round-3 repair** (eight implementers plus the parent; RED→GREEN and mutation/byte-identical restore under `repair-J-*/`):
+- **1d:** plan-queue measurement now comes from Harness records (see the 1d amendment above). The adapter writes `helper-count` records, and the chat verdict is independent of the plan-queue sample.
+- **1c:** the worker bundle degrades to no per-thread config, while Electron main still fails closed. The loop trial-key sites are tested.
+- **4/2/18b:** plugin-off overlay and env cases, subagent-model env and detection fallback, rewrite-only hook cases for both builders, and the `getRtkSpawnConfig(instance.id)` key at all seven sites. Schema-size telemetry now follows native-search detection, extracted to `spawn-tool-schema-telemetry.ts`.
+- **10:** the strip follows the real continuity-queue grammar: history preamble, warning, up to two context sets, guidance, plan-mode `ultrathink`. 9 real leftover turns became 0, and two earlier "out of order" assertions were corrected to the real composition.
+- **12a/14d:** `residentClaude` is carried through batch and state updates to the renderer store. Effort-only and no-conversation notice wording is fixed, and the picker and toolbar note bindings are tested.
+- **13c:** the handler `'final'` branch and held-result transcript are tested. The dedup warning logs a 12-character hash. The MCP undefined-result guard is restored. A fallback-ledger read failure is treated as unknown spend (refuse, without the "limit reached" notice).
+- **8d/8f:** `estimateDailyRuns` is fast (about 5 ms per minute, 12–21 ms across a clock change; the old implementation was kept in the spec for equivalence), and the page line is a `computed()`. 8a terminal-target tests were added. The check placeholder prints state, and the `automation-check-failed` kind is typed.
+- **14b/14c:**
+  - the live title waits for a resident Claude session and is no longer behind the helper back-off pause, which applies only to the paid title escalation per Phase 0 7f;
+  - "AI title upgrade skipped" logs once;
+  - Quick ask treats `synthetic` replies as no answer and shows a notice for `refusal_fallback`;
+  - the control channel maps `error_code`.
+- **Docs:** the 1d amendment; livetest entries for the 1d Harness-record check, 12a/12b, 13d tool-search-off, 14b title-while-helper-down and Quick ask fallbacks; reply-shape provenance; corrections to the 16a/16c, Step 4 and Step 5 naming notes and the 12d heading.
+
+**Recorded trade-off:** a plan-queue worker killed mid-turn writes no cost row, so its item is unknown and withholds the Harness-work verdict (unknown is never zero). If that proves common, revisit it.
+
+**Checkpoints:** `0e6dd643f` (repair) and `00e7c9933` (architecture inventory).
+
+**Implementer verification on `00e7c9933`:** tsc, typecheck:spec, lint, LOC, build:main and build:renderer all 0; verify:architecture, ipc, ipc-usage, exports and contracts all 0. The full suite is running, then a fourth fresh gate. This plan stays active and uncommitted.
+
+## Fourth fresh whole gate on `00e7c9933` and round-4 repair, 20 October 2026
+
+**Gate result: FAIL. No Critical or High findings.**
+
+- **A (forensics):** FAIL on one Medium. Clean rebuild and all gates passed, including `build:worker-agent` and the full suite (2,831 files / 35,750 tests). A's own 17 repair mutations were all caught.
+- **B (1a–5c):** 7 of 11 units passed.
+- **C (6–9d):** 11 of 12 units passed.
+- **D (10–13f):** two Medium test gaps.
+- **E (14a–18d):** three Medium.
+
+Worklist V1–V15 is at `_scratch/changed-plans-queue-2026-10-18/phase1-00e7c99-fresh-whole-gate-20261020/REPAIR-WORKLIST-4.md`.
+
+**Round-4 repair.** Six implementers plus the parent. Behaviour fixes went RED→GREEN, and every new test was checked to fail when its guarded line is removed.
+- **8b:**
+  - `normalizeCheckOutput` is now linear: 1 MB of adversarial input runs in under 1 s and the output stays byte-identical, against about 15 minutes before.
+  - A state-folder failure is now an ordinary check error, so a run can no longer stay claimed.
+- **16c:** the `todo:` extraction in `compaction-continuity.ts` is linear and identical. That file is also a main-checkout carry-in, so the diff is retained in `repair-K-6/`.
+- **7:**
+  - An unreadable reservation file is now treated as unknown spend: the fallback is refused, with no false "limit reached" notice.
+  - The runtime-level spec `helper-limit-runtime.spec.ts` uses James's real settings shape (fallback budget null, cap $2).
+- **6/7:** unknown provider cost no longer reaches `CostTracker` as a hard 0. This restores base behaviour, and the attribution row still says unknown.
+- **1c/1d/4/2:** new factory forwarding tests (Codex trial fields and `harnessInstanceId`; Claude `machineSession`) and Claude `recordSessionPolicy` tests on all three spawn paths.
+- **12a/14d/14c:** the `instance-detail` → `input-panel` `residentClaude`/`remoteExecution` binding tests, and the Quick ask button tests.
+- **13c:** the release-callback `markReported`, timer-release and five-minutes-apart handler tests.
+- **18b:** recovery respawns (interrupt and unexpected exit) now pass `stampRtkArm(…, getRtkSpawnConfig(instance.id))`. The dependency is required, so `tsc` fails if the lifecycle wiring is removed.
+- **14b:** the live title keeps waiting while the provider is still `auto`.
+- **Comment fixes:** `stripLeadingHarnessContext` (whitespace behaviour) and the RTK "60–90%" claim.
+
+**Checkpoints:**
+- `625fbf9a0` (repair)
+- `a06963a44` (architecture inventory)
+
+**Implementer verification on `a06963a44`:**
+- tsc, typecheck:spec, lint, LOC, build:main and build:renderer all exited 0.
+- verify:architecture, ipc, ipc-usage, exports and contracts all exited 0.
+- The full suite is running.
+
+A fifth fresh gate follows. This plan stays active and uncommitted.
+
+## Fifth fresh gate on `a06963a44`: stopped before verdicts, 20 October 2026
+
+The full suite passed on `a06963a44`: 2,839 files and 35,858 tests. Five fresh reviewers were then launched (brief at `_scratch/changed-plans-queue-2026-10-18/phase1-a06963a-fresh-whole-gate-20261020/BRIEF.md`).
+
+The coordinating session ended before any of them reported. The harness then recorded all five as stopped by the user, with no resume, so **no fifth-gate verdict exists**. Partial evidence in their folders is not a verdict. The most useful part: reviewer A's clean-copy rebuild had run the full suite with 35,865 tests, 0 failed and 8 skipped, and its log is retained. Its temporary copy is deleted.
+
+**Plan Queue status:** Harness reported that run `2f0bf6c2` ended "completed", with this item parked as `worker-error`. A Codex worker hit "Selected model is at capacity" (`serverOverloaded`).
+
+**Checkout status:** checked at 06:32 UTC.
+- HEAD is still `a06963a44`.
+- The tree is clean.
+- The tracked-file fingerprint is unchanged, so the failed worker made no edits.
+
+The Harness orchestrator MCP tools, including the Plan Queue controls, were disconnected at that time.
+
+**Still open:**
+- a genuinely fresh whole gate with a PASS;
+- AIO integration, with these landing preconditions:
+  - the remote-worker plan's fix must be present;
+  - the main checkout's dirty overlapping carry-in files must be reconciled, `compaction-continuity.ts` among them;
+  - the James question on stored ceilings.
+
+This plan stays active and uncommitted.
+
+## Decision: ceiling defaults (James, 20 October 2026)
+
+James asked whether the ceilings conflict with the earlier decision to let the CLIs manage their own compaction. They do
+not: Harness never compacts Claude itself, and a ceiling only moves Claude's own auto-compact point
+(`CLAUDE_CODE_AUTO_COMPACT_WINDOW`). The 27 September decision that stopped Harness forcing Codex compactions stands.
+
+**Final decision: both defaults ship at 0 (Claude's own limit).** This follows James's Decision 4 in
+[`2026-10-20-oct2-decisions-for-james_completed.md`](2026-10-20-oct2-decisions-for-james_completed.md), answered (a) on
+20 October:
+- James's own long chats move to about 270K, but only after Phase D's recall check (`2026-10-20-oct2-phaseD-tokens_plan.md`).
+- Plan-queue jobs and helpers are left alone.
+
+The Phase B landing step (`2026-10-20-oct2-phaseB-land-built-work_plan.md`, Phase 1 item) makes the same requirement.
+
+**What happened first.** Earlier in this continuation the defaults were briefly changed to 0 / 400,000. That followed a
+recommendation James accepted ("whatever you recommend") without the Decision 4 context. Once a fresh reviewer surfaced
+the conflict, the parent reverted the Harness-work default to 0 to match Decision 4. James's stored values are already 0,
+so nothing changes at landing.
+
+**Supporting replay** (cost only, not quality), `--since 2026-09-14`, covering 600 own chats and 2,057 Harness sessions:
+
+| Ceiling | Own chats that would summarise | Harness sessions that would summarise |
+|---|---|---|
+| 250K | 16% | 32% |
+| 400K | 6% | 12% |
+| None | almost none reach Claude's ~967K point | almost none |
+
+Every earlier statement of shipped defaults in this plan (250K / 200K, 400K / 300K, 200K / 0) is superseded by this
+section.
+
+## Fifth fresh whole gate (rerun) on `a06963a44` plus the defaults diff, 20 October 2026
+
+**Gate result: FAIL. No Critical or High findings.**
+
+| Reviewer | Scope | Result |
+|---|---|---|
+| A | Gate 0 | All gates green. Two full-suite failures were environmental or timing; both reran green. |
+| B | 1a–5c | 10 of 11 units pass |
+| C | 6–9d | 11 of 12 units pass |
+| D | 10–13f | 9 of 14 units pass (3 not built, as planned) |
+| E | 14a–18d | 10 of 16 units pass (5 not built, as planned) |
+
+The Medium findings fall into three groups:
+- **One visible bug:** the compact-first chip and "Compact and send" label render in Chats, but Chat send never compacts.
+- **Three super-linear scans on external data:**
+  - the check-output diff, up to 1 MB;
+  - `modelMatches` on the CLI model string;
+  - the plan hand-off marker regex.
+- **Four untested wiring lines:**
+  - the lifecycle `applyInstanceSpawnPolicy` seam;
+  - the live-switch effort check;
+  - the `rtkAutoApproveScope` read;
+  - the first-message `guidance` argument.
+
+Worklist W1–W16: `_scratch/changed-plans-queue-2026-10-18/phase1-a06963a-defaults-fresh-whole-gate-20261020/REPAIR-WORKLIST-5.md`.
+
+A reviewer also surfaced James's earlier Decision 4, which conflicted with the brief 0/400K default change. The defaults were set to 0/0 accordingly (see the decision section above).
+
+The round-5 repair is in progress. The Plan Queue controls are disconnected, so changes accumulate uncommitted in the queue checkout until a supported checkpoint is possible.
+
+**Round-5 repair (as built).** Seven implementers (M-1 to M-7) plus the parent fixed W1–W16. Each new test was shown to fail when its guarded line is removed, and the file was restored byte for byte afterwards. Evidence is in `repair-M-*`.
+- **Linear scans:** the check-output diff is bounded, `modelMatches` and the plan hand-off marker scan are linear, and so is the transcript `git … commit` match.
+- **W8:** the Chats compact-first chip is gated to the instance-detail composer.
+- **Wiring tests:** the lifecycle spawn-policy seam, the live-switch effort check, `rtkAutoApproveScope`, and the first-message guidance.
+- **The Lows.**
+
+Gates on the round-5 working tree all exited 0: tsc, typecheck:spec, lint, LOC, build:main, build:renderer, build:worker-agent, ipc, ipc-usage, exports and contracts. The full suite passed: 2,848 files and 35,986 tests.
+
+## Sixth fresh whole gate on `a06963a44` plus the round-5 working tree, 20 October 2026
+
+**Gate result: FAIL. No Critical or High findings.**
+
+| Reviewer | Scope | Result |
+|---|---|---|
+| A | Gate 0 | All gates green. Full suite: 35,985 tests passed, 0 failed. |
+| B | 1a–5c | 9 of 11 units pass |
+| C | 6–9d | 9 of 12 units pass |
+| D | 10–13f | 9 of 14 units pass (2 not built, as planned) |
+| E | 14a–18d | 5 of 16 units pass (5 not built, as planned) |
+
+The Medium findings:
+- **X1, a visible bug:** OpenCode's "Compact now" could report success after an ordinary chat turn. This happened because `/compact` went out behind queued context, and OpenCode only treats a slash command as a command when it leads the prompt.
+- **X2:** a quadratic trailing-punctuation trim in `compaction-continuity.ts`.
+- **X3:** a slow automation check could delay the app window opening, because the startup catch-up sweep was awaited.
+- **X4–X15:** twelve untested wiring lines.
+
+Worklist X1–X15: `_scratch/changed-plans-queue-2026-10-18/phase1-r6-fresh-whole-gate-20261020/REPAIR-WORKLIST-6.md`.
+
+**Round-6 repair (as built).** Six implementers (N-1 to N-6). Evidence is in `repair-N-*`.
+- **X1:** a configured native compaction command is now sent as the only prompt text, and queued context is kept for the next real turn. A reply that is answer text counts as "not compacted". A configured command missing from the advertised catalog no longer throws.
+- **X2:** `trimTrailingPunctuation` is linear and gives identical results. `compaction-continuity.ts` is a main-checkout carry-in, so its diff is kept in `repair-N-2/final-prod.diff`.
+- **X3:** `initializeAutomations` now starts the catch-up sweep in the background (`runCatchUpThenArmScheduler`) and logs any errors. The scheduler still arms only after catch-up.
+- **X4–X15:** each has a test that fails when its guarded line is removed. Each was proven by mutation with a byte-identical restore.
+- **Lows:** the `internalInput` guard test; removal of the unused `BASH_OUTPUT_MAX_CHARS_DEFAULT`; the `rtk-trial-report.mjs` main guard; the stale cache comment.
+
+Gates on the round-6 working tree all exited 0: tsc, typecheck:spec, lint, LOC, build:main, build:renderer, build:worker-agent, ipc, ipc-usage, exports and contracts. Logs are in `repair-parent/`. The full suite passed: 2,864 files and 36,080 tests, exit 0.
+
+The round-6 reviewer brief still carried an old line saying the stored machine value would be set to 400,000 at landing. That line is superseded by the ceiling-default decision above (both 0). The next brief must not repeat it.
+
+The Plan Queue controls are still disconnected, so the round-5 and round-6 changes remain uncommitted in the queue checkout. This plan stays active and uncommitted.
+
+## James's answers and the A12 landing condition, 20 October 2026
+
+**James's answers:**
+- **Finish line:** option 2, the bounded bar. A fresh gate passes when it finds no behaviour bug, no super-linear or slow pattern on outside data, no missing plan-required behaviour and no missing plan-required test. Wiring lines the plan does not name, wording, comments, doc counts and other Lows go into this plan as non-blocking follow-ups.
+- **Merging:** "I don't see another session, so merge it in." This session now owns landing Phase 1 through the queue. The Phase B landing plan's Phase 1 conditions still apply.
+
+**Checkpoint.** The supported Pause checkpointed the round-5 and round-6 repairs as `936cfdf08` (71 files). The regenerated architecture inventory followed as `e148e510c`. The queue checkout is clean.
+
+**A12 landing condition (Phase B Step 8, item 1).** Phase B asks that A12's delivery of the guide "on every path" lands switched off until Phase D Step 8 cuts the guide to an always-on core of about 4,500 characters. Its stated reason is that the guide would add about 3.5K tokens to each session. That figure describes `main`'s old 14,080-character `generateOrchestrationPrompt`. Phase 1 deletes that function.
+- On this branch the always-on block is `HARNESS_GUIDE`, measured at **1,515 characters** (about 400 tokens). That is already under Phase D's 4,500-character target.
+- The scheduling and consensus rules are added only when a message asks for them (`harness-guidance.ts`).
+- Code Navigation and the worker roster are gone.
+- `shouldReceiveHarnessGuide` limits the block to top-level sessions that James starts himself. Harness-started work (scheduled jobs, plan queue, repo jobs, reviewers, worker-machine runs) and child sessions still get no guide.
+
+So Phase D Step 8.4's "cut before delivering everywhere" is already met by this branch, and no off-switch is added. Phase B's condition exists to avoid adding about 3.5K tokens per session; landing this branch adds about 400 tokens only to James's own top-level sessions. It also removes the old 14K-character guide from Chats' first message. Phase B and Phase D carry a matching note.
+
+## Seventh fresh whole gate, 20 October 2026 (in progress)
+
+**Brief.** `_scratch/changed-plans-queue-2026-10-18/phase1-r7-fresh-whole-gate-20261020/BRIEF.md`, using the option-2 bar.
+
+**First pass, on `e148e510c`.** Reviewer B (1a–5c) returned FAIL with two BLOCKING findings:
+- **1d.** The trial-report verdict was wrong at an exact 10-point landed-share difference because of floating-point noise. The child/scheduled-job gap check had the same flaw.
+- **5b.** Two plan-named cold-cache tests were missing: "100K does not" and "a borrowed self-managed adapter does not".
+
+The other four reviewers were cut off by a session restart before giving verdicts. Their partial evidence is kept, and their temporary copies are deleted.
+
+**Fixes for B, in `0bfd6426a`.**
+- `atRulePrecision` rounds every verdict comparison in `codex-helper-trial-report.mjs` before testing it against its threshold.
+- Exact-edge tests were added for the landed share and the per-kind gap. They are red on the old code and green now.
+- The two loop cold-cache tests were added. Each catches its surviving mutation, and the restore was byte-identical.
+- tsc, typecheck:spec, lint and LOC all exited 0.
+
+**Checkpoints and next pass.** The inventory was checkpointed as `12ee0dd95`. Reviewers A2, C2, D2 and E2 and a recheck of B's fixes (B2) are now running on `12ee0dd95`.
+
+**Round-7 results on `12ee0dd95`.**
+- A2 (Gate 0 and forensics): PASS. 28 of 28 mutations caught, every gate green or red on base too.
+- B2 (recheck of B's fixes): PASS.
+- C2 (6–9d): FAIL.
+- D2 (10–13f): FAIL.
+- E2 (14a–18d): FAIL.
+- The main-checkout unplanned-work re-review, which is separate from Phase 1: PASS.
+
+The worklist is `REPAIR-WORKLIST-7.md` in the round-7 folder.
+
+**Round-7 repair (as built).** Evidence is in `repair-P-*` and `repair-parent/`.
+- **Y1, 18a (parent).** Added the tests the plan names to `rtk-runtime.spec.ts`:
+  - the `supportsRewriteVersion` table;
+  - the `RTK_MIN_REWRITE_VERSION` pin;
+  - `supportsRewrite()` following the resolved binary;
+  - bundled 0.51 chosen over system 0.42.4, and a newer system copy chosen.
+
+  Mutations A01 to A04 are now caught, and the file was restored byte-identically.
+- **Y2, 8b origin guard (P-2).** A new `automation-pre-check-guard.spec.ts` with 14 tests, plus three tool-level tests, including "an agent can still change the folder of a job without a check". Mutations E18 to E21 are caught.
+- **Y3, Step 7 item 5 (P-3).** Compact now, the compaction-boundary Confirm and a typed `/compact` now carry `trigger:'manual'`, which becomes `userInitiated` down to:
+  - the daily helper cap, which records the cost but does not refuse;
+  - `authorizeFallback`, which ignores the shared daily limit but still stores the routing event and its estimate.
+
+  Automatic compaction, overflow and the policy rebuild stay capped. The second opinion (A14) and Quick ask never reached a capped call, so they are unchanged. There were 19 failing tests before the fix and all pass after it. Removing the flag at any of 15 points fails a test. Eleven production files changed, 1 to 5 lines each. Non-blocking notes:
+  - under a "require confirmation" fallback policy, the later approval step can still apply the limit. James's policy is `notify-and-allow`.
+  - cold-cache "Compact and send" counts as a user action, because the user does trigger it.
+  - the Settings Test button and Browser distil stay capped on purpose.
+  - `context-compactor.ts` is at 1007 of 1008 lines.
+- **Y4 (P-2).** `AutomationScheduler.initialize()` no longer arms a second timer for a retry that is already armed. Shown failing before the fix and passing after.
+- **Y6, 12a (P-4).** A new `src/shared/data/static-context-window.ts` fills context windows from the existing tables:
+  - the context-bar table for Claude, Codex and Grok;
+  - the static catalogue for Gemini, at 1M, matching the Gemini adapter.
+
+  It is used for static catalogue rows, CLI-discovered rows and renderer row facts. models.dev still wins where it has a value, and nothing is invented for other providers. Every default Claude, Codex, Gemini and Grok row now shows a size. There were 6 failing tests before the fix and all pass after it. Mutations are caught.
+- **Lows taken.**
+  - `automation-cadence.spec.ts` now measures CPU time and has explicit legacy timeouts. It passed at a load average of 136, while the budgets stayed meaningful.
+  - New test `instance-lifecycle-rtk-first-spawn-arm.spec.ts`. The first-spawn `stampRtkArm` writes the arm into the instance metadata, and a mutation of it is caught.
+- **Doc correction.** `HARNESS_GUIDE` measures 1,515 characters at runtime, not 1,580. The plan, Phase B and Phase D notes are corrected. The worst case in one conversation is 1,515 + 1,573 + 995 = 4,083, which is still under Phase D's 4,500.
+- **Process note.** A P-2 load test left 54 busy loops running for about 10 minutes. They were killed by parent PID and the load returned to normal.
+
+## Eighth fresh gate, 20 October 2026
+
+Brief: `_scratch/changed-plans-queue-2026-10-18/phase1-r8-fresh-gate-20261020/BRIEF.md`. The candidate was `2a13b3d9d`: the round-7 repairs `a0d6aa311` plus the inventory.
+
+**Before the gate.** On the round-7 working tree, every canonical and supplementary gate exited 0. The full suite passed: 2,868 files, 36,145 tests.
+
+**Reviewer A: Gate 0 and forensics. PASS.**
+- Clean-copy rebuild: all ten required gates exited 0. `check:ts-max-loc` and `verify:architecture` were read from the queue checkout and also exited 0.
+- Full suite: 11 failures, all environmental. Ten came from a git-less archive and one from a host-load timeout. All 11 passed on isolated rerun.
+- Every round-7 mutation proof was killed.
+
+**Reviewer F: round-7 fixes and their neighbours. FAIL on one BLOCKING Low.**
+- Y2, Y3, Y4, Y6 and both Lows passed. No regression was found in units 7, 8, 12, 16a, 16c or 18.
+- The blocking gap: `rtk-runtime.spec.ts` lacked the plan-named "the bundled constant is 0.51.0" assertion. A coordinated change of all three pins survived.
+
+**Fix in `eb952dba2`.**
+- Added `expect(RTK_BUNDLED_VERSION).toBe('0.51.0')`. The coordinated 0.50.0 mutation now fails.
+- Corrected the `static-context-window.ts` header. For claude, codex and grok it returns the context bar's figure, including that provider's default window for ids the table does not list.
+- tsc, typecheck:spec, lint and LOC all exited 0.
+
+**Recheck G: PASS.** The diff from `2a13b3d9d` to `eb952dba2` holds only the assertion and the comment. The coordinated 0.50.0 change now fails exactly one test, and the restored copy passes 119 of 119.
+
+**Gate result: PASS under James's option-2 bar.** No BLOCKING finding remains on the candidate `eb952dba2`:
+- Gate 0 and forensics passed on `2a13b3d9d`. The only change since then is a test assertion and a comment, which recheck G verified.
+- Every requirement unit is PASS or NOT BUILT AS PLANNED (verified), across rounds 7 and 8.
+- The non-blocking follow-ups are listed below.
+
+**Still open:**
+- **AIO landing.** The main checkout's uncommitted work overlaps 21 Phase 1 files with different content, so the queue's promoter would refuse to land. Saving that work first needs James's approval, which has been asked for and is not yet given.
+- **Live checks** in `2026-10-10-oct-phase1-token-levers_livetest.md`.
+
+This plan stays active and uncommitted until the queue lands it.
+
+### Non-blocking follow-ups (option-2 bar; not required for this plan)
+
+**Tests**
+- `codex-helper-trial-report.mjs`: the rounding at the token-drop and wall-ratio sites has no edge test.
+- `loop-context-survival`: no tests for exactly 150K, the 55-minute gate, or the already-compacted guard.
+- RTK resolver: no test of a system copy that is exactly as new as the bundled one.
+- First-spawn `stampRtkArm`: no test for `local=true`.
+- `recordUserInitiated`: the catch is untested.
+- C2 and E2 Lows: preload `createQuickAskDomain`, the `instance-ipc` quick-ask argument, `plan-build-handoff` `canStart`, the `'session'` RTK surface argument, and the Savings "bill stayed flat" note.
+- D2 Lows: the `/` path branch, the guide's rules sentence, `timer.unref`, `CHILD_BATCH_MAX_HOLD_MS`, `dispose()` `clearTimeout`, the 13d tool-search log line, and `account.envRemove`.
+
+**Behaviour edges**
+- A "require confirmation" fallback approval can re-apply the daily limit to a manual compaction. This is not reached under `notify-and-allow`.
+- Unknown Claude, Codex or Grok ids get the provider's default window in the picker. This is the same as the context bar.
+- The check baseline is kept when a check command is edited.
+- The 16 KB baseline diff.
+- Page-text login markers are cut at 12 KB.
+- `sanitizeGeneratedTitle` is quadratic on long input. A live-title length clamp would fix it.
+- Rollout scans in the RTK trial report.
+- The `estimateDailyRuns` stack overflow on a cron that never fires. This was probably present on base too.
+- The Codex trial report's plan-queue `rounds/item` figure reads the row's current `round`, so for items not decided
+  inside a fixed window it can include post-cutoff rounds (in-flight items always could). No verdict rule reads it.
+
+**Docs and size**
+- `context-compactor.ts` is at 1,007 lines against a tolerance of 1,008.
+- Step 10's Done-when count (about 1,374).
+- The `rtkBundledOnly` description wording.
+- The `automations.checkCommand` tooltip does not mention stable output.
+
+
+### Merge-resume handoff, 20 October 2026 — eight conflicts resolved and staged
+
+The coordinator-started merge of main into `queue/2026-10-10-oct-phase1-token-le-528c17` remains open. All eight conflicts are resolved and staged, with zero unmerged paths or conflict markers. Both resident-Claude and reasoning-effort store tests survive; extended compaction, streamed-status, real-factory consensus and TLS key-permission coverage is retained. Consensus still observes final native usage through termination. Regenerated IPC contains all 1,205 combined channels, and the inventory was regenerated from staged source.
+
+Current worker checks all exited 0: 13 focused files / 254 tests / zero failed or pending, `npx tsc --noEmit`, `npm run typecheck:spec`, lint, LOC, IPC contracts and architecture verification. The eight resolutions pass the whitespace check. The full staged whitespace check reports five inherited EOF blank lines in unrelated main files whose indexed bytes exactly match main; see the report. No full suite or independent whole-item gate ran in this merge-only pass. Merge completion, landing and final verification remain coordinator-owned; the plan stays active with its existing filename.
+
+Evidence: [/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-oct-phase1-token-le-528c17/_scratch/merge-resume-20261020/FINAL-REPORT.md](/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-oct-phase1-token-le-528c17/_scratch/merge-resume-20261020/FINAL-REPORT.md); command receipts, resolved-file hashes and `FINAL-SEAL.json` are beside it. No commit, branch switch, merge abort, install or copied checkout was performed.
+
+
+### Merge checkpoint verification resume, 20 October 2026 — ready for independent queue verification
+
+On arrival, the supplied worktree was clean at `96473b151`, already containing the coordinator's merge of main `542f1f690`.
+The earlier "merge remains open" handoff is historical. The prior scratch evidence directory was absent on arrival;
+this resume therefore collected new evidence instead of relying on its reported passes. The current top-of-plan checklist
+records the exact scope and all current command results. There is no separate linked Phase 1 spec; the backlog and this plan remain authoritative.
+
+Both generators were idempotent. All eight requested static/build/contract checks exited 0, and the post-build focused run
+passed 13 explicit files / 255 tests / zero failed or pending with the quiet runner's cache bypassed. The recorded command process
+closed 0 without a signal, and Vitest's JSON independently reports success for all 13 executed files. No direct inner-process
+close receipt beyond the normal runner is claimed. Test retention inspection found no missing declaration titles from either
+merge parent in the five conflicted specs; that structural check supplements execution and the worker's diff review.
+No tracked worktree file changed, no dependency install or copied checkout was created, and pre-existing dependencies/caches were preserved.
+
+Evidence: [report](/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-oct-phase1-token-le-528c17/_scratch/merge-verification-20261020/FINAL-REPORT.md), [seal](/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-oct-phase1-token-le-528c17/_scratch/merge-verification-20261020/FINAL-SEAL.json),
+[merge integrity](/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-oct-phase1-token-le-528c17/_scratch/merge-verification-20261020/merge-integrity.json), [test retention](/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-oct-phase1-token-le-528c17/_scratch/merge-verification-20261020/merge-test-retention.json),
+[cleanup receipt](/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-oct-phase1-token-le-528c17/_scratch/merge-verification-20261020/runtime-cleanup.json). Per-command JSON receipts and full logs are beside the report.
+The worker did not run the full repository suite, obtain a new independent whole-item verdict, integrate, or rename either document.
+Those are the coordinator/verifier's next steps. Existing live/conditional/trial gates remain unchanged.
+
+> Plan Queue parked work: `queue/2026-10-10-oct-phase1-token-le-4a3cd3` — 4 commit(s), reason: round-limit.

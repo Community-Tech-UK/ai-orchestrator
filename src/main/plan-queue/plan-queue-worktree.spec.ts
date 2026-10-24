@@ -254,6 +254,39 @@ describe('PlanQueueWorktreeService', () => {
     expect(existsSync(join(item.worktreePath ?? '', 'late.txt'))).toBe(true);
   });
 
+  it('stops leftover programs in the worktree before removing it, and removes it even if that check fails', async () => {
+    const calls: Array<{ folder: string; existed: boolean }> = [];
+    service = new PlanQueueWorktreeService({
+      creator: WorktreeManager.getInstance(),
+      saveItem: (item) => saved.push(item),
+      skipInstall: true,
+      stopLeftoversIn: async (folder) => {
+        calls.push({ folder, existed: existsSync(folder) });
+        throw new Error('lsof unavailable');
+      },
+    });
+    let item = await service.prepare(makeItem(), repo);
+    item = await service.checkpoint(item, 'done');
+    const wt = item.worktreePath ?? '';
+
+    expect(await service.removeWithProof(item, repo)).toEqual({ removed: true });
+    expect(calls).toEqual([{ folder: wt, existed: true }]);
+    expect(existsSync(wt)).toBe(false);
+  });
+
+  it('does not look for leftovers when the worktree is not removable', async () => {
+    const stopLeftoversIn = vi.fn(async () => 0);
+    service = new PlanQueueWorktreeService({
+      creator: WorktreeManager.getInstance(), saveItem: (item) => saved.push(item), skipInstall: true, stopLeftoversIn,
+    });
+    let item = await service.prepare(makeItem(), repo);
+    item = await service.checkpoint(item, 'first');
+    writeFileSync(join(item.worktreePath ?? '', 'dirty.txt'), 'unsaved\n');
+
+    expect(await service.removeWithProof(item, repo)).toMatchObject({ removed: false, reason: 'dirty-tree' });
+    expect(stopLeftoversIn).not.toHaveBeenCalled();
+  });
+
   it('refuses to remove when HEAD is not the recorded checkpoint', async () => {
     let item = await service.prepare(makeItem(), repo);
     item = await service.checkpoint(item, 'first');

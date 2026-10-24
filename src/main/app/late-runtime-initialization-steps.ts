@@ -370,13 +370,20 @@ export function createLateRuntimeInitializationSteps(
         hibernation.on('check-idle', () => {
           // Chats of loops that have not ended (running, paused, or parked on a
           // provider limit) must keep their adapter for the loop to resume into.
-          const liveLoopChats = new Set<string>(
-            getLoopCoordinator().getActiveLoops()
-              .filter((loop) => loop.endedAt === null)
-              .map((loop) => loop.chatId),
-          );
           runIdleHibernationSweep({
-            hasLiveLoop: (id) => liveLoopChats.has(id),
+            hasLiveLoop: (id) => getLoopCoordinator().getActiveLoops().some((loop) => loop.endedAt === null && loop.chatId === id),
+            getAdapter: (id) => instanceManager.getAdapter(id),
+            getInstance: (id) => {
+              const instance = instanceManager.getInstance(id);
+              return instance && {
+                id: instance.id,
+                status: instance.status,
+                parentId: instance.parentId,
+                lastActivity: instance.lastActivity,
+                isRemote: instance.executionLocation?.type === 'remote',
+                displayName: instance.displayName,
+              };
+            },
             hibernation,
             getInstances: () => instanceManager.getAllInstances().map((instance) => ({
               id: instance.id,

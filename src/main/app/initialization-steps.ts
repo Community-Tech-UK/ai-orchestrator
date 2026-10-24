@@ -45,6 +45,7 @@ import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import { isActiveLoopRuntimeState } from '../orchestration/loop-runtime-status';
 import { createLateRuntimeInitializationSteps } from './late-runtime-initialization-steps';
 import type { StatelessExecProviderPredicate } from './stateless-exec-provider';
+import { startLeftoverProcessSweeper } from '../process/leftover-process-sweeper-wiring';
 
 const logger = getLogger('AppInitialization');
 
@@ -420,6 +421,7 @@ export function createInitializationSteps(
         watchdog.start();
       },
     },
+    { name: 'Leftover process sweeper', fn: () => startLeftoverProcessSweeper(instanceManager) },
     { name: 'Pause feature', fn: () => initializePauseFeatureRuntime() },
     {
       name: 'Worker mode autostart',

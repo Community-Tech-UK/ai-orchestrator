@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InstanceStatus } from '../../shared/types/instance.types';
-import { createInstanceManagerHostProcessHooks } from './host-process-instance-hooks';
+import { createInstanceManagerHostProcessHooks, liveSessionRoots, sessionOwnerState } from './host-process-instance-hooks';
 
 describe('createInstanceManagerHostProcessHooks', () => {
   const instances = new Map<string, { id: string; status: InstanceStatus; processId: number | null }>([
@@ -26,5 +26,23 @@ describe('createInstanceManagerHostProcessHooks', () => {
 
   it('collects instance and adapter pids, tolerating a throwing adapter', () => {
     expect([...hooks.getLiveSessionPids()].sort()).toEqual([100, 200]);
+  });
+
+  it('uses only running adapter pids of sessions that have not ended as lineage roots', () => {
+    const source = {
+      getInstance: (id: string) => instances.get(id),
+      getAllInstances: () => [...instances.values()],
+      getAdapter: (id: string) => ({ codex: { getPid: () => 200 }, terminated: { getPid: () => 300 } } as Record<string, unknown>)[id],
+    };
+    // `busy` has a stored processId but no running adapter pid; `terminated` still reports a pid.
+    expect([...liveSessionRoots(source)]).toEqual([[200, 'codex']]);
+  });
+
+  it('tells ended sessions apart from ones this run does not know', () => {
+    const source = { getInstance: (id: string) => instances.get(id), getAllInstances: () => [], getAdapter: () => undefined };
+    expect(sessionOwnerState(source, 'hibernated')).toBe('live');
+    expect(sessionOwnerState(source, 'failed')).toBe('ended');
+    expect(sessionOwnerState(source, 'terminated')).toBe('ended');
+    expect(sessionOwnerState(source, 'from-another-app')).toBe('unknown');
   });
 });
