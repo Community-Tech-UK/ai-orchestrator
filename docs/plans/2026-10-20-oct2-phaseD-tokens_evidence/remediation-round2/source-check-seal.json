@@ -1,0 +1,42 @@
+{
+  "at": "2026-10-25T01:39:37.108Z",
+  "purpose": "Verifier remediation round 2 source/check integrity seal, NOT independent completion PASS",
+  "workspace": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phased-tokens-0e371d",
+  "head": "29a691095b32eb5c8e8c4d55f6f1b772709d57bc",
+  "branch": "queue/2026-10-20-oct2-phased-tokens-0e371d",
+  "round": "verification-round-2-remediation",
+  "sourceFiles": {
+    "scripts/audit/rtk-native-hook-probe.mjs": "0ce860393b59e0c26017ff9cbf60c5eca98228829b2d087a3528823256f33414",
+    "scripts/audit/rtk-native-hook-probe.d.mts": "92d46a58817406458cb8a1446c63cfd40899b02adfdc5273447e6650d4553601",
+    "scripts/__tests__/rtk-native-hook-probe.spec.ts": "f77e017173c85782ad3ab25f36b775fc9758eefde2a18d754c29b3e34c16b58b",
+    "src/main/app/pre-sleep-context-runtime.spec.ts": "cccd600be35ca29c889d83d7a2b145c61e6b0f087f110406121d71bbda658559",
+    "src/main/app/pre-sleep-context-runtime.ts": "32d3a27b2a750c50a8a5f512e2500610a53e00b51f75ca362f4f0f79b348acd6",
+    "src/main/cli/adapters/codex-exec-native-outcome.spec.ts": "07e0457c052a1226bdb582b2578ce721ca7daacf5f97e8fade0f2197945214a1",
+    "src/main/context/pre-sleep-context.spec.ts": "483cab74ff2b366f50b6b1b4693a550429494c65249fd8f35933c89289c2ac71",
+    "src/main/context/pre-sleep-context.ts": "40e96bcb514785922e110c033bbf11bfa3f498897fb35f9c3362f88a417a5bc9",
+    "src/main/instance/codex-exec-input-receipt.spec.ts": "b1282ef819c936607cd2e060e6a52f3660bbbfbf8eac395e2a69803880747a9b",
+    "src/main/orchestration/loop-attempt-observation.spec.ts": "be36771cda594c7dfa985fe5501b1e0392add1cb8e60886f424412dcd7920538",
+    "src/main/orchestration/loop-sleep-context.ts": "615b184f9ca5fe28da9633eccbdc19dfc7277dca894530409461b1b533bcb15a",
+    "src/renderer/app/shared/components/provider-account-chip.component.ts": "77d8f4e5a35d6a33c752c67c257842c5ad4c965b414dceb63d937fb31dc967e7",
+    "src/renderer/app/shared/components/provider-account-chip.cost-note.spec.ts": "99b01a84efd777034f2ae25b926c8c1af03e92772f722ddcaea5a0ea214330ea"
+  },
+  "checks": {
+    "failingProofAccountChip": "session run: provider-account-chip.cost-note.spec.ts 2 failed / 3 passed before the fix (held preview + input swap moved the wrong chat)",
+    "failingProofPreSleep": "session run: pre-sleep-context-runtime.spec.ts 4 failed / 14 passed before the fix (delete/disable/deactivate/retarget each compacted once)",
+    "failingProofSigintRace": "deterministic reproduction: readiness ACK before SIGINT handler + kill on ACK = child exits signal SIGINT with no answer; a natural-exit flush probe shows piped stdout is not lost",
+    "targetedGreen": "_scratch/test-run.pid-84812.log (13 files / 112 tests) and _scratch/test-run.pid-88360.log (6 files / 78 tests)",
+    "typecheck": 0,
+    "typecheckSpec": 0,
+    "lint": 0,
+    "checkTsMaxLoc": 0,
+    "checkUiHints": 0,
+    "buildMain": 0,
+    "buildRenderer": 0,
+    "fullSuite": "_scratch/r2-full-suite.log and _scratch/test-run.pid-4078.log: 2853 files / 36094 tests passed in 1273.4s (exit 0)"
+  },
+  "notes": [
+    "No test skip/only/todo, suppression, or isolation/LOC guard weakening was added.",
+    "One suite budget: loop-attempt-observation.spec.ts describe timeout 5s default -> 30_000 (real nested-Git fixtures; the repo process-fixture convention).",
+    "Root plan/history/livetest/commands documents are updated at their root-checkout paths and mirrored into the tracked worktree copies; they are not part of this seal."
+  ]
+}

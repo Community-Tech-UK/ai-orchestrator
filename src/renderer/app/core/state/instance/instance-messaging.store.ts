@@ -3,7 +3,6 @@
  *
  * Handles message queuing when instance is busy and message sending.
  */
-
 import { effect, Injectable, inject } from '@angular/core';
 import { IpcFacadeService, type IpcResponse } from '../../services/ipc';
 import { DraftService } from '../../services/draft.service';
@@ -11,6 +10,7 @@ import { InstanceStateService } from './instance-state.service';
 import { InstanceListStore } from './instance-list.store';
 import type { Instance, InstanceStatus, OutputMessage, QueuedMessage } from './instance.types';
 import { PauseStore } from '../pause/pause.store';
+import { GlobalPauseStore } from '../global-pause/global-pause.store';
 import {
   createQueuedMetadata,
   enqueueSteerToQueue,
@@ -38,13 +38,11 @@ import { InstanceStatusReconcilerService } from './instance-status-reconciler.se
 import { QueuePersistenceService } from './queue-persistence.service';
 import { createQueuePark } from './instance-queue-park';
 import { QueueRetryTimers } from './instance-queue-retry-timers';
-
 // Max transient-failure retries before dropping a queued message. Sized so the
 // cumulative wait exceeds one large-context restart (resume failure → replay).
 // LT-652: a provider-compaction rejection uses its own larger budget in
 // `messaging-retry-disposition.ts` — a compact outlives this one.
 const MAX_QUEUE_RETRIES = 5;
-
 @Injectable({ providedIn: 'root' })
 export class InstanceMessagingStore {
   private stateService = inject(InstanceStateService);
@@ -52,12 +50,12 @@ export class InstanceMessagingStore {
   private listStore = inject(InstanceListStore);
   private draftService = inject(DraftService);
   private pauseStore = inject(PauseStore);
+  private readonly globalPause = inject(GlobalPauseStore);
   private statusReconciler = inject(InstanceStatusReconcilerService);
   private queuePersistence = inject(QueuePersistenceService);
   /** B7 — queues held back after a user-initiated Stop. Signal-backed, so the
    *  composer's parked banner updates without another change-detection trigger. */
   private readonly queuePark = createQueuePark();
-
   private queueWatchdog: ReturnType<typeof setInterval> | null = null;
   private interruptRequests = new Map<string, number>();
   private terminalRestartRequests = new Set<string>();
@@ -67,7 +65,6 @@ export class InstanceMessagingStore {
    */
   private retryTimers = new QueueRetryTimers();
   private static readonly RECENT_INTERRUPT_MS = 5000;
-
   constructor() {
     effect(() => {
       let total = 0;
@@ -76,13 +73,11 @@ export class InstanceMessagingStore {
       }
       this.pauseStore.queuedTotal.set(total);
     });
-
     // Watchdog: periodically check for stuck queue items.
     // The primary drain trigger is applyBatchUpdates on idle transitions,
     // but timing/batching edge cases can leave messages stuck. This catches them.
     this.queueWatchdog = setInterval(() => this.drainAllReadyQueues(), 2000);
   }
-
   /**
    * Process queued messages for all instances that are currently idle,
    * and clear queues for instances that are in terminal states.
@@ -91,8 +86,8 @@ export class InstanceMessagingStore {
   private drainAllReadyQueues(): void {
     const queueMap = this.stateService.messageQueue();
     if (queueMap.size === 0) return;
-
     for (const [instanceId] of queueMap) {
+      if (this.globalPause.holdsAutomaticInput(instanceId)) continue;
       const instance = this.stateService.getInstance(instanceId);
       if (!instance) {
         // Instance no longer exists — clean up orphaned queue. Log what is
@@ -108,7 +103,6 @@ export class InstanceMessagingStore {
         this.clearMessageQueue(instanceId);
         continue;
       }
-
       if (isQuotaParked(instance)) {
         // Main's resumeNow() clears the park and resends the throttled turn
         // itself; leave the queue intact so it drains on the following idle
@@ -132,11 +126,9 @@ export class InstanceMessagingStore {
       }
     }
   }
-
   // ============================================
   // Message Queue Management
   // ============================================
-
   /**
    * B7 — hold this instance's queue after the user pressed Stop.
    *
@@ -147,32 +139,27 @@ export class InstanceMessagingStore {
   parkQueueAfterInterrupt(instanceId: string): void {
     this.queuePark.park(instanceId, this.getQueuedMessageCount(instanceId));
   }
-
   /** B7 — the explicit Resume action on the parked-queue banner. */
   resumeParkedQueue(instanceId: string): void {
     this.queuePark.unpark(instanceId);
     this.processMessageQueue(instanceId);
   }
-
   /** B7 — whether the composer should show the parked banner. */
   isQueueParked(instanceId: string): boolean {
     return this.queuePark.isParked(instanceId);
   }
-
   /**
    * Get queued message count for an instance (reactive)
    */
   getQueuedMessageCount(instanceId: string): number {
     return this.stateService.messageQueue().get(instanceId)?.length || 0;
   }
-
   /**
    * Get the message queue for an instance (reactive)
    */
   getMessageQueue(instanceId: string): QueuedMessage[] {
     return this.stateService.messageQueue().get(instanceId) || [];
   }
-
   /**
    * Clear the message queue for an instance
    */
@@ -292,6 +279,8 @@ export class InstanceMessagingStore {
     if (!target) return;
     const { instance, instanceId: targetInstanceId } = target;
 
+    if (this.globalPause.holdsAutomaticInput(targetInstanceId) && !await this.globalPause.pickUp(targetInstanceId)) return;
+
     this.clearRecoveryMarkersOnUserInput(targetInstanceId, instance);
 
     if (isTerminalStatus(instance.status)) {
@@ -356,6 +345,8 @@ export class InstanceMessagingStore {
     if (!target) return;
     const { instance, instanceId: targetInstanceId } = target;
 
+    if (this.globalPause.holdsAutomaticInput(targetInstanceId) && !await this.globalPause.pickUp(targetInstanceId)) return;
+
     this.clearRecoveryMarkersOnUserInput(targetInstanceId, instance);
 
     if (isTerminalStatus(instance.status)) {
@@ -418,6 +409,8 @@ export class InstanceMessagingStore {
   async steerQueuedMessage(instanceId: string, index: number): Promise<void> {
     const instance = this.stateService.getInstance(instanceId);
     if (!instance) return;
+
+    if (this.globalPause.holdsAutomaticInput(instanceId) && !await this.globalPause.pickUp(instanceId)) return;
 
     this.clearRecoveryMarkersOnUserInput(instanceId, instance);
 
@@ -519,14 +512,15 @@ export class InstanceMessagingStore {
     message: string,
     files?: File[],
     retryCount = 0,
-    options: SendInputImmediateOptions = {}
+    options: SendInputImmediateOptions = {},
+    automatedInput = false
   ): Promise<void> {
     const target = this.resolveMessageTarget(instanceId);
     if (!target) return;
     const { instanceId: targetInstanceId } = target;
     const previousStatus = target.instance.status;
 
-    if (this.pauseStore.isPaused()) {
+    if (this.pauseStore.isPaused() || (automatedInput && this.globalPause.holdsAutomaticInput(targetInstanceId))) {
       this.enqueueMessageFront(targetInstanceId, {
         message,
         files,
@@ -564,7 +558,8 @@ export class InstanceMessagingStore {
           targetInstanceId,
           message,
           attachments,
-          retryCount > 0 || options.skipUserBubble === true
+          retryCount > 0 || options.skipUserBubble === true,
+          ...(automatedInput ? [true] as const : [] as const)
         ),
         getSendInputTimeoutMs(target.instance.provider)
       );
@@ -653,7 +648,7 @@ export class InstanceMessagingStore {
    * Called when instance becomes idle or waiting_for_input
    */
   processMessageQueue(instanceId: string): void {
-    if (this.pauseStore.isPaused()) return;
+    if (this.pauseStore.isPaused() || this.globalPause.holdsAutomaticInput(instanceId)) return;
 
     // Double-check the instance is actually ready to receive input.
     // This guards against premature queue drains from stale or
@@ -700,8 +695,11 @@ export class InstanceMessagingStore {
 
   /** Awaits durable promotion, THEN removes the entry and sends — never the other way round. */
   private async drainNextQueuedMessage(instanceId: string, nextMessage: QueuedMessage): Promise<void> {
+    if (this.globalPause.holdsAutomaticInput(instanceId)) return;
     const promoted = await this.queuePersistence.notifyPromoting(instanceId, nextMessage);
     if (!promoted) return; // stays queued; the watchdog/next ready transition retries
+
+    if (this.globalPause.holdsAutomaticInput(instanceId)) return;
 
     if (!removeQueuedEntry(this.stateService, instanceId, nextMessage)) return; // already gone (cancelled/sent elsewhere)
 
@@ -709,7 +707,7 @@ export class InstanceMessagingStore {
       skipUserBubble: nextMessage.seededAlready === true,
       queuedMetadata: pickQueuedMetadata(nextMessage),
       retryAfterAt: nextMessage.retryAfterAt,
-    });
+    }, true);
   }
 
   /** LT-652: one pending backoff timer per instance (see `QueueRetryTimers`). */

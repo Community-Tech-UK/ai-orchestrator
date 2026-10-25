@@ -1,7 +1,6 @@
 /**
  * Instance Orchestration Manager - Handles child instance spawning and fast-path retrieval
  */
-
 import { getLogger } from '../logging/logger';
 import { isVisibleOutputMessage } from '../../shared/types/tool-outcome';
 import { OrchestrationHandler } from '../orchestration/orchestration-handler';
@@ -52,12 +51,14 @@ import type { OrchestrationResponseAdapter } from './orchestration/orchestration
 import { assertQueuedResponseDeliverable, orchestrationDeliveryFailureNote } from './orchestration/orchestration-delivery-failure';
 import { OrchestrationResponseHeldError } from '../orchestration/orchestration-response-delivery';
 import { errorFromIdentity } from '../util/error-utils';
+import { getWorkAdmission } from '../work-admission/work-admission';
+import { runHelperStartup } from '../work-admission/helper-startup';
+import { ownedByEngine } from '../work-admission/engine-ownership';
 import {
   routeRole,
   decideDelegation,
   ROUTE_CONFIDENCE_THRESHOLD,
 } from '../orchestration/delegation-policy';
-
 /**
  * Dependencies required by the orchestration manager
  */
@@ -75,9 +76,7 @@ export interface OrchestrationDependencies {
   /** True when a queued response must not be sent yet: the session went limited, parked or is switching accounts. */
   holdQueuedResponse?: (instanceId: string) => boolean;
 }
-
 const logger = getLogger('InstanceOrchestration');
-
 /**
  * Map legacy Claude-3.x model ids (e.g. a stale `model.default` preference such
  * as "claude-3-sonnet") to a current model alias the CLI accepts. Current model
@@ -92,7 +91,6 @@ function normalizeLegacyClaudeModel(model: string): string {
   }
   return model;
 }
-
 function getChildRoutingAudit(child: Instance): PluginRoutingAudit | undefined {
   const orchestration = child.metadata?.['orchestration'];
   if (!orchestration || typeof orchestration !== 'object') {
@@ -104,7 +102,6 @@ function getChildRoutingAudit(child: Instance): PluginRoutingAudit | undefined {
   }
   return audit as PluginRoutingAudit;
 }
-
 export class InstanceOrchestrationManager {
   private orchestration: OrchestrationHandler;
   private outcomeTracker: OutcomeTracker | null = null;
@@ -118,7 +115,6 @@ export class InstanceOrchestrationManager {
   private handlersRegistered = false;
   private readonly fastPathRetriever: FastPathRetriever;
   private readonly formatter = new OrchestrationMessageFormatter();
-
   constructor(deps: OrchestrationDependencies) {
     this.deps = deps;
     this.fastPathRetriever = new FastPathRetriever({
@@ -126,14 +122,12 @@ export class InstanceOrchestrationManager {
     });
     this.orchestration = new OrchestrationHandler();
   }
-
   /**
    * Get the orchestration handler
    */
   getOrchestrationHandler(): OrchestrationHandler {
     return this.orchestration;
   }
-
   /**
    * Whether orchestration is currently doing work on behalf of an instance.
    */
@@ -253,6 +247,8 @@ export class InstanceOrchestrationManager {
       async (parentId: string, command: SpawnChildCommand) => {
         const parent = this.deps.getInstance(parentId);
         if (!parent) return;
+        const admission = getWorkAdmission().check('helper-agent', { remote: !!command.node || ownedByEngine(parent) });
+        if (!admission.allowed) { this.orchestration.notifyError(parentId, admission.detail); return; }
 
         const validation = SpawnChildPayloadSchema.safeParse({
           parentInstanceId: parentId,
@@ -383,7 +379,9 @@ export class InstanceOrchestrationManager {
             logger.info('Estimated cost savings from model routing', { savingsPercent: routingDecision.estimatedSavingsPercent });
           }
 
-	          const child = await this.deps.createChildInstance(parentId, command, routingDecision);
+          const child = await runHelperStartup(!!command.node || ownedByEngine(parent),
+            () => this.deps.createChildInstance(parentId, command, routingDecision),
+            (id) => this.deps.terminateInstance(id, false));
 	          emitPluginHook('orchestration.child.started', {
 	            parentId,
 	            childId: child.id,

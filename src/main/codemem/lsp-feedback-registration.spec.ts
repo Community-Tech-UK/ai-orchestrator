@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import type { LspFeedbackDeps } from './lsp-feedback-coordinator';
 import type { AdmissionOutcome } from '../session/session-admission-service';
 
@@ -9,7 +9,7 @@ const coordinatorMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('./lsp-feedback-coordinator', () => ({
-  LspFeedbackCoordinator: vi.fn().mockImplementation((deps: LspFeedbackDeps) => {
+  LspFeedbackCoordinator: vi.fn().mockImplementation(function (deps: LspFeedbackDeps) {
     coordinatorMocks.capturedDeps = deps;
     return {
       attach: coordinatorMocks.attach,
@@ -48,7 +48,7 @@ vi.mock('../session/session-admission-service', () => ({
 
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS, type IpcResponse } from '../../shared/types/ipc.types';
-import { registerLspFeedback, _disposeLspFeedbackForTesting } from './lsp-feedback-registration';
+import { registerLspFeedback, _disposeLspFeedbackForTesting, type LspFeedbackInstanceHost } from './lsp-feedback-registration';
 
 type IpcHandler = (event: unknown, payload?: unknown) => Promise<IpcResponse>;
 
@@ -61,7 +61,7 @@ function registeredHandler(channel: string): IpcHandler {
 }
 
 describe('registerLspFeedback — injectFeedback admission gating (A5)', () => {
-  let sendInput: ReturnType<typeof vi.fn>;
+  let sendInput: Mock<LspFeedbackInstanceHost['sendInput']>;
 
   beforeEach(() => {
     admissionMocks.admitAutomatedWrite.mockReset();

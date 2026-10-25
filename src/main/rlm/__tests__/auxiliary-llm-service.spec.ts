@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
 const mockLogger = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -47,7 +47,7 @@ interface MockWorkerNode {
 const remoteState: {
   nodes: MockWorkerNode[];
   connected: Set<string>;
-  rpc: ReturnType<typeof vi.fn>;
+  rpc: Mock;
 } = { nodes: [], connected: new Set<string>(), rpc: vi.fn() };
 
 function resetRemoteState() {

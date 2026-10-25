@@ -268,6 +268,8 @@ export const InstanceSendInputPayloadSchema = z.object({
   message: z.string().max(500000),
   attachments: z.array(InstanceInputAttachmentSchema).max(10).optional(),
   isRetry: z.boolean().optional(),
+  /** A queued user message being drained automatically, rather than a fresh submission. */
+  automatedInput: z.boolean().optional(),
   /**
    * Optional stable key for at-most-once delivery (B2). A retried send carrying
    * the same key is recognised as a duplicate and skipped instead of dispatching

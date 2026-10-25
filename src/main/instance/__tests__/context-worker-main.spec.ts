@@ -71,22 +71,24 @@ describe('context worker main', () => {
       workerData: null,
     }));
     vi.doMock('../instance-context', () => ({
-      InstanceContextManager: vi.fn(() => ({
-        buildRlmContext: vi.fn().mockResolvedValue({
-          context: 'from rlm',
-          tokens: 2,
-          sectionsAccessed: [],
-          durationMs: 1,
-          source: 'semantic',
-        }),
-        initializeRlm: vi.fn().mockResolvedValue(undefined),
-        endRlmSession: vi.fn(),
-        ingestToRLM: vi.fn(),
-        ingestToUnifiedMemory: vi.fn(),
-        buildUnifiedMemoryContext: vi.fn().mockResolvedValue(null),
-        compactContext: vi.fn().mockResolvedValue(undefined),
-        ingestInitialOutputToRlm: vi.fn().mockResolvedValue(undefined),
-      })),
+      InstanceContextManager: vi.fn(function () {
+        return {
+          buildRlmContext: vi.fn().mockResolvedValue({
+            context: 'from rlm',
+            tokens: 2,
+            sectionsAccessed: [],
+            durationMs: 1,
+            source: 'semantic',
+          }),
+          initializeRlm: vi.fn().mockResolvedValue(undefined),
+          endRlmSession: vi.fn(),
+          ingestToRLM: vi.fn(),
+          ingestToUnifiedMemory: vi.fn(),
+          buildUnifiedMemoryContext: vi.fn().mockResolvedValue(null),
+          compactContext: vi.fn().mockResolvedValue(undefined),
+          ingestInitialOutputToRlm: vi.fn().mockResolvedValue(undefined),
+        };
+      }),
     }));
     vi.doMock('../../persistence/rlm-database', () => ({
       RLMDatabase: { getInstance: vi.fn(() => ({})) },

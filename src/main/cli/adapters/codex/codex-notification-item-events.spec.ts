@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import {
   handleItemCompleted,
   handleItemStarted,
@@ -26,9 +26,9 @@ function state(partial: Partial<TurnCaptureState> = {}): TurnCaptureState {
 }
 
 function host(): CodexItemNotificationHost & {
-  emitOutput: ReturnType<typeof vi.fn>;
-  scheduleInferredCompletion: ReturnType<typeof vi.fn>;
-  reconcileCompletedAgentMessage: ReturnType<typeof vi.fn>;
+  emitOutput: Mock<CodexItemNotificationHost['emitOutput']>;
+  scheduleInferredCompletion: Mock<CodexItemNotificationHost['scheduleInferredCompletion']>;
+  reconcileCompletedAgentMessage: Mock<CodexItemNotificationHost['reconcileCompletedAgentMessage']>;
 } {
   return {
     emitOutput: vi.fn(),

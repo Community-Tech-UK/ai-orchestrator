@@ -138,4 +138,53 @@ describe('RecentDirectoriesManager', () => {
       (await manager.getDirectories({ sortBy: 'manual' })).map((entry) => entry.displayName)
     ).toEqual(['gamma', 'alpha', 'delta', 'beta']);
   });
+
+  it('keeps a project whose existence check outlasts the timeout', async () => {
+    const alpha = path.join(tempRoot, 'alpha');
+    const beta = path.join(tempRoot, 'beta');
+    fs.mkdirSync(alpha, { recursive: true });
+    fs.mkdirSync(beta, { recursive: true });
+
+    // A main-process stall longer than the check timeout fires the timer before
+    // the fs result is read; model that as an access call that never settles.
+    vi.doMock('fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('fs/promises')>();
+      const access = (target: fs.PathLike, mode?: number) =>
+        target === beta ? new Promise<void>(() => undefined) : actual.access(target, mode);
+      return { ...actual, default: { ...actual, access }, access };
+    });
+
+    try {
+      const { RecentDirectoriesManager } = await import('./recent-directories-manager');
+      const manager = new RecentDirectoriesManager(10);
+
+      manager.addDirectory(alpha);
+      manager.addDirectory(beta);
+
+      const pending = manager.getDirectories({ sortBy: 'manual' });
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect((await pending).map((entry) => entry.displayName)).toEqual(['beta', 'alpha']);
+    } finally {
+      vi.doUnmock('fs/promises');
+    }
+  });
+
+  it('drops a project whose folder no longer exists', async () => {
+    const alpha = path.join(tempRoot, 'alpha');
+    const beta = path.join(tempRoot, 'beta');
+    fs.mkdirSync(alpha, { recursive: true });
+    fs.mkdirSync(beta, { recursive: true });
+
+    const { RecentDirectoriesManager } = await import('./recent-directories-manager');
+    const manager = new RecentDirectoriesManager(10);
+
+    manager.addDirectory(alpha);
+    manager.addDirectory(beta);
+    fs.rmSync(beta, { recursive: true, force: true });
+
+    expect(
+      (await manager.getDirectories({ sortBy: 'manual' })).map((entry) => entry.displayName)
+    ).toEqual(['alpha']);
+  });
 });

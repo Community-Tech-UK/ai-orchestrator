@@ -1,9 +1,10 @@
 import { EventEmitter } from 'node:events';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import {
   MAX_PROVIDER_EVENT_CAPTURE_BATCH_SIZE,
   ProviderEventCaptureService,
+  type ProviderEventCaptureServiceOptions,
 } from './provider-event-capture-service';
 import { _resetForTesting, runCleanupFunctions } from '../util/cleanup-registry';
 
@@ -12,7 +13,7 @@ vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({
 
 describe('ProviderEventCaptureService', () => {
   let events: EventEmitter;
-  let appendProviderEventCaptures: ReturnType<typeof vi.fn>;
+  let appendProviderEventCaptures: Mock<NonNullable<ProviderEventCaptureServiceOptions['ledger']>['appendProviderEventCaptures']>;
   let service: ProviderEventCaptureService;
 
   beforeEach(() => {

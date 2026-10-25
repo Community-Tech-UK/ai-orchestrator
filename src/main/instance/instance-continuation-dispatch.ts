@@ -6,6 +6,7 @@ import type { AdapterInputRetryReason } from '../cli/adapters/base-cli-adapter.t
 import type { InstanceAsyncWorkRegistry } from './instance-async-work-registry';
 import { CONTINUATION_DISPATCH_POLICY, type ContinuationTrigger } from './turn-ending-continuation-policy';
 import { clearInstanceTurnEnding, getInstanceTurnEnding, invalidateInstanceRecoveryEpoch } from './instance-turn-ending-state';
+import { globalPauseHoldsAutomaticInput } from '../global-pause/global-pause-service';
 
 export interface ContinuationRecoveryAdapter {
   hasProviderAutoContinuation?(): Promise<boolean>;
@@ -239,7 +240,7 @@ export class InstanceContinuationDispatch {
           && getInstanceTurnEnding(request.instanceId) === 'context_overflow'))
         && (READY.has(current.status) || current.status === 'busy')
         && (!policy.rootOnly || rootSessionAdmitsContinuation(current))
-        && !this.isPaused() && !this.isManagedLoopInstance(request.instanceId)
+        && !this.isPaused() && !globalPauseHoldsAutomaticInput(request.instanceId) && !this.isManagedLoopInstance(request.instanceId)
         && (policy.allowInhibitor || !this.registry.hasInhibitor(request.instanceId));
     } catch { /* Eligibility uncertainty fails closed. */ }
     if (eligible) return;
@@ -269,7 +270,7 @@ export class InstanceContinuationDispatch {
           || (preparing && instance.status === 'busy') || (policy.allowWake && instance.status === 'hibernated'))
         && (policy.limit === undefined || this.attempts(request.instanceId, request.trigger) < policy.limit)
         && this.endingMatches(request) && request.isCurrent?.() !== false
-        && !this.isPaused() && !this.isManagedLoopInstance(request.instanceId)
+        && !this.isPaused() && !globalPauseHoldsAutomaticInput(request.instanceId) && !this.isManagedLoopInstance(request.instanceId)
         && (policy.allowInhibitor || !this.registry.hasInhibitor(request.instanceId));
     } catch { return false; }
   }

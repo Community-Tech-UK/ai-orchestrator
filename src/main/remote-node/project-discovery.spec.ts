@@ -15,7 +15,10 @@ vi.mock('../logging/logger', () => ({
 }));
 
 // Mock fs/promises before importing the module under test
-vi.mock('node:fs/promises');
+vi.mock('node:fs/promises', () => {
+  const fs = { readdir: vi.fn() };
+  return { ...fs, default: fs };
+});
 
 import fs from 'node:fs/promises';
 import { ProjectDiscovery } from './project-discovery';

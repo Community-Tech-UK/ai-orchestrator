@@ -16,27 +16,14 @@ export class UnsafeZipEntryError extends Error {
 }
 
 /**
- * Guards `extract-zip` against GHSA-jmr9-qjv8-65gv (unvalidated symlink path
- * traversal), for which no patched release exists.
+ * Keeps plugin archive entries inside their private staging directory.
+ * safeExtractZip calls this guard before creating a directory or writing a file.
  *
- * `extract-zip` calls `onEntry` before it creates anything on disk and rejects
- * the extraction if the callback throws, so validating here stops a hostile
- * entry from ever being written.
- *
- * The load-bearing check is the symlink one. yauzl (which extract-zip reads
- * through) already rejects absolute and `../` entry names, normalising `\` to
- * `/` first unless `strictFileNames` is set — see yauzl `index.js` lines
- * 421-423 and 605-618. It does *not* inspect symlink entries, and extract-zip
- * creates them with `fs.symlink` without validating the target, so `evil -> /`
- * followed by `evil/etc/passwd` escapes `destDir` even though neither name is
- * itself invalid. That is the advisory, and rejecting symlinks closes it. It
- * also closes GHSA-7pqw-9j4j-h8q3, where a symlink entry is followed by a
- * regular file of the same name that extract-zip then writes through.
- *
- * The name checks below duplicate yauzl's and are kept deliberately: they cost
- * nothing, they document the full threat model at the point of use, and they
- * still hold if extract-zip ever enables `strictFileNames` (which disables the
- * separator normalisation those checks depend on) or swaps its zip reader.
+ * yauzl rejects absolute and `../` entry names, normalising `\` to `/` first
+ * unless strictFileNames is set. The checks below deliberately retain those
+ * guarantees at our extraction boundary. Symlinks are rejected outright:
+ * creating a link and then extracting a nested or same-named file through it
+ * caused GHSA-jmr9-qjv8-65gv and GHSA-7pqw-9j4j-h8q3 in the former extractor.
  *
  * Plugin archives are fetched from a renderer-supplied URL with no scheme or
  * host allowlist, so the archive is not trusted. Nothing shipped needs symlinks

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { TranscriptFindController } from './transcript-find-controller';
 
@@ -19,7 +19,7 @@ async function waitForController(predicate: () => boolean): Promise<void> {
 
 describe('TranscriptFindController', () => {
   let root: HTMLElement;
-  let scrollIntoView: ReturnType<typeof vi.fn>;
+  let scrollIntoView: Mock;
   const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 
   beforeEach(() => {

@@ -2,8 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Instance, InstanceStatus, OutputMessage } from '../../../shared/types/instance.types';
 import {
   deliverInitialPromptAfterSpawn,
+  hasPendingInitialPrompt, retryPendingInitialPrompt,
   type InitialPromptRecoveryDeps,
 } from './initial-prompt-recovery';
+import { GlobalPauseService } from '../../global-pause/global-pause-service';
+import { runAutomaticStartup } from '../../work-admission/automatic-startup';
+import { getWorkAdmission } from '../../work-admission/work-admission';
+
+const queue = vi.hoisted(() => ({ enqueueUserMessage: vi.fn(async () => ({ admissionId: 'queued', queuePosition: 0 })) }));
+vi.mock('../../session/session-queue-service', () => ({ getSessionQueueService: () => queue }));
 
 vi.mock('../../logging/logger', () => ({
   getLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
@@ -37,6 +44,58 @@ function makeDeps(): InitialPromptRecoveryDeps & {
 
 describe('deliverInitialPromptAfterSpawn', () => {
   beforeEach(() => vi.clearAllMocks());
+  it('blocks a delayed automatic first prompt while leaving manually opened chats usable', async () => {
+    let finishInit!: () => void;
+    const initialization = new Promise<void>(resolve => { finishInit = resolve; });
+    const automaticSend = vi.fn(async () => undefined);
+    const { delivery } = await runAutomaticStartup(async startup => {
+      const instance = makeInstance();
+      startup.register(instance, async () => undefined);
+      const delivery = (async () => {
+        await initialization;
+        return deliverInitialPromptAfterSpawn(instance, new AbortController().signal, automaticSend, makeDeps());
+      })();
+      return { delivery };
+    });
+    getWorkAdmission().setGlobalPhase('collecting');
+    try {
+      const cancelled = expect(delivery).rejects.toThrow('cancelled for restart');
+      finishInit(); await cancelled;
+      expect(automaticSend).not.toHaveBeenCalled();
+      const manualSend = vi.fn(async () => undefined);
+      await deliverInitialPromptAfterSpawn(makeInstance(), new AbortController().signal, manualSend, makeDeps());
+      expect(manualSend).toHaveBeenCalledOnce();
+    } finally { getWorkAdmission().setGlobalPhase('none'); }
+  });
+  it('durably queues a recorded session first message instead of starting it after pause', async () => {
+    const instance = makeInstance('idle');
+    instance.outputBuffer.push({ type: 'user', content: 'Build the feature', attachments: [{ name: 'notes.txt', type: 'text/plain', size: 4, data: 'data' }] } as OutputMessage);
+    const markInitialPromptQueued = vi.fn();
+    const pause = vi.spyOn(GlobalPauseService, 'peek').mockReturnValue({ holdsAutomaticInput: () => true, markInitialPromptQueued } as unknown as GlobalPauseService);
+    const send = vi.fn(async () => undefined);
+    try {
+      await deliverInitialPromptAfterSpawn(instance, new AbortController().signal, send, makeDeps());
+      expect(send).not.toHaveBeenCalled();
+      expect(queue.enqueueUserMessage).toHaveBeenCalledWith(expect.objectContaining({ instanceId: 'inst-1', message: 'Build the feature',
+        attachments: [{ name: 'notes.txt', type: 'text/plain', size: 4, data: 'data' }] }));
+      expect(markInitialPromptQueued).toHaveBeenCalledWith('inst-1');
+    } finally { pause.mockRestore(); }
+  });
+
+  it('retains queue-marker failures for retry without duplicating the already durable original', async () => {
+    const instance = makeInstance();
+    instance.outputBuffer.push({ type: 'user', content: 'Original request' } as OutputMessage);
+    const markInitialPromptQueued = vi.fn().mockImplementationOnce(() => { throw new Error('Pause marker could not persist'); });
+    const pause = vi.spyOn(GlobalPauseService, 'peek').mockReturnValue({ holdsAutomaticInput: () => true, markInitialPromptQueued } as unknown as GlobalPauseService);
+    try {
+      await expect(deliverInitialPromptAfterSpawn(instance, new AbortController().signal, vi.fn(), makeDeps())).rejects.toThrow('could not persist');
+      expect(hasPendingInitialPrompt(instance)).toBe(true);
+      await retryPendingInitialPrompt(instance);
+      expect(hasPendingInitialPrompt(instance)).toBe(false);
+      expect(queue.enqueueUserMessage).toHaveBeenCalledOnce();
+      expect(markInitialPromptQueued).toHaveBeenCalledTimes(2);
+    } finally { pause.mockRestore(); }
+  });
 
   it('passes through cleanly when the send succeeds — no notice, no transition', async () => {
     const instance = makeInstance('idle');

@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspect } from 'node:util';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { getLogManager } from '../../../logging/logger';
 import { CopilotCliAdapter } from '../copilot-cli-adapter';
 import type { CliAdapterConfig, CliResponse } from '../base-cli-adapter';
@@ -16,8 +16,8 @@ const prompt = `native request ${marker}`;
 const fields = ['premiumRequests', 'totalApiDurationMs', 'sessionDurationMs'] as const;
 const manager = getLogManager();
 const cleanup: (() => void | Promise<void>)[] = [];
-let log: ReturnType<typeof vi.spyOn>;
-let logError: ReturnType<typeof vi.spyOn>;
+let log: MockInstance<typeof manager.log>;
+let logError: MockInstance<typeof manager.logError>;
 let previousConfig: ReturnType<typeof manager.getConfig>;
 
 beforeEach(() => {

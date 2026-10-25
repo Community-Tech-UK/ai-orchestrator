@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { InstanceManager } from '../../../instance/instance-manager';
 import type { Instance } from '../../../../shared/types/instance.types';
 import type { InstanceContextPort } from '../../../instance/instance-context-port';
@@ -61,7 +61,7 @@ describe('permission card refusal through IPC and PermissionManager', () => {
   let flow: InstancePermissionRequestFlow;
   let forwarded: string[];
   let resumed: boolean[];
-  let sendInputResponse: ReturnType<typeof vi.fn>;
+  let sendInputResponse: Mock<InstanceManager['sendInputResponse']>;
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'permission-decisions-'));

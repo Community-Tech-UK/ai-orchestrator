@@ -12,7 +12,18 @@ vi.mock('../logging/logger', () => ({
 }));
 
 // Mock fs/promises before importing the module under test
-vi.mock('node:fs/promises');
+vi.mock('node:fs/promises', () => {
+  const fs = {
+    realpath: vi.fn(),
+    readdir: vi.fn(),
+    stat: vi.fn(),
+    readFile: vi.fn(),
+    writeFile: vi.fn(),
+    mkdir: vi.fn(),
+    lstat: vi.fn(),
+  };
+  return { ...fs, default: fs };
+});
 
 import fs from 'node:fs/promises';
 import { NodeFilesystemHandler } from './node-filesystem-handler';

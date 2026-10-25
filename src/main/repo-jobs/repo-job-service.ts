@@ -20,6 +20,8 @@ import { resolveGitHostMetadata } from '../vcs/remotes/git-host-connector';
 import { getChildResultStorage } from '../orchestration/child-result-storage';
 import { getReactionEngine } from '../reactions';
 import { getRepoJobStore } from './repo-job-store';
+import { getWorkAdmission } from '../work-admission/work-admission';
+import { pauseRepoJobForRestart, restoreRepoJobWorktree, resumeRepoJobAfterRestart } from './repo-job-global-pause';
 
 const logger = getLogger('RepoJobService');
 
@@ -45,6 +47,7 @@ interface RepoJobInstanceManager {
 }
 
 interface RepoJobWorktreeManager {
+  adoptWorktree?: WorktreeManager['adoptWorktree'];
   createWorktree: WorktreeManager['createWorktree'];
   completeWorktree: WorktreeManager['completeWorktree'];
   previewMerge: WorktreeManager['previewMerge'];
@@ -77,6 +80,7 @@ export class RepoJobService extends EventEmitter {
     sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
   };
   private boundTaskEvents = false;
+  private admissionCleanup?: () => void;
 
   static getInstance(): RepoJobService {
     if (!this.instance) {
@@ -86,6 +90,7 @@ export class RepoJobService extends EventEmitter {
   }
 
   static _resetForTesting(): void {
+    this.instance?.admissionCleanup?.();
     this.instance = null;
   }
 
@@ -96,6 +101,14 @@ export class RepoJobService extends EventEmitter {
     this.loadPersistedJobs();
     this.registerExecutors();
     this.bindTaskEvents();
+    const admission = getWorkAdmission();
+    const unregister = admission.registerCounter('repo-job', () => this.getStats().running);
+    const repump = (): void => this.taskManager.requestPump();
+    admission.on('admission-changed', repump);
+    this.admissionCleanup = () => { admission.off('admission-changed', repump); unregister(); };
+    for (const type of ['pr-review', 'issue-implementation', 'repo-health-audit'] as const) {
+      this.taskManager.registerAdmissionGate(taskTypeForRepoJob(type), () => admission.check('repo-job').allowed);
+    }
   }
 
   initialize(deps: Partial<RepoJobServiceDependencies>): void {
@@ -115,7 +128,7 @@ export class RepoJobService extends EventEmitter {
     try {
       const persisted = this.store.loadAll();
       for (const [id, job] of persisted) {
-        if (!this.jobs.has(id) && terminalStatuses.has(job.status)) {
+        if (!this.jobs.has(id) && (terminalStatuses.has(job.status) || job.globalPauseHeld)) {
           this.jobs.set(id, job);
         }
       }
@@ -196,18 +209,22 @@ export class RepoJobService extends EventEmitter {
     this.jobs.set(job.id, job);
     this.persistJob(job);
 
-    this.taskManager.submit({
-      id: job.id,
-      name: job.name,
-      type: taskTypeForRepoJob(type),
-      payload: job.submission as unknown as Record<string, unknown>,
-      priority: type === 'issue-implementation' ? 'high' : 'normal',
-      timeout: DEFAULT_TIMEOUTS_MS[type],
-      cancellable: true,
-    });
+    this.queueJob(job);
 
     this.emitRepoJobEvent('repo-job:submitted', job);
     return job;
+  }
+
+  private queueJob(job: RepoJobRecord): void {
+    this.taskManager.submit({
+      id: job.id,
+      name: job.name,
+      type: taskTypeForRepoJob(job.type),
+      payload: job.submission as unknown as Record<string, unknown>,
+      priority: job.type === 'issue-implementation' ? 'high' : 'normal',
+      timeout: DEFAULT_TIMEOUTS_MS[job.type],
+      cancellable: true,
+    });
   }
 
   rerunJob(jobId: string): RepoJobRecord {
@@ -248,6 +265,15 @@ export class RepoJobService extends EventEmitter {
 
   getJob(jobId: string): RepoJobRecord | undefined {
     return this.jobs.get(jobId);
+  }
+
+  getRunningJobsForGlobalPause(): RepoJobRecord[] { return this.listJobs().filter(job => job.status === 'running'); }
+  async pauseForGlobalPause(id: string): Promise<void> {
+    await pauseRepoJobForRestart(this.requireJob(id), { tasks: this.taskManager, persist: job => this.persistJob(job),
+      terminate: async instanceId => { await this.getInstanceManager().terminateInstance?.(instanceId, true); } });
+  }
+  resumeForGlobalPause(id: string): boolean {
+    return resumeRepoJobAfterRestart(this.requireJob(id), job => this.persistJob(job), job => this.queueJob(job));
   }
 
   async waitForJob(jobId: string, timeout?: number): Promise<RepoJobRecord> {
@@ -340,7 +366,7 @@ export class RepoJobService extends EventEmitter {
 
     this.taskManager.on('task-completed', (task: Task) => {
       const job = this.jobs.get(task.id);
-      if (!job) return;
+      if (!job || job.globalPauseHeld) return;
       job.status = 'completed';
       job.progress = 100;
       job.progressMessage = 'Completed';
@@ -355,7 +381,7 @@ export class RepoJobService extends EventEmitter {
 
     this.taskManager.on('task-failed', (task: Task) => {
       const job = this.jobs.get(task.id);
-      if (!job) return;
+      if (!job || job.globalPauseHeld) return;
       job.status = 'failed';
       job.completedAt = task.completedAt || Date.now();
       job.error = task.error || 'Repo job failed';
@@ -367,7 +393,7 @@ export class RepoJobService extends EventEmitter {
 
     this.taskManager.on('task-cancelled', (task: Task) => {
       const job = this.jobs.get(task.id);
-      if (!job) return;
+      if (!job || job.globalPauseHeld) return;
       job.status = 'cancelled';
       job.completedAt = task.completedAt || Date.now();
       job.progressMessage = 'Cancelled';
@@ -439,10 +465,12 @@ export class RepoJobService extends EventEmitter {
       throw new Error('Issue implementation jobs require a Git repository when worktree isolation is enabled');
     }
 
-    let worktree: RepoJobWorktreeContext | undefined;
-    let workingDirectory = repoContext.gitRoot || submission.workingDirectory;
+    const manager = this.getWorktreeManager();
+    if (job.resumeWorktree && manager.adoptWorktree) await restoreRepoJobWorktree(job, manager.adoptWorktree.bind(manager));
+    let worktree = job.resumeWorktree;
+    let workingDirectory = worktree?.worktreePath || repoContext.gitRoot || submission.workingDirectory;
 
-    if (useWorktree) {
+    if (useWorktree && !worktree) {
       context.reportProgress(10, 'Creating isolated worktree');
       const session = await this.getWorktreeManager().createWorktree(
         job.id,
@@ -464,6 +492,8 @@ export class RepoJobService extends EventEmitter {
         totalAdditions: 0,
         totalDeletions: 0,
       };
+      job.resumeWorktree = worktree;
+      this.persistJob(job);
     }
 
     const instance = await this.launchJobInstance(
@@ -561,6 +591,7 @@ export class RepoJobService extends EventEmitter {
     prompt: string,
     agentId: 'build' | 'review',
   ): Promise<Instance> {
+    if (job.globalPauseHeld) throw new Error('Repository job paused for restart');
     const instanceManager = this.getInstanceManager();
     const instance = await instanceManager.createInstance({
       displayName: job.name,
@@ -568,7 +599,11 @@ export class RepoJobService extends EventEmitter {
       initialPrompt: prompt,
       agentId,
       yoloMode: false,
+      metadata: { repoJobId: job.id, spendPurpose: 'repo-job' },
     });
+    // Retain late startup identity even when its cleanup fails, so Pause can retry it.
+    job.instanceId = instance.id;
+    if (job.globalPauseHeld) { this.persistJob(job); await this.safeTerminateInstance(instance.id); throw new Error('Repository job paused for restart'); }
     return instance;
   }
 

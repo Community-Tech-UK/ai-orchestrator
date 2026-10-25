@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { execFile, type ChildProcess } from 'child_process';
-import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance, type Mock } from 'vitest';
 import type { SpawnParams } from './local-instance-manager';
 import type { RpcMessage } from './worker-rpc-types';
 import type { WorkerNodeConnectionServer } from '../main/remote-node/worker-node-connection';
@@ -29,11 +29,11 @@ const mockExecFile = vi.mocked(execFile);
 const base = { instanceId: 'synthetic-instance', cliType: 'opencode', workingDirectory: '/tmp/allowed/project', model: 'xiaomi-token-plan-ams/mimo-v2.6-pro' };
 let manager: LocalInstanceManager;
 let managerSpawn: MockInstance<(params: SpawnParams) => Promise<void>>;
-let adapterSpawn: ReturnType<typeof vi.fn>;
-let browserStart: ReturnType<typeof vi.fn>;
+let adapterSpawn: Mock;
+let browserStart: Mock;
 let dispatcher: WorkerRpcDispatcher;
-let sendResult: ReturnType<typeof vi.fn>;
-let sendError: ReturnType<typeof vi.fn>;
+let sendResult: Mock;
+let sendError: Mock;
 
 beforeEach(() => {
   vi.clearAllMocks();

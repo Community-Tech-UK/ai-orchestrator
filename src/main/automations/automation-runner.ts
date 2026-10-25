@@ -1,4 +1,5 @@
 import { getLogger } from '../logging/logger';
+import { getWorkAdmission } from '../work-admission/work-admission';
 import { isVisibleOutputMessage } from '../../shared/types/tool-outcome';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { Instance } from '../../shared/types/instance.types';
@@ -17,7 +18,7 @@ import { AutomationStore } from './automation-store';
 import { getAutomationEvents } from './automation-events';
 import { ThreadWakeupRunner } from './thread-wakeup-runner';
 import { SessionRevivalService } from '../session/session-revival-service';
-import { emitPluginHook } from '../plugins/hook-emitter';
+import { emitAutomationRunStarted } from './automation-run-started';
 import { dispatchAutomationSystemAction } from './automation-system-action-dispatch';
 import {
   DEFAULT_MAX_RETRY_ATTEMPTS,
@@ -55,6 +56,9 @@ import {
 import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
 import { revealHiddenAutomationSession, stampHiddenAutomationOutcome } from './automation-hidden-outcome';
 import { defaultAutomationNetworkGate, type AutomationNetworkGate } from './automation-network-gate';
+import { GlobalPauseService } from '../global-pause/global-pause-service';
+import { AutomationPauseStartup } from './automation-pause-startup';
+import { isAutomaticStartupCancelled, type AutomaticStartup } from '../work-admission/automatic-startup';
 
 const logger = getLogger('AutomationRunner');
 
@@ -74,6 +78,8 @@ export class AutomationRunner {
   private readonly trackingByInstance = new Map<string, RunTracking>();
   private readonly instanceByRun = new Map<string, string>();
   private initialized = false;
+  private promotingPending = false;
+  private readonly pauseStartup = new AutomationPauseStartup();
   private retryScheduler: RetrySchedulerCallback | null = null;
   /** WS5: lazy — only loop-action automations pay for the loop-engine binding. */
   private loopRunDispatcher: AutomationLoopRunDispatcher | null = null;
@@ -114,6 +120,14 @@ export class AutomationRunner {
     this.initialized = true;
     this.instanceManager = instanceManager;
     this.threadWakeupRunner = this.threadWakeupRunnerFactory(instanceManager, this.store, this.now);
+    const admission = getWorkAdmission();
+    admission.registerCounter('automation-run', () => this.store.listActiveRuns().filter(run => run.status === 'running' && !run.configSnapshot?.action.forceNodeId).length);
+    admission.on('admission-changed', () => {
+      if (!admission.check('consult', { remote: true }).allowed) {
+        for (const runId of this.instanceByRun.keys()) this.pauseRunForGlobalPause(runId);
+      }
+      void this.promotePendingIfAny().catch(error => logger.error('Promoting held automation failed', error instanceof Error ? error : undefined));
+    });
 
     instanceManager.on('provider:normalized-event', (envelope: ProviderRuntimeEventEnvelope) => {
       this.handleProviderEvent(envelope);
@@ -125,7 +139,11 @@ export class AutomationRunner {
       this.handleInstanceRemoved(instanceId);
     });
 
-    const failed = this.store.failRunningRuns('App restarted before automation run completed', this.now());
+    const pausedRuns = GlobalPauseService.peek()?.getState().entries
+      .filter((entry) => entry.kind === 'automation-run' && !['void', 'resumed', 'failed'].includes(entry.state))
+      .map((entry) => entry.targetId) ?? [];
+    for (const runId of pausedRuns) this.pauseStartup.pause(runId);
+    const failed = this.store.failRunningRuns('App restarted before automation run completed', this.now(), pausedRuns);
     for (const run of failed) {
       this.events.emitRunChanged({ automationId: run.automationId, run });
       this.events.emitRunTerminal({ automationId: run.automationId, runId: run.id, status: 'failed' });
@@ -168,6 +186,7 @@ export class AutomationRunner {
         maxAttempts: this.maxRetryAttempts,
         attempt: 1,
         promptOverride,
+        admissionHeld: !getWorkAdmission().check('automation-run', { remote: Boolean(automation?.action.forceNodeId) }).allowed,
         ...(preflightSkipReason ? { preflightSkipReason } : {}),
       },
     );
@@ -191,14 +210,7 @@ export class AutomationRunner {
 
     const run = decision.run;
     this.events.emitRunChanged({ automationId: run.automationId, run });
-    emitPluginHook('automation.run.started', {
-      automationId: run.automationId,
-      runId: run.id,
-      trigger: run.trigger,
-      source: run.triggerSource ?? undefined,
-      deliveryMode: run.deliveryMode,
-      timestamp: Date.now(),
-    });
+    emitAutomationRunStarted(run);
     await this.networkGate(run, this.store, () => this.dispatchRun({
       run,
       automation: automation as Automation,
@@ -209,7 +221,12 @@ export class AutomationRunner {
 
   async promotePendingIfAny(automationId?: string): Promise<void> {
     const manager = this.requireInstanceManager();
-    const claimed = this.store.claimNextPending(automationId, this.now());
+    // Only the global hold applies before we know the candidate's computer.
+    if (this.promotingPending || !getWorkAdmission().check('timed-wakeup', { remote: true }).allowed) return;
+    this.promotingPending = true;
+    let claimed: ClaimedAutomationRun | null;
+    try { claimed = this.store.claimNextPending(automationId, this.now(), run => getWorkAdmission().check('automation-run', { remote: Boolean(run.configSnapshot?.action.forceNodeId) }).allowed); }
+    finally { this.promotingPending = false; }
     if (!claimed) {
       return;
     }
@@ -229,13 +246,75 @@ export class AutomationRunner {
     }
   }
 
-  private async dispatchRun(claimed: ClaimedAutomationRun, manager: InstanceManager): Promise<void> {
+  /** Keep the durable run running while its provider is interrupted for a restart. */
+  pauseRunForGlobalPause(runId: string): void {
+    this.pauseStartup.pause(runId);
+    const instanceId = this.instanceByRun.get(runId);
+    if (instanceId) this.trackingByInstance.delete(instanceId);
+    this.instanceByRun.delete(runId);
+  }
+
+  resumeRunForGlobalPause(runId: string, instanceId: string): void {
+    this.pauseStartup.resume(runId);
+    const run = this.store.getRun(runId);
+    if (!run || run.status !== 'running') throw new Error('Scheduled job is no longer waiting to resume');
+    if (this.instanceByRun.get(runId) !== instanceId) {
+      this.trackInstance(instanceId, run);
+      const attached = this.store.attachInstance(runId, instanceId, this.now());
+      if (attached) this.events.emitRunChanged({ automationId: attached.automationId, run: attached });
+    }
+  }
+
+  cancelRunForGlobalPause(runId: string, reason: string): void {
+    if (this.store.getRun(runId)?.status !== 'running') return;
+    this.pauseRunForGlobalPause(runId);
+    const run = this.store.terminalizeRun(runId, 'cancelled', reason, undefined, this.now());
+    if (run) this.handleTerminalRun(run, { retryable: false });
+  }
+
+  trackLoopRunForGlobalPause(runId: string, loopRunId: string): void {
+    this.pauseStartup.resume(runId);
+    const run = this.store.getRun(runId);
+    if (!run || run.status !== 'running') throw new Error('Scheduled loop is no longer waiting to resume');
+    this.requireLoopRunDispatcher().track(loopRunId, runId, run.automationId);
+  }
+
+  async resumePendingRunForGlobalPause(runId: string): Promise<void> {
+    const run = this.store.getRun(runId);
+    if (!run || run.status !== 'running' || !run.configSnapshot) throw new Error('Scheduled job is no longer waiting to resume');
+    this.pauseStartup.resume(runId);
+    await this.dispatchRun({ run, snapshot: run.configSnapshot, automation: automationShellFromRunSnapshot(run) }, this.requireInstanceManager());
+  }
+
+  private dispatchRun(claimed: ClaimedAutomationRun, manager: InstanceManager): Promise<void> {
+    const current = this.store.getRun?.(claimed.run.id);
+    if (this.instanceByRun.has(claimed.run.id) || current?.loopRunId || (current && current.status !== 'running')) return Promise.resolve();
+    const receipt = { threadDispatched: false };
+    return this.pauseStartup.run(claimed.run.id, startup => this.dispatchRunOnce(claimed, manager, startup, receipt), () => {
+      this.pauseRunForGlobalPause(claimed.run.id);
+      if (!receipt.threadDispatched) this.store.attachInstance(claimed.run.id, null, this.now());
+    });
+  }
+
+  private async dispatchRunOnce(claimed: ClaimedAutomationRun, manager: InstanceManager, startup: AutomaticStartup, receipt: { threadDispatched: boolean }): Promise<void> {
+    const context = { remote: Boolean(claimed.snapshot.action.forceNodeId) };
+    if (!getWorkAdmission().check('timed-wakeup', context).allowed) {
+      getWorkAdmission().defer(`automation-dispatch:${claimed.run.id}`, 'timed-wakeup', async () => {
+        if (this.store.getRun(claimed.run.id)?.status === 'running') await this.dispatchRun(claimed, manager);
+      }, context);
+      return;
+    }
+    if (claimed.run.attempt > 1) {
+      this.events.emitRunChanged({ automationId: claimed.run.automationId, run: claimed.run });
+      emitAutomationRunStarted(claimed.run);
+    }
     const systemRun = await this.dispatchSystemActionIfHandled(claimed);
     if (systemRun) {
       this.handleTerminalRun(systemRun);
       return;
     }
 
+    startup.signal.throwIfAborted();
     // WS-C7: contained only enforces on a fresh one-shot instance spawn — refuse thread/loop shapes rather than silently ignore the profile.
     if (this.refuseUnsupportedContainedShape(claimed.snapshot, claimed.run.id)) {
       return;
@@ -246,6 +325,8 @@ export class AutomationRunner {
         run: claimed.run,
         automation: automationFromSnapshot(claimed.automation, claimed.snapshot),
         destination: claimed.snapshot.destination,
+        startup,
+        onProviderDispatch: () => { receipt.threadDispatched = true; },
       });
       this.handleTerminalRun(terminal);
       return;
@@ -256,7 +337,7 @@ export class AutomationRunner {
     // WS5: loop actions spawn an autonomous loop instead of a one-shot
     // instance. The dispatcher terminalizes the run when the loop ends.
     if (claimed.snapshot.action.loop) {
-      await this.requireLoopRunDispatcher().dispatch(claimed);
+      await this.requireLoopRunDispatcher().dispatch(claimed, startup);
       return;
     }
 
@@ -270,7 +351,7 @@ export class AutomationRunner {
         // The automation name is operator-facing and already specific. Keep it
         // authoritative so a shared prompt preamble cannot make concurrent
         // automation sessions look identical in the narrow project rail.
-        displayName: claimed.snapshot.name,
+        displayName: claimed.run.attempt > 1 ? `${claimed.snapshot.name} (retry ${claimed.run.attempt})` : claimed.snapshot.name,
         isRenamed: true,
         workingDirectory: claimed.snapshot.action.workingDirectory,
         initialPrompt: claimed.snapshot.action.prompt,
@@ -296,6 +377,7 @@ export class AutomationRunner {
         },
       });
 
+      startup.register(instance, () => manager.terminateInstance(instance.id, false));
       this.trackInstance(instance.id, claimed.run);
       const attachedRun = this.store.attachInstance(claimed.run.id, instance.id, this.now());
       if (attachedRun) {
@@ -303,13 +385,21 @@ export class AutomationRunner {
       }
 
       this.reconcileInstanceState(instance);
-      instance.readyPromise?.catch((error: unknown) => {
-        this.failTrackedInstance(
-          instance.id,
-          `Automation dispatch failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
+      const settled = (error?: unknown): void => {
+        if ((startup.signal.aborted || isAutomaticStartupCancelled(error)) && !startup.wasDispatched(instance.id)) {
+          const current = this.store.getRun(claimed.run.id);
+          if (current?.status === 'running' && current.instanceId === instance.id) {
+            this.pauseRunForGlobalPause(claimed.run.id);
+            this.store.attachInstance(claimed.run.id, null, this.now());
+          }
+          return;
+        }
+        if (error && !isAutomaticStartupCancelled(error)) this.failTrackedInstance(instance.id,
+          `Automation dispatch failed: ${error instanceof Error ? error.message : String(error)}`);
+      };
+      void instance.readyPromise?.then(() => settled(), settled);
     } catch (error) {
+      if (startup.signal.aborted) throw error;
       const failed = this.store.terminalizeRun(
         claimed.run.id,
         'failed',
@@ -658,106 +748,11 @@ export class AutomationRunner {
    * timer fires.  Called from `AutomationScheduler.onRetryTimer`.
    */
   async dispatchRetryRun(retryRun: AutomationRun): Promise<void> {
-    const manager = this.requireInstanceManager();
-    this.events.emitRunChanged({ automationId: retryRun.automationId, run: retryRun });
-    emitPluginHook('automation.run.started', {
-      automationId: retryRun.automationId,
-      runId: retryRun.id,
-      trigger: retryRun.trigger,
-      source: retryRun.triggerSource ?? undefined,
-      deliveryMode: retryRun.deliveryMode,
-      timestamp: Date.now(),
-    });
-
-    const snapshotForSystemAction = retryRun.configSnapshot;
-    if (snapshotForSystemAction) {
-      const systemRun = await this.dispatchSystemActionIfHandled({
-        run: retryRun,
-        automation: automationShellFromRunSnapshot(retryRun),
-        snapshot: snapshotForSystemAction,
-      });
-      if (systemRun) {
-        this.handleTerminalRun(systemRun);
-        return;
-      }
-    }
-
-    if (retryRun.configSnapshot && this.refuseUnsupportedContainedShape(retryRun.configSnapshot, retryRun.id)) {
+    if (!retryRun.configSnapshot) {
+      const failed = this.store.terminalizeRun(retryRun.id, 'failed', 'Retry run has no config snapshot', undefined, this.now());
+      if (failed) this.handleTerminalRun(failed);
       return;
     }
-
-    if (retryRun.configSnapshot?.destination.kind === 'thread') {
-      const terminal = await this.requireThreadWakeupRunner().fireThreadWakeup({
-        run: retryRun,
-        automation: automationFromSnapshot(automationShellFromRunSnapshot(retryRun), retryRun.configSnapshot),
-        destination: retryRun.configSnapshot.destination,
-      });
-      this.handleTerminalRun(terminal);
-      return;
-    }
-
-    if (retryRun.configSnapshot && this.refuseExcludedAutomaticProvider(retryRun.configSnapshot.action, retryRun.id)) {
-      return;
-    }
-
-    try {
-      const snapshot = retryRun.configSnapshot;
-      if (!snapshot) {
-        throw new Error('Retry run has no config snapshot');
-      }
-      const spawnTarget = this.resolveSpawnTargetOrRefuse(snapshot.action, retryRun.id);
-      if (!spawnTarget) {
-        return;
-      }
-      const contained = snapshot.action.executionProfile === 'contained';
-      const instance = await manager.createInstance({
-        displayName: `${snapshot.name} (retry ${retryRun.attempt})`,
-        isRenamed: true,
-        workingDirectory: snapshot.action.workingDirectory,
-        initialPrompt: snapshot.action.prompt,
-        attachments: snapshot.action.attachments,
-        // WS-C7: same forced sandbox as the first attempt — see dispatchRun.
-        yoloMode: contained ? false : snapshot.action.yoloMode,
-        agentId: snapshot.action.agentId,
-        ...spawnTarget,
-        forceNodeId: snapshot.action.forceNodeId,
-        reasoningEffort: snapshot.action.reasoningEffort,
-        ...(contained ? { containedExecution: true } : {}),
-        // Same durable provenance as the first attempt so the rail marks the
-        // retry session as automation-born and viewing it clears the badge.
-        metadata: {
-          spendPurpose: 'automation',
-          automationId: retryRun.automationId,
-          automationRunId: retryRun.id,
-          // Same snapshotted visibility as the first attempt — see dispatchRun.
-          ...(snapshot.hidden === true ? { automationHidden: true } : {}),
-        },
-      });
-
-      this.trackInstance(instance.id, retryRun);
-      const attachedRun = this.store.attachInstance(retryRun.id, instance.id, this.now());
-      if (attachedRun) {
-        this.events.emitRunChanged({ automationId: attachedRun.automationId, run: attachedRun });
-      }
-
-      this.reconcileInstanceState(instance);
-      instance.readyPromise?.catch((error: unknown) => {
-        this.failTrackedInstance(
-          instance.id,
-          `Automation retry dispatch failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
-    } catch (error) {
-      const failed = this.store.terminalizeRun(
-        retryRun.id,
-        'failed',
-        error instanceof Error ? error.message : String(error),
-        undefined,
-        this.now(),
-      );
-      if (failed) {
-        this.handleTerminalRun(failed);
-      }
-    }
+    await this.dispatchRun({ run: retryRun, snapshot: retryRun.configSnapshot, automation: automationShellFromRunSnapshot(retryRun) }, this.requireInstanceManager());
   }
 }

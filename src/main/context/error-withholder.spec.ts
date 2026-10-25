@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ErrorWithholder, RecoveryOutcome, type RecoveryResult } from './error-withholder';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { ErrorWithholder, RecoveryOutcome, type RecoveryResult, type RecoveryStrategy } from './error-withholder';
 
 describe('ErrorWithholder', () => {
   let withholder: ErrorWithholder;
-  let mockCollapseRecover: ReturnType<typeof vi.fn>;
-  let mockReactiveCompact: ReturnType<typeof vi.fn>;
+  let mockCollapseRecover: Mock<RecoveryStrategy['collapseRecovery']>;
+  let mockReactiveCompact: Mock<RecoveryStrategy['reactiveCompact']>;
 
   beforeEach(() => {
     mockCollapseRecover = vi.fn(async () => ({ success: true, tokensSaved: 5000 }));

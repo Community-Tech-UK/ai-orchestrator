@@ -1,0 +1,59 @@
+<details #details>
+  <summary [class.active]="store.state().phase !== 'none'">{{ label() }}</summary>
+  <section aria-label="Work controls">
+    <h2>Work</h2>
+    @if (store.error(); as error) {
+      <p role="alert">{{ error }}</p>
+      <button type="button" (click)="store.refresh()">Retry work controls</button>
+    }
+    @if (quitError(); as error) { <p role="alert">{{ error }}</p> }
+    @if (store.state().summary; as summary) { <p role="status">{{ summary }}</p> }
+    @if (store.state().runningWork; as work) {
+      <p>{{ work.sessions }} sessions working, {{ work.queueJobs }} queue jobs, {{ work.loops }} loops</p>
+    } @else { <p>{{ runningCount() }} sessions working</p> }
+    @for (entry of store.state().entries; track entry.id) {
+      @if (entry.state === 'failed' || (entry.kind === 'session' && entry.state === 'ready')) {
+        <details class="session-note">
+          <summary>{{ entry.displayName }} · {{ entry.state === 'failed' ? 'Could not resume' : entry.noteKind === 'basic' ? 'Basic note' : entry.noteKind === 'agent' ? 'Note saved' : 'Ready to reopen' }}</summary>
+          @if (entry.voidReason; as reason) {
+            <p>{{ reason === 'initial-prompt-queued' ? 'Your first message is saved and will be sent when you resume.' : reason }}</p>
+          }
+          @if (entry.noteText; as note) { <pre>{{ note }}</pre> }
+          @if (entry.state === 'failed') { <p>Open this session from History to continue by hand.</p> }
+        </details>
+      }
+    }
+    @if (store.state().phase === 'none' || store.state().phase === 'holding' || store.state().phase === 'ready' || (store.state().phase === 'collecting' && store.error())) {
+      <p>Stops every session after it writes a note on where it got to. Nothing new starts until you press Resume.</p>
+      <p>Uses one short model turn per busy session. Your own messages still go through.</p>
+      <button type="button" [disabled]="pending()" (click)="act('restart', { withNotes: true })">Pause for restart</button>
+      <button type="button" [disabled]="pending()" (click)="act('restart', { withNotes: false })">Pause now without notes</button>
+    }
+    @if (store.state().phase === 'none') {
+      <p>Running work finishes; nothing new starts.</p>
+      <button type="button" [disabled]="pending()" (click)="act('hold')">Hold new work</button>
+    }
+    @if (store.state().phase === 'holding') {
+      @if (store.state().reason; as reason) { <p>{{ reason }}</p> }
+      <button type="button" [disabled]="pending()" (click)="act('release')">Release</button>
+    }
+    @if (store.state().phase === 'collecting') {
+      <p role="status">Writing notes: {{ store.state().completedNotes }} of {{ store.state().totalNotes }}</p>
+      <p>Skip the remaining model turns and save basic notes instead.</p>
+      <button type="button" (click)="act('skip-notes')">Skip the rest</button>
+    }
+    @if (store.state().phase === 'ready' || store.state().resumeInterrupted) {
+      <p>Resume reopens the recorded sessions and carries on their work, using model tokens.</p>
+      <button type="button" [disabled]="pending()" (click)="act('resume')">{{ store.state().resumeInterrupted ? 'Resume the rest' : 'Resume' }}</button>
+      <button type="button" [disabled]="pending()" (click)="confirmDiscard.set(true)">Discard</button>
+      @if (confirmDiscard()) {
+        <p>Deletes the saved notes. Queue runs, loops and campaigns stopped by this pause stay paused.</p>
+        <button type="button" [disabled]="pending()" (click)="act('discard')">Delete notes and discard</button>
+        <button type="button" (click)="confirmDiscard.set(false)">Keep pause</button>
+      }
+      <p>Quit Harness when you are ready. Restart it yourself, then press Resume.</p>
+      <button type="button" [disabled]="pending()" (click)="quit()">Quit Harness</button>
+    }
+    <app-workload-slider />
+  </section>
+</details>

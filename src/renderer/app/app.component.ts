@@ -24,6 +24,10 @@ import { SettingsStore } from './core/state/settings.store';
 import { PauseRendererController } from './core/state/pause/pause-renderer-controller.service';
 import { PauseStore, type ResumeEvent } from './core/state/pause/pause.store';
 import { PauseToggleComponent } from './core/state/pause/pause-toggle.component';
+import { WorkControlComponent } from './core/state/global-pause/work-control.component';
+import { GlobalPauseStore } from './core/state/global-pause/global-pause.store';
+import { QueuePersistenceService } from './core/state/instance/queue-persistence.service';
+import { GlobalPauseQueueController } from './core/state/global-pause/global-pause-queue-controller.service';
 import { PauseBannerComponent } from './core/state/pause/pause-banner.component';
 import { PauseDetectorErrorModalComponent } from './core/state/pause/pause-detector-error-modal.component';
 import type { StartupCapabilityReport } from '../../shared/types/startup-capability.types';
@@ -109,6 +113,7 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
     ProviderQuotaChipComponent,
     CliUpdatePillComponent,
     PauseToggleComponent,
+    WorkControlComponent,
     PauseBannerComponent,
     PauseDetectorErrorModalComponent,
     TerminalDrawerComponent,
@@ -145,6 +150,10 @@ export class AppComponent implements OnInit, OnDestroy {
   protected readonly settingsStore = inject(SettingsStore);
   protected readonly pauseStore = inject(PauseStore);
   private pauseRendererController = inject(PauseRendererController);
+  private readonly globalPause = inject(GlobalPauseStore);
+  private readonly queuePersistence = inject(QueuePersistenceService);
+  private readonly globalPauseQueues = inject(GlobalPauseQueueController);
+  private workControlsDestroyed = false;
   protected readonly toastService = inject(ToastService);
   private readonly firstRunService = inject(FirstRunService);
   private readonly scratchDirectory = inject(ScratchDirectoryService);
@@ -244,6 +253,9 @@ export class AppComponent implements OnInit, OnDestroy {
       // SettingsStore records the load error; keep the rest of root startup alive.
     }
     this.pauseRendererController.bindReactive();
+    void this.initializeWorkControls().catch(() => {
+      this.toastService.show('Queued messages could not be restored. Open Work to check the pause before restarting.', 'error');
+    });
 
     // Check platform - use Electron API if available, fallback to navigator
     const electronPlatform = this.ipcService.platform;
@@ -349,6 +361,8 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.workControlsDestroyed = true;
+    this.queuePersistence.unsubscribeFromInitialPrompts();
     if (this.resumeToastTimer) clearTimeout(this.resumeToastTimer);
     this.resumeToastTimer = null;
     this.menuListenerCleanup?.();
@@ -359,6 +373,13 @@ export class AppComponent implements OnInit, OnDestroy {
     this.windowControlsOverlayCleanup = null;
     this.appUpdateStore.dispose();
     this.localAiGuardStore.destroy();
+  }
+
+  private async initializeWorkControls(): Promise<void> {
+    await this.globalPause.initialize();
+    if (this.workControlsDestroyed) return;
+    await this.queuePersistence.restoreFromDisk();
+    if (!this.workControlsDestroyed) this.queuePersistence.subscribeToInitialPrompts();
   }
 
   startupCapabilitySummary(): string {

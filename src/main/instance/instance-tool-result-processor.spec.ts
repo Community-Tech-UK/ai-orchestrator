@@ -1,12 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
-import { InstanceToolResultProcessor } from './instance-tool-result-processor';
+import { InstanceToolResultProcessor, type InstanceToolResultProcessorDependencies } from './instance-tool-result-processor';
 
 describe('InstanceToolResultProcessor', () => {
   let instance: Instance;
-  let createSnapshot: ReturnType<typeof vi.fn>;
-  let captureEvidence: ReturnType<typeof vi.fn>;
+  let createSnapshot: Mock<NonNullable<InstanceToolResultProcessorDependencies['createSnapshot']>>;
+  let captureEvidence: Mock<NonNullable<InstanceToolResultProcessorDependencies['captureContextEvidenceToolResult']>>;
   let liveEvidenceMode: 'off' | 'shadow';
   let processor: InstanceToolResultProcessor;
 

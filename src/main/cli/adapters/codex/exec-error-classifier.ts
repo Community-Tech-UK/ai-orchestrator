@@ -91,7 +91,12 @@ export function isCodexInputTooLargeError(error: unknown): boolean {
  * context and a loss indicator avoids matching an unrelated "not found".
  */
 export function isRecoverableThreadResumeError(error: unknown): boolean {
-  const msg = String(error instanceof Error ? error.message : error).toLowerCase();
+  // Codex logs "failed to record rollout items: thread <id> not found" when a
+  // write races thread shutdown, e.g. for a helper agent it spawned. That is a
+  // failed write, not evidence that the thread being resumed is gone.
+  const msg = String(error instanceof Error ? error.message : error)
+    .replace(/^.*failed to record rollout items.*$/gim, '')
+    .toLowerCase();
   // If a Codex process is interrupted after emitting a custom_tool_call but
   // before its output is persisted, the native rollout cannot be resumed.
   // Treat that exact integrity diagnostic like a missing thread so exec mode

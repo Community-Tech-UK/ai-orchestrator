@@ -2,16 +2,40 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CrossModelReviewService } from './cross-model-review-service';
 import type { ReviewDispatchRequest } from './cross-model-review.types';
 import { subscribeCostAttribution, type CostAttributionRecord } from '../core/system/cost-attribution';
+import { pauseConsults } from '../work-admission/consult-admission';
 
-const state = vi.hoisted(() => ({ send: vi.fn(), cliType: 'gemini', create: vi.fn() }));
+const state = vi.hoisted(() => ({ send: vi.fn(), cliType: 'gemini', create: vi.fn(), terminate: vi.fn<() => Promise<void>>(async () => undefined) }));
 vi.mock('../cli/adapters/adapter-factory', () => ({ resolveCliType: async () => state.cliType }));
-vi.mock('../providers/provider-runtime-service', () => ({ getProviderRuntimeService: () => ({ createAdapter: (input: unknown) => { state.create(input); return { sendMessage: state.send, terminate: async () => undefined }; } }) }));
+vi.mock('../providers/provider-runtime-service', () => ({ getProviderRuntimeService: () => ({ createAdapter: (input: unknown) => { state.create(input); return { sendMessage: state.send, terminate: state.terminate }; } }) }));
 vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ getAll: () => ({ crossModelReviewModelByProvider: { gemini: 'gemini-2.5-flash' } }) }) }));
 vi.mock('../core/circuit-breaker', () => ({ getCircuitBreakerRegistry: () => ({ getBreaker: () => ({ execute: (run: () => unknown) => run() }) }) }));
 vi.mock('../core/system/provider-quota-service', () => ({ getProviderQuotaService: () => ({ getSnapshot: () => null }) }));
 
 describe('cross-model reviewer attribution', () => {
-  afterEach(() => { CrossModelReviewService._resetForTesting(); state.send.mockReset(); state.create.mockReset(); state.cliType = 'gemini'; });
+  afterEach(() => { CrossModelReviewService._resetForTesting(); state.send.mockReset(); state.create.mockReset(); state.terminate.mockReset().mockResolvedValue(undefined); state.cliType = 'gemini'; });
+  it.each(['delayed', 'failed'] as const)('keeps %s adapter teardown in the restart barrier after cancellation', async mode => {
+    let finishTeardown!: () => void;
+    const teardown = new Promise<void>(resolve => { finishTeardown = resolve; });
+    if (mode === 'failed') state.terminate.mockRejectedValue(new Error('Provider is still running'));
+    else state.terminate.mockImplementation(() => teardown);
+    let rejectSend!: (error: Error) => void;
+    state.send.mockImplementation(() => new Promise<never>((_resolve, reject) => { rejectSend = reject; }));
+    const request: ReviewDispatchRequest = { id: 'review-pause', instanceId: 'instance-example', primaryProvider: 'claude', workingDirectory: '/repo', content: 'example', taskDescription: 'Review', reviewDepth: 'structured', timestamp: 1000, classification: { type: 'code', shouldReview: true, isComplex: false, complexityReasons: [], codeLineCount: 1, fileCount: 1, stepCount: 0 } };
+    const service = CrossModelReviewService.getInstance() as unknown as { executeOneReview: (request: ReviewDispatchRequest, provider: string, timeout: number, signal: AbortSignal) => Promise<unknown> };
+    const abort = new AbortController();
+    const pending = service.executeOneReview(request, 'gemini', 30, abort.signal);
+    await vi.waitFor(() => expect(state.send).toHaveBeenCalled());
+    abort.abort();
+    await expect(pending).rejects.toThrow('Review cancelled');
+    let stopped = false;
+    const pausing = pauseConsults().then(() => { stopped = true; });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const stoppedBeforeTeardown = stopped;
+    if (mode === 'failed') { state.terminate.mockResolvedValue(undefined); await pauseConsults(); }
+    else finishTeardown();
+    rejectSend(new Error('Provider stopped')); await pausing;
+    expect(stoppedBeforeTeardown).toBe(false);
+  });
   it.each(['repair', 'error', 'budget-exceeded'] as const)('records exactly one row per %s send', async mode => {
     if (mode === 'budget-exceeded') {
       state.cliType = 'claude';

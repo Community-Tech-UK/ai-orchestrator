@@ -8,6 +8,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { consumeGlobalPauseInterruption, loopRoundAdmitted, pauseLoopForGlobalPause } from './loop-work-admission';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
 import { setTimeout as rawSetTimeout } from 'node:timers';
@@ -1343,6 +1344,8 @@ export class LoopCoordinator extends EventEmitter {
   }
 
   /** Pause the loop. Iteration in-flight finishes; next pre-flight blocks. */
+  async pauseForGlobalPause(id: string): Promise<void> { await pauseLoopForGlobalPause(this, id); }
+
   pauseLoop(loopRunId: string): boolean {
     const state = this.lifecycle.getState(loopRunId);
     if (!state) return false;
@@ -1779,10 +1782,11 @@ export class LoopCoordinator extends EventEmitter {
     // branch runs a full agentic reviewer on every builder done-declaration.
     const pingPongEnabled =
       reviewDriven && state.config.completion.crossModelReview?.pingPong?.enabled === true;
-    while (true) {
+    iterationLoop: while (true) {
       const guardResult = await this.preIterationGuard.run(state);
       if (guardResult === 'terminal') return;
       if (guardResult === 'restart') continue;
+      if (!loopRoundAdmitted(state, this.lifecycle.listStates())) { await sleep(250); continue; }
 
       // -- usage-aware throttle (preventive) --
       // Before spawning another paid iteration, consult the active provider's
@@ -2016,6 +2020,7 @@ export class LoopCoordinator extends EventEmitter {
         startedAt: iterStart,
         idempotencyKey: this.iterationIdempotencyKey(state.id, seq),
       };
+      if (!loopRoundAdmitted(state, this.lifecycle.listStates())) { await sleep(250); continue; }
       state.inFlightIteration = inFlightIteration;
       // L4: the phase belongs to the turn that is starting, not the last one.
       state.inferredPhase = undefined;
@@ -2057,7 +2062,9 @@ export class LoopCoordinator extends EventEmitter {
             prompt = freshSessionPrompt;
           }
           if (iterationPrompts.reanchorGoal || forceContextReset) state.lastFullAnchorSeq = seq;
+          if (!loopRoundAdmitted(state, this.lifecycle.listStates())) { clearInFlightIteration(state, seq); continue iterationLoop; }
           childResult = await this.invokeChild(state, prompt, routingPrompt, stage, forceContextReset);
+          if (consumeGlobalPauseInterruption(state.id)) childResult = null;
         } catch (err) {
           invocationFailure = err;
           invocationError = err instanceof Error ? err.message : String(err);

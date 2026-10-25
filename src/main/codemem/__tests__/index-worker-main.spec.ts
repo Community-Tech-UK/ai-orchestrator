@@ -106,10 +106,10 @@ describe('codemem index worker main', () => {
       migrate: vi.fn(),
     }));
     vi.doMock('../cas-store', () => ({
-      CasStore: vi.fn(() => store),
+      CasStore: vi.fn(function () { return store; }),
     }));
     vi.doMock('../code-index-manager', () => ({
-      CodeIndexManager: vi.fn(() => indexManager),
+      CodeIndexManager: vi.fn(function () { return indexManager; }),
     }));
     vi.doMock('../symbol-id', () => ({
       workspaceHashForPath: (workspacePath: string) => `hash:${workspacePath}`,

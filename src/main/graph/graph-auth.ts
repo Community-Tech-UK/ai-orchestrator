@@ -1,13 +1,18 @@
 import {
+  CryptoProvider,
   InteractionRequiredAuthError,
   PublicClientApplication,
   PromptValue,
+  ResponseMode,
+  ServerError,
   type AccountInfo,
   type AuthenticationResult,
+  type AuthorizationCodePayload,
+  type AuthorizationCodeRequest,
+  type AuthorizationUrlRequest,
   type Configuration,
   type DeviceCodeRequest,
   type ICachePlugin,
-  type InteractiveRequest,
   type SilentFlowRequest,
 } from '@azure/msal-node';
 import type { GraphAccount, GraphTokenStore } from './graph-token-store';
@@ -39,7 +44,11 @@ interface GraphSerializableTokenCache {
 }
 
 export interface GraphPublicClientApplication {
-  acquireTokenInteractive(request: InteractiveRequest): Promise<AuthenticationResult>;
+  getAuthCodeUrl(request: AuthorizationUrlRequest): Promise<string>;
+  acquireTokenByCode(
+    request: AuthorizationCodeRequest,
+    response: AuthorizationCodePayload,
+  ): Promise<AuthenticationResult>;
   acquireTokenByDeviceCode(
     request: DeviceCodeRequest,
   ): Promise<AuthenticationResult | null>;
@@ -104,18 +113,13 @@ export class GraphAuthManager {
     let browserOpenFailed = false;
     let result: AuthenticationResult | null;
     try {
-      result = await client.acquireTokenInteractive({
-        scopes: [...this.scopes],
-        prompt: PromptValue.SELECT_ACCOUNT,
-        loopbackClient: new TimedGraphLoopbackClient(this.interactiveTimeoutMs),
-        openBrowser: async (url) => {
-          try {
-            await this.openExternal(url);
-          } catch (error) {
-            browserOpenFailed = true;
-            throw error;
-          }
-        },
+      result = await this.acquireInteractiveToken(client, async (url) => {
+        try {
+          await this.openExternal(url);
+        } catch (error) {
+          browserOpenFailed = true;
+          throw error;
+        }
       });
     } catch (error) {
       if (!shouldUseDeviceCode(error, browserOpenFailed)) {
@@ -143,6 +147,60 @@ export class GraphAuthManager {
       username: result.account.username,
       tenant: result.account.tenantId,
       tokenCache: client.getTokenCache().serialize(),
+    });
+  }
+
+  private async acquireInteractiveToken(
+    client: GraphPublicClientApplication,
+    openBrowser: (url: string) => Promise<void>,
+  ): Promise<AuthenticationResult> {
+    const crypto = new CryptoProvider();
+    const { verifier, challenge } = await crypto.generatePkceCodes();
+    const state = crypto.createNewGuid();
+    const nonce = crypto.createNewGuid();
+    const correlationId = crypto.createNewGuid();
+    const loopback = new TimedGraphLoopbackClient(this.interactiveTimeoutMs, state);
+    const { redirectUri, response } = await loopback.listenForAuthCode(async (redirectUri) => {
+      const url = await client.getAuthCodeUrl({
+        scopes: [...this.scopes],
+        authority: this.authority,
+        redirectUri,
+        prompt: PromptValue.SELECT_ACCOUNT,
+        responseMode: ResponseMode.FORM_POST,
+        codeChallenge: challenge,
+        codeChallengeMethod: 'S256',
+        state,
+        nonce,
+        correlationId,
+      });
+      // URL discovery can outlive the consent deadline. Do not open a browser
+      // later if this attempt has already closed and started device-code fallback.
+      loopback.getRedirectUri();
+      await openBrowser(url);
+    });
+    if (response.error) {
+      throw new ServerError(response.error, correlationId, response.error_description, response.suberror);
+    }
+    if (!response.code) {
+      throw new Error('GRAPH_AUTH_NO_CODE: Microsoft sign-in returned no authorization code');
+    }
+
+    // Keep configuration separate from untrusted callback data. MSAL validates
+    // the returned state against the request and the ID-token nonce against nonce.
+    return client.acquireTokenByCode({
+      scopes: [...this.scopes],
+      authority: this.authority,
+      redirectUri,
+      code: response.code,
+      codeVerifier: verifier,
+      clientInfo: response.client_info ?? '',
+      state,
+      nonce,
+      correlationId,
+    }, {
+      code: response.code,
+      state: response.state,
+      ...(response.client_info ? { client_info: response.client_info } : {}),
     });
   }
 
@@ -260,24 +318,9 @@ export class GraphAuthManager {
 }
 
 function shouldUseDeviceCode(error: unknown, browserOpenFailed: boolean): boolean {
-  if (
-    browserOpenFailed ||
-    error instanceof GraphInteractiveTimeoutError ||
-    error instanceof GraphLoopbackUnavailableError
-  ) {
-    return true;
-  }
-  const errorCode = typeof error === 'object' && error !== null && 'errorCode' in error
-    ? String(error.errorCode)
-    : '';
-  return new Set([
-    'invalid_loopback_server_address_type',
-    'unable_to_load_redirectUrl',
-    'no_loopback_server_exists',
-    'loopback_server_already_exists',
-    'loopback_server_timeout',
-    'no_auth_code_in_response',
-  ]).has(errorCode);
+  return browserOpenFailed
+    || error instanceof GraphInteractiveTimeoutError
+    || error instanceof GraphLoopbackUnavailableError;
 }
 
 async function openExternalWithElectron(url: string): Promise<void> {

@@ -64,7 +64,7 @@ const mockPluginWorkerHostInstances: {
 }[] = [];
 
 vi.mock('./plugin-worker-host', () => ({
-  PluginWorkerHost: vi.fn().mockImplementation((options: unknown) => {
+  PluginWorkerHost: vi.fn().mockImplementation(function (options: unknown) {
     const instance = {
       options,
       start: vi.fn().mockResolvedValue({

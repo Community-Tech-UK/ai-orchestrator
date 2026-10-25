@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import {
   attachUsageOverageStopGuard,
   configureUsageOverageStop,
   resetUsageOverageStopForTesting,
   type UsageOverageGuardAdapter,
+  type UsageOverageStopDeps,
 } from './instance-usage-overage-wiring';
 import type { CliRateLimitInfo } from '../../shared/types/cli.types';
 
@@ -26,8 +27,8 @@ function makeAdapter(): UsageOverageGuardAdapter & { emit: (info: CliRateLimitIn
 }
 
 describe('attachUsageOverageStopGuard', () => {
-  let interrupt: ReturnType<typeof vi.fn>;
-  let hold: ReturnType<typeof vi.fn>;
+  let interrupt: Mock<UsageOverageStopDeps['interruptInstance']>;
+  let hold: Mock<UsageOverageStopDeps['holdOnUsageLimit']>;
   let allowOverage: { value: boolean };
 
   beforeEach(() => {

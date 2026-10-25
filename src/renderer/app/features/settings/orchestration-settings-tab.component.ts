@@ -11,6 +11,7 @@ import { DEFAULT_SETTINGS } from '../../../../shared/types/settings.types';
 import type { PickerProvider } from '../models/compact-model-picker.types';
 import { getDefaultModelForCli } from '../../../../shared/types/provider.types';
 import { ProviderModelOverrideComponent } from './provider-model-override.component';
+import { WorkloadSliderComponent } from '../../core/state/global-pause/workload-slider.component';
 
 /** Providers that can run a loop. Mirrors LoopProvider in loop.types.ts. */
 const LOOP_PROVIDER_DEFINITIONS: readonly { id: PickerProvider; label: string }[] = [
@@ -46,9 +47,12 @@ interface ConcurrencyRowView {
 @Component({
   selector: 'app-orchestration-settings-tab',
   standalone: true,
-  imports: [ProviderModelOverrideComponent, RoutingMatrixComponent, SettingsTieredRowListComponent],
+  imports: [ProviderModelOverrideComponent, RoutingMatrixComponent, SettingsTieredRowListComponent, WorkloadSliderComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <section class="settings-list-card" aria-label="Workload">
+      <app-workload-slider controlId="workload-settings" />
+    </section>
     <section class="settings-list-card" aria-label="Orchestration settings">
       <app-settings-tiered-row-list
         [settings]="store.orchestrationSettings()"

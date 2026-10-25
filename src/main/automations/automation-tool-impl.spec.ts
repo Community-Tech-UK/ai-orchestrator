@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import {
@@ -40,11 +40,14 @@ const MINUTE = 60_000;
 describe('createAutomationToolImplementations', () => {
   let db: SqliteDriver;
   let store: AutomationStore;
-  let scheduler: { schedule: ReturnType<typeof vi.fn>; deactivate: ReturnType<typeof vi.fn> };
-  let runner: { untrackInstances: ReturnType<typeof vi.fn> };
-  let events: { emitChanged: ReturnType<typeof vi.fn> };
-  let handlePastOneTime: ReturnType<typeof vi.fn>;
-  let createWithScheduling: ReturnType<typeof vi.fn>;
+  let scheduler: {
+    schedule: Mock<AutomationToolImplDeps['scheduler']['schedule']>;
+    deactivate: Mock<AutomationToolImplDeps['scheduler']['deactivate']>;
+  };
+  let runner: { untrackInstances: Mock<AutomationToolImplDeps['runner']['untrackInstances']> };
+  let events: { emitChanged: Mock<AutomationToolImplDeps['events']['emitChanged']> };
+  let handlePastOneTime: Mock<AutomationToolImplDeps['handlePastOneTime']>;
+  let createWithScheduling: Mock<AutomationToolImplDeps['createWithScheduling']>;
   let impls: AutomationToolImplementations;
 
   function makeImpls(overrides: Partial<AutomationToolImplDeps> = {}): AutomationToolImplementations {

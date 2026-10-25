@@ -45,6 +45,7 @@ import { registerSessionAdmissionHandlers } from './session-admission-handlers';
 import { registerSessionArchiveHandlers } from './session-archive-handlers';
 import { registerSessionRecoveryHandlers } from './session-recovery-handlers';
 import { registerSessionQueueHandlers } from './session-queue-handlers';
+import { GlobalPauseService } from '../../global-pause/global-pause-service';
 
 export {
   getNativeResumeSessionId,
@@ -442,7 +443,11 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.HISTORY_DELETE,
     HistoryDeletePayloadSchema,
     async (validated) => {
+      const entry = history.getEntries().find((entry) => entry.id === validated.entryId);
       const deleted = await history.deleteEntry(validated.entryId);
+      if (deleted) for (const identity of [validated.entryId, entry?.originalInstanceId, entry?.historyThreadId, entry?.sessionId]) {
+        if (identity) GlobalPauseService.peek()?.voidTarget(identity, 'history-deleted');
+      }
       return {
         success: deleted,
         error: deleted
@@ -524,6 +529,8 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     SessionHandlerEmptyPayloadSchema,
     async () => {
       await history.clearAll();
+      const pause = GlobalPauseService.peek();
+      for (const entry of pause?.getState().entries ?? []) if (entry.kind === 'session') pause?.voidTarget(entry.targetId, 'history-deleted');
       return { success: true };
     },
     'HISTORY_CLEAR_FAILED',

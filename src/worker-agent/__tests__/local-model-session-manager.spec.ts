@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { LocalModelSessionManager } from '../local-model-session-manager';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { LocalModelSessionManager, type LocalModelSessionManagerDeps } from '../local-model-session-manager';
 import type { CliResponse, InterruptResult } from '../../main/cli/adapters/base-cli-adapter';
 import type { FileAttachment, OutputMessage } from '../../shared/types/instance.types';
 import type { LocalModelEndpointProvider } from '../../shared/types/local-model-runtime.types';
@@ -16,7 +16,7 @@ class MockLocalModelAdapter extends EventEmitter {
 
 describe('LocalModelSessionManager', () => {
   let adapter: MockLocalModelAdapter;
-  let createAdapter: ReturnType<typeof vi.fn>;
+  let createAdapter: Mock<NonNullable<LocalModelSessionManagerDeps['createAdapter']>>;
   let manager: LocalModelSessionManager;
 
   beforeEach(() => {

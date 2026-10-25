@@ -22,7 +22,7 @@ let capturedCommunicationDeps: Record<string, unknown> | undefined;
 
 vi.mock('../instance-communication', () => {
   return {
-    InstanceCommunicationManager: vi.fn().mockImplementation((deps: Record<string, unknown>) => {
+    InstanceCommunicationManager: vi.fn().mockImplementation(function (deps: Record<string, unknown>) {
       capturedCommunicationDeps = deps;
       fakeCommunication = new EventEmitter();
       // Minimal surface expected by InstanceManager

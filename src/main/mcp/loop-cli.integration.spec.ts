@@ -9,7 +9,7 @@
  * `LoopCoordinator.resumeLoop`.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -64,7 +64,7 @@ describe('aio-mcp loop over a real orchestrator-tools socket', () => {
   let server: OrchestratorToolsRpcServer;
   let tmpDir: string;
   let states: Map<string, LoopState>;
-  let stdout: ReturnType<typeof vi.fn>;
+  let stdout: Mock<(text: string) => void>;
 
   beforeEach(async () => {
     if (process.platform === 'win32') return;

@@ -1,5 +1,6 @@
 import type { AdapterInputDispatch, AdapterInputRetryReason } from '../cli/adapters/base-cli-adapter.types';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
+import { assertGlobalPauseInputCurrent, runWithGlobalPauseInput } from '../global-pause/global-pause-input';
 import { getSessionAdmissionService } from '../session/session-admission-service';
 import type { FileAttachment } from '../../shared/types/instance.types';
 import type { Instance } from '../../shared/types/instance.types';
@@ -32,9 +33,10 @@ export function createInstanceAdapterInputDispatch(
     runInputRetry: async (reason, work) => {
       const previous = retryReason;
       retryReason = reason;
-      try { return await work(); } finally { retryReason = previous; }
+      try { return await runWithGlobalPauseInput(instance.id, options, work); } finally { retryReason = previous; }
     },
     beforeProviderDispatch: () => {
+      assertGlobalPauseInputCurrent(instance.id, options);
       assertCurrent();
       commit();
       identity ??= { requestCount: instance.requestCount, sessionId: instance.sessionId,

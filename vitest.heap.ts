@@ -40,7 +40,7 @@ export function testHeapBudgetMb(totalMemBytes: number = totalmem()): number | n
   return budget >= MIN_BUDGET_MB ? budget : null;
 }
 
-/** `poolOptions.forks.execArgv` value carrying the heap ceiling (empty when unraised). */
+/** Project `execArgv` value carrying the heap ceiling (empty when unraised). */
 export function testHeapExecArgv(totalMemBytes: number = totalmem()): string[] {
   const budget = testHeapBudgetMb(totalMemBytes);
   return budget === null ? [] : [`--max-old-space-size=${budget}`];

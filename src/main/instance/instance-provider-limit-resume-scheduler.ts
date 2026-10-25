@@ -1,6 +1,7 @@
 import type { InstanceProvider } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
 import { formatInternalInputForProvider } from './internal-input-provenance';
+import { getWorkAdmission } from '../work-admission/work-admission';
 
 const logger = getLogger('InstanceProviderLimitResumeScheduler');
 
@@ -153,16 +154,17 @@ export function scheduleInstanceProviderLimitResume(params: {
 
   const delay = Math.max(0, request.resumeAt - Date.now()) + 5_000;
   const timer = setTimeout(() => {
-    resumeInstance(
-      request.instanceId,
-      request.resumePrompt ? { resumePromptFallback: request.resumePrompt } : undefined,
-    );
+    getWorkAdmission().defer(`instance-quota-resume:${request.instanceId}`, 'timed-wakeup', () => {
+      if (cancelled) return;
+      resumeInstance(request.instanceId, request.resumePrompt ? { resumePromptFallback: request.resumePrompt } : undefined);
+    });
     logger.info('Instance provider-limit local resume timer fired', { instanceId: request.instanceId });
   }, delay);
   if (typeof timer.unref === 'function') timer.unref();
 
   return () => {
     cancelled = true;
+    getWorkAdmission().cancelDeferred(`instance-quota-resume:${request.instanceId}`);
     clearTimeout(timer);
     if (!automationId) return;
     void import('../automations')

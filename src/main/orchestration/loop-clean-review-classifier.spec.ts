@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import {
   defaultCleanReviewClassifier,
   CLEAN_REVIEW_SENTINEL,
@@ -16,8 +16,8 @@ const AMBIGUOUS_INPUT = {
 };
 
 describe('loop clean-review classifier — loopScoring offload', () => {
-  let aux: ReturnType<typeof vi.fn>;
-  let frontier: ReturnType<typeof vi.fn>;
+  let aux: Mock<NonNullable<Parameters<typeof __setCleanReviewModelBackendsForTesting>[0]['aux']>>;
+  let frontier: Mock<NonNullable<Parameters<typeof __setCleanReviewModelBackendsForTesting>[0]['frontier']>>;
 
   beforeEach(() => {
     aux = vi.fn();

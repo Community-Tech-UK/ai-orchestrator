@@ -12,7 +12,7 @@ class FakeAdapter extends EventEmitter {
 }
 
 vi.mock('../../cli/adapters/claude-cli-adapter', () => ({
-  ClaudeCliAdapter: vi.fn().mockImplementation(() => new FakeAdapter()),
+  ClaudeCliAdapter: vi.fn().mockImplementation(function () { return new FakeAdapter(); }),
 }));
 
 describe('ClaudeCliProvider inline translation', () => {

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 const electronHarness = vi.hoisted(() => {
   // require(+.ts) avoids ESM TDZ: vi.hoisted runs before import bindings initialize
@@ -22,7 +22,7 @@ import { setupCoordinatorEvents } from './cli-verification-ipc-handler';
 
 describe('CLI verification IPC event forwarding', () => {
   let coordinator: EventEmitter;
-  let sendToRenderer: ReturnType<typeof vi.fn>;
+  let sendToRenderer: Mock<Parameters<typeof setupCoordinatorEvents>[1]>;
 
   beforeEach(() => {
     coordinator = new EventEmitter();

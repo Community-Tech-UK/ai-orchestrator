@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import { createBwRunner } from './browser-bw-runner';
 
 interface Captured {
@@ -8,7 +8,7 @@ interface Captured {
 }
 
 interface FakeChild {
-  stdin: { end: ReturnType<typeof vi.fn> };
+  stdin: { end: Mock<(input?: string) => void> };
 }
 
 type FakeExecArgs = [

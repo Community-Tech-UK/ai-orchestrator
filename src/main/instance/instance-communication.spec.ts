@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { SessionDiffTracker } from './session-diff-tracker';
@@ -91,6 +91,7 @@ vi.mock('../browser-gateway/browser-approval-store', () => ({
 }));
 
 import { InstanceCommunicationManager } from './instance-communication';
+import type { CommunicationDependencies } from './instance-communication.types';
 import { _resetSessionMutexForTesting, getSessionMutex } from '../session/session-mutex';
 import { _resetToolOutcomeStoreForTesting, getToolOutcomes } from '../learning/tool-outcome-store';
 import { IllegalTransitionError, InstanceStateMachine } from './instance-state-machine';
@@ -225,9 +226,9 @@ function createDiagnosticError(
 describe('InstanceCommunicationManager', () => {
   let instance: Instance;
   let adapters: Map<string, CliAdapter>;
-  let queueUpdate: ReturnType<typeof vi.fn>;
-  let emitProviderRuntimeEvent: ReturnType<typeof vi.fn>;
-  let captureProviderRuntimeEvent: ReturnType<typeof vi.fn>;
+  let queueUpdate: Mock<NonNullable<CommunicationDependencies['queueUpdate']>>;
+  let emitProviderRuntimeEvent: Mock<NonNullable<CommunicationDependencies['emitProviderRuntimeEvent']>>;
+  let captureProviderRuntimeEvent: Mock<NonNullable<CommunicationDependencies['captureProviderRuntimeEvent']>>;
   let manager: InstanceCommunicationManager;
 
   async function flushOutputHandlers(): Promise<void> {
@@ -2747,9 +2748,9 @@ describe('LT-004: Codex app-server exit classification', () => {
   // stateless-exec-adapter return.
   let instance: Instance;
   let adapters: Map<string, CliAdapter>;
-  let queueUpdate: ReturnType<typeof vi.fn>;
-  let onUnexpectedExit: ReturnType<typeof vi.fn>;
-  let onInterruptedExit: ReturnType<typeof vi.fn>;
+  let queueUpdate: Mock<NonNullable<CommunicationDependencies['queueUpdate']>>;
+  let onUnexpectedExit: Mock<NonNullable<CommunicationDependencies['onUnexpectedExit']>>;
+  let onInterruptedExit: Mock<NonNullable<CommunicationDependencies['onInterruptedExit']>>;
   let manager: InstanceCommunicationManager;
 
   function buildInstance(status: Instance['status']): Instance {
@@ -2876,8 +2877,8 @@ describe('LT-023: a suppressed respawn defers and retries instead of dying silen
   // instead of being abandoned.
   let instance: Instance;
   let adapters: Map<string, CliAdapter>;
-  let queueUpdate: ReturnType<typeof vi.fn>;
-  let onUnexpectedExit: ReturnType<typeof vi.fn>;
+  let queueUpdate: Mock<NonNullable<CommunicationDependencies['queueUpdate']>>;
+  let onUnexpectedExit: Mock<NonNullable<CommunicationDependencies['onUnexpectedExit']>>;
   let manager: InstanceCommunicationManager;
 
   function buildEligibleInstance(): Instance {
@@ -3014,8 +3015,8 @@ describe('an exit during a recovery respawn defers to the recovery owner', () =>
   // made the owner abort instead of falling back to a fresh session.
   let instance: Instance;
   let adapters: Map<string, CliAdapter>;
-  let queueUpdate: ReturnType<typeof vi.fn>;
-  let onUnexpectedExit: ReturnType<typeof vi.fn>;
+  let queueUpdate: Mock<NonNullable<CommunicationDependencies['queueUpdate']>>;
+  let onUnexpectedExit: Mock<NonNullable<CommunicationDependencies['onUnexpectedExit']>>;
   let manager: InstanceCommunicationManager;
   let releaseOwnerLock: () => void;
 
@@ -3192,7 +3193,7 @@ describe('tool result deduplication', () => {
 describe('conversation-aware rewind points', () => {
   let instance: Instance;
   let adapters: Map<string, CliAdapter>;
-  let snapshotSpy: ReturnType<typeof vi.fn>;
+  let snapshotSpy: Mock<NonNullable<CommunicationDependencies['createSnapshot']>>;
   let comm: InstanceCommunicationManager;
 
   beforeEach(() => {
@@ -3327,7 +3328,7 @@ describe('SessionAdmissionService observability on the user send path (Phase A)'
 
   it('marks the admission failed (without swallowing the original error) when the adapter send rejects', async () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
-    (adapter.sendInput as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('adapter exploded'));
+    vi.mocked(adapter.sendInput).mockRejectedValue(new Error('adapter exploded'));
     adapters.set(instance.id, adapter);
 
     await expect(comm.sendInput(instance.id, 'fix the bug')).rejects.toThrow('adapter exploded');
@@ -3352,10 +3353,10 @@ describe('SessionAdmissionService observability on the user send path (Phase A)'
 describe('budget gate', () => {
   let instance: Instance;
   let adapters: Map<string, CliAdapter>;
-  let queueUpdate: ReturnType<typeof vi.fn>;
+  let queueUpdate: Mock<NonNullable<CommunicationDependencies['queueUpdate']>>;
   let comm: InstanceCommunicationManager;
   let adapter: FakeAdapter;
-  let createSnapshot: ReturnType<typeof vi.fn>;
+  let createSnapshot: Mock<NonNullable<CommunicationDependencies['createSnapshot']>>;
 
   function build(overrides: { used: number; total: number }): void {
     instance = createInstance();
@@ -3553,8 +3554,8 @@ describe('provider-limit park on thrown sendInput errors', () => {
 
   let instance: Instance;
   let adapters: Map<string, CliAdapter>;
-  let queueUpdate: ReturnType<typeof vi.fn>;
-  let onToolStateChange: ReturnType<typeof vi.fn>;
+  let queueUpdate: Mock<NonNullable<CommunicationDependencies['queueUpdate']>>;
+  let onToolStateChange: Mock<NonNullable<CommunicationDependencies['onToolStateChange']>>;
 
   beforeEach(() => {
     instance = createInstance();
@@ -3564,8 +3565,8 @@ describe('provider-limit park on thrown sendInput errors', () => {
   });
 
   function createManager(
-    onProviderLimitTurn: ReturnType<typeof vi.fn>,
-    transitionState?: ReturnType<typeof vi.fn>,
+    onProviderLimitTurn: Mock<NonNullable<CommunicationDependencies['onProviderLimitTurn']>>,
+    transitionState?: Mock<NonNullable<CommunicationDependencies['transitionState']>>,
   ): InstanceCommunicationManager {
     return new InstanceCommunicationManager({
       getInstance: (id) => (id === instance.id ? instance : undefined),

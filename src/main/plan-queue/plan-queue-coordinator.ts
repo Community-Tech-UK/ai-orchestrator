@@ -28,6 +28,8 @@ import {
   type PlanQueueStateChangedEvent,
 } from '@contracts/schemas/plan-queue';
 import { getLogger } from '../logging/logger';
+import { getWorkAdmission } from '../work-admission/work-admission';
+import { pumpPlanQueue } from './plan-queue-pump';
 import { assertPlanQueueParent, authorizePlanQueueControl } from './plan-queue-control-authority';
 import { adoptRunParent } from './plan-queue-run-parent';
 import { PlanQueueParentMessenger } from './plan-queue-parent-messenger';
@@ -124,6 +126,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   private whenOrchestratorToolsListening: () => Promise<void> = () => Promise.resolve();
   private toolsReady: Promise<void> | null = null;
   private userCloseEpoch = 0;
+  private admissionCleanup: (() => void)[] = [];
   private readonly runControl = new PlanQueueRunControl();
   private readonly userClose = new PlanQueueUserClose(() => this.requireDeps().now());
   static getInstance(): PlanQueueCoordinator {
@@ -201,6 +204,13 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       this.timer = setInterval(() => this.requestPump(), interval);
       this.timer.unref?.();
     }
+    const admission = getWorkAdmission();
+    const repump = (): void => this.requestPump();
+    admission.on('admission-changed', repump);
+    this.admissionCleanup.push(() => admission.off('admission-changed', repump));
+    for (const [kind, state] of [['queue-job', 'working'], ['queue-check', 'verifying']] as const) {
+      this.admissionCleanup.push(admission.registerCounter(kind, () => deps.store.listActiveRuns().flatMap(run => deps.store.listItems(run.id)).filter(item => state === 'working' ? itemHoldsWorktree(item.state) : item.state === state).length));
+    }
     logger.info('PlanQueueCoordinator initialized');
   }
   isInitialized(): boolean {
@@ -215,6 +225,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   }
   consumeUserClose(id: string): boolean { return this.userClose.consume(id); }
   shutdown(): void {
+    this.admissionCleanup.splice(0).forEach(cleanup => cleanup());
     this.trackerInstance?.noteAppShutdown();
     this.parentMessenger?.shutdown();
     if (this.timer) clearInterval(this.timer);
@@ -408,6 +419,11 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     }
     throw new Error(`Item ${itemId} is ${item.state}; there is nothing to answer`);
   }
+  async pauseRunsForGlobalPause(): Promise<string[]> {
+    const ids = this.store.listActiveRuns().filter(run => run.status === 'running').map(run => run.id);
+    for (const runId of ids) await this.control({ action: 'pause', runId });
+    return ids;
+  }
   async control(payload: PlanQueueControlPayload, callerInstanceId?: string): Promise<void> {
     const flow = this.requireFlow();
     if (payload.action === 'pause-all' || payload.action === 'resume-all') {
@@ -517,49 +533,16 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   // Scheduler
   // ---------------------------------------------------------------------------
   private async pump(): Promise<void> {
-    const deps = this.requireDeps();
-    const flow = this.requireFlow();
-    const runs = deps.store.listActiveRuns();
-    const [oneMinute = 0, fiveMinute = 0] = deps.loadAverage();
-    // Verification slots are shared by every run (the full gate list is the
-    // expensive part): the total is bounded by the largest cap among active
-    // runs, and each run is also held to its own cap. Comparing the shared
-    // count with one run's smaller cap would starve that run.
-    const sharedCap = Math.max(0, ...runs.map((run) => run.config.verificationSlots));
-    let verifying = runs.flatMap((run) => deps.store.listItems(run.id)).filter((item) => item.state === 'verifying').length;
-    for (const snapshot of runs) {
-      await reconcileWaitingDocuments(this, snapshot);
-      if (this.tracker.isShuttingDown()) return;
-      if (this.runControl.isControlling(snapshot.id) || this.triage?.isStopping(snapshot.id)) continue;
-      const run = this.require(this.parents).follow(this.getRun(snapshot.id));
-      if (run.status !== 'running' && run.status !== 'paused') continue;
-      this.resolveRunParent(run);
-      const items = deps.store.listItems(run.id);
-      if (items.some(hasPendingLandingCleanup)) continue;
-      if (run.status === 'running') {
-        this.triage?.maybeStart(run, items);
-        const overloaded = oneMinute > run.config.maxLoadAverage || fiveMinute > run.config.maxLoadAverage;
-        if (!overloaded) {
-          let inFlight = items.filter((item) => itemHoldsWorktree(item.state)).length;
-          for (const item of items.filter((candidate) => candidate.state === 'queued')) {
-            if (inFlight >= run.config.workerSlots) break;
-            inFlight += 1;
-            void flow.startItem(item).catch((error: unknown) => this.logItemError(item, error));
-          }
-          let runVerifying = items.filter((item) => item.state === 'verifying').length;
-          for (const item of items.filter((candidate) => candidate.state === 'awaiting-slot')) {
-            if (verifying >= sharedCap || runVerifying >= run.config.verificationSlots) break;
-            verifying += 1;
-            runVerifying += 1;
-            void flow.startVerification(item).catch((error: unknown) => this.logItemError(item, error));
-          }
-        }
-      }
-      // A run with no items at all is also finished.
-      if (deps.store.listItems(run.id).every((item) => isTerminalItemState(item.state))) {
-        this.finishRun(this.getRun(run.id), 'completed');
-      }
-    }
+    await pumpPlanQueue({
+      store: this.store, flow: this.requireFlow(), triage: this.triage,
+      getRun: id => this.getRun(id), getItem: id => this.getItem(id),
+      transition: (item, to, patch) => this.transition(item, to, patch),
+      notifyParent: (run, message, questions) => this.notifyParent(run, message, questions),
+      resolveRunParent: run => this.resolveRunParent(run),
+      loadAverage: () => this.requireDeps().loadAverage(), followParent: run => this.require(this.parents).follow(run),
+      isShuttingDown: () => this.tracker.isShuttingDown(), isControlling: id => this.runControl.isControlling(id),
+      finishRun: (run, status) => this.finishRun(run, status), logItemError: (item, error) => this.logItemError(item, error),
+    });
   }
   private async routeOutcome(instanceId: string, outcome: PlanQueueTurnOutcome): Promise<void> {
     const role = this.roles.get(instanceId);

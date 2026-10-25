@@ -18,6 +18,8 @@ import {
   getProviderModelContextWindow,
 } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { trackAutomaticStartupInitialization } from '../work-admission/automatic-startup';
+import { addAdapterRollbackResource } from './lifecycle/adapter-rollback';
 import {
   initializeInstanceEvidenceOwnership,
 } from '../context-evidence/evidence-conversation-resolver';
@@ -173,6 +175,7 @@ import type {
   ModelRuntimeTarget,
 } from '../../shared/types/local-model-runtime.types';
 
+import { recordInitialPromptIntent, sendInitialPromptToAdapter } from './lifecycle/initial-prompt-dispatch';
 const logger = getLogger('InstanceLifecycle');
 
 function localModelInventoryEntryMatchesTarget(
@@ -859,13 +862,7 @@ export class InstanceLifecycleManager extends EventEmitter {
   }
 
   private addAdapterRollback(transaction: SpawnTransaction, instanceId: string, adapter: CliAdapter): void {
-    transaction.addRollback('adapter-registration', async () => {
-      (adapter as { removeAllListeners?: () => void }).removeAllListeners?.();
-      if (this.deps.getAdapter(instanceId) === adapter) this.deps.deleteAdapter(instanceId);
-      this.deps.deleteDiffTracker?.(instanceId);
-      this.activityDetectors.delete(instanceId);
-      await adapter.terminate(false).catch(() => { /* rollback continues after adapter cleanup errors */ });
-    });
+    addAdapterRollbackResource(transaction, instanceId, adapter, this.deps, () => { this.activityDetectors.delete(instanceId); });
   }
 
   async refreshAdapterRuntimeConfig(instanceId: string): Promise<void> {
@@ -1029,7 +1026,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     let attachments = params.attachments;
 
     try {
-      await adapter.sendInput(runtimeMessage, attachments);
+      await sendInitialPromptToAdapter(instance, adapter, runtimeMessage, attachments);
       return;
     } catch (initialError) {
       if (isOrchestratorPausedError(initialError)) {
@@ -1054,7 +1051,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
       attachments = undefined;
       try {
-        await adapter.sendInput(runtimeMessage, attachments);
+        await sendInitialPromptToAdapter(instance, adapter, runtimeMessage, attachments);
       } catch (retryError) {
         if (isOrchestratorPausedError(retryError)) {
           this.queuePausedInitialPrompt({ instance, message: runtimeMessage, attachments });
@@ -1316,6 +1313,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     // WS-C7: register the contained execution profile before the first
     // adapter build reads it (same registry-lookup shape as hardened mode).
     setInstanceContainedExecution(instance.id, instance.containedExecution);
+    recordInitialPromptIntent(instance, config);
     const abortController = instance.abortController!;
     const isCrashRecoveryCreation = config.metadata?.['reason'] === 'crash-recovery';
     // A failed published create keeps the steps in SESSION_RECORD_ROLLBACK_LABELS.
@@ -1898,6 +1896,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
     // Store the promise so sendInput() can await it.
     instance.readyPromise = backgroundInit;
+    trackAutomaticStartupInitialization(backgroundInit);
     // Attach a no-op catch on a separate chain so that if no one awaits
     // readyPromise before it rejects, Node doesn't emit an unhandled rejection.
     backgroundInit.catch(() => { /* rejection handled via sendInput() status check */ });

@@ -40,7 +40,7 @@ let mockClientInstance: MockClient;
 
 vi.mock('discord.js', () => {
   return {
-    Client: vi.fn().mockImplementation(() => {
+    Client: vi.fn().mockImplementation(function () {
       mockClientInstance = new MockClient();
       return mockClientInstance;
     }),
@@ -298,7 +298,7 @@ describe('DiscordAdapter', () => {
     failAdapter.on('status', (e: ChannelStatusEvent) => statuses.push(e.status));
 
     const ClientMock = (await import('discord.js')).Client as unknown as MockInstance;
-    ClientMock.mockImplementationOnce(() => {
+    ClientMock.mockImplementationOnce(function () {
       const c = new MockClient();
       c.login = vi.fn().mockRejectedValue(new Error('Invalid token'));
       return c;

@@ -3,6 +3,7 @@ import type { InstanceProvider } from '../../shared/types/instance.types';
 import type { SessionRecoveryCandidate } from '../../shared/types/session-recovery.types';
 import type { LastStopSnapshot } from './last-stop-snapshot';
 import type { SessionState } from './session-continuity.types';
+import { globalPauseHoldsAutomaticInput } from '../global-pause/global-pause-service';
 
 export const RECOVERY_FALLBACK_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000;
 export const RECOVERY_COVERAGE_SKEW_MS = 5_000;
@@ -157,7 +158,10 @@ export class SessionRecoveryCandidateService {
   /** What the user is offered to recover. Internal sessions are never listed. */
   async listCandidates(): Promise<SessionRecoveryCandidate[]> {
     const records = await this.getCandidateRecords();
-    return records.filter((record) => !record.hidden).map((record) => record.candidate);
+    return records.filter((record) => !record.hidden
+      && ![record.candidate.sourceInstanceId, record.candidate.historyThreadId]
+        .some((identity) => identity && globalPauseHoldsAutomaticInput(identity)))
+      .map((record) => record.candidate);
   }
 
   /**

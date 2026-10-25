@@ -119,13 +119,14 @@ const PRIORITY_VALUES: Record<TaskPriority, number> = {
 export class BackgroundTaskManager extends EventEmitter {
   private static instance: BackgroundTaskManager | null = null;
   private config: TaskManagerConfig;
-  private tasks: Map<string, Task> = new Map();
+  private tasks = new Map<string, Task>();
   private taskHistory: Task[] = [];
-  private executors: Map<string, TaskExecutor> = new Map();
-  private runningTasks: Set<string> = new Set();
-  private cancelledTasks: Set<string> = new Set();
-  private paused: boolean = false;
-  private processingQueue: boolean = false;
+  private executors = new Map<string, TaskExecutor>();
+  private admissionGates = new Map<string, () => boolean>();
+  private runningTasks = new Set<string>();
+  private cancelledTasks = new Set<string>();
+  private paused = false;
+  private processingQueue = false;
 
   private constructor() {
     super();
@@ -166,6 +167,9 @@ export class BackgroundTaskManager extends EventEmitter {
     this.emit('executor-registered', { type });
   }
 
+  registerAdmissionGate(type: string, gate: () => boolean): void { this.admissionGates.set(type, gate); }
+  requestPump(): void { void this.processQueue(); }
+
   /**
    * Unregister a task executor
    */
@@ -181,6 +185,7 @@ export class BackgroundTaskManager extends EventEmitter {
    * Submit a new task
    */
   submit(definition: TaskDefinition): Task {
+    if (definition.id) this.taskHistory = this.taskHistory.filter(task => task.id !== definition.id);
     const task: Task = {
       ...definition,
       id: definition.id || uuidv4(),
@@ -393,7 +398,7 @@ export class BackgroundTaskManager extends EventEmitter {
         return a.createdAt - b.createdAt;
       });
 
-    return pendingTasks[0];
+    return pendingTasks.find(task => this.admissionGates.get(task.type)?.() !== false);
   }
 
   /**

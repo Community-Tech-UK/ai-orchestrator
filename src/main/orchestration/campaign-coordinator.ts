@@ -13,6 +13,7 @@ import { evaluatePredicate, validateCampaignSpec } from './campaign-validation';
 import type { LoopStatus, LoopWorktreeLifecycle } from '../../shared/types/loop.types';
 import { prepareLoopStartConfig } from './loop-start-config';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
+import { getWorkAdmission } from '../work-admission/work-admission';
 import {
   CampaignWorktreeLanding,
   campaignLandingBlockReason,
@@ -45,13 +46,11 @@ export class CampaignCoordinator extends EventEmitter {
 
   private initialized = false;
 
-  /** In-memory view of active campaigns (non-terminal). */
   private activeCampaigns = new Map<string, CampaignRun>();
 
   /** loopRunId → { campaignId, nodeId } for O(1) lookup in event handler. */
   private loopRunToNode = new Map<string, { campaignId: string; nodeId: string }>();
 
-  /** IDs of nodes currently starting (guards against double-start). */
   private startingNodes = new Set<string>();
 
   private loopStarter: CampaignLoopStarter = (chatId, config) => getLoopCoordinator().startLoop(chatId, config);
@@ -295,6 +294,10 @@ export class CampaignCoordinator extends EventEmitter {
     const campaign = this.activeCampaigns.get(campaignId);
     if (!campaign) return;
     if (campaign.status !== 'running') return;
+    if (!getWorkAdmission().check('campaign-node').allowed) {
+      getWorkAdmission().defer(`campaign:${campaignId}`, 'campaign-node', () => this.advanceCampaign(campaignId));
+      return;
+    }
 
     // Count currently running nodes.
     let runningCount = 0;
@@ -608,7 +611,15 @@ export class CampaignCoordinator extends EventEmitter {
     this.emit('campaign:paused', { campaignId: campaign.id, reason });
   }
 
-  /** Resume a paused campaign (operator accepted the needs-review node). */
+  pauseForGlobalPause(campaignId: string): void {
+    const campaign = this.activeCampaigns.get(campaignId);
+    if (campaign?.status === 'running') this.pauseCampaign(campaign, 'Paused for restart');
+  }
+
+  listRunningCampaigns(): CampaignRun[] {
+    return [...this.activeCampaigns.values()].filter((campaign) => campaign.status === 'running');
+  }
+
   async resumeCampaign(campaignId: string): Promise<void> {
     const campaign = this.activeCampaigns.get(campaignId);
     if (!campaign || campaign.status !== 'paused') return;
@@ -620,7 +631,6 @@ export class CampaignCoordinator extends EventEmitter {
     await this.advanceCampaign(campaignId);
   }
 
-  /** Operator manually stops a campaign. */
   haltCampaignByOperator(campaignId: string): void {
     const campaign = this.activeCampaigns.get(campaignId);
     if (!campaign) return;

@@ -46,6 +46,8 @@ export interface ResumeCursor {
 export interface ContinuityAutomationProvenance {
   automationId: string;
   automationRunId?: string;
+  /** Historical run after James takes over; does not confer engine ownership. */
+  automationSourceRunId?: string;
   /** The automation was hidden when this run fired. */
   hidden?: boolean;
   /** The runner recorded a clean finish (hidden automations only). */

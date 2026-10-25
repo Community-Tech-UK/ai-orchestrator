@@ -1,13 +1,13 @@
 import { EventEmitter } from 'node:events';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type {
   GitStatusWatcherWorkerInboundMsg,
   GitStatusWatcherWorkerOutboundMsg,
 } from './git-status-watcher-protocol';
 
 type ElectronParentPort = EventEmitter & {
-  start: ReturnType<typeof vi.fn>;
-  postMessage: ReturnType<typeof vi.fn>;
+  start: Mock<() => void>;
+  postMessage: Mock<(message: GitStatusWatcherWorkerOutboundMsg) => void>;
 };
 
 function processWithParentPort(): NodeJS.Process & { parentPort?: ElectronParentPort } {

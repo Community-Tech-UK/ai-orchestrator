@@ -1,5 +1,7 @@
 import { EventEmitter } from 'events';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getWorkAdmission, WorkAdmission } from '../work-admission/work-admission';
+import { pauseConsults } from '../work-admission/consult-admission';
 
 let multiVerifyCoordinator: EventEmitter;
 let reviewCoordinator: EventEmitter;
@@ -95,6 +97,7 @@ import {
 import { DEFAULT_ROUTING_CONFIG } from '../routing/model-router';
 
 describe('default orchestration invokers', () => {
+  afterEach(() => WorkAdmission._resetForTesting());
   beforeEach(() => {
     multiVerifyCoordinator = new EventEmitter();
     reviewCoordinator = new EventEmitter();
@@ -142,6 +145,42 @@ describe('default orchestration invokers', () => {
     expect(callback).toHaveBeenCalledWith(
       expect.stringContaining('verification:invoke-agent payload validation failed'),
     );
+  });
+
+  it('does not start a consult if restart starts while the final admission wait resolves', async () => {
+    hoisted.getBreaker.mockImplementation(() => ({ execute: async (run: () => Promise<unknown>) => {
+      const pending = run();
+      queueMicrotask(() => { getWorkAdmission().setGlobalPhase('collecting'); void pauseConsults(); });
+      return pending;
+    } }));
+    hoisted.sendMessage.mockResolvedValue({ content: 'late result' });
+    registerDefaultWorkflowInvoker(hoisted.instanceManager as never);
+    const callback = vi.fn();
+    workflowManager.emit('workflow:invoke-agent', { correlationId: 'execution-1:agent-1', executionId: 'execution-1',
+      agentId: 'agent-1', agentType: 'code-reviewer', prompt: 'review', model: 'default', callback });
+    await vi.waitFor(() => expect(callback).toHaveBeenCalled());
+    expect(hoisted.createCliAdapter).not.toHaveBeenCalled();
+    expect(hoisted.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('keeps failed consult teardown in the restart barrier until a later attempt succeeds', async () => {
+    let release!: (value: { content: string }) => void;
+    hoisted.sendMessage.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+    hoisted.terminate.mockRejectedValue(new Error('Provider is still running'));
+    registerDefaultWorkflowInvoker(hoisted.instanceManager as never);
+    const callback = vi.fn();
+    workflowManager.emit('workflow:invoke-agent', { correlationId: 'execution-1:agent-1', executionId: 'execution-1',
+      agentId: 'agent-1', agentType: 'code-reviewer', prompt: 'review', model: 'default', callback });
+    await vi.waitFor(() => expect(hoisted.sendMessage).toHaveBeenCalled());
+    getWorkAdmission().setGlobalPhase('collecting');
+    let stopped = false;
+    const pausing = pauseConsults().then(() => { stopped = true; });
+    release({ content: 'Interrupted response' });
+    await vi.waitFor(() => expect(callback).toHaveBeenCalled());
+    const stoppedBeforeRetry = stopped;
+    hoisted.terminate.mockResolvedValue(undefined);
+    await pauseConsults(); await pausing;
+    expect(stoppedBeforeRetry).toBe(false);
   });
 
   it('invokes the verification adapter with normalized callback values', async () => {

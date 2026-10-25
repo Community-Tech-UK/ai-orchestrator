@@ -48,11 +48,11 @@ class MockWAClient extends EventEmitter {
 
 vi.mock('whatsapp-web.js', () => {
   return {
-    Client: vi.fn().mockImplementation(() => {
+    Client: vi.fn().mockImplementation(function () {
       mockClientInstance = new MockWAClient();
       return mockClientInstance;
     }),
-    LocalAuth: vi.fn().mockImplementation(() => ({ strategy: 'local' })),
+    LocalAuth: vi.fn().mockImplementation(function () { return { strategy: 'local' }; }),
     MessageMedia: {
       fromFilePath: vi.fn().mockReturnValue({ data: 'mock-media', mimetype: 'image/png', filename: 'test.png' }),
     },

@@ -96,7 +96,7 @@ vi.mock('../../instance/lifecycle/copilot-route-preflight', () => ({
 }));
 
 vi.mock('../../cli/adapters/copilot-cli-adapter', () => ({
-  CopilotCliAdapter: vi.fn().mockImplementation(() => new FakeAdapter()),
+  CopilotCliAdapter: vi.fn().mockImplementation(function () { return new FakeAdapter(); }),
 }));
 
 describe('CopilotCliProvider inline translation', () => {

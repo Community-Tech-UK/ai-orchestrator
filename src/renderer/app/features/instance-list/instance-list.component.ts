@@ -118,6 +118,7 @@ export class InstanceListComponent implements OnDestroy {
   collapsedProjectKeys = signal<Set<string>>(new Set());
   rootInstanceOrder = signal<string[]>(loadOrder());
   recentDirectories = signal<RecentDirectoryEntry[]>([]);
+  private recentDirectoriesLoaded = signal(false); // before this, the sync effect sees every project as missing
   historySortMode = signal<HistorySortMode>(loadSortMode());
   historyVisibilityMode = signal<HistoryVisibilityMode>(loadHistoryVisibilityMode());
   historyTimeWindow = signal<HistoryTimeWindow>(loadHistoryTimeWindow());
@@ -293,7 +294,7 @@ export class InstanceListComponent implements OnDestroy {
           });
         }
       }
-      if (missingDirectories.length > 0) {
+      if (this.recentDirectoriesLoaded() && missingDirectories.length > 0) {
         void this.syncRecentDirectories(missingDirectories);
       }
 
@@ -1350,10 +1351,10 @@ export class InstanceListComponent implements OnDestroy {
     const directories = await this.recentDirectoriesService.getDirectories({
       sortBy: 'manual',
     });
-    if (this.areRecentDirectoriesEqual(this.recentDirectories(), directories)) {
-      return;
+    if (!this.areRecentDirectoriesEqual(this.recentDirectories(), directories)) {
+      this.recentDirectories.set(directories);
     }
-    this.recentDirectories.set(directories);
+    this.recentDirectoriesLoaded.set(true);
   }
 
   private async syncRecentDirectories(

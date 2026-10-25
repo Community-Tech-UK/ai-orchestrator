@@ -95,6 +95,7 @@ import {
 } from './orchestrator-tools-rpc-calendar';
 import { dispatchLocalAiCliRpc, isLocalAiCliRpcMethod, type LocalAiCliOperations } from './orchestrator-tools-rpc-local-ai';
 import { dispatchLoopCliRpc, isLoopCliMutationMethod, isLoopCliRpcMethod, type LoopCliOperations } from './orchestrator-tools-rpc-loop';
+import { dispatchPauseCliRpc, isPauseCliRpcMethod } from './orchestrator-tools-rpc-pause';
 import { dispatchCopilotAccountCliRpc, isCopilotAccountCliRpcMethod, type CopilotAccountCliOperations } from './orchestrator-tools-rpc-copilot-account';
 import { dispatchBrowserCredentialsCliRpc, isBrowserCredentialsCliRpcMethod } from './orchestrator-tools-rpc-browser-credentials';
 
@@ -358,6 +359,7 @@ export class OrchestratorToolsRpcServer {
     }
     this.enforceRateLimit(params.instanceId);
     this.enforcePayloadSize(params.payload);
+    if (isPauseCliRpcMethod(request.method)) return dispatchPauseCliRpc(request.method, params.payload);
     const fileTransferSpec = FILE_TRANSFER_RPC_SPECS.find((spec) => spec.method === request.method);
     if (fileTransferSpec) {
       return this.dispatchValidatedTool(fileTransferSpec.toolName, fileTransferSpec.schema, params, abortSignal);

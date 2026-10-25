@@ -4,6 +4,7 @@ import { getInstanceProviderLimitHandler } from './instance-provider-limit-handl
 import { currentAccountProfileId } from '../providers/account-pool/account-failover-coordinator';
 import { detectErrorProviderLimit, readAdapterRateLimitTelemetry } from './instance-provider-limit-detection';
 import { getLogger } from '../logging/logger';
+import { globalPauseHoldsAutomaticInput } from '../global-pause/global-pause-service';
 
 const logger = getLogger('InstanceProviderLimitRuntime');
 
@@ -56,6 +57,7 @@ export function holdRejectedOrchestrationResponse(
   error: Error,
 ): boolean {
   if (!instance) return false;
+  if (globalPauseHoldsAutomaticInput(instance.id)) return true;
   try {
     return holdRejected(instance, adapter, error);
   } catch (checkError) {
@@ -90,6 +92,7 @@ function holdRejected(instance: Instance, adapter: unknown, error: Error): boole
  * may well be deliverable.
  */
 export function holdQueuedOrchestrationResponse(instanceId: string): boolean {
+  if (globalPauseHoldsAutomaticInput(instanceId)) return true;
   try {
     return getInstanceProviderLimitHandler().holdAutomatedTurn(instanceId);
   } catch (checkError) {

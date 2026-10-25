@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ProviderReviewExecutionHost, resolveReviewerModelOverride } from './review-execution-host';
 import { subscribeCostAttribution, type CostAttributionRecord } from '../core/system/cost-attribution';
+import { pauseConsults } from '../work-admission/consult-admission';
 
 // Mutable holder so each test can configure the per-reviewer model override.
 const hostTestState = vi.hoisted(() => ({
@@ -79,6 +80,27 @@ describe('ProviderReviewExecutionHost', () => {
     hostTestState.quotaSnapshot = null;
   });
 
+  it('keeps cancellation immediate but waits for actual adapter teardown before restart is safe', async () => {
+    const abort = new AbortController();
+    let finishTeardown!: () => void;
+    const teardown = new Promise<void>(resolve => { finishTeardown = resolve; });
+    let rejectSend!: (error: Error) => void;
+    const sendMessage = vi.fn(() => new Promise<never>((_resolve, reject) => { rejectSend = reject; }));
+    const terminate = vi.fn(() => teardown);
+    hostTestState.createAdapter.mockReturnValue({ sendMessage, interrupt: vi.fn(), terminate });
+    const pending = new ProviderReviewExecutionHost().dispatchReviewerPrompt('codex', 'review', '/repo', abort.signal);
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    abort.abort();
+    await expect(pending).rejects.toThrow('Review cancelled');
+    let stopped = false;
+    const pausing = pauseConsults().then(() => { stopped = true; });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const stoppedBeforeTeardown = stopped;
+    finishTeardown(); rejectSend(new Error('Native process stopped')); await pausing;
+    expect(stoppedBeforeTeardown).toBe(false);
+    expect(terminate).toHaveBeenCalledOnce();
+  });
+
   it('records the successful send with its purpose, correlation and usage', async () => {
     const records: CostAttributionRecord[] = [];
     const stop = subscribeCostAttribution(record => records.push(record));
@@ -143,10 +165,11 @@ describe('ProviderReviewExecutionHost', () => {
   it('still settles cancellation when a non-conforming terminate throws synchronously', async () => {
     const abort = new AbortController();
     const sendMessage = vi.fn(() => new Promise<never>(() => undefined));
+    const terminate = vi.fn<() => Promise<void>>(() => { throw new Error('terminate exploded'); });
     hostTestState.createAdapter.mockReturnValue({
       sendMessage,
       interrupt: vi.fn(),
-      terminate: vi.fn(() => { throw new Error('terminate exploded'); }),
+      terminate,
     });
 
     const pending = new ProviderReviewExecutionHost().dispatchReviewerPrompt(
@@ -155,6 +178,9 @@ describe('ProviderReviewExecutionHost', () => {
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
     expect(() => abort.abort()).not.toThrow();
     await expect(pending).rejects.toThrow('Review cancelled');
+    // Failed teardown stays in the restart barrier; a later attempt can recover.
+    terminate.mockResolvedValue(undefined);
+    await pauseConsults();
   });
 
   it('reports actual reviewer usage and unknown failed calls exactly once', async () => {

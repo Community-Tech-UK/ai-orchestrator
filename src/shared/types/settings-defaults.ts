@@ -138,6 +138,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
 
   // Orchestration
+  workloadLevel: 3,
   maxChildrenPerParent: 10,
   maxTotalInstances: 20,
   concurrencyLimitByProvider: { copilot: 10, cursor: 8, grok: 6, opencode: 20 },

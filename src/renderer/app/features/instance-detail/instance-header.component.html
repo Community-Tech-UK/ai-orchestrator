@@ -1,4 +1,7 @@
     <div class="detail-header">
+      @if (globalPause.holdsAutomaticInput(instance().id)) {
+        <p role="status">Paused for restart. Typing here takes it out of the pause.</p>
+      }
       <div class="header-top">
         <div class="instance-identity">
           <div class="name-row">

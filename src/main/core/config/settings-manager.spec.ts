@@ -24,15 +24,17 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('electron-store', () => ({
-  default: vi.fn().mockImplementation(() => ({
-    get store() { return { ...mocks.store }; },
-    get: vi.fn((key: string) => mocks.store[key]),
-    set: mocks.storeSet,
-    clear: vi.fn(() => {
-      for (const key of Object.keys(mocks.store)) delete mocks.store[key];
-    }),
-    path: '/tmp/aio-test-settings.json',
-  })),
+  default: vi.fn().mockImplementation(function () {
+    return {
+      get store() { return { ...mocks.store }; },
+      get: vi.fn((key: string) => mocks.store[key]),
+      set: mocks.storeSet,
+      clear: vi.fn(() => {
+        for (const key of Object.keys(mocks.store)) delete mocks.store[key];
+      }),
+      path: '/tmp/aio-test-settings.json',
+    };
+  }),
 }));
 
 vi.mock('electron', () => ({

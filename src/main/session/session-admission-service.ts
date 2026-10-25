@@ -36,6 +36,7 @@ import {
   type AdmissionState,
 } from './session-admission-store';
 import type { FileAttachment, InstanceStatus, InstanceWaitReason } from '../../shared/types/instance.types';
+import { globalPauseHoldsAutomaticInput } from '../global-pause/global-pause-service';
 
 const logger = getLogger('SessionAdmissionService');
 
@@ -285,6 +286,7 @@ export class SessionAdmissionService {
     if (!instance) {
       return { kind: 'suppressed', reason: 'unknown-instance' };
     }
+    if (globalPauseHoldsAutomaticInput(instanceId)) return { kind: 'suppressed', reason: 'not-ready' };
     if (instance.status === 'waiting_for_permission') {
       return { kind: 'suppressed', reason: 'awaiting-human' };
     }
@@ -642,6 +644,10 @@ export class SessionAdmissionService {
         });
       }
     }
+  }
+
+  refireHeldWrites(): void {
+    for (const id of new Set([...this.pendingRedeliveries.values()].map((entry) => entry.instanceId))) this.tryRefire(id);
   }
 
   // ---- Maintenance ---------------------------------------------------------

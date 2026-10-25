@@ -4,6 +4,8 @@ import type {
 } from '../../shared/types/automation.types';
 
 export interface AutomationRunDecisionOptions {
+  /** Global admission keeps the fire durable without applying the per-job skip policy. */
+  admissionHeld?: boolean;
   idempotencyKey?: string;
   triggerSource?: AutomationTriggerSource;
   deliveryMode?: AutomationDeliveryMode;

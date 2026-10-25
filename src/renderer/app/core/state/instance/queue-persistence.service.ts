@@ -40,6 +40,7 @@ export class QueuePersistenceService {
   private settings = inject(SettingsStore);
   private toast = inject(ToastService);
   private admissionIdByEntry = new WeakMap<QueuedMessage, string>();
+  private readonly restoredAdmissionIds = new Set<string>();
   private initialPromptUnsubscribe: (() => void) | null = null;
 
   async restoreFromDisk(): Promise<void> {
@@ -53,10 +54,34 @@ export class QueuePersistenceService {
     this.stateService.messageQueue.update((current) => {
       const next = new Map(current);
       for (const [instanceId, rows] of Object.entries(response.data!.queues)) {
-        next.set(instanceId, rows.map((row) => this.fromDurableRow(row)));
+        const queue = current.get(instanceId) ?? [];
+        const existingIds = new Set(queue.map(entry => this.admissionIdByEntry.get(entry)));
+        const restored = rows.filter(row => !existingIds.has(row.admissionId)
+          && !this.restoredAdmissionIds.has(row.admissionId)).map(row => this.fromDurableRow(row));
+        if (restored.length) next.set(instanceId, [...restored, ...queue]);
       }
       return next;
     });
+  }
+
+  /** Merge the exact initial turn parked by restart pause without replacing newer local text. */
+  async restorePauseQueue(instanceId: string, shouldApply: () => boolean = () => true): Promise<boolean> {
+    try {
+      const response = await this.ipc.queueList(instanceId);
+      if (!response.success || !response.data || !shouldApply()) return false;
+      const rows = response.data.queues[instanceId] ?? [];
+      this.stateService.messageQueue.update(current => {
+        const queue = current.get(instanceId) ?? [];
+        const existing = new Set(queue.map(entry => this.admissionIdByEntry.get(entry)));
+        const fresh = rows.filter(row => row.state === 'queued' && !existing.has(row.admissionId)
+          && !this.restoredAdmissionIds.has(row.admissionId)).map(row => this.fromDurableRow(row));
+        return fresh.length ? new Map(current).set(instanceId, [...fresh, ...queue]) : current;
+      });
+      return true;
+    } catch {
+      this.toast.show('A paused message could not be restored yet. Harness will try again.', 'error');
+      return false;
+    }
   }
 
   subscribeToInitialPrompts(): void {
@@ -258,6 +283,8 @@ export class QueuePersistenceService {
   }
 
   private fromDurableRow(row: QueuedMessageDTO): QueuedMessage {
+    this.restoredAdmissionIds.add(row.admissionId);
+    if (this.restoredAdmissionIds.size > 1024) this.restoredAdmissionIds.delete(this.restoredAdmissionIds.values().next().value!);
     const files = row.attachments.length > 0
       ? row.attachments.map((a) => dataUrlToFile(a.name, a.type, a.data))
       : undefined;
@@ -277,7 +304,7 @@ export class QueuePersistenceService {
   }
 
   private canPersist(): boolean {
-    return this.isPauseFeatureEnabled() && this.settings.get('persistSessionContent');
+    return this.settings.isInitialized() && this.settings.get('persistSessionContent');
   }
 
   private isPauseFeatureEnabled(): boolean {

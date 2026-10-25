@@ -26,9 +26,9 @@ vi.mock('fs', async (importOriginal) => {
 });
 
 vi.mock('../main/remote-node/project-discovery', () => ({
-  ProjectDiscovery: vi.fn().mockImplementation(() => ({
-    scan: vi.fn().mockResolvedValue([]),
-  })),
+  ProjectDiscovery: vi.fn().mockImplementation(function () {
+    return { scan: vi.fn().mockResolvedValue([]) };
+  }),
 }));
 
 import { reportCapabilities, parseLmStudioLoadedModels } from './capability-reporter';

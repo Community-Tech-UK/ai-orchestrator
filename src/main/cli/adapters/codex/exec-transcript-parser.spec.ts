@@ -76,6 +76,21 @@ describe('parseCodexExecTranscript', () => {
     expect(parsed.errorMessage).toBe('stream disconnected before completion');
   });
 
+  it('keeps the turn.failed reason separate from recovered reconnect errors', () => {
+    const transcript = [
+      JSON.stringify({ type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: 'partial work' } }),
+      JSON.stringify({ type: 'error', message: 'Reconnecting... 1/5' }),
+      JSON.stringify({ type: 'turn.failed', error: { message: 'Selected model is at capacity. Please try a different model.' } }),
+    ].join('\n');
+
+    const parsed = parseCodexExecTranscript(transcript, [], 'response-1');
+
+    expect(parsed.errorMessage).toBe('Reconnecting... 1/5');
+    expect(parsed.turnFailedMessage).toBe('Selected model is at capacity. Please try a different model.');
+    expect(parseCodexExecTranscript(JSON.stringify({ type: 'error', message: 'Reconnecting... 1/5' }), [], 'response-2').turnFailedMessage)
+      .toBeUndefined();
+  });
+
   it('recovers assistant content from a repaired transcript line', () => {
     const transcript = '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"repaired"},}';
 

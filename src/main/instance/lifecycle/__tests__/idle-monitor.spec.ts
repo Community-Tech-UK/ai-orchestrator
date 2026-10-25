@@ -155,7 +155,7 @@ describe('IdleMonitor', () => {
     },
   );
 
-  function makeRemoteMonitor(staleMs: number, queueUpdate: ReturnType<typeof vi.fn>, status = 'busy'): IdleMonitor {
+  function makeRemoteMonitor(staleMs: number, queueUpdate: ConstructorParameters<typeof IdleMonitor>[0]['queueUpdate'], status = 'busy'): IdleMonitor {
     const detector = {
       setPid: vi.fn(),
       detect: vi.fn(async () => ({ state: 'idle' as const, confidence: 'low' as const, staleAfterMs: 0, source: 'test' })),

@@ -21,7 +21,7 @@ vi.mock('electron', () => ({
   app: { getPath: () => '/tmp/aio-archive-spec' },
 }));
 
-vi.mock('node:fs', () => {
+vi.mock('fs', () => {
   const existsSync = (): boolean => false;
   return {
     default: {

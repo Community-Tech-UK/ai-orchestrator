@@ -62,6 +62,7 @@ import { getOrCreateTurnSupervisor } from '../../session/session-turn-supervisor
 import { getOrCreateCircuitBreaker } from './respawn-circuit-breaker';
 import { getSessionContinuityManagerIfInitialized } from '../../session/session-continuity';
 import { getLastStopSnapshotIfInitialized } from '../../session/last-stop-snapshot';
+import { globalPauseHoldsAutomaticInput } from '../../global-pause/global-pause-service';
 import {
   type QueueUpdate,
   INTERRUPT_FORCE_ABORT_MS,
@@ -976,6 +977,7 @@ export class InterruptRespawnHandler {
                 this.deps.queueContinuityPreamble(instanceId, preamble);
                 return false;
               }
+              if (globalPauseHoldsAutomaticInput(instanceId)) throw new Error('Recovery input is held until Resume');
               await deliveryAdapter.sendInput(preamble);
               return true;
             },
@@ -1302,6 +1304,7 @@ export class InterruptRespawnHandler {
                 this.deps.queueContinuityPreamble(instanceId, preamble);
                 return false;
               }
+              if (globalPauseHoldsAutomaticInput(instanceId)) throw new Error('Recovery input is held until Resume');
               await deliveryAdapter.sendInput(preamble);
               return true;
             },

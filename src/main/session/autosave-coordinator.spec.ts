@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 vi.mock('electron', () => ({
   powerMonitor: {
@@ -7,15 +7,15 @@ vi.mock('electron', () => ({
   },
 }));
 
-import { SessionAutoSaveCoordinator } from './autosave-coordinator';
+import { SessionAutoSaveCoordinator, type SessionAutoSaveDeps } from './autosave-coordinator';
 import { JitterScheduler } from '../tasks/jitter-scheduler';
 
 describe('SessionAutoSaveCoordinator', () => {
   let dirty: Set<string>;
   let locked: Set<string>;
   let now: number;
-  let saveState: ReturnType<typeof vi.fn>;
-  let onSaveError: ReturnType<typeof vi.fn>;
+  let saveState: Mock<SessionAutoSaveDeps['saveState']>;
+  let onSaveError: Mock<SessionAutoSaveDeps['onSaveError']>;
 
   beforeEach(() => {
     vi.useFakeTimers();

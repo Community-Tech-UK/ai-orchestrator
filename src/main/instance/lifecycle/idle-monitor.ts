@@ -33,6 +33,9 @@ import { errorDiagnostic, textDiagnostic } from '../../logging/source-diagnostic
 import { getSessionMutex } from '../../session/session-mutex';
 import { getInstanceTurnEnding } from '../instance-turn-ending-state';
 import { getInstanceAsyncWorkRegistry } from '../instance-async-work-registry';
+import { globalPauseHoldsAutomaticInput } from '../../global-pause/global-pause-service';
+import { waitForGlobalPauseInput } from '../../global-pause/global-pause-input';
+import { getWorkAdmission } from '../../work-admission/work-admission';
 
 const logger = getLogger('IdleMonitor');
 
@@ -245,6 +248,7 @@ export class IdleMonitor {
           if (!recoveryEngine) return;
 
           const skipRecovery =
+            globalPauseHoldsAutomaticInput(instanceId) ||
             instance.status === 'respawning' ||
             instance.status === 'error' ||
             instance.status === 'initializing' ||
@@ -285,6 +289,8 @@ export class IdleMonitor {
 
           if (failure) {
             const detectedFailure = failure;
+            const requestCount = instance.requestCount;
+            const generation = instance.adapterGeneration;
             recoveryEngine
               .handleFailure(detectedFailure)
               .then((outcome) => {
@@ -293,7 +299,14 @@ export class IdleMonitor {
                   category: detectedFailure.category,
                   outcome: outcome.status,
                 });
-                this.deps.dispatchRecovery(instanceId, detectedFailure).catch((err) => {
+                const dispatchCurrent = (): Promise<void> | void => {
+                  const current = this.deps.getInstance(instanceId);
+                  if (!current || current.id !== instance.id || current.requestCount !== requestCount || current.adapterGeneration !== generation) return;
+                  return this.deps.dispatchRecovery(instanceId, detectedFailure);
+                };
+                const pending = getWorkAdmission().check('timed-wakeup').allowed && !globalPauseHoldsAutomaticInput(instanceId)
+                  ? Promise.resolve(dispatchCurrent()) : waitForGlobalPauseInput(instanceId, { autoContinuation: true }).then(dispatchCurrent);
+                void pending.catch((err) => {
                   logger.warn('Recovery action dispatch failed', { instanceId, ...errorDiagnostic(err) });
                 });
               })

@@ -158,9 +158,9 @@ export class InstanceIpcService {
   /**
    * Send input to an instance
    */
-  async sendInput(instanceId: string, message: string, attachments?: FileAttachment[], isRetry?: boolean): Promise<IpcResponse> {
+  async sendInput(instanceId: string, message: string, attachments?: FileAttachment[], isRetry?: boolean, automatedInput?: boolean): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.sendInput({ instanceId, message, attachments, isRetry });
+    return this.api.sendInput({ instanceId, message, attachments, isRetry, automatedInput });
   }
 
   async steerInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<IpcResponse> {

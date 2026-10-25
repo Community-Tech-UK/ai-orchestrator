@@ -4,6 +4,8 @@ import type {
   DocReviewSession,
 } from '@contracts/schemas/doc-review';
 import type { DocReviewDeliveryCoordinator as DeliveryPort } from './doc-review.types';
+import { getWorkAdmission } from '../work-admission/work-admission';
+import { waitForGlobalPauseInput } from '../global-pause/global-pause-input';
 
 interface InstanceView {
   id: string;
@@ -16,7 +18,7 @@ interface InstanceView {
 type InstanceManagerPort = {
   getInstance(instanceId: string): InstanceView | undefined;
   getAllInstances?(): InstanceView[];
-  sendInput(instanceId: string, message: string): Promise<void>;
+  sendInput(instanceId: string, message: string, attachments?: undefined, options?: { automatedInput: boolean }): Promise<void>;
   wakeInstance(instanceId: string): Promise<void>;
   reviveFromContinuity(request: {
     sourceInstanceId: string;
@@ -109,6 +111,8 @@ export class DocReviewDeliveryCoordinator implements DeliveryPort {
   }
 
   private async deliverOnce(session: DocReviewSession, feedback: string): Promise<DocReviewDeliveryAttempt> {
+    await getWorkAdmission().wait('timed-wakeup');
+    await waitForGlobalPauseInput(this.resolveCurrentInstance(session)?.id ?? session.instanceId, { automatedInput: true });
     if (session.origin?.kind === 'loop') return this.deliverLoop(session, feedback);
     if (this.deps.pauseCoordinator.isPaused()) return this.queue(session, feedback, 'await-idle');
 
@@ -256,7 +260,7 @@ export class DocReviewDeliveryCoordinator implements DeliveryPort {
     mechanism: 'direct-send' | 'wake',
   ): Promise<DocReviewDeliveryAttempt> {
     try {
-      await this.deps.instanceManager.sendInput(instanceId, feedback);
+      await this.deps.instanceManager.sendInput(instanceId, feedback, undefined, { automatedInput: true });
       return this.attempt('delivered', mechanism, { targetInstanceId: instanceId });
     } catch (error) {
       return this.failed(mechanism, error, instanceId);

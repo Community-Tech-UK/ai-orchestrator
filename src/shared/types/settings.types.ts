@@ -12,6 +12,7 @@ import type { LocalAiFallbackPolicy } from './local-ai-guard.types';
 import type { ModelUsageEntry } from './model-usage.types';
 import type { WorkerModeSettings } from './pair-both.types';
 import type { ObservationSettings } from './observation-settings.types';
+import type { WorkloadSettings } from './workload-settings.types';
 import type { RemoteReviewerProvider } from './reviewer-provider.types';
 
 export type { ModelUsageEntry } from './model-usage.types';
@@ -45,7 +46,7 @@ import type {
 export type * from './settings-primitives.types';
 
 /** Application settings that are persisted to disk. */
-export interface AppSettings extends DesktopComputerUseSettings, ObservationSettings {
+export interface AppSettings extends DesktopComputerUseSettings, ObservationSettings, WorkloadSettings {
   // General
   /** Keep the system awake; the display may still sleep. */
   keepAwakeMode: 'off' | 'while-working' | 'always';

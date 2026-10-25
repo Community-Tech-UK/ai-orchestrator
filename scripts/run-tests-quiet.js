@@ -144,7 +144,10 @@ function runVitest() {
     // that but re-parse args and mangle test paths containing spaces. Resolving
     // the `vitest.mjs` bin and running it under process.execPath sidesteps all
     // of it and is fully cross-platform (macOS/Linux behaviour is unchanged).
-    const vitestBin = require.resolve('vitest/vitest.mjs');
+    const vitestBin = path.resolve(
+      path.dirname(require.resolve('vitest/package.json')),
+      require('vitest/package.json').bin.vitest,
+    );
     const child = spawn(process.execPath, [vitestBin, ...args], {
       cwd: ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],

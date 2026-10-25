@@ -187,7 +187,7 @@ vi.mock('../../cli/adapters/adapter-factory', () => ({
 }));
 
 // Pass-through spies: the real account routing runs, and its requests are visible.
-const accountRouteCalls = vi.hoisted(() => [] as Array<{ origin: unknown; options: Record<string, unknown> }>);
+const accountRouteCalls = vi.hoisted(() => [] as { origin: unknown; options: Record<string, unknown> }[]);
 vi.mock('../lifecycle/account-route-preflight', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lifecycle/account-route-preflight')>();
   return {
@@ -226,6 +226,7 @@ vi.mock('../../providers/activity-state-detector', () => ({
 vi.mock('../../prompt-history/prompt-history-service', () => ({
   getPromptHistoryService: () => ({
     record: mocks.promptHistoryRecord,
+    getForInstance: () => ({ entries: [] }),
     clearForInstance: mocks.promptHistoryClear,
   }),
 }));
@@ -334,6 +335,25 @@ import { InstanceLifecycleManager } from '../instance-lifecycle';
 import { getDefaultAgent } from '../../../shared/types/agent.types';
 import { createInstanceWithMessage } from '../../ipc/handlers/instance-create-with-message';
 import { InstanceCreatePayloadSchema, InstanceCreateWithMessagePayloadSchema } from '@contracts/schemas/instance';
+import { EventEmitter } from 'events';
+import { RemoteCliAdapter } from '../../cli/adapters/remote-cli-adapter';
+import * as workerRegistry from '../../remote-node/worker-node-registry';
+import * as rlmDatabase from '../../persistence/rlm-database';
+import { getSessionQueueService, SessionQueueService } from '../../session/session-queue-service';
+import { SessionAdmissionStore } from '../../session/session-admission-store';
+import { GlobalPauseService } from '../../global-pause/global-pause-service';
+import { GlobalPauseStore } from '../../global-pause/global-pause-store';
+import { createGlobalPauseRuntime } from '../../global-pause/global-pause-runtime';
+import type { InstanceManager } from '../instance-manager';
+import { runAutomaticStartup, type AutomaticStartup } from '../../work-admission/automatic-startup';
+import { getWorkAdmission, WorkAdmission } from '../../work-admission/work-admission';
+import { pauseConsults } from '../../work-admission/consult-admission';
+
+import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
+import { createMigrationsTable, createTables, runMigrations } from '../../persistence/rlm/rlm-schema';
+import { AutomationStore } from '../../automations/automation-store';
+import { AutomationRunner } from '../../automations/automation-runner';
+vi.mock('../../plugins/hook-emitter', () => ({ emitPluginHook: vi.fn() }));
 
 interface FakeAdapter {
   spawn: ReturnType<typeof vi.fn>;
@@ -507,6 +527,204 @@ describe('createInstance spawn transaction rollback', () => {
     mocks.getKnownModelsForCli.mockResolvedValue([]);
     mocks.settings.defaultModel = undefined;
     mocks.settings.defaultModelByProvider = {};
+  });
+
+  it.each([false, true])('waits for a public chat without inventing an unfinished task (History-only reopen: %s)', async restored => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter(); mocks.createAdapter.mockReturnValue(adapter);
+    let finish!: () => void;
+    harness.initializeRlm.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }));
+    const created = await harness.manager.createInstance({ workingDirectory: '/tmp', provider: 'claude', ...(restored ? { isRestoredSession: true,
+      initialOutputBuffer: [{ id: 'old-user', timestamp: 1, type: 'user' as const, content: 'Earlier request' },
+        { id: 'old-assistant', timestamp: 2, type: 'assistant' as const, content: 'Earlier completed reply' }] } : {}) });
+    const manager = { getAllInstances: () => [created], getInstance: () => created, getAdapter: () => adapter };
+    const runtime = createGlobalPauseRuntime(manager as unknown as InstanceManager);
+    const snapshot = runtime.sessions()[0];
+    const before = { busy: snapshot.busy, waitingForInitialization: snapshot.waitingForInitialization };
+    let settled = false;
+    const waiting = runtime.interruptSession(snapshot).then(() => { settled = true; });
+    await new Promise<void>(resolve => setImmediate(resolve)); expect(settled).toBe(false);
+    finish(); await waiting;
+    expect(before).toEqual({ busy: false, waitingForInitialization: true });
+    expect(adapter.sendInput).not.toHaveBeenCalled();
+    harness.manager.destroy();
+  });
+
+  it.each([false, true])('waits for public first-send persistence before restart is safe (queue fails once: %s)', async queueFails => {
+    GlobalPauseService._resetForTesting(); WorkAdmission._resetForTesting(); SessionAdmissionStore._resetForTesting(); SessionQueueService._resetForTesting();
+    const db = defaultDriverFactory(':memory:'); createTables(db); createMigrationsTable(db); runMigrations(db);
+    const database = vi.spyOn(rlmDatabase, 'getRLMDatabase').mockReturnValue({ getRawDb: () => db } as never);
+    const registry = vi.spyOn(workerRegistry, 'getWorkerNodeRegistry').mockReturnValue(new EventEmitter() as never);
+    const harness = makeHarness();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const checkpoint = vi.fn().mockImplementationOnce(() => gate).mockResolvedValue(undefined);
+    const sendRpc = vi.fn(async (_node: string, _method: string, _params: unknown) => ({ instanceId: 'initial-remote' }));
+    const adapter = new RemoteCliAdapter({ sendRpc, isNodeConnected: () => true } as never, 'worker', 'opencode', {
+      sessionId: 'initial-remote', workingDirectory: '/tmp', beforeProviderPrompt: checkpoint,
+    });
+    const manualAdapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValueOnce(adapter).mockReturnValue(manualAdapter);
+    const manager = { getAllInstances: () => [...harness.instances.values()], getInstance: (id: string) => harness.instances.get(id),
+      getAdapter: (id: string) => harness.adapters.get(id), interruptInstance: vi.fn(), waitForInstanceSettled: vi.fn(), terminateInstance: vi.fn() };
+    const runtime = createGlobalPauseRuntime(manager as unknown as InstanceManager);
+    runtime.level = () => 3; runtime.engines = async () => []; runtime.pauseEngines = async () => undefined; runtime.runningWork = undefined;
+    const pause = GlobalPauseService.getInstance({ store: new GlobalPauseStore(db), runtime });
+    const attachments = [{ name: 'notes.txt', type: 'text/plain', size: 4, data: 'dGVzdA==' }];
+    let pausing: Promise<unknown> | undefined;
+    const queue = getSessionQueueService();
+    const enqueue = vi.spyOn(queue, 'enqueueUserMessage');
+    if (queueFails) enqueue.mockRejectedValueOnce(new Error('Queue persistence unavailable'));
+    try {
+      const created = await harness.manager.createInstance({ workingDirectory: '/tmp', provider: 'claude', initialPrompt: 'Original request', attachments });
+      const ready = created.readyPromise;
+      await vi.waitFor(() => expect(checkpoint).toHaveBeenCalledOnce());
+      expect(created.status).toBe('idle'); expect(ready).toBeDefined();
+      pausing = pause.pauseForRestart({ withNotes: false });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      const before = { phase: pause.getState().phase, wasBusy: pause.getState().entries[0].wasBusy };
+      const manual = await harness.manager.createInstance({ workingDirectory: '/tmp', provider: 'claude', initialPrompt: 'James opens another chat' });
+      await manual.readyPromise; expect(manualAdapter.sendInput).toHaveBeenCalledOnce();
+      const outcome = Promise.allSettled([ready!, pausing]);
+      release(); const results = await outcome;
+      if (queueFails) {
+        expect(results.map(result => result.status)).toEqual(['rejected', 'rejected']);
+        expect(pause.getState().phase).toBe('collecting');
+        await pause.pauseForRestart({ withNotes: false });
+      } else expect(results.map(result => result.status)).toEqual(['fulfilled', 'fulfilled']);
+      expect(before).toEqual({ phase: 'collecting', wasBusy: true });
+      expect(pause.getState().phase).toBe('ready');
+      expect(pause.getState().entries[0].voidReason).toBe('initial-prompt-queued');
+      expect(sendRpc.mock.calls.filter(call => call[1] === 'instance.sendInput')).toHaveLength(0);
+      const messages = (await queue.listQueue(created.id))[created.id];
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({ message: 'Original request', attachments, sourceMetadata: { seededAlready: true } });
+      const promoted = await queue.promoteQueuedMessage(messages[0].admissionId);
+      expect(await queue.promoteQueuedMessage(messages[0].admissionId)).toBeNull();
+      GlobalPauseService._resetForTesting(); WorkAdmission._resetForTesting();
+      if (!queueFails) {
+        await adapter.sendInput(promoted!.message, promoted!.attachments);
+        expect(sendRpc.mock.calls.filter(call => call[1] === 'instance.sendInput')).toHaveLength(1);
+      }
+    } finally {
+      release(); await pausing?.catch(() => undefined); enqueue.mockRestore();
+      adapter.forceCleanup(); harness.manager.destroy(); GlobalPauseService._resetForTesting(); WorkAdmission._resetForTesting();
+      SessionAdmissionStore._resetForTesting(); SessionQueueService._resetForTesting(); registry.mockRestore(); database.mockRestore(); db.close();
+    }
+  });
+
+  it.each([false, true])('records actual first input dispatch after provider-limit hold: %s', async held => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    let startup!: AutomaticStartup;
+    const observed: boolean[] = [];
+    adapter.sendInput.mockImplementation(async () => { observed.push(startup.wasDispatched(instance.id)); });
+    harness.deps.initialPromptProviderLimitGate = { holdBeforeSend: () => held, handleSendError: () => false };
+    mocks.createAdapter.mockReturnValue(adapter);
+    const instance = await runAutomaticStartup(async context => {
+      startup = context;
+      const created = await harness.manager.createInstance({ workingDirectory: '/tmp/project', provider: 'claude', initialPrompt: 'Original work' });
+      context.register(created, () => harness.manager.terminateInstance(created.id, false));
+      return created;
+    });
+    await instance.readyPromise;
+    expect(startup.wasDispatched(instance.id)).toBe(!held);
+    expect(observed).toEqual(held ? [] : [true]);
+    harness.manager.destroy();
+  });
+
+  it('clears an undispatched automation attachment when real lifecycle cancellation resolves readiness', async () => {
+    WorkAdmission._resetForTesting();
+    const harness = makeHarness(), adapter = makeFakeAdapter();
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    adapter.spawn.mockImplementation(async () => { entered(); await gate; return 4242; });
+    mocks.createAdapter.mockReturnValue(adapter);
+    const db = defaultDriverFactory(':memory:');
+    createTables(db); createMigrationsTable(db); runMigrations(db);
+    const store = new AutomationStore(db, { prepare: async () => [], replacePrepared: () => undefined, listForAutomation: async () => [] } as never);
+    const runner = new AutomationRunner(store, undefined, Date.now, undefined, undefined, undefined, undefined, () => false, async (_run, _snapshot, dispatch) => dispatch());
+    runner.initialize(harness.manager as never);
+    try {
+      const automation = await store.create({ name: 'Work', schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' }, action: { prompt: 'Original request', workingDirectory: '/tmp' } }, 1000);
+      await runner.fire(automation.id, { trigger: 'manual' }); await started;
+      const instance = [...harness.instances.values()][0], run = store.listActiveRuns()[0];
+      getWorkAdmission().setGlobalPhase('collecting');
+      const pausing = pauseConsults();
+      await vi.waitFor(() => expect(adapter.terminate).toHaveBeenCalled());
+      await new Promise<void>(resolve => setImmediate(resolve)); release();
+      await instance.readyPromise; await pausing;
+      expect(adapter.sendInput).not.toHaveBeenCalled();
+      expect(store.getRun(run.id)?.instanceId).toBeNull();
+      expect(store.getRun(run.id)?.status).toBe('running');
+      expect(harness.instances.has(instance.id)).toBe(false);
+    } finally { release(); harness.manager.destroy(); WorkAdmission._resetForTesting(); db.close(); }
+  });
+
+  it.each(['local', 'remote'] as const)('keeps failed %s automatic initialization teardown tracked until retry succeeds', async location => {
+    WorkAdmission._resetForTesting();
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const spawnGate = new Promise<void>(resolve => { release = resolve; });
+    let providerRunning = false;
+    adapter.spawn.mockImplementation(async () => { entered(); await spawnGate; providerRunning = true; return 4242; });
+    adapter.terminate.mockRejectedValue(new Error('Provider is still running'));
+    mocks.createAdapter.mockReturnValue(adapter);
+    if (location === 'remote') mocks.resolveExecutionLocation.mockReturnValue({ type: 'remote', nodeId: 'windows' });
+    const instance = await runAutomaticStartup(async startup => {
+      const created = await harness.manager.createInstance({ workingDirectory: '/tmp/project', provider: 'claude', initialPrompt: 'Original work' });
+      startup.register(created, () => harness.manager.terminateInstance(created.id, false));
+      return created;
+    });
+    const ready = instance.readyPromise;
+    await started; getWorkAdmission().setGlobalPhase('collecting');
+    const rejected = expect(ready).rejects.toThrow('cancelled for restart');
+    release(); await rejected;
+    let stopped = false;
+    const pausing = pauseConsults().then(() => { stopped = true; });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const beforeRetry = { stopped, providerRunning, registered: harness.adapters.has(instance.id) };
+    adapter.terminate.mockImplementation(async () => { providerRunning = false; });
+    await pauseConsults(); await pausing;
+    expect(beforeRetry).toEqual({ stopped: false, providerRunning: true, registered: true });
+    expect(providerRunning).toBe(false);
+    expect(adapter.sendInput).not.toHaveBeenCalled();
+    harness.manager.destroy(); WorkAdmission._resetForTesting();
+  });
+
+  it('rechecks the captured provider after a delayed spawn completes beyond an early successful stop', async () => {
+    WorkAdmission._resetForTesting();
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const spawnGate = new Promise<void>(resolve => { release = resolve; });
+    let providerRunning = false;
+    adapter.spawn.mockImplementation(async () => { entered(); await spawnGate; providerRunning = true; return 4242; });
+    adapter.terminate.mockResolvedValueOnce(undefined).mockRejectedValue(new Error('Late provider is still running'));
+    mocks.createAdapter.mockReturnValue(adapter);
+    const instance = await runAutomaticStartup(async startup => {
+      const created = await harness.manager.createInstance({ workingDirectory: '/tmp/project', provider: 'claude', initialPrompt: 'Original work' });
+      startup.register(created, () => harness.manager.terminateInstance(created.id, false));
+      return created;
+    });
+    const ready = instance.readyPromise;
+    await started; getWorkAdmission().setGlobalPhase('collecting');
+    let stopped = false;
+    const pausing = pauseConsults().then(() => { stopped = true; });
+    await vi.waitFor(() => expect(adapter.terminate.mock.calls.length).toBeGreaterThanOrEqual(2));
+    release(); await ready;
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const beforeRetry = { stopped, providerRunning };
+    adapter.terminate.mockImplementation(async () => { providerRunning = false; });
+    await pauseConsults(); await pausing;
+    expect(beforeRetry).toEqual({ stopped: false, providerRunning: true });
+    expect(providerRunning).toBe(false);
+    expect(adapter.sendInput).not.toHaveBeenCalled();
+    harness.manager.destroy(); WorkAdmission._resetForTesting();
   });
 
   it('keeps Phase-1 registrations and settles to error when RLM init fails (before any adapter exists)', async () => {
@@ -953,8 +1171,8 @@ describe('createInstance spawn transaction rollback', () => {
     const harness = makeHarness();
     const adapter = makeFakeAdapter();
     mocks.createAdapter.mockReturnValue(adapter);
-    const createdEvents: Array<Record<string, unknown>> = [];
-    const stateEvents: Array<Record<string, unknown>> = [];
+    const createdEvents: Record<string, unknown>[] = [];
+    const stateEvents: Record<string, unknown>[] = [];
     harness.manager.on('created', (payload: Record<string, unknown>) => createdEvents.push(payload));
     harness.manager.on('state-update', (payload: Record<string, unknown>) => stateEvents.push(payload));
 
@@ -990,7 +1208,7 @@ describe('createInstance spawn transaction rollback', () => {
     const harness = makeHarness();
     const adapter = makeFakeAdapter();
     mocks.createAdapter.mockReturnValue(adapter);
-    const createdEvents: Array<Record<string, unknown>> = [];
+    const createdEvents: Record<string, unknown>[] = [];
     harness.manager.on('created', (payload: Record<string, unknown>) => createdEvents.push(payload));
     const creation = await harness.manager.createUnpublishedInstance({
       workingDirectory: '/tmp/project',
@@ -1480,9 +1698,9 @@ describe('createInstance spawn transaction rollback', () => {
     let cancelledSchedule = false;
     limitHandler.configure({
       isEnabled: () => true,
-      setWaitReason: () => {},
+      setWaitReason: () => undefined,
       getQuotaSnapshot: () => null,
-      refreshQuotaSnapshot: () => {},
+      refreshQuotaSnapshot: () => undefined,
       getWorkspaceCwd: () => '/tmp/project',
       isResumable: () => true,
       resendInput: (id: string, prompt: string) => { resends.push({ instanceId: id, prompt }); },
@@ -1494,7 +1712,7 @@ describe('createInstance spawn transaction rollback', () => {
     // Not cast to `never` either — the same suppression that hid two wrong
     // callback shapes on the other handler.
     authHandler.configure({
-      setWaitReason: () => {},
+      setWaitReason: () => undefined,
       revive: async (id: string) => id,
       resendInput: (id, turn) => { resends.push({ instanceId: id, prompt: turn.message }); },
       probeAuth: async () => 'unauthenticated' as const,
@@ -1568,15 +1786,15 @@ describe('createInstance spawn transaction rollback', () => {
     let scheduledResume: ((instanceId: string) => void) | null = null;
     limitHandler.configure({
       isEnabled: () => true,
-      setWaitReason: () => {},
+      setWaitReason: () => undefined,
       getQuotaSnapshot: () => null,
-      refreshQuotaSnapshot: () => {},
+      refreshQuotaSnapshot: () => undefined,
       getWorkspaceCwd: () => '/tmp/project',
       isResumable: () => true,
       resendInput: (id: string, prompt: string) => { resends.push({ instanceId: id, prompt }); },
       scheduleResume: ({ resumeInstance }) => {
         scheduledResume = resumeInstance;
-        return () => {};
+        return () => undefined;
       },
     });
 

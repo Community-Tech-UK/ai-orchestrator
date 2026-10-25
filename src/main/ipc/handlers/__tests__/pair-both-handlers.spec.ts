@@ -109,7 +109,7 @@ vi.mock('../../../../worker-agent/worker-config', () => ({
 }));
 
 vi.mock('../../../remote-node/pair-both-rendezvous-service', () => ({
-  PairBothRendezvousService: vi.fn().mockImplementation((options) => {
+  PairBothRendezvousService: vi.fn().mockImplementation(function (options) {
     mocks.rendezvousOptions.push(options);
     return {
       shutdown: mocks.shutdown,
@@ -126,13 +126,13 @@ vi.mock('../../../remote-node/pair-both-rendezvous-service', () => ({
 }));
 
 vi.mock('../../../remote-node/pair-both-discovery', () => ({
-  PairBothDiscoveryBrowser: vi.fn().mockImplementation(() => ({
+  PairBothDiscoveryBrowser: vi.fn().mockImplementation(function () { return ({
     discover: mocks.discover,
-  })),
-  PairBothDiscoveryPublisher: vi.fn().mockImplementation(() => ({
+  }); }),
+  PairBothDiscoveryPublisher: vi.fn().mockImplementation(function () { return ({
     publish: mocks.publish,
     unpublish: mocks.unpublish,
-  })),
+  }); }),
 }));
 
 vi.mock('../../../remote-node/worker-mode-runtime-service', () => ({

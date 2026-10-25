@@ -66,7 +66,7 @@ class FakeAdapter extends EventEmitter {
 }
 
 vi.mock('../../cli/adapters/cursor-cli-adapter', () => ({
-  CursorCliAdapter: vi.fn().mockImplementation(() => new FakeAdapter()),
+  CursorCliAdapter: vi.fn().mockImplementation(function () { return new FakeAdapter(); }),
 }));
 
 describe('CursorCliProvider inline translation', () => {

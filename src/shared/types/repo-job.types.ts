@@ -75,6 +75,9 @@ export interface RepoJobRecord {
   result?: RepoJobResult;
   error?: string;
   submission: RepoJobSubmission;
+  /** The task monitor is stopped but its work and original request remain resumable. */
+  globalPauseHeld?: boolean;
+  resumeWorktree?: RepoJobWorktreeContext;
 }
 
 export interface RepoJobListOptions {

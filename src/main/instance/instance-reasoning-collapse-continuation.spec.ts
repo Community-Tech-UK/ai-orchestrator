@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type { Instance } from '../../shared/types/instance.types';
 import { InstanceAsyncWorkRegistry } from './instance-async-work-registry';
@@ -26,11 +26,11 @@ describe('InstanceReasoningCollapseContinuation', () => {
   let registry: InstanceAsyncWorkRegistry;
   let instance: Instance;
   let host: InstanceReasoningCollapseContinuationHost;
-  let sendInput: ReturnType<typeof vi.fn>;
-  let emitSystemMessage: ReturnType<typeof vi.fn>;
-  let waitForInstanceSettled: ReturnType<typeof vi.fn>;
-  let isManagedLoopInstance: ReturnType<typeof vi.fn>;
-  let isPaused: ReturnType<typeof vi.fn>;
+  let sendInput: Mock<InstanceReasoningCollapseContinuationHost['sendInput']>;
+  let emitSystemMessage: Mock<NonNullable<InstanceReasoningCollapseContinuationHost['emitSystemMessage']>>;
+  let waitForInstanceSettled: Mock<InstanceReasoningCollapseContinuationHost['waitForInstanceSettled']>;
+  let isManagedLoopInstance: Mock<(instanceId: string) => boolean>;
+  let isPaused: Mock<() => boolean>;
   let continuation: InstanceReasoningCollapseContinuation;
 
   const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -256,14 +256,14 @@ describe('InstanceReasoningCollapseContinuation', () => {
       // The initial asynchronous goal query was inactive; a goal notification
       // arrives during the manager's asynchronous context preparation.
       nativeOwner = true;
-      options.beforeProviderDispatch();
+      options!.beforeProviderDispatch!();
       providerDispatches += 1;
     });
     collapseComplete();
     await flush();
     expect(adapter.hasProviderAutoContinuation).toHaveBeenCalledOnce();
     expect(providerDispatches).toBe(0);
-    expect(emitSystemMessage.mock.calls.some((call) => call[2]?.attempt)).toBe(false);
+    expect(emitSystemMessage.mock.calls.some((call) => call[2]?.['attempt'])).toBe(false);
     expect(instance.requestCount).toBe(3);
   });
 
@@ -277,18 +277,18 @@ describe('InstanceReasoningCollapseContinuation', () => {
   it('cancels at the provider dispatch fence when the user takes over', async () => {
     sendInput.mockImplementation(async (_id, _message, _attachments, options) => {
       events.emit('instance:input-started', { instanceId: ID, autoContinuation: false });
-      expect(() => options.beforeProviderDispatch()).toThrow();
+      expect(() => options!.beforeProviderDispatch!()).toThrow();
     });
     collapseComplete();
     await flush();
     expect(sendInput).toHaveBeenCalledOnce();
-    expect(emitSystemMessage.mock.calls.some((call) => call[2]?.attempt)).toBe(false);
+    expect(emitSystemMessage.mock.calls.some((call) => call[2]?.['attempt'])).toBe(false);
   });
 
   it('can schedule the second cutoff before the first send promise settles', async () => {
     let completeSend!: () => void;
     sendInput.mockImplementationOnce(async (_id, _message, _attachments, options) => {
-      options.beforeProviderDispatch();
+      options!.beforeProviderDispatch!();
       instance.requestCount += 1;
       cutoffComplete({ stopReason: 'max_tokens' });
       await new Promise<void>((resolve) => { completeSend = resolve; });

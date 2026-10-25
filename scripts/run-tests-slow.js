@@ -18,7 +18,10 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 const passthroughArgs = process.argv.slice(2);
 
-const vitestBin = require.resolve('vitest/vitest.mjs');
+const vitestBin = path.resolve(
+  path.dirname(require.resolve('vitest/package.json')),
+  require('vitest/package.json').bin.vitest,
+);
 const args = [
   'run',
   '--config',

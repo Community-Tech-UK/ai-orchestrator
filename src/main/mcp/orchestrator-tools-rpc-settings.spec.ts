@@ -37,7 +37,7 @@ import {
   OrchestratorToolsRpcServer,
   _resetOrchestratorToolsRpcServerForTesting,
 } from './orchestrator-tools-rpc-server';
-import { createSettingsToolDefinitions } from './orchestrator-settings-tools';
+import { createSettingsToolDefinitions, type SettingsManagerForTools } from './orchestrator-settings-tools';
 
 const KNOWN_INSTANCE = 'instance-known';
 
@@ -50,7 +50,7 @@ function makeSettingsManager(initial: Partial<AppSettings> = {}) {
   return {
     values,
     getAll: vi.fn(() => ({ ...values })),
-    get: vi.fn(<K extends keyof AppSettings>(key: K) => values[key]),
+    get: vi.fn(<K extends keyof AppSettings>(key: K) => values[key]) as SettingsManagerForTools['get'],
     set: vi.fn(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
       values[key] = value;
     }),

@@ -377,6 +377,18 @@ export class SessionAdmissionStore {
     });
   }
 
+  /** A revived conversation has a new runtime id; its unsent messages follow it. */
+  reassignQueued(fromInstanceId: string, toInstanceId: string): void {
+    if (fromInstanceId === toInstanceId) return;
+    this.db.transaction(() => {
+      const offset = this.nextQueuePosition(toInstanceId);
+      const rows = this.listQueued(fromInstanceId);
+      const statement = this.db.prepare(`UPDATE prompt_admissions SET instance_id=?,queue_position=?,
+        state='queued',updated_at=? WHERE admission_id=? AND state IN ('queued','promoting')`);
+      rows.forEach((row, index) => statement.run(toInstanceId, offset + index, Date.now(), row.admissionId));
+    })();
+  }
+
   /**
    * Dedupe hook for `SessionAdmissionService.recordUserSend()`: find a
    * `promoting` row for this instance+message created recently enough to be

@@ -11,7 +11,7 @@ function makeDescriptor(provider: string, defaultConfig: Record<string, unknown>
 }
 
 vi.mock('./claude-cli-provider', () => ({
-  ClaudeCliProvider: vi.fn().mockImplementation(() => ({ type: 'claude-cli' })),
+  ClaudeCliProvider: vi.fn().mockImplementation(function () { return { type: 'claude-cli' }; }),
   DEFAULT_CLAUDE_CONFIG: {
     type: 'claude-cli',
     name: 'Claude Code CLI',
@@ -26,7 +26,7 @@ vi.mock('./claude-cli-provider', () => ({
   }),
 }));
 vi.mock('./codex-cli-provider', () => ({
-  CodexCliProvider: vi.fn().mockImplementation(() => ({ type: 'openai' })),
+  CodexCliProvider: vi.fn().mockImplementation(function () { return { type: 'openai' }; }),
   DEFAULT_CODEX_CONFIG: {
     type: 'openai',
     name: 'OpenAI',
@@ -39,7 +39,7 @@ vi.mock('./codex-cli-provider', () => ({
   }),
 }));
 vi.mock('./gemini-cli-provider', () => ({
-  GeminiCliProvider: vi.fn().mockImplementation(() => ({ type: 'google' })),
+  GeminiCliProvider: vi.fn().mockImplementation(function () { return { type: 'google' }; }),
   DEFAULT_GEMINI_CONFIG: {
     type: 'google',
     name: 'Google AI',
@@ -52,7 +52,7 @@ vi.mock('./gemini-cli-provider', () => ({
   }),
 }));
 vi.mock('./copilot-cli-provider', () => ({
-  CopilotCliProvider: vi.fn().mockImplementation(() => ({ type: 'copilot' })),
+  CopilotCliProvider: vi.fn().mockImplementation(function () { return { type: 'copilot' }; }),
   DEFAULT_COPILOT_CONFIG: {
     type: 'copilot',
     name: 'GitHub Copilot CLI',
@@ -65,7 +65,7 @@ vi.mock('./copilot-cli-provider', () => ({
   }),
 }));
 vi.mock('./cursor-cli-provider', () => ({
-  CursorCliProvider: vi.fn().mockImplementation(() => ({ type: 'cursor' })),
+  CursorCliProvider: vi.fn().mockImplementation(function () { return { type: 'cursor' }; }),
   DEFAULT_CURSOR_CONFIG: {
     type: 'cursor',
     name: 'Cursor',
@@ -78,7 +78,7 @@ vi.mock('./cursor-cli-provider', () => ({
   }),
 }));
 vi.mock('./anthropic-api-provider', () => ({
-  AnthropicApiProvider: vi.fn().mockImplementation(() => ({ type: 'anthropic-api' })),
+  AnthropicApiProvider: vi.fn().mockImplementation(function () { return { type: 'anthropic-api' }; }),
 }));
 vi.mock('../cli/cli-detection', () => ({
   CliDetectionService: {

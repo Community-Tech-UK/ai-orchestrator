@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type {
   ForkConfig,
   Instance,
@@ -78,7 +78,7 @@ function createInstance(overrides: Partial<Instance> = {}): Instance {
 
 describe('InstancePersistenceManager', () => {
   let sourceInstance: Instance;
-  let createInstanceMock: ReturnType<typeof vi.fn>;
+  let createInstanceMock: Mock<(config: InstanceCreateConfig) => Promise<Instance>>;
   let manager: InstancePersistenceManager;
 
   beforeEach(() => {
@@ -415,7 +415,7 @@ describe('InstancePersistenceManager', () => {
 
 describe('InstancePersistenceManager fork prompt inheritance', () => {
   let sourceInstance: Instance;
-  let createInstanceMock: ReturnType<typeof vi.fn>;
+  let createInstanceMock: Mock<(config: InstanceCreateConfig) => Promise<Instance>>;
   let manager: InstancePersistenceManager;
 
   const prompt = (id: string, content: string, timestamp: number): OutputMessage =>

@@ -484,3 +484,20 @@ Do not report:
 - secret or redacted values
 - full JSON blobs that contain local machine details unless the user asked for
   raw output
+
+## Pause new work and workload
+
+```bash
+$AIO_MCP pause status [--json]
+$AIO_MCP pause hold [--json]
+$AIO_MCP pause release [--json]
+$AIO_MCP settings get workloadLevel --json
+$AIO_MCP settings set workloadLevel 1 --json
+```
+
+Hold lets running work finish and keeps new unattended work waiting. It survives a restart and never expires automatically.
+Release only releases Hold; it cannot resume a restart pause. Pause for restart, Resume and Discard are actions for James
+in the Work panel. Status reports the phase, time and reason; it does not expose session notes.
+
+The workload setting accepts whole numbers 1–5, with 3 (Balanced) preserving the existing limits. Lowering it changes
+what starts next; it never stops running work. Remote work does not count against local capacity.

@@ -64,6 +64,10 @@ import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
 import { automaticReviewSkipReason } from './automatic-review-skip';
 import { buildCrossModelReviewDispatch } from './cross-model-review-dispatch';
 import { getReviewDailyUsage, reserveReviewDispatch, recordReviewLifecycle } from './review-dispatch-ledger';
+import { getWorkAdmission } from '../work-admission/work-admission';
+import { runTrackedConsult, trackConsult, waitForConsult } from '../work-admission/consult-admission';
+import { trackConsultAdapter } from '../work-admission/consult-adapter-lifecycle';
+import { waitForGlobalPauseInput } from '../global-pause/global-pause-input';
 const logger = getLogger('CrossModelReviewService');
 
 // Codex and Antigravity both run noticeably slower than other reviewer CLIs
@@ -256,6 +260,8 @@ export class CrossModelReviewService extends EventEmitter {
   // === Trigger (called when instance goes idle) ===
 
   async onInstanceIdle(instanceId: string): Promise<void> {
+    await getWorkAdmission().wait('timed-wakeup');
+    await waitForGlobalPauseInput(instanceId, { automatedInput: true });
     if (this.isPaused || getPauseCoordinator().isPaused()) return;
     const settings = getSettingsManager().getAll();
     if (!settings.crossModelReviewEnabled) return;
@@ -283,6 +289,7 @@ export class CrossModelReviewService extends EventEmitter {
 
   private async dispatchReview(instance: Instance, content: string, primaryProvider: string, firstUserPrompt: string,
     changedFiles: string[], turnSeq: number | undefined, trigger: 'automatic' | 'manual') {
+    await waitForConsult();
     const settings = getSettingsManager().getAll();
     const classification = this.classifier.classify(content);
     if (classification.type === 'conversation') classification.type = 'code';
@@ -318,9 +325,12 @@ export class CrossModelReviewService extends EventEmitter {
 
   private async executeReviews(request: ReviewDispatchRequest, reviewerClis: CheckerCandidate[], timeoutSeconds: number): Promise<void> {
     const abort = new AbortController();
+    const untrack = trackConsult(() => abort.abort());
     this.pendingReviews.set(request.id, abort);
     this.pendingReviewInstances.set(request.id, request.instanceId);
     try {
+      await getWorkAdmission().wait('consult', {}, abort.signal);
+      abort.signal.throwIfAborted();
       const settings = getSettingsManager().getAll();
       const localPlan = createLocalReviewExecutionPlan({
         enabled: settings.crossModelReviewLocalEnabled,
@@ -411,6 +421,7 @@ export class CrossModelReviewService extends EventEmitter {
       this.addToHistory(request.instanceId, aggregated);
       this.emit('review:result', aggregated);
     } finally {
+      untrack();
       this.pendingReviews.delete(request.id);
       this.pendingReviewInstances.delete(request.id);
     }
@@ -551,6 +562,9 @@ export class CrossModelReviewService extends EventEmitter {
             cliType: resolvedCli,
             options: reviewerSpawnOptions,
           });
+          const finishConsult = trackConsultAdapter(adapter, async () => {
+            if (isTerminableAdapter(adapter)) await adapter.terminate(false);
+          });
 
           let cancelled = false;
           try {
@@ -612,8 +626,8 @@ export class CrossModelReviewService extends EventEmitter {
               });
             }
           } finally {
-            if (!cancelled && isTerminableAdapter(adapter)) {
-              await adapter.terminate(false).catch((cleanupError: unknown) => {
+            if (!cancelled) {
+              await finishConsult().catch((cleanupError: unknown) => {
                 logger.warn('Review adapter cleanup failed', {
                   cliType: reviewerCli,
                   error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
@@ -669,6 +683,7 @@ export class CrossModelReviewService extends EventEmitter {
   }
 
   async runHeadlessReview(request: HeadlessReviewRequest) {
+    return runTrackedConsult(async signal => {
     // `aio review` is a plain Node/tsx entrypoint. In that process Electron's
     // `app` and userData path do not exist, so electron-store can reject before
     // the routing layer reaches its own manager-unavailable fallback. A missing
@@ -676,7 +691,7 @@ export class CrossModelReviewService extends EventEmitter {
     // available; use the immutable defaults while preserving normal persisted
     // settings in every Electron-hosted call.
     const settings = readHeadlessReviewSettings();
-    return runHeadlessReviewCommand(request, {
+    return runHeadlessReviewCommand({ ...request, signal }, {
       host: this.reviewExecutionHost,
       resolveReviewers: (headlessRequest) => this.resolveHeadlessReviewers(headlessRequest),
       localEnabled: settings.crossModelReviewLocalEnabled === true,
@@ -696,6 +711,7 @@ export class CrossModelReviewService extends EventEmitter {
           signal,
         }),
     });
+    }, request.signal);
   }
 
   private async resolveHeadlessReviewers(request: HeadlessReviewRequest): Promise<CheckerCandidate[]> {

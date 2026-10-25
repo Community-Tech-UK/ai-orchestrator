@@ -10,10 +10,13 @@ import type { SessionRevivalService } from '../session/session-revival-service';
 import type { AutomationStore } from './automation-store';
 import { getSessionAdmissionService, type RedeliveryContext } from '../session/session-admission-service';
 
+import { GlobalPauseService } from '../global-pause/global-pause-service';
+import type { AutomaticStartup } from '../work-admission/automatic-startup';
+
 const logger = getLogger('ThreadWakeupRunner');
 
 type ThreadDestination = Extract<AutomationDestination, { kind: 'thread' }>;
-type InstanceInput = Pick<InstanceManager, 'sendInput'>;
+type InstanceInput = Pick<InstanceManager, 'sendInput' | 'getInstance' | 'interruptInstance' | 'waitForInstanceSettled'>;
 type RevivalInput = Pick<SessionRevivalService, 'revive'>;
 type WakeupStore = Pick<AutomationStore, 'attachInstance' | 'terminalizeRun'>;
 
@@ -21,6 +24,8 @@ export interface ThreadWakeupRequest {
   run: AutomationRun;
   automation: Automation;
   destination: ThreadDestination;
+  startup?: AutomaticStartup;
+  onProviderDispatch?: (instanceId: string) => void;
 }
 
 export class ThreadWakeupRunner {
@@ -43,11 +48,30 @@ export class ThreadWakeupRunner {
     const revived = await this.reviveTarget(automation, destination);
 
     if (revived.status === 'failed' || !revived.instanceId) {
+      request.startup?.signal.throwIfAborted();
       const reason = `Thread wakeup failed: ${revived.failureCode ?? 'target_missing'}${revived.error ? ` (${revived.error})` : ''}`;
       return this.fail(run, reason);
     }
 
     const instanceId = revived.instanceId;
+    let sending = false;
+    request.startup?.register({ id: instanceId }, async () => {
+      if (!sending || (GlobalPauseService.peek() && !GlobalPauseService.peek()?.holdsAutomaticInput(instanceId))) return;
+      const live = this.instanceManager.getInstance(instanceId);
+      if (live && ['initializing', 'busy', 'processing', 'thinking_deeply', 'interrupting', 'respawning'].includes(live.status)) {
+        const pause = GlobalPauseService.peek();
+        const controller = new AbortController();
+        const pickedUp = (): void => { if (pause && !pause.holdsAutomaticInput(instanceId)) controller.abort(); };
+        pause?.on('state-changed', pickedUp);
+        try {
+          pickedUp();
+          if (controller.signal.aborted) return;
+          this.instanceManager.interruptInstance(instanceId, 'pause');
+          await this.instanceManager.waitForInstanceSettled(instanceId, { timeoutMs: 31_000, signal: controller.signal });
+        } catch (error) { if (!controller.signal.aborted) throw error; }
+        finally { pause?.off('state-changed', pickedUp); }
+      }
+    });
     this.store.attachInstance(run.id, instanceId, this.now());
 
     // A5: re-check live instance state before firing into it — a revived
@@ -75,16 +99,22 @@ export class ThreadWakeupRunner {
       // A provider-limit resume automation can carry a Harness-authored turn;
       // user-written automation prompts pass through unchanged (LT-657).
       const delivery = automatedResendInput(automation.action.prompt);
+      const beforeProviderDispatch = (): void => {
+        request.startup?.signal.throwIfAborted();
+        sending = true;
+        request.onProviderDispatch?.(instanceId);
+      };
       await this.instanceManager.sendInput(
         instanceId,
         delivery.message,
         automation.action.attachments,
-        delivery.options,
+        request.startup ? { ...delivery.options, signal: request.startup.signal, beforeProviderDispatch } : delivery.options,
       );
       getSessionAdmissionService().markDelivered(admission.admissionId);
       const summary = `Wakeup prompt delivered to thread ${instanceId}.`;
       return this.terminalize(run, 'succeeded', undefined, summary);
     } catch (error) {
+      if (request.startup?.signal.aborted) throw error;
       getSessionAdmissionService().markFailed(
         admission.admissionId,
         error instanceof Error ? error.message : String(error),

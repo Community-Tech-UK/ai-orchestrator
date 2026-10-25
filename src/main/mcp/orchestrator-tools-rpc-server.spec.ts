@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import * as net from 'node:net';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -42,7 +42,7 @@ const KNOWN_INSTANCE = 'instance-known';
 
 function makeServer(overrides: Partial<ConstructorParameters<typeof OrchestratorToolsRpcServer>[0]> = {}): {
   server: OrchestratorToolsRpcServer;
-  toolHandler: ReturnType<typeof vi.fn>;
+  toolHandler: Mock<McpServerToolDefinition['handler']>;
 } {
   const toolHandler = vi.fn(async (args: unknown) => ({ echoed: args }));
   const tools: McpServerToolDefinition[] = [
@@ -1416,7 +1416,7 @@ describe('OrchestratorToolsRpcServer abort-signal plumbing', () => {
 describe('OrchestratorToolsRpcServer socket roundtrip', () => {
   let tmpDir: string;
   let server: OrchestratorToolsRpcServer;
-  let toolHandler: ReturnType<typeof vi.fn>;
+  let toolHandler: Mock<McpServerToolDefinition['handler']>;
 
   beforeEach(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ot-rpc-sock-'));

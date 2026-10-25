@@ -33,7 +33,7 @@ vi.mock('../../../main/logging/logger', () => ({
   }),
 }));
 
-vi.mock('fs/promises');
+vi.mock('fs/promises', () => ({ readFile: vi.fn() }));
 
 import { CodebaseMiner } from '../../../main/memory/codebase-miner';
 import { KnowledgeGraphService } from '../../../main/memory/knowledge-graph-service';

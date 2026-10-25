@@ -4,8 +4,8 @@ import { listBackupSets, pruneOldBackups } from './rlm-backup-retention';
 import { initializeRlmStorageMaintenance, _resetRlmStorageMaintenanceForTesting, getProtectedRlmSessionIds } from './rlm-storage-maintenance-runtime';
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/aio-test-user-data' } }));
-vi.mock('./rlm-storage-maintenance', () => ({ RlmStorageMaintenanceService: vi.fn(() => ({})) }));
-vi.mock('./rlm-storage-maintenance-database', () => ({ RlmMaintenanceDatabaseAdapter: vi.fn(() => ({})) }));
+vi.mock('./rlm-storage-maintenance', () => ({ RlmStorageMaintenanceService: vi.fn(function () { return ({}); }) }));
+vi.mock('./rlm-storage-maintenance-database', () => ({ RlmMaintenanceDatabaseAdapter: vi.fn(function () { return ({}); }) }));
 vi.mock('./rlm-backup-retention', () => ({ listBackupSets: vi.fn(() => []), pruneOldBackups: vi.fn() }));
 vi.mock('../persistence/rlm-database', () => ({ getRLMDatabase: vi.fn() }));
 vi.mock('../orchestration/loop-coordinator', () => ({ getLoopCoordinator: () => ({ setMaintenanceGate: vi.fn() }) }));

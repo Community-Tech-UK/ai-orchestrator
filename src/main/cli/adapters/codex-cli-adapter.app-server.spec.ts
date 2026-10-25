@@ -1829,10 +1829,10 @@ describe('CodexCliAdapter', () => {
     it('keeps one context outer-send id across a recovery continuation and mints a new one per user send', async () => {
       const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
       const { client } = installSyntheticCostClient(adapter, { requestSharedRecovery: true });
-      const request = client.request as unknown as ReturnType<typeof vi.fn>;
+      const request = vi.mocked(client.request);
       const synthetic = request.getMockImplementation()!;
       const idsAtTurnStart: (string | null)[] = [];
-      request.mockImplementation(async (method: string, params: Record<string, unknown>) => {
+      request.mockImplementation(async (method: string, params: Record<string, unknown> = {}) => {
         if (method === 'turn/start') idsAtTurnStart.push(adapter.getContextOuterSendId());
         return synthetic(method, params);
       });
@@ -1855,11 +1855,11 @@ describe('CodexCliAdapter', () => {
     it('keeps the context outer-send id when the input-cap recovery re-sends the same message', async () => {
       const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
       const { client } = installSyntheticCostClient(adapter, { completeInsteadOfInterrupt: true });
-      const request = client.request as unknown as ReturnType<typeof vi.fn>;
+      const request = vi.mocked(client.request);
       const synthetic = request.getMockImplementation()!;
       const idsAtTurnStart: (string | null)[] = [];
       let rejectedOnce = false;
-      request.mockImplementation(async (method: string, params: Record<string, unknown>) => {
+      request.mockImplementation(async (method: string, params: Record<string, unknown> = {}) => {
         if (method === 'turn/start') {
           idsAtTurnStart.push(adapter.getContextOuterSendId());
           if (!rejectedOnce) {

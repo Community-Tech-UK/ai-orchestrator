@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { CliAdapter } from '../../../cli/adapters/adapter-factory';
 import { InterruptRespawnHandler, type InterruptRespawnDeps } from '../interrupt-respawn-handler';
 import { RuntimeReconciler } from '../runtime-reconciler';
@@ -152,11 +152,11 @@ function withRealRecoveryCore(deps: InterruptRespawnDeps): InterruptRespawnDeps 
 describe('InterruptRespawnHandler', () => {
   let instance: Instance;
   let adapter: InterruptProofAdapter;
-  let queueUpdate: ReturnType<typeof vi.fn>;
-  let clearInterrupted: ReturnType<typeof vi.fn>;
-  let addToOutputBuffer: ReturnType<typeof vi.fn>;
-  let emitOutput: ReturnType<typeof vi.fn>;
-  let onToolStateChange: ReturnType<typeof vi.fn>;
+  let queueUpdate: Mock<InterruptRespawnDeps['queueUpdate']>;
+  let clearInterrupted: Mock<InterruptRespawnDeps['clearInterrupted']>;
+  let addToOutputBuffer: Mock<InterruptRespawnDeps['addToOutputBuffer']>;
+  let emitOutput: Mock<InterruptRespawnDeps['emitOutput']>;
+  let onToolStateChange: Mock<NonNullable<InterruptRespawnDeps['onToolStateChange']>>;
   let handler: InterruptRespawnHandler;
 
   beforeEach(() => {

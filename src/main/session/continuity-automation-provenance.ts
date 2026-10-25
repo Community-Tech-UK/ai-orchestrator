@@ -11,9 +11,11 @@ export function automationProvenanceFromMetadata(
   const automationId = metadata?.['automationId'];
   if (typeof automationId !== 'string' || !automationId.trim()) return undefined;
   const automationRunId = metadata?.['automationRunId'];
+  const automationSourceRunId = metadata?.['automationSourceRunId'];
   return {
     automationId,
     ...(typeof automationRunId === 'string' && automationRunId ? { automationRunId } : {}),
+    ...(typeof automationSourceRunId === 'string' && automationSourceRunId ? { automationSourceRunId } : {}),
     ...(metadata?.['automationHidden'] === true ? { hidden: true } : {}),
     ...(metadata?.['automationRunSucceeded'] === true ? { runSucceeded: true } : {}),
     ...(metadata?.['automationRevealed'] === true ? { revealed: true } : {}),
@@ -31,6 +33,7 @@ export function automationMetadataFromProvenance(
   return {
     automationId: provenance.automationId,
     ...(provenance.automationRunId ? { automationRunId: provenance.automationRunId } : {}),
+    ...(provenance.automationSourceRunId ? { automationSourceRunId: provenance.automationSourceRunId } : {}),
     ...(provenance.hidden === true ? { automationHidden: true } : {}),
     ...(provenance.runSucceeded === true ? { automationRunSucceeded: true } : {}),
     ...(provenance.revealed === true ? { automationRevealed: true } : {}),

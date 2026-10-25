@@ -10,6 +10,7 @@ import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { resolveAntigravityReviewModelPlan } from '../orchestration/antigravity-review-model-routing';
 import { resolveReviewerModelOverride } from './reviewer-model-override';
 import { observeModelCallUsage, isModelCallCancelled } from '../core/system/observed-model-call-usage';
+import { stopTrackedConsultAdapter, trackConsultAdapter } from '../work-admission/consult-adapter-lifecycle';
 
 /**
  * Lives in its own leaf module so this file and the checker planner can both use
@@ -125,6 +126,8 @@ function cancelAdapter(adapter: unknown): void {
       // Force termination below remains the authoritative cancellation path.
     }
   }
+  const tracked = stopTrackedConsultAdapter(adapter);
+  if (tracked) { void tracked.catch(() => undefined); return; }
   if (isTerminableAdapter(adapter)) {
     try {
       void Promise.resolve(adapter.terminate(false)).catch(() => undefined);
@@ -242,6 +245,9 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
       cliType: resolvedCli,
       options: reviewerSpawnOptions,
     });
+    const finishConsult = trackConsultAdapter(adapter, async () => {
+      if (isTerminableAdapter(adapter)) await adapter.terminate(false);
+    });
 
     let cancelled = false;
     let usageNotified = false;
@@ -270,9 +276,7 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
       }
       throw error;
     } finally {
-      if (!cancelled && isTerminableAdapter(adapter)) {
-        await adapter.terminate(false);
-      }
+      if (!cancelled) await finishConsult();
     }
   }
 }

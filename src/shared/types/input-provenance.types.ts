@@ -11,6 +11,8 @@
  * internal and must not use this.
  */
 export type InternalInputSource =
+  | 'global-pause-note'
+  | 'global-pause-resume'
   | 'context-policy'
   | 'async-work-continuation'
   | 'announce-then-halt-continuation'

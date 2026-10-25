@@ -75,7 +75,7 @@ export function createInstanceDomain(
       instanceId: string;
       message: string;
       attachments?: unknown[];
-      isRetry?: boolean;
+      isRetry?: boolean; automatedInput?: boolean;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_SEND_INPUT, payload);
     },

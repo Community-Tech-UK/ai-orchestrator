@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { Instance } from '../../shared/types/instance.types';
 
@@ -29,6 +29,7 @@ vi.mock('../core/error-recovery', () => ({
 }));
 
 import { InstanceCommunicationManager } from './instance-communication';
+import { GlobalPauseService } from '../global-pause/global-pause-service';
 
 class FakeAdapter extends EventEmitter {
   readonly sendInput = vi.fn(async () => undefined);
@@ -37,6 +38,25 @@ class FakeAdapter extends EventEmitter {
 }
 
 describe('InstanceCommunicationManager input cancellation', () => {
+  beforeEach(() => { lifecycleHookMocks.triggerLifecycleHooks.mockClear(); });
+  it('holds a direct automated replay that reaches the communication layer during a global pause', async () => {
+    const instance = createInstance();
+    const adapter = new FakeAdapter();
+    let held = true;
+    const pause = Object.assign(new EventEmitter(), { holdsAutomaticInput: () => held, manualInput: vi.fn() });
+    const peek = vi.spyOn(GlobalPauseService, 'peek').mockReturnValue(pause as unknown as GlobalPauseService);
+    const manager = new InstanceCommunicationManager({ getInstance: () => instance, getAdapter: () => adapter as unknown as CliAdapter,
+      setAdapter: vi.fn(), deleteAdapter: vi.fn(() => true), queueUpdate: vi.fn(), processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined), ingestToRLM: vi.fn(), ingestToUnifiedMemory: vi.fn() });
+    try {
+      const send = manager.sendInput(instance.id, 'Recovered user turn', undefined, null, { automatedInput: true });
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      expect(adapter.sendInput).not.toHaveBeenCalled();
+      held = false; pause.emit('state-changed'); await send;
+      expect(adapter.sendInput).toHaveBeenCalledOnce();
+      expect(pause.manualInput).not.toHaveBeenCalled();
+    } finally { peek.mockRestore(); }
+  });
   it('keeps queued continuity and last-sent state when cancelled during PreSampling', async () => {
     const instance = createInstance();
     const adapter = new FakeAdapter();

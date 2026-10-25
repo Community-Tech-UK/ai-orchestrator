@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { ConversationLedgerService } from '../../conversation-ledger';
 import { NativeConversationRegistry } from '../../conversation-ledger/native-conversation-registry';
 import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
@@ -1282,7 +1282,7 @@ class CancellingGitBatchService extends GitBatchService {
   }
 }
 
-function evidenceCoordinatorStub(captureAioMcpResult: ReturnType<typeof vi.fn>) {
+function evidenceCoordinatorStub(captureAioMcpResult: Mock) {
   return {
     list: vi.fn(async () => []),
     search: vi.fn(async () => []),

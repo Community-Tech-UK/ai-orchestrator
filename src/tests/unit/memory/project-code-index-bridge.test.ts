@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile, unlink } from 'fs/promises';
 import { dirname, join } from 'path';
 import { tmpdir } from 'os';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import Database from 'better-sqlite3';
 import type { SqliteDriver } from '../../../main/db/sqlite-driver';
 import * as schema from '../../../main/persistence/rlm/rlm-schema';
@@ -230,12 +230,12 @@ describe('ProjectCodeIndexBridge', () => {
     indexingEnabled?: boolean;
     manifestEntries?: WorkspaceManifestRow[];
     symbols?: WorkspaceSymbolRecord[];
-  } = {}): ProjectCodeIndexSource & { ensureWorkspace: ReturnType<typeof vi.fn> } {
+  } = {}): ProjectCodeIndexSource & { ensureWorkspace: Mock<ProjectCodeIndexSource['ensureWorkspace']> } {
     const workspaceHash = overrides.manifestEntries?.[0]?.workspaceHash
       ?? overrides.symbols?.[0]?.workspaceHash
       ?? 'workspace-1';
     const ensureWorkspace = (overrides.ensureWorkspace
-      ?? vi.fn(async () => ({ workspaceHash, lastIndexedAt: 5 }))) as ReturnType<typeof vi.fn>;
+      ?? vi.fn(async () => ({ workspaceHash, lastIndexedAt: 5 }))) as Mock<ProjectCodeIndexSource['ensureWorkspace']>;
     return {
       isEnabled: vi.fn(() => overrides.enabled ?? true),
       isIndexingEnabled: vi.fn(() => overrides.indexingEnabled ?? true),

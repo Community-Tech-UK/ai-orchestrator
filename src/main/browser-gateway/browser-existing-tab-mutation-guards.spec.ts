@@ -22,18 +22,14 @@ function makeAttachment(
   };
 }
 
+type OperationsDeps = ConstructorParameters<typeof BrowserExistingTabOperations>[0];
+
 function makeOps(overrides: {
-  sendCommand?: ReturnType<typeof vi.fn>;
-  sentinel?: {
-    scan: ReturnType<typeof vi.fn>;
-    needsPreWriteCheck: ReturnType<typeof vi.fn>;
-  };
-  writeJournal?: {
-    recordIntent: ReturnType<typeof vi.fn>;
-    recordOutcome: ReturnType<typeof vi.fn>;
-  };
+  sendCommand?: OperationsDeps['extensionCommandStore']['sendCommand'];
+  sentinel?: OperationsDeps['persistenceSentinel'];
+  writeJournal?: OperationsDeps['writeJournal'];
   lastDisconnectAt?: number;
-  reliabilityEvents?: { record: ReturnType<typeof vi.fn> };
+  reliabilityEvents?: OperationsDeps['reliabilityEvents'];
 } = {}) {
   const sendCommand = overrides.sendCommand ?? vi.fn().mockResolvedValue({ ok: true });
   const ops = new BrowserExistingTabOperations({

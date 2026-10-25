@@ -56,6 +56,7 @@ import { getInstanceCreateIdempotencyCache } from './instance-create-idempotency
 import type { ComputerUseAutonomyLevel } from '../../../shared/types/desktop-gateway-settings.types';
 import { registerInstanceComputerUseHandler } from './instance-computer-use-handler';
 import { prepareUserClose } from './instance-close-all';
+import { GlobalPauseService } from '../../global-pause/global-pause-service';
 
 const logger = getLogger('InstanceHandlers');
 
@@ -237,7 +238,7 @@ export function registerInstanceHandlers(deps: {
           validatedPayload.instanceId,
           validatedPayload.message,
           toFileAttachments(validatedPayload.attachments),
-          { isRetry: validatedPayload.isRetry }
+          { isRetry: validatedPayload.isRetry, automatedInput: validatedPayload.automatedInput }
         );
 
         return { success: true };
@@ -312,6 +313,7 @@ export function registerInstanceHandlers(deps: {
         );
 
         await prepareUserClose([validatedPayload.instanceId], 'one');
+        GlobalPauseService.peek()?.voidTarget(validatedPayload.instanceId, 'closed-by-james');
         await instanceManager.terminateInstance(
           validatedPayload.instanceId,
           validatedPayload.graceful ?? true
@@ -659,6 +661,7 @@ export function registerInstanceHandlers(deps: {
     async (): Promise<IpcResponse> => {
       try {
         await prepareUserClose(instanceManager.getAllInstances().map(instance => instance.id), 'all');
+        for (const instance of instanceManager.getAllInstances()) GlobalPauseService.peek()?.voidTarget(instance.id, 'closed-by-james');
         await instanceManager.terminateAllInstances();
 
         return { success: true };
@@ -858,10 +861,6 @@ export function registerInstanceHandlers(deps: {
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
         const settings = getSettingsManager();
-        if (!settings.get('pauseFeatureEnabled')) {
-          clearInstanceQueueStore();
-          return { success: true };
-        }
         if (!settings.get('persistSessionContent')) {
           clearInstanceQueueStore();
           return { success: true };
@@ -890,10 +889,6 @@ export function registerInstanceHandlers(deps: {
   ipcMain.handle(IPC_CHANNELS.INSTANCE_QUEUE_LOAD_ALL, async (): Promise<IpcResponse> => {
     try {
       const settings = getSettingsManager();
-      if (!settings.get('pauseFeatureEnabled')) {
-        clearInstanceQueueStore();
-        return { success: true, data: { queues: {} } };
-      }
       if (!settings.get('persistSessionContent')) {
         clearInstanceQueueStore();
         return { success: true, data: { queues: {} } };

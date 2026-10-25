@@ -35,6 +35,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
+import { backgroundConcurrencySetting, bindBackgroundAdmission } from '../work-admission/background-admission';
+import { getWorkAdmission } from '../work-admission/work-admission';
 import { getCodemem, type CodememService } from '../codemem';
 import { getRecentDirectoriesManager } from '../core/config/recent-directories-manager';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -145,6 +147,7 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
   private listenerBound: ((entry: RecentDirectoryEntry) => void) | null = null;
   private codeIndexChangedBound: ((event: CodememCodeIndexChangedEvent) => void) | null = null;
   private started = false;
+  private admissionCleanup?: () => void;
   private recentDirsManager: EventEmitter | null = null;
   private readonly knowledge: AutoMirrorKnowledgeTarget;
   private readonly bridge: AutoMirrorBridgeTarget;
@@ -178,6 +181,7 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
     manager.on('directory-added', this.listenerBound);
     this.codemem.on?.('code-index:changed', this.codeIndexChangedBound);
     this.started = true;
+    this.admissionCleanup = bindBackgroundAdmission(() => this.active.size, () => this.drainQueue());
     logger.info('ProjectKnowledgeAutoMirrorCoordinator started');
   }
 
@@ -199,6 +203,8 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
     this.debounceTimers.clear();
     this.debounceForces.clear();
     this.started = false;
+    this.admissionCleanup?.();
+    this.admissionCleanup = undefined;
     logger.info('ProjectKnowledgeAutoMirrorCoordinator stopped');
   }
 
@@ -357,7 +363,7 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
 
   private async drainQueue(): Promise<void> {
     const cap = this.getMaxConcurrent();
-    while (this.active.size < cap && this.queue.length > 0) {
+    while (this.active.size < cap && this.queue.length > 0 && getWorkAdmission().check('background-index').allowed) {
       const next = this.queue.shift();
       if (!next) break;
       this.queuedSet.delete(next.rootPath);
@@ -365,6 +371,7 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
       // Fire-and-forget: each mirror runs to completion independently.
       void this.mirrorOne(next).finally(() => {
         this.active.delete(next.rootPath);
+        getWorkAdmission().notifyChanged();
         void this.drainQueue();
       });
     }
@@ -444,11 +451,7 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
   }
 
   private getMaxConcurrent(): number {
-    const raw = this.settings.get('projectKnowledgeAutoMirrorMaxConcurrent');
-    if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
-      return Math.max(1, Math.floor(raw));
-    }
-    return DEFAULT_MAX_CONCURRENT;
+    return backgroundConcurrencySetting(this.settings.get('projectKnowledgeAutoMirrorMaxConcurrent'), DEFAULT_MAX_CONCURRENT);
   }
 
   private getDebounceMs(): number {

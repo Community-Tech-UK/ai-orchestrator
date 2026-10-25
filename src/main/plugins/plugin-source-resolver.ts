@@ -1,8 +1,7 @@
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import extractZip from 'extract-zip';
-import { assertSafeZipEntry } from './safe-zip-entry';
+import { safeExtractZip } from './safe-extract-zip';
 import type { PluginPackageSource } from '@contracts/schemas/plugin';
 export type { PluginPackageSource } from '@contracts/schemas/plugin';
 
@@ -65,10 +64,7 @@ export class PluginSourceResolver {
   ): Promise<ResolvedPluginSource> {
     const stagedPath = path.join(root, 'plugin');
     await fs.mkdir(stagedPath, { recursive: true });
-    await extractZip(zipPath, {
-      dir: stagedPath,
-      onEntry: (entry) => assertSafeZipEntry(entry, stagedPath),
-    });
+    await safeExtractZip(zipPath, stagedPath);
     return { kind: 'zip', source, stagedPath, checksumPath: zipPath, cleanup };
   }
 

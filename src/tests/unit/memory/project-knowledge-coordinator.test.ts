@@ -77,12 +77,12 @@ function createDeps(root: CodebaseMiningStatus = status()) {
     getStatus: vi.fn(() => codeIndexStatus),
   };
   const settings = {
-    get: vi.fn(<K extends keyof AppSettings>(key: K): AppSettings[K] => {
+    get: <K extends keyof AppSettings>(key: K): AppSettings[K] => {
       const values: Partial<AppSettings> = {
         projectKnowledgeAutoMirrorSkipWithinMs: 30_000,
       };
       return values[key] as AppSettings[K];
-    }),
+    },
   };
 
   return { registry, miner, codeIndexBridge, settings };

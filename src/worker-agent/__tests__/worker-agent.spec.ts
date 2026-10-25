@@ -82,13 +82,15 @@ vi.mock('ws', () => {
 });
 
 vi.mock('../discovery-client', () => ({
-  DiscoveryClient: vi.fn().mockImplementation(() => ({
-    discover: vi.fn(async () => null),
-    startContinuous: vi.fn((_namespace, onUp) => {
-      discoveryMockState.onUp = onUp;
-    }),
-    stopContinuous: vi.fn(),
-  })),
+  DiscoveryClient: vi.fn().mockImplementation(function () {
+    return {
+      discover: vi.fn(async () => null),
+      startContinuous: vi.fn((_namespace, onUp) => {
+        discoveryMockState.onUp = onUp;
+      }),
+      stopContinuous: vi.fn(),
+    };
+  }),
 }));
 
 vi.mock('../worker-config', () => ({
@@ -122,9 +124,9 @@ vi.mock('../coordinator-network-readiness', async (importOriginal) => {
 });
 
 vi.mock('../extension-relay-native-registration', () => ({
-  ExtensionRelayNativeRegistration: vi.fn().mockImplementation(() => ({
-    checkAndRepair: extensionRegistrationMockState.checkAndRepair,
-  })),
+  ExtensionRelayNativeRegistration: vi.fn().mockImplementation(function () {
+    return { checkAndRepair: extensionRegistrationMockState.checkAndRepair };
+  }),
 }));
 
 // Mock capability-reporter
@@ -160,18 +162,20 @@ class MockLocalInstanceManager extends EventEmitter {
 let mockInstanceManager: MockLocalInstanceManager;
 
 vi.mock('../local-instance-manager', () => ({
-  LocalInstanceManager: vi.fn().mockImplementation(() => {
+  LocalInstanceManager: vi.fn().mockImplementation(function () {
     mockInstanceManager = new MockLocalInstanceManager();
     return mockInstanceManager;
   }),
 }));
 
 vi.mock('../android/worker-android-manager', () => ({
-  WorkerAndroidManager: vi.fn().mockImplementation(() => ({
-    getSummary: vi.fn(async () => undefined),
-    reconfigure: vi.fn(async () => undefined),
-    shutdown: vi.fn(async () => undefined),
-  })),
+  WorkerAndroidManager: vi.fn().mockImplementation(function () {
+    return {
+      getSummary: vi.fn(async () => undefined),
+      reconfigure: vi.fn(async () => undefined),
+      shutdown: vi.fn(async () => undefined),
+    };
+  }),
 }));
 
 vi.mock('../provider-runtime-diagnostics', () => ({

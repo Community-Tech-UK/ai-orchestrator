@@ -17,6 +17,8 @@ import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
+import { backgroundConcurrencySetting, bindBackgroundAdmission } from '../work-admission/background-admission';
+import { getWorkAdmission } from '../work-admission/work-admission';
 import {
   createDefaultContextManagerTarget,
   createDefaultFileWatcherTarget,
@@ -81,6 +83,7 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
   private readonly statuses = new Map<string, CodebaseAutoIndexStatus>();
   private listenerBound: ((entry: RecentDirectoryEntry) => void) | null = null;
   private started = false;
+  private admissionCleanup?: () => void;
   private restoreGeneration = 0;
   private readonly restoreWatcherRegistrations = new Map<
     number,
@@ -123,6 +126,7 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
     this.listenerBound = (entry: RecentDirectoryEntry) => this.onDirectoryAdded(entry);
     manager.on('directory-added', this.listenerBound);
     this.started = true;
+    this.admissionCleanup = bindBackgroundAdmission(() => this.active.size, () => this.drainQueue());
     const generation = ++this.restoreGeneration;
     void this.restorePersistedWatchers(generation);
     logger.info('CodebaseIndexingAutoCoordinator started');
@@ -144,6 +148,8 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
     }
     this.debounceTimers.clear();
     this.started = false;
+    this.admissionCleanup?.();
+    this.admissionCleanup = undefined;
     this.restoreGeneration += 1;
     this.disposeRestoreWatcherRegistrations();
     logger.info('CodebaseIndexingAutoCoordinator stopped');
@@ -366,13 +372,14 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
 
   private async drainQueue(): Promise<void> {
     const cap = this.getMaxConcurrent();
-    while (this.active.size < cap && this.queue.length > 0) {
+    while (this.active.size < cap && this.queue.length > 0 && getWorkAdmission().check('background-index').allowed) {
       const next = this.queue.shift();
       if (!next) break;
       this.queuedPaths.delete(next.rootPath);
       this.active.add(next.rootPath);
       void this.runOne(next).finally(() => {
         this.active.delete(next.rootPath);
+        getWorkAdmission().notifyChanged();
         void this.drainQueue();
       });
     }
@@ -573,11 +580,7 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
   }
 
   private getMaxConcurrent(): number {
-    const raw = this.settings.get('codebaseAutoIndexConcurrent');
-    if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
-      return Math.max(1, Math.floor(raw));
-    }
-    return DEFAULT_MAX_CONCURRENT;
+    return backgroundConcurrencySetting(this.settings.get('codebaseAutoIndexConcurrent'), DEFAULT_MAX_CONCURRENT);
   }
 
   private getDebounceMs(): number {

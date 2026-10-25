@@ -3,7 +3,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import type { Worker } from 'node:worker_threads';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { PluginWorkerHost, resolveWorkerExecArgv } from './plugin-worker-host';
 import { ProviderAdapterRegistryImpl } from '../providers/provider-adapter-registry';
 
@@ -437,8 +437,8 @@ describe('PluginWorkerHost', () => {
 
   it('handles worker runtime errors after startup without throwing in the host', async () => {
     const fakeWorker = new EventEmitter() as Worker & {
-      postMessage: ReturnType<typeof vi.fn>;
-      terminate: ReturnType<typeof vi.fn>;
+      postMessage: Mock<Worker['postMessage']>;
+      terminate: Mock<Worker['terminate']>;
     };
     fakeWorker.postMessage = vi.fn();
     fakeWorker.terminate = vi.fn().mockResolvedValue(0);
@@ -467,16 +467,16 @@ describe('PluginWorkerHost', () => {
 
   it('does not cache a stale runtime when a worker exits immediately after ready', async () => {
     const workers: (Worker & {
-      postMessage: ReturnType<typeof vi.fn>;
-      terminate: ReturnType<typeof vi.fn>;
+      postMessage: Mock<Worker['postMessage']>;
+      terminate: Mock<Worker['terminate']>;
     })[] = [];
     const host = new PluginWorkerHost({
       filePath: path.join(tempDir, 'exiting-worker-plugin.js'),
       context: { appPath: '/tmp/test-app', homeDir: '/tmp/test-home' },
       workerFactory: () => {
         const worker = new EventEmitter() as Worker & {
-          postMessage: ReturnType<typeof vi.fn>;
-          terminate: ReturnType<typeof vi.fn>;
+          postMessage: Mock<Worker['postMessage']>;
+          terminate: Mock<Worker['terminate']>;
         };
         worker.postMessage = vi.fn();
         worker.terminate = vi.fn().mockResolvedValue(0);

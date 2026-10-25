@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import Module from 'node:module';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   childProcessFork: vi.fn(),
@@ -12,14 +12,14 @@ vi.mock('node:child_process', () => ({
   fork: mocks.childProcessFork,
 }));
 
-import { ProcessLaneGateway } from '../process-lane-gateway';
+import { ProcessLaneGateway, type LaneProcessHandle } from '../process-lane-gateway';
 import type { BackgroundJobRecord } from '../types';
 
 type FakeChild = EventEmitter & {
-  postMessage: ReturnType<typeof vi.fn>;
-  send: ReturnType<typeof vi.fn>;
-  kill: ReturnType<typeof vi.fn>;
-  terminate?: ReturnType<typeof vi.fn>;
+  postMessage: Mock<NonNullable<LaneProcessHandle['postMessage']>>;
+  send: Mock<NonNullable<LaneProcessHandle['send']>>;
+  kill: Mock<NonNullable<LaneProcessHandle['kill']>>;
+  terminate?: Mock<NonNullable<LaneProcessHandle['terminate']>>;
 };
 
 function createFakeChild(): FakeChild {

@@ -6,7 +6,7 @@ function buildFakeWorker() {
   const emitter = new EventEmitter();
   const messages: unknown[] = [];
   const worker = Object.assign(emitter, {
-    postMessage: vi.fn((msg: unknown) => messages.push(msg)),
+    postMessage: vi.fn((msg: unknown) => { messages.push(msg); }),
     messages,
     terminate: vi.fn(),
   });

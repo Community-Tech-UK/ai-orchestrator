@@ -1,19 +1,26 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultLoopConfig } from '../../shared/types/loop.types';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
+import type { LoopStageMachine } from './loop-stage-machine';
+
+type LoopExecution = (state: LoopState, stageMachine: LoopStageMachine) => Promise<void>;
 
 describe('LoopCoordinator maintenance gate', () => {
   let workspace: string;
   let coordinator: LoopCoordinator;
+  let execution: MockInstance<LoopExecution>;
 
   beforeEach(() => {
     LoopCoordinator._resetForTesting();
     workspace = mkdtempSync(join(tmpdir(), 'loop-maintenance-gate-'));
     writeFileSync(join(workspace, 'package.json'), '{"scripts":{"test":"true"}}\n');
     coordinator = new LoopCoordinator();
+    // Cancellation changes state immediately; the running iteration still has
+    // asynchronous writes to finish before its workspace can be removed.
+    execution = vi.spyOn(coordinator as unknown as { runLoop: LoopExecution }, 'runLoop');
   });
 
   afterEach(async () => {
@@ -21,6 +28,10 @@ describe('LoopCoordinator maintenance gate', () => {
     for (const loop of coordinator.getActiveLoops()) {
       await coordinator.cancelLoop(loop.id).catch(() => undefined);
     }
+    for (const result of execution.mock.results) {
+      if (result.type === 'return') await result.value;
+    }
+    execution.mockRestore();
     rmSync(workspace, { recursive: true, force: true });
     LoopCoordinator._resetForTesting();
   });

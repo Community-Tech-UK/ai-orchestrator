@@ -12,7 +12,7 @@
  */
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance, type Mock } from 'vitest';
 import type { WorkerNodeConnectionServer } from '../main/remote-node/worker-node-connection';
 import type { WorkerInstanceNotifier } from './worker-instance-notifier';
 
@@ -49,8 +49,8 @@ describe('remote Codex exec-mode turn over the worker wire', () => {
   let native: CodexCliAdapter;
   let spawnProcess: MockInstance<(args: string[]) => ChildProcess>;
   let remote: RemoteCliAdapter;
-  let exitNotifications: ReturnType<typeof vi.fn>;
-  let remoteExits: ReturnType<typeof vi.fn>;
+  let exitNotifications: Mock;
+  let remoteExits: Mock;
   let remoteStatuses: string[];
   let remoteOutputs: { type: string; content: string }[];
 

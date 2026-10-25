@@ -1,11 +1,11 @@
 import * as fsPromises from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import type { ProjectPluginTrust } from '../../../shared/types/settings.types';
-import { registerProjectPluginTrustHandlers } from './project-plugin-trust-handlers';
+import { registerProjectPluginTrustHandlers, type ProjectPluginTrustHandlerDeps } from './project-plugin-trust-handlers';
 import { canonicalizeProjectPluginRoot } from '../../plugins/project-plugin-trust';
 
 type IpcHandler = (event: unknown, payload?: unknown) => Promise<IpcResponse>;
@@ -38,8 +38,8 @@ async function invoke(channel: string, payload?: unknown): Promise<IpcResponse> 
 
 describe('registerProjectPluginTrustHandlers', () => {
   let trustMap: Record<string, ProjectPluginTrust>;
-  let writeTrustMap: ReturnType<typeof vi.fn>;
-  let clearPluginCache: ReturnType<typeof vi.fn>;
+  let writeTrustMap: Mock<NonNullable<ProjectPluginTrustHandlerDeps['writeTrustMap']>>;
+  let clearPluginCache: Mock<NonNullable<ProjectPluginTrustHandlerDeps['clearPluginCache']>>;
   let writeOrder: string[];
 
   beforeEach(() => {

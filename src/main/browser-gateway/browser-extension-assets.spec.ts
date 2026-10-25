@@ -8,7 +8,7 @@ import type { Page } from 'puppeteer-core';
 // second one here conflicts (TS2665), so this import is left untyped instead.
 // @ts-expect-error No type declarations available for 'jsdom' in this repo.
 import { JSDOM } from 'jsdom';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import { fingerprintBrowserElementText } from './browser-element-text-fingerprint';
 import { makeGrant, makeService } from './browser-gateway-service.test-helpers';
 
@@ -93,14 +93,14 @@ interface BrowserExtensionChromeHarness {
   storage: {
     local: {
       get: ReturnType<typeof vi.fn>;
-      set: ReturnType<typeof vi.fn>;
+      set: Mock<(values: Record<string, unknown>) => Promise<void>>;
     };
     session: {
       set: ReturnType<typeof vi.fn>;
     };
   };
   scripting: {
-    executeScript: ReturnType<typeof vi.fn>;
+    executeScript: Mock<(input: { func?: { name?: string }; args?: unknown[] }) => Promise<unknown[]>>;
   };
   webRequest: {
     onAuthRequired: {
@@ -111,7 +111,7 @@ interface BrowserExtensionChromeHarness {
   };
   tabs: {
     get: ReturnType<typeof vi.fn>;
-    group: ReturnType<typeof vi.fn>;
+    group: Mock<(input: { tabIds: number | number[]; groupId?: number }) => Promise<number>>;
     query: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
     reload: ReturnType<typeof vi.fn>;

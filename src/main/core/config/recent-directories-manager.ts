@@ -140,22 +140,29 @@ export class RecentDirectoriesManager extends EventEmitter {
 
     // Filter out non-existent directories using async fs.access with a
     // per-path timeout so a single slow mount point can't hang everything.
+    // A check that runs out of time keeps the entry: it proves nothing about
+    // the folder. A main-process stall longer than the timeout fires every
+    // timer before any fs result is read, and treating that as "missing"
+    // emptied the list and reshuffled the project rail.
     const PATH_CHECK_TIMEOUT_MS = 500;
 
     const checks = entries.map(async (e): Promise<RecentDirectoryEntry | null> => {
       if (!includePinned && e.isPinned) return null;
       // Skip filesystem validation for remote entries — path is on another machine
       if (e.nodeId) return e;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         await Promise.race([
           fsp.access(e.path),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('timeout')), PATH_CHECK_TIMEOUT_MS)
-          ),
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, PATH_CHECK_TIMEOUT_MS);
+          }),
         ]);
         return e;
       } catch {
         return null;
+      } finally {
+        clearTimeout(timer);
       }
     });
 

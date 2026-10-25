@@ -9,13 +9,15 @@ const mockStoreSet = vi.fn((k: string | Record<string, unknown>, v?: unknown) =>
 });
 vi.mock('electron-store', () => {
   return {
-    default: vi.fn().mockImplementation(() => ({
-      get store() { return { ...store }; },
-      get: vi.fn((k: string) => store[k]),
-      set: mockStoreSet,
-      clear: vi.fn(() => { for (const k of Object.keys(store)) delete store[k]; }),
-      path: '/tmp/test-settings.json',
-    })),
+    default: vi.fn().mockImplementation(function () {
+      return {
+        get store() { return { ...store }; },
+        get: vi.fn((k: string) => store[k]),
+        set: mockStoreSet,
+        clear: vi.fn(() => { for (const k of Object.keys(store)) delete store[k]; }),
+        path: '/tmp/test-settings.json',
+      };
+    }),
   };
 });
 

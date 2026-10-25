@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { EventEmitter } from 'node:events';
 import type { Worker } from 'node:worker_threads';
 
@@ -11,8 +11,8 @@ vi.mock('electron', () => ({
 // ── Fake Worker ───────────────────────────────────────────────────────────────
 
 type FakeWorker = EventEmitter & {
-  postMessage: ReturnType<typeof vi.fn>;
-  terminate: ReturnType<typeof vi.fn>;
+  postMessage: Mock<Worker['postMessage']>;
+  terminate: Mock<Worker['terminate']>;
 };
 
 function createFakeWorker(): FakeWorker {

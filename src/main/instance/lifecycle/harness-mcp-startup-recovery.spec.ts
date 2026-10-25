@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 vi.mock('../../logging/logger', () => ({
   getLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
@@ -12,6 +12,7 @@ import type { InstanceStatus, OutputMessage } from '../../../shared/types/instan
 import {
   HARNESS_MCP_SERVER_NAMES,
   HarnessMcpStartupRecovery,
+  type HarnessMcpStartupRecoveryDeps,
   findFailedHarnessMcpServers,
 } from './harness-mcp-startup-recovery';
 
@@ -59,7 +60,7 @@ describe('HarnessMcpStartupRecovery', () => {
   let parentId: string | null;
   let scheduled: (() => void)[];
   let notices: OutputMessage[];
-  let restartInstance: ReturnType<typeof vi.fn>;
+  let restartInstance: Mock<HarnessMcpStartupRecoveryDeps['restartInstance']>;
   let recovery: HarnessMcpStartupRecovery;
 
   async function runScheduled(): Promise<void> {

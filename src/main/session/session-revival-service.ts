@@ -17,7 +17,7 @@ export interface SessionRevivalRequest {
   /** Continue the revived session on this account instead of the one it was archived with. */
   accountProfileId?: string;
   reviveIfArchived: boolean;
-  reason: 'thread-wakeup' | 'history-restore';
+  reason: 'thread-wakeup' | 'history-restore' | 'global-pause-resume';
 }
 
 export interface SessionRevivalResult {

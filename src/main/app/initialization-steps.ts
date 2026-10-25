@@ -46,6 +46,7 @@ import { isActiveLoopRuntimeState } from '../orchestration/loop-runtime-status';
 import { createLateRuntimeInitializationSteps } from './late-runtime-initialization-steps';
 import type { StatelessExecProviderPredicate } from './stateless-exec-provider';
 import { startLeftoverProcessSweeper } from '../process/leftover-process-sweeper-wiring';
+import { initializeGlobalPauseRuntime } from '../global-pause/global-pause-bootstrap';
 
 const logger = getLogger('AppInitialization');
 
@@ -204,6 +205,7 @@ export function createInitializationSteps(
   const { instanceManager, windowManager } = context;
 
   return [
+    { name: 'Work controls', critical: true, fn: () => { initializeGlobalPauseRuntime(instanceManager); } },
     {
       name: 'Conversation ledger',
       fn: () => {

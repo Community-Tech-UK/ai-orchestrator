@@ -23,6 +23,8 @@ import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
+import { backgroundConcurrencySetting, bindBackgroundAdmission } from '../work-admission/background-admission';
+import { getWorkAdmission } from '../work-admission/work-admission';
 import { isBroadWorkspaceRoot } from './broad-workspace-roots';
 import { getCodemem, type CodememService } from './index';
 import { getRecentDirectoriesManager } from '../core/config/recent-directories-manager';
@@ -100,6 +102,7 @@ export class CodememPrewarmCoordinator {
   private readonly warmedThisSession = new Set<string>();
   private listenerBound: ((entry: RecentDirectoryEntry) => void) | null = null;
   private started = false;
+  private admissionCleanup?: () => void;
   private recentDirsManager: EventEmitter | null = null;
   private readonly codemem: PrewarmCodememTarget;
   private readonly settings: PrewarmSettingsTarget;
@@ -125,6 +128,7 @@ export class CodememPrewarmCoordinator {
     this.listenerBound = (entry: RecentDirectoryEntry) => this.onDirectoryAdded(entry);
     manager.on('directory-added', this.listenerBound);
     this.started = true;
+    this.admissionCleanup = bindBackgroundAdmission(() => this.active.size, () => this.drainQueue());
     logger.info('CodememPrewarmCoordinator started');
   }
 
@@ -141,6 +145,8 @@ export class CodememPrewarmCoordinator {
     }
     this.debounceTimers.clear();
     this.started = false;
+    this.admissionCleanup?.();
+    this.admissionCleanup = undefined;
     logger.info('CodememPrewarmCoordinator stopped');
   }
 
@@ -279,7 +285,7 @@ export class CodememPrewarmCoordinator {
 
   private async drainQueue(): Promise<void> {
     const cap = this.getMaxConcurrent();
-    while (this.active.size < cap && this.queue.length > 0) {
+    while (this.active.size < cap && this.queue.length > 0 && getWorkAdmission().check('background-index').allowed) {
       const next = this.queue.shift();
       if (!next) break;
       this.queuedSet.delete(next);
@@ -287,6 +293,7 @@ export class CodememPrewarmCoordinator {
       // Fire-and-forget: each warm runs to completion independently.
       void this.warmOne(next).finally(() => {
         this.active.delete(next);
+        getWorkAdmission().notifyChanged();
         void this.drainQueue();
       });
     }
@@ -361,11 +368,7 @@ export class CodememPrewarmCoordinator {
   }
 
   private getMaxConcurrent(): number {
-    const raw = this.settings.get('codememPrewarmMaxConcurrent');
-    if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
-      return Math.max(1, Math.floor(raw));
-    }
-    return DEFAULT_MAX_CONCURRENT;
+    return backgroundConcurrencySetting(this.settings.get('codememPrewarmMaxConcurrent'), DEFAULT_MAX_CONCURRENT);
   }
 
   private getDebounceMs(): number {

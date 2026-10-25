@@ -2,6 +2,8 @@ import type { InstanceProvider, InstanceWaitReason } from '../../shared/types/in
 import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import type { ProviderLimitLedger } from '../core/system/provider-limit-ledger';
 import { getLogger } from '../logging/logger';
+import { getWorkAdmission } from '../work-admission/work-admission';
+import { globalPauseHoldsAutomaticInput } from '../global-pause/global-pause-service';
 import { COPILOT_RATE_LIMIT_SOURCE } from '../cli/copilot-limit-messages';
 import { textDiagnostic } from '../logging/source-diagnostics';
 import type {
@@ -887,11 +889,12 @@ export class InstanceProviderLimitHandler {
     const probe = deps?.probeQuotaSnapshot;
     if (!deps || !probe || !instanceProviderLimitScope(providerId, params.model).quotaApplies) return () => undefined;
     const instanceId = params.instanceId;
-
     let inFlight = false;
     let disposed = false;
-    const timer = setInterval(() => {
+    const admission = getWorkAdmission();
+    const probeOnce = (): void => {
       if (disposed || !this.parked.has(instanceId) || inFlight) return;
+      if (!admission.check('timed-wakeup').allowed || globalPauseHoldsAutomaticInput(instanceId)) return;
       if (resumeAt - Date.now() < 60_000) return; // scheduled resume is about to fire anyway
       inFlight = true;
 
@@ -906,6 +909,7 @@ export class InstanceProviderLimitHandler {
         entry?.cancel();
         deps.setWaitReason(instanceId, null);
         disposed = true;
+        admission.off('admission-changed', probeOnce);
         clearInterval(timer); // this probe is superseded by startAccountFailover's own re-park (if needed)
         logger.info('Sibling pool account became available while parked; switching instead of waiting for the own window reset', {
           instanceId,
@@ -933,10 +937,13 @@ export class InstanceProviderLimitHandler {
         .finally(() => {
           inFlight = false;
         });
-    }, EARLY_RESUME_PROBE_MS);
+    };
+    const timer = setInterval(probeOnce, EARLY_RESUME_PROBE_MS);
+    admission.on('admission-changed', probeOnce);
     timer.unref?.();
     return () => {
       disposed = true;
+      admission.off('admission-changed', probeOnce);
       clearInterval(timer);
     };
   }

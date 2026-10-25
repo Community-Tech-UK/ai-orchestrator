@@ -340,6 +340,7 @@ export const SETTINGS_TOOL_POLICY = {
   // the write boundary too.
   contextEvidenceModeByProvider: readOnly(false, contextEvidenceModeByProviderSchema),
   theme: open(themeSchema),
+  workloadLevel: open(z.number().int().min(1).max(5)),
   maxChildrenPerParent: open(numberSettingSchema('maxChildrenPerParent')),
   maxTotalInstances: open(numberSettingSchema('maxTotalInstances')),
   concurrencyLimitByProvider: open(concurrencyLimitByProviderSchema),

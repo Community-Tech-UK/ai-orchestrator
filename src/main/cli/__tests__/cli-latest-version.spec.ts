@@ -1,9 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CliLatestVersionService } from '../cli-latest-version';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { CliLatestVersionService, type CliLatestVersionServiceDeps } from '../cli-latest-version';
 import type { CliType } from '../cli-detection';
 
 describe('CliLatestVersionService', () => {
-  let fetchNpmLatestVersion: ReturnType<typeof vi.fn>;
+  let fetchNpmLatestVersion: Mock<NonNullable<CliLatestVersionServiceDeps['fetchNpmLatestVersion']>>;
   let nowMs: number;
 
   const makeService = (npmPackageFor?: (cli: CliType) => string | undefined) =>

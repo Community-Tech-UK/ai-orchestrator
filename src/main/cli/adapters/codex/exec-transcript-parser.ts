@@ -19,6 +19,11 @@ export interface CodexParsedTranscript {
    * transcript contained an error/turn.failed event.
    */
   errorMessage?: string;
+  /**
+   * The message from `turn.failed` only. Codex also emits `error` events for
+   * reconnect attempts it recovers from, so only this one names why the turn ended.
+   */
+  turnFailedMessage?: string;
 }
 
 export function parseCodexExecTranscript(
@@ -33,6 +38,7 @@ export function parseCodexExecTranscript(
   let usage: CliUsage | undefined;
   let threadId: string | undefined;
   let errorMessage: string | undefined;
+  let turnFailedMessage: string | undefined;
 
   for (const line of lines) {
     const parsedLine = parseCodexJsonLine(line);
@@ -61,6 +67,9 @@ export function parseCodexExecTranscript(
         const cleaned = cleanCodexErrorMessage(rawMessage);
         if (cleaned && !errorMessage) {
           errorMessage = cleaned;
+        }
+        if (cleaned && type === 'turn.failed') {
+          turnFailedMessage = cleaned;
         }
         continue;
       }
@@ -190,6 +199,7 @@ export function parseCodexExecTranscript(
   return {
     hasMeaningfulOutput: extracted.response.trim().length > 0 || toolCalls.length > 0,
     errorMessage,
+    turnFailedMessage,
     response: {
       id: responseId,
       content: extracted.response,

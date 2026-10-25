@@ -14,17 +14,19 @@ const anthropicSdkMocks = vi.hoisted(() => ({
 // Mock dependencies
 vi.mock('@anthropic-ai/sdk', () => {
   return {
-    default: vi.fn().mockImplementation(() => ({
-      messages: {
-        create: anthropicSdkMocks.create,
-        countTokens: anthropicSdkMocks.countTokens,
-      },
-      beta: {
+    default: vi.fn().mockImplementation(function () {
+      return {
         messages: {
           create: anthropicSdkMocks.create,
+          countTokens: anthropicSdkMocks.countTokens,
         },
-      },
-    })),
+        beta: {
+          messages: {
+            create: anthropicSdkMocks.create,
+          },
+        },
+      };
+    }),
   };
 });
 

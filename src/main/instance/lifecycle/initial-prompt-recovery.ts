@@ -4,8 +4,18 @@ import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import { isSurfacedToUserError } from '../../cli/adapters/surfaced-error';
 import { getLogger } from '../../logging/logger';
 import { errorDiagnostic } from '../../logging/source-diagnostics';
+import { GlobalPauseService } from '../../global-pause/global-pause-service';
+import { getSessionQueueService } from '../../session/session-queue-service';
+import { assertAutomaticStartupCurrent, isAutomaticStartupCancelled } from '../../work-admission/automatic-startup';
+
+import { isInitialPromptHeld } from './initial-prompt-dispatch';
 
 const logger = getLogger('InitialPromptRecovery');
+const pendingQueue = new WeakMap<Instance, { queued: boolean }>();
+export function hasPendingInitialPrompt(instance: Instance): boolean { return pendingQueue.has(instance); }
+export async function retryPendingInitialPrompt(instance: Instance): Promise<void> {
+  if (pendingQueue.has(instance)) await queueInitialPromptForResume(instance);
+}
 
 /**
  * The regular-session provider-limit funnel, for a turn sent directly to the
@@ -45,10 +55,19 @@ export async function deliverInitialPromptAfterSpawn(
   send: () => Promise<void>,
   deps: InitialPromptRecoveryDeps,
 ): Promise<void> {
+  assertAutomaticStartupCurrent();
+  if (GlobalPauseService.peek()?.holdsAutomaticInput(instance.id)) {
+    await queueInitialPromptForResume(instance);
+    return;
+  }
   try {
     await send();
   } catch (error) {
-    if (signal.aborted) throw error;
+    if (isInitialPromptHeld(error)) {
+      await queueInitialPromptForResume(instance);
+      return;
+    }
+    if (signal.aborted || isAutomaticStartupCancelled(error)) throw error;
     const errorMessage = error instanceof Error ? error.message : String(error);
     logger.error(
       'Initial prompt failed after successful spawn; preserving session',
@@ -57,6 +76,20 @@ export async function deliverInitialPromptAfterSpawn(
     );
     preserveSession(instance, errorMessage, deps, !isSurfacedToUserError(error));
   }
+}
+
+/** Queue persistence failures propagate so Pause cannot report a safe restart. */
+async function queueInitialPromptForResume(instance: Instance): Promise<void> {
+  const initial = [...instance.outputBuffer].reverse().find(message => message.type === 'user');
+  if (!initial) throw new Error('The first message could not be saved for Resume');
+  const pending = pendingQueue.get(instance) ?? { queued: false };
+  pendingQueue.set(instance, pending);
+  if (!pending.queued) await getSessionQueueService().enqueueUserMessage({ instanceId: instance.id, message: initial.content,
+    attachments: initial.attachments?.map(attachment => ({ ...attachment, data: attachment.data ?? '' })),
+    sourceMetadata: { seededAlready: true } });
+  pending.queued = true;
+  GlobalPauseService.peek()?.markInitialPromptQueued(instance.id);
+  pendingQueue.delete(instance);
 }
 
 /**

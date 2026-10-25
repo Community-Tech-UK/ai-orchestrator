@@ -54,6 +54,7 @@ export const SETTING_SURFACING = {
   residentClaudeSession: 'internal',
   contextEvidenceModeByProvider: 'internal',
   theme: 'tab',
+  workloadLevel: 'bespoke', // Shared slider in the Work panel and Orchestration settings.
   maxChildrenPerParent: 'tab',
   maxTotalInstances: 'tab',
   // Edited by hand-coded per-provider boxes in the Orchestration tab.

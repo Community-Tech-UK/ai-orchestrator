@@ -203,6 +203,8 @@ describe('AutomationRunner thread wakeups', () => {
     expect(result.status).toBe('started');
     expect(manager.createInstance).not.toHaveBeenCalled();
     expect(fireThreadWakeup).toHaveBeenCalledWith({
+      startup: expect.objectContaining({ signal: expect.any(AbortSignal), register: expect.any(Function) }),
+      onProviderDispatch: expect.any(Function),
       run: expect.objectContaining({ id: 'run-1' }),
       automation: expect.objectContaining({
         name: 'Snapshot wake thread',

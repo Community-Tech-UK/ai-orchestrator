@@ -94,8 +94,11 @@ export function classifyTurnEnding(input: TurnEndingInput): TurnEndingClassifica
     });
   }
   if (native.some((reason) => ['tool_calls', 'tool_use', 'pause_turn', 'tool_deferred'].includes(reason))) return result('completed', 'provider_tool_boundary', { autoContinueSuppressed: true });
-  const transient = [502, 503, 504].includes(Number(status)) || /\b(?:overloaded|server_error|temporarily unavailable|retryable recovery|retrying)\b/i.test(failureText);
   const failed = input.kind === 'error' || native.includes('error') || meta['is_error'] === true || Boolean(meta['error']) || meta['completionStatus'] === 'failed';
+  // Codex reports model overload as "Selected model is at capacity" (codex_error_info server_overloaded).
+  // Only a failed turn counts, because Codex also reports errors that it then recovers from.
+  const transient = [502, 503, 504].includes(Number(status)) || /\b(?:overloaded|server_error|temporarily unavailable|retryable recovery|retrying)\b/i.test(failureText)
+    || (failed && /\b(?:server_overloaded|model is at capacity)\b/i.test(failureText));
   // A saturated cap explains an unanswered tool result: the reply step was cut off, not skipped.
   if (!transient && !failed && outputBudgetSaturated(input, meta)) return result('max_output', 'budget_saturated');
   if (meta['danglingToolResult'] === true && meta['toolResultAwaitingReply'] === true && !input.hasOpenToolCall) return result('dangling_tool_result', 'explicit_unanswered_tool_result');

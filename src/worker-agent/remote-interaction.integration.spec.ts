@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { WorkerNodeConnectionServer } from '../main/remote-node/worker-node-connection';
 import type { WorkerInstanceNotifier } from './worker-instance-notifier';
 const registryHolder = vi.hoisted(() => ({ value: undefined as unknown }));
@@ -20,9 +20,9 @@ describe('remote ACP question and native-command wire integration', () => {
   let manager: LocalInstanceManager;
   let native: AcpCliAdapter;
   let remote: RemoteCliAdapter;
-  let sendRpc: ReturnType<typeof vi.fn>;
+  let sendRpc: Mock;
   let protocol: { sessionId: string; handleMessageLine: (line: string) => void; sendResponse: (id: number, result: unknown) => Promise<void> };
-  let responses: ReturnType<typeof vi.fn>;
+  let responses: Mock;
   beforeEach(async () => {
     mocks.createAdapter.mockClear();
     registry = new EventEmitter(); registryHolder.value = registry;

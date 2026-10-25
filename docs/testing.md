@@ -96,7 +96,7 @@ Both projects were `singleFork` until 2026-08-20, so one Node process ran a proj
 
 `vitest.heap.ts` now raises that ceiling to a quarter of host RAM, capped at 8 GB, and leaves Node's default alone on hosts under 24 GB (on a small CI runner a ceiling above physical memory swaps a clean V8 OOM for an OS OOM-kill). `scripts/__tests__/vitest-heap-budget.spec.ts` asserts from inside the worker that the ceiling arrived.
 
-The ceiling only reaches the workers from the **root** `test.poolOptions.forks.execArgv`: Tinypool is built once per run from the root config, so a per-project `execArgv` is silently ignored. The same is true of `maxForks`. Per-project `singleFork` is honoured through a different path (spec grouping), which is why it used to live under each project.
+Vitest 4 removed `poolOptions`. Each project's `test.execArgv` now supplies the worker heap ceiling, and the root `test.maxWorkers` applies the shared concurrency cap. The slow-tier configuration uses `maxWorkers: 1` to keep its filesystem work serial. The worker heap spec verifies the actual runtime ceiling after this migration.
 
 ## Worker Fan-Out
 

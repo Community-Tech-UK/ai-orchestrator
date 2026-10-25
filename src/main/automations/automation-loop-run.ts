@@ -30,6 +30,8 @@ import { defaultLoopConfig } from '../../shared/types/loop.types';
 import { getLogger } from '../logging/logger';
 import { isTerminalLoopRuntimeState } from '../orchestration/loop-runtime-status';
 
+import { isAutomaticStartupCancelled, type AutomaticStartup } from '../work-admission/automatic-startup';
+
 const logger = getLogger('AutomationLoopRun');
 
 /** Loop terminal statuses that count as a successful automation outcome. */
@@ -159,16 +161,21 @@ export class AutomationLoopRunDispatcher {
    * stays `running` until the loop reaches a terminal status; a dispatch
    * failure (WS6 policy refusal, coordinator error) terminalizes immediately.
    */
-  async dispatch(claimed: ClaimedAutomationRun): Promise<void> {
+  async dispatch(claimed: ClaimedAutomationRun, startup?: AutomaticStartup): Promise<void> {
     const run = claimed.run;
     try {
       const prepare = this.deps.prepareConfig ?? (await this.defaultPrepare());
       const startLoop = this.deps.startLoop ?? (await this.defaultStartLoop());
       const prepared = await prepare(buildAutomationLoopConfig(claimed));
+      startup?.signal.throwIfAborted();
       this.ensureSubscribed();
       const state = await startLoop(automationLoopChatId(run.automationId, run.id), prepared);
-      this.trackedByLoopRunId.set(state.id, { runId: run.id, automationId: run.automationId });
       const attached = this.deps.store.attachLoopRun(run.id, state.id, this.deps.now());
+      startup?.register(state, async () => {
+        const { getLoopCoordinator } = await import('../orchestration/loop-coordinator');
+        await getLoopCoordinator().pauseForGlobalPause(state.id);
+      });
+      this.trackedByLoopRunId.set(state.id, { runId: run.id, automationId: run.automationId });
       logger.info('Automation loop started', {
         automationId: run.automationId,
         runId: run.id,
@@ -178,6 +185,7 @@ export class AutomationLoopRunDispatcher {
         logger.warn('Automation run vanished while attaching its loop run', { runId: run.id });
       }
     } catch (error) {
+      if (startup?.signal.aborted || isAutomaticStartupCancelled(error)) throw error;
       const reason = error instanceof Error ? error.message : String(error);
       const failed = this.deps.store.terminalizeRun(
         run.id,

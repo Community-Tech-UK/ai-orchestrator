@@ -118,8 +118,8 @@ vi.mock('../../storage/project-storage-paths', () => ({ getProjectStoragePaths: 
 vi.mock('../../session/session-persistence-queue', () => ({ getSessionPersistenceQueue: vi.fn(() => ({ enqueueEvent: vi.fn(), enqueueSave: vi.fn(), shutdown: vi.fn() })) }));
 vi.mock('../../orchestration/resource-governor', () => ({ getResourceGovernor: vi.fn(() => ({ getCreationBlockReason: vi.fn(() => null), on: vi.fn() })) }));
 vi.mock('../../orchestration/orchestration-handler', () => ({ OrchestrationHandler: vi.fn().mockImplementation(() => ({ on: vi.fn(), emit: vi.fn() })) }));
-vi.mock('../warm-start-manager', () => ({ WarmStartManager: vi.fn().mockImplementation(() => ({ preWarm: vi.fn(), getWarmAdapter: vi.fn(), returnAdapter: vi.fn() })) }));
-vi.mock('../stuck-process-detector', () => ({ StuckProcessDetector: vi.fn().mockImplementation(() => ({ onProcessStarted: vi.fn(), onProcessEnded: vi.fn(), on: vi.fn() })) }));
+vi.mock('../warm-start-manager', () => ({ WarmStartManager: vi.fn().mockImplementation(function () { return { preWarm: vi.fn(), getWarmAdapter: vi.fn(), returnAdapter: vi.fn() }; }) }));
+vi.mock('../stuck-process-detector', () => ({ StuckProcessDetector: vi.fn().mockImplementation(function () { return { onProcessStarted: vi.fn(), onProcessEnded: vi.fn(), on: vi.fn() }; }) }));
 vi.mock('../auto-title-service', () => ({ getAutoTitleService: vi.fn(() => ({ maybeGenerate: vi.fn(), clearInstance: vi.fn() })) }));
 vi.mock('../instance-deps', () => ({ productionCoreDeps: {} }));
 vi.mock('../../cli/cli-detection', () => ({ detectAllClis: vi.fn().mockResolvedValue([]) }));
@@ -226,40 +226,46 @@ vi.mock('../instance-communication', async () => {
   return { InstanceCommunicationManager: MockInstanceCommunicationManager };
 });
 vi.mock('../instance-orchestration', () => ({
-  InstanceOrchestrationManager: vi.fn().mockImplementation(() => ({
-    getOrchestrationHandler: vi.fn(() => ({
+  InstanceOrchestrationManager: vi.fn().mockImplementation(function () {
+    return {
+      getOrchestrationHandler: vi.fn(() => ({
+        hasActiveWork: vi.fn(() => false),
+        getPendingUserActionsForInstance: vi.fn(() => []),
+        respondToUserAction: vi.fn(),
+        notifyError: vi.fn(),
+      })),
       hasActiveWork: vi.fn(() => false),
-      getPendingUserActionsForInstance: vi.fn(() => []),
-      respondToUserAction: vi.fn(),
-      notifyError: vi.fn(),
-    })),
-    hasActiveWork: vi.fn(() => false),
-    setupOrchestrationHandlers: vi.fn(),
-    processOrchestrationOutput: vi.fn(),
-    registerInstance: vi.fn(),
-    unregisterInstance: vi.fn(),
-    getLaterTurnReminderIfRelevant: vi.fn(() => null),
-  })),
+      setupOrchestrationHandlers: vi.fn(),
+      processOrchestrationOutput: vi.fn(),
+      registerInstance: vi.fn(),
+      unregisterInstance: vi.fn(),
+      getLaterTurnReminderIfRelevant: vi.fn(() => null),
+    };
+  }),
 }));
 vi.mock('../instance-persistence', () => ({
-  InstancePersistenceManager: vi.fn().mockImplementation(() => ({
-    forkInstance: vi.fn(),
-    exportSession: vi.fn(),
-    exportSessionMarkdown: vi.fn(),
-    importSession: vi.fn(),
-    loadHistoricalOutput: vi.fn(),
-    getInstanceStorageStats: vi.fn(),
-  })),
+  InstancePersistenceManager: vi.fn().mockImplementation(function () {
+    return {
+      forkInstance: vi.fn(),
+      exportSession: vi.fn(),
+      exportSessionMarkdown: vi.fn(),
+      importSession: vi.fn(),
+      loadHistoricalOutput: vi.fn(),
+      getInstanceStorageStats: vi.fn(),
+    };
+  }),
 }));
 vi.mock('../instance-settled-tracker', () => ({
-  InstanceSettledTracker: vi.fn().mockImplementation(() => ({
-    clear: vi.fn(),
-    recordActivity: vi.fn(),
-    waitForSettled: vi.fn(),
-  })),
+  InstanceSettledTracker: vi.fn().mockImplementation(function () {
+    return {
+      clear: vi.fn(),
+      recordActivity: vi.fn(),
+      waitForSettled: vi.fn(),
+    };
+  }),
 }));
 vi.mock('../instance-child-completion-handler', () => ({
-  InstanceChildCompletionHandler: vi.fn().mockImplementation(() => ({ handleChildExit: vi.fn().mockResolvedValue(undefined) })),
+  InstanceChildCompletionHandler: vi.fn().mockImplementation(function () { return { handleChildExit: vi.fn().mockResolvedValue(undefined) }; }),
 }));
 vi.mock('../stale-runtime-reconciler', () => ({
   StaleRuntimeReconciler: { getInstance: vi.fn(() => ({ reconcile: vi.fn(), shutdown: vi.fn() })), _resetForTesting: vi.fn() },

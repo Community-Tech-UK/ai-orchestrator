@@ -39,6 +39,7 @@ import { SessionComputerUseControlComponent } from './session-computer-use-contr
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ProviderAccountChipComponent } from '../../shared/components/provider-account-chip.component';
 import { HelpLinkComponent } from '../../shared/help/help-link.component';
+import { GlobalPauseStore } from '../../core/state/global-pause/global-pause.store';
 
 interface EditorMenuItem {
   type: string;
@@ -59,6 +60,7 @@ export class InstanceHeaderComponent implements OnInit {
   private fileIpc = inject(FileIpcService);
   private electronIpc = inject(ElectronIpcService);
   private readonly remoteNodeStore = inject(RemoteNodeStore);
+  protected readonly globalPause = inject(GlobalPauseStore);
 
   private nameInput = viewChild<ElementRef<HTMLInputElement>>('nameInput');
 

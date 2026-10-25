@@ -23,14 +23,9 @@ export default defineConfig({
     ],
     setupFiles: ['src/test-setup-node.ts'],
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        // Real git / FS soak work is heavy; keep serial to avoid repo contention.
-        singleFork: true,
-        // One process runs every soak spec; see vitest.heap.ts.
-        execArgv: testHeapExecArgv(),
-      },
-    },
+    // Real git / FS soak work is heavy; keep serial to avoid repo contention.
+    maxWorkers: 1,
+    execArgv: testHeapExecArgv(),
     testTimeout: 60_000,
     hookTimeout: 60_000,
   },

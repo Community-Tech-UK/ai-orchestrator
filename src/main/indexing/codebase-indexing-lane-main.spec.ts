@@ -1,10 +1,11 @@
 import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { IndexingStats } from '../../shared/types/codebase.types';
+import type { LaneOutboundMessage } from '../background-jobs';
 
 type ElectronParentPort = EventEmitter & {
-  postMessage: ReturnType<typeof vi.fn>;
+  postMessage: Mock<(message: LaneOutboundMessage) => void>;
 };
 
 function processWithParentPort(): NodeJS.Process & { parentPort?: ElectronParentPort } {
@@ -227,7 +228,7 @@ describe('codebase indexing lane main entrypoint', () => {
     });
     await flushMicrotasks();
 
-    expect(parentPort.postMessage).toHaveBeenCalledWith({
+    await vi.waitFor(() => expect(parentPort.postMessage).toHaveBeenCalledWith({
       type: 'worker-event',
       message: {
         type: 'worker-event',
@@ -276,7 +277,7 @@ describe('codebase indexing lane main entrypoint', () => {
           },
         },
       },
-    });
+    }));
   });
 
   it('reloads persisted RLM stores before each background indexing job', async () => {

@@ -70,7 +70,7 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('electron-store', () => ({
-  default: vi.fn().mockImplementation(() => ({ get: vi.fn(), set: vi.fn(), store: {} })),
+  default: vi.fn().mockImplementation(function () { return { get: vi.fn(), set: vi.fn(), store: {} }; }),
 }));
 
 vi.mock('../../logging/logger', async (importOriginal) => {

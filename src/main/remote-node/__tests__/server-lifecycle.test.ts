@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 
 vi.mock('../../logging/logger', () => ({
   getLogger: () => ({
@@ -13,8 +13,8 @@ import { ServerLifecycle } from '../server-lifecycle';
 
 describe('ServerLifecycle', () => {
   let lifecycle: ServerLifecycle;
-  let startFn: ReturnType<typeof vi.fn>;
-  let stopFn: ReturnType<typeof vi.fn>;
+  let startFn: Mock<() => Promise<void>>;
+  let stopFn: Mock<() => Promise<void>>;
 
   beforeEach(() => {
     startFn = vi.fn().mockResolvedValue(undefined);

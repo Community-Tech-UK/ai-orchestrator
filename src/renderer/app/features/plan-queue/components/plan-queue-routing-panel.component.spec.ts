@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { DEFAULT_PLAN_QUEUE_CONFIG, PlanQueueRunDtoSchema } from '@contracts/schemas/plan-queue';
 import type { PlanQueueItemState, PlanQueueRouting, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { CopilotAccountIpcService, type CopilotAccountView } from '../../../core/services/ipc/copilot-account-ipc.service';
@@ -72,10 +72,10 @@ describe('PlanQueueRoutingPanelComponent', () => {
   let fixture: ComponentFixture<PlanQueueRoutingPanelComponent>;
   let settings: ReturnType<typeof signal<{ planQueueRouting: PlanQueueRouting; providersExcludedFromAutomation: string[] }>>;
   let storeError: ReturnType<typeof signal<string | null>>;
-  let setSetting: ReturnType<typeof vi.fn>;
-  let listProfiles: ReturnType<typeof vi.fn>;
-  let listCopilot: ReturnType<typeof vi.fn>;
-  let control: ReturnType<typeof vi.fn>;
+  let setSetting: Mock;
+  let listProfiles: Mock;
+  let listCopilot: Mock;
+  let control: Mock;
 
   async function flush(): Promise<void> {
     await new Promise((done) => setTimeout(done, 0));

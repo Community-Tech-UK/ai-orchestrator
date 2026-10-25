@@ -126,6 +126,7 @@ import { registerLspFeedback } from '../codemem/lsp-feedback-registration';
 import { registerCircuitBreaker } from '../security/circuit-breaker-registration';
 import { getCostTracker } from '../core/system/cost-tracker';
 import { registerStorageHandlers } from './handlers/storage-handlers';
+import { registerGlobalPauseHandlers } from './handlers/global-pause-handlers';
 import { registerWorktreeLeftoverHandlers } from './handlers/worktree-leftover-handlers';
 import { initializeRlmStorageMaintenance } from '../rlm/rlm-storage-maintenance-runtime';
 
@@ -288,6 +289,7 @@ export class IpcMainHandler {
     // Settings, config, and remote config handlers
     registerSettingsHandlers({ windowManager: this.windowManager });
     registerPauseHandlers({ windowManager: this.windowManager });
+    registerGlobalPauseHandlers({ windowManager: this.windowManager, ensureTrustedSender: this.ensureTrustedSender.bind(this) });
     registerInstructionHandlers();
 
     // Memory stats handlers (basic memory tracking)

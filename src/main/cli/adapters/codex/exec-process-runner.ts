@@ -328,6 +328,17 @@ export function runCodexExecProcess(
         return;
       }
 
+      // The turn did work before failing, so it completes rather than rejects.
+      // Publish the native reason, which would otherwise surface only in a rejection.
+      if (parsed.turnFailedMessage && !writePhase.cancelled) {
+        options.emitOutput({
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'system',
+          content: `[codex] Turn failed: ${parsed.turnFailedMessage}`,
+          metadata: { diagnostic: true, category: 'process', fatal: false, level: 'error' },
+        });
+      }
       if (parsed.threadId) options.onThreadId(parsed.threadId);
       resolve({
         code,

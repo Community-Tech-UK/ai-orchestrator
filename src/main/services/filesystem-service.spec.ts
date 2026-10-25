@@ -11,7 +11,9 @@ vi.mock('../logging/logger', () => ({
 }));
 
 // Mock node:fs/promises
-vi.mock('node:fs/promises');
+vi.mock('node:fs/promises', () => ({
+  default: { readdir: vi.fn(), stat: vi.fn() },
+}));
 
 // Mock the remote-node module
 vi.mock('../remote-node', () => ({

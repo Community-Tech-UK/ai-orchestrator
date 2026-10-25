@@ -67,13 +67,13 @@ import { getCrossSessionMessagingService } from '../instance/cross-session-messa
 import { flushChatTranscriptSource } from '../chats/chat-transcript-bridge';
 import { createDefaultHostProcessRuntime, listHostProcesses, stopLeftoverProcesses } from '../process/host-process-inspector';
 import { createInstanceManagerHostProcessHooks } from '../process/host-process-instance-hooks';
-
+import { getWorkAdmission } from '../work-admission/work-admission';
+import { runAutomaticStartup } from '../work-admission/automatic-startup';
 const logger = getLogger('AppInitialization');
 const nodeControl = () => ({ server: getWorkerNodeConnectionServer(), registry: getWorkerNodeRegistry() });
 // Worker Copilot diagnosis can spend 3s on identity, 5s on version, and 30s
 // on its auth probe, plus process-termination grace between stages.
 const PROVIDER_DIAGNOSTIC_RPC_TIMEOUT_MS = 45_000;
-
 function parseNonEmptyStringArray(json: string, fallback: readonly string[]): string[] {
   try {
     const parsed: unknown = JSON.parse(json);
@@ -88,7 +88,6 @@ function parseNonEmptyStringArray(json: string, fallback: readonly string[]): st
     return [...fallback];
   }
 }
-
 function safeMutationApprovalLabel(value: unknown): string {
   return [...String(value ?? '')]
     .map((character) => character.charCodeAt(0) <= 31 || character.charCodeAt(0) === 127 ? ' ' : character)
@@ -355,7 +354,9 @@ export function createOrchestratorToolsStep(
         // Backs the `run_on_node` MCP tool: resolve the target worker node and
         // spawn an agent on it via the already-deployed `instance.spawn` RPC.
         // Mirrors the `/run-on` channel command (project-less default cwd).
-        spawnRemoteInstance: async (args, meta) => {
+        spawnRemoteInstance: async (args, meta) => runAutomaticStartup(async startup => {
+          const admission = getWorkAdmission().check('helper-agent', { remote: true });
+          if (!admission.allowed) throw new Error(admission.detail);
           assertRunOnNodeUsesWorkerBrowserSurface(args);
           // Recursion-depth guard (claude2_todo #18): a remote-spawned agent
           // also receives the orchestrator MCP, so without a cap it could
@@ -461,6 +462,7 @@ export function createOrchestratorToolsStep(
                 : {}),
             },
           });
+          startup.register(instance, () => instanceManager.terminateInstance(instance.id, false));
           // Remote provider startup includes worker-local checks that the
           // coordinator cannot perform (for example Copilot account binding).
           // Do not return an optimistic instance id; a run_on_node success means
@@ -477,7 +479,7 @@ export function createOrchestratorToolsStep(
             workingDirectory,
             status: instance.status,
           };
-        },
+        }),
         // Backs the `terminate_node_instance` MCP tool: terminate one specific
         // run_on_node-spawned instance, or sweep all finished ones (optionally
         // scoped to a node). Only instances carrying the `spawnDepth` lineage

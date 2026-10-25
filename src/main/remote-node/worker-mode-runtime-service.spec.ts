@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import {
   WorkerModeRuntimeService,
   readWorkerModePairing,
@@ -8,7 +8,7 @@ import {
 
 type FakeChild = EventEmitter & {
   pid: number;
-  kill: ReturnType<typeof vi.fn>;
+  kill: Mock<(signal?: NodeJS.Signals) => unknown>;
   killed: boolean;
 };
 
@@ -39,7 +39,7 @@ describe('WorkerModeRuntimeService', () => {
   it('starts aio-worker under supervision without putting credentials in spawn args', () => {
     const child = new EventEmitter() as EventEmitter & {
       pid: number;
-      kill: ReturnType<typeof vi.fn>;
+      kill: Mock<(signal?: NodeJS.Signals) => unknown>;
       killed: boolean;
     };
     child.pid = 1234;
@@ -73,7 +73,7 @@ describe('WorkerModeRuntimeService', () => {
   it('reuses the existing live runtime instead of spawning duplicates', () => {
     const child = new EventEmitter() as EventEmitter & {
       pid: number;
-      kill: ReturnType<typeof vi.fn>;
+      kill: Mock<(signal?: NodeJS.Signals) => unknown>;
       killed: boolean;
     };
     child.pid = 4321;
@@ -95,7 +95,7 @@ describe('WorkerModeRuntimeService', () => {
   it('installs the service with the pairing credential in environment only', async () => {
     const child = new EventEmitter() as EventEmitter & {
       pid: number;
-      kill: ReturnType<typeof vi.fn>;
+      kill: Mock<(signal?: NodeJS.Signals) => unknown>;
       killed: boolean;
     };
     child.pid = 2468;

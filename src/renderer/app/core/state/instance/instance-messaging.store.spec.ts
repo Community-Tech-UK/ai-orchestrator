@@ -489,7 +489,7 @@ describe('InstanceMessagingStore', () => {
     currentStore.processMessageQueue('inst-1');
     await vi.advanceTimersByTimeAsync(150);
 
-    expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'Seeded prompt', undefined, true);
+    expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'Seeded prompt', undefined, true, true);
   });
 
   it('clears replay recovery markers when the user sends the next message', async () => {
@@ -553,7 +553,7 @@ describe('InstanceMessagingStore', () => {
     currentStore.processMessageQueue('inst-1');
     await vi.advanceTimersByTimeAsync(150);
 
-    expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'continue here', undefined, false);
+    expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'continue here', undefined, false, true);
     expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
   });
 

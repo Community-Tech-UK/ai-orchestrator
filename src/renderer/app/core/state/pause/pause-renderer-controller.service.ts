@@ -1,13 +1,11 @@
 import { effect, Injectable, inject, Injector } from '@angular/core';
 import { SettingsStore } from '../settings.store';
-import { QueuePersistenceService } from '../instance/queue-persistence.service';
 import { PauseStore } from './pause.store';
 
 @Injectable({ providedIn: 'root' })
 export class PauseRendererController {
   private injector = inject(Injector);
   private settings = inject(SettingsStore);
-  private queuePersistence = inject(QueuePersistenceService);
   private pauseStore = inject(PauseStore);
 
   private pauseUnsubscribe: (() => void) | null = null;
@@ -34,8 +32,6 @@ export class PauseRendererController {
     this.generation += 1;
     this.pauseUnsubscribe?.();
     this.pauseUnsubscribe = null;
-    this.queuePersistence.unsubscribeFromInitialPrompts();
-    this.queuePersistence.clearPendingSaves();
     this.pauseStore.reset();
     this.started = false;
     this.startPromise = null;
@@ -57,17 +53,12 @@ export class PauseRendererController {
   }
 
   private async startAsync(generation: number): Promise<void> {
-    await this.queuePersistence.restoreFromDisk();
-    if (!this.isStartCurrent(generation)) return;
-
-    this.queuePersistence.subscribeToInitialPrompts();
     this.pauseUnsubscribe = this.pauseStore.onStateChanged();
 
     await this.pauseStore.refresh();
     if (!this.isStartCurrent(generation)) {
       this.pauseUnsubscribe?.();
       this.pauseUnsubscribe = null;
-      this.queuePersistence.unsubscribeFromInitialPrompts();
       return;
     }
 

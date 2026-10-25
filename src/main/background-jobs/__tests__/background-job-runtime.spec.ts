@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { BackgroundJobRuntime } from '../background-job-runtime';
-import { ProcessLaneGateway } from '../process-lane-gateway';
+import { ProcessLaneGateway, type LaneProcessHandle } from '../process-lane-gateway';
 import type {
   BackgroundJobRecord,
   LaneGateway,
@@ -9,9 +9,9 @@ import type {
 } from '../lane-gateway';
 
 type FakeProcess = EventEmitter & {
-  postMessage: ReturnType<typeof vi.fn>;
-  kill: ReturnType<typeof vi.fn>;
-  terminate: ReturnType<typeof vi.fn>;
+  postMessage: Mock<NonNullable<LaneProcessHandle['postMessage']>>;
+  kill: Mock<NonNullable<LaneProcessHandle['kill']>>;
+  terminate: Mock<NonNullable<LaneProcessHandle['terminate']>>;
 };
 
 function createFakeProcess(): FakeProcess {

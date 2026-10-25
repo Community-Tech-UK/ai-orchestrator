@@ -1,5 +1,6 @@
 import type { ProviderId } from '../../shared/types/provider-quota.types';
 import { getLogger } from '../logging/logger';
+import { getWorkAdmission } from '../work-admission/work-admission';
 
 const logger = getLogger('ProviderLimitResumeScheduler');
 
@@ -74,16 +75,20 @@ export function scheduleProviderLimitResume(params: {
 
   const delay = Math.max(0, request.resumeAt - Date.now()) + 5_000;
   const timer = setTimeout(() => {
-    const resumed = resumeLoop(request.loopRunId);
-    logger.info(isWakeup ? 'Scheduled wakeup local resume timer fired' : 'Provider-limit local resume timer fired', {
-      loopRunId: request.loopRunId,
-      resumed,
+    getWorkAdmission().defer(`loop-wakeup:${request.loopRunId}`, 'timed-wakeup', () => {
+      if (cancelled) return;
+      const resumed = resumeLoop(request.loopRunId);
+      logger.info(isWakeup ? 'Scheduled wakeup local resume timer fired' : 'Provider-limit local resume timer fired', {
+        loopRunId: request.loopRunId,
+        resumed,
+      });
     });
   }, delay);
   if (typeof timer.unref === 'function') timer.unref();
 
   return () => {
     cancelled = true;
+    getWorkAdmission().cancelDeferred(`loop-wakeup:${request.loopRunId}`);
     clearTimeout(timer);
     if (!automationId) return;
     void import('../automations')

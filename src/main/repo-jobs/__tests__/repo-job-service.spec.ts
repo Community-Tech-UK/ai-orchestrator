@@ -106,10 +106,10 @@ function createTestWorkspace(): string {
   return workspaceDir;
 }
 
-type WaitForSettledTestOptions = {
+interface WaitForSettledTestOptions {
   afterTimestamp?: number;
   timeoutMs?: number;
-};
+}
 
 function buildService(options: {
   autoCompleteInstance?: boolean;
@@ -371,4 +371,84 @@ describe('RepoJobService', () => {
     expect(completed.status).toBe('completed');
     expect(completed.workflowTemplateId).toBe('repo-health-audit');
   }, 10000);
+
+  it('pauses a running job and resumes in its existing worktree', async () => {
+    let releaseFirst!: () => void;
+    let waits = 0;
+    const { service, worktreeManager, terminateInstance, createInstanceMock } = buildService({
+      autoCompleteInstance: false,
+      waitForInstanceSettled: async (id, _options, instances) => {
+        if (++waits === 1) await new Promise<void>(resolve => { releaseFirst = resolve; });
+        const instance = instances.get(id)!;
+        instance.status = 'idle';
+        instance.outputBuffer.push(createAssistantMessage('Continued saved work'));
+        return instance;
+      },
+    });
+    terminateInstance.mockImplementation(async () => { releaseFirst(); });
+    const repoDir = createTestWorkspace(); tempDirs.push(repoDir);
+    const job = service.submitJob({ type: 'issue-implementation', workingDirectory: repoDir, title: 'Resume work' });
+    await vi.waitFor(() => expect(releaseFirst).toBeDefined());
+    await service.pauseForGlobalPause(job.id);
+    expect(job.status).toBe('queued');
+    expect(job.globalPauseHeld).toBe(true);
+    expect(service.resumeForGlobalPause(job.id)).toBe(true);
+    const completed = await service.waitForJob(job.id, 5000);
+    expect(completed.status).toBe('completed');
+    expect(worktreeManager.createWorktree).toHaveBeenCalledTimes(1);
+    expect(createInstanceMock.mock.calls.map(([config]) => config.workingDirectory)).toEqual(['/tmp/worktree-path', '/tmp/worktree-path']);
+  }, 10000);
+
+  it('refuses restart when a late job instance could not stop, then retries that same instance', async () => {
+    const { service, createInstanceMock, terminateInstance } = buildService({ autoCompleteInstance: false });
+    let releaseCreate!: () => void;
+    let creationStarted!: () => void;
+    const started = new Promise<void>(resolve => { creationStarted = resolve; });
+    const creating = new Promise<void>(resolve => { releaseCreate = resolve; });
+    const create = createInstanceMock.getMockImplementation()!;
+    createInstanceMock.mockImplementation(async config => {
+      creationStarted();
+      await creating;
+      return create(config);
+    });
+    terminateInstance.mockRejectedValue(new Error('Provider process still running'));
+    const repoDir = createTestWorkspace(); tempDirs.push(repoDir);
+    const job = service.submitJob({ type: 'pr-review', workingDirectory: repoDir, title: 'Late startup' });
+    await started;
+    const pausing = service.pauseForGlobalPause(job.id);
+    const failedPause = expect(pausing).rejects.toThrow('Provider process still running');
+    releaseCreate();
+    await failedPause;
+    expect(job.instanceId).toBe('instance-1');
+    expect(job.globalPauseHeld).toBe(true);
+    expect(job.status).toBe('running');
+    terminateInstance.mockResolvedValue(undefined);
+    await service.pauseForGlobalPause(job.id);
+    expect(job.status).toBe('queued');
+    expect(terminateInstance).toHaveBeenLastCalledWith('instance-1', true);
+  });
+  it('waits for delayed termination of a job that appears during pause', async () => {
+    const { service, createInstanceMock, terminateInstance } = buildService({ autoCompleteInstance: false });
+    let releaseCreate!: () => void;
+    let creationStarted!: () => void;
+    let releaseStop!: () => void;
+    const started = new Promise<void>(resolve => { creationStarted = resolve; });
+    const creating = new Promise<void>(resolve => { releaseCreate = resolve; });
+    const stopping = new Promise<void>(resolve => { releaseStop = resolve; });
+    const create = createInstanceMock.getMockImplementation()!;
+    createInstanceMock.mockImplementation(async config => { creationStarted(); await creating; return create(config); });
+    terminateInstance.mockImplementation(async () => { await stopping; });
+    const repoDir = createTestWorkspace(); tempDirs.push(repoDir);
+    const job = service.submitJob({ type: 'pr-review', workingDirectory: repoDir, title: 'Delayed stop' });
+    await started;
+    let paused = false;
+    const pausing = service.pauseForGlobalPause(job.id).then(() => { paused = true; });
+    releaseCreate();
+    await vi.waitFor(() => expect(terminateInstance).toHaveBeenCalled());
+    expect(paused).toBe(false);
+    releaseStop();
+    await pausing;
+    expect(job.status).toBe('queued');
+    expect(job.globalPauseHeld).toBe(true);
+  });
 });

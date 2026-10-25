@@ -109,6 +109,66 @@ describe('PluginSourceResolver', () => {
     await expect(fs.access(path.join(resolved.stagedPath, '.codex-plugin', 'plugin.json'))).resolves.toBeUndefined();
   });
 
+  it('extracts nested files and explicit empty directories', async () => {
+    const zipPath = path.join(tempDir, 'nested-plugin.zip');
+    await fs.writeFile(zipPath, Buffer.from(zipSync({
+      'empty/': [new Uint8Array(), { os: 3, attrs: 0o40755 * 0x10000 }],
+      'nested/assets/message.txt': new Uint8Array(Buffer.from('plugin asset\n')),
+    })));
+    const resolver = new PluginSourceResolver();
+
+    const resolved = await resolver.resolve({ type: 'zip', value: zipPath });
+    cleanupFns.push(resolved.cleanup);
+
+    expect((await fs.stat(path.join(resolved.stagedPath, 'empty'))).isDirectory()).toBe(true);
+    await expect(fs.readFile(path.join(resolved.stagedPath, 'nested/assets/message.txt'), 'utf8'))
+      .resolves.toBe('plugin asset\n');
+  });
+
+  it('preserves executable file permissions on platforms with Unix modes', async () => {
+    const zipPath = path.join(tempDir, 'executable-plugin.zip');
+    await fs.writeFile(zipPath, Buffer.from(zipSync({
+      'bin/run.sh': [
+        new Uint8Array(Buffer.from('#!/bin/sh\nexit 0\n')),
+        { os: 3, attrs: 0o100755 * 0x10000 },
+      ],
+    })));
+    const resolver = new PluginSourceResolver();
+
+    const resolved = await resolver.resolve({ type: 'zip', value: zipPath });
+    cleanupFns.push(resolved.cleanup);
+
+    await expect(fs.readFile(path.join(resolved.stagedPath, 'bin/run.sh'), 'utf8'))
+      .resolves.toBe('#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') {
+      expect((await fs.stat(path.join(resolved.stagedPath, 'bin/run.sh'))).mode & 0o777)
+        .toBe(0o755 & ~process.umask());
+    }
+  });
+
+  it('extracts an empty zip and permits deleting the source archive', async () => {
+    const zipPath = path.join(tempDir, 'empty-plugin.zip');
+    await fs.writeFile(zipPath, Buffer.from(zipSync({})));
+    const resolver = new PluginSourceResolver();
+
+    const resolved = await resolver.resolve({ type: 'zip', value: zipPath });
+    cleanupFns.push(resolved.cleanup);
+
+    await expect(fs.readdir(resolved.stagedPath)).resolves.toEqual([]);
+    await fs.rm(zipPath);
+    await expect(fs.access(zipPath)).rejects.toThrow();
+  });
+
+  it('rejects malformed zip data', async () => {
+    const zipPath = path.join(tempDir, 'malformed.zip');
+    await fs.writeFile(zipPath, 'this is not a zip archive');
+    const resolver = new PluginSourceResolver();
+
+    await expect(resolver.resolve({ type: 'zip', value: zipPath })).rejects.toThrow();
+    await fs.rm(zipPath);
+    await expect(fs.access(zipPath)).rejects.toThrow();
+  });
+
   it('downloads a URL source and extracts zip content', async () => {
     const fixtureDir = await createPluginFixture(tempDir, 'url-plugin');
     const zipPath = path.join(tempDir, 'url-plugin.zip');

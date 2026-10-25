@@ -1,12 +1,16 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import {
   InteractionRequiredAuthError,
+  PublicClientApplication,
   type AccountInfo,
   type AuthenticationResult,
+  type AuthorizationCodePayload,
+  type AuthorizationCodeRequest,
+  type AuthorizationUrlRequest,
   type Configuration,
   type DeviceCodeRequest,
   type ISerializableTokenCache,
-  type InteractiveRequest,
   type SilentFlowRequest,
   type TokenCacheContext,
 } from '@azure/msal-node';
@@ -17,7 +21,6 @@ import {
   GraphAuthManager,
   type GraphPublicClientApplication,
 } from './graph-auth';
-import { TimedGraphLoopbackClient } from './graph-loopback-client';
 import { GraphTokenStore } from './graph-token-store';
 
 const dbs: SqliteDriver[] = [];
@@ -75,7 +78,13 @@ function createFakeClient(options: {
   serializedCache?: string;
 } = {}): GraphPublicClientApplication {
   return {
-    acquireTokenInteractive: async (_request: InteractiveRequest) =>
+    getAuthCodeUrl: async (request: AuthorizationUrlRequest) => {
+      const url = new URL('https://login.example.test/authorize');
+      url.searchParams.set('redirect_uri', request.redirectUri);
+      url.searchParams.set('state', request.state ?? '');
+      return url.toString();
+    },
+    acquireTokenByCode: async (_request: AuthorizationCodeRequest) =>
       options.interactiveResult ?? authResult(),
     acquireTokenByDeviceCode: async (_request: DeviceCodeRequest) => authResult(),
     acquireTokenSilent: async (_request: SilentFlowRequest) => authResult(),
@@ -94,15 +103,22 @@ describe('GraphAuthManager', () => {
     }
   });
 
-  it('uses the MSAL interactive PKCE, state, and loopback path and persists only encrypted cache metadata', async () => {
+  it('uses MSAL PKCE, state, nonce and form-post authorization and persists only encrypted cache metadata', async () => {
     const store = openStore();
     const openedUrls: string[] = [];
     let configuration: Configuration | undefined;
-    let interactiveRequest: InteractiveRequest | undefined;
+    let authorizationRequest: AuthorizationUrlRequest | undefined;
+    let tokenRequest: AuthorizationCodeRequest | undefined;
+    let tokenPayload: AuthorizationCodePayload | undefined;
     const client = createFakeClient({ serializedCache: 'serialized-msal-cache' });
-    client.acquireTokenInteractive = async (request) => {
-      interactiveRequest = request;
-      await request.openBrowser('https://login.example.test/authorize');
+    const getAuthCodeUrl = client.getAuthCodeUrl;
+    client.getAuthCodeUrl = async (request) => {
+      authorizationRequest = request;
+      return getAuthCodeUrl(request);
+    };
+    client.acquireTokenByCode = async (request, payload) => {
+      tokenRequest = request;
+      tokenPayload = payload;
       return authResult();
     };
     const manager = new GraphAuthManager({
@@ -114,6 +130,7 @@ describe('GraphAuthManager', () => {
       },
       openExternal: async (url) => {
         openedUrls.push(url);
+        await completeAuthorization(url);
       },
     });
 
@@ -126,23 +143,38 @@ describe('GraphAuthManager', () => {
       createdAt: 100,
       updatedAt: 100,
     });
-    expect(openedUrls).toEqual(['https://login.example.test/authorize']);
+    expect(openedUrls).toHaveLength(1);
+    expect(new URL(openedUrls[0]!).origin).toBe('https://login.example.test');
     expect(configuration?.auth).toEqual({
       clientId: 'client-id',
       authority: 'https://login.microsoftonline.com/common',
     });
-    expect(interactiveRequest?.scopes).toEqual([
+    expect(authorizationRequest?.scopes).toEqual([
       'Calendars.ReadWrite',
       'offline_access',
       'openid',
       'profile',
       'User.Read',
     ]);
-    expect(interactiveRequest).toMatchObject({ prompt: 'select_account' });
-    expect(interactiveRequest?.loopbackClient).toBeInstanceOf(TimedGraphLoopbackClient);
-    expect(interactiveRequest).not.toHaveProperty('state');
-    expect(interactiveRequest).not.toHaveProperty('codeChallenge');
-    expect(interactiveRequest).not.toHaveProperty('redirectUri');
+    expect(authorizationRequest).toMatchObject({
+      prompt: 'select_account',
+      responseMode: 'form_post',
+      codeChallengeMethod: 'S256',
+    });
+    expect(authorizationRequest?.state).toEqual(expect.any(String));
+    expect(authorizationRequest?.nonce).toEqual(expect.any(String));
+    expect(authorizationRequest?.nonce).not.toBe(authorizationRequest?.state);
+    expect(authorizationRequest?.redirectUri).toMatch(/^http:\/\/localhost:\d+$/);
+    expect(tokenRequest).toMatchObject({
+      code: 'code-placeholder',
+      redirectUri: authorizationRequest?.redirectUri,
+      state: authorizationRequest?.state,
+      nonce: authorizationRequest?.nonce,
+      authority: 'https://login.microsoftonline.com/common',
+    });
+    expect(createHash('sha256').update(tokenRequest!.codeVerifier!).digest('base64url'))
+      .toBe(authorizationRequest?.codeChallenge);
+    expect(tokenPayload).toEqual({ code: 'code-placeholder', state: authorizationRequest?.state });
     expect(store.getTokenCache(account.homeAccountId)).toBe(
       'serialized-msal-cache',
     );
@@ -438,10 +470,6 @@ describe('GraphAuthManager', () => {
     const store = openStore();
     const deviceMessages: string[] = [];
     const client = createFakeClient();
-    client.acquireTokenInteractive = async (request) => {
-      await request.openBrowser('https://login.example.test/authorize');
-      return authResult();
-    };
     client.acquireTokenByDeviceCode = async (request) => {
       request.deviceCodeCallback({
         userCode: 'CODE-PLACEHOLDER',
@@ -479,8 +507,128 @@ describe('GraphAuthManager', () => {
     const store = openStore();
     let deviceCalls = 0;
     const client = createFakeClient();
-    client.acquireTokenInteractive = async (request) => {
-      await request.loopbackClient!.listenForAuthCode();
+    client.acquireTokenByDeviceCode = async () => {
+      deviceCalls += 1;
+      return authResult();
+    };
+    const manager = new GraphAuthManager({
+      clientId: 'client-id',
+      tokenStore: store,
+      createClient: () => client,
+      openExternal: async () => undefined,
+      deviceCodeCallback: () => undefined,
+      interactiveTimeoutMs: 10,
+    });
+
+    await expect(manager.connectAccount()).resolves.toMatchObject({
+      accountKey: account.homeAccountId,
+    });
+    expect(deviceCalls).toBe(1);
+  });
+
+  it('keeps callback authority and other untrusted fields out of the token exchange', async () => {
+    const store = openStore();
+    const client = createFakeClient();
+    let request: AuthorizationCodeRequest | undefined;
+    let payload: AuthorizationCodePayload | undefined;
+    client.acquireTokenByCode = async (value, response) => {
+      request = value;
+      payload = response;
+      return authResult();
+    };
+    const manager = new GraphAuthManager({
+      clientId: 'client-id',
+      authority: 'https://login.microsoftonline.com/organizations',
+      tokenStore: store,
+      createClient: () => client,
+      openExternal: (url) => completeAuthorization(url, {
+        authority: 'https://attacker.example.test/tenant',
+        cloud_instance_host_name: 'attacker.example.test',
+        redirectUri: 'https://attacker.example.test/callback',
+        scopes: 'unrequested-scope',
+        nonce: 'attacker-nonce-placeholder',
+      }),
+    });
+
+    await expect(manager.connectAccount()).resolves.toMatchObject({ accountKey: account.homeAccountId });
+    expect(request?.authority).toBe('https://login.microsoftonline.com/organizations');
+    expect(request?.redirectUri).toMatch(/^http:\/\/localhost:\d+$/);
+    expect(request?.scopes).not.toContain('unrequested-scope');
+    expect(request?.nonce).not.toBe('attacker-nonce-placeholder');
+    expect(payload).toEqual({ code: 'code-placeholder', state: request?.state });
+  });
+
+  it('runs the real MSAL public authorization flow against only the configured token endpoint', async () => {
+    const store = openStore();
+    const realFetch = globalThis.fetch;
+    const tokenRequests: { url: URL; options?: RequestInit }[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, options) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (url.protocol === 'http:' && url.hostname === 'localhost') {
+        return realFetch(input, options);
+      }
+      tokenRequests.push({ url, options });
+      if (
+        url.origin !== 'https://login.example.test'
+        || url.pathname !== '/tenant/oauth2/v2.0/token'
+        || options?.method !== 'POST'
+      ) {
+        throw new Error('Unexpected authority metadata or token request');
+      }
+      return new Response(JSON.stringify({
+        error: 'invalid_grant',
+        error_description: 'Authorization code placeholder rejected.',
+      }), { status: 400, headers: { 'content-type': 'application/json' } });
+    });
+    const authorityMetadata = JSON.stringify({
+      authorization_endpoint: 'https://login.example.test/tenant/oauth2/v2.0/authorize',
+      token_endpoint: 'https://login.example.test/tenant/oauth2/v2.0/token',
+      issuer: 'https://login.example.test/tenant/v2.0',
+      jwks_uri: 'https://login.example.test/keys',
+      end_session_endpoint: 'https://login.example.test/logout',
+    });
+    const openedUrls: URL[] = [];
+    const manager = new GraphAuthManager({
+      clientId: 'client-id',
+      authority: 'https://login.example.test/tenant',
+      tokenStore: store,
+      createClient: (configuration) => new PublicClientApplication({
+        ...configuration,
+        auth: { ...configuration.auth, knownAuthorities: ['login.example.test'], authorityMetadata },
+      }),
+      openExternal: async (url) => {
+        openedUrls.push(new URL(url));
+        await completeAuthorization(url, {
+          authority: 'https://attacker.example.test/tenant',
+          cloud_instance_host_name: 'attacker.example.test',
+        });
+      },
+    });
+
+    try {
+      await expect(manager.connectAccount()).rejects.toMatchObject({ errorCode: 'invalid_grant' });
+      expect(tokenRequests).toHaveLength(1);
+      const { url: tokenUrl, options: tokenOptions } = tokenRequests[0]!;
+      expect(tokenUrl.origin).toBe('https://login.example.test');
+      expect(tokenUrl.pathname).toBe('/tenant/oauth2/v2.0/token');
+      expect(openedUrls[0]?.searchParams.get('response_mode')).toBe('form_post');
+      expect(typeof tokenOptions?.body).toBe('string');
+      const verifier = new URLSearchParams(String(tokenOptions?.body)).get('code_verifier');
+      expect(createHash('sha256').update(verifier!).digest('base64url'))
+        .toBe(openedUrls[0]?.searchParams.get('code_challenge'));
+      expect(store.listAccounts()).toEqual([]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('returns a consent refusal without silently starting device-code authentication', async () => {
+    const store = openStore();
+    const client = createFakeClient();
+    let tokenCalls = 0;
+    let deviceCalls = 0;
+    client.acquireTokenByCode = async () => {
+      tokenCalls += 1;
       return authResult();
     };
     client.acquireTokenByDeviceCode = async () => {
@@ -491,13 +639,63 @@ describe('GraphAuthManager', () => {
       clientId: 'client-id',
       tokenStore: store,
       createClient: () => client,
+      openExternal: (url) => completeAuthorization(url, {
+        code: '',
+        error: 'access_denied',
+        error_description: 'Consent was declined.',
+      }),
+      deviceCodeCallback: () => undefined,
+    });
+
+    await expect(manager.connectAccount()).rejects.toMatchObject({ errorCode: 'access_denied' });
+    expect(tokenCalls).toBe(0);
+    expect(deviceCalls).toBe(0);
+    expect(store.listAccounts()).toEqual([]);
+  });
+
+  it('does not open a stale browser after URL discovery outlives the consent deadline', async () => {
+    const store = openStore();
+    const client = createFakeClient();
+    const getAuthCodeUrl = client.getAuthCodeUrl;
+    let finishDiscovery: (() => void) | undefined;
+    const discovery = new Promise<void>((resolve) => { finishDiscovery = resolve; });
+    client.getAuthCodeUrl = async (request) => {
+      await discovery;
+      return getAuthCodeUrl(request);
+    };
+    const openedUrls: string[] = [];
+    let tokenCalls = 0;
+    client.acquireTokenByCode = async () => {
+      tokenCalls += 1;
+      return authResult();
+    };
+    const manager = new GraphAuthManager({
+      clientId: 'client-id',
+      tokenStore: store,
+      createClient: () => client,
+      openExternal: async (url) => { openedUrls.push(url); },
       deviceCodeCallback: () => undefined,
       interactiveTimeoutMs: 10,
     });
 
-    await expect(manager.connectAccount()).resolves.toMatchObject({
-      accountKey: account.homeAccountId,
-    });
-    expect(deviceCalls).toBe(1);
+    await expect(manager.connectAccount()).resolves.toMatchObject({ accountKey: account.homeAccountId });
+    finishDiscovery?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(openedUrls).toEqual([]);
+    expect(tokenCalls).toBe(0);
   });
 });
+
+async function completeAuthorization(url: string, additionalFields: Record<string, string> = {}): Promise<void> {
+  const authorization = new URL(url);
+  const response = await fetch(authorization.searchParams.get('redirect_uri')!, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code: 'code-placeholder',
+      state: authorization.searchParams.get('state')!,
+      ...additionalFields,
+    }).toString(),
+  });
+  await response.arrayBuffer();
+}

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { EventEmitter } from 'events';
 import { clearInstanceTurnEnding, recordInstanceTurnEnding } from './instance-turn-ending-state';
 import { InstanceAsyncWorkRegistry } from './instance-async-work-registry';
@@ -20,7 +20,7 @@ describe('InstanceAsyncWorkContinuation', () => {
   let registry: InstanceAsyncWorkRegistry;
   let instance: TestInstance;
   let host: InstanceAsyncWorkContinuationHost;
-  let sendInput: ReturnType<typeof vi.fn>;
+  let sendInput: Mock<InstanceAsyncWorkContinuationHost['sendInput']>;
   let continuation: InstanceAsyncWorkContinuation;
 
   const terminal = (workId = 'bg-1', status: 'completed' | 'failed' = 'completed') => ({

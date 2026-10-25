@@ -51,4 +51,29 @@ export const RLM_MIGRATIONS_076_080: Migration[] = [
     `,
     down: `DROP TABLE wake_hint_tombstones;`,
   },
+  {
+    name: '079_global_pause_batches',
+    up: `
+      CREATE TABLE global_pause_batches (
+        id TEXT PRIMARY KEY, phase TEXT NOT NULL, reason TEXT,
+        created_at INTEGER NOT NULL, ready_at INTEGER, resumed_at INTEGER,
+        discarded_at INTEGER, expired_at INTEGER
+      );
+      CREATE UNIQUE INDEX idx_global_pause_open ON global_pause_batches ((1))
+        WHERE phase NOT IN ('resumed', 'discarded', 'expired');
+      CREATE TABLE global_pause_entries (
+        id TEXT PRIMARY KEY,
+        batch_id TEXT NOT NULL REFERENCES global_pause_batches(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL, target_id TEXT NOT NULL, display_name TEXT NOT NULL,
+        workspace TEXT, provider TEXT, original_instance_id TEXT,
+        history_thread_id TEXT, provider_session_id TEXT,
+        was_busy INTEGER NOT NULL DEFAULT 0, note_text TEXT,
+        note_kind TEXT NOT NULL DEFAULT 'none', state TEXT NOT NULL DEFAULT 'pending',
+        void_reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        UNIQUE(batch_id, kind, target_id)
+      );
+      CREATE INDEX idx_global_pause_entries_batch ON global_pause_entries(batch_id);
+    `,
+    down: `DROP TABLE global_pause_entries; DROP TABLE global_pause_batches;`,
+  },
 ];

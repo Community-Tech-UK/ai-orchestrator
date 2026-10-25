@@ -37,6 +37,7 @@ import {
 } from './automation-store-retry-ops';
 import { recordRunOutcomeRecord } from './automation-store-outcome-ops';
 import type { AutomationRunDecisionOptions } from './automation-store-types';
+import { listActiveAutomationRuns } from './automation-store-admission';
 export type { PendingRetryRecord } from './automation-store-retry-ops';
 export type { AutomationRunDecisionOptions } from './automation-store-types';
 
@@ -311,6 +312,12 @@ export class AutomationStore {
         return { kind: 'skipped', reason: 'Scheduled fire time already has a run' };
       }
 
+      if (options.admissionHeld) {
+        const run = this.insertRun(current, 'pending', trigger, fireTime, now, options);
+        this.advanceScheduleBaselineIfNeeded(current.id, run.id, trigger, fireTime);
+        return { kind: 'queued', run };
+      }
+
       const running = this.db.prepare(`
         SELECT id
         FROM automation_runs
@@ -343,7 +350,7 @@ export class AutomationStore {
     return tx();
   }
 
-  attachInstance(runId: string, instanceId: string, now = Date.now()): AutomationRun | null {
+  attachInstance(runId: string, instanceId: string | null, now = Date.now()): AutomationRun | null {
     this.db.prepare(`
       UPDATE automation_runs
       SET instance_id = ?, updated_at = ?
@@ -460,16 +467,17 @@ export class AutomationStore {
     );
   }
 
-  claimNextPending(automationId?: string, now = Date.now()): ClaimedAutomationRun | null {
+  claimNextPending(automationId?: string, now = Date.now(), admitted?: (run: AutomationRun) => boolean): ClaimedAutomationRun | null {
     const tx = this.db.transaction((): ClaimedAutomationRun | null => {
-      const row = this.db.prepare(`
+      const rows = this.db.prepare(`
         SELECT *
         FROM automation_runs
         WHERE status = 'pending'
+          AND NOT EXISTS (SELECT 1 FROM automation_runs active_run WHERE active_run.automation_id = automation_runs.automation_id AND active_run.status = 'running')
           ${automationId ? 'AND automation_id = ?' : ''}
         ORDER BY scheduled_at ASC, created_at ASC
-        LIMIT 1
-      `).get<AutomationRunRow>(...(automationId ? [automationId] : []));
+      `).all<AutomationRunRow>(...(automationId ? [automationId] : []));
+      const row = rows.find(candidate => !admitted || admitted(this.mapRun(candidate)));
       if (!row) {
         return null;
       }
@@ -573,16 +581,7 @@ export class AutomationStore {
     return rows.map((row) => this.mapRun(row));
   }
 
-  listActiveRuns(): AutomationRun[] {
-    const rows = this.db.prepare(`
-      SELECT *
-      FROM automation_runs
-      WHERE status IN ('pending', 'running')
-      ORDER BY scheduled_at ASC, created_at ASC
-    `).all<AutomationRunRow>();
-
-    return rows.map((row) => this.mapRun(row));
-  }
+  listActiveRuns(): AutomationRun[] { return listActiveAutomationRuns(this.db); }
 
   /** One bounded result per requested automation, without per-item history queries. */
   listLatestRuns(automationIds: readonly string[]): Map<string, AutomationRun> {
@@ -683,13 +682,14 @@ export class AutomationStore {
     `).all<AutomationRunRow>().map((row) => this.mapRun(row));
   }
 
-  failRunningRuns(reason: string, now = Date.now()): AutomationRun[] {
+  failRunningRuns(reason: string, now = Date.now(), excludeRunIds: readonly string[] = []): AutomationRun[] {
+    const exclusion = excludeRunIds.length ? ` AND id NOT IN (${excludeRunIds.map(() => '?').join(',')})` : '';
     const tx = this.db.transaction(() => {
       const rows = this.db.prepare(`
         SELECT *
         FROM automation_runs
-        WHERE status = 'running' AND loop_run_id IS NULL
-      `).all<AutomationRunRow>();
+        WHERE status = 'running' AND loop_run_id IS NULL ${exclusion}
+      `).all<AutomationRunRow>(...excludeRunIds);
 
       this.db.prepare(`
         UPDATE automation_runs
@@ -697,8 +697,8 @@ export class AutomationStore {
             finished_at = ?,
             error = ?,
             updated_at = ?
-        WHERE status = 'running' AND loop_run_id IS NULL
-      `).run(now, reason, now);
+        WHERE status = 'running' AND loop_run_id IS NULL ${exclusion}
+      `).run(now, reason, now, ...excludeRunIds);
 
       for (const row of rows) {
         const automation = this.getAutomationRow(row.automation_id);

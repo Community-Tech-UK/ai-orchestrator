@@ -19,7 +19,7 @@
  * spawn-rollback path): detach the adapter's listeners before terminating it.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { EventEmitter } from 'events';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import type { Instance } from '../../../shared/types/instance.types';
@@ -107,7 +107,7 @@ function message(id: string, type: Instance['outputBuffer'][number]['type'], tim
 describe('InstanceTerminationCoordinator — deliberate terminate vs unexpected exit', () => {
   let instance: Instance;
   let adapter: CliAdapter & EventEmitter;
-  let archiveInstance: ReturnType<typeof vi.fn>;
+  let archiveInstance: Mock<InstanceTerminationDeps['archiveInstance']>;
   let deps: InstanceTerminationDeps;
 
   beforeEach(() => {

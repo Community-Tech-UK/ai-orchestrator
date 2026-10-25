@@ -15,7 +15,7 @@ class FakeAdapter extends EventEmitter {
 }
 
 vi.mock('../../cli/adapters/codex-cli-adapter', () => ({
-  CodexCliAdapter: vi.fn().mockImplementation(() => new FakeAdapter()),
+  CodexCliAdapter: vi.fn().mockImplementation(function () { return new FakeAdapter(); }),
 }));
 
 describe('CodexCliProvider inline translation', () => {

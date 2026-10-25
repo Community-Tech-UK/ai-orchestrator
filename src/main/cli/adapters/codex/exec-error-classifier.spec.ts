@@ -115,6 +115,12 @@ describe('isRecoverableThreadResumeError', () => {
     expect(isRecoverableThreadResumeError(new Error('Custom tool call failed for call id: call_123'))).toBe(false);
     expect(isRecoverableThreadResumeError(new Error('Custom tool call output is missing'))).toBe(false);
   });
+
+  it('ignores a rollout write failure for a spawned helper thread', () => {
+    const rolloutWrite = 'ERROR codex_core::session: failed to record rollout items: thread 01a16bdc-6468-7800-8d05-a7f53fa36aef not found';
+    expect(isRecoverableThreadResumeError(new Error(rolloutWrite))).toBe(false);
+    expect(isRecoverableThreadResumeError(new Error(`${rolloutWrite}\nno rollout found for thread id 01a169e4`))).toBe(true);
+  });
 });
 
 describe('enrichSpawnError', () => {

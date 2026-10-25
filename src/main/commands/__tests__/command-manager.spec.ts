@@ -13,13 +13,15 @@ const {
 }));
 
 vi.mock('electron-store', () => ({
-  default: vi.fn().mockImplementation(() => ({
-    store: { customCommands },
-    get: vi.fn(() => customCommands),
-    set: vi.fn((_key: string, value: CommandTemplate[]) => {
-      customCommands.splice(0, customCommands.length, ...value);
-    }),
-  })),
+  default: vi.fn().mockImplementation(function () {
+    return {
+      store: { customCommands },
+      get: vi.fn(() => customCommands),
+      set: vi.fn((_key: string, value: CommandTemplate[]) => {
+        customCommands.splice(0, customCommands.length, ...value);
+      }),
+    };
+  }),
 }));
 
 vi.mock('../markdown-command-registry', () => ({

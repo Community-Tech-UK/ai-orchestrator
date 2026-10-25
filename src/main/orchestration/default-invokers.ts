@@ -54,6 +54,9 @@ import {
 } from './scaffolding-local-provider';
 import type { OrchestrationRoutingPolicyKey } from '../../shared/types/settings.types';
 import { applyWrapUpToolsDisable } from './loop-tools-disable';
+import { getWorkAdmission } from '../work-admission/work-admission';
+import { waitForConsult } from '../work-admission/consult-admission';
+import { trackConsultAdapter } from '../work-admission/consult-adapter-lifecycle';
 
 const logger = getLogger('DefaultInvokers');
 
@@ -203,6 +206,8 @@ async function invokeCliTextResponse(params: {
   /** The adapter attached a structured plan-limit signal (e.g. Claude's 429 `result`). */
   providerQuotaExhausted?: boolean;
 }> {
+  const isLoop = params.routingIntent === 'loop' || params.breakerKey.startsWith('loop-');
+  if (!isLoop) await waitForConsult();
   const instance = params.instanceId
     ? params.instanceManager.getInstance(params.instanceId)
     : undefined;
@@ -305,11 +310,16 @@ async function invokeCliTextResponse(params: {
       );
   const prompt = buildUserPrompt(params.prompt, params.context);
   const response = await breaker.execute(async () => {
+    if (!isLoop) await waitForConsult();
+    const decision = getWorkAdmission().check('consult', { remote: isLoop });
+    if (!decision.allowed) throw new Error(isLoop ? 'instance-interrupted' : decision.detail);
     // Either reuse the caller's adapter (same-session loop) or create a
     // fresh one (one-shot — chat orchestration, debate, fresh-child loop).
     const ownsAdapter = !params.reusedAdapter;
     const adapter: CliAdapter = (params.reusedAdapter as CliAdapter | undefined)
       ?? getProviderRuntimeService().createAdapter({ cliType, options: routedSpawnOptions });
+    const cleanup = params.cleanupAdapter ?? terminateCliAdapter;
+    const finishConsult = isLoop ? undefined : trackConsultAdapter(adapter, () => ownsAdapter ? cleanup(adapter, false) : Promise.resolve());
     const untrackAdapter = params.onAdapterReady?.(adapter, model, cliType) ?? (() => { /* noop */ });
     const detachActivity = params.activity
       ? attachInvocationActivity(adapter, params.activity, {
@@ -383,8 +393,7 @@ async function invokeCliTextResponse(params: {
       // Caller owns the lifecycle when reusing an adapter (same-session
       // loops keep it alive across iterations and tear it down on terminate).
       if (ownsAdapter) {
-        const cleanup = params.cleanupAdapter ?? terminateCliAdapter;
-        await cleanup(adapter, false).catch((cleanupError: unknown) => {
+        await (finishConsult ? finishConsult() : cleanup(adapter, false)).catch((cleanupError: unknown) => {
           logger.warn('One-shot invocation adapter cleanup failed', {
             correlationId: params.correlationId,
             cliType,
@@ -393,6 +402,7 @@ async function invokeCliTextResponse(params: {
         });
       }
       untrackAdapter();
+      if (!ownsAdapter) await finishConsult?.();
     }
   });
 
@@ -1029,6 +1039,14 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     const persistent = persistentLoopAdapters.get(payload.loopRunId);
     if (persistent) live.add(persistent);
     for (const borrowed of borrowedLoopAdapters.get(payload.loopRunId) ?? []) live.add(borrowed);
+    for (const adapter of live) interruptLoopAdapter(adapter);
+  });
+  coordinator.on('loop:pause-for-restart', (data: unknown) => {
+    const { loopRunId } = data as { loopRunId: string };
+    const live = new Set<unknown>(activeLoopAdapters.get(loopRunId) ?? []);
+    const persistent = persistentLoopAdapters.get(loopRunId);
+    if (persistent) live.add(persistent);
+    for (const borrowed of borrowedLoopAdapters.get(loopRunId) ?? []) live.add(borrowed);
     for (const adapter of live) interruptLoopAdapter(adapter);
   });
   // Defense-in-depth: also clean up on any terminal state-change. Catches

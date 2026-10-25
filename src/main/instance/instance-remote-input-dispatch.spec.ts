@@ -35,11 +35,44 @@ import { InstanceCommunicationManager } from './instance-communication';
 const holder = vi.hoisted(() => ({ registry: undefined as unknown }));
 vi.mock('../remote-node/worker-node-registry', () => ({ getWorkerNodeRegistry: () => holder.registry }));
 vi.mock('../pause/pause-coordinator', () => ({ getPauseCoordinator: () => ({ isPaused: () => false }) }));
+import { getWorkAdmission, WorkAdmission } from '../work-admission/work-admission';
+import { GlobalPauseService } from '../global-pause/global-pause-service';
 import { RemoteCliAdapter } from '../cli/adapters/remote-cli-adapter';
 const admission = vi.hoisted(() => ({ recordUserSend: vi.fn(() => ({ admissionId: 'fixture-admission' })), markDelivered: vi.fn(), markFailed: vi.fn() }));
 vi.mock('../session/session-admission-service', () => ({ getSessionAdmissionService: () => admission }));
 
 describe('communication to remote prompt admission', () => {
+  it.each(['cross-session', 'timed-continuation'] as const)('holds %s delivery at a delayed native provider checkpoint', async mode => {
+    WorkAdmission._resetForTesting();
+    holder.registry = new EventEmitter();
+    const instance = createInstance();
+    let held = false, releaseCheckpoint!: () => void;
+    const pause = Object.assign(new EventEmitter(), { holdsAutomaticInput: () => held, manualInput: vi.fn() });
+    const peek = vi.spyOn(GlobalPauseService, 'peek').mockReturnValue(pause as unknown as GlobalPauseService);
+    const checkpoint = vi.fn().mockImplementationOnce(() => new Promise<void>(resolve => { releaseCheckpoint = resolve; })).mockResolvedValue(undefined);
+    const sendRpc = vi.fn(async (_node: string, _method: string, _params: unknown) => ({ instanceId: instance.id }));
+    const adapter = new RemoteCliAdapter({ sendRpc, isNodeConnected: () => true } as never, 'worker', 'opencode', {
+      sessionId: instance.id, workingDirectory: '/tmp', beforeProviderPrompt: checkpoint,
+    });
+    await adapter.spawn();
+    const manager = new InstanceCommunicationManager({ getInstance: () => instance, getAdapter: () => adapter as unknown as CliAdapter,
+      setAdapter: vi.fn(), deleteAdapter: vi.fn(() => true), queueUpdate: vi.fn(), processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined), ingestToRLM: vi.fn(), ingestToUnifiedMemory: vi.fn() });
+    let finished = false;
+    const sending = manager.sendInput(instance.id, 'Helper result', undefined, undefined, mode === 'cross-session' ? { crossSessionSourceId: 'helper' } : { autoContinuation: true }).then(() => { finished = true; });
+    try {
+      await vi.waitFor(() => expect(checkpoint).toHaveBeenCalledOnce());
+      if (mode === 'cross-session') held = true; else getWorkAdmission().setGlobalPhase('holding');
+      releaseCheckpoint();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      const beforeResume = { finished, sent: sendRpc.mock.calls.filter(call => call[1] === 'instance.sendInput').length };
+      held = false; getWorkAdmission().setGlobalPhase('none'); pause.emit('state-changed'); await sending;
+      expect(beforeResume).toEqual({ finished: false, sent: 0 });
+      expect(sendRpc.mock.calls.filter(call => call[1] === 'instance.sendInput')).toHaveLength(1);
+      expect(pause.manualInput).not.toHaveBeenCalled();
+    } finally { held = false; getWorkAdmission().setGlobalPhase('none'); pause.emit('state-changed'); releaseCheckpoint?.(); await sending; peek.mockRestore(); adapter.forceCleanup(); manager.cleanupCircuitBreaker(instance.id); WorkAdmission._resetForTesting(); }
+  });
+
   it.each([
     [false, 'checkpoint'], [true, 'checkpoint'], [false, 'admission'], [true, 'admission'],
   ] as const)('keeps cancelled input unsent and receipts accurate (autoContinuation=%s, cancellation=%s)', async (autoContinuation, cancelAt) => {

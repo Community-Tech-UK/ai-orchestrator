@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 const createAdapter = vi.hoisted(() => vi.fn());
 vi.mock('../main/cli/adapters/adapter-factory', () => ({ createCliAdapter: createAdapter }));
 import { LocalInstanceManager } from './local-instance-manager';
@@ -78,7 +78,7 @@ describe('LocalInstanceManager — adapter exits and the Android lease', () => {
   const releaseLeaseForInstance = vi.fn();
   const androidManager = { isEnabled: () => false, releaseLeaseForInstance } as unknown as WorkerAndroidManager;
   let manager: LocalInstanceManager;
-  let exits: ReturnType<typeof vi.fn>;
+  let exits: Mock<(instanceId: string, exit: { code: number | null; signal: string | null }) => void>;
   beforeEach(() => {
     vi.clearAllMocks();
     manager = new LocalInstanceManager(['/tmp'], 10, null, androidManager);

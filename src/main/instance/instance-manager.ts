@@ -123,6 +123,7 @@ import { getProviderRuntimeService } from '../providers/provider-runtime-service
 import { emitPluginHook } from '../plugins/hook-emitter';
 import type { PluginRoutingAudit } from '../../shared/types/plugin.types';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
+import { waitForGlobalPauseInput } from '../global-pause/global-pause-input';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { WindowManager } from '../window-manager';
@@ -156,6 +157,7 @@ import {
 } from '../context-evidence/context-evidence-coordinator';
 import {
   throwIfInstanceInputAborted,
+  isAutomaticInstanceInput,
   type InstanceSendInputOptions,
 } from './instance-input-cancellation';
 import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-logging';
@@ -556,7 +558,7 @@ export class InstanceManager extends EventEmitter {
         turn.message,
         turn.attachments,
         turn.contextBlock,
-        turn.internalSource ? { internalSource: turn.internalSource } : undefined,
+        { automatedInput: true, ...(turn.internalSource ? { internalSource: turn.internalSource } : {}) },
       ),
     });
 
@@ -1433,6 +1435,7 @@ export class InstanceManager extends EventEmitter {
     attachments?: FileAttachment[],
     options?: InstanceSendInputOptions,
   ): Promise<void> {
+    await waitForGlobalPauseInput(instanceId, options);
     const instance = this.state.getInstance(instanceId);
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
@@ -1440,7 +1443,7 @@ export class InstanceManager extends EventEmitter {
     throwIfInstanceInputAborted(options?.signal);
     this.emit('instance:input-started', {
       instanceId,
-      autoContinuation: options?.autoContinuation === true || options?.automatedInput === true || options?.internalSource !== undefined,
+      autoContinuation: isAutomaticInstanceInput(options),
     });
     throwIfInstanceInputAborted(options?.signal);
 
@@ -1875,7 +1878,7 @@ export class InstanceManager extends EventEmitter {
       : undefined;
     await this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock, {
       autoContinuation: options?.autoContinuation === true, automatedInput: options?.automatedInput === true,
-      internalSource,
+      internalSource, crossSessionSourceId: options?.crossSessionSourceId,
       signal: options?.signal,
       beforeProviderDispatch,
       assertProviderDispatchCurrent: options?.assertProviderDispatchCurrent,

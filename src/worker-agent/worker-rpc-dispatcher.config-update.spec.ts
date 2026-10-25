@@ -1,16 +1,16 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, type Mock } from 'vitest';
 import { WorkerRpcDispatcher } from './worker-rpc-dispatcher';
 import { COORDINATOR_TO_NODE } from '../main/remote-node/worker-node-rpc';
 import type { RpcMessage } from './worker-rpc-types';
 
 function makeDispatcher(
-  applyConfigUpdate: ReturnType<typeof vi.fn>,
-  cdpTunnel: { open: ReturnType<typeof vi.fn>; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> } = {
+  applyConfigUpdate: Mock,
+  cdpTunnel: { open: Mock; send: Mock; close: Mock } = {
     open: vi.fn(async () => undefined),
     send: vi.fn(),
     close: vi.fn(),
   },
-  stopManagedBrowser: ReturnType<typeof vi.fn> = vi.fn(async () => undefined),
+  stopManagedBrowser: Mock = vi.fn(async () => undefined),
 ) {
   const sendResult = vi.fn();
   const sendError = vi.fn();

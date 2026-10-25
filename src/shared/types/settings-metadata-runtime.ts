@@ -3,6 +3,11 @@ import type { SettingMetadata } from './settings-metadata.types';
 
 export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
+    key: 'workloadLevel', label: 'Workload',
+    description: 'Less or more unattended work at once. Balanced keeps existing limits. Lowering this lets running work finish.',
+    type: 'number', category: 'orchestration', min: 1, max: 5, hidden: true,
+  },
+  {
     key: 'observationMemoryEnabled',
     label: 'Observation memory',
     description: 'Capture observations from your chats and include learned reflections in new prompts. Queue, loop and scheduled work are excluded. Expired rows are removed at startup and daily even while this is off.',

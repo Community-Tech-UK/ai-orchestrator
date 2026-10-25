@@ -53,7 +53,7 @@ vi.mock('../../../instance/lifecycle/copilot-route-preflight', () => ({
 }));
 
 vi.mock('../../../cli/adapters/claude-cli-adapter', () => ({
-  ClaudeCliAdapter: vi.fn().mockImplementation(() => new FakeClaudeAdapter()),
+  ClaudeCliAdapter: vi.fn().mockImplementation(function () { return new FakeClaudeAdapter(); }),
 }));
 
 // --- Codex ---
@@ -68,7 +68,7 @@ class FakeCodexAdapter extends EventEmitter {
 }
 
 vi.mock('../../../cli/adapters/codex-cli-adapter', () => ({
-  CodexCliAdapter: vi.fn().mockImplementation(() => new FakeCodexAdapter()),
+  CodexCliAdapter: vi.fn().mockImplementation(function () { return new FakeCodexAdapter(); }),
 }));
 
 // --- Gemini ---
@@ -83,7 +83,7 @@ class FakeGeminiAdapter extends EventEmitter {
 }
 
 vi.mock('../../../cli/adapters/gemini-cli-adapter', () => ({
-  GeminiCliAdapter: vi.fn().mockImplementation(() => new FakeGeminiAdapter()),
+  GeminiCliAdapter: vi.fn().mockImplementation(function () { return new FakeGeminiAdapter(); }),
 }));
 
 // --- Copilot ---
@@ -97,7 +97,7 @@ class FakeCopilotAdapter extends EventEmitter {
 }
 
 vi.mock('../../../cli/adapters/copilot-cli-adapter', () => ({
-  CopilotCliAdapter: vi.fn().mockImplementation(() => new FakeCopilotAdapter()),
+  CopilotCliAdapter: vi.fn().mockImplementation(function () { return new FakeCopilotAdapter(); }),
 }));
 
 // --- Cursor ---
@@ -110,7 +110,7 @@ class FakeCursorAdapter extends EventEmitter {
 }
 
 vi.mock('../../../cli/adapters/cursor-cli-adapter', () => ({
-  CursorCliAdapter: vi.fn().mockImplementation(() => new FakeCursorAdapter()),
+  CursorCliAdapter: vi.fn().mockImplementation(function () { return new FakeCursorAdapter(); }),
 }));
 
 // --- Grok (ACP via createGrokAdapter) ---

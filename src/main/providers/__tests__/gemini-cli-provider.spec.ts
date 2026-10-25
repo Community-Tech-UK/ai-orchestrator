@@ -14,7 +14,7 @@ class FakeAdapter extends EventEmitter {
 }
 
 vi.mock('../../cli/adapters/gemini-cli-adapter', () => ({
-  GeminiCliAdapter: vi.fn().mockImplementation(() => new FakeAdapter()),
+  GeminiCliAdapter: vi.fn().mockImplementation(function () { return new FakeAdapter(); }),
 }));
 
 describe('GeminiCliProvider inline translation', () => {

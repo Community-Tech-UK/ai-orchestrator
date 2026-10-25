@@ -10,6 +10,7 @@ import { SettingRowComponent } from './setting-row.component';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { ProviderModelOverrideComponent } from './provider-model-override.component';
 import { SettingsTieredRowListComponent } from './settings-tiered-row-list.component';
+import { WorkloadSliderComponent } from '../../core/state/global-pause/workload-slider.component';
 
 await resolveComponentResources((url) => {
   if (url.endsWith('.html') || url.endsWith('.scss')) {
@@ -67,6 +68,7 @@ describe('OrchestrationSettingsTabComponent', () => {
           CompactModelPickerStubComponent,
           SettingsTieredRowListComponent,
           ProviderModelOverrideComponent,
+          WorkloadSliderComponent,
         ],
         styles: [''],
         styleUrl: undefined,

@@ -11,6 +11,7 @@ export const aliases = {
   '@contracts/schemas/prompt-history': resolve(configDir, './packages/contracts/src/schemas/prompt-history.schemas'),
   '@contracts/schemas/workflow': resolve(configDir, './packages/contracts/src/schemas/workflow.schemas'),
   '@contracts/schemas/pause': resolve(configDir, './packages/contracts/src/schemas/pause.schemas'),
+  '@contracts/schemas/global-pause': resolve(configDir, './packages/contracts/src/schemas/global-pause.schemas'),
   '@contracts/schemas/instance': resolve(configDir, './packages/contracts/src/schemas/instance.schemas'),
   '@contracts/schemas/session': resolve(configDir, './packages/contracts/src/schemas/session.schemas'),
   '@contracts/schemas/provider': resolve(configDir, './packages/contracts/src/schemas/provider.schemas'),

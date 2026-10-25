@@ -107,13 +107,14 @@ import { readClaudeSelfWakeupNotice } from '../cli/adapters/claude-cli-self-wake
 import { getSelfWakeupTracker, appendLostSelfWakeupNotice } from './self-wakeup-tracker';
 import { getInstanceAsyncWorkRegistry } from './instance-async-work-registry';
 import { bindBackgroundWorkTerminationReporter, observeInstanceBackgroundWork } from './instance-background-work-runtime';
-import { throwIfInstanceInputAborted, type InstanceSendInputOptions } from './instance-input-cancellation';
+import { isAutomaticInstanceInput, throwIfInstanceInputAborted, type InstanceSendInputOptions } from './instance-input-cancellation';
 import { InstanceInputFailureScopes, type InstanceInputFailureScope } from './instance-input-failure-scope';
 import { OutputPublicationOrder, type OutputPublicationTicket } from './instance-communication-output-order';
 import { handleInstanceAdapterError } from './instance-adapter-error-handler';
 import { createInstanceAdapterInputDispatch, createInstanceInputReceipt } from './instance-adapter-input-dispatch';
 import { buildSpawnStallNotice } from './stall-notices';
 import { bindInstanceAcpHistoryReplay } from './instance-acp-history-replay';
+import { runWithGlobalPauseInput, waitForGlobalPauseInput } from '../global-pause/global-pause-input';
 export type { CommunicationDependencies } from './instance-communication.types';
 const logger = getLogger('InstanceCommunication');
 export class InstanceCommunicationManager extends EventEmitter {
@@ -636,14 +637,15 @@ export class InstanceCommunicationManager extends EventEmitter {
     message: string,
     attachments?: FileAttachment[],
     contextBlock?: string | null,
-    options?: Pick<InstanceSendInputOptions, 'autoContinuation' | 'automatedInput' | 'signal' | 'beforeProviderDispatch' | 'assertProviderDispatchCurrent' | 'internalSource' | 'providerNativeCommandId'>,
+    options?: Pick<InstanceSendInputOptions, 'autoContinuation' | 'automatedInput' | 'signal' | 'beforeProviderDispatch' | 'assertProviderDispatchCurrent' | 'internalSource' | 'providerNativeCommandId' | 'crossSessionSourceId'>,
   ): Promise<void> {
+    await waitForGlobalPauseInput(instanceId, options);
     throwIfInstanceInputAborted(options?.signal);
-    const dispatch = () => deferredDispatch
+    const dispatch = () => runWithGlobalPauseInput(instanceId, options, () => deferredDispatch
       ? adapter!.sendInput(finalMessage, attachments, { internalSource: options?.internalSource, dispatch: inputDispatch })
       : options?.internalSource
         ? adapter!.sendInput(finalMessage, attachments, { internalSource: options.internalSource })
-        : adapter!.sendInput(finalMessage, attachments);
+        : adapter!.sendInput(finalMessage, attachments));
     logger.info('sendInput called', { instanceId, autoContinuation: options?.autoContinuation === true });
     const instance = this.deps.getInstance(instanceId);
     let adapter = this.deps.getAdapter(instanceId);
@@ -884,11 +886,12 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
     }
 
+    await waitForGlobalPauseInput(instanceId, options);
     logger.info('Sending message to adapter');
     // Observe admitted sends; commit context and watchdog state only while dispatch remains eligible.
     const receipt = createInstanceInputReceipt(instanceId, () => ({ message: finalMessage, attachments, contextBlock: finalContextBlock }));
     let committed = false;
-    const deferredDispatch = (adapter instanceof BaseCliAdapter || adapter instanceof RemoteCliAdapter) && Boolean(options?.signal || options?.beforeProviderDispatch || options?.assertProviderDispatchCurrent);
+    const deferredDispatch = (adapter instanceof BaseCliAdapter || adapter instanceof RemoteCliAdapter) && Boolean(options?.signal || options?.beforeProviderDispatch || options?.assertProviderDispatchCurrent || isAutomaticInstanceInput(options));
     const commitDispatch = (): void => {
       throwIfInstanceInputAborted(options?.signal);
       if (committed) return;
@@ -897,7 +900,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       throwIfInstanceInputAborted(options?.signal);
       committed = true;
       preparedContext.commit();
-      this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource }, !options?.autoContinuation && !options?.automatedInput && options?.internalSource === undefined ? instance.requestCount : undefined);
+      this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource }, !isAutomaticInstanceInput(options) ? instance.requestCount : undefined);
       this.overflow.rememberDispatch(instanceId, inputDispatch, finalMessage);
       // Cancelled admissions keep a failed receipt without consuming context or starting watchdog state.
       if (this.deps.createSnapshot) {
@@ -945,7 +948,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (attachments?.length && isUnsupportedOrchestratorAttachmentError(sendError)) {
         this.emitAttachmentDropWarnings(instanceId, instance, adapter.getName(), attachments);
         attachments = undefined;
-        this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource }, !options?.autoContinuation && !options?.automatedInput && options?.internalSource === undefined ? instance.requestCount : undefined);
+        this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource }, !isAutomaticInstanceInput(options) ? instance.requestCount : undefined);
 
         if (!message.trim()) {
           logger.info('Dropped unsupported attachments from empty user input; skipping adapter retry', {

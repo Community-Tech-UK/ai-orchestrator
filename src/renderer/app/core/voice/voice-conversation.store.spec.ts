@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { Subject } from 'rxjs';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { VoiceIpcService } from '../services/ipc/voice-ipc.service';
 import type { OutputMessage } from '../state/instance/instance.types';
 import {
@@ -21,19 +21,19 @@ class FakeAudioContext {
 interface StoreHarness {
   store: VoiceConversationStore;
   events: Subject<VoiceTranscriptEvent>;
-  sendInput: ReturnType<typeof vi.fn>;
-  steerInput: ReturnType<typeof vi.fn>;
-  closeConnection: ReturnType<typeof vi.fn>;
-  closeLocalConnection: ReturnType<typeof vi.fn>;
+  sendInput: Mock;
+  steerInput: Mock;
+  closeConnection: Mock;
+  closeLocalConnection: Mock;
   voiceIpc: {
-    getStatus: ReturnType<typeof vi.fn>;
-    createTranscriptionSession: ReturnType<typeof vi.fn>;
-    closeTranscriptionSession: ReturnType<typeof vi.fn>;
-    synthesizeSpeech: ReturnType<typeof vi.fn>;
-    cancelSpeech: ReturnType<typeof vi.fn>;
+    getStatus: Mock;
+    createTranscriptionSession: Mock;
+    closeTranscriptionSession: Mock;
+    synthesizeSpeech: Mock;
+    cancelSpeech: Mock;
   };
-  connectTranscription: ReturnType<typeof vi.fn>;
-  connectLocalTranscription: ReturnType<typeof vi.fn>;
+  connectTranscription: Mock;
+  connectLocalTranscription: Mock;
 }
 
 function message(

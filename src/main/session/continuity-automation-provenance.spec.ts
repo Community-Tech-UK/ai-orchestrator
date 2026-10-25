@@ -40,6 +40,11 @@ describe('continuity automation provenance', () => {
       .toEqual({ automationId: 'automation-1' });
   });
 
+  it('preserves historical source without restoring engine ownership', () => {
+    const metadata = { automationId: 'automation-1', automationSourceRunId: 'run-1', automationRevealed: true };
+    expect(automationMetadataFromProvenance(automationProvenanceFromMetadata(metadata))).toEqual(metadata);
+  });
+
   it('ignores sessions no automation started', () => {
     expect(automationProvenanceFromMetadata(undefined)).toBeUndefined();
     expect(automationProvenanceFromMetadata({ spendPurpose: 'automation' })).toBeUndefined();

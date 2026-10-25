@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliResponse } from '../cli/adapters/base-cli-adapter';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
@@ -24,7 +24,7 @@ vi.mock('../session/session-continuity', () => ({
   getSessionContinuityManagerIfInitialized: () => undefined,
 }));
 
-import { InstanceCommunicationManager } from './instance-communication';
+import { InstanceCommunicationManager, type CommunicationDependencies } from './instance-communication';
 
 class FakeAdapter extends EventEmitter {
   getName(): string { return 'claude-cli'; }
@@ -35,9 +35,9 @@ class FakeAdapter extends EventEmitter {
 describe('InstanceCommunicationManager context-evidence ingress', () => {
   let instance: Instance;
   let adapter: FakeAdapter;
-  let captureContextEvidenceToolResult: ReturnType<typeof vi.fn>;
-  let drainContextEvidence: ReturnType<typeof vi.fn>;
-  let onToolStateChange: ReturnType<typeof vi.fn>;
+  let captureContextEvidenceToolResult: Mock<NonNullable<CommunicationDependencies['captureContextEvidenceToolResult']>>;
+  let drainContextEvidence: Mock<NonNullable<CommunicationDependencies['drainContextEvidence']>>;
+  let onToolStateChange: Mock<NonNullable<CommunicationDependencies['onToolStateChange']>>;
   let manager: InstanceCommunicationManager;
 
   beforeEach(() => {

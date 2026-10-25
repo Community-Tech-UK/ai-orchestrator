@@ -25,10 +25,12 @@ function attachment(
   };
 }
 
+type CloseTabDeps = ConstructorParameters<typeof BrowserCloseTabOperations>[0];
+
 function makeOps(options: {
   tabs?: BrowserExistingTabAttachment[];
-  sendCommand?: ReturnType<typeof vi.fn>;
-  closeTarget?: ReturnType<typeof vi.fn>;
+  sendCommand?: CloseTabDeps['existingTabOperations']['sendCommand'];
+  closeTarget?: CloseTabDeps['driver']['closeTarget'];
   grants?: ReturnType<typeof makeGrant>[];
   targets?: Array<{
     id: string;

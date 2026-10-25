@@ -68,17 +68,10 @@ const rendererIntegrationTestGlobs = [
 export default defineConfig({
   test: {
     globals: true,
-    // Tinypool is built once for the whole run from the ROOT config, so this is
-    // the only place execArgv and maxForks reach the workers — the per-project
-    // equivalents are silently ignored. (Per-project `singleFork` is the
-    // exception: that one is applied by grouping specs, which is why it used to
-    // live under each project.) See vitest.heap.ts and vitest.pool.ts.
-    poolOptions: {
-      forks: {
-        execArgv: testHeapExecArgv(),
-        maxForks: resolveTestMaxForks(),
-      },
-    },
+    // Vitest 4 caps the whole run with maxWorkers; worker arguments belong to
+    // each project. Preserve the host-aware cap and heap budget after removing
+    // the old poolOptions API. See vitest.heap.ts and vitest.pool.ts.
+    maxWorkers: resolveTestMaxForks(),
     // Multi-project: renderer gets Angular TestBed; everything else skips it
     // but still uses jsdom + zone.js (Worker/MessagePort + microtask fidelity).
     // Neither project is singleFork — files run in parallel, isolated forks, so
@@ -102,6 +95,7 @@ export default defineConfig({
           exclude: defaultExcludes,
           setupFiles: ['src/test-setup.ts'],
           pool: 'forks',
+          execArgv: testHeapExecArgv(),
         },
       },
       {
@@ -137,6 +131,7 @@ export default defineConfig({
           ],
           setupFiles: ['src/test-setup-node.ts'],
           pool: 'forks',
+          execArgv: testHeapExecArgv(),
         },
       },
     ],

@@ -54,7 +54,7 @@ export const TURN_CONTINUATION_POLICY: Record<ProviderTurnEndingReason, TurnCont
   context_overflow: { notice: 'The provider could not fit this request into its context window. Reduce the context before resuming.', source: 'context-overflow' },
   doom_loop: { notice: 'The provider was stopped because repeated tool calls made no progress. Change approach before resuming.', source: 'doom-loop' },
   parent_silent: { notice: 'The delegated task stopped producing observable activity before its lease expired. Check the child task before resuming.', source: 'parent-silent' },
-  retryable: { notice: 'The provider encountered a temporary service error. Work is preserved; provider recovery owns any retry already in progress.', source: 'retryable' },
+  retryable: { notice: 'The provider hit a temporary service problem, such as an overloaded model. The work above is kept. If it does not carry on by itself, send a message to try again.', source: 'retryable' },
   unknown_error: { notice: 'The provider ended this turn with an error. The work and error above are kept.', source: 'unknown-error' },
 };
 

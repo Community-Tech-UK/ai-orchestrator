@@ -328,12 +328,48 @@ describe('QueuePersistenceService', () => {
     beforeEach(() => {
       settingsValues['persistSessionContent'] = true;
     });
+    it('merges a held initial prompt once, retaining its attachment and durable identity', async () => {
+      settingsValues['pauseFeatureEnabled'] = false;
+      ipcMock.queueList.mockResolvedValue({ success: true, data: { queues: { 'inst-1': [{
+        admissionId: 'initial-held', instanceId: 'inst-1', message: 'original prompt',
+        attachments: [{ name: 'note.txt', type: 'text/plain', size: 5, data: 'data:text/plain;base64,aGVsbG8=' }],
+        attachmentsDropped: false, contextBlock: null, queuePosition: 0, state: 'queued',
+        sourceMetadata: { seededAlready: true }, createdAt: 1, updatedAt: 1,
+      }] } } });
+      const service = TestBed.inject(QueuePersistenceService);
+      const later = { message: 'later local question' };
+      seedQueue('inst-1', later);
+      await service.restorePauseQueue('inst-1');
+      await service.restorePauseQueue('inst-1');
+      const restored = queueSignal().get('inst-1')!;
+      expect(restored.map(entry => entry.message)).toEqual(['original prompt', 'later local question']);
+      expect(restored[0].files?.[0].name).toBe('note.txt');
+      expect(restored[1]).toBe(later);
+      await service.notifyPromoting('inst-1', restored[0]);
+      expect(ipcMock.queuePromote).toHaveBeenCalledWith('initial-held');
+    });
 
     it('is a no-op when persistence is disabled', async () => {
       settingsValues['persistSessionContent'] = false;
       const service = TestBed.inject(QueuePersistenceService);
       await service.restoreFromDisk();
       expect(ipcMock.queueList).not.toHaveBeenCalled();
+    });
+    it('preserves a message typed while startup restore is waiting for the database', async () => {
+      let resolve!: (result: unknown) => void;
+      ipcMock.queueList.mockReturnValueOnce(new Promise(r => { resolve = r; }));
+      const service = TestBed.inject(QueuePersistenceService);
+      const restoring = service.restoreFromDisk();
+      await flushMicrotasks();
+      const newer = { message: 'new question while loading' };
+      seedQueue('inst-1', newer);
+      resolve({ success: true, data: { queues: { 'inst-1': [{
+        admissionId: 'saved-before-boot', instanceId: 'inst-1', message: 'saved question', attachments: [],
+        attachmentsDropped: false, contextBlock: null, queuePosition: 0, state: 'queued', sourceMetadata: null, createdAt: 1, updatedAt: 1,
+      }] } } });
+      await restoring;
+      expect(queueSignal().get('inst-1')?.map(entry => entry.message)).toEqual(['saved question', 'new question while loading']);
+      expect(queueSignal().get('inst-1')?.[1]).toBe(newer);
     });
 
     it('reconstructs a File from a durable row carrying a base64 attachment (attachment survives a crash restore)', async () => {

@@ -89,6 +89,18 @@ export function revealHiddenAutomationSession(
   persistAutomationStamp(instance);
 }
 
+/** Transfer only this run's active ownership; retain its origin for History. */
+export function releaseAutomationOwnership(manager: OutcomeManager, instanceId: string, runId: string): void {
+  const instance = manager.getInstance(instanceId);
+  if (instance?.metadata?.['automationRunId'] !== runId) return;
+  const metadata: Record<string, unknown> = { ...instance.metadata, automationSourceRunId: runId };
+  delete metadata['automationRunId'];
+  if (metadata['automationHidden'] === true) metadata['automationRevealed'] = true;
+  instance.metadata = metadata;
+  manager.queueInstanceUpdate?.(instanceId, {});
+  persistAutomationStamp(instance);
+}
+
 /**
  * Mirror a stamp into the session's autosave. A session filed into History
  * after a crash is rebuilt from that copy, so without this a succeeded run would

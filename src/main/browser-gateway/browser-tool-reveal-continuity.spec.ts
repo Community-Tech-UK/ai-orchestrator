@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BrowserGatewayRpcClientLike } from './browser-gateway-rpc-client';
 import { McpServer } from '../mcp/mcp-server';
 import {
   BROWSER_TOOL_SEARCH_NAME,
@@ -26,7 +27,7 @@ const INSTANCE_ID = 'instance-continuity';
  * One forwarder process. Re-creating it models a bridge reconnect: a brand new
  * McpServer with an empty in-process reveal set, restoring from the parent.
  */
-async function startForwarder(parent: { call: ReturnType<typeof vi.fn> }) {
+async function startForwarder(parent: BrowserGatewayRpcClientLike) {
   McpServer._resetForTesting();
   const server = McpServer.getInstance();
   server.registerTools(

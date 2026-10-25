@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 let mockBacking: Record<string, unknown> = {};
 
 vi.mock('electron-store', () => ({
-  default: vi.fn().mockImplementation(() => ({
+  default: vi.fn().mockImplementation(function () { return ({
     get store() {
       return mockBacking;
     },
@@ -13,7 +13,7 @@ vi.mock('electron-store', () => ({
     clear: () => {
       mockBacking = {};
     },
-  })),
+  }); }),
 }));
 
 import { PausePersistence } from './pause-persistence';

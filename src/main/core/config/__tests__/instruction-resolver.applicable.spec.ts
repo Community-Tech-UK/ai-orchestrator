@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import * as fs from 'fs/promises';
-import * as os from 'node:os';
+import * as os from 'os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,8 +10,8 @@ vi.mock('fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs/promises')>();
   return { ...actual, readdir: vi.fn(actual.readdir) };
 });
-vi.mock('node:os', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:os')>();
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('os')>();
   return { ...actual, homedir: vi.fn(actual.homedir) };
 });
 
@@ -27,6 +27,7 @@ describe('applicable instruction discovery for session startup', () => {
     await execFileAsync('git', ['init', '--quiet', projectRoot]);
     await fs.writeFile(path.join(projectRoot, 'AGENTS.md'), 'Required project instructions.');
     vi.mocked(fs.readdir).mockClear();
+    vi.mocked(os.homedir).mockReset();
   });
 
   afterEach(async () => {

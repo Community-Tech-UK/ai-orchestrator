@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspect } from 'node:util';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { captureFixtureSpawns, ProcessFixtureRegistry } from '../../../../tests/fixtures/process-fixture';
 import type { OutputMessage } from '../../../../shared/types/instance.types';
 import { getLogManager } from '../../../logging/logger';
@@ -20,8 +20,8 @@ const children: ChildProcess[] = [];
 const cleanup: (() => void | Promise<void>)[] = [];
 let restoreCapture: () => void;
 let previousConfig: ReturnType<typeof manager.getConfig>;
-let log: ReturnType<typeof vi.spyOn>;
-let logError: ReturnType<typeof vi.spyOn>;
+let log: MockInstance<typeof manager.log>;
+let logError: MockInstance<typeof manager.logError>;
 
 beforeEach(() => {
   previousConfig = manager.getConfig();

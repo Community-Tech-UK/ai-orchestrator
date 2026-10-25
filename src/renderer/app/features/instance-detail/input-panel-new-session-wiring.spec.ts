@@ -15,7 +15,7 @@
 
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { InputPanelComponent } from './input-panel.component';
 import type { NewSessionSubmitRequest } from './input-panel-new-session-submit';
 import { ComposerSubmissionService } from '../../core/services/composer-submission.service';
@@ -56,8 +56,8 @@ describe('InputPanelComponent new-session submission wiring', () => {
   let component: InputPanelComponent;
   let submissions: ComposerSubmissionService;
   let storage: MemoryComposerSubmissionStorage;
-  let clearActiveComposer: ReturnType<typeof vi.fn>;
-  let setPrompt: ReturnType<typeof vi.fn>;
+  let clearActiveComposer: Mock;
+  let setPrompt: Mock;
   let sendMessageEmissions: string[];
   let submitRequests: NewSessionSubmitRequest[];
 

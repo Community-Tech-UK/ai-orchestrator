@@ -4,6 +4,9 @@ import { getLogger } from '../logging/logger';
 import { registerCleanup } from '../util/cleanup-registry';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { Instance, InstanceProvider } from '../../shared/types/instance.types';
+import { getWorkAdmission } from '../work-admission/work-admission';
+import { trackConsult } from '../work-admission/consult-admission';
+import { trackConsultAdapter } from '../work-admission/consult-adapter-lifecycle';
 
 const logger = getLogger('ReviewerSessionSpawner');
 
@@ -84,7 +87,7 @@ export interface ReviewSessionResult {
  *
  * 1. spawns the reviewer **root-level** (no `parentId`) so it loads repo-map /
  *    memory and performs a genuine deep-dive (bigchange_pingpong_review R1);
- * 2. awaits `readyPromise` (initial prompt sent) then
+ * 2. creates without a prompt, then sends with a cancellation signal and awaits
  *    `waitForInstanceSettled({ afterTimestamp })` — the real awaitable, not raw
  *    `idle` which is unsafe;
  * 3. enforces a timeout and reacts to cancellation;
@@ -149,11 +152,21 @@ export class ReviewerSessionSpawner {
     }
 
     const startTs = Date.now();
-    let instance: Instance;
+    const pauseAbort = new AbortController();
+    const signal = opts.signal ? AbortSignal.any([opts.signal, pauseAbort.signal]) : pauseAbort.signal;
+    let instance: Instance | undefined;
+    let finishConsult: (() => Promise<void>) | undefined;
+    const untrack = trackConsult(() => {
+      pauseAbort.abort(new Error('Review cancelled for restart'));
+      if (instance) im.interruptInstance(instance.id);
+      void finishConsult?.().catch(error => logger.warn('Reviewer teardown is still pending', { error }));
+    });
     try {
+      await getWorkAdmission().wait('consult', {}, signal);
+      signal.throwIfAborted();
+      if (opts.isCancelled?.()) throw new Error('Review cancelled before spawn');
       instance = await im.createInstance({
         workingDirectory: opts.workingDirectory,
-        initialPrompt: opts.prompt,
         provider: opts.provider,
         modelOverride: opts.modelOverride,
         agentId: opts.agentId ?? 'review',
@@ -164,11 +177,30 @@ export class ReviewerSessionSpawner {
         // loading, which would gut the deep-dive (bigchange_pingpong_review R1).
         metadata: { spendPurpose: 'review', pingPongReviewer: true, spawnedAt: startTs, hideFromProjectRail: true },
       });
+      const createdId = instance.id;
+      finishConsult = trackConsultAdapter({ interrupt: () => im.interruptInstance(createdId) }, async () => {
+        await im.terminateInstance(createdId, false);
+        untrack();
+      });
+      signal.throwIfAborted();
+      if (opts.isCancelled?.() || !getWorkAdmission().check('consult', { remote: true }).allowed) {
+        throw new Error('Review cancelled during spawn');
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // Creation can finish after pause has already cancelled this reservation.
+      // Keep it tracked until teardown finishes; never deliver its first turn.
+      if (instance) {
+        try { await finishConsult?.(); }
+        catch (error) {
+          logger.warn('Failed to tear down cancelled reviewer', { error });
+          return { outcome: 'failed', finalOutput: '', instanceId: instance.id, tokensUsed: 0, costCents: 0, error: 'Reviewer teardown failed' };
+        }
+      }
+      untrack();
       logger.warn('Ping-pong reviewer spawn failed', { provider: opts.provider, error: message });
       return {
-        outcome: 'failed',
+        outcome: signal.aborted || opts.isCancelled?.() ? 'cancelled' : 'failed',
         finalOutput: '',
         instanceId: '',
         tokensUsed: 0,
@@ -187,6 +219,9 @@ export class ReviewerSessionSpawner {
 
     let result: ReviewSessionResult;
     try {
+      signal.throwIfAborted();
+      if (opts.isCancelled?.()) throw new Error('Review cancelled before prompt');
+      const sending = im.sendInput(instanceId, opts.prompt, undefined, { automatedInput: true, signal });
       // LT-643: do NOT await `readyPromise` first. For Codex app-server it
       // covers the whole first turn, and on 2026-09-24 it never resolved even
       // though the reviewer went idle with a complete verdict — so the round
@@ -198,11 +233,13 @@ export class ReviewerSessionSpawner {
         im.waitForInstanceSettled(instanceId, {
           afterTimestamp: startTs,
           timeoutMs: opts.timeoutMs,
-          signal: opts.signal,
+          signal,
           isCancelled: opts.isCancelled,
           onProgress: opts.onProgress,
-        }),
+        }), sending,
       );
+      signal.throwIfAborted();
+      if (opts.isCancelled?.()) throw new Error('Review cancelled');
 
       const live = settled ?? im.getInstance(instanceId) ?? instance;
       await new Promise<void>(resolve => setImmediate(resolve));
@@ -226,7 +263,7 @@ export class ReviewerSessionSpawner {
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const cancelled = opts.signal?.aborted || opts.isCancelled?.() === true;
+      const cancelled = signal.aborted || opts.isCancelled?.() === true;
       const isTimeout = /timed out/i.test(message);
       await new Promise<void>(resolve => setImmediate(resolve));
       const spend = spendCollector.stop();
@@ -250,11 +287,12 @@ export class ReviewerSessionSpawner {
       });
     } finally {
       spendCollector.stop();
+      pauseAbort.abort(new Error('Reviewer session finished'));
       // Fresh-eyes ⇒ disposable. Always tear down, even on timeout/cancel, so a
       // long-running reviewer cannot leak past its round (R5 / circuit-breaker
       // cleanup precedent). Non-graceful: we already have the output we need.
       try {
-        await im.terminateInstance(instanceId, false);
+        await finishConsult?.();
       } catch (err) {
         logger.warn('Failed to tear down ping-pong reviewer instance', {
           instanceId,
@@ -270,10 +308,8 @@ export class ReviewerSessionSpawner {
    * Resolve with `work`, unless the instance's background init fails first.
    * A background init that never settles does not block `work` (LT-643).
    */
-  private raceBackgroundInitFailure<T>(instance: Instance, work: Promise<T>): Promise<T> {
-    const ready = instance.readyPromise;
-    if (!ready) return work;
-    const initFailure = ready.then(() => new Promise<never>(() => { /* never wins on success */ }));
+  private raceBackgroundInitFailure<T>(instance: Instance, work: Promise<T>, sending: Promise<void>): Promise<T> {
+    const initFailure = Promise.all([instance.readyPromise, sending]).then(() => new Promise<never>(() => { /* never wins on success */ }));
     return Promise.race([work, initFailure]);
   }
 

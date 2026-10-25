@@ -2,6 +2,8 @@ import { recordCostAttribution } from '../core/system/cost-attribution';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { Instance } from '../../shared/types/instance.types';
+import { pauseConsults } from '../work-admission/consult-admission';
+import { getWorkAdmission, WorkAdmission } from '../work-admission/work-admission';
 import {
   getReviewerSessionSpawner,
   ReviewerSessionSpawner,
@@ -27,6 +29,8 @@ function makeManager(overrides: Partial<InstanceManager> = {}): InstanceManager 
     waitForInstanceSettled: vi.fn().mockResolvedValue(inst),
     getInstance: vi.fn().mockReturnValue(inst),
     terminateInstance: vi.fn().mockResolvedValue(undefined),
+    interruptInstance: vi.fn(),
+    sendInput: vi.fn().mockResolvedValue(undefined),
     exportSessionMarkdown: vi.fn().mockReturnValue(''),
     ...overrides,
   } as unknown as InstanceManager;
@@ -35,6 +39,7 @@ function makeManager(overrides: Partial<InstanceManager> = {}): InstanceManager 
 describe('ReviewerSessionSpawner', () => {
   afterEach(() => {
     ReviewerSessionSpawner._resetForTesting();
+    WorkAdmission._resetForTesting();
   });
 
   it('fails cleanly when no InstanceManager is wired', async () => {
@@ -181,6 +186,82 @@ describe('ReviewerSessionSpawner', () => {
     });
     expect(result.outcome).toBe('cancelled');
     expect(manager.createInstance).not.toHaveBeenCalled();
+  });
+
+  it('waits for a reviewer still being created and tears it down without sending its prompt', async () => {
+    let finishSpawn!: (instance: Instance) => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>(resolve => { markStarted = resolve; });
+    const creation = new Promise<Instance>(resolve => { finishSpawn = resolve; });
+    let finishTeardown!: () => void;
+    const teardown = new Promise<void>(resolve => { finishTeardown = resolve; });
+    const manager = makeManager({ createInstance: vi.fn(() => { markStarted(); return creation; }),
+      terminateInstance: vi.fn(() => teardown) });
+    const spawner = getReviewerSessionSpawner(); spawner.setInstanceManager(manager);
+    const review = spawner.runReviewSession({ provider: 'codex', workingDirectory: '/tmp', prompt: 'review', timeoutMs: 1000 });
+    await started;
+    getWorkAdmission().setGlobalPhase('collecting');
+    let stopped = false;
+    const pausing = pauseConsults().then(() => { stopped = true; });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const stoppedDuringCreation = stopped;
+    finishSpawn(mockInstance('rev-1', '') as Instance);
+    await vi.waitFor(() => expect(manager.terminateInstance).toHaveBeenCalled());
+    const stoppedDuringTeardown = stopped;
+    finishTeardown();
+    const result = await review; await pausing;
+    expect(stoppedDuringCreation).toBe(false);
+    expect(stoppedDuringTeardown).toBe(false);
+    expect(manager.createInstance).toHaveBeenCalledWith(expect.not.objectContaining({ initialPrompt: expect.any(String) }));
+    expect(manager.sendInput).not.toHaveBeenCalled();
+    expect(result.outcome).toBe('cancelled');
+  });
+
+  it('cancels a prompt waiting for initialization when restart pause starts', async () => {
+    let startSend!: () => void;
+    const sending = new Promise<void>(resolve => { startSend = resolve; });
+    let finishInit!: () => void;
+    const initialization = new Promise<void>(resolve => { finishInit = resolve; });
+    const delivered = vi.fn();
+    const instance = mockInstance('rev-1', '') as Instance;
+    const manager = makeManager({
+      sendInput: vi.fn(async (_id, _prompt, _attachments, options) => {
+        startSend();
+        await initialization;
+        options?.signal?.throwIfAborted();
+        delivered();
+      }),
+      waitForInstanceSettled: vi.fn(async (_id, options) => {
+        await new Promise<void>(resolve => options?.signal?.addEventListener('abort', () => resolve(), { once: true }));
+        return instance;
+      }),
+    });
+    const spawner = getReviewerSessionSpawner(); spawner.setInstanceManager(manager);
+    const review = spawner.runReviewSession({ provider: 'codex', workingDirectory: '/tmp', prompt: 'review', timeoutMs: 1000 });
+    await sending;
+    getWorkAdmission().setGlobalPhase('collecting');
+    const pausing = pauseConsults();
+    finishInit();
+    const result = await review; await pausing;
+    expect(result.outcome).toBe('cancelled');
+    expect(delivered).not.toHaveBeenCalled();
+    expect(manager.interruptInstance).toHaveBeenCalledWith('rev-1');
+    expect(manager.terminateInstance).toHaveBeenCalledWith('rev-1', false);
+  });
+
+  it('retries failed reviewer teardown before allowing restart pause to finish', async () => {
+    const terminateInstance = vi.fn().mockRejectedValue(new Error('Reviewer is still running'));
+    const manager = makeManager({ terminateInstance });
+    const spawner = getReviewerSessionSpawner(); spawner.setInstanceManager(manager);
+    await spawner.runReviewSession({ provider: 'codex', workingDirectory: '/tmp', prompt: 'review', timeoutMs: 1000 });
+    let stopped = false;
+    const pausing = pauseConsults().then(() => { stopped = true; });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const stoppedAfterFailure = stopped;
+    terminateInstance.mockResolvedValue(undefined);
+    await pauseConsults(); await pausing;
+    expect(stoppedAfterFailure).toBe(false);
+    expect(terminateInstance).toHaveBeenCalledTimes(3);
   });
 
   // LT-643: for Codex app-server `readyPromise` covers the whole first turn,

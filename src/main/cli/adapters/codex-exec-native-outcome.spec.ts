@@ -66,6 +66,43 @@ it('accepted real native provider error retains existing retry count and origina
     await native.cleanup();
   }
 });
+it('accepted real turn that failed after doing work shows the native failure before completing', async () => {
+  getLogManager().updateConfig({ enableConsole: false, enableFile: false });
+  const dir = mkdtempSync(join(tmpdir(), 'codex-exec-late-failure-'));
+  const file = join(dir, 'fixture.cjs');
+  writeFileSync(file, String.raw`let prompt='';process.stdin.on('data',chunk=>prompt+=chunk);process.stdin.on('end',()=>{if(prompt.includes('LOCAL_SECOND')){process.stderr.write('ERROR codex_core::session: failed to record rollout items: thread LOCAL_CHILD_THREAD not found\n');process.exitCode=1;return;}const out=e=>process.stdout.write(JSON.stringify(e)+'\n');out({type:'thread.started',thread_id:'LOCAL_LATE_FAILURE_THREAD'});out({type:'item.completed',item:{id:'item_1',type:'agent_message',text:'LOCAL_PARTIAL_WORK'}});out({type:'error',message:'Reconnecting... 1/5'});out({type:'turn.failed',error:{message:'LOCAL_MODEL_AT_CAPACITY'}});process.stderr.write('ERROR codex_core::session: failed to record rollout items: thread LOCAL_CHILD_THREAD not found\n');process.exitCode=1;});`);
+  const adapter = new CodexCliAdapter({ workingDir: dir, timeout: 1000 });
+  Object.assign(adapter, { useAppServer: false, isSpawned: true });
+  const access = adapter as unknown as { config: { command: string; args: string[] }; spawnProcess(args: string[]): ChildProcess };
+  access.config.command = process.execPath;
+  access.config.args = [file];
+  const spawn = access.spawnProcess.bind(adapter);
+  const children: ChildProcess[] = [];
+  access.spawnProcess = args => { const child = fixtures.track(spawn(args)); children.push(child); return child; };
+  const events: string[] = [];
+  const outputs: { type: string; content: string; metadata?: Record<string, unknown> }[] = [];
+  adapter.on('output', (message: { type: string; content: string; metadata?: Record<string, unknown> }) => { outputs.push(message); events.push(`output:${message.content}`); });
+  adapter.on('complete', () => events.push('complete'));
+  adapter.on('error', () => { /* Keep native EventEmitter errors observed during fixture cleanup. */ });
+  try {
+    await adapter.sendInput('LOCAL_PROMPT');
+    expect(children).toHaveLength(1);
+    expect(children[0].exitCode).toBe(1);
+    const failure = outputs.find(message => message.content.includes('LOCAL_MODEL_AT_CAPACITY'));
+    expect(failure).toMatchObject({ type: 'system', content: '[codex] Turn failed: LOCAL_MODEL_AT_CAPACITY', metadata: { diagnostic: true, level: 'error', fatal: false } });
+    expect(outputs.some(message => message.content.includes('Reconnecting'))).toBe(false);
+    expect(events.indexOf(`output:${failure!.content}`)).toBeLessThan(events.indexOf('complete'));
+    expect(adapter.getSessionId()).toBe('LOCAL_LATE_FAILURE_THREAD');
+    // A failed turn whose only diagnostic is a helper thread's rollout write keeps the main thread.
+    await expect(adapter.sendMessage({ role: 'user', content: 'LOCAL_SECOND' })).rejects.toThrow('failed to record rollout items');
+    expect(children).toHaveLength(3);
+    expect(adapter.getSessionId()).toBe('LOCAL_LATE_FAILURE_THREAD');
+  }
+  finally {
+    await adapter.terminate(false);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 it('accepted real ordinary Stop terminates native silence without a second prompt or late output/status', async () => {
   const native = nativeFixture('silent');
   const statuses: string[] = [];

@@ -156,7 +156,7 @@ describe('LocalAiPauseExpiryController', () => {
 function createController(
   get: () => LocalAiTarget | undefined,
   setLifecycle: ReturnType<typeof vi.fn>,
-  onTransition: ReturnType<typeof vi.fn>,
+  onTransition: ConstructorParameters<typeof LocalAiPauseExpiryController>[4],
   warn: ReturnType<typeof vi.fn> = vi.fn(),
 ): LocalAiPauseExpiryController {
   return new LocalAiPauseExpiryController(

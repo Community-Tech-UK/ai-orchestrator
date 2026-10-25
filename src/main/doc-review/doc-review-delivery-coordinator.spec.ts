@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DocReviewDeliveryCoordinator } from './doc-review-delivery-coordinator';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { DocReviewDeliveryCoordinator, type DocReviewDeliveryCoordinatorDeps } from './doc-review-delivery-coordinator';
 import type { DocReviewSession } from '@contracts/schemas/doc-review';
 
 function review(overrides: Partial<DocReviewSession> = {}): DocReviewSession {
@@ -13,12 +13,14 @@ function review(overrides: Partial<DocReviewSession> = {}): DocReviewSession {
   };
 }
 
+type DeliveryInstanceManager = DocReviewDeliveryCoordinatorDeps['instanceManager'];
+
 describe('DocReviewDeliveryCoordinator', () => {
   const instances = new Map<string, { id: string; status: string }>();
   const manager = new EventEmitter() as EventEmitter & {
-    getInstance: ReturnType<typeof vi.fn>; sendInput: ReturnType<typeof vi.fn>;
-    getAllInstances: ReturnType<typeof vi.fn>; wakeInstance: ReturnType<typeof vi.fn>;
-    reviveFromContinuity: ReturnType<typeof vi.fn>;
+    getInstance: Mock<DeliveryInstanceManager['getInstance']>; sendInput: Mock<DeliveryInstanceManager['sendInput']>;
+    getAllInstances: Mock<NonNullable<DeliveryInstanceManager['getAllInstances']>>; wakeInstance: Mock<DeliveryInstanceManager['wakeInstance']>;
+    reviveFromContinuity: Mock<DeliveryInstanceManager['reviveFromContinuity']>;
   };
   const loop = { getLoop: vi.fn(), acceptCompletion: vi.fn(), intervene: vi.fn(), resumeLoop: vi.fn() };
   const recordRecoveredAttempt = vi.fn();
@@ -48,7 +50,7 @@ describe('DocReviewDeliveryCoordinator', () => {
     await expect(coordinator.deliver(review(), 'feedback')).resolves.toMatchObject({
       state: 'delivered', mechanism: 'direct-send', targetInstanceId: 'instance-1',
     });
-    expect(manager.sendInput).toHaveBeenCalledWith('instance-1', 'feedback');
+    expect(manager.sendInput).toHaveBeenCalledWith('instance-1', 'feedback', undefined, { automatedInput: true });
   });
 
   it('queues a busy review and drains it once the instance reaches idle', async () => {
@@ -56,7 +58,7 @@ describe('DocReviewDeliveryCoordinator', () => {
     await expect(coordinator.deliver(review(), 'feedback')).resolves.toMatchObject({ state: 'queued', mechanism: 'deferred-idle' });
     instances.set('instance-1', { id: 'instance-1', status: 'idle' });
     manager.emit('instance:state-changed', { instanceId: 'instance-1', status: 'idle' });
-    await vi.waitFor(() => expect(manager.sendInput).toHaveBeenCalledWith('instance-1', 'feedback'));
+    await vi.waitFor(() => expect(manager.sendInput).toHaveBeenCalledWith('instance-1', 'feedback', undefined, { automatedInput: true }));
     await vi.waitFor(() => expect(recordRecoveredAttempt).toHaveBeenCalledWith(
       'dr_1',
       expect.objectContaining({ state: 'delivered' }),
@@ -104,14 +106,14 @@ describe('DocReviewDeliveryCoordinator', () => {
 
     paused = false;
     pause.emit('resume');
-    await vi.waitFor(() => expect(manager.sendInput).toHaveBeenCalledWith('instance-1', 'feedback'));
+    await vi.waitFor(() => expect(manager.sendInput).toHaveBeenCalledWith('instance-1', 'feedback', undefined, { automatedInput: true }));
   });
 
   it('wakes a hibernated instance before delivery', async () => {
     instances.set('instance-1', { id: 'instance-1', status: 'hibernated' });
     await expect(coordinator.deliver(review(), 'feedback')).resolves.toMatchObject({ state: 'delivered', mechanism: 'wake' });
     expect(manager.wakeInstance).toHaveBeenCalledWith('instance-1');
-    expect(manager.sendInput).toHaveBeenCalledWith('instance-1', 'feedback');
+    expect(manager.sendInput).toHaveBeenCalledWith('instance-1', 'feedback', undefined, { automatedInput: true });
   });
 
   it('wakes a hibernated instance even when terminal-session revival is disabled', async () => {
@@ -167,7 +169,7 @@ describe('DocReviewDeliveryCoordinator', () => {
     await expect(coordinator.deliver(review(), 'feedback')).resolves.toMatchObject({
       state: 'delivered', mechanism: 'direct-send', targetInstanceId: 'instance-2',
     });
-    expect(manager.sendInput).toHaveBeenCalledWith('instance-2', 'feedback');
+    expect(manager.sendInput).toHaveBeenCalledWith('instance-2', 'feedback', undefined, { automatedInput: true });
     expect(manager.reviveFromContinuity).not.toHaveBeenCalled();
   });
 

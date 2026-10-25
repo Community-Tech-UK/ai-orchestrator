@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { warmCodememWithTimeout, type WarmCodememTarget } from './warm-codemem';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { warmCodememWithTimeout, type WarmCodememTarget, type WarmCodememOptions } from './warm-codemem';
 
-function makeLogger(): { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn> } {
+function makeLogger(): { info: Mock<WarmCodememOptions['logger']['info']>; warn: Mock<WarmCodememOptions['logger']['warn']> } {
   return {
     info: vi.fn(),
     warn: vi.fn(),

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type { Instance } from '../../shared/types/instance.types';
 import { detectTrailingAnnounceThenHalt } from '../orchestration/announce-then-halt-detector';
@@ -452,9 +452,9 @@ describe('InstanceAnnounceThenHaltContinuation', () => {
   let registry: InstanceAsyncWorkRegistry;
   let instance: Instance;
   let host: InstanceAnnounceThenHaltContinuationHost;
-  let sendInput: ReturnType<typeof vi.fn>;
-  let isManagedLoopInstance: ReturnType<typeof vi.fn>;
-  let isPaused: ReturnType<typeof vi.fn>;
+  let sendInput: Mock<InstanceAnnounceThenHaltContinuationHost['sendInput']>;
+  let isManagedLoopInstance: Mock<(instanceId: string) => boolean>;
+  let isPaused: Mock<() => boolean>;
   let continuation: InstanceAnnounceThenHaltContinuation;
 
   beforeEach(() => {

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type { Instance } from '../../shared/types/instance.types';
 import { InstanceAsyncWorkRegistry } from './instance-async-work-registry';
@@ -21,11 +21,11 @@ describe('InstanceCrashTurnContinuation', () => {
   let registry: InstanceAsyncWorkRegistry;
   let instance: Instance;
   let host: InstanceCrashTurnContinuationHost;
-  let sendInput: ReturnType<typeof vi.fn>;
-  let emitSystemMessage: ReturnType<typeof vi.fn>;
-  let waitForInstanceSettled: ReturnType<typeof vi.fn>;
-  let isManagedLoopInstance: ReturnType<typeof vi.fn>;
-  let isPaused: ReturnType<typeof vi.fn>;
+  let sendInput: Mock<InstanceCrashTurnContinuationHost['sendInput']>;
+  let emitSystemMessage: Mock<NonNullable<InstanceCrashTurnContinuationHost['emitSystemMessage']>>;
+  let waitForInstanceSettled: Mock<InstanceCrashTurnContinuationHost['waitForInstanceSettled']>;
+  let isManagedLoopInstance: Mock<(instanceId: string) => boolean>;
+  let isPaused: Mock<() => boolean>;
   let continuation: InstanceCrashTurnContinuation;
 
   const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));

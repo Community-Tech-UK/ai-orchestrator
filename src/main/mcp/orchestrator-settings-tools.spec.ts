@@ -22,6 +22,7 @@ import {
   privilegedGetSetting,
   privilegedListSettings,
   privilegedSetSetting,
+  type SettingsManagerForTools,
 } from './orchestrator-settings-tools';
 
 function cloneSettings(): AppSettings {
@@ -33,7 +34,7 @@ function makeSettingsManager(initial: Partial<AppSettings> = {}) {
   return {
     values,
     getAll: vi.fn(() => ({ ...values })),
-    get: vi.fn(<K extends keyof AppSettings>(key: K) => values[key]),
+    get: vi.fn(<K extends keyof AppSettings>(key: K) => values[key]) as SettingsManagerForTools['get'],
     set: vi.fn(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
       values[key] = (
         key === 'defaultCli' && value === 'openai' ? 'codex' : value

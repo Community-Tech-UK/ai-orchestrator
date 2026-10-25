@@ -37,3 +37,8 @@ export function throwIfInstanceInputAborted(signal?: AbortSignal): void {
   error.name = 'AbortError';
   throw error;
 }
+
+/** Automatic provenance must survive every manager and retry handoff. */
+export function isAutomaticInstanceInput(options?: InstanceSendInputOptions): boolean {
+  return Boolean(options?.autoContinuation || options?.automatedInput || options?.internalSource || options?.crossSessionSourceId);
+}

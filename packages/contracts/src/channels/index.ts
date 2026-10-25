@@ -18,6 +18,7 @@ import { LEARNING_CHANNELS } from './learning.channels';
 import { WORKSPACE_CHANNELS } from './workspace.channels';
 import { AUTOMATION_CHANNELS } from './automation.channels';
 import { PAUSE_CHANNELS } from './pause.channels';
+import { GLOBAL_PAUSE_CHANNELS } from './global-pause.channels';
 import { WORKFLOW_CHANNELS } from './workflow.channels';
 import { DIAGNOSTICS_CHANNELS } from './diagnostics.channels';
 import { VOICE_CHANNELS } from './voice.channels';
@@ -57,6 +58,7 @@ export {
   WORKSPACE_CHANNELS,
   AUTOMATION_CHANNELS,
   PAUSE_CHANNELS,
+  GLOBAL_PAUSE_CHANNELS,
   WORKFLOW_CHANNELS,
   DIAGNOSTICS_CHANNELS,
   VOICE_CHANNELS,
@@ -101,6 +103,7 @@ export const IPC_CHANNELS = {
   ...WORKSPACE_CHANNELS,
   ...AUTOMATION_CHANNELS,
   ...PAUSE_CHANNELS,
+  ...GLOBAL_PAUSE_CHANNELS,
   ...WORKFLOW_CHANNELS,
   ...DIAGNOSTICS_CHANNELS,
   ...VOICE_CHANNELS,

@@ -6,12 +6,32 @@ describe('turn-ending corpus', () => {
     ['HTTP 401 unauthorized', 'auth'], ['payment required', 'billing'],
     ['context_length_exceeded', 'context_overflow'], ['quota exceeded', 'quota'],
     ['ContentFilterError', 'content_filter'], ['doom_loop', 'doom_loop'],
-    ['ACP agent exited (1)', 'crash'], ['server_error', 'retryable'], ['unrecognized failure', 'unknown_error'],
+    ['ACP agent exited (1)', 'crash'], ['server_error', 'retryable'], ['server_overloaded', 'retryable'],
+    ['Selected model is at capacity. Please try a different model.', 'retryable'], ['unrecognized failure', 'unknown_error'],
   ])('classifies %s without echoing source material into evidence', (error, reason) => {
     const result = classifyTurnEnding({ kind: 'error', error: `${error} PRIVATE_SOURCE_PLACEHOLDER` });
     expect(result.reason).toBe(reason);
     expect(result.evidence).not.toContain('PRIVATE_SOURCE_PLACEHOLDER');
     expect(result.evidence).toMatch(/^[a-z_]+$/);
+  });
+
+  it('classifies a Codex exec turn that did work and then failed on model capacity as retryable', () => {
+    const raw = [
+      { type: 'item.completed', item: { id: 'item_1', type: 'agent_message', text: 'Checking the remaining files.' } },
+      { type: 'error', message: 'Selected model is at capacity. Please try a different model.' },
+      { type: 'turn.failed', error: { message: 'Selected model is at capacity. Please try a different model.' } },
+    ].map((frame) => JSON.stringify(frame)).join('\n');
+    expect(classifyTurnEnding({ kind: 'complete', text: 'Checking the remaining files.', raw }))
+      .toMatchObject({ reason: 'retryable', evidence: 'provider_transient_error' });
+  });
+
+  it('keeps a Codex turn completed when a capacity error was recovered before turn.completed', () => {
+    const raw = [
+      { type: 'error', message: 'Selected model is at capacity. Please try a different model.' },
+      { type: 'item.completed', item: { id: 'item_1', type: 'agent_message', text: 'Done.' } },
+      { type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } },
+    ].map((frame) => JSON.stringify(frame)).join('\n');
+    expect(classifyTurnEnding({ kind: 'complete', text: 'Done.', raw }).reason).toBe('completed');
   });
 
   it('honors native finish on old ACP end_turn and reads native Claude result fields', () => {

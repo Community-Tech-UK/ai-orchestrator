@@ -1,5 +1,6 @@
 import { powerMonitor } from 'electron';
 import { getLogger } from '../logging/logger';
+import { getWorkAdmission } from '../work-admission/work-admission';
 import { AutomationStore } from './automation-store';
 import { AutomationRunner } from './automation-runner';
 import { CatchUpCoordinator } from './catch-up-coordinator';
@@ -216,6 +217,7 @@ export class AutomationScheduler {
       .filter(([, h]) => h.automationId === automationId)
       .map(([runId]) => runId);
     for (const runId of retryRunIds) {
+      getWorkAdmission().cancelDeferred(`automation-retry-fire:${runId}`);
       const retryHandle = this.retryHandles.get(runId);
       if (retryHandle) {
         clearTimeout(retryHandle.timeout);
@@ -241,6 +243,7 @@ export class AutomationScheduler {
    * one). Safe to call even if no timer exists.
    */
   cancelRetry(originalRunId: string): void {
+    getWorkAdmission().cancelDeferred(`automation-retry-fire:${originalRunId}`);
     const handle = this.retryHandles.get(originalRunId);
     if (handle) {
       clearTimeout(handle.timeout);
@@ -295,6 +298,11 @@ export class AutomationScheduler {
     nextAttempt: number,
     maxAttempts: number,
   ): Promise<void> {
+    const admission = getWorkAdmission();
+    if (!admission.check('automation-run', { remote: Boolean(originalRun.configSnapshot?.action.forceNodeId) }).allowed) {
+      admission.defer(`automation-retry-fire:${originalRun.id}`, 'automation-run', () => this.onRetryTimer(originalRun, nextAttempt, maxAttempts), { remote: Boolean(originalRun.configSnapshot?.action.forceNodeId) });
+      return;
+    }
     this.retryHandles.delete(originalRun.id);
 
     // BUG 2 FIX: clear the persisted pending-retry fields now that the timer

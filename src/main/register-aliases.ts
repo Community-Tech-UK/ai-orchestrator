@@ -23,6 +23,7 @@ const exactAliases: Record<string, string> = {
   '@contracts/schemas/prompt-history':           path.join(baseContracts, 'schemas', 'prompt-history.schemas'),
   '@contracts/schemas/workflow':                 path.join(baseContracts, 'schemas', 'workflow.schemas'),
   '@contracts/schemas/pause':                    path.join(baseContracts, 'schemas', 'pause.schemas'),
+  '@contracts/schemas/global-pause':             path.join(baseContracts, 'schemas', 'global-pause.schemas'),
   '@contracts/schemas/instance':                 path.join(baseContracts, 'schemas', 'instance.schemas'),
   '@contracts/schemas/session':                  path.join(baseContracts, 'schemas', 'session.schemas'),
   '@contracts/schemas/provider':                 path.join(baseContracts, 'schemas', 'provider.schemas'),

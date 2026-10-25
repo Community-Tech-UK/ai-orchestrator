@@ -122,6 +122,10 @@ export class SessionQueueService {
     this.getStore().reorderQueued(instanceId, orderedIds);
   }
 
+  reassignQueue(fromInstanceId: string, toInstanceId: string): void {
+    this.getStore().reassignQueued(fromInstanceId, toInstanceId);
+  }
+
   /** Omit instanceId to list every instance's queue (used for renderer startup restore). */
   async listQueue(instanceId?: string): Promise<Record<string, QueuedMessageDTO[]>> {
     const rows = this.getStore().listQueued(instanceId);

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { LoopProviderLimitHandler } from './loop-provider-limit-handler';
 import { EARLY_RESUME_PROBE_MS } from '../instance/instance-provider-limit-handler';
 import { getLogger } from '../logging/logger';
@@ -24,6 +24,8 @@ import type { ProviderLimitEvent } from '../core/system/provider-limit-ledger';
 import { ProviderLimitLedger, createProviderLimitLedgerSchema } from '../core/system/provider-limit-ledger';
 import Database from 'better-sqlite3';
 import type { SqliteDriver } from '../db/sqlite-driver';
+
+type LoopLimitDependencies = ConstructorParameters<typeof LoopProviderLimitHandler>[0];
 
 function makeSnapshot(used: number): ProviderQuotaSnapshot {
   return {
@@ -57,14 +59,14 @@ function makeLoopState(): LoopState {
 describe('LoopProviderLimitHandler early-resume quota probe', () => {
   const FAR_FUTURE = 24 * 60 * 60 * 1000; // stale-limit scenario: recorded reset a day away
   let deps: {
-    emit: ReturnType<typeof vi.fn>;
-    cloneStateForBroadcast: ReturnType<typeof vi.fn>;
-    setConvergenceNote: ReturnType<typeof vi.fn>;
-    terminate: ReturnType<typeof vi.fn>;
-    resumeLoop: ReturnType<typeof vi.fn>;
+    emit: Mock<LoopLimitDependencies['emit']>;
+    cloneStateForBroadcast: Mock<LoopLimitDependencies['cloneStateForBroadcast']>;
+    setConvergenceNote: Mock<LoopLimitDependencies['setConvergenceNote']>;
+    terminate: Mock<LoopLimitDependencies['terminate']>;
+    resumeLoop: Mock<LoopLimitDependencies['resumeLoop']>;
   };
   let handler: LoopProviderLimitHandler;
-  let ledger: { record: ReturnType<typeof vi.fn>; getActive: ReturnType<typeof vi.fn>; clearActive: ReturnType<typeof vi.fn> };
+  let ledger: { record: Mock<ProviderLimitLedger['record']>; getActive: Mock<ProviderLimitLedger['getActive']>; clearActive: Mock<ProviderLimitLedger['clearActive']> };
 
   beforeEach(() => {
     vi.useFakeTimers();

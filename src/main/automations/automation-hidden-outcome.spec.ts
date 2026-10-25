@@ -6,7 +6,7 @@ vi.mock('../session/session-continuity', () => ({
   getSessionContinuityManagerIfInitialized: () => continuity,
 }));
 
-import { revealHiddenAutomationSession, stampHiddenAutomationOutcome } from './automation-hidden-outcome';
+import { releaseAutomationOwnership, revealHiddenAutomationSession, stampHiddenAutomationOutcome } from './automation-hidden-outcome';
 
 beforeEach(() => continuity.updateState.mockClear());
 
@@ -110,5 +110,23 @@ describe('automation outcome persistence', () => {
     revealHiddenAutomationSession(visible.manager, 'i1');
 
     expect(continuity.updateState).not.toHaveBeenCalled();
+  });
+});
+
+describe('manual automation ownership transfer', () => {
+  it('clears only the matching active marker and persists its historical source', () => {
+    const { instance,manager }=makeManager({automationId:'a1',automationRunId:'run-1',automationHidden:true,repoJobId:'other-engine'});
+    releaseAutomationOwnership(manager,'i1','run-1');
+    expect(instance.metadata).toEqual({automationId:'a1',automationSourceRunId:'run-1',automationHidden:true,automationRevealed:true,repoJobId:'other-engine'});
+    expect(continuity.updateState).toHaveBeenCalledWith('i1',{automation:{automationId:'a1',automationSourceRunId:'run-1',hidden:true,revealed:true}});
+    expect(manager.queueInstanceUpdate).toHaveBeenCalledTimes(1);
+    releaseAutomationOwnership(manager,'i1','run-1');
+    expect(manager.queueInstanceUpdate).toHaveBeenCalledTimes(1);
+  });
+  it('leaves a different run and unrelated engine ownership untouched', () => {
+    const { instance,manager }=makeManager({automationId:'a1',automationRunId:'run-2',planQueueRole:'worker'});
+    releaseAutomationOwnership(manager,'i1','run-1');
+    expect(instance.metadata).toEqual({automationId:'a1',automationRunId:'run-2',planQueueRole:'worker'});
+    expect(continuity.updateState).not.toHaveBeenCalled();expect(manager.queueInstanceUpdate).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 const logCalls = vi.hoisted(() => [] as unknown[][]);
 vi.mock('../../logging/logger', () => ({
@@ -34,8 +34,8 @@ function login(overrides: Partial<StoredClaudeLogin> = {}): StoredClaudeLogin {
   };
 }
 
-function deps(stored: (StoredClaudeLogin | null)[], refresh = vi.fn(async () => undefined)): HardenedLoginDeps & {
-  readStoredLogin: ReturnType<typeof vi.fn>;
+function deps(stored: (StoredClaudeLogin | null)[], refresh: Mock<HardenedLoginDeps['refreshOutsideJail']> = vi.fn(async () => undefined)): HardenedLoginDeps & {
+  readStoredLogin: Mock<HardenedLoginDeps['readStoredLogin']>;
   refreshOutsideJail: typeof refresh;
 } {
   const queue = [...stored];
