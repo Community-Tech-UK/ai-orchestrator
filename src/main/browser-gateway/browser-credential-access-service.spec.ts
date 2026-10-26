@@ -24,6 +24,8 @@ function harness() {
   });
   const inspect = vi.fn(async () => ({ vaultItemRef: 'vault-placeholder', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: true }));
   const enrol = vi.fn(async () => ({ vaultItemRef: 'vault-placeholder', username: 'NON_SECRET_USERNAME_PLACEHOLDER', movedIntoFolder: true }));
+  const readTarget = vi.fn(async () => target);
+  const notify = vi.fn();
   const service = new BrowserCredentialAccessService({
     store, authorizations: auth,
     vault: { inspectExistingCredential: inspect, enrolExistingCredential: enrol },
@@ -34,13 +36,13 @@ function harness() {
     },
     resolveSession: (id) => id === session.instanceId ? session : undefined,
     findSession: (scope) => scope === session.taskScope ? session : undefined,
-    readTarget: async () => target,
+    readTarget, notify,
     now: () => now,
     result: (input) => ({ ...input, auditId: 'audit-placeholder' }) as never,
   });
   const input = { profileId: 'profile-placeholder', targetId: 'target-placeholder', item: 'Saved test login', reason: 'Sign in for this task' };
   const context = () => ({ instanceId: session.instanceId, provider: 'codex' });
-  return { service, store, auth, inspect, enrol, input, grants, createGrant, context,
+  return { service, store, auth, inspect, enrol, input, grants, createGrant, context, readTarget, notify,
     setTarget: (next: typeof target) => { target = next; },
     resume: () => { session = { ...session, instanceId: 'resumed-placeholder' }; },
     advance: (ms: number) => { now += ms; },
@@ -103,6 +105,89 @@ describe('saved login access workflow', () => {
     expect(await h.service.approve(p)).toMatchObject({ decision: 'denied', reason: 'vault_locked' });
     expect(h.store.getRequest(p.requestId)).toMatchObject({ status: 'pending', credentialAccess: { operationError: 'vault_locked' } });
     expect(h.auth.list()).toHaveLength(0);
+  });
+
+  it.each(['before', 'during'] as const)('ends a closed-tab request %s enrolment and lets its owner request a fresh tab', async (when) => {
+    const h = harness();
+    const pending = (await h.service.request(h.input, h.context())).data!;
+    const closed = new Error('target_closed');
+    if (when === 'before') h.readTarget.mockRejectedValueOnce(closed);
+    else h.enrol.mockImplementationOnce(async () => {
+      h.readTarget.mockRejectedValueOnce(closed);
+      return { vaultItemRef: 'vault-placeholder', username: 'NON_SECRET_USERNAME_PLACEHOLDER', movedIntoFolder: true };
+    });
+    expect(await h.service.approve(pending)).toMatchObject({ decision: 'denied', outcome: 'not_run', reason: 'target_closed', data: null });
+    expect(h.store.getRequest(pending.requestId)).toMatchObject({ status: 'expired', credentialAccess: { operationError: 'target_closed' } });
+    expect(h.store.listRequests({ status: 'pending' })).toHaveLength(0);
+    expect(h.auth.list()).toHaveLength(0);
+    expect(h.grants).toHaveLength(0);
+    expect(h.enrol).toHaveBeenCalledTimes(when === 'before' ? 0 : 1);
+    expect(h.notify).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ requestId: pending.requestId, status: 'expired' }));
+    expect((await h.service.approve(pending)).decision).toBe('denied');
+    const retry = await h.service.request({ ...h.input, targetId: 'fresh-target-placeholder' }, h.context());
+    expect(retry).toMatchObject({ decision: 'requires_user', data: { status: 'pending', targetId: 'fresh-target-placeholder' } });
+    expect(retry.data!.requestId).not.toBe(pending.requestId);
+    expect((await h.service.approve(retry.data!)).decision).toBe('allowed');
+  });
+
+  it('keeps a temporary connection failure pending so the same request can be retried', async () => {
+    const h = harness();
+    const pending = (await h.service.request(h.input, h.context())).data!;
+    h.readTarget.mockRejectedValueOnce(new CredentialVaultError('Unavailable', 'target_unavailable'));
+    expect(await h.service.approve(pending)).toMatchObject({ decision: 'denied', reason: 'target_unavailable' });
+    expect(h.store.getRequest(pending.requestId)?.status).toBe('pending');
+    expect(h.notify).not.toHaveBeenCalled();
+    expect(h.enrol).not.toHaveBeenCalled();
+    expect((await h.service.approve(pending)).decision).toBe('allowed');
+  });
+
+  it('does not expire a replacement tab when the old tab closes during approval', async () => {
+    const h = harness();
+    const pending = (await h.service.request(h.input, h.context())).data!;
+    let close!: (error: Error) => void;
+    h.readTarget.mockImplementationOnce(() => new Promise((_resolve, reject) => { close = reject; }));
+    const approving = h.service.approve(pending);
+    const replacement = (await h.service.request({ ...h.input, targetId: 'replacement-target-placeholder' }, h.context())).data!;
+    expect(replacement.requestId).toBe(pending.requestId);
+    close(new Error('target_closed'));
+    expect((await approving).decision).toBe('denied');
+    expect(h.store.getRequest(pending.requestId)).toMatchObject({ status: 'pending', targetId: replacement.targetId });
+    expect(h.store.getRequest(pending.requestId)!.credentialAccess!.operationError).toBeUndefined();
+    expect(h.notify).not.toHaveBeenCalled();
+    expect((await h.service.approve(replacement)).decision).toBe('allowed');
+  });
+
+  it.each(['inspection', 'enrolment', 'live check'] as const)('preserves a replacement request arriving during %s', async (stage) => {
+    const h = harness();
+    const pending = (await h.service.request(h.input, h.context())).data!;
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const waiting = new Promise<void>((resolve) => { release = resolve; });
+    const pause = async () => { entered(); await waiting; };
+    if (stage === 'inspection') h.inspect.mockImplementationOnce(async () => {
+      await pause();
+      return { vaultItemRef: 'vault-placeholder', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: true };
+    });
+    else if (stage === 'enrolment') h.enrol.mockImplementationOnce(async () => {
+      await pause();
+      return { vaultItemRef: 'vault-placeholder', username: 'NON_SECRET_USERNAME_PLACEHOLDER', movedIntoFolder: true };
+    });
+    else {
+      const target = { origin: 'https://login.example.test', scope: 'node-placeholder', computerName: 'Windows test computer' };
+      h.readTarget.mockResolvedValueOnce(target).mockImplementationOnce(async () => { await pause(); return target; });
+    }
+    const approving = h.service.approve(pending);
+    await started;
+    const replacement = (await h.service.request({ ...h.input, targetId: 'replacement-target-placeholder' }, h.context())).data!;
+    release();
+    expect(await approving).toMatchObject({ decision: 'denied', reason: 'request_target_changed' });
+    expect(h.store.getRequest(pending.requestId)).toMatchObject({ status: 'pending', targetId: replacement.targetId });
+    expect(h.auth.list()).toHaveLength(0);
+    expect(h.grants).toHaveLength(0);
+    expect(h.enrol).toHaveBeenCalledTimes(stage === 'inspection' ? 0 : 1);
+    expect(h.notify).not.toHaveBeenCalled();
+    expect((await h.service.approve(replacement)).decision).toBe('allowed');
   });
 
   it('expires pending requests and approved permissions truthfully', async () => {

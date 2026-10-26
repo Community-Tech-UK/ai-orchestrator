@@ -164,6 +164,34 @@ describe('PlanQueueWorktreeService', () => {
     expect(git(['rev-parse', 'main'])).toBe(item.baseCommit);
   });
 
+  it('never checkpoints a folder that is not the item checkout, so the main checkout is untouched', async () => {
+    // A queue path left as a plain folder (an orphan with no gitfile) resolves
+    // to the enclosing repository. `add -A` there once committed the whole
+    // main checkout, everyone's unsaved work included, to main.
+    const orphan = join(repo, '.worktrees', 'queue', '2026-01-01-sample-abc123');
+    mkdirSync(orphan, { recursive: true });
+    writeFileSync(join(orphan, 'copied.txt'), 'orphan copy\n');
+    writeFileSync(join(repo, 'someone-elses-work.txt'), 'unsaved\n');
+    writeFileSync(join(repo, 'a.txt'), 'edited on main\n');
+    const head = git(['rev-parse', 'main']);
+    const item = makeItem({
+      state: 'working',
+      branchName: 'queue/2026-01-01-sample-abc123',
+      worktreePath: orphan,
+      checkpointCommit: head,
+    });
+
+    await expect(service.checkpoint(item, 'parked: worktree-error')).rejects.toThrow(/not this item's checkout/);
+
+    expect(git(['rev-parse', 'main'])).toBe(head);
+    expect(git(['diff', '--name-only'])).toBe('a.txt');
+    expect(git(['ls-files', '--others', '--exclude-standard']).split('\n').sort()).toEqual([
+      '.worktrees/queue/2026-01-01-sample-abc123/copied.txt',
+      'someone-elses-work.txt',
+    ]);
+    expect(saved).toEqual([]);
+  });
+
   it('keeps provisioned env and port files out of checkpoints', async () => {
     writeFileSync(join(repo, '.env.local'), 'PLACEHOLDER=not-a-secret\n');
     let item = await service.prepare(makeItem(), repo);

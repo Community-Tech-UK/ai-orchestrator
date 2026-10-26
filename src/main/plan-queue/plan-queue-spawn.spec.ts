@@ -23,7 +23,7 @@ beforeEach(() => {
   epoch = 0;
   run = {
     id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: '/queue-test',
-    status: 'running', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, routing: { worker: { provider: 'claude' }, verifiers: [{ provider: 'codex' }] } },
+    status: 'running', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, routing: { workers: [{ provider: 'claude' }], verifiers: [{ provider: 'codex' }] } },
     workerProvider: 'claude', workerModel: null, relaxation: null, startedAt: 1, endedAt: null,
   };
   instances = {
@@ -89,7 +89,7 @@ describe('Plan Queue asynchronous spawn fences', () => {
     const ready = deferred<void>();
     config = { ...config, provider: 'codex', metadata: { ...config.metadata, planQueueRole: 'verifier', planQueueRouting: JSON.stringify(run.config.routing) } };
     const pending = spawnQueueInstance(config, host(ready.promise));
-    run = { ...run, config: { ...run.config, routing: { worker: { provider: 'claude' }, verifiers: [{ provider: 'cursor' }] } } };
+    run = { ...run, config: { ...run.config, routing: { workers: [{ provider: 'claude' }], verifiers: [{ provider: 'cursor' }] } } };
     const rejected = expect(pending).rejects.toBeInstanceOf(PlanQueueSpawnRoutingChanged);
     ready.resolve();
     await rejected;
@@ -98,29 +98,15 @@ describe('Plan Queue asynchronous spawn fences', () => {
 });
 
 
-it('refuses a triage retry whose legacy worker model changed after selection', async () => {
-  run = { ...run, config: { ...run.config, routing: undefined } };
-  const ready = deferred<void>();
-  config = { ...config, provider: 'codex', metadata: { ...config.metadata, planQueueRole: 'triage',
-    planQueueTriageRetry: true, planQueueRouting: JSON.stringify(run.config.routing), planQueueTriageWorkerModel: run.workerModel } };
-  const pending = spawnQueueInstance(config, host(ready.promise));
-  run = { ...run, workerModel: 'changed-model' };
-  const rejected = expect(pending).rejects.toBeInstanceOf(PlanQueueSpawnRoutingChanged);
-  ready.resolve();
-  await rejected;
-  expect(instances.createInstance).not.toHaveBeenCalled();
-});
-
-
 it.each(['triage', 'verifier'] as const)('refuses a legacy %s selection when explicit routing is installed during readiness', async (role) => {
   run = { ...run, config: { ...run.config, routing: undefined } };
   const ready = deferred<void>();
   config = { ...config, provider: 'codex', allowedAccountProfileIds: ['old-account'], metadata: {
     ...config.metadata, planQueueRole: role, planQueueRouting: JSON.stringify(run.config.routing),
-    ...(role === 'triage' ? { planQueueTriageRetry: true, planQueueTriageWorkerModel: run.workerModel } : {}),
+    ...(role === 'triage' ? { planQueueTriageRetry: true } : {}),
   } };
   const pending = spawnQueueInstance(config, host(ready.promise));
-  run = { ...run, config: { ...run.config, routing: { worker: { provider: 'claude' }, verifiers: [{ provider: 'cursor' }] } } };
+  run = { ...run, config: { ...run.config, routing: { workers: [{ provider: 'claude' }], verifiers: [{ provider: 'cursor' }] } } };
   const rejected = expect(pending).rejects.toBeInstanceOf(PlanQueueSpawnRoutingChanged);
   ready.resolve();
   await rejected;
@@ -142,4 +128,58 @@ it('retains Close all identity and cleanup ownership when it overtakes Pause dur
   await rejected;
   await expect(pending).rejects.toBeInstanceOf(PlanQueueSpawnStoppedByUser);
   expect(instances.terminateInstance).toHaveBeenCalledExactlyOnceWith('late-close-session', true);
+});
+
+describe('ranked worker choices at spawn', () => {
+  const twoChoices = { workers: [{ provider: 'claude', model: 'claude-opus-5' }, { provider: 'codex', model: 'gpt-6.1-sol', accountProfileIds: ['pro-2'] }], verifiers: [] };
+
+  it('starts the worker on the first choice with usage left', async () => {
+    run = { ...run, config: { ...run.config, routing: twoChoices } };
+    const routeUsage = vi.fn(async (choice: { provider: string }) => ({ usable: choice.provider !== 'claude', resumeAt: null }));
+    await spawnQueueInstance(config, { ...host(Promise.resolve()), routeUsage });
+    expect(routeUsage).toHaveBeenCalledTimes(2);
+    expect(instances.createInstance).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      provider: 'codex', modelOverride: 'gpt-6.1-sol', allowedAccountProfileIds: ['pro-2'], accountRouteOrigin: 'automation',
+    }));
+  });
+
+  it('never checks usage for a run with one worker choice', async () => {
+    const routeUsage = vi.fn();
+    await spawnQueueInstance(config, { ...host(Promise.resolve()), routeUsage });
+    expect(routeUsage).not.toHaveBeenCalled();
+    expect(instances.createInstance).toHaveBeenCalledWith(expect.objectContaining({ provider: 'claude' }));
+  });
+
+  it('chooses again from the new list when James changes routing during the usage check', async () => {
+    run = { ...run, config: { ...run.config, routing: twoChoices } };
+    const first = deferred<{ usable: boolean; resumeAt: number | null }>();
+    const routeUsage = vi.fn()
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValue({ usable: true, resumeAt: null });
+    const pending = spawnQueueInstance(config, { ...host(Promise.resolve()), routeUsage });
+    await vi.waitFor(() => expect(routeUsage).toHaveBeenCalledTimes(1));
+    run = { ...run, config: { ...run.config, routing: { workers: [{ provider: 'cursor' }, { provider: 'claude' }], verifiers: [] } } };
+    first.resolve({ usable: true, resumeAt: null });
+    await pending;
+    expect(instances.createInstance).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ provider: 'cursor' }));
+  });
+
+  it('refuses the spawn when the run is paused during the usage check', async () => {
+    run = { ...run, config: { ...run.config, routing: twoChoices } };
+    const check = deferred<{ usable: boolean; resumeAt: number | null }>();
+    const pending = spawnQueueInstance(config, { ...host(Promise.resolve()), routeUsage: () => check.promise });
+    run = { ...run, status: 'paused' };
+    const rejected = expect(pending).rejects.toBeInstanceOf(PlanQueueSpawnRunPaused);
+    check.resolve({ usable: true, resumeAt: null });
+    await rejected;
+    expect(instances.createInstance).not.toHaveBeenCalled();
+  });
+
+  it('skips a worker choice since added to the never-auto-pick list without checking its usage', async () => {
+    run = { ...run, config: { ...run.config, routing: { workers: [{ provider: 'claude' }, { provider: 'codex' }, { provider: 'cursor' }], verifiers: [] } } };
+    const routeUsage = vi.fn(async () => ({ usable: true, resumeAt: null }));
+    await spawnQueueInstance(config, { ...host(Promise.resolve()), isProviderExcluded: (provider: string) => provider === 'claude', routeUsage });
+    expect(routeUsage).toHaveBeenCalledExactlyOnceWith({ provider: 'codex' }, 'automation');
+    expect(instances.createInstance).toHaveBeenCalledWith(expect.objectContaining({ provider: 'codex' }));
+  });
 });

@@ -110,6 +110,9 @@ describe('remote extension contact clocks', () => {
     const summary = remoteExtensionContactSummary('node-1', incident);
     expect(summary).toContain('has not answered');
     expect(summary).toContain('browser.recover_extension');
+    // The most common cause on windows-pc (2026-10-25), which no restart fixes.
+    expect(summary).toContain('pop-up such as "Leave site?"');
+    expect(summary).toContain('browser.list_targets refresh');
   });
 
   it('judges a tab\'s channel on its own Chrome profile when one is named', () => {

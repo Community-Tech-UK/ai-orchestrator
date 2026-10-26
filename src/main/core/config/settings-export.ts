@@ -18,6 +18,7 @@ import {
   DEFAULT_SETTINGS,
   type AppSettings,
 } from '../../../shared/types/settings.types';
+import { isLegacyPlanQueueRouting, upgradePlanQueueRouting } from '../../../shared/utils/plan-queue-routing-upgrade';
 
 const logger = getLogger('SettingsExport');
 
@@ -208,7 +209,8 @@ function sanitizeImportedSettings(
       skipped++;
       continue;
     }
-    candidate[key] = value;
+    // An export written before Plan Queue workers became a ranked list still imports.
+    candidate[key] = key === 'planQueueRouting' && isLegacyPlanQueueRouting(value) ? upgradePlanQueueRouting(value) : value;
   }
 
   return {

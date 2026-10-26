@@ -139,7 +139,7 @@ export class BrowserCredentialAccessService {
       await this.validateTarget(request, m, session);
       const preview = await this.deps.vault.inspectExistingCredential({ item: m.vaultItemRef, origin: m.origin });
       if (preview.vaultItemRef !== m.vaultItemRef || preview.title !== m.itemTitle || preview.folderName !== m.vaultFolder || (preview.requiresMoveIntoFolder && !m.moveIntoFolder)) throw new Error('saved_login_changed');
-      this.requirePending(requestId);
+      this.requirePending(request);
       const accepted: BrowserCredentialAccessMetadata = {
         ...m, permission: choice.permission, operationError: undefined,
         authorizationId: m.authorizationId ?? generateId(),
@@ -149,9 +149,9 @@ export class BrowserCredentialAccessService {
       request = this.deps.store.updateCredentialAccess(requestId, accepted, { instanceId: session.instanceId, profileId: request.profileId, targetId: request.targetId! })!;
       if (!request) throw new Error('request_no_longer_pending');
       await this.deps.vault.enrolExistingCredential({ item: m.vaultItemRef, expectedVaultItemRef: m.vaultItemRef, origin: m.origin, moveIntoFolder: m.moveIntoFolder });
-      this.requirePending(requestId);
+      this.requirePending(request);
       await this.validateTarget(request, accepted, session);
-      this.requirePending(requestId);
+      this.requirePending(request);
       if (accepted.permissionExpiresAt! <= this.deps.now()) throw new Error('permission_expired');
       const savedRequest = request;
       let createdGrant: BrowserPermissionGrant | undefined;
@@ -191,8 +191,17 @@ export class BrowserCredentialAccessService {
       return this.reportGrant(committed.grant, committed.approved, 'allowed', 'approved');
     } catch (error) {
       const reason = this.safeError(error);
-      const current = this.deps.store.getRequest(requestId);
-      if (current?.status === 'pending' && current.credentialAccess) this.deps.store.updateCredentialAccess(requestId, { ...current.credentialAccess, operationError: reason });
+      let current = this.deps.store.getRequest(requestId);
+      if (current?.status === 'pending' && current.credentialAccess &&
+          current.profileId === request.profileId && current.targetId === request.targetId) {
+        current = this.deps.store.updateCredentialAccess(requestId, { ...current.credentialAccess, operationError: reason });
+        // A closed tab cannot recover on another click. End this request and
+        // wake its owner to request access on a fresh live tab; outages stay retryable.
+        if (reason === 'target_closed' && current) {
+          current = this.deps.store.resolveCredentialAccessRequest(requestId, 'pending', { status: 'expired' });
+          if (current?.status === 'expired') this.notify(current);
+        }
+      }
       return this.reportGrant(null, current, 'denied', reason);
     }
   }
@@ -207,9 +216,10 @@ export class BrowserCredentialAccessService {
     if (this.deps.findSession(m.taskScope)?.instanceId !== session.instanceId) throw new Error('session_changed');
   }
 
-  private requirePending(requestId: string): void {
-    const request = this.deps.store.getRequest(requestId);
-    if (!request || this.refresh(request).status !== 'pending') throw new Error('request_no_longer_pending');
+  private requirePending(request: BrowserApprovalRequest): void {
+    const current = this.deps.store.getRequest(request.requestId);
+    if (!current || this.refresh(current).status !== 'pending') throw new Error('request_no_longer_pending');
+    if (current.profileId !== request.profileId || current.targetId !== request.targetId) throw new Error('request_target_changed');
   }
 
   private owned(requestId: string, context: BrowserGatewayContext): BrowserApprovalRequest | null {

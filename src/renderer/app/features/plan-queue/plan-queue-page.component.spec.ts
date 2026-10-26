@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import type { PlanQueueItemDto, PlanQueueRouting, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { CopilotAccountIpcService } from '../../core/services/ipc/copilot-account-ipc.service';
 import { ProviderAccountIpcService } from '../../core/services/ipc/provider-account-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -112,8 +112,12 @@ describe('PlanQueuePageComponent', () => {
     control: ReturnType<typeof vi.fn>;
     diffstat: ReturnType<typeof vi.fn>;
   };
+  let settings: ReturnType<typeof signal<{ planQueueRouting: PlanQueueRouting; providersExcludedFromAutomation: string[] }>>;
+  let providerAccounts: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
+    settings = signal({ planQueueRouting: { workers: [], verifiers: [] }, providersExcludedFromAutomation: [] });
+    providerAccounts = vi.fn().mockResolvedValue({ profiles: [], pools: {} });
     store = {
       allRuns: signal([]),
       reconcilerAlerts: signal([]),
@@ -140,13 +144,13 @@ describe('PlanQueuePageComponent', () => {
         {
           provide: SettingsStore,
           useValue: {
-            settings: signal({ planQueueRouting: { worker: null, verifiers: [] }, providersExcludedFromAutomation: [] }),
+            settings,
             error: signal(null),
             clearError: vi.fn(),
             set: vi.fn().mockResolvedValue(undefined),
           },
         },
-        { provide: ProviderAccountIpcService, useValue: { list: vi.fn().mockResolvedValue({ profiles: [], pools: {} }) } },
+        { provide: ProviderAccountIpcService, useValue: { list: providerAccounts } },
         { provide: CopilotAccountIpcService, useValue: { list: vi.fn().mockResolvedValue([]) } },
         {
           provide: InstanceStore,
@@ -212,8 +216,8 @@ describe('PlanQueuePageComponent', () => {
     const sections = Array.from(fixture.nativeElement.querySelectorAll('section.pq-section') as NodeListOf<HTMLElement>);
     expect(sections.map((section) => section.querySelector('h2')?.textContent?.trim())).toEqual([
       'Needs your answer',
-      'Runs',
       'Providers and accounts',
+      'Runs',
       'Start a run',
       'Needs James (livetests)',
       'Parked work',
@@ -354,7 +358,7 @@ describe('PlanQueuePageComponent', () => {
 
   it('opens Change for the selected run, saves its routing, and keeps saved defaults separate', async () => {
     store.control.mockResolvedValue({ success: true, data: null });
-    store.allRuns.set([makeRun({ id: 'edit-me', status: 'paused', config: { ...makeRun().config, routing: { worker: { provider: 'claude', model: 'opus' }, verifiers: [] } } })]);
+    store.allRuns.set([makeRun({ id: 'edit-me', status: 'paused', config: { ...makeRun().config, routing: { workers: [{ provider: 'claude', model: 'opus' }], verifiers: [] } } })]);
     fixture.detectChanges();
     (fixture.nativeElement.querySelector('.pq-run-change') as HTMLButtonElement).click();
     fixture.detectChanges(); await fixture.whenStable();
@@ -365,9 +369,55 @@ describe('PlanQueuePageComponent', () => {
     fixture.detectChanges();
     (editor.querySelector('.pq-routing-save') as HTMLButtonElement).click();
     await fixture.whenStable();
-    expect(store.control).toHaveBeenCalledWith({ action: 'set-routing', runId: 'edit-me', routing: { worker: { provider: 'claude', model: 'sonnet' }, verifiers: [] } });
-    expect(fixture.nativeElement.querySelectorAll('app-plan-queue-routing-panel')).toHaveLength(2);
+    expect(store.control).toHaveBeenCalledWith({ action: 'set-routing', runId: 'edit-me', routing: { workers: [{ provider: 'claude', model: 'sonnet' }], verifiers: [] } });
+    // The saved choice's editor stays closed: only this run's editor is open.
+    expect(fixture.nativeElement.querySelectorAll('app-plan-queue-routing-panel')).toHaveLength(1);
     expect(editor.querySelector('.pq-routing-move-progress')).toBeNull();
+  });
+
+  it('shows the saved choice as one line above the runs, opening its editor with Change', async () => {
+    store.allRuns.set(Array.from({ length: 30 }, (_, index) => makeRun({ id: `run-${index}` })));
+    settings.set({ planQueueRouting: { workers: [{ provider: 'codex', model: 'gpt-6.1-sol' }, { provider: 'claude' }], verifiers: [] }, providersExcludedFromAutomation: [] });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const section = fixture.nativeElement.querySelector('.pq-section-routing') as HTMLElement;
+    const runs = fixture.nativeElement.querySelector('.pq-section-runs') as HTMLElement;
+    expect(section.compareDocumentPosition(runs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(section.querySelector('.pq-defaults-summary')?.textContent?.trim())
+      .toBe('Workers: codex/gpt-6.1-sol, then claude · Checkers: automatic');
+    expect(section.querySelector('app-plan-queue-routing-panel')).toBeNull();
+
+    const change = section.querySelector('.pq-defaults-change') as HTMLButtonElement;
+    expect(change.getAttribute('aria-expanded')).toBe('false');
+    expect(change.getAttribute('aria-label')).toBe('Change providers and accounts');
+    change.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(section.querySelector('app-plan-queue-routing-panel')).not.toBeNull();
+    expect(change.textContent?.trim()).toBe('Close');
+    expect(change.getAttribute('aria-expanded')).toBe('true');
+    expect(change.getAttribute('aria-label')).toBe('Close providers and accounts');
+
+    settings.set({ planQueueRouting: { workers: [], verifiers: [] }, providersExcludedFromAutomation: [] });
+    fixture.detectChanges();
+    expect(section.querySelector('.pq-defaults-summary')?.textContent?.trim())
+      .toBe('Workers: same as the session that starts the run · Checkers: automatic');
+  });
+
+  it('names accounts in the summaries, and reads a saved value in the old shape', async () => {
+    providerAccounts.mockResolvedValue({ profiles: [{ id: 'legacy', provider: 'codex', label: 'ChatGPT SUAS' }], pools: {} });
+    settings.set({ planQueueRouting: { worker: { provider: 'codex', accountProfileIds: ['legacy'] }, verifiers: [] } as unknown as PlanQueueRouting, providersExcludedFromAutomation: [] });
+    store.allRuns.set([makeRun({ id: 'labelled', config: { ...makeRun().config, routing: { workers: [{ provider: 'codex', accountProfileIds: ['legacy'] }], verifiers: [] } } })]);
+    fixture.componentInstance.ngOnInit();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.nativeElement.querySelector('.pq-defaults-summary')?.textContent?.trim())
+      .toBe('Workers: codex (accounts: ChatGPT SUAS) · Checkers: automatic');
+    expect(fixture.nativeElement.querySelector('.pq-run-routing')?.textContent?.trim())
+      .toBe('Workers: codex (accounts: ChatGPT SUAS) · Checkers: automatic');
   });
 
 });

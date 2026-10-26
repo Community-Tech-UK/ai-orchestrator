@@ -1,6 +1,6 @@
 /** Pausing retains the worktree and branch; it never goes through parking. */
 import { existsSync } from 'fs';
-import { UnresolvedMergeError, revertToSnapshot, snapshotTree } from './plan-queue-git';
+import { isOwnCheckout, UnresolvedMergeError, revertToSnapshot, snapshotTree } from './plan-queue-git';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { buildFixPrompt } from './plan-queue-prompts';
 import { readProvisionedPaths } from './plan-queue-worktree';
@@ -42,9 +42,12 @@ export async function holdItem(
   else host.transition(item, state, patch);
 }
 
-/** Recovery baseline also works when the process lost its in-memory snapshot. */
+/**
+ * Recovery baseline also works when the process lost its in-memory snapshot.
+ * A missing or half-removed checkout has nothing to restore; its work is on the branch.
+ */
 export async function restoreCheckpointAfterVerification(item: PlanQueueItem): Promise<void> {
-  if (!item.worktreePath || !item.checkpointCommit || !existsSync(item.worktreePath)) return;
+  if (!item.worktreePath || !item.checkpointCommit || !(await isOwnCheckout(item.worktreePath))) return;
   const provisioned = await readProvisionedPaths(item.worktreePath);
   const isProvisioned = (file: string) => provisioned.some((p) => file === p || file.startsWith(`${p}/`));
   const current = await snapshotTree(item.worktreePath);

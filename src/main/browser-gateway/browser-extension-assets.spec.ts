@@ -39,6 +39,7 @@ interface BrowserExtensionBackgroundHarness {
     target?: { tabId?: number };
   }) => Promise<void>;
   markSecretTaint: (tabId: number, origin: string) => Promise<void>;
+  buildTabPayload: (tab: unknown, options: Record<string, unknown>) => Promise<Record<string, unknown>>;
   reportTabInventory: () => Promise<void>;
   clearHttpAuthChallenge: (tabId: number) => void;
   clearHttpAuthStage: (tabId: number) => void;
@@ -100,7 +101,11 @@ interface BrowserExtensionChromeHarness {
     };
   };
   scripting: {
-    executeScript: Mock<(input: { func?: { name?: string }; args?: unknown[] }) => Promise<unknown[]>>;
+    executeScript: Mock<(input: {
+      target?: { tabId?: number };
+      func?: { name?: string };
+      args?: unknown[];
+    }) => Promise<unknown[]>>;
   };
   webRequest: {
     onAuthRequired: {
@@ -216,6 +221,10 @@ describe('browser extension assets', () => {
     // observe-only httpAuthChallenge report on tab payloads, and the
     // http_auth_navigate command.
     '0.2.43': 'f48f2476e9f5',
+    // A page frozen by a browser pop-up times out its page-text read
+    // (page_not_responding) instead of holding the shared lock, and a command
+    // stuck far past its own limit reloads the extension.
+    '0.2.44': '023e4ae7a454',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -454,6 +463,8 @@ describe('browser extension assets', () => {
         return {};
       },
     );
+    // Startup work (the tab inventory's page-text limit) arms its own timers.
+    const timerCallCountBefore = harness.timers.setTimeout.mock.calls.length;
 
     const settled = harness
       .captureAccessibilitySnapshot(42, { limit: 10, timeoutMs: 1_000 })
@@ -464,10 +475,10 @@ describe('browser extension assets', () => {
     // applies instead. No deadline shorter than the floor may be registered,
     // and firing the floor-length ones must be what fails the tree call (the
     // already-settled enable hops ignore a late rejection).
-    expect(
-      harness.timers.setTimeout.mock.calls.every((call: unknown[]) => Number(call[1]) >= 5_000),
-    ).toBe(true);
-    for (const call of harness.timers.setTimeout.mock.calls) {
+    const snapshotTimers = harness.timers.setTimeout.mock.calls.slice(timerCallCountBefore);
+    expect(snapshotTimers.length).toBeGreaterThan(0);
+    expect(snapshotTimers.every((call: unknown[]) => Number(call[1]) >= 5_000)).toBe(true);
+    for (const call of snapshotTimers) {
       if (call[1] === 5_000) {
         (call[0] as () => void)();
       }
@@ -1603,6 +1614,10 @@ describe('browser extension assets', () => {
       .find((call: unknown[]) => call[1] === 30_000);
     expect(postReloadDeadline).toBeDefined();
     expect(commandWatchdog).toBeDefined();
+    // The post-reload page read gets the 5s observation window, not 15s.
+    expect(harness.timers.setTimeout.mock.calls
+      .slice(timerCallCountBeforeReload)
+      .some((call: unknown[]) => call[1] === 15_000)).toBe(false);
     (postReloadDeadline?.[0] as (() => void) | undefined)?.();
     await flushPromises();
 
@@ -2267,6 +2282,501 @@ describe('browser extension assets', () => {
     }));
   });
 
+  // windows-pc, 2026-10-25: a "Leave site?" pop-up was open on one tab. Chrome
+  // never answers a script injection into a page blocked by its own pop-up, the
+  // tab inventory waited on that page while holding the shared secret-observation
+  // lock, and every later command queued behind it for over an hour while the
+  // extension kept polling. Answering the pop-up released everything at once.
+  it('does not let a page frozen by a browser pop-up hold up commands for other tabs', async () => {
+    const harness = loadBackgroundHarnessForTest({ additionalTabs: [{ tabId: 43, groupId: -1 }] });
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.scripting.executeScript.mockImplementation(
+      async (params: { target?: { tabId?: number } }) => (params.target?.tabId === 42
+        ? new Promise<never>(() => undefined)
+        : [{ result: { title: 'Example 43', text: 'Other page' } }]),
+    );
+    const timerCallCountBefore = harness.timers.setTimeout.mock.calls.length;
+    const postedMessages = () => relayPort.postMessage.mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>);
+
+    void harness.reportTabInventory();
+    await flushPromises();
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: { id: 'snapshot-other-tab', command: 'snapshot', target: { tabId: 43 } },
+    });
+    await flushPromises();
+    expect(postedMessages().find((message) => message['commandId'] === 'snapshot-other-tab'
+      && message['type'] === 'command_result')).toBeUndefined();
+
+    // The inventory gives the page 2s, shorter than the gateway's own short
+    // command budgets, so commands queued behind it can still answer in time.
+    const pageTextDeadline = harness.timers.setTimeout.mock.calls
+      .slice(timerCallCountBefore)
+      .find((call: unknown[]) => call[1] === 2_000);
+    expect(pageTextDeadline).toBeDefined();
+    (pageTextDeadline?.[0] as (() => void) | undefined)?.();
+    await flushPromises();
+
+    expect(postedMessages()).toContainEqual(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'snapshot-other-tab',
+      ok: true,
+      result: expect.objectContaining({ tabId: 43, text: 'Other page', inspectionState: 'readable' }),
+    }));
+    const inventory = postedMessages().find((message) => message['type'] === 'tab_inventory');
+    expect(inventory?.['tabs']).toContainEqual(expect.objectContaining({
+      tabId: 42,
+      url: 'https://example.test/42',
+      title: 'Example 42',
+      text: '',
+      inspectionState: 'inspection_unavailable',
+      textUnavailableReason: 'page_not_responding',
+    }));
+  });
+
+  it('answers a snapshot of a page frozen by a pop-up with page_not_responding instead of hanging', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    // Every injection into the page hangs: the control glow and capture
+    // buffer as well as the page-text read.
+    harness.chrome.scripting.executeScript.mockImplementation(
+      () => new Promise<never>(() => undefined),
+    );
+    const timerCallCountBefore = harness.timers.setTimeout.mock.calls.length;
+    const commandResult = () => relayPort.postMessage.mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>)
+      .find((message) => message['type'] === 'command_result'
+        && message['commandId'] === 'snapshot-frozen-page');
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: { id: 'snapshot-frozen-page', command: 'snapshot', target: { tabId: 42 } },
+    });
+    await flushPromises();
+    // Fire only the page time limits (3s extras, 15s text read), never the
+    // 30s command watchdog: the snapshot must answer inside its own budget.
+    const fired = new Set<unknown[]>();
+    for (let round = 0; round < 6 && !commandResult(); round++) {
+      for (const call of harness.timers.setTimeout.mock.calls.slice(timerCallCountBefore)) {
+        if ((call[1] === 3_000 || call[1] === 15_000) && !fired.has(call)) {
+          fired.add(call);
+          (call[0] as () => void)();
+        }
+      }
+      await flushPromises();
+    }
+
+    expect([...fired].some((call) => call[1] === 15_000)).toBe(true);
+    expect(commandResult()).toEqual(expect.objectContaining({
+      ok: true,
+      result: expect.objectContaining({
+        url: 'https://example.test/42',
+        title: 'Example 42',
+        text: '',
+        inspectionState: 'inspection_unavailable',
+        textUnavailableReason: 'page_not_responding',
+      }),
+    }));
+  });
+
+  // The gateway's everyday browser.snapshot is a 1s probe backed by the cached
+  // copy. Its watchdog gives up at 1s, but its page work carries on, and if
+  // that kept the shared lock for the full 15s read, probes of every other tab
+  // would time out behind it and the gateway would take the channel for dead.
+  it('ends a timed-out command\'s locked page work at that command\'s own deadline', async () => {
+    const harness = loadBackgroundHarnessForTest({ additionalTabs: [{ tabId: 43, groupId: -1 }] });
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.scripting.executeScript.mockImplementation(
+      async (params: { target?: { tabId?: number } }) => (params.target?.tabId === 42
+        ? new Promise<never>(() => undefined)
+        : [{ result: { title: 'Example 43', text: 'Other page' } }]),
+    );
+    const timerCallCountBefore = harness.timers.setTimeout.mock.calls.length;
+    const scriptCallCountBefore = harness.chrome.scripting.executeScript.mock.calls.length;
+    const newTimers = (delayMs: number) => harness.timers.setTimeout.mock.calls
+      .slice(timerCallCountBefore)
+      .filter((call: unknown[]) => call[1] === delayMs);
+    const commandResult = (commandId: string) => relayPort.postMessage.mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>)
+      .find((message) => message['type'] === 'command_result' && message['commandId'] === commandId);
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: { id: 'probe-frozen-tab', command: 'snapshot', target: { tabId: 42 }, timeoutMs: 1_000 },
+    });
+    await flushPromises();
+    harness.advanceTimeBy(1_000);
+    for (const call of newTimers(1_000)) (call[0] as () => void)();
+    await flushPromises();
+    expect(commandResult('probe-frozen-tab')).toEqual(expect.objectContaining({
+      ok: false,
+      error: expect.stringContaining('browser_extension_command_timeout'),
+    }));
+
+    // The abandoned glow and capture installs give up, and the abandoned read
+    // then finds its command's deadline already passed.
+    harness.advanceTimeBy(3_000);
+    for (const call of newTimers(3_000)) (call[0] as () => void)();
+    await flushPromises();
+    // With no time left it sends no read at all, rather than one with the 15s a
+    // fresh snapshot gets. (Fire the poll re-arm after the timed-out command.)
+    expect(newTimers(15_000)).toHaveLength(0);
+    expect(harness.chrome.scripting.executeScript.mock.calls
+      .slice(scriptCallCountBefore)
+      .filter(([params]) => params.args?.[0] === 'snapshot')).toHaveLength(0);
+    for (const call of newTimers(0)) (call[0] as () => void)();
+    await flushPromises();
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: { id: 'probe-other-tab', command: 'snapshot', target: { tabId: 43 }, timeoutMs: 1_000 },
+    });
+    await flushPromises();
+    expect(commandResult('probe-other-tab')).toEqual(expect.objectContaining({
+      ok: true,
+      result: expect.objectContaining({ tabId: 43, text: 'Other page' }),
+    }));
+  });
+
+  describe('page work under the shared lock ends by the deadline of whoever waits for it', () => {
+    const newTimersSince = (harness: BrowserExtensionBackgroundHarness, from: number, delayMs: number) =>
+      harness.timers.setTimeout.mock.calls
+        .slice(from)
+        .filter((call: unknown[]) => call[1] === delayMs);
+
+    // Without the deadline these reads got the full 15s, whatever the command's
+    // own budget, and an abandoned one kept the lock long after its command.
+    it.each([
+      ['snapshot', { command: 'snapshot', target: { tabId: 42 } }],
+      ['navigate', { command: 'navigate', target: { tabId: 42 }, payload: { url: 'https://example.test/next' } }],
+      ['open_tab', { command: 'open_tab', payload: { url: 'https://example.test/new' } }],
+      ['http_auth_navigate', {
+        command: 'http_auth_navigate',
+        target: { tabId: 42 },
+        payload: {
+          url: 'https://example.test/protected',
+          credentialOrigin: 'https://example.test',
+          username: 'alice',
+          password: 'TEST_ONLY_HTTP_AUTH_PASSWORD',
+          protection: 'password',
+        },
+      }],
+    ])('%s gives its page read only the time left before its own deadline', async (name, command) => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+      relayPort.postMessage.mockClear();
+      const timerCallCountBefore = harness.timers.setTimeout.mock.calls.length;
+
+      relayPort.emitMessage({
+        type: 'browser_command',
+        command: { id: `deadline-${name}`, timeoutMs: 5_000, ...command },
+      });
+      await flushPromises();
+
+      expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'command_result', commandId: `deadline-${name}`, ok: true,
+      }));
+      // The command watchdog and the page-text limit both end at the 5s deadline.
+      expect(newTimersSince(harness, timerCallCountBefore, 15_000)).toHaveLength(0);
+      expect(newTimersSince(harness, timerCallCountBefore, 5_000).length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('leaves the screenshot out when it cannot finish in the time allowed', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      harness.chrome.debugger.sendCommand.mockImplementation(
+        async (_debuggee: unknown, method: string) => (method === 'Page.captureScreenshot'
+          ? new Promise(() => undefined)
+          : {}),
+      );
+      const timerCallCountBefore = harness.timers.setTimeout.mock.calls.length;
+      let payload: Record<string, unknown> | undefined;
+
+      void harness.buildTabPayload(harness.tabState(42), {
+        includeText: true,
+        includeScreenshot: true,
+        maxPageWorkMs: 4_000,
+      }).then((value) => {
+        payload = value;
+      });
+      await flushPromises();
+      await flushPromises();
+      expect(payload).toBeUndefined();
+
+      for (const call of newTimersSince(harness, timerCallCountBefore, 4_000)) (call[0] as () => void)();
+      await flushPromises();
+
+      expect(payload).toEqual(expect.objectContaining({ text: 'Example page', inspectionState: 'readable' }));
+      expect(payload).not.toHaveProperty('screenshotBase64');
+    });
+
+    it('does not attach the debugger to a page that did not answer the text read', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      harness.chrome.scripting.executeScript.mockImplementation(
+        () => new Promise<never>(() => undefined),
+      );
+      harness.chrome.debugger.attach.mockClear();
+      const timerCallCountBefore = harness.timers.setTimeout.mock.calls.length;
+      let payload: Record<string, unknown> | undefined;
+
+      void harness.buildTabPayload(harness.tabState(42), {
+        includeText: true,
+        includeScreenshot: true,
+        maxPageWorkMs: 4_000,
+      }).then((value) => {
+        payload = value;
+      });
+      await flushPromises();
+      harness.advanceTimeBy(1_000);
+      for (const call of newTimersSince(harness, timerCallCountBefore, 4_000)) (call[0] as () => void)();
+      await flushPromises();
+
+      expect(payload).toEqual(expect.objectContaining({ textUnavailableReason: 'page_not_responding' }));
+      expect(harness.chrome.debugger.attach).not.toHaveBeenCalled();
+    });
+
+    it('does not attach the debugger for a screenshot when the text read used up the time', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      // The page answers, but only just after the 50ms allowed.
+      harness.chrome.scripting.executeScript.mockImplementation(async () => {
+        harness.advanceTimeBy(60);
+        return [{ result: { title: 'Example', text: 'Example page' } }];
+      });
+      harness.chrome.debugger.attach.mockClear();
+
+      const payload = await harness.buildTabPayload(harness.tabState(42), {
+        includeText: true,
+        includeScreenshot: true,
+        maxPageWorkMs: 50,
+      });
+
+      expect(payload).toEqual(expect.objectContaining({ text: 'Example page', inspectionState: 'readable' }));
+      expect(payload).not.toHaveProperty('screenshotBase64');
+      expect(harness.chrome.debugger.attach).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['the popup\'s Share', async (harness: BrowserExtensionBackgroundHarness) => {
+        void harness.sendMessage({ type: 'share_active_tab' });
+      }],
+      ['a tab report for the frozen tab itself', async (harness: BrowserExtensionBackgroundHarness) => {
+        harness.chrome.tabs.onUpdated.emit(42, { title: 'Renamed' }, harness.tabState(42));
+      }],
+    ])('gives %s only the brief 2s on a frozen page', async (_name, start) => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      harness.chrome.scripting.executeScript.mockImplementation(
+        () => new Promise<never>(() => undefined),
+      );
+      const timerCallCountBefore = harness.timers.setTimeout.mock.calls.length;
+
+      await start(harness);
+      await flushPromises();
+
+      expect(newTimersSince(harness, timerCallCountBefore, 2_000)).toHaveLength(1);
+      expect(newTimersSince(harness, timerCallCountBefore, 15_000)).toHaveLength(0);
+    });
+
+    // An hour-long pop-up used to collect a new read every inventory pass, all
+    // run back to back once someone answered it, and each pass held the lock.
+    it('does not send another read to a tab that has not answered the last one', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+      let answerPage: ((value: unknown[]) => void) | undefined;
+      harness.chrome.scripting.executeScript.mockImplementation(
+        (params: { args?: unknown[] }) => (params.args?.[0] === 'snapshot'
+          ? new Promise<unknown[]>((resolve) => {
+            answerPage = resolve;
+          })
+          : Promise.resolve([{ result: undefined }])),
+      );
+      const pageReadCountBefore = harness.chrome.scripting.executeScript.mock.calls.length;
+      const pageReads = () => harness.chrome.scripting.executeScript.mock.calls
+        .slice(pageReadCountBefore)
+        .filter(([params]) => params.args?.[0] === 'snapshot').length;
+      const lastInventoryTab42 = () => (relayPort.postMessage.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .filter((message) => message['type'] === 'tab_inventory')
+        .at(-1)?.['tabs'] as Record<string, unknown>[] | undefined)
+        ?.find((tab) => tab['tabId'] === 42);
+      const timerCallCountBefore = harness.timers.setTimeout.mock.calls.length;
+
+      void harness.reportTabInventory();
+      await flushPromises();
+      for (const call of newTimersSince(harness, timerCallCountBefore, 2_000)) (call[0] as () => void)();
+      await flushPromises();
+      expect(pageReads()).toBe(1);
+
+      const timerCallCountSecondPass = harness.timers.setTimeout.mock.calls.length;
+      await harness.reportTabInventory();
+      expect(pageReads()).toBe(1);
+      expect(newTimersSince(harness, timerCallCountSecondPass, 2_000)).toHaveLength(0);
+      expect(lastInventoryTab42()).toEqual(expect.objectContaining({
+        textUnavailableReason: 'page_not_responding',
+      }));
+
+      // Someone answers the pop-up: the page answers the read it was holding,
+      // and the next pass reads it again.
+      answerPage?.([{ result: { title: 'Example', text: 'Back again' } }]);
+      await flushPromises();
+      harness.chrome.scripting.executeScript.mockImplementation(
+        async () => [{ result: { title: 'Example', text: 'Back again' } }],
+      );
+      await harness.reportTabInventory();
+      expect(pageReads()).toBe(2);
+      expect(lastInventoryTab42()).toEqual(expect.objectContaining({
+        text: 'Back again',
+        inspectionState: 'readable',
+      }));
+    });
+
+    // On a profile with a secret-protected site, every read is checked again
+    // afterwards by probing the page. A pop-up that blocks the page mid-read
+    // makes that probe time out too, and it must not take down the inventory.
+    it('keeps the inventory when the after-read secret check cannot reach a frozen page', async () => {
+      const harness = loadBackgroundHarnessForTest({
+        additionalTabs: [{ tabId: 43, groupId: -1 }],
+        initialLocalStorage: {
+          browserGatewaySecretTaints: { version: 2, origins: ['https://vault.test'], tabs: {} },
+        },
+      });
+      await flushPromises();
+      const probesOf42: number[] = [];
+      harness.chrome.scripting.executeScript.mockImplementation(
+        async (params: { target?: { tabId?: number }; func?: { name?: string } }) => {
+          const tabId = params.target?.tabId;
+          if (params.func?.name === 'credentialFrameOriginProbe') {
+            if (tabId === 42 && probesOf42.push(1) > 1) {
+              return new Promise<never>(() => undefined);
+            }
+            return [{ result: { origin: 'https://example.test' } }];
+          }
+          return tabId === 42
+            ? new Promise<never>(() => undefined)
+            : [{ result: { title: 'Example 43', text: 'Other page' } }];
+        },
+      );
+      const timerCallCountBefore = harness.timers.setTimeout.mock.calls.length;
+      let finished = false;
+      let failed = false;
+
+      harness.reportTabInventory().then(() => {
+        finished = true;
+      }, () => {
+        failed = true;
+      });
+      await flushPromises();
+      for (const call of newTimersSince(harness, timerCallCountBefore, 2_000)) (call[0] as () => void)();
+      await flushPromises();
+      for (const call of newTimersSince(harness, timerCallCountBefore, 1_500)) (call[0] as () => void)();
+      await flushPromises();
+
+      expect(failed).toBe(false);
+      expect(finished).toBe(true);
+      const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+      const inventory = relayPort.postMessage.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .filter((message) => message['type'] === 'tab_inventory')
+        .at(-1)?.['tabs'] as Record<string, unknown>[] | undefined;
+      expect(inventory).toContainEqual(expect.objectContaining({
+        tabId: 42,
+        text: '',
+        inspectionState: 'inspection_unavailable',
+      }));
+      expect(inventory).toContainEqual(expect.objectContaining({
+        tabId: 43,
+        text: 'Other page',
+        inspectionState: 'readable',
+      }));
+    });
+
+    it('uses nothing from a read the after-read secret check could not clear', async () => {
+      const marker = 'TEST_ONLY_UNCHECKED_PAGE_TEXT';
+      const harness = loadBackgroundHarnessForTest({
+        initialLocalStorage: {
+          browserGatewaySecretTaints: { version: 2, origins: ['https://vault.test'], tabs: {} },
+        },
+      });
+      await flushPromises();
+      let probes = 0;
+      harness.chrome.scripting.executeScript.mockImplementation(
+        async (params: { func?: { name?: string } }) => {
+          if (params.func?.name === 'credentialFrameOriginProbe') {
+            probes += 1;
+            return probes === 1
+              ? [{ result: { origin: 'https://example.test' } }]
+              : new Promise<never>(() => undefined);
+          }
+          return [{ result: { title: marker, text: marker } }];
+        },
+      );
+      const timerCallCountBefore = harness.timers.setTimeout.mock.calls.length;
+      let payload: Record<string, unknown> | undefined;
+
+      void harness.buildTabPayload(harness.tabState(42), { includeText: true }).then((value) => {
+        payload = value;
+      });
+      await flushPromises();
+      for (const call of newTimersSince(harness, timerCallCountBefore, 1_500)) (call[0] as () => void)();
+      await flushPromises();
+
+      expect(payload).toEqual(expect.objectContaining({
+        text: '',
+        title: 'Tab inspection unavailable',
+        inspectionState: 'inspection_unavailable',
+      }));
+      expect(JSON.stringify(payload)).not.toContain(marker);
+    });
+
+    // Counting from when the read was queued gave a read stuck behind a frozen
+    // tab no time at all, so healthy tabs came out page_not_responding.
+    it('counts a background read\'s 2s from when it holds the lock, not from when it queued', async () => {
+      const harness = loadBackgroundHarnessForTest({ additionalTabs: [{ tabId: 43, groupId: -1 }] });
+      await flushPromises();
+      harness.chrome.scripting.executeScript.mockImplementation(
+        async (params: { target?: { tabId?: number } }) => (params.target?.tabId === 42
+          ? new Promise<never>(() => undefined)
+          : [{ result: { title: 'Example 43', text: 'Other page' } }]),
+      );
+      const timerCallCountBefore = harness.timers.setTimeout.mock.calls.length;
+
+      void harness.reportTabInventory();
+      await flushPromises();
+      // Tab 43 changes while the inventory waits on the frozen tab 42.
+      harness.chrome.tabs.onUpdated.emit(43, { title: 'Renamed' }, harness.tabState(43));
+      await flushPromises();
+      harness.advanceTimeBy(2_000);
+      const frozenRead = newTimersSince(harness, timerCallCountBefore, 2_000);
+      expect(frozenRead).toHaveLength(1);
+      (frozenRead[0][0] as () => void)();
+      await flushPromises();
+
+      // Tab 43's reads got their own fresh 2s once they held the lock.
+      expect(newTimersSince(harness, timerCallCountBefore, 2_000).length).toBeGreaterThanOrEqual(2);
+      expect(newTimersSince(harness, timerCallCountBefore, 0)).toHaveLength(0);
+      const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+      const reports = relayPort.postMessage.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .filter((message) => message['type'] === 'attach_tab');
+      expect(reports.map((message) => message['tab'])).toContainEqual(expect.objectContaining({
+        tabId: 43,
+        text: 'Other page',
+        inspectionState: 'readable',
+      }));
+    });
+  });
+
   it('keeps the legacy bridge polling when the relay host is absent and retries relay on the alarm cadence', async () => {
     const harness = loadBackgroundHarnessForTest({
       failConnectHosts: new Set([RELAY_HOST_NAME]),
@@ -2281,7 +2791,11 @@ describe('browser extension assets', () => {
       timeoutMs: 10000,
     }));
     expect(harness.ports.has(RELAY_HOST_NAME)).toBe(false);
-    expect(harness.timers.setTimeout.mock.calls.every(([, delayMs]) => delayMs === 30000)).toBe(true);
+    // Only poll watchdogs; the absent relay schedules no reconnect timer of its
+    // own. (The startup tab inventory also arms its 2s page-text time limit.)
+    expect(harness.timers.setTimeout.mock.calls
+      .filter(([, delayMs]) => delayMs !== 2_000)
+      .every(([, delayMs]) => delayMs === 30000)).toBe(true);
 
     harness.failConnectHosts.clear();
     emitAlarm(harness, 'browser-gateway-inventory');
@@ -2379,6 +2893,83 @@ describe('browser extension assets', () => {
     emitAlarm(harness, 'browser-gateway-inventory');
     await flushPromises();
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  // The other wedge shape: polls are acknowledged, so the ladder above never
+  // fires, but the command at the head of the queue never finishes. Every step
+  // of a command is meant to be time-limited, so one running far past its own
+  // limit means something outside those limits is stuck, and only a reload
+  // clears it. Stand-in here: a secret-observation lock that never frees.
+  it('reloads, rate-limited, when a command has been running far past its own time limit', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    const reload = harness.chrome.runtime.reload;
+    harness.chrome.tabs.query.mockImplementationOnce(() => new Promise<never>(() => undefined));
+    void harness.markSecretTaint(42, 'https://example.test');
+    await flushPromises();
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: { id: 'stuck-behind-lock', command: 'snapshot', target: { tabId: 42 } },
+    });
+    await flushPromises();
+
+    // Within the command's own 30s limit plus the grace: not stuck yet.
+    harness.advanceTimeBy(2 * 60_000);
+    await harness.selfHealIfWedged();
+    expect(reload).not.toHaveBeenCalled();
+
+    harness.advanceTimeBy(60_000);
+    await harness.selfHealIfWedged();
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(harness.chrome.storage.local.set).toHaveBeenCalledWith(
+      expect.objectContaining({ browserGatewayLastSelfReloadAt: expect.any(Number) }),
+    );
+
+    // Same 30-minute rate limit as the other reload rung.
+    harness.advanceTimeBy(5 * 60_000);
+    await harness.selfHealIfWedged();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not count a command that has finished as stuck', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: { id: 'finished-snapshot', command: 'snapshot', target: { tabId: 42 } },
+    });
+    await flushPromises();
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result', commandId: 'finished-snapshot', ok: true,
+    }));
+
+    harness.advanceTimeBy(10 * 60_000);
+    await harness.selfHealIfWedged();
+    expect(harness.chrome.runtime.reload).not.toHaveBeenCalled();
+  });
+
+  it('does not reload for a command that is still inside its own time limit', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    harness.chrome.scripting.executeScript.mockImplementation(
+      () => new Promise<never>(() => undefined),
+    );
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: { id: 'long-but-allowed', command: 'snapshot', target: { tabId: 42 }, timeoutMs: 120_000 },
+    });
+    await flushPromises();
+
+    harness.advanceTimeBy(3 * 60_000);
+    await harness.selfHealIfWedged();
+    expect(harness.chrome.runtime.reload).not.toHaveBeenCalled();
   });
 
   describe('reloading onto the version a worker relay expects', () => {
@@ -4128,6 +4719,12 @@ function loadBackgroundHarnessForTest(options: {
         },
       },
       tabs: {
+        create: vi.fn(async (input: { url?: string }) => {
+          const tab = makeWebTab(77);
+          tab.url = input.url ?? tab.url;
+          tabsById.set(77, tab);
+          return tab;
+        }),
         get: vi.fn(async (tabId: number) => tabsById.get(tabId)),
         group: vi.fn(async (input: { tabIds: number | number[]; groupId?: number }) => {
           if (input.groupId !== undefined && deletedGroupIds.has(input.groupId)) {
@@ -4237,7 +4834,7 @@ function loadBackgroundHarnessForTest(options: {
     }) | undefined,
   };
   runInNewContext(
-    `${background}\n;globalThis.__backgroundHarness = { applySecretObservationProtectionEnabled, bridges, captureAccessibilitySnapshot, captureTabScreenshot, clearHttpAuthChallenge, clearHttpAuthStage, deriveToolbarBadgeState, forceReleaseCommandResources, handleHttpAuthRequired, httpAuthChallengeForTab, httpAuthChallenges, httpAuthStages, markSecretTaint, pageBridgeScript, recordHttpAuthChallenge, reportTabInventory, selfHealIfWedged, setGatewayEnabled, startControlledTab, stopControlledTab, tabDebuggerChains, waitForTabComplete };`,
+    `${background}\n;globalThis.__backgroundHarness = { applySecretObservationProtectionEnabled, bridges, buildTabPayload, captureAccessibilitySnapshot, captureTabScreenshot, clearHttpAuthChallenge, clearHttpAuthStage, deriveToolbarBadgeState, forceReleaseCommandResources, handleHttpAuthRequired, httpAuthChallengeForTab, httpAuthChallenges, httpAuthStages, markSecretTaint, pageBridgeScript, recordHttpAuthChallenge, reportTabInventory, selfHealIfWedged, setGatewayEnabled, startControlledTab, stopControlledTab, tabDebuggerChains, waitForTabComplete };`,
     context,
     { filename: 'resources/browser-extension/background.js' },
   );

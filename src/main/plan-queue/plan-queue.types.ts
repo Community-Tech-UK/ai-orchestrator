@@ -58,6 +58,9 @@ export interface PlanQueueItem {
   landedCommit: string | null;
   workerInstanceId: string | null;
   verifierInstanceId: string | null;
+  /** Provider and model the latest worker session ran on; checkers are chosen against them. */
+  workerProvider?: string;
+  workerModel?: string;
   question: PlanQueueQuestion | null;
   answer: string | null;
   parkReason: PlanQueueParkReason | null;

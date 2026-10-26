@@ -120,7 +120,7 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'planQueueRouting',
     label: 'Plan Queue providers and accounts',
-    description: 'Which providers and accounts Plan Queue workers and checkers may use. Managed from the Plan Queue page. Set only from there — not changeable by agents.',
+    description: 'Which providers and accounts Plan Queue workers and checkers use, each in preference order. Managed from the Plan Queue page. Set only from there — not changeable by agents.',
     type: 'json',
     category: 'review',
     hidden: true,

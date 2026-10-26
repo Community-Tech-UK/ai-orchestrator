@@ -11,6 +11,7 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import type { LeftoverWorktreeArchive, LeftoverWorktreeRow } from '@contracts/schemas/workspace-tools';
 import { isInsideOrEqual, pathCompareKey } from '../../util/path-helpers';
+import { removeTree } from '../../util/remove-tree';
 import { gitExec } from './git-exec';
 
 const exec = promisify(execFile);
@@ -131,7 +132,7 @@ export class LeftoverWorktreeArchiveService {
       if (await worktreeFingerprint(scratch) !== fingerprint || await worktreeFingerprint(row.path) !== fingerprint) {
         throw new Error('Folder changed or archive verification failed. Nothing was removed');
       }
-    } finally { await rm(scratch, { recursive: true, force: true }); }
+    } finally { await removeTree(scratch); }
     const manifest: Manifest = { version: 1, id, repoRoot: row.repoRoot, path: row.path,
       branch: row.branch, tip: row.tip, sha256: await fileHash(file), fingerprint, createdAt: Date.now(), bytes: (await lstat(file)).size };
     const manifestFile = join(directory, 'manifest.json');
@@ -163,11 +164,11 @@ export class LeftoverWorktreeArchiveService {
       await verifyRestorablePath(repoRoot, target);
       // Detached recovery preserves branch ownership even if its branch moved meanwhile.
       await gitExec(['worktree', 'add', '--detach', '--', target, m.tip], repoRoot, 5 * 60_000);
-      for (const name of await readdir(target)) if (name !== '.git') await rm(join(target, name), { recursive: true, force: true });
+      for (const name of await readdir(target)) if (name !== '.git') await removeTree(join(target, name));
       for (const name of await readdir(scratch)) await cp(join(scratch, name), join(target, name), {
         recursive: true, dereference: false, verbatimSymlinks: true, force: false, errorOnExist: true, preserveTimestamps: true,
       });
       if (await worktreeFingerprint(target) !== m.fingerprint) throw new Error('Restored contents need review; the private archive is retained');
-    } finally { await rm(scratch, { recursive: true, force: true }); }
+    } finally { await removeTree(scratch); }
   }
 }

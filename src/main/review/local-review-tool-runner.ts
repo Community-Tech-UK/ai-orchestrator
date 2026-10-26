@@ -1,9 +1,10 @@
 import { spawn, type SpawnOptions } from 'node:child_process';
 import { constants } from 'node:fs';
-import { lstat, mkdir, mkdtemp, open, realpath, rm, writeFile, type FileHandle } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, open, realpath, writeFile, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { getFilesystemPolicy } from '../security/filesystem-policy';
+import { removeTree } from '../util/remove-tree';
 import { hermeticGitEnv } from '../workspace/git/git-env';
 import {
   sameLocalReviewGitMetadata,
@@ -249,7 +250,7 @@ export class LocalReviewToolRunner {
       await this.assertPathUnchanged(requestedPath, target);
       return { content: matches.map((match) => JSON.stringify(match)).join('\n') + (matches.length ? '\n' : ''), truncated };
     } finally {
-      await rm(snapshot, { recursive: true, force: true });
+      await removeTree(snapshot);
     }
   }
   private async read(args: { path: string; startLine?: number; endLine?: number }): Promise<ToolOutput> {

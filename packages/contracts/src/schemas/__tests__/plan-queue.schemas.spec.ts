@@ -69,10 +69,15 @@ describe('Plan Queue routing controls', () => {
   it('accepts panel-only bulk actions and a complete per-run routing change', () => {
     expect(PlanQueueControlPayloadSchema.parse({ action: 'pause-all' })).toEqual({ action: 'pause-all' });
     expect(PlanQueueControlPayloadSchema.parse({ action: 'resume-all' })).toEqual({ action: 'resume-all' });
-    expect(PlanQueueControlPayloadSchema.parse({ action: 'set-routing', runId: 'run', routing: { worker: null, verifiers: [] }, moveInProgress: true })).toMatchObject({ moveInProgress: true });
+    expect(PlanQueueControlPayloadSchema.parse({ action: 'set-routing', runId: 'run', routing: { workers: [], verifiers: [] }, moveInProgress: true })).toMatchObject({ moveInProgress: true });
+    expect(PlanQueueControlPayloadSchema.parse({ action: 'set-routing', runId: 'run', routing: { workers: [{ provider: 'codex' }, { provider: 'claude' }], verifiers: [] } }))
+      .toMatchObject({ routing: { workers: [{ provider: 'codex' }, { provider: 'claude' }] } });
+    // The old single-worker shape is refused at the boundary; stored values are upgraded on read.
+    expect(PlanQueueControlPayloadSchema.safeParse({ action: 'set-routing', runId: 'run', routing: { worker: null, verifiers: [] } }).success).toBe(false);
   });
   it('uses snake_case routing choices over MCP and refuses bulk actions', () => {
-    expect(PlanQueueControlArgsSchema.parse({ action: 'set-routing', run_id: 'run', routing: { worker: { provider: 'codex', account_ids: ['account'] }, verifiers: [] }, move_in_progress: true })).toMatchObject({ move_in_progress: true });
+    expect(PlanQueueControlArgsSchema.parse({ action: 'set-routing', run_id: 'run', routing: { workers: [{ provider: 'codex', account_ids: ['account'] }], verifiers: [] }, move_in_progress: true })).toMatchObject({ move_in_progress: true });
+    expect(PlanQueueControlArgsSchema.safeParse({ action: 'set-routing', run_id: 'run', routing: { worker: { provider: 'codex' }, verifiers: [] } }).success).toBe(false);
     expect(PlanQueueControlArgsSchema.safeParse({ action: 'pause-all' }).success).toBe(false);
     expect(PlanQueueControlArgsSchema.safeParse({ action: 'set-routing', run_id: 'run' }).success).toBe(false);
   });

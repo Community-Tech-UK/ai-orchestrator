@@ -31,6 +31,14 @@ export interface SingleInstanceLockOptions {
    * is gone and EPERM when it exists but is owned by another user (still alive).
    */
   isProcessAlive?: (pid: number) => boolean;
+  /**
+   * A pid the caller knows has exited: the worker supervisor saw this child
+   * exit before it spawned us. A lock naming it is stale even when the pid now
+   * looks alive. Windows reuses pids quickly, and on 2026-10-14 a force-killed
+   * child's lock made its own respawn exit as a duplicate, which stopped the
+   * supervisor and left windows-pc's worker down until a reboot.
+   */
+  exitedHolderPid?: number;
 }
 
 export interface SingleInstanceLock {
@@ -123,7 +131,12 @@ export function acquireSingleInstanceLock(
 
   // Lock exists. Take it over only if the recorded holder is dead/unparseable.
   const holderPid = readLockPid(lockPath);
-  if (holderPid !== null && holderPid !== pid && isAlive(holderPid)) {
+  if (
+    holderPid !== null
+    && holderPid !== pid
+    && holderPid !== options.exitedHolderPid
+    && isAlive(holderPid)
+  ) {
     return null; // A live primary already owns the node — caller exits cleanly.
   }
 

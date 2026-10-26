@@ -1,4 +1,3 @@
-import * as fs from 'fs/promises';
 import * as path from 'path';
 import type {
   ArtifactCleanupCandidate,
@@ -6,6 +5,7 @@ import type {
   ArtifactCleanupResult,
 } from '../../shared/types/artifact-cleanup.types';
 import { emitPluginHook } from '../plugins/hook-emitter';
+import { removeTree } from '../util/remove-tree';
 import { ArtifactAttributionStore, getArtifactAttributionStore } from './artifact-attribution-store';
 
 export class ArtifactCleanupService {
@@ -62,7 +62,7 @@ export class ArtifactCleanupService {
       }
 
       try {
-        await fs.rm(path.resolve(candidate.artifact.path), { recursive: true, force: true });
+        await removeTree(path.resolve(candidate.artifact.path));
         this.store.delete(candidate.artifact.id);
         removed.push(candidate.artifact.id);
         emitPluginHook('cleanup.candidate.after', {

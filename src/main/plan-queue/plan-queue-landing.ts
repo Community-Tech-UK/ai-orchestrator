@@ -18,7 +18,7 @@ import { getLogger } from '../logging/logger';
 import { gitExec, gitExecSafe } from '../workspace/git/git-exec';
 import { getGitWriteQueue } from '../workspace/git/git-write-queue';
 import { integrationOwnershipRef, promoteIntegrationBranch } from '../workspace/git/worktree-integration';
-import { CONFLICT_CODES } from './plan-queue-git';
+import { assertOwnCheckout, CONFLICT_CODES } from './plan-queue-git';
 import { runInProcessGroup } from './plan-queue-process';
 import { buildLandingCommit, type LandingDocument } from './plan-queue-squash';
 import type { PlanQueueItem } from './plan-queue.types';
@@ -74,6 +74,7 @@ export async function syncItemWithBase(item: PlanQueueItem, baseBranch: string):
   const worktreePath = item.worktreePath;
 
   return getGitWriteQueue().enqueue('plan-queue-sync', async () => {
+    await assertOwnCheckout(worktreePath);
     const baseTip = await gitExec(['rev-parse', `refs/heads/${baseBranch}`], worktreePath);
     if (await succeeds(['merge-base', '--is-ancestor', baseTip, 'HEAD'], worktreePath)) {
       return { status: 'up-to-date' };

@@ -95,7 +95,7 @@
   opacity: 0.8;
 }
 
-.pq-routing-checker-list {
+.pq-routing-rank-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -104,13 +104,13 @@
   padding: 0;
 }
 
-.pq-routing-checker {
+.pq-routing-rank {
   border: 1px solid var(--pq-border-color, #3a3a3a);
   border-radius: 8px;
   padding: 8px 10px;
 }
 
-.pq-routing-checker-head {
+.pq-routing-rank-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -118,12 +118,12 @@
   margin-bottom: 6px;
 }
 
-.pq-routing-checker-number {
+.pq-routing-rank-number {
   font-weight: 600;
   font-size: 0.9em;
 }
 
-.pq-routing-checker-actions {
+.pq-routing-rank-actions {
   display: flex;
   gap: 6px;
 }

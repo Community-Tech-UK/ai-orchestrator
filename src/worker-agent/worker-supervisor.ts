@@ -34,8 +34,12 @@ export interface SupervisedChildHandle {
 export interface WorkerSupervisorOptions {
   /** Args passed to each spawned child (the parent argv minus `--supervise`). */
   childArgs: string[];
-  /** Spawn a child. Injectable for tests; defaults to a real `child_process.spawn`. */
-  spawnChild?: (childArgs: string[]) => SupervisedChildHandle;
+  /**
+   * Spawn a child. Injectable for tests; defaults to a real `child_process.spawn`.
+   * `previousChildPid` is the child this supervisor last saw exit (see
+   * WORKER_PREVIOUS_CHILD_PID_ENV).
+   */
+  spawnChild?: (childArgs: string[], previousChildPid?: number) => SupervisedChildHandle;
   logger?: {
     info: (msg: string, meta?: Record<string, unknown>) => void;
     warn: (msg: string, meta?: Record<string, unknown>) => void;
@@ -89,9 +93,30 @@ const DEFAULTS = {
   updateRestartDelayMs: 500,
 };
 
-/** Child environment: tells the child something will respawn it (self-update needs that). */
-export function workerChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return { ...env, [WORKER_SUPERVISED_ENV]: '1' };
+/**
+ * The pid of the child this supervisor last saw exit. A force-killed child
+ * leaves its single-instance lock behind, and Windows can hand its pid to
+ * another process within a second, so the respawn would otherwise read the
+ * lock as held, exit 0 as a duplicate, and stop the supervisor for good.
+ */
+export const WORKER_PREVIOUS_CHILD_PID_ENV = 'AIO_WORKER_PREVIOUS_CHILD_PID';
+
+/**
+ * Child environment: tells the child something will respawn it (self-update
+ * needs that) and which child exited before it.
+ */
+export function workerChildEnv(env: NodeJS.ProcessEnv, previousChildPid?: number): NodeJS.ProcessEnv {
+  const childEnv: NodeJS.ProcessEnv = { ...env, [WORKER_SUPERVISED_ENV]: '1' };
+  delete childEnv[WORKER_PREVIOUS_CHILD_PID_ENV];
+  if (previousChildPid !== undefined) {
+    childEnv[WORKER_PREVIOUS_CHILD_PID_ENV] = String(previousChildPid);
+  }
+  return childEnv;
+}
+
+export function previousChildPidFromEnv(env: NodeJS.ProcessEnv): number | undefined {
+  const pid = Number.parseInt(env[WORKER_PREVIOUS_CHILD_PID_ENV] ?? '', 10);
+  return Number.isInteger(pid) && pid > 0 ? pid : undefined;
 }
 
 /**
@@ -107,11 +132,11 @@ export function resolveWorkerChildCommand(childArgs: string[]): { exe: string; a
   return { exe: process.execPath, args: [...childArgs] };
 }
 
-function defaultSpawnChild(childArgs: string[]): SupervisedChildHandle {
+function defaultSpawnChild(childArgs: string[], previousChildPid?: number): SupervisedChildHandle {
   const { exe, args } = resolveWorkerChildCommand(childArgs);
   const child = spawn(exe, args, {
     stdio: 'inherit',
-    env: workerChildEnv(process.env),
+    env: workerChildEnv(process.env, previousChildPid),
   });
   return {
     pid: child.pid,
@@ -155,6 +180,7 @@ export async function runWorkerSupervisor(options: WorkerSupervisorOptions): Pro
   const bundleFingerprint = options.bundleFingerprint ?? (() => defaultBundleFingerprint(process.argv[1]));
   let lastStableFingerprint: string | null = null;
   let current: SupervisedChildHandle | null = null;
+  let previousChildPid: number | undefined;
   let rapidFailures = 0;
   let backoff = initialBackoffMs;
   let restarts = 0;
@@ -180,7 +206,7 @@ export async function runWorkerSupervisor(options: WorkerSupervisorOptions): Pro
     while (true) {
       const startedAt = now();
       const spawnedFingerprint = bundleFingerprint();
-      const child = spawnChild(options.childArgs);
+      const child = spawnChild(options.childArgs, previousChildPid);
       current = child;
       log.info('Worker child started', { pid: child.pid, restarts });
 
@@ -188,6 +214,7 @@ export async function runWorkerSupervisor(options: WorkerSupervisorOptions): Pro
         (resolve) => child.onExit(resolve),
       );
       current = null;
+      previousChildPid = child.pid;
       const ranMs = now() - startedAt;
 
       if (stopping) {

@@ -27,6 +27,7 @@ import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { getLogger } from '../../logging/logger';
+import { removeTree } from '../../util/remove-tree';
 
 const execFileAsync = promisify(execFile);
 const logger = getLogger('WorktreeDeps');
@@ -189,7 +190,7 @@ export async function provisionNodeModules(
       logger.info('WorktreeDeps: copied node_modules with Node fallback', { worktreePath });
       return 'copied';
     } catch (nodeCopyErr) {
-      await fs.rm(destModules, { recursive: true, force: true });
+      await removeTree(destModules);
       logger.warn('WorktreeDeps: Node copy failed, falling back to install', {
         worktreePath,
         message: nodeCopyErr instanceof Error ? nodeCopyErr.message : String(nodeCopyErr),

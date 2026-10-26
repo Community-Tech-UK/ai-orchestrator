@@ -47,16 +47,25 @@ export function planQueueStateCounts(items: readonly PlanQueueItemDto[]): string
   return [heldCount ? `${heldCount} Paused` : '', states].filter(Boolean).join(', ');
 }
 
-function describeRouteChoice(choice: PlanQueueRouteChoice): string {
-  const accounts = choice.accountProfileIds?.length ? ` (accounts: ${choice.accountProfileIds.join(', ')})` : '';
-  const copilot = choice.copilotProfileId ? ` (account: ${choice.copilotProfileId})` : '';
+/** An account's display name by provider and id; unknown ids are shown as they are. */
+export type PlanQueueAccountLabel = (provider: string, accountId: string) => string;
+
+function describeRouteChoice(choice: PlanQueueRouteChoice, accountLabel: PlanQueueAccountLabel): string {
+  const accounts = choice.accountProfileIds?.length
+    ? ` (accounts: ${choice.accountProfileIds.map((id) => accountLabel(choice.provider, id)).join(', ')})` : '';
+  const copilot = choice.copilotProfileId ? ` (account: ${accountLabel('copilot', choice.copilotProfileId)})` : '';
   return `${choice.provider}${choice.model ? `/${choice.model}` : ''}${accounts}${copilot}`;
 }
 
-/** "Workers: claude/opus (accounts: a, b) · Checkers: automatic": the run's current provider choices. */
-export function planQueueRoutingSummary(routing: PlanQueueRouting): string {
-  const workers = routing.worker ? describeRouteChoice(routing.worker) : 'default provider';
-  const checkers = routing.verifiers.length > 0 ? routing.verifiers.map(describeRouteChoice).join(', ') : 'automatic';
+/** "Workers: claude/opus (accounts: Work, Spare), then codex · Checkers: automatic": the current provider choices, in order. */
+export function planQueueRoutingSummary(
+  routing: PlanQueueRouting,
+  options: { noWorkers?: string; accountLabel?: PlanQueueAccountLabel | null } = {},
+): string {
+  const label = options.accountLabel ?? ((_provider: string, id: string) => id);
+  const describe = (choice: PlanQueueRouteChoice) => describeRouteChoice(choice, label);
+  const workers = routing.workers.length > 0 ? routing.workers.map(describe).join(', then ') : options.noWorkers ?? 'default provider';
+  const checkers = routing.verifiers.length > 0 ? routing.verifiers.map(describe).join(', ') : 'automatic';
   return `Workers: ${workers} · Checkers: ${checkers}`;
 }
 
@@ -75,6 +84,8 @@ export function planQueueRoutingSummary(routing: PlanQueueRouting): string {
 })
 export class PlanQueueRunListComponent {
   runs = input<PlanQueueRunDto[]>([]);
+  /** Account display names for the summaries; ids are shown until they load. */
+  accountLabel = input<PlanQueueAccountLabel | null>(null);
 
   pauseRun = output<string>();
   resumeRun = output<string>();
@@ -91,5 +102,7 @@ export class PlanQueueRunListComponent {
   protected readonly spendLabel = queueRunSpendLabel;
   protected readonly formatStartedAt = formatStartedAt;
   protected readonly stateCounts = planQueueStateCounts;
-  protected readonly routingSummary = planQueueRoutingSummary;
+  protected routingSummary(routing: PlanQueueRouting): string {
+    return planQueueRoutingSummary(routing, { accountLabel: this.accountLabel() });
+  }
 }

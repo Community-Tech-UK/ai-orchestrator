@@ -33,6 +33,28 @@ const MAX_SHARED_TABS = 12;
 const CONTROL_GROUP_TITLE = 'Harness';
 const DEFAULT_COMMAND_TIMEOUT_MS = 30000;
 const MAX_COMMAND_TIMEOUT_MS = 120000;
+// Chrome never answers a script injection into a page blocked by its own pop-up
+// ("Leave site?", alert, confirm, prompt) until someone answers it. Page-text
+// reads run inside the shared secret-observation lock, so an unbounded read of
+// one such tab stopped every command on the channel (windows-pc, 2026-10-25).
+// A healthy page answers in well under a second.
+const PAGE_TEXT_CAPTURE_TIMEOUT_MS = 15000;
+// Every command waits for that lock, and the gateway counts commands that time
+// out in a row as a dead channel and stops sending any. So page work holds the
+// lock only briefly: a command's ends by that command's own deadline
+// (pageWorkDeadlineAt), and work no command is waiting on (the tab inventory
+// and tab reports, which re-read every tab on their own schedule, and the
+// popup's Share) gets BRIEF_PAGE_WORK_MS from when it takes the lock. A
+// command arriving behind a frozen tab can still miss a short budget once,
+// but not time after time.
+const BRIEF_PAGE_WORK_MS = 2000;
+// Tabs with a page-text read Chrome has not answered yet. A tab frozen by a
+// pop-up answers none until someone answers the pop-up, so another read would
+// only queue one more script per inventory pass for it to run all at once
+// afterwards, and hold the lock again for nothing. Reported as not responding
+// straight away instead; the next read after the page answers goes ahead.
+const unansweredPageReads = new Set();
+const BEST_EFFORT_PAGE_SCRIPT_TIMEOUT_MS = 3000;
 const POLL_TIMEOUT_REASON = 'browser_extension_poll_timeout';
 const GATEWAY_ENABLED_STORAGE_KEY = 'browserGatewayEnabled';
 const SAFE_MODE_ERROR = 'browser_safe_mode_enabled';
@@ -71,6 +93,14 @@ const SELF_HEAL_RECYCLE_MIN_INTERVAL_MS = 150000;
 const SELF_HEAL_RELOAD_MS = 10 * 60000;
 const SELF_HEAL_RELOAD_MIN_INTERVAL_MS = 30 * 60000;
 const SELF_RELOAD_STORAGE_KEY = 'browserGatewayLastSelfReloadAt';
+// The ladder above cannot see a queue that is stuck while polls are still
+// acknowledged. Every step of a command is time-limited (its watchdog, the
+// page-text limit, the CDP deadlines), so a command still running this long
+// past its own limit is held by something outside them, and only a reload
+// clears that. Same storage-backed rate limit as the reload rung.
+const STUCK_COMMAND_GRACE_MS = 2 * 60000;
+let runningCommandSince = 0;
+let runningCommandLimitMs = 0;
 const SW_STARTED_AT = Date.now();
 // One random id per extension install. chrome.storage.local is separate for
 // each Chrome profile, so this tells the gateway which profile a message came
@@ -177,6 +207,13 @@ async function selfHealIfWedged() {
     return;
   }
   const now = Date.now();
+  if (
+    runningCommandSince > 0
+    && now - runningCommandSince > runningCommandLimitMs + STUCK_COMMAND_GRACE_MS
+  ) {
+    await reloadExtensionRateLimited(now);
+    return;
+  }
   // A young worker is still inside normal reconnect/recovery — judging it
   // would reload-loop right after every (intentional) restart.
   if (now - SW_STARTED_AT < SELF_HEAL_STUCK_MS) {
@@ -200,19 +237,9 @@ async function selfHealIfWedged() {
   if (
     now - SW_STARTED_AT >= SELF_HEAL_RELOAD_MS
     && lastSelfHealRecycleAt > 0
-    && typeof chrome.runtime.reload === 'function'
+    && await reloadExtensionRateLimited(now)
   ) {
-    const values = await chrome.storage.local.get(SELF_RELOAD_STORAGE_KEY)
-      .catch(() => null);
-    const lastReloadAt = typeof values?.[SELF_RELOAD_STORAGE_KEY] === 'number'
-      ? values[SELF_RELOAD_STORAGE_KEY]
-      : 0;
-    if (lastReloadAt === 0 || now - lastReloadAt >= SELF_HEAL_RELOAD_MIN_INTERVAL_MS) {
-      await chrome.storage.local.set({ [SELF_RELOAD_STORAGE_KEY]: now })
-        .catch(() => undefined);
-      chrome.runtime.reload();
-      return;
-    }
+    return;
   }
   // Rung 1: forced teardown + reconnect of every bridge, same path as the
   // popup's reconnect button.
@@ -220,6 +247,29 @@ async function selfHealIfWedged() {
     lastSelfHealRecycleAt = now;
     await reconnectAllBridges().catch(() => undefined);
   }
+}
+
+/**
+ * Resolves true when it asked Chrome to reload the extension. At most once per
+ * SELF_HEAL_RELOAD_MIN_INTERVAL_MS, recorded in storage so the limit survives
+ * the reload: a machine whose gateway is legitimately down cannot reload-loop.
+ */
+async function reloadExtensionRateLimited(now) {
+  if (typeof chrome.runtime.reload !== 'function') {
+    return false;
+  }
+  const values = await chrome.storage.local.get(SELF_RELOAD_STORAGE_KEY)
+    .catch(() => null);
+  const lastReloadAt = typeof values?.[SELF_RELOAD_STORAGE_KEY] === 'number'
+    ? values[SELF_RELOAD_STORAGE_KEY]
+    : 0;
+  if (lastReloadAt !== 0 && now - lastReloadAt < SELF_HEAL_RELOAD_MIN_INTERVAL_MS) {
+    return false;
+  }
+  await chrome.storage.local.set({ [SELF_RELOAD_STORAGE_KEY]: now })
+    .catch(() => undefined);
+  chrome.runtime.reload();
+  return true;
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -251,6 +301,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   // (press_key dedupe memory, zoom baselines).
   pressKeyMemory.delete(String(tabId));
   zoomBaselines.delete(tabId);
+  unansweredPageReads.delete(tabId);
   // A destroyed tab can neither show nor answer an HTTP auth prompt.
   clearHttpAuthChallenge(tabId);
   clearHttpAuthStage(tabId);
@@ -1272,7 +1323,12 @@ async function handleNativeMessage(message, bridge) {
   // no-ops once the command is no longer pending.
   queuedBrowserCommandCount += 1;
   commandChain = commandChain
-    .then(() => runBrowserCommand(command, bridge))
+    .then(() => {
+      // Read by selfHealIfWedged; cleared in the finally below.
+      runningCommandSince = Date.now();
+      runningCommandLimitMs = commandExecutionTimeoutMs(command);
+      return runBrowserCommand(command, bridge);
+    })
     .catch(async (error) => {
       // Each step is fenced individually. They must not be able to cost one
       // another: the re-arm is the recovery priority (losing it strands the
@@ -1315,6 +1371,7 @@ async function handleNativeMessage(message, bridge) {
     })
     .finally(() => {
       queuedBrowserCommandCount -= 1;
+      runningCommandSince = 0;
     });
   await commandChain;
 }
@@ -2029,6 +2086,7 @@ async function runBrowserCommand(command, bridge) {
 
 function runCommandWithWatchdog(command) {
   const timeoutMs = commandExecutionTimeoutMs(command);
+  const deadlineAt = Date.now() + timeoutMs;
   let settled = false;
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -2044,7 +2102,7 @@ function runCommandWithWatchdog(command) {
       .then(async () => {
         activeBrowserCommandCount += 1;
         try {
-          return await executeBrowserCommand(command);
+          return await executeBrowserCommand(command, deadlineAt);
         } finally {
           // The watchdog may settle first. Recovery must still wait for the
           // actual operation, including a late secret-bearing injection.
@@ -2133,7 +2191,10 @@ async function reportTabInventory() {
       .slice(0, MAX_INVENTORY_TABS);
     const tabPayloads = [];
     for (const tab of tabs) {
-      tabPayloads.push(await buildTabPayload(tab, { includeText: true }));
+      tabPayloads.push(await buildTabPayload(tab, {
+        includeText: true,
+        maxPageWorkMs: BRIEF_PAGE_WORK_MS,
+      }));
     }
     if (tabPayloads.length > 0) {
       broadcastNativeMessage({
@@ -2156,7 +2217,10 @@ async function reportTab(tab) {
   if (!isWebTab(tab)) {
     return;
   }
-  const payload = await buildTabPayload(tab, { includeText: true }).catch(() => null);
+  const payload = await buildTabPayload(tab, {
+    includeText: true,
+    maxPageWorkMs: BRIEF_PAGE_WORK_MS,
+  }).catch(() => null);
   if (!payload) {
     return;
   }
@@ -2176,6 +2240,7 @@ async function shareActiveTab() {
   const tabPayload = await buildTabPayload(tab, {
     includeText: true,
     includeScreenshot: true,
+    maxPageWorkMs: BRIEF_PAGE_WORK_MS,
   });
   const recipients = broadcastShareMessage({
     type: 'attach_tab',
@@ -2311,6 +2376,7 @@ async function executeReloadCommand(command) {
   // Everything below can depend on the renderer or the serialized secret
   // observation boundary. Bound it as one unit so a stalled later step cannot
   // strand the command after the recovery side effect has already completed.
+  const observeDeadlineAt = Date.now() + CDP_CONTROL_TIMEOUT_MS;
   const observeReload = (async () => {
     await applySecretObservationProtectionFromCommand(command);
     const secretTaintOrigin = await targetSecretTaintOrigin(command);
@@ -2327,6 +2393,7 @@ async function executeReloadCommand(command) {
     return buildTabPayload(refreshedTab, {
       includeText: true,
       includeScreenshot: true,
+      pageWorkDeadlineAt: observeDeadlineAt,
     });
   })();
   const payload = await withCdpDeadline(
@@ -2335,7 +2402,7 @@ async function executeReloadCommand(command) {
   return finalizeReloadTabPayload(tabId, expectedOrigin, payload);
 }
 
-async function executeBrowserCommand(command) {
+async function executeBrowserCommand(command, deadlineAt) {
   assertGatewayEnabled();
   if (command.command === 'reload') {
     return executeReloadCommand(command);
@@ -2361,6 +2428,7 @@ async function executeBrowserCommand(command) {
         return buildTabPayload(await chrome.tabs.get(tab.id), {
           includeText: true,
           includeScreenshot: true,
+          pageWorkDeadlineAt: deadlineAt,
         });
       } finally {
         await stopControlledTab(tab.id, controlToken);
@@ -2381,13 +2449,14 @@ async function executeBrowserCommand(command) {
         return buildTabPayload(tab || await chrome.tabs.get(tabId), {
           includeText: true,
           includeScreenshot: true,
+          pageWorkDeadlineAt: deadlineAt,
         });
       } finally {
         await stopControlledTab(tabId, controlToken);
       }
     }
     case 'http_auth_navigate':
-      return executeHttpAuthNavigate(command);
+      return executeHttpAuthNavigate(command, deadlineAt);
     case 'click': {
       const uid = optionalUidValue(command.payload?.uid);
       if (uid !== null) {
@@ -2474,6 +2543,7 @@ async function executeBrowserCommand(command) {
         const tab = await chrome.tabs.get(tabId);
         return buildTabPayload(tab, {
           includeText: true,
+          pageWorkDeadlineAt: deadlineAt,
           ...(typeof command.payload?.selector === 'string'
             ? { selector: command.payload.selector }
             : {}),
@@ -4219,7 +4289,7 @@ function normalizeCredentialOrigin(value) {
  * enters the page DOM, so the tab is deliberately NOT secret-tainted: the
  * caller must be able to go on reading the protected site it just entered.
  */
-async function executeHttpAuthNavigate(command) {
+async function executeHttpAuthNavigate(command, deadlineAt) {
   assertGatewayEnabled();
   const tabId = typeof command.target?.tabId === 'number' ? command.target.tabId : -1;
   const url = requireHttpAuthString(command, 'url');
@@ -4276,6 +4346,7 @@ async function executeHttpAuthNavigate(command) {
     const payload = await buildTabPayload(tab || await chrome.tabs.get(tabId), {
       includeText: true,
       includeScreenshot: true,
+      pageWorkDeadlineAt: deadlineAt,
     });
     return { ...payload, completed: true, httpAuth: httpAuthStageOutcome(stage) };
   } finally {
@@ -4757,6 +4828,18 @@ async function buildTabPayloadLocked(tab, options = {}) {
   let secretTaintedOrigin = '';
   let inspectionUnavailable = false;
   let captureIdentityUnavailable = false;
+  // The page work below holds the secret-observation lock, which every command
+  // waits for. It ends by the caller's deadline (a command past its watchdog
+  // has its result thrown away anyway) or after maxPageWorkMs counted from
+  // here, where the lock is already held. Out of time, the text read reports
+  // page_not_responding and the screenshot is left out.
+  const pageWorkDeadlineAt = Math.min(
+    typeof options.pageWorkDeadlineAt === 'number' ? options.pageWorkDeadlineAt : Infinity,
+    typeof options.maxPageWorkMs === 'number' ? Date.now() + options.maxPageWorkMs : Infinity,
+  );
+  const pageWorkLeftMs = () => (Number.isFinite(pageWorkDeadlineAt)
+    ? Math.max(0, pageWorkDeadlineAt - Date.now())
+    : undefined);
   try {
     const storedOrigin = await secretTaintOriginForTab(tab);
     secretTainted = typeof storedOrigin === 'string';
@@ -4771,7 +4854,7 @@ async function buildTabPayloadLocked(tab, options = {}) {
     // assertGatewayEnabled() throwing if the gateway was disabled mid-flight).
     // It still needs its own reason so a caller cannot tell those apart from a
     // genuinely empty page either.
-    ? await capturePageText(tab.id, options.selector).catch(() => ({
+    ? await capturePageText(tab.id, options.selector, pageWorkLeftMs()).catch(() => ({
       title: tab.title,
       text: '',
       selectorText: undefined,
@@ -4782,16 +4865,42 @@ async function buildTabPayloadLocked(tab, options = {}) {
       title: tab.title, text: '', selectorText: undefined,
       selectorFingerprint: undefined, textUnavailableReason: null,
     };
-  let screenshotBase64 = options.includeScreenshot && !secretTainted
-    ? await captureTabScreenshot(tab.id, { fullPage: false }).catch(() => undefined)
-    : undefined;
+  let screenshotBase64 = undefined;
+  const screenshotLeftMs = pageWorkLeftMs();
+  // A page that did not answer the text read will not answer the debugger
+  // either, so do not attach to it.
+  if (
+    options.includeScreenshot
+    && !secretTainted
+    && screenshotLeftMs !== 0
+    && page.textUnavailableReason !== 'page_not_responding'
+  ) {
+    const screenshot = captureTabScreenshot(tab.id, { fullPage: false }).catch(() => undefined);
+    let screenshotTimer = null;
+    screenshotBase64 = screenshotLeftMs === undefined
+      ? await screenshot
+      : await Promise.race([
+        screenshot,
+        new Promise((resolve) => {
+          screenshotTimer = setTimeout(() => resolve(undefined), screenshotLeftMs);
+        }),
+      ]).finally(() => clearTimeout(screenshotTimer));
+  }
   let observedTab = tab;
   if (!secretTainted && !inspectionUnavailable) {
     // Close the in-flight inventory race: this payload may have started before
     // markSecretTaint tagged sibling tabs, then captured page text while the
     // secret-bearing input handler was running. Recheck after every page read
     // and discard the entire capture if the tab became tainted meanwhile.
-    const postCaptureOrigin = await secretTaintOriginForTab(tab);
+    let postCaptureOrigin = null;
+    try {
+      postCaptureOrigin = await secretTaintOriginForTab(tab);
+    } catch {
+      // The recheck could not reach the page (a pop-up now blocks it), so the
+      // capture cannot be cleared for use: treat it like a failed first check.
+      // Rejecting instead would lose the whole tab inventory, healthy tabs too.
+      inspectionUnavailable = true;
+    }
     if (typeof postCaptureOrigin === 'string') {
       secretTainted = true;
       secretTaintedOrigin = postCaptureOrigin;
@@ -4843,10 +4952,11 @@ async function buildTabPayloadLocked(tab, options = {}) {
   // chrome.tabs still has the URL and title when scripting is refused (a tab
   // restored at startup does this until it is reloaded). That is not a
   // readable page. Keep the specific textUnavailableReason and the real
-  // URL/title; only the inspection state changes. Same two reasons as
+  // URL/title; only the inspection state changes. Same reasons as
   // isPageTextUnreadableReason in browser-target-inspection.ts.
   const pageUnreadable = page.textUnavailableReason === 'host_permission_denied'
-    || page.textUnavailableReason === 'page_text_read_failed';
+    || page.textUnavailableReason === 'page_text_read_failed'
+    || page.textUnavailableReason === 'page_not_responding';
   const inspectionState = inspectionUnavailable || pageUnreadable
     ? 'inspection_unavailable'
     : secretTainted ? 'secret_tainted' : 'readable';
@@ -4902,7 +5012,7 @@ function classifyPageTextError(error) {
   return 'page_text_read_failed';
 }
 
-async function capturePageText(tabId, selector) {
+async function capturePageText(tabId, selector, timeoutMs) {
   assertGatewayEnabled();
   // Inject into every frame so iframe content (e.g. portals embedded in an
   // <iframe>) is included instead of only the top frame's header/footer.
@@ -4914,15 +5024,39 @@ async function capturePageText(tabId, selector) {
   // successfully with an empty string either way, so an agent reading a
   // permission-denied page and a genuinely blank page could not tell them
   // apart.
+  // See PAGE_TEXT_CAPTURE_TIMEOUT_MS: most often a browser pop-up waiting for
+  // the person at the computer. Same soft-fail shape as a refused injection,
+  // so the caller still gets the tab's URL and title.
+  const notResponding = {
+    title: '', text: '', selectorText: undefined,
+    selectorFingerprint: undefined,
+    textUnavailableReason: 'page_not_responding',
+  };
+  const limitMs = Math.min(PAGE_TEXT_CAPTURE_TIMEOUT_MS, timeoutMs ?? PAGE_TEXT_CAPTURE_TIMEOUT_MS);
+  // No time left (a command past its deadline): do not send a read at all.
+  if (limitMs <= 0 || unansweredPageReads.has(tabId)) {
+    return notResponding;
+  }
+  unansweredPageReads.add(tabId);
   let executionError = null;
-  const results = await chrome.scripting.executeScript({
-    target: { tabId, allFrames: true },
-    func: pageBridgeScript,
-    args: ['snapshot', typeof selector === 'string' ? [selector] : []],
-  }).catch((error) => {
-    executionError = error;
-    return null;
-  });
+  let pageTimer = null;
+  const results = await Promise.race([
+    chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: pageBridgeScript,
+      args: ['snapshot', typeof selector === 'string' ? [selector] : []],
+    }).catch((error) => {
+      executionError = error;
+      return null;
+    }).finally(() => unansweredPageReads.delete(tabId)),
+    new Promise((resolve) => {
+      pageTimer = setTimeout(() => resolve(notResponding), limitMs);
+    }),
+  ]).finally(() => clearTimeout(pageTimer));
+
+  if (results === notResponding) {
+    return notResponding;
+  }
 
   if (results === null) {
     // The call itself was rejected, not merely a page with no text. Keep this
@@ -5482,11 +5616,11 @@ async function findControlGroupIds(windowId) {
 // startControlledTab is safe.
 async function installConsoleNetworkCapture(tabId) {
   assertGatewayEnabled();
-  await chrome.scripting.executeScript({
+  await runBestEffortPageScript({
     target: { tabId },
     world: 'MAIN',
     func: installCaptureScript,
-  }).catch(() => undefined);
+  });
 }
 
 // Read the MAIN-world capture buffer for a controlled tab. startControlledTab
@@ -5825,18 +5959,32 @@ function readCaptureScript(kind, sinceSeq, level) {
 
 async function installControlGlow(tabId) {
   assertGatewayEnabled();
-  await chrome.scripting.executeScript({
+  await runBestEffortPageScript({
     target: { tabId },
     func: installControlGlowScript,
-  }).catch(() => undefined);
+  });
 }
 
 async function removeControlGlow(tabId) {
   assertGatewayEnabled();
-  await chrome.scripting.executeScript({
+  await runBestEffortPageScript({
     target: { tabId },
     func: removeControlGlowScript,
-  }).catch(() => undefined);
+  });
+}
+
+// For page extras a command can do without (the control glow, the console and
+// network capture buffer). A page blocked by a browser pop-up never answers,
+// and waiting on it would spend the whole command budget before the command
+// could report what is wrong with the page.
+function runBestEffortPageScript(details) {
+  let timer = null;
+  return Promise.race([
+    chrome.scripting.executeScript(details).catch(() => undefined),
+    new Promise((resolve) => {
+      timer = setTimeout(resolve, BEST_EFFORT_PAGE_SCRIPT_TIMEOUT_MS);
+    }),
+  ]).finally(() => clearTimeout(timer));
 }
 
 function installControlGlowScript() {

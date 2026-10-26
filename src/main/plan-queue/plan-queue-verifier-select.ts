@@ -16,6 +16,7 @@ import { getLogger } from '../logging/logger';
 import { filterProvidersForAutomation, isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
 import { normalizeAgenticReviewerCliList, normalizeReviewerCli } from '../orchestration/cross-model-review-service.constants';
 import { classifyCheckerScope, modelOverrideOptionFor, resolveCheckerPlan, type CheckerPlanDeps } from '../review/checker-plan';
+import { defaultPlanQueueRouteUsage, pickRouteChoice, type PlanQueueRouteUsageCheck } from './plan-queue-route-usage';
 
 const logger = getLogger('PlanQueueVerifierSelect');
 
@@ -51,6 +52,8 @@ export interface VerifierSelectInput {
 export interface VerifierSelectDeps extends CheckerPlanDeps {
   listInstalledProviders?: () => Promise<string[]>;
   isProviderExcluded?: (provider: string) => boolean;
+  /** Usage left for a chosen checker; defaults to the account pools and the limit ledger. */
+  routeUsage?: PlanQueueRouteUsageCheck;
 }
 
 async function installedProviders(): Promise<string[]> {
@@ -119,20 +122,22 @@ export async function selectPlanQueueVerifier(
 }
 
 /**
- * The run names its checkers: use the first one that can run. Honoured as
+ * The run names its checkers: use the first one that can run and has usage
+ * left; with none left, the one whose known limit lifts soonest. Honoured as
  * given (in a protected work folder only when the list is James's saved
  * choice), but never on the worker's own provider unless the models are from
  * different families, and never on a provider since added to the "never
  * auto-pick" list.
  */
-function selectFromChoices(
+async function selectFromChoices(
   input: VerifierSelectInput,
   worker: string,
   installed: readonly string[],
   deps: VerifierSelectDeps,
-): VerifierSelection {
+): Promise<VerifierSelection> {
   const isExcluded = deps.isProviderExcluded ?? isProviderExcludedFromAutomation;
   const skipped: string[] = [];
+  const eligible: PlanQueueRouteChoice[] = [];
   for (const choice of input.choices ?? []) {
     const provider = normalizeReviewerCli(choice.provider);
     if (!installed.includes(provider)) { skipped.push(`${provider} is not installed`); continue; }
@@ -142,21 +147,28 @@ function selectFromChoices(
       skipped.push(`${provider} is the worker's provider and no different-family model was chosen`);
       continue;
     }
-    const model = choice.model
-      ? { modelOverride: choice.model }
-      : checkerModelFor(provider, input, worker, deps);
-    logger.info('Plan queue verifier selected from James\'s choices', { workerProvider: worker, provider, model: model.modelOverride ?? null });
-    return {
-      ok: true,
-      choice: {
-        provider,
-        ...model,
-        ...(choice.copilotProfileId ? { copilotProfileId: choice.copilotProfileId } : {}),
-        ...(choice.accountProfileIds?.length ? { accountProfileIds: [...choice.accountProfileIds] } : {}),
-      },
-    };
+    eligible.push({ ...choice, provider });
   }
-  return { ok: false, reason: `none of the checkers chosen for this run can check it: ${skipped.join('; ')}` };
+  const picked = eligible.length > 1
+    ? await pickRouteChoice(eligible, 'verification', deps.routeUsage ?? defaultPlanQueueRouteUsage())
+    : null;
+  const choice = picked?.choice ?? eligible[0];
+  if (!choice) return { ok: false, reason: `none of the checkers chosen for this run can check it: ${skipped.join('; ')}` };
+  const model = choice.model
+    ? { modelOverride: choice.model }
+    : checkerModelFor(choice.provider, input, worker, deps);
+  logger.info('Plan queue verifier selected from James\'s choices', {
+    workerProvider: worker, provider: choice.provider, model: model.modelOverride ?? null, ...(picked ? { usageLeft: picked.usable } : {}),
+  });
+  return {
+    ok: true,
+    choice: {
+      provider: choice.provider,
+      ...model,
+      ...(choice.copilotProfileId ? { copilotProfileId: choice.copilotProfileId } : {}),
+      ...(choice.accountProfileIds?.length ? { accountProfileIds: [...choice.accountProfileIds] } : {}),
+    },
+  };
 }
 
 /** The configured checker model, re-modelled away from the worker's family where the provider can. */

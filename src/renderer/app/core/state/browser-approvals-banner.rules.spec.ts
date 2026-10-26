@@ -317,6 +317,7 @@ describe('browser-approvals-banner.rules', () => {
 
   it('explains saved-login approval failures in plain language', () => {
     expect(credentialAccessErrorText('vault_locked')).toBe('The password vault is locked. Unlock it, then approve again.');
+    expect(credentialAccessErrorText('target_closed')).toContain('open a fresh sign-in tab');
     expect(credentialAccessErrorText('vault_relock_failed:placeholder_reason')).toContain('could not be unlocked again');
     expect(credentialAccessErrorText('placeholder_unknown_reason')).toBe('placeholder unknown reason');
   });

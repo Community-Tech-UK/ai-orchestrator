@@ -10,7 +10,7 @@ import { parseServiceArgs, runServiceCommand } from './cli/service-cli';
 import { runPairCommand } from './cli/pair-cli';
 import { runBrowserExtensionNativeHost } from '../main/browser-gateway/browser-extension-native-host';
 import { installWorkerFileLogging } from './worker-file-logger';
-import { runWorkerSupervisor } from './worker-supervisor';
+import { previousChildPidFromEnv, runWorkerSupervisor } from './worker-supervisor';
 import { acquireSingleInstanceLock } from './single-instance-lock';
 import { WorkerConnectionStatusWriter } from './worker-connection-status';
 import { captureRuntimeVitals, startRuntimeVitalsLogging } from './worker-runtime-vitals';
@@ -93,7 +93,10 @@ async function main(): Promise<void> {
   // under the same identity and evict the primary's coordinator socket in a
   // flap storm that fails in-flight work. Detect the live primary and exit
   // cleanly instead of connecting.
-  const lock = acquireSingleInstanceLock({ key: `${config.namespace}:${config.nodeId}` });
+  const lock = acquireSingleInstanceLock({
+    key: `${config.namespace}:${config.nodeId}`,
+    exitedHolderPid: previousChildPidFromEnv(process.env),
+  });
   if (!lock) {
     console.warn(
       `[WorkerAgent] Another worker is already running for node "${config.nodeId}" — exiting`,

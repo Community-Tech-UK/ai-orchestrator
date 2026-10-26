@@ -1,11 +1,14 @@
 /**
  * Plan Queue routing — which providers and accounts the queue's sessions use.
  *
- * A run fixes its routing when it starts (`config.routing`): a per-run override
- * from `plan_queue_start`, else James's saved `planQueueRouting` setting, else
- * the parent session's provider, model and account. Explicit choices are
- * validated up front so a bad choice refuses the run with a plain reason
- * instead of parking every item later.
+ * A run fixes its routing when it starts (`config.routing`). For each role,
+ * James's saved `planQueueRouting` list wins; a per-run choice from
+ * `plan_queue_start` applies only where that saved list is empty; with neither,
+ * workers take the parent session's provider, model and account and checkers
+ * are automatic. Workers are a ranked list: each new worker session starts on
+ * the first choice with usage left (`plan-queue-route-usage.ts`). Explicit
+ * choices are validated up front so a bad choice refuses the run with a plain
+ * reason instead of parking every item later.
  *
  * Queue sessions are unattended work, so every one of them routes with an
  * automatic origin: account automation policies (`manual-only`, `disabled`),
@@ -15,19 +18,24 @@
  * unless the run relaxes that list (`relaxSettings`).
  */
 
-import type { PlanQueueRole, PlanQueueRouteChoice, PlanQueueRouteChoiceArgs, PlanQueueRouting } from '@contracts/schemas/plan-queue';
+import { DEFAULT_PLAN_QUEUE_ROUTING, type PlanQueueRole, type PlanQueueRouteChoice, type PlanQueueRouteChoiceArgs, type PlanQueueRouting } from '@contracts/schemas/plan-queue';
 import type { CopilotAccountProfile } from '../../shared/types/copilot-account.types';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import { isLogicalMiMoModel, isPooledProvider, type ProviderAccountProfile } from '../../shared/types/provider-account.types';
 import { AUTOMATION_PROVIDER_IDS } from '../../shared/types/automation-provider.types';
 import { REMOTE_REVIEWER_PROVIDER_IDS } from '../../shared/types/reviewer-provider.types';
+import { upgradePlanQueueRouting } from '../../shared/utils/plan-queue-routing-upgrade';
 import { sameFamily } from '../../shared/models/model-family';
 import { sameProviderCheckerCanDiffer } from '../../shared/models/multi-maker-providers';
 import { detectAvailableClis } from '../cli/cli-detection';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
+import { getLogger } from '../logging/logger';
 import { classifyCheckerScope } from '../review/checker-plan';
+import { pickRouteChoice, type PlanQueueRouteUsageCheck } from './plan-queue-route-usage';
 import type { PlanQueueRun } from './plan-queue.types';
+
+const logger = getLogger('PlanQueueRouting');
 
 export interface PlanQueueRoutingDeps {
   listInstalledProviders?: () => Promise<string[]>;
@@ -39,12 +47,14 @@ export interface PlanQueueRoutingDeps {
   defaultProvider: () => string | null;
   /** The workspace's work-Copilot licence scope kind ('none' = no protected rule applies). */
   checkerScopeKind: (workspaceCwd: string) => string;
+  /** Usage left for a choice; defaults to the account pools and the limit ledger. */
+  routeUsage?: PlanQueueRouteUsageCheck;
 }
 
 export function defaultPlanQueueRoutingDeps(): PlanQueueRoutingDeps {
   return {
     listInstalledProviders: async () => (await detectAvailableClis()).filter((cli) => cli.installed).map((cli) => cli.name),
-    readSaved: () => getSettingsManager().getAll().planQueueRouting ?? { worker: null, verifiers: [] },
+    readSaved: () => upgradePlanQueueRouting(getSettingsManager().getAll().planQueueRouting ?? DEFAULT_PLAN_QUEUE_ROUTING),
     poolProfiles: () => getSettingsManager().getAll().providerAccountProfiles ?? [],
     copilotProfiles: () => getSettingsManager().getAll().copilotAccountProfiles ?? [],
     isProviderExcluded: isProviderExcludedFromAutomation,
@@ -64,8 +74,9 @@ export interface PlanQueueParentRoute {
   copilotAccountProfileId?: string;
 }
 
+/** An agent's per-run choices; each applies only where James's saved list for that role is empty. */
 export interface PlanQueueRoutingOverride {
-  worker?: PlanQueueRouteChoice;
+  workers?: PlanQueueRouteChoice[];
   verifiers?: PlanQueueRouteChoice[];
   /** The run relaxes the "never auto-pick" list (`relaxSettings`), so it is not checked at start. */
   relaxExclusions?: boolean;
@@ -133,10 +144,12 @@ export function assertRouteChoice(
   role: 'worker' | 'verifier',
   deps: PlanQueueRoutingDeps,
   relaxExclusions = false,
+  /** 1-based place in a list of more than one choice, named in the reason. */
+  position?: number,
 ): void {
   const asGiven = choice.provider.trim().toLowerCase();
   const provider = canonicalProvider(choice.provider);
-  const label = role === 'worker' ? 'Plan Queue worker' : 'Plan Queue checker';
+  const label = `${role === 'worker' ? 'Plan Queue worker' : 'Plan Queue checker'}${position ? ` choice ${position}` : ''}`;
   const known = role === 'worker' ? KNOWN_PROVIDERS : CHECKER_PROVIDERS;
   if (!known.has(provider)) {
     throw new PlanQueueRoutingError(`${label}: "${choice.provider}" is not a provider the queue can use here (${[...known].join(', ')}).`);
@@ -221,14 +234,27 @@ export function checkersCanDiffer(
   });
 }
 
-function assertCheckersCanDiffer(worker: PlanQueueRouteChoice | null, verifiers: readonly PlanQueueRouteChoice[]): void {
-  if (!worker || verifiers.length === 0) return;
-  const usable = checkersCanDiffer(worker, verifiers);
-  if (usable) return;
+/** Every worker choice needs a checker that can judge its work. */
+function assertCheckersCanDiffer(workers: readonly PlanQueueRouteChoice[], verifiers: readonly PlanQueueRouteChoice[]): void {
+  if (verifiers.length === 0) return;
+  const index = workers.findIndex((worker) => !checkersCanDiffer(worker, verifiers));
+  if (index < 0) return;
+  const worker = workers[index]!;
+  const which = workers.length > 1 ? `worker choice ${index + 1}'s provider` : 'the workers\' provider';
   throw new PlanQueueRoutingError(
-    `None of the chosen checkers can check this run: they all use ${worker.provider}, the workers' provider, without a model from a different maker. `
+    `None of the chosen checkers can check ${workers.length > 1 ? 'every worker choice' : 'this run'}: they all use ${worker.provider}, ${which}, without a model from a different maker. `
     + 'Add a checker on another provider, or give one a model from a different maker (on OpenCode, also name the workers\' model).',
   );
+}
+
+export interface ResolvedRunRouting {
+  routing: PlanQueueRouting;
+  /** Roles whose per-run choice was not used because James saved a list for them. */
+  setAside: ('workers' | 'checkers')[];
+}
+
+function assertChoices(choices: readonly PlanQueueRouteChoice[], role: 'worker' | 'verifier', deps: PlanQueueRoutingDeps, relax: boolean): void {
+  choices.forEach((choice, index) => assertRouteChoice(choice, role, deps, relax, choices.length > 1 ? index + 1 : undefined));
 }
 
 /** The routing a new run fixes. Throws `PlanQueueRoutingError` for an explicit choice it cannot honour. */
@@ -236,14 +262,19 @@ export function resolveRunRouting(
   parent: PlanQueueParentRoute,
   override: PlanQueueRoutingOverride | undefined,
   deps: PlanQueueRoutingDeps = defaultPlanQueueRoutingDeps(),
-): PlanQueueRouting {
+): ResolvedRunRouting {
   const saved = deps.readSaved();
-  const explicitWorker = override?.worker ?? saved.worker;
   const relax = override?.relaxExclusions === true;
-  const chosenVerifiers = override?.verifiers ?? saved.verifiers;
-  for (const choice of chosenVerifiers) assertRouteChoice(choice, 'verifier', deps, relax);
+  const savedWorkers = saved.workers.length > 0;
+  const savedCheckers = saved.verifiers.length > 0;
+  const setAside: ResolvedRunRouting['setAside'] = [
+    ...(savedWorkers && override?.workers !== undefined ? ['workers' as const] : []),
+    ...(savedCheckers && override?.verifiers !== undefined ? ['checkers' as const] : []),
+  ];
+  const chosenVerifiers = savedCheckers ? saved.verifiers : override?.verifiers ?? [];
+  assertChoices(chosenVerifiers, 'verifier', deps, relax);
   const verifiers = chosenVerifiers.map(normalizeChoice);
-  const perRunCheckers = Boolean(override?.verifiers?.length);
+  const perRunCheckers = !savedCheckers && verifiers.length > 0;
   if (perRunCheckers && override?.workspaceCwd && deps.checkerScopeKind(override.workspaceCwd) !== 'none') {
     throw new PlanQueueRoutingError(
       'This repository is covered by a protected work Copilot rule (or its rule could not be worked out), so checkers given for one run cannot replace the work seat here. '
@@ -251,15 +282,57 @@ export function resolveRunRouting(
     );
   }
   const checkersChosenBy = verifiers.length === 0 ? {} : { checkersChosenBy: perRunCheckers ? 'run' as const : 'saved' as const };
-  let worker: PlanQueueRouteChoice | null;
-  if (explicitWorker) {
-    assertRouteChoice(explicitWorker, 'worker', deps, relax);
-    worker = normalizeChoice(explicitWorker);
+  const explicitWorkers = savedWorkers ? saved.workers : override?.workers ?? [];
+  let workers: PlanQueueRouteChoice[];
+  if (explicitWorkers.length > 0) {
+    assertChoices(explicitWorkers, 'worker', deps, relax);
+    workers = explicitWorkers.map(normalizeChoice);
   } else {
-    worker = inheritedWorker(parent, deps, relax);
+    const inherited = inheritedWorker(parent, deps, relax);
+    workers = inherited ? [inherited] : [];
   }
-  assertCheckersCanDiffer(worker, verifiers);
-  return { worker, verifiers, ...checkersChosenBy };
+  assertCheckersCanDiffer(workers, verifiers);
+  return { routing: { workers, verifiers, ...checkersChosenBy }, setAside };
+}
+
+function isTriageRetry(config: InstanceCreateConfig): boolean {
+  return config.metadata?.['planQueueRole'] === 'triage' && config.metadata?.['planQueueTriageRetry'] === true;
+}
+
+/**
+ * The run's ranked worker choices when this spawn takes the worker route
+ * (workers and first triage), with choices since added to the "never
+ * auto-pick" list left out; empty for any other spawn. When every choice is
+ * on that list the first stays, so `routeQueueSpawn` refuses with the reason.
+ */
+export function queueWorkerChoices(
+  config: InstanceCreateConfig,
+  run: PlanQueueRun | null | undefined,
+  isExcluded: (provider: string) => boolean = isProviderExcludedFromAutomation,
+): PlanQueueRouteChoice[] {
+  const role = config.metadata?.['planQueueRole'];
+  if ((role !== 'worker' && role !== 'triage') || isTriageRetry(config)) return [];
+  const choices = run?.config.routing?.workers ?? [];
+  if (run?.config.relaxSettings) return choices;
+  const allowed = choices.filter((choice) => !isExcluded(choice.provider));
+  return allowed.length > 0 ? allowed : choices.slice(0, 1);
+}
+
+/** Which ranked worker choice a new session takes: the first with usage left (see `pickRouteChoice`). */
+export async function chooseQueueWorker(
+  choices: readonly PlanQueueRouteChoice[],
+  usage: PlanQueueRouteUsageCheck,
+  runId: string,
+): Promise<PlanQueueRouteChoice | null> {
+  // One choice has nothing to move to; never spend a usage check on it.
+  if (choices.length <= 1) return choices[0] ?? null;
+  const picked = await pickRouteChoice(choices, 'automation', usage);
+  if (picked && (picked.index > 0 || !picked.usable)) {
+    logger.info('Plan queue: worker choice picked by usage left', {
+      runId, provider: picked.choice.provider, model: picked.choice.model ?? null, usable: picked.usable,
+    });
+  }
+  return picked?.choice ?? null;
 }
 
 /**
@@ -271,6 +344,8 @@ export function resolveRunRouting(
 export function routeQueueSpawn(
   config: InstanceCreateConfig,
   getRun: (runId: string) => PlanQueueRun | null | undefined,
+  /** The ranked worker choice this session takes (`chooseQueueWorker`); null when the run has none. */
+  worker: PlanQueueRouteChoice | null,
   isExcluded: (provider: string) => boolean = isProviderExcludedFromAutomation,
 ): InstanceCreateConfig {
   const role = config.metadata?.['planQueueRole'] as PlanQueueRole | undefined;
@@ -279,12 +354,11 @@ export function routeQueueSpawn(
   // Queue sessions never hop to another provider after failures: that would leave James's choice.
   if (role === 'verifier') return { ...config, accountRouteOrigin: 'verification', failoverProviders: [] };
   const run = getRun(runId);
-  // Workers and first triage use the current route atomically. A triage retry has
-  // already selected a checker (and its account fence), so retain that choice.
-  const retry = role === 'triage' && config.metadata?.['planQueueTriageRetry'] === true;
-  const worker = run?.config.routing?.worker;
+  // Workers and first triage use the chosen worker route atomically. A triage retry
+  // has already selected a checker (and its account fence), so retain that choice.
+  const retry = isTriageRetry(config);
   const providerChoice = retry ? config.provider : run?.config.routing
-    ? worker?.provider ?? run.workerProvider ?? undefined
+    ? worker?.provider
     : run?.workerProvider ?? config.provider;
   const given = providerChoice?.trim().toLowerCase();
   const provider = given ? canonicalProvider(given) : null;
@@ -293,7 +367,7 @@ export function routeQueueSpawn(
   }
   const routed: InstanceCreateConfig = { ...config, accountRouteOrigin: 'automation', failoverProviders: [] };
   if (retry) return routed;
-  // Remove a stale caller snapshot before filling every route field from this read.
+  // Remove a stale caller snapshot before filling every route field from the chosen route.
   delete routed.provider;
   delete routed.modelOverride;
   delete routed.allowedAccountProfileIds;
@@ -306,11 +380,15 @@ export function routeQueueSpawn(
   return routed;
 }
 
-/** Validate installed CLIs before saving a changed route, using the same canonical IDs. */
-export async function assertRoutingInstalled(routing: PlanQueueRouting, deps: PlanQueueRoutingDeps): Promise<void> {
+/**
+ * Every chosen CLI must be installed: a spawn on a missing CLI silently falls
+ * back to another provider. Checked when a run starts and when its route
+ * changes, using the same canonical IDs.
+ */
+export async function assertRoutingInstalled(routing: PlanQueueRouting, deps: Pick<PlanQueueRoutingDeps, 'listInstalledProviders'>): Promise<void> {
   const installed = new Set((await (deps.listInstalledProviders ?? defaultPlanQueueRoutingDeps().listInstalledProviders!)()).map(canonicalProvider));
-  for (const choice of [routing.worker, ...routing.verifiers]) {
-    if (choice && !installed.has(canonicalProvider(choice.provider))) {
+  for (const choice of [...routing.workers, ...routing.verifiers]) {
+    if (!installed.has(canonicalProvider(choice.provider))) {
       throw new PlanQueueRoutingError(`Plan Queue: ${choice.provider} is not installed. Install its CLI or choose another provider.`);
     }
   }
@@ -324,7 +402,7 @@ export function describeRouting(routing: PlanQueueRouting | undefined): { worker
     return `${choice.provider}${choice.model ? ` / ${choice.model}` : ''}${accounts}${copilot}`;
   };
   return {
-    workers: routing?.worker ? describe(routing.worker) : 'the default provider',
+    workers: routing?.workers.length ? routing.workers.map(describe).join(', then ') : 'the default provider',
     checkers: routing?.verifiers.length ? routing.verifiers.map(describe).join('; ') : 'automatic',
   };
 }

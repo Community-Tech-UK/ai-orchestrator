@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import type { Dirent, Stats } from 'fs';
 import * as path from 'path';
 import { isBroadWorkspaceRoot } from '../codemem/broad-workspace-roots';
+import { removeTree } from '../util/remove-tree';
 import { gitExec } from '../workspace/git/git-exec';
 
 /**
@@ -109,7 +110,7 @@ async function decideAndSweep(
         await gitExec(['worktree', 'remove', '--force', '--force', worktree.checkout], worktree.commonDir)
           .catch(() => undefined);
       }
-      await removeTree(entryPath);
+      await removeSealedTree(entryPath);
     }
     return { kind: 'removed', path: entryPath };
   } catch (error) {
@@ -301,14 +302,14 @@ async function gitToplevel(dir: string): Promise<string | null> {
 }
 
 /** Remove a tree, restoring owner write permission on folders agents sealed read-only. */
-async function removeTree(target: string): Promise<void> {
+async function removeSealedTree(target: string): Promise<void> {
   try {
-    await fs.rm(target, { recursive: true, force: true });
+    await removeTree(target);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code !== 'EACCES' && code !== 'EPERM') throw error;
     await makeWritable(target);
-    await fs.rm(target, { recursive: true, force: true });
+    await removeTree(target);
   }
 }
 

@@ -49,6 +49,39 @@ describe('acquireSingleInstanceLock', () => {
     expect(fs.readFileSync(lockPath, 'utf8').trim()).toBe('4242');
   });
 
+  // windows-pc, 2026-10-14: a force-killed worker child left its lock behind,
+  // and by the time the supervisor respawned it 1s later the dead child's pid
+  // read as alive. The respawn exited as a duplicate and the node stayed down.
+  it('takes over a lock naming a pid the caller knows has exited, even if that pid looks alive', () => {
+    const lockPath = path.join(dir, 'orchestrator-worker-ns_node-1.lock');
+    fs.writeFileSync(lockPath, '1111\n');
+
+    const lock = acquireSingleInstanceLock({
+      key: 'ns:node-1',
+      dir,
+      pid: 4242,
+      isProcessAlive: () => true,
+      exitedHolderPid: 1111,
+    });
+    expect(lock).not.toBeNull();
+    expect(fs.readFileSync(lockPath, 'utf8').trim()).toBe('4242');
+  });
+
+  it('still refuses a live holder that is not the pid known to have exited', () => {
+    const lockPath = path.join(dir, 'orchestrator-worker-ns_node-1.lock');
+    fs.writeFileSync(lockPath, '2222\n');
+
+    const lock = acquireSingleInstanceLock({
+      key: 'ns:node-1',
+      dir,
+      pid: 4242,
+      isProcessAlive: () => true,
+      exitedHolderPid: 1111,
+    });
+    expect(lock).toBeNull();
+    expect(fs.readFileSync(lockPath, 'utf8').trim()).toBe('2222');
+  });
+
   it('takes over a corrupt/empty lockfile', () => {
     const lockPath = path.join(dir, 'orchestrator-worker-ns_node-1.lock');
     fs.writeFileSync(lockPath, 'not-a-pid\n');

@@ -1,10 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
-import { commitsAhead, mergeInProgress, revertToSnapshot, sameTree, snapshotTree, unresolvedMergeFiles } from './plan-queue-git';
+import { commitsAhead, isOwnCheckout, mergeInProgress, revertToSnapshot, sameTree, snapshotTree, unresolvedMergeFiles } from './plan-queue-git';
+import { syncItemWithBase } from './plan-queue-landing';
+import { restoreCheckpointAfterVerification } from './plan-queue-run-hold';
+import { restoreItemCheckout } from './plan-queue-squash';
+import { newPlanQueueItem } from './plan-queue-state';
 
 let repo: string;
 const git = (args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
@@ -86,6 +90,70 @@ describe('verifier tree guard', () => {
     expect(await mergeInProgress(repo)).toBe(false);
     expect(sameTree(before, await snapshotTree(repo))).toBe(true);
     expect(readFileSync(join(repo, 'a.txt'), 'utf8')).toBe('a\n');
+  });
+});
+
+// 26 Oct: a queue worktree half-removed to a plain `_scratch` folder. Git run
+// there resolves the root checkout, so a restart's recovery would have reset
+// `main` to the item checkpoint and wiped every uncommitted change in the root.
+describe('a queue path that is no longer its own checkout', () => {
+  let folder: string;
+  let checkpoint: string;
+  let mainTip: string;
+
+  beforeEach(() => {
+    git(['checkout', '-q', '-b', 'queue/item']);
+    writeFileSync(join(repo, 'a.txt'), 'item work\n');
+    git(['commit', '-q', '-am', 'Plan queue checkpoint']);
+    checkpoint = git(['rev-parse', 'HEAD']);
+    git(['checkout', '-q', '-b', 'other-base', 'main']);
+    writeFileSync(join(repo, 'c.txt'), 'base moved on\n');
+    git(['add', 'c.txt']);
+    git(['commit', '-q', '-m', 'base moved on']);
+    git(['checkout', '-q', 'main']);
+    mainTip = git(['rev-parse', 'HEAD']);
+    folder = join(repo, '.worktrees', 'queue', 'item');
+    mkdirSync(join(folder, '_scratch'), { recursive: true });
+    writeFileSync(join(folder, '_scratch', 'left.txt'), 'x\n');
+    writeFileSync(join(repo, 'b.txt'), 'unsaved root edit\n');
+    writeFileSync(join(repo, 'untracked-plan.md'), 'draft\n');
+  });
+
+  function expectRootUntouched(): void {
+    expect(git(['rev-parse', 'HEAD'])).toBe(mainTip);
+    expect(git(['branch', '--show-current'])).toBe('main');
+    expect(readFileSync(join(repo, 'a.txt'), 'utf8')).toBe('a\n');
+    expect(readFileSync(join(repo, 'b.txt'), 'utf8')).toBe('unsaved root edit\n');
+    expect(readFileSync(join(repo, 'untracked-plan.md'), 'utf8')).toBe('draft\n');
+  }
+
+  it('is not treated as a checkout', async () => {
+    expect(await isOwnCheckout(folder)).toBe(false);
+    expect(await isOwnCheckout(repo)).toBe(true);
+    expect(await isOwnCheckout(join(repo, 'missing'))).toBe(false);
+  });
+
+  it('refuses a revert instead of resetting the root checkout', async () => {
+    await expect(revertToSnapshot(folder, { head: checkpoint, status: [] })).rejects.toThrow('not a checkout of its own');
+    expectRootUntouched();
+  });
+
+  it('refuses to merge the base branch into it', async () => {
+    const item = newPlanQueueItem('item', 'run', 'docs/plans/x_plan.md', 0, { worktreePath: folder, checkpointCommit: checkpoint });
+    await expect(syncItemWithBase(item, 'other-base')).rejects.toThrow('not a checkout of its own');
+    expectRootUntouched();
+  });
+
+  it('refuses to put a landing back on the item branch', async () => {
+    await expect(restoreItemCheckout(folder, 'queue/item')).rejects.toThrow('not a checkout of its own');
+    expectRootUntouched();
+  });
+
+  it('has nothing to restore after an interrupted verification', async () => {
+    const item = newPlanQueueItem('item', 'run', 'docs/plans/x_plan.md', 0, { worktreePath: folder, checkpointCommit: checkpoint });
+    await restoreCheckpointAfterVerification(item);
+    expectRootUntouched();
+    expect(existsSync(join(folder, '_scratch', 'left.txt'))).toBe(true);
   });
 });
 

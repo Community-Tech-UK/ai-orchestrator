@@ -9,7 +9,8 @@ vi.mock('./browser-gateway-service', () => ({ getBrowserGatewayService: () => ({
 vi.mock('./browser-extension-tab-store', () => ({ getBrowserExtensionTabStore: () => ({ getTab: mocks.getTab }) }));
 vi.mock('./browser-target-registry', () => ({ getBrowserTargetRegistry: () => ({ listTargets: mocks.listTargets }) }));
 vi.mock('./browser-profile-store', () => ({ getBrowserProfileStore: () => ({ getProfile: mocks.getProfile }) }));
-vi.mock('./browser-extension-contact-state', () => ({
+vi.mock('./browser-extension-contact-state', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./browser-extension-contact-state')>(),
   getBrowserExtensionContactState: () => ({ isExtensionContactFresh: mocks.fresh, getExtensionRuntime: mocks.runtime }),
 }));
 vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ getAll: mocks.settings }) }));
@@ -112,6 +113,41 @@ describe('credential request live runtime checks', () => {
   it('does not treat failed or cached reads as successful live validation', async () => {
     mocks.snapshot.mockResolvedValue({ decision: 'allowed', outcome: 'failed', data: { url: 'https://test.example' } });
     await expect(createCredentialAccessDependencies().readTarget(profileId, targetId)).rejects.toMatchObject({ code: 'target_unavailable' });
+  });
+
+  it('distinguishes a confirmed closed tab from a temporary live-read failure', async () => {
+    mocks.snapshot.mockResolvedValue({ decision: 'allowed', outcome: 'failed', reason: 'No tab with id: 42.', data: null });
+    await expect(createCredentialAccessDependencies().readTarget(profileId, targetId))
+      .rejects.toMatchObject({ code: 'target_closed' });
+    mocks.snapshot.mockResolvedValue({ decision: 'allowed', outcome: 'failed', reason: 'browser_extension_command_timeout', data: null });
+    await expect(createCredentialAccessDependencies().readTarget(profileId, targetId))
+      .rejects.toMatchObject({ code: 'target_unavailable' });
+  });
+
+  it('reports a tab already marked closed without trying another live read', async () => {
+    mocks.listTargets.mockReturnValue([{ ...target, status: 'closed' }]);
+    await expect(createCredentialAccessDependencies().readTarget(profileId, targetId))
+      .rejects.toMatchObject({ code: 'target_closed' });
+    expect(mocks.snapshot).not.toHaveBeenCalled();
+  });
+
+  it('keeps an aged-out worker suspension distinct from a confirmed closed tab', async () => {
+    const { BrowserTargetRegistry } = await vi.importActual<typeof import('./browser-target-registry')>('./browser-target-registry');
+    const { BrowserExtensionTabStore } = await vi.importActual<typeof import('./browser-extension-tab-store')>('./browser-extension-tab-store');
+    let now = Date.now();
+    const registry = new BrowserTargetRegistry();
+    const tabs = new BrowserExtensionTabStore({ targetRegistry: registry, reliabilityEvents: { record: vi.fn() }, now: () => now });
+    const tab = tabs.attachTab({ tabId: 2, windowId: 1, url: 'https://test.example/login' }, { nodeId: 'node-1' });
+    tabs.suspendNode('node-1');
+    now += 16 * 60_000;
+    tabs.listTabs();
+    expect(registry.listTargets()).toEqual([expect.objectContaining({ status: 'closed', stale: true })]);
+    mocks.listTargets.mockImplementation((id?: string) => registry.listTargets(id));
+    mocks.getTab.mockImplementation((profile: string, target: string) => tabs.getTab(profile, target));
+    mocks.getNode.mockReturnValue({ connected: false, status: 'disconnected' });
+    await expect(createCredentialAccessDependencies().readTarget(tab.profileId, tab.targetId))
+      .rejects.toMatchObject({ code: 'target_unavailable' });
+    expect(mocks.snapshot).not.toHaveBeenCalled();
   });
 
   it('derives the computer for secure fill only from exact trusted targets', () => {

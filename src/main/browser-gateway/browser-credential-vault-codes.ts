@@ -17,6 +17,7 @@ export const CREDENTIAL_VAULT_ERROR_CODE_COVERAGE = {
   item_ambiguous: true,
   item_changed: true,
   target_unavailable: true,
+  target_closed: true,
   shared_tab_credential_fill_not_allowed: true,
   shared_tab_secure_credential_fill_unavailable: true,
   item_outside_agent_folder: true,

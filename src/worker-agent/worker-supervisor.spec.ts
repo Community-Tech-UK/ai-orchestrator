@@ -1,12 +1,23 @@
+import { EventEmitter } from 'events';
+import type { spawn } from 'child_process';
 import { describe, it, expect, vi } from 'vitest';
 import {
+  previousChildPidFromEnv,
   runWorkerSupervisor,
   resolveWorkerChildCommand,
+  WORKER_PREVIOUS_CHILD_PID_ENV,
   workerChildEnv,
   type SupervisedChildHandle,
   type WorkerSupervisorOptions,
 } from './worker-supervisor';
 import { WORKER_SUPERVISED_ENV, WORKER_UPDATE_RESTART_EXIT_CODE } from './worker-self-update';
+
+// Only the default-spawner test below uses this; every other test injects spawnChild.
+const spawnMock = vi.hoisted(() => vi.fn());
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return { ...actual, spawn: spawnMock, default: { ...actual, spawn: spawnMock } };
+});
 
 interface ExitPlan {
   code: number | null;
@@ -23,14 +34,19 @@ interface ExitPlan {
 function makeHarness(exits: ExitPlan[], overrides: Partial<WorkerSupervisorOptions> = {}) {
   let clock = 0;
   let call = 0;
-  const spawned: { childArgs: string[]; kill: ReturnType<typeof vi.fn>; auto: boolean }[] = [];
+  const spawned: {
+    childArgs: string[];
+    previousChildPid: number | undefined;
+    kill: ReturnType<typeof vi.fn>;
+    auto: boolean;
+  }[] = [];
   const delays: number[] = [];
 
-  const spawnChild = (childArgs: string[]): SupervisedChildHandle => {
+  const spawnChild = (childArgs: string[], previousChildPid?: number): SupervisedChildHandle => {
     const idx = call++;
     const plan = exits[idx] ?? { code: 0, ranMs: 0 };
     const kill = vi.fn();
-    spawned.push({ childArgs, kill, auto: true });
+    spawned.push({ childArgs, previousChildPid, kill, auto: true });
     return {
       pid: 1000 + idx,
       onExit: (cb) => {
@@ -76,6 +92,44 @@ describe('runWorkerSupervisor', () => {
     expect(result).toBe(0);
     expect(spawned).toHaveLength(2);
     expect(spawned[1].childArgs).toEqual(['--config', '/tmp/x.json']);
+  });
+
+  it('tells each respawned child which child exited before it', async () => {
+    const { options, spawned } = makeHarness([
+      { code: 4294967295, ranMs: 17_000 }, // force-killed (Windows TerminateProcess)
+      { code: WORKER_UPDATE_RESTART_EXIT_CODE, ranMs: 70_000 },
+      { code: 0, ranMs: 5_000 },
+    ], { restorePreviousBundle: () => false, bundleFingerprint: () => null });
+
+    await runWorkerSupervisor(options);
+
+    expect(spawned.map((child) => child.previousChildPid)).toEqual([undefined, 1000, 1001]);
+  });
+
+  it('passes the exited child\'s pid to the next child through the real spawner', async () => {
+    const children: EventEmitter[] = [];
+    spawnMock.mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), { pid: 4000 + children.length, kill: vi.fn() });
+      children.push(child);
+      const code = children.length === 1 ? 4294967295 : 0; // force-killed, then a clean stop
+      queueMicrotask(() => child.emit('exit', code, null));
+      return child as unknown as ReturnType<typeof spawn>;
+    });
+
+    await runWorkerSupervisor({
+      childArgs: [],
+      delay: async () => undefined,
+      random: () => 0,
+      restorePreviousBundle: () => false,
+      bundleFingerprint: () => null,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    const envs = spawnMock.mock.calls
+      .map((call: unknown[]) => (call[2] as { env: NodeJS.ProcessEnv }).env);
+    expect(envs).toHaveLength(2);
+    expect(envs[0]).not.toHaveProperty(WORKER_PREVIOUS_CHILD_PID_ENV);
+    expect(envs[1][WORKER_PREVIOUS_CHILD_PID_ENV]).toBe('4000');
   });
 
   it('gives up after N consecutive rapid failures', async () => {
@@ -281,6 +335,21 @@ describe('workerChildEnv', () => {
   it('marks the child as supervised without dropping the parent environment', () => {
     const env = workerChildEnv({ PATH: '/bin', AIO_WORKER_TOKEN: 'placeholder' });
     expect(env).toEqual({ PATH: '/bin', AIO_WORKER_TOKEN: 'placeholder', [WORKER_SUPERVISED_ENV]: '1' });
+  });
+
+  it('names the previous child only when there was one', () => {
+    expect(workerChildEnv({ PATH: '/bin' }, 4321)[WORKER_PREVIOUS_CHILD_PID_ENV]).toBe('4321');
+    expect(workerChildEnv({ PATH: '/bin', [WORKER_PREVIOUS_CHILD_PID_ENV]: '99' }))
+      .not.toHaveProperty(WORKER_PREVIOUS_CHILD_PID_ENV);
+  });
+});
+
+describe('previousChildPidFromEnv', () => {
+  it('reads a positive pid and ignores anything else', () => {
+    expect(previousChildPidFromEnv({ [WORKER_PREVIOUS_CHILD_PID_ENV]: '4321' })).toBe(4321);
+    expect(previousChildPidFromEnv({})).toBeUndefined();
+    expect(previousChildPidFromEnv({ [WORKER_PREVIOUS_CHILD_PID_ENV]: 'abc' })).toBeUndefined();
+    expect(previousChildPidFromEnv({ [WORKER_PREVIOUS_CHILD_PID_ENV]: '0' })).toBeUndefined();
   });
 });
 

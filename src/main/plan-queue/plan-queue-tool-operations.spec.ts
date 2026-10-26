@@ -17,9 +17,23 @@ describe('Plan Queue tool operation adoption routing', () => {
     const coordinator = new PlanQueueCoordinator();
     vi.spyOn(coordinator, 'startRun').mockResolvedValue({ run: { id: 'new-run', parentInstanceId: 'caller', kind: 'plans',
       workspaceCwd: '/repo', status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
-      workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] }, excluded: ['/repo/owned_plan.md'] });
-    const result = await createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans' });
+      workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] }, excluded: ['/repo/owned_plan.md'], routingSetAside: [] });
+    const result = await createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans' }) as { message: string };
     expect(result).toMatchObject({ excluded: ['/repo/owned_plan.md'], message: expect.stringContaining('adopt that run instead of starting again') });
+    expect(result.message).not.toContain('saved Plan Queue choice');
+  });
+  it('passes ranked worker choices through and says when James\'s saved lists were used instead', async () => {
+    const coordinator = new PlanQueueCoordinator();
+    const startRun = vi.spyOn(coordinator, 'startRun').mockResolvedValue({ run: { id: 'new-run', parentInstanceId: 'caller', kind: 'plans',
+      workspaceCwd: '/repo', status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
+      workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] }, excluded: [], routingSetAside: ['workers', 'checkers'] });
+    const result = await createPlanQueueToolOperations(() => coordinator).start('caller', {
+      kind: 'plans', workers: [{ provider: 'codex', model: 'gpt-6.1-sol' }, { provider: 'claude', account_ids: ['max-a'] }],
+    }) as { message: string };
+    expect(startRun).toHaveBeenCalledWith(expect.objectContaining({
+      routing: { workers: [{ provider: 'codex', model: 'gpt-6.1-sol' }, { provider: 'claude', accountProfileIds: ['max-a'] }] },
+    }));
+    expect(result.message).toContain('James\'s saved Plan Queue choice for workers and checkers was used instead of the one you passed.');
   });
 });
 
@@ -28,7 +42,7 @@ it('maps nested snake_case routing and preserves authenticated identity', async 
   const coordinator = new PlanQueueCoordinator();
   const control = vi.spyOn(coordinator, 'control').mockResolvedValue();
   await createPlanQueueToolOperations(() => coordinator).control('parent', {
-    action: 'set-routing', run_id: 'run', routing: { worker: { provider: 'codex', account_ids: ['account'] }, verifiers: [{ provider: 'claude' }] }, move_in_progress: true,
+    action: 'set-routing', run_id: 'run', routing: { workers: [{ provider: 'codex', account_ids: ['account'] }], verifiers: [{ provider: 'claude' }] }, move_in_progress: true,
   });
-  expect(control).toHaveBeenCalledWith({ action: 'set-routing', runId: 'run', routing: { worker: { provider: 'codex', accountProfileIds: ['account'] }, verifiers: [{ provider: 'claude' }] }, moveInProgress: true }, 'parent');
+  expect(control).toHaveBeenCalledWith({ action: 'set-routing', runId: 'run', routing: { workers: [{ provider: 'codex', accountProfileIds: ['account'] }], verifiers: [{ provider: 'claude' }] }, moveInProgress: true }, 'parent');
 });

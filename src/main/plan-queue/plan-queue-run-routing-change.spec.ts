@@ -6,28 +6,28 @@ import type { PlanQueueRun } from './plan-queue.types';
 
 function fixture(options: { scope?: string; excluded?: string[]; installed?: string[] } = {}) {
   const run: PlanQueueRun = { id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: '/repo',
-    status: 'running', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, routing: { worker: { provider: 'codex' }, verifiers: [] } },
+    status: 'running', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, routing: { workers: [{ provider: 'codex' }], verifiers: [] } },
     relaxation: null, workerProvider: 'codex', workerModel: null, startedAt: 1, endedAt: null };
   const host = { getRun: () => run, hasParkedWork: () => true, parentRoute: () => ({ provider: 'claude', currentModel: 'parent-model' }), upsertRun: vi.fn(), holdRun: vi.fn().mockResolvedValue(undefined), requestPump: vi.fn(), notifyParent: vi.fn() };
-  const deps: PlanQueueRoutingDeps = { readSaved: () => ({ worker: { provider: 'codex' }, verifiers: [] }), poolProfiles: () => [], copilotProfiles: () => [],
+  const deps: PlanQueueRoutingDeps = { readSaved: () => ({ workers: [{ provider: 'codex' }], verifiers: [] }), poolProfiles: () => [], copilotProfiles: () => [],
     isProviderExcluded: (p) => options.excluded?.includes(p) ?? false, defaultProvider: () => null,
     checkerScopeKind: () => options.scope ?? 'none', listInstalledProviders: async () => options.installed ?? ['codex', 'claude', 'copilot'] };
   return { host, run, deps };
 }
-const choice: PlanQueueRouting = { worker: { provider: 'claude' }, verifiers: [{ provider: 'codex' }] };
+const choice: PlanQueueRouting = { workers: [{ provider: 'claude' }], verifiers: [{ provider: 'codex' }] };
 
 describe('changing a run route', () => {
   it('persists provider, model and routing in one save and notifies the parent', async () => {
     const { host, run, deps } = fixture();
-    await changeRunRouting(host, run, { ...choice, worker: { provider: 'claude', model: 'new-model' } }, 'panel', false, deps);
+    await changeRunRouting(host, run, { ...choice, workers: [{ provider: 'claude', model: 'new-model' }] }, 'panel', false, deps);
     expect(host.upsertRun).toHaveBeenCalledTimes(1);
-    expect(host.upsertRun).toHaveBeenCalledWith(expect.objectContaining({ workerProvider: 'claude', workerModel: 'new-model', config: expect.objectContaining({ routing: { ...choice, worker: { provider: 'claude', model: 'new-model' }, checkersChosenBy: 'saved' } }) }));
+    expect(host.upsertRun).toHaveBeenCalledWith(expect.objectContaining({ workerProvider: 'claude', workerModel: 'new-model', config: expect.objectContaining({ routing: { ...choice, workers: [{ provider: 'claude', model: 'new-model' }], checkersChosenBy: 'saved' } }) }));
     expect(host.notifyParent).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('James changed this run'));
     expect(host.holdRun).not.toHaveBeenCalled();
   });
-  it('inherits the starting session instead of the current saved worker when worker is null', async () => {
+  it('inherits the starting session instead of the current saved workers when the list is empty', async () => {
     const { host, run, deps } = fixture();
-    await changeRunRouting(host, run, { worker: null, verifiers: [] }, 'panel', false, deps);
+    await changeRunRouting(host, run, { workers: [], verifiers: [] }, 'panel', false, deps);
     expect(host.upsertRun).toHaveBeenCalledWith(expect.objectContaining({ workerProvider: 'claude', workerModel: 'parent-model' }));
   });
   it('moves in-progress documents only when asked on a running run', async () => {
@@ -39,6 +39,22 @@ describe('changing a run route', () => {
     await changeRunRouting(host, run, choice, 'panel', true, deps);
     expect(host.holdRun).toHaveBeenCalledTimes(1);
   });
+  it('keeps a parent\'s checkers a per-run list and the page\'s James\'s choice', async () => {
+    const { host, run, deps } = fixture();
+    await changeRunRouting(host, run, choice, 'parent', false, deps);
+    expect(host.upsertRun).toHaveBeenLastCalledWith(expect.objectContaining({ config: expect.objectContaining({ routing: { ...choice, checkersChosenBy: 'run' } }) }));
+    await changeRunRouting(host, run, choice, 'panel', false, deps);
+    expect(host.upsertRun).toHaveBeenLastCalledWith(expect.objectContaining({ config: expect.objectContaining({ routing: { ...choice, checkersChosenBy: 'saved' } }) }));
+  });
+  it('saves a ranked worker list with its first choice as the run\'s worker', async () => {
+    const { host, run, deps } = fixture();
+    await changeRunRouting(host, run, { workers: [{ provider: 'claude', model: 'opus' }, { provider: 'codex' }], verifiers: [] }, 'panel', false, deps);
+    expect(host.upsertRun).toHaveBeenCalledWith(expect.objectContaining({
+      workerProvider: 'claude', workerModel: 'opus',
+      config: expect.objectContaining({ routing: { workers: [{ provider: 'claude', model: 'opus' }, { provider: 'codex' }], verifiers: [] } }),
+    }));
+    expect(host.notifyParent).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('to claude / opus, then codex'));
+  });
   it('refuses parent checker overrides in protected scopes while allowing the page', async () => {
     const { host, run, deps } = fixture({ scope: 'protected' });
     await expect(changeRunRouting(host, run, choice, 'parent', false, deps)).rejects.toThrow('protected work Copilot rule');
@@ -49,8 +65,8 @@ describe('changing a run route', () => {
   it.each([
     [{ excluded: ['claude'] }, choice, 'never auto-pick'],
     [{ installed: ['codex'] }, choice, 'claude is not installed'],
-    [{}, { worker: { provider: 'claude' }, verifiers: [{ provider: 'claude' }] }, 'None of the chosen checkers'],
-    [{}, { worker: { provider: 'codex', accountProfileIds: ['missing'] }, verifiers: [] }, 'there is no codex account'],
+    [{}, { workers: [{ provider: 'claude' }], verifiers: [{ provider: 'claude' }] }, 'None of the chosen checkers'],
+    [{}, { workers: [{ provider: 'codex', accountProfileIds: ['missing'] }], verifiers: [] }, 'there is no codex account'],
   ])('refuses invalid routing without saving or stopping sessions %#', async (options, routing, reason) => {
     const { host, run, deps } = fixture(options);
     await expect(changeRunRouting(host, run, routing, 'panel', true, deps)).rejects.toThrow(reason);

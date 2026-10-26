@@ -300,7 +300,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   providerAccountProfiles: [],
   providerAccountPools: defaultProviderAccountPools(),
   // Plan Queue: workers follow the starting session, checkers are automatic.
-  planQueueRouting: { worker: null, verifiers: [] },
+  planQueueRouting: { workers: [], verifiers: [] },
 
   // Conversational ping-pong review
   pingPongReviewerProvider: 'auto',

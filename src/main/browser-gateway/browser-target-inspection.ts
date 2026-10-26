@@ -10,11 +10,13 @@ const SECRET_TAINTED_TITLE = 'Secret-filled tab';
 const PAGE_TEXT_UNREADABLE_REASONS = new Set([
   'host_permission_denied',
   'page_text_read_failed',
+  // The page did not answer within the extension's page-text time limit.
+  'page_not_responding',
 ]);
 
 export function isPageTextUnreadableReason(
   reason: string | undefined,
-): reason is 'host_permission_denied' | 'page_text_read_failed' {
+): reason is 'host_permission_denied' | 'page_text_read_failed' | 'page_not_responding' {
   return reason !== undefined && PAGE_TEXT_UNREADABLE_REASONS.has(reason);
 }
 

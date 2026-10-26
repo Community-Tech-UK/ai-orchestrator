@@ -19,7 +19,7 @@ import * as path from 'path';
 import { buildCliEnv } from '../cli/cli-environment';
 import { gitExec } from '../workspace/git/git-exec';
 import { hermeticGitEnv } from '../workspace/git/git-env';
-import { CONFLICT_CODES } from './plan-queue-git';
+import { assertOwnCheckout, CONFLICT_CODES } from './plan-queue-git';
 import { runInProcessGroup } from './plan-queue-process';
 
 /** Hooks run generators and related tests; give them the same budget as a gate command. */
@@ -58,6 +58,7 @@ export async function restoreItemCheckout(
   branchName: string,
   documentPaths: readonly string[] = [],
 ): Promise<void> {
+  await assertOwnCheckout(worktreePath);
   const head = await gitExec(['symbolic-ref', '-q', 'HEAD'], worktreePath).catch(() => '');
   if (head !== `refs/heads/${branchName}`) {
     // Only ever a squash scratch state: the item's work is committed on its

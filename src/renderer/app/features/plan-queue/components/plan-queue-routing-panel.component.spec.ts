@@ -83,7 +83,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await fixture.whenStable();
   }
 
-  async function mount(saved: PlanQueueRouting = { worker: null, verifiers: [] }, excluded: string[] = []): Promise<void> {
+  async function mount(saved: PlanQueueRouting = { workers: [], verifiers: [] }, excluded: string[] = []): Promise<void> {
     settings.set({ planQueueRouting: saved, providersExcludedFromAutomation: excluded });
     fixture = TestBed.createComponent(PlanQueueRoutingPanelComponent);
     fixture.detectChanges();
@@ -124,9 +124,11 @@ describe('PlanQueueRoutingPanelComponent', () => {
   const checkerRows = (): HTMLElement[] => qa<HTMLElement>('.pq-routing-checker');
   const providerSelect = (scope: ParentNode): HTMLSelectElement => qa<HTMLSelectElement>('select', scope)[0];
   const checkerProviders = (): string[] => checkerRows().map((row) => providerSelect(row).value);
+  const workerRows = (): HTMLElement[] => qa<HTMLElement>('.pq-routing-worker');
+  const workerProviders = (): string[] => workerRows().map((row) => providerSelect(row).value);
 
   beforeEach(async () => {
-    settings = signal({ planQueueRouting: { worker: null, verifiers: [] } as PlanQueueRouting, providersExcludedFromAutomation: [] as string[] });
+    settings = signal({ planQueueRouting: { workers: [], verifiers: [] } as PlanQueueRouting, providersExcludedFromAutomation: [] as string[] });
     control = vi.fn().mockResolvedValue({ success: true, data: null });
     storeError = signal<string | null>(null);
     setSetting = vi.fn().mockImplementation(async (_key: string, value: PlanQueueRouting) => {
@@ -158,16 +160,17 @@ describe('PlanQueueRoutingPanelComponent', () => {
     expect(checkerRows()).toHaveLength(0);
     expect(saveButton().disabled).toBe(true);
     expect(q<HTMLButtonElement>('.pq-routing-reset').disabled).toBe(true);
-    expect(root().textContent).toContain('Runs started from chat can still override this.');
+    // The page section around the saved editor carries its purpose line; a run's editor has its own.
+    expect(q('.pq-routing-purpose')).toBeNull();
   });
 
-  it('loads the saved worker and checkers into the form', async () => {
+  it('loads the saved workers and checkers into the form', async () => {
     await mount({
-      worker: { provider: 'claude', model: 'opus', accountProfileIds: ['acc-ok'] },
+      workers: [{ provider: 'claude', model: 'opus', accountProfileIds: ['acc-ok'] }],
       verifiers: [{ provider: 'codex', model: 'big' }, { provider: 'copilot', copilotProfileId: 'cp-ok' }],
     });
 
-    expect(radio('pqRoutingWorkerMode', 'always').checked).toBe(true);
+    expect(radio('pqRoutingWorkerMode', 'list').checked).toBe(true);
     const workers = q('.pq-routing-workers');
     expect(providerSelect(workers).value).toBe('claude');
     expect(q<HTMLInputElement>('input[type="text"]', workers).value).toBe('opus');
@@ -196,14 +199,14 @@ describe('PlanQueueRoutingPanelComponent', () => {
 
   it('blocks the Gemini CLI when antigravity, the CLI it runs as, is on the never-auto-pick list', async () => {
     await mount(undefined, ['antigravity']);
-    await click(radio('pqRoutingWorkerMode', 'always'));
+    await click(radio('pqRoutingWorkerMode', 'list'));
     const gemini = qa<HTMLOptionElement>('option', q<HTMLSelectElement>('.pq-routing-workers select')).find((option) => option.value === 'gemini');
     expect(gemini?.disabled).toBe(true);
   });
 
-  it('applies the never-auto-pick list to workers too, starting "Always use" on an allowed provider', async () => {
+  it('applies the never-auto-pick list to workers too, starting the worker list on an allowed provider', async () => {
     await mount(undefined, ['claude']);
-    await click(radio('pqRoutingWorkerMode', 'always'));
+    await click(radio('pqRoutingWorkerMode', 'list'));
 
     const select = q<HTMLSelectElement>('.pq-routing-workers select');
     const claude = qa<HTMLOptionElement>('option', select).find((option) => option.value === 'claude');
@@ -216,14 +219,14 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await mount();
     expect(q('.pq-routing-workers .pq-routing-note')?.textContent).toContain('stays on that one account');
 
-    await mount({ worker: { provider: 'claude', accountProfileIds: ['gone-1', 'gone-2'] }, verifiers: [] });
+    await mount({ workers: [{ provider: 'claude', accountProfileIds: ['gone-1', 'gone-2'] }], verifiers: [] });
     const errors = qa('.pq-routing-workers .pq-routing-error').map((error) => error.textContent?.trim());
     expect(errors.filter((text) => text?.includes('no longer exists'))).toHaveLength(1);
     expect(saveButton().disabled).toBe(true);
   });
 
   it('refuses OpenCode accounts without a MiMo Token Plan model', async () => {
-    await mount({ worker: { provider: 'opencode', accountProfileIds: ['mimo-a'] }, verifiers: [] });
+    await mount({ workers: [{ provider: 'opencode', accountProfileIds: ['mimo-a'] }], verifiers: [] });
     expect(q('.pq-routing-workers .pq-routing-error')?.textContent).toContain('MiMo Token Plan');
     expect(saveButton().disabled).toBe(true);
 
@@ -232,7 +235,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
   });
 
   it('refuses to save a saved checker that is now on the never-auto-pick list', async () => {
-    await mount({ worker: null, verifiers: [{ provider: 'codex' }] }, ['codex']);
+    await mount({ workers: [], verifiers: [{ provider: 'codex' }] }, ['codex']);
     await choose(q<HTMLSelectElement>('.pq-routing-checker select'), 'codex');
     await type(q<HTMLInputElement>('.pq-routing-checker input[type="text"]'), 'x');
 
@@ -241,7 +244,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
   });
 
   it('does not let manual-only, never-for-automatic or turned-off accounts be picked', async () => {
-    await mount({ worker: { provider: 'claude' }, verifiers: [] });
+    await mount({ workers: [{ provider: 'claude' }], verifiers: [] });
 
     const rows = qa<HTMLElement>('.pq-routing-workers .pq-routing-account');
     const byLabel = (label: string): HTMLElement => rows.find((row) => row.textContent?.includes(label)) as HTMLElement;
@@ -259,7 +262,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
   });
 
   it('flags a saved account that is no longer allowed and blocks saving until it is unticked', async () => {
-    await mount({ worker: { provider: 'claude', accountProfileIds: ['acc-manual'] }, verifiers: [] });
+    await mount({ workers: [{ provider: 'claude', accountProfileIds: ['acc-manual'] }], verifiers: [] });
 
     expect(q('.pq-routing-workers .pq-routing-error')?.textContent).toContain('manual only');
     expect(saveButton().disabled).toBe(true);
@@ -271,7 +274,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
   });
 
   it('offers only automatic-friendly Copilot accounts, with the account rules as the default', async () => {
-    await mount({ worker: { provider: 'copilot' }, verifiers: [] });
+    await mount({ workers: [{ provider: 'copilot' }], verifiers: [] });
 
     const select = qa<HTMLSelectElement>('.pq-routing-workers select')[1];
     const options = qa<HTMLOptionElement>('option', select);
@@ -286,7 +289,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
 
   it('saves a cleaned worker choice with empty optional fields stripped', async () => {
     await mount();
-    await click(radio('pqRoutingWorkerMode', 'always'));
+    await click(radio('pqRoutingWorkerMode', 'list'));
     expect(saveButton().disabled).toBe(false);
 
     const workers = q('.pq-routing-workers');
@@ -298,7 +301,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
 
     expect(setSetting).toHaveBeenCalledTimes(1);
     expect(setSetting).toHaveBeenCalledWith('planQueueRouting', {
-      worker: { provider: 'claude', model: 'opus', accountProfileIds: ['acc-ok'] },
+      workers: [{ provider: 'claude', model: 'opus', accountProfileIds: ['acc-ok'] }],
       verifiers: [],
     });
     expect(q('.pq-routing-status-ok')?.textContent).toContain('Saved');
@@ -307,21 +310,21 @@ describe('PlanQueueRoutingPanelComponent', () => {
 
   it('saves a bare provider with no model, accounts or Copilot account keys', async () => {
     await mount();
-    await click(radio('pqRoutingWorkerMode', 'always'));
+    await click(radio('pqRoutingWorkerMode', 'list'));
     await choose(providerSelect(q('.pq-routing-workers')), 'ollama');
     await click(saveButton());
 
-    expect(setSetting).toHaveBeenCalledWith('planQueueRouting', { worker: { provider: 'ollama' }, verifiers: [] });
+    expect(setSetting).toHaveBeenCalledWith('planQueueRouting', { workers: [{ provider: 'ollama' }], verifiers: [] });
   });
 
   it('drops accounts and the Copilot account when the provider changes', async () => {
-    await mount({ worker: { provider: 'claude', accountProfileIds: ['acc-ok'] }, verifiers: [] });
+    await mount({ workers: [{ provider: 'claude', accountProfileIds: ['acc-ok'] }], verifiers: [] });
     await choose(providerSelect(q('.pq-routing-workers')), 'copilot');
     await choose(qa<HTMLSelectElement>('.pq-routing-workers select')[1], 'cp-ok');
     await choose(providerSelect(q('.pq-routing-workers')), 'codex');
     await click(saveButton());
 
-    expect(setSetting).toHaveBeenCalledWith('planQueueRouting', { worker: { provider: 'codex' }, verifiers: [] });
+    expect(setSetting).toHaveBeenCalledWith('planQueueRouting', { workers: [{ provider: 'codex' }], verifiers: [] });
   });
 
   it('saves a Copilot checker with its chosen account', async () => {
@@ -332,7 +335,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await click(saveButton());
 
     expect(setSetting).toHaveBeenCalledWith('planQueueRouting', {
-      worker: null,
+      workers: [],
       verifiers: [{ provider: 'copilot', copilotProfileId: 'cp-ok' }],
     });
   });
@@ -363,9 +366,91 @@ describe('PlanQueueRoutingPanelComponent', () => {
 
     await click(saveButton());
     expect(setSetting).toHaveBeenCalledWith('planQueueRouting', {
-      worker: null,
+      workers: [],
       verifiers: [{ provider: 'grok' }, { provider: 'codex' }],
     });
+  });
+
+  it('adds, reorders and removes worker choices, and saves them in that order', async () => {
+    await mount();
+    await click(radio('pqRoutingWorkerMode', 'list'));
+    expect(workerRows()).toHaveLength(1);
+    expect(q('.pq-routing-workers .pq-routing-note')?.textContent).toContain('first choice that has usage left');
+
+    await click(q('.pq-routing-workers .pq-routing-add'));
+    await click(q('.pq-routing-workers .pq-routing-add'));
+    await choose(providerSelect(workerRows()[0]), 'claude');
+    await choose(providerSelect(workerRows()[1]), 'codex');
+    await type(q<HTMLInputElement>('input[type="text"]', workerRows()[1]), 'gpt-6.1-sol');
+    await choose(providerSelect(workerRows()[2]), 'opencode');
+    expect(workerProviders()).toEqual(['claude', 'codex', 'opencode']);
+    expect(q('.pq-routing-rank-number', workerRows()[1])?.textContent?.trim()).toBe('Choice 2');
+    expect(q('.pq-routing-move-up', workerRows()[1])?.getAttribute('aria-label')).toBe('Move worker choice 2 up');
+
+    await click(q('.pq-routing-move-up', workerRows()[1]));
+    expect(workerProviders()).toEqual(['codex', 'claude', 'opencode']);
+    await click(q('.pq-routing-remove', workerRows()[2]));
+    await click(saveButton());
+
+    expect(setSetting).toHaveBeenCalledWith('planQueueRouting', {
+      workers: [{ provider: 'codex', model: 'gpt-6.1-sol' }, { provider: 'claude' }],
+      verifiers: [],
+    });
+  });
+
+  it('will not save an empty worker list, and stops adding worker choices at ten', async () => {
+    await mount({ workers: [{ provider: 'claude' }], verifiers: [] });
+    await click(q('.pq-routing-workers .pq-routing-remove'));
+    expect(workerRows()).toHaveLength(0);
+    expect(root().textContent).toContain('Add at least one worker choice, or choose "Same as the session that starts the run".');
+    expect(saveButton().disabled).toBe(true);
+
+    for (let i = 0; i < 12; i += 1) {
+      const add = q<HTMLButtonElement>('.pq-routing-workers .pq-routing-add');
+      if (!add.disabled) await click(add);
+    }
+    expect(workerRows()).toHaveLength(10);
+    expect(q('.pq-routing-workers')?.textContent).toContain('Up to 10 choices.');
+  });
+
+  it('needs a checker that can judge every worker choice, naming the one left without', async () => {
+    await mount({ workers: [{ provider: 'codex' }, { provider: 'claude' }], verifiers: [{ provider: 'claude' }] });
+    expect(q('.pq-routing-checkers .pq-routing-error')?.textContent).toContain('Every checker uses claude, like worker choice 2');
+    expect(saveButton().disabled).toBe(true);
+
+    await click(q('.pq-routing-checkers .pq-routing-add'));
+    await choose(providerSelect(checkerRows()[1]), 'codex');
+    expect(q('.pq-routing-checkers .pq-routing-error')).toBeNull();
+    expect(saveButton().disabled).toBe(false);
+  });
+
+  it('names the worker choice in a row error', async () => {
+    await mount({ workers: [{ provider: 'codex' }, { provider: 'claude', accountProfileIds: ['acc-manual'] }], verifiers: [] });
+    expect(q('.pq-routing-error', workerRows()[1])?.textContent).toContain('The worker choice 2 account "Manual Claude" is manual only');
+    expect(q('.pq-routing-error', workerRows()[0])).toBeNull();
+  });
+
+  it('reads a saved value still in the old single-worker shape', async () => {
+    await mount({ worker: { provider: 'codex', model: 'gpt-6.1-sol' }, verifiers: [] } as unknown as PlanQueueRouting);
+    expect(radio('pqRoutingWorkerMode', 'list').checked).toBe(true);
+    expect(workerProviders()).toEqual(['codex']);
+    expect(saveButton().disabled).toBe(true);
+  });
+
+  it('keeps the rows, and focus in them, when an update brings the same saved value', async () => {
+    await mount({ workers: [{ provider: 'claude' }, { provider: 'codex' }], verifiers: [] });
+    const select = providerSelect(workerRows()[1]);
+    select.focus();
+    settings.update((current) => ({ ...current, planQueueRouting: { workers: [{ provider: 'claude' }, { provider: 'codex' }], verifiers: [] } }));
+    await flush();
+    expect(providerSelect(workerRows()[1])).toBe(select);
+    expect(document.activeElement).toBe(select);
+  });
+
+  it('names each row\'s controls as a group', async () => {
+    await mount({ workers: [{ provider: 'claude' }, { provider: 'codex' }], verifiers: [{ provider: 'cursor' }] });
+    expect(qa('.pq-routing-route[role="group"]').map((group) => group.getAttribute('aria-label')))
+      .toEqual(['Worker choice 1', 'Worker choice 2', 'Checker 1']);
   });
 
   it('stops adding checkers at ten', async () => {
@@ -380,7 +465,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
   });
 
   it('will not save the manual checker list with no rows', async () => {
-    await mount({ worker: null, verifiers: [{ provider: 'claude' }] });
+    await mount({ workers: [], verifiers: [{ provider: 'claude' }] });
     await click(q('.pq-routing-remove'));
 
     expect(checkerRows()).toHaveLength(0);
@@ -389,22 +474,22 @@ describe('PlanQueueRoutingPanelComponent', () => {
   });
 
   it('saves automatic checkers as an empty list when the manual list is switched off', async () => {
-    await mount({ worker: null, verifiers: [{ provider: 'claude' }] });
+    await mount({ workers: [], verifiers: [{ provider: 'claude' }] });
     await click(radio('pqRoutingCheckerMode', 'auto'));
     await click(saveButton());
 
-    expect(setSetting).toHaveBeenCalledWith('planQueueRouting', { worker: null, verifiers: [] });
+    expect(setSetting).toHaveBeenCalledWith('planQueueRouting', { workers: [], verifiers: [] });
   });
 
   it('resets the form back to the saved value', async () => {
-    await mount({ worker: { provider: 'codex', model: 'big' }, verifiers: [] });
+    await mount({ workers: [{ provider: 'codex', model: 'big' }], verifiers: [] });
     await click(radio('pqRoutingWorkerMode', 'same'));
     await click(radio('pqRoutingCheckerMode', 'manual'));
     expect(saveButton().disabled).toBe(false);
 
     await click(q('.pq-routing-reset'));
 
-    expect(radio('pqRoutingWorkerMode', 'always').checked).toBe(true);
+    expect(radio('pqRoutingWorkerMode', 'list').checked).toBe(true);
     expect(q<HTMLInputElement>('.pq-routing-workers input[type="text"]').value).toBe('big');
     expect(radio('pqRoutingCheckerMode', 'auto').checked).toBe(true);
     expect(saveButton().disabled).toBe(true);
@@ -416,7 +501,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
       storeError.set('Failed to save setting');
     });
     await mount();
-    await click(radio('pqRoutingWorkerMode', 'always'));
+    await click(radio('pqRoutingWorkerMode', 'list'));
     await click(saveButton());
 
     expect(q('.pq-routing-status-error')?.textContent).toContain('Failed to save setting');
@@ -424,7 +509,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
   });
 
   it('keeps James\'s edits on screen when a save fails and the store reloads the old value', async () => {
-    const original: PlanQueueRouting = { worker: null, verifiers: [] };
+    const original: PlanQueueRouting = { workers: [], verifiers: [] };
     setSetting.mockImplementation(async (_key: string, value: PlanQueueRouting) => {
       // SettingsStore.set: optimistic write, failed save, then reload of the stored value.
       settings.update((current) => ({ ...current, planQueueRouting: value }));
@@ -433,16 +518,16 @@ describe('PlanQueueRoutingPanelComponent', () => {
       settings.update((current) => ({ ...current, planQueueRouting: original }));
     });
     await mount(original);
-    await click(radio('pqRoutingWorkerMode', 'always'));
+    await click(radio('pqRoutingWorkerMode', 'list'));
     await click(saveButton());
 
     expect(q('.pq-routing-status-error')?.textContent).toContain('Rejected by the main process');
-    expect(radio('pqRoutingWorkerMode', 'always').checked).toBe(true);
+    expect(radio('pqRoutingWorkerMode', 'list').checked).toBe(true);
     expect(saveButton().disabled).toBe(false);
   });
 
   it('refuses checkers that all share the workers\' provider without a different-maker model', async () => {
-    await mount({ worker: { provider: 'claude' }, verifiers: [{ provider: 'claude' }] });
+    await mount({ workers: [{ provider: 'claude' }], verifiers: [{ provider: 'claude' }] });
     expect(q('.pq-routing-checkers .pq-routing-error')?.textContent).toContain('Every checker uses claude');
     expect(saveButton().disabled).toBe(true);
 
@@ -456,15 +541,15 @@ describe('PlanQueueRoutingPanelComponent', () => {
   });
 
   it('accepts a different-maker checker on Antigravity, which serves several makers\' models', async () => {
-    await mount({ worker: { provider: 'antigravity' }, verifiers: [{ provider: 'antigravity', model: 'Claude Opus 4.6 (Thinking)' }] });
+    await mount({ workers: [{ provider: 'antigravity' }], verifiers: [{ provider: 'antigravity', model: 'Claude Opus 4.6 (Thinking)' }] });
     expect(q('.pq-routing-checkers .pq-routing-error')).toBeNull();
   });
 
   it('accepts a different-maker Copilot checker for unnamed Copilot workers, but asks OpenCode to name the workers\' model', async () => {
-    await mount({ worker: { provider: 'copilot' }, verifiers: [{ provider: 'copilot', model: 'claude-opus-5' }] });
+    await mount({ workers: [{ provider: 'copilot' }], verifiers: [{ provider: 'copilot', model: 'claude-opus-5' }] });
     expect(q('.pq-routing-checkers .pq-routing-error')).toBeNull();
 
-    await mount({ worker: { provider: 'opencode' }, verifiers: [{ provider: 'opencode', model: 'anthropic/claude-opus-5' }] });
+    await mount({ workers: [{ provider: 'opencode' }], verifiers: [{ provider: 'opencode', model: 'anthropic/claude-opus-5' }] });
     expect(q('.pq-routing-checkers .pq-routing-error')?.textContent).toContain('on OpenCode, also name the workers');
 
     await type(q<HTMLInputElement>('.pq-routing-workers input[type="text"]'), 'openai/gpt-5.5');
@@ -474,7 +559,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
   it('keeps working when the account lists cannot be loaded (not running in Electron)', async () => {
     listProfiles.mockRejectedValue(new Error('Not in Electron'));
     listCopilot.mockRejectedValue(new Error('Not in Electron'));
-    await mount({ worker: { provider: 'claude', accountProfileIds: ['acc-ok'] }, verifiers: [] });
+    await mount({ workers: [{ provider: 'claude', accountProfileIds: ['acc-ok'] }], verifiers: [] });
 
     expect(root().textContent).toContain('Account lists are unavailable');
     expect(root().textContent).toContain('Accounts could not be loaded.');
@@ -484,7 +569,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await click(saveButton());
 
     expect(setSetting).toHaveBeenCalledWith('planQueueRouting', {
-      worker: { provider: 'claude', model: 'opus', accountProfileIds: ['acc-ok'] },
+      workers: [{ provider: 'claude', model: 'opus', accountProfileIds: ['acc-ok'] }],
       verifiers: [],
     });
   });
@@ -495,7 +580,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
       id: 'run-edit', status,
       parentInstanceId: 'parent-edit', kind: 'plans', workspaceCwd: '/repo',
       workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null,
-      config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, relaxSettings, routing: { worker: { provider: 'claude', model: 'opus' }, verifiers: [] } },
+      config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, relaxSettings, routing: { workers: [{ provider: 'claude', model: 'opus' }], verifiers: [] } },
       items: states.map((state, index) => ({
         id: `item-${index}`, runId: 'run-edit', documentPath: `/repo/${index}_plan.md`, state,
         round: 0, erroredRounds: 0, branchName: null, worktreePath: null,
@@ -517,7 +602,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     control.mockResolvedValueOnce({ success: false, error: { message: 'Codex CLI is not installed' } });
     await click(saveButton());
     expect(control).toHaveBeenCalledWith({
-      action: 'set-routing', runId: 'run-edit', routing: { worker: { provider: 'codex', model: 'opus' }, verifiers: [] },
+      action: 'set-routing', runId: 'run-edit', routing: { workers: [{ provider: 'codex', model: 'opus' }], verifiers: [] },
     });
     expect(root().textContent).toContain('Codex CLI is not installed');
     expect(q<HTMLSelectElement>('.pq-routing-workers select').value).toBe('codex');
@@ -541,7 +626,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     if (relaxSettings) {
       expect(control).toHaveBeenCalledWith({
         action: 'set-routing', runId: 'run-edit',
-        routing: { worker: { provider: 'codex', model: 'opus' }, verifiers: [{ provider: 'grok' }] },
+        routing: { workers: [{ provider: 'codex', model: 'opus' }], verifiers: [{ provider: 'grok' }] },
       });
     } else {
       expect(control).not.toHaveBeenCalled();
@@ -565,11 +650,11 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await click(saveButton());
     expect(control).toHaveBeenCalledWith({
       action: 'set-routing', runId: 'run-edit',
-      routing: { worker: { provider: 'claude', model: 'opus-legacy' }, verifiers: [{ provider: 'codex' }] },
+      routing: { workers: [{ provider: 'claude', model: 'opus-legacy' }], verifiers: [{ provider: 'codex' }] },
     });
   });
 
-  it('moves current documents only when explicitly ticked on a running run', async () => {
+  it('moves current documents only when explicitly ticked on a running run, once per tick', async () => {
     await mountRun();
     const move = q<HTMLInputElement>('.pq-routing-move-progress input');
     expect(move.checked).toBe(false);
@@ -577,6 +662,25 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await choose(q<HTMLSelectElement>('.pq-routing-workers select'), 'codex');
     await click(saveButton());
     expect(control.mock.calls[0][0].moveInProgress).toBe(true);
+    // A later save in the same editor must not restart in-progress documents again.
+    expect(q<HTMLInputElement>('.pq-routing-move-progress input').checked).toBe(false);
+    await choose(q<HTMLSelectElement>('.pq-routing-workers select'), 'cursor');
+    await click(saveButton());
+    expect(control.mock.calls[1][0].moveInProgress).toBeUndefined();
+  });
+
+  it('shows what the run really stored after a save, e.g. "same as the session" resolved to that session\'s choice', async () => {
+    await mountRun('paused', []);
+    await click(radio('pqRoutingWorkerMode-run-edit', 'same'));
+    await click(saveButton());
+    expect(control).toHaveBeenCalledWith({ action: 'set-routing', runId: 'run-edit', routing: { workers: [], verifiers: [] } });
+    // The main process stores the starting session's route and sends the run back.
+    const stored = fixture.componentInstance.run()!;
+    fixture.componentRef.setInput('run', { ...stored, config: { ...stored.config, routing: { workers: [{ provider: 'claude', model: 'parent-model' }], verifiers: [] } } });
+    await flush();
+    expect(radio('pqRoutingWorkerMode-run-edit', 'list').checked).toBe(true);
+    expect(q<HTMLInputElement>('.pq-routing-workers input[type="text"]').value).toBe('parent-model');
+    expect(saveButton().disabled).toBe(true);
   });
 
   it.each([['paused', ['queued']], ['running', []]] as const)(

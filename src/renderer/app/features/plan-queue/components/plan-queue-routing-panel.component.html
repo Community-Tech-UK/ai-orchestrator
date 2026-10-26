@@ -1,23 +1,20 @@
 <div class="pq-routing">
-  <p class="pq-routing-purpose">
-    @if (mode() === 'run') {
+  @if (mode() === 'run') {
+    <p class="pq-routing-purpose">
       Change the providers and accounts for new sessions in this run. Pause, change, then Resume to switch all its documents.
-    } @else {
-    Choose which providers and accounts Plan Queue workers and checkers may use. Runs started from chat can still
-    override this.
-    }
-  </p>
+    </p>
+  }
 
   @if (accountsError(); as accountsProblem) {
     <p class="pq-routing-note" role="status">{{ accountsProblem }}</p>
   }
 
   <ng-template #routeEditor let-view>
-    <div class="pq-routing-route">
+    <div class="pq-routing-route" role="group" [attr.aria-label]="view.groupLabel">
       <div class="pq-routing-fields">
         <label class="pq-routing-field">
           Provider
-          <select (change)="setProvider(view.target, inputValue($event))">
+          <select (change)="setProvider(view.list, view.index, inputValue($event))">
             @for (option of view.providerOptions; track option.id) {
               <option [value]="option.id" [disabled]="option.disabled" [selected]="option.id === view.draft.provider">
                 {{ option.label }}@if (option.note) { ({{ option.note }}) }
@@ -33,14 +30,14 @@
             maxlength="200"
             placeholder="Provider default"
             [value]="view.draft.model"
-            (input)="setModel(view.target, inputValue($event))"
+            (input)="setModel(view.list, view.index, inputValue($event))"
           />
         </label>
 
         @if (view.isCopilot) {
           <label class="pq-routing-field">
             Copilot account
-            <select (change)="setCopilotAccount(view.target, inputValue($event))">
+            <select (change)="setCopilotAccount(view.list, view.index, inputValue($event))">
               <option value="" [selected]="!view.draft.copilotProfileId">Let the Copilot account rules decide</option>
               @for (option of view.copilotOptions; track option.id) {
                 <option [value]="option.id" [disabled]="option.disabled" [selected]="option.id === view.draft.copilotProfileId">
@@ -61,7 +58,7 @@
                 type="checkbox"
                 [checked]="row.checked"
                 [disabled]="row.disabled"
-                (change)="toggleAccount(view.target, row.id, inputChecked($event))"
+                (change)="toggleAccount(view.list, view.index, row.id, inputChecked($event))"
               />
               {{ row.label }}@if (row.note) { <span class="pq-routing-account-note">({{ row.note }})</span> }
             </label>
@@ -78,6 +75,47 @@
     </div>
   </ng-template>
 
+  <ng-template #rankedList let-views let-list="list" let-heading="heading" let-name="name">
+    <ol class="pq-routing-rank-list">
+      @for (view of views; track view.key; let i = $index) {
+        <li class="pq-routing-rank" [class.pq-routing-worker]="list === 'workers'" [class.pq-routing-checker]="list === 'checkers'">
+          <div class="pq-routing-rank-head">
+            <span class="pq-routing-rank-number">{{ heading }} {{ i + 1 }}</span>
+            <span class="pq-routing-rank-actions">
+              <button
+                type="button"
+                class="pq-routing-move-up"
+                [disabled]="!view.canMoveUp"
+                [attr.aria-label]="'Move ' + name + ' ' + (i + 1) + ' up'"
+                (click)="moveChoice(list, i, -1)"
+              >
+                Up
+              </button>
+              <button
+                type="button"
+                class="pq-routing-move-down"
+                [disabled]="!view.canMoveDown"
+                [attr.aria-label]="'Move ' + name + ' ' + (i + 1) + ' down'"
+                (click)="moveChoice(list, i, 1)"
+              >
+                Down
+              </button>
+              <button
+                type="button"
+                class="pq-routing-remove"
+                [attr.aria-label]="'Remove ' + name + ' ' + (i + 1)"
+                (click)="removeChoice(list, i)"
+              >
+                Remove
+              </button>
+            </span>
+          </div>
+          <ng-container [ngTemplateOutlet]="routeEditor" [ngTemplateOutletContext]="{ $implicit: view }" />
+        </li>
+      }
+    </ol>
+  </ng-template>
+
   <fieldset class="pq-routing-group pq-routing-workers">
     <legend>Workers</legend>
     <label class="pq-routing-radio">
@@ -85,30 +123,49 @@
         type="radio"
         [name]="'pqRoutingWorkerMode' + radioSuffix()"
         value="same"
-        [checked]="!isWorkerAlways()"
+        [checked]="!isWorkerList()"
         (change)="setWorkerMode('same')"
       />
       {{ mode() === 'run' ? 'Same as the session that started the run' : 'Same as the session that starts the run' }}
     </label>
-    @if (!isWorkerAlways()) {
+    @if (!isWorkerList()) {
       <p class="pq-routing-note">
         Its provider and model, and its account when that account is allowed for automatic work. The queue then stays
-        on that one account, so a usage limit pauses items until it resets. Choose "Always use" with several accounts to
-        let it switch between them.
+        on that one account, so a usage limit pauses items until it resets. Choose "Only these, in this order" to move
+        new workers to another provider or account when one runs out.
       </p>
     }
     <label class="pq-routing-radio">
       <input
         type="radio"
         [name]="'pqRoutingWorkerMode' + radioSuffix()"
-        value="always"
-        [checked]="isWorkerAlways()"
-        (change)="setWorkerMode('always')"
+        value="list"
+        [checked]="isWorkerList()"
+        (change)="setWorkerMode('list')"
       />
-      Always use
+      Only these, in this order
     </label>
-    @if (workerView(); as view) {
-      <ng-container [ngTemplateOutlet]="routeEditor" [ngTemplateOutletContext]="{ $implicit: view }" />
+
+    @if (isWorkerList()) {
+      <p class="pq-routing-note">
+        Each new worker starts on the first choice that has usage left. When it runs out, new workers start on the next
+        choice, and go back to the first once it resets. Workers already running are not moved.
+      </p>
+      <ng-container
+        [ngTemplateOutlet]="rankedList"
+        [ngTemplateOutletContext]="{ $implicit: workerViews(), list: 'workers', heading: 'Choice', name: 'worker choice' }"
+      />
+      @for (error of workerListErrors(); track error) {
+        <p class="pq-routing-error" role="alert">{{ error }}</p>
+      }
+      <div>
+        <button type="button" class="pq-routing-add" [disabled]="!canAddWorker()" (click)="addChoice('workers')">
+          Add a choice
+        </button>
+        @if (!canAddWorker()) {
+          <span class="pq-routing-note">Up to {{ maxChoices }} choices.</span>
+        }
+      </div>
     }
   </fieldset>
 
@@ -137,56 +194,22 @@
 
     @if (isCheckerManual()) {
       <p class="pq-routing-note">
-        In folders covered by a protected work Copilot rule, this list replaces the work seat. A list given from chat
-        for one run does not.
+        Each check uses the first checker that can run and has usage left. In folders covered by a protected work
+        Copilot rule, this list replaces the work seat. A list given from chat for one run does not.
       </p>
-      <ol class="pq-routing-checker-list">
-        @for (view of checkerViews(); track view.key; let i = $index) {
-          <li class="pq-routing-checker">
-            <div class="pq-routing-checker-head">
-              <span class="pq-routing-checker-number">Checker {{ i + 1 }}</span>
-              <span class="pq-routing-checker-actions">
-                <button
-                  type="button"
-                  class="pq-routing-move-up"
-                  [disabled]="!view.canMoveUp"
-                  [attr.aria-label]="'Move checker ' + (i + 1) + ' up'"
-                  (click)="moveChecker(i, -1)"
-                >
-                  Up
-                </button>
-                <button
-                  type="button"
-                  class="pq-routing-move-down"
-                  [disabled]="!view.canMoveDown"
-                  [attr.aria-label]="'Move checker ' + (i + 1) + ' down'"
-                  (click)="moveChecker(i, 1)"
-                >
-                  Down
-                </button>
-                <button
-                  type="button"
-                  class="pq-routing-remove"
-                  [attr.aria-label]="'Remove checker ' + (i + 1)"
-                  (click)="removeChecker(i)"
-                >
-                  Remove
-                </button>
-              </span>
-            </div>
-            <ng-container [ngTemplateOutlet]="routeEditor" [ngTemplateOutletContext]="{ $implicit: view }" />
-          </li>
-        }
-      </ol>
+      <ng-container
+        [ngTemplateOutlet]="rankedList"
+        [ngTemplateOutletContext]="{ $implicit: checkerViews(), list: 'checkers', heading: 'Checker', name: 'checker' }"
+      />
       @for (error of checkerListErrors(); track error) {
         <p class="pq-routing-error" role="alert">{{ error }}</p>
       }
       <div>
-        <button type="button" class="pq-routing-add" [disabled]="!canAddChecker()" (click)="addChecker()">
+        <button type="button" class="pq-routing-add" [disabled]="!canAddChecker()" (click)="addChoice('checkers')">
           Add a checker
         </button>
         @if (!canAddChecker()) {
-          <span class="pq-routing-note">Up to {{ maxCheckers }} checkers.</span>
+          <span class="pq-routing-note">Up to {{ maxChoices }} checkers.</span>
         }
       </div>
     }

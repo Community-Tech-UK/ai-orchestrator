@@ -54,7 +54,7 @@ beforeEach(() => {
   git(['worktree', 'add', '-qb', 'queue/example', worktreePath]);
   db = new Database(':memory:') as unknown as SqliteDriver; runLoopMigrations(db); store = new PlanQueueStore(db);
   run = { id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: repo, status: 'running',
-    config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', routing: { worker: { provider: 'claude' }, verifiers: [{ provider: 'codex' }] }, startingSessionRoute: { provider: 'claude' } },
+    config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', routing: { workers: [{ provider: 'claude' }], verifiers: [{ provider: 'codex' }] }, startingSessionRoute: { provider: 'claude' } },
     workerProvider: 'claude', workerModel: null, relaxation: null, startedAt: 1, endedAt: null };
   item = newPlanQueueItem('item', run.id, join(repo, 'example_plan.md'), 1, {
     state: 'working', branchName: 'queue/example', worktreePath, checkpointCommit: git(['rev-parse', 'HEAD']), workerInstanceId: 'worker',
@@ -67,7 +67,7 @@ beforeEach(() => {
   coordinator.initialize({ store, instances, skipInstall: true, pumpIntervalMs: null, loadAverage: () => [0, 0, 0],
     worktreeCreator: { createWorktree: vi.fn(), cleanupWorktree: vi.fn(), getAllSessions: () => [] },
     selectVerifier: async () => ({ ok: true, choice: { provider: 'codex' } }),
-    routing: { readSaved: () => ({ worker: null, verifiers: [] }), poolProfiles: () => [], copilotProfiles: () => [],
+    routing: { readSaved: () => ({ workers: [], verifiers: [] }), poolProfiles: () => [], copilotProfiles: () => [],
       defaultProvider: () => null, checkerScopeKind: () => 'none', isProviderExcluded: () => false, listInstalledProviders: async () => ['claude', 'codex', 'cursor'] },
   });
   coordinator.registerRole('worker', { role: 'worker', runId: run.id, itemId: item.id });
@@ -288,7 +288,7 @@ describe('Plan Queue pause controls in the coordinator', () => {
 
   it('changes routing on a paused run, then starts the resumed worker on the new provider', async () => {
     await coordinator.control({ action: 'pause', runId: run.id });
-    await coordinator.control({ action: 'set-routing', runId: run.id, routing: { worker: { provider: 'cursor' }, verifiers: [{ provider: 'codex' }] } });
+    await coordinator.control({ action: 'set-routing', runId: run.id, routing: { workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'codex' }] } });
     expect(instances.created).toEqual([]);
     await coordinator.control({ action: 'resume', runId: run.id });
     await coordinator._whenSettledForTesting();
@@ -297,12 +297,12 @@ describe('Plan Queue pause controls in the coordinator', () => {
   });
 
   it('moves live documents on opt-in and preserves the original session route', async () => {
-    await coordinator.control({ action: 'set-routing', runId: run.id, routing: { worker: { provider: 'cursor' }, verifiers: [{ provider: 'codex' }] }, moveInProgress: true });
+    await coordinator.control({ action: 'set-routing', runId: run.id, routing: { workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'codex' }] }, moveInProgress: true });
     await coordinator._whenSettledForTesting();
     expect(instances.live.has('worker')).toBe(false);
     expect(instances.created[0]?.provider).toBe('cursor');
     await coordinator.control({ action: 'pause', runId: run.id });
-    await coordinator.control({ action: 'set-routing', runId: run.id, routing: { worker: null, verifiers: [{ provider: 'codex' }] } });
+    await coordinator.control({ action: 'set-routing', runId: run.id, routing: { workers: [], verifiers: [{ provider: 'codex' }] } });
     expect(store.getRun(run.id)?.workerProvider).toBe('claude');
   });
 
@@ -317,7 +317,7 @@ describe('Plan Queue pause controls in the coordinator', () => {
     });
     coordinator.requestPump();
     await vi.waitFor(() => expect(selecting).toBe(true));
-    await coordinator.control({ action: 'set-routing', runId: run.id, routing: { worker: { provider: 'codex' }, verifiers: [{ provider: 'cursor' }] } });
+    await coordinator.control({ action: 'set-routing', runId: run.id, routing: { workers: [{ provider: 'codex' }], verifiers: [{ provider: 'cursor' }] } });
     release();
     await coordinator._whenSettledForTesting();
     expect(instances.created.find(c => c.metadata?.['planQueueRole'] === 'verifier')?.provider).toBe('cursor');
@@ -414,7 +414,7 @@ describe('other controls wait for pending triage cleanup', () => {
     const controlling = (action === 'cancel'
       ? coordinator.control({ action: 'cancel', runId: run.id })
       : coordinator.control({ action: 'set-routing', runId: run.id,
-        routing: { worker: { provider: 'cursor' }, verifiers: [{ provider: 'codex' }] }, moveInProgress: true }))
+        routing: { workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'codex' }] }, moveInProgress: true }))
       .then(() => { finished = true; });
     try {
       await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe('paused'));
@@ -443,7 +443,7 @@ describe('other controls wait for pending triage cleanup', () => {
     const controlling = action === 'cancel'
       ? coordinator.control({ action: 'cancel', runId: run.id })
       : coordinator.control({ action: 'set-routing', runId: run.id,
-        routing: { worker: { provider: 'cursor' }, verifiers: [{ provider: 'codex' }] }, moveInProgress: true });
+        routing: { workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'codex' }] }, moveInProgress: true });
     const rejected = expect(controlling).rejects.toThrow('late cleanup unavailable');
     await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe('paused'));
     late.release();

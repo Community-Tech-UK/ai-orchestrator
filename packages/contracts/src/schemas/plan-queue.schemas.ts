@@ -155,12 +155,13 @@ export const PlanQueueRouteChoiceSchema = z.object({
 }).strict();
 
 /**
- * Which providers and accounts a run's sessions may use. `worker: null` = the
- * session that starts the run (its provider, model and account). An empty
- * `verifiers` list = automatic checker selection.
+ * Which providers and accounts a run's sessions may use. `workers` is ranked:
+ * each new worker session starts on the first choice with usage left. An
+ * empty `workers` list = the session that starts the run (its provider, model
+ * and account). An empty `verifiers` list = automatic checker selection.
  */
 export const PlanQueueRoutingSchema = z.object({
-  worker: PlanQueueRouteChoiceSchema.nullable(),
+  workers: z.array(PlanQueueRouteChoiceSchema).max(10),
   verifiers: z.array(PlanQueueRouteChoiceSchema).max(10),
   /**
    * Set by the coordinator on a run's routing, never in the saved setting:
@@ -171,7 +172,7 @@ export const PlanQueueRoutingSchema = z.object({
   checkersChosenBy: z.enum(['saved', 'run']).optional(),
 }).strict();
 
-export const DEFAULT_PLAN_QUEUE_ROUTING: PlanQueueRouting = { worker: null, verifiers: [] };
+export const DEFAULT_PLAN_QUEUE_ROUTING: PlanQueueRouting = { workers: [], verifiers: [] };
 
 export const PlanQueueRunConfigSchema = z.object({
   workerSlots: z.number().int().min(1).max(8),
@@ -317,6 +318,7 @@ export const PlanQueueRouteChoiceArgsSchema = z.object({
   copilot_account_id: z.string().min(1).max(100).optional(),
 }).strict();
 
+/** Strict like the tool's advertised schema: a stale `worker` argument is refused, never silently dropped. */
 export const PlanQueueStartArgsSchema = z.object({
   kind: PlanQueueKindSchema,
   glob: z.string().max(1000).optional(),
@@ -326,11 +328,11 @@ export const PlanQueueStartArgsSchema = z.object({
   relax_settings: z.boolean().optional(),
   verifier_gates: z.array(z.string().min(1).max(2000)).max(20).optional(),
   post_merge_gate: z.array(z.string().min(1).max(2000)).max(10).optional(),
-  /** Worker provider/model/accounts for this run; overrides the saved choice. */
-  worker: PlanQueueRouteChoiceArgsSchema.optional(),
-  /** Checker choices for this run, in preference order; overrides the saved choice. */
+  /** Worker choices for this run, in preference order; used only when James saved no worker list. */
+  workers: z.array(PlanQueueRouteChoiceArgsSchema).max(10).optional(),
+  /** Checker choices for this run, in preference order; used only when James saved no checker list. */
   verifiers: z.array(PlanQueueRouteChoiceArgsSchema).max(10).optional(),
-});
+}).strict();
 
 export const PlanQueueStatusArgsSchema = z.object({ run_id: IdSchema.optional() });
 
@@ -346,7 +348,7 @@ export const PlanQueueControlArgsSchema = z.discriminatedUnion('action', [z.obje
 }), z.object({
   action: z.literal('set-routing'),
   run_id: IdSchema,
-  routing: z.object({ worker: PlanQueueRouteChoiceArgsSchema.nullable(), verifiers: z.array(PlanQueueRouteChoiceArgsSchema).max(10) }).strict(),
+  routing: z.object({ workers: z.array(PlanQueueRouteChoiceArgsSchema).max(10), verifiers: z.array(PlanQueueRouteChoiceArgsSchema).max(10) }).strict(),
   move_in_progress: z.boolean().optional(),
 })]);
 

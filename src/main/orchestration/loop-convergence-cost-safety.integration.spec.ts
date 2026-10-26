@@ -8,7 +8,7 @@
  * import, and checkpoint round-trips for the new convergence tracker.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,9 +28,13 @@ import { prepareLoopStartConfig } from './loop-start-config';
 import { buildCampaignFromPlan, INTEGRATION_GATE_NODE_ID } from './campaign-plan-import';
 import { validateCampaignSpec } from './campaign-coordinator';
 import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
+import type { LoopStageMachine } from './loop-stage-machine';
+
+type LoopExecution = (state: LoopState, stageMachine: LoopStageMachine) => Promise<void>;
 
 let workspace: string;
 let coordinator: LoopCoordinator;
+let execution: MockInstance<LoopExecution>;
 
 function git(args: string[]): void {
   execFileSync('git', args, {
@@ -89,11 +93,16 @@ beforeEach(() => {
   vi.spyOn(CompletedFileWatcher.prototype, 'stop').mockResolvedValue();
   vi.spyOn(CompletedFileWatcher.prototype, 'scanOnce').mockReturnValue(null);
   coordinator = new LoopCoordinator();
+  execution = vi.spyOn(coordinator as unknown as { runLoop: LoopExecution }, 'runLoop');
 });
 
 afterEach(async () => {
   for (const loop of coordinator.getActiveLoops()) {
     try { await coordinator.cancelLoop(loop.id); } catch { /* noop */ }
+  }
+  // A cancelled loop can still be finishing its current iteration's writes.
+  for (const result of execution.mock.results) {
+    if (result.type === 'return') await result.value;
   }
   vi.restoreAllMocks();
   try { rmSync(workspace, { recursive: true, force: true }); } catch { /* noop */ }

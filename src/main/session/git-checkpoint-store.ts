@@ -4,6 +4,7 @@ import * as path from 'path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getProjectStoragePaths } from '../storage/project-storage-paths';
+import { removeTree } from '../util/remove-tree';
 
 const execFileAsync = promisify(execFile);
 
@@ -44,7 +45,7 @@ async function removeDirectoryContents(dir: string, preservedNames: Set<string>)
     if (preservedNames.has(entry.name)) {
       continue;
     }
-    await fs.rm(path.join(dir, entry.name), { recursive: true, force: true });
+    await removeTree(path.join(dir, entry.name));
   }
 }
 

@@ -219,7 +219,10 @@ export function remoteExtensionContactSummary(
     // saying so first is what stops the reader concluding the channel is fine.
     return `extension polled ${formatAge(clocks.coordinatorPollAgeMs ?? 0)} ago but has not answered`
       + ' the last commands sent to it (the service worker is polling without executing;'
-      + ' browser.recover_extension restarts the relay, and restarting Chrome on the node clears it)'
+      + ' check that computer for a browser pop-up such as "Leave site?", which blocks the tab it is on'
+      + ' (and every tab before extension 0.2.44) until someone answers it; any answered command,'
+      + ' such as a browser.list_targets refresh, clears this state, browser.recover_extension'
+      + ' restarts the relay, and restarting Chrome on the node clears it)'
       + disconnectSuffix;
   }
   if (lastContactAt === undefined) {

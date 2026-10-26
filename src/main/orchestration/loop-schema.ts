@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 23;
+export const LOOP_SCHEMA_VERSION = 24;
 
 interface LoopMigration {
   version: number;
@@ -455,6 +455,17 @@ const MIGRATIONS: LoopMigration[] = [
     up: `
       ALTER TABLE plan_queue_items ADD COLUMN held_at INTEGER;
       ALTER TABLE plan_queue_items ADD COLUMN pending_instruction TEXT;
+    `,
+  },
+  {
+    // Plan Queue: workers come from a ranked list, so a run's first choice is
+    // not necessarily what an item's worker ran on. The checker is chosen
+    // against these even after that session is gone.
+    version: 24,
+    name: '024_plan_queue_item_worker_route',
+    up: `
+      ALTER TABLE plan_queue_items ADD COLUMN worker_provider TEXT;
+      ALTER TABLE plan_queue_items ADD COLUMN worker_model TEXT;
     `,
   },
 ];

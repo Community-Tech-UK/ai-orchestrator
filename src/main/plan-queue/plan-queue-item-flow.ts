@@ -285,8 +285,11 @@ export class PlanQueueItemFlow {
       switch (outcome.kind) {
         case 'turn-complete':
           try {
+            // What did this round's work, read before the checkpoint can yield, for its checker once the session is gone ('auto' only before startup resolves it).
+            const live = this.host.instances.getInstance(instanceId);
+            const ranOn = live?.provider && live.provider !== 'auto' ? { workerProvider: live.provider, workerModel: live.currentModel } : {};
             const checkpointed = await this.host.worktrees.checkpoint(item, `round ${item.round + 1} work`);
-            this.host.transition(checkpointed, 'awaiting-slot', { question: null, detail: null, pendingInstruction: null });
+            this.host.transition(checkpointed, 'awaiting-slot', { question: null, detail: null, pendingInstruction: null, ...ranOn });
             this.host.requestPump();
           } catch (error) {
             if (error instanceof UnresolvedMergeError) {

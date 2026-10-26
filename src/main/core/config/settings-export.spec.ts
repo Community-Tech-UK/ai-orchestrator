@@ -99,4 +99,23 @@ describe('settings export/import', () => {
       fontSize: 15,
     });
   });
+
+  it('imports an export written before Plan Queue workers became a ranked list', () => {
+    const result = applyImport({
+      version: 1,
+      exportedAt: '2026-10-20T10:00:00.000Z',
+      appVersion: '1.2.3',
+      appSettings: {
+        theme: 'dark',
+        planQueueRouting: { worker: { provider: 'codex', model: 'gpt-6.1-sol' }, verifiers: [{ provider: 'claude' }] },
+      } as unknown as Partial<AppSettings>,
+      skippedSettings: [],
+    });
+
+    expect(result).toMatchObject({ settingsRestored: true, settingsImported: 2 });
+    expect(settingsMocks.update).toHaveBeenCalledWith({
+      theme: 'dark',
+      planQueueRouting: { workers: [{ provider: 'codex', model: 'gpt-6.1-sol' }], verifiers: [{ provider: 'claude' }] },
+    });
+  });
 });

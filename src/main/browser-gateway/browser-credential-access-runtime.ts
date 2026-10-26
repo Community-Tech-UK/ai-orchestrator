@@ -17,6 +17,7 @@ import { normaliseBindableOrigin } from './browser-credential-origin';
 import { CredentialVaultError } from './browser-credential-vault';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getRemoteNodeRosterService } from '../remote-node/remote-node-roster-service';
+import { isMissingExtensionTabError } from './browser-extension-command-failures';
 
 interface CredentialTarget {
   origin: string;
@@ -48,6 +49,9 @@ async function readCredentialTarget(profileId: string, targetId: string, context
     throw new CredentialVaultError('The browser target could not be confirmed live', 'target_unavailable');
   });
   if (snapshot.decision !== 'allowed' || snapshot.outcome !== 'succeeded' || !snapshot.data) {
+    if (profileId.startsWith('existing-tab:') && isMissingExtensionTabError(snapshot.reason ?? '')) {
+      throw new CredentialVaultError('The sign-in tab has closed', 'target_closed');
+    }
     throw new CredentialVaultError('The browser target could not be confirmed live', 'target_unavailable');
   }
   const after = requireTarget(profileId, targetId);
@@ -90,7 +94,10 @@ export function resolveCredentialComputerId(profileId: string, targetId: string)
 
 function requireTarget(profileId: string, targetId: string): Omit<CredentialTarget, 'origin'> {
   const target = getBrowserTargetRegistry().listTargets(profileId).find((candidate) => candidate.id === targetId);
-  if (!target || target.profileId !== profileId || target.status === 'closed' || target.stale) {
+  if (target?.profileId === profileId && target.status === 'closed' && !target.stale) {
+    throw new CredentialVaultError('The sign-in tab has closed', 'target_closed');
+  }
+  if (!target || target.profileId !== profileId || target.stale) {
     throw new CredentialVaultError('The browser target is unavailable', 'target_unavailable');
   }
   const shared = profileId.startsWith('existing-tab:');

@@ -20,6 +20,7 @@ import type {
   PlanQueueRunStatus,
   PlanQueueVerdict,
 } from '@contracts/schemas/plan-queue';
+import { upgradePlanQueueRouting, type StoredPlanQueueRouting } from '../../shared/utils/plan-queue-routing-upgrade';
 import type { PlanQueueItem, PlanQueueRelaxationSnapshot, PlanQueueRun } from './plan-queue.types';
 
 interface RunRow {
@@ -57,6 +58,8 @@ interface ItemRow {
   landed_commit: string | null;
   worker_instance_id: string | null;
   verifier_instance_id: string | null;
+  worker_provider: string | null;
+  worker_model: string | null;
   question_json: string | null;
   answer: string | null;
   park_reason: string | null;
@@ -217,8 +220,8 @@ export class PlanQueueStore {
         id, run_id, document_path, state, round, errored_rounds, landing_refusals, branch_name, worktree_path,
         base_commit, checkpoint_commit, verified_main_commit, landed_commit,
         worker_instance_id, verifier_instance_id, question_json, answer, park_reason, detail,
-        verdict_json, created_at, updated_at, held_at, pending_instruction
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         state                = excluded.state,
         round                = excluded.round,
@@ -239,6 +242,8 @@ export class PlanQueueStore {
         verdict_json         = excluded.verdict_json,
         held_at              = excluded.held_at,
         pending_instruction  = excluded.pending_instruction,
+        worker_provider      = excluded.worker_provider,
+        worker_model         = excluded.worker_model,
         updated_at           = excluded.updated_at
     `).run(
       item.id,
@@ -265,6 +270,8 @@ export class PlanQueueStore {
       this.now(),
       item.heldAt ?? null,
       item.pendingInstruction ?? null,
+      item.workerProvider ?? null,
+      item.workerModel ?? null,
     );
   }
 
@@ -325,6 +332,7 @@ function preserveRecoveryReceipts(previous: string | null, next: string | null):
 }
 
 function rowToRun(row: RunRow): PlanQueueRun {
+  const { routing, ...stored } = JSON.parse(row.config_json) as Partial<Omit<PlanQueueRunConfig, 'routing'>> & { routing?: StoredPlanQueueRouting };
   return {
     ...(row.tokens || row.cost_usd || row.exact_cost_usd ? { spend: { tokens: row.tokens, costUsd: row.cost_usd, exactUsd: row.exact_cost_usd } } : {}),
     id: row.id,
@@ -336,7 +344,8 @@ function rowToRun(row: RunRow): PlanQueueRun {
     // Defaults first, so a config stored before a field existed still reads whole.
     config: {
       ...DEFAULT_PLAN_QUEUE_CONFIG[row.kind as PlanQueueKind],
-      ...(JSON.parse(row.config_json) as Partial<PlanQueueRunConfig>),
+      ...stored,
+      ...(routing ? { routing: upgradePlanQueueRouting(routing) } : {}),
     },
     relaxation: row.relaxation_json
       ? (JSON.parse(row.relaxation_json) as PlanQueueRelaxationSnapshot)
@@ -368,6 +377,8 @@ function rowToItem(row: ItemRow): PlanQueueItem {
     landedCommit: row.landed_commit,
     workerInstanceId: row.worker_instance_id,
     verifierInstanceId: row.verifier_instance_id,
+    ...(row.worker_provider ? { workerProvider: row.worker_provider } : {}),
+    ...(row.worker_model ? { workerModel: row.worker_model } : {}),
     question: row.question_json ? (JSON.parse(row.question_json) as PlanQueueQuestion) : null,
     answer: row.answer,
     parkReason: row.park_reason as PlanQueueParkReason | null,

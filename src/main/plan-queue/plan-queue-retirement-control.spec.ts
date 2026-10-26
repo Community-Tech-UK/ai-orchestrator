@@ -54,7 +54,7 @@ beforeEach(() => {
   git(['worktree', 'add', '-qb', 'queue/example', worktreePath]);
   db = new Database(':memory:') as unknown as SqliteDriver; runLoopMigrations(db); store = new PlanQueueStore(db);
   run = { id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: repo, status: 'running',
-    config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', routing: { worker: { provider: 'claude' }, verifiers: [{ provider: 'codex' }] }, startingSessionRoute: { provider: 'claude' } },
+    config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', routing: { workers: [{ provider: 'claude' }], verifiers: [{ provider: 'codex' }] }, startingSessionRoute: { provider: 'claude' } },
     workerProvider: 'claude', workerModel: null, relaxation: null, startedAt: 1, endedAt: null };
   item = newPlanQueueItem('item', run.id, join(repo, 'example_plan.md'), 1, {
     state: 'working', branchName: 'queue/example', worktreePath, checkpointCommit: git(['rev-parse', 'HEAD']), workerInstanceId: 'worker',
@@ -67,7 +67,7 @@ beforeEach(() => {
   coordinator.initialize({ store, instances, skipInstall: true, pumpIntervalMs: null, loadAverage: () => [0, 0, 0],
     worktreeCreator: { createWorktree: vi.fn(), cleanupWorktree: vi.fn(), getAllSessions: () => [] },
     selectVerifier: async () => ({ ok: true, choice: { provider: 'codex' } }),
-    routing: { readSaved: () => ({ worker: null, verifiers: [] }), poolProfiles: () => [], copilotProfiles: () => [],
+    routing: { readSaved: () => ({ workers: [], verifiers: [] }), poolProfiles: () => [], copilotProfiles: () => [],
       defaultProvider: () => null, checkerScopeKind: () => 'none', isProviderExcluded: () => false, listInstalledProviders: async () => ['claude', 'codex', 'cursor'] },
   });
   coordinator.registerRole('worker', { role: 'worker', runId: run.id, itemId: item.id });
@@ -95,7 +95,7 @@ function outcome(id: string, role: 'worker' | 'verifier' | 'triage') {
 function control(action: 'pause' | 'move' | 'cancel') {
   return action === 'move'
     ? coordinator.control({ action: 'set-routing', runId: run.id, routing: {
-      worker: { provider: 'cursor' }, verifiers: [{ provider: 'codex' }],
+      workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'codex' }],
     }, moveInProgress: true })
     : coordinator.control({ action, runId: run.id });
 }

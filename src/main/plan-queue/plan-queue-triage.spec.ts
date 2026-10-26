@@ -20,15 +20,17 @@ let create: ReturnType<typeof vi.fn>;
 let select: ReturnType<typeof vi.fn>;
 let userClosed: boolean;
 let retire: ReturnType<typeof vi.fn>;
+/** What the created triage session reports; null = the provider it was asked for. */
+let live: { provider?: string; currentModel?: string } | null;
 
 beforeEach(() => {
   run = { ...initialRun, config: { ...initialRun.config } };
   items = Array.from({ length: 9 }, (_, index) => newPlanQueueItem(`item-${index}`, run.id, `/repo/${index}_plan.md`, index));
-  now = 0; userClosed = false; retire = vi.fn();
+  now = 0; userClosed = false; retire = vi.fn(); live = null;
   create = vi.fn().mockResolvedValue({ id: 'triage-1' });
   select = vi.fn().mockResolvedValue({ ok: true, choice: { provider: 'claude' } });
   const host = {
-    instances: { createInstance: create, getInstance: () => ({ provider: create.mock.calls.at(-1)?.[0].provider ?? 'codex' }) },
+    instances: { createInstance: create, getInstance: () => live ?? ({ provider: create.mock.calls.at(-1)?.[0].provider ?? 'codex' }) },
     tracker: { track: vi.fn(), isShuttingDown: () => false },
     getItem: (id: string) => items.find((item) => item.id === id)!,
     getRun: () => run,
@@ -119,7 +121,7 @@ describe('readiness batches and retries', () => {
 
 
 it('retries with the run checker choices and their saved-choice licence authority', async () => {
-  const routed = { ...run, config: { ...run.config, routing: { worker: { provider: 'codex' }, verifiers: [{ provider: 'claude' }], checkersChosenBy: 'saved' as const } } };
+  const routed = { ...run, config: { ...run.config, routing: { workers: [{ provider: 'codex' }], verifiers: [{ provider: 'claude' }], checkersChosenBy: 'saved' as const } } };
   run = routed;
   triage.maybeStart(routed, items);
   await new Promise((resolve) => setImmediate(resolve));
@@ -223,6 +225,17 @@ it('a paused spawn refusal does not accrue backoff or failed starts', async () =
   expect(select).not.toHaveBeenCalled();
 });
 
+it('chooses the retry checker against the first attempt\'s own provider and model, not the run\'s first worker choice', async () => {
+  run = { ...run, workerProvider: 'claude', workerModel: 'claude-opus-5' };
+  // The spawn's usage check started the first triage on a later worker choice.
+  live = { provider: 'opencode', currentModel: 'openai/gpt-5.5' };
+  await start();
+  live = null;
+  triage.onOutcome('triage-1', run.id, { kind: 'failed', reason: 'failed' });
+  await start();
+  expect(select).toHaveBeenCalledWith(expect.objectContaining({ workerProvider: 'opencode', workerModel: 'openai/gpt-5.5' }));
+});
+
 it('preserves the retry checker account fence and Copilot seat', async () => {
   await start();
   triage.onOutcome('triage-1', run.id, { kind: 'failed', reason: 'failed' });
@@ -233,14 +246,14 @@ it('preserves the retry checker account fence and Copilot seat', async () => {
 
 
 it('reselects a retry checker if routing changes while selection is pending', async () => {
-  run.config = { ...run.config, routing: { worker: { provider: 'codex' }, verifiers: [{ provider: 'claude' }] } };
+  run.config = { ...run.config, routing: { workers: [{ provider: 'codex' }], verifiers: [{ provider: 'claude' }] } };
   await start();
   triage.onOutcome('triage-1', run.id, { kind: 'failed', reason: 'failed' });
   await waitForRetirement();
   let resolveSelection!: (result: unknown) => void;
   select.mockImplementationOnce(() => new Promise((resolve) => { resolveSelection = resolve; }));
   triage.maybeStart(run, items);
-  run = { ...run, config: { ...run.config, routing: { worker: { provider: 'codex' }, verifiers: [{ provider: 'copilot' }] } } };
+  run = { ...run, config: { ...run.config, routing: { workers: [{ provider: 'codex' }], verifiers: [{ provider: 'copilot' }] } } };
   select.mockResolvedValueOnce({ ok: true, choice: { provider: 'copilot', copilotProfileId: 'current-seat' } });
   resolveSelection({ ok: true, choice: { provider: 'claude', accountProfileIds: ['old-account'] } });
   await new Promise((resolve) => setImmediate(resolve));
@@ -263,7 +276,7 @@ describe('retry routing at the final asynchronous dispatch boundary', () => {
   it.each(['provider', 'account'] as const)('refreshes a changed %s after selection with resolved readiness', async (change) => {
     const old = { provider: 'claude', model: 'old-model', accountProfileIds: ['old-account'] };
     const current = { provider: change === 'provider' ? 'cursor' : 'claude', model: 'current-model', accountProfileIds: ['current-account'] };
-    run = { ...run, config: { ...run.config, routing: { worker: { provider: 'codex' }, verifiers: [old] } } };
+    run = { ...run, config: { ...run.config, routing: { workers: [{ provider: 'codex' }], verifiers: [old] } } };
     await start();
     triage.onOutcome('triage-1', run.id, { kind: 'failed', reason: 'first actual failure' });
     await waitForRetirement();
@@ -278,7 +291,7 @@ describe('retry routing at the final asynchronous dispatch boundary', () => {
       if (changePending) {
         changePending = false;
         // A concurrent set-routing validation finishes before ready's already-resolved continuation.
-        queueMicrotask(() => { run = { ...run, config: { ...run.config, routing: { worker: { provider: 'codex' }, verifiers: [current] } } }; });
+        queueMicrotask(() => { run = { ...run, config: { ...run.config, routing: { workers: [{ provider: 'codex' }], verifiers: [current] } } }; });
       }
       return spawnQueueInstance(config, { ready: Promise.resolve(), instances: port, getRun: () => run,
         isShuttingDown: () => false, userCloseEpoch: () => 0, isProviderExcluded: () => false });
@@ -333,7 +346,7 @@ it.each(['paused', 'superseded'] as const)('does not publish a reselected retry 
 
 it('keeps the first-triage worker route fallback when retry checker selection is unavailable', async () => {
   run = { ...run, workerModel: 'worker-model', config: { ...run.config, routing: {
-    worker: { provider: 'codex', model: 'worker-model', accountProfileIds: ['worker-account'] }, verifiers: [],
+    workers: [{ provider: 'codex', model: 'worker-model', accountProfileIds: ['worker-account'] }], verifiers: [],
   } } };
   await start();
   triage.onOutcome('triage-1', run.id, { kind: 'failed', reason: 'first failure' });

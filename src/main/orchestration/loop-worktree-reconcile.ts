@@ -11,11 +11,12 @@
  *    ownership metadata.
  */
 import { execFile } from 'node:child_process';
-import { rm, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import { getLogger } from '../logging/logger';
 import { isInsideOrEqual, pathCompareKey, sleep } from '../util/path-helpers';
+import { removeTree } from '../util/remove-tree';
 import { hermeticGitEnv } from '../workspace/git/git-env';
 import { getGitWriteQueue } from '../workspace/git/git-write-queue';
 import { verifyManagedWorktreeOwnership } from '../workspace/git/worktree-cleanup';
@@ -102,7 +103,7 @@ export async function removeOrphanWorktree(
 
   if (isManagedLoopWorktree(root, worktreePath)) {
     await getGitWriteQueue().enqueue('orphan-worktree-remove-fallback', async () => {
-      await rm(worktreePath, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      await removeTree(worktreePath, { maxRetries: 3, retryDelay: 100 });
       await git(['worktree', 'prune'], root, 15_000);
     });
     return !(await pathExists(worktreePath));

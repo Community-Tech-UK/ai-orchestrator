@@ -276,7 +276,7 @@ describe('PlanQueueStore', () => {
 
       runLoopMigrations(old);
       expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual(runBefore);
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, held_at: null, pending_instruction: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, held_at: null, pending_instruction: null, worker_provider: null, worker_model: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('legacy-item')).toMatchObject({ heldAt: null, pendingInstruction: null, state: 'fixing', round: 2 });
 
@@ -288,6 +288,50 @@ describe('PlanQueueStore', () => {
       expect(old.prepare('SELECT COUNT(*) AS n FROM plan_queue_runs').get<{ n: number }>()?.n).toBe(1);
       expect(old.prepare('SELECT COUNT(*) AS n FROM plan_queue_items').get<{ n: number }>()?.n).toBe(1);
       expect(old.prepare('SELECT COUNT(*) AS n FROM loop_migrations WHERE version = 23').get<{ n: number }>()?.n).toBe(1);
+    } finally { old.close(); }
+  });
+
+  it('reads a run stored with the old single-worker routing as a one-choice ranked list', () => {
+    const legacy = (id: string, worker: unknown) => driver.prepare(`INSERT INTO plan_queue_runs
+      (id, parent_instance_id, kind, workspace_cwd, status, config_json, started_at, updated_at)
+      VALUES (?, 'p', 'plans', '/repo', 'running', ?, 1, 1)`).run(id, JSON.stringify({ routing: { worker, verifiers: [{ provider: 'codex' }], checkersChosenBy: 'saved' } }));
+    legacy('legacy-one', { provider: 'claude', model: 'opus', accountProfileIds: ['max-a'] });
+    legacy('legacy-auto', null);
+    expect(store.getRun('legacy-one')?.config.routing).toEqual({
+      workers: [{ provider: 'claude', model: 'opus', accountProfileIds: ['max-a'] }], verifiers: [{ provider: 'codex' }], checkersChosenBy: 'saved',
+    });
+    expect(store.getRun('legacy-auto')?.config.routing).toEqual({ workers: [], verifiers: [{ provider: 'codex' }], checkersChosenBy: 'saved' });
+    // Saved again, the run is written in the new shape.
+    store.upsertRun(store.getRun('legacy-one')!);
+    expect(JSON.parse(driver.prepare('SELECT config_json FROM plan_queue_runs WHERE id = ?').get<{ config_json: string }>('legacy-one')!.config_json).routing)
+      .toEqual({ workers: [{ provider: 'claude', model: 'opus', accountProfileIds: ['max-a'] }], verifiers: [{ provider: 'codex' }], checkersChosenBy: 'saved' });
+  });
+
+  it('records what an item\'s worker ran on, and clears it when a new worker reports no model', () => {
+    store.upsertRun(makeRun());
+    const item = makeItem();
+    store.upsertItem({ ...item, workerProvider: 'codex', workerModel: 'gpt-6.1-sol' });
+    expect(store.getItem(item.id)).toMatchObject({ workerProvider: 'codex', workerModel: 'gpt-6.1-sol' });
+    store.upsertItem({ ...store.getItem(item.id)!, workerProvider: 'claude', workerModel: undefined });
+    expect(store.getItem(item.id)).toMatchObject({ workerProvider: 'claude' });
+    expect(store.getItem(item.id)?.workerModel).toBeUndefined();
+  });
+
+  it('upgrades v23 to v24 with no recorded worker route, and repeats safely', () => {
+    const old = new Database(':memory:') as unknown as SqliteDriver;
+    try {
+      runLoopMigrationsUpTo(old, 23);
+      old.prepare(`INSERT INTO plan_queue_runs (id, parent_instance_id, kind, workspace_cwd, status, config_json, started_at, updated_at)
+        VALUES ('run-23', 'p', 'plans', '/repo', 'running', '{}', 1, 1)`).run();
+      old.prepare(`INSERT INTO plan_queue_items (id, run_id, document_path, state, round, errored_rounds, created_at, updated_at)
+        VALUES ('item-23', 'run-23', '/repo/a_plan.md', 'awaiting-slot', 1, 0, 2, 2)`).run();
+      const before = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
+      runLoopMigrations(old);
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, worker_provider: null, worker_model: null });
+      const upgraded = new PlanQueueStore(old);
+      expect(upgraded.getItem('item-23')).not.toHaveProperty('workerProvider');
+      expect(() => runLoopMigrations(old)).not.toThrow();
+      expect(old.prepare('SELECT COUNT(*) AS n FROM loop_migrations WHERE version = 24').get<{ n: number }>()?.n).toBe(1);
     } finally { old.close(); }
   });
 

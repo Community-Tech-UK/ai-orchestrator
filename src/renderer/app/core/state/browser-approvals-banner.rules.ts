@@ -64,6 +64,7 @@ export function credentialAccessMovement(approval: BrowserApprovalRequest): stri
 const CREDENTIAL_ACCESS_ERROR_TEXT: Readonly<Record<string, string>> = {
   vault_locked: 'The password vault is locked. Unlock it, then approve again.',
   target_unavailable: 'The browser tab could not be reached. It may be closed, not responding, on a site Harness is not allowed to use, or on a computer that is offline.',
+  target_closed: 'The sign-in tab has closed. The requesting session needs to open a fresh sign-in tab and request saved-login access again.',
   bw_command_failed: 'The password vault command failed. Check the vault is reachable, then approve again.',
   credential_access_failed: 'Something went wrong while preparing the saved login.',
   expired: 'This request timed out.',
@@ -75,6 +76,7 @@ const CREDENTIAL_ACCESS_ERROR_TEXT: Readonly<Record<string, string>> = {
   item_not_found: 'The saved login could not be found in the vault.',
   item_ambiguous: 'More than one saved login matches this name.',
   request_no_longer_pending: 'This request was already decided, cancelled or timed out.',
+  request_target_changed: 'This request now uses a different sign-in tab. Review it and approve again.',
   permission_expired: 'The chosen permission period has already ended.',
   authorization_revoked: 'This saved-login permission was revoked or ran out while approving, so the request has ended.',
   origin_mismatch: 'The website in the tab, or the website this saved login is already linked to, does not match this request. If the tab is on a normal web page and this keeps happening, deny it.',

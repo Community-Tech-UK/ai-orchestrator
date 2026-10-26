@@ -163,8 +163,10 @@ export class PlanQueueWorktreeService {
    */
   async checkpoint(item: PlanQueueItem, label: string): Promise<PlanQueueItem> {
     const worktreePath = requireWorktree(item);
+    const branchName = requireBranch(item);
     const scope = await workPathspec(worktreePath);
     const hash = await getGitWriteQueue().enqueue('plan-queue-checkpoint', async () => {
+      await assertItemCheckout(worktreePath, branchName);
       // A resolved merge is completed by this commit (that is the worker
       // contract); an unresolved one must never be, or the conflict markers
       // would be committed and could land.
@@ -322,6 +324,20 @@ async function workPathspec(worktreePath: string): Promise<string[]> {
   const provisioned = await readProvisionedPaths(worktreePath);
   if (provisioned.length === 0) return [];
   return ['--', '.', ...provisioned.map((p) => `:(exclude,literal)${p}`)];
+}
+
+/**
+ * The folder must be the top of a checkout of the item's own branch. A plain
+ * folder at the queue path (an orphan left by an interrupted checkout) makes
+ * git resolve the enclosing repository instead, where `add -A` and `commit`
+ * would sweep that repository's whole working tree onto its current branch.
+ */
+async function assertItemCheckout(worktreePath: string, branchName: string): Promise<void> {
+  const root = await gitExec(['rev-parse', '--show-toplevel'], worktreePath);
+  const branch = await gitExec(['symbolic-ref', '-q', '--short', 'HEAD'], worktreePath).catch(() => '');
+  if (pathCompareKey(await fs.realpath(root)) !== pathCompareKey(await fs.realpath(worktreePath)) || branch !== branchName) {
+    throw new Error(`${worktreePath} is not this item's checkout of ${branchName}, so nothing was committed`);
+  }
 }
 
 function refuse(reason: RemovalRefusal, detail: string): RemovalResult {

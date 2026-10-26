@@ -39,7 +39,7 @@ function toControlPayload(args: PlanQueueControlArgs): PlanQueueControlPayload {
   switch (args.action) {
     case 'set-routing':
       return { action: 'set-routing', runId: args.run_id, routing: {
-        worker: args.routing.worker ? routeChoiceFromArgs(args.routing.worker) : null,
+        workers: args.routing.workers.map(routeChoiceFromArgs),
         verifiers: args.routing.verifiers.map(routeChoiceFromArgs),
       }, ...(args.move_in_progress !== undefined ? { moveInProgress: args.move_in_progress } : {}) };
     case 'pause':
@@ -57,7 +57,7 @@ function toControlPayload(args: PlanQueueControlArgs): PlanQueueControlPayload {
 export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordinator): PlanQueueToolOperations {
   return {
     async start(callerInstanceId, args) {
-      const { run, excluded } = await coordinator().startRun({
+      const { run, excluded, routingSetAside } = await coordinator().startRun({
         parentInstanceId: callerInstanceId,
         kind: args.kind,
         glob: args.glob,
@@ -70,7 +70,7 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
           ...(args.post_merge_gate ? { postMergeGate: args.post_merge_gate } : {}),
         },
         routing: {
-          ...(args.worker ? { worker: routeChoiceFromArgs(args.worker) } : {}),
+          ...(args.workers ? { workers: args.workers.map(routeChoiceFromArgs) } : {}),
           ...(args.verifiers ? { verifiers: args.verifiers.map(routeChoiceFromArgs) } : {}),
         },
       });
@@ -80,7 +80,8 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
         message: (run.items.length === 0
           ? 'No matching documents were found.'
           : 'The run has started. Workers appear nested under this session. Documents that need James will arrive as a message with questions to ask him; a summary arrives when the run ends. Use plan_queue_status to check progress.')
-          + (excluded.length ? ' Some documents belong to another active run. If its session no longer exists, adopt that run instead of starting again.' : ''),
+          + (excluded.length ? ' Some documents belong to another active run. If its session no longer exists, adopt that run instead of starting again.' : '')
+          + (routingSetAside.length ? ` James's saved Plan Queue choice for ${routingSetAside.join(' and ')} was used instead of the one you passed.` : ''),
       };
     },
     status(_callerInstanceId, runId) {

@@ -77,9 +77,9 @@ to the Markdown source. These are MCP tools, not `$AIO_MCP` CLI subcommands.
 It also exposes the Plan Queue tools: `plan_queue_start` (args: `kind` =
 `plans` or `livetests`, optional `glob`, `worker_slots`, `verification_slots`,
 `max_rounds`, `relax_settings`, `verifier_gates`, `post_merge_gate`, and
-`worker` / `verifiers` provider-and-account choices — pass those only when James
-asks for specific providers or accounts, since his saved Plan Queue choice
-applies otherwise; the gate lists default to this app's checklist, so pass the
+`workers` / `verifiers` provider-and-account choices in preference order — pass
+those only when James asks for specific providers or accounts; his saved Plan
+Queue lists always win for any role he set; the gate lists default to this app's checklist, so pass the
 target repository's own commands or `[]` for any other repository), `plan_queue_status` (`run_id?`),
 `plan_queue_answer` (`item_id`, `option_id`) and `plan_queue_control`
 (`action`, `run_id?`, `item_id?`, `routing?`, `move_in_progress?`). Use them when James asks to work through the
@@ -107,9 +107,9 @@ sessions on those same branches. Paused documents remain waiting, never parked
 just because the run paused.
 
 The parent's `plan_queue_control` action `set-routing` takes `run_id` and
-`routing: { worker: { provider, model?, account_ids?, copilot_account_id? } | null,
-verifiers: [<same choice shape>] }`. `worker: null` inherits the starting session;
-an empty checker list means automatic selection. This replaces the run's choice
+`routing: { workers: [{ provider, model?, account_ids?, copilot_account_id? }],
+verifiers: [<same choice shape>] }`, each in preference order. `workers: []`
+inherits the starting session; an empty checker list means automatic selection. This replaces the run's choice
 for future sessions, including resumed parked work, triage and checkers, without
 changing the saved default. Invalid or unavailable providers/accounts are refused
 before saving. Per-run agent checker lists still cannot replace a protected work

@@ -101,6 +101,7 @@ export type CredentialVaultErrorCode =
   | 'item_ambiguous'
   | 'item_changed'
   | 'target_unavailable'
+  | 'target_closed'
   | 'shared_tab_credential_fill_not_allowed'
   | 'shared_tab_secure_credential_fill_unavailable'
   | 'item_outside_agent_folder'

@@ -6158,7 +6158,7 @@
     },
     {
       "path": "resources/browser-extension/background.js",
-      "lines": 6772
+      "lines": 6920
     },
     {
       "path": "docs/plans/2026-10-10-oct-phase1-token-levers_plan.md",
@@ -6173,12 +6173,12 @@
       "lines": 5156
     },
     {
-      "path": "docs/plans/2026-10-10-oct-phase3-calm-screen_plan.md",
-      "lines": 4591
+      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
+      "lines": 5053
     },
     {
-      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 4456
+      "path": "docs/plans/2026-10-10-oct-phase3-calm-screen_plan.md",
+      "lines": 4591
     },
     {
       "path": "docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md",
@@ -6321,6 +6321,10 @@
       "lines": 2427
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
+      "lines": 2393
+    },
+    {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
       "lines": 2372
     },
@@ -6331,10 +6335,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
       "lines": 2339
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 2329
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",

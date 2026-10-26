@@ -134,13 +134,13 @@ describe('PlanQueueRunListComponent', () => {
   it('shows current providers and accounts, falling back to the stored worker for older runs', () => {
     const base = makeRun().config;
     fixture.componentRef.setInput('runs', [
-      makeRun({ id: 'run-default', config: { ...base, routing: { worker: null, verifiers: [] } } }),
+      makeRun({ id: 'run-default', config: { ...base, routing: { workers: [], verifiers: [] } } }),
       makeRun({
         id: 'run-fixed',
         config: {
           ...base,
           routing: {
-            worker: { provider: 'claude', model: 'opus', accountProfileIds: ['acc-a', 'acc-b'] },
+            workers: [{ provider: 'claude', model: 'opus', accountProfileIds: ['acc-a', 'acc-b'] }],
             verifiers: [{ provider: 'codex' }, { provider: 'copilot', model: 'gpt', copilotProfileId: 'cp-1' }],
           },
         },
@@ -213,12 +213,26 @@ describe('planQueueStateCounts', () => {
 });
 
 describe('planQueueRoutingSummary', () => {
-  it('reads a null worker as the default provider and no checkers as automatic', () => {
-    expect(planQueueRoutingSummary({ worker: null, verifiers: [] })).toBe('Workers: default provider · Checkers: automatic');
+  it('names accounts by their labels when it knows them', () => {
+    const labels = new Map([['codex:legacy', 'ChatGPT SUAS'], ['copilot:cp-1', 'Personal Copilot']]);
+    const accountLabel = (provider: string, id: string) => labels.get(`${provider}:${id}`) ?? id;
+    expect(planQueueRoutingSummary({
+      workers: [{ provider: 'codex', accountProfileIds: ['legacy', 'unknown-id'] }],
+      verifiers: [{ provider: 'copilot', copilotProfileId: 'cp-1' }],
+    }, { accountLabel })).toBe('Workers: codex (accounts: ChatGPT SUAS, unknown-id) · Checkers: copilot (account: Personal Copilot)');
+  });
+
+  it('lists ranked worker choices in order', () => {
+    expect(planQueueRoutingSummary({ workers: [{ provider: 'codex', model: 'gpt-6.1-sol' }, { provider: 'claude' }], verifiers: [] }))
+      .toBe('Workers: codex/gpt-6.1-sol, then claude · Checkers: automatic');
+  });
+
+  it('reads an empty worker list as the default provider and no checkers as automatic', () => {
+    expect(planQueueRoutingSummary({ workers: [], verifiers: [] })).toBe('Workers: default provider · Checkers: automatic');
   });
 
   it('lists provider, model and accounts without empty brackets', () => {
-    expect(planQueueRoutingSummary({ worker: { provider: 'codex', accountProfileIds: [] }, verifiers: [] }))
+    expect(planQueueRoutingSummary({ workers: [{ provider: 'codex', accountProfileIds: [] }], verifiers: [] }))
       .toBe('Workers: codex · Checkers: automatic');
   });
 });

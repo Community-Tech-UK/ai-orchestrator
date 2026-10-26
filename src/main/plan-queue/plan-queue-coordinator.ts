@@ -53,7 +53,7 @@ import { reconcilePlanQueueWorktrees } from './plan-queue-reconciler';
 import { recoverInterruptedDocumentMerges, recoverPlanQueue } from './plan-queue-recovery';
 import { applyTriageRecords, PRE_START_STATES, reconcileWaitingDocuments } from './plan-queue-readiness';
 import type { PlanQueueRelaxation } from './plan-queue-relaxation';
-import { resolveRunRouting, type PlanQueueRoutingDeps, type PlanQueueRoutingOverride } from './plan-queue-routing';
+import { assertRoutingInstalled, resolveRunRouting, type PlanQueueRoutingDeps, type PlanQueueRoutingOverride } from './plan-queue-routing';
 import { assertItemTransition, isTerminalItemState, itemHoldsWorktree, newPlanQueueItem } from './plan-queue-state';
 import type { PlanQueueStore } from './plan-queue-store';
 import { PlanQueueWorktreeService, type PlanQueueWorktreeCreator } from './plan-queue-worktree';
@@ -89,13 +89,15 @@ export interface StartRunInput {
   workspaceCwd?: string;
   glob?: string;
   config?: Partial<PlanQueueRunConfig>;
-  /** Per-run provider/account choices (`plan_queue_start`); else the saved choice. */
+  /** Per-run provider/account choices (`plan_queue_start`), used where James saved none. */
   routing?: PlanQueueRoutingOverride;
 }
 export interface StartRunResult {
   run: PlanQueueRunDto;
   /** Documents already owned by another active run. */
   excluded: string[];
+  /** Roles whose per-run choice gave way to James's saved list. */
+  routingSetAside: ('workers' | 'checkers')[];
 }
 interface ResolvedDeps {
   store: PlanQueueStore;
@@ -249,7 +251,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       createInstance: (config) => spawnQueueInstance(config, {
         ready, instances: inner, getRun: (id) => this.store.getRun(id),
         isShuttingDown: () => this.tracker.isShuttingDown(), userCloseEpoch: () => this.userCloseEpoch,
-        isProviderExcluded: this.requireDeps().routing?.isProviderExcluded,
+        isProviderExcluded: this.requireDeps().routing?.isProviderExcluded, routeUsage: this.requireDeps().routing?.routeUsage,
       }),
       sendInput: (instanceId, message, attachments, options) => inner.sendInput(instanceId, message, attachments, options),
       terminateInstance: (instanceId, graceful) => inner.terminateInstance(instanceId, graceful),
@@ -326,7 +328,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (!baseBranch) throw new Error(`${repoRoot} is not on a branch; the queue lands work on the checked-out branch`);
 
     // Fixed now, validated now: a choice the queue cannot honour refuses the run.
-    const routing = resolveRunRouting(parent, { ...input.routing, relaxExclusions: input.config?.relaxSettings === true, workspaceCwd: repoRoot }, deps.routing);
+    const { routing, setAside } = resolveRunRouting(parent, { ...input.routing, relaxExclusions: input.config?.relaxSettings === true, workspaceCwd: repoRoot }, deps.routing);
+    await assertRoutingInstalled(routing, deps.routing ?? {});
     const config: PlanQueueRunConfig = { ...DEFAULT_PLAN_QUEUE_CONFIG[input.kind], ...input.config, baseBranch, routing, startingSessionRoute: { provider: parent.provider, currentModel: parent.currentModel, accountProfileId: parent.accountProfileId, copilotAccountProfileId: parent.copilotAccountProfileId } };
     const documents = await discoverPlanQueueDocuments(repoRoot, input.kind, input.glob);
     // No await from here until the items are written: reading the owned set and
@@ -344,8 +347,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       status: 'running',
       config,
       relaxation: null,
-      workerProvider: routing.worker?.provider ?? null,
-      workerModel: routing.worker?.model ?? null,
+      workerProvider: routing.workers[0]?.provider ?? null,
+      workerModel: routing.workers[0]?.model ?? null,
       startedAt: now,
       endedAt: null,
     };
@@ -365,7 +368,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     logger.info('Plan queue run started', { runId: run.id, kind: run.kind, items: items.length, excluded: excluded.length });
     this.announce({ runId: run.id });
     this.requestPump();
-    return { run: runToDto(this.getRun(run.id), items), excluded };
+    return { run: runToDto(this.getRun(run.id), items), excluded, routingSetAside: setAside };
   }
   getRunDto(runId: string): PlanQueueRunDto | null {
     const run = this.requireDeps().store.getRun(runId);
@@ -447,7 +450,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         },
         parentRoute: (run) => {
           const parent = run.config.startingSessionRoute ?? this.instances.getInstance(run.parentInstanceId);
-          if (!parent && payload.action === 'set-routing' && !payload.routing.worker) throw new Error('The starting session is unavailable; choose a worker provider explicitly.');
+          if (!parent && payload.action === 'set-routing' && payload.routing.workers.length === 0) throw new Error('The starting session is unavailable; choose a worker provider explicitly.');
           return parent ?? {};
         },
         notifyParent: (run, message) => this.notifyParent(run, message), requestPump: () => this.requestPump(),

@@ -31,14 +31,15 @@ export async function changeRunRouting(
   if (!['running', 'paused'].includes(run.status) && !host.hasParkedWork(run)) {
     throw new PlanQueueRoutingError('This run has finished and has no parked documents to resume.');
   }
-  // A full edit replaces the saved defaults for this resolution only. In particular,
-  // null means inherit the starting session, never fall back to today's saved worker.
-  // Provenance is derived from the authenticated surface, never from the payload.
-  const routing = resolveRunRouting(host.parentRoute(run), {
+  // A full edit replaces the saved defaults for this resolution only. In particular, no
+  // workers means inherit the starting session, never fall back to today's saved list.
+  // Provenance is derived from the authenticated surface, never from the payload: a
+  // parent's checkers stay a per-run list, which cannot replace a protected work seat.
+  const { routing } = resolveRunRouting(host.parentRoute(run), {
     ...(actor === 'parent' ? { verifiers: choice.verifiers } : {}),
     relaxExclusions: run.config.relaxSettings,
     workspaceCwd: run.workspaceCwd,
-  }, { ...deps, readSaved: () => ({ worker: choice.worker, verifiers: choice.verifiers }) });
+  }, { ...deps, readSaved: () => ({ workers: choice.workers, verifiers: actor === 'parent' ? [] : choice.verifiers }) });
   await assertRoutingInstalled(routing, deps);
   // Detection can yield while the scheduler finishes the run or restores its parent.
   // Keep that newer lifecycle state while changing only routing fields.
@@ -47,7 +48,7 @@ export async function changeRunRouting(
     throw new PlanQueueRoutingError('This run has finished and has no parked documents to resume.');
   }
   const updated: PlanQueueRun = {
-    ...current, workerProvider: routing.worker?.provider ?? null, workerModel: routing.worker?.model ?? null,
+    ...current, workerProvider: routing.workers[0]?.provider ?? null, workerModel: routing.workers[0]?.model ?? null,
     config: { ...current.config, routing },
   };
   const before = describeRouting(current.config.routing);

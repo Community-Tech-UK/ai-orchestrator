@@ -336,7 +336,7 @@ describe('PlanQueueStore', () => {
     const refusal = { success: false, error: { message: 'Provider is unavailable' } };
     ipc.control.mockResolvedValueOnce(refusal).mockResolvedValueOnce({ success: true, data: null });
     const store = TestBed.inject(PlanQueueStore);
-    const payload = { action: 'set-routing' as const, runId: 'run-1', routing: { worker: { provider: 'codex' }, verifiers: [] } };
+    const payload = { action: 'set-routing' as const, runId: 'run-1', routing: { workers: [{ provider: 'codex' }], verifiers: [] } };
     expect(await store.control(payload)).toEqual(refusal);
     expect(store.lastError()).toBe('Provider is unavailable');
     expect((await store.control(payload)).success).toBe(true);

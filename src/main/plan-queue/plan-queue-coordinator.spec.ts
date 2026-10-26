@@ -67,6 +67,9 @@ let fake: FakeInstances;
 let coordinator: PlanQueueCoordinator;
 /** James's saved Plan Queue routing and account pool, as the coordinator reads them. */
 let savedRouting: PlanQueueRouting;
+/** Providers whose choices have no usage left, for the ranked worker and checker lists. */
+let outOfUsage: string[];
+let installedProviders: string[];
 let poolProfiles: ProviderAccountProfile[];
 let verifierInputs: VerifierSelectInput[];
 let excludedProviders: string[];
@@ -289,7 +292,9 @@ beforeEach(() => {
   driver.exec('PRAGMA foreign_keys = ON');
   runLoopMigrations(driver);
   store = new PlanQueueStore(driver);
-  savedRouting = { worker: null, verifiers: [] };
+  savedRouting = { workers: [], verifiers: [] };
+  outOfUsage = [];
+  installedProviders = ['claude', 'codex', 'cursor', 'copilot', 'opencode', 'gemini'];
   poolProfiles = [];
   verifierInputs = [];
   excludedProviders = [];
@@ -323,6 +328,8 @@ function startCoordinator(
       isProviderExcluded: (provider) => excludedProviders.includes(provider),
       defaultProvider: () => null,
       checkerScopeKind: () => 'none',
+      listInstalledProviders: async () => installedProviders,
+      routeUsage: async (choice) => ({ usable: !outOfUsage.includes(choice.provider), resumeAt: null }),
     },
     loadAverage: () => [0, 0, 0],
     relaxation,
@@ -2193,7 +2200,7 @@ describe('PlanQueueCoordinator — providers and accounts', { timeout: 30_000 },
 
     const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
     expect(run.config.routing).toEqual({
-      worker: { provider: 'claude', model: 'claude-sonnet-5', accountProfileIds: ['max-b'] },
+      workers: [{ provider: 'claude', model: 'claude-sonnet-5', accountProfileIds: ['max-b'] }],
       verifiers: [],
     });
     await waitForRun(run.id);
@@ -2214,7 +2221,7 @@ describe('PlanQueueCoordinator — providers and accounts', { timeout: 30_000 },
     parent.accountProfileId = 'max-a';
 
     const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
-    expect(run.config.routing?.worker).toEqual({ provider: 'claude', model: 'claude-sonnet-5' });
+    expect(run.config.routing?.workers).toEqual([{ provider: 'claude', model: 'claude-sonnet-5' }]);
     await waitForRun(run.id);
     expect(fake.created.find((i) => i.role === 'worker')!.config.allowedAccountProfileIds).toBeUndefined();
   });
@@ -2223,7 +2230,7 @@ describe('PlanQueueCoordinator — providers and accounts', { timeout: 30_000 },
     planDoc('2026-01-01-alpha');
     poolProfiles = [poolAccount('pro-1', 'codex'), poolAccount('pro-2', 'codex')];
     savedRouting = {
-      worker: { provider: 'codex', model: 'gpt-6.1-sol', accountProfileIds: ['pro-2'] },
+      workers: [{ provider: 'codex', model: 'gpt-6.1-sol', accountProfileIds: ['pro-2'] }],
       verifiers: [{ provider: 'claude' }],
     };
     const parent = fake.addParent();
@@ -2238,20 +2245,77 @@ describe('PlanQueueCoordinator — providers and accounts', { timeout: 30_000 },
     expect(verifierInputs[0]).toMatchObject({ choices: [{ provider: 'claude' }], choicesOverrideLicence: true });
   });
 
-  it('lets one run override the saved choice', async () => {
+  it('keeps James\'s saved lists over a run\'s own choices, and says which were set aside', async () => {
     planDoc('2026-01-01-alpha');
-    savedRouting = { worker: { provider: 'codex' }, verifiers: [{ provider: 'claude' }] };
+    savedRouting = { workers: [{ provider: 'codex' }], verifiers: [{ provider: 'claude' }] };
     const parent = fake.addParent();
 
-    const { run } = await coordinator.startRun({
+    const { run, routingSetAside } = await coordinator.startRun({
       parentInstanceId: parent.id,
       kind: 'plans',
-      routing: { worker: { provider: 'cursor' }, verifiers: [] },
+      routing: { workers: [{ provider: 'cursor' }], verifiers: [] },
     });
-    expect(run.config.routing).toEqual({ worker: { provider: 'cursor' }, verifiers: [] });
+    expect(run.config.routing).toEqual({ workers: [{ provider: 'codex' }], verifiers: [{ provider: 'claude' }], checkersChosenBy: 'saved' });
+    expect(routingSetAside).toEqual(['workers', 'checkers']);
+    await waitForRun(run.id);
+    expect(fake.created.find((i) => i.role === 'worker')!.config.provider).toBe('codex');
+    expect(verifierInputs[0]?.choices).toEqual([{ provider: 'claude' }]);
+  });
+
+  it('records a worker\'s provider only once it is known, never the "auto" it starts with', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = (instance, message, f) => {
+      instance.provider = 'auto';
+      return implement(instance, message, f);
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+    expect(store.listItems(run.id)[0]).not.toHaveProperty('workerProvider');
+  });
+
+  it('refuses to start a run whose list names a CLI that is not installed, rather than running another provider', async () => {
+    planDoc('2026-01-01-alpha');
+    installedProviders = ['claude'];
+    savedRouting = { workers: [{ provider: 'claude' }, { provider: 'codex' }], verifiers: [] };
+    const parent = fake.addParent();
+
+    await expect(coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' }))
+      .rejects.toThrow('Plan Queue: codex is not installed. Install its CLI or choose another provider.');
+    expect(coordinator.listRunDtos()).toEqual([]);
+  });
+
+  it('uses a run\'s own choices where James saved none', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+
+    const { run, routingSetAside } = await coordinator.startRun({
+      parentInstanceId: parent.id,
+      kind: 'plans',
+      routing: { workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'claude' }] },
+    });
+    expect(run.config.routing).toEqual({ workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'claude' }], checkersChosenBy: 'run' });
+    expect(routingSetAside).toEqual([]);
     await waitForRun(run.id);
     expect(fake.created.find((i) => i.role === 'worker')!.config.provider).toBe('cursor');
-    expect(verifierInputs[0]?.choices).toEqual([]);
+  });
+
+  it('starts new sessions on the first worker choice with usage left, and records what each worker ran on', async () => {
+    planDoc('2026-01-01-alpha');
+    savedRouting = { workers: [{ provider: 'claude', model: 'claude-opus-5' }, { provider: 'codex', model: 'gpt-6.1-sol' }], verifiers: [] };
+    outOfUsage = ['claude'];
+    const parent = fake.addParent();
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+
+    expect(fake.created.find((i) => i.role === 'triage')!.config).toMatchObject({ provider: 'codex', modelOverride: 'gpt-6.1-sol' });
+    const worker = fake.created.find((i) => i.role === 'worker')!;
+    expect(worker.config).toMatchObject({ provider: 'codex', modelOverride: 'gpt-6.1-sol' });
+    // The checker is chosen against the worker that actually ran, not the run's first choice.
+    expect(verifierInputs[0]).toMatchObject({ workerProvider: 'codex', workerModel: 'gpt-6.1-sol' });
+    expect(store.listItems(run.id)[0]).toMatchObject({ workerProvider: 'codex', workerModel: 'gpt-6.1-sol' });
   });
 
   it('refuses a run on a never-auto-pick provider unless the run relaxes that list', async () => {
@@ -2264,7 +2328,7 @@ describe('PlanQueueCoordinator — providers and accounts', { timeout: 30_000 },
     expect(coordinator.listRunDtos()).toEqual([]);
 
     const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { relaxSettings: true } });
-    expect(run.config.routing?.worker?.provider).toBe('claude');
+    expect(run.config.routing?.workers[0]?.provider).toBe('claude');
     await waitForRun(run.id);
   });
 
@@ -2318,7 +2382,7 @@ describe('PlanQueueCoordinator — providers and accounts', { timeout: 30_000 },
   it('refuses to start a run whose saved choice names an account the queue may not use', async () => {
     planDoc('2026-01-01-alpha');
     poolProfiles = [poolAccount('max-a', 'claude', { enabled: false })];
-    savedRouting = { worker: { provider: 'claude', accountProfileIds: ['max-a'] }, verifiers: [] };
+    savedRouting = { workers: [{ provider: 'claude', accountProfileIds: ['max-a'] }], verifiers: [] };
     const parent = fake.addParent();
 
     await expect(coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' }))

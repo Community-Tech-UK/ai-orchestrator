@@ -9,7 +9,9 @@
  */
 
 import { execFile } from 'child_process';
+import * as fs from 'fs/promises';
 import { promisify } from 'util';
+import { pathCompareKey } from '../util/path-helpers';
 import { gitExec, gitExecSafe } from '../workspace/git/git-exec';
 import { hermeticGitEnv } from '../workspace/git/git-env';
 import { getGitWriteQueue } from '../workspace/git/git-write-queue';
@@ -48,6 +50,27 @@ export function sameTree(a: TreeSnapshot, b: TreeSnapshot): boolean {
 }
 
 /**
+ * Is the folder the top of a checkout of its own? A plain folder left at a
+ * queue path (a half-removed worktree) is not: Git run there resolves the
+ * enclosing repository, so a revert or merge would act on the root checkout.
+ */
+export async function isOwnCheckout(worktreePath: string): Promise<boolean> {
+  try {
+    const top = await gitExec(['rev-parse', '--show-toplevel'], worktreePath);
+    return pathCompareKey(await fs.realpath(top)) === pathCompareKey(await fs.realpath(worktreePath));
+  } catch {
+    return false;
+  }
+}
+
+/** Call right before the Git writes it protects (inside the write queue when they are queued). */
+export async function assertOwnCheckout(worktreePath: string): Promise<void> {
+  if (!(await isOwnCheckout(worktreePath))) {
+    throw new Error(`${worktreePath} is not a checkout of its own, so no Git command was run in it`);
+  }
+}
+
+/**
  * Put the worktree back to `before`: abandon a merge in progress, drop commits
  * the verifier made, restore
  * tracked files it changed, delete untracked files it created. Paths that were
@@ -55,6 +78,7 @@ export function sameTree(a: TreeSnapshot, b: TreeSnapshot): boolean {
  */
 export async function revertToSnapshot(worktreePath: string, before: TreeSnapshot): Promise<void> {
   await getGitWriteQueue().enqueue('plan-queue-verifier-revert', async () => {
+    await assertOwnCheckout(worktreePath);
     // Every snapshot is taken with no merge in progress (verification starts
     // from a checkpoint, which completes or refuses a merge). A merge found now
     // was started by the verifier, or by the coordinator just before a crash:

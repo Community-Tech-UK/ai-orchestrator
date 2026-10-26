@@ -23,13 +23,16 @@ type TriageHost = Pick<PlanQueueFlowHost,
 interface Attempt {
   runId: string;
   attempts: number;
+  /** Provider and model of the first attempt; a retry checks with a different one. */
   provider: string;
+  model: string | null;
   causes: string[];
 }
 interface Session {
   instanceId: string | null;
   itemIds: string[];
   provider: string;
+  model: string | null;
 }
 
 export class PlanQueueTriage {
@@ -53,7 +56,7 @@ export class PlanQueueTriage {
       const attempt = this.attempts.get(item.id);
       return firstAttempt ? attempt?.provider === firstAttempt.provider : !attempt;
     }).slice(0, TRIAGE_BATCH_SIZE);
-    const session: Session = { instanceId: null, itemIds: batch.map((item) => item.id), provider: run.workerProvider ?? '' };
+    const session: Session = { instanceId: null, itemIds: batch.map((item) => item.id), provider: run.workerProvider ?? '', model: null };
     this.triageByRun.set(run.id, session);
     const spawning = this.spawn(run, session, firstAttempt).catch((error: unknown) => {
       if ((error instanceof PlanQueueSpawnRunPaused || error instanceof PlanQueueSpawnStoppedByUser) && error.instanceId) this.rememberStop(run.id, error.instanceId);
@@ -112,10 +115,10 @@ export class PlanQueueTriage {
       for (;;) {
         run = this.host.getRun(run.id);
         if (this.triageByRun.get(run.id) !== session || this.host.tracker.isShuttingDown() || run.status !== 'running') return;
-        const routingKey = JSON.stringify([run.config.routing, run.workerModel]);
+        const routingKey = JSON.stringify(run.config.routing);
         try {
           const selected = await this.host.selectVerifier({ workerProvider: attempt.provider,
-            workerModel: run.workerModel, workingDirectory: run.workspaceCwd,
+            workerModel: attempt.model, workingDirectory: run.workspaceCwd,
             choices: run.config.routing?.verifiers,
             choicesOverrideLicence: run.config.routing?.checkersChosenBy === 'saved' });
           choice = selected.ok ? selected.choice : undefined;
@@ -124,7 +127,7 @@ export class PlanQueueTriage {
           choice = undefined;
         }
         const current = this.host.getRun(run.id);
-        if (JSON.stringify([current.config.routing, current.workerModel]) === routingKey) break;
+        if (JSON.stringify(current.config.routing) === routingKey) break;
       }
     }
     if (this.triageByRun.get(run.id) !== session || this.host.tracker.isShuttingDown()) return;
@@ -137,7 +140,7 @@ export class PlanQueueTriage {
         ...(choice.copilotProfileId ? { copilotAccountProfileId: choice.copilotProfileId } : {}),
         ...(choice.accountProfileIds?.length ? { allowedAccountProfileIds: [...choice.accountProfileIds] } : {}) }
         : run.workerModel ? { modelOverride: run.workerModel } : {}),
-      yoloMode: true, metadata: { planQueueRunId: run.id, planQueueRole: 'triage', ...(choice ? { planQueueTriageRetry: true, planQueueRouting: JSON.stringify(run.config.routing), planQueueTriageWorkerModel: run.workerModel } : {}) },
+      yoloMode: true, metadata: { planQueueRunId: run.id, planQueueRole: 'triage', ...(choice ? { planQueueTriageRetry: true, planQueueRouting: JSON.stringify(run.config.routing) } : {}) },
     });
     if (this.triageByRun.get(run.id) !== session || this.host.tracker.isShuttingDown()
       || this.host.getRun(run.id).status !== 'running') {
@@ -146,7 +149,9 @@ export class PlanQueueTriage {
       return;
     }
     session.instanceId = instance.id;
-    session.provider = this.host.instances.getInstance(instance.id)?.provider ?? (session.provider || 'unknown provider');
+    const live = this.host.instances.getInstance(instance.id);
+    session.provider = live?.provider ?? (session.provider || 'unknown provider');
+    session.model = live?.currentModel ?? null;
     this.spawnFailures.delete(run.id);
     this.host.registerRole(instance.id, { role: 'triage', runId: run.id });
     this.host.tracker.track(instance.id);
@@ -172,7 +177,7 @@ export class PlanQueueTriage {
     }
     for (const id of session.itemIds) {
       if (this.host.getItem(id).state !== 'discovered') { this.attempts.delete(id); continue; }
-      const attempt = this.attempts.get(id) ?? { runId, attempts: 0, provider: session.provider, causes: [] };
+      const attempt = this.attempts.get(id) ?? { runId, attempts: 0, provider: session.provider, model: session.model, causes: [] };
       attempt.attempts += 1;
       const cause = outcome.kind === 'failed' ? `its session failed: ${outcome.reason.slice(0, 1500)}`
         : outcome.kind === 'provider-limit' ? "the provider's usage limit was reached" : 'it ended without answering';

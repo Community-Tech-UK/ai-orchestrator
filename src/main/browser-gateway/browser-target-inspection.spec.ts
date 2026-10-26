@@ -5,7 +5,7 @@ import {
 } from './browser-target-inspection';
 
 describe('deriveBrowserTargetInspectionState', () => {
-  it.each(['host_permission_denied', 'page_text_read_failed'] as const)(
+  it.each(['host_permission_denied', 'page_text_read_failed', 'page_not_responding'] as const)(
     'overrides a readable stamp when page text is %s',
     (textUnavailableReason) => {
       const state = deriveBrowserTargetInspectionState({

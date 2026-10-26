@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { isInsideOrEqual, pathCompareKey, sleep } from '../../util/path-helpers';
+import { removeTree } from '../../util/remove-tree';
 import { gitExec } from './git-exec';
 import { getGitWriteQueue } from './git-write-queue';
 
@@ -96,7 +97,7 @@ export async function removeManagedWorktreeDirectory(params: {
 
   if (isManagedWorktreePath(repoRoot, baseDir, worktreePath)) {
     await enqueue('worktree-remove-fallback', async () => {
-      await fs.rm(worktreePath, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      await removeTree(worktreePath, { maxRetries: 3, retryDelay: 100 });
       await gitExec(['worktree', 'prune'], repoRoot);
     });
     if (!(await worktreePathExists(worktreePath))) return;

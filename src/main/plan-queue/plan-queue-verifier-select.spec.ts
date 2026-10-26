@@ -66,7 +66,7 @@ describe('selectPlanQueueVerifier — James\'s checker choices', () => {
   const base = { workingDirectory: '/repo' };
   const noScope = () => ({ kind: 'none' }) as never;
   const workScope = () => ({ kind: 'protected', profileId: 'work', profileLabel: 'WORK', accountKind: 'enterprise', automationPolicy: 'allow-routed' }) as never;
-  const deps = { classifyScope: noScope, resolveProviderModel: () => undefined };
+  const deps = { classifyScope: noScope, resolveProviderModel: () => undefined, routeUsage: async () => ({ usable: true, resumeAt: null }) };
 
   it('uses the first chosen checker that can run, with its model and accounts', async () => {
     const result = await selectPlanQueueVerifier(
@@ -85,6 +85,24 @@ describe('selectPlanQueueVerifier — James\'s checker choices', () => {
       ok: true,
       choice: { provider: 'claude', modelOverride: 'claude-opus-5', accountProfileIds: ['max-b'] },
     });
+  });
+
+  it('skips a chosen checker with no usage left, else waits on the one whose limit lifts soonest', async () => {
+    const choices = [{ provider: 'claude' }, { provider: 'cursor' }, { provider: 'copilot' }];
+    const installed = async () => ['codex', 'claude', 'cursor', 'copilot'];
+    const usage = (table: Record<string, { usable: boolean; resumeAt: number | null }>) =>
+      async (choice: { provider: string }, origin: string) => {
+        expect(origin).toBe('verification');
+        return table[choice.provider]!;
+      };
+    expect(await selectPlanQueueVerifier({ ...base, workerProvider: 'codex', choices }, {
+      ...deps, listInstalledProviders: installed,
+      routeUsage: usage({ claude: { usable: false, resumeAt: 10 }, cursor: { usable: true, resumeAt: null }, copilot: { usable: true, resumeAt: null } }),
+    })).toEqual({ ok: true, choice: { provider: 'cursor' } });
+    expect(await selectPlanQueueVerifier({ ...base, workerProvider: 'codex', choices }, {
+      ...deps, listInstalledProviders: installed,
+      routeUsage: usage({ claude: { usable: false, resumeAt: 90 }, cursor: { usable: false, resumeAt: null }, copilot: { usable: false, resumeAt: 30 } }),
+    })).toEqual({ ok: true, choice: { provider: 'copilot' } });
   });
 
   it('lets James\'s saved list replace the licence-pinned work Copilot seat', async () => {

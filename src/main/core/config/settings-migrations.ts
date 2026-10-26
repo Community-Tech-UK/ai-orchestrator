@@ -26,6 +26,7 @@ import {
   normalizeCopilotHost,
 } from '../../../shared/types/copilot-account.types';
 import { migrateProviderAccountLegacyProfiles, migrateOpenCodeLegacyProfile } from './settings-migrations-provider-accounts';
+import { isLegacyPlanQueueRouting, upgradePlanQueueRouting } from '../../../shared/utils/plan-queue-routing-upgrade';
 // Static, not `require`: the legacy profile must resolve to the SAME directory
 // the adapter uses, and a second copy of that derivation here would drift.
 // adapter-spawn-helpers has no path back to the settings manager, so this
@@ -518,6 +519,18 @@ function readLegacyCopilotIdentity(): { login?: string; host?: string } | null {
   }
 }
 
+/**
+ * Plan Queue workers became a ranked list on 2026-10-25: a saved single
+ * `worker` choice (or null) becomes a one-line (or empty) `workers` list.
+ * Idempotent by shape: an upgraded value has no `worker` key.
+ */
+function migratePlanQueueRoutingWorkers(store: SettingsMigrationStore): void {
+  const saved = store.get('planQueueRouting');
+  if (!isLegacyPlanQueueRouting(saved)) return;
+  store.persistSetting('planQueueRouting', upgradePlanQueueRouting(saved));
+  logger.info('Moved the saved Plan Queue worker choice into a ranked list');
+}
+
 export function runSettingsMigrations(store: SettingsMigrationStore): void {
   const observationOffMarker = '__migration_observation_memory_off_20261020';
   if (store.get(observationOffMarker) !== true) {
@@ -564,6 +577,7 @@ export function runSettingsMigrations(store: SettingsMigrationStore): void {
   migrateAuxiliaryMissingSlots(store);
   // Seed per-provider model memory from existing defaultModel/defaultCli.
   seedDefaultModelByProvider(store);
+  migratePlanQueueRoutingWorkers(store);
   // Bind the pre-existing Copilot state directory to an account profile so
   // routing has something to resolve to, without moving any files.
   migrateCopilotLegacyProfile(store);

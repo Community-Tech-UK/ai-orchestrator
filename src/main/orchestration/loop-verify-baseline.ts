@@ -6,6 +6,7 @@ import type { LoopConfig, LoopPreflightResult, LoopState } from '../../shared/ty
 import { createLoopPendingInput } from '../../shared/types/loop.types';
 import { provisionWorktreeDependencies } from '../workspace/git/worktree-deps';
 import { dataBlock } from '../util/prompt-data';
+import { removeTree } from '../util/remove-tree';
 import type { VerifyOutcome } from './loop-completion-detector';
 import { writeLoopPreflightArtifact } from './loop-audit-runtime';
 import { extractVerifyFailureKeys } from './verify-failure-keys';
@@ -108,7 +109,7 @@ async function capture(state: LoopState, deps: VerifyBaselineDeps): Promise<void
     if (created) {
       try {
         try { await git(['worktree', 'remove', '--force', dir], cwd); }
-        catch { await fs.rm(dir, { recursive: true, force: true }); }
+        catch { await removeTree(dir); }
         await git(['worktree', 'prune'], cwd);
       }
       catch (error) {
