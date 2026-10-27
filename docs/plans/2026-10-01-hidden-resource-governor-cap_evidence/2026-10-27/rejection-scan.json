@@ -1,0 +1,6 @@
+{
+  "fromUtc": "2026-10-26T11:35:00+00:00",
+  "toUtc": "2026-10-27T07:18:03.169514+00:00",
+  "events": [],
+  "scope": "All currently retained app.log*; shared log cannot attribute every event to packaged vs dev."
+}

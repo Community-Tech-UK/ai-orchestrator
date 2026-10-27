@@ -1,0 +1,13 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-01-hidden-resource-gov-973997
+
+(node:27810) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/process/resource-governor.spec.ts (27 tests) 9ms
+
+ Test Files  1 passed (1)
+      Tests  27 passed (27)
+   Start at  07:19:51
+   Duration  501ms (transform 60ms, setup 49ms, import 46ms, tests 9ms, environment 274ms)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-01-hidden-resource-gov-973997/_scratch/test-results.pid-27751.json

@@ -1,0 +1,1388 @@
+[
+  {
+    "source": "app.log",
+    "timestamp": 1793077823537,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log",
+    "timestamp": 1793077831336,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log",
+    "timestamp": 1793078390812,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log",
+    "timestamp": 1793078888651,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log",
+    "timestamp": 1793079193263,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log",
+    "timestamp": 1793079393759,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log",
+    "timestamp": 1793079565435,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log",
+    "timestamp": 1793080433755,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log",
+    "timestamp": 1793081097925,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log",
+    "timestamp": 1793082194877,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log",
+    "timestamp": 1793082470234,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log",
+    "timestamp": 1793084994103,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log",
+    "timestamp": 1793085080759,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793063686789,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793063703509,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793063756426,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793063770262,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793063805496,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793063839822,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793063854239,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793063887103,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793063944545,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793063991748,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793066465267,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793066645722,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793066677689,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793066696061,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793066713568,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793066742130,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793066930532,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793067149693,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793067259323,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793068083515,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793068118834,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793068139406,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793068163761,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793068184334,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793068243312,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793068277916,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793068311965,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793068336462,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793068371792,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793068378275,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793068432635,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793068913786,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793068942183,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793069144498,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793069357287,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793069461759,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793069535756,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793069611919,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793069614061,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793069647281,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793069766353,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793070137643,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793070356269,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793070669564,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793071183029,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793071482549,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793072484005,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793072906840,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793073196502,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793073219722,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793073438455,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793073598812,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793073830458,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793074508599,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793074522583,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793074891062,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793074977171,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793075119268,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793076390815,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793076497088,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.1",
+    "timestamp": 1793076771407,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014545560,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.3",
+    "timestamp": 1792959122330,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.4",
+    "timestamp": 1792887674293,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  }
+]

@@ -1,0 +1,110 @@
+{
+  "status": "PARTIAL_EVIDENCE; NOT_LIVETEST_COMPLETE",
+  "sealedAt": "2026-10-27T07:27:50.041380+00:00",
+  "head": "80412201a07ec93cefb9a4b6ddb06579ad314d75",
+  "branch": "queue/2026-10-01-hidden-resource-gov-973997",
+  "checklist": {
+    "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-01-hidden-resource-governor-cap_livetest.md",
+    "sha256": "64db349cf41a4231b71dca603914af584c9a0c401f27d58d4f3a4ab38bc78efc"
+  },
+  "sourceCodeChanged": false,
+  "checks": {
+    "1": "pass; shared-log process attribution limited",
+    "2": "open; no retry authorized in this resume",
+    "3": "open; no submission or delivery observed",
+    "4": "partial; sampled on-disk retention only"
+  },
+  "cleanupStatus": "PASS: owned runtime removed; all owned process groups absent and ports closed",
+  "files": [
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/build-main.txt",
+      "bytes": 284,
+      "sha256": "60f56b945afeed6e768d7356d5eb3a8c90ec5054eee64a3c858b5e78d821b553"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/build-renderer.txt",
+      "bytes": 5447,
+      "sha256": "60ab7308ca556cf6c8d078fe2fb6ec8b6b4f3271001d3feb7f314b74ca5babde"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/cleanup-receipt.json",
+      "bytes": 1472,
+      "sha256": "c64d4c8cf1f6d8abbc6e480d4416cc8ea36281f8fe335661fc174d366e16a2d4"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/commands.jsonl",
+      "bytes": 5176,
+      "sha256": "bdd9d061627e5e87a457d0fa6ec3b697629477e49ca90b779f436c446e226e89"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/dev-governor-startup.json",
+      "bytes": 481,
+      "sha256": "854b1992c936a90f22394fa7d12ef838f7b79b8fd8566ee034ec57e9a5ead1af"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/dev-startup-result.json",
+      "bytes": 1212,
+      "sha256": "02661558ce05f4bcb0afbf8f3629a8e66dab955a8be9bf8dba3df1597a0e3488"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/final-checks.json",
+      "bytes": 3385,
+      "sha256": "1feb87bfeda19ec647584f6897e45c24f0f88ee4385f939d5eadfe61afac2ae0"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/focused-full-output.txt",
+      "bytes": 699,
+      "sha256": "2801e4951c75764fb58e9625e3ca26e90a4106a72b37acfc34123389f07dfeb3"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/focused-results.json",
+      "bytes": 8507,
+      "sha256": "92398f8f546bf94ae144ed976e1ce705da514d4d8087a95dfb3e3a547756bffb"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/focused.txt",
+      "bytes": 189,
+      "sha256": "debd413126a8ac6686c54b92cc4820f719336c77776761e1b0e4b171d110f77f"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/governor-events-before.json",
+      "bytes": 36937,
+      "sha256": "446b9a02fe5b7befba94d00a204cbde9353f689b3fa858da9b56e0098d986e02"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/installed-build.json",
+      "bytes": 441,
+      "sha256": "40eb2455269837ea07dfcb0be8b3df61ecf111890485e376bd294bb128be1547"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/installed-startup-events.json",
+      "bytes": 7265,
+      "sha256": "9d075403c1d7851c7b88ad016634ab5d09d4ffad281007c31f41839d2e14d46b"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/rejection-scan.json",
+      "bytes": 215,
+      "sha256": "a06790388e34677505fcdd7eb57acb08319ea2003d13d65a591b460d18e47402"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/report-review.json",
+      "bytes": 1003,
+      "sha256": "fb1095c53192898d80a81a16aa57416ea1e43772658185737fa7c6ee6916c6e5"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/retention-check.json",
+      "bytes": 9619,
+      "sha256": "ec76b9e655d7fcf4b0566ff3a3271541c0de77233b1e3940df2e6beb65a51a2b"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/typecheck-spec.txt",
+      "bytes": 129,
+      "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133"
+    },
+    {
+      "path": "docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/typecheck.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

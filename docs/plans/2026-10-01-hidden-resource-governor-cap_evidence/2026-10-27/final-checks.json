@@ -1,0 +1,90 @@
+{
+  "checkedAt": "2026-10-27T07:27:50.040694+00:00",
+  "checks": [
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "git",
+        "-C",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator",
+        "diff",
+        "--check",
+        "--",
+        "docs/plans/2026-10-01-hidden-resource-governor-cap_livetest.md"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "git",
+        "status",
+        "--short",
+        "--untracked-files=all"
+      ],
+      "exitCode": 0,
+      "onlyIntendedEvidenceFiles": true,
+      "paths": [
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/build-main.txt",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/build-renderer.txt",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/cleanup-receipt.json",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/commands.jsonl",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/dev-governor-startup.json",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/dev-startup-result.json",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/final-checks.json",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/focused-full-output.txt",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/focused-results.json",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/focused.txt",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/governor-events-before.json",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/installed-build.json",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/installed-startup-events.json",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/rejection-scan.json",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/report-review.json",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/retention-check.json",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/seal.json",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/typecheck-spec.txt",
+        "?? docs/plans/2026-10-01-hidden-resource-governor-cap_evidence/2026-10-27/typecheck.txt"
+      ]
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--cached",
+        "--name-only"
+      ],
+      "exitCode": 0,
+      "nothingStaged": true
+    },
+    {
+      "command": [
+        "git",
+        "branch",
+        "--list"
+      ],
+      "exitCode": 0,
+      "outputSha256": "6f590f6f257f40ace7428dfae84544d2c0690916fb63953a0dcfd83f9f7b014f",
+      "entryCount": 114
+    },
+    {
+      "command": [
+        "git",
+        "worktree",
+        "list",
+        "--porcelain"
+      ],
+      "exitCode": 0,
+      "outputSha256": "46d8aa663548bc4d8092656fbb786a3114804ff0e73b2524feb938a406a40c6b",
+      "entryCount": 72
+    }
+  ],
+  "sourceChanges": false,
+  "checklistStillOpen": true,
+  "planQueueWorktreePreserved": true
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "source": "app.log",
+    "timestamp": 1793085601273,
+    "level": "info",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  }
+]

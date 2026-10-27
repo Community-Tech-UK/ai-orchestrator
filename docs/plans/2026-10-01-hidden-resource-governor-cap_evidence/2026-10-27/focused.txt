@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/process/resource-governor.spec.ts
+
+✓ 1 files · 27 tests passed in 3.6s
+  full log: _scratch/test-run.pid-27751.log

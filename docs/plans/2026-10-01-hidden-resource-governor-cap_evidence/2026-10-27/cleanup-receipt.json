@@ -1,0 +1,56 @@
+{
+  "finishedAt": "2026-10-27T07:27:49.700894+00:00",
+  "exitCode": 0,
+  "processGroups": [
+    {
+      "attempt": "dev-runtime",
+      "name": "renderer",
+      "pid": 12395,
+      "processGroupGone": true
+    },
+    {
+      "attempt": "dev-runtime",
+      "name": "electron",
+      "pid": 12514,
+      "processGroupGone": true
+    },
+    {
+      "attempt": "dev-runtime-second",
+      "name": "renderer",
+      "pid": 28485,
+      "processGroupGone": true
+    },
+    {
+      "attempt": "dev-runtime-second",
+      "name": "electron",
+      "pid": 28612,
+      "processGroupGone": true
+    }
+  ],
+  "portsClosed": {
+    "4567": true,
+    "9501": true
+  },
+  "removedOrConfirmedAbsent": [
+    "/tmp/aio-lt-queue-58973997",
+    "dist",
+    "_scratch/lt-2026-10-27-hidden-governor",
+    "_scratch/test-run.pid-27751.log",
+    "_scratch/test-results.pid-27751.json"
+  ],
+  "preserved": [
+    "pre-existing node_modules, .cache and .vite",
+    "installed Harness and profile, sessions, conversation history, draft",
+    "AIO-managed checkout and branch",
+    "root checklist and worktree evidence"
+  ],
+  "firstCleanupAttempt": {
+    "exitCode": 1,
+    "error": "OSError ENOTEMPTY removing dist/src",
+    "observedOnInspection": "dist/src contained a newly present .DS_Store",
+    "followup": "Re-inspected only owned build output and retried once; removal succeeded."
+  },
+  "createdDatabaseClusters": false,
+  "downloadedBrowsers": false,
+  "installedDependencies": false
+}

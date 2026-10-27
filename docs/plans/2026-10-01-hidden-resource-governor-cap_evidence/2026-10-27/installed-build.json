@@ -1,0 +1,11 @@
+{
+  "capturedAt": "2026-10-27T07:20:31.951978+00:00",
+  "path": "/Applications/Harness.app",
+  "version": "0.1.0",
+  "bundleVersion": "0.1.0",
+  "archiveBytes": 468493610,
+  "archiveModifiedAt": "2026-10-26T11:33:30+00:00",
+  "archiveSha256": "5330e96430a145321d9d1363861301102b9027c9d417fb21a1a0765ed029f8bf",
+  "governorDefaultInPackagedJavaScript": 0,
+  "sourceCommit": "not recorded in bundle metadata; no commit attribution inferred"
+}

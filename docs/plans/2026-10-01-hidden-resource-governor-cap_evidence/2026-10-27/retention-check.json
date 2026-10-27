@@ -1,0 +1,215 @@
+{
+  "beforeCapturedAt": "2026-10-27T07:17:08.132132+00:00",
+  "afterCapturedAt": "2026-10-27T07:22:35.128657+00:00",
+  "shutdownWrittenAt": "2026-10-26T11:33:09.441000+00:00",
+  "lastStopSha256Before": "450af32a804cfc9e010c8cdc0f1dccda5be5c96b9c0fd077988502c603146f08",
+  "lastStopSha256After": "450af32a804cfc9e010c8cdc0f1dccda5be5c96b9c0fd077988502c603146f08",
+  "lastStopUnchanged": true,
+  "allSampledSessionsNonLiveAtShutdown": true,
+  "sampleSize": 20,
+  "readableBefore": 20,
+  "nativeResumeAvailableBefore": 20,
+  "sampledConversationEntries": 5307,
+  "sampleMissingAfter": 0,
+  "sampleChangedAfter": 0,
+  "samples": [
+    {
+      "idHash": "6f2d3903b2786e6fd2ff8b079f458514bb06cdabc7b2e1d844708190018a1d96",
+      "existsAfter": true,
+      "beforeSha256": "c4840dc8d32c2903848d8354939e8dc89abc968e05e3b77a7828383dc52659e0",
+      "beforeConversationEntries": 187,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "c4840dc8d32c2903848d8354939e8dc89abc968e05e3b77a7828383dc52659e0",
+      "unchanged": true
+    },
+    {
+      "idHash": "b7c9d8fe8e81cae6b4e1d2a47a498fdf69d7cba10cd4c0d54627ec7264057a5a",
+      "existsAfter": true,
+      "beforeSha256": "0001705974161fbb5a63360a00570824d4fb182cce2af386e120eeeb23bfebe2",
+      "beforeConversationEntries": 138,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "0001705974161fbb5a63360a00570824d4fb182cce2af386e120eeeb23bfebe2",
+      "unchanged": true
+    },
+    {
+      "idHash": "4efa51d0913b883268a4c91f20c5163350a8cec2e1cc67e1f418fea7b944e18c",
+      "existsAfter": true,
+      "beforeSha256": "3491f0e142116ff45bd5b95b3413e5015fa4c823f8b0cac696081bbab226f769",
+      "beforeConversationEntries": 327,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "3491f0e142116ff45bd5b95b3413e5015fa4c823f8b0cac696081bbab226f769",
+      "unchanged": true
+    },
+    {
+      "idHash": "7f771e6c6d17a4d38fb8a95a8b1e8f425569309bb27e35ac796ce258f137a839",
+      "existsAfter": true,
+      "beforeSha256": "7f3f2654e6fa1867c19a05cd6dbad04800a6fb1f9190a4873e40b1d64f1142cd",
+      "beforeConversationEntries": 242,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "7f3f2654e6fa1867c19a05cd6dbad04800a6fb1f9190a4873e40b1d64f1142cd",
+      "unchanged": true
+    },
+    {
+      "idHash": "480dc84368a61d79e9aa5069c47a77b02774f496cdba9255e40ee4df54977c38",
+      "existsAfter": true,
+      "beforeSha256": "0322f057a4e4490bcdab970fd44bb7a7c586cd9e57a198625ecbfe96a09b7241",
+      "beforeConversationEntries": 298,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "0322f057a4e4490bcdab970fd44bb7a7c586cd9e57a198625ecbfe96a09b7241",
+      "unchanged": true
+    },
+    {
+      "idHash": "8432ecc4618b579855987dcd4abe2a86c14858a35f2240fe2b0f96a989642d0f",
+      "existsAfter": true,
+      "beforeSha256": "630c0144586f3a209498504009cc41500de9e37210d2616d3dc8fe6f5dbda18e",
+      "beforeConversationEntries": 218,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "630c0144586f3a209498504009cc41500de9e37210d2616d3dc8fe6f5dbda18e",
+      "unchanged": true
+    },
+    {
+      "idHash": "9f05ab95716f929f80f26b6f7f001181f460e5acbb3171f6f866bb4d942485ef",
+      "existsAfter": true,
+      "beforeSha256": "27f3acc0a0cdca891d57c6aa32c6c83a5c3674a9c1596aed6ae1f4c806024f72",
+      "beforeConversationEntries": 157,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "27f3acc0a0cdca891d57c6aa32c6c83a5c3674a9c1596aed6ae1f4c806024f72",
+      "unchanged": true
+    },
+    {
+      "idHash": "a209e84dc32afd9438a6a6f0bf821fdeb365fc0bffed41913ceb2e6a13cb91de",
+      "existsAfter": true,
+      "beforeSha256": "ef299531a50bb73fece26e2a16d1c3f40af1765b41e5559ab5ae67bcc3a0d342",
+      "beforeConversationEntries": 276,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "ef299531a50bb73fece26e2a16d1c3f40af1765b41e5559ab5ae67bcc3a0d342",
+      "unchanged": true
+    },
+    {
+      "idHash": "9c6760bd1beef5981eb61f90041a3257611d158465c5ac034c676b8f10f27449",
+      "existsAfter": true,
+      "beforeSha256": "b99c2585da4600b1158e72a4c9505b00545d071796bccb99a5656f1a7aeb3250",
+      "beforeConversationEntries": 188,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "b99c2585da4600b1158e72a4c9505b00545d071796bccb99a5656f1a7aeb3250",
+      "unchanged": true
+    },
+    {
+      "idHash": "ecf7f351bf275a3d4e3bdde6f313b3bc92c7db7de0c830e2adc211a3d5868fe1",
+      "existsAfter": true,
+      "beforeSha256": "917754a657c3e907c3d42f88534062c6596599b4d98d9b72f038b01854245afd",
+      "beforeConversationEntries": 255,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "917754a657c3e907c3d42f88534062c6596599b4d98d9b72f038b01854245afd",
+      "unchanged": true
+    },
+    {
+      "idHash": "6b030f2f4b117682c4b6845d4ef7475a220bf665002a28bab37d8d3c6fbee31a",
+      "existsAfter": true,
+      "beforeSha256": "c574e96bdbd972a508b424c0acf8678b0ae73b8f38c39a5964f6136fef3e2aa8",
+      "beforeConversationEntries": 126,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "c574e96bdbd972a508b424c0acf8678b0ae73b8f38c39a5964f6136fef3e2aa8",
+      "unchanged": true
+    },
+    {
+      "idHash": "cc0579254dfad7f1941c3bc71750bdfa0c7aa9de22447e0871d211082bcd0a00",
+      "existsAfter": true,
+      "beforeSha256": "f4e7e0c06dc74d0136a916f10114a10124337f6e65866111526ebd76c68e0d3f",
+      "beforeConversationEntries": 229,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "f4e7e0c06dc74d0136a916f10114a10124337f6e65866111526ebd76c68e0d3f",
+      "unchanged": true
+    },
+    {
+      "idHash": "c6a8b859928f3435bd1e20531c693844170ce2fe37ae0738fd7d336007509970",
+      "existsAfter": true,
+      "beforeSha256": "2b7de397aa8d79e33fd9d8d9c85b53ead78296240f26216ce5cbbd5c69e8d4e8",
+      "beforeConversationEntries": 348,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "2b7de397aa8d79e33fd9d8d9c85b53ead78296240f26216ce5cbbd5c69e8d4e8",
+      "unchanged": true
+    },
+    {
+      "idHash": "20a96dedfae8664dfc6076aece2baaf74b2e0c9bd0665753e95fc56db6f40b10",
+      "existsAfter": true,
+      "beforeSha256": "ef844b7e541a14e013bb271d25b8450eaf7bfa470aff419a7db8da6241ada1ff",
+      "beforeConversationEntries": 279,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "ef844b7e541a14e013bb271d25b8450eaf7bfa470aff419a7db8da6241ada1ff",
+      "unchanged": true
+    },
+    {
+      "idHash": "2f0ea49a29d5102ce4e451839152c4fb66ec5ad240d6459d673db8c0c4ccb100",
+      "existsAfter": true,
+      "beforeSha256": "dce3ff043d7cf8b0940e409e225aab5d0ba7a968ba3bed0158b6d73bf21bb157",
+      "beforeConversationEntries": 219,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "dce3ff043d7cf8b0940e409e225aab5d0ba7a968ba3bed0158b6d73bf21bb157",
+      "unchanged": true
+    },
+    {
+      "idHash": "079445acee6270cd474958389cbf66660fd5b614aff6282ae7950c98913485e7",
+      "existsAfter": true,
+      "beforeSha256": "2f788fa30b4fd13d70e1aa34fcd92924dd705531d0732cfbfc583e7468c2fcdb",
+      "beforeConversationEntries": 164,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "2f788fa30b4fd13d70e1aa34fcd92924dd705531d0732cfbfc583e7468c2fcdb",
+      "unchanged": true
+    },
+    {
+      "idHash": "23421311cdc4a9d1ae91ddd0951bab383cd75b7a3b31bd1558b30e997bd9a257",
+      "existsAfter": true,
+      "beforeSha256": "15d1ddbdfd7ca16815c606fd637679d0d66e832f28e87599bebd38b5cf1b9b21",
+      "beforeConversationEntries": 933,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "15d1ddbdfd7ca16815c606fd637679d0d66e832f28e87599bebd38b5cf1b9b21",
+      "unchanged": true
+    },
+    {
+      "idHash": "02345e6d997af0824b4625ca2a7258036b3d1327ef59e7e22665be99b97a0abc",
+      "existsAfter": true,
+      "beforeSha256": "f90f0536ee7d35ae3cbb5986d81aaab3ae649bd224c9f05f144572d822bd6d55",
+      "beforeConversationEntries": 543,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "f90f0536ee7d35ae3cbb5986d81aaab3ae649bd224c9f05f144572d822bd6d55",
+      "unchanged": true
+    },
+    {
+      "idHash": "461de27afd30c1b30ec690be083cc4f9a1814250a44b26a93ab325caf4a9cbd5",
+      "existsAfter": true,
+      "beforeSha256": "eccd2e94b0e754d976fd3792aa40a823f77c25774e1dacc360ca6456edfd9b99",
+      "beforeConversationEntries": 167,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "eccd2e94b0e754d976fd3792aa40a823f77c25774e1dacc360ca6456edfd9b99",
+      "unchanged": true
+    },
+    {
+      "idHash": "bf4363a69586b514ba42e28af0f73b68fdfbd9e46f287afe9678bdb0a9bfd938",
+      "existsAfter": true,
+      "beforeSha256": "1884a40da0e595473f98f7975217c9ab5d554f2de712a55ba850077abf20cf0a",
+      "beforeConversationEntries": 13,
+      "beforeNativeResumeAvailable": true,
+      "afterSha256": "1884a40da0e595473f98f7975217c9ab5d554f2de712a55ba850077abf20cf0a",
+      "unchanged": true
+    }
+  ],
+  "allFileInventoryCountsBefore": {
+    "session-continuity/states": 11344,
+    "session-continuity/recovery-metadata": 6255,
+    "conversation-history": 2238
+  },
+  "allFileInventoryCountsAfter": {
+    "session-continuity/states": 11345,
+    "session-continuity/recovery-metadata": 6256,
+    "conversation-history": 2238
+  },
+  "jsonStateFilesAfter": 11335,
+  "limits": [
+    "No installed-app UI visibility asserted.",
+    "The sample is the 20 non-live sessions in the latest shutdown manifest, not all retained sessions.",
+    "Inventory counts include staging files and normal concurrent app activity.",
+    "Persisted record count does not establish the live governor-published map count.",
+    "No pre-fix baseline was available; unchanged means during this evidence window."
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "firstAttempt": {
+    "result": "CDP endpoint answered; worker stopped process during initialization. This is not a complete app-startup PASS."
+  },
+  "secondAttempt": {
+    "startedAt": "2026-10-27T07:19:57.689098+00:00",
+    "exitAt": "2026-10-27T07:20:02.348999+00:00",
+    "exitCode": 1,
+    "governorStartedAt": "2026-10-27T07:20:01.273Z",
+    "maxTotalInstances": 0,
+    "observedErrors": [
+      "sandbox initialization failed: Operation not permitted",
+      "Failed to initialize sandbox.",
+      "Electron child process exited unexpectedly: reason crashed, exitCode 6",
+      "GPU process isn't usable. Goodbye.",
+      "Thin-client WebSocket listen EADDRINUSE: 127.0.0.1:4880"
+    ],
+    "classification": "Runner permission boundary and existing shared-port collision; no governor defect demonstrated. No security switch was disabled and no existing process was stopped."
+  },
+  "domAssertions": false,
+  "focusEmulation": "No DOM assertion attempted; focus emulation not used. Any future DOM assertion must first enable focus emulation.",
+  "rawRuntimeLogs": "Not retained: only allowlisted error text and exact governor JSON events copied; temporary logs removed with owned scratch runtime."
+}

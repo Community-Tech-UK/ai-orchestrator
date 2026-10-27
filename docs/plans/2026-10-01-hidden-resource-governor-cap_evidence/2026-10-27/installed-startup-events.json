@@ -1,0 +1,274 @@
+[
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014531836,
+    "utc": "2026-10-26T11:35:31.836000+00:00",
+    "subsystem": "App",
+    "message": "Initializing Harness",
+    "data": {}
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014545560,
+    "utc": "2026-10-26T11:35:45.560000+00:00",
+    "subsystem": "ResourceGovernor",
+    "message": "Resource governor started",
+    "data": {
+      "config": {
+        "maxInstanceMemoryMB": 512,
+        "creationPausedAtPressure": "critical",
+        "terminateIdleAtCritical": true,
+        "idleThresholdMs": 300000,
+        "gcOnWarning": true,
+        "maxTotalInstances": 0,
+        "maxReclaimsPerCriticalEpisode": 3
+      }
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014546271,
+    "utc": "2026-10-26T11:35:46.271000+00:00",
+    "subsystem": "SessionContinuity",
+    "message": "Session state startup load capped",
+    "data": {}
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014562143,
+    "utc": "2026-10-26T11:36:02.143000+00:00",
+    "subsystem": "Bootstrap",
+    "message": "Bootstrapping: Startup capability probe [infrastructure]",
+    "data": {}
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014562601,
+    "utc": "2026-10-26T11:36:02.601000+00:00",
+    "subsystem": "CapabilityProbe",
+    "message": "Startup capability probe completed",
+    "data": {}
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014562601,
+    "utc": "2026-10-26T11:36:02.601000+00:00",
+    "subsystem": "Bootstrap",
+    "message": "Bootstrapped: Startup capability probe",
+    "data": {}
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014575901,
+    "utc": "2026-10-26T11:36:15.901000+00:00",
+    "subsystem": "App",
+    "message": "Harness initialized",
+    "data": {}
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014589066,
+    "utc": "2026-10-26T11:36:29.066000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014590075,
+    "utc": "2026-10-26T11:36:30.075000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014590088,
+    "utc": "2026-10-26T11:36:30.088000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014590107,
+    "utc": "2026-10-26T11:36:30.107000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014592118,
+    "utc": "2026-10-26T11:36:32.118000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014594644,
+    "utc": "2026-10-26T11:36:34.644000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014594658,
+    "utc": "2026-10-26T11:36:34.658000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014595769,
+    "utc": "2026-10-26T11:36:35.769000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014599886,
+    "utc": "2026-10-26T11:36:39.886000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014600214,
+    "utc": "2026-10-26T11:36:40.214000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014600553,
+    "utc": "2026-10-26T11:36:40.553000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014633338,
+    "utc": "2026-10-26T11:37:13.338000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014641140,
+    "utc": "2026-10-26T11:37:21.140000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "resume-unconfirmed"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014641777,
+    "utc": "2026-10-26T11:37:21.777000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "resume-unconfirmed"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014644227,
+    "utc": "2026-10-26T11:37:24.227000+00:00",
+    "subsystem": "CodexCliAdapter",
+    "message": "Codex exec escalated idle budget startup \u2192 turn on first stdout",
+    "data": {}
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014644719,
+    "utc": "2026-10-26T11:37:24.719000+00:00",
+    "subsystem": "CodexCliAdapter",
+    "message": "Codex exec escalated idle budget startup \u2192 turn on first stdout",
+    "data": {}
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014670502,
+    "utc": "2026-10-26T11:37:50.502000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014678529,
+    "utc": "2026-10-26T11:37:58.529000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014685629,
+    "utc": "2026-10-26T11:38:05.629000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014690536,
+    "utc": "2026-10-26T11:38:10.536000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "resume-unconfirmed"
+    }
+  },
+  {
+    "source": "app.log.2",
+    "timestamp": 1793014714540,
+    "utc": "2026-10-26T11:38:34.540000+00:00",
+    "subsystem": "HistoryRestoreCoordinator",
+    "message": "History restore complete",
+    "data": {
+      "restoreMode": "native-resume"
+    }
+  }
+]
