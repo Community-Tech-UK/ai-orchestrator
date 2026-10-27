@@ -1,0 +1,116 @@
+{
+  "at": "2026-10-27T15:37:38.788Z",
+  "closedTabs": [
+    {
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879:target",
+      "result": {
+        "decision": "allowed",
+        "outcome": "succeeded",
+        "data": {
+          "closed": true,
+          "remainingTabCount": 42,
+          "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879",
+          "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879:target",
+          "inspectionState": "readable"
+        },
+        "auditId": "a04b30ee-7033-448a-ba43-999b22a82a8a"
+      }
+    },
+    {
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883:target",
+      "result": {
+        "decision": "allowed",
+        "outcome": "succeeded",
+        "data": {
+          "closed": true,
+          "remainingTabCount": 41,
+          "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883",
+          "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883:target",
+          "inspectionState": "readable"
+        },
+        "auditId": "e402bb63-3e81-4e52-9345-d1d80c755fa8"
+      }
+    }
+  ],
+  "inventoryAuditId": "c4b3e03e-5777-4681-9390-2d5ef2b3825f",
+  "targetCount": 44,
+  "profileInstanceIds": [
+    "0b779001-ea2a-4929-9faf-3ba30930ae8a"
+  ],
+  "testTabsAbsent": true,
+  "health": {
+    "checkedAt": 1793115458785,
+    "remoteExtensions": {
+      "total": 1,
+      "ready": 1,
+      "silent": 0,
+      "nodes": [
+        {
+          "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+          "nodeName": "windows-pc",
+          "enabled": true,
+          "running": true,
+          "silent": false,
+          "channelState": "fresh",
+          "commandsDeliverable": true,
+          "lastContactAt": 1793115458782,
+          "contactAgeMs": 1,
+          "coordinatorPollAgeMs": 1,
+          "relayContactAgeMs": 13650,
+          "connectionFlap": {
+            "stormActive": false,
+            "replacesInWindow": 0,
+            "windowMs": 300000
+          },
+          "queue": {
+            "queuedCount": 0,
+            "inFlightCount": 0,
+            "waitingPollerCount": 2
+          },
+          "contactGaps": {
+            "gapCount": 0,
+            "longestGapMs": 0
+          },
+          "serviceWorkerRestarts": 0,
+          "registration": "ok",
+          "lastRegistrationCheckAt": 1793115421273,
+          "secretObservation": {
+            "reported": true,
+            "protectionEnabled": false,
+            "taintedOriginCount": 0,
+            "taintedTabCount": 0,
+            "observedAt": 1793115458773,
+            "ageMs": 10
+          }
+        }
+      ]
+    },
+    "auditId": "9d3078a2-795d-4d80-83ea-5923511155d9"
+  },
+  "finalInventoryAuditId": "eddfc436-11aa-4745-9811-e9aafc832599",
+  "finalAt": "2026-10-27T15:38:49.973Z",
+  "finalTestTargets": [
+    {
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879:target",
+      "status": "closed",
+      "lastSeenAt": 1793115372877
+    },
+    {
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883:target",
+      "status": "closed",
+      "lastSeenAt": 1793115479171
+    }
+  ],
+  "postCloseSnapshot": {
+    "outcome": "succeeded",
+    "auditId": "b1c085be-3b53-46c3-8509-d9c2320b1239",
+    "note": "Ordinary snapshots can return cached text; this was not accepted as proof of a live tab."
+  },
+  "postCloseLiveQuery": {
+    "decision": "denied",
+    "outcome": "not_run",
+    "data": null,
+    "reason": "profile_target_or_url_not_found",
+    "auditId": "6312ac9e-75ee-4a90-b68e-0dd239b1110d"
+  }
+}

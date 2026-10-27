@@ -1,0 +1,1038 @@
+{
+  "recordedAt": "2026-10-27T15:34:12.542Z",
+  "environment": "packaged coordinator and existing windows-pc channel; NOT isolated dev app",
+  "healthBefore": {
+    "checkedAt": 1793115224323,
+    "remoteExtensions": {
+      "total": 1,
+      "ready": 1,
+      "silent": 0,
+      "nodes": [
+        {
+          "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+          "nodeName": "windows-pc",
+          "enabled": true,
+          "running": true,
+          "silent": false,
+          "channelState": "fresh",
+          "commandsDeliverable": true,
+          "lastContactAt": 1793115224314,
+          "contactAgeMs": 6,
+          "coordinatorPollAgeMs": 6,
+          "relayContactAgeMs": 16321,
+          "connectionFlap": {
+            "stormActive": false,
+            "replacesInWindow": 0,
+            "windowMs": 300000
+          },
+          "queue": {
+            "queuedCount": 0,
+            "inFlightCount": 0,
+            "waitingPollerCount": 1
+          },
+          "contactGaps": {
+            "gapCount": 0,
+            "longestGapMs": 0
+          },
+          "serviceWorkerRestarts": 0,
+          "registration": "ok",
+          "lastRegistrationCheckAt": 1793115180864,
+          "secretObservation": {
+            "reported": true,
+            "protectionEnabled": false,
+            "taintedOriginCount": 0,
+            "taintedTabCount": 0,
+            "observedAt": 1793115212878,
+            "ageMs": 11442
+          }
+        }
+      ]
+    },
+    "warnings": [
+      "Browser Gateway MCP bridge for instance pa0kdu73a could not restore its previously revealed tools after a reconnect; the tool list is smaller than before (all tools remain callable by name — re-run browser.tool_search to re-list them).",
+      "Browser Gateway MCP bridge for instance cpnrj6thv could not restore its previously revealed tools after a reconnect; the tool list is smaller than before (all tools remain callable by name — re-run browser.tool_search to re-list them).",
+      "Browser Gateway MCP bridge for instance cl3qf7qh1 could not restore its previously revealed tools after a reconnect; the tool list is smaller than before (all tools remain callable by name — re-run browser.tool_search to re-list them).",
+      "Browser Gateway MCP bridge for instance cjkndtyrm could not restore its previously revealed tools after a reconnect; the tool list is smaller than before (all tools remain callable by name — re-run browser.tool_search to re-list them).",
+      "Browser Gateway MCP bridge for instance cxpyoanet could not restore its previously revealed tools after a reconnect; the tool list is smaller than before (all tools remain callable by name — re-run browser.tool_search to re-list them).",
+      "Browser Gateway MCP bridge for instance cs86q7w6g could not restore its previously revealed tools after a reconnect; the tool list is smaller than before (all tools remain callable by name — re-run browser.tool_search to re-list them)."
+    ],
+    "auditId": "7bb009db-0051-46a6-aafe-8ab1b2edae7a"
+  },
+  "healthAfter": {
+    "checkedAt": 1793115241704,
+    "remoteExtensions": {
+      "total": 1,
+      "ready": 1,
+      "silent": 0,
+      "nodes": [
+        {
+          "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+          "nodeName": "windows-pc",
+          "enabled": true,
+          "running": true,
+          "silent": false,
+          "channelState": "fresh",
+          "commandsDeliverable": true,
+          "lastContactAt": 1793115241694,
+          "contactAgeMs": 7,
+          "coordinatorPollAgeMs": 7,
+          "relayContactAgeMs": 7070,
+          "connectionFlap": {
+            "stormActive": false,
+            "replacesInWindow": 0,
+            "windowMs": 300000
+          },
+          "queue": {
+            "queuedCount": 0,
+            "inFlightCount": 0,
+            "waitingPollerCount": 1
+          },
+          "contactGaps": {
+            "gapCount": 0,
+            "longestGapMs": 0
+          },
+          "serviceWorkerRestarts": 0,
+          "registration": "ok",
+          "lastRegistrationCheckAt": 1793115240911,
+          "secretObservation": {
+            "reported": true,
+            "protectionEnabled": false,
+            "taintedOriginCount": 0,
+            "taintedTabCount": 0,
+            "observedAt": 1793115233036,
+            "ageMs": 8665
+          }
+        }
+      ]
+    },
+    "warnings": [
+      "Browser Gateway MCP bridge for instance pa0kdu73a could not restore its previously revealed tools after a reconnect; the tool list is smaller than before (all tools remain callable by name — re-run browser.tool_search to re-list them).",
+      "Browser Gateway MCP bridge for instance cpnrj6thv could not restore its previously revealed tools after a reconnect; the tool list is smaller than before (all tools remain callable by name — re-run browser.tool_search to re-list them).",
+      "Browser Gateway MCP bridge for instance cl3qf7qh1 could not restore its previously revealed tools after a reconnect; the tool list is smaller than before (all tools remain callable by name — re-run browser.tool_search to re-list them).",
+      "Browser Gateway MCP bridge for instance cjkndtyrm could not restore its previously revealed tools after a reconnect; the tool list is smaller than before (all tools remain callable by name — re-run browser.tool_search to re-list them).",
+      "Browser Gateway MCP bridge for instance cxpyoanet could not restore its previously revealed tools after a reconnect; the tool list is smaller than before (all tools remain callable by name — re-run browser.tool_search to re-list them).",
+      "Browser Gateway MCP bridge for instance cs86q7w6g could not restore its previously revealed tools after a reconnect; the tool list is smaller than before (all tools remain callable by name — re-run browser.tool_search to re-list them)."
+    ],
+    "auditId": "ac46aad8-242d-4bb4-96e4-c303a8265f3d"
+  },
+  "targetsBefore": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "auditId": "bc01c793-e2d4-44d1-aaf3-22f4779ff62d",
+    "count": 41,
+    "profileInstanceIds": [
+      "0b779001-ea2a-4929-9faf-3ba30930ae8a"
+    ],
+    "targets": [
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588443",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588443:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588447",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588447:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588450",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588450:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588453",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588453:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588456",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588456:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588459",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588459:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588464",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588464:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588467",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588467:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588470",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588470:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588477",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588477:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "inspection_unavailable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588484",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588484:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588488",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588488:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588491",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588491:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588494",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588494:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588497",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588497:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588500",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588500:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588503",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588503:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588506",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588506:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588509",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588509:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588532",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588532:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588539",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588539:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588542",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588542:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588551",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588551:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588558",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588558:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588564",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588564:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588567",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588567:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588575",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588575:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588578",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588578:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588581",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588581:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588584",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588584:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588595",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588595:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588604",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588604:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588627",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588627:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588616",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588616:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588622",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588622:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588630",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588630:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588633",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588633:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588636",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588636:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588639",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588639:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588674",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588674:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588810",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588810:target",
+        "nodeName": "windows-pc",
+        "status": "closed",
+        "inspectionState": "readable"
+      }
+    ]
+  },
+  "targetsAfter": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "auditId": "7f475072-f28d-4768-b6be-063a0c02d122",
+    "count": 44,
+    "profileInstanceIds": [
+      "0b779001-ea2a-4929-9faf-3ba30930ae8a"
+    ],
+    "targets": [
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588443",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588443:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588447",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588447:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588450",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588450:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588453",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588453:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588456",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588456:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588459",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588459:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588464",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588464:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588467",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588467:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588470",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588470:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588477",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588477:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "inspection_unavailable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588484",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588484:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588488",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588488:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588491",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588491:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588494",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588494:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588497",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588497:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588500",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588500:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588503",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588503:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588506",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588506:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588509",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588509:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588532",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588532:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588539",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588539:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588542",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588542:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588551",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588551:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588558",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588558:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588564",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588564:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588567",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588567:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588575",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588575:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588578",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588578:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588581",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588581:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588584",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588584:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588595",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588595:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588604",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588604:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588627",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588627:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588616",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588616:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588622",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588622:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588630",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588630:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588633",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588633:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588636",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588636:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588639",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588639:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588674",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588674:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588810",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588810:target",
+        "nodeName": "windows-pc",
+        "status": "closed",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      },
+      {
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588886",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588886:target",
+        "nodeName": "windows-pc",
+        "status": "selected",
+        "inspectionState": "readable"
+      }
+    ]
+  },
+  "findPrivacy": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "data": {
+      "id": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879:target",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879",
+      "pageId": "771588879",
+      "mode": "existing-tab",
+      "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+      "nodeName": "windows-pc",
+      "title": "Privacy Policy — Substrakt",
+      "url": "https://substrakt.com/privacy-policy/",
+      "origin": "https://substrakt.com",
+      "driver": "extension",
+      "status": "selected",
+      "lastSeenAt": 1793115213851,
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879:target",
+      "inspectionState": "readable",
+      "windowId": 771587906,
+      "tabIndex": 1,
+      "pinned": false,
+      "active": true
+    },
+    "auditId": "f92770ff-53d9-4333-b61c-dac044d83057"
+  },
+  "findExample": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "data": {
+      "id": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883:target",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883",
+      "pageId": "771588883",
+      "mode": "existing-tab",
+      "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+      "nodeName": "windows-pc",
+      "title": "Example Domain",
+      "url": "https://example.com/?aio-livetest=multi-profile-20261027",
+      "origin": "https://example.com",
+      "driver": "extension",
+      "status": "selected",
+      "lastSeenAt": 1793115224314,
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883:target",
+      "inspectionState": "readable",
+      "windowId": 771587906,
+      "tabIndex": 2,
+      "pinned": false,
+      "active": true
+    },
+    "auditId": "6c4f2afd-7227-4217-bf06-bc5b688b2e7e"
+  },
+  "reads": [
+    {
+      "at": "2026-10-27T15:33:54.179Z",
+      "tool": "browser.snapshot",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879:target",
+      "result": {
+        "decision": "allowed",
+        "outcome": "succeeded",
+        "data": {
+          "title": "Privacy Policy — Substrakt",
+          "url": "https://substrakt.com/privacy-policy/",
+          "textExcerpt": "Consent\nDetails\nAbout\nThis website uses cookies\nWe use cookies to personalise content and ads, to provide social media features and to analyse our traffic. We also share informatio",
+          "renderer": "unknown"
+        },
+        "auditId": "9dc8971f-e0d3-4992-bbba-ed90b0d91fc5"
+      }
+    },
+    {
+      "at": "2026-10-27T15:33:54.542Z",
+      "tool": "browser.snapshot",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883:target",
+      "result": {
+        "decision": "allowed",
+        "outcome": "succeeded",
+        "data": {
+          "title": "Example Domain",
+          "url": "https://example.com/?aio-livetest=multi-profile-20261027",
+          "textExcerpt": "This domain is for use in documentation examples without needing permission. This is not a service; avoid relying on it for testing and monitoring purposes.\n\nهذا النطاق مُخصص للاست",
+          "renderer": "unknown"
+        },
+        "auditId": "31bfcb8b-c570-45cb-97f5-3183b7a5d1a4"
+      }
+    },
+    {
+      "at": "2026-10-27T15:33:54.577Z",
+      "tool": "browser.snapshot",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879:target",
+      "result": {
+        "decision": "allowed",
+        "outcome": "succeeded",
+        "data": {
+          "title": "Privacy Policy — Substrakt",
+          "url": "https://substrakt.com/privacy-policy/",
+          "textExcerpt": "Consent\nDetails\nAbout\nThis website uses cookies\nWe use cookies to personalise content and ads, to provide social media features and to analyse our traffic. We also share informatio",
+          "renderer": "unknown"
+        },
+        "auditId": "75ebec93-e0ba-4e41-b996-25f4dff37fc2"
+      }
+    },
+    {
+      "at": "2026-10-27T15:34:01.467Z",
+      "tool": "browser.query_elements",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879:target",
+      "result": {
+        "decision": "allowed",
+        "outcome": "succeeded",
+        "data": [
+          {
+            "selector": "a[title=\"Learn more about this provider Cloudflare's privacy policy - opens in a new window\"]",
+            "tagName": "A",
+            "role": "a",
+            "accessibleName": "Learn more about this provider - opens in a new window",
+            "text": "Learn more about this provider",
+            "href": "https://www.cloudflare.com/privacypolicy/"
+          },
+          {
+            "selector": "a[title=\"Learn more about this provider Cookiebot's privacy policy - opens in a new window\"]",
+            "tagName": "A",
+            "role": "a",
+            "accessibleName": "Learn more about this provider - opens in a new window",
+            "text": "Learn more about this provider",
+            "href": "https://www.cookiebot.com/goto/privacy-policy/"
+          },
+          {
+            "selector": "a[title=\"Learn more about this provider Hotjar's privacy policy - opens in a new window\"]",
+            "tagName": "A",
+            "role": "a",
+            "accessibleName": "Learn more about this provider - opens in a new window",
+            "text": "Learn more about this provider",
+            "href": "https://www.hotjar.com/legal/policies/privacy/"
+          }
+        ],
+        "auditId": "3d32b520-9e3d-4c5c-9486-b8d219b520cb"
+      }
+    },
+    {
+      "at": "2026-10-27T15:34:01.517Z",
+      "tool": "browser.query_elements",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883:target",
+      "result": {
+        "decision": "allowed",
+        "outcome": "succeeded",
+        "data": [
+          {
+            "selector": "a:nth-of-type(1)",
+            "tagName": "A",
+            "role": "a",
+            "text": "Learn more",
+            "href": "https://iana.org/help/example-domains"
+          }
+        ],
+        "auditId": "d091e262-4e45-45df-a7b6-c0c67eff48fc"
+      }
+    },
+    {
+      "at": "2026-10-27T15:34:01.581Z",
+      "tool": "browser.query_elements",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879:target",
+      "result": {
+        "decision": "allowed",
+        "outcome": "succeeded",
+        "data": [
+          {
+            "selector": "a[title=\"Learn more about this provider Cloudflare's privacy policy - opens in a new window\"]",
+            "tagName": "A",
+            "role": "a",
+            "accessibleName": "Learn more about this provider - opens in a new window",
+            "text": "Learn more about this provider",
+            "href": "https://www.cloudflare.com/privacypolicy/"
+          },
+          {
+            "selector": "a[title=\"Learn more about this provider Cookiebot's privacy policy - opens in a new window\"]",
+            "tagName": "A",
+            "role": "a",
+            "accessibleName": "Learn more about this provider - opens in a new window",
+            "text": "Learn more about this provider",
+            "href": "https://www.cookiebot.com/goto/privacy-policy/"
+          },
+          {
+            "selector": "a[title=\"Learn more about this provider Hotjar's privacy policy - opens in a new window\"]",
+            "tagName": "A",
+            "role": "a",
+            "accessibleName": "Learn more about this provider - opens in a new window",
+            "text": "Learn more about this provider",
+            "href": "https://www.hotjar.com/legal/policies/privacy/"
+          }
+        ],
+        "auditId": "ca3a6461-d5b6-487f-8fed-e305446144bf"
+      }
+    },
+    {
+      "at": "2026-10-27T15:34:01.616Z",
+      "tool": "browser.query_elements",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883:target",
+      "result": {
+        "decision": "allowed",
+        "outcome": "succeeded",
+        "data": [
+          {
+            "selector": "a:nth-of-type(1)",
+            "tagName": "A",
+            "role": "a",
+            "text": "Learn more",
+            "href": "https://iana.org/help/example-domains"
+          }
+        ],
+        "auditId": "99b8f974-5ebe-49b9-8ddc-633c27b5e711"
+      }
+    },
+    {
+      "at": "2026-10-27T15:34:01.652Z",
+      "tool": "browser.query_elements",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588879:target",
+      "result": {
+        "decision": "allowed",
+        "outcome": "succeeded",
+        "data": [
+          {
+            "selector": "a[title=\"Learn more about this provider Cloudflare's privacy policy - opens in a new window\"]",
+            "tagName": "A",
+            "role": "a",
+            "accessibleName": "Learn more about this provider - opens in a new window",
+            "text": "Learn more about this provider",
+            "href": "https://www.cloudflare.com/privacypolicy/"
+          },
+          {
+            "selector": "a[title=\"Learn more about this provider Cookiebot's privacy policy - opens in a new window\"]",
+            "tagName": "A",
+            "role": "a",
+            "accessibleName": "Learn more about this provider - opens in a new window",
+            "text": "Learn more about this provider",
+            "href": "https://www.cookiebot.com/goto/privacy-policy/"
+          },
+          {
+            "selector": "a[title=\"Learn more about this provider Hotjar's privacy policy - opens in a new window\"]",
+            "tagName": "A",
+            "role": "a",
+            "accessibleName": "Learn more about this provider - opens in a new window",
+            "text": "Learn more about this provider",
+            "href": "https://www.hotjar.com/legal/policies/privacy/"
+          }
+        ],
+        "auditId": "96ded6cd-e48b-4d88-a391-6fcd2214144a"
+      }
+    },
+    {
+      "at": "2026-10-27T15:34:01.695Z",
+      "tool": "browser.query_elements",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588883:target",
+      "result": {
+        "decision": "allowed",
+        "outcome": "succeeded",
+        "data": [
+          {
+            "selector": "a:nth-of-type(1)",
+            "tagName": "A",
+            "role": "a",
+            "text": "Learn more",
+            "href": "https://iana.org/help/example-domains"
+          }
+        ],
+        "auditId": "5aad0ff2-47f2-4498-b66c-c0bd457e96e5"
+      }
+    }
+  ],
+  "nodeBuild": [
+    {
+      "name": "windows-pc",
+      "connected": true,
+      "workerAgent": {
+        "version": "0.1.0",
+        "startedAt": 1792834652614,
+        "hostBootedAt": 1792834589193,
+        "buildCommit": "68a187c3f4a858ee399ab4e56922430a0d1eca46",
+        "autoUpdate": {
+          "state": "waiting_for_idle",
+          "targetCommit": "d21fdce4bba6200699f55fd339788c2e6d8583f1",
+          "lastCheckedAt": 1793115088259
+        }
+      },
+      "extensionRelay": {
+        "enabled": true,
+        "running": true,
+        "socketPath": "\\\\.\\pipe\\ai-orchestrator-browser-gateway",
+        "registration": "ok",
+        "lastRegistrationCheckAt": 1793115120745,
+        "manifestPath": "C:\\Users\\shutu\\AppData\\Local\\Google\\Chrome\\NativeMessagingHosts\\com.ai_orchestrator.browser_gateway_relay.json",
+        "extensionVersion": "0.2.43",
+        "extensionReloadedAt": 1793096731491,
+        "lastExtensionContactAt": 1793115150640,
+        "forwardsRuntimeEvidence": true
+      }
+    }
+  ]
+}

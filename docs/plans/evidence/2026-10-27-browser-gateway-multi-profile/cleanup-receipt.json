@@ -1,0 +1,69 @@
+{
+  "at": "2026-10-27T15:42:34.278399+00:00",
+  "status": "removed and verified",
+  "ownedPidChecks": [
+    {
+      "pid": 30705,
+      "gone": true,
+      "processWaitReturnCode": -5
+    },
+    {
+      "pid": 68628,
+      "gone": true,
+      "processWaitReturnCode": 0
+    }
+  ],
+  "ports": [
+    {
+      "port": 9659,
+      "closed": true
+    },
+    {
+      "port": 49659,
+      "closed": true
+    },
+    {
+      "port": 49660,
+      "closed": true
+    }
+  ],
+  "removed": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-15-browser-gateway-mul-6b0b93/dist",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-15-browser-gateway-mul-6b0b93/.angular",
+      "existed": false,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-15-browser-gateway-mul-6b0b93/_scratch",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/tmp/aio-lt-queue-4d6b0b93",
+      "existed": true,
+      "absentAfter": true
+    }
+  ],
+  "preExistingSharedDependenciesPreserved": true,
+  "dependencyInstallsCreated": false,
+  "browserBinariesDownloaded": false,
+  "sourceCheckoutsCopied": false,
+  "productionSettingsExplicitlyChanged": false,
+  "browserCleanupReceipt": "windows-cleanup-receipt.json",
+  "documentRenamed": false,
+  "documentCopiedIntoWorktree": false,
+  "branchCreated": false,
+  "worktreeCreated": false,
+  "commitsCreated": false,
+  "stashCreated": false,
+  "worktreeListChecked": true,
+  "branchListChecked": true,
+  "processScanLimit": "ps denied Operation not permitted; used saved PIDs, process waits, kill(pid,0), and closed ports",
+  "branch": "queue/2026-10-15-browser-gateway-mul-6b0b93",
+  "stagedPaths": []
+}

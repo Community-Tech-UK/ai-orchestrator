@@ -1,0 +1,7 @@
+{
+  "sandboxFailure": "sandbox initialization failed: Operation not permitted",
+  "mainProcessReturnCode": -5,
+  "contextWorkerError": "Failed to apply migration 001_add_optimized_indices: UNIQUE constraint failed: _migrations.name",
+  "thinClientError": "EADDRINUSE 127.0.0.1:4880",
+  "retry": "--no-sandbox and isolated thinClientWsPort 49660; no production settings changed"
+}

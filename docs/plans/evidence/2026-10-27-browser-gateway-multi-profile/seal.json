@@ -1,0 +1,23 @@
+{
+  "at": "2026-10-27T15:42:34.423314+00:00",
+  "purpose": "Evidence integrity, partial campaign; independent verification pending",
+  "ownerDocument": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-15-browser-gateway-multi-profile_livetest.md",
+  "ownerSha256": "15040a634f89269b8111329dd05bed65bbcb5bee3893a100f0320218ba4d026e",
+  "files": {
+    "build-main.log": "7b95041a04b76ecfd4bae60bf5da5ca8693eaba214860c42a5d31e0adec170af",
+    "build-renderer.log": "ad1dbb6df09cce7efa34a4ddf3a82c8e9fb3f876da752499b63f613d602d56aa",
+    "cleanup-receipt.json": "e90701f08d46e37cf66a5c9e8c8d14e0dc05bb2ba1171cb5a4779073e7c7b075",
+    "command-receipts.ndjson": "90cfdd06bf6e78787a7df8eaee8cb3b3a71e2f5df084cd21498f592aa2fb5742",
+    "dev-runtime-observations.json": "42b13a4755efb27bd178bb71c868b3560a4311ba8f0db7afcaa358f7ac04bb96",
+    "first-runtime-exit-receipt.json": "9eb8de8e4cea73359418ac484e75a1fa6efddf48e2d36350a3bea3f9bd2005cd",
+    "first-runtime-startup-observations.json": "9429f15f665516a2b0d5a1886a5ca04b9df6911870de54e6b432f1a59386f943",
+    "focused.log": "5b396f3975f90b6a04e84d61dfcf48795cfc2af8c85cb985d443b7b1c03de770",
+    "report.md": "f322db75b02d43f27a3051f5ab4d352887565b7eb28feec5a7bf762296a2ae35",
+    "runtime-exit-receipt.json": "c5cd65654caca345e562e7d90a725eeb6dcdf20e6c959b7e7798d2555de17b3b",
+    "setup-receipt.json": "00e7383a6be68c36a75de22f7b3617f41b94c2e2d5e6617c76ac1054f68c904f",
+    "typecheck-spec.log": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133",
+    "typecheck.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "windows-cleanup-receipt.json": "ded7d932dd757e8470248d93f31144a1396d4f02338b34bb69e4c97c715935c5",
+    "windows-observations.json": "00ec658dfd1c9b8bec1737aa63255b562a418f9cdad667ce951742b7c6f57634"
+  }
+}

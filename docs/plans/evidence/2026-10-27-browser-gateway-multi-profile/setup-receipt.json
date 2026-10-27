@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-27T15:33:24.802404+00:00",
+  "head": "d95a024518e926be7767d87b8a97613e06148ebd",
+  "base": "main",
+  "diffStat": "",
+  "preExisting": {
+    "node_modules": true,
+    "dist": false,
+    ".angular": false,
+    "_scratch": false,
+    "/tmp/aio-lt-queue-4d6b0b93": false
+  },
+  "dependencies": "pre-existing package symlinks to root checkout; no install",
+  "devProfile": "/tmp/aio-lt-queue-4d6b0b93",
+  "debugPort": 9659
+}

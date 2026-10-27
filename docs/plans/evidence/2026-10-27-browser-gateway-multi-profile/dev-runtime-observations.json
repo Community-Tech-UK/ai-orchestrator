@@ -1,0 +1,35 @@
+{
+  "at": "2026-10-27T15:36:47.613Z",
+  "environment": "isolated worktree dev app; not paired to production worker",
+  "focusEmulationEnabled": true,
+  "visibilityOverride": "{\"code\":-32601,\"message\":\"'Emulation.setPageVisibilityOverride' wasn't found\"}",
+  "hidden": false,
+  "visibility": "visible",
+  "frameFired": true,
+  "appRootPresent": true,
+  "apiPresent": true,
+  "browserHealth": {
+    "success": true,
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "status": "ready",
+    "remoteExtensions": {
+      "total": 0,
+      "ready": 0,
+      "silent": 0,
+      "nodes": []
+    },
+    "localExtensionState": "not_installed"
+  },
+  "targets": {
+    "success": true,
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "count": 0
+  },
+  "browserApiMethods": [
+    "browserListTargets",
+    "browserSnapshot",
+    "browserGetHealth"
+  ]
+}
