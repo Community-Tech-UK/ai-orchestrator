@@ -1,0 +1,8 @@
+{"timestamp": 1793073305447, "level": "info", "subsystem": "InstanceLifecycle", "message": "CLI spawned successfully", "data": {"pid": 5089, "instanceId": "phf3z26ce"}}
+{"timestamp": 1793073428762, "level": "info", "subsystem": "InstanceCommunication", "message": "Adapter exit event", "data": {"instanceId": "phf3z26ce", "code": null, "signal": "SIGKILL"}}
+{"timestamp": 1793073428762, "level": "info", "subsystem": "InstanceCommunication", "message": "Auto-respawning instance after unexpected exit", "data": {"instanceId": "phf3z26ce", "code": null, "signal": "SIGKILL", "restartCount": 0, "previousStatus": "busy"}}
+{"timestamp": 1793073428763, "level": "info", "subsystem": "InterruptRespawn", "message": "Auto-respawning after unexpected exit", "data": {"instanceId": "phf3z26ce"}}
+{"timestamp": 1793073434250, "level": "info", "subsystem": "InstanceCommunication", "message": "Adapter exited during a recovery respawn; deferring to the recovery owner", "data": {"instanceId": "phf3z26ce", "lockSource": "respawn-unexpected"}}
+{"timestamp": 1793073434251, "level": "warn", "subsystem": "RuntimeReconciler", "message": "Resume failed during recovery respawn, falling back to fresh session", "data": {"instanceId": "phf3z26ce", "error": "ACP agent exited (null/SIGKILL)."}}
+{"timestamp": 1793073436841, "level": "info", "subsystem": "RuntimeReconciler", "message": "Recovery respawn complete", "data": {"instanceId": "phf3z26ce", "pid": 12950, "resumed": false}}
+{"timestamp": 1793073436841, "level": "info", "subsystem": "InterruptRespawn", "message": "Auto-respawn successful", "data": {"instanceId": "phf3z26ce", "pid": 12950, "resumed": false}}

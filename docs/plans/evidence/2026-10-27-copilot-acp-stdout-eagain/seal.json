@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-27T04:04:53.973530+00:00",
+  "sourceHead": "80412201a07ec93cefb9a4b6ddb06579ad314d75",
+  "report": {
+    "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-28-copilot-acp-stdout-eagain_livetest.md",
+    "sha256": "de41a163152400cf09e5ad5f65264bfdf9f9025f4e1e7ed6c037a53094b8d295"
+  },
+  "receiptsSha256": {
+    "lifecycle-receipt.ndjson": "d8ccbe64df35ae5959c67586096ddbd9842f6840b44fc77a3caf68d87ef0306e",
+    "app-log-receipt.ndjson": "7a18ef46005b3fa50391c1fc023ece7a10b23a21d456e65b44416ec121da1ce2",
+    "runtime-receipt.json": "82657c624e903e38df11705889785aa1edc6be13009ff6bbf0a8b25f29330673",
+    "command-receipts.ndjson": "c6e266921e18063f1598aeb9a34e3707424f243ffa6ec5d80700d75a9cc24998"
+  },
+  "result": "LT-A PASS; independent queue verification pending",
+  "runtimeDeletion": "complete; runtime-removal-verification receipt confirms all owned runtime directories absent"
+}

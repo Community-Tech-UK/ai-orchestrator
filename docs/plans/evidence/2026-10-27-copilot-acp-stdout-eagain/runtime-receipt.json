@@ -1,0 +1,114 @@
+{
+  "snapshot": {
+    "at": "2026-10-27T04:01:11.698Z",
+    "crashes": [
+      {
+        "at": "2026-10-27T03:57:08.760Z",
+        "kind": "original-killed",
+        "status": "busy",
+        "receipt": {
+          "pid": 5089,
+          "ppid": 96096,
+          "executable": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+          "signal": "SIGKILL",
+          "notPreExisting": true,
+          "copilotCommand": true,
+          "acp": true,
+          "isolatedHome": true
+        }
+      },
+      {
+        "at": "2026-10-27T03:57:14.250Z",
+        "kind": "replacement-killed",
+        "status": "respawning",
+        "lock": {
+          "source": "respawn-unexpected",
+          "acquiredAt": 1793073428763,
+          "durationMs": 5487,
+          "owner": {
+            "operation": "respawn",
+            "recoveryReason": "unexpected-exit",
+            "adapterGeneration": 1
+          }
+        },
+        "receipt": {
+          "pid": 12933,
+          "ppid": 96096,
+          "executable": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+          "signal": "SIGKILL",
+          "notPreExisting": true,
+          "copilotCommand": true,
+          "acp": true,
+          "isolatedHome": true
+        }
+      }
+    ],
+    "instance": {
+      "id": "phf3z26ce",
+      "status": "idle",
+      "processId": 12950,
+      "sessionId": "57ef785b-9222-4227-8f4c-382541ea7ffa",
+      "providerSessionPersisted": true,
+      "recoveryMethod": "replay",
+      "provider": "copilot",
+      "copilotAccountProfileId": "legacy"
+    },
+    "notices": [
+      "Session restarted automatically (resume failed)",
+      "The provider process stopped during this turn. The work above is kept.",
+      "Continuing the interrupted turn automatically (attempt 1 of 2).",
+      "Your previous turn was cut off because the agent process stopped unexpectedly, and Harness has restarted this session.\n\nPick the task back up from where that turn stopped. The conversation above is the record of what is already done: check the latest tool results and the current state of the files rather than assuming, keep completed work, and do not repeat completed steps. If the task was already finished, say so in one line instead of redoing it."
+    ],
+    "lastMessage": {
+      "id": "copilot-acp-1793073669684-fkjffw",
+      "timestamp": 1793073671555,
+      "type": "assistant",
+      "content": "RECOVERY_AFTER_DOUBLE_CRASH_OK",
+      "metadata": {
+        "transport": "acp",
+        "streaming": false,
+        "accumulatedContent": "RECOVERY_AFTER_DOUBLE_CRASH_OK",
+        "adapterGeneration": 3
+      }
+    },
+    "assistantReplyCount": 5
+  },
+  "dom": {
+    "visible": true,
+    "visibility": "visible",
+    "notices": [
+      {
+        "tag": "P",
+        "text": "Session restarted automatically (resume failed)"
+      }
+    ]
+  },
+  "accounts": {
+    "success": true,
+    "data": {
+      "aggregate": "available",
+      "nodeId": "local",
+      "profiles": [
+        {
+          "profileId": "legacy",
+          "label": "Existing Copilot account",
+          "expectedLogin": "shutupandshave",
+          "host": "github.com",
+          "accountKind": "personal",
+          "scopePolicy": "default-eligible",
+          "automationPolicy": "allow-routed",
+          "isDefault": true,
+          "bindingState": "authenticated",
+          "observedLogin": "shutupandshave",
+          "observedHost": "github.com",
+          "isLegacy": true
+        }
+      ],
+      "unreachableRuleIds": [],
+      "conflictingRuleIds": [],
+      "ambientTokenVariablesPresent": [],
+      "legacyMigrationInUse": true,
+      "warnings": []
+    }
+  }
+}
